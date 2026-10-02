@@ -3,6 +3,7 @@ import type { GoalStore } from "../../runtime/src/goal-store";
 import type {
     MetricsStore,
     ModelCallFinishedMetricRecord,
+    ModelCallStartedMetricRecord,
     ModelCallMetricsCoverageStore,
     ModelCallMetricsGap,
     ModelCallMetricsRecorder,
@@ -26,6 +27,7 @@ export type SessionMetricsWatchEvent =
 
 interface RunProjection {
     readonly metrics: RunSessionMetrics;
+    readonly latestContextUsage: { readonly modelId: string; readonly inputTokens: number; readonly outputTokens: number } | null;
     readonly cachedInputTokens: number;
     readonly cacheInputTokens: number;
     readonly throughputOutputTokens: number;
@@ -89,6 +91,7 @@ export interface RunSessionMetrics {
  *     outputTokens: 8, coverage: "complete", cacheMeasuredCalls: 1,
  *     cacheExcludedCalls: 0, cacheHitRate: 0.25, throughputMeasuredCalls: 1,
  *     throughputExcludedCalls: 0, tokensPerSecond: 8, runs: [],
+ *     contextRemainingPercent: null,
  * };
  * ```
  */
@@ -121,6 +124,8 @@ export interface SessionMetricsSnapshot {
     readonly throughputExcludedCalls: number;
     /** 全会话输出 token / 首文本增量至完成的秒数；无参与调用时为 `null`。 */
     readonly tokensPerSecond: number | null;
+    /** 当前 Run 最近一次当前模型调用完成后，供应商确认的剩余窗口比例；缺少模型容量或用量时为 `null`，尚未提供此指标时可缺省，不预测下一次请求。 */
+    readonly contextRemainingPercent?: number | null;
     /** 按完成顺序排列的历史 Run，最后一项为当前 Run。 */
     readonly runs: readonly RunSessionMetrics[];
 }
@@ -289,6 +294,13 @@ export class SessionMetricsService implements ModelCallMetricsRecorder {
         const tokensPerSecond = !throughputAggregateValid || throughputCandidates === 0
             ? null
             : safeRatio(throughputOutputTokens, decodeDurationMs / 1000);
+        const latestContextUsage = projections.at(-1)?.latestContextUsage;
+        const contextWindowTokens = goal.state.modelSelection.contextWindowTokens;
+        const contextRemainingPercent = latestContextUsage !== null && latestContextUsage !== undefined
+            && latestContextUsage.modelId === goal.state.modelSelection.modelId
+            && contextWindowTokens !== undefined
+            ? Math.max(0, 1 - sumSafe([latestContextUsage.inputTokens, latestContextUsage.outputTokens], "latest context usage") / contextWindowTokens)
+            : null;
 
         return Object.freeze({
             goalId: goal.id,
@@ -305,6 +317,7 @@ export class SessionMetricsService implements ModelCallMetricsRecorder {
             throughputMeasuredCalls,
             throughputExcludedCalls,
             tokensPerSecond,
+            contextRemainingPercent,
             runs: Object.freeze(runMetrics),
         });
     }
@@ -453,7 +466,7 @@ function projectRunMetrics(
     historyCovered: boolean,
 ): RunProjection {
     const calls = new Map<string, {
-        started?: string;
+        started?: { readonly serialized: string; readonly record: ModelCallStartedMetricRecord };
         finished?: { readonly serialized: string; readonly record: ModelCallFinishedMetricRecord };
     }>();
 
@@ -466,10 +479,10 @@ function projectRunMetrics(
         const call = calls.get(record.callId) ?? {};
         const serialized = JSON.stringify(record);
         if (record.recordType === "call_started") {
-            if (call.started !== undefined && call.started !== serialized) {
+            if (call.started !== undefined && call.started.serialized !== serialized) {
                 throw new SessionMetricsProjectionError(`Conflicting start facts for call ${record.callId}`);
             }
-            call.started = serialized;
+            call.started = { serialized, record };
         } else {
             if (call.finished !== undefined && call.finished.serialized !== serialized) {
                 throw new SessionMetricsProjectionError(`Conflicting finish facts for call ${record.callId}`);
@@ -526,6 +539,17 @@ function projectRunMetrics(
     const tokensPerSecond = !throughputAggregateValid || throughputMeasuredCalls === 0
         ? null
         : safeRatio(summedThroughputOutputs, summedDurations / 1000);
+    const latestCall = [...calls.values()].at(-1);
+    const latestFinished = latestCall?.finished?.record;
+    const latestContextUsage = latestCall?.started?.record.modelId !== undefined
+        && latestFinished?.outcome === "completed"
+        && latestFinished.usage.source === "provider_reported"
+        ? {
+            modelId: latestCall.started.record.modelId,
+            inputTokens: latestFinished.usage.inputTokens,
+            outputTokens: latestFinished.usage.outputTokens,
+        }
+        : null;
 
     return Object.freeze({
         metrics: Object.freeze({
@@ -543,6 +567,7 @@ function projectRunMetrics(
             throughputExcludedCalls: callCount - throughputMeasuredCalls,
             tokensPerSecond,
         }),
+        latestContextUsage,
         cacheInputTokens: cacheAggregateValid ? summedCacheInputs : 0,
         cachedInputTokens: cacheAggregateValid ? summedCachedInputs : 0,
         throughputOutputTokens: throughputAggregateValid ? summedThroughputOutputs : 0,

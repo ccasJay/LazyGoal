@@ -246,6 +246,7 @@ function isMetricsSnapshot(value: unknown): value is SessionMetricsSnapshot {
   return isRecord(value)
     && isNonEmptyString(value.goalId)
     && isMetricValues(value)
+    && (value.contextRemainingPercent === undefined || value.contextRemainingPercent === null || (typeof value.contextRemainingPercent === "number" && Number.isFinite(value.contextRemainingPercent) && value.contextRemainingPercent >= 0 && value.contextRemainingPercent <= 1))
     && Number.isInteger(value.roundCount)
     && Array.isArray(value.runs)
     && value.runs.every((run) => isRecord(run) && isNonEmptyString(run.runId) && isMetricValues(run));

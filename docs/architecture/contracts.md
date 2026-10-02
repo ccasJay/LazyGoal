@@ -40,3 +40,5 @@ Canonical Contract 面向 Runtime 领域；Wire Contract 将 optional 字段投�
 - [Canonical 输出](../../packages/contracts/src/model-output/canonical.ts)：领域决策与 Task/Memory 类型。
 - [Wire 输出](../../packages/contracts/src/model-output/wire.ts)：Provider 适配的 strict 形状。
 - [Factory](../../packages/contracts/src/model-output/factory.ts)：按当前请求生成契约包。
+
+[model-conversation.ts](../../packages/contracts/src/model-conversation.ts) 定义跨 LLM、Runtime 和 Storage 的统一文本、assistant 调用及 tool result 消息，以及绑定供应商身份的最小续接字段。它只拥有可序列化表示和边界校验，不执行工具、不保存对话、不解释 Gemini 签名；调用动作仍经既有 Contract AST 解码。

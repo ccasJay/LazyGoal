@@ -292,7 +292,9 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
                 const body = JSON.parse(data);
                 const working = JSON.parse(body.messages.at(-1).content);
                 phases.push(working.phase);
-                assert.equal(body.response_format !== undefined, mode === "strict");
+                assert.equal(body.response_format, undefined);
+                assert.ok(body.tools.length > 0);
+                if (mode === "strict") assert.equal(body.parallel_tool_calls, false);
                 assert.equal(working.responseShapeGuide !== undefined, mode === "prompt_only");
                 let decision: unknown;
                 const taskApproved = body.messages.some(
@@ -306,14 +308,18 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
                 };
                 else {
                     const observation = working.trajectoryContext.hot.flatMap((unit: any) => unit.events).find((event: any) => event.eventType === "observation_recorded");
-                    decision = observation === undefined
+                    const nativeObservation = body.messages.find((message: any) => message.role === "tool" && JSON.parse(message.content).observation !== undefined);
+                    decision = observation === undefined && nativeObservation === undefined
                         ? { kind: "tool_call", action: { actionId: "smoke-action-1", toolId: "smoke_evidence", input: {} }, memoryPatch: null }
-                        : { kind: "complete", summary: "Smoke passed", completionEvidence: [{ criterionIndex: 0, evidenceSequences: [observation.sequence] }], memoryPatch: null };
+                        : { kind: "complete", summary: "Smoke passed", completionEvidence: [{ criterionIndex: 0, evidenceSequences: [observation?.sequence ?? JSON.parse(nativeObservation.content).sourceSequence] }], memoryPatch: null };
                 }
                 const content = JSON.stringify({ result: decision });
                 if (mode === "strict") {
                     res.setHeader("Content-Type", "application/json");
-                    res.end(JSON.stringify({ id: "smoke-1", model: "local-model", choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }] }));
+                    const selected = decision as any;
+                    const toolId = selected.kind === "task_proposal" ? "system_propose_task_plan" : selected.kind === "tool_call" ? "smoke_evidence" : "system_complete_task";
+                    const args = selected.kind === "tool_call" ? {} : selected.kind === "task_proposal" ? { task: selected.task, approvalRequest: selected.approvalRequest, memoryPatch: null } : { summary: selected.summary, completionEvidence: selected.completionEvidence, memoryPatch: null };
+                    res.end(JSON.stringify({ id: "smoke-1", model: "local-model", choices: [{ index: 0, message: { role: "assistant", content: "", tool_calls: [{ id: `call-${phases.length}`, type: "function", function: { name: toolId, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] }));
                 } else {
                     res.setHeader("Content-Type", "text/event-stream");
                     res.end(sse([{ id: "smoke-1", model: "local-model", choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: "stop" }] }]) + "data: [DONE]\n\n");

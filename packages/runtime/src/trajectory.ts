@@ -1,3 +1,4 @@
+import { isModelAssistantMessage, type ModelAssistantMessage, type NativeConversationIdentity } from "../../contracts/src/model-conversation";
 import { createHash } from "node:crypto";
 
 import type {
@@ -91,6 +92,8 @@ export interface ModelContextSectionUpdate extends ModelContextSectionIdentity {
  * ```
  */
 export interface ModelContextFramePayload {
+    /** 当前请求的原生续接身份；null 表示语义路径并结束之前的续接段。 */
+    readonly nativeIdentity?: NativeConversationIdentity | null;
     /** 对应完整模型输入日志的调用身份；不作为 Section 比较或恢复基线。 */
     readonly modelCallId?: string;
     readonly type: "model_context_frame";
@@ -189,6 +192,14 @@ export type TrajectoryEventPayload =
         readonly attempt: number;
         readonly reason: "rate_limited" | "service_unavailable" | "connection" | "timeout";
         readonly status?: number;
+    }
+    | {
+        readonly type: "model_response_received";
+        readonly modelCallId: string;
+        readonly stage: ModelContextStage;
+        readonly conversationPosition: number;
+        readonly epochNumber: number;
+        readonly message: ModelAssistantMessage;
     }
     | ModelContextFramePayload
     | {
@@ -716,6 +727,7 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "model_repair_feedback_recorded",
     "model_request_retry_recorded",
     "model_context_frame",
+    "model_response_received",
     "context_lookup_requested",
     "context_lookup_completed",
     "context_lookup_not_found",
@@ -958,10 +970,36 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             throw new TrajectoryProtocolError("model_request_retry_recorded exceeds its bounds");
         }
     }
+    if (eventType === "model_response_received") {
+        if (Object.keys(payload).some(key => !["type", "modelCallId", "stage", "conversationPosition", "epochNumber", "message"].includes(key))
+            || !["decide", "think"].includes(String(payload.stage))
+            || !Number.isSafeInteger(payload.conversationPosition) || Number(payload.conversationPosition) < 0
+            || !Number.isSafeInteger(payload.epochNumber) || Number(payload.epochNumber) < 0
+            || !isModelAssistantMessage(payload.message) || payload.message.continuation === undefined) {
+            throw new TrajectoryProtocolError("model_response_received contains invalid native response data");
+        }
+        if (payload.stage === "decide" && payload.message.toolCalls?.length !== 1
+            || payload.stage === "think" && (payload.message.toolCalls?.length ?? 0) !== 0) {
+            throw new TrajectoryProtocolError("model_response_received tool calls disagree with stage");
+        }
+        for (const call of payload.message.toolCalls ?? []) {
+            let argumentsValue: unknown;
+            try { argumentsValue = JSON.parse(call.argumentsJson); }
+            catch { throw new TrajectoryProtocolError("model_response_received contains invalid tool argument JSON"); }
+            if (!isRecord(argumentsValue)) throw new TrajectoryProtocolError("model_response_received tool arguments must be an object");
+        }
+        assertModelContextJson(payload.message, "model_response_received.message");
+        assertNonEmptyString(payload.modelCallId, "model_response_received.modelCallId");
+    }
     if (eventType === "model_context_frame") {
+        if (payload.nativeIdentity !== undefined && payload.nativeIdentity !== null
+            && !isModelAssistantMessage({ role: "assistant", content: "", continuation: {
+                identity: payload.nativeIdentity,
+                ...(isRecord(payload.nativeIdentity) && payload.nativeIdentity.protocol === "gemini-content" ? { parts: [] } : {}),
+            } })) throw new TrajectoryProtocolError("model_context_frame.nativeIdentity is invalid");
         if (payload.modelCallId !== undefined) assertNonEmptyString(payload.modelCallId, "model_context_frame.modelCallId");
         if (Object.keys(payload).some((key) => ![
-            "type", "stage", "epochNumber", "conversationPosition", "sections", "modelCallId",
+            "type", "stage", "epochNumber", "conversationPosition", "sections", "modelCallId", "nativeIdentity",
         ].includes(key))) {
             throw new TrajectoryProtocolError("model_context_frame contains unknown fields");
         }
@@ -1341,7 +1379,7 @@ export function classifyTrajectoryEvent(
         case "model_repair_feedback_recorded":
         case "model_request_retry_recorded":
         case "model_context_frame":
-        case "model_context_frame":
+        case "model_response_received":
         case "context_lookup_requested":
         case "context_lookup_completed":
         case "context_lookup_not_found":

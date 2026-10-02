@@ -48,12 +48,13 @@ function goalWithRuns(goalId = "goal-projection") {
     };
 }
 
-function start(goalId: string, runId: string, callId: string): ModelCallMetricRecord {
+function start(goalId: string, runId: string, callId: string, modelId?: string): ModelCallMetricRecord {
     return {
         recordType: "call_started",
         goalId,
         runId,
         callId,
+        ...(modelId === undefined ? {} : { modelId }),
         occurredAt: "2026-09-25T00:00:00.000Z",
     };
 }
@@ -77,8 +78,7 @@ function finish(
     };
 }
 
-function serviceFor(recordsByRun: ReadonlyMap<string, readonly ModelCallMetricRecord[]>) {
-    const goal = goalWithRuns();
+function serviceFor(recordsByRun: ReadonlyMap<string, readonly ModelCallMetricRecord[]>, goal = goalWithRuns()) {
     const goals = { async restore(goalId: string) { return goalId === goal.id ? goal : undefined; } };
     const metrics: MetricsStore = {
         async append() {},
@@ -210,6 +210,37 @@ test("SessionMetricsService derives cache hit rate and generation speed from eli
     assert.equal(run.throughputExcludedCalls, 2);
     assert.equal(snapshot.cacheHitRate, 0.4);
     assert.equal(snapshot.tokensPerSecond, 80 / 2.5);
+});
+
+test("SessionMetricsService reports context left only for the latest confirmed call on the selected model", async () => {
+    const base = goalWithRuns();
+    const goal = {
+        ...base,
+        state: {
+            ...base.state,
+            modelSelection: { ...base.state.modelSelection, modelId: "current-model", contextWindowTokens: 200 },
+        },
+    };
+    const current = [
+        start(goal.id, "run-current", "first", "current-model"),
+        finish(goal.id, "run-current", "first", { source: "provider_reported", inputTokens: 100, outputTokens: 20 }),
+    ];
+    const confirmed = await serviceFor(new Map([["run-current", current]]), goal).read(goal.id);
+    assert.equal(confirmed?.contextRemainingPercent, 0.4);
+
+    const switched = await serviceFor(new Map([["run-current", [
+        ...current,
+        start(goal.id, "run-current", "next", "other-model"),
+        finish(goal.id, "run-current", "next", { source: "provider_reported", inputTokens: 50, outputTokens: 10 }),
+    ]]]), goal).read(goal.id);
+    assert.equal(switched?.contextRemainingPercent, null);
+
+    const unavailable = await serviceFor(new Map([["run-current", [
+        ...current,
+        start(goal.id, "run-current", "next", "current-model"),
+        finish(goal.id, "run-current", "next", { source: "unavailable" }),
+    ]]]), goal).read(goal.id);
+    assert.equal(unavailable?.contextRemainingPercent, null);
 });
 
 test("SessionMetricsService returns unavailable efficiency values when no call qualifies", async () => {

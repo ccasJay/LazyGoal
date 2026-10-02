@@ -1,3 +1,4 @@
+import type { ModelContextFrameForStage } from "./step-executor";
 import { createHash, randomUUID } from "node:crypto";
 
 import type {
@@ -1742,7 +1743,7 @@ export class Runner {
         facts: readonly TrajectoryEventDraft[],
         acceptedPatch: AcceptedMemoryPatchInput | undefined,
         control?: ExecutionControl,
-        modelContextFrame?: Omit<ModelContextFramePayload, "type"> & {
+        modelContextFrame?: ModelContextFrameForStage & {
             readonly executionUnitId?: string;
             readonly stepIndex?: number;
         },
@@ -1762,7 +1763,7 @@ export class Runner {
         goal: Goal,
         facts: readonly TrajectoryEventDraft[],
         control: ExecutionControl | undefined,
-        modelContextFrame?: Omit<ModelContextFramePayload, "type"> & {
+        modelContextFrame?: ModelContextFrameForStage & {
             readonly executionUnitId?: string;
             readonly stepIndex?: number;
         },
@@ -2013,7 +2014,7 @@ export class Runner {
         fact: Extract<TrajectoryEventDraft, { readonly eventType: "think_requested" }>,
         input: StepExecutionInput,
         baseBoundary: string,
-        modelContextFrame: Omit<ModelContextFramePayload, "type"> & {
+        modelContextFrame: ModelContextFrameForStage & {
             readonly executionUnitId?: string;
             readonly stepIndex?: number;
         } | undefined,
@@ -2194,7 +2195,7 @@ export class Runner {
         executionUnitId: string,
         inputBoundary: `sha256:${string}`,
         control: ExecutionControl | undefined,
-        modelContextFrame?: Omit<ModelContextFramePayload, "type"> & {
+        modelContextFrame?: ModelContextFrameForStage & {
             readonly executionUnitId?: string;
             readonly stepIndex?: number;
         },

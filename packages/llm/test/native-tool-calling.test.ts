@@ -141,7 +141,8 @@ test("OpenAICompatible 无损捕获原生思考模型 reasoning_content 与工�
         tools: [mockToolDefinition],
     });
 
-    assert.equal(response.content, "逐步逻辑推演：首先确认测试用例均已通过，然后调用完成工具。");
+    assert.equal(response.content, "");
+    assert.equal(response.reasoning, "逐步逻辑推演：首先确认测试用例均已通过，然后调用完成工具。");
     assert.equal(response.toolCalls?.length, 1);
     assert.equal(response.toolCalls?.[0]!.toolId, "system_complete_task");
 });
@@ -165,7 +166,8 @@ test("Gemini 原生 Function Calling 挂载 functionDeclarations 与 ANY 模式�
                                 role: "model",
                                 parts: [
                                     {
-                                        thought: "这是 Gemini 原生生成的思考过程",
+                                        thought: true,
+                                        text: "这是 Gemini 原生生成的思考过程",
                                     },
                                     {
                                         functionCall: {
@@ -207,7 +209,8 @@ test("Gemini 原生 Function Calling 挂载 functionDeclarations 与 ANY 模式�
     assert.equal(capturedParams.config.toolConfig.functionCallingConfig.mode, "ANY");
 
     // 2. 验证双通道内容提取
-    assert.equal(response.content, "这是 Gemini 原生生成的思考过程");
+    assert.equal(response.content, "");
+    assert.equal(response.reasoning, "这是 Gemini 原生生成的思考过程");
     assert.ok(response.toolCalls);
     assert.equal(response.toolCalls.length, 1);
     assert.equal(response.toolCalls![0]!.toolId, "system_complete_task");

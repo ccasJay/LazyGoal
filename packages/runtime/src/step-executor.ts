@@ -1,3 +1,4 @@
+import type { ModelAssistantMessage } from "../../contracts/src/model-conversation";
 import type {
     AgentDecision,
     Goal,
@@ -36,12 +37,12 @@ export type DecideStageResult =
     | {
         readonly kind: "decision";
         readonly decision: AgentDecision;
-        readonly modelContextFrame?: Omit<ModelContextFramePayload, "type">;
+        readonly modelContextFrame?: ModelContextFrameForStage;
       }
     | {
         readonly kind: "request_think";
         readonly goal: string;
-        readonly modelContextFrame?: Omit<ModelContextFramePayload, "type">;
+        readonly modelContextFrame?: ModelContextFrameForStage;
       };
 
 /**
@@ -57,7 +58,10 @@ export type DecideStageResult =
  * };
  * ```
  */
-export type ModelContextFrameForStage = Omit<ModelContextFramePayload, "type">;
+export type ModelContextFrameForStage = Omit<ModelContextFramePayload, "type"> & {
+    /** 已接受的原生响应；提交器单独记录为 model_response_received，不写入 Section frame。 */
+    readonly modelResponse?: ModelAssistantMessage;
+};
 
 /**
  * Think 阶段成功返回的目标、文本与模型可见上下文 frame。
@@ -79,7 +83,7 @@ export interface ThinkStageResult {
     /** 非空 Think 自由文本。 */
     readonly output: string;
     /** 本次 Think 请求实际发送的动态 section frame。 */
-    readonly modelContextFrame?: Omit<ModelContextFramePayload, "type">;
+    readonly modelContextFrame?: ModelContextFrameForStage;
 }
 
 /**

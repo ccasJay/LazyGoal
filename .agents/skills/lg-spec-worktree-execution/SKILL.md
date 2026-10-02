@@ -30,7 +30,7 @@ description: "在 LazyGoal 仓库中把一个已批准的功能 Spec 放入独�
 2. 实现改动。涉及架构文档时按 [lg-doc-standards](../lg-doc-standards/SKILL.md) 同步 `docs/architecture/*.md`；涉及 TSDoc、注释、Prompt 或 UI 文案时按 [lg-prose-standard](../lg-prose-standard/SKILL.md) 编写；新增公共 TypeScript 接口必须带中文契约级 TSDoc 与最小 `@example`。
 3. 运行该任务子 bullet 给出的验证命令（如 `npx tsc --noEmit`、对应包的 `npx tsx --test packages/<pkg>/test/*.test.ts`）。验证失败只能在当前任务内修复重试；确认无法完成时停止整个流程，如实报告任务编号与失败原因。
 4. 验证通过后勾选：只把 `[ ]` 改成 `[x]`，禁止改写 `//TODO` 标记及其后的任何任务文本，禁止改动无关任务的缩进或顺序。
-5. 提交：checkbox 翻转与本次代码、测试、文档改动进入同一个 commit。提交信息用简洁中文，前缀风格跟随 `git log` 现状（`功能：`、`测试：`、`文档：`、`规格：` 等），不 push。
+5. 提交：checkbox 翻转与本次代码、测试、文档改动进入同一个 commit。提交信息用简洁中文，严格遵循 `AGENTS.md` 规范（格式必须为 `feat(scope): 精确的功能描述`，严禁使用 `功能：` 等中文冒号格式），不 push。
 
 ## 全量回归与收尾
 

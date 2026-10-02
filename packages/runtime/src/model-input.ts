@@ -1,3 +1,4 @@
+import type { ModelConversationMessage } from "../../contracts/src/model-conversation";
 /**
  * 一次调用实际装配的消息及已知来源；正文不截断，顺序与 Adapter 输入一致。
  * @remarks source 只记录装配器已知的来源；request 表示未细分的请求消息，不能从文本猜测插件或技能身份。
@@ -6,11 +7,9 @@
  * const message: ModelInputMessage = { role: "system", content: "Follow the task.", source: "system" };
  * ```
  */
-export interface ModelInputMessage {
-    readonly role: "system" | "user" | "assistant";
-    readonly content: string;
-    readonly source: "system" | "conversation" | "section" | "working_context" | "stage" | "request";
-}
+export type ModelInputMessage = ModelConversationMessage & {
+    readonly source: "system" | "conversation" | "section" | "working_context" | "stage" | "request" | "native_history";
+};
 
 /**
  * Adapter 调用前保存的输入事实；不证明供应商已接收请求，不参与 Goal 恢复。

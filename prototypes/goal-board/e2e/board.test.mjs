@@ -13,7 +13,7 @@ const root = resolve(import.meta.dirname, "..");
 const webUrl = "http://127.0.0.1:4173";
 const token = "e2e-token";
 
-test("Goal board uses saved state, structured waits, and a narrow session view", async () => {
+test("Goal board uses saved state, structured waits, and full-width session tabs", async () => {
   const mock = createMockApi();
   const apiAddress = await listen(mock.server);
   const apiPort = Number(new URL(apiAddress).port);
@@ -57,6 +57,7 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
 
     await navigate(socket, `${webUrl}/?session=desktop#${token}`);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
+    assert.equal(await value(socket, "document.querySelector('.sidebar, .view-switch, .filter') === null"), true);
     assert.match(await value(socket, "document.body.innerText"), /Collect approved notes from the current workspace/);
     assert.doesNotMatch(await value(socket, "document.body.innerText"), /Sample goal|Project selector|Workspace settings/);
     await cdp(socket, "Runtime.evaluate", {
@@ -69,6 +70,19 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
     assert.match(await value(socket, "document.querySelector('.session').innerText"), /Not saved yet/);
     assert.doesNotMatch(await value(socket, "document.querySelector('.session').innerText"), /Run completed/);
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which source should I use?')");
+    const conversationBounds = await value(socket, "(() => { const timeline = document.querySelector('.run-timeline').getBoundingClientRect(); const composer = document.querySelector('.composer-area .approval').getBoundingClientRect(); return { timelineWidth: timeline.width, composerWidth: composer.width, centerGap: Math.abs((timeline.left + timeline.right - composer.left - composer.right) / 2) }; })()");
+    assert.ok(conversationBounds.timelineWidth <= 800 && conversationBounds.composerWidth <= 800);
+    assert.ok(conversationBounds.centerGap < 16);
+    assert.equal(await value(socket, "document.querySelector('.session-header') === null"), true);
+    assert.equal(await value(socket, "document.querySelector('.topbar .goal-info-toggle') !== null"), true);
+    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.session-tab-buttons button')].map(button => button.textContent)"), ["Board", "Activity", "Trajectory"]);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.session-tab-buttons button').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.session .board-area .goal-card') !== null");
+    assert.equal(await value(socket, "document.querySelectorAll('.session .board .column').length"), 5);
+    assert.equal(await value(socket, "document.querySelector('.session .board-footer') === null"), true);
+    assert.equal(await value(socket, "document.querySelector('.session .composer-area') === null"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.session .goal-card').click()", returnByValue: true });
+    await waitForExpression(socket, "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.textContent === 'Activity')?.getAttribute('aria-pressed') === 'true'");
     assert.equal(await value(socket, "[...document.querySelectorAll('.session-tab-buttons button')].some(button => button.textContent === 'Plan')"), false);
     assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') === null"), true);
     assert.equal(await value(socket, "document.querySelector('.composer-area .current-model-control') !== null"), true);
@@ -93,6 +107,9 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')");
+    await waitForExpression(socket, "document.querySelector('.composer-area .composer') !== null");
+    const inputBounds = await value(socket, "(() => { const box = document.querySelector('.composer-area .composer').getBoundingClientRect(); return { width: box.width, centerGap: Math.abs((box.left + box.right) / 2 - window.innerWidth / 2) }; })()");
+    assert.ok(inputBounds.width <= 800 && inputBounds.centerGap < 16);
     assert.deepEqual(mock.lastInteraction, {
       kind: "answer_ask_user",
       runId: "run-1",
@@ -114,7 +131,9 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which source should I use?')");
-    assert.equal(await value(socket, "getComputedStyle(document.querySelector('.session')).position"), "absolute");
+    assert.equal(await value(socket, "getComputedStyle(document.querySelector('.session')).position"), "relative");
+    assert.equal(await value(socket, "document.documentElement.scrollWidth <= window.innerWidth"), true);
+    assert.equal(await value(socket, "document.querySelector('.run-timeline').getBoundingClientRect().width <= window.innerWidth - 32"), true);
     await cdp(socket, "Runtime.evaluate", {
       expression: "document.querySelector('button[aria-label=\"Close session\"]').click()",
       returnByValue: true,

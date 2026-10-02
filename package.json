@@ -10,6 +10,7 @@
   "scripts": {
     "llm:decision-eval": "tsx packages/agent/test/decision-guidance-eval.ts",
     "llm:agent-smoke": "tsx packages/llm/test/agent-smoke-test.ts",
+    "llm:native-dialogue-smoke": "tsx packages/llm/test/native-dialogue-smoke.ts",
     "check:dependencies": "node scripts/check-dependencies.mjs",
     "memory:check": "node scripts/project-memory.mjs check",
     "memory:index": "node scripts/project-memory.mjs write-index",

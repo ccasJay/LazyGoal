@@ -57,3 +57,9 @@ Agent 不拥有 UI；当 Adapter 提供 `stream` 时，`LLMStepExecutor` 将模�
 ## 模型消息记录
 
 正式组合根为 LLMStepExecutor 注入独立的 [`ModelInputStore`](../../packages/runtime/src/model-input.ts)。每次 Think/Decide 在 Adapter 调用前保存最终消息正文与顺序，调用身份与指标共享，并由成功 frame 的 modelCallId 关联。写入失败阻止当前调用；调用失败不删除已保存输入，输入事实不推进 Section 比较基线。诊断请求日志通过调用引用指向完整消息，避免再次写入 system 正文。
+
+## 原生工具对话历史
+
+OpenAI Chat Completions 与 Gemini 的 Decide 请求从 Snapshot 提交边界内重建原生调用交换。Agent 返回规范化响应，Runner 随接受的阶段 checkpoint 提交 `model_response_received`；诊断和输入日志不参与恢复。供应商调用 ID 与 Runtime Action ID 独立，工具 Observation、lookup 结果、已提交 Think 输出或系统决策接受确认按调用 ID 配对。审批等待和未结算调用不进入下一请求。
+
+同身份的近期交换按 Conversation 位置插入请求；调用、结果及签名以完整执行单元参与 Hot 预算，被替代的结果不再重复写入 Hot 文本或 previousStep。当前未结束 Step 的已结算 Think 交换也可见，输出只通过配对 tool result 发送。较旧单元由原始语义投影提取 Warm；切换 provider、端点、模型、协议或进入语义 Adapter 路径结束旧续接段。Think 请求保持纯文本，不携带原生调用历史。契约见 [model-conversation.ts](../../packages/contracts/src/model-conversation.ts)，组装见 [native-model-history.ts](../../packages/agent/src/native-model-history.ts)。

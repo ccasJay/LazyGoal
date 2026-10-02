@@ -332,8 +332,13 @@ test("会话投影展示已提交纠错尝试与稳定失败原因", async () =>
         allocateImmutableEvent({
             goalId: goal.id, runId: goal.state.run.id, phase: "executing",
             executionUnitId: "repair-unit", stepIndex: 1, eventType: "model_repair_attempt_started",
-            payload: { type: "model_repair_attempt_started", stage: "decide", attempt: 2, inputBoundary: `sha256:${"a".repeat(64)}` },
+            payload: { type: "model_repair_attempt_started", stage: "decide", attempt: 1, inputBoundary: `sha256:${"a".repeat(64)}` },
         }, 1),
+        allocateImmutableEvent({
+            goalId: goal.id, runId: goal.state.run.id, phase: "executing",
+            executionUnitId: "repair-unit", stepIndex: 1, eventType: "model_repair_attempt_started",
+            payload: { type: "model_repair_attempt_started", stage: "decide", attempt: 2, inputBoundary: `sha256:${"a".repeat(64)}` },
+        }, 2),
         allocateImmutableEvent({
             goalId: goal.id, runId: goal.state.run.id, phase: "executing",
             executionUnitId: "repair-unit", stepIndex: 1, eventType: "model_repair_feedback_recorded",
@@ -345,17 +350,17 @@ test("会话投影展示已提交纠错尝试与稳定失败原因", async () =>
                     issues: [{ code: "syntax", path: [], message: "Return valid JSON" }],
                 },
             },
-        }, 2),
+        }, 3),
         allocateImmutableEvent({
             goalId: goal.id, runId: goal.state.run.id, phase: "executing",
             executionUnitId: "repair-unit", stepIndex: 1, eventType: "model_request_retry_recorded",
             payload: { type: "model_request_retry_recorded", stage: "decide", attempt: 1, reason: "rate_limited", status: 429 },
-        }, 3),
+        }, 4),
         allocateImmutableEvent({
             goalId: goal.id, runId: goal.state.run.id, phase: "executing",
             eventType: "run_failed",
             payload: { type: "run_failed", code: "MODEL_REQUEST_FAILED", message: "模型阶段重试已耗尽" },
-        }, 4),
+        }, 5),
     ];
     const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
         committed,
@@ -367,7 +372,7 @@ test("会话投影展示已提交纠错尝试与稳定失败原因", async () =>
         message: "模型阶段重试已耗尽",
     });
     assert.deepEqual(session?.runs[0]?.steps[0]?.recoveryAttempts, [
-        "decide repair attempt 2",
+        "decide output retry 2",
         "decide repair feedback: INVALID_JSON",
         "decide model request attempt 1 failed: rate_limited HTTP 429",
     ]);

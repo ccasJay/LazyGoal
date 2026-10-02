@@ -1,10 +1,10 @@
 ---
 feature: native-tool-calling-architecture
 status: active
-summary: "原生双通道工具调用架构，在单次网络往返（1 RTT）内实现自然语言思考推演与强 Schema 约束工具调用，废除结构化输出模式显式配置"
+summary: "原生双通道工具调用架构，在单次网络往返（1 RTT）内实现自然语言思考推演与强 Schema 约束工具调用，优先使用厂商原生 Function Calling 驱动"
 source_spec: specs/native-tool-calling-architecture/
 distilled_at: 2026-09-21
-reviewed_at: 2026-09-21
+reviewed_at: 2026-10-01
 tags: [agent, llm, tool-calling, dual-channel, 1-rtt, system-tools, function-calling]
 authorities: [docs/architecture/llm.md, docs/architecture/agent.md, packages/llm/src/core/types.ts, packages/contracts/src/model-output/system-tools.ts, packages/agent/src/llm-step-executor.ts]
 supersedes: [project-memory/features/two-stage-decision-pipeline.md]
@@ -14,7 +14,7 @@ supersedes: [project-memory/features/two-stage-decision-pipeline.md]
 
 ## Purpose
 
-- 将模型交互机制从顶层单一 JSON 封包重构为原生双通道（Dual-Channel）工具调用体系，单步 1 RTT 内同时获取自由思维链与强类型工具调用，彻底消除 2 RTT 延迟惩罚与结构化输出模式配置地雷。 [S1, S2, S3, S4, S5]
+- 将模型交互机制从顶层单一 JSON 封包重构为原生双通道（Dual-Channel）工具调用体系，单步 1 RTT 内同时获取自由思维链与强类型工具调用，优先使用厂商原生 Function Calling 协议。 [S1, S2, S3, S4, S5]
 
 ## Durable Decisions
 
@@ -22,7 +22,7 @@ supersedes: [project-memory/features/two-stage-decision-pipeline.md]
 - D2 — 动作即系统函数 (Action-as-Tool)：将任务完成（`system_complete_task`）、用户等待（`system_wait_for_input`）、目标失败（`system_fail_goal`）及上下文查找等所有非业务工具操作抽象为规范内置系统工具，统一模型调度范式。 [S1, S2, S7, S8]
 - D3 — 阶段专属工具集与强制调用：单步由当前阶段组装专属工具清单，并通过 `toolChoice: "required"` 强制模型触发且仅触发 1 个动作，杜绝单步只聊不动的死循环。 [S1, S2, S6, S8]
 - D4 — 原生 Function Calling 统一驱动：OpenAI 采用原生 `tools` + `strict: true`，Gemini 采用官方 `functionDeclarations` + `toolConfig`，充分利用厂商原生约束解码与 Prompt 缓存。 [S1, S2, S4, S6]
-- D5 — 废除模式显式配置：彻底删除 `LLM_STRUCTURED_OUTPUT_MODE` 环境变量与配置字段，系统自适应开箱即用。 [S1, S2, S4, S8]
+- D5 — 结构化输出模式与原生调用共存：保留 `LLM_STRUCTURED_OUTPUT_MODE`（`strict` / `prompt_only` / `two_stage`）配置与环境校验以兼容第三方适配器与非工具调用；在原生 OpenAI/Gemini 双通道下，由底层驱动 Function Calling 与强约束参数 Schema，替代原先无工具时的顶层结构化输出封包。 [S1, S2, S4, S8]
 
 ## Guardrails
 

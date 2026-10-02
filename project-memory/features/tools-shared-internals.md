@@ -1,10 +1,12 @@
 ---
 feature: tools-shared-internals
-status: active
+status: superseded
+status_reason: "沙箱实现与权限判定已重构提取为独立领域包 @lazygoal/sandbox 与 @lazygoal/permission，包内私有沙箱共享决策已废除"
+superseded_by: [project-memory/features/permission.md]
 summary: "文件级 Tool 共享沙箱、单次校验与公共导出收窄"
 source_spec: specs/tools-shared-internals/
 distilled_at: 2026-08-25
-reviewed_at: 2026-08-25
+reviewed_at: 2026-10-01
 tags: [tools, sandbox, internals, exports, validation]
 authorities: [docs/architecture/runtime.md, packages/sandbox/src/index.ts, packages/tools/src/index.ts]
 ---

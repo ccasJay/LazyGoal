@@ -26,6 +26,13 @@ function routes(value = goal(), events: readonly TrajectoryEvent[] = Array.from(
     return createBrowserTrajectoryRoutes({ restore: async id => id === value.id ? value : undefined }, async () => ({ committed: events, uncommittedTail: [] }));
 }
 
+test("trajectory labels the initial model call separately from an output retry", async () => {
+    const attempts = [1, 2].map(attempt => fact(attempt, { goalId: "goal-1", runId: "run-1", phase: "executing", executionUnitId: "unit-1", stepIndex: 1,
+        eventType: "model_repair_attempt_started", payload: { type: "model_repair_attempt_started", stage: "decide", attempt, inputBoundary: `sha256:${"a".repeat(64)}` } }));
+    const page = await (await routes(goal(2), attempts).request("/api/goals/goal-1/trajectory?runId=run-1")).json() as BrowserTrajectoryPage;
+    assert.deepEqual(page.entries.map(entry => entry.preview), ["decide · Model request 1", "decide · Output retry 2"]);
+});
+
 test("trajectory pages search and locate the entire committed Run while excluding tail", async () => {
     const app = routes();
     const url = "/api/goals/goal-1/trajectory?runId=run-1";

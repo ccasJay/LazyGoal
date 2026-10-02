@@ -29,6 +29,7 @@ const ModelCallMetricRecordSchema = z.discriminatedUnion("recordType", [
     z.object({
         ...MetricIdentitySchema,
         recordType: z.literal("call_started"),
+        modelId: z.string().min(1).optional(),
     }).strict(),
     z.object({
         ...MetricIdentitySchema,

@@ -1,3 +1,4 @@
+import type { NativeConversationIdentity } from "../../../contracts/src/model-conversation";
 import type {
     LLMRequest,
     LLMResponse,
@@ -20,7 +21,7 @@ export type {
  * 实例构造时显式固定实际输出模式（`strict` 或 `prompt_only`），在实例生命周期内保持不可变；`two_stage`
  * 由 Runtime 工厂解析为同一模型的阶段 Adapter 对，不是单个请求的实际输出模式。
  * 实现必须保持对话消息顺序和角色语义；pi-ai 仅接受前置 system 消息并合并为 systemPrompt。
- * 返回模型原始文本，不应在此解析 AgentDecision。仅将结构化识别的限流、临时服务、连接和超时故障
+ * 返回正文、独立 reasoning 摘要及可选原生续接字段，不应在此解析 AgentDecision。仅将结构化识别的限流、临时服务、连接和超时故障
  * 映射为 Runtime 可识别的暂时请求故障；其他 SDK 异常原样拒绝 Promise。适配器不执行内部重试，
  * 由 Runtime 独立控制总调用次数和可中止退避。
  *
@@ -35,6 +36,9 @@ export type {
  * ```
  */
 export interface LLMAdapter {
+    /** 存在时支持同身份原生历史回放；省略时只使用现有语义历史。 */
+    readonly nativeConversationIdentity?: NativeConversationIdentity;
+
     /**
      * 该 Adapter 实例固定的结构化输出模式。
      */

@@ -568,7 +568,7 @@ function projectBrowserSteps(
             } else if (payload.type === "tool_attempt_failed") {
                 recoveryAttempts.push(`Tool retry ${payload.attempt} failed: ${boundedText(payload.reason, 160)}`);
             } else if (payload.type === "model_repair_attempt_started") {
-                recoveryAttempts.push(`${payload.stage} repair attempt ${payload.attempt}`);
+                if (payload.attempt > 1) recoveryAttempts.push(`${payload.stage} output retry ${payload.attempt}`);
             } else if (payload.type === "model_repair_feedback_recorded") {
                 recoveryAttempts.push(`${payload.feedback.stage} repair feedback: ${payload.feedback.code}`);
             } else if (payload.type === "model_request_retry_recorded") {

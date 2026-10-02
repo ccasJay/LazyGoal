@@ -1,3 +1,4 @@
+import type { NativeConversationIdentity } from "../../contracts/src/model-conversation";
 import type { LLMMessage, LLMRequest, StructuredOutputMode } from "../../llm/src/core/types";
 import type { Goal, WorkingMemory } from "../../runtime/src/domain";
 import type { ModelContextFramePayload } from "../../runtime/src/index";
@@ -186,6 +187,7 @@ async function assembleTrajectoryContext(
     signal: AbortSignal | undefined,
     assembler: TrajectoryModelContextAssembler | undefined,
     stageMessages: readonly LLMMessage[],
+    nativeConversationIdentity?: NativeConversationIdentity,
 ): Promise<Readonly<{
     view: ModelInferenceView;
     sectionFrames: readonly ModelContextFramePayload[];
@@ -201,6 +203,7 @@ async function assembleTrajectoryContext(
         goal,
         view,
         sectionIdentities: renderer.dynamicSectionIdentities(),
+        ...(nativeConversationIdentity === undefined ? {} : { nativeConversationIdentity }),
         ...(signal === undefined ? {} : { control: { signal } }),
     }, (frames) => {
         const sectionPlan = planDynamicSectionUpdates(
@@ -265,6 +268,7 @@ async function compactConversation(
  * @param structuredOutputMode - Decide 当前使用 strict 或 prompt_only 响应约束。
  * @param stage - 当前请求属于 Decide 还是 Think；省略时使用 Decide。
  * @param stageContext - Think 目标、已提交 Think 历史或 Decide 的 Think 控制开关。
+ * @param nativeConversationIdentity - 原生 Adapter 的回放身份；仅 Decide 使用，工具参数替代顶层输出 Schema。
  * @returns 完成上下文裁剪与渲染后的单轮 LLM 请求。
  * @throws Goal 不处于 running executing 阶段时抛出；渲染失败同样在调用前抛出。
  */
@@ -281,6 +285,7 @@ export async function buildStepRequest<Result extends DecideOutput = AgentDecisi
     structuredOutputMode: StructuredOutputMode = "strict",
     stage: PromptStage = "decide",
     stageContext?: StepPromptStageContext,
+    nativeConversationIdentity?: NativeConversationIdentity,
 ): Promise<ModelOutputRequestPlan<Result>> {
     const stageMessages = createStageMessages(stage, stageContext);
     const projected = project(
@@ -306,6 +311,7 @@ export async function buildStepRequest<Result extends DecideOutput = AgentDecisi
         signal,
         trajectoryContextAssembler,
         stageMessages,
+        stage === "decide" ? nativeConversationIdentity : undefined,
     );
 
     const isInitialCheckpoint = assembled.view.contextEpoch?.control.status === "checkpoint_required";
@@ -352,6 +358,7 @@ export async function buildStepRequest<Result extends DecideOutput = AgentDecisi
         goal.state.messages.length,
         stageMessages,
         stage,
+        nativeConversationIdentity,
     );
 }
 
@@ -367,6 +374,7 @@ function renderFinalRequest<Result = AgentDecision>(
     conversationPosition = view.conversation.length,
     stageMessages: readonly LLMMessage[] = [],
     stage: PromptStage = view.prompt.stage,
+    nativeIdentity?: NativeConversationIdentity,
 ): ModelOutputRequestPlan<Result> {
     let currentBundle = initialBundle;
     let currentToolDeclarations = initialToolDeclarations;
@@ -381,7 +389,7 @@ function renderFinalRequest<Result = AgentDecision>(
             renderer.renderDynamicSections(targetView),
             baselineFrames,
         );
-        const shapeGuide = stage === "decide" && structuredOutputMode === "prompt_only"
+        const shapeGuide = stage === "decide" && structuredOutputMode === "prompt_only" && nativeIdentity === undefined
             ? bundle.shapeGuide
             : undefined;
         const request = renderRequest(
@@ -403,7 +411,7 @@ function renderFinalRequest<Result = AgentDecision>(
                     toolChoice: "required" as const,
                 }
                 : {}),
-            ...(stage === "decide" && structuredOutputMode === "strict"
+            ...(stage === "decide" && structuredOutputMode === "strict" && nativeIdentity === undefined
                 ? {
                     structuredOutput: {
                         name: bundle.name,
@@ -427,6 +435,7 @@ function renderFinalRequest<Result = AgentDecision>(
             stage: targetView.prompt.stage,
             epochNumber: targetView.contextEpoch.epochNumber,
             conversationPosition,
+            nativeIdentity: nativeIdentity ?? null,
             sections: sectionPlan.frameSections,
         },
     });

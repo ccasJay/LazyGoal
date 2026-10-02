@@ -50,7 +50,7 @@ export function createLlmAdapter(config: LlmConfig): LLMAdapter {
     switch (stageConfig.provider) {
         case "openai":
         case "openai-compatible":
-            return new OpenAICompatible({ ...stageConfig, baseURL: stageConfig.baseURL ?? "https://api.openai.com/v1" });
+            return new OpenAICompatible({ ...stageConfig, provider: stageConfig.provider, baseURL: stageConfig.baseURL ?? "https://api.openai.com/v1" });
         case "google":
             return new Gemini(stageConfig);
         default:
@@ -106,7 +106,7 @@ export function createReflectionLlmAdapter(config: LlmConfig): LLMAdapter {
             return new Gemini(config);
         case "openai":
         case "openai-compatible":
-            return new OpenAICompatible({ ...config, baseURL: config.baseURL ?? "https://api.openai.com/v1" });
+            return new OpenAICompatible({ ...config, provider: config.provider, baseURL: config.baseURL ?? "https://api.openai.com/v1" });
         default:
             return createLlmAdapter(config);
     }
