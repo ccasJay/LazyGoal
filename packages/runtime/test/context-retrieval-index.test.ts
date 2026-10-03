@@ -12,8 +12,10 @@ import {
     computeContextRetrievalSourceDigest,
     createContextRetrievalQueryKey,
     openContextRetrievalIndexSession,
+    rankContextDocuments,
     type ContextLookupResult,
     type ContextRetrievalQuery,
+    type ContextRetrievalIndexSidecar,
     type TrajectoryEvent,
     type TrajectoryEventDraft,
 } from "../src/index";
@@ -129,6 +131,54 @@ test("Sidecar 来源摘要忽略 tail，落后 Sidecar 可增量加入新文档"
         computeContextRetrievalSourceDigest(events, 4),
         incremental.sidecar.sourceDigest,
     );
+});
+
+test("含 constructor 的轨迹索引经 Sidecar JSON 往返后仍可检索", () => {
+    const events = [
+        event(1, {
+            phase: "executing",
+            executionUnitId: "unit-constructor",
+            eventType: "decision_received",
+            payload: {
+                type: "decision_received",
+                decision: {
+                    kind: "complete",
+                    summary: "constructor(private readonly delegate: Store) {}",
+                    completionEvidence: [],
+                },
+            },
+        }),
+        event(2, {
+            phase: "executing",
+            executionUnitId: "unit-constructor",
+            eventType: "run_completed",
+            payload: {
+                type: "run_completed",
+                summary: "constructor(private readonly delegate: Store) {}",
+            },
+        }),
+    ];
+    const input = {
+        ...currentConversation,
+        goalId,
+        runId,
+        committedThroughSequence: 2,
+        events,
+    };
+    const built = openContextRetrievalIndexSession(input);
+    const sidecar = JSON.parse(JSON.stringify(built.sidecar)) as ContextRetrievalIndexSidecar;
+    const restored = openContextRetrievalIndexSession({ ...input, sidecar });
+    const query = { question: "constructor" };
+    const options = { minimumScore: 0, adjacentCount: 0 };
+
+    assert.equal(restored.mode, "restored");
+    assert.equal(restored.index.fieldStats.body.documentFrequency["constructor"], 1);
+    assert.deepEqual(
+        rankContextDocuments(restored.index, query, options),
+        rankContextDocuments(built.index, query, options),
+    );
+    assert.equal(rankContextDocuments(restored.index, query, options).matches.length > 0, true);
+    assert.equal(JSON.stringify(restored.sidecar), JSON.stringify(built.sidecar));
 });
 
 test("损坏或领先 Sidecar fail-closed 后重建，不污染领域输入", () => {

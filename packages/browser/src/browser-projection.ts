@@ -43,6 +43,7 @@ const MAX_BASH_OUTPUT_LENGTH = 4_000;
  *     workflowPhase: "executing",
  *     runStatus: "waiting",
  *     updatedAt: "2026-09-26T00:00:00.000Z",
+ *     archived: false,
  * };
  * ```
  */
@@ -59,6 +60,8 @@ export interface BrowserGoalListItem {
     readonly runStatus: Goal["state"]["run"]["status"];
     /** Catalog 提供的快照更新时间。 */
     readonly updatedAt: string;
+    /** 是否已归档，供看板在默认视图与归档视图之间切换。 */
+    readonly archived: boolean;
 }
 
 /**
@@ -338,6 +341,7 @@ export function projectBrowserGoalList(
         workflowPhase: entry.workflowPhase,
         runStatus: entry.runStatus,
         updatedAt: entry.updatedAt,
+        archived: entry.archived === true,
     }));
 }
 

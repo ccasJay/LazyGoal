@@ -112,6 +112,30 @@ test("FieldTokenizer 与倒排索引不依赖区域设置且重复构建 byte-st
     assert.deepEqual(first.fieldLengths, second.fieldLengths);
 });
 
+test("倒排索引保留与对象继承属性同名的词和文档 ID", () => {
+    const documents = [
+        document("constructor", "__proto__", "constructor ordinary"),
+        document("__proto__", "src/other.ts", "ordinary"),
+    ];
+    const index = buildContextInvertedIndex(documents);
+    const reversed = buildContextInvertedIndex([...documents].reverse());
+
+    assert.equal(JSON.stringify(index), JSON.stringify(reversed));
+    assert.deepEqual(index.getPostings("body", "constructor").map((posting) => posting.documentId), ["constructor"]);
+    assert.deepEqual(index.getPostings("path", "__proto__").map((posting) => posting.documentId), ["constructor"]);
+    assert.deepEqual(index.getPostings("body", "ordinary").map((posting) => posting.documentId), ["__proto__", "constructor"]);
+    assert.equal(index.fieldStats.body.documentFrequency["constructor"], 1);
+    assert.equal(index.fieldStats.path.documentFrequency["__proto__"], 1);
+    assert.equal(index.fieldStats.body.documentFrequency["ordinary"], 2);
+    assert.equal(index.documents["constructor"]?.documentId, "constructor");
+    assert.equal(index.tokenizedDocuments["__proto__"]?.documentId, "__proto__");
+
+    const absent = buildContextInvertedIndex([document("doc-a", "src/other.ts", "ordinary")])
+        .getPostings("body", "constructor");
+    assert.deepEqual(absent, []);
+    assert.equal(Object.isFrozen(absent), true);
+});
+
 test("倒排索引拒绝重复文档或损坏文档，不返回部分结果", () => {
     const first = document("doc-a", "src/index.ts", "one");
     assert.throws(

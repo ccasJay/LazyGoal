@@ -996,6 +996,33 @@ test("JsonFileGoalStore.listHistory returns all goals including completed, faile
     }
 });
 
+test("终态 Goal 归档跨实例持久化，删除移除快照与归档标记", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "goal-store-management-"));
+    try {
+        const store = new JsonFileGoalStore(directory);
+        await store.save(createCatalogGoal("goal-terminal", "completed"));
+        await store.save(createCatalogGoal("goal-running", "running"));
+        assert.equal(await store.setArchived("goal-running", true), false);
+        assert.equal(await store.setArchived("goal-terminal", true), true);
+        const reopened = new JsonFileGoalStore(directory);
+        assert.equal((await reopened.listHistory()).find((entry) => entry.goalId === "goal-terminal")?.archived, true);
+        assert.equal(await reopened.setArchived("goal-terminal", false), true);
+        assert.equal((await store.listHistory()).find((entry) => entry.goalId === "goal-terminal")?.archived, undefined);
+        await store.setArchived("goal-terminal", true);
+        await store.save(createCatalogGoal("goal-terminal", "running"));
+        assert.equal((await reopened.listHistory()).find((entry) => entry.goalId === "goal-terminal")?.archived, undefined);
+        await store.save(createCatalogGoal("goal-terminal", "completed"));
+        await store.setArchived("goal-terminal", true);
+        await assert.rejects(store.deleteTerminal("goal-running"), /goal_not_terminal/);
+        assert.equal(await store.deleteTerminal("goal-terminal"), true);
+        assert.equal(await reopened.restore("goal-terminal"), undefined);
+        assert.equal((await reopened.listHistory()).some((entry) => entry.goalId === "goal-terminal"), false);
+        assert.equal((await readdir(directory)).some((name) => name.endsWith(".archived")), false);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
 test("JsonFileGoalStore rejects a damaged formal catalog snapshot", async () => {
     const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
 

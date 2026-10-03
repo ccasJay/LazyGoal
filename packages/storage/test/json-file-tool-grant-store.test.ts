@@ -12,6 +12,18 @@ const matcher: ToolGrantMatcher = {
 };
 const source = { goalId: "goal-1", runId: "run-1", actionId: "action-1" };
 
+test("删除 Goal 授权保留项目授权", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-tool-grants-"));
+    try {
+        const store = new JsonFileToolGrantStore(directory);
+        await store.stage({ scope: "goal", goalId: "goal-1", workspaceId: "workspace-1", source, matcher });
+        await store.stage({ scope: "workspace", workspaceId: "workspace-1", source: { ...source, actionId: "action-2" }, matcher });
+        await store.deleteGoalGrants("workspace-1", "goal-1");
+        const restored = new JsonFileToolGrantStore(directory);
+        assert.deepEqual((await restored.list({ workspaceId: "workspace-1", goalId: "goal-1" })).map((grant) => grant.scope), ["workspace"]);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("pending Grant 在 Action 批准提交前不参与授权匹配，激活后跨 Run 可用", async () => {
     const directory = await mkdtemp(join(tmpdir(), "lazygoal-tool-grants-"));
     try {

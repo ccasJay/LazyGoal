@@ -192,13 +192,25 @@ test("PTC 指引仅随专用 Tool 授权出现", async () => {
     })));
     assert.match(authorized, /tools\[toolId\]\(input\)/);
     assert.match(authorized, /result\.observation\.output\.split/);
-    assert.match(authorized, /observation\.kind !== "success"/);
-    assert.match(authorized, /gather the needed facts in one program and reuse each result/);
-    assert.match(authorized, /compact JSON-safe conclusion with bounded evidence/);
-    assert.match(authorized, /return \{path, line, text\} evidence/);
+    assert.match(authorized, /no require, process, fs, or direct workspace access/);
+    assert.match(authorized, /do not shadow the provided tools object/);
+    assert.match(authorized, /Check observation\.kind for every inner call before using its output/);
+    assert.match(authorized, /every relevant implementation and test path in the first program/);
+    assert.match(authorized, /read each path once/);
+    assert.match(authorized, /answer-ready \{rows, unresolved\}/);
+    assert.match(authorized, /JSON-safe return below 64 KiB/);
+    assert.match(authorized, /Do not return full files, raw observations/);
+    assert.match(authorized, /If unresolved is empty, answer from rows without another tool call/);
+    assert.match(authorized, /never on the entire file set again/);
+    assert.match(authorized, /attach \{path, line, text\} to each fact/);
+    assert.match(authorized, /Copy these triples exactly into the final answer/);
+    assert.match(authorized, /numeric limit without matching source evidence is unknown/);
     assert.match(authorized, /When read_file is authorized/);
     assert.match(authorized, /line:i\+1/);
-    assert.match(authorized, /cite only those verified lines/);
+    assert.match(authorized, /src\/a\.ts.*src\/b\.ts/);
+    assert.match(authorized, /result\.observation\.kind!=="success"/);
+    assert.match(authorized, /unresolved\.push\(\{path,error:result\.observation\.kind\}\)/);
+    assert.match(authorized, /return \{rows,unresolved\}/);
     const withoutProgram = sectionText("authorized_tools", renderer.renderDynamicSections(view({
         authorizedTools: [{
             id: "read_file",
@@ -206,7 +218,7 @@ test("PTC 指引仅随专用 Tool 授权出现", async () => {
             inputSchema: { type: "object" },
         }],
     })));
-    assert.doesNotMatch(withoutProgram, /tools\[toolId\]\(input\)|result\.observation\.output|verified lines/);
+    assert.doesNotMatch(withoutProgram, /tools\[toolId\]\(input\)|result\.observation\.output|numeric limit/);
 });
 
 test("GoalPlan、Working Memory 与检查点各自保持独立来源和动态 section 身份", async () => {

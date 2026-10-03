@@ -1,6 +1,6 @@
 import { LlmConfigurationError, readLlmConfig } from "../../llm/src/config";
 import assert from "node:assert/strict";
-import { access, mkdtemp, realpath } from "node:fs/promises";
+import { access, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -18,6 +18,7 @@ import {
     createGoal,
     createToolRegistration,
     InMemoryToolRegistry,
+    transition,
     type AgentProfile,
     type ToolPolicy,
 } from "../../runtime/src/index";
@@ -296,6 +297,34 @@ test("composition root isolates workspace, freezes the default identity, and doe
     assert.equal(root.runIdGenerator(), "run-test");
     assert.deepEqual(await root.store.listResumable(), []);
     await assert.rejects(access(join(root.workspaceRoot, ".lazygoal", "goals")));
+});
+
+test("正式工作区 Goal 归档及删除清理所有按 Goal 隔离的本地记录", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-goal-management-"));
+    await writeDefaultProfile(workspace);
+    const root = await createCompositionRoot({ cwd: workspace, env: environment(join(workspace, "lazygoal-home")) });
+    const created = createGoal({ ...currentProtocols, id: "goal-delete-test", intent: "Delete local data", promptBundleVersion: 1, profile: root.profile, runId: "run-1" });
+    const started = transition(created.state.run, { kind: "start" });
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    const completed = transition(started.state, { kind: "decision", decision: { kind: "complete", completionEvidence: [], summary: "done" } });
+    assert.equal(completed.ok, true);
+    if (!completed.ok) return;
+    await root.store.save({ ...created, state: { ...created.state, run: completed.state } });
+    const encoded = Buffer.from(created.id).toString("base64url");
+    const directories = [root.trajectoriesDirectory, root.tracesDirectory, root.metricsDirectory, root.contextSidecarsDirectory, join(root.dataDirectory, "model-inputs")];
+    for (const directory of directories) {
+        await mkdir(join(directory, encoded), { recursive: true });
+        await writeFile(join(directory, encoded, "record.txt"), "saved");
+    }
+    const workspaceFile = join(workspace, "source.txt");
+    await writeFile(workspaceFile, "keep");
+    assert.equal(await root.manageGoal.setArchived(created.id, true), "ok");
+    assert.equal((await root.workspaceGoalStore.listHistory?.())?.find((entry) => entry.goalId === created.id)?.archived, true);
+    assert.equal(await root.manageGoal.delete(created.id), "ok");
+    assert.equal(await root.workspaceGoalStore.restore(created.id), undefined);
+    for (const directory of directories) await assert.rejects(access(join(directory, encoded)));
+    await access(workspaceFile);
 });
 
 test("Composition Root 使用覆盖预算创建共享 Compactor", async () => {

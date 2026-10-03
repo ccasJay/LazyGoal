@@ -7,6 +7,7 @@ import {
     rename,
     stat,
     unlink,
+    writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -93,6 +94,12 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
             }
 
             await rename(temporaryPath, filePath);
+            const status = goal.state.run.status;
+            if (status !== "completed" && status !== "failed" && status !== "cancelled") {
+                await unlink(this.archivePath(goal.id)).catch((error: NodeJS.ErrnoException) => {
+                    if (error.code !== "ENOENT") throw error;
+                });
+            }
         } catch (error) {
             await unlink(temporaryPath).catch(() => undefined);
             throw error;
@@ -126,6 +133,53 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
      */
     async listHistory(): Promise<readonly GoalCatalogEntry[]> {
         return this.scanEntries(true);
+    }
+
+    /**
+     * 设置终态 Goal 的归档标记；快照与运行历史仍可恢复。
+     *
+     * @param goalId - 正式工作区 Goal 身份。
+     * @param archived - 是否从默认看板移入归档视图。
+     * @returns Goal 不存在或尚未终止时返回 false；否则返回 true。
+     * @throws 文件系统读取或写入失败时传播异常。
+     * @example
+     * ```ts
+     * await store.setArchived("goal-1", true);
+     * ```
+     */
+    async setArchived(goalId: string, archived: boolean): Promise<boolean> {
+        const goal = await this.restore(goalId);
+        if (goal === undefined) return false;
+        const status = goal.state.run.status;
+        if (status !== "completed" && status !== "failed" && status !== "cancelled") return false;
+        if (archived) await writeFile(this.archivePath(goalId), "", { flag: "w", mode: 0o600 });
+        else await unlink(this.archivePath(goalId)).catch((error: NodeJS.ErrnoException) => {
+            if (error.code !== "ENOENT") throw error;
+        });
+        return true;
+    }
+
+    /**
+     * 移除一个 Goal 的快照与归档标记；调用者负责清理其他存储中的运行数据。
+     *
+     * @param goalId - 要删除的正式工作区 Goal 身份。
+     * @returns 快照不存在时为 false；删除成功时为 true。
+     * @throws Goal 未终止或文件系统失败时拒绝。
+     * @example
+     * ```ts
+     * await store.deleteTerminal("goal-1");
+     * ```
+     */
+    async deleteTerminal(goalId: string): Promise<boolean> {
+        const goal = await this.restore(goalId);
+        if (goal === undefined) return false;
+        const status = goal.state.run.status;
+        if (status !== "completed" && status !== "failed" && status !== "cancelled") throw new Error("goal_not_terminal");
+        await unlink(this.archivePath(goalId)).catch((error: NodeJS.ErrnoException) => {
+            if (error.code !== "ENOENT") throw error;
+        });
+        await unlink(this.filePath(goalId));
+        return true;
     }
 
     private async scanEntries(includeTerminal: boolean): Promise<readonly GoalCatalogEntry[]> {
@@ -190,6 +244,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
                     workflowPhase: goal.state.workflow.phase,
                     runStatus,
                     updatedAt: new Date(fileStats.mtimeMs).toISOString(),
+                    ...(files.some((candidate) => candidate.name === `${file.name}.archived`) ? { archived: true } : {}),
                 },
                 mtimeMs: fileStats.mtimeMs,
             });
@@ -250,6 +305,10 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
     private filePath(goalId: string): string {
         const encodedGoalId = Buffer.from(goalId, "utf8").toString("base64url");
         return join(this.directory, `${encodedGoalId}.json`);
+    }
+
+    private archivePath(goalId: string): string {
+        return `${this.filePath(goalId)}.archived`;
     }
 
     private decodeSnapshot(content: string, label: string): Goal {

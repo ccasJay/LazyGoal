@@ -307,8 +307,8 @@ export function buildContextInvertedIndex(
         seenDocumentIds.add(document.documentId);
     }
 
-    const documentMap = {} as Record<string, ContextSearchDocument>;
-    const tokenizedDocumentMap = {} as Record<string, TokenizedContextDocument>;
+    const documentMap = Object.create(null) as Record<string, ContextSearchDocument>;
+    const tokenizedDocumentMap = Object.create(null) as Record<string, TokenizedContextDocument>;
     const postings = {} as Record<
         ContextDocumentFieldName,
         Record<string, ContextIndexPosting[]>
@@ -316,8 +316,8 @@ export function buildContextInvertedIndex(
     const fieldStats = {} as Record<ContextDocumentFieldName, ContextFieldStatistics>;
 
     for (const fieldName of CONTEXT_DOCUMENT_FIELD_NAMES) {
-        postings[fieldName] = {};
-        const documentFrequency: Record<string, number> = {};
+        postings[fieldName] = Object.create(null) as Record<string, ContextIndexPosting[]>;
+        const documentFrequency = Object.create(null) as Record<string, number>;
         let totalTokenCount = 0;
 
         for (const document of tokenized) {
@@ -351,8 +351,8 @@ export function buildContextInvertedIndex(
         }
 
         const sortedTerms = Object.keys(postings[fieldName]).sort(compareLexical);
-        const sortedPostingMap: Record<string, readonly ContextIndexPosting[]> = {};
-        const sortedDocumentFrequency: Record<string, number> = {};
+        const sortedPostingMap = Object.create(null) as Record<string, readonly ContextIndexPosting[]>;
+        const sortedDocumentFrequency = Object.create(null) as Record<string, number>;
         for (const term of sortedTerms) {
             const sortedPostings = postings[fieldName][term]!
                 .sort((left, right) => compareLexical(left.documentId, right.documentId))

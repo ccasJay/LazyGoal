@@ -60,6 +60,19 @@ export interface BrowserGoalApiPort {
      */
     list(): Promise<readonly BrowserGoalListItem[]>;
     /**
+     * 设置终态 Goal 的归档状态；不改变 Snapshot 或 Run 历史。
+     * @param goalId - 正式工作区 Goal 身份。
+     * @param archived - true 移入归档视图，false 恢复默认看板。
+     * @returns 成功或缺失、非终态拒绝码。
+     */
+    setArchived?(goalId: string, archived: boolean): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: "goal_not_found" | "goal_not_terminal" }>;
+    /**
+     * 删除终态 Goal 的本地记录；清理失败时保留快照供重试。
+     * @param goalId - 正式工作区 Goal 身份。
+     * @returns 成功或缺失、非终态拒绝码。
+     */
+    deleteGoal?(goalId: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: "goal_not_found" | "goal_not_terminal" }>;
+    /**
      * 读取一个 Goal 的最新已提交会话。
      *
      * @param goalId - Goal 的稳定标识。
@@ -239,6 +252,38 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
             return context.json({ goals: await source.list() });
         } catch {
             return context.json({ error: "goal_list_unavailable" }, 500);
+        }
+    });
+
+    routes.post("/api/goals/:goalId/archive", async (context) => {
+        const goalId = context.req.param("goalId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) return context.json({ error: "invalid_goal_id" }, 400);
+        if (source.setArchived === undefined) return context.json({ error: "goal_management_unavailable" }, 503);
+        const body = await readJsonBody(context.req.raw);
+        if (!body.ok) return context.json({ error: body.error }, body.status);
+        if (typeof body.value !== "object" || body.value === null || Array.isArray(body.value)
+            || Object.keys(body.value).length !== 1 || typeof (body.value as Record<string, unknown>).archived !== "boolean") {
+            return context.json({ error: "invalid_archive_request" }, 400);
+        }
+        try {
+            const result = await source.setArchived(goalId, (body.value as { archived: boolean }).archived);
+            return result.ok ? context.json({ ok: true })
+                : context.json({ error: result.error }, result.error === "goal_not_found" ? 404 : 409);
+        } catch {
+            return context.json({ error: "goal_archive_failed" }, 500);
+        }
+    });
+
+    routes.delete("/api/goals/:goalId", async (context) => {
+        const goalId = context.req.param("goalId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) return context.json({ error: "invalid_goal_id" }, 400);
+        if (source.deleteGoal === undefined) return context.json({ error: "goal_management_unavailable" }, 503);
+        try {
+            const result = await source.deleteGoal(goalId);
+            return result.ok ? context.json({ ok: true })
+                : context.json({ error: result.error }, result.error === "goal_not_found" ? 404 : 409);
+        } catch {
+            return context.json({ error: "goal_delete_failed" }, 500);
         }
     });
 

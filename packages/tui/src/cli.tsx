@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { realpath } from "node:fs/promises";
+import { realpath, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { dirname, join, resolve } from "node:path";
@@ -580,6 +580,18 @@ export interface CompositionRoot {
      * ```
      */
     readonly workspaceGoalStore: Pick<GoalStore, "restore"> & GoalCatalog;
+    /**
+     * 正式工作区终态 Goal 的本地管理边界，归档持久化并删除该 Goal 的运行记录。
+     *
+     * @example
+     * ```ts
+     * await root.manageGoal.setArchived("goal-1", true);
+     * ```
+     */
+    readonly manageGoal: {
+        readonly setArchived: (goalId: string, archived: boolean) => Promise<"ok" | "goal_not_found" | "goal_not_terminal">;
+        readonly delete: (goalId: string) => Promise<"ok" | "goal_not_found" | "goal_not_terminal">;
+    };
     /** 持久化 GoalStore 的提交通知包装器，供 TUI 实时刷新已提交步骤。 */
     readonly notifyingStore: NotifyingGoalStore;
     /** 共享的事实事件追加与读取 Store。 */
@@ -1229,6 +1241,30 @@ export async function createCompositionRoot(
         toolPolicy,
         store,
         workspaceGoalStore: primaryGoalStore,
+        manageGoal: {
+            setArchived: async (goalId, archived) => {
+                const goal = await primaryGoalStore.restore(goalId);
+                if (goal === undefined) return "goal_not_found";
+                const status = goal.state.run.status;
+                if (status !== "completed" && status !== "failed" && status !== "cancelled") return "goal_not_terminal";
+                await primaryGoalStore.setArchived(goalId, archived);
+                return "ok";
+            },
+            delete: async (goalId) => {
+                const goal = await primaryGoalStore.restore(goalId);
+                if (goal === undefined) return "goal_not_found";
+                const status = goal.state.run.status;
+                if (status !== "completed" && status !== "failed" && status !== "cancelled") return "goal_not_terminal";
+                const encodedGoalId = Buffer.from(goalId, "utf8").toString("base64url");
+                for (const directory of [trajectoriesDirectory, tracesDirectory, metricsDirectory, contextSidecarsDirectory, join(dataDirectory, "model-inputs")]) {
+                    await rm(join(directory, encodedGoalId), { recursive: true, force: true });
+                }
+                await toolGrantStore.deleteGoalGrants(workspaceHomePaths.workspaceId, goalId);
+                await sandboxGrantStore.deleteGoalGrants(workspaceHomePaths.workspaceId, goalId);
+                await primaryGoalStore.deleteTerminal(goalId);
+                return "ok";
+            },
+        },
         notifyingStore,
         trajectoryStore,
         contextLookupService,
@@ -1707,6 +1743,18 @@ async function runBrowserSessionCli(
         root.httpService.mount("/", createBrowserWorkspaceRoutes(root.workspaceRoot));
         root.httpService.mount("/", createBrowserGoalRoutes({
             list: () => listBrowserGoals(root.workspaceGoalStore),
+            setArchived: async (goalId, archived) => {
+                const result = await commandService.manageTerminalGoal(goalId, async () => {
+                    await root.manageGoal.setArchived(goalId, archived);
+                });
+                return result === "ok" ? { ok: true } : { ok: false, error: result };
+            },
+            deleteGoal: async (goalId) => {
+                const result = await commandService.manageTerminalGoal(goalId, async () => {
+                    await root.manageGoal.delete(goalId);
+                });
+                return result === "ok" ? { ok: true } : { ok: false, error: result };
+            },
             read: (goalId) => readBrowserGoalSession(
                 goalId,
                 root.workspaceGoalStore,

@@ -373,6 +373,21 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
     await waitForLocal(() => mock.lastCreate?.modelId === "model-selected");
     assert.equal(mock.lastCreate.intent, "Inspect the current workspace");
+    mock.resetToFailed();
+    await navigate(socket, `${webUrl}/?session=management#${token}`);
+    await waitForExpression(socket, "document.querySelector('.goal-card-options') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card-options').click()", returnByValue: true });
+    await waitForExpression(socket, "getComputedStyle(document.querySelector('.goal-card-menu.is-expanded .goal-card-options')).visibility === 'hidden'");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.goal-card-menu-items button')].find(button => button.textContent.includes('Archive')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.archive-view-toggle')?.textContent.includes('Archived (1)')");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.archive-view-toggle').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card-options').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.goal-card-menu-items') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.goal-card-menu-items button')].find(button => button.textContent.includes('Delete')).click()", returnByValue: true });
+    await waitForExpression(socket, "[...document.querySelectorAll('.goal-card-menu-items button')].some(button => button.textContent.includes('Confirm'))");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.goal-card-menu-items button')].find(button => button.textContent.includes('Confirm')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.goal-card') === null");
     assert.ok(mock.authorizationHeaders.every((header) => header === `Bearer ${token}`));
   } finally {
     socket?.close();
@@ -451,7 +466,19 @@ function createMockApi() {
       return;
     }
     if (request.url === "/api/goals" && request.method === "GET") {
-      json(response, { goals: [currentListItem] });
+      json(response, { goals: currentListItem === null ? [] : [currentListItem] });
+      return;
+    }
+    if (request.url === "/api/goals/goal-1/archive" && request.method === "POST") {
+      let body = "";
+      for await (const chunk of request) body += chunk;
+      currentListItem = { ...currentListItem, archived: JSON.parse(body).archived };
+      json(response, { ok: true });
+      return;
+    }
+    if (request.url === "/api/goals/goal-1" && request.method === "DELETE") {
+      currentListItem = null;
+      json(response, { ok: true });
       return;
     }
     if (request.url === "/api/models" && request.method === "GET") {
@@ -727,6 +754,7 @@ function listItem(runStatus) {
     intent: "Collect approved notes from the current workspace",
     workflowPhase: "executing",
     runStatus,
+    archived: false,
     updatedAt: "2026-09-26T08:00:00.000Z",
   };
 }

@@ -163,6 +163,24 @@ export class JsonFileToolGrantStore implements ToolGrantStore {
         });
     }
 
+    /**
+     * 删除指定 Goal 的授权记录，保留项目级授权。
+     *
+     * @param workspaceId - 当前项目身份。
+     * @param goalId - 已删除的 Goal 身份。
+     * @example
+     * ```ts
+     * await store.deleteGoalGrants("workspace-1", "goal-1");
+     * ```
+     */
+    async deleteGoalGrants(workspaceId: string, goalId: string): Promise<void> {
+        await this.mutate((ledger) => ({
+            ledger: { ...ledger, grants: ledger.grants.filter((grant) =>
+                !(grant.workspaceId === workspaceId && grant.scope === "goal" && grant.goalId === goalId)) },
+            result: undefined,
+        }));
+    }
+
     private async readLedger(): Promise<Ledger> {
         let content: string;
         try {

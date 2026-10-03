@@ -107,7 +107,7 @@ function createMultiRunGoal(): Goal {
     };
 }
 
-function oldRunEvents(): readonly TrajectoryEvent[] {
+function oldRunEvents(summary = "archive completed"): readonly TrajectoryEvent[] {
     return [
         allocateImmutableEvent({
             goalId,
@@ -119,7 +119,7 @@ function oldRunEvents(): readonly TrajectoryEvent[] {
                 type: "decision_received",
                 decision: {
                     kind: "complete",
-                    summary: "archive completed",
+                    summary,
                     completionEvidence: [],
                 },
             },
@@ -130,7 +130,7 @@ function oldRunEvents(): readonly TrajectoryEvent[] {
             phase: "executing",
             executionUnitId: "old-unit",
             eventType: "run_completed",
-            payload: { type: "run_completed", summary: "archive completed" },
+            payload: { type: "run_completed", summary },
         }, 2, "old-completed"),
     ];
 }
@@ -209,6 +209,31 @@ test("Indexed Lookup keeps equal local sequences separated by Run identity", asy
         currentRunId,
         getCommittedRunBoundaries(goal),
     ));
+});
+
+test("历史轨迹包含 constructor 时 Indexed Lookup 返回来源 Run", async () => {
+    const goal = createMultiRunGoal();
+    const trajectoryStore = new MemoryTrajectoryStore(new Map([
+        [oldRunId, oldRunEvents("constructor(private readonly delegate: Store) {}")],
+        [currentRunId, currentRunEvents()],
+    ]));
+    const result = await new IndexedContextLookupService({
+        trajectoryStore,
+        minimumScore: 0,
+    }).lookup({
+        goal,
+        request: {
+            kind: "context_lookup",
+            need: "historical_execution",
+            question: "constructor",
+        },
+        lookupId: "lookup-constructor",
+        committedThroughSequence: 1,
+    });
+
+    assert.equal(result.status, "found");
+    if (result.status !== "found") return;
+    assert.equal(result.matches[0]?.runId, oldRunId);
 });
 
 test("旧 Run Lookup 来源可验证但不能作为当前 Run Evidence", async () => {

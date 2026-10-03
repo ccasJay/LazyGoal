@@ -514,6 +514,29 @@ export class BrowserGoalCommandService {
     constructor(private readonly dependencies: BrowserGoalCommandDependencies) {}
 
     /**
+     * 在浏览器命令预约锁内管理终态 Goal，避免与新 Run 或模型切换并发。
+     *
+     * @param goalId - 要管理的 Goal 身份。
+     * @param operation - 已验证终态后执行的持久化操作。
+     * @returns 成功或稳定拒绝码；存储异常原样向路由传播。
+     * @example
+     * ```ts
+     * await commands.manageTerminalGoal("goal-1", () => archive("goal-1"));
+     * ```
+     */
+    async manageTerminalGoal(goalId: string, operation: () => Promise<void>): Promise<"ok" | "goal_not_found" | "goal_not_terminal"> {
+        return this.withReservationLock(async () => {
+            if (this.activeGoalId !== undefined) return "goal_not_terminal";
+            const goal = await this.dependencies.store.restore(goalId);
+            if (goal === undefined) return "goal_not_found";
+            const status = goal.state.run.status;
+            if (status !== "completed" && status !== "failed" && status !== "cancelled") return "goal_not_terminal";
+            await operation();
+            return "ok";
+        });
+    }
+
+    /**
      * 在当前 Run 的安全等待点提交已重新验证的模型选择。
      *
      * @param goalId - URL 路径中的 Goal 身份。

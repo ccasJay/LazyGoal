@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Circle, CircleHelp, Clock3, Eye, Shield, X, Zap } from "lucide-react";
+import { Check, Circle, CircleHelp, Clock3, Eye, Shield, Trash2, X, Zap } from "lucide-react";
 
 import type {
   BrowserGoalInteractionCommand,
@@ -18,6 +18,8 @@ export function GoalDetails({
   grantsError,
   revokingGrantId,
   onRevokeGrant,
+  onDelete,
+  deleteBusy = false,
 }: {
   session: BrowserGoalSession;
   tab: Exclude<SessionTab, "Activity">;
@@ -26,7 +28,10 @@ export function GoalDetails({
   grantsError: string | null;
   revokingGrantId: string | null;
   onRevokeGrant: (grant: BrowserToolGrantSummary) => void;
+  onDelete?: () => void;
+  deleteBusy?: boolean;
 }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
   if (tab === "Plan") {
     const plan = session.goalPlan;
     if (plan === undefined) return null;
@@ -116,6 +121,10 @@ export function GoalDetails({
                 </li>
               ))}</ul>}
       </section>
+      {onDelete && <section className="goal-delete-panel">
+        <div><strong>Local record</strong><p>Remove this Goal and its saved run history from this workspace.</p></div>
+        <button type="button" className={confirmDelete ? "is-confirming" : ""} disabled={deleteBusy || !(session.runStatus === "completed" || session.runStatus === "failed" || session.runStatus === "cancelled")} onPointerLeave={(event) => { if (event.pointerType === "mouse" && !deleteBusy) setConfirmDelete(false); }} onClick={() => { if (confirmDelete) onDelete(); else setConfirmDelete(true); }}><Trash2 size={14} /> {deleteBusy ? "Deleting…" : confirmDelete ? "Confirm" : "Delete goal"}</button>
+      </section>}
       {session.historyTruncated && (
         <div className="info-box">Older session history is omitted from this view.</div>
       )}

@@ -200,6 +200,7 @@ test("看板列表使用正式 Catalog 摘要并投影白名单字段", async ()
 
     const result = await listBrowserGoals(catalog);
     assert.deepEqual(result, [{
+        archived: false,
         goalId: "goal-real-1",
         runId: "run-real-1",
         intent: "真实 Goal",

@@ -41,6 +41,14 @@ export const browserApi = {
     return requestJson("/api/goals", isGoalList, signal).then((body) => body.goals);
   },
 
+  setGoalArchived(goalId: string, archived: boolean): Promise<{ readonly ok: true }> {
+    return postJson(`/api/goals/${encodeURIComponent(goalId)}/archive`, { archived }, isOkResponse);
+  },
+
+  deleteGoal(goalId: string): Promise<{ readonly ok: true }> {
+    return requestJson(`/api/goals/${encodeURIComponent(goalId)}`, isOkResponse, undefined, { method: "DELETE" });
+  },
+
   readGoal(goalId: string, signal?: AbortSignal): Promise<BrowserGoalSession> {
     return requestJson(
       `/api/goals/${encodeURIComponent(goalId)}`,
@@ -357,7 +365,12 @@ function isGoalListItem(value: unknown): value is BrowserGoalListItem {
     && typeof value.intent === "string"
     && typeof value.workflowPhase === "string"
     && isRunStatus(value.runStatus)
+    && typeof value.archived === "boolean"
     && typeof value.updatedAt === "string";
+}
+
+function isOkResponse(value: unknown): value is { readonly ok: true } {
+  return isRecord(value) && value.ok === true;
 }
 
 function isGoalSessionEnvelope(value: unknown): value is { readonly goal: BrowserGoalSession } {

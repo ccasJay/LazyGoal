@@ -65,6 +65,8 @@ export interface GoalCatalogEntry {
     readonly runStatus: RunStatus;
     /** 最近成功快照的 ISO 8601 UTC 修改时间。 */
     readonly updatedAt: string;
+    /** Goal 是否从默认看板归档；只影响浏览器展示。 */
+    readonly archived?: boolean;
 }
 
 /**

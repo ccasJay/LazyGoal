@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import {
   ArrowDown,
   ArrowUp,
+  Archive,
   BookOpen,
   Check,
   ChevronRight,
@@ -18,11 +19,13 @@ import {
   GitBranch,
   LayoutGrid,
   Layers,
+  MoreHorizontal,
   Plus,
   Search,
   Shield,
   ChevronDown,
   Terminal,
+  Trash2,
   FilePenLine,
   X,
   Zap,
@@ -94,6 +97,10 @@ function App() {
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commandBusy, setCommandBusy] = useState(false);
   const [search, setSearch] = useState("");
+  const [archivedView, setArchivedView] = useState(false);
+  const [manageBusyId, setManageBusyId] = useState<string | null>(null);
+  const [manageError, setManageError] = useState<string | null>(null);
+  const [undoArchiveId, setUndoArchiveId] = useState<string | null>(null);
   const [goalInfoOpen, setGoalInfoOpen] = useState(false);
   const [trajectoryTarget, setTrajectoryTarget] = useState<{runId: string; executionUnitId: string; nonce: number} | null>(null);
   const [sessionTab, setSessionTab] = useState<SessionTab>("Activity");
@@ -125,7 +132,7 @@ function App() {
   const activeGoal = goals.find((goal) => goal.goalId === selectedGoalId);
   const sessionVisible = activeGoal !== undefined || draftSessionOpen;
   const currentRun = session?.runs.find((run) => run.current);
-  const visibleGoals = useMemo(() => goals.filter((goal) => goal.intent.toLowerCase().includes(search.toLowerCase())), [goals, search]);
+  const visibleGoals = useMemo(() => goals.filter((goal) => goal.archived === archivedView && goal.intent.toLowerCase().includes(search.toLowerCase())), [goals, search, archivedView]);
   const canSendText = session !== null
     && session.pendingInteraction === undefined
     && session.pendingAction === undefined
@@ -514,6 +521,37 @@ function App() {
     }
   }
 
+  async function changeArchive(goal: BrowserGoalListItem, archived: boolean) {
+    setManageBusyId(goal.goalId);
+    setManageError(null);
+    try {
+      await browserApi.setGoalArchived(goal.goalId, archived);
+      setGoals((current) => current.map((item) => item.goalId === goal.goalId ? { ...item, archived } : item));
+      setUndoArchiveId(archived ? goal.goalId : null);
+    } catch (error) {
+      setManageError(`Archive failed: ${errorMessage(error)}`);
+      await refreshGoals();
+    } finally {
+      setManageBusyId(null);
+    }
+  }
+
+  async function deleteGoal(goal: BrowserGoalListItem) {
+    setManageBusyId(goal.goalId);
+    setManageError(null);
+    try {
+      await browserApi.deleteGoal(goal.goalId);
+      setGoals((current) => current.filter((item) => item.goalId !== goal.goalId));
+      setUndoArchiveId(null);
+      if (selectedGoalId === goal.goalId) setSelectedGoalId(null);
+    } catch (error) {
+      setManageError(`Deletion failed: ${errorMessage(error)}`);
+      await refreshGoals();
+    } finally {
+      setManageBusyId(null);
+    }
+  }
+
   async function refreshSelectedSession() {
     if (selectedGoalId === null) return;
     const hasVisibleSession = latestSession.current !== null;
@@ -709,7 +747,10 @@ function App() {
   const boardContent = (
     <section className="board-area">
       <div className="toolbar">
-        <strong className="board-title">All goals <span>{goals.length}</span></strong>
+        <strong className="board-title">{archivedView ? "Archived" : "All goals"} <span>{goals.filter((goal) => goal.archived === archivedView).length}</span></strong>
+        <button className={`archive-view-toggle ${archivedView ? "is-active" : ""}`} type="button" onClick={() => { setArchivedView(!archivedView); setUndoArchiveId(null); }}>
+          {archivedView ? "All goals" : `Archived (${goals.filter((goal) => goal.archived).length})`}
+        </button>
         <label className="search">
           <Search size={14} />
           <input
@@ -734,14 +775,16 @@ function App() {
           {browserApi.hasAccessToken && <button onClick={() => void refreshGoals()}>Retry</button>}
         </div>
       )}
+      {manageError && <div className="page-error" role="alert"><span>{manageError}</span><button onClick={() => setManageError(null)}>Dismiss</button></div>}
+      {undoArchiveId && !archivedView && <div className="archive-notice" role="status">Goal archived. <button onClick={() => { const goal = goals.find((item) => item.goalId === undoArchiveId); if (goal) void changeArchive(goal, false); }}>Undo</button></div>}
       {goalsLoading ? (
         <div className="board-empty"><span className="loading-mark" /><p>Loading saved Goals…</p></div>
-      ) : goals.length === 0 && !sessionError ? (
+      ) : goals.filter((goal) => goal.archived === archivedView).length === 0 && !sessionError ? (
         <div className="board-empty">
           <InboxIcon />
-          <h2>No saved Goals yet</h2>
-          <p>Create a Goal to start a real session in this workspace.</p>
-          <button className="primary" onClick={openNewGoalDraft} disabled={!browserApi.hasAccessToken}><Plus size={14} /> New goal</button>
+          <h2>{archivedView ? "No archived Goals" : "No saved Goals yet"}</h2>
+          <p>{archivedView ? "Archived Goals will appear here." : "Create a Goal to start a real session in this workspace."}</p>
+          {!archivedView && <button className="primary" onClick={openNewGoalDraft} disabled={!browserApi.hasAccessToken}><Plus size={14} /> New goal</button>}
         </div>
       ) : visibleGoals.length === 0 && !sessionError ? (
         <div className="board-empty">
@@ -767,6 +810,9 @@ function App() {
                     metrics={metricsByGoal[goal.goalId]}
                     selected={selectedGoalId === goal.goalId}
                     onSelect={() => toggleGoalSelection(goal.goalId)}
+                    busy={manageBusyId === goal.goalId}
+                    onArchive={() => void changeArchive(goal, !goal.archived)}
+                    onDelete={() => void deleteGoal(goal)}
                   />)}
                   {statusGoals.length === 0 && <div className="empty-column">No goals here</div>}
                 </div>
@@ -803,10 +849,11 @@ function App() {
           </div>
         </header>
         <div className={`content ${sessionVisible ? "session-open" : ""}`}>
+          {sessionVisible && manageError && <div className="manage-error-overlay" role="alert">{manageError}<button onClick={() => setManageError(null)}>Dismiss</button></div>}
           {!sessionVisible && boardContent}
           {sessionVisible && (
             <section className="session">
-                {goalInfoOpen && session && <section className="goal-info-panel" aria-label="Goal information"><header><strong>Goal information</strong><button className="icon" aria-label="Close Goal information" onClick={() => setGoalInfoOpen(false)}><X size={17}/></button></header><GoalDetails session={session} tab="Details" grants={toolGrants} grantsLoading={toolGrantsLoading} grantsError={toolGrantsError} revokingGrantId={revokingGrantId} onRevokeGrant={grant => void revokeToolGrant(grant)}/></section>}
+                {goalInfoOpen && session && <section className="goal-info-panel" aria-label="Goal information"><header><strong>Goal information</strong><button className="icon" aria-label="Close Goal information" onClick={() => setGoalInfoOpen(false)}><X size={17}/></button></header><GoalDetails session={session} tab="Details" grants={toolGrants} grantsLoading={toolGrantsLoading} grantsError={toolGrantsError} revokingGrantId={revokingGrantId} onRevokeGrant={grant => void revokeToolGrant(grant)} onDelete={activeGoal ? () => void deleteGoal(activeGoal) : undefined} deleteBusy={manageBusyId === session.goalId}/></section>}
                 {draftSessionOpen ? (
                   <>
                     <WorkspaceContext context={workspaceContext} error={workspaceContextError} />
@@ -1266,14 +1313,28 @@ function GoalCard({
   metrics,
   selected,
   onSelect,
+  busy,
+  onArchive,
+  onDelete,
 }: {
   goal: BrowserGoalListItem;
   metrics?: MetricsState;
   selected: boolean;
   onSelect: () => void;
+  busy: boolean;
+  onArchive: () => void;
+  onDelete: () => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const firstMenuAction = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (menuOpen) firstMenuAction.current?.focus();
+  }, [menuOpen]);
   const status = statusFromRun(goal.runStatus);
+  const terminal = goal.runStatus === "completed" || goal.runStatus === "failed" || goal.runStatus === "cancelled";
   return (
+    <article className="goal-card-shell">
     <button className={`goal-card ${selected ? "is-selected" : ""}`} onClick={onSelect} aria-pressed={selected}>
       <h3>{goal.intent}</h3>
       <CardMetrics state={metrics} />
@@ -1282,6 +1343,18 @@ function GoalCard({
         <time dateTime={goal.updatedAt} title={goal.updatedAt}>{formatUpdatedAt(goal.updatedAt)}</time>
       </div>
     </button>
+    <div className={`goal-card-menu ${menuOpen ? "is-expanded" : ""}`} onKeyDown={(event) => {
+      if (event.key === "Escape") { setMenuOpen(false); setConfirmDelete(false); }
+    }} onPointerLeave={(event) => {
+      if (event.pointerType === "mouse") { setMenuOpen(false); setConfirmDelete(false); }
+    }}>
+      <button type="button" className="goal-card-options" aria-label={`More options for ${goal.intent}`} aria-expanded={menuOpen} tabIndex={menuOpen ? -1 : 0} onClick={() => { setConfirmDelete(false); setMenuOpen(true); }}><MoreHorizontal size={18} /></button>
+      {menuOpen && <div className="goal-card-menu-items" role="group" aria-label={`Options for ${goal.intent}`}>
+        <button ref={firstMenuAction} type="button" disabled={!terminal || busy} title={!terminal ? "Available after this Goal ends." : undefined} onClick={() => { onArchive(); setMenuOpen(false); }}><Archive size={14} /> {goal.archived ? "Restore" : "Archive"}</button>
+        <button type="button" className={`danger ${confirmDelete ? "is-confirming" : ""}`} disabled={!terminal || busy} title={!terminal ? "Available after this Goal ends." : undefined} onClick={() => { if (confirmDelete) { onDelete(); setMenuOpen(false); } else setConfirmDelete(true); }}><Trash2 size={14} /> {busy ? "Deleting…" : confirmDelete ? "Confirm" : "Delete"}</button>
+      </div>}
+    </div>
+    </article>
   );
 }
 
