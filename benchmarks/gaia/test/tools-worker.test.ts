@@ -113,7 +113,7 @@ test("GAIA tools worker 执行 read_file, web_search, web_fetch, bash 与 submit
         input: { path: "question.txt" },
     });
     assert.equal(readRes.kind, "success");
-    assert.match((readRes as any).output, /What is 2\+2\?/);
+    assert.match((readRes as any).output.text, /What is 2\+2\?/);
 
     // 2. web_search
     const searchRes = await client.execute({

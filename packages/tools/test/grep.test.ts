@@ -18,6 +18,7 @@ import {
 import {
     GREP_TOOL_ID,
     GrepTool,
+    type GrepOutput,
 } from "../src/index";
 
 function asJsonValue(value: unknown): JsonValue {
@@ -51,20 +52,15 @@ test("GrepTool 在整个工作区内递归搜索并返回带行号的匹配", as
         assert.equal(result.kind, "success");
 
         if (result.kind === "success") {
-            const output = result.output as {
-                matches: { path: string; line: number; text: string }[];
-                matchCount: number;
-                filesScanned: number;
-                truncated: boolean;
-            };
+            const output = result.output as unknown as GrepOutput;
 
-            assert.equal(output.matchCount, 2);
+            assert.equal(output.matches.length, 2);
             assert.equal(output.truncated, false);
             assert.deepEqual(output.matches, [
-                { path: "./src/a.ts", line: 2, text: "// TODO: refactor" },
-                { path: "./src/nested/b.ts", line: 1, text: "// TODO: nested" },
+                { path: "src/a.ts", lineNumber: 2, lineText: "// TODO: refactor" },
+                { path: "src/nested/b.ts", lineNumber: 1, lineText: "// TODO: nested" },
             ]);
-            assert.equal(output.filesScanned, 2);
+            assert.equal(output.scannedFiles, 2);
         }
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
@@ -96,12 +92,9 @@ test("GrepTool 支持 path 范围、ignoreCase 与正则语法", async () => {
         assert.equal(result.kind, "success");
 
         if (result.kind === "success") {
-            const output = result.output as {
-                matches: { path: string; line: number; text: string }[];
-            };
-
+            const output = result.output as unknown as GrepOutput;
             assert.deepEqual(output.matches, [
-                { path: "src/a.ts", line: 1, text: "const alpha = 1;" },
+                { path: "src/a.ts", lineNumber: 1, lineText: "const alpha = 1;" },
             ]);
         }
 
@@ -113,13 +106,153 @@ test("GrepTool 支持 path 范围、ignoreCase 与正则语法", async () => {
         assert.equal(regexResult.kind, "success");
 
         if (regexResult.kind === "success") {
-            const output = regexResult.output as {
-                matches: { path: string; line: number; text: string }[];
-            };
-
+            const output = regexResult.output as unknown as GrepOutput;
             assert.deepEqual(output.matches, [
-                { path: "./src/a.ts", line: 1, text: "const alpha = 1;" },
+                { path: "src/a.ts", lineNumber: 1, lineText: "const alpha = 1;" },
             ]);
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("GrepTool 支持 include 与 exclude 模式过滤", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-grep-"));
+
+    try {
+        await writeFile(join(workspaceRoot, "a.ts"), "const target = 1;\n", "utf8");
+        await writeFile(join(workspaceRoot, "a.test.ts"), "const target = 2;\n", "utf8");
+        await writeFile(join(workspaceRoot, "b.js"), "const target = 3;\n", "utf8");
+
+        const tool = new GrepTool(workspaceRoot);
+
+        // 仅包含 *.ts，排除 *.test.ts
+        const filteredResult = await tool.execute({
+            actionId: "act-filter",
+            input: {
+                pattern: "target",
+                include: "*.ts",
+                exclude: "*.test.ts",
+            },
+        });
+
+        assert.equal(filteredResult.kind, "success");
+        if (filteredResult.kind === "success") {
+            const output = filteredResult.output as unknown as GrepOutput;
+            assert.equal(output.matches.length, 1);
+            assert.equal(output.matches[0]?.path, "a.ts");
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("GrepTool 支持 contextLines 上下文行提取及文件边界处理", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-grep-"));
+
+    try {
+        // 创建一个 4 行文件：第 1 行与第 4 行匹配
+        await writeFile(
+            join(workspaceRoot, "code.ts"),
+            "line1 MATCH\nline2 context\nline3 context\nline4 MATCH\n",
+            "utf8",
+        );
+
+        const tool = new GrepTool(workspaceRoot);
+        const result = await tool.execute({
+            actionId: "act-ctx",
+            input: {
+                pattern: "MATCH",
+                contextLines: 2,
+            },
+        });
+
+        assert.equal(result.kind, "success");
+        if (result.kind === "success") {
+            const output = result.output as unknown as GrepOutput;
+            assert.equal(output.matches.length, 2);
+
+            // 第 1 行位于文件开头，只有 after 没有 before
+            const m1 = output.matches[0]!;
+            assert.equal(m1.lineNumber, 1);
+            assert.equal(m1.context?.before, undefined);
+            assert.deepEqual(m1.context?.after, [
+                { lineNumber: 2, text: "line2 context" },
+                { lineNumber: 3, text: "line3 context" },
+            ]);
+
+            // 第 4 行位于文件末尾，只有 before 没有 after
+            const m2 = output.matches[1]!;
+            assert.equal(m2.lineNumber, 4);
+            assert.deepEqual(m2.context?.before, [
+                { lineNumber: 2, text: "line2 context" },
+                { lineNumber: 3, text: "line3 context" },
+            ]);
+            assert.equal(m2.context?.after, undefined);
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("GrepTool 分页与游标推进", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-grep-"));
+
+    try {
+        await writeFile(join(workspaceRoot, "1.txt"), "item A\nitem B\nitem C\n", "utf8");
+        await writeFile(join(workspaceRoot, "2.txt"), "item D\nitem E\n", "utf8");
+
+        const tool = new GrepTool(workspaceRoot);
+
+        // 每页最多 2 项匹配
+        const p1 = await tool.execute({
+            actionId: "act-p1",
+            input: { pattern: "item", maxMatches: 2 },
+        });
+
+        assert.equal(p1.kind, "success");
+        let cursor: string | undefined;
+        if (p1.kind === "success") {
+            const out1 = p1.output as unknown as GrepOutput;
+            assert.equal(out1.matches.length, 2);
+            assert.equal(out1.truncated, true);
+            assert.ok(out1.nextCursor);
+            cursor = out1.nextCursor;
+            assert.equal(out1.matches[0]?.lineText, "item A");
+            assert.equal(out1.matches[1]?.lineText, "item B");
+        }
+
+        assert.ok(cursor !== undefined);
+        const p2 = await tool.execute({
+            actionId: "act-p2",
+            input: { pattern: "item", maxMatches: 2, cursor },
+        });
+
+        assert.equal(p2.kind, "success");
+        let cursor2: string | undefined;
+        if (p2.kind === "success") {
+            const out2 = p2.output as unknown as GrepOutput;
+            assert.equal(out2.matches.length, 2);
+            assert.equal(out2.truncated, true);
+            assert.ok(out2.nextCursor);
+            cursor2 = out2.nextCursor;
+            assert.equal(out2.matches[0]?.lineText, "item C");
+            assert.equal(out2.matches[1]?.lineText, "item D");
+        }
+
+        assert.ok(cursor2 !== undefined);
+        const p3 = await tool.execute({
+            actionId: "act-p3",
+            input: { pattern: "item", maxMatches: 2, cursor: cursor2 },
+        });
+
+        assert.equal(p3.kind, "success");
+        if (p3.kind === "success") {
+            const out3 = p3.output as unknown as GrepOutput;
+            assert.equal(out3.matches.length, 1);
+            assert.equal(out3.truncated, false);
+            assert.equal(out3.nextCursor, undefined);
+            assert.equal(out3.matches[0]?.lineText, "item E");
         }
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
@@ -139,10 +272,10 @@ test("GrepTool 无匹配时返回空结果而非 failure", async () => {
         assert.equal(result.kind, "success");
 
         if (result.kind === "success") {
-            assert.deepEqual(result.output, {
+            const output = result.output as unknown as GrepOutput;
+            assert.deepEqual(output, {
                 matches: [],
-                matchCount: 0,
-                filesScanned: 1,
+                scannedFiles: 1,
                 truncated: false,
             });
         }
@@ -184,15 +317,12 @@ test("GrepTool 跳过 .git、.lazygoal、node_modules 与二进制文件", async
         assert.equal(result.kind, "success");
 
         if (result.kind === "success") {
-            const output = result.output as {
-                matches: { path: string; line: number; text: string }[];
-                filesScanned: number;
-            };
+            const output = result.output as unknown as GrepOutput;
 
             assert.deepEqual(output.matches, [
-                { path: "./real.ts", line: 1, text: "TODO real" },
+                { path: "real.ts", lineNumber: 1, lineText: "TODO real" },
             ]);
-            assert.equal(output.filesScanned, 2);
+            assert.equal(output.scannedFiles, 2);
         }
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
@@ -220,6 +350,8 @@ test("GrepTool 拒绝非法输入且不访问文件系统", async () => {
             { pattern: "a", path: "../secret" },
             { pattern: "a", path: "/tmp/secret" },
             { pattern: "a", path: "C:\\secret" },
+            { pattern: "a", contextLines: -1 },
+            { pattern: "a", maxMatches: 0 },
         ];
 
         for (const input of invalidInputs) {
@@ -253,7 +385,7 @@ test("GrepTool 将缺失范围与越界符号链接作为领域 failure Observat
             {
                 kind: "failure",
                 code: "FILE_NOT_FOUND",
-                message: "搜索范围不存在: missing-dir",
+                message: "Search path not found: missing-dir",
                 retryable: false,
             },
         );
@@ -267,7 +399,7 @@ test("GrepTool 将缺失范围与越界符号链接作为领域 failure Observat
             {
                 kind: "failure",
                 code: "PATH_OUTSIDE_WORKSPACE",
-                message: "搜索范围不在工作区内: link",
+                message: "Search path outside workspace: link",
                 retryable: false,
             },
         );
@@ -293,15 +425,12 @@ test("GrepTool 不跟随工作区内的文件符号链接", async () => {
         assert.equal(result.kind, "success");
 
         if (result.kind === "success") {
-            const output = result.output as {
-                matches: { path: string; line: number; text: string }[];
-                filesScanned: number;
-            };
+            const output = result.output as unknown as GrepOutput;
 
             assert.deepEqual(output.matches, [
-                { path: "./target.txt", line: 1, text: "TODO in target" },
+                { path: "target.txt", lineNumber: 1, lineText: "TODO in target" },
             ]);
-            assert.equal(output.filesScanned, 1);
+            assert.equal(output.scannedFiles, 1);
         }
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });

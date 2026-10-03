@@ -93,7 +93,7 @@ test("SWE-bench tools worker 执行 write_file, read_file, grep, edit_file 和 b
         input: { path: "hello.py" },
     });
     assert.equal(readRes.kind, "success");
-    assert.match((readRes as any).output, /hello from worker/);
+    assert.match((readRes as any).output.text, /hello from worker/);
 
     // 3. grep
     const grepRes = await client.execute({
@@ -103,8 +103,8 @@ test("SWE-bench tools worker 执行 write_file, read_file, grep, edit_file 和 b
     });
     assert.equal(grepRes.kind, "success");
     const grepOutput = (grepRes as any).output;
-    assert.equal(grepOutput.matchCount, 1);
-    assert.equal(grepOutput.matches[0]?.path, "./hello.py");
+    assert.equal(grepOutput.matches.length, 1);
+    assert.equal(grepOutput.matches[0]?.path, "hello.py");
 
     // 4. edit_file
     const editRes = await client.execute({

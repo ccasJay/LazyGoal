@@ -16,11 +16,14 @@ import {
     FIND_FILES_MAX_RESULTS_LIMIT,
     FindFilesTool,
     GREP_INPUT_CONTRACT,
+    GREP_MAX_CONTEXT_LINES,
+    GREP_MAX_MATCHES_LIMIT,
     GrepTool,
     LIST_DIRECTORY_INPUT_CONTRACT,
     LIST_DIRECTORY_MAX_ENTRIES_LIMIT,
     ListDirectoryTool,
     READ_FILE_INPUT_CONTRACT,
+    READ_FILE_MAX_CHARS_LIMIT,
     ReadFileTool,
     WebFetchTool,
     WebSearchTool,
@@ -60,7 +63,13 @@ type _BashInputIsInferred = Assert<Equal<
 >>;
 type _ReadFileInputIsInferred = Assert<Equal<
     InferContract<typeof READ_FILE_INPUT_CONTRACT>,
-    { readonly path: string }
+    {
+        readonly path: string;
+        readonly cursor?: string;
+        readonly endLine?: number;
+        readonly maxChars?: number;
+        readonly startLine?: number;
+    }
 >>;
 type _WriteFileInputIsInferred = Assert<Equal<
     InferContract<typeof WRITE_FILE_INPUT_CONTRACT>,
@@ -72,7 +81,16 @@ type _EditFileInputIsInferred = Assert<Equal<
 >>;
 type _GrepInputIsInferred = Assert<Equal<
     InferContract<typeof GREP_INPUT_CONTRACT>,
-    { readonly pattern: string; readonly path?: string; readonly ignoreCase?: boolean }
+    {
+        readonly pattern: string;
+        readonly contextLines?: number;
+        readonly cursor?: string;
+        readonly exclude?: string;
+        readonly ignoreCase?: boolean;
+        readonly include?: string;
+        readonly maxMatches?: number;
+        readonly path?: string;
+    }
 >>;
 
 type _BashValidateUsesContractOutput = Assert<Equal<
@@ -168,16 +186,33 @@ const contractCases = [
     {
         id: "read_file",
         inputContract: READ_FILE_INPUT_CONTRACT,
-        valid: { path: "src/file.txt" },
+        valid: {
+            path: "src/file.txt",
+            startLine: 1,
+            endLine: 10,
+            maxChars: 1000,
+            cursor: "cur123",
+        },
         invalid: [
             { value: {}, code: "missing_field", path: ["path"] },
             { value: { path: 42 }, code: "invalid_type", path: ["path"] },
+            { value: { path: "src/file.txt", startLine: 0 }, code: "number_minimum", path: ["startLine"] },
+            { value: { path: "src/file.txt", endLine: 0 }, code: "number_minimum", path: ["endLine"] },
+            { value: { path: "src/file.txt", maxChars: 0 }, code: "number_minimum", path: ["maxChars"] },
+            { value: { path: "src/file.txt", maxChars: READ_FILE_MAX_CHARS_LIMIT + 1 }, code: "number_maximum", path: ["maxChars"] },
+            { value: { path: "src/file.txt", cursor: 123 }, code: "invalid_type", path: ["cursor"] },
             { value: { path: "src/file.txt", extra: true }, code: "extra_field", path: ["extra"] },
         ],
         schema: {
             $schema: schemaUri,
             type: "object",
-            properties: { path: { type: "string" } },
+            properties: {
+                path: { type: "string" },
+                startLine: { type: "integer", minimum: 1, maximum: 9007199254740991 },
+                endLine: { type: "integer", minimum: 1, maximum: 9007199254740991 },
+                maxChars: { type: "integer", minimum: 1, maximum: READ_FILE_MAX_CHARS_LIMIT },
+                cursor: { type: "string" },
+            },
             required: ["path"],
             additionalProperties: false,
         },
@@ -303,16 +338,28 @@ const contractCases = [
     {
         id: "grep",
         inputContract: GREP_INPUT_CONTRACT,
-        valid: { pattern: "  TODO  ", path: "src", ignoreCase: false },
+        valid: {
+            pattern: "  TODO  ",
+            path: "src",
+            ignoreCase: false,
+            include: "*.ts",
+            exclude: "*.test.ts",
+            contextLines: 2,
+            maxMatches: 50,
+            cursor: "cur123",
+        },
         invalid: [
             { value: {}, code: "missing_field", path: ["pattern"] },
             { value: { pattern: 42 }, code: "invalid_type", path: ["pattern"] },
             { value: { pattern: "a", path: 42 }, code: "invalid_type", path: ["path"] },
-            {
-                value: { pattern: "a", ignoreCase: "yes" },
-                code: "invalid_type",
-                path: ["ignoreCase"],
-            },
+            { value: { pattern: "a", ignoreCase: "yes" }, code: "invalid_type", path: ["ignoreCase"] },
+            { value: { pattern: "a", include: 42 }, code: "invalid_type", path: ["include"] },
+            { value: { pattern: "a", exclude: 42 }, code: "invalid_type", path: ["exclude"] },
+            { value: { pattern: "a", contextLines: -1 }, code: "number_minimum", path: ["contextLines"] },
+            { value: { pattern: "a", contextLines: GREP_MAX_CONTEXT_LINES + 1 }, code: "number_maximum", path: ["contextLines"] },
+            { value: { pattern: "a", maxMatches: 0 }, code: "number_minimum", path: ["maxMatches"] },
+            { value: { pattern: "a", maxMatches: GREP_MAX_MATCHES_LIMIT + 1 }, code: "number_maximum", path: ["maxMatches"] },
+            { value: { pattern: "a", cursor: 123 }, code: "invalid_type", path: ["cursor"] },
             { value: { pattern: "a", extra: true }, code: "extra_field", path: ["extra"] },
         ],
         schema: {
@@ -322,6 +369,11 @@ const contractCases = [
                 pattern: { type: "string" },
                 path: { type: "string" },
                 ignoreCase: { type: "boolean" },
+                include: { type: "string" },
+                exclude: { type: "string" },
+                contextLines: { type: "integer", minimum: 0, maximum: GREP_MAX_CONTEXT_LINES },
+                maxMatches: { type: "integer", minimum: 1, maximum: GREP_MAX_MATCHES_LIMIT },
+                cursor: { type: "string" },
             },
             required: ["pattern"],
             additionalProperties: false,

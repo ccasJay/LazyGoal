@@ -1,12 +1,6 @@
-import {
-    lstat,
-    readdir,
-    realpath,
-} from "node:fs/promises";
-import {
-    relative,
-    resolve,
-} from "node:path";
+import { open, stat } from "node:fs/promises";
+import { relative, resolve } from "node:path";
+import picomatch from "picomatch";
 
 import type {
     Tool,
@@ -27,6 +21,11 @@ import {
 } from "../../runtime/src/execution-control";
 import { invalidInput } from "./internal/invalid-input";
 import {
+    computeCanonicalDigest,
+    decodeAndValidateCursor,
+    encodeCursor,
+} from "./internal/cursor";
+import {
     createWorkspaceSandbox,
     type DomainFailureMessages,
     type WorkspaceSandbox,
@@ -35,20 +34,20 @@ import {
 /** `GrepTool` 在 Profile 中使用的稳定标识。 */
 export const GREP_TOOL_ID = "grep";
 
-/** 单次搜索最多扫描的文件数，超过即截断结果。 */
-const GREP_MAX_FILES = 2000;
+/** 单次搜索最多返回的匹配项默认上限。 */
+export const GREP_DEFAULT_MAX_MATCHES = 200;
 
-/** 单次搜索最多返回的匹配行数，超过即截断结果。 */
-const GREP_MAX_MATCHES = 200;
+/** 单次搜索最多返回的匹配项硬上限。 */
+export const GREP_MAX_MATCHES_LIMIT = 1000;
 
-/** 目录递归的最大深度。 */
-const GREP_MAX_DEPTH = 16;
+/** 上下文行数上限。 */
+export const GREP_MAX_CONTEXT_LINES = 20;
 
-/** 单行匹配文本保留的最大字符数。 */
-const GREP_MAX_LINE_CHARS = 500;
+/** 单行保留的最大字符数。 */
+export const GREP_MAX_LINE_CHARS = 500;
 
-/** 递归时默认跳过的目录名（隐藏控制目录与依赖目录）。 */
-const SKIPPED_DIRECTORY_NAMES = new Set([
+/** 目录递归跳过的目录名。 */
+const SKIPPED_DIR_NAMES = new Set([
     ".git",
     ".lazygoal",
     "node_modules",
@@ -57,135 +56,168 @@ const SKIPPED_DIRECTORY_NAMES = new Set([
 const GREP_DOMAIN_FAILURES: DomainFailureMessages = {
     ENOENT: {
         code: "FILE_NOT_FOUND",
-        render: (path) => `搜索范围不存在: ${path}`,
+        render: (path) => `Search path not found: ${path}`,
     },
     EACCES: {
         code: "FILE_ACCESS_DENIED",
-        render: (path) => `搜索范围不可访问: ${path}`,
+        render: (path) => `Search path access denied: ${path}`,
     },
     EPERM: {
         code: "FILE_ACCESS_DENIED",
-        render: (path) => `搜索范围不可访问: ${path}`,
+        render: (path) => `Search path access denied: ${path}`,
     },
     ENOTDIR: {
-        code: "INVALID_FILE_PATH",
-        render: (path) => `搜索范围路径无效: ${path}`,
+        code: "NOT_A_DIRECTORY",
+        render: (path) => `Search path is not a directory: ${path}`,
     },
 };
 
-/** Grep Tool 的唯一输入 Contract。 */
+/** Grep Tool 的输入契约。 */
 export const GREP_INPUT_CONTRACT = contract.object({
     pattern: contract.string(),
     path: contract.optional(contract.string()),
     ignoreCase: contract.optional(contract.boolean()),
+    include: contract.optional(contract.string()),
+    exclude: contract.optional(contract.string()),
+    contextLines: contract.optional(contract.integer({
+        minimum: 0,
+        maximum: GREP_MAX_CONTEXT_LINES,
+    })),
+    maxMatches: contract.optional(contract.integer({
+        minimum: 1,
+        maximum: GREP_MAX_MATCHES_LIMIT,
+    })),
+    cursor: contract.optional(contract.string()),
 });
 
-type GrepInput = InferContract<typeof GREP_INPUT_CONTRACT>;
+/** Grep 输入类型。 */
+export type GrepInput = InferContract<typeof GREP_INPUT_CONTRACT>;
 
-type GrepMatch = {
-    readonly path: string;
-    readonly line: number;
+/** 附带行号的文本行。 */
+export interface ContextLine {
+    readonly lineNumber: number;
     readonly text: string;
-};
+}
 
-/**
- * 截断超长匹配行，保留行首内容并标注省略。
- *
- * @param text - 匹配到的原始行文本。
- * @returns 不超过 `GREP_MAX_LINE_CHARS`（含标记）的截断文本。
- */
+/** 单个正则匹配结果。 */
+export interface GrepMatchItem {
+    readonly path: string;
+    readonly lineNumber: number;
+    readonly lineText: string;
+    readonly context?: {
+        readonly before?: readonly ContextLine[];
+        readonly after?: readonly ContextLine[];
+    };
+}
+
+/** Grep 成功输出结构。 */
+export interface GrepOutput {
+    readonly matches: readonly GrepMatchItem[];
+    readonly scannedFiles: number;
+    readonly truncated: boolean;
+    readonly nextCursor?: string;
+}
+
+interface GrepCursorPayload {
+    readonly toolId: typeof GREP_TOOL_ID;
+    readonly queryDigest: string;
+    readonly nextFileIndex: number;
+    readonly nextLineIndex: number;
+}
+
 function truncateLine(text: string): string {
     if (text.length <= GREP_MAX_LINE_CHARS) {
         return text;
     }
-
     const omitted = text.length - GREP_MAX_LINE_CHARS;
-
-    return `${text.slice(0, GREP_MAX_LINE_CHARS)}[...已省略 ${omitted} 字符...]`;
+    return `${text.slice(0, GREP_MAX_LINE_CHARS)}[...omitted ${omitted} chars...]`;
 }
 
 /**
- * 在指定 workspaceRoot 内按正则搜索文本文件并返回匹配行的只读 Tool。
+ * 在指定工作区内递归正则搜索文本文件并提供上下文行的只读 Tool。
  *
  * @remarks
- * `pattern` 是 JavaScript 正则源文本，输入时可带 `ignoreCase` 标志与可选
- * `path`（默认搜索整个 workspaceRoot）。搜索自 `path`（或根）起递归进行：
- * 跳过符号链接、`.git`、`.lazygoal` 与 `node_modules` 目录，不跟随越界
- * 目标；显式把 `path` 指向跳过目录内部时仍会搜索该范围。单次搜索最多扫描
- * `GREP_MAX_FILES` 个文件、返回 `GREP_MAX_MATCHES` 行匹配，超出时置
- * `truncated: true`；单行文本截断保留前 `GREP_MAX_LINE_CHARS` 字符。包含
- * NUL 字节的文件视为二进制并跳过。搜索是只读操作，同一输入重放结果一致，
- * 因此声明为 `safe`。
+ * 支持 include/exclude 模式过滤、前置与后置上下文行提取、分页游标和跳过二进制文件。
+ * 为避免 ReDoS 阻塞，对正则匹配执行超时防护。
+ * 声明为 `safe` 重放策略。
  *
  * @example
  * ```ts
  * const tool = new GrepTool("/workspace/project");
  * const result = await tool.execute({
- *   actionId: "action-1",
- *   input: { pattern: "TODO\\(.*\\)", path: "src", ignoreCase: true },
+ *   actionId: "act-1",
+ *   input: { pattern: "function\\s+main", path: "src", contextLines: 2 },
  * });
  * ```
  */
 export class GrepTool implements Tool<typeof GREP_INPUT_CONTRACT> {
     readonly definition: ToolDefinition<typeof GREP_INPUT_CONTRACT> = {
         id: GREP_TOOL_ID,
-        description: "在 workspaceRoot 内按正则搜索文本文件并返回带行号的匹配行",
+        description: "Search text files in workspace using regular expressions with context lines and pagination.",
         inputContract: GREP_INPUT_CONTRACT,
         isReadOnly: true,
     };
 
     readonly replayPolicy = "safe" as const;
 
+    private readonly workspaceRoot: string;
     private readonly sandbox: WorkspaceSandbox;
 
-    /**
-     * @param workspaceRoot - 允许搜索的工作区根目录，可为相对或绝对路径。
-     * @throws workspaceRoot 为空字符串时抛出 Error。
-     */
     constructor(workspaceRoot: string) {
-        // TODO(sandbox-extraction): 迁移独立包后替换为 @lazygoal/sandbox
-        this.sandbox = createWorkspaceSandbox(
-            workspaceRoot,
-            (path) => `搜索范围不在工作区内: ${path}`,
-        );
+        if (workspaceRoot.trim() === "") {
+            throw new Error("workspaceRoot must be non-empty");
+        }
+        this.workspaceRoot = resolve(workspaceRoot);
+        this.sandbox = createWorkspaceSandbox(this.workspaceRoot, (path) => `Search path outside workspace: ${path}`);
     }
 
-    /**
-     * 校验严格的 `{ pattern, path?, ignoreCase? }` 输入、正则可编译性与
-     * 工作区边界规则，不访问文件系统。
-     *
-     * @param input - 已由 Input Contract 解析的结构化输入。
-     * @returns 领域语义合法性；`pattern` 必须是非空可编译正则。
-     */
     validate(input: GrepInput): ToolValidationResult {
-        return this.checkSemantics(input);
+        if (input.pattern.trim() === "") {
+            return invalidInput("pattern cannot be empty", ["pattern"]);
+        }
+        if (input.pattern.length > 4096) {
+            return invalidInput("pattern exceeds 4096 chars limit", ["pattern"]);
+        }
+        try {
+            new RegExp(input.pattern, input.ignoreCase ? "i" : "");
+        } catch (error) {
+            return invalidInput(`Invalid regular expression pattern: ${error instanceof Error ? error.message : String(error)}`, ["pattern"]);
+        }
+        if (input.path !== undefined) {
+            const violation = this.sandbox.validateRelativePath(input.path);
+            if (violation !== undefined) {
+                switch (violation) {
+                    case "empty":
+                        return invalidInput("path cannot be empty", ["path"]);
+                    case "nul":
+                        return invalidInput("path cannot contain NUL bytes", ["path"]);
+                    case "absolute":
+                        return invalidInput("path must be a relative path", ["path"]);
+                    case "parent":
+                        return invalidInput("path cannot contain parent segments ('..')", ["path"]);
+                    case "rejected-segment":
+                        return invalidInput("path references a protected path", ["path"]);
+                }
+            }
+        }
+        if (input.cursor !== undefined && input.cursor.trim() === "") {
+            return invalidInput("cursor cannot be empty if specified", ["cursor"]);
+        }
+        return { ok: true };
     }
 
-    /**
-     * 执行一次已通过校验的搜索。
-     *
-     * @param request - Action ID 与 `{ pattern, path?, ignoreCase? }` 输入。
-     * @param control - 当前 Run 推进调用共享的中止控制。
-     * @returns 匹配列表（可能截断）或可恢复的领域失败 Observation。
-     * @throws workspaceRoot 无法解析或发生未分类文件系统异常；中止时抛出
-     *   `ExecutionAbortedError`。
-     */
     async execute(
         request: ToolExecutionRequest<GrepInput>,
         control?: ExecutionControl,
     ): Promise<ToolObservation> {
         throwIfAborted(control);
-        const parsed = request.input;
-
-        const regex = new RegExp(
-            parsed.pattern,
-            parsed.ignoreCase === true ? "i" : undefined,
-        );
-
-        const scopePath = parsed.path ?? "";
+        const { input } = request;
+        const requestedRoot = input.path ?? "";
+        const maxMatches = input.maxMatches ?? GREP_DEFAULT_MAX_MATCHES;
+        const contextLines = input.contextLines ?? 0;
 
         const resolved = await this.sandbox.resolveTarget(
-            scopePath === "" ? "." : scopePath,
+            requestedRoot,
             GREP_DOMAIN_FAILURES,
             control,
         );
@@ -194,211 +226,201 @@ export class GrepTool implements Tool<typeof GREP_INPUT_CONTRACT> {
             return resolved.failure;
         }
 
-        const state = {
-            matches: [] as GrepMatch[],
-            filesScanned: 0,
-            truncated: false,
-        };
-
-        await this.searchPath(
-            resolved.path,
-            scopePath === "" ? "." : scopePath,
-            0,
-            regex,
-            state,
-            control,
-        );
-        throwIfAborted(control);
-
-        const matchCount = state.matches.length;
-
-        return {
-            kind: "success",
-            output: {
-                matches: state.matches,
-                matchCount,
-                filesScanned: state.filesScanned,
-                truncated: state.truncated,
-            },
-            summary: state.truncated
-                ? `找到 ${matchCount}+ 处匹配（已截断），扫描 ${state.filesScanned} 个文件`
-                : `找到 ${matchCount} 处匹配，扫描 ${state.filesScanned} 个文件`,
-        };
-    }
-
-    /**
-     * 递归搜索目录或单个文件。
-     *
-     * @param absolutePath - 当前搜索的绝对路径（已通过 realpath 解析）。
-     * @param displayPath - 相对工作区的展示路径。
-     * @param depth - 当前递归深度。
-     * @param regex - 已编译的匹配正则。
-     * @param state - 跨递归共享的搜索累计状态。
-     * @param control - 共享中止控制。
-     * @throws 未分类异常；中止时抛出 `ExecutionAbortedError`。
-     */
-    private async searchPath(
-        absolutePath: string,
-        displayPath: string,
-        depth: number,
-        regex: RegExp,
-        state: {
-            matches: GrepMatch[];
-            filesScanned: number;
-            truncated: boolean;
-        },
-        control: ExecutionControl | undefined,
-    ): Promise<void> {
-        if (state.truncated) {
-            return;
+        let regex: RegExp;
+        try {
+            regex = new RegExp(input.pattern, input.ignoreCase ? "i" : "");
+        } catch (error) {
+            return {
+                kind: "failure",
+                code: "INVALID_REGEX",
+                message: `Invalid regex pattern: ${error instanceof Error ? error.message : String(error)}`,
+                retryable: false,
+            };
         }
 
-        if (depth > GREP_MAX_DEPTH) {
-            state.truncated = true;
-            return;
+        const includeMatcher = input.include !== undefined ? picomatch(input.include, { dot: true }) : undefined;
+        const excludeMatcher = input.exclude !== undefined ? picomatch(input.exclude, { dot: true }) : undefined;
+
+        const normalizedRootRel = (requestedRoot === "" || requestedRoot === ".")
+            ? ""
+            : requestedRoot.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
+
+        const queryDigest = computeCanonicalDigest({
+            pattern: input.pattern,
+            path: normalizedRootRel,
+            ignoreCase: input.ignoreCase,
+            include: input.include,
+            exclude: input.exclude,
+            contextLines: input.contextLines,
+        });
+
+        let startFileIndex = 0;
+        let startLineIndex = 0;
+        if (input.cursor !== undefined) {
+            const decoded = decodeAndValidateCursor<GrepCursorPayload>(
+                input.cursor,
+                GREP_TOOL_ID,
+                queryDigest,
+            );
+            if (decoded === undefined) {
+                return {
+                    kind: "failure",
+                    code: "INVALID_CURSOR",
+                    message: "The provided cursor is invalid, corrupted, or does not match the target query.",
+                    retryable: false,
+                };
+            }
+            startFileIndex = decoded.nextFileIndex;
+            startLineIndex = decoded.nextLineIndex;
         }
 
-        throwIfAborted(control);
-
-        const stats = await stat(absolutePath);
-
-        if (stats === undefined) {
-            return;
-        }
-
-        if (stats.isDirectory) {
-            let entries;
-
+        // 收集所有候选文件路径（有序）
+        const candidateFiles: string[] = [];
+        const collectFiles = async (relDir: string): Promise<void> => {
+            throwIfAborted(control);
+            const absDir = relDir === "" ? this.workspaceRoot : resolve(this.workspaceRoot, relDir);
+            let dirents;
             try {
-                entries = await readdir(absolutePath, {
-                    withFileTypes: true,
-                });
+                const fs = await import("node:fs/promises");
+                dirents = await fs.readdir(absDir, { withFileTypes: true });
             } catch {
                 return;
             }
+            for (const d of dirents) {
+                if (d.name.startsWith(".") && SKIPPED_DIR_NAMES.has(d.name)) continue;
+                if (SKIPPED_DIR_NAMES.has(d.name)) continue;
 
+                const childRel = relDir === "" ? d.name : `${relDir}/${d.name}`;
+                if (d.isSymbolicLink()) {
+                    continue;
+                }
+                if (d.isDirectory()) {
+                    await collectFiles(childRel);
+                } else if (d.isFile()) {
+                    if (includeMatcher !== undefined && !includeMatcher(d.name) && !includeMatcher(childRel)) {
+                        continue;
+                    }
+                    if (excludeMatcher !== undefined && (excludeMatcher(d.name) || excludeMatcher(childRel))) {
+                        continue;
+                    }
+                    candidateFiles.push(childRel);
+                }
+            }
+        };
+
+        const rootStat = await stat(resolved.path);
+        if (rootStat.isFile()) {
+            candidateFiles.push(normalizedRootRel === "" ? requestedRoot : normalizedRootRel);
+        } else {
+            await collectFiles(normalizedRootRel);
+        }
+        candidateFiles.sort();
+
+        const matches: GrepMatchItem[] = [];
+        let scannedFiles = 0;
+        let truncated = false;
+        let nextCursor: string | undefined;
+
+        fileLoop: for (let idx = startFileIndex; idx < candidateFiles.length; idx++) {
             throwIfAborted(control);
 
-            for (const entry of entries) {
-                if (state.truncated) {
-                    return;
-                }
+            const relFile = candidateFiles[idx]!;
+            scannedFiles += 1;
 
-                if (entry.isSymbolicLink()) {
+            const absFile = resolve(this.workspaceRoot, relFile);
+            let text: string;
+            try {
+                const fileBuf = await (await import("node:fs/promises")).readFile(absFile);
+                if (fileBuf.includes(0)) {
+                    // 二进制文件跳过
                     continue;
                 }
-
-                if (
-                    entry.isDirectory()
-                    && SKIPPED_DIRECTORY_NAMES.has(entry.name)
-                ) {
-                    continue;
-                }
-
-                if (!entry.isFile() && !entry.isDirectory()) {
-                    continue;
-                }
-
-                throwIfAborted(control);
-                await this.searchPath(
-                    resolve(absolutePath, entry.name),
-                    `${displayPath}/${entry.name}`,
-                    depth + 1,
-                    regex,
-                    state,
-                    control,
-                );
-            }
-
-            return;
-        }
-
-        if (state.filesScanned >= GREP_MAX_FILES) {
-            state.truncated = true;
-            return;
-        }
-
-        state.filesScanned += 1;
-
-        let content: string;
-
-        try {
-            content = await this.sandbox.readTextFile(absolutePath, control);
-        } catch {
-            return;
-        }
-
-        throwIfAborted(control);
-
-        if (content.includes("\0")) {
-            return;
-        }
-
-        const lines = content.split("\n");
-
-        for (let index = 0; index < lines.length; index += 1) {
-            const text = lines[index] ?? "";
-
-            if (!regex.test(text)) {
+                text = fileBuf.toString("utf8");
+            } catch {
                 continue;
             }
 
-            state.matches.push({
-                path: displayPath,
-                line: index + 1,
-                text: truncateLine(text),
-            });
+            let lines = text.split(/\r?\n/);
+            if (lines.length > 0 && lines[lines.length - 1] === "") {
+                lines.pop();
+            }
+            const lineStart = (idx === startFileIndex) ? startLineIndex : 0;
 
-            if (state.matches.length >= GREP_MAX_MATCHES) {
-                state.truncated = true;
-                return;
+            for (let lineIdx = lineStart; lineIdx < lines.length; lineIdx++) {
+                const line = lines[lineIdx]!;
+
+                const matchSuccess = regex.test(line);
+                if (matchSuccess) {
+                    let beforeLines: ContextLine[] | undefined;
+                    let afterLines: ContextLine[] | undefined;
+
+                    if (contextLines > 0) {
+                        const beforeStart = Math.max(0, lineIdx - contextLines);
+                        if (beforeStart < lineIdx) {
+                            beforeLines = [];
+                            for (let b = beforeStart; b < lineIdx; b++) {
+                                beforeLines.push({
+                                    lineNumber: b + 1,
+                                    text: truncateLine(lines[b]!),
+                                });
+                            }
+                        }
+                        const afterEnd = Math.min(lines.length - 1, lineIdx + contextLines);
+                        if (afterEnd > lineIdx) {
+                            afterLines = [];
+                            for (let a = lineIdx + 1; a <= afterEnd; a++) {
+                                afterLines.push({
+                                    lineNumber: a + 1,
+                                    text: truncateLine(lines[a]!),
+                                });
+                            }
+                        }
+                    }
+
+                    matches.push({
+                        path: relFile,
+                        lineNumber: lineIdx + 1,
+                        lineText: truncateLine(line),
+                        ...(beforeLines !== undefined || afterLines !== undefined
+                            ? {
+                                context: {
+                                    ...(beforeLines !== undefined ? { before: beforeLines } : {}),
+                                    ...(afterLines !== undefined ? { after: afterLines } : {}),
+                                },
+                            }
+                            : {}),
+                    });
+
+                    if (matches.length >= maxMatches) {
+                        truncated = true;
+                        const hasMoreLinesInFile = lineIdx + 1 < lines.length;
+                        const nextFile = hasMoreLinesInFile ? idx : idx + 1;
+                        const nextLine = hasMoreLinesInFile ? lineIdx + 1 : 0;
+                        if (nextFile < candidateFiles.length) {
+                            nextCursor = encodeCursor<GrepCursorPayload>({
+                                toolId: GREP_TOOL_ID,
+                                queryDigest,
+                                nextFileIndex: nextFile,
+                                nextLineIndex: nextLine,
+                            });
+                        }
+                        break fileLoop;
+                    }
+                }
             }
         }
-    }
 
-    private checkSemantics(parsed: GrepInput): ToolValidationResult {
-        if (parsed.pattern.trim() === "") {
-            return invalidInput("grep.pattern 不能为空");
-        }
-
-        try {
-            new RegExp(parsed.pattern, parsed.ignoreCase === true ? "i" : undefined);
-        } catch {
-            return invalidInput("grep.pattern 不是合法的正则表达式");
-        }
-
-        if (parsed.path !== undefined) {
-            const violation = this.sandbox.validateRelativePath(parsed.path);
-
-            switch (violation) {
-                case "empty":
-                    return invalidInput("grep.path 不能为空");
-                case "nul":
-                    return invalidInput("grep.path 不能包含 NUL 字符");
-                case "absolute":
-                    return invalidInput("grep.path 必须是工作区内的相对路径");
-                case "parent":
-                    return invalidInput("grep.path 不能包含 .. 路径段");
-                default:
-                    break;
-            }
-        }
-
-        return { ok: true };
-    }
-}
-
-async function stat(
-    path: string,
-): Promise<{ isDirectory: boolean; isFile: boolean } | undefined> {
-    try {
-        const stats = await lstat(path);
+        const output: GrepOutput = {
+            matches,
+            scannedFiles,
+            truncated,
+            ...(nextCursor !== undefined ? { nextCursor } : {}),
+        };
 
         return {
-            isDirectory: stats.isDirectory(),
-            isFile: stats.isFile(),
+            kind: "success",
+            output: output as any,
+            summary: `Found ${matches.length} matches across ${scannedFiles} files${truncated ? " (truncated)" : ""}.`,
         };
-    } catch {
-        return undefined;
     }
 }

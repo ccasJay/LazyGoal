@@ -18,7 +18,7 @@
   - 验证方式：新增 `packages/tools/test/list-directory.test.ts`、`find-files.test.ts`（待实现），覆盖根目录、过滤、空结果、额度及游标推进、失败/中止和保护路径；扩展输入与 CLI 注册测试。运行 `npx tsx --test packages/tools/test/list-directory.test.ts packages/tools/test/find-files.test.ts packages/tools/test/input-contracts.test.ts packages/tui/test/cli.test.ts`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [8.1](./requirements.md#req-8-1), [8.2](./requirements.md#req-8-2), [8.3](./requirements.md#req-8-3)_
 
-- [ ] //TODO 3. 扩展文本读取与带上下文的搜索
+- [x] //TODO 3. 扩展文本读取与带上下文的搜索
 
   - 实现目标：依赖 TODO 2，扩展 `read_file` 行范围/行内续读及结构化结果，扩展 `grep` 文件过滤、上下文、Worker 匹配和分页；更新 CLI、Agent 及已有测试中真实消费结果的代码，不保留旧输出兼容层。
   - 成功判据：大文件、超长行和文件首尾都能准确读取/续读；搜索返回可区分的匹配与上下文行；空文件/零匹配与非法范围、二进制、读取失败明确区分；模式超时和调用中止正确收敛，输出实际 JSON 字节不越界。
