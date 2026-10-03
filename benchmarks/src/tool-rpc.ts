@@ -1,5 +1,6 @@
 import type {
     ExecutionControl,
+    SandboxExecutionPlan,
     ToolObservation,
     ToolRegistration,
 } from "../../packages/runtime/src/index.js";
@@ -26,7 +27,7 @@ export interface ToolManifestEntry {
 export type ToolRpcMessage =
     | { readonly type: "describe"; readonly id: string }
     | { readonly type: "describe_result"; readonly id: string; readonly tools: readonly ToolManifestEntry[] }
-    | { readonly type: "execute"; readonly id: string; readonly actionId: string; readonly toolId: string; readonly input: unknown }
+    | { readonly type: "execute"; readonly id: string; readonly actionId: string; readonly toolId: string; readonly input: unknown; readonly plan?: SandboxExecutionPlan }
     | { readonly type: "execute_result"; readonly id: string; readonly actionId: string; readonly observation: ToolObservation }
     | { readonly type: "cancel"; readonly id: string }
     | { readonly type: "cancel_result"; readonly id: string; readonly cancelled: boolean }
@@ -185,6 +186,7 @@ export class ToolRpcClient {
         readonly input: unknown;
         readonly control?: ExecutionControl;
         readonly timeoutMs?: number;
+        readonly plan?: SandboxExecutionPlan;
     }): Promise<ToolObservation> {
         throwIfAborted(options.control);
         if (this.closed) throw this.failure ?? new ToolRpcError("transport_closed", "Tool RPC client is closed");
@@ -236,6 +238,7 @@ export class ToolRpcClient {
                 actionId: options.actionId,
                 toolId: options.toolId,
                 input: options.input,
+                ...(options.plan !== undefined ? { plan: options.plan } : {}),
             }).catch((error) => {
                 clearTimeout(timeoutTimer);
                 options.control?.signal?.removeEventListener("abort", onAbort);
@@ -634,7 +637,12 @@ export class ToolRpcServer {
                 return;
             }
 
-            const observation = await prepared.execute(msg.actionId, control);
+            const observation = await prepared.execute(
+                msg.actionId,
+                undefined,
+                control,
+                msg.plan,
+            );
             validateToolObservation(observation);
             await this.send({
                 type: "execute_result",

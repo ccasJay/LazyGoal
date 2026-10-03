@@ -120,6 +120,11 @@ test("GAIA tools worker 执行 read_file, web_search, web_fetch, bash 与 submit
         actionId: "act-search",
         toolId: "web_search",
         input: { query: "2+2" },
+        plan: {
+            actionId: "act-search",
+            workspaceRoot: "/workspace",
+            scope: { extraFiles: [], network: "all_outbound" },
+        },
     });
     assert.equal(searchRes.kind, "success");
     assert.equal(searchCalls, 1);
@@ -130,10 +135,15 @@ test("GAIA tools worker 执行 read_file, web_search, web_fetch, bash 与 submit
         actionId: "act-fetch",
         toolId: "web_fetch",
         input: { url: "https://example.com/math" },
+        plan: {
+            actionId: "act-fetch",
+            workspaceRoot: "/workspace",
+            scope: { extraFiles: [], network: "all_outbound" },
+        },
     });
     assert.equal(fetchRes.kind, "success");
     assert.equal(fetchCalls, 1);
-    assert.match((fetchRes as any).output, /Full page text/);
+    assert.match((fetchRes as any).output.text, /Full page text/);
 
     // 4. bash
     const bashRes = await client.execute({

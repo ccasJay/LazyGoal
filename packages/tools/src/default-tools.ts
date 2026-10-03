@@ -10,6 +10,8 @@ import { FindFilesTool, FIND_FILES_TOOL_ID } from "./find-files";
 import { GrepTool, GREP_TOOL_ID } from "./grep";
 import { ListDirectoryTool, LIST_DIRECTORY_TOOL_ID } from "./list-directory";
 import { ReadFileTool, READ_FILE_TOOL_ID } from "./read-file";
+import { WebFetchTool, WEB_FETCH_TOOL_ID } from "./web-fetch";
+import { WebSearchTool, WEB_SEARCH_TOOL_ID } from "./web-search";
 import { WriteFileTool, WRITE_FILE_TOOL_ID } from "./write-file";
 
 /**
@@ -32,6 +34,8 @@ export const DEFAULT_TOOL_IDS: readonly string[] = Object.freeze([
     EDIT_FILE_TOOL_ID,
     APPLY_PATCH_TOOL_ID,
     GREP_TOOL_ID,
+    WEB_SEARCH_TOOL_ID,
+    WEB_FETCH_TOOL_ID,
     BASH_TOOL_ID,
     EXECUTE_PROGRAM_TOOL_ID,
 ]);
@@ -62,6 +66,8 @@ export function createDefaultToolRegistrations(
         createToolRegistration(new EditFileTool(workspaceRoot)),
         createToolRegistration(new ApplyPatchTool(workspaceRoot)),
         createToolRegistration(new GrepTool(workspaceRoot)),
+        createToolRegistration(new WebSearchTool()),
+        createToolRegistration(new WebFetchTool()),
         createToolRegistration(new BashTool(workspaceRoot)),
         createExecuteProgramRegistration(),
     ];

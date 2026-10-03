@@ -27,7 +27,11 @@ import {
     READ_FILE_INPUT_CONTRACT,
     READ_FILE_MAX_CHARS_LIMIT,
     ReadFileTool,
+    WEB_FETCH_INPUT_CONTRACT,
+    WEB_FETCH_MAX_CHARS_LIMIT,
     WebFetchTool,
+    WEB_SEARCH_INPUT_CONTRACT,
+    WEB_SEARCH_MAX_RESULTS_LIMIT,
     WebSearchTool,
     WRITE_FILE_INPUT_CONTRACT,
     WriteFileTool,
@@ -300,6 +304,52 @@ const contractCases = [
         },
     },
     {
+        id: "web_search",
+        inputContract: WEB_SEARCH_INPUT_CONTRACT,
+        valid: { query: "LazyGoal", maxResults: 10 },
+        invalid: [
+            { value: {}, code: "missing_field", path: ["query"] },
+            { value: { query: 42 }, code: "invalid_type", path: ["query"] },
+            { value: { query: "LazyGoal", maxResults: 0 }, code: "number_minimum", path: ["maxResults"] },
+            { value: { query: "LazyGoal", maxResults: WEB_SEARCH_MAX_RESULTS_LIMIT + 1 }, code: "number_maximum", path: ["maxResults"] },
+            { value: { query: "LazyGoal", extra: true }, code: "extra_field", path: ["extra"] },
+        ],
+        schema: {
+            $schema: schemaUri,
+            type: "object",
+            properties: {
+                query: { type: "string" },
+                maxResults: { type: "integer", minimum: 1, maximum: WEB_SEARCH_MAX_RESULTS_LIMIT },
+            },
+            required: ["query"],
+            additionalProperties: false,
+        },
+    },
+    {
+        id: "web_fetch",
+        inputContract: WEB_FETCH_INPUT_CONTRACT,
+        valid: { url: "https://example.com", maxChars: 16000, offset: 0 },
+        invalid: [
+            { value: {}, code: "missing_field", path: ["url"] },
+            { value: { url: 42 }, code: "invalid_type", path: ["url"] },
+            { value: { url: "https://example.com", maxChars: 0 }, code: "number_minimum", path: ["maxChars"] },
+            { value: { url: "https://example.com", maxChars: WEB_FETCH_MAX_CHARS_LIMIT + 1 }, code: "number_maximum", path: ["maxChars"] },
+            { value: { url: "https://example.com", offset: -1 }, code: "number_minimum", path: ["offset"] },
+            { value: { url: "https://example.com", extra: true }, code: "extra_field", path: ["extra"] },
+        ],
+        schema: {
+            $schema: schemaUri,
+            type: "object",
+            properties: {
+                url: { type: "string" },
+                maxChars: { type: "integer", minimum: 1, maximum: WEB_FETCH_MAX_CHARS_LIMIT },
+                offset: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+            },
+            required: ["url"],
+            additionalProperties: false,
+        },
+    },
+    {
         id: "list_directory",
         inputContract: LIST_DIRECTORY_INPUT_CONTRACT,
         valid: { path: "src", maxEntries: 100, cursor: "abc" },
@@ -499,6 +549,18 @@ test("结构 Contract 成功后仍由 Tool 继续执行领域语义校验", () =
             input: { pattern: "a(" },
             validate: () => new GrepTool("/workspace").validate({ pattern: "a(" }),
         },
+        {
+            id: "web_search",
+            inputContract: WEB_SEARCH_INPUT_CONTRACT,
+            input: { query: "   " },
+            validate: () => new WebSearchTool().validate({ query: "   " }),
+        },
+        {
+            id: "web_fetch",
+            inputContract: WEB_FETCH_INPUT_CONTRACT,
+            input: { url: "ftp://example.com" },
+            validate: () => new WebFetchTool().validate({ url: "ftp://example.com" }),
+        },
     ] as const;
 
     for (const semanticCase of semanticCases) {
@@ -542,6 +604,16 @@ test("准备结果保留原始文本、类型和可选字段缺省状态", () =>
             id: "grep",
             registration: createToolRegistration(new GrepTool("/workspace")),
             input: { pattern: "  TODO  ", path: "src" },
+        },
+        {
+            id: "web_search",
+            registration: createToolRegistration(new WebSearchTool()),
+            input: { query: "  LazyGoal  " },
+        },
+        {
+            id: "web_fetch",
+            registration: createToolRegistration(new WebFetchTool()),
+            input: { url: "https://example.com/info" },
         },
     ] as const;
 

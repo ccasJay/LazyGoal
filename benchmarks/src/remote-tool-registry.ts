@@ -6,8 +6,10 @@ import {
     createToolRegistration,
     InMemoryToolRegistry,
     throwIfAborted,
+    type DerivedSandboxAccess,
     type ExecutionControl,
     type JsonValue,
+    type SandboxExecutionPlan,
     type ToolDefinition,
     type ToolExecutionContext,
     type ToolObservation,
@@ -34,6 +36,8 @@ export interface RemoteToolRegistrationOptions {
     readonly definition: ToolDefinition;
     /** 进程中断后对未完成 Action 的重放策略。 */
     readonly replayPolicy: "safe" | "manual";
+    /** 可选的沙箱权限派生解析器。 */
+    readonly resolveSandboxAccess?: (input: JsonValue, control?: ExecutionControl) => Promise<DerivedSandboxAccess | undefined> | DerivedSandboxAccess | undefined;
 }
 
 /**
@@ -83,13 +87,26 @@ export function createRemoteToolRegistration(
             return {
                 ok: true,
                 input: parsed.data as JsonValue,
-                async execute(actionId: string, _context: ToolExecutionContext, execControl?: ExecutionControl): Promise<ToolObservation> {
+                ...(options.resolveSandboxAccess !== undefined
+                    ? {
+                        resolveSandboxAccess(resolveControl?: ExecutionControl) {
+                            return options.resolveSandboxAccess!(parsed.data as JsonValue, resolveControl);
+                        },
+                    }
+                    : {}),
+                async execute(
+                    actionId: string,
+                    _context: ToolExecutionContext,
+                    execControl?: ExecutionControl,
+                    plan?: SandboxExecutionPlan,
+                ): Promise<ToolObservation> {
                     throwIfAborted(execControl);
                     return await options.client.execute({
                         actionId,
                         toolId: options.definition.id,
                         input: parsed.data,
                         control: execControl,
+                        plan,
                     });
                 },
             };
@@ -161,6 +178,12 @@ export function createGaiaRemoteToolRegistry(client: ToolRpcClient): InMemoryToo
                 client,
                 definition: tool.definition,
                 replayPolicy: tool.replayPolicy,
+                ...(tool.resolveSandboxAccess !== undefined
+                    ? {
+                        resolveSandboxAccess: (input, control) =>
+                            tool.resolveSandboxAccess!(input as any, control),
+                    }
+                    : {}),
             }),
         ),
     );

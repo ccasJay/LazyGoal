@@ -52,18 +52,28 @@ export {
     WEB_SEARCH_TOOL_ID,
     WEB_SEARCH_DEFAULT_MAX_RESULTS,
     WEB_SEARCH_MAX_RESULTS_LIMIT,
+    WEB_SEARCH_MAX_SNIPPET_CHARS,
+    WEB_SEARCH_MAX_TITLE_CHARS,
+    WEB_SEARCH_MAX_URL_CHARS,
+    WEB_SEARCH_DEFAULT_TIMEOUT_MS,
     WEB_SEARCH_INPUT_CONTRACT,
     WebSearchTool,
     type WebSearchResult,
     type WebSearchBackend,
+    type WebSearchInput,
 } from "./web-search";
 export {
     WEB_FETCH_TOOL_ID,
     WEB_FETCH_DEFAULT_MAX_CHARS,
     WEB_FETCH_MAX_CHARS_LIMIT,
+    WEB_FETCH_MAX_RESPONSE_BYTES,
+    WEB_FETCH_DEFAULT_TIMEOUT_MS,
     WEB_FETCH_INPUT_CONTRACT,
     WebFetchTool,
+    WebResponseTooLargeError,
     type WebFetchHandler,
+    type WebFetchInput,
+    type WebFetchOutput,
     htmlToPlainText,
 } from "./web-fetch";
 export {

@@ -32,7 +32,7 @@
   - 验证方式：新增 `packages/tools/test/apply-patch.test.ts`、`packages/runtime/test/apply-patch-recovery.test.ts`（待实现），使用真实 Git 生成补丁并注入明确写入故障；扩展 Storage 当前 Snapshot 和 UI/模型结果用例。运行 `npx tsx --test packages/tools/test/apply-patch.test.ts packages/runtime/test/apply-patch-recovery.test.ts packages/storage/test/goal-snapshot-current.test.ts packages/tools/test/input-contracts.test.ts`，并执行实际修改的结果消费方测试。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [4.5](./requirements.md#req-4-5), [8.1](./requirements.md#req-8-1), [8.2](./requirements.md#req-8-2), [8.3](./requirements.md#req-8-3)_
 
-- [ ] //TODO 5. 接入有界且受授权的网页搜索与抓取
+- [x] //TODO 5. 接入有界且受授权的网页搜索与抓取
 
   - 实现目标：依赖 TODO 1、3，接入已有网页工具的默认注册、派生网络能力、执行计划检查和请求 deadline；扩展抓取来源/偏移输出、响应体上限，更新已有本机及远端结果消费方。
   - 成功判据：搜索得到有界来源列表或空列表，抓取可按 UTF-16 偏移续读；无有效网络计划时后端不被调用；响应超大、超时、取消和网络错误不冒充成功；只有明确暂时故障沿既有安全重试路径，PTC 不绕过审批。
