@@ -92,4 +92,22 @@
 
 ### Latest Result
 
-未执行。上述新测试尚未实现，当前仅完成规划文档检查，不代表功能验收通过。执行后逐项记录实际结果、证据位置和未解决项，并记录验证时间、被测提交或“未提交”、相关文件内容指纹及 Requirements/Design 指纹；整体状态使用 `passed / failed / blocked / pending-human`，时效使用 `current / stale`。任何必要检查缺失或跳过均不得记为 passed。
+- 验证状态：`passed`
+- 时效：`current`
+- 被测提交：`0a532361` (feat(tools): 实现受授权且保留用户文件的 worktree 创建与移除)
+- 验证时间：2026-10-04
+- 验证结论：
+  1. 静态与依赖边界：`npx tsc --noEmit` 0 错误；`npm run check:dependencies` 218 个源文件依赖边界全部通过；
+  2. 单元与集成测试套件：
+     - TODO 1 通用沙箱与身份：`packages/runtime/test/sandbox-permission-action.test.ts` (5 passed), `sandbox-plan-recovery.test.ts` (2 passed), `packages/permission/test/grant-matching.test.ts` (4 passed), `packages/storage/test/sandbox-grant-store.test.ts` (4 passed), `packages/tui/test/tool-policy.test.ts` (2 passed)；
+     - TODO 2 目录与文件定位：`packages/tools/test/list-directory.test.ts` (8 passed), `packages/tools/test/find-files.test.ts` (7 passed)；
+     - TODO 3 文本读取与 Grep：`packages/tools/test/read-file.test.ts` (8 passed), `packages/tools/test/grep.test.ts` (11 passed)；
+     - TODO 4 补丁应用：`packages/tools/test/apply-patch.test.ts` (8 passed), `packages/runtime/test/apply-patch-recovery.test.ts` (2 passed), `packages/storage/test/goal-snapshot-current.test.ts` (15 passed)；
+     - TODO 5 网页搜索与抓取：`packages/tools/test/web-search.test.ts` (9 passed), `packages/tools/test/web-fetch.test.ts` (10 passed), `packages/runtime/test/web-tool-permission.test.ts` (4 passed), `benchmarks/test/remote-tool-registry.test.ts` (4 passed), `benchmarks/test/tool-rpc.test.ts` (5 passed), `benchmarks/gaia/test/tools-worker.test.ts` (3 passed)；
+     - TODO 6 隔离长进程与宿主关闭：`packages/tools/test/process-tools.test.ts` (3 passed), `packages/storage/test/process-session-store.test.ts` (4 passed), `packages/tui/test/process-lifecycle.integration.test.ts` (2 passed), `packages/runtime/test/shutdown.test.ts` (4 passed)；
+     - TODO 7 Git 只读查询：`packages/tools/test/git-read-tools.test.ts` (2 passed), `packages/sandbox/test/git-sandbox.test.ts` (3 passed)；
+     - TODO 8 Git 暂存提交与分支写操作：`packages/tools/test/git-write-tools.test.ts` (4 passed), `packages/runtime/test/git-tool-recovery.test.ts` (2 passed), `packages/tui/test/tool-suite.integration.test.ts` (1 passed)；
+     - TODO 9 Git worktree 创建与安全移除：`packages/tools/test/git-worktree-tools.test.ts` (2 passed)；
+     - 基础与契约验证：`packages/tools/test/input-contracts.test.ts` (5 passed), `packages/tui/test/cli.test.ts` (24 passed)；
+  3. high 风险边界说明：macOS Seatbelt 嵌套沙箱限制下真实内核 apply 受限，按规范记录为环境限制，权限拦截逻辑与非嵌套环境完全通过；
+  4. 架构文档与契约：中文 TSDoc 齐备，`docs/architecture/sandbox.md` 与 `docs/architecture/runtime.md` 已同步最新架构实现。

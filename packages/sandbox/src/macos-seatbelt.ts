@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -37,12 +36,10 @@ export interface SeatbeltPolicyOptions {
     readonly network?: "none" | "all_outbound";
 }
 
-let seatbeltUsabilityCache: boolean | undefined;
-
 /**
  * 判断当前操作系统环境是否支持 macOS Seatbelt 沙箱。
  *
- * @returns 当且仅当当前平台为 darwin、/usr/bin/sandbox-exec 存在且沙箱环境可用（非嵌套受限沙箱）时返回 true。
+ * @returns 当且仅当当前平台为 darwin 且 /usr/bin/sandbox-exec 存在时返回 true。
  *
  * @example
  * ```ts
@@ -52,22 +49,7 @@ let seatbeltUsabilityCache: boolean | undefined;
  * ```
  */
 export function isSeatbeltSupported(): boolean {
-    if (process.platform !== "darwin" || !existsSync(SANDBOX_EXEC_PATH)) {
-        return false;
-    }
-    if (seatbeltUsabilityCache !== undefined) {
-        return seatbeltUsabilityCache;
-    }
-    try {
-        execFileSync(SANDBOX_EXEC_PATH, ["-p", "(version 1) (allow default)", "/bin/true"], {
-            stdio: "ignore",
-            timeout: 1000,
-        });
-        seatbeltUsabilityCache = true;
-    } catch {
-        seatbeltUsabilityCache = false;
-    }
-    return seatbeltUsabilityCache;
+    return process.platform === "darwin" && existsSync(SANDBOX_EXEC_PATH);
 }
 
 /**

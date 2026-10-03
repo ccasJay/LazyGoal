@@ -92,6 +92,9 @@ function createSandboxTestTool(
         validate(_input): ToolValidationResult {
             return { ok: true };
         },
+        resolveSandboxAccess(input) {
+            return input.sandboxAccess;
+        },
         async execute(request, _control): Promise<ToolObservation> {
             onExecute?.(request);
             const { sandboxAccess } = request.input;
