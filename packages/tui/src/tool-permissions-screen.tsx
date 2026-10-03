@@ -33,7 +33,7 @@ export function ToolPermissionsScreen({
     const active = view.grants.filter((grant) => grant.status === "active");
     const options = active.map((grant) => {
         const desc = grant.kind === "sandbox"
-            ? `bash (sandbox) · ${grant.command ?? "command"}`
+            ? `${grant.toolId} (sandbox) · ${grant.inputDigest ? grant.inputDigest.slice(0, 12) : (grant.command ?? "input")}`
             : `${grant.toolId}${grant.targetPath === undefined ? "" : ` · ${grant.targetPath}`}`;
         return {
             label: `Revoke ${desc} · ${grant.scope === "goal" ? "This Goal" : "This project"}`,
@@ -50,7 +50,7 @@ export function ToolPermissionsScreen({
                 <Box flexDirection="column">
                     {view.grants.map((grant) => (
                         <Text key={grant.grantId} color={grant.status === "active" ? "green" : "gray"}>
-                            {grant.kind === "sandbox" ? `bash (sandbox: ${grant.command ?? "command"})` : grant.toolId} · {grant.scope === "goal" ? "This Goal" : "This project"} · {grant.status}
+                            {grant.kind === "sandbox" ? `${grant.toolId} (sandbox: ${grant.inputDigest ? grant.inputDigest.slice(0, 12) : (grant.command ?? "input")})` : grant.toolId} · {grant.scope === "goal" ? "This Goal" : "This project"} · {grant.status}
                             {grant.targetPath === undefined ? "" : ` · ${grant.targetPath}`}
                             {grant.network === "all_outbound" ? " · network: all_outbound" : ""}
                         </Text>

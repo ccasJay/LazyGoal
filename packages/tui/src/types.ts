@@ -562,6 +562,7 @@ export interface UiToolGrantSummary {
     readonly status: ToolGrant["status"];
     readonly kind?: "tool" | "sandbox";
     readonly targetPath?: string;
+    readonly inputDigest?: string;
     readonly command?: string;
     readonly network?: "none" | "all_outbound";
 }

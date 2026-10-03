@@ -23,6 +23,7 @@ export type {
 } from "../../permission/src/index";
 
 export {
+    computeInputDigest,
     DefaultPermissionGrantService,
     createSandboxGrantMatcher,
     createToolGrantMatcher,

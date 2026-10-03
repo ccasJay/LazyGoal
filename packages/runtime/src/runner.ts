@@ -57,6 +57,7 @@ import {
 
 import type {
     ToolDefinition,
+    ToolExecutionContext,
     ToolObservation,
     ToolStreamEvent,
     ToolPolicy,
@@ -68,6 +69,7 @@ import { resolveAuthorizedToolDefinitions, TransientToolExecutionFailure } from 
 import {
     isSeatbeltSupported,
     resolveEffectiveSandboxScope,
+    type DerivedSandboxAccess,
     type EffectiveSandboxScope,
     type SandboxAccessRequest,
     type SandboxExecutionPlan,
@@ -469,6 +471,7 @@ interface PreparedToolAction {
     readonly action: ToolCallAction;
     readonly policy: "allow" | "require_approval";
     readonly plan?: SandboxExecutionPlan;
+    resolveSandboxAccess?(control?: ExecutionControl): Promise<DerivedSandboxAccess | undefined> | DerivedSandboxAccess | undefined;
     execute(control?: ExecutionControl, plan?: SandboxExecutionPlan): Promise<ToolObservation>;
     stream?(control?: ExecutionControl, plan?: SandboxExecutionPlan): AsyncIterable<ToolStreamEvent>;
 }
@@ -576,19 +579,30 @@ function prepareToolAction(
         input: prepared.input,
     };
 
+    const executionContext: ToolExecutionContext = {
+        goalId: goal.id,
+        runId: goal.state.run.id,
+    };
+
     if (!evaluatePolicy) {
         return {
             registration,
             action: canonicalAction,
             policy: "allow",
             ...(plan !== undefined ? { plan } : {}),
+            ...(prepared.resolveSandboxAccess === undefined
+                ? {}
+                : {
+                    resolveSandboxAccess: (resolveControl?: ExecutionControl) =>
+                        prepared.resolveSandboxAccess!(resolveControl),
+                }),
             execute: (executeControl, execPlan) =>
-                prepared.execute(canonicalAction.actionId, executeControl, execPlan ?? plan),
+                prepared.execute(canonicalAction.actionId, executionContext, executeControl, execPlan ?? plan),
             ...(prepared.stream === undefined
                 ? {}
                 : {
                     stream: (executeControl?: ExecutionControl, streamPlan?: SandboxExecutionPlan) =>
-                        prepared.stream!(canonicalAction.actionId, executeControl, streamPlan ?? plan),
+                        prepared.stream!(canonicalAction.actionId, executionContext, executeControl, streamPlan ?? plan),
                 }),
         };
     }
@@ -627,13 +641,19 @@ function prepareToolAction(
         action: canonicalAction,
         policy: policyResult,
         ...(plan !== undefined ? { plan } : {}),
+        ...(prepared.resolveSandboxAccess === undefined
+            ? {}
+            : {
+                resolveSandboxAccess: (resolveControl?: ExecutionControl) =>
+                    prepared.resolveSandboxAccess!(resolveControl),
+            }),
         execute: (executeControl, execPlan) =>
-            prepared.execute(canonicalAction.actionId, executeControl, execPlan ?? plan),
+            prepared.execute(canonicalAction.actionId, executionContext, executeControl, execPlan ?? plan),
         ...(prepared.stream === undefined
             ? {}
             : {
                 stream: (executeControl?: ExecutionControl, streamPlan?: SandboxExecutionPlan) =>
-                    prepared.stream!(canonicalAction.actionId, executeControl, streamPlan ?? plan),
+                    prepared.stream!(canonicalAction.actionId, executionContext, executeControl, streamPlan ?? plan),
             }),
     };
 }
@@ -4497,10 +4517,19 @@ export class Runner {
         }
         const rawInput = validated.action.input;
         let effectiveSandboxScope: EffectiveSandboxScope = { extraFiles: [], network: "none" };
-        if (this.workspaceRoot !== undefined && isRecord(rawInput) && isRecord(rawInput.sandboxAccess)) {
+        let sandboxAccessRequest: SandboxAccessRequest | undefined;
+        if (typeof validated.resolveSandboxAccess === "function") {
+            const derived = await validated.resolveSandboxAccess(control);
+            if (derived !== undefined) {
+                sandboxAccessRequest = derived;
+            }
+        } else if (isRecord(rawInput) && isRecord(rawInput.sandboxAccess)) {
+            sandboxAccessRequest = rawInput.sandboxAccess as SandboxAccessRequest;
+        }
+        if (this.workspaceRoot !== undefined && sandboxAccessRequest !== undefined) {
             effectiveSandboxScope = await resolveEffectiveSandboxScope(
                 this.workspaceRoot,
-                rawInput.sandboxAccess as SandboxAccessRequest,
+                sandboxAccessRequest,
             );
         }
         const sandboxDecision = evaluateSandboxAuthorization({
@@ -4511,11 +4540,12 @@ export class Runner {
         let sandboxGrantMatched = false;
         if (sandboxDecision.decision === "approval_required"
             && this.sandboxGrantLookup !== undefined
-            && this.workspaceId !== undefined
-            && validated.action.toolId === "bash") {
-            const bashCommand = isRecord(rawInput) && typeof rawInput.command === "string"
-                ? rawInput.command : "";
-            const matcher = createSandboxGrantMatcher(bashCommand, effectiveSandboxScope);
+            && this.workspaceId !== undefined) {
+            const matcher = createSandboxGrantMatcher(
+                validated.action.toolId,
+                validated.action.input,
+                effectiveSandboxScope,
+            );
             sandboxGrantMatched = await this.sandboxGrantLookup.findActiveMatching({
                 workspaceId: this.workspaceId,
                 goalId: goal.id,

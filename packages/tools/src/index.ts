@@ -34,3 +34,7 @@ export {
     type WebFetchHandler,
     htmlToPlainText,
 } from "./web-fetch";
+export {
+    DEFAULT_TOOL_IDS,
+    createDefaultToolRegistrations,
+} from "./default-tools";

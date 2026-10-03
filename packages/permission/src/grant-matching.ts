@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import type {
     EffectiveSandboxScope,
 } from "../../sandbox/src/index";
+import { canonicalize } from "./tool-grant-matcher";
 import type {
     SandboxGrant,
     SandboxGrantMatcher,
@@ -41,10 +43,27 @@ export function matchesToolGrantMatcher(
 }
 
 /**
+ * 计算规范化输入的 sha256 摘要（64 字符十六进制）。
+ *
+ * @param input - 待摘要的 Tool 结构化输入。
+ * @returns 规范化 JSON 序列化后的 sha256 摘要。
+ *
+ * @example
+ * ```ts
+ * const digest = computeInputDigest({ command: "curl https://example.com" });
+ * ```
+ */
+export function computeInputDigest(input: unknown): string {
+    return createHash("sha256")
+        .update(JSON.stringify(canonicalize(input)), "utf8")
+        .digest("hex");
+}
+
+/**
  * 校验已核准的沙箱能力是否足以覆盖本次 Action 请求的实际能力范围。
  *
  * @remarks
- * - 严格比对命令标识与命令字符串；
+ * - 严格比对目标工具标识与输入 sha256 摘要；
  * - 网络：若已核准 all_outbound，可放行 none 或 all_outbound；若已核准 none，仅放行 none；
  * - 文件：请求的每个外部文件/目录，在核准列表中必须存在相同真实路径且访问级别不越权（read_write 可放行 read）。
  *
@@ -64,7 +83,7 @@ export function matchesSandboxGrantMatcher(
     if (requested.toolId !== approved.toolId || requested.version !== approved.version) {
         return false;
     }
-    if (requested.command !== approved.command) {
+    if (requested.inputDigest !== approved.inputDigest) {
         return false;
     }
 
@@ -135,22 +154,27 @@ export function matchesSandboxGrant(
 /**
  * 构造标准规范的沙箱能力授权匹配器。
  *
- * @param command - 规范化 Bash 命令文本。
+ * @param toolId - 目标工具的唯一标识。
+ * @param input - 目标工具输入对象（自动计算 sha256 摘要）或预计算的 64 位十六进制 inputDigest。
  * @param scope - 经解析校验的实际沙箱能力范围。
  * @returns 标准匹配器。
  *
  * @example
  * ```ts
- * const matcher = createSandboxGrantMatcher("curl https://example.com", scope);
+ * const matcher = createSandboxGrantMatcher("bash", { command: "curl https://example.com" }, scope);
  * ```
  */
 export function createSandboxGrantMatcher(
-    command: string,
+    toolId: string,
+    input: unknown,
     scope: EffectiveSandboxScope,
 ): SandboxGrantMatcher {
+    const inputDigest = typeof input === "string" && /^[0-9a-f]{64}$/.test(input)
+        ? input
+        : computeInputDigest(input);
     return {
-        toolId: "bash",
-        command,
+        toolId,
+        inputDigest,
         scope,
         version: 1,
     };

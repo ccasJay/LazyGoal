@@ -18,8 +18,8 @@ const ExtraFileSchema = z.object({
 }).strict();
 
 const MatcherSchema = z.object({
-    toolId: z.literal("bash"),
-    command: z.string().min(1),
+    toolId: z.string().min(1),
+    inputDigest: z.string().min(1),
     scope: z.object({
         extraFiles: z.array(ExtraFileSchema),
         network: z.enum(["none", "all_outbound"]),
@@ -249,7 +249,7 @@ function sameGrantRequest(left: SandboxGrant, right: Omit<SandboxGrant, "id">): 
     }
     const lm = left.matcher;
     const rm = right.matcher;
-    if (lm.toolId !== rm.toolId || lm.command !== rm.command || lm.version !== rm.version) {
+    if (lm.toolId !== rm.toolId || lm.inputDigest !== rm.inputDigest || lm.version !== rm.version) {
         return false;
     }
     if (lm.scope.network !== rm.scope.network || lm.scope.extraFiles.length !== rm.scope.extraFiles.length) {

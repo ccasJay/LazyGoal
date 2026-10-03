@@ -9,6 +9,7 @@ import {
     type ExecutionControl,
     type JsonValue,
     type ToolDefinition,
+    type ToolExecutionContext,
     type ToolObservation,
     type ToolRegistration,
     type ToolRegistry,
@@ -82,7 +83,7 @@ export function createRemoteToolRegistration(
             return {
                 ok: true,
                 input: parsed.data as JsonValue,
-                async execute(actionId: string, execControl?: ExecutionControl): Promise<ToolObservation> {
+                async execute(actionId: string, _context: ToolExecutionContext, execControl?: ExecutionControl): Promise<ToolObservation> {
                     throwIfAborted(execControl);
                     return await options.client.execute({
                         actionId,

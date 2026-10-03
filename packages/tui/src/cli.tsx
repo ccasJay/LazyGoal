@@ -110,6 +110,8 @@ import {
     type LlmModelDescriptor,
 } from "../../llm/src/model-catalog";
 import {
+    DEFAULT_TOOL_IDS,
+    createDefaultToolRegistrations,
     BASH_TOOL_ID,
     BashTool,
     EXECUTE_PROGRAM_TOOL_ID,
@@ -822,14 +824,7 @@ export async function createCompositionRoot(
                 description: "LazyGoal 默认用户 Profile",
                 systemPrompt: "You are LazyGoal, a goal-driven, resumable agent runtime.",
                 instructions: ["Advance the goal through safe, verified actions."],
-                toolIds: [
-                    READ_FILE_TOOL_ID,
-                    "write_file",
-                    "edit_file",
-                    GREP_TOOL_ID,
-                    "bash",
-                    EXECUTE_PROGRAM_TOOL_ID,
-                ],
+                toolIds: [...DEFAULT_TOOL_IDS],
             };
         }
 
@@ -849,18 +844,7 @@ export async function createCompositionRoot(
         readFileTool = undefined;
     } else {
         readFileTool = new ReadFileTool(workspaceRoot);
-        const writeFileTool = new WriteFileTool(workspaceRoot);
-        const editFileTool = new EditFileTool(workspaceRoot);
-        const grepTool = new GrepTool(workspaceRoot);
-        const bashTool = new BashTool(workspaceRoot);
-        toolRegistry = new InMemoryToolRegistry([
-            createToolRegistration(readFileTool),
-            createToolRegistration(writeFileTool),
-            createToolRegistration(editFileTool),
-            createToolRegistration(grepTool),
-            createToolRegistration(bashTool),
-            createExecuteProgramRegistration(),
-        ]);
+        toolRegistry = new InMemoryToolRegistry(createDefaultToolRegistrations(workspaceRoot));
     }
 
     const missingToolId = profile.toolIds.find(

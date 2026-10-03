@@ -1956,10 +1956,10 @@ function toUiUnifiedGrantSummary(grant: UnifiedGrantSummary): UiToolGrantSummary
         return {
             grantId: grant.id,
             scope: grant.scope,
-            toolId: "bash",
+            toolId: grant.toolId,
             status: grant.status,
             kind: "sandbox",
-            command: grant.command,
+            inputDigest: grant.inputDigest,
             network: grant.network,
         };
     }

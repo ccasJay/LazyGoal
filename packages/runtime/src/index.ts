@@ -415,6 +415,7 @@ export {
 export type {
     Tool,
     ToolDefinition,
+    ToolExecutionContext,
     ToolExecutionRequest,
     ToolInputContract,
     ToolObservation,
@@ -427,6 +428,7 @@ export type {
     ToolValidationResult,
 } from "./tool";
 export {
+    computeInputDigest,
     DefaultPermissionGrantService,
     createSandboxGrantMatcher,
     createToolGrantMatcher,

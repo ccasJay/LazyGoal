@@ -35,6 +35,7 @@ export {
 
 export {
     resolveEffectiveSandboxScope,
+    type DerivedSandboxAccess,
     type EffectiveExtraFile,
     type EffectiveSandboxScope,
     type SandboxAccessRequest,

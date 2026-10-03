@@ -54,7 +54,7 @@ export class DefaultPermissionGrantService implements PermissionGrantService {
             workspaceId: grant.workspaceId,
             ...(grant.goalId !== undefined ? { goalId: grant.goalId } : {}),
             toolId: grant.matcher.toolId,
-            command: grant.matcher.command,
+            inputDigest: grant.matcher.inputDigest,
             status: grant.status,
             extraFiles: grant.matcher.scope.extraFiles,
             network: grant.matcher.scope.network,

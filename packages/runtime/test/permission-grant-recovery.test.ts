@@ -128,7 +128,7 @@ test("持续授权生命周期：沙箱审批选择 Goal 范围并在后续 Acti
                     input: {
                         command: "curl https://example.com",
                         sandboxAccess: {
-                            network: { targets: ["https://example.com"], purpose: "fetch again" },
+                            network: { targets: ["https://example.com"], purpose: "fetch api" },
                         },
                     } satisfies SandboxTestInput as unknown as JsonValue,
                 },
@@ -211,7 +211,8 @@ test("持续授权生命周期：沙箱审批选择 Goal 范围并在后续 Acti
         assert.equal(activeGrants.length, 1);
         assert.equal(activeGrants[0]?.status, "active");
         assert.equal(activeGrants[0]?.scope, "goal");
-        assert.equal(activeGrants[0]?.matcher.command, "curl https://example.com");
+        assert.equal(activeGrants[0]?.matcher.toolId, "bash");
+        assert.ok(activeGrants[0]?.matcher.inputDigest);
 
         // 4. 验证在恢复后，act-1 执行成功，随后同一个 Goal 内后续的 act-2 自动通过持续授权放行执行！
         assert.equal(executedCommands.length, 2);
@@ -347,7 +348,8 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
         const unifiedGrants = await coordinator.listGrants({ goalId: "goal-1", runId: "run-2" });
         assert.equal(unifiedGrants.length, 1);
         assert.equal(unifiedGrants[0]?.kind, "sandbox");
-        assert.equal(unifiedGrants[0]?.command, "curl https://example.com");
+        assert.equal(unifiedGrants[0]?.toolId, "bash");
+        assert.ok(unifiedGrants[0]?.inputDigest);
         const grantId = unifiedGrants[0]?.id!;
 
         // 步骤 4：统一撤销 revokeGrant

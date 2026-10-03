@@ -427,15 +427,15 @@ export type SandboxGrantScope = "goal" | "workspace";
  * ```ts
  * const matcher: SandboxGrantMatcher = {
  *     toolId: "bash",
- *     command: "curl https://example.com",
+ *     inputDigest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
  *     scope: { extraFiles: [], network: "all_outbound" },
  *     version: 1,
  * };
  * ```
  */
 export interface SandboxGrantMatcher {
-    readonly toolId: "bash";
-    readonly command: string;
+    readonly toolId: string;
+    readonly inputDigest: string;
     readonly scope: EffectiveSandboxScope;
     readonly version: 1;
 }
@@ -457,7 +457,7 @@ export interface SandboxGrantMatcher {
  *     source: { goalId: "goal-1", runId: "run-1", actionId: "action-1" },
  *     matcher: {
  *         toolId: "bash",
- *         command: "curl https://example.com",
+ *         inputDigest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
  *         scope: { extraFiles: [], network: "all_outbound" },
  *         version: 1,
  *     },
@@ -596,8 +596,8 @@ export type UnifiedGrantSummary =
         readonly scope: SandboxGrantScope;
         readonly workspaceId: string;
         readonly goalId?: string;
-        readonly toolId: "bash";
-        readonly command: string;
+        readonly toolId: string;
+        readonly inputDigest: string;
         readonly status: GrantStatus;
         readonly extraFiles: readonly EffectiveExtraFile[];
         readonly network: "none" | "all_outbound";

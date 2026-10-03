@@ -4,7 +4,7 @@
 
 每个 TODO 交付一个已接入的行为切片，并同步受影响的中文公共契约 TSDoc、最小示例和当前架构文档。完成时只修改 checkbox，保留 `//TODO` 及其后的原文。各切片运行 `npx tsc --noEmit` 和其针对性测试；新增工具当次接入默认工具集及 Policy，显式和冻结 Profile 不扩大，不留待后续统一接线。
 
-- [ ] //TODO 1. 接入可信工具执行身份和通用沙箱授权
+- [x] //TODO 1. 接入可信工具执行身份和通用沙箱授权
 
   - 实现目标：扩展 Tool 执行上下文与能力派生接口，贯通普通/流式调用、PTC 和恢复；将 Sandbox Grant 当前格式泛化，更新 Permission、Storage、TUI/Browser 及远端注册适配器，先接入现有 Bash；建立默认工具集的注册与 Profile 同源入口。
   - 成功判据：现有 Bash 的准备输入只解析一次，普通调用和 PTC 收到正确 Goal/Run；Default/YOLO 下额外能力仍需审批，持续授权撤销或路径变化不放行；旧开发 Grant 明确拒绝，不降级或迁移；显式 Profile 保持原工具集合。

@@ -50,7 +50,7 @@ test("matchesToolGrantMatcher: 严格比对 exact_input 与 target_path", () => 
 });
 
 test("matchesSandboxGrantMatcher: 命令一致且能力在已核准范围内时放行，超出维度拒绝", () => {
-    const approved: SandboxGrantMatcher = createSandboxGrantMatcher("curl https://example.com", {
+    const approved: SandboxGrantMatcher = createSandboxGrantMatcher("bash", { command: "curl https://example.com" }, {
         extraFiles: [
             { canonicalPath: "/etc/hosts", access: "write", kind: "file" },
             { canonicalPath: "/tmp/data", access: "read", kind: "directory_tree" },
@@ -62,21 +62,21 @@ test("matchesSandboxGrantMatcher: 命令一致且能力在已核准范围内时�
     assert.equal(matchesSandboxGrantMatcher(approved, approved), true);
 
     // 2. 不同命令不得复用
-    const diffCmd: SandboxGrantMatcher = createSandboxGrantMatcher("curl https://evil.com", {
+    const diffCmd: SandboxGrantMatcher = createSandboxGrantMatcher("bash", { command: "curl https://evil.com" }, {
         extraFiles: [],
         network: "none",
     });
     assert.equal(matchesSandboxGrantMatcher(diffCmd, approved), false);
 
     // 3. 安全子集能力：只要请求在已核准范围内，允许放行
-    const subset: SandboxGrantMatcher = createSandboxGrantMatcher("curl https://example.com", {
+    const subset: SandboxGrantMatcher = createSandboxGrantMatcher("bash", { command: "curl https://example.com" }, {
         extraFiles: [{ canonicalPath: "/etc/hosts", access: "read", kind: "file" }],
         network: "none",
     });
     assert.equal(matchesSandboxGrantMatcher(subset, approved), true);
 
     // 4. 超出文件范围（请求了未核准路径）
-    const extraFile: SandboxGrantMatcher = createSandboxGrantMatcher("curl https://example.com", {
+    const extraFile: SandboxGrantMatcher = createSandboxGrantMatcher("bash", { command: "curl https://example.com" }, {
         extraFiles: [
             { canonicalPath: "/etc/hosts", access: "read", kind: "file" },
             { canonicalPath: "/etc/passwd", access: "read", kind: "file" },
@@ -86,18 +86,18 @@ test("matchesSandboxGrantMatcher: 命令一致且能力在已核准范围内时�
     assert.equal(matchesSandboxGrantMatcher(extraFile, approved), false);
 
     // 5. 超出文件权限（请求了 write 但仅获批 read）
-    const approvedReadOnly: SandboxGrantMatcher = createSandboxGrantMatcher("curl https://example.com", {
+    const approvedReadOnly: SandboxGrantMatcher = createSandboxGrantMatcher("bash", { command: "curl https://example.com" }, {
         extraFiles: [{ canonicalPath: "/etc/hosts", access: "read", kind: "file" }],
         network: "none",
     });
-    const writeReq: SandboxGrantMatcher = createSandboxGrantMatcher("curl https://example.com", {
+    const writeReq: SandboxGrantMatcher = createSandboxGrantMatcher("bash", { command: "curl https://example.com" }, {
         extraFiles: [{ canonicalPath: "/etc/hosts", access: "write", kind: "file" }],
         network: "none",
     });
     assert.equal(matchesSandboxGrantMatcher(writeReq, approvedReadOnly), false);
 
     // 6. 超出网络权限（未核准网络却请求网络）
-    const netReq: SandboxGrantMatcher = createSandboxGrantMatcher("curl https://example.com", {
+    const netReq: SandboxGrantMatcher = createSandboxGrantMatcher("bash", { command: "curl https://example.com" }, {
         extraFiles: [],
         network: "all_outbound",
     });
@@ -111,7 +111,7 @@ test("matchesSandboxGrant: 作用域与撤销状态边界", () => {
         workspaceId: "ws-1",
         goalId: "goal-1",
         source: { goalId: "goal-1", runId: "run-1", actionId: "act-1" },
-        matcher: createSandboxGrantMatcher("python run.py", { extraFiles: [], network: "all_outbound" }),
+        matcher: createSandboxGrantMatcher("bash", { command: "python run.py" }, { extraFiles: [], network: "all_outbound" }),
         status: "active",
     };
 
@@ -183,7 +183,7 @@ test("DefaultPermissionGrantService: 聚合列表与分别撤销", async () => {
             scope: "workspace",
             workspaceId: "ws-1",
             source,
-            matcher: createSandboxGrantMatcher("python test.py", { extraFiles: [], network: "none" }),
+            matcher: createSandboxGrantMatcher("bash", { command: "python test.py" }, { extraFiles: [], network: "none" }),
             status: "active",
         }),
         list: async () => [
@@ -192,7 +192,7 @@ test("DefaultPermissionGrantService: 聚合列表与分别撤销", async () => {
                 scope: "workspace",
                 workspaceId: "ws-1",
                 source: { goalId: "goal-1", runId: "run-1", actionId: "act-2" },
-                matcher: createSandboxGrantMatcher("python test.py", { extraFiles: [], network: "none" }),
+                matcher: createSandboxGrantMatcher("bash", { command: "python test.py" }, { extraFiles: [], network: "none" }),
                 status: "active",
             },
         ],
@@ -203,7 +203,7 @@ test("DefaultPermissionGrantService: 聚合列表与分别撤销", async () => {
                 scope: "workspace",
                 workspaceId: "ws-1",
                 source: { goalId: "goal-1", runId: "run-1", actionId: "act-2" },
-                matcher: createSandboxGrantMatcher("python test.py", { extraFiles: [], network: "none" }),
+                matcher: createSandboxGrantMatcher("bash", { command: "python test.py" }, { extraFiles: [], network: "none" }),
                 status: "revoked",
             };
         },

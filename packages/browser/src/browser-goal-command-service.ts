@@ -755,7 +755,7 @@ export class BrowserGoalCommandService {
                         status: grant.status,
                         ...(grant.kind === "tool" && grant.targetPath !== undefined ? { targetPath: grant.targetPath } : {}),
                         ...(grant.kind === "sandbox" ? {
-                            command: grant.command,
+                            inputDigest: grant.inputDigest,
                             network: grant.network,
                             extraFiles: grant.extraFiles,
                         } : {}),

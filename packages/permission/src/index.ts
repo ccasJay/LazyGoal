@@ -46,6 +46,7 @@ export {
 } from "./sandbox-authorization";
 
 export {
+    computeInputDigest,
     createSandboxGrantMatcher,
     matchesSandboxGrant,
     matchesSandboxGrantMatcher,

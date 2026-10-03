@@ -68,6 +68,21 @@ export interface SandboxAccessRequest {
 }
 
 /**
+ * 由 Tool 或模型输入派生的沙箱访问申请。
+ *
+ * @remarks
+ * 与 `SandboxAccessRequest` 结构一致，供能力派生接口统一定义。
+ *
+ * @example
+ * ```ts
+ * const access: DerivedSandboxAccess = {
+ *     files: [{ path: "../extra", access: "read", kind: "file", purpose: "读取附加资源" }],
+ * };
+ * ```
+ */
+export type DerivedSandboxAccess = SandboxAccessRequest;
+
+/**
  * 经规范化后可供内核沙箱强制执行的单项文件能力。
  */
 export interface EffectiveExtraFile {
