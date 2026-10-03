@@ -24,6 +24,8 @@ export interface SpawnRestrictedCommandOptions {
     readonly args?: readonly string[];
     /** 工作目录真实绝对路径。 */
     readonly cwd: string;
+    /** 可选的环境变量（非沙箱模式生效）。 */
+    readonly env?: NodeJS.ProcessEnv;
     /** 可选的沙箱策略与环境变量（Seatbelt 环境下生效）。 */
     readonly sandbox?: {
         readonly policy: string;
@@ -70,6 +72,7 @@ export function spawnRestrictedCommand(options: SpawnRestrictedCommandOptions): 
 
         return spawn(options.executable, [...args], {
             cwd: options.cwd,
+            ...(options.env !== undefined ? { env: options.env } : {}),
             stdio: [options.stdioStdin ?? "ignore", "pipe", "pipe"],
             detached: process.platform !== "win32",
         });

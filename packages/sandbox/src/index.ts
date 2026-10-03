@@ -44,12 +44,16 @@ export {
 export {
     discoverGitRepository,
     runRestrictedGit,
+    runRestrictedGitWrite,
     validateSafeGitArgs,
+    validateSafeGitWriteArgs,
+    GitMutex,
     GIT_DEFAULT_TIMEOUT_MS,
     GIT_MAX_OUTPUT_CHARS,
     type GitRepositoryInfo,
     type RestrictedGitExecutionResult,
     type RunRestrictedGitOptions,
+    type RunRestrictedGitWriteOptions,
 } from "./git-runner";
 
 export {

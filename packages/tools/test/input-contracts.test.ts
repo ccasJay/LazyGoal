@@ -23,6 +23,10 @@ import {
     GitShowTool,
     GitStatusTool,
     GitWorktreeListTool,
+    GitAddTool,
+    GitCommitTool,
+    GitBranchCreateTool,
+    GitBranchSwitchTool,
     GREP_INPUT_CONTRACT,
     GREP_MAX_CONTEXT_LINES,
     GREP_MAX_MATCHES_LIMIT,
@@ -669,6 +673,10 @@ test("工具声明式 isReadOnly 元数据准确区分只读读取与写操作�
         new EditFileTool("/workspace"),
         new ApplyPatchTool("/workspace"),
         new BashTool("/workspace"),
+        new GitAddTool("/workspace"),
+        new GitCommitTool("/workspace"),
+        new GitBranchCreateTool("/workspace"),
+        new GitBranchSwitchTool("/workspace"),
     ];
 
     for (const tool of modifyingTools) {

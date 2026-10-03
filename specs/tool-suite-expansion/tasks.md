@@ -53,7 +53,7 @@
   - 验证方式：新增 `packages/tools/test/git-read-tools.test.ts`、`packages/sandbox/test/git-sandbox.test.ts`（待实现），覆盖真实仓库、链接工作树和严格受限环境；扩展默认注册/PTC 用例。运行 `npx tsx --test packages/tools/test/git-read-tools.test.ts packages/sandbox/test/git-sandbox.test.ts packages/tui/test/cli.test.ts packages/runtime/test/program-execution.test.ts`。
   - _Requirements: [7.1](./requirements.md#req-7-1), [7.3](./requirements.md#req-7-3), [7.4](./requirements.md#req-7-4), [7.5](./requirements.md#req-7-5), [8.1](./requirements.md#req-8-1), [8.2](./requirements.md#req-8-2), [8.3](./requirements.md#req-8-3)_
 
-- [ ] //TODO 8. 实现本地 Git 暂存提交与分支写操作
+- [x] //TODO 8. 实现本地 Git 暂存提交与分支写操作
 
   - 实现目标：依赖 TODO 4、7，接入 git_add/commit、分支创建/切换及当前进程内写操作串行化；Git 专用执行仅开放本次获授权元数据，更新真实权限审阅和 manual 恢复；增加文件发现到补丁再到提交的自动化组合场景。
   - 成功判据：只暂存指定路径，提交返回实际 OID，分支创建/切换结果可核验；未指定文件与会被覆盖的改动保持原状；钩子、身份或签名失败不被绕过；Default/YOLO 均不能让 Bash/进程/普通写工具借用 Git 元数据计划，未知提交不自动重复。

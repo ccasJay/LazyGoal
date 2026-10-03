@@ -33,6 +33,16 @@ import {
     GitWorktreeListTool,
     GIT_WORKTREE_LIST_TOOL_ID,
 } from "./git-read-tools";
+import {
+    GitAddTool,
+    GIT_ADD_TOOL_ID,
+    GitCommitTool,
+    GIT_COMMIT_TOOL_ID,
+    GitBranchCreateTool,
+    GIT_BRANCH_CREATE_TOOL_ID,
+    GitBranchSwitchTool,
+    GIT_BRANCH_SWITCH_TOOL_ID,
+} from "./git-write-tools";
 import { ReadFileTool, READ_FILE_TOOL_ID } from "./read-file";
 import { WebFetchTool, WEB_FETCH_TOOL_ID } from "./web-fetch";
 import { WebSearchTool, WEB_SEARCH_TOOL_ID } from "./web-search";
@@ -68,7 +78,11 @@ export const DEFAULT_TOOL_IDS: readonly string[] = Object.freeze([
     GIT_DIFF_TOOL_ID,
     GIT_LOG_TOOL_ID,
     GIT_SHOW_TOOL_ID,
+    GIT_ADD_TOOL_ID,
+    GIT_COMMIT_TOOL_ID,
     GIT_BRANCH_LIST_TOOL_ID,
+    GIT_BRANCH_CREATE_TOOL_ID,
+    GIT_BRANCH_SWITCH_TOOL_ID,
     GIT_WORKTREE_LIST_TOOL_ID,
     EXECUTE_PROGRAM_TOOL_ID,
 ]);
@@ -118,7 +132,11 @@ export function createDefaultToolRegistrations(
         createToolRegistration(new GitDiffTool(workspaceRoot)),
         createToolRegistration(new GitLogTool(workspaceRoot)),
         createToolRegistration(new GitShowTool(workspaceRoot)),
+        createToolRegistration(new GitAddTool(workspaceRoot)),
+        createToolRegistration(new GitCommitTool(workspaceRoot)),
         createToolRegistration(new GitBranchListTool(workspaceRoot)),
+        createToolRegistration(new GitBranchCreateTool(workspaceRoot)),
+        createToolRegistration(new GitBranchSwitchTool(workspaceRoot)),
         createToolRegistration(new GitWorktreeListTool(workspaceRoot)),
     ];
 
