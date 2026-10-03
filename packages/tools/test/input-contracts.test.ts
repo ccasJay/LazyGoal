@@ -12,8 +12,14 @@ import {
     BashTool,
     EDIT_FILE_INPUT_CONTRACT,
     EditFileTool,
+    FIND_FILES_INPUT_CONTRACT,
+    FIND_FILES_MAX_RESULTS_LIMIT,
+    FindFilesTool,
     GREP_INPUT_CONTRACT,
     GrepTool,
+    LIST_DIRECTORY_INPUT_CONTRACT,
+    LIST_DIRECTORY_MAX_ENTRIES_LIMIT,
+    ListDirectoryTool,
     READ_FILE_INPUT_CONTRACT,
     ReadFileTool,
     WebFetchTool,
@@ -238,6 +244,63 @@ const contractCases = [
         },
     },
     {
+        id: "list_directory",
+        inputContract: LIST_DIRECTORY_INPUT_CONTRACT,
+        valid: { path: "src", maxEntries: 100, cursor: "abc" },
+        invalid: [
+            { value: { path: 42 }, code: "invalid_type", path: ["path"] },
+            { value: { maxEntries: 0 }, code: "number_minimum", path: ["maxEntries"] },
+            { value: { maxEntries: LIST_DIRECTORY_MAX_ENTRIES_LIMIT + 1 }, code: "number_maximum", path: ["maxEntries"] },
+            { value: { maxEntries: 1.5 }, code: "not_integer", path: ["maxEntries"] },
+            { value: { cursor: 123 }, code: "invalid_type", path: ["cursor"] },
+            { value: { extra: true }, code: "extra_field", path: ["extra"] },
+        ],
+        schema: {
+            $schema: schemaUri,
+            type: "object",
+            properties: {
+                path: { type: "string" },
+                maxEntries: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: LIST_DIRECTORY_MAX_ENTRIES_LIMIT,
+                },
+                cursor: { type: "string" },
+            },
+            additionalProperties: false,
+        },
+    },
+    {
+        id: "find_files",
+        inputContract: FIND_FILES_INPUT_CONTRACT,
+        valid: { pattern: "**/*.ts", path: "src", maxResults: 100, cursor: "abc" },
+        invalid: [
+            { value: {}, code: "missing_field", path: ["pattern"] },
+            { value: { pattern: 42 }, code: "invalid_type", path: ["pattern"] },
+            { value: { pattern: "*.ts", maxResults: 0 }, code: "number_minimum", path: ["maxResults"] },
+            { value: { pattern: "*.ts", maxResults: FIND_FILES_MAX_RESULTS_LIMIT + 1 }, code: "number_maximum", path: ["maxResults"] },
+            { value: { pattern: "*.ts", maxResults: 1.5 }, code: "not_integer", path: ["maxResults"] },
+            { value: { pattern: "*.ts", cursor: 123 }, code: "invalid_type", path: ["cursor"] },
+            { value: { pattern: "*.ts", extra: true }, code: "extra_field", path: ["extra"] },
+        ],
+        schema: {
+            $schema: schemaUri,
+            type: "object",
+            properties: {
+                pattern: { type: "string" },
+                path: { type: "string" },
+                maxResults: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: FIND_FILES_MAX_RESULTS_LIMIT,
+                },
+                cursor: { type: "string" },
+            },
+            required: ["pattern"],
+            additionalProperties: false,
+        },
+    },
+    {
         id: "grep",
         inputContract: GREP_INPUT_CONTRACT,
         valid: { pattern: "  TODO  ", path: "src", ignoreCase: false },
@@ -340,6 +403,18 @@ test("结构 Contract 成功后仍由 Tool 继续执行领域语义校验", () =
             }),
         },
         {
+            id: "list_directory",
+            inputContract: LIST_DIRECTORY_INPUT_CONTRACT,
+            input: { path: "../outside" },
+            validate: () => new ListDirectoryTool("/workspace").validate({ path: "../outside" }),
+        },
+        {
+            id: "find_files",
+            inputContract: FIND_FILES_INPUT_CONTRACT,
+            input: { pattern: "" },
+            validate: () => new FindFilesTool("/workspace").validate({ pattern: "" }),
+        },
+        {
             id: "grep",
             inputContract: GREP_INPUT_CONTRACT,
             input: { pattern: "a(" },
@@ -399,6 +474,8 @@ test("准备结果保留原始文本、类型和可选字段缺省状态", () =>
 
 test("工具声明式 isReadOnly 元数据准确区分只读读取与写操作工具", () => {
     const readOnlyTools = [
+        new ListDirectoryTool("/workspace"),
+        new FindFilesTool("/workspace"),
         new ReadFileTool("/workspace"),
         new GrepTool("/workspace"),
         new WebSearchTool(),

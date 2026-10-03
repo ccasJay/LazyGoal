@@ -35,6 +35,28 @@ export {
     htmlToPlainText,
 } from "./web-fetch";
 export {
+    LIST_DIRECTORY_TOOL_ID,
+    LIST_DIRECTORY_DEFAULT_MAX_ENTRIES,
+    LIST_DIRECTORY_MAX_ENTRIES_LIMIT,
+    LIST_DIRECTORY_INPUT_CONTRACT,
+    ListDirectoryTool,
+    type ListDirectoryInput,
+    type DirectoryEntryType,
+    type DirectoryEntry,
+    type ListDirectoryOutput,
+} from "./list-directory";
+export {
+    FIND_FILES_TOOL_ID,
+    FIND_FILES_DEFAULT_MAX_RESULTS,
+    FIND_FILES_MAX_RESULTS_LIMIT,
+    FIND_FILES_SCAN_BUDGET,
+    FIND_FILES_MAX_PATTERN_LENGTH,
+    FIND_FILES_INPUT_CONTRACT,
+    FindFilesTool,
+    type FindFilesInput,
+    type FindFilesOutput,
+} from "./find-files";
+export {
     DEFAULT_TOOL_IDS,
     createDefaultToolRegistrations,
 } from "./default-tools";

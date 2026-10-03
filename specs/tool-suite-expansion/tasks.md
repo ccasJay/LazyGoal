@@ -11,7 +11,7 @@
   - 验证方式：扩展现有 `sandbox-permission-action.test.ts`、`sandbox-plan-recovery.test.ts`、`program-execution.test.ts`、Permission/Storage Grant 与 TUI Policy 测试；新增可信身份测试（待实现）。运行 `npx tsx --test packages/runtime/test/sandbox-permission-action.test.ts packages/runtime/test/sandbox-plan-recovery.test.ts packages/runtime/test/program-execution.test.ts packages/permission/test/grant-matching.test.ts packages/storage/test/sandbox-grant-store.test.ts packages/tui/test/tool-policy.test.ts benchmarks/test/remote-tool-registry.test.ts` 及 `npm run check:dependencies`。
   - _Requirements: [8.1](./requirements.md#req-8-1), [8.2](./requirements.md#req-8-2), [8.3](./requirements.md#req-8-3)_
 
-- [ ] //TODO 2. 实现可分页的目录列举与文件定位
+- [x] //TODO 2. 实现可分页的目录列举与文件定位
 
   - 实现目标：依赖 TODO 1，接入 `list_directory`、`find_files`，安装锁定的 picomatch，完成有界遍历、查询绑定游标、路径保护和可终止的模式匹配；加入两个工具的默认注册、输入 Contract 和英文诊断。
   - 成功判据：目录只返回直接子项；分页定位可获得全部可扫描匹配且顺序稳定，达到扫描额度时即使零匹配也能续查；非法/错查询游标、不支持的深度、不可访问范围和越界符号链接均明确失败；超时或取消不会阻塞宿主。

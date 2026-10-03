@@ -26,7 +26,9 @@
   "license": "ISC",
   "devDependencies": {
     "@inkjs/ui": "^2.0.0",
+    "@types/diff": "^7.0.2",
     "@types/node": "^26.1.2",
+    "@types/picomatch": "^4.0.3",
     "@types/react": "^19.1.10",
     "ink": "^6.8.0",
     "ink-testing-library": "^4.0.0",
@@ -38,6 +40,8 @@
     "wrap-ansi": "^9.0.2"
   },
   "dependencies": {
-    "marked": "^18.0.13"
+    "diff": "9.0.0",
+    "marked": "^18.0.13",
+    "picomatch": "4.0.7"
   }
 }

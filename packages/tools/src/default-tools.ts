@@ -5,7 +5,9 @@ import {
 import { BashTool, BASH_TOOL_ID } from "./bash";
 import { EditFileTool, EDIT_FILE_TOOL_ID } from "./edit-file";
 import { createExecuteProgramRegistration, EXECUTE_PROGRAM_TOOL_ID } from "./execute-program";
+import { FindFilesTool, FIND_FILES_TOOL_ID } from "./find-files";
 import { GrepTool, GREP_TOOL_ID } from "./grep";
+import { ListDirectoryTool, LIST_DIRECTORY_TOOL_ID } from "./list-directory";
 import { ReadFileTool, READ_FILE_TOOL_ID } from "./read-file";
 import { WriteFileTool, WRITE_FILE_TOOL_ID } from "./write-file";
 
@@ -22,6 +24,8 @@ import { WriteFileTool, WRITE_FILE_TOOL_ID } from "./write-file";
  * ```
  */
 export const DEFAULT_TOOL_IDS: readonly string[] = Object.freeze([
+    LIST_DIRECTORY_TOOL_ID,
+    FIND_FILES_TOOL_ID,
     READ_FILE_TOOL_ID,
     WRITE_FILE_TOOL_ID,
     EDIT_FILE_TOOL_ID,
@@ -49,6 +53,8 @@ export function createDefaultToolRegistrations(
     workspaceRoot: string,
 ): readonly ToolRegistration[] {
     return [
+        createToolRegistration(new ListDirectoryTool(workspaceRoot)),
+        createToolRegistration(new FindFilesTool(workspaceRoot)),
         createToolRegistration(new ReadFileTool(workspaceRoot)),
         createToolRegistration(new WriteFileTool(workspaceRoot)),
         createToolRegistration(new EditFileTool(workspaceRoot)),
