@@ -191,9 +191,22 @@ test("PTC 指引仅随专用 Tool 授权出现", async () => {
         }],
     })));
     assert.match(authorized, /tools\[toolId\]\(input\)/);
-    assert.match(authorized, /explicitly return one JSON-safe conclusion/);
-    const withoutProgram = sectionText("authorized_tools", renderer.renderDynamicSections(view()));
-    assert.doesNotMatch(withoutProgram, /tools\[toolId\]\(input\)/);
+    assert.match(authorized, /result\.observation\.output\.split/);
+    assert.match(authorized, /observation\.kind !== "success"/);
+    assert.match(authorized, /gather the needed facts in one program and reuse each result/);
+    assert.match(authorized, /compact JSON-safe conclusion with bounded evidence/);
+    assert.match(authorized, /return \{path, line, text\} evidence/);
+    assert.match(authorized, /When read_file is authorized/);
+    assert.match(authorized, /line:i\+1/);
+    assert.match(authorized, /cite only those verified lines/);
+    const withoutProgram = sectionText("authorized_tools", renderer.renderDynamicSections(view({
+        authorizedTools: [{
+            id: "read_file",
+            description: "Read a file",
+            inputSchema: { type: "object" },
+        }],
+    })));
+    assert.doesNotMatch(withoutProgram, /tools\[toolId\]\(input\)|result\.observation\.output|verified lines/);
 });
 
 test("GoalPlan、Working Memory 与检查点各自保持独立来源和动态 section 身份", async () => {
