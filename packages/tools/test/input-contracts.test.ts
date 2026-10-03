@@ -17,6 +17,12 @@ import {
     FIND_FILES_INPUT_CONTRACT,
     FIND_FILES_MAX_RESULTS_LIMIT,
     FindFilesTool,
+    GitBranchListTool,
+    GitDiffTool,
+    GitLogTool,
+    GitShowTool,
+    GitStatusTool,
+    GitWorktreeListTool,
     GREP_INPUT_CONTRACT,
     GREP_MAX_CONTEXT_LINES,
     GREP_MAX_MATCHES_LIMIT,
@@ -645,6 +651,12 @@ test("工具声明式 isReadOnly 元数据准确区分只读读取与写操作�
         new WebSearchTool(),
         new WebFetchTool(),
         new ProcessReadTool({} as any, {} as any),
+        new GitStatusTool("/workspace"),
+        new GitDiffTool("/workspace"),
+        new GitLogTool("/workspace"),
+        new GitShowTool("/workspace"),
+        new GitBranchListTool("/workspace"),
+        new GitWorktreeListTool("/workspace"),
     ];
 
     for (const tool of readOnlyTools) {

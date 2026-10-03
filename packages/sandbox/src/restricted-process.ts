@@ -16,8 +16,12 @@ export const RESTRICTED_PROCESS_TERMINATION_GRACE_MS = 2_000;
  * ```
  */
 export interface SpawnRestrictedCommandOptions {
-    /** 要执行的完整 Shell 命令。 */
-    readonly command: string;
+    /** 要执行的完整 Shell 命令（与 executable/args 二选一）。 */
+    readonly command?: string;
+    /** 要执行的独立可执行文件绝对路径或名称（与 command 二选一）。 */
+    readonly executable?: string;
+    /** 传递给独立可执行文件的参数列表（无需经过 Shell 解析）。 */
+    readonly args?: readonly string[];
     /** 工作目录真实绝对路径。 */
     readonly cwd: string;
     /** 可选的沙箱策略与环境变量（Seatbelt 环境下生效）。 */
@@ -35,7 +39,7 @@ export interface SpawnRestrictedCommandOptions {
  * @remarks
  * 在 macOS/Linux 上通过 detached 创建新进程组（以子进程 PID 为进程组组长 PGID），
  * 且在提供 sandbox 策略时通过 macOS Seatbelt 沙箱执行；Windows 维持单进程。
- * 标准输出和标准错误重定向为 pipe。
+ * 标准输出和标准错误重定向为 pipe。支持直接执行独立二进制（固定 argv）或执行 Shell 命令。
  *
  * @param options - 命令启动参数。
  * @returns 启动的 ChildProcess 实例。
@@ -49,10 +53,33 @@ export interface SpawnRestrictedCommandOptions {
  * ```
  */
 export function spawnRestrictedCommand(options: SpawnRestrictedCommandOptions): ChildProcess {
+    if (options.executable !== undefined) {
+        const args = options.args ?? [];
+        if (options.sandbox !== undefined) {
+            return spawn(
+                SANDBOX_EXEC_PATH,
+                ["-p", options.sandbox.policy, options.executable, ...args],
+                {
+                    cwd: options.cwd,
+                    env: options.sandbox.env,
+                    stdio: [options.stdioStdin ?? "ignore", "pipe", "pipe"],
+                    detached: true,
+                },
+            );
+        }
+
+        return spawn(options.executable, [...args], {
+            cwd: options.cwd,
+            stdio: [options.stdioStdin ?? "ignore", "pipe", "pipe"],
+            detached: process.platform !== "win32",
+        });
+    }
+
+    const command = options.command ?? "";
     if (options.sandbox !== undefined) {
         return spawn(
             SANDBOX_EXEC_PATH,
-            ["-p", options.sandbox.policy, "/bin/bash", "-c", options.command],
+            ["-p", options.sandbox.policy, "/bin/bash", "-c", command],
             {
                 cwd: options.cwd,
                 env: options.sandbox.env,
@@ -62,7 +89,7 @@ export function spawnRestrictedCommand(options: SpawnRestrictedCommandOptions): 
         );
     }
 
-    return spawn(options.command, {
+    return spawn(command, {
         cwd: options.cwd,
         shell: process.platform === "win32" ? true : "/bin/bash",
         stdio: [options.stdioStdin ?? "ignore", "pipe", "pipe"],

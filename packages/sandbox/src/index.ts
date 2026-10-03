@@ -42,6 +42,17 @@ export {
 } from "./restricted-process";
 
 export {
+    discoverGitRepository,
+    runRestrictedGit,
+    validateSafeGitArgs,
+    GIT_DEFAULT_TIMEOUT_MS,
+    GIT_MAX_OUTPUT_CHARS,
+    type GitRepositoryInfo,
+    type RestrictedGitExecutionResult,
+    type RunRestrictedGitOptions,
+} from "./git-runner";
+
+export {
     resolveEffectiveSandboxScope,
     type DerivedSandboxAccess,
     type EffectiveExtraFile,

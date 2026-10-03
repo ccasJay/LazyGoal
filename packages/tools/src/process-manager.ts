@@ -204,14 +204,20 @@ export class ProcessManager implements ManagedResource {
         // 监听输出流
         child.stdout?.setEncoding("utf8");
         child.stdout?.on("data", (chunk: string) => {
-            void this.store.appendOutput(options.goalId, processId, "stdout", chunk).catch(() => {});
-            outputEmitter.emit("output", "stdout", chunk);
+            void this.store.appendOutput(options.goalId, processId, "stdout", chunk)
+                .catch(() => {})
+                .finally(() => {
+                    outputEmitter.emit("output", "stdout", chunk);
+                });
         });
 
         child.stderr?.setEncoding("utf8");
         child.stderr?.on("data", (chunk: string) => {
-            void this.store.appendOutput(options.goalId, processId, "stderr", chunk).catch(() => {});
-            outputEmitter.emit("output", "stderr", chunk);
+            void this.store.appendOutput(options.goalId, processId, "stderr", chunk)
+                .catch(() => {})
+                .finally(() => {
+                    outputEmitter.emit("output", "stderr", chunk);
+                });
         });
 
         // 更新状态为 running

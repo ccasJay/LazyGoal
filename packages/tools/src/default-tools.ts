@@ -19,6 +19,20 @@ import {
     ProcessStopTool,
     PROCESS_STOP_TOOL_ID,
 } from "./process-tools";
+import {
+    GitStatusTool,
+    GIT_STATUS_TOOL_ID,
+    GitDiffTool,
+    GIT_DIFF_TOOL_ID,
+    GitLogTool,
+    GIT_LOG_TOOL_ID,
+    GitShowTool,
+    GIT_SHOW_TOOL_ID,
+    GitBranchListTool,
+    GIT_BRANCH_LIST_TOOL_ID,
+    GitWorktreeListTool,
+    GIT_WORKTREE_LIST_TOOL_ID,
+} from "./git-read-tools";
 import { ReadFileTool, READ_FILE_TOOL_ID } from "./read-file";
 import { WebFetchTool, WEB_FETCH_TOOL_ID } from "./web-fetch";
 import { WebSearchTool, WEB_SEARCH_TOOL_ID } from "./web-search";
@@ -50,6 +64,12 @@ export const DEFAULT_TOOL_IDS: readonly string[] = Object.freeze([
     PROCESS_START_TOOL_ID,
     PROCESS_READ_TOOL_ID,
     PROCESS_STOP_TOOL_ID,
+    GIT_STATUS_TOOL_ID,
+    GIT_DIFF_TOOL_ID,
+    GIT_LOG_TOOL_ID,
+    GIT_SHOW_TOOL_ID,
+    GIT_BRANCH_LIST_TOOL_ID,
+    GIT_WORKTREE_LIST_TOOL_ID,
     EXECUTE_PROGRAM_TOOL_ID,
 ]);
 
@@ -94,6 +114,12 @@ export function createDefaultToolRegistrations(
         createToolRegistration(new WebSearchTool()),
         createToolRegistration(new WebFetchTool()),
         createToolRegistration(new BashTool(workspaceRoot)),
+        createToolRegistration(new GitStatusTool(workspaceRoot)),
+        createToolRegistration(new GitDiffTool(workspaceRoot)),
+        createToolRegistration(new GitLogTool(workspaceRoot)),
+        createToolRegistration(new GitShowTool(workspaceRoot)),
+        createToolRegistration(new GitBranchListTool(workspaceRoot)),
+        createToolRegistration(new GitWorktreeListTool(workspaceRoot)),
     ];
 
     if (options?.processManager !== undefined && options?.processSessionStore !== undefined) {

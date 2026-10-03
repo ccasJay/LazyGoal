@@ -46,7 +46,7 @@
   - 验证方式：新增 `packages/tools/test/process-tools.test.ts`、`packages/storage/test/process-session-store.test.ts`、`packages/tui/test/process-lifecycle.integration.test.ts`（待实现），使用真实长进程、子进程、重启和磁盘失败；扩展 Bash/Shutdown/PTC 回归。运行 `npx tsx --test packages/tools/test/process-tools.test.ts packages/storage/test/process-session-store.test.ts packages/tui/test/process-lifecycle.integration.test.ts packages/tools/test/bash.test.ts packages/runtime/test/shutdown.test.ts packages/runtime/test/program-interruption.test.ts`。
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3), [6.4](./requirements.md#req-6-4), [6.5](./requirements.md#req-6-5), [8.1](./requirements.md#req-8-1), [8.2](./requirements.md#req-8-2), [8.3](./requirements.md#req-8-3)_
 
-- [ ] //TODO 7. 接入专用沙箱中的本地 Git 查询
+- [x] //TODO 7. 接入专用沙箱中的本地 Git 查询
 
   - 实现目标：依赖 TODO 1、2、6，构建固定 argv 的 Git 执行和仓库资源发现入口；接入 status/diff/log/show、branch/worktree 列举与分页，禁止查询的可选写入、外部 diff/textconv、远端抓取及自由选项透传。
   - 成功判据：临时真实仓库的工作树/暂存区、提交、分支和 worktree 返回可定位结果，超限可续查；不存在对象或仓库、选项注入、不可用沙箱/系统 Git 明确失败；外部 common-dir 未授权不读取，查询不改变 index 或连接远端。
