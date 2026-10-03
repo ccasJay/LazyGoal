@@ -49,6 +49,7 @@ import {
     JsonFileToolGrantStore,
     JsonFileSandboxGrantStore,
     JsonFileProjectPermissionModeStore,
+    JsonFileProcessSessionStore,
 } from "../../storage/src/index";
 import {
     createHttpService,
@@ -122,6 +123,7 @@ import {
     READ_FILE_TOOL_ID,
     ReadFileTool,
     WriteFileTool,
+    ProcessManager,
 } from "../../tools/src/index";
 import {
     SessionController,
@@ -837,6 +839,16 @@ export async function createCompositionRoot(
         };
     }
 
+    const abortController = options.abortController ?? new AbortController();
+    const resources = new ManagedResourceRegistry();
+    const hostInstanceId = randomUUID();
+    const processSessionStore = new JsonFileProcessSessionStore(dataDirectory, hostInstanceId);
+    const processManager = new ProcessManager({
+        store: processSessionStore,
+        hostInstanceId,
+        resources,
+    });
+
     let toolRegistry: InMemoryToolRegistry;
     let readFileTool: ReadFileTool | undefined;
     if (options.toolRegistry !== undefined) {
@@ -844,7 +856,10 @@ export async function createCompositionRoot(
         readFileTool = undefined;
     } else {
         readFileTool = new ReadFileTool(workspaceRoot);
-        toolRegistry = new InMemoryToolRegistry(createDefaultToolRegistrations(workspaceRoot));
+        toolRegistry = new InMemoryToolRegistry(createDefaultToolRegistrations(workspaceRoot, {
+            processManager,
+            processSessionStore,
+        }));
     }
 
     const missingToolId = profile.toolIds.find(
@@ -928,8 +943,6 @@ export async function createCompositionRoot(
     const checkpointStore = new CheckpointGateGoalStore(notifyingStore);
     const protocolValidator = createDefaultPromptBundleProtocolValidator();
     const workingMemoryLimits: WorkingMemoryLimits = DEFAULT_WORKING_MEMORY_LIMITS;
-    const abortController = options.abortController ?? new AbortController();
-    const resources = new ManagedResourceRegistry();
     resources.register({
         async close() {
             unsubscribeMetricUpdates();
@@ -1245,6 +1258,7 @@ export async function createCompositionRoot(
                 }
                 await toolGrantStore.deleteGoalGrants(workspaceHomePaths.workspaceId, goalId);
                 await sandboxGrantStore.deleteGoalGrants(workspaceHomePaths.workspaceId, goalId);
+                await processSessionStore.deleteGoalSessions(goalId);
                 await primaryGoalStore.deleteTerminal(goalId);
                 return "ok";
             },

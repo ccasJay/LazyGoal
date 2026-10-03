@@ -34,6 +34,14 @@ export {
 } from "./program-sandbox";
 
 export {
+    RESTRICTED_PROCESS_TERMINATION_GRACE_MS,
+    killProcessGroup,
+    sendSignalToProcessGroup,
+    spawnRestrictedCommand,
+    type SpawnRestrictedCommandOptions,
+} from "./restricted-process";
+
+export {
     resolveEffectiveSandboxScope,
     type DerivedSandboxAccess,
     type EffectiveExtraFile,

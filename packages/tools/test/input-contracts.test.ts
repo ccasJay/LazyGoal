@@ -24,6 +24,14 @@ import {
     LIST_DIRECTORY_INPUT_CONTRACT,
     LIST_DIRECTORY_MAX_ENTRIES_LIMIT,
     ListDirectoryTool,
+    PROCESS_READ_INPUT_CONTRACT,
+    PROCESS_READ_MAX_CHARS_LIMIT,
+    PROCESS_READ_MAX_WAIT_MS,
+    ProcessReadTool,
+    PROCESS_START_INPUT_CONTRACT,
+    ProcessStartTool,
+    PROCESS_STOP_INPUT_CONTRACT,
+    ProcessStopTool,
     READ_FILE_INPUT_CONTRACT,
     READ_FILE_MAX_CHARS_LIMIT,
     ReadFileTool,
@@ -636,6 +644,7 @@ test("工具声明式 isReadOnly 元数据准确区分只读读取与写操作�
         new GrepTool("/workspace"),
         new WebSearchTool(),
         new WebFetchTool(),
+        new ProcessReadTool({} as any, {} as any),
     ];
 
     for (const tool of readOnlyTools) {

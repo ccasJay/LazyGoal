@@ -66,6 +66,13 @@ export {
     ModelCallMetricStoreProtocolError,
 } from "./json-file-metrics-store";
 export {
+    JsonFileProcessSessionStore,
+    ProcessSessionDtoSchema,
+    PROCESS_LOG_MAX_FILE_BYTES,
+    type ProcessSessionDto,
+} from "./json-file-process-session-store";
+export type { ProcessSessionRecord } from "../../runtime/src/index";
+export {
     JsonFileDiagnosticTraceSink,
 } from "./json-file-diagnostic-trace-sink";
 export {

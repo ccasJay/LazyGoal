@@ -1,5 +1,6 @@
 import {
     createToolRegistration,
+    type ProcessSessionStore,
     type ToolRegistration,
 } from "../../runtime/src/index";
 import { ApplyPatchTool, APPLY_PATCH_TOOL_ID } from "./apply-patch";
@@ -9,6 +10,15 @@ import { createExecuteProgramRegistration, EXECUTE_PROGRAM_TOOL_ID } from "./exe
 import { FindFilesTool, FIND_FILES_TOOL_ID } from "./find-files";
 import { GrepTool, GREP_TOOL_ID } from "./grep";
 import { ListDirectoryTool, LIST_DIRECTORY_TOOL_ID } from "./list-directory";
+import { ProcessManager } from "./process-manager";
+import {
+    ProcessReadTool,
+    PROCESS_READ_TOOL_ID,
+    ProcessStartTool,
+    PROCESS_START_TOOL_ID,
+    ProcessStopTool,
+    PROCESS_STOP_TOOL_ID,
+} from "./process-tools";
 import { ReadFileTool, READ_FILE_TOOL_ID } from "./read-file";
 import { WebFetchTool, WEB_FETCH_TOOL_ID } from "./web-fetch";
 import { WebSearchTool, WEB_SEARCH_TOOL_ID } from "./web-search";
@@ -37,8 +47,21 @@ export const DEFAULT_TOOL_IDS: readonly string[] = Object.freeze([
     WEB_SEARCH_TOOL_ID,
     WEB_FETCH_TOOL_ID,
     BASH_TOOL_ID,
+    PROCESS_START_TOOL_ID,
+    PROCESS_READ_TOOL_ID,
+    PROCESS_STOP_TOOL_ID,
     EXECUTE_PROGRAM_TOOL_ID,
 ]);
+
+/**
+ * 创建默认工具集时的配置项。
+ */
+export interface DefaultToolRegistrationsOptions {
+    /** 长进程生命周期管理器。 */
+    readonly processManager?: ProcessManager;
+    /** 进程持久化存储。 */
+    readonly processSessionStore?: ProcessSessionStore;
+}
 
 /**
  * 构造默认工具集绑定的注册项列表。
@@ -47,6 +70,7 @@ export const DEFAULT_TOOL_IDS: readonly string[] = Object.freeze([
  * 为指定的 `workspaceRoot` 实例化所有默认工具并封装为 `ToolRegistration`。
  *
  * @param workspaceRoot - 当前工作区根目录。
+ * @param options - 可选的进程管理器与进程存储配置。
  * @returns 包含默认工具绑定的 ToolRegistration 数组。
  *
  * @example
@@ -57,8 +81,9 @@ export const DEFAULT_TOOL_IDS: readonly string[] = Object.freeze([
  */
 export function createDefaultToolRegistrations(
     workspaceRoot: string,
+    options?: DefaultToolRegistrationsOptions,
 ): readonly ToolRegistration[] {
-    return [
+    const registrations: ToolRegistration[] = [
         createToolRegistration(new ListDirectoryTool(workspaceRoot)),
         createToolRegistration(new FindFilesTool(workspaceRoot)),
         createToolRegistration(new ReadFileTool(workspaceRoot)),
@@ -69,6 +94,16 @@ export function createDefaultToolRegistrations(
         createToolRegistration(new WebSearchTool()),
         createToolRegistration(new WebFetchTool()),
         createToolRegistration(new BashTool(workspaceRoot)),
-        createExecuteProgramRegistration(),
     ];
+
+    if (options?.processManager !== undefined && options?.processSessionStore !== undefined) {
+        registrations.push(
+            createToolRegistration(new ProcessStartTool(workspaceRoot, options.processManager)),
+            createToolRegistration(new ProcessReadTool(options.processManager, options.processSessionStore)),
+            createToolRegistration(new ProcessStopTool(options.processManager, options.processSessionStore)),
+        );
+    }
+
+    registrations.push(createExecuteProgramRegistration());
+    return registrations;
 }

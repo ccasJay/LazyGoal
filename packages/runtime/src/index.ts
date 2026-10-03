@@ -526,5 +526,13 @@ export {
     getSandboxProtectionStatus,
     type SandboxProtectionStatus,
 } from "../../sandbox/src/index";
+export type {
+    ProcessOutputChannel,
+    ProcessOutputChunk,
+    ProcessReadOutputResult,
+    ProcessSessionRecord,
+    ProcessSessionStatus,
+    ProcessSessionStore,
+} from "./process-session-store";
 
 export type { ModelInputMessage, ModelInputRecord, ModelInputStore } from "./model-input";

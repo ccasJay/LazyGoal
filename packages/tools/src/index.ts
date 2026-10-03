@@ -99,6 +99,32 @@ export {
     type FindFilesOutput,
 } from "./find-files";
 export {
+    PROCESS_START_TOOL_ID,
+    PROCESS_READ_TOOL_ID,
+    PROCESS_STOP_TOOL_ID,
+    PROCESS_READ_MAX_WAIT_MS,
+    PROCESS_READ_DEFAULT_MAX_CHARS,
+    PROCESS_READ_MAX_CHARS_LIMIT,
+    PROCESS_START_INPUT_CONTRACT,
+    PROCESS_READ_INPUT_CONTRACT,
+    PROCESS_STOP_INPUT_CONTRACT,
+    ProcessStartTool,
+    ProcessReadTool,
+    ProcessStopTool,
+    type ProcessStartInput,
+    type ProcessStartOutput,
+    type ProcessReadInput,
+    type ProcessReadOutput,
+    type ProcessStopInput,
+} from "./process-tools";
+export {
+    ProcessManager,
+    PROCESS_MAX_RUNNING_PER_GOAL,
+    PROCESS_MAX_RUNNING_PER_HOST,
+    PROCESS_MAX_SESSIONS_PER_GOAL,
+} from "./process-manager";
+export {
     DEFAULT_TOOL_IDS,
     createDefaultToolRegistrations,
+    type DefaultToolRegistrationsOptions,
 } from "./default-tools";

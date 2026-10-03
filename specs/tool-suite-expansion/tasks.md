@@ -39,7 +39,7 @@
   - 验证方式：使用 fake 后端和本地 HTTP 扩展 `web-search.test.ts`、`web-fetch.test.ts`；新增 `packages/runtime/test/web-tool-permission.test.ts`（待实现），覆盖源 URL、正文上限、字符偏移及授权/恢复，不请求真实搜索供应商。运行 `npx tsx --test packages/tools/test/web-search.test.ts packages/tools/test/web-fetch.test.ts packages/runtime/test/web-tool-permission.test.ts benchmarks/test/remote-tool-registry.test.ts benchmarks/test/tool-rpc.test.ts`。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [8.1](./requirements.md#req-8-1), [8.2](./requirements.md#req-8-2), [8.3](./requirements.md#req-8-3)_
 
-- [ ] //TODO 6. 实现按 Goal 隔离的长进程管理与宿主关闭
+- [x] //TODO 6. 实现按 Goal 隔离的长进程管理与宿主关闭
 
   - 实现目标：依赖 TODO 1–3，提取受限命令启动/终止原语并保持 Bash 行为；一次完成进程 Store Port、Storage 状态/轮转日志、ProcessManager 和 `process_start/read/stop`；接入默认工具、资源关闭及 Goal 删除入口。
   - 成功判据：启动立即返回身份，日志可有界续读并显示退出结果/缺口；跨 Goal 不可读或停止，跨 Run 可观察；重复启动、日志背压/磁盘失败和中止不产生隐式副作用重放；stop/正常关闭终止受管进程组，重启只投影 interrupted 且不连接或误杀旧 PID。
