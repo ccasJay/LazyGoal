@@ -131,6 +131,7 @@ export type {
     RunStatus,
     Observation,
     PendingAction,
+    PendingProgram,
     PendingInteraction,
     PendingInteractionAskUser,
     PendingInteractionTaskApproval,
@@ -405,6 +406,7 @@ export type {
 } from "./agent-profile";
 export {
     createToolRegistration,
+    createProgramToolRegistration,
     InMemoryToolRegistry,
     isReadOnlyTool,
     resolveAuthorizedToolDefinitions,

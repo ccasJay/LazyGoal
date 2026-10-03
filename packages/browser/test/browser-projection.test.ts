@@ -42,6 +42,36 @@ function createTestGoal(): Goal {
     });
 }
 
+test("browser approval projection identifies the parent program and call number", async () => {
+    const created = createTestGoal();
+    const parent = { actionId: "parent-action", toolId: "execute_program", input: { code: "return 1" } };
+    const goal: Goal = {
+        ...created,
+        state: {
+            ...created.state,
+            run: {
+                ...created.state.run,
+                status: "waiting",
+                pendingAction: {
+                    action: { actionId: "child-action", toolId: "write_file", input: { path: "a", content: "b" } },
+                    status: "awaiting_approval",
+                },
+                pendingProgram: {
+                    programId: "program-1", action: parent, executionUnitId: "parent-unit",
+                    codeHash: "code-hash", workerHash: "worker-hash", nodeVersion: "v22",
+                    fixedTime: 0, seed: 1, nextCallIndex: 2, resultBytes: 0,
+                },
+            },
+        },
+    };
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.deepEqual(session?.pendingAction?.parentProgram, {
+        actionId: "parent-action", callNumber: 3,
+    });
+});
+
 function event(
     sequence: number,
     eventType: "decision_received" | "action_staged" | "tool_finished" | "observation_recorded",

@@ -14,6 +14,7 @@ export {
 
 export {
     buildSeatbeltPolicy,
+    buildProgramSeatbeltPolicy,
     cleanupPrivateTmpDir,
     createPrivateTmpDir,
     filterSandboxEnvironment,
@@ -24,6 +25,13 @@ export {
     type SandboxProtectionStatus,
     type SeatbeltPolicyOptions,
 } from "./macos-seatbelt";
+
+export {
+    runProgramSandbox,
+    programWorkerHash,
+    ProgramSandboxAbortedError,
+    type ProgramToolCall,
+} from "./program-sandbox";
 
 export {
     resolveEffectiveSandboxScope,

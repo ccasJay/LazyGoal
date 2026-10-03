@@ -882,6 +882,8 @@ export interface RunState {
     readonly memoryRevision?: MemoryRevision;
     readonly lastStep?: StepRecord;
     readonly pendingAction?: PendingAction;
+    /** 当前由 Runtime 持有的程序父 Action；内部调用结算前不得增加 Step。 */
+    readonly pendingProgram?: PendingProgram;
     readonly pendingInteraction?: PendingInteraction;
     readonly pendingThink?: PendingThink;
     readonly pendingModelRepair?: PendingModelRepair;
@@ -899,6 +901,39 @@ export interface RunState {
      * ```
      */
     readonly contextEpoch: ModelContextEpochState;
+}
+
+/**
+ * 程序执行的最小持久化恢复指针。
+ *
+ * @remarks
+ * 代码保存在父 Action 输入中；工具的大结果只保存在已提交 Trajectory。
+ * 每次恢复必须重新检查 worker、Node 与代码身份，不能依赖旧进程内存。
+ *
+ * @example
+ * ```ts
+ * const program: PendingProgram = {
+ *   programId: "program-1", action: { actionId: "a1", toolId: "execute_program", input: { code: "return 1" } },
+ *   executionUnitId: "unit-1", codeHash: "abc", workerHash: "def",
+ *   nodeVersion: "v22", fixedTime: 0, seed: 1, nextCallIndex: 0,
+ *   resultBytes: 0,
+ * };
+ * ```
+ */
+export interface PendingProgram {
+    readonly programId: string;
+    readonly action: ToolCallAction;
+    readonly executionUnitId: string;
+    readonly codeHash: string;
+    readonly workerHash: string;
+    readonly nodeVersion: string;
+    readonly fixedTime: number;
+    readonly seed: number;
+    readonly nextCallIndex: number;
+    /** 已提交内部结果占用的 UTF-8 字节数。 */
+    readonly resultBytes: number;
+    /** 停止原因需等未知副作用处理后才结算父程序。 */
+    readonly pendingStop?: { readonly code: string; readonly message: string };
 }
 
 /** 当前 Snapshot 持久化的模型上下文 Epoch 状态。 */

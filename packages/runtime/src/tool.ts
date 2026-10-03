@@ -257,6 +257,8 @@ export type PreparedToolAction =
  * ```
  */
 export interface ToolRegistration {
+    /** 程序注册项由 Runner 调度；省略时表示普通业务工具。 */
+    readonly kind?: "tool" | "program";
     /** 对外展示的稳定 Tool 描述。 */
     readonly definition: ToolDefinition;
     /** 进程中断后对未完成 Action 的重放策略。 */
@@ -304,6 +306,7 @@ export function createToolRegistration<C extends ToolInputContract>(
     });
 
     return {
+        kind: "tool",
         definition,
         replayPolicy: tool.replayPolicy,
         prepare(input, control) {
@@ -372,6 +375,46 @@ export function createToolRegistration<C extends ToolInputContract>(
                             }, executeControl);
                         },
                     }),
+            };
+        },
+    };
+}
+
+/**
+ * 注册由 Runner 调度的程序入口；该入口自身不执行任何业务工具。
+ *
+ * @example
+ * ```ts
+ * const registration = createProgramToolRegistration(definition);
+ * ```
+ */
+export function createProgramToolRegistration<C extends ToolInputContract>(
+    definition: ToolDefinition<C>,
+): ToolRegistration {
+    compileJsonSchema(definition.inputContract);
+    return {
+        kind: "program",
+        definition,
+        replayPolicy: "manual",
+        prepare(input, control) {
+            throwIfAborted(control);
+            const parsed = safeParse(definition.inputContract, input);
+            if (!parsed.success || typeof (parsed.data as { code?: unknown }).code !== "string"
+                || Buffer.byteLength((parsed.data as { code: string }).code) > 64 * 1024) {
+                return {
+                    ok: false,
+                    error: {
+                        code: "INVALID_TOOL_INPUT",
+                        message: "execute_program requires code within 64 KiB",
+                    },
+                };
+            }
+            return {
+                ok: true,
+                input: parsed.data,
+                async execute() {
+                    throw new Error("PTC_PROGRAM_REQUIRES_RUNNER");
+                },
             };
         },
     };

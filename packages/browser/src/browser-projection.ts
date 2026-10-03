@@ -311,6 +311,8 @@ export interface BrowserGoalSession {
         readonly targetPath?: string;
         readonly approvalKind?: "tool" | "sandbox";
         readonly sandboxReview?: EffectiveSandboxReview;
+        /** 当前待审操作所属的程序调用；显示父 Action 而不授予额外权限。 */
+        readonly parentProgram?: { readonly actionId: string; readonly callNumber: number };
     };
     /** 是否因输出上限截去了较早消息、Run 或步骤。 */
     readonly historyTruncated: boolean;
@@ -436,7 +438,7 @@ export async function readBrowserGoalSession(
     const pendingInteraction = projectPendingInteraction(currentRun.pendingInteraction);
     const pendingAction = currentRun.pendingAction === undefined
         ? undefined
-        : projectPendingAction(currentRun.pendingAction);
+        : projectPendingAction(currentRun.pendingAction, currentRun.pendingProgram);
     const goalPlan = goal.state.goalPlan === undefined
         ? undefined
         : projectGoalPlan(goal.state.goalPlan);
@@ -457,7 +459,10 @@ export async function readBrowserGoalSession(
     };
 }
 
-function projectPendingAction(action: NonNullable<Goal["state"]["run"]["pendingAction"]>): NonNullable<BrowserGoalSession["pendingAction"]> {
+function projectPendingAction(
+    action: NonNullable<Goal["state"]["run"]["pendingAction"]>,
+    program?: Goal["state"]["run"]["pendingProgram"],
+): NonNullable<BrowserGoalSession["pendingAction"]> {
     const completeInput = JSON.stringify(action.action.input);
     const inputPreview = boundedText(completeInput, MAX_ACTION_PREVIEW_LENGTH);
     const input = action.action.input;
@@ -491,6 +496,9 @@ function projectPendingAction(action: NonNullable<Goal["state"]["run"]["pendingA
         ...(targetPath === undefined ? {} : { targetPath }),
         ...(action.approvalKind === undefined ? {} : { approvalKind: action.approvalKind }),
         ...(sandboxReview === undefined ? {} : { sandboxReview }),
+        ...(program === undefined ? {} : {
+            parentProgram: { actionId: program.action.actionId, callNumber: program.nextCallIndex + 1 },
+        }),
     };
 }
 
@@ -504,6 +512,7 @@ function projectBrowserSteps(
 ): readonly BrowserSessionStep[] {
     const actionByExecutionUnit = new Map<string, string | null>();
     for (const event of committedEvents) {
+        if (event.programId !== undefined) continue;
         if (event.executionUnitId === undefined) continue;
         const actionId = trajectoryActionId(event);
         if (actionId === undefined) continue;
@@ -514,6 +523,7 @@ function projectBrowserSteps(
 
     const groups = new Map<string, TrajectoryEvent[]>();
     for (const event of committedEvents) {
+        if (event.programId !== undefined) continue;
         if (event.executionUnitId === undefined) continue;
         const actionId = trajectoryActionId(event)
             ?? actionByExecutionUnit.get(event.executionUnitId)

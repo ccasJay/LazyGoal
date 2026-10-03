@@ -40,7 +40,7 @@ export function TrajectoryRecords({ goalId, runId, entries, refresh, selectEvent
     if (entry.sequence !== selectedSequence && !query && category === "All events" && (["state_committed", "action_staged", "observation_recorded"].includes(entry.eventType) || entry.category === "commit")) continue;
     if (entry.eventType === "tool_finished" && entries.some(start => start.eventType === "tool_started" && start.actionId === entry.actionId)) continue;
     rows.push({ id: entry.eventId, role: entry.category === "tool" ? "Tool" : entry.eventType === "decision_received" ? "Assistant" : entry.eventType === "think_completed" ? "Thinking" : entry.eventType === "model_context_frame" || entry.category === "memory" ? "Context" : "Run",
-      text: entry.inputPreview !== undefined ? entry.title.replace("tool_started: ", "") : entry.eventType === "run_completed" ? "Run completed" : entry.preview,
+      text: `${entry.parentActionId === undefined || entry.callIndex === undefined ? "" : `Program ${entry.parentActionId}, call ${entry.callIndex + 1} · `}${entry.inputPreview !== undefined ? entry.title.replace("tool_started: ", "") : entry.eventType === "run_completed" ? "Run completed" : entry.preview}`,
       time: entry.occurredAt, step: entry.stepIndex, entry, input: entry.inputPreview, result: entry.resultPreview,
       request: entry.eventType === "decision_received" || entry.eventType === "think_completed" || rejectedCalls.has(entry.sequence), promptCallId: rejectedCalls.get(entry.sequence)?.callId, status: entry.eventType === "model_repair_feedback_recorded" || entry.eventType === "execution_error" ? "rejected" : undefined });
   }

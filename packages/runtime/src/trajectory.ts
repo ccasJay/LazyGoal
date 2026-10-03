@@ -244,6 +244,20 @@ export type TrajectoryEventPayload =
         readonly effectiveSandboxScope?: EffectiveSandboxScope | undefined;
     }
     | {
+        readonly type: "program_started";
+        readonly programId: string;
+        readonly parentActionId: string;
+        readonly codeHash: string;
+        readonly workerHash: string;
+        readonly nodeVersion: string;
+    }
+    | {
+        readonly type: "program_settled";
+        readonly programId: string;
+        readonly parentActionId: string;
+        readonly outcome: "success" | "failure" | "rejected";
+    }
+    | {
         readonly type: "action_approved";
         readonly actionId: string;
         readonly approvalScope?: "action" | "goal" | "workspace";
@@ -286,6 +300,12 @@ export type TrajectoryEventPayload =
         readonly attempt: number;
         readonly reason: string;
         readonly retryAfterMs?: number;
+    }
+    | {
+        readonly type: "program_time_reserved";
+        readonly programId: string;
+        readonly sliceIndex: number;
+        readonly milliseconds: 1000;
     }
     | {
         readonly type: "tool_finished";
@@ -360,6 +380,10 @@ interface TrajectoryEventMetadata {
     readonly stepIndex?: number;
     readonly actionId?: string;
     readonly parentEventId?: string;
+    /** 内部程序调用的宿主身份；缺失表示普通模型 Action。 */
+    readonly programId?: string;
+    /** 程序内部从零开始的调用序号。 */
+    readonly callIndex?: number;
 }
 
 type DraftForPayload<P extends TrajectoryEventPayload> =
@@ -451,6 +475,10 @@ export interface TrajectoryEventProjection {
     readonly executionUnitId?: string;
     readonly actionId?: string;
     readonly parentEventId?: string;
+    /** 内部调用所属程序；省略时为普通执行事件。 */
+    readonly programId?: string;
+    /** 程序内部的调用位置，用于审批和审计关联。 */
+    readonly callIndex?: number;
 }
 
 /**
@@ -734,6 +762,8 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "context_lookup_failed",
     "memory_patch_accepted",
     "action_staged",
+    "program_started",
+    "program_settled",
     "action_approved",
     "tool_grant_revoked",
     "sandbox_grant_revoked",
@@ -742,6 +772,7 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "tool_started",
     "tool_attempt_started",
     "tool_attempt_failed",
+    "program_time_reserved",
     "tool_finished",
     "observation_recorded",
     "run_waiting",
@@ -915,6 +946,36 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         assertNonEmptyString(payload.actionId, "tool_attempt_started.actionId");
         assertPositiveInteger(payload.attempt, "tool_attempt_started.attempt");
         if (payload.attempt > 3) throw new TrajectoryProtocolError("tool_attempt_started.attempt exceeds three");
+    }
+    if (eventType === "program_time_reserved") {
+        if (Object.keys(payload).some((key) => !["type", "programId", "sliceIndex", "milliseconds"].includes(key))) {
+            throw new TrajectoryProtocolError("program_time_reserved contains unknown fields");
+        }
+        assertNonEmptyString(payload.programId, "program_time_reserved.programId");
+        if (!Number.isSafeInteger(payload.sliceIndex) || (payload.sliceIndex as number) < 0
+            || payload.milliseconds !== 1000) {
+            throw new TrajectoryProtocolError("program_time_reserved has an invalid slice");
+        }
+    }
+    if (eventType === "program_started") {
+        if (Object.keys(payload).some((key) => ![
+            "type", "programId", "parentActionId", "codeHash", "workerHash", "nodeVersion",
+        ].includes(key))) {
+            throw new TrajectoryProtocolError("program_started contains unknown fields");
+        }
+        for (const key of ["programId", "parentActionId", "codeHash", "workerHash", "nodeVersion"]) {
+            assertNonEmptyString(payload[key], `program_started.${key}`);
+        }
+    }
+    if (eventType === "program_settled") {
+        if (Object.keys(payload).some((key) => !["type", "programId", "parentActionId", "outcome"].includes(key))) {
+            throw new TrajectoryProtocolError("program_settled contains unknown fields");
+        }
+        assertNonEmptyString(payload.programId, "program_settled.programId");
+        assertNonEmptyString(payload.parentActionId, "program_settled.parentActionId");
+        if (payload.outcome !== "success" && payload.outcome !== "failure" && payload.outcome !== "rejected") {
+            throw new TrajectoryProtocolError("program_settled.outcome is invalid");
+        }
     }
     if (eventType === "tool_attempt_failed") {
         if (Object.keys(payload).some((key) => !["type", "actionId", "attempt", "reason", "retryAfterMs"].includes(key))) {
@@ -1221,6 +1282,14 @@ function assertMetadata(value: unknown): asserts value is TrajectoryEventMetadat
     assertOptionalNonEmptyString(value.executionUnitId, "executionUnitId");
     assertOptionalNonEmptyString(value.actionId, "actionId");
     assertOptionalNonEmptyString(value.parentEventId, "parentEventId");
+    assertOptionalNonEmptyString(value.programId, "programId");
+    if (value.callIndex !== undefined
+        && (!Number.isSafeInteger(value.callIndex) || (value.callIndex as number) < 0)) {
+        throw new TrajectoryProtocolError("callIndex must be a non-negative integer");
+    }
+    if ((value.programId === undefined) !== (value.callIndex === undefined)) {
+        throw new TrajectoryProtocolError("programId and callIndex must occur together");
+    }
     if (
         value.stepIndex !== undefined
         && (typeof value.stepIndex !== "number"
@@ -1388,6 +1457,8 @@ export function classifyTrajectoryEvent(
         case "memory_patch_accepted":
             return "memory";
         case "action_staged":
+        case "program_started":
+        case "program_settled":
         case "action_approved":
         case "tool_grant_revoked":
         case "sandbox_grant_revoked":
@@ -1397,6 +1468,7 @@ export function classifyTrajectoryEvent(
         case "tool_started":
         case "tool_attempt_started":
         case "tool_attempt_failed":
+        case "program_time_reserved":
         case "tool_finished":
             return "tool";
         case "observation_recorded":
@@ -1431,6 +1503,8 @@ export function projectTrajectoryEvent(
         ...(event.executionUnitId === undefined ? {} : { executionUnitId: event.executionUnitId }),
         ...(event.actionId === undefined ? {} : { actionId: event.actionId }),
         ...(event.parentEventId === undefined ? {} : { parentEventId: event.parentEventId }),
+        ...(event.programId === undefined ? {} : { programId: event.programId }),
+        ...(event.callIndex === undefined ? {} : { callIndex: event.callIndex }),
     };
     return Object.freeze(projection);
 }

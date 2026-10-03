@@ -33,6 +33,27 @@ test("trajectory labels the initial model call separately from an output retry",
     assert.deepEqual(page.entries.map(entry => entry.preview), ["decide · Model request 1", "decide · Output retry 2"]);
 });
 
+test("trajectory audit links an internal tool call to its parent program", async () => {
+    const start = fact(1, {
+        goalId: "goal-1", runId: "run-1", phase: "executing", executionUnitId: "parent-unit",
+        actionId: "parent-action", eventType: "program_started",
+        payload: {
+            type: "program_started", programId: "program-1", parentActionId: "parent-action",
+            codeHash: "code-hash", workerHash: "worker-hash", nodeVersion: "v22",
+        },
+    });
+    const child = fact(2, {
+        goalId: "goal-1", runId: "run-1", phase: "executing", executionUnitId: "child-unit",
+        actionId: "child-action", programId: "program-1", callIndex: 0,
+        eventType: "tool_started",
+        payload: { type: "tool_started", actionId: "child-action", toolId: "read_file", input: { path: "README.md" } },
+    });
+    const page = await (await routes(goal(2), [start, child]).request("/api/goals/goal-1/trajectory?runId=run-1")).json() as BrowserTrajectoryPage;
+    assert.equal(page.entries[1]?.programId, "program-1");
+    assert.equal(page.entries[1]?.callIndex, 0);
+    assert.equal(page.entries[1]?.parentActionId, "parent-action");
+});
+
 test("trajectory pages search and locate the entire committed Run while excluding tail", async () => {
     const app = routes();
     const url = "/api/goals/goal-1/trajectory?runId=run-1";

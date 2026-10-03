@@ -361,6 +361,7 @@ function ActionApprovalForm({
         <span className="action-summary"><Zap size={13} />{action.toolId}</span>
       </div>
       {recovery && <p>The previous result could not be confirmed. Review this action before choosing what to do.</p>}
+      {action.parentProgram && <p>Program <code>{action.parentProgram.actionId}</code>, call {action.parentProgram.callNumber}. Review this operation on its own merits.</p>}
       <div className="action-input-preview">
         <label>{action.inputSummary !== undefined ? action.toolId === "bash" ? "Command" : "Target" : "Tool input"}</label>
         <pre>{action.inputSummary ?? action.inputPreview}</pre>

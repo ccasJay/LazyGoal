@@ -26,6 +26,8 @@ SIGINT 通过 Runtime 已有关闭协调器冻结检查点、取消执行并关�
 
 ## 轨迹查看
 
+PTC 子操作沿用普通 Action 的审批入口；待审视图额外展示父程序 Action 和调用序号。会话步骤只计父 `execute_program`，内部调用保留在原始轨迹，轨迹摘要可通过 `programId` 与 `program_started` 反查父 Action。资源预留事件不产生会话步骤。
+
 [`browser-trajectory`](../../packages/browser/src/browser-trajectory.ts) 使用正式工作区 Snapshot 与提交边界读取器，提供同一访问控制下的只读 Run 目录、轨迹摘要分页和按需事件详情。Run 目录不受 Activity 的历史数量限制；轨迹分页以 Run 内 sequence 为游标，每页最多 100 条。搜索及分类、序列范围筛选覆盖整个 Run 的已提交载荷。读取时额外限定到本次 Snapshot 边界，不返回未提交 tail；未知 Run、事件或执行单元明确返回不存在，底层读取失败返回稳定错误码。
 
 详情保留原始事件信封与载荷，并按同一 Run/Action 关联输入、工具结束记录及已提交 Observation。工具结束与观察确认分别表示；工具耗时只取真实起止时间，缺失、无效或负值不可用，模型耗时不估算。列表明确标记预览截断，完整详情超过 256 KiB 时拒绝，不把截断载荷当作完整 Raw。接口不附带 Diagnostic Trace 或领域事件以外的配置。

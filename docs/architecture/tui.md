@@ -28,6 +28,8 @@ Controller 唯一持有单调不可变 `timeline`，元素包括已提交 User/S
 
 ## 恢复、模型切换与关闭
 
+PTC 审批面板标明待审子 Action 的父程序及调用序号。已提交程序只形成一个父步骤；内部工具事件仍保留在 Trajectory，Inspector 不把它们计作额外步骤。取消与关闭继续沿用 Runtime 的执行信号，关闭不伪造程序失败。
+
 Session 初始化从完整 Goal Snapshot hydrate 时间线、消息和已提交步骤，并保留 `completedRuns` 的消息历史。收到同一 Goal 的后继 Run 通知时，Controller 只有在消息区间和历史记录证明其确实继承当前 Run 时才切换；旧 Run 的迟到保存和流不会覆盖新 Run。等待 `ask_user`、任务批准、blocked 或 Action 审批时可切换模型；Controller 通过 `GoalModelSelectionCoordinator` 先保存选择，再发布新的内存 Binding。模型请求、Tool 调用和 UI 命令共享 AbortSignal。
 
 首次 Ctrl+C/SIGINT 进入统一关闭流程：停止新命令、冻结 Checkpoint Gate、abort 根信号、等待已进入的保存与受管资源清理，最后退出 130。Controller 本身只替换 UI 快照，不伪造 cancelled Goal。

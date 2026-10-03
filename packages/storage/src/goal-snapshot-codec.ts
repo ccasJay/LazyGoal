@@ -16,6 +16,7 @@ import type {
     GoalWorkflowState,
     Observation,
     PendingAction,
+    PendingProgram,
     PendingInteraction,
     PendingThink,
     PendingModelRepair,
@@ -36,6 +37,7 @@ import {
     type GoalSnapshotModelSelectionV1,
     type GoalSnapshotObservationV1,
     type GoalSnapshotPendingActionV1,
+    type GoalSnapshotPendingProgramV1,
     type GoalSnapshotPendingInteractionV1,
     type GoalSnapshotPendingThinkV1,
     type GoalSnapshotPendingModelRepairV1,
@@ -440,6 +442,12 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                                 : { effectiveSandboxScope: structuredClone(run.pendingAction.effectiveSandboxScope) }),
                         },
                     }),
+                ...(run.pendingProgram === undefined
+                    ? {}
+                    : { pendingProgram: {
+                        ...run.pendingProgram,
+                        action: encodeAction(run.pendingProgram.action),
+                    } }),
                 ...(run.pendingInteraction === undefined
                     ? {}
                     : { pendingInteraction: encodePendingInteraction(run.pendingInteraction) }),
@@ -646,6 +654,10 @@ function decodePendingAction(pendingAction: GoalSnapshotPendingActionV1): Pendin
     };
 }
 
+function decodePendingProgram(program: GoalSnapshotPendingProgramV1): PendingProgram {
+    return { ...program, action: decodeAction(program.action) };
+}
+
 function decodePendingThink(pendingThink: GoalSnapshotPendingThinkV1): PendingThink {
     return {
         goalId: pendingThink.goalId,
@@ -755,6 +767,9 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
                 ...(run.pendingAction === undefined
                     ? {}
                     : { pendingAction: decodePendingAction(run.pendingAction) }),
+                ...(run.pendingProgram === undefined
+                    ? {}
+                    : { pendingProgram: decodePendingProgram(run.pendingProgram) }),
                 ...(run.pendingInteraction === undefined
                     ? {}
                     : { pendingInteraction: decodePendingInteraction(run.pendingInteraction) }),

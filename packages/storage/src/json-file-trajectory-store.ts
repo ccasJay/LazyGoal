@@ -146,11 +146,18 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
             await mkdir(join(this.directory, this.encodeIdentifier(draft.goalId)), {
                 recursive: true,
             });
-            await appendFile(
-                filePath,
-                `${JSON.stringify(event)}\n`,
-                { encoding: "utf8", mode: 0o600 },
-            );
+            const line = `${JSON.stringify(event)}\n`;
+            if (draft.eventType === "program_time_reserved") {
+                const file = await open(filePath, "a", 0o600);
+                try {
+                    await file.writeFile(line, "utf8");
+                    await file.sync();
+                } finally {
+                    await file.close();
+                }
+            } else {
+                await appendFile(filePath, line, { encoding: "utf8", mode: 0o600 });
+            }
             this.sequenceCache.set(key, sequence);
             return event;
         });

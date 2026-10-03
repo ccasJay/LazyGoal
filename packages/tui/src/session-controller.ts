@@ -1427,6 +1427,12 @@ export class SessionController {
             ...(snapshot.state.run.pendingAction === undefined
                 ? {}
                 : { pendingAction: snapshot.state.run.pendingAction }),
+            ...(snapshot.state.run.pendingAction === undefined || snapshot.state.run.pendingProgram === undefined
+                ? {}
+                : { pendingProgramParent: {
+                    actionId: snapshot.state.run.pendingProgram.action.actionId,
+                    callNumber: snapshot.state.run.pendingProgram.nextCallIndex + 1,
+                } }),
             ...(terminal === undefined ? {} : { terminal }),
             ...(snapshot.state.goalPlan !== undefined
                 ? { goalPlan: snapshot.state.goalPlan }

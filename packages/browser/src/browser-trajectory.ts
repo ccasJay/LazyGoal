@@ -37,6 +37,12 @@ export interface BrowserTrajectoryEntry {
     readonly executionUnitId?: string;
     readonly stepIndex?: number;
     readonly actionId?: string;
+    /** 内部程序调用身份，供轨迹审计定位父程序。 */
+    readonly programId?: string;
+    /** 程序内从零开始的调用位置。 */
+    readonly callIndex?: number;
+    /** 该子调用所属的模型发起 Action。 */
+    readonly parentActionId?: string;
     readonly title: string;
     readonly preview: string;
     readonly previewTruncated: boolean;
@@ -251,6 +257,14 @@ function summary(event: TrajectoryEvent, events: readonly TrajectoryEvent[]): Br
     const modelCallId = event.eventType === "model_response_received" ? event.payload.modelCallId
         : frame?.eventType === "model_context_frame" ? frame.payload.modelCallId : undefined;
     const actionId = actionOf(event);
+    const programId = event.programId
+        ?? (event.eventType === "program_started" || event.eventType === "program_settled"
+            || event.eventType === "program_time_reserved" ? event.payload.programId : undefined);
+    const start = programId === undefined ? undefined
+        : events.find((candidate) => candidate.eventType === "program_started"
+            && candidate.payload.programId === programId);
+    const parentActionId = start?.eventType === "program_started"
+        ? start.payload.parentActionId : undefined;
     const toolId = "toolId" in event.payload ? event.payload.toolId : event.eventType === "decision_received" && event.payload.decision.kind === "tool_call" ? event.payload.decision.action.toolId : undefined;
     return { eventId: event.eventId, sequence: event.sequence, occurredAt: event.occurredAt, eventType: event.eventType,
         category: projectTrajectoryEvent(event).category, title: toolId === undefined ? event.eventType : `${event.eventType}: ${toolId}`,
@@ -260,7 +274,11 @@ function summary(event: TrajectoryEvent, events: readonly TrajectoryEvent[]): Br
         ...(modelStage === undefined ? {} : { modelStage }),
         preview: preview.slice(0, 800), previewTruncated: preview.length > 800,
         ...(event.executionUnitId === undefined ? {} : { executionUnitId: event.executionUnitId }),
-        ...(event.stepIndex === undefined ? {} : { stepIndex: event.stepIndex }), ...(actionId === undefined ? {} : { actionId }) };
+        ...(event.stepIndex === undefined ? {} : { stepIndex: event.stepIndex }),
+        ...(actionId === undefined ? {} : { actionId }),
+        ...(programId === undefined ? {} : { programId }),
+        ...(event.callIndex === undefined ? {} : { callIndex: event.callIndex }),
+        ...(parentActionId === undefined ? {} : { parentActionId }) };
 }
 
 function observationPreview(observation: Observation): string {

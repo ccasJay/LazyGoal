@@ -1,5 +1,6 @@
 import type { ModelContextFrameForStage } from "./step-executor";
 import { createHash, randomUUID } from "node:crypto";
+import { ProgramSandboxAbortedError, programWorkerHash, runProgramSandbox } from "../../sandbox/src/index";
 
 import type {
     AgentDecision,
@@ -174,6 +175,20 @@ class RunnerExecutionError extends Error {
         super(message.trim().length > 0 ? message : code);
         this.name = "RunnerExecutionError";
         this.code = code;
+    }
+}
+
+class ProgramWaitingError extends Error {}
+
+class ProgramReservationError extends Error {
+    constructor(cause: unknown) {
+        super("PTC_TIME_RESERVATION_FAILED", { cause });
+    }
+}
+
+class ProgramResourceError extends Error {
+    constructor(readonly code: "PTC_FRAME_LIMIT" | "PTC_LOG_LIMIT" | "PTC_TIME_LIMIT") {
+        super(code);
     }
 }
 
@@ -953,6 +968,14 @@ export class Runner {
         control?: ExecutionControl,
     ): Promise<RunnerResult> {
         const effectiveControl = resolveExecutionControl(options, control);
+        if (effectiveControl?.signal?.aborted
+            && effectiveControl.signal.reason === "user_cancel_program") {
+            const pending = await this.restore(ref);
+            if (pending?.state.run.pendingProgram !== undefined) {
+                const stopped = await this.stopProgram(pending, "PTC_CANCELLED", "Program cancelled.");
+                return { ok: true, state: stopped.state.run };
+            }
+        }
         throwIfAborted(effectiveControl);
         const goal = await this.restore(ref, effectiveControl);
         throwIfAborted(effectiveControl);
@@ -2384,7 +2407,12 @@ export class Runner {
             return this.stopWithExecutionError(goal, stableError, control);
         }
 
-        if (validated.registration.replayPolicy === "safe") {
+        if (goal.state.run.pendingProgram !== undefined && pendingAction.attemptsStarted === undefined) {
+            return this.runLoop(goal, pendingAction.action.actionId, control);
+        }
+
+        if (validated.registration.replayPolicy === "safe"
+            && (goal.state.run.pendingProgram === undefined || validated.registration.definition.isReadOnly)) {
             return this.runLoop(
                 goal,
                 pendingAction.action.actionId,
@@ -2534,12 +2562,18 @@ export class Runner {
         executionUnitId: string,
         control?: ExecutionControl,
         plan?: SandboxExecutionPlan,
+        program?: { readonly programId: string; readonly callIndex: number },
     ): Promise<
-        | { readonly kind: "observed"; readonly goal: Goal }
+        | { readonly kind: "observed"; readonly goal: Goal; readonly observation: ToolObservation; readonly sourceSequence?: number }
         | { readonly kind: "stopped"; readonly result: RunnerResult }
     > {
+        const association = program === undefined ? {} : {
+            programId: program.programId,
+            callIndex: program.callIndex,
+        };
         let observation: ToolObservation | undefined;
-        const replaySafe = prepared.registration.replayPolicy === "safe";
+        const replaySafe = prepared.registration.replayPolicy === "safe"
+            && (program === undefined || prepared.registration.definition.isReadOnly);
         const effectivePlan = plan ?? prepared.plan;
         while (observation === undefined) {
             throwIfAborted(control);
@@ -2565,6 +2599,7 @@ export class Runner {
                 phase: "executing",
                 executionUnitId,
                 actionId: prepared.action.actionId,
+                ...association,
                 eventType: "tool_attempt_started",
                 payload: { type: "tool_attempt_started", actionId: prepared.action.actionId, attempt },
             };
@@ -2587,6 +2622,7 @@ export class Runner {
                     phase: "executing",
                     executionUnitId,
                     actionId: prepared.action.actionId,
+                    ...association,
                     eventType: "tool_started",
                     payload: {
                         type: "tool_started",
@@ -2680,6 +2716,21 @@ export class Runner {
             }
         }
 
+        let programResultBytes = 0;
+        if (program !== undefined) {
+            const current = goal.state.run.pendingProgram;
+            if (current === undefined) throw new Error("PTC_REPLAY_MISMATCH");
+            const bytes = Buffer.byteLength(JSON.stringify({
+                observation,
+                sourceReferences: [0],
+            }));
+            if (bytes > 16 * 1024 * 1024) throw new ProgramResourceError("PTC_FRAME_LIMIT");
+            if (current.resultBytes + bytes > 256 * 1024 * 1024) {
+                throw new ProgramResourceError("PTC_LOG_LIMIT");
+            }
+            programResultBytes = bytes;
+        }
+
         throwIfAborted(control);
         const toolFinishedEvent = await this.appendTrajectory({
             goalId: goal.id,
@@ -2687,6 +2738,7 @@ export class Runner {
             phase: "executing",
             executionUnitId,
             actionId: prepared.action.actionId,
+            ...association,
             eventType: "tool_finished",
             payload: {
                 type: "tool_finished",
@@ -2695,11 +2747,28 @@ export class Runner {
                 observation,
             },
         }, control);
-        const observedRun = this.applyTransition(goal.state.run, {
-            kind: "observe_action",
-            actionId: prepared.action.actionId,
-            observation,
-        });
+        const observedRun = program === undefined
+            ? this.applyTransition(goal.state.run, {
+                kind: "observe_action",
+                actionId: prepared.action.actionId,
+                observation,
+            })
+            : (() => {
+                const { pendingAction: _pendingAction, ...run } = goal.state.run;
+                const current = run.pendingProgram;
+                if (current?.programId !== program.programId
+                    || current.nextCallIndex !== program.callIndex) {
+                    throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
+                }
+                return {
+                    ...run,
+                    pendingProgram: {
+                        ...current,
+                        nextCallIndex: current.nextCallIndex + 1,
+                        resultBytes: current.resultBytes + programResultBytes,
+                    },
+                };
+            })();
         const observedGoal = this.withRun(goal, observedRun);
 
         const committed = await this.checkpointCommitter.commit(observedGoal, {
@@ -2709,6 +2778,7 @@ export class Runner {
                 phase: "executing",
                 executionUnitId,
                 actionId: prepared.action.actionId,
+                ...association,
                 eventType: "observation_recorded",
                 payload: {
                     type: "observation_recorded",
@@ -2733,7 +2803,15 @@ export class Runner {
             },
         }]);
         const checkpoint = committed.goal;
-        return { kind: "observed", goal: checkpoint };
+        const sourceSequence = committed.events.find((event) =>
+            event.eventType === "observation_recorded"
+            && event.actionId === prepared.action.actionId)?.sequence;
+        return {
+            kind: "observed",
+            goal: checkpoint,
+            observation,
+            ...(sourceSequence === undefined ? {} : { sourceSequence }),
+        };
     }
 
     private async consumeToolStream(
@@ -2804,6 +2882,14 @@ export class Runner {
 
         while (goal.state.run.status === "running") {
             throwIfAborted(control);
+            if (goal.state.run.pendingProgram !== undefined) {
+                goal = await this.continueProgram(goal, control);
+                if (control?.signal?.aborted && control.signal.reason === "user_cancel_program"
+                    && goal.state.run.pendingProgram === undefined) {
+                    return { ok: true, state: goal.state.run };
+                }
+                continue;
+            }
             const pendingAction = goal.state.run.pendingAction;
 
             if (pendingAction?.status === "approved") {
@@ -2858,6 +2944,13 @@ export class Runner {
                         );
 
                     return this.stopWithExecutionError(goal, stableError, control);
+                }
+
+                if (validated.registration.kind === "program") {
+                    const executionUnitId = await this.findProgramExecutionUnit(goal, validated.action.actionId);
+                    goal = await this.beginProgram(goal, validated.action, executionUnitId, undefined, control);
+                    transientAuthorization = undefined;
+                    continue;
                 }
 
                 const outcome = await this.executeToolAndObserve(
@@ -3199,6 +3292,7 @@ export class Runner {
                             message: error instanceof Error ? error.message : String(error),
                         },
                     }, control);
+
                     const nextRun = this.applyTransition(goal.state.run, {
                         kind: "decision",
                         decision,
@@ -3526,124 +3620,56 @@ export class Runner {
                         },
                     }, control);
 
-                    let grantMatched = false;
-                    let projectMode: PermissionMode = "default";
-                    if (this.permissionModeStore !== undefined && this.workspaceId !== undefined) {
-                        try {
-                            const modeRecord = await this.permissionModeStore.get(this.workspaceId);
-                            projectMode = modeRecord.mode;
-                        } catch (error) {
-                            if (isExecutionAbortedError(error)) throw error;
-                            throwIfAborted(control);
-                            return this.stopWithExecutionError(
-                                goal,
-                                new RunnerExecutionError(
-                                    "TOOL_EXECUTION_ERROR",
-                                    error instanceof Error ? error.message : String(error),
-                                ),
-                                control,
-                            );
+                    if (validated.registration.kind === "program") {
+                        if (this.trajectoryStore === undefined) {
+                            return this.stopWithExecutionError(goal, new RunnerExecutionError(
+                                "TOOL_EXECUTION_ERROR", "PTC requires a Trajectory store",
+                            ), control);
                         }
-                    }
-
-                    if (
-                        validated.policy === "require_approval"
-                        && this.toolGrantLookup !== undefined
-                        && this.workspaceId !== undefined
-                    ) {
-                        try {
-                            const matcher = await createToolGrantMatcher(
-                                validated.action.toolId,
-                                validated.action.input,
-                                this.workspaceRoot,
-                            );
-                            grantMatched = await this.toolGrantLookup.findActiveMatching({
-                                workspaceId: this.workspaceId,
-                                goalId: goal.id,
-                                matcher,
-                            }) !== undefined;
-                        } catch (error) {
-                            if (isExecutionAbortedError(error)) throw error;
-                            throwIfAborted(control);
-                            return this.stopWithExecutionError(
-                                goal,
-                                new RunnerExecutionError(
-                                    "TOOL_EXECUTION_ERROR",
-                                    error instanceof Error ? error.message : String(error),
-                                ),
-                                control,
-                            );
-                        }
-                    }
-
-                    const rawActionInput = validated.action.input;
-                    let effectiveSandboxScope: EffectiveSandboxScope = { extraFiles: [], network: "none" };
-                    if (this.workspaceRoot !== undefined && isRecord(rawActionInput) && isRecord(rawActionInput.sandboxAccess)) {
-                        try {
-                            effectiveSandboxScope = await resolveEffectiveSandboxScope(
-                                this.workspaceRoot,
-                                rawActionInput.sandboxAccess as SandboxAccessRequest,
-                            );
-                        } catch (error) {
-                            if (isExecutionAbortedError(error)) throw error;
-                            throwIfAborted(control);
-                            return this.stopWithExecutionError(
-                                goal,
-                                new RunnerExecutionError(
-                                    "TOOL_EXECUTION_ERROR",
-                                    error instanceof Error ? error.message : String(error),
-                                ),
-                                control,
-                            );
-                        }
-                    }
-
-                    const sandboxDecision = evaluateSandboxAuthorization({
-                        isSeatbeltSupported: isSeatbeltSupported(),
-                        workspaceRoot: this.workspaceRoot,
-                        effectiveScope: effectiveSandboxScope,
-                    });
-
-                    let sandboxGrantMatched = false;
-                    if (
-                        sandboxDecision.decision === "approval_required"
-                        && this.sandboxGrantLookup !== undefined
-                        && this.workspaceId !== undefined
-                        && validated.action.toolId === "bash"
-                    ) {
-                        try {
-                            const bashCommand = typeof (rawActionInput as any).command === "string"
-                                ? (rawActionInput as any).command
-                                : "";
-                            const candidateMatcher = createSandboxGrantMatcher(bashCommand, effectiveSandboxScope);
-                            const activeGrant = await this.sandboxGrantLookup.findActiveMatching({
-                                workspaceId: this.workspaceId,
-                                goalId: goal.id,
-                                matcher: candidateMatcher,
+                        const authorization = await this.authorizeToolAction(goal, validated, control);
+                        if (authorization.requiresApproval) {
+                            const stagedRun = this.applyTransition(goal.state.run, {
+                                kind: "stage_action",
+                                action: validated.action,
+                                status: "awaiting_approval",
+                                ...(authorization.approvalKind === undefined
+                                    ? {} : { approvalKind: authorization.approvalKind }),
                             });
-                            if (activeGrant !== undefined) {
-                                sandboxGrantMatched = true;
-                            }
-                        } catch (error) {
-                            if (isExecutionAbortedError(error)) throw error;
-                            throwIfAborted(control);
-                            return this.stopWithExecutionError(
-                                goal,
-                                new RunnerExecutionError(
-                                    "TOOL_EXECUTION_ERROR",
-                                    error instanceof Error ? error.message : String(error),
-                                ),
-                                control,
-                            );
+                            goal = await this.commitDecision(this.withRun(goal, stagedRun), [{
+                                goalId: goal.id,
+                                runId: goal.state.run.id,
+                                phase: "executing",
+                                actionId: validated.action.actionId,
+                                eventType: "action_staged",
+                                payload: {
+                                    type: "action_staged",
+                                    action: validated.action,
+                                    approvalStatus: "awaiting_approval",
+                                    ...(authorization.approvalKind === undefined
+                                        ? {} : { approvalKind: authorization.approvalKind }),
+                                },
+                            }], acceptedPatch, control);
+                            continue;
                         }
+                        goal = await this.beginProgram(goal, validated.action, executionUnitId, acceptedPatch, control);
+                        continue;
                     }
 
-                    const requiresSandboxApproval = sandboxDecision.decision === "approval_required" && !sandboxGrantMatched;
-                    const requiresToolApproval = validated.policy !== "allow" && !grantMatched && projectMode !== "yolo";
-
-                    if (requiresSandboxApproval || requiresToolApproval) {
+                    let authorization;
+                    try {
+                        authorization = await this.authorizeToolAction(goal, validated, control);
+                    } catch (error) {
+                        if (isExecutionAbortedError(error)) throw error;
                         throwIfAborted(control);
-                        const approvalKind = requiresSandboxApproval ? "sandbox" : undefined;
+                        return this.stopWithExecutionError(goal, new RunnerExecutionError(
+                            "TOOL_EXECUTION_ERROR",
+                            error instanceof Error ? error.message : String(error),
+                        ), control);
+                    }
+                    const { requiresApproval, effectiveSandboxScope, approvalKind } = authorization;
+
+                    if (requiresApproval) {
+                        throwIfAborted(control);
                         const hasCustomSandboxScope = effectiveSandboxScope.extraFiles.length > 0 || effectiveSandboxScope.network !== "none";
                         const stagedRun = this.applyTransition(goal.state.run, {
                             kind: "stage_action",
@@ -3946,6 +3972,565 @@ export class Runner {
         }
 
         return { ok: true, state: goal.state.run };
+    }
+
+    private async findProgramExecutionUnit(goal: Goal, actionId: string): Promise<string> {
+        if (this.trajectoryStore === undefined) {
+            throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC requires a Trajectory store");
+        }
+        const history = await this.trajectoryStore.readWithBoundary(
+            { goalId: goal.id, runId: goal.state.run.id },
+            goal.state.run.committedThroughSequence,
+        );
+        const decisions = history.committed.filter((event) =>
+            event.eventType === "decision_received"
+            && event.payload.decision.kind === "tool_call"
+            && event.payload.decision.action.actionId === actionId);
+        if (decisions.length !== 1 || decisions[0]?.executionUnitId === undefined) {
+            throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
+        }
+        return decisions[0].executionUnitId;
+    }
+
+    private async beginProgram(
+        goal: Goal,
+        action: ToolCallAction,
+        executionUnitId: string,
+        acceptedPatch?: AcceptedMemoryPatchInput,
+        control?: ExecutionControl,
+    ): Promise<Goal> {
+        if (this.trajectoryStore === undefined || goal.state.run.pendingProgram !== undefined) {
+            throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC requires a fresh program and Trajectory store");
+        }
+        const code = (action.input as { readonly code: string }).code;
+        const pendingProgram = {
+            programId: randomUUID(),
+            action,
+            executionUnitId,
+            codeHash: createHash("sha256").update(code).digest("hex"),
+            workerHash: programWorkerHash(),
+            nodeVersion: process.version,
+            fixedTime: Date.now(),
+            seed: Math.floor(Math.random() * 0xffffffff),
+            nextCallIndex: 0,
+            resultBytes: 0,
+        };
+        const {
+            pendingAction: _pendingAction,
+            pendingModelRepair: _pendingModelRepair,
+            pendingThink: _pendingThink,
+            ...runForProgram
+        } = goal.state.run;
+        return this.commitDecision(this.withRun(goal, {
+            ...runForProgram,
+            pendingProgram,
+        }), [{
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            executionUnitId,
+            actionId: action.actionId,
+            eventType: "action_staged",
+            payload: { type: "action_staged", action, approvalStatus: "approved" },
+        }, {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            executionUnitId,
+            actionId: action.actionId,
+            eventType: "tool_started",
+            payload: {
+                type: "tool_started",
+                actionId: action.actionId,
+                toolId: action.toolId,
+                input: action.input,
+            },
+        }, {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            executionUnitId,
+            actionId: action.actionId,
+            eventType: "program_started",
+            payload: {
+                type: "program_started",
+                programId: pendingProgram.programId,
+                parentActionId: action.actionId,
+                codeHash: pendingProgram.codeHash,
+                workerHash: pendingProgram.workerHash,
+                nodeVersion: pendingProgram.nodeVersion,
+            },
+        }], acceptedPatch, control);
+    }
+
+    private async continueProgram(goal: Goal, control?: ExecutionControl): Promise<Goal> {
+        const program = goal.state.run.pendingProgram;
+        if (program === undefined) throw new Error("Missing pending program");
+        if (program.pendingStop !== undefined) {
+            const pending = goal.state.run.pendingAction;
+            if (pending?.status === "approved") {
+                const prepared = prepareToolAction(
+                    goal, pending.action, this.toolRegistry, this.toolPolicy, false, control,
+                );
+                const callIndex = program.nextCallIndex;
+                let plan: SandboxExecutionPlan | undefined;
+                if (this.sandboxPlanResolver !== undefined && this.workspaceRoot !== undefined) {
+                    plan = await this.sandboxPlanResolver({
+                        workspaceRoot: this.workspaceRoot,
+                        action: pending.action,
+                        effectiveScope: pending.effectiveSandboxScope,
+                    });
+                }
+                const outcome = await this.executeToolAndObserve(
+                    goal, prepared, `${program.executionUnitId}:call:${callIndex}`,
+                    control, plan, { programId: program.programId, callIndex },
+                );
+                if (outcome.kind === "stopped") {
+                    const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
+                    if (latest === undefined) throw new Error("PTC_REPLAY_MISMATCH");
+                    return latest;
+                }
+                goal = outcome.goal;
+            } else if (pending !== undefined) {
+                return goal;
+            }
+            return this.settleProgram(goal, {
+                kind: "failure",
+                code: program.pendingStop.code,
+                message: program.pendingStop.message,
+                retryable: false,
+            }, control);
+        }
+        const code = (program.action.input as { readonly code: string }).code;
+        if (program.codeHash !== createHash("sha256").update(code).digest("hex")
+            || program.workerHash !== programWorkerHash()
+            || program.nodeVersion !== process.version) {
+            throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
+        }
+        if (this.trajectoryStore === undefined) {
+            throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
+        }
+        const ledger = await this.trajectoryStore.readWithBoundary(
+            { goalId: goal.id, runId: goal.state.run.id },
+            goal.state.run.committedThroughSequence,
+        );
+        const starts = ledger.committed.filter((event) => event.eventType === "program_started"
+            && event.payload.programId === program.programId);
+        if (starts.length !== 1 || starts[0]?.eventType !== "program_started"
+            || starts[0].payload.parentActionId !== program.action.actionId
+            || starts[0].payload.codeHash !== program.codeHash
+            || starts[0].payload.workerHash !== program.workerHash
+            || starts[0].payload.nodeVersion !== program.nodeVersion
+            || starts[0].executionUnitId !== program.executionUnitId) {
+            throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
+        }
+        const reservations = [...ledger.committed, ...ledger.uncommittedTail]
+            .filter((event) => event.eventType === "program_time_reserved"
+                && event.payload.programId === program.programId);
+        for (let index = 0; index < reservations.length; index += 1) {
+            const reservation = reservations[index];
+            if (reservation?.eventType !== "program_time_reserved"
+                || reservation.payload.sliceIndex !== index
+                || reservation.executionUnitId !== program.executionUnitId
+                || reservation.actionId !== program.action.actionId) {
+                throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
+            }
+        }
+        let reservedSlices = reservations.length;
+        const committed = ledger.committed.filter((event) =>
+            event.sequence <= goal.state.run.committedThroughSequence);
+        const actionIdAt = (index: number): string => `${program.programId}:${index}`;
+        let committedResultBytes = 0;
+        for (let index = 0; index < program.nextCallIndex; index += 1) {
+            const actionId = actionIdAt(index);
+            const staged = committed.filter((event) => event.eventType === "action_staged"
+                && event.actionId === actionId && event.programId === program.programId
+                && event.callIndex === index);
+            const observed = committed.filter((event) => event.eventType === "observation_recorded"
+                && event.actionId === actionId && event.programId === program.programId
+                && event.callIndex === index);
+            if (staged.length !== 1 || observed.length !== 1) {
+                throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
+            }
+            const result = observed[0];
+            if (result?.eventType !== "observation_recorded"
+                || staged[0]!.sequence >= result.sequence) {
+                throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
+            }
+            committedResultBytes += Buffer.byteLength(JSON.stringify({
+                observation: result.payload.observation,
+                sourceReferences: [0],
+            }));
+        }
+        if (committedResultBytes !== program.resultBytes) {
+            throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
+        }
+        let issued = 0;
+        let observation: ToolObservation;
+        try {
+            const value = await runProgramSandbox({
+                code,
+                fixedTime: program.fixedTime,
+                seed: program.seed,
+                ...(control?.signal === undefined ? {} : { signal: control.signal }),
+                onReserveTime: async () => {
+                    if (reservedSlices >= 120) throw new ProgramResourceError("PTC_TIME_LIMIT");
+                    try {
+                        await this.trajectoryStore!.append({
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            phase: "executing",
+                            executionUnitId: program.executionUnitId,
+                            actionId: program.action.actionId,
+                            eventType: "program_time_reserved",
+                            payload: {
+                                type: "program_time_reserved",
+                                programId: program.programId,
+                                sliceIndex: reservedSlices,
+                                milliseconds: 1000,
+                            },
+                        });
+                    } catch (error) {
+                        throw new ProgramReservationError(error);
+                    }
+                    reservedSlices += 1;
+                },
+                onToolCall: async (call, workerSignal) => {
+                    const toolControl: ExecutionControl = {
+                        signal: control?.signal === undefined
+                            ? workerSignal
+                            : AbortSignal.any([control.signal, workerSignal]),
+                    };
+                    const callIndex = issued++;
+                    if (callIndex >= 128) throw new Error("PTC_CALL_LIMIT");
+                    if (call.toolId === "execute_program" || call.toolId.startsWith("system_")
+                        || !isJsonValue(call.input)) {
+                        throw new Error("PTC_INVALID_TOOL_CALL");
+                    }
+                    const actionId = actionIdAt(callIndex);
+                    const action: ToolCallAction = {
+                        actionId,
+                        toolId: call.toolId,
+                        input: call.input,
+                    };
+                    const replay = callIndex < goal.state.run.pendingProgram!.nextCallIndex;
+                    const prepared = prepareToolAction(
+                        goal, action, this.toolRegistry, this.toolPolicy,
+                        !replay && goal.state.run.pendingAction?.action.actionId !== actionId,
+                        toolControl,
+                    );
+                    if (prepared.registration.kind === "program") {
+                        throw new Error("PTC_INVALID_TOOL_CALL");
+                    }
+                    if (replay) {
+                        const stage = committed.find((event) =>
+                            event.eventType === "action_staged"
+                            && event.actionId === actionId
+                            && event.programId === program.programId
+                            && event.callIndex === callIndex);
+                        const result = committed.find((event) =>
+                            event.eventType === "observation_recorded"
+                            && event.actionId === actionId
+                            && event.programId === program.programId
+                            && event.callIndex === callIndex);
+                        if (stage?.eventType !== "action_staged"
+                            || result?.eventType !== "observation_recorded"
+                            || stage.payload.action.toolId !== prepared.action.toolId
+                            || JSON.stringify(stage.payload.action.input) !== JSON.stringify(prepared.action.input)) {
+                            throw new Error("PTC_REPLAY_MISMATCH");
+                        }
+                        return {
+                            observation: result.payload.observation,
+                            sourceReferences: [result.sequence],
+                        };
+                    }
+                    if (callIndex !== goal.state.run.pendingProgram!.nextCallIndex) {
+                        throw new Error("PTC_REPLAY_MISMATCH");
+                    }
+                    const childExecutionUnitId = `${program.executionUnitId}:call:${callIndex}`;
+                    let pending = goal.state.run.pendingAction;
+                    if (pending !== undefined && pending.action.actionId !== actionId) {
+                        throw new Error("PTC_REPLAY_MISMATCH");
+                    }
+                    if (pending === undefined) {
+                        const authorization = await this.authorizeToolAction(goal, prepared, toolControl);
+                        const hasCustomScope = authorization.effectiveSandboxScope.extraFiles.length > 0
+                            || authorization.effectiveSandboxScope.network !== "none";
+                        const stagedRun = this.applyTransition(goal.state.run, {
+                            kind: "stage_action",
+                            action: prepared.action,
+                            status: authorization.requiresApproval ? "awaiting_approval" : "approved",
+                            ...(authorization.approvalKind === undefined ? {} : { approvalKind: authorization.approvalKind }),
+                            ...(hasCustomScope ? { effectiveSandboxScope: authorization.effectiveSandboxScope } : {}),
+                        });
+                        goal = await this.commitDecision(this.withRun(goal, stagedRun), [{
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            phase: "executing",
+                            executionUnitId: childExecutionUnitId,
+                            actionId,
+                            programId: program.programId,
+                            callIndex,
+                            eventType: "action_staged",
+                            payload: {
+                                type: "action_staged",
+                                action: prepared.action,
+                                approvalStatus: authorization.requiresApproval ? "awaiting_approval" : "approved",
+                                ...(authorization.approvalKind === undefined ? {} : { approvalKind: authorization.approvalKind }),
+                                ...(hasCustomScope ? { effectiveSandboxScope: authorization.effectiveSandboxScope } : {}),
+                            },
+                        }], undefined, toolControl);
+                        pending = goal.state.run.pendingAction;
+                        if (authorization.requiresApproval) throw new ProgramWaitingError();
+                    }
+                    if (pending?.status !== "approved") throw new ProgramWaitingError();
+                    let plan: SandboxExecutionPlan | undefined;
+                    if (this.sandboxPlanResolver !== undefined && this.workspaceRoot !== undefined) {
+                        plan = await this.sandboxPlanResolver({
+                            workspaceRoot: this.workspaceRoot,
+                            action: prepared.action,
+                            effectiveScope: pending.effectiveSandboxScope,
+                        });
+                    }
+                    const outcome = await this.executeToolAndObserve(
+                        goal,
+                        prepared,
+                        childExecutionUnitId,
+                        toolControl,
+                        plan,
+                        { programId: program.programId, callIndex },
+                    );
+                    if (outcome.kind === "stopped") {
+                        const restored = await this.restore(
+                            { goalId: goal.id, runId: goal.state.run.id }, toolControl,
+                        );
+                        if (restored === undefined) throw new Error("PTC_REPLAY_MISMATCH");
+                        goal = restored;
+                        throw new ProgramWaitingError();
+                    }
+                    goal = outcome.goal;
+                    return {
+                        observation: outcome.observation,
+                        sourceReferences: outcome.sourceSequence === undefined ? [] : [outcome.sourceSequence],
+                    };
+                },
+            });
+            observation = { kind: "success", output: value as JsonValue, summary: "Program returned a result." };
+        } catch (error) {
+            if (error instanceof ProgramWaitingError) return goal;
+            if (error instanceof ProgramReservationError) throw error;
+            if (error instanceof ProgramSandboxAbortedError || control?.signal?.aborted) {
+                if (control?.signal?.reason === "user_cancel_program") {
+                    return this.stopProgram(goal, "PTC_CANCELLED", "Program cancelled.");
+                }
+                throw new ExecutionAbortedError();
+            }
+            if (isExecutionAbortedError(error)) throw error;
+            if (error instanceof ProgramResourceError) {
+                return this.stopProgram(goal, error.code, "Program resource limit exceeded.", control);
+            }
+            if (error instanceof Error && [
+                "PTC_TIME_LIMIT", "PTC_MEMORY_LIMIT", "PTC_FRAME_LIMIT",
+                "PTC_RETURN_LIMIT", "PTC_DIAGNOSTIC_LIMIT", "PTC_CODE_LIMIT",
+            ].includes(error.message)) {
+                return this.stopProgram(goal, error.message, "Program resource limit exceeded.", control);
+            }
+            const knownProgramCodes = new Set([
+                "PTC_UNAWAITED_CALL", "PTC_INVALID_RETURN", "PTC_INVALID_TOOL_INPUT",
+                "PTC_CALL_LIMIT", "PTC_INVALID_TOOL_CALL", "PTC_REPLAY_MISMATCH",
+                "PTC_PROTOCOL_ERROR", "PTC_SANDBOX_UNAVAILABLE",
+            ]);
+            observation = {
+                kind: "failure",
+                code: error instanceof RunnerExecutionError ? error.code
+                    : error instanceof Error && knownProgramCodes.has(error.message)
+                        ? error.message : "PTC_EXECUTION_ERROR",
+                message: "Program execution failed.",
+                retryable: false,
+            };
+        }
+        return this.settleProgram(goal, observation, control);
+    }
+
+    private async stopProgram(
+        currentGoal: Goal,
+        code: string,
+        message: string,
+        control?: ExecutionControl,
+    ): Promise<Goal> {
+        const latest = await this.restore({
+            goalId: currentGoal.id,
+            runId: currentGoal.state.run.id,
+        });
+        if (latest?.state.run.pendingProgram === undefined) {
+            throw new Error("PTC_REPLAY_MISMATCH");
+        }
+        const program = latest.state.run.pendingProgram;
+        const pending = latest.state.run.pendingAction;
+        if (pending !== undefined && pending.attemptsStarted !== undefined
+            && !this.toolRegistry.get(pending.action.toolId)?.definition.isReadOnly) {
+            const waitingRun = pending.status === "outcome_unknown"
+                ? latest.state.run
+                : this.applyTransition(latest.state.run, {
+                    kind: "tool_outcome_unknown",
+                    actionId: pending.action.actionId,
+                });
+            return this.commitDecision(this.withRun(latest, {
+                ...waitingRun,
+                pendingProgram: {
+                    ...program,
+                    pendingStop: { code, message },
+                },
+            }), [{
+                goalId: latest.id,
+                runId: latest.state.run.id,
+                phase: "executing",
+                executionUnitId: `${program.executionUnitId}:call:${program.nextCallIndex}`,
+                actionId: pending.action.actionId,
+                programId: program.programId,
+                callIndex: program.nextCallIndex,
+                eventType: "tool_attempt_failed",
+                payload: {
+                    type: "tool_attempt_failed",
+                    actionId: pending.action.actionId,
+                    attempt: pending.attemptsStarted,
+                    reason: "outcome_unknown",
+                },
+            }], undefined, control);
+        }
+        const { pendingAction: _pendingAction, ...runWithoutChild } = latest.state.run;
+        return this.settleProgram(this.withRun(latest, {
+            ...runWithoutChild,
+            status: "running",
+        }), {
+            kind: "failure",
+            code,
+            message,
+            retryable: false,
+        }, control);
+    }
+
+    private async settleProgram(
+        goal: Goal,
+        observation: ToolObservation,
+        control?: ExecutionControl,
+    ): Promise<Goal> {
+        const program = goal.state.run.pendingProgram;
+        if (program === undefined || goal.state.run.pendingAction !== undefined) {
+            throw new Error("PTC_REPLAY_MISMATCH");
+        }
+        const { pendingProgram: _pendingProgram, ...run } = goal.state.run;
+        const settled = this.withRun(goal, {
+            ...run,
+            stepCount: run.stepCount + 1,
+            lastStep: { kind: "action", action: program.action, observation },
+        });
+        return this.commitDecision(settled, [{
+            goalId: goal.id,
+            runId: run.id,
+            phase: "executing",
+            executionUnitId: program.executionUnitId,
+            actionId: program.action.actionId,
+            eventType: "program_settled",
+            payload: {
+                type: "program_settled",
+                programId: program.programId,
+                parentActionId: program.action.actionId,
+                outcome: observation.kind,
+            },
+        }, {
+            goalId: goal.id,
+            runId: run.id,
+            phase: "executing",
+            executionUnitId: program.executionUnitId,
+            actionId: program.action.actionId,
+            eventType: "tool_finished",
+            payload: {
+                type: "tool_finished",
+                actionId: program.action.actionId,
+                toolId: program.action.toolId,
+                observation,
+            },
+        }, {
+            goalId: goal.id,
+            runId: run.id,
+            phase: "executing",
+            executionUnitId: program.executionUnitId,
+            actionId: program.action.actionId,
+            eventType: "observation_recorded",
+            payload: {
+                type: "observation_recorded",
+                actionId: program.action.actionId,
+                observation,
+            },
+        }], undefined, control);
+    }
+
+    private async authorizeToolAction(
+        goal: Goal,
+        validated: PreparedToolAction,
+        control?: ExecutionControl,
+    ): Promise<{
+        readonly requiresApproval: boolean;
+        readonly approvalKind?: "sandbox";
+        readonly effectiveSandboxScope: EffectiveSandboxScope;
+    }> {
+        throwIfAborted(control);
+        let projectMode: PermissionMode = "default";
+        if (this.permissionModeStore !== undefined && this.workspaceId !== undefined) {
+            projectMode = (await this.permissionModeStore.get(this.workspaceId)).mode;
+        }
+        let grantMatched = false;
+        if (validated.policy === "require_approval"
+            && this.toolGrantLookup !== undefined
+            && this.workspaceId !== undefined) {
+            const matcher = await createToolGrantMatcher(
+                validated.action.toolId,
+                validated.action.input,
+                this.workspaceRoot,
+            );
+            grantMatched = await this.toolGrantLookup.findActiveMatching({
+                workspaceId: this.workspaceId,
+                goalId: goal.id,
+                matcher,
+            }) !== undefined;
+        }
+        const rawInput = validated.action.input;
+        let effectiveSandboxScope: EffectiveSandboxScope = { extraFiles: [], network: "none" };
+        if (this.workspaceRoot !== undefined && isRecord(rawInput) && isRecord(rawInput.sandboxAccess)) {
+            effectiveSandboxScope = await resolveEffectiveSandboxScope(
+                this.workspaceRoot,
+                rawInput.sandboxAccess as SandboxAccessRequest,
+            );
+        }
+        const sandboxDecision = evaluateSandboxAuthorization({
+            isSeatbeltSupported: isSeatbeltSupported(),
+            workspaceRoot: this.workspaceRoot,
+            effectiveScope: effectiveSandboxScope,
+        });
+        let sandboxGrantMatched = false;
+        if (sandboxDecision.decision === "approval_required"
+            && this.sandboxGrantLookup !== undefined
+            && this.workspaceId !== undefined
+            && validated.action.toolId === "bash") {
+            const bashCommand = isRecord(rawInput) && typeof rawInput.command === "string"
+                ? rawInput.command : "";
+            const matcher = createSandboxGrantMatcher(bashCommand, effectiveSandboxScope);
+            sandboxGrantMatched = await this.sandboxGrantLookup.findActiveMatching({
+                workspaceId: this.workspaceId,
+                goalId: goal.id,
+                matcher,
+            }) !== undefined;
+        }
+        const requiresSandboxApproval = sandboxDecision.decision === "approval_required"
+            && !sandboxGrantMatched;
+        const requiresToolApproval = validated.policy !== "allow"
+            && !grantMatched && projectMode !== "yolo";
+        return {
+            requiresApproval: requiresSandboxApproval || requiresToolApproval,
+            ...(requiresSandboxApproval ? { approvalKind: "sandbox" as const } : {}),
+            effectiveSandboxScope,
+        };
     }
 
     private formatAskUserQuestions(questions: readonly AskUserQuestion[]): string {

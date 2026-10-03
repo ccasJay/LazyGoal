@@ -26,6 +26,8 @@
 
 Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按严格 v1 Schema 校验（拒绝多余字段、非法 StepRecord，缺失或非法的 `modelSelection`，以及非法的 Trajectory/Memory/Model Context/Retrieval 组合）再深复制 encode；`restore`/decode 只接受当前 v1。Schema 同时保证 normal Goal 没有 GoalPlan、Plan Mode 必须有 GoalPlan、Todo ID/position/status 与 `Run.todoId` 一致、历史 Run 的消息区间有序且不包含当前 Run。历史 Snapshot、未知版本、缺失 `modelSelection` 的旧开发快照和不完整的当前恢复状态统一在 Codec 边界抛出 `INVALID_GOAL_SNAPSHOT`，不会自动迁移、保存或回写。
 
+当前 Snapshot 同时校验 `pendingProgram` 与运行中父 Action、子 `pendingAction` 的身份及调用位置；Codec 原位保存恢复指针和已用结果字节数。PTC 子事实的 `programId/callIndex` 随 Trajectory 严格解析，结果仍以 Snapshot 的提交边界为准。`program_time_reserved` 是例外：它在同一 JSONL 中单独同步到磁盘，恢复时无论 Snapshot 是否纳入该事件都要计入预算，防止崩溃重置额度。Storage 不推断工具是否已经产生外部副作用。
+
 `JsonFileGoalStore.listResumable` 只扫描正式 `.json` 普通文件并忽略 `.tmp`；任一正式快照损坏都会报告协议错误而非静默跳过；过滤三个终态后按 `mtime` 倒序、`goalId` 升序返回摘要。
 
 `JsonFileToolGrantStore` 将当前 workspace 的 Grant 写入私有 `tool-grants.json`；损坏 JSON、Schema 错误、重复 ID/来源或同一来源授权冲突均失败关闭，不会重置账本。只有 active 且 workspace 与操作匹配的 Grant 可被 Runner 查询；goal 范围还必须匹配 `goalId`。pending Grant 仅供 Coordinator 在批准 Snapshot 提交后恢复激活，revoked Grant 不再匹配。Store 实例内写入串行化并原子替换文件，不提供跨进程并发事务。
