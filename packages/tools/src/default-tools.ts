@@ -43,6 +43,12 @@ import {
     GitBranchSwitchTool,
     GIT_BRANCH_SWITCH_TOOL_ID,
 } from "./git-write-tools";
+import {
+    GitWorktreeAddTool,
+    GIT_WORKTREE_ADD_TOOL_ID,
+    GitWorktreeRemoveTool,
+    GIT_WORKTREE_REMOVE_TOOL_ID,
+} from "./git-worktree-tools";
 import { ReadFileTool, READ_FILE_TOOL_ID } from "./read-file";
 import { WebFetchTool, WEB_FETCH_TOOL_ID } from "./web-fetch";
 import { WebSearchTool, WEB_SEARCH_TOOL_ID } from "./web-search";
@@ -84,6 +90,8 @@ export const DEFAULT_TOOL_IDS: readonly string[] = Object.freeze([
     GIT_BRANCH_CREATE_TOOL_ID,
     GIT_BRANCH_SWITCH_TOOL_ID,
     GIT_WORKTREE_LIST_TOOL_ID,
+    GIT_WORKTREE_ADD_TOOL_ID,
+    GIT_WORKTREE_REMOVE_TOOL_ID,
     EXECUTE_PROGRAM_TOOL_ID,
 ]);
 
@@ -138,6 +146,8 @@ export function createDefaultToolRegistrations(
         createToolRegistration(new GitBranchCreateTool(workspaceRoot)),
         createToolRegistration(new GitBranchSwitchTool(workspaceRoot)),
         createToolRegistration(new GitWorktreeListTool(workspaceRoot)),
+        createToolRegistration(new GitWorktreeAddTool(workspaceRoot)),
+        createToolRegistration(new GitWorktreeRemoveTool(workspaceRoot)),
     ];
 
     if (options?.processManager !== undefined && options?.processSessionStore !== undefined) {

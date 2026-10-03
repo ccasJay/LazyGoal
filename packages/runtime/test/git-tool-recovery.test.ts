@@ -24,6 +24,10 @@ import {
     GIT_BRANCH_CREATE_TOOL_ID,
     GitBranchSwitchTool,
     GIT_BRANCH_SWITCH_TOOL_ID,
+    GitWorktreeAddTool,
+    GIT_WORKTREE_ADD_TOOL_ID,
+    GitWorktreeRemoveTool,
+    GIT_WORKTREE_REMOVE_TOOL_ID,
 } from "../../tools/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
@@ -53,11 +57,15 @@ test("Git 写操作工具统一声明 manual 重放策略，防止自动重试",
     const commitTool = new GitCommitTool("/workspace");
     const bcTool = new GitBranchCreateTool("/workspace");
     const bsTool = new GitBranchSwitchTool("/workspace");
+    const wtAddTool = new GitWorktreeAddTool("/workspace");
+    const wtRmTool = new GitWorktreeRemoveTool("/workspace");
 
     assert.equal(addTool.replayPolicy, "manual");
     assert.equal(commitTool.replayPolicy, "manual");
     assert.equal(bcTool.replayPolicy, "manual");
     assert.equal(bsTool.replayPolicy, "manual");
+    assert.equal(wtAddTool.replayPolicy, "manual");
+    assert.equal(wtRmTool.replayPolicy, "manual");
 });
 
 test("Git 写操作工具在 Runner 中执行成功并正确记录", async () => {

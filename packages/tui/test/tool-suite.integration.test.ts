@@ -14,10 +14,14 @@ import {
     GitCommitTool,
     GitBranchCreateTool,
     GitBranchSwitchTool,
+    GitWorktreeAddTool,
+    GitWorktreeRemoveTool,
     type GitStatusOutput,
     type GitDiffOutput,
     type GitCommitOutput,
     type GitBranchSwitchOutput,
+    type GitWorktreeAddOutput,
+    type GitWorktreeRemoveOutput,
 } from "../../tools/src/index";
 
 function runGit(cwd: string, args: string[]): string {
@@ -46,6 +50,8 @@ test("完整端到端自动化组合场景：文件发现 -> 补丁修改 -> 状
         const commitTool = new GitCommitTool(tmpDir, { enableSeatbelt: false });
         const branchCreateTool = new GitBranchCreateTool(tmpDir, { enableSeatbelt: false });
         const branchSwitchTool = new GitBranchSwitchTool(tmpDir, { enableSeatbelt: false });
+        const wtAddTool = new GitWorktreeAddTool(tmpDir, { enableSeatbelt: false });
+        const wtRmTool = new GitWorktreeRemoveTool(tmpDir, { enableSeatbelt: false });
 
         const context = { goalId: "suite-integ-goal", runId: "suite-integ-run" };
 
@@ -174,6 +180,28 @@ test("完整端到端自动化组合场景：文件发现 -> 补丁修改 -> 状
         // 验证当前 HEAD 在新分支上包含最新提交
         const branchHead = runGit(tmpDir, ["rev-parse", "HEAD"]).trim();
         assert.equal(branchHead, commitOut.commitHash);
+
+        // ====================================================================
+        // 场景步骤 7：隔离开发工作树 (git_worktree_add + 安全移除 git_worktree_remove)
+        // ====================================================================
+        const wtAddRes = await wtAddTool.execute({
+            actionId: "step-7-wt-add",
+            context,
+            input: { path: "wt-fix", branch: "main" },
+        });
+        assert.equal(wtAddRes.kind, "success");
+        const wtAddOut = (wtAddRes as any).output as GitWorktreeAddOutput;
+        assert.equal(wtAddOut.branch, "main");
+
+        // 移除隔离工作树
+        const wtRmRes = await wtRmTool.execute({
+            actionId: "step-7-wt-rm",
+            context,
+            input: { path: "wt-fix" },
+        });
+        assert.equal(wtRmRes.kind, "success");
+        const wtRmOut = (wtRmRes as any).output as GitWorktreeRemoveOutput;
+        assert.equal(wtRmOut.removedPath, wtAddOut.path);
     } finally {
         await rm(tmpDir, { recursive: true, force: true });
     }

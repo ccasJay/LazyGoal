@@ -192,6 +192,19 @@ export {
     type BaseGitWriteToolOptions,
 } from "./git-write-tools";
 export {
+    GIT_WORKTREE_ADD_TOOL_ID,
+    GIT_WORKTREE_REMOVE_TOOL_ID,
+    GIT_WORKTREE_ADD_INPUT_CONTRACT,
+    GIT_WORKTREE_REMOVE_INPUT_CONTRACT,
+    GitWorktreeAddTool,
+    GitWorktreeRemoveTool,
+    type GitWorktreeAddInput,
+    type GitWorktreeAddOutput,
+    type GitWorktreeRemoveInput,
+    type GitWorktreeRemoveOutput,
+    type BaseGitWorktreeToolOptions,
+} from "./git-worktree-tools";
+export {
     DEFAULT_TOOL_IDS,
     createDefaultToolRegistrations,
     type DefaultToolRegistrationsOptions,

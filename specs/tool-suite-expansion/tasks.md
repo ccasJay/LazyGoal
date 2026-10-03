@@ -60,7 +60,7 @@
   - 验证方式：新增 `packages/tools/test/git-write-tools.test.ts`、`packages/runtime/test/git-tool-recovery.test.ts`、`packages/tui/test/tool-suite.integration.test.ts`（待实现），覆盖真实仓库、拒绝钩子、dirty 切换、恢复、TUI/Browser 审阅和直接/PTC 组合流。运行 `npx tsx --test packages/tools/test/git-write-tools.test.ts packages/runtime/test/git-tool-recovery.test.ts packages/tui/test/tool-suite.integration.test.ts packages/sandbox/test/git-sandbox.test.ts`，另执行实际修改的权限 UI 测试。
   - _Requirements: [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3), [7.5](./requirements.md#req-7-5), [8.1](./requirements.md#req-8-1), [8.2](./requirements.md#req-8-2), [8.3](./requirements.md#req-8-3)_
 
-- [ ] //TODO 9. 实现受授权且保留用户文件的 worktree 创建与移除
+- [x] //TODO 9. 实现受授权且保留用户文件的 worktree 创建与移除
 
   - 实现目标：依赖 TODO 7、8，接入 worktree add/remove，完成真实目标/父目录/common-dir 能力审阅与执行前复核；将 worktree 操作加入组合流和手工改动保护的自动化用例。
   - 成功判据：已授权目标从现有本地分支创建并返回路径/分支，干净的非主工作树可移除；主工作树、dirty/untracked/ignored、locked、初始化 submodule 或无法完整检查的目标拒绝且文件保留；不使用 force/clean，不因创建而扩张其他工具的路径权限；已知失败和结果未知分别结算。

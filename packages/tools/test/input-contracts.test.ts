@@ -27,6 +27,8 @@ import {
     GitCommitTool,
     GitBranchCreateTool,
     GitBranchSwitchTool,
+    GitWorktreeAddTool,
+    GitWorktreeRemoveTool,
     GREP_INPUT_CONTRACT,
     GREP_MAX_CONTEXT_LINES,
     GREP_MAX_MATCHES_LIMIT,
@@ -677,6 +679,8 @@ test("工具声明式 isReadOnly 元数据准确区分只读读取与写操作�
         new GitCommitTool("/workspace"),
         new GitBranchCreateTool("/workspace"),
         new GitBranchSwitchTool("/workspace"),
+        new GitWorktreeAddTool("/workspace"),
+        new GitWorktreeRemoveTool("/workspace"),
     ];
 
     for (const tool of modifyingTools) {
