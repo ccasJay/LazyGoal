@@ -732,6 +732,7 @@ export type Observation =
         readonly code: string;
         readonly message: string;
         readonly retryable: boolean;
+        readonly details?: JsonValue;
     }
     | {
         readonly kind: "rejected";

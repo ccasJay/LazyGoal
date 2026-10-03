@@ -92,6 +92,7 @@ export type GoalSnapshotObservationV1 =
         readonly code: string;
         readonly message: string;
         readonly retryable: boolean;
+        readonly details?: SnapshotJsonValue;
     }
     | { readonly kind: "rejected"; readonly reason: string };
 
@@ -600,6 +601,7 @@ const ObservationSchema = z.discriminatedUnion("kind", [
         code: NonEmptyStringSchema,
         message: NonEmptyStringSchema,
         retryable: z.boolean(),
+        details: JsonValueSchema.optional(),
     }).strict(),
     z.object({
         kind: z.literal("rejected"),

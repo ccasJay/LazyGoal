@@ -7,6 +7,8 @@ import {
     type InferContract,
 } from "../../contracts/src/index";
 import {
+    APPLY_PATCH_INPUT_CONTRACT,
+    ApplyPatchTool,
     BASH_INPUT_CONTRACT,
     BASH_MAX_TIMEOUT_MS,
     BashTool,
@@ -279,6 +281,25 @@ const contractCases = [
         },
     },
     {
+        id: "apply_patch",
+        inputContract: APPLY_PATCH_INPUT_CONTRACT,
+        valid: { patch: "--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-1\n+2\n" },
+        invalid: [
+            { value: {}, code: "missing_field", path: ["patch"] },
+            { value: { patch: 42 }, code: "invalid_type", path: ["patch"] },
+            { value: { patch: "diff", extra: true }, code: "extra_field", path: ["extra"] },
+        ],
+        schema: {
+            $schema: schemaUri,
+            type: "object",
+            properties: {
+                patch: { type: "string" },
+            },
+            required: ["patch"],
+            additionalProperties: false,
+        },
+    },
+    {
         id: "list_directory",
         inputContract: LIST_DIRECTORY_INPUT_CONTRACT,
         valid: { path: "src", maxEntries: 100, cursor: "abc" },
@@ -455,6 +476,12 @@ test("结构 Contract 成功后仍由 Tool 继续执行领域语义校验", () =
             }),
         },
         {
+            id: "apply_patch",
+            inputContract: APPLY_PATCH_INPUT_CONTRACT,
+            input: { patch: "" },
+            validate: () => new ApplyPatchTool("/workspace").validate({ patch: "" }),
+        },
+        {
             id: "list_directory",
             inputContract: LIST_DIRECTORY_INPUT_CONTRACT,
             input: { path: "../outside" },
@@ -507,6 +534,11 @@ test("准备结果保留原始文本、类型和可选字段缺省状态", () =>
             input: { path: "notes.txt", oldString: " old ", newString: " new " },
         },
         {
+            id: "apply_patch",
+            registration: createToolRegistration(new ApplyPatchTool("/workspace")),
+            input: { patch: "  diff --git a/a b/a  " },
+        },
+        {
             id: "grep",
             registration: createToolRegistration(new GrepTool("/workspace")),
             input: { pattern: "  TODO  ", path: "src" },
@@ -542,6 +574,7 @@ test("工具声明式 isReadOnly 元数据准确区分只读读取与写操作�
     const modifyingTools = [
         new WriteFileTool("/workspace"),
         new EditFileTool("/workspace"),
+        new ApplyPatchTool("/workspace"),
         new BashTool("/workspace"),
     ];
 

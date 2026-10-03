@@ -2,6 +2,7 @@ import {
     createToolRegistration,
     type ToolRegistration,
 } from "../../runtime/src/index";
+import { ApplyPatchTool, APPLY_PATCH_TOOL_ID } from "./apply-patch";
 import { BashTool, BASH_TOOL_ID } from "./bash";
 import { EditFileTool, EDIT_FILE_TOOL_ID } from "./edit-file";
 import { createExecuteProgramRegistration, EXECUTE_PROGRAM_TOOL_ID } from "./execute-program";
@@ -29,6 +30,7 @@ export const DEFAULT_TOOL_IDS: readonly string[] = Object.freeze([
     READ_FILE_TOOL_ID,
     WRITE_FILE_TOOL_ID,
     EDIT_FILE_TOOL_ID,
+    APPLY_PATCH_TOOL_ID,
     GREP_TOOL_ID,
     BASH_TOOL_ID,
     EXECUTE_PROGRAM_TOOL_ID,
@@ -58,6 +60,7 @@ export function createDefaultToolRegistrations(
         createToolRegistration(new ReadFileTool(workspaceRoot)),
         createToolRegistration(new WriteFileTool(workspaceRoot)),
         createToolRegistration(new EditFileTool(workspaceRoot)),
+        createToolRegistration(new ApplyPatchTool(workspaceRoot)),
         createToolRegistration(new GrepTool(workspaceRoot)),
         createToolRegistration(new BashTool(workspaceRoot)),
         createExecuteProgramRegistration(),

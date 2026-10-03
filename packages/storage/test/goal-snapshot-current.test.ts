@@ -252,6 +252,64 @@ test("无最终任务的普通只读 Step 可以通过当前 Snapshot 编解码"
     assert.deepEqual(decoded.state.run.lastStep, observed.state.lastStep);
 });
 
+test("带有 details 的 Tool 失败 Observation 可以通过当前 Snapshot 编解码", () => {
+    const goal = createCurrentGoal();
+    const running = transition(goal.state.run, { kind: "start" });
+    assert.equal(running.ok, true);
+    if (!running.ok) return;
+
+    const staged = transition(running.state, {
+        kind: "stage_action",
+        action: {
+            actionId: "apply-patch-action-1",
+            toolId: "apply_patch",
+            input: { patch: "diff ..." },
+        },
+        status: "approved",
+    });
+    assert.equal(staged.ok, true);
+    if (!staged.ok) return;
+
+    const failureDetails = {
+        applied: ["src/a.ts"],
+        failed: { path: "src/b.ts", reason: "hunk 1 failed" },
+        pending: ["src/c.ts"],
+    };
+
+    const observed = transition(staged.state, {
+        kind: "observe_action",
+        actionId: "apply-patch-action-1",
+        observation: {
+            kind: "failure",
+            code: "PATCH_APPLICATION_FAILED",
+            message: "Failed to apply patch to src/b.ts",
+            retryable: false,
+            details: failureDetails,
+        },
+    });
+    assert.equal(observed.ok, true);
+    if (!observed.ok) return;
+
+    const progressed: Goal = {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: observed.state,
+        },
+    };
+    const encoded = goalSnapshotCodec.encode(progressed);
+    const decoded = goalSnapshotCodec.decode(encoded);
+
+    assert.equal(decoded.state.run.stepCount, 1);
+    assert.deepEqual(decoded.state.run.lastStep, observed.state.lastStep);
+    if (decoded.state.run.lastStep?.kind === "action") {
+        assert.equal(decoded.state.run.lastStep.observation.kind, "failure");
+        if (decoded.state.run.lastStep.observation.kind === "failure") {
+            assert.deepEqual(decoded.state.run.lastStep.observation.details, failureDetails);
+        }
+    }
+});
+
 test("无最终任务的普通只读 Action 可以保存为可恢复 pendingAction", () => {
     const goal = createCurrentGoal();
     const running = transition(goal.state.run, { kind: "start" });

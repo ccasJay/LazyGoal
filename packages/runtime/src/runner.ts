@@ -683,10 +683,11 @@ function validateToolObservation(value: unknown): ToolObservation {
 
     if (value.kind === "failure") {
         if (
-            !hasOnlyKeys(value, ["kind", "code", "message", "retryable"])
+            !hasOnlyKeys(value, ["kind", "code", "message", "retryable", "details"])
             || !isNonEmptyText(value.code)
             || !isNonEmptyText(value.message)
             || typeof value.retryable !== "boolean"
+            || (value.details !== undefined && !isJsonValue(value.details))
         ) {
             throw new RunnerExecutionError(
                 "TOOL_EXECUTION_ERROR",

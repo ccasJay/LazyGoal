@@ -30,6 +30,19 @@ export {
 } from "./read-file";
 export { WRITE_FILE_INPUT_CONTRACT, WRITE_FILE_TOOL_ID, WriteFileTool } from "./write-file";
 export {
+    APPLY_PATCH_TOOL_ID,
+    APPLY_PATCH_MAX_PATCH_BYTES,
+    APPLY_PATCH_MAX_FILES,
+    APPLY_PATCH_MAX_TOTAL_BYTES,
+    APPLY_PATCH_MAX_SINGLE_FILE_BYTES,
+    APPLY_PATCH_INPUT_CONTRACT,
+    ApplyPatchTool,
+    type ApplyPatchInput,
+    type AppliedFileResult,
+    type ApplyPatchOutput,
+    type ApplyPatchFailureDetails,
+} from "./apply-patch";
+export {
     EXECUTE_PROGRAM_TOOL_ID,
     EXECUTE_PROGRAM_INPUT_CONTRACT,
     EXECUTE_PROGRAM_DEFINITION,

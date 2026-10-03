@@ -25,7 +25,7 @@
   - 验证方式：扩展现有 `read-file.test.ts`、`grep.test.ts`、`input-contracts.test.ts` 和相关 Agent/CLI 用例，覆盖不同页大小、查询变化、UTF-8、超长行和部分搜索失败。运行 `npx tsx --test packages/tools/test/read-file.test.ts packages/tools/test/grep.test.ts packages/tools/test/input-contracts.test.ts packages/tui/test/cli.test.ts`，另运行本次实际修改的 Agent 消费方测试。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [8.1](./requirements.md#req-8-1), [8.2](./requirements.md#req-8-2), [8.3](./requirements.md#req-8-3)_
 
-- [ ] //TODO 4. 实现严格预检的多文件补丁应用
+- [x] //TODO 4. 实现严格预检的多文件补丁应用
 
   - 实现目标：依赖 TODO 1–3，安装锁定的 diff，完成 `apply_patch` 的解析、唯一定位、整批预检及逐文件写入；将有界 `failure.details` 贯通 Runtime 校验、当前 Codec、模型/UI 消费和恢复，接入默认工具集。
   - 成功判据：标准 unified/Git 文本补丁能创建、修改和删除文件，包括空文件、模式及末尾换行；唯一偏移匹配可应用，歧义/格式/路径错误在首个写入前拒绝；预检后变化或晚期写失败报告真实已知影响，未知结果保持 manual 等待且不重复应用。

@@ -216,6 +216,9 @@ function encodeObservation(observation: Observation): GoalSnapshotObservationV1 
                 code: observation.code,
                 message: observation.message,
                 retryable: observation.retryable,
+                ...(observation.details !== undefined
+                    ? { details: structuredClone(observation.details) }
+                    : {}),
             };
         case "rejected":
             return { kind: "rejected", reason: observation.reason };
@@ -569,6 +572,9 @@ function decodeObservation(observation: GoalSnapshotObservationV1): Observation 
                 code: observation.code,
                 message: observation.message,
                 retryable: observation.retryable,
+                ...(observation.details !== undefined
+                    ? { details: structuredClone(observation.details) }
+                    : {}),
             };
         case "rejected":
             return { kind: "rejected", reason: observation.reason };
