@@ -276,7 +276,11 @@ async function saveApprovedAction(store: JsonFileGoalStore, goalId: string): Pro
     if (!staged.ok) throw new Error(staged.error.message);
     const goal: Goal = {
         ...initial,
-        state: { ...initial.state, workflow: { phase: "executing" }, run: staged.state },
+        state: {
+            ...initial.state,
+            workflow: { phase: "executing" },
+            run: { ...staged.state, exposedToolIds: [...profile.toolIds] },
+        },
     };
     await store.save(goal);
     return goal;

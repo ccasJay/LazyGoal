@@ -73,15 +73,18 @@ type ExecuteAction = (
 
 class FakeStepExecutor implements StepExecutor {
     readonly receivedGoals: Goal[] = [];
+    readonly receivedInputs: StepExecutionInput[] = [];
 
     constructor(
         private readonly actions: readonly ExecuteAction[],
         private readonly events: string[] = [],
     ) {}
 
-    async execute({ goal }: StepExecutionInput): Promise<AgentDecision> {
+    async execute(input: StepExecutionInput): Promise<AgentDecision> {
+        const { goal } = input;
         const action = this.actions[this.receivedGoals.length];
         this.receivedGoals.push(goal);
+        this.receivedInputs.push(input);
         this.events.push(`execute:${goal.state.run.status}:${goal.state.run.stepCount}`);
 
         if (action === undefined) {
@@ -265,6 +268,7 @@ function createInitialGoal(
     runProfile: AgentProfile = profile,
     messages: readonly GoalMessage[] = [],
     maxSteps = 3,
+    exposedToolIds: readonly string[] = runProfile.toolIds,
 ): Goal {
     const created = createGoal({
         ...currentProtocols,
@@ -283,7 +287,7 @@ function createInitialGoal(
             workflow: {
                 phase: "executing",
             },
-            run: { ...created.state.run, mode: "plan", approvedTask: goalDefinition },
+            run: { ...created.state.run, mode: "plan", approvedTask: goalDefinition, exposedToolIds },
             messages: [...messages],
         },
     };
@@ -448,6 +452,84 @@ test("starts a created Goal, saves every transition, and executes until complete
     assert.deepEqual(executionTask(persisted), executionTask(initial));
     assert.deepEqual(persisted.definition.profile, initial.definition.profile);
     assert.deepEqual(persisted.state.run, state);
+});
+
+test("Runner applies tool discovery against authorized tools and supplies the result to the next Decide", async () => {
+    const initial = createInitialGoal("discover-run", "discover-goal", toolProfile, [], 3, []);
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    const executor = new FakeStepExecutor([
+        () => ({ kind: "tool_discovery", query: "read" }),
+        () => ({ kind: "complete", summary: "完成", completionEvidence: [] }),
+    ]);
+    const registered = createRunnerTool(async () => ({ kind: "success", output: "ok", summary: "OK" }));
+    const runner = new Runner({
+        store,
+        executor,
+        trajectoryStore: trajectoryStoreFor(store),
+        toolRegistry: { get: (id) => id === "read_file" ? registerTool(registered) : undefined },
+    });
+
+    const state = requireSuccessfulState(await runner.runUntilBlocked(createRef(initial)));
+
+    assert.equal(state.status, "completed");
+    assert.deepEqual(state.exposedToolIds, ["read_file"]);
+    assert.deepEqual(executor.receivedInputs[1]?.toolDiscoveryResult, {
+        tools: [{ id: "read_file", description: "读取文件" }],
+    });
+    assert.equal(state.stepCount, 2);
+});
+
+test("tool discovery consumes maxSteps and prevents another model request", async () => {
+    const initial = createInitialGoal("discover-budget-run", "discover-budget-goal", toolProfile, [], 1, []);
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    const executor = new FakeStepExecutor([
+        () => ({ kind: "tool_discovery", query: "read" }),
+    ]);
+    const runner = new Runner({
+        store,
+        executor,
+        trajectoryStore: trajectoryStoreFor(store),
+        toolRegistry: { get: () => registerTool(createRunnerTool(async () => ({ kind: "success", output: "ok", summary: "OK" }))) },
+    });
+
+    const state = requireSuccessfulState(await runner.runUntilBlocked(createRef(initial)));
+
+    assert.equal(state.status, "failed");
+    assert.equal(state.stepCount, 1);
+    assert.deepEqual(state.exposedToolIds, ["read_file"]);
+    assert.equal(executor.receivedInputs.length, 1);
+});
+
+test("Runner rejects a direct call to an unexposed Tool before Registry preparation", async () => {
+    const initial = createInitialGoal("hidden-tool-run", "hidden-tool-goal", toolProfile, [], 3, []);
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    let prepareCalls = 0;
+    let executeCalls = 0;
+    const hiddenTool = createRunnerTool(async () => {
+        executeCalls += 1;
+        return { kind: "success", output: "should not execute", summary: "Should not execute" };
+    }, () => {
+        prepareCalls += 1;
+        return { ok: true };
+    });
+    const runner = new Runner({
+        store,
+        executor: new FakeDecisionExecutor({
+            kind: "tool_call",
+            action: { actionId: "hidden-call", toolId: "read_file", input: { path: "a" } },
+        }),
+        trajectoryStore: trajectoryStoreFor(store),
+        toolRegistry: { get: () => registerTool(hiddenTool) },
+    });
+
+    const result = requireSuccessfulState(await runner.runUntilBlocked(createRef(initial)));
+
+    assert.equal(result.status, "failed");
+    assert.equal(prepareCalls, 0);
+    assert.equal(executeCalls, 0);
 });
 
 test("retries only typed transient model failures and caps the model call sequence at three", async () => {

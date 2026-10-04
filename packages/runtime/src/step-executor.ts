@@ -10,6 +10,7 @@ import type { ExecutionControl } from "./execution-control";
 import type { ExecutionStreamPublisher } from "../../execution-stream/src/index";
 import type { ModelContextFramePayload } from "./trajectory";
 import type { RuntimeFeedback } from "./runtime-feedback";
+import type { ToolDiscoveryResult } from "./tool-discovery";
 
 /**
  * 一个已提交的 Think 目标与模型输出。
@@ -91,15 +92,18 @@ export interface ThinkStageResult {
  *
  * @remarks
  * `goal` 是已恢复的完整快照；`authorizedTools` 是 Runtime 解析出的授权工具
- * 描述；`workingMemory` 是当前 structured@1 协议的临时投影；`control` 是
- * 当前调用的瞬时中止控制。Executor 不得通过该对象修改 Goal、执行 Tool 或持久化。
+ * 描述；`workingMemory` 是当前 structured@1 协议的临时投影；`toolDiscoveryResult` 是
+ * Runtime 上一轮发现的瞬时反馈；`control` 是当前调用的瞬时中止控制。Executor 不得通过该对象
+ * 修改 Goal、执行 Tool 或持久化。
  *
  * @example
  * ```ts
  * const input: StepExecutionInput = {
  *     goal,
  *     authorizedTools: [],
+ *     exposedToolIds: [],
  *     workingMemory,
+ *     toolDiscoveryResult: { tools: [{ id: "read_file", description: "Read a file" }] },
  * };
  * ```
  */
@@ -108,12 +112,16 @@ export interface StepExecutionInput {
     readonly goal: Goal;
     /** 当前 Profile 白名单与 Registry 的交集 Tool 描述。 */
     readonly authorizedTools: readonly ToolDefinition[];
+    /** 当前 Run 累积的可见 Tool ID；Runtime 仅投影其与授权工具的交集。 */
+    readonly exposedToolIds?: readonly string[];
     /** 当前 structured@1 协议的临时 Working Memory。 */
     readonly workingMemory?: WorkingMemory;
     /** 当前 Run 推进调用的瞬时中止控制。 */
     readonly control?: ExecutionControl;
     /** 上一轮已提交 lookup 的瞬时结果；调用结束后由 Runtime 丢弃。 */
     readonly contextLookupResult?: ContextLookupResult;
+    /** 上一轮工具发现的瞬时结果；仅供下一次 Decide 参考。 */
+    readonly toolDiscoveryResult?: ToolDiscoveryResult;
     /** 当前 Step 已成功提交的 Think 目标与输出；普通 Decide 可据此继续分析。 */
     readonly thinkHistory?: readonly ThinkExchange[];
     /** 当前 Step 的稳定执行单元标识，供流式事件关联。 */

@@ -14,8 +14,8 @@
 
 [`createModelOutputContractBundle`](../../packages/contracts/src/model-output/factory.ts) 为每个请求生成不可变的 Canonical/Wire/strict Schema/Shape Guide/解码器组合。统一 `executing` 请求根据任务批准状态、后端 Plan Mode 和授权 Tool 动态生成分支：
 
-- 未批准任务：`ask_user`、`task_proposal`、`context_lookup` 和只读 `tool_call`；
-- 已批准任务：`ask_user`、`context_lookup`、全部授权 `tool_call`、`complete`、`wait` 和 `fail`；
+- 未批准任务：`ask_user`、`task_proposal`、`context_lookup`、`tool_discovery` 和只读 `tool_call`；
+- 已批准任务：`ask_user`、`context_lookup`、`tool_discovery`、全部授权 `tool_call`、`complete`、`wait` 和 `fail`；
 - Plan Mode：在对应任务分支额外加入 `goal_plan_update`；普通模式不暴露该分支；
 - Context Checkpoint 是独占的当前协议分支。
 
@@ -29,6 +29,7 @@ Canonical Contract 面向 Runtime 领域；Wire Contract 将 optional 字段投�
 - `task_proposal`：目标、完成条件、批准提示和可选 Memory Patch；
 - `tool_call`：带工具 ID 与 JSON 输入；
 - `context_lookup`：历史上下文查询；
+- `tool_discovery`：按关键词查询 Runtime 提供的当前授权工具目录；结果只用于后续 Schema 可见性，不授予执行权限；
 - `complete`、`wait`、`fail`：执行终态或等待。
 - `goal_plan_update`：Plan Mode 下的结构化 GoalPlan 增量提案；Runtime reducer 负责 ID、revision、状态转换和原子持久化。
 

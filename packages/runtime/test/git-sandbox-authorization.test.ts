@@ -53,6 +53,9 @@ class GitAuthorizationExecutor extends BaseTestStepExecutor {
     async execute(_input: StepExecutionInput): Promise<AgentDecision> {
         this.index += 1;
         if (this.index === 1) {
+            return { kind: "tool_discovery", query: "git add" };
+        }
+        if (this.index === 2) {
             return {
                 kind: "tool_call",
                 action: {
@@ -76,7 +79,8 @@ class WorktreeAuthorizationExecutor extends BaseTestStepExecutor {
 
     async execute(_input: StepExecutionInput): Promise<AgentDecision> {
         this.index += 1;
-        return this.index === 1
+        if (this.index === 1) return { kind: "tool_discovery", query: "git worktree" };
+        return this.index === 2
             ? structuredClone(this.action)
             : { kind: "complete", summary: "Worktree authorization verified", evidenceSequences: [] };
     }

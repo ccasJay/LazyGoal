@@ -52,6 +52,7 @@ test("PTC restores committed reads and waits for a write with an unknown result"
                 ...created.state,
                 run: {
                     ...created.state.run,
+                    exposedToolIds: [...created.definition.profile.toolIds],
                     mode: "plan" as const,
                     approvedTask: { objective: "Read then write", completionCriteria: [] },
                 },
@@ -228,7 +229,7 @@ test("PTC resumes a reviewed real write, runs Bash, and returns one parent resul
         const goal = {
             ...created,
             state: { ...created.state, run: {
-                ...created.state.run, mode: "plan" as const,
+                ...created.state.run, exposedToolIds: [...created.definition.profile.toolIds], mode: "plan" as const,
                 approvedTask: { objective: "Read, write and verify", completionCriteria: [] },
             } },
         };

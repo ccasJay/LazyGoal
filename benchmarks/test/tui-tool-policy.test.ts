@@ -74,6 +74,7 @@ function createTestGoal(goalId: string, runId: string, runProfile: AgentProfile)
         ...created,
         state: {
             ...created.state,
+            run: { ...created.state.run, exposedToolIds: [...runProfile.toolIds] },
             workflow: {
                 phase: "executing",
                 task: {

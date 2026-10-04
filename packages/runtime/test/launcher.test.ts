@@ -195,6 +195,7 @@ test("launch saves an initial executing Goal before Coordinator.advance", async 
                 mode: "normal",
                 status: "created",
                 stepCount: 0,
+                exposedToolIds: [],
                 committedThroughSequence: 0,
                 contextEpoch: {
                     version: 1,

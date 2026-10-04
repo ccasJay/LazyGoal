@@ -248,6 +248,29 @@ export const ContextLookupRequestContract = contract.object({
 export type ContextLookupRequest = InferContract<typeof ContextLookupRequestContract>;
 
 /**
+ * Decide 阶段请求 Runtime 搜索可用工具目录的契约。
+ *
+ * @remarks
+ * 该决策只请求 Runtime 搜索当前 Profile 授权且已注册的工具，不构成业务 Tool
+ * 调用，也不授予任何执行权限。
+ *
+ * @example
+ * ```ts
+ * const request: ToolDiscoveryDecision = {
+ *     kind: "tool_discovery",
+ *     query: "read repository files",
+ * };
+ * ```
+ */
+export const ToolDiscoveryDecisionContract = contract.object({
+    kind: contract.literal("tool_discovery"),
+    query: contract.string(),
+});
+
+/** Decide 阶段的工具发现请求。 */
+export type ToolDiscoveryDecision = InferContract<typeof ToolDiscoveryDecisionContract>;
+
+/**
  * Decide 阶段请求 Runtime 进入 Think 阶段的控制结果契约。
  *
  * @remarks
@@ -982,7 +1005,7 @@ export function validateAskUserAnswers(
  * 结构化 Agent 决策契约（不含 checkpoint）。
  *
  * @remarks
- * 覆盖跨模式 executing 决策分支：tool_call、普通与 Plan complete、wait、fail、context_lookup、ask_user 和 task_proposal。
+ * 覆盖跨模式 executing 决策分支：tool_call、普通与 Plan complete、wait、fail、context_lookup、tool_discovery、ask_user 和 task_proposal。
  *
  * @example
  * ```ts
@@ -996,6 +1019,7 @@ export const StructuredAgentDecisionContract = contract.union([
     ExecutingWaitAgentDecisionContract,
     ExecutingFailAgentDecisionContract,
     ContextLookupRequestContract,
+    ToolDiscoveryDecisionContract,
     AskUserAgentDecisionContract,
     TaskProposalAgentDecisionContract,
 ]);
@@ -1021,6 +1045,7 @@ export const OrdinaryExecutingDecisionContract = contract.union([
     ExecutingWaitAgentDecisionContract,
     ExecutingFailAgentDecisionContract,
     ContextLookupRequestContract,
+    ToolDiscoveryDecisionContract,
     AskUserAgentDecisionContract,
 ]);
 
@@ -1041,6 +1066,7 @@ export const NonToolExecutingDecisionContract = contract.union([
     ExecutingWaitAgentDecisionContract,
     ExecutingFailAgentDecisionContract,
     ContextLookupRequestContract,
+    ToolDiscoveryDecisionContract,
     AskUserAgentDecisionContract,
     TaskProposalAgentDecisionContract,
 ]);
@@ -1067,6 +1093,7 @@ export const PlanModeExecutingDecisionContract = contract.discriminatedUnion("ki
     ExecutingWaitAgentDecisionContract,
     ExecutingFailAgentDecisionContract,
     ContextLookupRequestContract,
+    ToolDiscoveryDecisionContract,
     AskUserAgentDecisionContract,
     TaskProposalAgentDecisionContract,
     GoalPlanUpdateAgentDecisionContract,
@@ -1095,6 +1122,7 @@ export const AgentDecisionContract = contract.union([
     WaitAgentDecisionContract,
     FailAgentDecisionContract,
     ContextLookupRequestContract,
+    ToolDiscoveryDecisionContract,
     AskUserAgentDecisionContract,
     TaskProposalAgentDecisionContract,
     GoalPlanUpdateAgentDecisionContract,
@@ -1106,6 +1134,7 @@ export type AgentDecision = InferContract<typeof AgentDecisionContract>;
 /** 基础语义校验问题的稳定分类码。 */
 export type ModelOutputSemanticIssueCode =
     | "blank_string"
+    | "string_too_long"
     | "invalid_sequence_range"
     | "invalid_evidence_reference"
     | "empty_update"
@@ -1455,6 +1484,17 @@ export function validateModelOutputSemantics(
                 checkNonBlank(value.question, [...basePath, "question"], issues, "question");
                 if (isRecord(value.filters)) {
                     validateFiltersSemantics(value.filters, [...basePath, "filters"], issues);
+                }
+                break;
+            }
+            case "tool_discovery": {
+                checkNonBlank(value.query, [...basePath, "query"], issues, "query");
+                if (typeof value.query === "string" && value.query.length > 512) {
+                    issues.push({
+                        code: "string_too_long",
+                        path: [...basePath, "query"],
+                        message: "query must not exceed 512 characters",
+                    });
                 }
                 break;
             }

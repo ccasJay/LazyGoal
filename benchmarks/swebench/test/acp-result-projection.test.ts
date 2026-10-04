@@ -216,7 +216,8 @@ function completionAdapter(): LLMAdapter {
         structuredOutputMode: "strict",
         generate: async (request) => {
             calls += 1;
-            if (calls === 1) return { content: JSON.stringify({ result: toolDecision("write-1") }) };
+            if (calls === 1) return { content: JSON.stringify({ result: { kind: "tool_discovery", query: "write file" } }) };
+            if (calls === 2) return { content: JSON.stringify({ result: toolDecision("write-1") }) };
             const context = JSON.parse(request.messages.at(-1)?.content ?? "{}") as {
                 trajectoryContext?: { hot?: readonly { events?: readonly { eventType?: string; sequence?: number }[] }[] };
             };
@@ -235,7 +236,7 @@ function oneToolAdapter(): LLMAdapter {
         generate: async () => {
             return {
                 content: JSON.stringify({
-                    result: toolDecision("write-max"),
+                    result: { kind: "tool_discovery", query: "write file" },
                 }),
             };
         },

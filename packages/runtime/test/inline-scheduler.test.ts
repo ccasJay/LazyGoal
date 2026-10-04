@@ -45,6 +45,7 @@ test("delegates one explicit RunRef and returns the Runner success result unchan
             mode: "normal",
             status: "completed",
             stepCount: 1,
+            exposedToolIds: [],
             committedThroughSequence: 0,
             contextEpoch: {
                 version: 1,
@@ -118,6 +119,7 @@ test("forwards transient Action authorization without persisting or changing it"
             mode: "normal",
             status: "waiting",
             stepCount: 0,
+            exposedToolIds: [],
             committedThroughSequence: 0,
             contextEpoch: {
                 version: 1,

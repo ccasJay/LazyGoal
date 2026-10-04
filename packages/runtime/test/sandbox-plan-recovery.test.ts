@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-    createGoal,
+    createGoal as createUnexposedGoal,
     createToolRegistration,
     Runner,
     transition,
@@ -23,7 +23,7 @@ import {
 import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { SandboxExecutionPlan } from "../../sandbox/src/index";
-import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 
 const TEST_INPUT_CONTRACT = contract.object({
     command: contract.string(),
@@ -65,6 +65,10 @@ class FakeStepExecutor extends BaseTestStepExecutor {
         }
         return structuredClone(decision);
     }
+}
+
+function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {
+    return withDiscoveredProfileTools(createUnexposedGoal(input));
 }
 
 function createManualSandboxTool(

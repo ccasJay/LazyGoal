@@ -49,6 +49,7 @@ test("transition 处理 stage_interaction (ask_user) 进入 waiting，且不增�
         mode: "normal",
         status: "running",
         stepCount: 0,
+        exposedToolIds: [],
         committedThroughSequence: 0,
         contextEpoch: { version: 1, number: 0, conversationStartIndex: 0, openedAtSequence: 0 },
     };
@@ -111,6 +112,7 @@ test("transition 处理 stage_interaction (task_approval) 进入 waiting，且�
         mode: "plan",
         status: "running",
         stepCount: 0,
+        exposedToolIds: [],
         committedThroughSequence: 0,
         contextEpoch: { version: 1, number: 0, conversationStartIndex: 0, openedAtSequence: 0 },
     };

@@ -188,6 +188,14 @@ test("runs the complete ask_user, ordinary read, task approval, blocked resume, 
     assert.equal(launched.goal.state.run.approvedTask, undefined);
     assert.equal(launched.goal.state.run.pendingInteraction?.kind, "ask_user");
 
+    await store.save({
+        ...launched.goal,
+        state: {
+            ...launched.goal.state,
+            run: { ...launched.goal.state.run, exposedToolIds: [...profile.toolIds] },
+        },
+    });
+
     const askUserInteraction = launched.goal.state.run.pendingInteraction;
     assert.equal(askUserInteraction.kind, "ask_user");
     const question = askUserInteraction.questions[0]!;

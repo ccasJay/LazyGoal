@@ -277,6 +277,7 @@ function getAllowedSystemToolIds(view: ModelInferenceView): readonly string[] {
     if (runMode === "plan" && task === undefined) {
         return [
             "ask_user",
+            "system_find_tools",
             "system_context_lookup",
             "system_propose_task_plan",
             ...(goalPlanWritable ? ["system_update_goal_plan"] : []),
@@ -289,6 +290,7 @@ function getAllowedSystemToolIds(view: ModelInferenceView): readonly string[] {
         "system_fail_goal",
         "system_context_lookup",
         "ask_user",
+        "system_find_tools",
         ...(goalPlanWritable ? ["system_update_goal_plan"] : []),
     ];
 }

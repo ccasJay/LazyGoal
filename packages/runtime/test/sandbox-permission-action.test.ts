@@ -25,7 +25,7 @@ import {
 import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { ProjectPermissionModeStore } from "../../permission/src/index";
-import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 
 const TEST_INPUT_CONTRACT = contract.object({
     command: contract.string(),
@@ -139,7 +139,7 @@ const profile: AgentProfile = {
 };
 
 function createTestGoal(_workspaceRoot: string, goalId = "goal-sandbox-action-1", runId = "run-sandbox-action-1"): Goal {
-    return createGoal({
+    return withDiscoveredProfileTools(createGoal({
         ...currentProtocols,
         promptBundleVersion: 1,
         id: goalId,
@@ -147,7 +147,7 @@ function createTestGoal(_workspaceRoot: string, goalId = "goal-sandbox-action-1"
         profile,
         runId,
         maxSteps: 5,
-    });
+    }));
 }
 
 function createMockModeStore(mode: "default" | "yolo"): ProjectPermissionModeStore {

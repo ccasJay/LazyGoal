@@ -175,6 +175,10 @@ export type GoalSnapshotStructuredDecisionResultV1 =
         readonly filters?: GoalSnapshotContextLookupFiltersV1 | undefined;
     }
     | {
+        readonly kind: "tool_discovery";
+        readonly query: string;
+    }
+    | {
         readonly kind: "goal_plan_update";
         readonly baseRevision: number;
         readonly operations: readonly GoalSnapshotGoalPlanPatchOperationV1[];
@@ -353,6 +357,8 @@ export interface GoalSnapshotRunStateV1 {
         | "failed"
         | "cancelled";
     readonly stepCount: number;
+    /** 当前 Run 已向模型暴露完整 Schema 的工具 ID。 */
+    readonly exposedToolIds: readonly string[];
     /** Trajectory 可见高水位；包含已提交的模型上下文 frame。 */
     readonly committedThroughSequence: number;
     readonly memoryRevision?: GoalSnapshotMemoryRevisionV1 | undefined;
@@ -702,6 +708,11 @@ const ContextLookupDecisionResultSchema = z.object({
     filters: ContextLookupFiltersSchema.optional(),
 }).strict();
 
+const ToolDiscoveryDecisionResultSchema = z.object({
+    kind: z.literal("tool_discovery"),
+    query: NonEmptyStringSchema.max(512),
+}).strict();
+
 const GoalPlanPatchOperationSchema = z.discriminatedUnion("type", [
     z.object({
         type: z.literal("add"),
@@ -760,6 +771,7 @@ const StructuredDecisionResultSchema = z.union([
         memoryPatch: MemoryPatchSchema.optional(),
     }).strict(),
     ContextLookupDecisionResultSchema,
+    ToolDiscoveryDecisionResultSchema,
     z.object({
         kind: z.literal("goal_plan_update"),
         baseRevision: z.number().int().nonnegative(),
@@ -998,6 +1010,10 @@ const GoalSnapshotV1BaseSchema = z.object({
                 "cancelled",
             ]),
             stepCount: z.number().int().nonnegative(),
+            exposedToolIds: z.array(NonEmptyStringSchema).refine(
+                (ids) => new Set(ids).size === ids.length,
+                "Exposed tool IDs must be unique",
+            ),
             committedThroughSequence: z.number().int().nonnegative(),
             memoryRevision: z.object({
                 eventId: NonEmptyStringSchema,
@@ -1249,7 +1265,8 @@ function validateSnapshotInvariants(
         if (run.stopReason?.kind === "max_steps_exceeded") {
             const validPreviousStep = step?.kind === "action"
                 || result?.kind === "wait"
-                || result?.kind === "context_lookup";
+                || result?.kind === "context_lookup"
+                || result?.kind === "tool_discovery";
             const maxSteps = goal.definition.executionPolicy.maxSteps;
             if (maxSteps <= 0 || run.stepCount < maxSteps || !validPreviousStep) {
                 addInvariantIssue(context, "maxSteps failure requires a reached positive execution limit");
@@ -1262,11 +1279,12 @@ function validateSnapshotInvariants(
         && step?.kind === "decision"
         && result?.kind !== "wait"
         && result?.kind !== "context_lookup"
+        && result?.kind !== "tool_discovery"
         && result?.kind !== "goal_plan_update"
     ) {
         addInvariantIssue(
             context,
-            "running Run can only preserve a resumed wait or Context Lookup decision",
+            "running Run can only preserve a resumed wait, Context Lookup, or Tool Discovery decision",
         );
     }
 

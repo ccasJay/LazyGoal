@@ -2,7 +2,7 @@
 
 ## 职责
 
-Agent 将 Runtime 提供的 Goal、Profile、授权 Tool、Working Memory 和已提交 Context Lookup 结果投影为模型请求。Decide 返回经本地契约校验的业务 `AgentDecision`，或独立的 `request_think` 控制请求；Think 返回自由文本和模型可见上下文 frame。主要入口是 [`LLMStepExecutor`](../../packages/agent/src/llm-step-executor.ts)、[`model-inference-view.ts`](../../packages/agent/src/model-inference-view.ts)、[`prompt.ts`](../../packages/agent/src/prompt.ts) 和 [`render.ts`](../../packages/agent/src/render.ts)。授权列表含 `execute_program` 时，Prompt 说明由模型按任务选择程序或直接 Tool；PTC 内部调用事实不进入原生历史、Hot/Warm 或检索索引，只有已结算的父程序结果参与下一次模型请求。Agent 不保存 Goal，不执行 Tool，不生成 Runtime ID，也不决定审批结果。
+Agent 将 Runtime 提供的 Goal、Profile、授权 Tool、当前 Run 的 `exposedToolIds`、Working Memory 和已提交 Context Lookup 结果投影为模型请求。业务 Schema 只取授权目录与暴露 ID 的交集，并统一供 Prompt、Wire Contract、native declarations 和 PTC 子工具说明使用。Decide 可通过 `system_find_tools` 请求 Runtime 查询工具目录；匹配结果只作为下一次 Decide 的临时反馈，Think 不带发现分支或系统工具声明。主要入口是 [`LLMStepExecutor`](../../packages/agent/src/llm-step-executor.ts)、[`model-inference-view.ts`](../../packages/agent/src/model-inference-view.ts)、[`prompt.ts`](../../packages/agent/src/prompt.ts) 和 [`render.ts`](../../packages/agent/src/render.ts)。授权列表含 `execute_program` 时，Prompt 说明由模型按任务选择程序或直接 Tool；PTC 内部调用事实不进入原生历史、Hot/Warm 或检索索引，只有已结算的父程序结果参与下一次模型请求。Agent 不保存 Goal，不执行 Tool，不生成 Runtime ID，也不决定审批结果。
 
 ## Prompt Bundle
 
@@ -36,13 +36,13 @@ Decide 按阶段专用 Adapter 执行：支持原生严格输出的供应商在�
 
 ## 当前决策门控
 
-Contracts 根据 `workflow.task` 和后端 `planMode` 动态生成 Wire Schema：
+Contracts 根据 `workflow.task`、后端 `planMode` 和当前 Run 可见工具集合动态生成 Wire Schema：
 
 - task 缺省：`ask_user`、`task_proposal`、历史 `context_lookup` 和显式只读 Tool；
 - task 已批准：上述执行入口加上全部授权 Tool、`complete`、`wait` 和 `fail`。
 - Plan Mode：在对应分支额外暴露 `system_update_goal_plan`；普通模式不生成该分支。
 
-只读能力由 Runtime `ToolDefinition.isReadOnly` 提供，Agent 只负责过滤模型可见列表；最终授权仍由 Runtime 再校验。完成条件和验收声明由 Task 投影给模型，但满足条件的事实只能来自已提交 Evidence。
+只读能力由 Runtime `ToolDefinition.isReadOnly` 提供；Agent 仅投影已暴露 Schema，Runtime 仍在直接调用和每个 PTC 子调用前检查暴露状态，再执行既有 Profile、Registry、Policy、审批与沙箱校验。完成条件和验收声明由 Task 投影给模型，但满足条件的事实只能来自已提交 Evidence。
 
 ## 输出处理
 

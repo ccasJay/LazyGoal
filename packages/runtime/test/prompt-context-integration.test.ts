@@ -147,6 +147,7 @@ function createRunningGoal(input: {
                 ...created.state.run,
                 status: "running",
                 mode: input.mode ?? "normal",
+                exposedToolIds: [...profile.toolIds],
                 ...(input.approvedTask === undefined ? {} : { approvedTask: input.approvedTask }),
             },
         },

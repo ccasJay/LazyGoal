@@ -49,8 +49,8 @@ test("动态 Tool 按稳定 ID 码点序派生 tool_call 分支，空集合省�
     assert.ok(Array.isArray(resultProp.anyOf));
     const anyOf = resultProp.anyOf as Array<Record<string, unknown>>;
 
-    // 应该包含 3 个 tool 分支 + 5 个 non-tool 分支 (complete, wait, fail, context_lookup, ask_user) = 8 个分支
-    assert.equal(anyOf.length, 8);
+    // 应该包含 3 个 tool 分支 + 6 个 non-tool 分支（含 tool_discovery）= 9 个分支
+    assert.equal(anyOf.length, 9);
 
     // 前 3 个分支必须严格按 Tool ID 码点序排序: edit_file < read_file < write_file
     const toolBranches = anyOf.filter((b) => {
@@ -76,7 +76,7 @@ test("动态 Tool 按稳定 ID 码点序派生 tool_call 分支，空集合省�
     const emptySchema = emptyBundle.jsonSchema;
     const emptyResultProp = (emptySchema.properties as Record<string, unknown>).result as Record<string, unknown>;
     const emptyAnyOf = emptyResultProp.anyOf as Array<Record<string, unknown>>;
-    assert.equal(emptyAnyOf.length, 5); // complete, wait, fail, context_lookup, ask_user
+    assert.equal(emptyAnyOf.length, 6); // complete, wait, fail, context_lookup, tool_discovery, ask_user
     const hasToolCall = emptyAnyOf.some((b) => {
         const props = b.properties as Record<string, unknown> | undefined;
         const kindProp = props?.kind as Record<string, unknown> | undefined;
@@ -84,7 +84,7 @@ test("动态 Tool 按稳定 ID 码点序派生 tool_call 分支，空集合省�
     });
     assert.equal(hasToolCall, false);
 
-    // Plan Run 未批准：全部授权工具 + ask_user, task_proposal, context_lookup, goal_plan_update
+    // Plan Run 未批准：全部授权工具 + ask_user, task_proposal, context_lookup, tool_discovery, goal_plan_update
     const readOnlyTool = { ...readFileTool, isReadOnly: true };
     const unapprovedBundle = createModelOutputContractBundle({
         kind: "executing",
@@ -94,8 +94,8 @@ test("动态 Tool 按稳定 ID 码点序派生 tool_call 分支，空集合省�
     });
     const unapprovedResultProp = (unapprovedBundle.jsonSchema.properties as Record<string, unknown>).result as Record<string, unknown>;
     const unapprovedAnyOf = unapprovedResultProp.anyOf as Array<Record<string, unknown>>;
-    // 3 个业务工具 + 4 个 non-tool 分支 (ask_user, task_proposal, context_lookup, goal_plan_update)
-    assert.equal(unapprovedAnyOf.length, 7);
+    // 3 个业务工具 + 5 个 non-tool 分支（含 tool_discovery）
+    assert.equal(unapprovedAnyOf.length, 8);
 });
 
 test("Executing Schema、Shape Guide 与 decode 均拒绝 PlanItem 操作，并允许合法 blocker/hypothesis 更新", () => {

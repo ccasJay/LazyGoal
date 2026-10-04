@@ -560,10 +560,10 @@ test("Projector 从七个当前 Contract 生成稳定且可移植的模型 Schem
                 type: "object",
                 properties: {
                     cursor: { type: "string" },
-                    endLine: { type: "integer", minimum: 1, maximum: 9007199254740991 },
+                    endLine: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
                     maxChars: { type: "integer", minimum: 1, maximum: 50000 },
                     path: { type: "string" },
-                    startLine: { type: "integer", minimum: 1, maximum: 9007199254740991 },
+                    startLine: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
                 },
                 required: ["path"],
                 additionalProperties: false,

@@ -112,6 +112,7 @@ import {
     type RuntimeFeedbackIssue,
 } from "./runtime-feedback";
 import { transition } from "./transition";
+import { findTools, type ToolDiscoveryResult } from "./tool-discovery";
 import {
     createEmptyGoalPlan,
     reduceGoalPlan,
@@ -491,6 +492,13 @@ function prepareToolAction(
         throw new RunnerExecutionError(
             "TOOL_NOT_AUTHORIZED",
             `Tool "${action.toolId}" is not authorized by the frozen Profile`,
+        );
+    }
+
+    if (!goal.state.run.exposedToolIds.includes(action.toolId)) {
+        throw new RunnerExecutionError(
+            "TOOL_NOT_AUTHORIZED",
+            `Tool "${action.toolId}" has not been exposed to this Run`,
         );
     }
 
@@ -2898,6 +2906,7 @@ export class Runner {
         let transientAuthorization = authorizedActionId;
         let transientSandboxPlan = initialSandboxPlan;
         let contextLookupResult = initialContextLookupResult;
+        let toolDiscoveryResult: ToolDiscoveryResult | undefined;
         let preparedAction = initialPreparedAction;
         let contextLookupChainCount = await this.restoreContextLookupChainCount(goal, control);
 
@@ -3056,6 +3065,7 @@ export class Runner {
                     const stepInput: StepExecutionInput = {
                         goal,
                         authorizedTools: tools,
+                        exposedToolIds: goal.state.run.exposedToolIds,
                         ...(session === undefined
                             ? {}
                             : { workingMemory: session.workingMemory }),
@@ -3063,6 +3073,9 @@ export class Runner {
                         ...(contextLookupResult === undefined
                             ? {}
                             : { contextLookupResult }),
+                        ...(toolDiscoveryResult === undefined
+                            ? {}
+                            : { toolDiscoveryResult }),
                         executionUnitId,
                         ...(this.executionStream === undefined
                             ? {}
@@ -3336,6 +3349,7 @@ export class Runner {
                     continue;
                 }
 
+                toolDiscoveryResult = undefined;
                 let acceptedPatch: AcceptedMemoryPatchInput | undefined;
                 try {
                     acceptedPatch = this.normalizeDecisionPatch(
@@ -3356,6 +3370,39 @@ export class Runner {
                             error instanceof Error ? error.message : String(error),
                         );
                     return this.stopWithExecutionError(goal, stableError, control);
+                }
+
+                if (normalized.decision.kind === "tool_discovery") {
+                    const discovered = findTools(
+                        normalized.decision.query,
+                        this.getAuthorizedToolDefinitions(goal, control),
+                    );
+                    const nextRun = this.applyTransition(goal.state.run, {
+                        kind: "tool_discovery",
+                        decision: normalized.decision,
+                        matchedToolIds: discovered.tools.map((tool) => tool.id),
+                    });
+                    const nextGoal = this.withRun(goal, nextRun);
+                    goal = await this.commitDecision(
+                        nextGoal,
+                        [{
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            phase: "executing",
+                            executionUnitId,
+                            eventType: "decision_received",
+                            payload: {
+                                type: "decision_received",
+                                decision: normalized.decision,
+                                ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
+                            },
+                        }],
+                        acceptedPatch,
+                        control,
+                    );
+                    toolDiscoveryResult = discovered;
+                    contextLookupResult = undefined;
+                    continue;
                 }
 
                 if (normalized.decision.kind === "context_lookup") {
@@ -4612,6 +4659,7 @@ export class Runner {
             AgentDecision,
             { readonly kind: "tool_call" }
                 | { readonly kind: "context_lookup" }
+                | { readonly kind: "tool_discovery" }
                 | { readonly kind: "context_checkpoint" }
                 | { readonly kind: "ask_user" }
                 | { readonly kind: "task_proposal" }

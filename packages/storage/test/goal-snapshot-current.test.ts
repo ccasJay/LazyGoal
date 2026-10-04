@@ -544,3 +544,31 @@ test("Plan Mode 的 GoalPlan 更新 Step 可以通过当前 Snapshot 编解码",
     delete invalid.state.run.lastStep.result.operations[0].evidenceSequences;
     assert.throws(() => goalSnapshotCodec.decode(invalid), assertProtocolError);
 });
+
+test("current Snapshot preserves exposed tool IDs and requires the Run field", () => {
+    const goal = createCurrentGoal();
+    const started = transition(goal.state.run, { kind: "start" });
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    const discovered = transition(started.state, {
+        kind: "tool_discovery",
+        decision: { kind: "tool_discovery", query: "read" },
+        matchedToolIds: ["read_file", "grep"],
+    });
+    assert.equal(discovered.ok, true);
+    if (!discovered.ok) return;
+
+    const encoded = goalSnapshotCodec.encode({
+        ...goal,
+        state: { ...goal.state, run: discovered.state },
+    });
+    assert.deepEqual(encoded.state.run.exposedToolIds, ["read_file", "grep"]);
+    assert.deepEqual(goalSnapshotCodec.decode(encoded).state.run.exposedToolIds, ["read_file", "grep"]);
+
+    const missing = structuredClone(encoded) as any;
+    delete missing.state.run.exposedToolIds;
+    assert.throws(() => goalSnapshotCodec.decode(missing), assertProtocolError);
+    const duplicate = structuredClone(encoded) as any;
+    duplicate.state.run.exposedToolIds.push("read_file");
+    assert.throws(() => goalSnapshotCodec.decode(duplicate), assertProtocolError);
+});
