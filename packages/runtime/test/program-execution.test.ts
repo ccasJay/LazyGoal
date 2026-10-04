@@ -43,6 +43,7 @@ test("PTC executes a program and inner tool without an extra model step", {
                 ...created.state.run,
                 mode: "plan" as const,
                 approvedTask: { objective: "Count content", completionCriteria: [] },
+                exposedToolIds: ["execute_program", "read_file"],
             },
         },
     };
@@ -127,6 +128,67 @@ test("PTC executes a program and inner tool without an extra model step", {
     }
 });
 
+test("PTC rejects a child Tool outside the exposed set before preparation or execution", {
+    skip: !isSeatbeltSupported(),
+}, async () => {
+    const created = createGoal({
+        ...currentProtocols,
+        id: "ptc-hidden-child-goal",
+        runId: "ptc-hidden-child-run",
+        intent: "Read one file",
+        promptBundleVersion: 1,
+        profile: {
+            id: "ptc-hidden-child",
+            systemPrompt: "Test",
+            instructions: [],
+            toolIds: ["execute_program", "read_file"],
+        },
+        maxSteps: 2,
+    });
+    const goal = {
+        ...created,
+        state: {
+            ...created.state,
+            run: {
+                ...created.state.run,
+                mode: "plan" as const,
+                approvedTask: { objective: "Read one file", completionCriteria: [] },
+                exposedToolIds: ["execute_program"],
+            },
+        },
+    };
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = new InMemoryTrajectoryStore();
+    await store.save(goal);
+    const hiddenDecision = { kind: "tool_call" as const, action: {
+                actionId: "hidden-child-parent",
+                toolId: "execute_program",
+                input: { code: "await tools.read_file({path:'README.md'}); return 'done';" },
+            } };
+    const executor: StepExecutor = {
+        async execute() { return hiddenDecision; },
+        async decide() { return { kind: "decision", decision: hiddenDecision }; },
+        async think() { throw new Error("Unexpected Think"); },
+    };
+    let prepareCalls = 0;
+    let readCalls = 0;
+    const registry = new InMemoryToolRegistry([
+        createExecuteProgramRegistration(),
+        createToolRegistration({
+            definition: { id: "read_file", description: "Read", inputContract: contract.object({ path: contract.string() }), isReadOnly: true },
+            replayPolicy: "safe",
+            validate() { prepareCalls += 1; return { ok: true }; },
+            async execute() { readCalls += 1; return { kind: "success", output: "private", summary: "Read" }; },
+        }),
+    ]);
+    const result = await new Runner({ store, trajectoryStore, executor, toolRegistry: registry }).run({ goalId: goal.id, runId: goal.state.run.id });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.state.status, "failed");
+    assert.equal(prepareCalls, 0);
+    assert.equal(readCalls, 0);
+});
+
 test("PTC never automatically replays an unknown write even if the tool says safe", {
     skip: !isSeatbeltSupported(),
 }, async () => {
@@ -152,6 +214,7 @@ test("PTC never automatically replays an unknown write even if the tool says saf
                 ...created.state.run,
                 mode: "plan" as const,
                 approvedTask: { objective: "Write once", completionCriteria: [] },
+                exposedToolIds: ["execute_program", "write_file"],
             },
         },
     };
@@ -233,6 +296,7 @@ test("PTC pauses for a real child approval and resumes the same code", {
                 ...created.state.run,
                 mode: "plan" as const,
                 approvedTask: { objective: "Write content", completionCriteria: [] },
+                exposedToolIds: ["execute_program", "write_file"],
             },
         },
     };

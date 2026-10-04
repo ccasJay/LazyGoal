@@ -25,7 +25,7 @@ import {
 import { InMemoryGoalStore, JsonFileSandboxGrantStore } from "../../storage/src/index";
 import { resolveEffectiveSandboxScope } from "../../sandbox/src/index";
 import type { PermissionMode, ProjectPermissionModeStore } from "../../permission/src/index";
-import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 
 class FakeStepExecutor extends BaseTestStepExecutor {
     private readonly decisions: readonly AgentDecision[];
@@ -64,7 +64,7 @@ const profile: AgentProfile = {
 };
 
 function createTestGoal(goalId: string, runId: string): Goal {
-    return createGoal({
+    return withDiscoveredProfileTools(createGoal({
         ...currentProtocols,
         id: goalId,
         intent: "测试网页工具权限与沙箱控制",
@@ -72,7 +72,7 @@ function createTestGoal(goalId: string, runId: string): Goal {
         profile,
         runId,
         maxSteps: 5,
-    });
+    }));
 }
 
 test("WebSearchTool 与 WebFetchTool 正确派生 all_outbound 网络能力", async () => {

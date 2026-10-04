@@ -49,6 +49,7 @@ export {
     ContextLookupFiltersContract,
     ContextLookupNeedContract,
     ContextLookupRequestContract,
+    ToolDiscoveryDecisionContract,
     ContextLookupSequenceRangeContract,
     ExecutingMemoryPatchOperationContract,
     ExecutingWorkingMemoryPatchContract,
@@ -102,6 +103,7 @@ export type {
     ContextLookupFilters,
     ContextLookupNeed,
     ContextLookupRequest,
+    ToolDiscoveryDecision,
     ContextLookupSequenceRange,
     ExecutingMemoryPatchOperation,
     ExecutingWorkingMemoryPatch,
@@ -162,6 +164,7 @@ export {
     SystemWaitForInputDeclaration,
     SystemFailGoalDeclaration,
     SystemContextLookupDeclaration,
+    SystemFindToolsDeclaration,
     SystemProposeTaskPlanDeclaration,
     SystemContextCheckpointDeclaration,
     SystemAskUserDeclaration,
@@ -175,8 +178,10 @@ export {
 export type {
     AskUserTool,
     SystemToolDeclaration,
+    SystemFindToolsInput,
 } from "./model-output/system-tools";
 export {
+    SystemFindToolsInputContract,
     SystemUpdateGoalPlanInputContract,
 } from "./model-output/system-tools";
 export * from "./model-conversation";

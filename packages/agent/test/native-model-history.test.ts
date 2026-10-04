@@ -18,7 +18,10 @@ const projector = new TrajectoryEventProjector({ previewLimit: 100 });
 const profile = { id: "native", systemPrompt: "Follow task", instructions: [], toolIds: ["read_file"] };
 const renderer = await createDefaultPromptBundleRenderer();
 const compactor = new DropOldestContextCompactor();
-const initial = () => createGoal({ ...currentProtocols, id: "native-goal", runId: "native-run", intent: "Read files", promptBundleVersion: 1, profile });
+const initial = () => {
+    const goal = createGoal({ ...currentProtocols, id: "native-goal", runId: "native-run", intent: "Read files", promptBundleVersion: 1, profile });
+    return { ...goal, state: { ...goal.state, run: { ...goal.state.run, exposedToolIds: [...profile.toolIds] } } };
+};
 function message(toolId = "read_file", args: Record<string, unknown> = {}, signature = "signature"): ModelAssistantMessage {
     return { role: "assistant", content: "Checking", reasoning: "Summary", toolCalls: [{ callId: "provider-call", toolId, argumentsJson: JSON.stringify(args) }],
         continuation: { identity, parts: [{ text: "Checking" }, { functionCall: { name: toolId, args }, thoughtSignature: signature }] } };

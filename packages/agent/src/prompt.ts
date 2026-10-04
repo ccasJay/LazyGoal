@@ -5,6 +5,7 @@ import type { ModelContextFramePayload } from "../../runtime/src/index";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type { RuntimeFeedback } from "../../runtime/src/runtime-feedback";
 import type { ToolDefinition } from "../../runtime/src/tool";
+import type { ToolDiscoveryResult } from "../../runtime/src/tool-discovery";
 import type { ContextCompactor } from "./context-compactor";
 import {
     ConversationContextUnitAdapter,
@@ -73,6 +74,8 @@ export interface StepPromptStageContext {
     readonly thinkGoal?: string;
     /** Runner 提供的当前阶段修复反馈；只作为标记为 runtime_feedback 的临时消息。 */
     readonly runtimeFeedback?: RuntimeFeedback;
+    /** Runtime 上一轮目录搜索的短结果；只反馈给 Decide。 */
+    readonly toolDiscoveryResult?: ToolDiscoveryResult;
 }
 
 function createStageMessages(
@@ -98,6 +101,15 @@ function createStageMessages(
         messages.push({
             role: "user",
             content: JSON.stringify({ source: "runtime_think_request", goal }),
+        });
+    }
+    if (stage === "decide" && context?.toolDiscoveryResult !== undefined) {
+        messages.push({
+            role: "user",
+            content: JSON.stringify({
+                source: "runtime_tool_discovery_result",
+                tools: context.toolDiscoveryResult.tools,
+            }),
         });
     }
     if (context?.runtimeFeedback !== undefined) {
@@ -269,6 +281,7 @@ async function compactConversation(
  * @param stage - 当前请求属于 Decide 还是 Think；省略时使用 Decide。
  * @param stageContext - Think 目标、已提交 Think 历史或 Decide 的 Think 控制开关。
  * @param nativeConversationIdentity - 原生 Adapter 的回放身份；仅 Decide 使用，工具参数替代顶层输出 Schema。
+ * @param exposedToolIds - Runtime 持久化的本 Run 可见工具集合；省略时读取 Goal Run 状态。
  * @returns 完成上下文裁剪与渲染后的单轮 LLM 请求。
  * @throws Goal 不处于 running executing 阶段时抛出；渲染失败同样在调用前抛出。
  */
@@ -286,11 +299,13 @@ export async function buildStepRequest<Result extends DecideOutput = AgentDecisi
     stage: PromptStage = "decide",
     stageContext?: StepPromptStageContext,
     nativeConversationIdentity?: NativeConversationIdentity,
+    exposedToolIds: readonly string[] = goal.state.run.exposedToolIds,
 ): Promise<ModelOutputRequestPlan<Result>> {
+    const visibleTools = tools.filter((tool) => exposedToolIds.includes(tool.id));
     const stageMessages = createStageMessages(stage, stageContext);
     const projected = project(
         goal,
-        tools,
+        visibleTools,
         workingMemory,
         contextLookupResult,
         stage,
@@ -318,7 +333,7 @@ export async function buildStepRequest<Result extends DecideOutput = AgentDecisi
     const taskPresent = !isInitialCheckpoint && goal.state.run.approvedTask !== undefined;
     const planMode = !isInitialCheckpoint && goal.state.run.mode === "plan";
     const goalPlanWritable = !isInitialCheckpoint && assembled.view.dynamicContext.goalPlanWritable;
-    const authorizedToolContracts = tools.map((t) => ({
+    const authorizedToolContracts = visibleTools.map((t) => ({
         id: t.id,
         inputContract: t.inputContract,
         isReadOnly: t.isReadOnly,
@@ -333,6 +348,7 @@ export async function buildStepRequest<Result extends DecideOutput = AgentDecisi
             planMode,
             goalPlanWritable,
             allowThink: stage === "decide" && stageContext?.allowThink === true,
+            allowToolDiscovery: stage === "decide",
         }) as unknown as ModelOutputContractBundle<Result>);
 
     const toolDeclarations = isInitialCheckpoint

@@ -9,6 +9,7 @@ import {
     RequestThinkContract,
     AskUserAgentDecisionContract,
     ContextLookupRequestContract,
+    ToolDiscoveryDecisionContract,
     NormalCompleteAgentDecisionContract,
     ExecutingCompleteAgentDecisionContract,
     ExecutingFailAgentDecisionContract,
@@ -91,6 +92,8 @@ export type ModelOutputRequest =
         readonly goalPlanWritable?: boolean;
         /** Decide 请求是否允许返回 Runtime 控制用的 `request_think` 分支。 */
         readonly allowThink?: boolean;
+        /** 是否允许 Decide 使用 Runtime 工具发现控制分支；Think 请求应显式关闭。 */
+        readonly allowToolDiscovery?: boolean;
       }
     | { readonly kind: "checkpoint" };
 
@@ -257,18 +260,21 @@ export function createModelOutputContractBundle<Result extends DecideOutput = Ag
                         ExecutingWaitAgentDecisionContract,
                         ExecutingFailAgentDecisionContract,
                         ContextLookupRequestContract,
+                        ...(request.allowToolDiscovery === false ? [] : [ToolDiscoveryDecisionContract]),
                         AskUserAgentDecisionContract,
                     ]
                     : [
                         AskUserAgentDecisionContract,
                         TaskProposalAgentDecisionContract,
                         ContextLookupRequestContract,
+                        ...(request.allowToolDiscovery === false ? [] : [ToolDiscoveryDecisionContract]),
                     ]
                 : [
                     NormalCompleteAgentDecisionContract,
                     ExecutingWaitAgentDecisionContract,
                     ExecutingFailAgentDecisionContract,
                     ContextLookupRequestContract,
+                    ...(request.allowToolDiscovery === false ? [] : [ToolDiscoveryDecisionContract]),
                     AskUserAgentDecisionContract,
                 ];
             if (request.allowThink === true) {

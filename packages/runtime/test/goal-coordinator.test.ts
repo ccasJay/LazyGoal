@@ -6,7 +6,7 @@ import { test } from "node:test";
 
 import {
     computeContentHash,
-    createGoal,
+    createGoal as createUnexposedGoal,
     createStepExecutor,
     createToolRegistration,
     createToolGrantMatcher,
@@ -20,7 +20,7 @@ import {
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { JsonFileGoalStore, JsonFileToolGrantStore } from "../../storage/src/index";
 import { contract } from "../../contracts/src/index";
-import { currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor } from "./current-fixtures";
+import { currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 import type {
     AgentProfile,
     CompletionCriterion,
@@ -38,6 +38,10 @@ import type {
     ToolDefinition,
     ToolGrantStore,
 } from "../src/index";
+
+function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {
+    return withDiscoveredProfileTools(createUnexposedGoal(input));
+}
 
 const profile: AgentProfile = {
     id: "profile-1",

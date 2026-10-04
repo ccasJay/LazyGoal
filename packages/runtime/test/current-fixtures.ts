@@ -8,6 +8,7 @@ import type {
     StepExecutionInput,
     StepExecutor,
 } from "../src/index";
+import type { Goal } from "../src/index";
 import {
     allocateImmutableEvent,
     type TrajectoryEvent,
@@ -26,6 +27,17 @@ export const currentProtocols: {
     modelContextProtocol: { kind: "trajectory-layered", version: 1 },
     contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
 };
+
+/** Marks the business tools directly scripted by a legacy Runtime fixture as discovered. */
+export function withDiscoveredProfileTools(goal: Goal): Goal {
+    return {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: { ...goal.state.run, exposedToolIds: [...goal.definition.profile.toolIds] },
+        },
+    };
+}
 
 /** Base StepExecutor for tests that adapt single execute() to decide()/think(). */
 export abstract class BaseTestStepExecutor implements StepExecutor {

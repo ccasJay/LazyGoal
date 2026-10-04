@@ -24,7 +24,7 @@ import {
     APPLY_PATCH_TOOL_ID,
 } from "../../tools/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 
 const profile: AgentProfile = {
     id: "patch-recovery-profile",
@@ -46,14 +46,14 @@ test("ApplyPatchTool manual 重放策略在崩溃中断后进入 manual 恢复�
 
         assert.equal(patchTool.replayPolicy, "manual");
 
-        const goal = createGoal({
+        const goal = withDiscoveredProfileTools(createGoal({
             ...currentProtocols,
             id: "goal-patch-rec-1",
             intent: "应用文本补丁",
             promptBundleVersion: 1,
             profile,
             runId: "run-patch-rec-1",
-        });
+        }));
 
         const patch = `
 --- a/code.txt

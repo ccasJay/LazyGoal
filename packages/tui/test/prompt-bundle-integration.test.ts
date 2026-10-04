@@ -66,9 +66,11 @@ function nativeFixtureMessage(content: string, id: string) {
     const name = kind === "tool_call" ? args.action.toolId
         : kind === "ask_user" ? "ask_user"
         : kind === "task_proposal" ? "system_propose_task_plan"
+        : kind === "tool_discovery" ? "system_find_tools"
         : "system_complete_task";
     return { role: "assistant", content: "", tool_calls: [{ id, type: "function", function: {
-        name, arguments: JSON.stringify(kind === "tool_call" ? args.action.input : args),
+        name,
+        arguments: JSON.stringify(kind === "tool_call" ? args.action.input : kind === "tool_discovery" ? { query: args.query } : args),
     } }] };
 }
 
@@ -91,6 +93,12 @@ test("Composition Root carries Memory through task approval into Executing", asy
                     },
                 ],
                 memoryPatch: null,
+            },
+        }),
+        JSON.stringify({
+            result: {
+                kind: "tool_discovery",
+                query: "read file",
             },
         }),
         JSON.stringify({
@@ -170,7 +178,7 @@ test("Composition Root carries Memory through task approval into Executing", asy
             const capturedRequest = JSON.parse(
                 Buffer.concat(chunks).toString("utf8"),
             ) as CapturedRequest;
-            if (requests.length === 2) {
+            if (requests.length === 3) {
                 const working = controlPayload(capturedRequest) as {
                     readonly trajectoryContext?: {
                         readonly hot?: readonly { readonly events: readonly {
@@ -255,7 +263,7 @@ test("Composition Root carries Memory through task approval into Executing", asy
         if (initialPlanningView.screen !== "session"
             || initialPlanningView.phase !== "executing"
             || initialPlanningView.waitingFor !== "task_approval") {
-            throw new Error("Expected task approval after ask_user answered");
+            throw new Error(`Expected task approval after ask_user answered`);
         }
         if (initialPlanningView.proposal?.objective !== "Initial proposal") {
             throw new Error("Expected the first planning proposal");
@@ -313,8 +321,8 @@ test("Composition Root carries Memory through task approval into Executing", asy
         if (completedView.phase !== "executing" || completedView.terminal?.status !== "completed") {
             throw new Error("Expected the current workflow to complete");
         }
-        if (requests.length !== 5) {
-            throw new Error(`Expected 5 requests, got ${requests.length}`);
+        if (requests.length !== 6) {
+            throw new Error(`Expected 6 requests, got ${requests.length}`);
         }
         for (const request of requests) {
             const content = systemContent(request);
@@ -328,9 +336,9 @@ test("Composition Root carries Memory through task approval into Executing", asy
             }
         }
 
-        const executingControl = controlPayload(requests[4]!);
-        const executingSystem = systemContent(requests[4]!);
-        const approvedTaskUpdate = requests[4]!.messages.find((message) =>
+        const executingControl = controlPayload(requests[5]!);
+        const executingSystem = systemContent(requests[5]!);
+        const approvedTaskUpdate = requests[5]!.messages.find((message) =>
             message.role === "user"
             && message.content.includes("Approved Goal Task Contract:\nObjective: Approved proposal"),
         );
@@ -340,7 +348,7 @@ test("Composition Root carries Memory through task approval into Executing", asy
         if ("task" in executingControl) {
             throw new Error("Executing must not receive redundant task in control message");
         }
-        const workingMemoryUpdate = requests[4]!.messages.find((message) =>
+        const workingMemoryUpdate = requests[5]!.messages.find((message) =>
             message.role === "user"
             && message.content.includes("workflow_requested"),
         );

@@ -18,12 +18,12 @@ import {
     InMemoryExecutionStreamPublisher,
     type ExecutionStreamPublisher,
 } from "../../execution-stream/src/index";
-import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 
 const inputContract = contract.record(contract.string());
 
 function createStreamGoal(): Goal {
-    const created = createGoal({
+    const created = withDiscoveredProfileTools(createGoal({
         ...currentProtocols,
         promptBundleVersion: 1,
         id: "goal-stream-runtime",
@@ -35,7 +35,7 @@ function createStreamGoal(): Goal {
             toolIds: ["stream-tool"],
         },
         runId: "run-stream-runtime",
-    });
+    }));
     return {
         ...created,
         state: {

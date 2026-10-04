@@ -24,7 +24,7 @@ import {
 import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { SandboxExecutionPlan } from "../../sandbox/src/index";
-import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 
 const TEST_INPUT_CONTRACT = contract.object({
     command: contract.string(),
@@ -133,7 +133,7 @@ const profile: AgentProfile = {
 };
 
 function createTestGoal(goalId = "goal-1", runId = "run-1"): Goal {
-    return createGoal({
+    return withDiscoveredProfileTools(createGoal({
         ...currentProtocols,
         promptBundleVersion: 1,
         id: goalId,
@@ -141,7 +141,7 @@ function createTestGoal(goalId = "goal-1", runId = "run-1"): Goal {
         profile,
         runId,
         maxSteps: 5,
-    });
+    }));
 }
 
 test("Action 经核准并提供有效 SandboxExecutionPlan 后执行成功并传入 plan", async () => {

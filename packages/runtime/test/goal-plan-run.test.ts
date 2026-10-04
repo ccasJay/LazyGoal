@@ -158,6 +158,10 @@ function withObservationTool(goal: Goal): Goal {
             ...goal.definition,
             profile: { ...goal.definition.profile, toolIds: [OBSERVATION_TOOL_DEFINITION.id] },
         },
+        state: {
+            ...goal.state,
+            run: { ...goal.state.run, exposedToolIds: [OBSERVATION_TOOL_DEFINITION.id] },
+        },
     };
 }
 

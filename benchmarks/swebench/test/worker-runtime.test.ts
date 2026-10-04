@@ -24,7 +24,7 @@ test("Worker Profile exposes exactly five tools rooted at the supplied workspace
     if (read.ok) {
         const observation = await read.execute("read-1");
         assert.equal(observation.kind, "success");
-        if (observation.kind === "success") assert.equal(observation.output, "container fact\n");
+        if (observation.kind === "success") assert.equal(observation.output.text, "container fact\n");
     }
     assert.equal(await readFile(join(workspace, "fixed.txt"), "utf8"), "container fact\n");
 });
@@ -52,6 +52,16 @@ test("Worker runtime uses deterministic Headless Root state and isolated instanc
             generate: async (request) => {
                 modelCalls += 1;
                 if (modelCalls === 1) {
+                    return {
+                        content: JSON.stringify({
+                            result: {
+                                kind: "tool_discovery",
+                                query: "write file",
+                            },
+                        }),
+                    };
+                }
+                if (modelCalls === 2) {
                     return {
                         content: JSON.stringify({
                             result: {
@@ -106,7 +116,7 @@ test("Worker runtime uses deterministic Headless Root state and isolated instanc
     assert.equal(result.goal.state.run.status, "completed");
     assert.match(result.persistence.goalSnapshot, /state/);
     assert.match(result.persistence.goalSnapshot, new RegExp(Buffer.from("swebench-acp", "utf8").toString("base64url")));
-    assert.equal(modelCalls, 2);
+    assert.equal(modelCalls, 3);
 });
 
 test("Worker runtime rejects metadata that could cross task or workspace boundaries", async () => {

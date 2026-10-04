@@ -64,6 +64,7 @@ test("createGoal creates an initial executing snapshot with independent IDs", ()
                 mode: "normal",
                 status: "created",
                 stepCount: 0,
+                exposedToolIds: [],
                 committedThroughSequence: 0,
                 contextEpoch: {
                     version: 1,
@@ -176,6 +177,7 @@ test("createRun creates a deterministic core RunState", () => {
         mode: "normal",
         status: "created",
         stepCount: 0,
+        exposedToolIds: [],
         committedThroughSequence: 0,
         contextEpoch: {
             version: 1,

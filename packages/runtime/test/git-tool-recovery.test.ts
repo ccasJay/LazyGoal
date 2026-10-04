@@ -30,7 +30,7 @@ import {
     GIT_WORKTREE_REMOVE_TOOL_ID,
 } from "../../tools/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 
 function runGit(cwd: string, args: string[]): string {
     return execFileSync("git", args, {
@@ -88,14 +88,14 @@ test("Git 写操作工具在 Runner 中执行成功并正确记录", async () =>
             createToolRegistration(commitTool),
         ]);
 
-        const goal = createGoal({
+        const goal = withDiscoveredProfileTools(createGoal({
             ...currentProtocols,
             id: "goal-git-rec-1",
             intent: "暂存并提交代码",
             promptBundleVersion: 1,
             profile: gitProfile,
             runId: "run-git-rec-1",
-        });
+        }));
 
         await store.save(goal);
 

@@ -56,7 +56,7 @@ function createMemoryPipe(): {
 }
 
 function createTestGoal(goalId: string, runId: string, runProfile: AgentProfile): Goal {
-    return createGoal({
+    const goal = createGoal({
         ...currentProtocols,
         promptBundleVersion: 1,
         id: goalId,
@@ -65,6 +65,10 @@ function createTestGoal(goalId: string, runId: string, runProfile: AgentProfile)
         runId,
         maxSteps: 3,
     });
+    return {
+        ...goal,
+        state: { ...goal.state, run: { ...goal.state.run, exposedToolIds: [...runProfile.toolIds] } },
+    };
 }
 
 test("remote ToolRegistration 的 prepare 阶段绝不向 Worker 发送 execute 消息", async () => {

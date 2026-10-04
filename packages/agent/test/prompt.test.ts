@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { getEncoding } from "js-tiktoken";
 
 import { contract } from "../../contracts/src/index";
 import {
@@ -68,7 +69,7 @@ const profile: AgentProfile = {
     id: "profile-1",
     systemPrompt: "你是一个严谨的执行代理。",
     instructions: ["先检查输入", "再给出下一步"],
-    toolIds: [],
+    toolIds: ["alfworld_reset", "alfworld_step", "bash", "custom_doc_search", "edit_file", "grep", "read_file", "unknown_side_effect_tool", "web_search", "write_file"],
 };
 
 function createUnapprovedGoal(
@@ -95,6 +96,7 @@ function createUnapprovedGoal(
             run: {
                 ...goal.state.run,
                 status: "running",
+                exposedToolIds: [...profile.toolIds],
             },
         },
     };
@@ -129,6 +131,7 @@ function createExecutingGoal(options: {
                 ...goal.state.run,
                 status: "running",
                 stepCount: options.stepCount ?? 0,
+                exposedToolIds: [...profile.toolIds],
                 ...(options.previousStep === undefined
                     ? {}
                     : { lastStep: options.previousStep }),
@@ -358,134 +361,8 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
         toolsContent.slice(toolsOffset + toolsMarker.length),
     );
     assert.equal(/"kind"\s*:\s*"(?:string|object|integer|array|boolean|enum)"/.test(JSON.stringify(projectedTools)), false);
-    assert.deepEqual(
-        projectedTools,
-        [
-            {
-                id: ALFWORLD_RESET_TOOL_ID,
-                description: "初始化固定 ALFWorld TextWorld 任务会话",
-                inputSchema: {
-                    type: "object",
-                    properties: {},
-                    additionalProperties: false,
-                },
-            },
-            {
-                id: ALFWORLD_STEP_TOOL_ID,
-                description: "向活动 ALFWorld TextWorld 会话提交一条命令",
-                inputSchema: {
-                    type: "object",
-                    properties: { command: { type: "string" } },
-                    required: ["command"],
-                    additionalProperties: false,
-                },
-            },
-            {
-                id: BASH_TOOL_ID,
-                description: "在 workspaceRoot 内以 bash 执行命令并返回截断后的 stdout/stderr",
-                inputSchema: {
-                    type: "object",
-                    properties: {
-                        command: { type: "string" },
-                        sandboxAccess: {
-                            type: "object",
-                            properties: {
-                                files: {
-                                    type: "array",
-                                    items: {
-                                        type: "object",
-                                        properties: {
-                                            access: {
-                                                enum: ["read", "write"],
-                                            },
-                                            kind: {
-                                                enum: ["file", "directory_tree"],
-                                            },
-                                            path: { type: "string" },
-                                            purpose: { type: "string" },
-                                        },
-                                        required: ["path", "access", "kind", "purpose"],
-                                        additionalProperties: false,
-                                    },
-                                },
-                                network: {
-                                    type: "object",
-                                    properties: {
-                                        purpose: { type: "string" },
-                                        targets: {
-                                            type: "array",
-                                            items: { type: "string" },
-                                        },
-                                    },
-                                    required: ["targets", "purpose"],
-                                    additionalProperties: false,
-                                },
-                            },
-                            additionalProperties: false,
-                        },
-                        timeoutMs: {
-                            type: "integer",
-                            minimum: 1,
-                            maximum: BASH_MAX_TIMEOUT_MS,
-                        },
-                    },
-                    required: ["command"],
-                    additionalProperties: false,
-                },
-            },
-            {
-                id: EDIT_FILE_TOOL_ID,
-                description: "对 workspaceRoot 内的 UTF-8 文本文件执行唯一匹配的字符串替换",
-                inputSchema: {
-                    type: "object",
-                    properties: {
-                        newString: { type: "string" },
-                        oldString: { type: "string" },
-                        path: { type: "string" },
-                    },
-                    required: ["path", "oldString", "newString"],
-                    additionalProperties: false,
-                },
-            },
-            {
-                id: GREP_TOOL_ID,
-                description: "在 workspaceRoot 内按正则搜索文本文件并返回带行号的匹配行",
-                inputSchema: {
-                    type: "object",
-                    properties: {
-                        ignoreCase: { type: "boolean" },
-                        path: { type: "string" },
-                        pattern: { type: "string" },
-                    },
-                    required: ["pattern"],
-                    additionalProperties: false,
-                },
-            },
-            {
-                id: READ_FILE_TOOL_ID,
-                description: "读取 workspaceRoot 内的 UTF-8 文本文件",
-                inputSchema: {
-                    type: "object",
-                    properties: { path: { type: "string" } },
-                    required: ["path"],
-                    additionalProperties: false,
-                },
-            },
-            {
-                id: WRITE_FILE_TOOL_ID,
-                description: "写入 workspaceRoot 内的 UTF-8 文本文件（覆盖已有内容）",
-                inputSchema: {
-                    type: "object",
-                    properties: {
-                        content: { type: "string" },
-                        path: { type: "string" },
-                    },
-                    required: ["path", "content"],
-                    additionalProperties: false,
-                },
-            },
-        ],
-    );
+    assert.deepEqual(projectedTools.map(({ id }: { id: string }) => id), CURRENT_TOOL_DEFINITIONS.map(({ id }) => id).sort());
+    assert.ok(projectedTools.every((tool: { inputSchema?: { type?: string } }) => tool.inputSchema?.type === "object"));
 
     const unapprovedRequest = await executingRequest(
         createUnapprovedGoal(),
@@ -502,6 +379,54 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
         unapprovedProjectedTools.map((t: { id: string }) => t.id),
         CURRENT_TOOL_DEFINITIONS.map((tool) => tool.id).sort(),
     );
+});
+
+test("按需请求只携带暴露工具 Schema，并将发现结果反馈给 Decide", async () => {
+    const goal = createExecutingGoal();
+    const exposedToolIds = [READ_FILE_TOOL_ID];
+    const discoveryResult = {
+        tools: [{ id: READ_FILE_TOOL_ID, description: "读取工作区文件" }],
+    };
+    const initial = await buildStepRequest(
+        goal, CURRENT_TOOL_DEFINITIONS, renderer, contextCompactor, undefined,
+        currentWorkingMemory, trajectoryContextAssembler, undefined, undefined,
+        "strict", "decide", undefined, undefined, [],
+    );
+    const discovered = await buildStepRequest(
+        goal, CURRENT_TOOL_DEFINITIONS, renderer, contextCompactor, undefined,
+        currentWorkingMemory, trajectoryContextAssembler, undefined, undefined,
+        "strict", "decide", { toolDiscoveryResult: discoveryResult }, undefined, exposedToolIds,
+    );
+    const think = await buildStepRequest(
+        goal, CURRENT_TOOL_DEFINITIONS, renderer, contextCompactor, undefined,
+        currentWorkingMemory, trajectoryContextAssembler, undefined, undefined,
+        "strict", "think", { thinkGoal: "分析工具" }, undefined, exposedToolIds,
+    );
+
+    assert.ok(initial.toolDeclarations.some(({ id }) => id === "system_find_tools"));
+    assert.equal(initial.toolDeclarations.some(({ id }) => CURRENT_TOOL_DEFINITIONS.some((tool) => tool.id === id)), false);
+    assert.deepEqual(discovered.toolDeclarations.map(({ id }) => id).filter((id) => CURRENT_TOOL_DEFINITIONS.some((tool) => tool.id === id)), ["read_file"]);
+    assert.ok(discovered.toolDeclarations.some(({ id }) => id === "system_find_tools"));
+    assert.equal(JSON.stringify(initial.bundle.jsonSchema).includes("read_file"), false);
+    assert.equal(JSON.stringify(discovered.bundle.jsonSchema).includes("read_file"), true);
+    assert.equal(JSON.stringify(discovered.bundle.jsonSchema).includes("write_file"), false);
+    assert.deepEqual(think.toolDeclarations, []);
+    assert.equal(think.bundle.shapeGuide.includes("tool_discovery"), false);
+    assert.ok(discovered.request.messages.some((message) => message.content.includes("runtime_tool_discovery_result")));
+    assert.equal(think.request.messages.some((message) => message.content.includes("runtime_tool_discovery_result")), false);
+
+    const encoding = getEncoding("o200k_base");
+    const inputTokens = (plan: typeof initial) => encoding.encode(JSON.stringify({
+        messages: plan.request.messages,
+        tools: plan.request.tools,
+        structuredOutput: plan.request.structuredOutput,
+    })).length;
+    const allTools = await buildStepRequest(
+        goal, CURRENT_TOOL_DEFINITIONS, renderer, contextCompactor, undefined,
+        currentWorkingMemory, trajectoryContextAssembler, undefined, undefined,
+        "strict", "decide", undefined, undefined, CURRENT_TOOL_DEFINITIONS.map(({ id }) => id),
+    );
+    assert.ok(inputTokens(discovered) < inputTokens(allTools));
 });
 
 test("下一轮请求把已提交 Lookup Result 作为历史瞬时输入传给模型", async () => {

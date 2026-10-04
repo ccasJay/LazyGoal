@@ -39,6 +39,21 @@ test("GoalTaskContract 校验并深复制合法任务结构", () => {
     assert.equal(parsed.data.completionCriteria.length, 2);
 });
 
+test("tool_discovery 接受有界非空查询并拒绝空白查询", () => {
+    const valid = { kind: "tool_discovery", query: "read file" };
+    assert.equal(safeParse(AgentDecisionContract, valid).success, true);
+    assert.equal(validateModelOutputSemantics(valid).length, 0);
+    const blank = { kind: "tool_discovery", query: "   " };
+    assert.equal(safeParse(AgentDecisionContract, blank).success, true);
+    assert.equal(validateModelOutputSemantics(blank).length, 1);
+    const oversized = {
+        kind: "tool_discovery",
+        query: "x".repeat(513),
+    };
+    assert.equal(safeParse(AgentDecisionContract, oversized).success, true);
+    assert.equal(validateModelOutputSemantics(oversized).length, 1);
+});
+
 test("FactProposalContract 仅接受标量与一维标量数组（Req 2.5）", () => {
     const baseProposal = {
         subject: "config.json",

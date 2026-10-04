@@ -62,6 +62,7 @@ function createExecutingGoal(
             run: {
                 ...goal.state.run,
                 status: "running",
+                exposedToolIds: [...toolIds],
 
                 mode: "plan", approvedTask: {
                     objective: goal.definition.intent,

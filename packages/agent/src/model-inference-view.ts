@@ -106,7 +106,7 @@ export interface ModelToolCallAction {
     readonly input: unknown;
 }
 
-/** 模型可见的 Recent Step 投影（仅复制当前协议已消费的两种记录）。 */
+/** 模型可见的 Recent Step 投影。 */
 export type ModelStepRecord =
     | {
         readonly kind: "action";
@@ -134,6 +134,7 @@ export type ModelStepRecord =
                 readonly question: string;
                 readonly filters?: import("../../runtime/src/context-retrieval").ContextLookupFilters;
             }
+            | { readonly kind: "tool_discovery"; readonly query: string }
             | {
                 readonly kind: "goal_plan_update";
                 readonly baseRevision: number;
