@@ -5,9 +5,9 @@ import { isSeatbeltSupported } from "../../sandbox/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { createExecuteProgramRegistration } from "../../tools/src/index";
 import { TrajectoryExecutionUnitAdapter } from "../../agent/src/index";
+import { buildCommittedContextDocuments } from "../../context-retrieval/src/index";
 import {
     createGoal,
-    buildCommittedContextDocuments,
     createToolRegistration,
     ExecutionAbortedError,
     GoalCoordinator,

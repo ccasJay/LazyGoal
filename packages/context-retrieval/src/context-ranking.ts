@@ -1,4 +1,4 @@
-import type { ContextLookupFilters } from "./context-retrieval";
+import type { ContextLookupFilters } from "../../contracts/src/index";
 import type {
     ContextDocumentFieldName,
     ContextSearchDocument,

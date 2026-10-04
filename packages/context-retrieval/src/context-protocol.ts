@@ -1,300 +1,35 @@
 import { createHash } from "node:crypto";
-
-import {
-    isExecutionAbortedError,
-    throwIfAborted,
-    type ExecutionControl,
-} from "./execution-control";
-import type { Goal } from "./domain";
-import type {
-    TrajectoryEventDraft,
-    TrajectoryPhase,
-} from "./trajectory";
-import type { ContextDocumentSource } from "../../context-retrieval/src/index";
 import type {
     ContextLookupFilters,
     ContextLookupNeed,
     ContextLookupRequest,
 } from "../../contracts/src/index";
-
-export type {
-    ContextLookupFilters,
-    ContextLookupNeed,
-    ContextLookupRequest,
-    ContextDocumentSource,
-};
-
-
-/** 检索结果中的稳定字段名称。 */
-export type ContextLookupMatchedField =
-    | "eventType"
-    | "toolId"
-    | "actionId"
-    | "stepIndex"
-    | "path"
-    | "errorCode"
-    | "objectId"
-    | "body";
-
-/**
- * 一个可作为历史读取来源的 Goal/Run 提交边界。
- *
- * @remarks
- * `committedThroughSequence` 只在该 `runId` 的局部 Trajectory 内有效；跨 Run
- * 查询必须同时携带两者，不能把相同的局部 sequence 当作同一条事实。
- *
- * @example
- * ```ts
- * const source: ContextLookupRunBoundary = {
- *     runId: "run-1",
- *     committedThroughSequence: 12,
- * };
- * ```
- */
-export interface ContextLookupRunBoundary {
-    /** 来源 Run 的稳定 ID。 */
-    readonly runId: string;
-    /** 该 Run 最新有效 Snapshot 的 committed sequence。 */
-    readonly committedThroughSequence: number;
-}
-
-/** 一条完整 Context Document 的有界历史命中。 */
-export interface ContextLookupMatch {
-    /** Context Document 的稳定 ID。 */
-    readonly documentId: string;
-    /** 命中来源 Goal/Run。 */
-    readonly goalId: string;
-    readonly runId: string;
-    /** 命中文档覆盖的 committed sequence 闭区间。 */
-    readonly firstSequence: number;
-    readonly lastSequence: number;
-    /** 参与评分的字段集合，按稳定顺序排列。 */
-    readonly matchedFields: readonly ContextLookupMatchedField[];
-    /** 版本化 BM25-lite 分数，已舍入到 6 位小数。 */
-    readonly score: number;
-    /** 有界的历史文档预览。 */
-    readonly preview: string;
-    /** 预览或文档是否被有界输出替代。 */
-    readonly truncated: boolean;
-    /** 是否为排名之外、用于保持因果关系的相邻文档。 */
-    readonly adjacent?: boolean;
-    /** 该命中永远是历史来源，不代表当前 Workspace 状态。 */
-    readonly historical: true;
-    /** 原始 committed 事件引用。 */
-    readonly sourceEventIds: readonly string[];
-    /** 统一 fielded-bm25-lite-v1 索引的来源引用；Conversation 命中不要求 Trajectory event ID。 */
-    readonly source?: ContextDocumentSource;
-}
-
-/** Context Lookup 的结构化结果；未命中与故障必须保持可区分。 */
-export type ContextLookupResult =
-    | {
-        readonly status: "found";
-        readonly lookupId: string;
-        readonly committedThroughSequence: number;
-        /** 规范化 query/filters 的稳定摘要；缺失时由 Runtime 补齐。 */
-        readonly queryHash?: string;
-        /** 产生该结果的索引协议版本；缺失时由 Runtime 补齐。 */
-        readonly indexVersion?: string;
-        readonly matches: readonly ContextLookupMatch[];
-        readonly truncated: boolean;
-        /** found 命中涉及的全部 Run 边界；缺省表示仅当前 Run。 */
-        readonly sourceRunBoundaries?: readonly ContextLookupRunBoundary[];
-    }
-    | {
-        readonly status: "not_found";
-        readonly lookupId: string;
-        readonly committedThroughSequence?: number;
-        readonly reason?: string;
-    }
-    | {
-        readonly status: "lookup_error";
-        readonly lookupId: string;
-        readonly code: string;
-        readonly message: string;
-        readonly committedThroughSequence?: number;
-    };
-
-/** 交给检索实现的一次有界查询输入。 */
-export interface ContextLookupExecutionInput {
-    /** 当前完整 Goal；实现只能读取其身份、协议和 Snapshot 状态。 */
-    readonly goal: Goal;
-    /** 已通过 Runtime 协议校验的请求。 */
-    readonly request: ContextLookupRequest;
-    /** Runtime 为该请求计算的跨进程稳定 ID。 */
-    readonly lookupId: string;
-    /** 查询允许看到的最大 Snapshot committed boundary；各 Run 的局部边界从 Goal 读取。 */
-    readonly committedThroughSequence: number;
-    /** 当前调用的瞬时中止控制，不得写入结果。 */
-    readonly control?: ExecutionControl;
-}
-
-/**
- * 从 Goal Snapshot 构造当前与已完成 Run 的读取边界。
- *
- * @param goal - 当前 Goal Snapshot。
- * @returns 按历史顺序再到当前 Run 排列的唯一边界。
- * @throws ContextLookupProtocolError 当历史 Run ID 或 boundary 损坏时。
- * @example
- * ```ts
- * const boundaries = getCommittedRunBoundaries(goal);
- * ```
- */
-export function getCommittedRunBoundaries(
-    goal: Pick<Goal, "id" | "state">,
-): readonly ContextLookupRunBoundary[] {
-    const boundaries: ContextLookupRunBoundary[] = [];
-    const seen = new Set<string>();
-    for (const record of goal.state.completedRuns ?? []) {
-        if (
-            typeof record.runId !== "string"
-            || record.runId.trim().length === 0
-            || !Number.isSafeInteger(record.committedThroughSequence)
-            || record.committedThroughSequence < 0
-            || seen.has(record.runId)
-        ) {
-            throw new ContextLookupProtocolError("completed Run history boundary is invalid");
-        }
-        seen.add(record.runId);
-        boundaries.push({
-            runId: record.runId,
-            committedThroughSequence: record.committedThroughSequence,
-        });
-    }
-    const currentRunId = goal.state.run.id;
-    if (
-        typeof currentRunId !== "string"
-        || currentRunId.trim().length === 0
-        || !Number.isSafeInteger(goal.state.run.committedThroughSequence)
-        || goal.state.run.committedThroughSequence < 0
-        || seen.has(currentRunId)
-    ) {
-        throw new ContextLookupProtocolError("current Run boundary is invalid or duplicated");
-    }
-    boundaries.push({
-        runId: currentRunId,
-        committedThroughSequence: goal.state.run.committedThroughSequence,
-    });
-    return Object.freeze(boundaries);
-}
-
-/** Runtime 使用的只读 Cold Trajectory 检索端口。 */
-export interface ContextLookupPort {
-    /**
-     * 在当前 Goal 的当前及已完成 Run 的 committed 历史内执行一次查询。
-     *
-     * @param input - Goal 身份、规范化请求、稳定 lookupId 和提交边界。
-     * @returns found、not_found 或 lookup_error；实现不得执行 Tool 或修改 Goal。
-     * @throws 底层不可恢复 I/O/协议错误；Runtime 会将其归一化为 lookup_error。
-     * @example
-     * ```ts
-     * const port: ContextLookupPort = {
-     *     async lookup({ request, lookupId }) {
-     *         return { status: "not_found", lookupId, reason: request.question };
-     *     },
-     * };
-     * ```
-     */
-    lookup(input: ContextLookupExecutionInput): Promise<ContextLookupResult>;
-}
-
-/**
- * Runtime 执行一次历史查询所需的端口与事实元数据。
- *
- * @example
- * ```ts
- * const input: ContextLookupInvocationInput = {
- *     goal,
- *     request,
- *     phase: "executing",
- *     port,
- * };
- * ```
- */
-export interface ContextLookupInvocationInput {
-    /** 当前完整 Goal 快照；只读传给检索端口。 */
-    readonly goal: Goal;
-    /** 已通过请求协议校验的查询。 */
-    readonly request: ContextLookupRequest;
-    /** 事实所属的 Runtime 阶段。 */
-    readonly phase: TrajectoryPhase;
-    /** 可选的查询实现；缺失时产生结构化 unavailable 结果。 */
-    readonly port?: ContextLookupPort;
-    /** 可选的执行单元关联键。 */
-    readonly executionUnitId?: string;
-    /** 当前调用级中止控制。 */
-    readonly control?: ExecutionControl;
-}
-
-/**
- * 一次查询的稳定 ID、规范化结果与可提交事实。
- *
- * @example
- * ```ts
- * const invocation = await invokeContextLookup(input);
- * console.log(invocation.lookupId, invocation.result.status);
- * ```
- */
-export interface ContextLookupInvocation {
-    /** 去重同一 Goal/Run/请求的稳定 ID。 */
-    readonly lookupId: string;
-    /** 写入事实和下一轮模型输入的规范化请求。 */
-    readonly request: ContextLookupRequest;
-    /** found、not_found 或 lookup_error 之一。 */
-    readonly result: ContextLookupResult;
-    /** 按 requested → outcome 顺序排列的事实草稿。 */
-    readonly facts: readonly TrajectoryEventDraft[];
-}
+import type {
+    ContextLookupMatch,
+    ContextLookupMatchedField,
+    ContextLookupResult,
+    ContextLookupRunBoundary,
+} from "./types";
+import {
+    CONTEXT_LOOKUP_DEFAULT_INDEX_VERSION,
+    CONTEXT_LOOKUP_MAX_MATCHES,
+    CONTEXT_LOOKUP_MAX_PREVIEW_LENGTH,
+    CONTEXT_LOOKUP_MAX_RESULT_BYTES,
+    CONTEXT_LOOKUP_RESULT_VERSION,
+    CONTEXT_LOOKUP_MATCHED_FIELDS,
+} from "./types";
 
 /** Context Lookup 输入协议错误码。 */
 export const CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE = "INVALID_CONTEXT_LOOKUP" as const;
-
-/** Context Lookup 查询链超过限制时的稳定错误码。 */
-export const CONTEXT_LOOKUP_CHAIN_LIMIT_CODE = "CONTEXT_LOOKUP_CHAIN_LIMIT" as const;
-
-/** Context Lookup 端口不可用时的稳定错误码。 */
-export const CONTEXT_LOOKUP_UNAVAILABLE_CODE = "CONTEXT_LOOKUP_UNAVAILABLE" as const;
-
-/** 检索端口抛出非中止异常时的稳定结果错误码。 */
-export const CONTEXT_LOOKUP_FAILED_CODE = "CONTEXT_LOOKUP_FAILED" as const;
-
-/** 检索端口返回不符合结果协议时的稳定结果错误码。 */
-export const CONTEXT_LOOKUP_INVALID_RESULT_CODE =
-    "INVALID_CONTEXT_LOOKUP_RESULT" as const;
 
 /** Context Lookup 请求的固定资源上限。 */
 export const CONTEXT_LOOKUP_MAX_QUESTION_LENGTH = 1024;
 export const CONTEXT_LOOKUP_MAX_FILTER_ITEMS = 16;
 
-/** Context Lookup 结果的固定协议版本。 */
-export const CONTEXT_LOOKUP_RESULT_VERSION = "context-lookup-result-v1" as const;
-
-/** BM25-lite 结果未显式携带版本时使用的索引版本。 */
-export const CONTEXT_LOOKUP_DEFAULT_INDEX_VERSION = "fielded-bm25-lite-v1" as const;
-
-/** 单次查询允许返回的完整文档命中上限（主命中与相邻扩展合计）。 */
-export const CONTEXT_LOOKUP_MAX_MATCHES = 15;
-
-/** 单个历史预览的 UTF-16 字符上限；原始文档仍保留在 Trajectory。 */
-export const CONTEXT_LOOKUP_MAX_PREVIEW_LENGTH = 8_192;
-
-/** lookup reason 的字符上限。 */
-export const CONTEXT_LOOKUP_MAX_REASON_LENGTH = 512;
-
-/** lookup error code 的字符上限。 */
-export const CONTEXT_LOOKUP_MAX_ERROR_CODE_LENGTH = 128;
-
-/** lookup error message 的字符上限。 */
-export const CONTEXT_LOOKUP_MAX_ERROR_MESSAGE_LENGTH = 2_048;
-
-/** Context Lookup 结果 DTO 的 UTF-8 JSON 字节上限。 */
-export const CONTEXT_LOOKUP_MAX_RESULT_BYTES = 24 * 1024;
-
 /** Context Lookup 请求违反结构或资源限制时抛出的错误。 */
 export class ContextLookupProtocolError extends Error {
     readonly code = CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE;
 
-    /** @param message - 不包含模型原文的稳定诊断信息。 */
     constructor(message: string) {
         super(`${CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE}: ${message}`);
         this.name = "ContextLookupProtocolError";
@@ -394,7 +129,7 @@ export function validateContextLookupResult(
             assertBoundedString(
                 value.reason,
                 "reason",
-                CONTEXT_LOOKUP_MAX_REASON_LENGTH,
+                512,
             );
         }
         return {
@@ -418,12 +153,12 @@ export function validateContextLookupResult(
         assertBoundedString(
             value.code,
             "error code",
-            CONTEXT_LOOKUP_MAX_ERROR_CODE_LENGTH,
+            128,
         );
         assertBoundedString(
             value.message,
             "error message",
-            CONTEXT_LOOKUP_MAX_ERROR_MESSAGE_LENGTH,
+            2048,
         );
         if (value.committedThroughSequence !== undefined) {
             assertNonNegativeSafeInteger(value.committedThroughSequence, "result boundary");
@@ -577,76 +312,6 @@ export function normalizeContextLookupResult(
     return result;
 }
 
-/**
- * 校验 found 结果的 Goal/Run 所有权。
- *
- * @remarks Context Lookup 可以引用同一 Goal 已知 Run 的 committed 文档；该校验
- * 不把历史命中升级为当前事实，也不接受来自其它 Session 或未知 Run 的 source ref。
- *
- * @param result - 已通过结构和预算校验的 found 结果。
- * @param goalId - 当前 Goal ID。
- * @param runId - 当前 Run ID。
- * @throws ContextLookupProtocolError 当命中身份不匹配时。
- * @example
- * ```ts
- * assertContextLookupResultOwnership(result, goal.id, goal.state.run.id);
- * ```
- */
-export function assertContextLookupResultOwnership(
-    result: Extract<ContextLookupResult, { readonly status: "found" }>,
-    goalId: string,
-    runId: string,
-    allowedRuns?: readonly ContextLookupRunBoundary[],
-): void {
-    assertNonEmptyString(goalId, "goalId");
-    assertNonEmptyString(runId, "runId");
-    const currentBoundary = result.sourceRunBoundaries?.find((source) => source.runId === runId)?.committedThroughSequence
-        ?? Number.MAX_SAFE_INTEGER;
-    const boundaries = new Map<string, number>([[runId, currentBoundary]]);
-    for (const source of allowedRuns ?? []) {
-        if (boundaries.has(source.runId)) {
-            if (boundaries.get(source.runId)! > source.committedThroughSequence) {
-                boundaries.set(source.runId, source.committedThroughSequence);
-            }
-            continue;
-        }
-        boundaries.set(source.runId, source.committedThroughSequence);
-    }
-    for (const source of result.sourceRunBoundaries ?? []) {
-        const allowedBoundary = boundaries.get(source.runId);
-        if (allowedBoundary === undefined || source.committedThroughSequence > allowedBoundary) {
-            throw new ContextLookupProtocolError(
-                "found result references an unknown or uncommitted Run boundary",
-            );
-        }
-    }
-    for (const match of result.matches) {
-        const boundary = boundaries.get(match.runId);
-        if (
-            match.goalId !== goalId
-            || boundary === undefined
-            || (match.source?.kind !== "conversation" && match.lastSequence > boundary)
-        ) {
-            throw new ContextLookupProtocolError(
-                "found result references an unknown or uncommitted Goal/Run",
-            );
-        }
-    }
-}
-
-/** 为同一 Goal/Run 与规范化请求计算跨进程稳定的 lookupId。 */
-export function createContextLookupId(
-    goalId: string,
-    runId: string,
-    request: ContextLookupRequest,
-): string {
-    assertNonEmptyString(goalId, "goalId");
-    assertNonEmptyString(runId, "runId");
-    const normalized = normalizeContextLookupRequest(request);
-    const canonical = stableJson({ version: 1, goalId, runId, request: normalized });
-    return `lookup-${createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 32)}`;
-}
-
 /** 为规范化请求计算不含 Goal/Run 的稳定 query hash。 */
 export function createContextLookupQueryHash(
     request: ContextLookupRequest,
@@ -657,211 +322,6 @@ export function createContextLookupQueryHash(
         request: normalized,
     });
     return createHash("sha256").update(canonical, "utf8").digest("hex");
-}
-
-/**
- * 执行一次只读 Context Lookup，并生成其 requested/outcome 事实。
- *
- * @remarks
- * 端口缺失、端口异常和端口返回非法 DTO 都归一化为 `lookup_error`；中止异常
- * 原样传播且不生成事实。结果边界不能超过 Goal Snapshot 当前边界，缺失边界的
- * `not_found`/`lookup_error` 会补齐为当前边界。该函数不保存 Goal，也不执行 Tool。
- *
- * @param input - Goal、规范化请求、阶段与可选检索端口。
- * @returns 稳定 lookupId、规范化结果和按提交顺序排列的事实草稿。
- * @throws ExecutionAbortedError 当 control 在查询前后被中止时。
- * @example
- * ```ts
- * const invocation = await invokeContextLookup({
- *     goal,
- *     request,
- *     phase: "executing",
- *     port,
- * });
- * await committer.commit(goal, { facts: invocation.facts });
- * ```
- */
-export async function invokeContextLookup(
-    input: ContextLookupInvocationInput,
-): Promise<ContextLookupInvocation> {
-    throwIfAborted(input.control);
-    const request = normalizeContextLookupRequest(input.request);
-    const runBoundaries = getCommittedRunBoundaries(input.goal);
-    const lookupBoundary = Math.max(...runBoundaries.map((source) => source.committedThroughSequence));
-    const lookupId = createContextLookupId(
-        input.goal.id,
-        input.goal.state.run.id,
-        request,
-    );
-    const committedThroughSequence = input.goal.state.run.committedThroughSequence ?? 0;
-    const sequenceRange = request.filters?.sequenceRange;
-    if (sequenceRange !== undefined && sequenceRange.from < 1) {
-        throw new ContextLookupProtocolError(
-            "sequenceRange must be within the committed Trajectory boundary",
-        );
-    }
-
-    let effectiveRequest = request;
-    if (
-        sequenceRange !== undefined
-        && sequenceRange.from <= lookupBoundary
-        && sequenceRange.to > lookupBoundary
-    ) {
-        effectiveRequest = {
-            ...request,
-            filters: {
-                ...request.filters,
-                sequenceRange: {
-                    from: sequenceRange.from,
-                    to: lookupBoundary,
-                },
-            },
-        };
-    }
-
-    let result: ContextLookupResult;
-    if (input.port === undefined) {
-        result = {
-            status: "lookup_error",
-            lookupId,
-            code: CONTEXT_LOOKUP_UNAVAILABLE_CODE,
-            message: "Context Lookup port is unavailable",
-            committedThroughSequence,
-        };
-    } else if (
-        sequenceRange !== undefined
-        && (lookupBoundary < 1 || sequenceRange.from > lookupBoundary)
-    ) {
-        result = {
-            status: "not_found",
-            lookupId,
-            reason: "No committed trajectory events in requested sequence range",
-            committedThroughSequence,
-        };
-    } else {
-        try {
-            const rawResult = await input.port.lookup({
-                goal: input.goal,
-                request: effectiveRequest,
-                lookupId,
-                committedThroughSequence: lookupBoundary,
-                ...(input.control === undefined ? {} : { control: input.control }),
-            });
-            throwIfAborted(input.control);
-            result = normalizeContextLookupResult(
-                rawResult,
-                lookupId,
-                lookupBoundary,
-                effectiveRequest,
-            );
-            if (result.status === "found") {
-                assertContextLookupResultOwnership(
-                    result,
-                    input.goal.id,
-                    input.goal.state.run.id,
-                    runBoundaries,
-                );
-            }
-            if (
-                result.status !== "found"
-                && result.committedThroughSequence === undefined
-            ) {
-                result = { ...result, committedThroughSequence };
-            }
-        } catch (error) {
-            if (isExecutionAbortedError(error)) throw error;
-            throwIfAborted(input.control);
-            const isInvalidResult = error instanceof ContextLookupProtocolError;
-            result = {
-                status: "lookup_error",
-                lookupId,
-                code: isInvalidResult
-                    ? CONTEXT_LOOKUP_INVALID_RESULT_CODE
-                    : CONTEXT_LOOKUP_FAILED_CODE,
-                message: error instanceof Error
-                    ? error.message
-                    : "Context Lookup failed",
-                committedThroughSequence,
-            };
-        }
-    }
-
-    return {
-        lookupId,
-        request: effectiveRequest,
-        result,
-        facts: createContextLookupFacts({
-            goal: input.goal,
-            phase: input.phase,
-            request: effectiveRequest,
-            lookupId,
-            result,
-            ...(input.executionUnitId === undefined
-                ? {}
-                : { executionUnitId: input.executionUnitId }),
-        }),
-    };
-}
-
-/** 创建不包含 Snapshot 派生状态的 requested/outcome 事实草稿。 */
-export function createContextLookupFacts(input: {
-    readonly goal: Pick<Goal, "id" | "state">;
-    readonly phase: TrajectoryPhase;
-    readonly request: ContextLookupRequest;
-    readonly lookupId: string;
-    readonly result: ContextLookupResult;
-    readonly executionUnitId?: string;
-}): readonly TrajectoryEventDraft[] {
-    const metadata = {
-        goalId: input.goal.id,
-        runId: input.goal.state.run.id,
-        phase: input.phase,
-        ...(input.executionUnitId === undefined
-            ? {}
-            : { executionUnitId: input.executionUnitId }),
-    };
-    const requested: TrajectoryEventDraft = {
-        ...metadata,
-        eventType: "context_lookup_requested",
-        payload: {
-            type: "context_lookup_requested",
-            lookupId: input.lookupId,
-            request: input.request,
-        },
-    };
-
-    const outcome: TrajectoryEventDraft = input.result.status === "found"
-        ? {
-            ...metadata,
-            eventType: "context_lookup_completed",
-            payload: {
-                type: "context_lookup_completed",
-                lookupId: input.lookupId,
-                result: input.result,
-            },
-        }
-        : input.result.status === "not_found"
-            ? {
-                ...metadata,
-                eventType: "context_lookup_not_found",
-                payload: {
-                    type: "context_lookup_not_found",
-                    lookupId: input.lookupId,
-                    result: input.result,
-                },
-            }
-            : {
-                ...metadata,
-                eventType: "context_lookup_failed",
-                payload: {
-                    type: "context_lookup_failed",
-                    lookupId: input.lookupId,
-                    code: input.result.code,
-                    message: input.result.message,
-                },
-            };
-
-    return Object.freeze([requested, outcome]);
 }
 
 function normalizeContextLookupFilters(value: unknown): ContextLookupFilters {
@@ -982,7 +442,7 @@ function validateContextLookupMatch(
         throw new ContextLookupProtocolError(`matches[${index}] matchedFields is invalid`);
     }
     const fields = uniqueSorted(value.matchedFields.map((field) => {
-        if (typeof field !== "string" || !MATCHED_FIELDS.has(field as ContextLookupMatchedField)) {
+        if (typeof field !== "string" || !CONTEXT_LOOKUP_MATCHED_FIELDS.has(field as ContextLookupMatchedField)) {
             throw new ContextLookupProtocolError(`matches[${index}] matchedFields contains an unknown field`);
         }
         return field as ContextLookupMatchedField;
@@ -1044,6 +504,7 @@ function validateContextLookupMatch(
     const lastSequence = value.lastSequence as number;
     const preview = value.preview as string;
     const truncated = value.truncated as boolean;
+    const validatedSource = source === undefined ? undefined : structuredClone(source) as ContextLookupMatch["source"];
     return {
         documentId,
         goalId,
@@ -1057,7 +518,7 @@ function validateContextLookupMatch(
         ...(value.adjacent === undefined ? {} : { adjacent: value.adjacent }),
         historical: true,
         sourceEventIds,
-        ...(source === undefined ? {} : { source: structuredClone(source) as ContextDocumentSource }),
+        ...(validatedSource === undefined ? {} : { source: validatedSource }),
     };
 }
 
@@ -1161,14 +622,3 @@ function sortKeys(value: unknown): unknown {
     }
     return value;
 }
-
-const MATCHED_FIELDS = new Set<ContextLookupMatchedField>([
-    "eventType",
-    "toolId",
-    "actionId",
-    "stepIndex",
-    "path",
-    "errorCode",
-    "objectId",
-    "body",
-]);

@@ -240,107 +240,16 @@ export type {
     ContextLookupRequest,
     ContextLookupResult,
     ContextLookupRunBoundary,
+    ContextDocumentSource,
 } from "./context-retrieval";
 export {
-    CONTEXT_LOOKUP_DEFAULT_PREVIEW_LENGTH,
-    CONTEXT_LOOKUP_RESULT_BUDGET_CODE,
-    CONTEXT_LOOKUP_RESULT_ERROR_CODE,
-    ContextLookupResultError,
-    buildContextLookupResultFromRanking,
-} from "./context-lookup-result";
+    IndexedContextLookupService,
+    RuntimeContextLookupAdapter,
+} from "./runtime-context-lookup-adapter";
 export type {
-    ContextLookupResultBuildInput,
-} from "./context-lookup-result";
-export {
-    CONTEXT_DOCUMENT_SOURCE_ERROR_CODE,
-    ContextDocumentBuilder,
-    ContextDocumentSourceError,
-    buildCommittedContextDocuments,
-    buildCommittedContextDocumentsFromStore,
-} from "./context-document";
-export type {
-    ContextDocumentBuildInput,
-    ContextDocumentBuildResult,
-    ContextDocumentFieldName,
-    ContextDocumentFields,
-    ContextDocumentKind,
-    ContextDocumentSourceRange,
-    ContextDocumentStoreInput,
-    ContextSearchDocument,
-    ContextDocumentSource,
-} from "./context-document";
-export {
-    buildConversationContextDocuments,
-    computeConversationPrefixDigest,
-} from "./conversation-context-document";
-export type { ConversationContextDocumentInput } from "./conversation-context-document";
-export {
-    CONTEXT_DOCUMENT_FIELD_NAMES,
-    CONTEXT_INVERTED_INDEX_SCHEMA_VERSION,
-    CONTEXT_TOKENIZER_ERROR_CODE,
-    CONTEXT_TOKENIZER_VERSION,
-    ContextTokenizerError,
-    FieldTokenizer,
-    buildContextInvertedIndex,
-    tokenizeContextDocument,
-} from "./context-tokenizer";
-export type {
-    ContextFieldStatistics,
-    ContextIndexPosting,
-    ContextInvertedIndex,
-    ContextToken,
-    ContextTokenKind,
-    ContextTokenizedField,
-    TokenizedContextDocument,
-} from "./context-tokenizer";
-export {
-    CONTEXT_BM25_B,
-    CONTEXT_BM25_K1,
-    CONTEXT_EXACT_MATCH_MULTIPLIERS,
-    CONTEXT_FIELD_WEIGHTS,
-    CONTEXT_RANKING_DEFAULT_MINIMUM_SCORE,
-    CONTEXT_RANKING_DEFAULT_RESULT_BUDGET_BYTES,
-    CONTEXT_RANKING_DEFAULT_TOP_K,
-    CONTEXT_RANKING_ERROR_CODE,
-    CONTEXT_RANKING_VERSION,
-    ContextRankingError,
-    FieldedBm25LiteRanker,
-    rankContextDocuments,
-} from "./context-ranking";
-export type {
-    ContextRankedMatch,
-    ContextRankingOptions,
-    ContextRankingQuery,
-    ContextRankingResult,
-} from "./context-ranking";
-export {
-    CONTEXT_RETRIEVAL_INDEX_ERROR_CODE,
-    CONTEXT_RETRIEVAL_INDEX_SIDECAR_SCHEMA_VERSION,
-    CONTEXT_RETRIEVAL_INDEX_VERSION,
-    CONTEXT_RETRIEVAL_QUERY_CACHE_CAPACITY,
-    ContextRetrievalIndexError,
-    ContextRetrievalQueryCache,
-    buildContextRetrievalIndexSidecar,
-    canonicalizeContextRetrievalQuery,
-    computeContextRetrievalSourceDigest,
-    createContextRetrievalQueryKey,
-    openContextRetrievalIndexSession,
-    restoreContextInvertedIndex,
-    snapshotContextInvertedIndex,
-} from "./context-retrieval-index";
-export { IndexedContextLookupService } from "./indexed-context-lookup-service";
-export type { IndexedContextLookupServiceOptions } from "./indexed-context-lookup-service";
-export type {
-    ContextRetrievalIndexSession,
-    ContextRetrievalIndexSessionInput,
-    ContextRetrievalIndexSessionMode,
-    ContextRetrievalIndexSidecar,
-    ContextRetrievalIndexSnapshot,
-    ContextRetrievalIndexRestoreOptions,
-    ContextRetrievalQuery,
-    ContextRetrievalQueryCacheEntry,
-    TrajectoryRetrievalIndexStore,
-} from "./context-retrieval-index";
+    IndexedContextLookupServiceOptions,
+    RuntimeContextLookupAdapterOptions,
+} from "./runtime-context-lookup-adapter";
 export type {
     MemorySuppressionReason,
     NormalizedWorkingMemoryPatch,
