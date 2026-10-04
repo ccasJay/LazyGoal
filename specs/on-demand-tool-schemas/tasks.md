@@ -42,10 +42,10 @@
 
 | 验收范围 | 结果与证据 |
 |---|---|
-| 工具发现协议与 Run 恢复状态 | `system_find_tools` 查询已实现；发现集合按稳定相关度排序、最多 5 项并累计写入 Run/Snapshot。Contracts、Runtime 与 Snapshot 定向测试通过。 |
-| Decide Schema 按需暴露 | Prompt、Wire Contract 与原生 Tool 声明共享当前发现集合；初始请求只暴露发现控制，Think 不暴露发现控制或结果。定向 Agent/Runtime 测试通过。 |
-| 直接调用与 PTC 执行边界 | 未暴露直接 Action 和 PTC 子调用在 Registry 副作用前拒绝；获暴露工具仍受 Profile、Registry、Policy、审批及沙箱检查。Runtime + PTC 测试通过。 |
-| Token 效果 | Agent 组合测试以 `js-tiktoken` 确认按需请求输入少于同 Profile 全量 Schema 请求。 |
-| 架构文档与兼容性 | 更新 Agent、Contracts、Runtime、Storage 当前架构文档；当前 Snapshot 要求 `exposedToolIds` 且严格拒绝缺失字段。 |
-| 全量回归 | `npm test`：1,734 TypeScript 测试与 14 个维护脚本测试全部通过；`git diff --check` 通过。 |
-| 整体状态 | `passed/current`；2026-10-04；验证时工作树包含本 Spec 的未提交改动。 |
+| 工具发现协议与 Run 恢复状态 | `system_find_tools` 查询只搜索 `Profile/Registry` 交集；结果稳定排序且最多 5 项，发现集合累计写入 `Run/Snapshot`。Contracts、Runtime 与 Snapshot 测试通过。 |
+| Decide Schema 按需暴露 | Prompt、Wire Contract 与原生 Tool 声明共享当前发现集合；初始请求仅暴露发现控制，Think 不暴露发现控制或结果；`js-tiktoken` 组合测试确认按需请求 token 少于全量 Schema 请求。 |
+| 直接调用与 PTC 执行边界 | 未暴露直接 Action 和 PTC 子调用在 Registry 副作用前拒绝；获暴露工具仍受 Profile、Registry、Policy、审批及沙箱检查。 |
+| Git 沙箱组合 | Git 授权集成测试先通过 `system_find_tools` 发现 Git Tool，再验证沙箱审批与工具执行；真实 macOS Seatbelt 用例通过且未跳过。 |
+| 架构文档与兼容性 | Agent、Contracts、Runtime、Storage 架构文档已更新；当前 Snapshot 要求 `exposedToolIds` 且严格拒绝缺失字段。 |
+| 全量回归 | 合并候选 `dfc80c03` 上 `npm test` 全部通过：1,737 TypeScript 测试、14 个维护脚本测试及 198 个 GEPA adapter 测试；依赖边界检查 220 个源文件通过。 |
+| 整体状态 | `passed/current`；2026-10-04；候选代码与 Spec TODO 勾选状态保持一致。 |

@@ -92,16 +92,15 @@
 
 ### Latest Result
 
-- 验证状态：`passed`；时效：`current`。
-- 被测代码基线：`30cbae9f01e38b95b8484761f39f89876d5ff1bc`，加本次工作区验收修复（尚未提交）。`tasks.md` 本次仅更新 Latest Result；所有 `//TODO` 文本、顺序和勾选状态均保持原样。
-- 验证时间：2026-10-04；Requirements 指纹：`9432b33a938351c3ec1366d7aa9b362e0b3c8685`；Design 指纹：`3c71fce23919d8edb9199bd9829a6de7f6fdd509`；Planned Checks（原文件第 70–91 行）SHA-256：`e1cdc21814d38d77f369c0fdf80608c79b0f47314f44c4a36d251f905279e320`。
-- 执行证据：`npm test` 全部通过：依赖边界验证、GEPA adapter、TypeScript 测试 1727 项（0 失败、0 跳过）及脚本测试 14 项（0 失败、0 跳过）。`npx tsc --noEmit`、`git diff --check` 通过。
+- 验证状态：passed；时效：current。
+- 被测候选提交：`dfc80c03`，包含 Git 沙箱修复提交 `2fdb9fdb` 与按需 Schema 提交 `3159b692`；所有 `//TODO` 文本、顺序及勾选状态保持原样。
+- 验证时间：2026-10-04；Requirements 指纹：9432b33a938351c3ec1366d7aa9b362e0b3c8685；Design 指纹：3c71fce23919d8edb9199bd9829a6de7f6fdd509。
+- 全量回归：`npm test` 全部通过，TypeScript 1,737/1,737、维护脚本 14/14、GEPA adapter 198/198；依赖边界检查覆盖 220 个源文件。真实 macOS Seatbelt 的 Git、worktree、Bash/Process 隔离用例均运行并通过，未跳过。合并冲突相关 Agent/Prompt/Runtime 定向回归 33/33 通过；`git diff --check` 通过。
 
-| Planned Checks 范围 | 实际结果与证据 | 结论 |
+| 验收范围 | 实际结果与证据 | 结论 |
 |---|---|---|
-| SWE-bench、Agent Schema/definition、Prompt 与 PTC 消费方 | 指定消费者回归共 36 项全部通过；SWE-bench/PTC 读取 `observation.output.text`，独立 Schema 与英文描述和当前 Tool Contract 一致 | 通过 |
-| Git 读写与计划核验 | Git 查询/写工具从真实仓库拓扑派生 gitdir/common-dir；执行前拒绝与当前 Action 计划不完全匹配的范围，不从模型输入接受 Git 元数据路径 | 通过 |
-| YOLO、worktree 与真实 Seatbelt | 默认 YOLO 下 Git 元数据和 worktree 目标/父目录进入沙箱审批；审批前 index、refs、worktree 注册和目标目录保持不变；批准后 Git 暂存及 worktree 创建/移除成功。真实 macOS Runtime/Seatbelt 与保护路径用例 7 项通过、0 skip | 通过 |
+| Git 元数据范围派生与计划核验 | Git 查询/写工具从真实仓库拓扑派生 gitdir/common-dir；执行前拒绝与当前 Action 计划不完全匹配的范围，不从模型输入接受 Git 元数据路径 | 通过 |
+| YOLO、worktree 与真实 Seatbelt | 默认 YOLO 下 Git 元数据和 worktree 目标/父目录进入沙箱审批；审批前 index、refs、worktree 注册和目标目录保持不变；批准后 Git 暂存及 worktree 创建/移除成功；真实 macOS 内核用例通过且未跳过 | 通过 |
 | 授权不可跨普通工具复用 | separate-git-dir 与 linked worktree 均以真实 Git + Seatbelt 验证；同一获批计划不能让 Bash 或 Process 写入 Git index/shared common-dir，Git Tool 自身可在批准后完成写入 | 通过 |
-| hooks、文档与 TODO | 架构文档区分只读查询关闭 hooks 与写操作保留 hooks；普通命令拒写 `.git` 指针、真实 gitdir 和 shared common-dir；`//TODO` 文本、顺序及勾选状态未变 | 通过 |
-| 全量回归与工作区检查 | `npm test`：TS 1727/1727、脚本 14/14；类型、依赖边界、GEPA adapter 均通过；另有 `npx tsc --noEmit`、`git diff --check` 成功 | 通过 |
+| 消费者契约与架构文档 | SWE-bench 使用 `observation.output.text`；Agent/Prompt Schema 与英文描述匹配当前 Tool Contract；Sandbox 架构说明区分只读查询与写操作 hooks 行为 | 通过 |
+| 全量回归与 Spec | 类型、依赖边界、GEPA、TypeScript 和脚本回归全部通过；Spec TODO 原文、顺序及勾选状态未改 | 通过 |
