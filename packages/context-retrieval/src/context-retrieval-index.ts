@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
     ContextDocumentBuilder,
     type ContextDocumentFieldName,
+    type ContextRetrievalTrajectoryEvent,
     type ContextSearchDocument,
 } from "./context-document";
 import {
@@ -20,13 +21,21 @@ import {
 import {
     normalizeContextLookupRequest,
     validateContextLookupResult,
-    type ContextLookupFilters,
-    type ContextLookupNeed,
-    type ContextLookupResult,
-} from "./context-retrieval";
-import type { TrajectoryEvent } from "./trajectory";
-import type { GoalMessage } from "./domain";
-import { buildConversationContextDocuments, computeConversationPrefixDigest } from "./conversation-context-document";
+} from "./context-protocol";
+import type {
+    ContextRetrievalMessage,
+} from "./conversation-context-document";
+import {
+    buildConversationContextDocuments,
+    computeConversationPrefixDigest,
+} from "./conversation-context-document";
+import type {
+    ContextLookupFilters,
+    ContextLookupNeed,
+} from "../../contracts/src/index";
+import type {
+    ContextLookupResult,
+} from "./types";
 
 /** Retrieval Index Sidecar 的持久化 Schema 版本。 */
 export const CONTEXT_RETRIEVAL_INDEX_SIDECAR_SCHEMA_VERSION = 1 as const;
@@ -79,15 +88,15 @@ export interface ContextRetrievalQueryCacheEntry {
     readonly key: string;
     /** 生成结果时使用的历史来源需求。 */
     readonly need?: ContextLookupNeed;
-    /** 规范化后的查询文本。 */
+    /** 规范化后的问题。 */
     readonly question: string;
     /** 规范化后的过滤器。 */
     readonly filters?: ContextLookupFilters;
-    /** 生成结果时使用的 Snapshot boundary。 */
+    /** 查询可观察的 Snapshot committed boundary。 */
     readonly committedThroughSequence: number;
-    /** 生成结果时使用的索引版本。 */
+    /** 查询使用的索引协议版本。 */
     readonly indexVersion: string;
-    /** 已通过结果协议校验的查询结果。 */
+    /** 缓存的只读有界结果。 */
     readonly result: ContextLookupResult;
 }
 
@@ -114,6 +123,8 @@ export interface ContextRetrievalQueryCacheEntry {
  *     documents: [],
  *     index: emptyIndexSnapshot(),
  *     queryCache: [],
+ *     conversationEndIndexExclusive: 0,
+ *     conversationPrefixDigest: "sha256:...",
  * };
  * ```
  */
@@ -158,7 +169,7 @@ export interface ContextRetrievalIndexRestoreOptions {
     readonly indexVersion?: string;
     /**
      * 已由调用方根据同一 Trajectory 前缀计算的摘要；仅当 Sidecar 正好位于
-     * 当前 boundary 时由 Store 直接比较，落后 Sidecar 由 Runtime 校验其旧前缀。
+     * 当前 boundary 时由 Store 直接比较，落后 Sidecar 由调用方校验其旧前缀。
      */
     readonly expectedSourceDigest?: string;
     /** 期望的 Conversation 归档边界；用于 Sidecar 失配检测。 */
@@ -168,7 +179,7 @@ export interface ContextRetrievalIndexRestoreOptions {
 }
 
 /**
- * Runtime 使用的 Retrieval Index Sidecar 持久化 Port。
+ * Retrieval Index Sidecar 持久化 Port。
  *
  * @remarks
  * Port 将索引缓存与 Goal Snapshot/Trajectory 解耦。`restore` 对缺失、损坏、版本
@@ -223,9 +234,9 @@ export interface ContextRetrievalIndexSessionInput {
     /** 当前 Snapshot committed boundary。 */
     readonly committedThroughSequence: number;
     /** Trajectory 事件，可包含 boundary 之后的 tail。 */
-    readonly events: readonly TrajectoryEvent[];
+    readonly events: readonly ContextRetrievalTrajectoryEvent[];
     /** Snapshot Conversation，用于联合索引。 */
-    readonly messages: readonly GoalMessage[];
+    readonly messages: readonly ContextRetrievalMessage[];
     /** Conversation Cold 归档边界。 */
     readonly conversationStartIndex: number;
     /** 可选的已读取 Sidecar；无效时会自动重建。 */
@@ -264,10 +275,8 @@ export interface ContextRetrievalIndexSession {
 
 /** 索引输入非法时抛出的错误。 */
 export class ContextRetrievalIndexError extends Error {
-    /** 稳定错误代码。 */
     readonly code = CONTEXT_RETRIEVAL_INDEX_ERROR_CODE;
 
-    /** @param message - 不包含完整事件正文的稳定诊断。 */
     constructor(message: string, options?: { readonly cause?: unknown }) {
         super(`${CONTEXT_RETRIEVAL_INDEX_ERROR_CODE}: ${message}`, options);
         this.name = "ContextRetrievalIndexError";
@@ -287,14 +296,14 @@ export class ContextRetrievalIndexError extends Error {
  * ```
  */
 export function computeContextRetrievalSourceDigest(
-    events: readonly TrajectoryEvent[],
+    events: readonly ContextRetrievalTrajectoryEvent[],
     throughSequence: number,
 ): string {
     assertNonNegativeSafeInteger(throughSequence, "throughSequence");
     if (!Array.isArray(events)) {
         throw new ContextRetrievalIndexError("events must be an array for source digest");
     }
-    const committed: TrajectoryEvent[] = [];
+    const committed: ContextRetrievalTrajectoryEvent[] = [];
     let previousSequence = 0;
     for (const event of events) {
         if (!isRecord(event)) {
@@ -307,7 +316,7 @@ export function computeContextRetrievalSourceDigest(
             );
         }
         previousSequence = event.sequence;
-        committed.push(structuredClone(event as TrajectoryEvent));
+        committed.push(structuredClone(event as ContextRetrievalTrajectoryEvent));
     }
     return `sha256:${createHash("sha256")
         .update(canonicalJson(committed), "utf8")
@@ -420,17 +429,13 @@ export function canonicalizeContextRetrievalQuery(
 export class ContextRetrievalQueryCache {
     private readonly entriesByKey = new Map<string, ContextRetrievalQueryCacheEntry>();
 
-    /**
-     * @param entries - 按 oldest → newest 恢复的 Sidecar 条目。
-     * @throws ContextRetrievalIndexError 当条目重复、键失配或超过容量时。
-     */
-    constructor(entries: readonly ContextRetrievalQueryCacheEntry[] = []) {
-        if (!Array.isArray(entries) || entries.length > CONTEXT_RETRIEVAL_QUERY_CACHE_CAPACITY) {
-            throw new ContextRetrievalIndexError(
-                `query cache must contain at most ${CONTEXT_RETRIEVAL_QUERY_CACHE_CAPACITY} entries`,
-            );
+    constructor(initialEntries: readonly ContextRetrievalQueryCacheEntry[] = []) {
+        if (!Array.isArray(initialEntries)) {
+            throw new ContextRetrievalIndexError("initial entries must be an array");
         }
-        for (const entry of entries) this.restoreEntry(entry);
+        for (const entry of initialEntries) {
+            this.restoreEntry(entry);
+        }
     }
 
     /** 当前缓存条目数。 */
@@ -440,11 +445,10 @@ export class ContextRetrievalQueryCache {
 
     /**
      * @param query - 查询键输入。
-     * @returns 命中的结果；boundary/version/query 任一不同都不会命中。
+     * @returns 命中时返回结果副本并将该项更新至 MRU 最新；未命中返回 `undefined`。
      */
     get(query: ContextRetrievalQuery): ContextLookupResult | undefined {
-        const normalized = normalizeContextRetrievalQuery(query);
-        const key = createContextRetrievalQueryKey(normalized);
+        const key = createContextRetrievalQueryKey(query);
         const entry = this.entriesByKey.get(key);
         if (entry === undefined) return undefined;
         this.entriesByKey.delete(key);
@@ -628,7 +632,7 @@ export function openContextRetrievalIndexSession(
  * @example
  * ```ts
  * const sidecar = buildContextRetrievalIndexSidecar({
- *     goalId, runId, committedThroughSequence, events,
+ *     goalId, runId, committedThroughSequence, events, messages, conversationStartIndex,
  * });
  * ```
  */

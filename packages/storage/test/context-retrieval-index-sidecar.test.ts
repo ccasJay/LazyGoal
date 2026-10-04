@@ -15,7 +15,7 @@ import { test } from "node:test";
 import {
     CONTEXT_RETRIEVAL_INDEX_VERSION,
     buildContextRetrievalIndexSidecar,
-} from "../../runtime/src/index";
+} from "../../context-retrieval/src/index";
 import {
     ContextRetrievalIndexSidecarProtocolError,
     JsonFileContextRetrievalIndexStore,

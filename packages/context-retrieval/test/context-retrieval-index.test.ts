@@ -6,7 +6,6 @@ import {
     CONTEXT_RETRIEVAL_QUERY_CACHE_CAPACITY,
     ContextRetrievalIndexError,
     ContextRetrievalQueryCache,
-    allocateImmutableEvent,
     buildContextRetrievalIndexSidecar,
     canonicalizeContextRetrievalQuery,
     computeContextRetrievalSourceDigest,
@@ -16,8 +15,7 @@ import {
     type ContextLookupResult,
     type ContextRetrievalQuery,
     type ContextRetrievalIndexSidecar,
-    type TrajectoryEvent,
-    type TrajectoryEventDraft,
+    type ContextRetrievalTrajectoryEvent,
 } from "../src/index";
 
 const goalId = "goal-index-cache";
@@ -217,7 +215,7 @@ test("损坏或领先 Sidecar fail-closed 后重建，不污染领域输入", ()
     assert.equal(leading.sidecar.derivedThroughSequence, 1);
 });
 
-function executionEvents(): readonly TrajectoryEvent[] {
+function executionEvents(): readonly ContextRetrievalTrajectoryEvent[] {
     return [
         event(1, {
             phase: "executing",
@@ -270,11 +268,25 @@ function executionEvents(): readonly TrajectoryEvent[] {
 
 function event(
     sequence: number,
-    draft: Omit<TrajectoryEventDraft, "goalId" | "runId">,
-): TrajectoryEvent {
-    return allocateImmutableEvent({
+    draft: {
+        readonly phase?: string;
+        readonly executionUnitId?: string;
+        readonly actionId?: string;
+        readonly eventType: string;
+        readonly payload: Record<string, unknown>;
+    },
+): ContextRetrievalTrajectoryEvent {
+    return {
+        eventSchemaVersion: 1,
+        eventId: `index-event-${sequence}`,
+        sequence,
+        occurredAt: "2026-04-14T00:00:00.000Z",
         goalId,
         runId,
-        ...draft,
-    } as TrajectoryEventDraft, sequence, `index-event-${sequence}`) as TrajectoryEvent;
+        phase: draft.phase ?? "executing",
+        eventType: draft.eventType,
+        payload: draft.payload,
+        ...(draft.executionUnitId === undefined ? {} : { executionUnitId: draft.executionUnitId }),
+        ...(draft.actionId === undefined ? {} : { actionId: draft.actionId }),
+    };
 }

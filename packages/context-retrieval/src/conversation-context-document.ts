@@ -1,11 +1,29 @@
 import { createHash } from "node:crypto";
-import type { GoalMessage } from "./domain";
 import type {
     ContextDocumentFields,
     ContextDocumentSource,
     ContextSearchDocument,
 } from "./context-document";
-import { computeContentHash } from "./trajectory";
+
+/**
+ * 检索模块使用的只读会话消息。
+ *
+ * @remarks
+ * 与 Runtime 的 `GoalMessage` 结构兼容。
+ *
+ * @example
+ * ```ts
+ * const message: ContextRetrievalMessage = {
+ *     role: "user",
+ *     content: "请帮我排查问题",
+ * };
+ * ```
+ */
+export interface ContextRetrievalMessage {
+    readonly role: "user" | "assistant" | string;
+    readonly content: string;
+    readonly createdAt?: string;
+}
 
 /**
  * Conversation 文档构建输入。
@@ -29,7 +47,7 @@ import { computeContentHash } from "./trajectory";
 export interface ConversationContextDocumentInput {
     readonly goalId: string;
     readonly runId: string;
-    readonly messages: readonly GoalMessage[];
+    readonly messages: readonly ContextRetrievalMessage[];
     /** 当前 Epoch 起点；更早消息才进入 Cold。 */
     readonly conversationStartIndex?: number;
     /** 可选的消息范围起点；用于把归档消息绑定到其所属 Run。 */
@@ -56,10 +74,11 @@ export function buildConversationContextDocuments(
     const documents: ContextSearchDocument[] = [];
     for (let index = start; index < end; index += 1) {
         const message = input.messages[index]!;
+        const role = (message.role === "assistant" ? "assistant" : "user") as "user" | "assistant";
         const source: ContextDocumentSource = {
             kind: "conversation",
             messageIndex: index,
-            role: message.role,
+            role,
             contentHash: computeContentHash(message.content),
         };
         const fields: ContextDocumentFields = {
@@ -100,7 +119,7 @@ export function buildConversationContextDocuments(
 
 /** 计算 Conversation 原文校验摘要。 */
 export function computeConversationPrefixDigest(
-    messages: readonly GoalMessage[],
+    messages: readonly ContextRetrievalMessage[],
     throughIndexExclusive = messages.length,
 ): string {
     if (!Number.isSafeInteger(throughIndexExclusive) || throughIndexExclusive < 0 || throughIndexExclusive > messages.length) {
@@ -112,4 +131,8 @@ export function computeConversationPrefixDigest(
         contentHash: computeContentHash(message.content),
     }));
     return `sha256:${createHash("sha256").update(JSON.stringify(prefix), "utf8").digest("hex")}`;
+}
+
+function computeContentHash(content: string): `sha256:${string}` {
+    return `sha256:${createHash("sha256").update(content, "utf8").digest("hex")}`;
 }

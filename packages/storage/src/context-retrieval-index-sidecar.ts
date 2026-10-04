@@ -22,7 +22,7 @@ import {
     type ContextRetrievalIndexRestoreOptions,
     type ContextRetrievalQueryCacheEntry,
     type TrajectoryRetrievalIndexStore,
-} from "../../runtime/src/index";
+} from "../../context-retrieval/src/index";
 
 /** Retrieval Index Sidecar 文件协议错误代码。 */
 export const CONTEXT_RETRIEVAL_INDEX_SIDECAR_PROTOCOL_ERROR_CODE =

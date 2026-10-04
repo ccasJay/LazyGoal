@@ -1,8 +1,5 @@
 import { createHash } from "node:crypto";
 
-import type { TrajectoryEvent, TrajectoryPhase, TrajectoryStore } from "./trajectory";
-import { freezeTrajectoryEvent } from "./trajectory";
-
 /** committed Context Document 构建失败时使用的稳定错误代码。 */
 export const CONTEXT_DOCUMENT_SOURCE_ERROR_CODE = "CONTEXT_DOCUMENT_SOURCE_ERROR" as const;
 
@@ -34,6 +31,43 @@ export class ContextDocumentSourceError extends Error {
         super(`${CONTEXT_DOCUMENT_SOURCE_ERROR_CODE}: ${message}`, options);
         this.name = "ContextDocumentSourceError";
     }
+}
+
+/**
+ * 检索模块使用的只读事件信封。
+ *
+ * @remarks
+ * 结构与 Runtime 的 `TrajectoryEvent` 完全兼容，但不引入对 Runtime 模块的依赖。
+ *
+ * @example
+ * ```ts
+ * const event: ContextRetrievalTrajectoryEvent = {
+ *     eventSchemaVersion: 1,
+ *     eventId: "evt-1",
+ *     sequence: 1,
+ *     occurredAt: "2025-05-18T10:00:00.000Z",
+ *     goalId: "goal-1",
+ *     runId: "run-1",
+ *     phase: "executing",
+ *     eventType: "decision_received",
+ *     payload: { type: "decision_received" },
+ * };
+ * ```
+ */
+export interface ContextRetrievalTrajectoryEvent {
+    readonly eventSchemaVersion: 1;
+    readonly eventId: string;
+    readonly sequence: number;
+    readonly occurredAt: string;
+    readonly goalId: string;
+    readonly runId: string;
+    readonly phase: string;
+    readonly executionUnitId?: string;
+    readonly stepIndex?: number;
+    readonly actionId?: string;
+    readonly programId?: string;
+    readonly eventType: string;
+    readonly payload: unknown;
 }
 
 /** Context Document 的来源类别。 */
@@ -136,6 +170,13 @@ export interface ContextDocumentFields {
  *     sourceEventIds: ["event-10", "event-14"],
  *     fields,
  *     body: fields.body,
+ *     eventTypes: fields.eventType,
+ *     toolIds: fields.toolId,
+ *     actionIds: fields.actionId,
+ *     stepIndexes: fields.stepIndex,
+ *     paths: fields.path,
+ *     errorCodes: fields.errorCode,
+ *     objectIds: fields.objectId,
  * };
  * ```
  */
@@ -151,7 +192,7 @@ export interface ContextSearchDocument {
     /** 文档由执行单元事实构成。 */
     readonly kind: ContextDocumentKind;
     /** 文档事件所属业务阶段。 */
-    readonly phase: TrajectoryPhase;
+    readonly phase: string;
     /** execution 文档的稳定执行单元标识。 */
     readonly executionUnitId?: string;
     /** 文档的最早来源 sequence。 */
@@ -199,13 +240,35 @@ export interface ContextDocumentBuildInput {
     /** 最新有效 Snapshot 的 committed boundary。 */
     readonly committedThroughSequence: number;
     /** Trajectory 事件；可包含 boundary 之后的 tail。 */
-    readonly events: readonly TrajectoryEvent[];
+    readonly events: readonly ContextRetrievalTrajectoryEvent[];
+}
+
+/**
+ * 读取 Trajectory 的抽象来源端口。
+ *
+ * @remarks
+ * 仅要求提供 `readWithBoundary` 方法，不依赖具体 Storage 或 Runtime 实现。
+ *
+ * @example
+ * ```ts
+ * const source: ContextDocumentTrajectorySource = {
+ *     async readWithBoundary(query, boundary) {
+ *         return { committed: [] };
+ *     },
+ * };
+ * ```
+ */
+export interface ContextDocumentTrajectorySource {
+    readWithBoundary(
+        query: { readonly goalId: string; readonly runId: string },
+        committedThroughSequence: number,
+    ): Promise<Readonly<{ readonly committed: readonly ContextRetrievalTrajectoryEvent[] }>>;
 }
 
 /** Builder 读取 TrajectoryStore 时使用的 Goal/Run 与边界输入。 */
 export interface ContextDocumentStoreInput {
-    /** 只读 Trajectory Store。 */
-    readonly trajectoryStore: TrajectoryStore;
+    /** 只读 Trajectory Store 来源。 */
+    readonly trajectoryStore: ContextDocumentTrajectorySource;
     /** Goal 稳定标识。 */
     readonly goalId: string;
     /** Run 稳定标识。 */
@@ -262,7 +325,7 @@ const TERMINAL_EVENT_TYPES = new Set([
     "execution_error",
 ]);
 
-type EventWithExecutionUnit = TrajectoryEvent & { readonly executionUnitId: string };
+type EventWithExecutionUnit = ContextRetrievalTrajectoryEvent & { readonly executionUnitId: string };
 
 /**
  * 从 Snapshot committed Trajectory 构建稳定 Context Documents。
@@ -304,18 +367,18 @@ export class ContextDocumentBuilder {
      * @throws ContextDocumentSourceError 当 committed 来源身份、顺序或结构非法。
      */
     build(
-        events: readonly TrajectoryEvent[],
+        events: readonly ContextRetrievalTrajectoryEvent[],
         options: Omit<ContextDocumentBuildInput, "events">,
     ): readonly ContextSearchDocument[];
 
     build(
-        inputOrEvents: ContextDocumentBuildInput | readonly TrajectoryEvent[],
+        inputOrEvents: ContextDocumentBuildInput | readonly ContextRetrievalTrajectoryEvent[],
         options?: Omit<ContextDocumentBuildInput, "events">,
     ): readonly ContextSearchDocument[] {
         const input: ContextDocumentBuildInput = Array.isArray(inputOrEvents)
             ? {
                 ...(options ?? failMissingBuildOptions()),
-                events: inputOrEvents as readonly TrajectoryEvent[],
+                events: inputOrEvents as readonly ContextRetrievalTrajectoryEvent[],
             } as ContextDocumentBuildInput
             : inputOrEvents as ContextDocumentBuildInput;
         return this.buildResult(input).documents;
@@ -450,8 +513,33 @@ function normalizeStoreInput(input: ContextDocumentStoreInput): ContextDocumentS
     return input;
 }
 
-function normalizeCommittedEvents(input: ContextDocumentBuildInput): readonly TrajectoryEvent[] {
-    const committed: TrajectoryEvent[] = [];
+function assertEnvelope(value: unknown): asserts value is ContextRetrievalTrajectoryEvent {
+    if (!isRecord(value)) {
+        throw new ContextDocumentSourceError("Trajectory event must be an object");
+    }
+    if (value.eventSchemaVersion !== 1) {
+        throw new ContextDocumentSourceError("eventSchemaVersion must be 1");
+    }
+    assertNonEmptyString(value.eventId, "eventId");
+    if (
+        typeof value.sequence !== "number"
+        || !Number.isInteger(value.sequence)
+        || value.sequence <= 0
+    ) {
+        throw new ContextDocumentSourceError("sequence must be a positive integer");
+    }
+    assertNonEmptyString(value.occurredAt, "occurredAt");
+    if (Number.isNaN(Date.parse(value.occurredAt as string))) {
+        throw new ContextDocumentSourceError("occurredAt must be an ISO date string");
+    }
+    assertNonEmptyString(value.goalId, "goalId");
+    assertNonEmptyString(value.runId, "runId");
+    assertNonEmptyString(value.phase, "phase");
+    assertNonEmptyString(value.eventType, "eventType");
+}
+
+function normalizeCommittedEvents(input: ContextDocumentBuildInput): readonly ContextRetrievalTrajectoryEvent[] {
+    const committed: ContextRetrievalTrajectoryEvent[] = [];
     let previousSequence = 0;
     for (const sourceEvent of input.events) {
         if (!isRecord(sourceEvent)) {
@@ -467,9 +555,10 @@ function normalizeCommittedEvents(input: ContextDocumentBuildInput): readonly Tr
         }
         if (rawSequence > input.committedThroughSequence) continue;
 
-        let event: Readonly<TrajectoryEvent>;
+        let event: Readonly<ContextRetrievalTrajectoryEvent>;
         try {
-            event = freezeTrajectoryEvent(sourceEvent as TrajectoryEvent) as Readonly<TrajectoryEvent>;
+            assertEnvelope(sourceEvent);
+            event = deepFreeze(structuredClone(sourceEvent));
         } catch (error) {
             throw new ContextDocumentSourceError(
                 `Trajectory event ${rawSequence} is invalid`,
@@ -493,7 +582,7 @@ function normalizeCommittedEvents(input: ContextDocumentBuildInput): readonly Tr
 }
 
 function collectExecutionGroups(
-    events: readonly TrajectoryEvent[],
+    events: readonly ContextRetrievalTrajectoryEvent[],
 ): readonly (readonly EventWithExecutionUnit[])[] {
     const groups = new Map<string, EventWithExecutionUnit[]>();
     const order: string[] = [];
@@ -507,8 +596,6 @@ function collectExecutionGroups(
         if (!isExecutionEvent(event)) continue;
 
         if (event.executionUnitId === undefined) {
-            // 当前 Runtime 的旧错误事件可能没有 executionUnitId；它不能成为可检索
-            // 单元，但也不应污染其它合法单元。
             continue;
         }
 
@@ -543,7 +630,10 @@ function buildExecutionDocument(
         );
     }
 
-    const decision = decisions[0]!.payload.decision;
+    const decision = (decisions[0]!.payload as Record<string, any>).decision;
+    if (!isRecord(decision)) {
+        throw new ContextDocumentSourceError(`Execution Unit ${events[0]!.executionUnitId} decision is invalid`);
+    }
     if (decision.kind === "context_lookup") return undefined;
 
     const terminals = events.filter((event) => TERMINAL_EVENT_TYPES.has(event.eventType));
@@ -569,19 +659,19 @@ function buildExecutionDocument(
         }
         if (
             staged.length !== 1
-            || staged[0]!.payload.approvalStatus !== "approved"
+            || (staged[0]!.payload as Record<string, any>).approvalStatus !== "approved"
             || started.length !== 1
             || finished.length !== 1
             || observations.length !== 1
         ) {
             return undefined;
         }
-        const actionId = decision.action.actionId;
+        const actionId = (decision.action as Record<string, any>).actionId;
         if (
-            staged[0]!.payload.action.actionId !== actionId
-            || started[0]!.payload.actionId !== actionId
-            || finished[0]!.payload.actionId !== actionId
-            || observations[0]!.payload.actionId !== actionId
+            (staged[0]!.payload as Record<string, any>).action?.actionId !== actionId
+            || (started[0]!.payload as Record<string, any>).actionId !== actionId
+            || (finished[0]!.payload as Record<string, any>).actionId !== actionId
+            || (observations[0]!.payload as Record<string, any>).actionId !== actionId
         ) {
             throw new ContextDocumentSourceError(
                 `Execution Unit ${events[0]!.executionUnitId} contains mismatched action identities`,
@@ -627,11 +717,11 @@ function buildExecutionDocument(
 }
 
 function createDocument(
-    sourceEvents: readonly TrajectoryEvent[],
+    sourceEvents: readonly ContextRetrievalTrajectoryEvent[],
     goalId: string,
     runId: string,
     kind: ContextDocumentKind,
-    phase: TrajectoryPhase,
+    phase: string,
     executionUnitId?: string,
 ): ContextSearchDocument {
     const eventIds = Object.freeze(sourceEvents.map((event) => event.eventId));
@@ -682,7 +772,7 @@ function createDocument(
     return deepFreeze(document);
 }
 
-function createFields(events: readonly TrajectoryEvent[]): ContextDocumentFields {
+function createFields(events: readonly ContextRetrievalTrajectoryEvent[]): ContextDocumentFields {
     const eventType = uniqueSorted(events.map((event) => event.eventType));
     const toolId = uniqueSorted(events.flatMap((event) => collectStrings(event, "toolId")));
     const actionId = uniqueSorted([
@@ -719,16 +809,17 @@ function createFields(events: readonly TrajectoryEvent[]): ContextDocumentFields
     });
 }
 
-function collectStrings(event: TrajectoryEvent, field: string): readonly string[] {
+function collectStrings(event: ContextRetrievalTrajectoryEvent, field: string): readonly string[] {
     const values: string[] = [];
     const payload = event.payload as unknown;
     collectByKey(payload, field, values, false);
     return values;
 }
 
-function collectNumbers(event: TrajectoryEvent, field: string): readonly number[] {
+function collectNumbers(event: ContextRetrievalTrajectoryEvent, field: string): readonly number[] {
     const values: number[] = [];
-    collectByKey(event.payload as unknown, field, values, true);
+    const payload = event.payload as unknown;
+    collectByKey(payload, field, values, true);
     return values;
 }
 
@@ -762,13 +853,15 @@ function collectByKey(
     }
 }
 
-function isLookupEvent(event: TrajectoryEvent): boolean {
+function isLookupEvent(event: ContextRetrievalTrajectoryEvent): boolean {
     if (LOOKUP_EVENT_TYPES.has(event.eventType)) return true;
     return event.eventType === "decision_received"
+        && isRecord(event.payload)
+        && isRecord(event.payload.decision)
         && event.payload.decision.kind === "context_lookup";
 }
 
-function isExecutionEvent(event: TrajectoryEvent): boolean {
+function isExecutionEvent(event: ContextRetrievalTrajectoryEvent): boolean {
     if (event.phase !== "executing" || isLookupEvent(event)) return false;
     return EXECUTION_EVENT_TYPES.has(event.eventType)
         || (event.eventType === "memory_patch_accepted"
