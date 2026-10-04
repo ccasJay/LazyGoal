@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -105,6 +105,37 @@ describe("macOS Seatbelt Default Sandbox", () => {
             assert.ok(worktreePaths.some((p) => p.includes("main-git-dir")));
         } finally {
             await rm(tempRoot, { recursive: true, force: true });
+        }
+    });
+
+    it("将真实 linked worktree 的共享 commondir 纳入普通命令保护路径", async () => {
+        const tempRoot = await mkdtemp(join(tmpdir(), "git-common-protect-"));
+
+        try {
+            const mainProject = join(tempRoot, "main");
+            const linkedProject = join(tempRoot, "linked");
+            await mkdir(mainProject);
+            await execFileAsync("git", ["init", "-b", "main"], { cwd: mainProject });
+            await execFileAsync("git", ["config", "user.name", "Sandbox Tester"], { cwd: mainProject });
+            await execFileAsync("git", ["config", "user.email", "sandbox@example.invalid"], { cwd: mainProject });
+            await writeFile(join(mainProject, "README.md"), "base\n", "utf8");
+            await execFileAsync("git", ["add", "README.md"], { cwd: mainProject });
+            await execFileAsync("git", ["commit", "-m", "initial"], { cwd: mainProject });
+            await execFileAsync("git", ["branch", "linked-protection"], { cwd: mainProject });
+            await execFileAsync("git", ["worktree", "add", linkedProject, "linked-protection"], { cwd: mainProject });
+
+            const linkedGitDir = (await execFileAsync("git", ["rev-parse", "--absolute-git-dir"], { cwd: linkedProject })).stdout.trim();
+            const commonDirOutput = (await execFileAsync("git", ["rev-parse", "--git-common-dir"], { cwd: linkedProject })).stdout.trim();
+            const commonDir = await realpath(commonDirOutput.startsWith("/")
+                ? commonDirOutput
+                : join(linkedProject, commonDirOutput));
+            assert.notEqual(await realpath(linkedGitDir), commonDir);
+
+            const protectedPaths = await resolveGitProtectionPaths(linkedProject);
+            assert.ok(protectedPaths.includes(await realpath(linkedGitDir)));
+            assert.ok(protectedPaths.includes(commonDir));
+        } finally {
+            await rm(tempRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
         }
     });
 

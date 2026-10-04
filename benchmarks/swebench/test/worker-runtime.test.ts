@@ -24,7 +24,7 @@ test("Worker Profile exposes exactly five tools rooted at the supplied workspace
     if (read.ok) {
         const observation = await read.execute("read-1");
         assert.equal(observation.kind, "success");
-        if (observation.kind === "success") assert.equal(observation.output, "container fact\n");
+        if (observation.kind === "success") assert.equal(observation.output.text, "container fact\n");
     }
     assert.equal(await readFile(join(workspace, "fixed.txt"), "utf8"), "container fact\n");
 });

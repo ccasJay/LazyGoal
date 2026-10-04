@@ -54,6 +54,8 @@ export {
     type RestrictedGitExecutionResult,
     type RunRestrictedGitOptions,
     type RunRestrictedGitWriteOptions,
+    type GitSandboxAuthorization,
+    isGitSandboxPlanValid,
 } from "./git-runner";
 
 export {

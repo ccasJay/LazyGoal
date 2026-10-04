@@ -22,6 +22,11 @@ import {
     encodeCursor,
 } from "./internal/cursor";
 import {
+    createGitSandboxAuthorization,
+    deriveGitSandboxAccess,
+    gitSandboxAuthorizationFailure,
+} from "./internal/git-sandbox-access";
+import {
     createWorkspaceSandbox,
     type WorkspaceSandbox,
 } from "../../sandbox/src/index";
@@ -291,6 +296,15 @@ export class GitStatusTool implements Tool<typeof GIT_STATUS_INPUT_CONTRACT> {
         this.enableSeatbelt = options?.enableSeatbelt;
     }
 
+    /**
+     * 派生状态查询所需的 Git 元数据只读范围，不启动 Git 子进程。
+     * @param input - 已通过 Contract 与语义校验的状态查询输入。
+     * @returns 根据磁盘仓库拓扑解析的沙箱访问申请；仓库不可解析时返回 `undefined`。
+     */
+    resolveSandboxAccess(input: GitStatusInput) {
+        return deriveGitSandboxAccess(this.workspaceRoot, input.repoPath, "read");
+    }
+
     validate(input: GitStatusInput): ToolValidationResult {
         if (input.repoPath !== undefined) {
             const violation = this.sandbox.validateRelativePath(input.repoPath);
@@ -311,6 +325,14 @@ export class GitStatusTool implements Tool<typeof GIT_STATUS_INPUT_CONTRACT> {
         throwIfAborted(control);
         const resolved = await resolveRepoDirectory(this.workspaceRoot, this.sandbox, request.input.repoPath, control);
         if (!resolved.ok) return resolved.failure;
+        const authorizationFailure = await gitSandboxAuthorizationFailure({
+            request,
+            workspaceRoot: this.workspaceRoot,
+            repoInfo: resolved.repoInfo,
+            access: "read",
+            enableSeatbelt: this.enableSeatbelt,
+        });
+        if (authorizationFailure !== undefined) return authorizationFailure;
 
         const maxEntries = request.input.maxEntries ?? GIT_STATUS_DEFAULT_MAX_ENTRIES;
         const queryDigest = computeCanonicalDigest({
@@ -346,6 +368,7 @@ export class GitStatusTool implements Tool<typeof GIT_STATUS_INPUT_CONTRACT> {
             repoPath: resolved.repoPath,
             args,
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -484,6 +507,15 @@ export class GitDiffTool implements Tool<typeof GIT_DIFF_INPUT_CONTRACT> {
         this.enableSeatbelt = options?.enableSeatbelt;
     }
 
+    /**
+     * 派生差异查询所需的 Git 元数据只读范围，不启动 Git 子进程。
+     * @param input - 已通过 Contract 与语义校验的差异查询输入。
+     * @returns 根据磁盘仓库拓扑解析的沙箱访问申请；仓库不可解析时返回 `undefined`。
+     */
+    resolveSandboxAccess(input: GitDiffInput) {
+        return deriveGitSandboxAccess(this.workspaceRoot, input.repoPath, "read");
+    }
+
     validate(input: GitDiffInput): ToolValidationResult {
         if (input.repoPath !== undefined) {
             const violation = this.sandbox.validateRelativePath(input.repoPath);
@@ -504,6 +536,14 @@ export class GitDiffTool implements Tool<typeof GIT_DIFF_INPUT_CONTRACT> {
         throwIfAborted(control);
         const resolved = await resolveRepoDirectory(this.workspaceRoot, this.sandbox, request.input.repoPath, control);
         if (!resolved.ok) return resolved.failure;
+        const authorizationFailure = await gitSandboxAuthorizationFailure({
+            request,
+            workspaceRoot: this.workspaceRoot,
+            repoInfo: resolved.repoInfo,
+            access: "read",
+            enableSeatbelt: this.enableSeatbelt,
+        });
+        if (authorizationFailure !== undefined) return authorizationFailure;
 
         const maxLines = request.input.maxLines ?? GIT_DIFF_DEFAULT_MAX_LINES;
         const queryDigest = computeCanonicalDigest({
@@ -550,6 +590,7 @@ export class GitDiffTool implements Tool<typeof GIT_DIFF_INPUT_CONTRACT> {
             repoPath: resolved.repoPath,
             args,
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -624,6 +665,15 @@ export class GitLogTool implements Tool<typeof GIT_LOG_INPUT_CONTRACT> {
         this.enableSeatbelt = options?.enableSeatbelt;
     }
 
+    /**
+     * 派生日志查询所需的 Git 元数据只读范围，不启动 Git 子进程。
+     * @param input - 已通过 Contract 与语义校验的日志查询输入。
+     * @returns 根据磁盘仓库拓扑解析的沙箱访问申请；仓库不可解析时返回 `undefined`。
+     */
+    resolveSandboxAccess(input: GitLogInput) {
+        return deriveGitSandboxAccess(this.workspaceRoot, input.repoPath, "read");
+    }
+
     validate(input: GitLogInput): ToolValidationResult {
         if (input.repoPath !== undefined) {
             const violation = this.sandbox.validateRelativePath(input.repoPath);
@@ -644,6 +694,14 @@ export class GitLogTool implements Tool<typeof GIT_LOG_INPUT_CONTRACT> {
         throwIfAborted(control);
         const resolved = await resolveRepoDirectory(this.workspaceRoot, this.sandbox, request.input.repoPath, control);
         if (!resolved.ok) return resolved.failure;
+        const authorizationFailure = await gitSandboxAuthorizationFailure({
+            request,
+            workspaceRoot: this.workspaceRoot,
+            repoInfo: resolved.repoInfo,
+            access: "read",
+            enableSeatbelt: this.enableSeatbelt,
+        });
+        if (authorizationFailure !== undefined) return authorizationFailure;
 
         const maxCount = request.input.maxCount ?? GIT_LOG_DEFAULT_MAX_COUNT;
         const queryDigest = computeCanonicalDigest({
@@ -691,6 +749,7 @@ export class GitLogTool implements Tool<typeof GIT_LOG_INPUT_CONTRACT> {
             repoPath: resolved.repoPath,
             args,
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -776,6 +835,15 @@ export class GitShowTool implements Tool<typeof GIT_SHOW_INPUT_CONTRACT> {
         this.enableSeatbelt = options?.enableSeatbelt;
     }
 
+    /**
+     * 派生对象查询所需的 Git 元数据只读范围，不启动 Git 子进程。
+     * @param input - 已通过 Contract 与语义校验的对象查询输入。
+     * @returns 根据磁盘仓库拓扑解析的沙箱访问申请；仓库不可解析时返回 `undefined`。
+     */
+    resolveSandboxAccess(input: GitShowInput) {
+        return deriveGitSandboxAccess(this.workspaceRoot, input.repoPath, "read");
+    }
+
     validate(input: GitShowInput): ToolValidationResult {
         if (input.object.trim() === "") {
             return invalidInput("Git object cannot be empty", ["object"]);
@@ -799,6 +867,14 @@ export class GitShowTool implements Tool<typeof GIT_SHOW_INPUT_CONTRACT> {
         throwIfAborted(control);
         const resolved = await resolveRepoDirectory(this.workspaceRoot, this.sandbox, request.input.repoPath, control);
         if (!resolved.ok) return resolved.failure;
+        const authorizationFailure = await gitSandboxAuthorizationFailure({
+            request,
+            workspaceRoot: this.workspaceRoot,
+            repoInfo: resolved.repoInfo,
+            access: "read",
+            enableSeatbelt: this.enableSeatbelt,
+        });
+        if (authorizationFailure !== undefined) return authorizationFailure;
 
         const maxLines = request.input.maxLines ?? GIT_SHOW_DEFAULT_MAX_LINES;
         const objectSpec = request.input.object;
@@ -808,6 +884,7 @@ export class GitShowTool implements Tool<typeof GIT_SHOW_INPUT_CONTRACT> {
             repoPath: resolved.repoPath,
             args: ["rev-parse", "--verify", "--quiet", objectSpec],
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -850,6 +927,7 @@ export class GitShowTool implements Tool<typeof GIT_SHOW_INPUT_CONTRACT> {
             repoPath: resolved.repoPath,
             args: ["show", "--no-ext-diff", "--no-textconv", objectSpec],
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -926,6 +1004,15 @@ export class GitBranchListTool implements Tool<typeof GIT_BRANCH_LIST_INPUT_CONT
         this.enableSeatbelt = options?.enableSeatbelt;
     }
 
+    /**
+     * 派生分支列举所需的 Git 元数据只读范围，不启动 Git 子进程。
+     * @param input - 已通过 Contract 与语义校验的分支查询输入。
+     * @returns 根据磁盘仓库拓扑解析的沙箱访问申请；仓库不可解析时返回 `undefined`。
+     */
+    resolveSandboxAccess(input: GitBranchListInput) {
+        return deriveGitSandboxAccess(this.workspaceRoot, input.repoPath, "read");
+    }
+
     validate(input: GitBranchListInput): ToolValidationResult {
         if (input.repoPath !== undefined) {
             const violation = this.sandbox.validateRelativePath(input.repoPath);
@@ -943,6 +1030,14 @@ export class GitBranchListTool implements Tool<typeof GIT_BRANCH_LIST_INPUT_CONT
         throwIfAborted(control);
         const resolved = await resolveRepoDirectory(this.workspaceRoot, this.sandbox, request.input.repoPath, control);
         if (!resolved.ok) return resolved.failure;
+        const authorizationFailure = await gitSandboxAuthorizationFailure({
+            request,
+            workspaceRoot: this.workspaceRoot,
+            repoInfo: resolved.repoInfo,
+            access: "read",
+            enableSeatbelt: this.enableSeatbelt,
+        });
+        if (authorizationFailure !== undefined) return authorizationFailure;
 
         const args = [
             "branch",
@@ -958,6 +1053,7 @@ export class GitBranchListTool implements Tool<typeof GIT_BRANCH_LIST_INPUT_CONT
             repoPath: resolved.repoPath,
             args,
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -1036,6 +1132,15 @@ export class GitWorktreeListTool implements Tool<typeof GIT_WORKTREE_LIST_INPUT_
         this.enableSeatbelt = options?.enableSeatbelt;
     }
 
+    /**
+     * 派生 worktree 列举所需的 Git 元数据只读范围，不启动 Git 子进程。
+     * @param input - 已通过 Contract 与语义校验的 worktree 查询输入。
+     * @returns 根据磁盘仓库拓扑解析的沙箱访问申请；仓库不可解析时返回 `undefined`。
+     */
+    resolveSandboxAccess(input: GitWorktreeListInput) {
+        return deriveGitSandboxAccess(this.workspaceRoot, input.repoPath, "read");
+    }
+
     validate(input: GitWorktreeListInput): ToolValidationResult {
         if (input.repoPath !== undefined) {
             const violation = this.sandbox.validateRelativePath(input.repoPath);
@@ -1053,11 +1158,20 @@ export class GitWorktreeListTool implements Tool<typeof GIT_WORKTREE_LIST_INPUT_
         throwIfAborted(control);
         const resolved = await resolveRepoDirectory(this.workspaceRoot, this.sandbox, request.input.repoPath, control);
         if (!resolved.ok) return resolved.failure;
+        const authorizationFailure = await gitSandboxAuthorizationFailure({
+            request,
+            workspaceRoot: this.workspaceRoot,
+            repoInfo: resolved.repoInfo,
+            access: "read",
+            enableSeatbelt: this.enableSeatbelt,
+        });
+        if (authorizationFailure !== undefined) return authorizationFailure;
 
         const result = await runRestrictedGit({
             repoPath: resolved.repoPath,
             args: ["worktree", "list", "--porcelain", "-z"],
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 

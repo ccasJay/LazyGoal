@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -135,14 +135,17 @@ test("Git worktree 工具安全边界：禁止指向 .lazygoal 与沙箱能力�
 
     try {
         runGit(tmpDir, ["init", "-b", "main"]);
+        await mkdir(join(tmpDir, "build"));
         const addTool = new GitWorktreeAddTool(tmpDir, { enableSeatbelt: false });
         const removeTool = new GitWorktreeRemoveTool(tmpDir, { enableSeatbelt: false });
 
         // 验证 resolveSandboxAccess 派生写权限目录
-        const access = addTool.resolveSandboxAccess({ path: "build/wt" });
+        const access = await addTool.resolveSandboxAccess({ path: "build/wt" });
         assert.ok(access?.files);
-        assert.equal(access.files[0]!.access, "write");
-        assert.equal(access.files[0]!.kind, "directory_tree");
+        const canonicalRoot = await realpath(tmpDir);
+        assert.ok(access.files.some((file) => file.path === join(canonicalRoot, ".git") && file.access === "write"));
+        assert.ok(access.files.some((file) => file.path === join(canonicalRoot, "build") && file.access === "write"));
+        assert.ok(access.files.some((file) => file.path === join(canonicalRoot, "build", "wt") && file.access === "write"));
 
         // 禁止在 .lazygoal 下创建 worktree
         const lgRes = await addTool.execute({

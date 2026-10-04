@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile, realpath, stat } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import type { SandboxExecutionPlan } from "./capability";
 import {
     spawnRestrictedCommand,
     killProcessGroup,
@@ -228,6 +229,18 @@ export function validateSafeGitWriteArgs(args: readonly string[]): void {
 
 /**
  * 执行受限只读 Git 命令的选项。
+ *
+ * @remarks
+ * macOS Seatbelt 启用时必须携带与本次 Action 完全匹配的计划，且计划只能包含工具派生的资源。
+ *
+ * @example
+ * ```ts
+ * const options: RunRestrictedGitOptions = {
+ *     repoPath: "/workspace/project",
+ *     args: ["status", "--porcelain=v2", "-z"],
+ *     authorization: { actionId, workspaceRoot, plan: approvedPlan },
+ * };
+ * ```
  */
 export interface RunRestrictedGitOptions {
     /** 目标仓库的工作区根目录或子目录。 */
@@ -245,6 +258,151 @@ export interface RunRestrictedGitOptions {
     readonly enableSeatbelt?: boolean | undefined;
     /** 额外允许读取的文件或目录路径（例如链接工作树所需的外部 common-dir）。 */
     readonly extraReadPaths?: readonly string[] | undefined;
+    /** 当前 Git Tool 的可信执行身份及 Runner 核准计划；macOS Seatbelt 下必需。 */
+    readonly authorization?: GitSandboxAuthorization | undefined;
+}
+
+/**
+ * Git Tool 交给受限执行器的可信授权上下文。
+ *
+ * @remarks
+ * 由 Runtime 注入的 Action 标识、工具工作区与核准计划组成；模型输入不能设置此对象。
+ *
+ * @example
+ * ```ts
+ * const authorization: GitSandboxAuthorization = {
+ *     actionId: "action-1",
+ *     workspaceRoot: "/workspace/project",
+ *     plan: approvedPlan,
+ * };
+ * ```
+ */
+export interface GitSandboxAuthorization {
+    /** 当前 Git Tool Action 的稳定标识。 */
+    readonly actionId: string;
+    /** 创建该 Tool 时绑定的工作区根目录。 */
+    readonly workspaceRoot: string;
+    /** 当前 Action 经 Runtime 核准的执行计划。 */
+    readonly plan?: SandboxExecutionPlan | undefined;
+}
+
+async function resolveCanonicalPath(rawPath: string): Promise<string> {
+    try {
+        return await realpath(rawPath);
+    } catch {
+        const parent = dirname(rawPath);
+        if (parent === rawPath) return resolve(rawPath);
+        const canonicalParent = await resolveCanonicalPath(parent);
+        return resolve(canonicalParent, basename(rawPath));
+    }
+}
+
+function pathIsCovered(
+    requiredPath: string,
+    plan: SandboxExecutionPlan,
+    access: "read" | "write",
+): boolean {
+    return plan.scope.extraFiles.some((entry) => {
+        if (access === "write" && entry.access !== "write") return false;
+        if (entry.canonicalPath === requiredPath) {
+            return access !== "write" || entry.kind === "directory_tree";
+        }
+        const directoryPath = entry.canonicalPath.endsWith("/") && entry.canonicalPath !== "/"
+            ? entry.canonicalPath.slice(0, -1)
+            : entry.canonicalPath;
+        return entry.kind === "directory_tree"
+            && (directoryPath === "/"
+                ? requiredPath.startsWith("/")
+                : requiredPath.startsWith(`${directoryPath}/`));
+    });
+}
+
+/**
+ * 检查 Git 操作所需真实路径是否包含在当前 Action 的核准计划中。
+ *
+ * @remarks
+ * 对工作区、Action、网络策略及 gitdir/common-dir、额外读写目标逐项复核；路径在
+ * 授权后改变真实解析结果时拒绝执行。
+ *
+ * @param input - 当前 Git 拓扑、访问方向、附加目标和可信 Runtime 上下文。
+ * @returns 所有真实路径均被当前计划覆盖时返回 `true`。
+ *
+ * @example
+ * ```ts
+ * const valid = await isGitSandboxPlanValid({
+ *     repoInfo,
+ *     access: "write",
+ *     authorization: { actionId, workspaceRoot, plan },
+ * });
+ * ```
+ */
+export async function isGitSandboxPlanValid(input: {
+    readonly repoInfo: GitRepositoryInfo;
+    readonly access: "read" | "write";
+    readonly authorization?: GitSandboxAuthorization | undefined;
+    readonly extraReadPaths?: readonly string[] | undefined;
+    readonly extraWritePaths?: readonly string[] | undefined;
+    readonly requireExactPlan?: boolean | undefined;
+}): Promise<boolean> {
+    const { authorization, repoInfo } = input;
+    const plan = authorization?.plan;
+    if (authorization === undefined || plan === undefined
+        || authorization.actionId.trim() === ""
+        || plan.actionId !== authorization.actionId
+        || plan.scope.network !== "none") {
+        return false;
+    }
+
+    const canonicalWorkspaceRoot = await resolveCanonicalPath(authorization.workspaceRoot);
+    if (await resolveCanonicalPath(plan.workspaceRoot) !== canonicalWorkspaceRoot) return false;
+
+    const planPaths = await Promise.all(plan.scope.extraFiles.map(async (entry) => {
+        const canonicalPath = await resolveCanonicalPath(entry.canonicalPath);
+        return { ...entry, canonicalPath, unchanged: canonicalPath === entry.canonicalPath };
+    }));
+    if (planPaths.some((entry) => !entry.unchanged)) return false;
+
+    const scopedPlan: SandboxExecutionPlan = {
+        ...plan,
+        scope: { ...plan.scope, extraFiles: planPaths },
+    };
+    if (input.requireExactPlan) {
+        const expected = new Map<string, { readonly path: string; readonly access: "read" | "write"; readonly kind: "file" | "directory_tree" }>();
+        const addExpected = (path: string, access: "read" | "write", kind: "file" | "directory_tree") => {
+            const key = `${path}\0${access}\0${kind}`;
+            expected.set(key, { path, access, kind });
+        };
+        const metadataAccess = input.access;
+        addExpected(await resolveCanonicalPath(repoInfo.gitDir), metadataAccess, "directory_tree");
+        addExpected(await resolveCanonicalPath(repoInfo.commonDir), metadataAccess, "directory_tree");
+        if (repoInfo.dotGitPath !== repoInfo.gitDir) {
+            addExpected(await resolveCanonicalPath(repoInfo.dotGitPath), "read", "file");
+        }
+        for (const path of input.extraReadPaths ?? []) {
+            addExpected(await resolveCanonicalPath(path), "read", "file");
+        }
+        for (const path of input.extraWritePaths ?? []) {
+            addExpected(await resolveCanonicalPath(path), "write", "directory_tree");
+        }
+        const actualSignatures = planPaths.map((entry) => `${entry.canonicalPath}\0${entry.access}\0${entry.kind}`);
+        if (actualSignatures.length !== expected.size
+            || actualSignatures.some((signature) => !expected.has(signature))) {
+            return false;
+        }
+    }
+    const requiredReads = [repoInfo.dotGitPath, repoInfo.gitDir, repoInfo.commonDir,
+        ...(input.extraReadPaths ?? [])];
+    const requiredWrites = input.access === "write"
+        ? [repoInfo.gitDir, repoInfo.commonDir, ...(input.extraWritePaths ?? [])]
+        : [];
+
+    for (const rawPath of requiredReads) {
+        if (!pathIsCovered(await resolveCanonicalPath(rawPath), scopedPlan, "read")) return false;
+    }
+    for (const rawPath of requiredWrites) {
+        if (!pathIsCovered(await resolveCanonicalPath(rawPath), scopedPlan, "write")) return false;
+    }
+    return true;
 }
 
 /**
@@ -282,8 +440,9 @@ export interface RestrictedGitExecutionResult {
  * @example
  * ```ts
  * const res = await runRestrictedGit({
- *   repoPath: "/workspace",
- *   args: ["status", "--porcelain=v2", "-z"],
+ *     repoPath: "/workspace",
+ *     args: ["status", "--porcelain=v2", "-z"],
+ *     authorization: { actionId, workspaceRoot, plan: approvedPlan },
  * });
  * ```
  */
@@ -295,6 +454,20 @@ export async function runRestrictedGit(
     const repoInfo = await discoverGitRepository(options.repoPath);
     const timeoutMs = options.timeoutMs ?? GIT_DEFAULT_TIMEOUT_MS;
     const enableSeatbelt = options.enableSeatbelt ?? true;
+
+    if (process.platform === "darwin" && enableSeatbelt) {
+        if (!isSeatbeltSupported()) {
+            throw new Error("SANDBOX_UNAVAILABLE: macOS Seatbelt is required for Git execution.");
+        }
+        if (!await isGitSandboxPlanValid({
+            repoInfo,
+            access: "read",
+            authorization: options.authorization,
+            extraReadPaths: options.extraReadPaths,
+        })) {
+            throw new Error("SANDBOX_APPROVAL_REQUIRED: Git metadata access is not covered by the current Action plan.");
+        }
+    }
 
     // 基础固定只读前置配置项
     const baseGitArgs = [
@@ -309,14 +482,15 @@ export async function runRestrictedGit(
     let privateTmpDir: string | undefined;
     let sandboxRunOptions: { policy: string; env: NodeJS.ProcessEnv } | undefined;
 
-    if (process.platform === "darwin" && enableSeatbelt && isSeatbeltSupported()) {
+    if (process.platform === "darwin" && enableSeatbelt) {
         privateTmpDir = await createPrivateTmpDir();
 
+        const canonicalExtraReadPaths = await Promise.all((options.extraReadPaths ?? []).map(resolveCanonicalPath));
         const extraReadPaths = [
             repoInfo.workspaceRoot,
             repoInfo.gitDir,
             repoInfo.commonDir,
-            ...(options.extraReadPaths ?? []),
+            ...canonicalExtraReadPaths,
         ];
 
         const policy = buildSeatbeltPolicy({
@@ -423,6 +597,18 @@ export async function runRestrictedGit(
 
 /**
  * 执行受限写操作 Git 命令的选项。
+ *
+ * @remarks
+ * macOS Seatbelt 启用时，当前计划必须覆盖真实 gitdir/common-dir 与额外写目标。
+ *
+ * @example
+ * ```ts
+ * const options: RunRestrictedGitWriteOptions = {
+ *     repoPath: "/workspace/project",
+ *     args: ["add", "--", "src/index.ts"],
+ *     authorization: { actionId, workspaceRoot, plan: approvedPlan },
+ * };
+ * ```
  */
 export interface RunRestrictedGitWriteOptions {
     /** 目标仓库的工作区根目录或子目录。 */
@@ -440,8 +626,10 @@ export interface RunRestrictedGitWriteOptions {
     readonly enableSeatbelt?: boolean | undefined;
     /** 额外允许读取的文件或目录路径（例如链接工作树所需的外部 common-dir）。 */
     readonly extraReadPaths?: readonly string[] | undefined;
-    /** 允许写入的文件或目录路径（默认仅限工作区和 Git 元数据目录）。 */
+    /** 允许写入的文件或目录路径；Git 元数据目录必须通过当前 Action 计划授权。 */
     readonly extraWritePaths?: readonly string[] | undefined;
+    /** 当前 Git Tool 的可信执行身份及 Runner 核准计划；macOS Seatbelt 下必需。 */
+    readonly authorization?: GitSandboxAuthorization | undefined;
     /** 可选作者环境变量（用于 git commit）。 */
     readonly authorEnv?: {
         readonly GIT_AUTHOR_NAME?: string | undefined;
@@ -457,13 +645,22 @@ export interface RunRestrictedGitWriteOptions {
  * @remarks
  * 1. 自动获取进程内 `GitMutex` 互斥排他锁，防止并发写入元数据；
  * 2. 校验参数安全性（禁止 `--no-verify`, `--amend`, `--force`, `-c` 等危险选项）；
- * 3. 策略性开放当前获授权仓库的工作区目录与 Git 元数据目录（gitdir, commondir）的写权限；
+ * 3. 仅开放当前 Action 计划明确批准的 gitdir、commondir 与额外目标写范围；
  * 4. 严格拒绝写入 `.lazygoal`；
  * 5. 保留仓库内置钩子正常执行环境（不覆盖 core.hooksPath，钩子与命令在同一沙箱内受限执行）；
  * 6. 禁止网络访问，提供 10 秒超时与受管进程组优雅终止。
  *
  * @param options - 写操作执行参数。
  * @returns 包含 stdout/stderr、exitCode、timedOut 与 truncated 的结果。
+ *
+ * @example
+ * ```ts
+ * const result = await runRestrictedGitWrite({
+ *     repoPath: "/workspace/project",
+ *     args: ["add", "--", "src/index.ts"],
+ *     authorization: { actionId, workspaceRoot, plan: approvedPlan },
+ * });
+ * ```
  */
 export async function runRestrictedGitWrite(
     options: RunRestrictedGitWriteOptions,
@@ -473,9 +670,24 @@ export async function runRestrictedGitWrite(
     const repoInfo = await discoverGitRepository(options.repoPath);
     const mutexKey = repoInfo.commonDir;
 
+    const enableSeatbelt = options.enableSeatbelt ?? true;
+    if (process.platform === "darwin" && enableSeatbelt) {
+        if (!isSeatbeltSupported()) {
+            throw new Error("SANDBOX_UNAVAILABLE: macOS Seatbelt is required for Git execution.");
+        }
+        if (!await isGitSandboxPlanValid({
+            repoInfo,
+            access: "write",
+            authorization: options.authorization,
+            extraReadPaths: options.extraReadPaths,
+            extraWritePaths: options.extraWritePaths,
+        })) {
+            throw new Error("SANDBOX_APPROVAL_REQUIRED: Git metadata or target write access is not covered by the current Action plan.");
+        }
+    }
+
     return await GitMutex.withLock(mutexKey, async () => {
         const timeoutMs = options.timeoutMs ?? GIT_DEFAULT_TIMEOUT_MS;
-        const enableSeatbelt = options.enableSeatbelt ?? true;
 
         // 基础固定前置配置项（注意：不设置 hooksPath=/dev/null，保留正常钩子触发）
         const baseGitArgs = [
@@ -489,28 +701,36 @@ export async function runRestrictedGitWrite(
         let privateTmpDir: string | undefined;
         let sandboxRunOptions: { policy: string; env: NodeJS.ProcessEnv } | undefined;
 
-        if (process.platform === "darwin" && enableSeatbelt && isSeatbeltSupported()) {
+        if (process.platform === "darwin" && enableSeatbelt) {
             privateTmpDir = await createPrivateTmpDir();
 
+            const canonicalExtraReadPaths = await Promise.all((options.extraReadPaths ?? []).map(resolveCanonicalPath));
+            const canonicalExtraWritePaths = await Promise.all((options.extraWritePaths ?? []).map(resolveCanonicalPath));
             const extraReadPaths = [
                 repoInfo.workspaceRoot,
                 repoInfo.gitDir,
                 repoInfo.commonDir,
-                ...(options.extraReadPaths ?? []),
+                ...canonicalExtraReadPaths,
             ];
 
             const extraWritePaths = [
-                repoInfo.workspaceRoot,
                 repoInfo.gitDir,
                 repoInfo.commonDir,
-                ...(options.extraWritePaths ?? []),
+                ...canonicalExtraWritePaths,
             ];
+
+            const authorizedMetadata = new Set([repoInfo.gitDir, repoInfo.commonDir]);
+            const protectedPaths = Array.from(new Set([
+                repoInfo.dotGitPath,
+                repoInfo.gitDir,
+                repoInfo.commonDir,
+            ])).filter((path) => !authorizedMetadata.has(path));
 
             const policy = buildSeatbeltPolicy({
                 canonicalWorkspaceRoot: repoInfo.workspaceRoot,
                 privateTmpDir,
-                // 写操作允许写入工作区和 Git 元数据，但严格拒绝 .lazygoal
-                protectedPaths: [],
+                // 只开放经当前计划核准的 Git 元数据；链接工作树的 .git 指针文件仍受保护。
+                protectedPaths,
                 extraReadPaths,
                 extraWritePaths,
                 network: "none",

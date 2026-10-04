@@ -299,7 +299,7 @@ const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     },
     {
         id: READ_FILE_TOOL_ID,
-        description: "读取 workspaceRoot 内的 UTF-8 文本文件",
+        description: "Read UTF-8 text from a file in workspaceRoot with line range and pagination support.",
         inputContract: READ_FILE_INPUT_CONTRACT,
         isReadOnly: true,
     },
@@ -317,7 +317,7 @@ const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     },
     {
         id: GREP_TOOL_ID,
-        description: "在 workspaceRoot 内按正则搜索文本文件并返回带行号的匹配行",
+        description: "Search text files in workspace using regular expressions with context lines and pagination.",
         inputContract: GREP_INPUT_CONTRACT,
         isReadOnly: true,
     },
@@ -449,11 +449,16 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
             },
             {
                 id: GREP_TOOL_ID,
-                description: "在 workspaceRoot 内按正则搜索文本文件并返回带行号的匹配行",
+                description: "Search text files in workspace using regular expressions with context lines and pagination.",
                 inputSchema: {
                     type: "object",
                     properties: {
+                        contextLines: { type: "integer", minimum: 0, maximum: 20 },
+                        cursor: { type: "string" },
+                        exclude: { type: "string" },
                         ignoreCase: { type: "boolean" },
+                        include: { type: "string" },
+                        maxMatches: { type: "integer", minimum: 1, maximum: 1000 },
                         path: { type: "string" },
                         pattern: { type: "string" },
                     },
@@ -463,10 +468,16 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
             },
             {
                 id: READ_FILE_TOOL_ID,
-                description: "读取 workspaceRoot 内的 UTF-8 文本文件",
+                description: "Read UTF-8 text from a file in workspaceRoot with line range and pagination support.",
                 inputSchema: {
                     type: "object",
-                    properties: { path: { type: "string" } },
+                    properties: {
+                        cursor: { type: "string" },
+                        endLine: { type: "integer", minimum: 1, maximum: 9007199254740991 },
+                        maxChars: { type: "integer", minimum: 1, maximum: 50000 },
+                        path: { type: "string" },
+                        startLine: { type: "integer", minimum: 1, maximum: 9007199254740991 },
+                    },
                     required: ["path"],
                     additionalProperties: false,
                 },

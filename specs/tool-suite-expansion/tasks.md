@@ -92,22 +92,16 @@
 
 ### Latest Result
 
-- 验证状态：`passed`
-- 时效：`current`
-- 被测提交：`0a532361` (feat(tools): 实现受授权且保留用户文件的 worktree 创建与移除)
-- 验证时间：2026-10-04
-- 验证结论：
-  1. 静态与依赖边界：`npx tsc --noEmit` 0 错误；`npm run check:dependencies` 218 个源文件依赖边界全部通过；
-  2. 单元与集成测试套件：
-     - TODO 1 通用沙箱与身份：`packages/runtime/test/sandbox-permission-action.test.ts` (5 passed), `sandbox-plan-recovery.test.ts` (2 passed), `packages/permission/test/grant-matching.test.ts` (4 passed), `packages/storage/test/sandbox-grant-store.test.ts` (4 passed), `packages/tui/test/tool-policy.test.ts` (2 passed)；
-     - TODO 2 目录与文件定位：`packages/tools/test/list-directory.test.ts` (8 passed), `packages/tools/test/find-files.test.ts` (7 passed)；
-     - TODO 3 文本读取与 Grep：`packages/tools/test/read-file.test.ts` (8 passed), `packages/tools/test/grep.test.ts` (11 passed)；
-     - TODO 4 补丁应用：`packages/tools/test/apply-patch.test.ts` (8 passed), `packages/runtime/test/apply-patch-recovery.test.ts` (2 passed), `packages/storage/test/goal-snapshot-current.test.ts` (15 passed)；
-     - TODO 5 网页搜索与抓取：`packages/tools/test/web-search.test.ts` (9 passed), `packages/tools/test/web-fetch.test.ts` (10 passed), `packages/runtime/test/web-tool-permission.test.ts` (4 passed), `benchmarks/test/remote-tool-registry.test.ts` (4 passed), `benchmarks/test/tool-rpc.test.ts` (5 passed), `benchmarks/gaia/test/tools-worker.test.ts` (3 passed)；
-     - TODO 6 隔离长进程与宿主关闭：`packages/tools/test/process-tools.test.ts` (3 passed), `packages/storage/test/process-session-store.test.ts` (4 passed), `packages/tui/test/process-lifecycle.integration.test.ts` (2 passed), `packages/runtime/test/shutdown.test.ts` (4 passed)；
-     - TODO 7 Git 只读查询：`packages/tools/test/git-read-tools.test.ts` (2 passed), `packages/sandbox/test/git-sandbox.test.ts` (3 passed)；
-     - TODO 8 Git 暂存提交与分支写操作：`packages/tools/test/git-write-tools.test.ts` (4 passed), `packages/runtime/test/git-tool-recovery.test.ts` (2 passed), `packages/tui/test/tool-suite.integration.test.ts` (1 passed)；
-     - TODO 9 Git worktree 创建与安全移除：`packages/tools/test/git-worktree-tools.test.ts` (2 passed)；
-     - 基础与契约验证：`packages/tools/test/input-contracts.test.ts` (5 passed), `packages/tui/test/cli.test.ts` (24 passed)；
-  3. high 风险边界说明：macOS Seatbelt 嵌套沙箱限制下真实内核 apply 受限，按规范记录为环境限制，权限拦截逻辑与非嵌套环境完全通过；
-  4. 架构文档与契约：中文 TSDoc 齐备，`docs/architecture/sandbox.md` 与 `docs/architecture/runtime.md` 已同步最新架构实现。
+- 验证状态：`passed`；时效：`current`。
+- 被测代码基线：`30cbae9f01e38b95b8484761f39f89876d5ff1bc`，加本次工作区验收修复（尚未提交）。`tasks.md` 本次仅更新 Latest Result；所有 `//TODO` 文本、顺序和勾选状态均保持原样。
+- 验证时间：2026-10-04；Requirements 指纹：`9432b33a938351c3ec1366d7aa9b362e0b3c8685`；Design 指纹：`3c71fce23919d8edb9199bd9829a6de7f6fdd509`；Planned Checks（原文件第 70–91 行）SHA-256：`e1cdc21814d38d77f369c0fdf80608c79b0f47314f44c4a36d251f905279e320`。
+- 执行证据：`npm test` 全部通过：依赖边界验证、GEPA adapter、TypeScript 测试 1727 项（0 失败、0 跳过）及脚本测试 14 项（0 失败、0 跳过）。`npx tsc --noEmit`、`git diff --check` 通过。
+
+| Planned Checks 范围 | 实际结果与证据 | 结论 |
+|---|---|---|
+| SWE-bench、Agent Schema/definition、Prompt 与 PTC 消费方 | 指定消费者回归共 36 项全部通过；SWE-bench/PTC 读取 `observation.output.text`，独立 Schema 与英文描述和当前 Tool Contract 一致 | 通过 |
+| Git 读写与计划核验 | Git 查询/写工具从真实仓库拓扑派生 gitdir/common-dir；执行前拒绝与当前 Action 计划不完全匹配的范围，不从模型输入接受 Git 元数据路径 | 通过 |
+| YOLO、worktree 与真实 Seatbelt | 默认 YOLO 下 Git 元数据和 worktree 目标/父目录进入沙箱审批；审批前 index、refs、worktree 注册和目标目录保持不变；批准后 Git 暂存及 worktree 创建/移除成功。真实 macOS Runtime/Seatbelt 与保护路径用例 7 项通过、0 skip | 通过 |
+| 授权不可跨普通工具复用 | separate-git-dir 与 linked worktree 均以真实 Git + Seatbelt 验证；同一获批计划不能让 Bash 或 Process 写入 Git index/shared common-dir，Git Tool 自身可在批准后完成写入 | 通过 |
+| hooks、文档与 TODO | 架构文档区分只读查询关闭 hooks 与写操作保留 hooks；普通命令拒写 `.git` 指针、真实 gitdir 和 shared common-dir；`//TODO` 文本、顺序及勾选状态未变 | 通过 |
+| 全量回归与工作区检查 | `npm test`：TS 1727/1727、脚本 14/14；类型、依赖边界、GEPA adapter 均通过；另有 `npx tsc --noEmit`、`git diff --check` 成功 | 通过 |

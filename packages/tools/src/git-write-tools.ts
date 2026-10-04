@@ -10,6 +10,11 @@ import type {
 import type { ExecutionControl } from "../../runtime/src/execution-control";
 import { invalidInput } from "./internal/invalid-input";
 import {
+    createGitSandboxAuthorization,
+    deriveGitSandboxAccess,
+    gitSandboxAuthorizationFailure,
+} from "./internal/git-sandbox-access";
+import {
     createWorkspaceSandbox,
     type WorkspaceSandbox,
 } from "../../sandbox/src/index";
@@ -218,6 +223,15 @@ export class GitAddTool implements Tool<typeof GIT_ADD_INPUT_CONTRACT> {
         this.enableSeatbelt = options?.enableSeatbelt;
     }
 
+    /**
+     * 派生暂存操作所需的 Git 元数据写范围，不执行暂存副作用。
+     * @param input - 已通过 Contract 与语义校验的暂存输入。
+     * @returns 从磁盘仓库拓扑派生的沙箱访问申请；仓库不可解析时返回 `undefined`。
+     */
+    resolveSandboxAccess(input: GitAddInput) {
+        return deriveGitSandboxAccess(this.workspaceRoot, input.repoPath, "write");
+    }
+
     validate(input: GitAddInput): ToolValidationResult {
         if (input.repoPath !== undefined) {
             const violation = this.sandbox.validateRelativePath(input.repoPath);
@@ -260,6 +274,14 @@ export class GitAddTool implements Tool<typeof GIT_ADD_INPUT_CONTRACT> {
         if (!repoResult.ok) {
             return repoResult.failure;
         }
+        const authorizationFailure = await gitSandboxAuthorizationFailure({
+            request,
+            workspaceRoot: this.workspaceRoot,
+            repoInfo: repoResult.repoInfo,
+            access: "write",
+            enableSeatbelt: this.enableSeatbelt,
+        });
+        if (authorizationFailure !== undefined) return authorizationFailure;
 
         const { repoPath } = repoResult;
 
@@ -282,6 +304,7 @@ export class GitAddTool implements Tool<typeof GIT_ADD_INPUT_CONTRACT> {
             repoPath,
             args,
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -343,6 +366,15 @@ export class GitCommitTool implements Tool<typeof GIT_COMMIT_INPUT_CONTRACT> {
         this.enableSeatbelt = options?.enableSeatbelt;
     }
 
+    /**
+     * 派生提交操作所需的 Git 元数据写范围，不执行提交副作用。
+     * @param input - 已通过 Contract 与语义校验的提交输入。
+     * @returns 从磁盘仓库拓扑派生的沙箱访问申请；仓库不可解析时返回 `undefined`。
+     */
+    resolveSandboxAccess(input: GitCommitInput) {
+        return deriveGitSandboxAccess(this.workspaceRoot, input.repoPath, "write");
+    }
+
     validate(input: GitCommitInput): ToolValidationResult {
         if (input.repoPath !== undefined) {
             const violation = this.sandbox.validateRelativePath(input.repoPath);
@@ -380,6 +412,14 @@ export class GitCommitTool implements Tool<typeof GIT_COMMIT_INPUT_CONTRACT> {
         if (!repoResult.ok) {
             return repoResult.failure;
         }
+        const authorizationFailure = await gitSandboxAuthorizationFailure({
+            request,
+            workspaceRoot: this.workspaceRoot,
+            repoInfo: repoResult.repoInfo,
+            access: "write",
+            enableSeatbelt: this.enableSeatbelt,
+        });
+        if (authorizationFailure !== undefined) return authorizationFailure;
 
         const { repoPath } = repoResult;
 
@@ -406,6 +446,7 @@ export class GitCommitTool implements Tool<typeof GIT_COMMIT_INPUT_CONTRACT> {
             args,
             authorEnv,
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -445,6 +486,7 @@ export class GitCommitTool implements Tool<typeof GIT_COMMIT_INPUT_CONTRACT> {
             repoPath,
             args: ["rev-parse", "HEAD"],
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -454,6 +496,7 @@ export class GitCommitTool implements Tool<typeof GIT_COMMIT_INPUT_CONTRACT> {
             repoPath,
             args: ["branch", "--show-current"],
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -509,6 +552,15 @@ export class GitBranchCreateTool implements Tool<typeof GIT_BRANCH_CREATE_INPUT_
         this.enableSeatbelt = options?.enableSeatbelt;
     }
 
+    /**
+     * 派生分支创建所需的 Git 元数据写范围，不执行分支副作用。
+     * @param input - 已通过 Contract 与语义校验的分支创建输入。
+     * @returns 从磁盘仓库拓扑派生的沙箱访问申请；仓库不可解析时返回 `undefined`。
+     */
+    resolveSandboxAccess(input: GitBranchCreateInput) {
+        return deriveGitSandboxAccess(this.workspaceRoot, input.repoPath, "write");
+    }
+
     validate(input: GitBranchCreateInput): ToolValidationResult {
         if (input.repoPath !== undefined) {
             const violation = this.sandbox.validateRelativePath(input.repoPath);
@@ -550,6 +602,14 @@ export class GitBranchCreateTool implements Tool<typeof GIT_BRANCH_CREATE_INPUT_
         if (!repoResult.ok) {
             return repoResult.failure;
         }
+        const authorizationFailure = await gitSandboxAuthorizationFailure({
+            request,
+            workspaceRoot: this.workspaceRoot,
+            repoInfo: repoResult.repoInfo,
+            access: "write",
+            enableSeatbelt: this.enableSeatbelt,
+        });
+        if (authorizationFailure !== undefined) return authorizationFailure;
 
         const { repoPath } = repoResult;
         const branchName = request.input.branch.trim();
@@ -559,6 +619,7 @@ export class GitBranchCreateTool implements Tool<typeof GIT_BRANCH_CREATE_INPUT_
             repoPath,
             args: ["check-ref-format", "--branch", branchName],
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -576,6 +637,7 @@ export class GitBranchCreateTool implements Tool<typeof GIT_BRANCH_CREATE_INPUT_
             repoPath,
             args: ["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`],
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -598,6 +660,7 @@ export class GitBranchCreateTool implements Tool<typeof GIT_BRANCH_CREATE_INPUT_
             repoPath,
             args,
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -659,6 +722,15 @@ export class GitBranchSwitchTool implements Tool<typeof GIT_BRANCH_SWITCH_INPUT_
         this.enableSeatbelt = options?.enableSeatbelt;
     }
 
+    /**
+     * 派生分支切换所需的 Git 元数据写范围，不执行工作区或分支变更。
+     * @param input - 已通过 Contract 与语义校验的分支切换输入。
+     * @returns 从磁盘仓库拓扑派生的沙箱访问申请；仓库不可解析时返回 `undefined`。
+     */
+    resolveSandboxAccess(input: GitBranchSwitchInput) {
+        return deriveGitSandboxAccess(this.workspaceRoot, input.repoPath, "write");
+    }
+
     validate(input: GitBranchSwitchInput): ToolValidationResult {
         if (input.repoPath !== undefined) {
             const violation = this.sandbox.validateRelativePath(input.repoPath);
@@ -691,6 +763,14 @@ export class GitBranchSwitchTool implements Tool<typeof GIT_BRANCH_SWITCH_INPUT_
         if (!repoResult.ok) {
             return repoResult.failure;
         }
+        const authorizationFailure = await gitSandboxAuthorizationFailure({
+            request,
+            workspaceRoot: this.workspaceRoot,
+            repoInfo: repoResult.repoInfo,
+            access: "write",
+            enableSeatbelt: this.enableSeatbelt,
+        });
+        if (authorizationFailure !== undefined) return authorizationFailure;
 
         const { repoPath } = repoResult;
         const branchName = request.input.branch.trim();
@@ -700,6 +780,7 @@ export class GitBranchSwitchTool implements Tool<typeof GIT_BRANCH_SWITCH_INPUT_
             repoPath,
             args: ["branch", "--show-current"],
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -710,6 +791,7 @@ export class GitBranchSwitchTool implements Tool<typeof GIT_BRANCH_SWITCH_INPUT_
             repoPath,
             args: ["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`],
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -725,6 +807,7 @@ export class GitBranchSwitchTool implements Tool<typeof GIT_BRANCH_SWITCH_INPUT_
                 repoPath,
                 args: ["check-ref-format", "--branch", branchName],
                 enableSeatbelt: this.enableSeatbelt,
+                authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
                 signal: control?.signal,
             });
 
@@ -750,6 +833,7 @@ export class GitBranchSwitchTool implements Tool<typeof GIT_BRANCH_SWITCH_INPUT_
             repoPath,
             args: switchArgs,
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -777,6 +861,7 @@ export class GitBranchSwitchTool implements Tool<typeof GIT_BRANCH_SWITCH_INPUT_
             repoPath,
             args: ["branch", "--show-current"],
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 

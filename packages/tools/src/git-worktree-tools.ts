@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { contract, type InferContract } from "../../contracts/src/index";
 import type {
     Tool,
@@ -23,6 +23,12 @@ import {
     type GitRepositoryInfo,
     type DerivedSandboxAccess,
 } from "../../sandbox/src/index";
+import {
+    createGitSandboxAuthorization,
+    deriveGitSandboxAccess,
+    gitSandboxAuthorizationFailure,
+    resolveGitWorktreeTargetPaths,
+} from "./internal/git-sandbox-access";
 
 // ============================================================================
 // 1. Tool IDs & Constants
@@ -202,22 +208,25 @@ export class GitWorktreeAddTool implements Tool<typeof GIT_WORKTREE_ADD_INPUT_CO
     }
 
     /**
-     * 派生沙箱执行所需的文件与目录能力申请。
+     * 派生 worktree 创建所需的真实 Git 元数据、目标目录与父目录写范围。
+     *
+     * @param input - 已通过 Contract 与语义校验的 worktree 创建输入。
+     * @returns 由磁盘仓库拓扑和规范化目标路径构成的沙箱申请；目标父目录不可解析时仍返回元数据范围。
      */
-    resolveSandboxAccess(input: GitWorktreeAddInput): DerivedSandboxAccess | undefined {
-        const targetDir = isAbsolute(input.path) ? input.path : resolve(this.workspaceRoot, input.path);
-        const parentDir = dirname(targetDir);
-
-        return {
-            files: [
-                {
-                    path: parentDir,
-                    access: "write",
-                    kind: "directory_tree",
-                    purpose: "创建并管理 Git 工作树目录",
-                },
-            ],
-        };
+    async resolveSandboxAccess(input: GitWorktreeAddInput): Promise<DerivedSandboxAccess | undefined> {
+        const repoPath = resolve(this.workspaceRoot, input.repoPath ?? ".");
+        let extraFiles: NonNullable<DerivedSandboxAccess["files"]> = [];
+        try {
+            const target = isAbsolute(input.path) ? resolve(input.path) : resolve(repoPath, input.path);
+            const paths = await resolveGitWorktreeTargetPaths(repoPath, target);
+            extraFiles = [
+                { path: paths.parentPath, access: "write", kind: "directory_tree", purpose: "Create the worktree in its parent directory" },
+                { path: paths.targetPath, access: "write", kind: "directory_tree", purpose: "Create the requested Git worktree" },
+            ];
+        } catch {
+            // Missing or inaccessible parents are reported by execute before any Git process starts.
+        }
+        return deriveGitSandboxAccess(this.workspaceRoot, input.repoPath, "write", extraFiles);
     }
 
     async execute(
@@ -284,7 +293,38 @@ export class GitWorktreeAddTool implements Tool<typeof GIT_WORKTREE_ADD_INPUT_CO
             };
         }
 
-        const args = ["worktree", "add", "--", targetResolved];
+        const targetPaths = await resolveGitWorktreeTargetPaths(repoPath, targetResolved);
+        const canonicalTarget = targetPaths.targetPath;
+        const canonicalLazygoal = resolve(repoInfo.workspaceRoot, ".lazygoal");
+        const lazygoalRelative = relative(canonicalLazygoal, canonicalTarget);
+        if (lazygoalRelative === "" || (lazygoalRelative !== ".."
+            && !lazygoalRelative.startsWith(`..${sep}`) && !isAbsolute(lazygoalRelative))) {
+            return {
+                kind: "failure",
+                code: "PROTECTED_PATH_MODIFICATION",
+                message: "Creating a worktree inside .lazygoal is prohibited.",
+                retryable: false,
+            };
+        }
+        if (canonicalTarget === repoInfo.workspaceRoot || canonicalTarget === repoInfo.gitDir || canonicalTarget === repoInfo.commonDir) {
+            return {
+                kind: "failure",
+                code: "CANNOT_OVERWRITE_MAIN_WORKTREE",
+                message: "The requested worktree target overlaps the repository root or Git metadata.",
+                retryable: false,
+            };
+        }
+        const authorizationFailure = await gitSandboxAuthorizationFailure({
+            request,
+            workspaceRoot: this.workspaceRoot,
+            repoInfo,
+            access: "write",
+            enableSeatbelt: this.enableSeatbelt,
+            extraWritePaths: [targetPaths.parentPath, targetPaths.targetPath],
+        });
+        if (authorizationFailure !== undefined) return authorizationFailure;
+
+        const args = ["worktree", "add", "--", canonicalTarget];
         if (request.input.commit !== undefined) {
             args.push(request.input.commit);
         } else if (request.input.branch !== undefined) {
@@ -294,8 +334,9 @@ export class GitWorktreeAddTool implements Tool<typeof GIT_WORKTREE_ADD_INPUT_CO
         const res = await runRestrictedGitWrite({
             repoPath,
             args,
-            extraWritePaths: [parentDir, targetResolved],
+            extraWritePaths: [targetPaths.parentPath, targetPaths.targetPath],
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -311,20 +352,21 @@ export class GitWorktreeAddTool implements Tool<typeof GIT_WORKTREE_ADD_INPUT_CO
 
         // 校验并获取新 worktree 的 HEAD 与分支
         const headRes = await runRestrictedGit({
-            repoPath: targetResolved,
+            repoPath: canonicalTarget,
             args: ["rev-parse", "HEAD"],
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
         const branchRes = await runRestrictedGit({
-            repoPath: targetResolved,
+            repoPath: canonicalTarget,
             args: ["branch", "--show-current"],
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
-        const canonicalTarget = await realpath(targetResolved);
         const head = headRes.stdout.trim();
         const branch = branchRes.stdout.trim() || undefined;
 
@@ -396,22 +438,26 @@ export class GitWorktreeRemoveTool implements Tool<typeof GIT_WORKTREE_REMOVE_IN
     }
 
     /**
-     * 派生沙箱执行所需的文件与目录能力申请。
+     * 派生 worktree 移除所需的真实 Git 元数据、目标目录与父目录写范围。
+     *
+     * @param input - 已通过 Contract 与语义校验的 worktree 移除输入。
+     * @returns 由磁盘仓库拓扑和规范化目标路径构成的沙箱申请；目标不可解析时仍返回元数据范围。
      */
-    resolveSandboxAccess(input: GitWorktreeRemoveInput): DerivedSandboxAccess | undefined {
-        const targetDir = isAbsolute(input.path) ? input.path : resolve(this.workspaceRoot, input.path);
-        const parentDir = dirname(targetDir);
-
-        return {
-            files: [
-                {
-                    path: parentDir,
-                    access: "write",
-                    kind: "directory_tree",
-                    purpose: "移除已清理的 Git 工作树目录",
-                },
-            ],
-        };
+    async resolveSandboxAccess(input: GitWorktreeRemoveInput): Promise<DerivedSandboxAccess | undefined> {
+        const repoPath = resolve(this.workspaceRoot, input.repoPath ?? ".");
+        let extraFiles: NonNullable<DerivedSandboxAccess["files"]> = [];
+        try {
+            const target = isAbsolute(input.path) ? resolve(input.path) : resolve(repoPath, input.path);
+            const canonicalTarget = await realpath(target);
+            const paths = await resolveGitWorktreeTargetPaths(repoPath, canonicalTarget);
+            extraFiles = [
+                { path: paths.parentPath, access: "write", kind: "directory_tree", purpose: "Remove the worktree from its parent directory" },
+                { path: paths.targetPath, access: "write", kind: "directory_tree", purpose: "Remove the requested Git worktree" },
+            ];
+        } catch {
+            // Missing or inaccessible targets are reported by execute before any Git process starts.
+        }
+        return deriveGitSandboxAccess(this.workspaceRoot, input.repoPath, "write", extraFiles);
     }
 
     async execute(
@@ -447,6 +493,7 @@ export class GitWorktreeRemoveTool implements Tool<typeof GIT_WORKTREE_REMOVE_IN
         }
 
         const canonicalTarget = await realpath(targetResolved);
+        const targetPaths = await resolveGitWorktreeTargetPaths(repoPath, canonicalTarget);
 
         // 1. 禁止移除主工作树
         if (canonicalTarget === repoInfo.workspaceRoot) {
@@ -469,12 +516,23 @@ export class GitWorktreeRemoveTool implements Tool<typeof GIT_WORKTREE_REMOVE_IN
             };
         }
 
+        const authorizationFailure = await gitSandboxAuthorizationFailure({
+            request,
+            workspaceRoot: this.workspaceRoot,
+            repoInfo,
+            access: "write",
+            enableSeatbelt: this.enableSeatbelt,
+            extraWritePaths: [targetPaths.parentPath, targetPaths.targetPath],
+        });
+        if (authorizationFailure !== undefined) return authorizationFailure;
+
         // 3. 严格安全检查：检查是否存在未提交修改、未跟踪文件或未保存改动
         // 使用 status --porcelain -uall 检查包括未跟踪文件
         const statusCheck = await runRestrictedGit({
             repoPath: canonicalTarget,
             args: ["status", "--porcelain", "-uall"],
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -502,6 +560,7 @@ export class GitWorktreeRemoveTool implements Tool<typeof GIT_WORKTREE_REMOVE_IN
             repoPath,
             args: ["worktree", "list", "--porcelain"],
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 
@@ -515,12 +574,12 @@ export class GitWorktreeRemoveTool implements Tool<typeof GIT_WORKTREE_REMOVE_IN
         }
 
         // 5. 执行安全移除（绝不传入 --force）
-        const parentDir = dirname(canonicalTarget);
         const res = await runRestrictedGitWrite({
             repoPath,
             args: ["worktree", "remove", "--", canonicalTarget],
-            extraWritePaths: [parentDir, canonicalTarget],
+            extraWritePaths: [targetPaths.parentPath, targetPaths.targetPath],
             enableSeatbelt: this.enableSeatbelt,
+            authorization: createGitSandboxAuthorization(request, this.workspaceRoot),
             signal: control?.signal,
         });
 

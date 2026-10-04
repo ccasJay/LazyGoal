@@ -26,7 +26,7 @@ export interface SeatbeltPolicyOptions {
     readonly canonicalWorkspaceRoot: string;
     /** 本次受限命令专用的私有临时目录。 */
     readonly privateTmpDir: string;
-    /** 需要拒绝写入的受保护路径（如 .git 及其真实 gitdir 目标）。 */
+    /** 需要拒绝写入的受保护路径（如 .git 指针、真实 gitdir 与共享 commondir）。 */
     readonly protectedPaths?: readonly string[];
     /** 额外允许读取的文件或目录规范化路径。 */
     readonly extraReadPaths?: readonly string[];
@@ -110,10 +110,10 @@ export function getSandboxProtectionStatus(
  * 递归/规范化解析项目内 Git 元数据的真实路径以供保护。
  *
  * @remarks
- * 支持主仓库（.git 为目录）与 worktree（.git 为指向 gitdir 的文件）。
+ * 支持主仓库（.git 为目录）与 worktree（.git 为指向 gitdir 的文件），并解析 worktree 的 `commondir`。
  *
  * @param workspaceRoot - 当前工作区根目录。
- * @returns 需要禁止写入的所有规范化路径（包含 .git 及真实的外部 gitdir 路径）。
+ * @returns 需要禁止普通命令写入的规范化路径（包含 .git、真实 gitdir 与共享 commondir）。
  *
  * @example
  * ```ts
@@ -128,6 +128,7 @@ export async function resolveGitProtectionPaths(
 
     try {
         const stats = await stat(gitPath);
+        let gitDirPath = gitPath;
         if (stats.isFile()) {
             // worktree 场景，内容形如 "gitdir: /path/to/.git/worktrees/<name>"
             const content = await readFile(gitPath, "utf8");
@@ -138,21 +139,37 @@ export async function resolveGitProtectionPaths(
                     ? rawGitDir
                     : resolve(workspaceRoot, rawGitDir);
                 try {
-                    const canonicalGitDir = await realpath(resolvedGitDir);
-                    protectedPaths.push(canonicalGitDir);
+                    gitDirPath = await realpath(resolvedGitDir);
                 } catch {
-                    protectedPaths.push(resolvedGitDir);
+                    gitDirPath = resolvedGitDir;
                 }
+                protectedPaths.push(gitDirPath);
             }
         } else if (stats.isDirectory()) {
             try {
-                const canonicalGitPath = await realpath(gitPath);
-                if (!protectedPaths.includes(canonicalGitPath)) {
-                    protectedPaths.push(canonicalGitPath);
-                }
+                gitDirPath = await realpath(gitPath);
+                protectedPaths.push(gitDirPath);
             } catch {
                 // 保留 gitPath
             }
+        }
+
+        // 链接 worktree 的 gitdir 通过 commondir 指向共享 refs/objects/config。
+        // 普通 Bash 与受管进程不能继承 Git Tool 对该共享目录的写授权。
+        try {
+            const rawCommonDir = (await readFile(join(gitDirPath, "commondir"), "utf8")).trim();
+            if (rawCommonDir !== "") {
+                const resolvedCommonDir = isAbsolute(rawCommonDir)
+                    ? rawCommonDir
+                    : resolve(gitDirPath, rawCommonDir);
+                try {
+                    protectedPaths.push(await realpath(resolvedCommonDir));
+                } catch {
+                    protectedPaths.push(resolvedCommonDir);
+                }
+            }
+        } catch {
+            // 主仓库没有 commondir 文件；gitdir 本身已是共享元数据目录。
         }
     } catch {
         // .git 不存在时保留默认路径
