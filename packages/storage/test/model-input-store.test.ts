@@ -13,7 +13,7 @@ test("model input store reuses unchanged bodies across calls and restart without
         const first: ModelInputRecord = { goalId: "goal-1", runId: "run-1", callId: "call-1", executionUnitId: "unit-1", stage: "decide", stepIndex: 1, occurredAt: new Date().toISOString(), messages: [
             { role: "system", source: "system", content: "system\n" + "z".repeat(100_000) }, { role: "user", source: "conversation", content: "inspect architecture" },
         ] };
-        const second = { ...first, callId: "call-2", stepIndex: 2 };
+        const second = { ...first, callId: "call-2", stepIndex: 2, stage: "completion_review" as const };
         const third = { ...first, callId: "call-3", messages: [{ ...first.messages[0]!, content: "changed system" }, first.messages[1]!] };
         await Promise.all([store.append(first), store.append(second), store.append(third)]);
         const runPath = join(directory, Buffer.from("goal-1").toString("base64url"), Buffer.from("run-1").toString("base64url"));

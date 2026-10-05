@@ -66,6 +66,7 @@ class MemoryTrajectoryStore implements TrajectoryStore {
 }
 
 class RecordingStepExecutor implements StepExecutor {
+    async reviewCompletion() { return { kind: "accept" as const }; }
     readonly inputs: StepExecutionInput[] = [];
     private index = 0;
 

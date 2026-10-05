@@ -190,7 +190,7 @@ test("a pre-effect event append failure stops before Tool execution and new Snap
         trajectoryStore: sink,
         store,
         toolRegistry: { get: () => createToolRegistration(tool) },
-        executor: createStepExecutor(async () => toolDecision()),
+        executor: createStepExecutor(async () => toolDecision(), async () => ({ kind: "accept" })),
     });
     await assert.rejects(
         runner.run({ goalId: goal.id, runId: goal.state.run.id }),
@@ -214,7 +214,7 @@ test("a failed Tool keeps tool_started but never fabricates tool_finished or suc
         trajectoryStore: sink,
         store,
         toolRegistry: { get: () => createToolRegistration(tool) },
-        executor: createStepExecutor(async () => toolDecision()),
+        executor: createStepExecutor(async () => toolDecision(), async () => ({ kind: "accept" })),
     });
 
     const result = await runner.run({ goalId: goal.id, runId: goal.state.run.id });
@@ -250,7 +250,7 @@ test("an Observation append failure keeps the durable pending Action and prior f
         trajectoryStore: sink,
         store,
         toolRegistry: { get: () => createToolRegistration(tool) },
-        executor: createStepExecutor(async () => toolDecision()),
+        executor: createStepExecutor(async () => toolDecision(), async () => ({ kind: "accept" })),
     });
 
     await assert.rejects(
@@ -284,7 +284,7 @@ test("a Tool without a result records an execution error without a fabricated fi
         trajectoryStore: sink,
         store,
         toolRegistry: { get: () => createToolRegistration(toolWithoutResult()) },
-        executor: createStepExecutor(async () => toolDecision()),
+        executor: createStepExecutor(async () => toolDecision(), async () => ({ kind: "accept" })),
     });
 
     const result = await runner.run({ goalId: goal.id, runId: goal.state.run.id });
@@ -304,7 +304,7 @@ test("a marker append failure preserves the saved Snapshot and reports a diagnos
         trajectoryStore: sink,
         store,
         traceSink,
-        executor: createStepExecutor(async () => ({ kind: "complete", completionEvidence: [], summary: "done" })),
+        executor: createStepExecutor(async () => ({ kind: "complete", completionEvidence: [], summary: "done" }), async () => ({ kind: "accept" })),
     });
 
     await assert.rejects(

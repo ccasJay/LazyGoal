@@ -64,6 +64,7 @@ function frame(input: StepExecutionInput, stage: "decide" | "think"): Omit<Model
 }
 
 class StagedExecutor implements StepExecutor {
+    async reviewCompletion() { return { kind: "accept" as const }; }
     readonly decideHistorySizes: number[] = [];
     readonly thinkTargets: string[] = [];
     readonly committedThinkCountsSeenByDecide: number[] = [];

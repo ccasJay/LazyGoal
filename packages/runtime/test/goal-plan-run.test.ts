@@ -415,7 +415,7 @@ test("GoalPlan 提交遇到 Snapshot 或 Trajectory 故障时停在最后有效�
                         input: {},
                     },
                 };
-        });
+        }, async () => ({ kind: "accept" }));
 
         await assert.rejects(
             () => new Runner({

@@ -159,6 +159,7 @@ export type {
     ModelOutputRequest,
 } from "./model-output/factory";
 export {
+    SystemCompletionReviewDeclaration,
     SystemCompleteTaskDeclaration,
     SystemCompleteRunDeclaration,
     SystemWaitForInputDeclaration,
@@ -185,3 +186,5 @@ export {
     SystemUpdateGoalPlanInputContract,
 } from "./model-output/system-tools";
 export * from "./model-conversation";
+export { CompletionReviewResultContract } from "./model-output/completion-review";
+export type { CompletionReviewResult } from "./model-output/completion-review";

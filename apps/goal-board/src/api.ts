@@ -596,7 +596,7 @@ function isTrajectoryDetail(value: unknown): value is BrowserTrajectoryDetail {
 
 function isInputIdentity(value: unknown): value is Record<string, unknown> {
   return isRecord(value) && isNonEmptyString(value.callId) && isNonEmptyString(value.goalId) && isNonEmptyString(value.runId)
-    && (value.stage === "think" || value.stage === "decide") && Number.isSafeInteger(value.stepIndex) && Number(value.stepIndex) > 0
+    && (value.stage === "think" || value.stage === "decide" || value.stage === "completion_review") && Number.isSafeInteger(value.stepIndex) && Number(value.stepIndex) > 0
     && typeof value.occurredAt === "string" && (value.executionUnitId === undefined || isNonEmptyString(value.executionUnitId));
 }
 function isInputMessage(value: unknown): value is Record<string, unknown> {

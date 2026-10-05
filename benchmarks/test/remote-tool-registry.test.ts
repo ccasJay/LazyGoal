@@ -157,7 +157,7 @@ test("真实 Runner 驱动远端代理执行工具，宿主同名工具不被调
             summary: "Remote read verified",
             evidenceSequences: [latestObservation.sequence],
         };
-    });
+    }, async () => ({ kind: "accept" }));
 
     const runner = new Runner({
         store,
@@ -239,7 +239,7 @@ test("Worker 响应身份不符时中止执行并保留检查点", async () => {
                 input: { path: "test.txt" },
             },
         };
-    });
+    }, async () => ({ kind: "accept" }));
 
     const runner = new Runner({
         store,
@@ -295,7 +295,7 @@ test("连接断开时中止执行并保留检查点", async () => {
                 input: { path: "test.txt" },
             },
         };
-    });
+    }, async () => ({ kind: "accept" }));
 
     const runner = new Runner({
         store,

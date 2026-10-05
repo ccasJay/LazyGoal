@@ -206,7 +206,7 @@ test("Runner 将规范化请求直接交给 invokeContextLookup", async () => {
             summary: "完成",
             completionEvidence: [],
         };
-    });
+    }, async () => ({ kind: "accept" }));
 
     const runner = new Runner({
         store,

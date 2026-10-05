@@ -215,6 +215,7 @@ function completionAdapter(): LLMAdapter {
     return {
         structuredOutputMode: "strict",
         generate: async (request) => {
+        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
             calls += 1;
             if (calls === 1) return { content: JSON.stringify({ result: { kind: "tool_discovery", query: "write file" } }) };
             if (calls === 2) return { content: JSON.stringify({ result: toolDecision("write-1") }) };

@@ -66,6 +66,7 @@ test("ApplyPatchTool manual 重放策略在崩溃中断后进入 manual 恢复�
         // 模拟执行决策
         let executedTimes = 0;
         const executor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" as const }; },
             async execute() {
                 executedTimes += 1;
                 return {

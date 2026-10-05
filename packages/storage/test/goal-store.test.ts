@@ -1124,7 +1124,7 @@ test("JsonFileGoalStore preserves filesystem errors and cleans failed temp files
                     completionEvidence: [],
                     summary: "不应执行",
                 };
-            }),
+            }, async () => ({ kind: "accept" })),
         });
 
         await assert.rejects(
@@ -1221,7 +1221,7 @@ test("a cross-process waiting Goal resumes with its run and latest snapshot", as
                     completionEvidence: [],
                     summary: "跨进程恢复后完成",
                 };
-            }),
+            }, async () => ({ kind: "accept" })),
         });
         const ref = { goalId: goal.id, runId: goal.state.run.id };
 

@@ -72,6 +72,7 @@ type ExecuteAction = (
 ) => AgentDecision | Promise<AgentDecision>;
 
 class FakeStepExecutor implements StepExecutor {
+    async reviewCompletion() { return { kind: "accept" as const }; }
     readonly receivedGoals: Goal[] = [];
     readonly receivedInputs: StepExecutionInput[] = [];
 
@@ -105,6 +106,7 @@ class FakeStepExecutor implements StepExecutor {
 }
 
 class FakeDecisionExecutor implements StepExecutor {
+    async reviewCompletion() { return { kind: "accept" as const }; }
     readonly receivedTools: ToolDefinition[][] = [];
     readonly receivedFeedback: (RuntimeFeedback | undefined)[] = [];
 
@@ -127,6 +129,7 @@ class FakeDecisionExecutor implements StepExecutor {
 }
 
 class SequenceDecisionExecutor implements StepExecutor {
+    async reviewCompletion() { return { kind: "accept" as const }; }
     readonly receivedGoals: Goal[] = [];
     private index = 0;
 
@@ -541,7 +544,7 @@ test("retries only typed transient model failures and caps the model call sequen
         calls += 1;
         if (calls < 3) throw new TransientModelRequestFailure("service_unavailable", { status: 503 });
         return { kind: "complete", summary: "完成", completionEvidence: [] };
-    });
+    }, async () => ({ kind: "accept" }));
     const trajectory = trajectoryStoreFor(store);
     const runner = new Runner({ store, executor, trajectoryStore: trajectory });
 
@@ -691,6 +694,7 @@ test("retries the same staged Decide call without advancing the Step", async () 
     await store.save(initial);
     let decideCalls = 0;
     const executor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" as const }; },
         async execute() {
             assert.fail("staged executor must not use execute()");
         },
@@ -725,7 +729,7 @@ test("records stable causes and stops after three transient model request failur
         throw new TransientModelRequestFailure(calls === 2 ? "rate_limited" : "service_unavailable", {
             status: calls === 2 ? 429 : 503,
         });
-    });
+    }, async () => ({ kind: "accept" }));
     const trajectory = trajectoryStoreFor(store);
     const runner = new Runner({ store, executor, trajectoryStore: trajectory });
 
@@ -754,7 +758,7 @@ test("cancelling model backoff prevents the next model request", async () => {
     const executor: StepExecutor = createStepExecutor(async () => {
         calls += 1;
         throw new TransientModelRequestFailure("rate_limited", { status: 429 });
-    });
+    }, async () => ({ kind: "accept" }));
     const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
     const controller = new AbortController();
     const cancelTimer = setTimeout(() => controller.abort(), 20);
@@ -1518,7 +1522,7 @@ test("Runner 在 Profile 授权校验前不访问 Registry 或 Tool", async () =
     assert.deepEqual(state.stopReason, {
         kind: "execution_error",
         code: "INVALID_AGENT_DECISION",
-        message: "Model output correction exhausted after three decide calls (TOOL_NOT_AUTHORIZED)",
+        message: "Model output correction exhausted after three decide attempts (TOOL_NOT_AUTHORIZED)",
     });
     assert.equal(registryCalls, 0);
     assert.equal(validateCalls, 0);
@@ -1556,7 +1560,7 @@ test("Runner 对 Profile 已授权但未注册的 Tool 返回 TOOL_NOT_FOUND", a
     assert.deepEqual(state.stopReason, {
         kind: "execution_error",
         code: "INVALID_AGENT_DECISION",
-        message: "Model output correction exhausted after three decide calls (TOOL_NOT_FOUND)",
+        message: "Model output correction exhausted after three decide attempts (TOOL_NOT_FOUND)",
     });
     assert.deepEqual(executor.receivedTools, [[], [], []]);
 });
@@ -1610,7 +1614,7 @@ test("Runner 在 Tool 外部作用前拒绝非法输入", async () => {
     assert.deepEqual(state.stopReason, {
         kind: "execution_error",
         code: "INVALID_AGENT_DECISION",
-        message: "Model output correction exhausted after three decide calls (INVALID_TOOL_INPUT)",
+        message: "Model output correction exhausted after three decide attempts (INVALID_TOOL_INPUT)",
     });
     assert.equal(executeCalls, 0);
     assert.deepEqual(executor.receivedFeedback[1]?.issues, [{
@@ -1729,7 +1733,7 @@ test("Runner 将非法 sandboxAccess 的字段诊断送回模型并接受修正�
                     : { command: "git log -5 --oneline" },
             },
         };
-    });
+    }, async () => ({ kind: "accept" }));
 
     const result = await new Runner({
         store,
@@ -1775,7 +1779,7 @@ test("Runner 在一次准备中隔离原始输入，并让 Policy、Action 事�
                 completionEvidence: [],
                 summary: "完成",
             };
-    });
+    }, async () => ({ kind: "accept" }));
     let validateCalls = 0;
     let policyCalls = 0;
     let executeCalls = 0;
@@ -1948,7 +1952,7 @@ test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async (
                 input: { path: "README.md" },
             },
         };
-    });
+    }, async () => ({ kind: "accept" }));
     const registry: ToolRegistry = {
         get: (toolId) => {
             events.push(`registry:${toolId}`);
@@ -2024,7 +2028,7 @@ test("Runner 在 Policy 要求审批时允许匹配的 workspace Grant 放行同
             return executorCalls === 1
                 ? { kind: "tool_call", action }
                 : { kind: "complete", completionEvidence: [], summary: "完成" };
-        }),
+        }, async () => ({ kind: "accept" })),
         toolRegistry: {
             get() {
                 return createToolRegistration({
@@ -3072,7 +3076,7 @@ test("Runner 声明匹配：工具标识不匹配时拒绝 complete 并返回明
         assert.equal(state.stopReason.code, "INVALID_AGENT_DECISION");
         assert.match(
             state.stopReason.message,
-            /exhausted after three decide calls/u,
+            /exhausted after three decide attempts/u,
         );
     }
 });
@@ -3137,7 +3141,7 @@ test("Runner 声明匹配：expect failure 引用 success 观察时被拒（Req 
         assert.equal(state.stopReason.code, "INVALID_AGENT_DECISION");
         assert.match(
             state.stopReason.message,
-            /exhausted after three decide calls/u,
+            /exhausted after three decide attempts/u,
         );
     }
 });
@@ -3203,7 +3207,7 @@ test("Runner 声明匹配：expect success 引用 failure 观察时被拒", asyn
         assert.equal(state.stopReason.code, "INVALID_AGENT_DECISION");
         assert.match(
             state.stopReason.message,
-            /exhausted after three decide calls/u,
+            /exhausted after three decide attempts/u,
         );
     }
 });

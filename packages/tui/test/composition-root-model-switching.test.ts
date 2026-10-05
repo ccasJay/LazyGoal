@@ -460,6 +460,7 @@ test("浏览器推进交替恢复各 Goal 的模型绑定，不串用上一个 G
 class CompleteAdapter extends FakeAdapter {
     override async generate(request: LLMRequest): Promise<LLMResponse> {
         this.calls.push(request);
+        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
         return { content: JSON.stringify({ result: { kind: "complete", summary: `done by ${this.modelId}`, evidenceSequences: [], memoryPatch: null } }) };
     }
 }

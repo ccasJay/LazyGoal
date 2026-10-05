@@ -53,6 +53,7 @@ function setup(code: string, tool?: ReturnType<typeof createToolRegistration>, c
         ? { kind: "complete" as const, summary: "Done", completionEvidence: [] }
         : { kind: "tool_call" as const, action: { actionId: "parent", toolId: "execute_program", input: { code } } };
     const executor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" as const }; },
         async execute() { return decision(); },
         async decide() { return { kind: "decision", decision: decision() }; },
         async think() { throw new Error("Unexpected Think"); },

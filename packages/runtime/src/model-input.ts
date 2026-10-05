@@ -25,7 +25,8 @@ export interface ModelInputRecord {
     readonly callId: string;
     readonly executionUnitId?: string;
     readonly stepIndex: number;
-    readonly stage: "think" | "decide";
+    /** completion_review 是 Decide 内的独立审查调用，不是新的 Run 恢复阶段。 */
+    readonly stage: "think" | "decide" | "completion_review";
     readonly occurredAt: string;
     readonly messages: readonly ModelInputMessage[];
 }

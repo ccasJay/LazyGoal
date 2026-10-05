@@ -21,6 +21,7 @@ import {
     AskUserQuestionInputContract,
 } from "./canonical";
 import { ModelOutputContractDefinitionError } from "./errors";
+import { CompletionReviewResultContract, validateCompletionReviewResult, type CompletionReviewResult } from "./completion-review";
 import { compileModelOutputSchema } from "./provider-schema";
 import { deriveWireContract } from "./wire";
 import type { AuthorizedToolContract } from "./factory";
@@ -252,9 +253,17 @@ export const SystemUpdateGoalPlanInputContract = contract.object({
 // 2. 独立系统函数声明实例
 // =========================================================================
 
+/** 完成审查专用声明；不授予业务工具或 Runtime 状态转换能力。 */
+export const SystemCompletionReviewDeclaration: SystemToolDeclaration<CompletionReviewResult> = buildDeclaration(
+    "system_review_completion",
+    "Accept only a complete, supported user-facing deliverable. Otherwise reject with the concrete missing deliverable or evidence and what needs correction. Do not rewrite the answer or execute tools.",
+    contract.object({ result: CompletionReviewResultContract }),
+    (args: { result: CompletionReviewResult }): CompletionReviewResult => validateCompletionReviewResult(args.result),
+);
+
 export const SystemCompleteTaskDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_complete_task",
-    "Declare completion only after every approved criterion is satisfied. Provide a summary and committed Tool/Observation evidence; partial progress or unverified results are not completion.",
+    "Submit a completion candidate only after every approved criterion is satisfied. summary is the full user-facing answer or deliverable, including requested findings, supporting details and recommendations, not a status recap. Cite committed Tool/Observation evidence; partial progress or unverified results are not completion.",
     SystemCompleteTaskInputContract,
     (args: { summary: string; completionEvidence: CompletionEvidence[]; memoryPatch?: unknown }): AgentDecision => ({
         kind: "complete",
@@ -266,7 +275,7 @@ export const SystemCompleteTaskDeclaration: SystemToolDeclaration<AgentDecision>
 
 export const SystemCompleteRunDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_complete_task",
-    "Declare that the current Run's user request is complete. Cite current Run committed Tool/Observation evidence when available; do not cite user answers or historical facts.",
+    "Submit a completion candidate for the current Run's user request. summary is the full user-facing answer or deliverable, not a recap that analysis was performed. Include requested findings, supporting details and recommendations; keep simple answers brief. Cite current Run committed Tool/Observation evidence when available; do not cite user answers or historical facts.",
     SystemCompleteRunInputContract,
     (args: { summary: string; evidenceSequences: number[]; memoryPatch?: unknown }): AgentDecision => ({
         kind: "complete",

@@ -67,10 +67,10 @@ function nativeFixtureMessage(content: string, id: string) {
         : kind === "ask_user" ? "ask_user"
         : kind === "task_proposal" ? "system_propose_task_plan"
         : kind === "tool_discovery" ? "system_find_tools"
-        : "system_complete_task";
+        : kind === "accept" ? "system_review_completion" : "system_complete_task";
     return { role: "assistant", content: "", tool_calls: [{ id, type: "function", function: {
         name,
-        arguments: JSON.stringify(kind === "tool_call" ? args.action.input : kind === "tool_discovery" ? { query: args.query } : args),
+        arguments: JSON.stringify(kind === "tool_call" ? args.action.input : kind === "tool_discovery" ? { query: args.query } : kind === "accept" ? { result: { kind } } : args),
     } }] };
 }
 
@@ -155,6 +155,7 @@ test("Composition Root carries Memory through task approval into Executing", asy
                 memoryPatch: null,
             },
         }),
+        JSON.stringify({ result: { kind: "accept" } }),
     ];
     const requests: CapturedRequest[] = [];
     const server = createServer((request, response) => {
@@ -321,10 +322,10 @@ test("Composition Root carries Memory through task approval into Executing", asy
         if (completedView.phase !== "executing" || completedView.terminal?.status !== "completed") {
             throw new Error("Expected the current workflow to complete");
         }
-        if (requests.length !== 6) {
-            throw new Error(`Expected 6 requests, got ${requests.length}`);
+        if (requests.length !== 7) {
+            throw new Error(`Expected 7 requests, got ${requests.length}`);
         }
-        for (const request of requests) {
+        for (const request of requests.slice(0, -1)) {
             const content = systemContent(request);
             if (!content.includes("structured@1")
                 || !content.includes("trajectory-layered@1")
@@ -335,6 +336,10 @@ test("Composition Root carries Memory through task approval into Executing", asy
                 throw new Error("Current prompts must not expose checkpoint Decisions");
             }
         }
+
+        const reviewControl = controlPayload(requests[6]!);
+        assert.equal(reviewControl.source, "runtime_completion_candidate");
+        assert.equal(reviewControl.candidate.summary, "The current workflow completed");
 
         const executingControl = controlPayload(requests[5]!);
         const executingSystem = systemContent(requests[5]!);

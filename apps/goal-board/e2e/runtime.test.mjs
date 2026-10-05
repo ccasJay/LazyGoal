@@ -159,7 +159,7 @@ test("real local service restores and completes one authorized Goal conversation
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 3 && status.toolCalls === 1);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 4 && status.toolCalls === 1);
     session = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.runStatus === "completed");
     assert.equal(session.pendingAction, undefined);
     assert.ok(session.runs.find((run) => run.current)?.steps.some((step) => step.toolId === "browser_fixture_write" && step.status === "completed"));
@@ -193,6 +193,13 @@ test("real local service restores and completes one authorized Goal conversation
     const inputs = await api(restarted.origin, `/api/goals/${goalId}/model-inputs?runId=${firstRunId}`, { token: restarted.token });
     assert.equal(inputs.response.status, 200);
     assert.ok(inputs.body.calls.length > 0);
+    const reviewCall = inputs.body.calls.find(call => call.stage === "completion_review");
+    assert.ok(reviewCall, "The completed Run retains its independent review input");
+    const reviewInput = await api(restarted.origin, `/api/goals/${goalId}/model-inputs?runId=${firstRunId}&callId=${reviewCall.callId}`, { token: restarted.token });
+    assert.equal(reviewInput.response.status, 200);
+    const candidate = JSON.parse(reviewInput.body.call.messages.at(-1).content).candidate;
+    assert.equal(candidate.summary, "The controlled action completed.");
+    assert.ok(session.messages.some(message => message.role === "assistant" && message.content === candidate.summary));
     const inputCall = inputs.body.calls.find(call => call.executionUnitId === toolStep.executionUnitId);
     assert.ok(inputCall);
     const completeInput = await api(restarted.origin, `/api/goals/${goalId}/model-inputs?runId=${firstRunId}&callId=${inputCall.callId}`, { token: restarted.token });
@@ -238,7 +245,7 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
       returnByValue: true,
     });
-    await waitForStatus(statusPath, (status) => status.modelCalls === 4 && status.toolCalls === 1);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 6 && status.toolCalls === 1);
     session = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.runStatus === "completed" && candidate.currentRunId !== firstRunId);
     assert.equal(session.runs.length, 2);
     assert.ok(session.messages.some((message) => message.role === "user" && message.content === "Record one follow-up note"));
@@ -266,14 +273,14 @@ test("real local service restores and completes one authorized Goal conversation
     await waitForExpression(socket, "document.querySelector('.session-intro')?.innerText.includes('Plan Mode')", 10_000);
     emptyList = await api(restarted.origin, "/api/goals", { token: restarted.token });
     assert.equal(emptyList.body.goals.length, 1, "draft /plan does not persist a Goal");
-    assert.deepEqual(await readStatus(statusPath), { modelCalls: 4, toolCalls: 1 });
+    assert.deepEqual(await readStatus(statusPath), { modelCalls: 6, toolCalls: 1 });
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Plan flow: inspect and complete the acceptance path");
     await cdp(socket, "Runtime.evaluate", {
       expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Approve the deterministic plan-flow task?')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 5 && status.toolCalls === 1);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 7 && status.toolCalls === 1);
     const approvedList = await api(restarted.origin, "/api/goals", { token: restarted.token });
     assert.equal(approvedList.response.status, 200, JSON.stringify(approvedList.body));
     const planWaiting = approvedList.body.goals.some((goal) => goal.intent.includes("Plan flow") && goal.runStatus === "waiting");
@@ -295,7 +302,7 @@ test("real local service restores and completes one authorized Goal conversation
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Approve once')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 6 && status.toolCalls === 1);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 8 && status.toolCalls === 1);
     const planActionSession = await waitForSession(
       restarted.origin,
       restarted.token,
@@ -307,7 +314,7 @@ test("real local service restores and completes one authorized Goal conversation
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 7 && status.toolCalls === 2);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 10 && status.toolCalls === 2);
     const completedPlanSession = await waitForSession(
       restarted.origin,
       restarted.token,
@@ -331,7 +338,7 @@ test("real local service restores and completes one authorized Goal conversation
     const nextPlan = await api(restarted.origin, `/api/goals/${completedPlanSession.goalId}`, { token: restarted.token });
     assert.equal(nextPlan.body.goal.nextRunMode, "plan");
     assert.equal(nextPlan.body.goal.messages.some((message) => message.content === "/plan"), false);
-    assert.deepEqual(await readStatus(statusPath), { modelCalls: 7, toolCalls: 2 });
+    assert.deepEqual(await readStatus(statusPath), { modelCalls: 10, toolCalls: 2 });
 
     await cdp(socket, "Page.reload");
     await waitForExpression(socket, "document.readyState === 'complete' && document.querySelector('.goal-card') !== null", 10_000);

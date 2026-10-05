@@ -840,7 +840,7 @@ function assertRuntimeFeedback(value: unknown, stage: unknown, attempt: unknown)
     }
     if (![
         "response_parse", "output_contract", "decision_semantics", "tool_selection", "tool_input",
-        "completion_evidence",
+        "completion_evidence", "completion_review",
     ].includes(value.origin as string)) {
         throw new TrajectoryProtocolError(`${field}.origin is invalid`);
     }

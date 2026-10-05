@@ -63,7 +63,7 @@ export class JsonFileModelInputStore implements ModelInputStore {
             const value: unknown = JSON.parse(line);
             if (!object(value) || value.schemaVersion !== 1 || value.goalId !== goalId || value.runId !== runId
                 || typeof value.callId !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(value.callId)
-                || !["think", "decide"].includes(String(value.stage)) || !Number.isSafeInteger(value.stepIndex) || Number(value.stepIndex) < 1
+                || !["think", "decide", "completion_review"].includes(String(value.stage)) || !Number.isSafeInteger(value.stepIndex) || Number(value.stepIndex) < 1
                 || typeof value.occurredAt !== "string" || !Number.isFinite(Date.parse(value.occurredAt))
                 || value.executionUnitId !== undefined && (typeof value.executionUnitId !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(value.executionUnitId))
                 || !Array.isArray(value.messages)) throw new Error("Invalid model input manifest");

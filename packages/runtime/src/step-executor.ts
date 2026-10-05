@@ -1,4 +1,5 @@
 import type { ModelAssistantMessage } from "../../contracts/src/model-conversation";
+import type { CompletionReviewResult } from "../../contracts/src/index";
 import type {
     AgentDecision,
     Goal,
@@ -8,7 +9,7 @@ import type { ContextLookupResult } from "./context-retrieval";
 import type { ToolDefinition } from "./tool";
 import type { ExecutionControl } from "./execution-control";
 import type { ExecutionStreamPublisher } from "../../execution-stream/src/index";
-import type { ModelContextFramePayload } from "./trajectory";
+import type { ModelContextFramePayload, TrajectoryEvent } from "./trajectory";
 import type { RuntimeFeedback } from "./runtime-feedback";
 import type { ToolDiscoveryResult } from "./tool-discovery";
 
@@ -133,11 +134,26 @@ export interface StepExecutionInput {
 }
 
 /**
+ * 已通过 Runtime 契约及证据引用校验的完成候选。
+ *
+ * @remarks evidence 只包含当前已提交边界内的引用事实及其 Action 来源；正文不得截断后默认为充分。
+ * 审查不得执行 Tool、修改 Goal 或应用候选 Patch。Think 输出不作为审查证据。
+ * @example
+ * ```ts
+ * const input: CompletionReviewInput = { ...stepInput, candidate, evidence: [] };
+ * ```
+ */
+export interface CompletionReviewInput extends StepExecutionInput {
+    readonly candidate: Extract<AgentDecision, { readonly kind: "complete" }>;
+    readonly evidence: readonly TrajectoryEvent[];
+}
+
+/**
  * Agent 与 Runtime 之间的分阶段执行边界。
  *
  * @remarks
- * 实现必须接收当前 Profile 已授权的 ToolDefinition。阶段化实现必须提供 `decide()` 和 `think()`，
- * 由 Runner 管理循环和 Think 检查点。
+ * 实现必须接收当前 Profile 已授权的 ToolDefinition，并提供 Decide、Think 和完成审查。
+ * Runner 管理循环、Think 检查点及审查后的提交；complete 返回值是待审查候选。
  * 实现只应读取传入 Goal，不应自行持久化、执行 Tool 或修改它；Runner 负责状态转换、
  * 授权、Tool 编排和保存。
  *
@@ -153,10 +169,22 @@ export interface StepExecutionInput {
  *   async think() {
  *     throw new Error("unsupported");
  *   },
+ *   async reviewCompletion() { return { kind: "accept" }; },
  * };
  * ```
  */
 export interface StepExecutor {
+    /**
+     * 核查完整交付与事实支持；只返回审查结果，不执行业务工具或提交候选。
+     * @param input - Runtime 已校验的候选、当前请求和提交证据。
+     * @returns 接受或包含具体缺口的拒绝；接受后仍由 Runner 提交。
+     * @throws 模型调用、预算或协议失败时抛出；Runner 保留 Decide 纠错恢复边界。
+     * @example
+     * ```ts
+     * const result = await executor.reviewCompletion({ ...input, candidate, evidence: [] });
+     * ```
+     */
+    reviewCompletion(input: CompletionReviewInput): Promise<CompletionReviewResult>;
     /**
      * 执行一次 Decide 阶段。
      *
@@ -213,6 +241,7 @@ export interface StepExecutor {
  * 遇到未预期的 Think 阶段时抛出未支持异常。
  *
  * @param handler - 决策生成函数、决策列表或单个决策。
+ * @param reviewCompletion - 显式提供的审查实现；没有默认放行。
  * @returns 完整的阶段化 StepExecutor。
  *
  * @example
@@ -221,7 +250,7 @@ export interface StepExecutor {
  *     kind: "complete",
  *     summary: "完成",
  *     completionEvidence: [],
- * }));
+ * }), async () => ({ kind: "accept" }));
  * ```
  */
 export function createStepExecutor(
@@ -229,9 +258,11 @@ export function createStepExecutor(
         | AgentDecision
         | readonly AgentDecision[]
         | ((input: StepExecutionInput & { readonly thinkHistory?: readonly ThinkExchange[] }) => Promise<AgentDecision> | AgentDecision),
+    reviewCompletion: StepExecutor["reviewCompletion"],
 ): StepExecutor {
     if (typeof handler === "function") {
         return {
+            reviewCompletion,
             async decide(input) {
                 const decision = await handler(input);
                 return { kind: "decision", decision };
@@ -247,6 +278,7 @@ export function createStepExecutor(
     const decisions = Array.isArray(handler) ? [...handler] : [handler];
     let index = 0;
     return {
+        reviewCompletion,
         async decide() {
             const decision = decisions[index++];
             if (decision === undefined) throw new Error("no more decisions in StepExecutor");

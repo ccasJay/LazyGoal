@@ -113,7 +113,7 @@ test("Runner propagates control into an executor and preserves the last snapshot
             summary: "unreachable",
             completionEvidence: [],
         };
-    });
+    }, async () => ({ kind: "accept" }));
     const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
     const operation = runner.run(
         { goalId: goal.id, runId: goal.state.run.id },
@@ -155,7 +155,7 @@ test("Runner aborts after a model result without saving a failure", async () => 
             summary: "not persisted",
             completionEvidence: [],
         };
-    });
+    }, async () => ({ kind: "accept" }));
     const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
 
     await assert.rejects(
@@ -214,7 +214,7 @@ test("Runner keeps an approved pending Action when Tool execution is aborted", a
                 input: { value: "hello" },
             },
         };
-    });
+    }, async () => ({ kind: "accept" }));
     const runner = new Runner({
         trajectoryStore: trajectoryStoreFor(store),
         store,
@@ -280,7 +280,7 @@ test("Runner 原样传播 Contract 解析边界的 ExecutionAbortedError", async
                 kind: "tool_call" as const,
                 action: { actionId: "action-parse-abort", toolId: "echo", input },
             };
-        }),
+        }, async () => ({ kind: "accept" })),
         toolRegistry: { get: () => createToolRegistration(tool) },
     });
 
@@ -331,7 +331,7 @@ test("Runner 原样传播 Tool 语义校验边界的 ExecutionAbortedError", asy
                     input: { value: "hello" },
                 },
             };
-        }),
+        }, async () => ({ kind: "accept" })),
         toolRegistry: { get: () => createToolRegistration(tool) },
         toolPolicy: {
             evaluate: () => {
@@ -386,7 +386,7 @@ test("Runner 原样传播 Tool 执行边界的 ExecutionAbortedError 并保留 a
                     input: { value: "hello" },
                 },
             };
-        }),
+        }, async () => ({ kind: "accept" })),
         toolRegistry: { get: () => createToolRegistration(tool) },
     });
 

@@ -25,7 +25,8 @@ class BlockingReportedUsageAdapter implements LLMAdapter {
     readonly entered = deferred<void>();
     private readonly response = deferred<LLMResponse>();
 
-    async generate(_request: LLMRequest): Promise<LLMResponse> {
+    async generate(request: LLMRequest): Promise<LLMResponse> {
+        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }), providerMetadata: { usage: { inputTokens: 40, outputTokens: 3, cachedInputTokens: 0 } } };
         this.entered.resolve();
         return this.response.promise;
     }
@@ -116,9 +117,9 @@ test("组合根显式启动 HTTP 后可查询运行指标、接收更新并在�
         );
         assert.equal(updatedResponse.status, 200);
         const updatedSnapshot = await updatedResponse.json() as Record<string, unknown>;
-        assert.equal(updatedSnapshot.reportedCalls, 1);
-        assert.equal(updatedSnapshot.inputTokens, 120);
-        assert.equal(updatedSnapshot.outputTokens, 24);
+        assert.equal(updatedSnapshot.reportedCalls, 2);
+        assert.equal(updatedSnapshot.inputTokens, 160);
+        assert.equal(updatedSnapshot.outputTokens, 27);
         assert.equal(updatedSnapshot.stepCount, 1);
 
         const jsonResponse = await fetch(
@@ -127,7 +128,7 @@ test("组合根显式启动 HTTP 后可查询运行指标、接收更新并在�
         assert.equal(jsonResponse.status, 200);
         const persistedSnapshot = await jsonResponse.json() as Record<string, unknown>;
         assert.equal(persistedSnapshot.roundCount, 1);
-        assert.equal(persistedSnapshot.cacheHitRate, 5 / 120);
+        assert.equal(persistedSnapshot.cacheHitRate, 5 / 160);
 
         firstRoot.controller.dispose();
         await firstRoot.resources.closeAll();
@@ -147,9 +148,9 @@ test("组合根显式启动 HTTP 后可查询运行指标、接收更新并在�
         );
         assert.equal(restoredResponse.status, 200);
         const restoredSnapshot = await restoredResponse.json() as Record<string, unknown>;
-        assert.equal(restoredSnapshot.inputTokens, 120);
-        assert.equal(restoredSnapshot.outputTokens, 24);
-        assert.equal(restoredSnapshot.reportedCalls, 1);
+        assert.equal(restoredSnapshot.inputTokens, 160);
+        assert.equal(restoredSnapshot.outputTokens, 27);
+        assert.equal(restoredSnapshot.reportedCalls, 2);
         assert.equal(restoredSnapshot.stepCount, 1);
     } finally {
         adapter.finish();
