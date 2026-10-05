@@ -462,12 +462,14 @@ function App() {
                 break;
               }
               case "model_started":
+                setLiveText("");
                 setLiveActivity("Runtime is working on this Goal");
                 break;
               case "model_completed":
                 setLiveActivity("Waiting for the saved result");
                 break;
               case "step_started":
+                setLiveText("");
                 setLiveActivity("A new execution step has started");
                 break;
               case "tool_started":
@@ -947,7 +949,7 @@ function App() {
                             setFollow(element.scrollHeight - element.scrollTop - element.clientHeight < 60);
                           }}
                         >
-                          {session.historyTruncated && <div className="history-note">Some earlier history is omitted.</div>}
+                          {session.historyTruncated && <div className="history-note">Some session content is omitted.</div>}
                           {session.messages.length === 0 && <div className="timeline-date"><span />No saved messages<span /></div>}
                           {renderMessages(session.messages.filter((message) =>
                             message.runId === undefined || !session.runs.some((run) => run.runId === message.runId),

@@ -9,7 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
-const serviceEntry = join(repositoryRoot, "prototypes/goal-board/e2e/test-service.ts");
+const serviceEntry = join(repositoryRoot, "apps/goal-board/e2e/test-service.ts");
 
 test("real local service restores and completes one authorized Goal conversation", { timeout: 120_000 }, async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "lazygoal-browser-runtime-e2e-"));

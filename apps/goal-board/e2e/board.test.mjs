@@ -69,6 +69,8 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.match(await value(socket, "document.querySelector('.session').innerText"), /Live response/);
     assert.match(await value(socket, "document.querySelector('.session').innerText"), /Not saved yet/);
     assert.doesNotMatch(await value(socket, "document.querySelector('.session').innerText"), /Run completed/);
+    await waitForExpression(socket, "document.querySelector('.transient-message h1')?.textContent === 'Reviewing result…'");
+    assert.doesNotMatch(await value(socket, "document.querySelector('.transient-message').innerText"), /Checking saved notes/);
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which source should I use?')");
     const conversationBounds = await value(socket, "(() => { const timeline = document.querySelector('.run-timeline').getBoundingClientRect(); const composer = document.querySelector('.composer-area .approval').getBoundingClientRect(); return { timelineWidth: timeline.width, composerWidth: composer.width, centerGap: Math.abs((timeline.left + timeline.right - composer.left - composer.right) / 2) }; })()");
     assert.ok(conversationBounds.timelineWidth <= 800 && conversationBounds.composerWidth <= 800);
@@ -562,6 +564,7 @@ function createMockApi() {
       });
       if (!liveTransitionSent) {
         liveTransitionSent = true;
+        response.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "model_started" } })}\n\n`);
         response.write(`data: ${JSON.stringify({
           goalId: "goal-1",
           runId: "run-1",
@@ -569,11 +572,15 @@ function createMockApi() {
           activity: { kind: "assistant_text_delta", text: "# Checking saved notes…\n", truncated: false },
         })}\n\n`);
         const timer = setTimeout(() => {
+          response.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "model_started" } })}\n\n`);
+          response.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "assistant_text_delta", text: "# Reviewing result…\n", truncated: false } })}\n\n`);
+        }, 120);
+        const settle = setTimeout(() => {
           session = interactionSession();
           currentListItem = listItem("waiting");
           response.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "snapshot_changed" })}\n\n`);
-        }, 120);
-        request.on("close", () => clearTimeout(timer));
+        }, 240);
+        request.on("close", () => { clearTimeout(timer); clearTimeout(settle); });
       }
       return;
     }

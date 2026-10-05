@@ -142,11 +142,74 @@ function hasValidBearerToken(header: string | null, expectedToken: string): bool
     return provided.length === expected.length && timingSafeEqual(provided, expected);
 }
 
+const UNBUILT_FALLBACK_HTML = `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LazyGoal WebUI 尚未构建</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #17181b;
+      color: #dfe2e8;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+    }
+    .card {
+      background: #20242c;
+      border: 1px solid #363e4b;
+      border-radius: 8px;
+      padding: 32px 40px;
+      max-width: 540px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      text-align: center;
+    }
+    h1 {
+      font-size: 20px;
+      margin-top: 0;
+      margin-bottom: 12px;
+      color: #e5afb7;
+    }
+    p {
+      font-size: 14px;
+      color: #9ba3b2;
+      line-height: 1.6;
+      margin-bottom: 20px;
+    }
+    code {
+      display: inline-block;
+      background: #14171d;
+      border: 1px solid #2e3542;
+      border-radius: 4px;
+      padding: 8px 16px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 13px;
+      color: #8bc7ab;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>WebUI 尚未构建</h1>
+    <p>前端静态资产文件未生成。请在项目根目录运行以下构建命令后刷新本页面：</p>
+    <code>npm run build:web</code>
+  </div>
+</body>
+</html>`;
+
 /**
  * 创建只提供页面根文档和构建资源的静态路由。
  *
+ * @remarks
+ * 当根文档 `index.html` 存在时正常返回；若缺失则降级返回内置友好的构建引导页面。
+ * 其他静态资源不存在或路径越界时均返回 404。
+ *
  * @param assetDirectory - 包含 `index.html` 和可选 `assets/` 子目录的只读目录。
- * @returns 可挂载到 `HttpService` 的静态路由；路径越界与不存在的资源均返回 404。
+ * @returns 可挂载到 `HttpService` 的静态路由。
  * @example
  * ```ts
  * const routes = createBrowserStaticRoutes("/app/dist");
@@ -156,7 +219,13 @@ function hasValidBearerToken(header: string | null, expectedToken: string): bool
 export function createBrowserStaticRoutes(assetDirectory: string): Hono {
     const routes = new Hono();
 
-    routes.get("/", async (context) => serveFile(context, assetDirectory, "index.html"));
+    routes.get("/", async (context) => {
+        const response = await serveFile(context, assetDirectory, "index.html");
+        if (response.status === 404) {
+            return context.html(UNBUILT_FALLBACK_HTML, 200);
+        }
+        return response;
+    });
     routes.get("/favicon.ico", async (context) => serveFile(context, assetDirectory, "favicon.ico"));
     routes.get("/assets/*", async (context) => {
         let relativePath: string;

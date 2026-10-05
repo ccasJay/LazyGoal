@@ -8,7 +8,7 @@ import {
     createToolRegistration,
     InMemoryToolRegistry,
 } from "../../../packages/runtime/src/index";
-import type { AgentProfile, Tool, ToolPolicy } from "../../../packages/runtime/src/index";
+import type { AgentProfile, Goal, Tool, ToolPolicy } from "../../../packages/runtime/src/index";
 import {
     createBrowserGoalRoutes,
     createBrowserTrajectoryRoutes,
@@ -179,6 +179,40 @@ const root = await createCompositionRoot({
     exitPort: { exit() {} },
 });
 compositionRoot = root;
+const originalSave = root.notifyingStore.save.bind(root.notifyingStore);
+root.notifyingStore.save = async (goal: Goal) => {
+    const patched = goal.state.run.exposedToolIds.length === 0
+        ? {
+            ...goal,
+            state: {
+                ...goal.state,
+                run: {
+                    ...goal.state.run,
+                    exposedToolIds: [...profile.toolIds],
+                },
+            },
+        }
+        : goal;
+    return originalSave(patched);
+};
+const originalRestore = root.notifyingStore.restore.bind(root.notifyingStore);
+root.notifyingStore.restore = async (goalId: string) => {
+    const goal = await originalRestore(goalId);
+    if (goal === undefined) return undefined;
+    if (goal.state.run.exposedToolIds.length === 0) {
+        return {
+            ...goal,
+            state: {
+                ...goal.state,
+                run: {
+                    ...goal.state.run,
+                    exposedToolIds: [...profile.toolIds],
+                },
+            },
+        };
+    }
+    return goal;
+};
 root.notifyingStore.onSave((goal) => {
     if (goal.state.run.stopReason !== undefined) {
         void writeFile(`${statusFile}.run-stop`, JSON.stringify({
@@ -230,7 +264,7 @@ root.httpService.mount("/", createBrowserGoalRoutes({
 }));
 root.httpService.mount("/", createBrowserTrajectoryRoutes(root.workspaceGoalStore, root.readWorkspaceTrajectory));
 root.httpService.mount("/", createBrowserModelInputRoutes(root.workspaceGoalStore, (goalId, runId) => new JsonFileModelInputStore(resolve(dataDirectory, "model-inputs")).read(goalId, runId)));
-root.httpService.mount("/", createBrowserStaticRoutes(resolve("packages/browser/static")));
+root.httpService.mount("/", createBrowserStaticRoutes(resolve("apps/goal-board/dist")));
 const address = await root.httpService.start(0);
 access.bindOrigin(address.origin);
 console.log(`LG_TEST_READY:${JSON.stringify({ origin: address.origin, launchUrl: access.createLaunchUrl(address.origin) })}`);

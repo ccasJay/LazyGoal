@@ -1693,7 +1693,12 @@ async function runBrowserSessionCli(
 
     process.on("SIGINT", onSigint);
     try {
-        const staticDirectory = join(dirname(fileURLToPath(import.meta.url)), "../../browser/static");
+        const staticDirectory = process.env.LAZYGOAL_STATIC_DIR
+            ? resolve(process.env.LAZYGOAL_STATIC_DIR)
+            : resolve(dirname(fileURLToPath(import.meta.url)), "../../../apps/goal-board/dist");
+        if (!existsSync(join(staticDirectory, "index.html"))) {
+            process.stderr.write("警告: WebUI 尚未构建，已启用引导模式。可运行 npm run build:web 进行构建。\n");
+        }
         const commandService = new BrowserGoalCommandService({
             store: root.workspaceGoalStore,
             saveNotifications: root.notifyingStore,

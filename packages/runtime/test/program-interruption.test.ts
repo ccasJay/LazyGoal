@@ -82,6 +82,48 @@ test("PTC reports a stable failure without exposing a program exception", {
     assert.equal(JSON.stringify(result.state.lastStep.observation).includes("private intermediate content"), false);
 });
 
+test("PTC reports the rejected child Tool input field", {
+    skip: !isSeatbeltSupported(),
+}, async () => {
+    let readCalls = 0;
+    const read = createToolRegistration({
+        definition: {
+            id: "read_file",
+            description: "Read test content",
+            inputContract: contract.object({
+                path: contract.string(),
+                cursor: contract.optional(contract.string()),
+            }),
+            isReadOnly: true,
+        },
+        replayPolicy: "safe",
+        validate: () => ({ ok: true }),
+        async execute() {
+            readCalls += 1;
+            return { kind: "success", output: "content", summary: "Read" };
+        },
+    });
+    const fixture = setup("await tools.read_file({path:'README.md',cursor:null}); return 'done';", read, true);
+    await fixture.store.save(fixture.goal);
+    const result = await new Runner({
+        store: fixture.store,
+        trajectoryStore: fixture.trajectoryStore,
+        executor: fixture.executor,
+        toolRegistry: fixture.registry,
+    }).run({ goalId: fixture.goal.id, runId: fixture.goal.state.run.id });
+    assert.equal(result.ok, true);
+    assert.equal(readCalls, 0);
+    const events = await fixture.trajectoryStore.read({ goalId: fixture.goal.id, runId: fixture.goal.state.run.id });
+    const parent = events.find((event) =>
+        event.eventType === "tool_finished" && event.payload.toolId === "execute_program");
+    assert.equal(parent?.eventType, "tool_finished");
+    if (parent?.eventType !== "tool_finished") return;
+    assert.equal(parent.payload.observation.kind, "failure");
+    if (parent.payload.observation.kind !== "failure") return;
+    assert.equal(parent.payload.observation.code, "INVALID_TOOL_INPUT");
+    assert.equal(parent.payload.observation.message, "Invalid input for read_file at $.cursor: Expected a string");
+});
+
 test("PTC stops before a 129th tool call", {
     skip: !isSeatbeltSupported(),
 }, async () => {

@@ -666,6 +666,14 @@ function prepareToolAction(
     };
 }
 
+function programToolInputMessage(toolId: string, issues?: readonly RuntimeFeedbackIssue[]): string {
+    const issue = issues?.[0];
+    if (issue === undefined) return `Invalid input for ${toolId}.`;
+    const path = issue.path.reduce<string>((current, segment) =>
+        typeof segment === "number" ? `${current}[${segment}]` : `${current}.${segment}`, "$");
+    return `Invalid input for ${toolId} at ${path}: ${issue.message.slice(0, 160)}`;
+}
+
 function validateToolObservation(value: unknown): ToolObservation {
     if (!isRecord(value) || !isNonEmptyText(value.kind)) {
         throw new RunnerExecutionError(
@@ -4217,6 +4225,7 @@ export class Runner {
             throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
         }
         let issued = 0;
+        let inputFailureMessage: string | undefined;
         let observation: ToolObservation;
         try {
             const value = await runProgramSandbox({
@@ -4265,11 +4274,19 @@ export class Runner {
                         input: call.input,
                     };
                     const replay = callIndex < goal.state.run.pendingProgram!.nextCallIndex;
-                    const prepared = prepareToolAction(
-                        goal, action, this.toolRegistry, this.toolPolicy,
-                        !replay && goal.state.run.pendingAction?.action.actionId !== actionId,
-                        toolControl,
-                    );
+                    let prepared: PreparedToolAction;
+                    try {
+                        prepared = prepareToolAction(
+                            goal, action, this.toolRegistry, this.toolPolicy,
+                            !replay && goal.state.run.pendingAction?.action.actionId !== actionId,
+                            toolControl,
+                        );
+                    } catch (error) {
+                        if (error instanceof RunnerExecutionError && error.code === "INVALID_TOOL_INPUT") {
+                            inputFailureMessage = programToolInputMessage(call.toolId, error.issues);
+                        }
+                        throw error;
+                    }
                     if (prepared.registration.kind === "program") {
                         throw new Error("PTC_INVALID_TOOL_CALL");
                     }
@@ -4396,7 +4413,9 @@ export class Runner {
                 code: error instanceof RunnerExecutionError ? error.code
                     : error instanceof Error && knownProgramCodes.has(error.message)
                         ? error.message : "PTC_EXECUTION_ERROR",
-                message: "Program execution failed.",
+                message: error instanceof RunnerExecutionError && error.code === "INVALID_TOOL_INPUT"
+                    ? inputFailureMessage ?? "Program execution failed."
+                    : "Program execution failed.",
                 retryable: false,
             };
         }

@@ -20,6 +20,9 @@
     "smoke:gepa-lifecycle": "uv run --project prompt-evaluation/gepa --frozen lazygoal-gepa-lifecycle-smoke",
     "smoke:gepa-adapter": "uv run --project prompt-evaluation/gepa --frozen lazygoal-gepa-lifecycle-smoke",
     "e2e:gaia-real": "uv run --project prompt-evaluation/gepa --frozen lazygoal-gepa-gaia-e2e",
+    "build:web": "npm run --prefix apps/goal-board build",
+    "dev:web": "npm run --prefix apps/goal-board dev",
+    "test:web-e2e": "node --test apps/goal-board/e2e/*.test.mjs",
     "test": "node scripts/run-regression.mjs"
   },
   "keywords": [],

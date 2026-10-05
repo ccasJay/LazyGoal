@@ -5,7 +5,6 @@ import { ArrowDown, ArrowLeft, Check, ChevronRight, Copy, FileText, Hand, Layers
 import type { BrowserGoalSession, BrowserModelInputSummary, BrowserTrajectoryDetail, BrowserTrajectoryEntry, BrowserTrajectoryPage, BrowserTrajectoryRun } from "../../../packages/browser/src/index";
 import { BrowserApiError, browserApi } from "./api";
 import "./trajectory.css";
-import "./compact-trajectory-prototype.css";
 import { TrajectoryRecords } from "./trajectory-records";
 
 type Target = { runId: string; executionUnitId: string; nonce: number };

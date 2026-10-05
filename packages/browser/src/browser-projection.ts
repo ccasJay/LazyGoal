@@ -17,6 +17,7 @@ import {
 } from "../../permission/src/index";
 
 const MAX_TEXT_LENGTH = 4_000;
+const MAX_MESSAGE_LENGTH = 64_000;
 const MAX_ACTION_PREVIEW_LENGTH = 320;
 const MAX_MESSAGES = 100;
 const MAX_RUNS = 50;
@@ -68,7 +69,7 @@ export interface BrowserGoalListItem {
  * 可在浏览器会话中展示的用户或助手消息。
  *
  * @remarks
- * 消息保持 Goal Snapshot 中的原始顺序，仅暴露角色、有长度上限的正文和可确定时的
+ * 消息保持 Goal Snapshot 中的原始顺序，仅暴露角色、最多 64,000 字符的正文和可确定时的
  * Run 身份；Profile 身份及其他 Goal 状态不会随消息返回。
  *
  * @example
@@ -79,7 +80,7 @@ export interface BrowserGoalListItem {
 export interface BrowserSessionMessage {
     /** 实际持久化消息的说话方。 */
     readonly role: "user" | "assistant";
-    /** 截断后的会话正文。 */
+    /** 会话正文；超过 64,000 字符时截断，并由会话的 `historyTruncated` 标记。 */
     readonly content: string;
     /** 消息所属的 Run；旧历史无法归属时省略。 */
     readonly runId?: string;
@@ -270,7 +271,7 @@ export interface BrowserGoalPlan {
  * @remarks
  * 这是显式白名单 DTO，不可替换为序列化 Goal、Trajectory Event 或 TUI ViewModel。
  * 消息、Run 和步骤历史具有确定的数量/文本上限，`historyTruncated` 指示是否省略了
- * 更早内容。待处理 Action 返回身份、审批状态及白名单内置工具的有界展示摘要；
+ * 历史或截断了消息正文。待处理 Action 返回身份、审批状态及白名单内置工具的有界展示摘要；
  * 不返回原始完整输入，摘要不能代替持续授权所需的完整输入审阅。
  *
  * @example
@@ -317,7 +318,7 @@ export interface BrowserGoalSession {
         /** 当前待审操作所属的程序调用；显示父 Action 而不授予额外权限。 */
         readonly parentProgram?: { readonly actionId: string; readonly callNumber: number };
     };
-    /** 是否因输出上限截去了较早消息、Run 或步骤。 */
+    /** 是否因输出上限截去了消息正文、较早消息、Run 或步骤。 */
     readonly historyTruncated: boolean;
 }
 
@@ -431,11 +432,11 @@ export async function readBrowserGoalSession(
             ?? (messageIndex >= currentMessageStart ? currentRun.id : undefined);
         return {
             role: message.role,
-            content: boundedText(message.content, MAX_TEXT_LENGTH),
+            content: boundedText(message.content, MAX_MESSAGE_LENGTH),
             ...(runId === undefined ? {} : { runId }),
         };
     });
-    if (allMessages.some((message) => message.content.length > MAX_TEXT_LENGTH)) {
+    if (allMessages.some((message) => message.content.length > MAX_MESSAGE_LENGTH)) {
         historyTruncated = true;
     }
 

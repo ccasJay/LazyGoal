@@ -1,11 +1,11 @@
 {
-  "name": "lazygoal-ui-prototype",
+  "name": "@lazygoal/goal-board",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc --noEmit && vite build --outDir ../../packages/browser/static --emptyOutDir",
+    "build": "tsc --noEmit && vite build",
     "test:e2e": "npm run build && node --test --test-concurrency=1 e2e/*.test.mjs"
   },
   "dependencies": {

@@ -35,7 +35,7 @@ test("configuration requires explicit provider, model and key (structuredOutputM
 test("factory dispatches all six providers without network or ambient credentials", () => {
     for (const [provider, model] of [
         ["openai", "gpt-4.1-mini"], ["google", "gemini-2.5-flash"],
-        ["anthropic", "claude-sonnet-4-5"], ["deepseek", "deepseek-flash"],
+        ["anthropic", "claude-sonnet-4-5"], ["deepseek", "deepseek-v4-flash"],
         ["openrouter", "~anthropic/claude-haiku-latest"],
     ] as const) {
         assert.ok(createLlmAdapter(readLlmConfig({ ...base, LLM_PROVIDER: provider, LLM_MODEL: model })) instanceof PiAiAdapter);

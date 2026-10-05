@@ -272,6 +272,27 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
     assert.equal(serialized.includes("systemPrompt"), false);
 });
 
+test("会话保留完整的常规长答复，并标记超出消息上限的正文", async () => {
+    const initial = createTestGoal();
+    const report = "完整报告。".repeat(901);
+    const oversized = "x".repeat(64_001);
+    const read = async (content: string) => readBrowserGoalSession(initial.id, new TestGoalStore({
+        ...initial,
+        state: {
+            ...initial.state,
+            messages: [{ role: "assistant", assistant: { profileId: "private-profile-id" }, content }],
+        },
+    }), async () => ({ committed: [], uncommittedTail: [] }));
+
+    const complete = await read(report);
+    assert.equal(complete?.messages[0]?.content, report);
+    assert.equal(complete?.historyTruncated, false);
+
+    const truncated = await read(oversized);
+    assert.equal(truncated?.messages[0]?.content, `${oversized.slice(0, 64_000)}…`);
+    assert.equal(truncated?.historyTruncated, true);
+});
+
 test("待审批 Action 只投影限长输入预览与内置工具摘要", async () => {
     const initial = createTestGoal();
     const privateContent = "secret-".repeat(100);

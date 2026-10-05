@@ -126,7 +126,7 @@ export function GoalDetails({
         <button type="button" className={confirmDelete ? "is-confirming" : ""} disabled={deleteBusy || !(session.runStatus === "completed" || session.runStatus === "failed" || session.runStatus === "cancelled")} onPointerLeave={(event) => { if (event.pointerType === "mouse" && !deleteBusy) setConfirmDelete(false); }} onClick={() => { if (confirmDelete) onDelete(); else setConfirmDelete(true); }}><Trash2 size={14} /> {deleteBusy ? "Deleting…" : confirmDelete ? "Confirm" : "Delete goal"}</button>
       </section>}
       {session.historyTruncated && (
-        <div className="info-box">Older session history is omitted from this view.</div>
+        <div className="info-box">Some session content is omitted from this view.</div>
       )}
     </div>
   );
