@@ -834,7 +834,8 @@ export interface RunnerDependencies {
  * 才进入状态转换。正数 `maxSteps` 使用快照中的累计 `stepCount`；`0` 表示不按 Step 数终止。
  *
  * `execute()` 兼容实现返回的 AgentDecision 会先做运行时严格校验；阶段化实现由
- * `decide()` 返回业务决策或 Think 请求，并由 `think()` 生成自由文本。Think 不增加
+ * `decide()` 返回业务决策或 Think 请求，并由 `think()` 生成自由文本。完成候选通过协议和证据校验后，
+ * 必须经 `reviewCompletion()` 接受才提交完成、回复和 Memory Patch；拒绝复用 Decide 纠错边界。Think 不增加
  * Step、不执行 Tool。`tool_call` 按冻结 Profile、Registry、输入协议和 Policy 顺序校验，自动允许
  * 的 Action 会先保存 pendingAction，再调用 Tool，最后保存 Observation；需要
  * 批准的 Action 会保存为 `awaiting_approval` 并返回 waiting，不调用 Tool。收到
@@ -1883,7 +1884,7 @@ export class Runner {
         inputBoundary: PendingThink["inputBoundary"],
         thinkRequestId: string | undefined,
         operation: (goal: Goal, feedback: RuntimeFeedback | undefined) => Promise<T>,
-        validate: (goal: Goal, value: T) => U,
+        validate: (goal: Goal, value: T) => U | Promise<U>,
         control?: ExecutionControl,
     ): Promise<{ readonly goal: Goal; readonly result: U }> {
         let currentGoal = goal;
@@ -1912,7 +1913,14 @@ export class Runner {
                         currentGoal = await this.recordModelRequestFailure(currentGoal, input, stage, attempt, error, control);
                     },
                 );
-                return { goal: currentGoal, result: validate(currentGoal, value) };
+                const result = await this.executeModelStage(
+                    async () => validate(currentGoal, value),
+                    control,
+                    async (attempt, error) => {
+                        currentGoal = await this.recordModelRequestFailure(currentGoal, input, stage, attempt, error, control);
+                    },
+                );
+                return { goal: currentGoal, result };
             } catch (error) {
                 if (isExecutionAbortedError(error)) throw error;
                 if (error instanceof StageCheckpointFailure) throw error;
@@ -1929,7 +1937,7 @@ export class Runner {
                 if (pending.attemptsStarted >= 3) {
                     throw new RunnerExecutionError(
                         "INVALID_AGENT_DECISION",
-                        "Model output correction exhausted after three " + stage + " calls (" + feedback.code + ")",
+                        "Model output correction exhausted after three " + stage + " attempts (" + feedback.code + ")",
                     );
                 }
             }
@@ -3121,7 +3129,7 @@ export class Runner {
                                     thinkHistory,
                                     ...(runtimeFeedback === undefined ? {} : { runtimeFeedback }),
                                 }),
-                                (activeGoal, result) => {
+                                async (activeGoal, result) => {
                                     if (result.modelContextFrame !== undefined
                                         && result.modelContextFrame.stage !== "decide") {
                                         throw createRunnerFeedbackError(
@@ -3157,6 +3165,30 @@ export class Runner {
                                         session,
                                         executionUnitId,
                                     );
+                                    if (normalizedDecision.decision.kind === "complete") {
+                                        const candidate = normalizedDecision.decision;
+                                        const sequences = new Set("evidenceSequences" in candidate
+                                            ? candidate.evidenceSequences
+                                            : candidate.completionEvidence.flatMap(item => item.evidenceSequences));
+                                        const events = session === undefined ? [] : [...session.evidenceIndex.events.values()];
+                                        const actions = new Set(events.filter(event => sequences.has(event.sequence))
+                                            .map(event => event.actionId).filter(id => id !== undefined));
+                                        const evidence = events.filter(event => sequences.has(event.sequence)
+                                            || (event.actionId !== undefined && actions.has(event.actionId)
+                                                && ["action_staged", "tool_started", "tool_finished", "observation_recorded"].includes(event.eventType)));
+                                        const reviewed = await this.executor.reviewCompletion({
+                                            ...stepInput, goal: activeGoal, candidate, evidence,
+                                        });
+                                        if (reviewed.kind === "reject") {
+                                            throw new ModelStageFeedbackError(createRuntimeFeedback({
+                                                goalId: activeGoal.id, runId: activeGoal.state.run.id,
+                                                executionUnitId, stepOrdinal, stage: "decide",
+                                                origin: "completion_review", code: "INCOMPLETE_COMPLETION", attempt: 1,
+                                                issues: [{ code: "incomplete_completion", path: ["summary"], message: reviewed.feedback }],
+                                                constraints: ["Continue the original task. Obtain missing evidence or provide the requested deliverable before submitting another completion candidate."],
+                                            }), "Completion candidate rejected");
+                                        }
+                                    }
                                     return {
                                         stageResult: {
                                             ...result,

@@ -96,6 +96,7 @@ test("PTC restores committed reads and waits for a write with an unknown result"
         };
         let firstModelCalls = 0;
         const firstExecutor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" as const }; },
             async execute() { firstModelCalls += 1; return initialDecision; },
             async decide() { firstModelCalls += 1; return { kind: "decision", decision: initialDecision }; },
             async think() { throw new Error("Unexpected Think"); },
@@ -110,6 +111,7 @@ test("PTC restores committed reads and waits for a write with an unknown result"
 
         let resumedModelCalls = 0;
         const resumedExecutor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" as const }; },
             async execute() {
                 resumedModelCalls += 1;
                 return { kind: "complete", summary: "Done", completionEvidence: [] };
@@ -236,6 +238,7 @@ test("PTC resumes a reviewed real write, runs Bash, and returns one parent resul
         await stores().store.save(goal);
         let modelCalls = 0;
         const executor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" as const }; },
             async execute() {
                 return modelCalls++ === 0
                     ? { kind: "tool_call", action: { actionId: "real-parent", toolId: "execute_program", input: { code } } }

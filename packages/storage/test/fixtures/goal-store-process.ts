@@ -83,7 +83,7 @@ async function main(): Promise<void> {
                     completionEvidence: [],
                     summary: "跨进程重放后完成",
                 };
-            }),
+            }, async () => ({ kind: "accept" })),
             toolRegistry: {
                 get(toolId) {
                     return toolId === READ_FILE_TOOL_ID ? registration : undefined;
@@ -158,7 +158,7 @@ async function main(): Promise<void> {
                 completionEvidence: [],
                 summary: "生命周期完成",
             };
-        });
+        }, async () => ({ kind: "accept" }));
         const result = await new Runner({
             trajectoryStore: trajectoryStoreFor(store),
             store,
@@ -213,7 +213,7 @@ async function main(): Promise<void> {
             executor: createStepExecutor(async () => {
                 executorCalls += 1;
                 return { kind: "complete", completionEvidence: [], summary: "不应执行" };
-            }),
+            }, async () => ({ kind: "accept" })),
             toolRegistry: {
                 get(id) {
                     return id === "manual_tool"
@@ -252,7 +252,7 @@ async function main(): Promise<void> {
             store,
             executor: createStepExecutor(async () => {
                 return { kind: "complete", completionEvidence: [], summary: "授权后完成" };
-            }),
+            }, async () => ({ kind: "accept" })),
             toolRegistry: {
                 get(id) {
                     if (id !== READ_FILE_TOOL_ID) {

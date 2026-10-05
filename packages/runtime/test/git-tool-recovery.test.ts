@@ -101,6 +101,7 @@ test("Git 写操作工具在 Runner 中执行成功并正确记录", async () =>
 
         let stepCount = 0;
         const executor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" as const }; },
             async execute() {
                 stepCount += 1;
                 if (stepCount === 1) {

@@ -41,6 +41,7 @@ export function withDiscoveredProfileTools(goal: Goal): Goal {
 
 /** Base StepExecutor for tests that adapt single execute() to decide()/think(). */
 export abstract class BaseTestStepExecutor implements StepExecutor {
+    async reviewCompletion() { return { kind: "accept" as const }; }
     abstract execute(input: StepExecutionInput): Promise<AgentDecision>;
 
     async decide(input: StepExecutionInput): Promise<{ kind: "decision"; decision: AgentDecision }> {

@@ -8,16 +8,16 @@
 
 每个 Tool 通过 `ToolDefinition.inputContract` 声明唯一输入事实源。Runtime 使用同一 AST 生成模型可见 Schema，并在执行前 `safeParse` 与领域 `validate`；模型不能通过输出额外字段或自报结果绕过校验。
 
-`isReadOnly` 是审批前能力过滤的显式声明。它只说明 Tool 是否可以在任务未批准时被模型调用，实际执行仍必须经过 Profile、Registry 和 Policy。
+`isReadOnly` 声明 Tool 的只读性质，供既有 Policy 和审批判断使用；任务批准状态不替代 Profile、Registry、输入、Policy 或沙箱校验。
 
 ## Agent 输出契约
 
 [`createModelOutputContractBundle`](../../packages/contracts/src/model-output/factory.ts) 为每个请求生成不可变的 Canonical/Wire/strict Schema/Shape Guide/解码器组合。统一 `executing` 请求根据任务批准状态、后端 Plan Mode 和授权 Tool 动态生成分支：
 
-- 未批准任务：`ask_user`、`task_proposal`、`context_lookup`、`tool_discovery` 和只读 `tool_call`；
-- 已批准任务：`ask_user`、`context_lookup`、`tool_discovery`、全部授权 `tool_call`、`complete`、`wait` 和 `fail`；
-- Plan Mode：在对应任务分支额外加入 `goal_plan_update`；普通模式不暴露该分支；
-- Context Checkpoint 是独占的当前协议分支。
+- 普通 Run：`ask_user`、`context_lookup`、`tool_discovery`、授权 `tool_call`、普通完成候选、`wait` 和 `fail`；
+- 未批准 Plan Run：交互、任务提案、lookup、发现和授权 Tool；不能完成；
+- 已批准 Plan Run：执行入口加逐条件完成候选、`wait` 和 `fail`；Plan Mode 可提交 `goal_plan_update`；
+- Context Checkpoint 与 `completion_review` 分别使用独占契约。审查只允许 `accept` 或带非空具体反馈的 `reject`，不返回业务决策。
 
 Canonical Contract 面向 Runtime 领域；Wire Contract 将 optional 字段投影为 required-nullable，适配 strict Provider；解码器移除可逆的占位 null，再按原始输入 Contract 复验 Tool 输入。分支、工具 ID 和 Contract 定义错误在构造期失败。Executing 输出校验失败时，解码器通过已知 `kind` 与授权 `toolId` 唯一定位分支，再以同一 envelope 生成字段级诊断；未知或不唯一的分支保留整体错误。该诊断不修正输入，也不改变契约接受范围。
 
@@ -33,7 +33,7 @@ Canonical Contract 面向 Runtime 领域；Wire Contract 将 optional 字段投�
 - `complete`、`wait`、`fail`：执行终态或等待。
 - `goal_plan_update`：Plan Mode 下的结构化 GoalPlan 增量提案；Runtime reducer 负责 ID、revision、状态转换和原子持久化。
 
-模型不能提交 Goal/Run/Step/Epoch/Action ID 或自行分配新 Todo ID，也不能把用户回答或模型自述变成完成 Evidence。Runtime 负责最终语义校验和状态转换。
+模型不能提交 Goal/Run/Step/Epoch/Action ID 或自行分配新 Todo ID，也不能把用户回答或模型自述变成完成 Evidence。Runtime 负责最终语义校验、完成审查调度和状态转换。`complete.summary` 是完整用户回复；通过审查后原文保存和展示。审查契约见 [completion-review.ts](../../packages/contracts/src/model-output/completion-review.ts)。
 
 ## 相关入口
 

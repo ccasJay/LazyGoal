@@ -928,7 +928,7 @@ test("Coordinator 与 Runner 协作恢复 manual Action 后等待重新批准", 
             completionEvidence: [],
             summary: "任务完成",
         };
-    });
+    }, async () => ({ kind: "accept" }));
     const coordinator = new GoalCoordinator({
         trajectoryStore: trajectoryStoreFor(store),
         store,
@@ -977,7 +977,7 @@ test("/plan 与 run_started 按 Snapshot 提交顺序线性化", async () => {
                         approvalRequest: "请批准任务提案",
                     }
                     : { kind: "wait", reason: "等待本次运行结束" };
-            }),
+            }, async () => ({ kind: "accept" })),
         });
         const coordinator = new GoalCoordinator({
             store,

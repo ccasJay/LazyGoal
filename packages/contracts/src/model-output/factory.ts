@@ -21,6 +21,7 @@ import {
     TaskProposalAgentDecisionContract,
 } from "./canonical";
 import { ModelOutputContractDefinitionError } from "./errors";
+import { CompletionReviewResultContract, validateCompletionReviewResult, type CompletionReviewResult } from "./completion-review";
 import { buildShapeGuide, compileModelOutputSchema } from "./provider-schema";
 import {
     decodeWireResult,
@@ -79,7 +80,11 @@ export function isReadOnlyToolContract(tool: AuthorizedToolContract): boolean {
  * 模型输出请求种类定义。
  *
  * @remarks
- * 统一执行生命周期与上下文检查点请求。
+ * 统一执行生命周期、上下文检查点和只读完成审查请求；审查结果不属于业务决策。
+ * @example
+ * ```ts
+ * const request: ModelOutputRequest = { kind: "completion_review" };
+ * ```
  */
 export type ModelOutputRequest =
     | {
@@ -95,7 +100,8 @@ export type ModelOutputRequest =
         /** 是否允许 Decide 使用 Runtime 工具发现控制分支；Think 请求应显式关闭。 */
         readonly allowToolDiscovery?: boolean;
       }
-    | { readonly kind: "checkpoint" };
+    | { readonly kind: "checkpoint" }
+    | { readonly kind: "completion_review" };
 
 /**
  * 请求级模型输出契约包。
@@ -209,6 +215,7 @@ function validateAndSortAuthorizedTools(
  *    - 空集合或未配置 Tool 时直接省略 `tool_call` 分支；
  * 3. 统一调用 `compileModelOutputSchema` 和 `buildShapeGuide` 生成共用 Schema 与 Prompt Guide；
  * 4. 解码过程确保消除 optional 占位 null、保留合法业务 null，并以原始 Tool Input Contract 进行复验。
+ * 完成审查只允许 accept 或含具体非空反馈的 reject，不暴露业务决策。
  *
  * @param request - 当前请求的目标种类及上下文信息。
  * @returns 对应阶段的不可变契约包实例。
@@ -223,7 +230,7 @@ function validateAndSortAuthorizedTools(
  * });
  * ```
  */
-export function createModelOutputContractBundle<Result extends DecideOutput = AgentDecision>(
+export function createModelOutputContractBundle<Result extends DecideOutput | CompletionReviewResult = AgentDecision>(
     request: ModelOutputRequest,
 ): ModelOutputContractBundle<Result> {
     let name: string;
@@ -340,6 +347,11 @@ export function createModelOutputContractBundle<Result extends DecideOutput = Ag
             canonicalContract = ModelContextCheckpointResultContract;
             wireContract = deriveWireEnvelopeContract(ModelContextCheckpointResultContract);
             break;
+        case "completion_review":
+            name = "completion_review_result";
+            canonicalContract = CompletionReviewResultContract;
+            wireContract = deriveWireEnvelopeContract(CompletionReviewResultContract);
+            break;
     }
 
     const jsonSchema = compileModelOutputSchema(wireContract);
@@ -371,6 +383,9 @@ export function createModelOutputContractBundle<Result extends DecideOutput = Ag
                 throw new ContractValidationError(wireParsed.issues, wireParsed.truncated);
             }
             const decoded = decodeWireResult(wireParsed.data, canonicalContract);
+            if (request.kind === "completion_review") {
+                return validateCompletionReviewResult(decoded as CompletionReviewResult) as Result;
+            }
             if (isRequestThink(decoded) && decoded.goal.trim().length === 0) {
                 throw new Error("request_think.goal must contain non-whitespace text");
             }

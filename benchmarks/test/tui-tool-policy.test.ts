@@ -137,7 +137,7 @@ test("auto 模式下自动放行合法授权动作，无需审批直接发往 Wo
             summary: "All done",
             completionEvidence: [],
         };
-    });
+    }, async () => ({ kind: "accept" }));
 
     const runner = new Runner({
         store,
@@ -208,7 +208,7 @@ test("review 模式下自动放行只读工具（read_file），无需审批", a
             summary: "Finished read",
             completionEvidence: [],
         };
-    });
+    }, async () => ({ kind: "accept" }));
 
     const runner = new Runner({
         store,
@@ -306,7 +306,7 @@ test("review 模式拦截非只读动作（write_file），审批前 Worker 计�
             summary: "All finished",
             completionEvidence: [],
         };
-    });
+    }, async () => ({ kind: "accept" }));
 
     const runner = new Runner({
         store,
@@ -427,7 +427,7 @@ test("review 模式下拒绝动作（reject_action），Worker 执行计数保�
             summary: "Done",
             completionEvidence: [],
         };
-    });
+    }, async () => ({ kind: "accept" }));
 
     const runner = new Runner({
         store,
@@ -539,7 +539,7 @@ test("GAIA review 模式自动放行 web_search 但拦截 submit_answer", async 
             summary: "GAIA solved",
             completionEvidence: [],
         };
-    });
+    }, async () => ({ kind: "accept" }));
 
     const runner = new Runner({
         store,

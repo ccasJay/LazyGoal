@@ -80,6 +80,7 @@ function frame(
 }
 
 class ScriptedExecutor implements StepExecutor {
+    async reviewCompletion() { return { kind: "accept" as const }; }
     readonly decideInputs: DecideInput[] = [];
     readonly thinkInputs: ThinkInput[] = [];
 

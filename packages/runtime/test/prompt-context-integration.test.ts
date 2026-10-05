@@ -65,6 +65,7 @@ class ScriptedAdapter implements LLMAdapter {
 
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.requests.push(request);
+        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
         const index = this.requests.length - 1;
         const reply = this.replies[index];
         if (reply === undefined) throw new Error("scripted adapter responses exhausted");
@@ -423,7 +424,8 @@ test("授权 Tool Observation 支持 GoalPlan 完成和符合条件的 Run 完�
     assert.equal(result.state.status, "completed", JSON.stringify(result.state.stopReason));
     assert.equal(result.state.stepCount, 3);
     assert.equal(result.state.lastStep?.kind, "decision");
-    assert.equal(decideAdapter.requests.length, 3);
+    assert.equal(decideAdapter.requests.length, 4);
+    assert.equal(decideAdapter.requests[3]!.tools?.[0]?.id, "system_review_completion");
     assert.ok(trajectory.events.some((event) => event.eventType === "tool_finished"));
     assert.ok(trajectory.events.some((event) => event.eventType === "observation_recorded"));
     assert.ok(trajectory.events.some((event) => event.eventType === "goal_plan_updated"));

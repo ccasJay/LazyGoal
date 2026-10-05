@@ -50,6 +50,7 @@ test("Worker runtime uses deterministic Headless Root state and isolated instanc
         llmAdapter: {
             structuredOutputMode: "strict",
             generate: async (request) => {
+        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
                 modelCalls += 1;
                 if (modelCalls === 1) {
                     return {

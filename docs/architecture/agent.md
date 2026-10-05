@@ -32,31 +32,31 @@ Run 模式、已批准任务、GoalPlan、授权工具和 Working Memory 不进�
 
 Decide 按阶段专用 Adapter 执行：支持原生严格输出的供应商在业务决策约束上使用 strict，其余供应商依赖 Shape Guide 和同一本地契约校验。Decide 的 `request_think { goal }` 只请求 Runtime 调用 Think，不是 AgentDecision，也不属于业务工具授权。Think 使用同一模型的 `prompt_only` Adapter，不附带结构化 Schema 或工具声明；Runtime 提供明确目标和本 Step 已提交的 Think 目标/输出。Think 文本作为 assistant 消息交给后续 Decide，不进入 Goal Conversation。
 
-每次成功阶段调用都返回本请求的 `modelContextFrame`。Runner 在下一阶段继续前提交阶段事实、frame 和 Snapshot；未提交 frame 不会成为后续请求的 diff 基线。Agent 只负责组装请求和解析结果，不拥有阶段循环或持久化。
+每次成功 Decide/Think 调用都返回本请求的 `modelContextFrame`。Runner 在下一阶段继续前提交阶段事实、frame 和 Snapshot；未提交 frame 不会成为后续请求的 diff 基线。Agent 只负责组装请求和解析结果，不拥有阶段循环或持久化。
 
 ## 当前决策门控
 
-Contracts 根据 `workflow.task`、后端 `planMode` 和当前 Run 可见工具集合动态生成 Wire Schema：
+Contracts 根据当前 Run 的模式、任务批准状态和可见工具集合生成决策声明：普通 Run 可直接提交完成候选，Plan Run 必须先批准任务才可完成。Plan Mode 额外暴露 `system_update_goal_plan`。Schema 可见性不授予执行权；Runtime 仍执行 Profile、Registry、Policy、审批和沙箱校验。
 
-- task 缺省：`ask_user`、`task_proposal`、历史 `context_lookup` 和显式只读 Tool；
-- task 已批准：上述执行入口加上全部授权 Tool、`complete`、`wait` 和 `fail`。
-- Plan Mode：在对应分支额外暴露 `system_update_goal_plan`；普通模式不生成该分支。
+## 完成审查
 
-只读能力由 Runtime `ToolDefinition.isReadOnly` 提供；Agent 仅投影已暴露 Schema，Runtime 仍在直接调用和每个 PTC 子调用前检查暴露状态，再执行既有 Profile、Registry、Policy、审批与沙箱校验。完成条件和验收声明由 Task 投影给模型，但满足条件的事实只能来自已提交 Evidence。
+所有完成候选通过 Runtime 协议与引用校验后，由 [`reviewCompletion`](../../packages/agent/src/llm-step-executor.ts) 使用当前 Decide Adapter 独立审查。专用 [Prompt 与请求构造器](../../packages/agent/src/completion-review.ts) 提供当前请求和约束、获批条件、完整候选及 Runtime 解析的引用证据正文；只声明 `system_review_completion`，不执行工具或改写答案。`summary` 承载完整用户回复；Think、模型自述、目录和规模统计不能代替所需实现证据，已提供源码可直接使用，简单请求允许简短回答。
+
+审查使用既有模型预算，必要输入超限则调用前失败，不裁剪后放行。拒绝通过有界 `origin: completion_review` 反馈进入 Decide 纠错链；协议错误与拒绝合计最多三次 Decide 尝试。传输失败沿用请求重试。审查没有 Section frame 或独立恢复阶段；未提交审查恢复后可能重新调用并产生费用。
 
 ## 输出处理
 
-Decide 的模型原始文本由当前请求 Wire Contract 严格解析：`request_think` 解码为独立阶段控制结果，业务输出解码为 Canonical `AgentDecision`。Think 不解析 AgentDecision，拒绝空文本和任何工具调用。Plan Mode 的 `goal_plan_update` 仍只是模型提案，由 Runtime 的 GoalPlan reducer 分配 Todo ID、校验 revision/状态并提交 Snapshot；普通模式不会解码该分支。解析、Schema、分支或 Tool 参数错误会转换为带稳定来源、路径和有界安全提示的 `RuntimeFeedback`，字段提示按稳定错误码生成，业务工具参数路径统一标记为 `action.input`（正文 JSON 带 `result` 前缀），并指导模型纠正调用后继续取证。反馈可作为标记为 `runtime_feedback` 的临时阶段消息注入原阶段请求；它不会追加到 Goal Conversation，也不会改变 strict 或 prompt_only 输出模式。Runner 在提交反馈后最多重试同一 Decide 或 Think 阶段三次（含首次调用）；恢复只读取 Snapshot 边界内的反馈事实，并忽略未提交输出。原始响应可进入独立诊断 Trace，但不进入 Goal Conversation；已提交 Think 的目标与输出以专用 Trajectory 事实保存。
+Decide 的模型原始文本由当前请求 Wire Contract 严格解析：`request_think` 解码为独立阶段控制结果，业务输出解码为 Canonical `AgentDecision`。Think 不解析 AgentDecision，拒绝空文本和任何工具调用。Plan Mode 的 `goal_plan_update` 仍只是模型提案，由 Runtime 的 GoalPlan reducer 分配 Todo ID、校验 revision/状态并提交 Snapshot；普通模式不会解码该分支。解析、Schema、分支或 Tool 参数错误会转换为带稳定来源、路径和有界安全提示的 `RuntimeFeedback`，字段提示按稳定错误码生成，业务工具参数路径统一标记为 `action.input`（正文 JSON 带 `result` 前缀），并指导模型纠正调用后继续取证。反馈可作为标记为 `runtime_feedback` 的临时阶段消息注入原阶段请求；它不会追加到 Goal Conversation，也不会改变 strict 或 prompt_only 输出模式。Runner 在提交反馈后最多尝试同一 Decide 或 Think 纠错链三次（含首次）；恢复只读取 Snapshot 边界内的反馈事实，并忽略未提交输出。原始响应可进入独立诊断 Trace，但不进入 Goal Conversation；已提交 Think 的目标与输出以专用 Trajectory 事实保存。
 
 Agent 不拥有 UI；当 Adapter 提供 `stream` 时，`LLMStepExecutor` 将模型增量映射到
 `@lazygoal/execution-stream`，同时只用最终 `completed` 响应解析 AgentDecision。没有流接口的 Adapter
-继续调用 `generate()` 并发布一次性模型事件；实时显示由 TUI 或未来 WebUI 的适配器管理。
+继续调用 `generate()` 并发布一次性模型事件；完成审查调用不发布模型文本或函数参数，内部结果只用于审查和诊断。实时显示由 TUI 或 WebUI 的适配器管理。
 
 每次模型调用由 `LLMStepExecutor` 向可选的 Runtime 指标 Recorder 记录开始和结束事实。输入/输出 token 只取原生 Adapter 的供应商上报用量；pi-ai 诊断计数和无用量响应记为不可用。流式调用的生成时长从首个非空文本增量计至完成；非流式调用不推测生成速度。Recorder 失败被隔离，不改变 AgentDecision。
 
 ## 模型消息记录
 
-正式组合根为 LLMStepExecutor 注入独立的 [`ModelInputStore`](../../packages/runtime/src/model-input.ts)。每次 Think/Decide 在 Adapter 调用前保存最终消息正文与顺序，调用身份与指标共享，并由成功 frame 的 modelCallId 关联。写入失败阻止当前调用；调用失败不删除已保存输入，输入事实不推进 Section 比较基线。诊断请求日志通过调用引用指向完整消息，避免再次写入 system 正文。
+正式组合根为 LLMStepExecutor 注入独立的 [`ModelInputStore`](../../packages/runtime/src/model-input.ts)。每次 Think、Decide 或 `completion_review` 在 Adapter 调用前保存最终消息正文与顺序，调用身份与指标共享；审查使用独立 callId，成功 Decide/Think frame 由 modelCallId 关联。写入失败阻止当前调用；调用失败不删除已保存输入，输入事实不推进 Section 比较基线。诊断请求日志通过调用引用指向完整消息，避免再次写入 system 正文。
 
 ## 原生工具对话历史
 

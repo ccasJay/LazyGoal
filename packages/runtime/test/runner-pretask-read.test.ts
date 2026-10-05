@@ -573,7 +573,7 @@ test("普通 Run 直接调用已授权写工具并用当前 Run Observation 完�
             summary: "当前请求已完成",
             evidenceSequences: [evidenceSequence],
         };
-    });
+    }, async () => ({ kind: "accept" }));
     const runner = new Runner({
         store,
         executor,
@@ -697,7 +697,7 @@ test("普通 Run 允许无 Tool 的空证据回答，但有业务 Observation �
         assert.equal(observedResult.goal.state.run.stopReason?.kind, "execution_error");
         if (observedResult.goal.state.run.stopReason?.kind === "execution_error") {
             assert.equal(observedResult.goal.state.run.stopReason.code, "INVALID_AGENT_DECISION");
-            assert.match(observedResult.goal.state.run.stopReason.message, /correction exhausted after three decide calls/);
+            assert.match(observedResult.goal.state.run.stopReason.message, /correction exhausted after three decide attempts/);
         }
     }
 });

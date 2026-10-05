@@ -291,18 +291,20 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
             req.on("end", () => {
                 const body = JSON.parse(data);
                 const working = JSON.parse(body.messages.at(-1).content);
-                phases.push(working.phase);
+                const reviewing = body.tools[0]?.function?.name === "system_review_completion";
+                phases.push(reviewing ? "completion_review" : working.phase);
                 assert.equal(body.response_format, undefined);
                 assert.ok(body.tools.length > 0);
                 if (mode === "strict") assert.equal(body.parallel_tool_calls, false);
-                assert.equal(working.responseShapeGuide !== undefined, mode === "prompt_only");
+                if (!reviewing) assert.equal(working.responseShapeGuide !== undefined, mode === "prompt_only");
                 let decision: unknown;
                 const taskApproved = body.messages.some(
                     (message: { readonly role: string; readonly content: string }) =>
                         message.role === "user"
                         && message.content.includes("Approved Goal Task Contract:"),
                 );
-                if (!taskApproved) decision = {
+                if (reviewing) decision = { kind: "accept" };
+                else if (!taskApproved) decision = {
                     kind: "task_proposal", task: { objective: "Verify smoke evidence", completionCriteria: [{ text: "Obtain the smoke observation", acceptance: null }] },
                     approvalRequest: "Approve the smoke test?", memoryPatch: null,
                 };
@@ -320,8 +322,8 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
                 if (mode === "strict") {
                     res.setHeader("Content-Type", "application/json");
                     const selected = decision as any;
-                    const toolId = selected.kind === "task_proposal" ? "system_propose_task_plan" : selected.kind === "tool_call" ? "smoke_evidence" : selected.kind === "tool_discovery" ? "system_find_tools" : "system_complete_task";
-                    const args = selected.kind === "tool_call" ? {} : selected.kind === "task_proposal" ? { task: selected.task, approvalRequest: selected.approvalRequest, memoryPatch: null } : selected.kind === "tool_discovery" ? { query: selected.query } : { summary: selected.summary, completionEvidence: selected.completionEvidence, memoryPatch: null };
+                    const toolId = selected.kind === "task_proposal" ? "system_propose_task_plan" : selected.kind === "tool_call" ? "smoke_evidence" : selected.kind === "tool_discovery" ? "system_find_tools" : selected.kind === "accept" ? "system_review_completion" : "system_complete_task";
+                    const args = selected.kind === "tool_call" ? {} : selected.kind === "task_proposal" ? { task: selected.task, approvalRequest: selected.approvalRequest, memoryPatch: null } : selected.kind === "tool_discovery" ? { query: selected.query } : selected.kind === "accept" ? { result: selected } : { summary: selected.summary, completionEvidence: selected.completionEvidence, memoryPatch: null };
                     res.end(JSON.stringify({ id: "smoke-1", model: "local-model", choices: [{ index: 0, message: { role: "assistant", content: "", tool_calls: [{ id: `call-${phases.length}`, type: "function", function: { name: toolId, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] }));
                 } else {
                     res.setHeader("Content-Type", "text/event-stream");
@@ -337,7 +339,7 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
             assert.equal(report.unifiedExecution, "passed");
             assert.equal(report.toolCalls, 1);
         });
-        assert.deepEqual(phases, ["executing", "executing", "executing", "executing"]);
+        assert.deepEqual(phases, ["executing", "executing", "executing", "executing", "completion_review"]);
     }
 });
 

@@ -43,6 +43,7 @@ class DeterministicAdapter implements LLMAdapter {
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.calls += 1;
         await writeStatus();
+        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
         const isPlanFlow = request.messages.some((message) => message.content.includes("Plan flow:"));
         const result = isPlanFlow
             ? !planTaskProposed
@@ -55,7 +56,7 @@ class DeterministicAdapter implements LLMAdapter {
                     approvalRequest: "Approve the deterministic plan-flow task?",
                     memoryPatch: null,
                 })
-                : this.calls === 6
+                : this.calls === 8
                     ? {
                         kind: "tool_call",
                         action: {

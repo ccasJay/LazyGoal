@@ -43,6 +43,8 @@ waiting 输入调用 `resume` 并保留当前 Run；completed 或 failed 输入�
 - `ask_user` 进入带 request ID、模式和问题列表的等待点；答案先写入真实消息与回答事实，再恢复 Runner。
 - 阶段化 Executor 在单个 Step 内由 Runner 管理 Decide/Think 循环。每次 `request_think` 先和 Decide frame 提交；Think 输出和 Think frame 另存为已提交事实后，Runner 才再次 Decide。Think 不增加 `stepCount`，不执行 Tool；只有最终有效 `AgentDecision` 进入既有转换、授权和证据校验。
 
+所有普通和获批 Plan Run 的完成候选先经过协议、语义和 Evidence 引用校验，再调用必需的 `StepExecutor.reviewCompletion`。Runner 从当前 Run 提交边界解析引用正文与关联 Action 来源，审查接受后才提交完成、候选回复原文和 Memory Patch；拒绝不增加 Step、不产生最终回复，并以 `origin: completion_review` 反馈返回 Decide。该审查不替代工具授权、任务批准或 Benchmark 环境评分。
+
 每次下游模型或 Tool 调用前，Runtime 先保存所需事实和 Snapshot。完成声明必须引用已提交的 Tool/Observation Evidence；用户回答本身不能成为完成证据。运行时错误、协议错误、身份不匹配和旧 Snapshot 均 fail-closed。
 
 Runner 和 GoalCoordinator 可通过 [`@lazygoal/execution-stream`](./execution-stream.md) 发布旁路事件。`step_started` 在 Executor 调用前发出，阶段事实与上下文 frame 在进入下一模型阶段前先提交，Tool 生命周期由 Runner 发出；事实提交成功后发出 Trajectory 事件和 `step_committed`。发布异常被隔离，不改变 Runtime 状态或提交顺序。实时事件不是恢复来源，恢复仍读取 Snapshot/Trajectory。
@@ -53,13 +55,13 @@ Runner 和 GoalCoordinator 可通过 [`@lazygoal/execution-stream`](./execution-
 
 Trajectory 是恢复事实源，Snapshot 的 `committedThroughSequence` 是当前 Run 的可见边界，`memoryRevision` 是 accepted Memory Patch 链头。模型成功响应后可随共享提交器保存 `model_context_frame`，记录请求阶段、Epoch、Conversation 插入位置，以及实际发送的 Section 文本和对应结构化投影；该 frame 不写入 Goal Conversation，也不替代其他 Trajectory 事实。恢复查询只接受 Snapshot 边界内、Goal/Run/阶段/Epoch/Conversation 起点匹配且 Section 身份仍与当前注册表一致的 frame；未知或身份不匹配的 Section 不能成为比较基线。每个 `(goalId, runId)` 有独立的 Trajectory 序号；跨 Run 历史查询必须携带完整 Run 身份。`completedRuns` 记录已归档 completed 或 failed Run 的终态、消息区间和提交边界，不改变当前 Run 的 Evidence 所有权。`WorkingMemorySession` 只沿可达 revision 链重放已提交 Patch，并拒绝跨 Goal/Run、断链、循环、越界或不匹配的事实。
 
-`pendingInteraction` 保存问卷或任务提案的完整请求、模式和关联 ID；获批任务保存在当前 Run，恢复时必须验证 Goal、Run、request ID 与等待状态一致。`pendingAction` 按 Tool 的 replay policy 分为安全重放或 `outcome_unknown` 人工确认，并在 Action 获批后记录授权期限与可选 Grant ID。`safe` Tool 只有显式抛出 `TransientToolExecutionFailure` 才会在同一 Action 内自动重试；每次调用前先提交 `attemptsStarted` 和 Trajectory 事实，最多三次且不增加 Step。普通异常按稳定错误失败，`retryable` Observation 仍作为已知业务结果提交，不单独触发重放。`manual` Tool 异常将该 Action 保存为 `outcome_unknown` 并进入等待，后续只能由用户对原 Action 作出单次恢复选择。Goal/workspace Grant 先以来源 `(goalId, runId, actionId)` 写为 pending，再提交批准事实和 Snapshot，之后才激活并调度；若激活中断，`advance` 必须核验快照身份、授权范围和重新派生的操作匹配器后再恢复激活。pending Grant 从不放行新 Action；撤销立即影响后续查询。`pendingThink` 保存当前未完成 Step 的 Think 输出恢复指针；`pendingModelRepair` 保存 Decide/Think 阶段输入边界、已开始尝试次数及最新尝试和反馈事件身份。模型阶段纠错先追加 Trajectory 事实再提交 Snapshot，恢复只读取已提交反馈，并校验 Goal、Run、执行单元、Step、阶段和输入摘要；Think 恢复还校验原请求目标。每条阶段纠错链最多调用三次（含首次调用），崩溃中的已记次数不会重复使用。未提交输出不进入恢复历史，身份或输入失配会 fail-closed。有效决策提交时清除相应阶段恢复指针。当前开发期协议不迁移旧字段；Storage 对旧阶段和旧事件显式拒绝。
+`pendingInteraction` 保存问卷或任务提案的完整请求、模式和关联 ID；获批任务保存在当前 Run，恢复时必须验证 Goal、Run、request ID 与等待状态一致。`pendingAction` 按 Tool 的 replay policy 分为安全重放或 `outcome_unknown` 人工确认，并在 Action 获批后记录授权期限与可选 Grant ID。`safe` Tool 只有显式抛出 `TransientToolExecutionFailure` 才会在同一 Action 内自动重试；每次调用前先提交 `attemptsStarted` 和 Trajectory 事实，最多三次且不增加 Step。普通异常按稳定错误失败，`retryable` Observation 仍作为已知业务结果提交，不单独触发重放。`manual` Tool 异常将该 Action 保存为 `outcome_unknown` 并进入等待，后续只能由用户对原 Action 作出单次恢复选择。Goal/workspace Grant 先以来源 `(goalId, runId, actionId)` 写为 pending，再提交批准事实和 Snapshot，之后才激活并调度；若激活中断，`advance` 必须核验快照身份、授权范围和重新派生的操作匹配器后再恢复激活。pending Grant 从不放行新 Action；撤销立即影响后续查询。`pendingThink` 保存当前未完成 Step 的 Think 输出恢复指针；`pendingModelRepair` 保存 Decide/Think 阶段输入边界、已开始尝试次数及最新尝试和反馈事件身份。模型阶段纠错先追加 Trajectory 事实再提交 Snapshot，恢复只读取已提交反馈，并校验 Goal、Run、执行单元、Step、阶段和输入摘要；Think 恢复还校验原请求目标。每条阶段纠错链最多尝试三次（含首次），Decide 完成候选的协议失败和审查拒绝共用此计数，崩溃中的已记次数不会重复使用。未提交输出不进入恢复历史，身份或输入失配会 fail-closed。有效决策提交时清除相应阶段恢复指针。审查拒绝复用已提交反馈恢复，未完成审查不保存候选接受状态，恢复后需再次审查。当前开发期协议不迁移旧字段；Storage 对旧阶段和旧事件显式拒绝。
 
 `pendingProgram` 保存父 Action、代码和 worker 身份、固定计算输入、已提交子调用位置与结果字节数。子调用事实以 `programId/callIndex` 标记并留在 Trajectory 审计账本；原生模型历史、Hot/Warm 与检索索引跳过这些内部事实。每秒活动预算在 worker 运行前追加并同步持久化 `program_time_reserved`，恢复时连未提交 tail 中的预留也计入 120 秒总额；审批和关闭期间不继续预留。审批或宿主关闭后重新运行同一代码，只重放 Snapshot 边界内匹配的结果；未提交的写入结果不得视为完成，已经开始而结果未知的非只读调用必须人工确认，即使该 Tool 声明 safe。取消或资源失败遇到未结算写入时先保存 `pendingStop`，处理未知结果后再结算原停止原因。程序本身不提供外部副作用的 exactly-once 保证。
 
 ## 关键错误边界
 
-- Agent 解析/输出契约与 Runner 的决策、Tool 选择/输入、Evidence 校验会生成类型化 `RuntimeFeedback`，只包含有界路径和安全提示，不包含原始模型输出；错误在 Action 副作用前被发现。Runner 提交反馈后在原阶段重试，单条纠错链最多三次模型调用（含首次）；失败耗尽后以稳定错误结束 Run。
+- Agent 解析/输出契约与 Runner 的决策、Tool 选择/输入、Evidence 校验会生成类型化 `RuntimeFeedback`，只包含有界路径和安全提示，不包含原始模型输出；错误在 Action 副作用前被发现。Runner 提交反馈后在原阶段重试，单条纠错链最多三次阶段尝试（含首次）；失败耗尽后以稳定错误结束 Run。
 - Tool 未授权、未注册、输入不合法或 Policy 拒绝时，不调用 Tool，并追加相应稳定结果。
 - Snapshot、Trajectory 或协议校验失败时，不继续模型/Tool 调用；保存失败保留最近已成功快照。
 - 模型调用的限流、暂时性服务、连接与超时故障由 Runner 在同一阶段内最多调用三次（含首次调用）；每次类型化暂时失败先以 `model_request_retry_recorded` 提交到 Trajectory，再退避或结束。退避响应中止信号。鉴权、配置、协议、存储和未知错误不重试；耗尽时稳定原因写入 Run 终态。

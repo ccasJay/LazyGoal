@@ -20,6 +20,7 @@ import type {
     StepExecutor,
     ThinkExchange,
     ThinkStageResult,
+    CompletionReviewInput,
 } from "../../runtime/src/step-executor";
 import type { ContextCompactor } from "./context-compactor";
 import type { ModelConversationMessage } from "./model-inference-view";
@@ -47,12 +48,16 @@ import {
 } from "./llm-diagnostic-trace";
 import {
     decodePhaseToolCall,
+    SystemCompletionReviewDeclaration,
+    type CompletionReviewResult,
     type SystemToolDeclaration,
 } from "../../contracts/src/index";
 import { ContractValidationError } from "../../contracts/src/errors";
 import type { LLMResponse, LLMToolDefinition } from "../../llm/src/core/types";
 import type { ExecutionStreamEventDraft, ExecutionStreamPublisher } from "../../execution-stream/src/index";
 import { toModelStageFeedback } from "./stage-feedback";
+import { buildCompletionReviewRequest } from "./completion-review";
+import { extractJsonPayload } from "./model-output";
 
 /**
  * 创建 {@link LLMStepExecutor} 所需的供应商无关依赖。
@@ -170,6 +175,45 @@ export class LLMStepExecutor implements StepExecutor {
             return await this.executeDecideStage(input, true, input.thinkHistory);
         } catch (error) {
             throw toModelStageFeedback(error, input, "decide");
+        }
+    }
+
+    /**
+     * 使用当前 Decide 模型独立核查完成候选，不发布公开模型文本或调用参数。
+     * @param input - Runtime 已校验的候选与完整提交事实。
+     * @returns 接受或具体缺口反馈；不改写候选、不提交状态。
+     * @throws 调用或预算失败原样抛出；协议错误交由 Decide 纠错链处理。
+     * @example
+     * ```ts
+     * const review = await executor.reviewCompletion({ ...input, candidate, evidence: [] });
+     * ```
+     */
+    async reviewCompletion(input: CompletionReviewInput): Promise<CompletionReviewResult> {
+        try {
+            const binding = this.bindingProvider.current();
+            const { request, bundle } = buildCompletionReviewRequest(input, binding);
+            const { executionStream: _stream, ...privateInput } = input;
+            const { response } = await this.generateModelResponse(
+                binding.decideAdapter, request, privateInput, binding.modelCapabilities, "completion_review", [],
+            );
+            const calls = response.toolCalls ?? [];
+            if (binding.decideAdapter.nativeConversationIdentity !== undefined && calls.length !== 1
+                || calls.length > 1) {
+                throw new LLMResponseProtocolError("Completion review requires exactly one result call");
+            }
+            if (calls.length === 1) {
+                if (calls[0]!.toolId !== SystemCompletionReviewDeclaration.id) {
+                    throw new LLMResponseProtocolError("Completion review returned an undeclared result call");
+                }
+                return decodePhaseToolCall([SystemCompletionReviewDeclaration], calls[0]!.toolId,
+                    JSON.parse(calls[0]!.argumentsJson));
+            }
+            return bundle.decode(JSON.parse(extractJsonPayload(response.content)));
+        } catch (error) {
+            const protocolError = error instanceof SyntaxError || error instanceof ContractValidationError
+                ? new LLMResponseProtocolError("Completion review response does not match its contract", { cause: error })
+                : error;
+            throw toModelStageFeedback(protocolError, input, "decide");
         }
     }
 

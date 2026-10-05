@@ -92,7 +92,7 @@ const mockAdapter: LLMAdapter = {
 function withDirectExecution(
     next: (input: StepExecutionInput) => Promise<AgentDecision> | AgentDecision,
 ): StepExecutor {
-    return createStepExecutor(next);
+    return createStepExecutor(next, async () => ({ kind: "accept" }));
 }
 
 test("默认 LLMStepExecutor 装配完整模型上下文依赖并完成单步执行", async (t) => {

@@ -155,7 +155,7 @@ test("Runner appends ordered execution facts and commits Snapshot boundary after
         executor: createStepExecutor(async () => {
             decisionCount += 1;
             return decisions[decisionCount - 1]!;
-        }),
+        }, async () => ({ kind: "accept" })),
     });
 
     const result = await runner.run({ goalId: goal.id, runId: goal.state.run.id });
@@ -255,7 +255,7 @@ test("Runner 恢复 safe Action 时保持 Tool Observation 与 Snapshot 的提�
         },
         executor: createStepExecutor(async () => {
             return { kind: "complete", completionEvidence: [], summary: "done" };
-        }),
+        }, async () => ({ kind: "accept" })),
     });
 
     const result = await runner.run({

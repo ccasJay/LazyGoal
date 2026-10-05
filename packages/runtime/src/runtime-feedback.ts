@@ -8,7 +8,8 @@ export type RuntimeFeedbackOrigin =
     | "decision_semantics"
     | "tool_selection"
     | "tool_input"
-    | "completion_evidence";
+    | "completion_evidence"
+    | "completion_review";
 
 /**
  * 一项经过界限化且不包含模型原始响应的修复提示。
@@ -33,7 +34,8 @@ export interface RuntimeFeedbackIssue {
  *
  * @remarks
  * 只携带 Goal/Run/Step 阶段身份、稳定错误码、有效约束和有界问题定位，不携带原始模型输出、
- * 用户消息、凭据或内部异常对象。该记录是阶段输入，不能并入真实 Goal Conversation。
+ * 用户消息、凭据或内部异常对象。该记录是阶段输入，不能并入真实 Goal Conversation。完成审查的缺口使用 completion_review 来源，
+ * 仍归属 Decide，不新增恢复阶段。
  *
  * @example
  * ```ts

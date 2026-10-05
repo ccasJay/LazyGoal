@@ -65,6 +65,7 @@ test("PTC executes a program and inner tool without an extra model step", {
         { kind: "complete" as const, summary: "Done", completionEvidence: [] },
     ];
     const executor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" as const }; },
         async execute() { return decisions[modelCalls++]!; },
         async decide() { return { kind: "decision", decision: decisions[modelCalls++]! }; },
         async think() { throw new Error("Unexpected Think"); },
@@ -166,6 +167,7 @@ test("PTC rejects a child Tool outside the exposed set before preparation or exe
                 input: { code: "await tools.read_file({path:'README.md'}); return 'done';" },
             } };
     const executor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" as const }; },
         async execute() { return hiddenDecision; },
         async decide() { return { kind: "decision", decision: hiddenDecision }; },
         async think() { throw new Error("Unexpected Think"); },
@@ -231,6 +233,7 @@ test("PTC never automatically replays an unknown write even if the tool says saf
         },
     };
     const executor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" as const }; },
         async execute() { modelCalls += 1; return decision; },
         async decide() { modelCalls += 1; return { kind: "decision", decision }; },
         async think() { throw new Error("Unexpected Think"); },
@@ -318,6 +321,7 @@ test("PTC pauses for a real child approval and resumes the same code", {
         { kind: "complete" as const, summary: "Done", completionEvidence: [] },
     ];
     const executor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" as const }; },
         async execute() { return decisions[modelCalls++]!; },
         async decide() { return { kind: "decision", decision: decisions[modelCalls++]! }; },
         async think() { throw new Error("Unexpected Think"); },

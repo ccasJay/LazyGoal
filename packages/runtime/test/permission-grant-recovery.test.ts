@@ -147,7 +147,7 @@ test("持续授权生命周期：沙箱审批选择 Goal 范围并在后续 Acti
         let decisionIndex = 0;
         const executor: StepExecutor = createStepExecutor(async (_input: StepExecutionInput) => {
             return decisions[decisionIndex++] ?? { kind: "complete", summary: "done", completionEvidence: [] };
-        });
+        }, async () => ({ kind: "accept" }));
 
         const trajectoryStore = trajectoryStoreFor(store);
         const runner = new Runner({
@@ -255,7 +255,7 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
             },
         };
 
-        const executor: StepExecutor = createStepExecutor(async () => currentDecision);
+        const executor: StepExecutor = createStepExecutor(async () => currentDecision, async () => ({ kind: "accept" }));
 
         const runner = new Runner({
             store,

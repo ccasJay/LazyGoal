@@ -17,6 +17,7 @@ import { renderRequest } from "../src/render";
 import { parseModelOutput } from "../src/model-output";
 import { createDefaultDynamicSectionRegistry } from "../src/prompting/dynamic-section-registry";
 import { decisionScenarios, decisionScenarioView, decisionTools, scoreDecision } from "./decision-guidance-fixtures";
+import { runCompletionReviewEvaluation } from "./completion-review-eval";
 
 const baseline = new URL("./fixtures/decision-guidance-baseline/", import.meta.url);
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -169,7 +170,8 @@ if (!process.env.NODE_TEST_CONTEXT && process.argv[1] && import.meta.url === pat
     try { process.loadEnvFile(); } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    runDecisionEvaluation(process.env).then(report => {
+    const evaluate = process.argv.includes("--completion-review") ? runCompletionReviewEvaluation : runDecisionEvaluation;
+    evaluate(process.env).then(report => {
         console.log(JSON.stringify(report, null, 2));
         process.exitCode = report.status === "passed" ? 0 : report.status === "incomplete" ? 2 : 1;
     }).catch(error => {

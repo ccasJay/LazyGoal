@@ -128,7 +128,7 @@ test("manual Tool result recovered after restart stays unknown and stream reconn
             store: initialStore,
             trajectoryStore: firstProcessTrajectory,
             toolRegistry: { get: () => registration },
-            executor: createStepExecutor(async () => { throw new Error("pending action must bypass the model"); }),
+            executor: createStepExecutor(async () => { throw new Error("pending action must bypass the model"); }, async () => ({ kind: "accept" })),
         });
 
         await assert.rejects(firstRunner.run(
@@ -144,7 +144,7 @@ test("manual Tool result recovered after restart stays unknown and stream reconn
             store: restartedStore,
             trajectoryStore: restartedTrajectory,
             toolRegistry: { get: () => registration },
-            executor: createStepExecutor(async () => { throw new Error("manual recovery must not request a new decision"); }),
+            executor: createStepExecutor(async () => { throw new Error("manual recovery must not request a new decision"); }, async () => ({ kind: "accept" })),
         });
         const recovered = await restartedRunner.run({
             goalId: interrupted.id,

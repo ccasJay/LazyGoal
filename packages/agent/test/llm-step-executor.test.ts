@@ -521,7 +521,7 @@ test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async 
             memoryPatch: null,
         },
     });
-    const adapter = new SequenceAdapter([completeContent]);
+    const adapter = new SequenceAdapter([completeContent, JSON.stringify({ result: { kind: "accept" } })]);
     const executor = createExecutor(adapter);
     const trajectoryStore = createInMemoryTrajectoryStore();
     const runner = new Runner({
@@ -557,7 +557,7 @@ test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async 
         },
     });
     assert.deepEqual(persisted?.state.run, result.state);
-    assert.equal(adapter.requests.length, 1);
+    assert.equal(adapter.requests.length, 2);
     assert.deepEqual(
         adapter.requests[0]?.messages.slice(1, 3),
         initialMessages.map(({ role, content }) => ({ role, content })),
@@ -610,7 +610,7 @@ test("Runner 对未授权 Tool 保存稳定执行错误且不消费 Step", async
     assert.deepEqual(result.state.stopReason, {
         kind: "execution_error",
         code: "INVALID_AGENT_DECISION",
-        message: "Model output correction exhausted after three decide calls (INVALID_LLM_RESPONSE)",
+        message: "Model output correction exhausted after three decide attempts (INVALID_LLM_RESPONSE)",
     });
     assert.equal(adapter.requests.length, 3);
     assert.deepEqual((await store.restore(goalId))?.state.run, result.state);
@@ -649,7 +649,7 @@ test("Runner 将 AgentDecision 协议错误保存为稳定执行错误", async (
         result.state.stopReason?.kind === "execution_error"
             ? result.state.stopReason.message
             : "",
-        /Model output correction exhausted after three decide calls/,
+        /Model output correction exhausted after three decide attempts/,
     );
     assert.equal(adapter.requests.length, 3);
     assert.deepEqual((await store.restore(goalId))?.state.run, result.state);
@@ -923,6 +923,10 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
                 assert.deepEqual(executed, ["bash"]);
                 return call("read_file", { path: "AGENTS.md" });
             }
+            if (requests.length === 5) {
+                assert.equal(request.tools?.[0]?.id, "system_review_completion");
+                return call("system_review_completion", { result: { kind: "accept" } });
+            }
             assert.equal(requests.length, 4);
             const events = await trajectoryStore.read({ goalId, runId: "run-repair-read" });
             const evidence = events.filter(event => event.payload.type === "observation_recorded").at(-1)!;
@@ -944,7 +948,7 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.equal(result.state.status, "completed", JSON.stringify({ state: result.state, calls: requests.length, executed }));
-    assert.equal(requests.length, 4);
+    assert.equal(requests.length, 5);
     assert.deepEqual(executed, ["bash", "read_file"]);
     const messages = (await store.restore(goalId))!.state.messages;
     assert.equal(messages.some(message => /runtime_feedback|invalid-read|__lazygoal_null__/.test(message.content)), false);

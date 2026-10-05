@@ -79,6 +79,7 @@ const registry = new InMemoryToolRegistry([
     }),
 ]);
 const executor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" as const }; },
     async execute() {
         if (mode !== "start") throw new Error("Model must not run on recovery");
         return { kind: "tool_call", action: { actionId: "process-parent", toolId: "execute_program", input: { code } } };

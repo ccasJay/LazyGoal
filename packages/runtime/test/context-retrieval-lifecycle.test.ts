@@ -232,7 +232,7 @@ test("Runner resumes a committed lookup result after interruption without queryi
         }
         controller.abort();
         return { kind: "complete", summary: "不会提交", completionEvidence: [] };
-    });
+    }, async () => ({ kind: "accept" }));
     let portCalls = 0;
     const port: ContextLookupPort = {
         async lookup(input) {
@@ -268,7 +268,7 @@ test("Runner resumes a committed lookup result after interruption without queryi
         executor: createStepExecutor(async (input) => {
             resumedInputs.push(input);
             return { kind: "complete", summary: "已恢复", completionEvidence: [] };
-        }),
+        }, async () => ({ kind: "accept" })),
     }).run({ goalId: goal.id, runId: goal.state.run.id });
 
     assert.equal(resumed.ok, true);

@@ -310,6 +310,7 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
             adapter: {
                 structuredOutputMode: "strict" as const,
                 generate: async (request) => {
+        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
                     const next = responses.shift();
                     if (next === undefined) throw new Error("fake LLM responses exhausted");
                     const output = typeof next === "object" && next !== null && "kind" in next && next.kind === "complete"
@@ -368,7 +369,7 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
         assert.deepEqual(result.model, {
             runStatus: "completed",
             completed: true,
-            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 4 },
+            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 5 },
         });
         assert.equal(result.failure, undefined);
         assert.equal(closed, 1);
@@ -395,6 +396,7 @@ test("ALFWorld model completion without an environment win remains evaluator-own
             adapter: {
                 structuredOutputMode: "strict" as const,
                 generate: async (request) => {
+        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
                     const next = responses[responseIndex++ % responses.length];
                     const output = typeof next === "object" && next !== null && "kind" in next && next.kind === "complete"
                         ? { ...next, evidenceSequences: [latestObservationSequence(request)] }
@@ -435,7 +437,7 @@ test("ALFWorld model completion without an environment win remains evaluator-own
         assert.deepEqual(result.model, {
             runStatus: "completed",
             completed: true,
-            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 3 },
+            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 4 },
         });
         assert.equal(result.failure, undefined);
 

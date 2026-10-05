@@ -51,7 +51,7 @@ Runtime 执行协议按 Goal 冻结的唯一 `structured@1 + trajectory-layered@
 
 ## 模型消息日志
 
-[`JsonFileModelInputStore`](../../packages/storage/src/json-file-model-input-store.ts) 实现 Runtime 的独立输入查看端口。每个 Goal/Run 在 `model-inputs/` 下保存调用 JSONL 清单，消息正文在同一 Goal 的 Run 之间按 SHA-256 寻址复用；相同 system 或历史消息只写一次。清单保留 role、来源、消息顺序和调用身份，以及原生 assistant 的工具调用、独立 reasoning、续接字段和 tool 结果关联 ID；正文写入完成后才追加引用。读取校验当前 schema、路径引用与内容哈希；未记录时为空，损坏时拒绝。文件权限为 0600。
+[`JsonFileModelInputStore`](../../packages/storage/src/json-file-model-input-store.ts) 实现 Runtime 的独立输入查看端口。每个 Goal/Run 在 `model-inputs/` 下保存调用 JSONL 清单，消息正文在同一 Goal 的 Run 之间按 SHA-256 寻址复用；相同 system 或历史消息只写一次。清单记录 `think`、`decide` 或 `completion_review` 调用用途，保留 role、来源、消息顺序和独立调用身份，以及原生 assistant 的工具调用、独立 reasoning、续接字段和 tool 结果关联 ID；正文写入完成后才追加引用。读取校验当前 schema、路径引用与内容哈希；未记录时为空，损坏时拒绝。文件权限为 0600。
 
 该日志不参与 Snapshot、Trajectory 或上下文基线恢复。正式 CLI 组合根配置写入端口，写入失败会阻止当前 Adapter 调用；诊断 Trace 只保留完整输入的调用引用。崩溃可能留下未引用正文；不提供多进程共同写入或 exactly-once 保证，当前读取遍历完整 Run。
 
