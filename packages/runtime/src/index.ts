@@ -280,7 +280,6 @@ export {
     EvidenceGateError,
     buildCommittedEvidenceIndex,
     CONTEXT_LOOKUP_EVENT_TYPES,
-    createEvidenceGate,
     isContextLookupEventType,
     isEvidenceEventType,
     validateCanonicalFactEvidence,
@@ -293,7 +292,6 @@ export type {
     CommittedEvidenceIndex,
     CommittedEvidenceIndexInput,
     EvidenceEventType,
-    EvidenceGate,
     EvidenceValidationScope,
     FactEvidence,
 } from "./evidence-gate";
@@ -319,7 +317,6 @@ export {
     createToolRegistration,
     createProgramToolRegistration,
     InMemoryToolRegistry,
-    isReadOnlyTool,
     resolveAuthorizedToolDefinitions,
     TransientToolExecutionFailure,
 } from "./tool";
@@ -433,10 +430,6 @@ export type {
     GoalModelSelectionRequest,
     GoalModelSelectionResult,
 } from "./goal-model-selection-coordinator";
-export {
-    getSandboxProtectionStatus,
-    type SandboxProtectionStatus,
-} from "../../sandbox/src/index";
 export type {
     ProcessOutputChannel,
     ProcessOutputChunk,

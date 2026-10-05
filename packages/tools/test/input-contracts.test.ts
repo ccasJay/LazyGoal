@@ -58,7 +58,6 @@ import {
 } from "../src/index";
 import {
     createToolRegistration,
-    isReadOnlyTool,
 } from "../../../packages/runtime/src/index";
 
 type Equal<Left, Right> =
@@ -667,7 +666,6 @@ test("工具声明式 isReadOnly 元数据准确区分只读读取与写操作�
 
     for (const tool of readOnlyTools) {
         assert.equal(tool.definition.isReadOnly, true, `${tool.definition.id}.definition 应当声明 isReadOnly: true`);
-        assert.equal(isReadOnlyTool(tool.definition), true, `isReadOnlyTool(${tool.definition.id}) 应当返回 true`);
     }
 
     const modifyingTools = [
@@ -685,7 +683,6 @@ test("工具声明式 isReadOnly 元数据准确区分只读读取与写操作�
 
     for (const tool of modifyingTools) {
         assert.equal(tool.definition.isReadOnly, false, `${tool.definition.id}.definition 应当显式声明 isReadOnly: false`);
-        assert.equal(isReadOnlyTool(tool.definition), false, `isReadOnlyTool(${tool.definition.id}) 应当返回 false`);
     }
 
 });
