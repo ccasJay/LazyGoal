@@ -66,7 +66,7 @@ const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     },
     {
         id: READ_FILE_TOOL_ID,
-        description: "读取 workspaceRoot 内的 UTF-8 文本文件",
+        description: "Read UTF-8 text from a file in workspaceRoot with line range and pagination support.",
         inputContract: READ_FILE_INPUT_CONTRACT,
         isReadOnly: true,
     },
@@ -84,7 +84,7 @@ const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     },
     {
         id: GREP_TOOL_ID,
-        description: "在 workspaceRoot 内按正则搜索文本文件并返回带行号的匹配行",
+        description: "Search text files in workspace using regular expressions with context lines and pagination.",
         inputContract: GREP_INPUT_CONTRACT,
         isReadOnly: true,
     },
@@ -541,9 +541,14 @@ test("Projector 从七个当前 Contract 生成稳定且可移植的模型 Schem
             inputSchema: {
                 type: "object",
                 properties: {
+                    contextLines: { type: "integer", minimum: 0, maximum: 20 },
+                    cursor: { type: "string" },
+                    exclude: { type: "string" },
                     pattern: { type: "string" },
                     path: { type: "string" },
                     ignoreCase: { type: "boolean" },
+                    include: { type: "string" },
+                    maxMatches: { type: "integer", minimum: 1, maximum: 1000 },
                 },
                 required: ["pattern"],
                 additionalProperties: false,
@@ -553,7 +558,13 @@ test("Projector 从七个当前 Contract 生成稳定且可移植的模型 Schem
             id: READ_FILE_TOOL_ID,
             inputSchema: {
                 type: "object",
-                properties: { path: { type: "string" } },
+                properties: {
+                    cursor: { type: "string" },
+                    endLine: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+                    maxChars: { type: "integer", minimum: 1, maximum: 50000 },
+                    path: { type: "string" },
+                    startLine: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+                },
                 required: ["path"],
                 additionalProperties: false,
             },

@@ -46,6 +46,7 @@ function createWaitingState(runId = "run-1"): RunState {
 
 test("advances one transition at a time through the main lifecycle", () => {
     const created = createRun("run-1");
+    assert.deepEqual(created.exposedToolIds, []);
 
     const running = requireSuccessfulState(
         transition(created, { kind: "start" }),
@@ -95,6 +96,29 @@ test("advances one transition at a time through the main lifecycle", () => {
         kind: "decision",
         result: completeDecision,
     });
+});
+
+test("tool discovery advances one Step and cumulatively exposes matched tools", () => {
+    const running = createRunningState();
+    const first = requireSuccessfulState(transition(running, {
+        kind: "tool_discovery",
+        decision: { kind: "tool_discovery", query: "read" },
+        matchedToolIds: ["read_file", "grep"],
+    }));
+    assert.equal(first.stepCount, 1);
+    assert.deepEqual(first.exposedToolIds, ["read_file", "grep"]);
+    assert.deepEqual(first.lastStep, {
+        kind: "decision",
+        result: { kind: "tool_discovery", query: "read" },
+    });
+
+    const second = requireSuccessfulState(transition(first, {
+        kind: "tool_discovery",
+        decision: { kind: "tool_discovery", query: "grep" },
+        matchedToolIds: ["grep", "find_files"],
+    }));
+    assert.equal(second.stepCount, 2);
+    assert.deepEqual(second.exposedToolIds, ["read_file", "grep", "find_files"]);
 });
 
 test("stage_action persists a pending Action without consuming a Step", () => {

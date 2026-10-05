@@ -31,9 +31,12 @@ describe("Runtime Sandbox Execution Scope & Plan Binding", () => {
 
             const tool = new BashTool(workspace);
 
+            const testContext = { goalId: "goal-1", runId: "run-1" };
+
             // 1. 模型提出了文件和网络额外申请，但未绑定核准 plan
             const unapprovedReq = {
                 actionId: "action-unapproved",
+                context: testContext,
                 input: {
                     command: `cat "${externalFile}"`,
                     sandboxAccess: {
@@ -62,6 +65,7 @@ describe("Runtime Sandbox Execution Scope & Plan Binding", () => {
 
             const approvedReq = {
                 actionId: "action-approved",
+                context: testContext,
                 input: unapprovedReq.input,
                 plan: approvedPlan,
             };

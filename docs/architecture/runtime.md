@@ -19,7 +19,7 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 | [Trajectory](../../packages/runtime/src/trajectory.ts) | 追加事实事件、提交 marker 和只读恢复查询 | 改写 Runtime State |
 | [Tool contracts](../../packages/runtime/src/tool.ts) | Tool 描述、输入 Contract、执行闭包、可选流能力、Registry 和 Policy 边界 | 具体 Tool 业务逻辑 |
 | [Tool Grant](../../packages/runtime/src/tool-grant.ts) | 将已验证的 Tool 输入映射为按操作匹配的持续授权身份，并定义授权 Store Port | 执行 Tool 或绕过 Profile、输入、Policy 校验 |
-| [Context Retrieval](../../packages/runtime/src/context-retrieval.ts) | 校验历史查询、归一化 bounded result 和相关 Trajectory 事实 | 读取当前 Workspace/Environment |
+| [Context Retrieval](../../packages/runtime/src/context-retrieval.ts) | 历史查询校验、边界门禁及向 `@lazygoal/context-retrieval` 委托的适配层 | 读取当前 Workspace/Environment |
 
 ## 状态与推进
 
@@ -36,8 +36,10 @@ waiting 输入调用 `resume` 并保留当前 Run；completed 或 failed 输入�
 - 提案进入持久化的 `task_approval` 等待点后停止模型和 Tool 调用；反馈使旧提案失效并重新请求，批准后将任务保存在当前 Run 的 `approvedTask`。
 - 获批 Plan Run 可调用已授权业务 Tool，并按获批任务的完成条件校验证据。GoalPlan 写入由 Run 模式能力授权；计划状态本身不授予业务 Tool 权限。
 - 各模式中的 Tool 调用统一沿用 Tool Registry、Action ID、Policy、Trajectory 和 Observation 提交路径。
+- 每个 Run 从空 `exposedToolIds` 开始。Decide 的 `system_find_tools` 在 Profile/Registry 授权交集中按关键词稳定排序，最多返回 5 项；Runtime 将命中 ID 累积到 Run 并计入一次 Step。Schema 暴露不授予执行权：直接 Action 和 PTC 子调用仍须命中该 Run 的暴露集合，再经过现有 Profile、Registry、输入、Policy、审批和沙箱检查。
 - 默认本机 Profile 授权 `execute_program` 时，模型可显式选择程序调用；Runner 将程序作为一个父 Step，在独立 Seatbelt worker 内运行 JavaScript。每个内部业务 Tool 调用重新经过冻结 Profile、输入 Contract、Policy、Grant 和原有审批路径；程序入口的许可不授予内部操作。子调用按顺序提交，模型只收到父程序的显式返回或失败。
-- Policy 要求人工审批的 Action 可获准一次、当前 Goal 或当前 workspace。Goal/workspace Grant 按完整 `bash` 输入或文件目标路径匹配，并且始终在 Profile、输入与 Policy 校验之后查询；YOLO 自动批准不生成持续 Grant。
+- Policy 要求人工审批的 Action 可获准一次、当前 Goal 或当前 workspace。Goal/workspace Grant 支持 Tool Grant 与通用 Sandbox Grant：Sandbox Grant 泛化为 `{ toolId, inputDigest, scope, version: 1 }`，绑定规范化输入摘要与沙箱能力范围，不再硬编码仅限 bash。持续授权始终在 Profile、输入与 Policy 校验之后查询；YOLO 自动批准不生成持续 Grant。
+- Runner 调度 Tool 时注入可信的 `ToolExecutionContext: { goalId, runId }`；Tool 可选实现 `resolveSandboxAccess`，在准备完成、授权之前派生真实资源范围。显式 Profile 与冻结 Profile 保持工具集合不变，默认 Profile 使用统一的默认工具集同源入口。
 - `ask_user` 进入带 request ID、模式和问题列表的等待点；答案先写入真实消息与回答事实，再恢复 Runner。
 - 阶段化 Executor 在单个 Step 内由 Runner 管理 Decide/Think 循环。每次 `request_think` 先和 Decide frame 提交；Think 输出和 Think frame 另存为已提交事实后，Runner 才再次 Decide。Think 不增加 `stepCount`，不执行 Tool；只有最终有效 `AgentDecision` 进入既有转换、授权和证据校验。
 

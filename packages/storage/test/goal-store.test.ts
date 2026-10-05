@@ -77,7 +77,7 @@ function createExecutingGoal(input: {
             workflow: {
                 phase: "executing",
             },
-            run: { ...created.state.run, mode: "plan", approvedTask: {
+            run: { ...created.state.run, exposedToolIds: [...input.profile.toolIds], mode: "plan", approvedTask: {
                     objective: input.objective,
                     completionCriteria: input.completionCriteria.map((criterion) => ({ ...criterion })),
                 } },
@@ -342,6 +342,7 @@ test("GoalSnapshotCodec round-trips bounded Action memory and approval state", (
                 mode: "normal",
                 status: "waiting",
                 stepCount: 0,
+                exposedToolIds: [],
                 committedThroughSequence: 0,
                 contextEpoch: {
                     version: 1,
@@ -447,6 +448,7 @@ test("GoalSnapshotCodec restores the complete Runtime State for every phase", ()
                 mode: "normal",
                 status: "failed",
                 stepCount: 1,
+                exposedToolIds: [],
                 committedThroughSequence: 0,
                 contextEpoch: {
                     version: 1,

@@ -471,6 +471,16 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
     }
 
     /**
+     * 派生本次 Bash 执行所需的沙箱访问申请。
+     *
+     * @param input - 已通过 Input Contract 校验的 Bash 输入。
+     * @returns 模型在 `sandboxAccess` 中声明的文件与网络访问申请。
+     */
+    resolveSandboxAccess(input: BashInput) {
+        return input.sandboxAccess;
+    }
+
+    /**
      * 执行一次已通过校验的 bash 命令。
      *
      * @param request - Action ID 与 `{ command, timeoutMs? }` 输入。

@@ -6,7 +6,7 @@ import {
     Runner,
     TrajectoryCheckpointCommitter,
     allocateImmutableEvent,
-    createGoal,
+    createGoal as createUnexposedGoal,
     createStepExecutor,
     createToolRegistration,
     transition,
@@ -26,7 +26,11 @@ import type {
     TrajectoryReadResult,
     TrajectoryStore,
 } from "../src/index";
-import { currentProtocols } from "./current-fixtures";
+import { currentProtocols, withDiscoveredProfileTools } from "./current-fixtures";
+
+function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {
+    return withDiscoveredProfileTools(createUnexposedGoal(input));
+}
 
 const profile: AgentProfile = {
     id: "trajectory-profile",

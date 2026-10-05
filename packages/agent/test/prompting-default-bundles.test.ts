@@ -191,7 +191,7 @@ test("PTC 指引仅随专用 Tool 授权出现", async () => {
         }],
     })));
     assert.match(authorized, /tools\[toolId\]\(input\)/);
-    assert.match(authorized, /result\.observation\.output\.split/);
+    assert.match(authorized, /result\.observation\.output\.text\.split/);
     assert.match(authorized, /no require, process, fs, or direct workspace access/);
     assert.match(authorized, /do not shadow the provided tools object/);
     assert.match(authorized, /Check observation\.kind for every inner call before using its output/);

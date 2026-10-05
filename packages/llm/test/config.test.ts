@@ -35,8 +35,8 @@ test("configuration requires explicit provider, model and key (structuredOutputM
 test("factory dispatches all six providers without network or ambient credentials", () => {
     for (const [provider, model] of [
         ["openai", "gpt-4.1-mini"], ["google", "gemini-2.5-flash"],
-        ["anthropic", "claude-sonnet-4-5"], ["deepseek", "deepseek-v4-flash"],
-        ["openrouter", "anthropic/claude-3-haiku"],
+        ["anthropic", "claude-sonnet-4-5"], ["deepseek", "deepseek-flash"],
+        ["openrouter", "~anthropic/claude-haiku-latest"],
     ] as const) {
         assert.ok(createLlmAdapter(readLlmConfig({ ...base, LLM_PROVIDER: provider, LLM_MODEL: model })) instanceof PiAiAdapter);
         const strict = { ...base, LLM_PROVIDER: provider, LLM_MODEL: model, LLM_STRUCTURED_OUTPUT_MODE: "strict" };
@@ -114,4 +114,3 @@ test("createReflectionLlmAdapter dispatches native runtime providers for google 
     });
     assert.ok(anthropicReflection instanceof PiAiAdapter);
 });
-

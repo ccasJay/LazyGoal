@@ -15,19 +15,20 @@ import { pathToFileURL } from "node:url";
 const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
     "execution-stream": [],
+    "context-retrieval": ["contracts"],
     http: [],
     "slash-command": [],
     acp: [],
     sandbox: [],
     permission: ["contracts", "sandbox"],
-    runtime: ["contracts", "execution-stream", "sandbox", "permission"],
+    runtime: ["contracts", "execution-stream", "sandbox", "permission", "context-retrieval"],
     llm: ["runtime", "contracts", "execution-stream"],
-    storage: ["runtime", "contracts", "permission"],
+    storage: ["runtime", "contracts", "permission", "context-retrieval"],
     agent: ["runtime", "llm", "contracts", "execution-stream"],
     "session-metrics": ["runtime", "http"],
     tools: ["runtime", "contracts", "execution-stream", "sandbox"],
     browser: ["http", "runtime", "permission"],
-    tui: ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission"],
+    tui: ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval"],
 };
 
 const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);

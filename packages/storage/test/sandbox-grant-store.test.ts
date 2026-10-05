@@ -9,7 +9,7 @@ import type { SandboxGrantMatcher } from "../../permission/src/index";
 
 const matcher: SandboxGrantMatcher = {
     toolId: "bash",
-    command: "curl https://example.com",
+    inputDigest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     scope: {
         extraFiles: [
             { canonicalPath: "/tmp/data.txt", access: "write", kind: "file" },
@@ -94,7 +94,7 @@ test("重复 stage 按来源幂等，冲突与撤销授权不能再次激活", a
                 scope: "workspace",
                 workspaceId: "workspace-1",
                 source,
-                matcher: { ...matcher, command: "curl https://evil.com" },
+                matcher: { ...matcher, inputDigest: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210" },
             }),
         );
 

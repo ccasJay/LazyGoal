@@ -14,11 +14,33 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "./execution-control";
-import type { SandboxExecutionPlan } from "../../sandbox/src/index";
+import type { DerivedSandboxAccess, SandboxExecutionPlan } from "../../sandbox/src/index";
 import type { RuntimeFeedbackIssue } from "./runtime-feedback";
 
 /** Tool 输入 Contract 的 JSON AST 类型边界。 */
 export type ToolInputContract = Contract<JsonValue>;
+
+/**
+ * Tool 执行期接收到的可信上下文身份。
+ *
+ * @remarks
+ * 包含当前推进的 Goal 与 Run 稳定标识，由 Runner 在受信任的调度边界构造并传递。
+ * 进程管理与资源工具使用此上下文校验操作所属，严禁由模型输入指定。
+ *
+ * @example
+ * ```ts
+ * const context: ToolExecutionContext = {
+ *   goalId: "goal-1",
+ *   runId: "run-1",
+ * };
+ * ```
+ */
+export interface ToolExecutionContext {
+    /** 当前执行所属的 Goal 唯一标识。 */
+    readonly goalId: string;
+    /** 当前执行所属的 Run 唯一标识。 */
+    readonly runId: string;
+}
 
 /**
  * Tool 对外展示和输入校验所需的静态描述。
@@ -73,6 +95,7 @@ export type ToolStreamEvent =
  * ```ts
  * const request: ToolExecutionRequest = {
  *   actionId: "action-1",
+ *   context: { goalId: "goal-1", runId: "run-1" },
  *   input: { path: "README.md" },
  * };
  * ```
@@ -80,6 +103,13 @@ export type ToolStreamEvent =
 export interface ToolExecutionRequest<Input extends JsonValue = JsonValue> {
     /** 当前 Action 生命周期的稳定标识。 */
     readonly actionId: string;
+    /**
+     * 可信的 Tool 执行上下文身份。
+     *
+     * @remarks
+     * 仅由 Runner/Coordinator 从当前 Goal 与 Run 实例注入，在纯单元测试独立调用 Tool 实例时可选。
+     */
+    readonly context?: ToolExecutionContext;
     /** 已通过 Input Contract 与 Tool 语义校验的结构化输入。 */
     readonly input: Input;
     /** Runner 在执行期提供的受限沙箱执行计划（非持久化）。 */
@@ -175,6 +205,27 @@ export interface Tool<C extends ToolInputContract = ToolInputContract> {
      */
     validate(input: InferContract<C>): ToolValidationResult;
     /**
+     * 可选的沙箱能力派生接口。
+     *
+     * @remarks
+     * Runner 在输入准备完成、权限授权之前调用该方法。用于从具体输入中发现或推导
+     * 需向系统申请的越界文件或网络资源（例如 Bash 显式申请、网页网络能力、Git 元数据路径）。
+     * 该方法只发现资源，不执行业务写入、不持有 Goal。
+     *
+     * @param input - Input Contract 与语义校验通过的规范化输入。
+     * @param control - 当前调用共享的中止控制。
+     * @returns 派生的沙箱访问申请；若不需要额外能力则返回 `undefined`。
+     *
+     * @example
+     * ```ts
+     * const access = tool.resolveSandboxAccess?.(input);
+     * ```
+     */
+    resolveSandboxAccess?(
+        input: InferContract<C>,
+        control?: ExecutionControl,
+    ): Promise<DerivedSandboxAccess | undefined> | DerivedSandboxAccess | undefined;
+    /**
      * 执行一次已经通过输入校验的 Tool 调用。
      *
      * @param request - Action ID 与已解析的结构化输入。
@@ -203,38 +254,40 @@ export interface Tool<C extends ToolInputContract = ToolInputContract> {
     ) => AsyncIterable<ToolStreamEvent>;
 }
 
-/**
- * 判定 ToolDefinition 是否声明为只读工具。
- *
- * @param tool - ToolDefinition 或其只读能力投影。
- * @returns 当且仅当定义显式标记为 `isReadOnly: true` 时返回 `true`。
- *
- * @example
- * ```ts
- * const readOnly = isReadOnlyTool(readFileTool.definition);
- * ```
- */
-export function isReadOnlyTool(
-    tool: Pick<ToolDefinition, "isReadOnly">,
-): boolean {
-    return tool.isReadOnly;
-}
-
 /** Tool Contract 与语义校验完成后的单次可执行 Action。 */
 export type PreparedToolAction =
     | {
         readonly ok: true;
         /** Contract Parser 创建的、与原始输入隔离的 canonical 输入。 */
         readonly input: JsonValue;
+        /**
+         * 可选的同源沙箱能力派生闭包。
+         *
+         * @remarks
+         * Runner 在准备完成、授权之前调用，获取本次 Action 申请的额外沙箱资源。
+         *
+         * @param control - 中止控制信号。
+         * @returns 派生的沙箱访问申请；若不需要额外能力则返回 `undefined`。
+         *
+         * @example
+         * ```ts
+         * const access = await prepared.resolveSandboxAccess?.();
+         * ```
+         */
+        resolveSandboxAccess?(
+            control?: ExecutionControl,
+        ): Promise<DerivedSandboxAccess | undefined> | DerivedSandboxAccess | undefined;
         /** 使用已准备输入执行一次 Tool；不再接收原始 input。 */
         execute(
             actionId: string,
+            context: ToolExecutionContext,
             control?: ExecutionControl,
             plan?: SandboxExecutionPlan,
         ): Promise<ToolObservation>;
         /** 使用相同 canonical 输入执行一次可选流式 Tool。 */
         stream?(
             actionId: string,
+            context: ToolExecutionContext,
             control?: ExecutionControl,
             plan?: SandboxExecutionPlan,
         ): AsyncIterable<ToolStreamEvent>;
@@ -357,9 +410,17 @@ export function createToolRegistration<C extends ToolInputContract>(
             return {
                 ok: true,
                 input: parsed.data,
-                execute(actionId, executeControl, plan) {
+                ...(tool.resolveSandboxAccess === undefined
+                    ? {}
+                    : {
+                        resolveSandboxAccess(resolveControl?: ExecutionControl) {
+                            return tool.resolveSandboxAccess!(parsed.data, resolveControl);
+                        },
+                    }),
+                execute(actionId, context, executeControl, plan) {
                     return tool.execute({
                         actionId,
+                        context,
                         input: parsed.data,
                         ...(plan !== undefined ? { plan } : {}),
                     }, executeControl);
@@ -367,9 +428,10 @@ export function createToolRegistration<C extends ToolInputContract>(
                 ...(tool.stream === undefined
                     ? {}
                     : {
-                        stream(actionId: string, executeControl?: ExecutionControl, plan?: SandboxExecutionPlan) {
+                        stream(actionId: string, context: ToolExecutionContext, executeControl?: ExecutionControl, plan?: SandboxExecutionPlan) {
                             return tool.stream!({
                                 actionId,
+                                context,
                                 input: parsed.data,
                                 ...(plan !== undefined ? { plan } : {}),
                             }, executeControl);

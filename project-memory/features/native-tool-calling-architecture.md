@@ -1,12 +1,12 @@
 ---
 feature: native-tool-calling-architecture
 status: active
-summary: "原生双通道工具调用架构，在单次网络往返（1 RTT）内实现自然语言思考推演与强 Schema 约束工具调用，优先使用厂商原生 Function Calling 驱动"
+summary: "每次 Decide 调用以原生双通道和单次往返生成约束决策，并按当前 Run 可见工具集投影 Schema"
 source_spec: specs/native-tool-calling-architecture/
 distilled_at: 2026-09-21
-reviewed_at: 2026-10-01
+reviewed_at: 2026-10-04
 tags: [agent, llm, tool-calling, dual-channel, 1-rtt, system-tools, function-calling]
-authorities: [docs/architecture/llm.md, docs/architecture/agent.md, packages/llm/src/core/types.ts, packages/contracts/src/model-output/system-tools.ts, packages/agent/src/llm-step-executor.ts]
+authorities: [docs/architecture/llm.md, docs/architecture/agent.md, docs/architecture/contracts.md, packages/llm/src/core/types.ts, packages/contracts/src/model-output/system-tools.ts, packages/agent/src/llm-step-executor.ts, packages/runtime/src/tool-discovery.ts, packages/runtime/src/runner.ts, packages/agent/src/model-inference-projector.ts]
 supersedes: [project-memory/features/two-stage-decision-pipeline.md]
 ---
 
@@ -14,25 +14,25 @@ supersedes: [project-memory/features/two-stage-decision-pipeline.md]
 
 ## Purpose
 
-- 将模型交互机制从顶层单一 JSON 封包重构为原生双通道（Dual-Channel）工具调用体系，单步 1 RTT 内同时获取自由思维链与强类型工具调用，优先使用厂商原生 Function Calling 协议。 [S1, S2, S3, S4, S5]
+- 将模型交互从顶层单一 JSON 封包转为原生双通道：每次模型请求在单个网络往返内同时取得自由文本与强类型工具决策，并优先使用供应商原生 Function Calling。 [S1, S2, S3, S4, S5]
 
 ## Durable Decisions
 
-- D1 — 双通道交互抽象：`LLMResponse` 解耦为自由文本通道 `content`（承载思考链与分析）与结构化通道 `toolCalls`（承载动作参数），思维流不再受语法机死锁，参数合规由底层强约束保证。 [S1, S2, S6, S8]
-- D2 — 动作即系统函数 (Action-as-Tool)：将任务完成（`system_complete_task`）、用户等待（`system_wait_for_input`）、目标失败（`system_fail_goal`）及上下文查找等所有非业务工具操作抽象为规范内置系统工具，统一模型调度范式。 [S1, S2, S7, S8]
-- D3 — 阶段专属工具集与强制调用：单步由当前阶段组装专属工具清单，并通过 `toolChoice: "required"` 强制模型触发且仅触发 1 个动作，杜绝单步只聊不动的死循环。 [S1, S2, S6, S8]
-- D4 — 原生 Function Calling 统一驱动：OpenAI 采用原生 `tools` + `strict: true`，Gemini 采用官方 `functionDeclarations` + `toolConfig`，充分利用厂商原生约束解码与 Prompt 缓存。 [S1, S2, S4, S6]
-- D5 — 结构化输出模式与原生调用共存：保留 `LLM_STRUCTURED_OUTPUT_MODE`（`strict` / `prompt_only` / `two_stage`）配置与环境校验以兼容第三方适配器与非工具调用；在原生 OpenAI/Gemini 双通道下，由底层驱动 Function Calling 与强约束参数 Schema，替代原先无工具时的顶层结构化输出封包。 [S1, S2, S4, S8]
+- D1 — LLMResponse 分离自由文本 content 与结构化 toolCalls；自然语言推演不受动作参数语法约束，动作参数由底层契约校验。 [S1, S2, S6, S8]
+- D2 — 完成任务、等待用户、失败、上下文查找及工具发现等非业务控制使用系统函数；工具发现是 Decide 专用决策，结果仅影响后续模型请求中的可见 Schema。 [S1, S2, S7, S9, S10, S11]
+- D3 — 每次 Decide 请求仍要求且只接受一个工具决策；其业务工具 Schema 来自 Runtime 提供的当前 Run 可见集合。发现控制用于初始轻量请求，匹配工具从后续请求开始进入 Prompt 与原生声明，二者使用同一集合。 [S1, S2, S5, S8, S9, S10, S12, S13, S14, S15]
+- D4 — OpenAI 使用原生 tools 与 strict 参数约束，Gemini 使用官方 functionDeclarations 与 toolConfig；由供应商适配器投影同一系统决策与业务工具定义。 [S1, S2, S4, S6, S8]
+- D5 — strict、prompt_only 与 two_stage 结构化输出仍可供适配器选择；具备原生双通道的 Provider 由 Function Calling 约束动作参数。 [S1, S2, S4, S8]
 
 ## Guardrails
 
-- 强制单步必须返回且仅返回 1 个工具调用，缺失工具调用时抛出 `MISSING_TOOL_CALL` 协议异常，严禁隐式猜测。 [S1, S2, S6, S8]
-- 系统函数与业务工具入参必须严格经由 `@lazygoal/contracts` 静态 AST 进行类型解码与 Schema 校验。 [S1, S2, S7, S8]
+- 每次 Decide 必须得到且只得到一个可解码工具决策；缺少调用时以协议错误处理，不猜测动作。 [S1, S2, S3, S6, S8]
+- 系统函数和业务工具输入都必须通过 Contract AST 解码；工具发现的可见性状态来自 Runtime，不由模型直接写入。 [S1, S2, S7, S9, S10, S12, S13]
 
 ## Revisit When
 
-- 大模型 Provider 推出支持多工具并发/异步流式调用的原生协议且 LazyGoal 状态机支持并发 Action 时。
-- 引入端到端纯文本无函数调用的实验性 Agent 架构时。
+- Provider 支持并发或异步多工具调用且 Runtime 状态机也支持并发 Action 时。
+- 引入无 Function Calling 的模型协议或调整 Run 级按需 Schema 发现生命周期时。
 
 ## Sources
 
@@ -44,3 +44,10 @@ supersedes: [project-memory/features/two-stage-decision-pipeline.md]
 - S6: `packages/llm/src/core/types.ts`
 - S7: `packages/contracts/src/model-output/system-tools.ts`
 - S8: `packages/agent/src/llm-step-executor.ts`
+- S9: `specs/on-demand-tool-schemas/requirements.md`
+- S10: `specs/on-demand-tool-schemas/design.md`
+- S11: `docs/architecture/contracts.md`
+- S12: `packages/runtime/src/runner.ts`
+- S13: `packages/agent/src/model-inference-projector.ts`
+- S14: `packages/runtime/test/tool-discovery.test.ts`
+- S15: `packages/agent/test/prompt.test.ts`

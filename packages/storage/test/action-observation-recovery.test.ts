@@ -87,7 +87,7 @@ function createExecutingGoal(input: {
             workflow: {
                 phase: "executing",
             },
-            run: { ...created.state.run, mode: "plan", approvedTask: {
+            run: { ...created.state.run, exposedToolIds: [...input.profile.toolIds], mode: "plan", approvedTask: {
                     objective: "验证 Action/Observation 恢复",
                     completionCriteria: [],
                 } },

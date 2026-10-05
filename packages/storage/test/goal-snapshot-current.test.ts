@@ -252,6 +252,64 @@ test("无最终任务的普通只读 Step 可以通过当前 Snapshot 编解码"
     assert.deepEqual(decoded.state.run.lastStep, observed.state.lastStep);
 });
 
+test("带有 details 的 Tool 失败 Observation 可以通过当前 Snapshot 编解码", () => {
+    const goal = createCurrentGoal();
+    const running = transition(goal.state.run, { kind: "start" });
+    assert.equal(running.ok, true);
+    if (!running.ok) return;
+
+    const staged = transition(running.state, {
+        kind: "stage_action",
+        action: {
+            actionId: "apply-patch-action-1",
+            toolId: "apply_patch",
+            input: { patch: "diff ..." },
+        },
+        status: "approved",
+    });
+    assert.equal(staged.ok, true);
+    if (!staged.ok) return;
+
+    const failureDetails = {
+        applied: ["src/a.ts"],
+        failed: { path: "src/b.ts", reason: "hunk 1 failed" },
+        pending: ["src/c.ts"],
+    };
+
+    const observed = transition(staged.state, {
+        kind: "observe_action",
+        actionId: "apply-patch-action-1",
+        observation: {
+            kind: "failure",
+            code: "PATCH_APPLICATION_FAILED",
+            message: "Failed to apply patch to src/b.ts",
+            retryable: false,
+            details: failureDetails,
+        },
+    });
+    assert.equal(observed.ok, true);
+    if (!observed.ok) return;
+
+    const progressed: Goal = {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: observed.state,
+        },
+    };
+    const encoded = goalSnapshotCodec.encode(progressed);
+    const decoded = goalSnapshotCodec.decode(encoded);
+
+    assert.equal(decoded.state.run.stepCount, 1);
+    assert.deepEqual(decoded.state.run.lastStep, observed.state.lastStep);
+    if (decoded.state.run.lastStep?.kind === "action") {
+        assert.equal(decoded.state.run.lastStep.observation.kind, "failure");
+        if (decoded.state.run.lastStep.observation.kind === "failure") {
+            assert.deepEqual(decoded.state.run.lastStep.observation.details, failureDetails);
+        }
+    }
+});
+
 test("无最终任务的普通只读 Action 可以保存为可恢复 pendingAction", () => {
     const goal = createCurrentGoal();
     const running = transition(goal.state.run, { kind: "start" });
@@ -485,4 +543,32 @@ test("Plan Mode 的 GoalPlan 更新 Step 可以通过当前 Snapshot 编解码",
     const invalid = structuredClone(encoded) as any;
     delete invalid.state.run.lastStep.result.operations[0].evidenceSequences;
     assert.throws(() => goalSnapshotCodec.decode(invalid), assertProtocolError);
+});
+
+test("current Snapshot preserves exposed tool IDs and requires the Run field", () => {
+    const goal = createCurrentGoal();
+    const started = transition(goal.state.run, { kind: "start" });
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    const discovered = transition(started.state, {
+        kind: "tool_discovery",
+        decision: { kind: "tool_discovery", query: "read" },
+        matchedToolIds: ["read_file", "grep"],
+    });
+    assert.equal(discovered.ok, true);
+    if (!discovered.ok) return;
+
+    const encoded = goalSnapshotCodec.encode({
+        ...goal,
+        state: { ...goal.state, run: discovered.state },
+    });
+    assert.deepEqual(encoded.state.run.exposedToolIds, ["read_file", "grep"]);
+    assert.deepEqual(goalSnapshotCodec.decode(encoded).state.run.exposedToolIds, ["read_file", "grep"]);
+
+    const missing = structuredClone(encoded) as any;
+    delete missing.state.run.exposedToolIds;
+    assert.throws(() => goalSnapshotCodec.decode(missing), assertProtocolError);
+    const duplicate = structuredClone(encoded) as any;
+    duplicate.state.run.exposedToolIds.push("read_file");
+    assert.throws(() => goalSnapshotCodec.decode(duplicate), assertProtocolError);
 });

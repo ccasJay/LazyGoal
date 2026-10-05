@@ -220,6 +220,7 @@ export class LLMStepExecutor implements StepExecutor {
                 ...(input.runtimeFeedback === undefined ? {} : { runtimeFeedback: input.runtimeFeedback }),
             },
             adapter.nativeConversationIdentity,
+            input.exposedToolIds,
         );
         const { response, startedAt, callId } = await this.generateModelResponse(
             adapter,
@@ -270,9 +271,11 @@ export class LLMStepExecutor implements StepExecutor {
             {
                 allowThink,
                 thinkHistory,
+                ...(input.toolDiscoveryResult === undefined ? {} : { toolDiscoveryResult: input.toolDiscoveryResult }),
                 ...(input.runtimeFeedback === undefined ? {} : { runtimeFeedback: input.runtimeFeedback }),
             },
             adapter.nativeConversationIdentity,
+            input.exposedToolIds,
         );
         const { response, startedAt, callId } = await this.generateModelResponse(
             adapter,

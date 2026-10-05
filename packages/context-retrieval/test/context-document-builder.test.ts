@@ -4,16 +4,9 @@ import { test } from "node:test";
 import {
     ContextDocumentBuilder,
     ContextDocumentSourceError,
-    allocateImmutableEvent,
     buildCommittedContextDocuments,
-    classifyTrajectoryTail,
     type ContextDocumentBuildInput,
-    type Goal,
-    type TrajectoryEvent,
-    type TrajectoryEventDraft,
-    type TrajectoryReadQuery,
-    type TrajectoryReadResult,
-    type TrajectoryStore,
+    type ContextRetrievalTrajectoryEvent,
 } from "../src/index";
 
 const goalId = "goal-document-builder";
@@ -21,19 +14,32 @@ const runId = "run-document-builder";
 
 function event(
     sequence: number,
-    draft: Omit<TrajectoryEventDraft, "goalId" | "runId"> & {
+    draft: {
         readonly goalId?: string;
         readonly runId?: string;
+        readonly phase?: string;
+        readonly executionUnitId?: string;
+        readonly actionId?: string;
+        readonly eventType: string;
+        readonly payload: Record<string, unknown>;
     },
-): Readonly<TrajectoryEvent> {
-    return allocateImmutableEvent({
+): ContextRetrievalTrajectoryEvent {
+    return {
+        eventSchemaVersion: 1,
+        eventId: `document-event-${sequence}`,
+        sequence,
+        occurredAt: "2026-04-14T00:00:00.000Z",
         goalId: draft.goalId ?? goalId,
         runId: draft.runId ?? runId,
-        ...draft,
-    } as TrajectoryEventDraft, sequence, `document-event-${sequence}`);
+        phase: draft.phase ?? "executing",
+        eventType: draft.eventType,
+        payload: draft.payload,
+        ...(draft.executionUnitId === undefined ? {} : { executionUnitId: draft.executionUnitId }),
+        ...(draft.actionId === undefined ? {} : { actionId: draft.actionId }),
+    };
 }
 
-function committedSource(): readonly TrajectoryEvent[] {
+function committedSource(): readonly ContextRetrievalTrajectoryEvent[] {
     return [
         event(1, {
             phase: "executing",
@@ -145,7 +151,7 @@ function committedSource(): readonly TrajectoryEvent[] {
     ];
 }
 
-function input(events: readonly TrajectoryEvent[], boundary = 7): ContextDocumentBuildInput {
+function input(events: readonly ContextRetrievalTrajectoryEvent[], boundary = 7): ContextDocumentBuildInput {
     return {
         goalId,
         runId,
@@ -154,27 +160,20 @@ function input(events: readonly TrajectoryEvent[], boundary = 7): ContextDocumen
     };
 }
 
-class MemoryTrajectoryStore implements TrajectoryStore {
-    constructor(private readonly events: readonly TrajectoryEvent[]) {}
-
-    async append(): Promise<Readonly<TrajectoryEvent>> {
-        throw new Error("append is not used by this test");
-    }
-
-    async read(query: TrajectoryReadQuery): Promise<readonly TrajectoryEvent[]> {
-        return this.events.filter((event) =>
-            event.goalId === query.goalId
-            && event.runId === query.runId
-            && (query.fromSequence === undefined || event.sequence >= query.fromSequence)
-            && (query.toSequence === undefined || event.sequence <= query.toSequence),
-        );
-    }
+class MemoryTrajectoryStore {
+    constructor(private readonly events: readonly ContextRetrievalTrajectoryEvent[]) {}
 
     async readWithBoundary(
-        query: TrajectoryReadQuery,
+        query: { readonly goalId: string; readonly runId: string },
         committedThroughSequence: number,
-    ): Promise<Readonly<TrajectoryReadResult>> {
-        return classifyTrajectoryTail(await this.read(query), committedThroughSequence);
+    ): Promise<Readonly<{ readonly committed: readonly ContextRetrievalTrajectoryEvent[] }>> {
+        return {
+            committed: this.events.filter((event) =>
+                event.goalId === query.goalId
+                && event.runId === query.runId
+                && event.sequence <= committedThroughSequence,
+            ),
+        };
     }
 }
 

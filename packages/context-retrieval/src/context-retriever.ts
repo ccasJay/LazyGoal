@@ -1,8 +1,18 @@
-import type { Goal } from "./domain";
-import {
-    ContextDocumentBuilder,
-    type ContextSearchDocument,
+import type {
+    ContextLookupRequest,
+} from "../../contracts/src/index";
+import type {
+    ContextLookupResult,
+    ContextLookupRunBoundary,
+} from "./types";
+import type {
+    ContextRetrievalTrajectoryEvent,
+    ContextSearchDocument,
 } from "./context-document";
+import { ContextDocumentBuilder } from "./context-document";
+import type {
+    ContextRetrievalMessage,
+} from "./conversation-context-document";
 import { buildConversationContextDocuments } from "./conversation-context-document";
 import { buildContextInvertedIndex } from "./context-tokenizer";
 import { FieldedBm25LiteRanker } from "./context-ranking";
@@ -14,85 +24,149 @@ import {
     type ContextRetrievalIndexSession,
     type TrajectoryRetrievalIndexStore,
 } from "./context-retrieval-index";
-import type {
-    ContextLookupExecutionInput,
-    ContextLookupPort,
-    ContextLookupResult,
-    ContextLookupRunBoundary,
-} from "./context-retrieval";
-import { getCommittedRunBoundaries } from "./context-retrieval";
 
-/** Indexed Lookup 服务的只读依赖。 */
-export interface IndexedContextLookupServiceOptions {
-    readonly trajectoryStore?: {
-        readWithBoundary(query: { readonly goalId: string; readonly runId: string }, boundary: number): Promise<Readonly<{ readonly committed: readonly import("./trajectory").TrajectoryEvent[] }>>;
-    };
+/**
+ * 传递给检索器的执行上下文输入。
+ *
+ * @remarks
+ * 检索包不依赖 Goal 状态机或 Runtime，仅接收结构化参数与只读来源信封。
+ *
+ * @example
+ * ```ts
+ * const input: ContextRetrieverInput = {
+ *     goalId: "goal-1",
+ *     currentRunId: "run-1",
+ *     lookupId: "lookup-1",
+ *     request,
+ *     committedThroughSequence: 10,
+ *     runBoundaries: [{ runId: "run-1", committedThroughSequence: 10 }],
+ *     events: [],
+ *     messages: [],
+ *     conversationStartIndex: 0,
+ * };
+ * ```
+ */
+export interface ContextRetrieverInput {
+    /** 当前 Goal 的稳定 ID。 */
+    readonly goalId: string;
+    /** 当前 Run 的稳定 ID。 */
+    readonly currentRunId: string;
+    /** Runtime 为该请求计算的跨进程稳定 ID。 */
+    readonly lookupId: string;
+    /** 规范化请求。 */
+    readonly request: ContextLookupRequest;
+    /** 整体提交边界（各 Run 边界的最大值）。 */
+    readonly committedThroughSequence: number;
+    /** 参与查询的所有 Run 边界。 */
+    readonly runBoundaries: readonly ContextLookupRunBoundary[];
+    /** 当前已提交的历史事件（单 Run 时为该 Run 事件；多 Run 时可为合并事件或按 run 划分）。 */
+    readonly events: readonly ContextRetrievalTrajectoryEvent[];
+    /** Snapshot 权威消息。 */
+    readonly messages: readonly ContextRetrievalMessage[];
+    /** 当前 Run 的冷消息归档起始点。 */
+    readonly conversationStartIndex: number;
+    /** 已完成 Run 的消息范围映射（跨 Run 时用于精确划分各 Run 的消息）。 */
+    readonly completedRunMessageRanges?: readonly {
+        readonly runId: string;
+        readonly messageRange: { readonly start: number; readonly end: number };
+    }[];
+}
+
+/**
+ * 检索服务通用接口契约。
+ *
+ * @remarks
+ * 组合根或 Runtime 可实现或注入不同检索算法（如向量检索或混合检索），默认使用
+ * `IndexedContextRetriever`（BM25-lite）。检索器不拥有领域状态，不产生副作用。
+ *
+ * @example
+ * ```ts
+ * const retriever: ContextRetriever = new IndexedContextRetriever();
+ * const result = await retriever.retrieve(input);
+ * ```
+ */
+export interface ContextRetriever {
+    /**
+     * 执行检索并返回结构化结果。
+     *
+     * @param input - 检索请求参数与只读来源信封。
+     * @returns 结构化结果；失败或异常应返回或抛出错误由外层门禁处理。
+     */
+    retrieve(input: ContextRetrieverInput): Promise<ContextLookupResult>;
+}
+
+/** IndexedContextRetriever 的配置选项。 */
+export interface IndexedContextRetrieverOptions {
     readonly topK?: number;
-    /** 最低 BM25 分数；默认保留所有词法命中，避免单条归档消息被阈值过滤。 */
+    /** 最低 BM25 分数；默认 0。 */
     readonly minimumScore?: number;
-    /** 可选的可删除 Retrieval Sidecar；失配时自动重建。 */
+    /** 可选的可删除 Retrieval Sidecar 存储；失配时自动重建。 */
     readonly indexStore?: TrajectoryRetrievalIndexStore;
 }
 
 /**
- * 从 Snapshot Conversation 与 committed Trajectory 即时重建联合索引的 Lookup 服务。
+ * 默认基于倒排索引与 BM25-lite 的 ContextRetriever 实现。
  *
  * @remarks
- * 服务不把索引视为权威状态；每次查询都以当前 Snapshot boundary 为准，Sidecar
- * 缺失或损坏时自然回退到相同的确定性构建路径。Conversation 当前 Epoch 以内的
- * 消息不会进入 Cold，避免与 Epoch 投影重复。
+ * 对单 Run 查询支持 Sidecar 缓存与增量更新，多 Run 查询构建临时联合索引。
+ *
+ * @example
+ * ```ts
+ * const retriever = new IndexedContextRetriever({ topK: 5 });
+ * const result = await retriever.retrieve(input);
+ * ```
  */
-export class IndexedContextLookupService implements ContextLookupPort {
-    private readonly options: IndexedContextLookupServiceOptions;
+export class IndexedContextRetriever implements ContextRetriever {
+    private readonly options: IndexedContextRetrieverOptions;
 
-    constructor(options: IndexedContextLookupServiceOptions = {}) {
+    constructor(options: IndexedContextRetrieverOptions = {}) {
         this.options = options;
     }
 
-    async lookup(input: ContextLookupExecutionInput): Promise<ContextLookupResult> {
-        const runBoundaries = getCommittedRunBoundaries(input.goal);
-        if (runBoundaries.length > 1) {
-            return this.lookupAcrossRuns(input, runBoundaries);
+    async retrieve(input: ContextRetrieverInput): Promise<ContextLookupResult> {
+        if (input.runBoundaries.length > 1) {
+            return this.retrieveAcrossRuns(input);
         }
+        return this.retrieveSingleRun(input);
+    }
+
+    private async retrieveSingleRun(input: ContextRetrieverInput): Promise<ContextLookupResult> {
         const boundary = input.committedThroughSequence;
-        const trajectory = this.options.trajectoryStore === undefined
-            ? []
-            : (await this.options.trajectoryStore.readWithBoundary(
-                { goalId: input.goal.id, runId: input.goal.state.run.id },
-                boundary,
-            )).committed;
-        const conversationStartIndex = input.goal.state.run.contextEpoch.conversationStartIndex;
         const sidecar = this.options.indexStore === undefined
             ? undefined
             : await this.options.indexStore.restore(
-                input.goal.id,
-                input.goal.state.run.id,
+                input.goalId,
+                input.currentRunId,
                 {
                     committedThroughSequence: boundary,
                     indexVersion: CONTEXT_RETRIEVAL_INDEX_VERSION,
-                    conversationEndIndexExclusive: conversationStartIndex,
+                    conversationEndIndexExclusive: input.conversationStartIndex,
                 },
             );
+
         const session = openContextRetrievalIndexSession({
-            goalId: input.goal.id,
-            runId: input.goal.state.run.id,
+            goalId: input.goalId,
+            runId: input.currentRunId,
             committedThroughSequence: boundary,
-            events: trajectory,
-            messages: input.goal.state.messages,
-            conversationStartIndex,
+            events: input.events,
+            messages: input.messages,
+            conversationStartIndex: input.conversationStartIndex,
             ...(sidecar === undefined ? {} : { sidecar }),
         });
+
         if (this.options.indexStore !== undefined) {
             try {
                 await this.options.indexStore.save(session.sidecar);
             } catch {
-                // Sidecar 是可删除缓存；保存失败不影响本次查询。
+                // Sidecar 是可删除缓存；保存失败不影响本次查询
             }
         }
+
         const documents = filterDocuments(
             session.sidecar.documents,
             input.request.need,
         );
+
         const query = {
             need: input.request.need,
             question: input.request.question,
@@ -100,8 +174,10 @@ export class IndexedContextLookupService implements ContextLookupPort {
             committedThroughSequence: boundary,
             indexVersion: session.sidecar.indexVersion,
         } as const;
+
         const cached = session.queryCache.get(query);
         if (cached !== undefined) return cached;
+
         if (documents.length === 0) {
             const result = {
                 status: "not_found" as const,
@@ -113,68 +189,60 @@ export class IndexedContextLookupService implements ContextLookupPort {
             await saveSidecar(this.options.indexStore, session.sidecar, session.queryCache);
             return result;
         }
+
         const index = documents.length === session.sidecar.documents.length
             ? session.index
             : buildContextInvertedIndex(documents);
+
         const ranking = new FieldedBm25LiteRanker(index, {
             topK: this.options.topK ?? 5,
             minimumScore: this.options.minimumScore ?? 0,
         }).rank(input.request);
+
         const result = buildContextLookupResultFromRanking({
-            goalId: input.goal.id,
-            runId: input.goal.state.run.id,
+            goalId: input.goalId,
+            runId: input.currentRunId,
             lookupId: input.lookupId,
             request: input.request,
             committedThroughSequence: boundary,
             ranking,
             indexVersion: session.sidecar.indexVersion,
         });
+
         session.queryCache.set(query, result);
         await saveSidecar(this.options.indexStore, session.sidecar, session.queryCache);
         return result;
     }
 
-    /**
-     * 在同一 Goal 的已完成 Run 与当前 Run 上构建临时联合索引。
-     *
-     * @remarks
-     * 多 Run 查询不复用单 Run Sidecar：每个 Run 的局部 sequence 必须先按自身
-     * Snapshot boundary 校验，再以 `(goalId, runId, sequence)` 共同参与排名与结果
-     * 来源。该路径只读 Trajectory 和 Goal messages，不保存领域状态。
-     */
-    private async lookupAcrossRuns(
-        input: ContextLookupExecutionInput,
-        runBoundaries: readonly ContextLookupRunBoundary[],
-    ): Promise<ContextLookupResult> {
+    private async retrieveAcrossRuns(input: ContextRetrieverInput): Promise<ContextLookupResult> {
         const documents: ContextSearchDocument[] = [];
         const builder = new ContextDocumentBuilder();
-        for (const source of runBoundaries) {
-            const raw = this.options.trajectoryStore === undefined
-                ? { committed: [] as const }
-                : await this.options.trajectoryStore.readWithBoundary(
-                    { goalId: input.goal.id, runId: source.runId },
-                    source.committedThroughSequence,
-                );
+
+        // 收集各 Run 的事件并按其边界构建文档
+        for (const source of input.runBoundaries) {
+            const runEvents = input.events.filter(e => e.runId === source.runId);
             documents.push(...builder.build({
-                goalId: input.goal.id,
+                goalId: input.goalId,
                 runId: source.runId,
                 committedThroughSequence: source.committedThroughSequence,
-                events: raw.committed,
+                events: runEvents,
             }));
         }
 
-        for (const history of input.goal.state.completedRuns ?? []) {
+        // 收集历史已完成 Run 的冷消息
+        for (const history of input.completedRunMessageRanges ?? []) {
             documents.push(...buildConversationContextDocuments({
-                goalId: input.goal.id,
+                goalId: input.goalId,
                 runId: history.runId,
-                messages: input.goal.state.messages,
+                messages: input.messages,
                 messageStartIndex: history.messageRange.start,
                 messageEndIndexExclusive: history.messageRange.end,
             }));
         }
 
         const filtered = filterDocuments(Object.freeze(documents), input.request.need);
-        const boundary = Math.max(...runBoundaries.map((source) => source.committedThroughSequence));
+        const boundary = Math.max(...input.runBoundaries.map((s) => s.committedThroughSequence));
+
         if (filtered.length === 0) {
             return {
                 status: "not_found",
@@ -183,20 +251,22 @@ export class IndexedContextLookupService implements ContextLookupPort {
                 reason: "no_context_match",
             };
         }
+
         const index = buildContextInvertedIndex(filtered);
         const ranking = new FieldedBm25LiteRanker(index, {
             topK: this.options.topK ?? 5,
             minimumScore: this.options.minimumScore ?? 0,
         }).rank(input.request);
+
         return buildContextLookupResultFromRanking({
-            goalId: input.goal.id,
-            runId: input.goal.state.run.id,
+            goalId: input.goalId,
+            runId: input.currentRunId,
             lookupId: input.lookupId,
             request: input.request,
             committedThroughSequence: boundary,
             ranking,
             indexVersion: CONTEXT_RETRIEVAL_INDEX_VERSION,
-            runBoundaries,
+            runBoundaries: input.runBoundaries,
         });
     }
 }
@@ -213,7 +283,7 @@ async function saveSidecar(
             queryCache: queryCache.snapshot(),
         });
     } catch {
-        // Sidecar 是可删除缓存；保存失败不影响本次查询结果。
+        // Sidecar 是可删除缓存；保存失败不影响本次查询结果
     }
 }
 

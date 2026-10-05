@@ -10,7 +10,7 @@ import type {
     TrajectoryEventDraft,
     TrajectoryPhase,
 } from "./trajectory";
-import type { ContextDocumentSource } from "./context-document";
+import type { ContextDocumentSource } from "../../context-retrieval/src/index";
 import type {
     ContextLookupFilters,
     ContextLookupNeed,
@@ -21,6 +21,7 @@ export type {
     ContextLookupFilters,
     ContextLookupNeed,
     ContextLookupRequest,
+    ContextDocumentSource,
 };
 
 

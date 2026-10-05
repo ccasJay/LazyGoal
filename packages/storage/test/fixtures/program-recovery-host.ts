@@ -44,6 +44,7 @@ if (mode === "start") {
             ...created.state,
             run: {
                 ...created.state.run,
+                exposedToolIds: [...created.definition.profile.toolIds],
                 mode: "plan",
                 approvedTask: { objective: "Recover program", completionCriteria: [] },
             },

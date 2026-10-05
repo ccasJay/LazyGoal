@@ -12,6 +12,7 @@
     "llm:agent-smoke": "tsx packages/llm/test/agent-smoke-test.ts",
     "llm:native-dialogue-smoke": "tsx packages/llm/test/native-dialogue-smoke.ts",
     "check:dependencies": "node scripts/check-dependencies.mjs",
+    "benchmark:context-retrieval": "tsx scripts/benchmark-context-retrieval.ts",
     "memory:check": "node scripts/project-memory.mjs check",
     "memory:index": "node scripts/project-memory.mjs write-index",
     "test:memory": "node --test scripts/project-memory.test.mjs",
@@ -26,7 +27,9 @@
   "license": "ISC",
   "devDependencies": {
     "@inkjs/ui": "^2.0.0",
+    "@types/diff": "^7.0.2",
     "@types/node": "^26.1.2",
+    "@types/picomatch": "^4.0.3",
     "@types/react": "^19.1.10",
     "ink": "^6.8.0",
     "ink-testing-library": "^4.0.0",
@@ -38,6 +41,8 @@
     "wrap-ansi": "^9.0.2"
   },
   "dependencies": {
-    "marked": "^18.0.13"
+    "diff": "9.0.0",
+    "marked": "^18.0.13",
+    "picomatch": "4.0.7"
   }
 }

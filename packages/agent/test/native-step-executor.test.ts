@@ -52,7 +52,7 @@ function createExecutingGoal(): Goal {
             workflow: {
                 phase: "executing",
             },
-            run: { ...created.state.run, status: "running" , mode: "plan", approvedTask: mockTask },
+            run: { ...created.state.run, status: "running", mode: "plan", approvedTask: mockTask, exposedToolIds: ["bash"] },
             messages: [],
         },
     };

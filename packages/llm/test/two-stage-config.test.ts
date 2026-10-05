@@ -50,8 +50,8 @@ test("readLlmConfig 拒绝非法的 structured_output_mode 并指出包含 two_s
 test("不支持原生 strict 的 Provider 仍可配置 two_stage，并为两阶段选择 prompt_only", () => {
     for (const [provider, model] of [
         ["anthropic", "claude-sonnet-4-5"],
-        ["openrouter", "anthropic/claude-3-haiku"],
-        ["deepseek", "deepseek-v4-flash"],
+        ["openrouter", "~anthropic/claude-haiku-latest"],
+        ["deepseek", "deepseek-flash"],
     ] as const) {
         const config = readLlmConfig({
             LLM_PROVIDER: provider,

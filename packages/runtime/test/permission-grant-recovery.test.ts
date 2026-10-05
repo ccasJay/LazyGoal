@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import {
-    createGoal,
+    createGoal as createUnexposedGoal,
     createRun,
     createStepExecutor,
     createToolRegistration,
@@ -29,7 +29,7 @@ import {
     InMemoryGoalStore,
     JsonFileSandboxGrantStore,
 } from "../../storage/src/index";
-import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 
 const TEST_INPUT_CONTRACT = contract.object({
     command: contract.string(),
@@ -62,6 +62,10 @@ type SandboxTestInput = {
         };
     };
 };
+
+function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {
+    return withDiscoveredProfileTools(createUnexposedGoal(input));
+}
 
 function createMockBashTool(onExecute?: (request: ToolExecutionRequest) => void): Tool {
     return {
@@ -128,7 +132,7 @@ test("持续授权生命周期：沙箱审批选择 Goal 范围并在后续 Acti
                     input: {
                         command: "curl https://example.com",
                         sandboxAccess: {
-                            network: { targets: ["https://example.com"], purpose: "fetch again" },
+                            network: { targets: ["https://example.com"], purpose: "fetch api" },
                         },
                     } satisfies SandboxTestInput as unknown as JsonValue,
                 },
@@ -182,7 +186,7 @@ test("持续授权生命周期：沙箱审批选择 Goal 范围并在后续 Acti
             promptBundleVersion: 1,
             ...currentProtocols,
         });
-        const run = createRun("run-1");
+        const run = { ...createRun("run-1"), exposedToolIds: [...TEST_PROFILE.toolIds] };
         const startedGoal: Goal = { ...initialGoal, state: { ...initialGoal.state, run } };
         await store.save(startedGoal);
 
@@ -211,7 +215,8 @@ test("持续授权生命周期：沙箱审批选择 Goal 范围并在后续 Acti
         assert.equal(activeGrants.length, 1);
         assert.equal(activeGrants[0]?.status, "active");
         assert.equal(activeGrants[0]?.scope, "goal");
-        assert.equal(activeGrants[0]?.matcher.command, "curl https://example.com");
+        assert.equal(activeGrants[0]?.matcher.toolId, "bash");
+        assert.ok(activeGrants[0]?.matcher.inputDigest);
 
         // 4. 验证在恢复后，act-1 执行成功，随后同一个 Goal 内后续的 act-2 自动通过持续授权放行执行！
         assert.equal(executedCommands.length, 2);
@@ -287,7 +292,7 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
             promptBundleVersion: 1,
             ...currentProtocols,
         });
-        const run = createRun("run-1");
+        const run = { ...createRun("run-1"), exposedToolIds: [...TEST_PROFILE.toolIds] };
         await store.save({ ...initialGoal, state: { ...initialGoal.state, run } });
 
         // 步骤 1：第一次请求挂起审批并批准持续授权
@@ -325,7 +330,7 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
             ...initialGoal,
             state: {
                 ...initialGoal.state,
-                run: createRun("run-2"),
+                run: { ...createRun("run-2"), exposedToolIds: [...TEST_PROFILE.toolIds] },
             },
         };
         await store.save(goalWithRun2);
@@ -347,7 +352,8 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
         const unifiedGrants = await coordinator.listGrants({ goalId: "goal-1", runId: "run-2" });
         assert.equal(unifiedGrants.length, 1);
         assert.equal(unifiedGrants[0]?.kind, "sandbox");
-        assert.equal(unifiedGrants[0]?.command, "curl https://example.com");
+        assert.equal(unifiedGrants[0]?.toolId, "bash");
+        assert.ok(unifiedGrants[0]?.inputDigest);
         const grantId = unifiedGrants[0]?.id!;
 
         // 步骤 4：统一撤销 revokeGrant
@@ -383,7 +389,7 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
             ...initialGoal,
             state: {
                 ...initialGoal.state,
-                run: createRun("run-3"),
+                run: { ...createRun("run-3"), exposedToolIds: [...TEST_PROFILE.toolIds] },
             },
         };
         await store.save(goalWithRun3);

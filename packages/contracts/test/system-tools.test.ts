@@ -61,6 +61,10 @@ test("Executing 阶段工具集合包含业务工具与系统终态工具", () =
     assert.ok(ids.includes("system_wait_for_input"));
     assert.ok(ids.includes("system_fail_goal"));
     assert.ok(ids.includes("system_context_lookup"));
+    assert.ok(ids.includes("system_find_tools"));
+
+    const discovery = decodePhaseToolCall(decls, "system_find_tools", { query: "read file" });
+    assert.deepEqual(discovery, { kind: "tool_discovery", query: "read file" });
 
     // 验证调用业务工具正确解码为 tool_call 并携带合规唯一的 actionId
     const decision = decodePhaseToolCall(decls, "read_file", { path: "src/index.ts" });

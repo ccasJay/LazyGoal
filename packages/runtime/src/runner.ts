@@ -57,6 +57,7 @@ import {
 
 import type {
     ToolDefinition,
+    ToolExecutionContext,
     ToolObservation,
     ToolStreamEvent,
     ToolPolicy,
@@ -68,6 +69,7 @@ import { resolveAuthorizedToolDefinitions, TransientToolExecutionFailure } from 
 import {
     isSeatbeltSupported,
     resolveEffectiveSandboxScope,
+    type DerivedSandboxAccess,
     type EffectiveSandboxScope,
     type SandboxAccessRequest,
     type SandboxExecutionPlan,
@@ -110,6 +112,7 @@ import {
     type RuntimeFeedbackIssue,
 } from "./runtime-feedback";
 import { transition } from "./transition";
+import { findTools, type ToolDiscoveryResult } from "./tool-discovery";
 import {
     createEmptyGoalPlan,
     reduceGoalPlan,
@@ -469,6 +472,7 @@ interface PreparedToolAction {
     readonly action: ToolCallAction;
     readonly policy: "allow" | "require_approval";
     readonly plan?: SandboxExecutionPlan;
+    resolveSandboxAccess?(control?: ExecutionControl): Promise<DerivedSandboxAccess | undefined> | DerivedSandboxAccess | undefined;
     execute(control?: ExecutionControl, plan?: SandboxExecutionPlan): Promise<ToolObservation>;
     stream?(control?: ExecutionControl, plan?: SandboxExecutionPlan): AsyncIterable<ToolStreamEvent>;
 }
@@ -488,6 +492,13 @@ function prepareToolAction(
         throw new RunnerExecutionError(
             "TOOL_NOT_AUTHORIZED",
             `Tool "${action.toolId}" is not authorized by the frozen Profile`,
+        );
+    }
+
+    if (!goal.state.run.exposedToolIds.includes(action.toolId)) {
+        throw new RunnerExecutionError(
+            "TOOL_NOT_AUTHORIZED",
+            `Tool "${action.toolId}" has not been exposed to this Run`,
         );
     }
 
@@ -576,19 +587,30 @@ function prepareToolAction(
         input: prepared.input,
     };
 
+    const executionContext: ToolExecutionContext = {
+        goalId: goal.id,
+        runId: goal.state.run.id,
+    };
+
     if (!evaluatePolicy) {
         return {
             registration,
             action: canonicalAction,
             policy: "allow",
             ...(plan !== undefined ? { plan } : {}),
+            ...(prepared.resolveSandboxAccess === undefined
+                ? {}
+                : {
+                    resolveSandboxAccess: (resolveControl?: ExecutionControl) =>
+                        prepared.resolveSandboxAccess!(resolveControl),
+                }),
             execute: (executeControl, execPlan) =>
-                prepared.execute(canonicalAction.actionId, executeControl, execPlan ?? plan),
+                prepared.execute(canonicalAction.actionId, executionContext, executeControl, execPlan ?? plan),
             ...(prepared.stream === undefined
                 ? {}
                 : {
                     stream: (executeControl?: ExecutionControl, streamPlan?: SandboxExecutionPlan) =>
-                        prepared.stream!(canonicalAction.actionId, executeControl, streamPlan ?? plan),
+                        prepared.stream!(canonicalAction.actionId, executionContext, executeControl, streamPlan ?? plan),
                 }),
         };
     }
@@ -627,13 +649,19 @@ function prepareToolAction(
         action: canonicalAction,
         policy: policyResult,
         ...(plan !== undefined ? { plan } : {}),
+        ...(prepared.resolveSandboxAccess === undefined
+            ? {}
+            : {
+                resolveSandboxAccess: (resolveControl?: ExecutionControl) =>
+                    prepared.resolveSandboxAccess!(resolveControl),
+            }),
         execute: (executeControl, execPlan) =>
-            prepared.execute(canonicalAction.actionId, executeControl, execPlan ?? plan),
+            prepared.execute(canonicalAction.actionId, executionContext, executeControl, execPlan ?? plan),
         ...(prepared.stream === undefined
             ? {}
             : {
                 stream: (executeControl?: ExecutionControl, streamPlan?: SandboxExecutionPlan) =>
-                    prepared.stream!(canonicalAction.actionId, executeControl, streamPlan ?? plan),
+                    prepared.stream!(canonicalAction.actionId, executionContext, executeControl, streamPlan ?? plan),
             }),
     };
 }
@@ -663,10 +691,11 @@ function validateToolObservation(value: unknown): ToolObservation {
 
     if (value.kind === "failure") {
         if (
-            !hasOnlyKeys(value, ["kind", "code", "message", "retryable"])
+            !hasOnlyKeys(value, ["kind", "code", "message", "retryable", "details"])
             || !isNonEmptyText(value.code)
             || !isNonEmptyText(value.message)
             || typeof value.retryable !== "boolean"
+            || (value.details !== undefined && !isJsonValue(value.details))
         ) {
             throw new RunnerExecutionError(
                 "TOOL_EXECUTION_ERROR",
@@ -945,7 +974,18 @@ export class Runner {
     }
 
     /**
-     * 启动或继续一个已经保存的 Goal。
+     * @deprecated 请使用与 RunScheduler 契约一致的 {@link runUntilBlocked}。
+     */
+    async run(
+        ref: RunRef,
+        options: RunExecutionOptions = {},
+        control?: ExecutionControl,
+    ): Promise<RunnerResult> {
+        return this.runUntilBlocked(ref, options, control);
+    }
+
+    /**
+     * 启动或继续一个已经保存的 Goal，推进直到 waiting 或终态。
      *
      * @remarks
      * `created` 会先转换并保存为 `running`；`running` 会继续执行；waiting
@@ -962,7 +1002,7 @@ export class Runner {
      * @throws GoalStore/Trajectory 读取或保存错误；有已提交阶段检查点时阶段调用错误
      *   原样传播且保留恢复指针；中止时抛出 `ExecutionAbortedError`。
      */
-    async run(
+    async runUntilBlocked(
         ref: RunRef,
         options: RunExecutionOptions = {},
         control?: ExecutionControl,
@@ -985,10 +1025,6 @@ export class Runner {
         }
 
         this.validateGoalProtocol(goal);
-
-        if (goal.state.workflow.phase !== "executing") {
-            return { ok: true, state: goal.state.run };
-        }
 
         if (
             goal.state.run.status === "running"
@@ -1064,23 +1100,6 @@ export class Runner {
             undefined,
             options.sandboxExecutionPlan,
         );
-    }
-
-    /**
-     * {@link run} 的语义化别名，供 Scheduler 表达“运行到阻塞点”。
-     *
-     * @param ref - 目标 Goal 与 Run 的关联键。
-     * @param options - 可选的本次调用瞬时 Action 授权。
-     * @param control - 当前 Run 推进调用共享的中止控制。
-     * @returns 与 {@link run} 相同的 waiting、终态或业务失败结果。
-     * @throws GoalStore 的恢复或保存错误；中止时抛出 `ExecutionAbortedError`。
-     */
-    async runUntilBlocked(
-        ref: RunRef,
-        options?: RunExecutionOptions,
-        control?: ExecutionControl,
-    ): Promise<RunnerResult> {
-        return this.run(ref, options, control);
     }
 
     private async restore(
@@ -1499,13 +1518,6 @@ export class Runner {
         decision: AgentDecision,
         session: WorkingMemorySession,
     ): void {
-        if (goal.state.workflow.phase !== "executing") {
-            throw new RunnerExecutionError(
-                "INVALID_AGENT_DECISION",
-                "structured decisions require an executing Goal",
-            );
-        }
-
         const run = goal.state.run;
         const task = goal.state.run.approvedTask;
         if (decision.kind === "task_proposal" && (run.mode !== "plan" || task !== undefined)) {
@@ -2877,6 +2889,7 @@ export class Runner {
         let transientAuthorization = authorizedActionId;
         let transientSandboxPlan = initialSandboxPlan;
         let contextLookupResult = initialContextLookupResult;
+        let toolDiscoveryResult: ToolDiscoveryResult | undefined;
         let preparedAction = initialPreparedAction;
         let contextLookupChainCount = await this.restoreContextLookupChainCount(goal, control);
 
@@ -3035,6 +3048,7 @@ export class Runner {
                     const stepInput: StepExecutionInput = {
                         goal,
                         authorizedTools: tools,
+                        exposedToolIds: goal.state.run.exposedToolIds,
                         ...(session === undefined
                             ? {}
                             : { workingMemory: session.workingMemory }),
@@ -3042,6 +3056,9 @@ export class Runner {
                         ...(contextLookupResult === undefined
                             ? {}
                             : { contextLookupResult }),
+                        ...(toolDiscoveryResult === undefined
+                            ? {}
+                            : { toolDiscoveryResult }),
                         executionUnitId,
                         ...(this.executionStream === undefined
                             ? {}
@@ -3315,6 +3332,7 @@ export class Runner {
                     continue;
                 }
 
+                toolDiscoveryResult = undefined;
                 let acceptedPatch: AcceptedMemoryPatchInput | undefined;
                 try {
                     acceptedPatch = this.normalizeDecisionPatch(
@@ -3335,6 +3353,39 @@ export class Runner {
                             error instanceof Error ? error.message : String(error),
                         );
                     return this.stopWithExecutionError(goal, stableError, control);
+                }
+
+                if (normalized.decision.kind === "tool_discovery") {
+                    const discovered = findTools(
+                        normalized.decision.query,
+                        this.getAuthorizedToolDefinitions(goal, control),
+                    );
+                    const nextRun = this.applyTransition(goal.state.run, {
+                        kind: "tool_discovery",
+                        decision: normalized.decision,
+                        matchedToolIds: discovered.tools.map((tool) => tool.id),
+                    });
+                    const nextGoal = this.withRun(goal, nextRun);
+                    goal = await this.commitDecision(
+                        nextGoal,
+                        [{
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            phase: "executing",
+                            executionUnitId,
+                            eventType: "decision_received",
+                            payload: {
+                                type: "decision_received",
+                                decision: normalized.decision,
+                                ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
+                            },
+                        }],
+                        acceptedPatch,
+                        control,
+                    );
+                    toolDiscoveryResult = discovered;
+                    contextLookupResult = undefined;
+                    continue;
                 }
 
                 if (normalized.decision.kind === "context_lookup") {
@@ -4497,10 +4548,19 @@ export class Runner {
         }
         const rawInput = validated.action.input;
         let effectiveSandboxScope: EffectiveSandboxScope = { extraFiles: [], network: "none" };
-        if (this.workspaceRoot !== undefined && isRecord(rawInput) && isRecord(rawInput.sandboxAccess)) {
+        let sandboxAccessRequest: SandboxAccessRequest | undefined;
+        if (typeof validated.resolveSandboxAccess === "function") {
+            const derived = await validated.resolveSandboxAccess(control);
+            if (derived !== undefined) {
+                sandboxAccessRequest = derived;
+            }
+        } else if (isRecord(rawInput) && isRecord(rawInput.sandboxAccess)) {
+            sandboxAccessRequest = rawInput.sandboxAccess as SandboxAccessRequest;
+        }
+        if (this.workspaceRoot !== undefined && sandboxAccessRequest !== undefined) {
             effectiveSandboxScope = await resolveEffectiveSandboxScope(
                 this.workspaceRoot,
-                rawInput.sandboxAccess as SandboxAccessRequest,
+                sandboxAccessRequest,
             );
         }
         const sandboxDecision = evaluateSandboxAuthorization({
@@ -4511,11 +4571,12 @@ export class Runner {
         let sandboxGrantMatched = false;
         if (sandboxDecision.decision === "approval_required"
             && this.sandboxGrantLookup !== undefined
-            && this.workspaceId !== undefined
-            && validated.action.toolId === "bash") {
-            const bashCommand = isRecord(rawInput) && typeof rawInput.command === "string"
-                ? rawInput.command : "";
-            const matcher = createSandboxGrantMatcher(bashCommand, effectiveSandboxScope);
+            && this.workspaceId !== undefined) {
+            const matcher = createSandboxGrantMatcher(
+                validated.action.toolId,
+                validated.action.input,
+                effectiveSandboxScope,
+            );
             sandboxGrantMatched = await this.sandboxGrantLookup.findActiveMatching({
                 workspaceId: this.workspaceId,
                 goalId: goal.id,
@@ -4581,6 +4642,7 @@ export class Runner {
             AgentDecision,
             { readonly kind: "tool_call" }
                 | { readonly kind: "context_lookup" }
+                | { readonly kind: "tool_discovery" }
                 | { readonly kind: "context_checkpoint" }
                 | { readonly kind: "ask_user" }
                 | { readonly kind: "task_proposal" }

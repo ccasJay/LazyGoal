@@ -119,8 +119,8 @@ function completeAction(
  * @remarks
  * 函数不会修改传入状态。Action 的 `stage_action` 只保存 pendingAction，不增加
  * Step；`recover_action` 只将 approved Action 转为
- * `outcome_unknown` waiting；`observe_action`、`reject_action`、Context Lookup
- * 和非 Tool `decision` 完成一个 Step；Plan Mode 的 `plan_update` 也完成一个保持
+ * `outcome_unknown` waiting；`observe_action`、`reject_action`、Context Lookup、工具发现
+ * 和非 Tool `decision` 完成一个 Step；工具发现还会累积 Run 可见 ID。Plan Mode 的 `plan_update` 也完成一个保持
  * running 的 Step。`execution_error` 进入 failed 且不增加 Step，
  * 如果已有 pendingAction，会将其标记为 `outcome_unknown`。
  *
@@ -447,6 +447,47 @@ export function transition(
                         lastStep: {
                             kind: "decision",
                             result: input.request,
+                        },
+                    },
+                };
+            }
+
+            if (input.kind === "tool_discovery") {
+                if (currentState.pendingAction !== undefined || currentState.pendingInteraction !== undefined) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Cannot discover tools while an Action or interaction is pending",
+                    );
+                }
+                if (
+                    input.decision.kind !== "tool_discovery"
+                    || !hasText(input.decision.query)
+                    || input.decision.query.length > 512
+                    || input.matchedToolIds.some((id) => !hasText(id))
+                ) {
+                    return invalidTransition(currentState, input, "Tool Discovery request is invalid");
+                }
+
+                const exposedToolIds = [...currentState.exposedToolIds];
+                const exposed = new Set(exposedToolIds);
+                for (const id of input.matchedToolIds) {
+                    if (!exposed.has(id)) {
+                        exposed.add(id);
+                        exposedToolIds.push(id);
+                    }
+                }
+
+                return {
+                    ok: true,
+                    state: {
+                        ...clearPendingThink(currentState),
+                        status: "running",
+                        stepCount: currentState.stepCount + 1,
+                        exposedToolIds,
+                        lastStep: {
+                            kind: "decision",
+                            result: input.decision,
                         },
                     },
                 };

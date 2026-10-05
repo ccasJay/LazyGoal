@@ -2,7 +2,7 @@ import { contract } from "../contract";
 import { safeParse } from "../parser";
 import { ContractValidationError } from "../errors";
 import type { JsonSchema202012 } from "../json-schema";
-import type { Contract, ObjectContract, ObjectShape } from "../types";
+import type { Contract, InferContract, ObjectContract, ObjectShape } from "../types";
 import {
     type AgentDecision,
     type DecideOutput,
@@ -311,6 +311,42 @@ export const SystemContextLookupDeclaration: SystemToolDeclaration<AgentDecision
 );
 
 /**
+ * 工具目录查询输入契约。
+ *
+ * @example
+ * ```ts
+ * const input: SystemFindToolsInput = { query: "inspect files" };
+ * ```
+ */
+export const SystemFindToolsInputContract = contract.object({
+    query: contract.string(),
+});
+
+/** 工具目录查询输入。 */
+export type SystemFindToolsInput = InferContract<typeof SystemFindToolsInputContract>;
+
+/**
+ * 工具目录发现系统声明。
+ *
+ * @remarks
+ * 只将搜索请求解码为 Runtime 控制决策；候选搜索和执行权限校验由 Runtime 负责。
+ *
+ * @example
+ * ```ts
+ * const declaration = SystemFindToolsDeclaration;
+ * ```
+ */
+export const SystemFindToolsDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
+    "system_find_tools",
+    "Search the currently authorized tool catalog for tools relevant to the task. This only reveals matching schemas for later decisions; it does not grant permission to execute them.",
+    SystemFindToolsInputContract,
+    (args: SystemFindToolsInput): AgentDecision => ({
+        kind: "tool_discovery",
+        query: args.query,
+    }),
+);
+
+/**
  * 结构化提问工具声明。
  *
  * @remarks
@@ -452,7 +488,7 @@ export function createExecutingBusinessToolDeclaration(
  * 构造 Executing 阶段完整的工具声明集合。
  *
  * @param authorizedTools - 当前 Goal 授权的业务工具列表。
- * @returns 包含业务工具与系统动作工具（complete/wait/fail/lookup）的完整声明列表。
+ * @returns 包含业务工具、工具发现与系统执行决策的完整声明列表。
  *
  * @example
  * ```ts
@@ -469,6 +505,7 @@ export function createExecutingToolDeclarations(
         SystemWaitForInputDeclaration,
         SystemFailGoalDeclaration,
         SystemContextLookupDeclaration as SystemToolDeclaration<AgentDecision>,
+        SystemFindToolsDeclaration,
         SystemAskUserDeclaration,
     ];
 }
@@ -478,9 +515,9 @@ export function createExecutingToolDeclarations(
  *
  * @remarks
  * 按 Run 模式与任务审批状态派生决策工具：
- * - 普通模式：暴露全部授权业务工具与普通完成、wait、fail、lookup、ask_user；
- * - Plan 未批准：暴露全部授权业务工具与 ask_user、task_proposal、lookup；
- * - Plan 已批准：暴露全部授权业务工具与逐条件完成、wait、fail、lookup、ask_user；
+ * - 普通模式：暴露传入业务工具与普通完成、wait、fail、lookup、find_tools、ask_user；
+ * - Plan 未批准：暴露传入业务工具与 ask_user、task_proposal、lookup、find_tools；
+ * - Plan 已批准：暴露传入业务工具与逐条件完成、wait、fail、lookup、find_tools、ask_user；
  * - 任一状态是否额外暴露 GoalPlan 更新工具，由 `goalPlanWritable` 单独决定。
  *
  * @param authorizedTools - 当前 Goal 授权的业务工具列表。
@@ -532,6 +569,7 @@ export function createUnifiedToolDeclarations(
             SystemWaitForInputDeclaration,
             SystemFailGoalDeclaration,
             SystemContextLookupDeclaration as SystemToolDeclaration<AgentDecision>,
+            SystemFindToolsDeclaration,
             SystemAskUserDeclaration,
             ...(goalPlanWritable ? [SystemUpdateGoalPlanDeclaration] : []),
             ...thinkDeclaration,
@@ -545,6 +583,7 @@ export function createUnifiedToolDeclarations(
             SystemAskUserDeclaration,
             SystemProposeTaskPlanDeclaration as SystemToolDeclaration<AgentDecision>,
             SystemContextLookupDeclaration as SystemToolDeclaration<AgentDecision>,
+            SystemFindToolsDeclaration,
             ...(goalPlanWritable ? [SystemUpdateGoalPlanDeclaration] : []),
             ...thinkDeclaration,
         ];

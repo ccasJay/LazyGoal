@@ -5,7 +5,7 @@ import {
     GoalCoordinator,
     InlineScheduler,
     Runner,
-    createGoal,
+    createGoal as createUnexposedGoal,
     createToolRegistration,
     InMemoryToolRegistry,
     type AgentDecision,
@@ -16,8 +16,12 @@ import {
     type ToolDefinition,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import { BaseTestStepExecutor, trajectoryStoreFor } from "./current-fixtures";
+import { BaseTestStepExecutor, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 import { contract, type AskUserQuestionInput } from "../../contracts/src/index";
+
+function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {
+    return withDiscoveredProfileTools(createUnexposedGoal(input));
+}
 
 const profile: AgentProfile = {
     id: "profile-1",

@@ -732,6 +732,7 @@ export type Observation =
         readonly code: string;
         readonly message: string;
         readonly retryable: boolean;
+        readonly details?: JsonValue;
     }
     | {
         readonly kind: "rejected";
@@ -866,6 +867,8 @@ export interface RunState {
     readonly approvedTask?: GoalTask;
     readonly status: RunStatus;
     readonly stepCount: number;
+    /** 当前 Run 已向模型暴露完整 Schema 的工具 ID；只由 Runtime 更新并持久化。 */
+    readonly exposedToolIds: readonly string[];
     /**
      * 最新有效 Goal Snapshot 纳入恢复边界的最大 Trajectory sequence。
      *
@@ -1184,6 +1187,12 @@ export type RunInput =
         readonly request: ContextLookupRequest;
     }
     | {
+        /** 完成一个工具发现 Step 并将 Runtime 匹配的工具并入可见集合。 */
+        readonly kind: "tool_discovery";
+        readonly decision: Extract<AgentDecision, { readonly kind: "tool_discovery" }>;
+        readonly matchedToolIds: readonly string[];
+    }
+    | {
         readonly kind: "stage_interaction";
         readonly interaction: PendingInteraction;
     }
@@ -1367,6 +1376,7 @@ export function createRun(runId: string, mode: RunMode = "normal"): RunState {
         mode,
         status: "created",
         stepCount: 0,
+        exposedToolIds: [],
         committedThroughSequence: 0,
         contextEpoch: {
             version: 1,

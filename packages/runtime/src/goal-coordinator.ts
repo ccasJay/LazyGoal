@@ -1139,14 +1139,12 @@ export class GoalCoordinator {
                         if (this.sandboxGrantStore === undefined || this.workspaceId === undefined) {
                             return this.invalidGoalInput("Persistent Sandbox authorization is unavailable for this workspace");
                         }
-                        if (pendingAction.action.toolId !== "bash") {
-                            return this.invalidGoalInput("Persistent Sandbox authorization is only supported for bash");
-                        }
-                        const command = typeof (pendingAction.action.input as any)?.command === "string"
-                            ? (pendingAction.action.input as any).command
-                            : "";
                         const effectiveScope = pendingAction.effectiveSandboxScope ?? { extraFiles: [], network: "none" };
-                        const matcher = createSandboxGrantMatcher(command, effectiveScope);
+                        const matcher = createSandboxGrantMatcher(
+                            pendingAction.action.toolId,
+                            pendingAction.action.input,
+                            effectiveScope,
+                        );
                         const grant = await this.sandboxGrantStore.stage({
                             scope: approvalScope,
                             ...(approvalScope === "goal" ? { goalId: goal.id } : {}),
@@ -1540,14 +1538,15 @@ export class GoalCoordinator {
             ) {
                 throw new Error("Approved Action Grant does not match the committed Goal identity");
             }
-            const command = typeof (pending.action.input as any)?.command === "string"
-                ? (pending.action.input as any).command
-                : "";
             const effectiveScope = pending.effectiveSandboxScope ?? { extraFiles: [], network: "none" };
-            const matcher = createSandboxGrantMatcher(command, effectiveScope);
+            const matcher = createSandboxGrantMatcher(
+                pending.action.toolId,
+                pending.action.input,
+                effectiveScope,
+            );
             if (
                 grant.matcher.toolId !== matcher.toolId
-                || grant.matcher.command !== matcher.command
+                || grant.matcher.inputDigest !== matcher.inputDigest
                 || grant.matcher.scope.network !== matcher.scope.network
             ) {
                 throw new Error("Approved Action Grant matcher does not match the committed Sandbox capability");

@@ -51,6 +51,7 @@ function createValidSnapshotJson(id: string, intent: string, profileId = "test-p
                 id: `run-${id}`,
                 status,
                 stepCount: 1,
+                exposedToolIds: [],
                 committedThroughSequence: 1,
                 memoryRevision: {
                     eventId: "event-1",

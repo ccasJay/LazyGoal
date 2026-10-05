@@ -1,18 +1,23 @@
 import type {
-    ContextLookupMatchedField,
     ContextLookupRequest,
+} from "../../contracts/src/index";
+import type {
+    ContextLookupMatch,
+    ContextLookupMatchedField,
     ContextLookupResult,
     ContextLookupRunBoundary,
-} from "./context-retrieval";
+} from "./types";
 import {
     CONTEXT_LOOKUP_DEFAULT_INDEX_VERSION,
     CONTEXT_LOOKUP_MAX_MATCHES,
     CONTEXT_LOOKUP_MAX_PREVIEW_LENGTH,
     CONTEXT_LOOKUP_MAX_RESULT_BYTES,
+} from "./types";
+import {
     createContextLookupQueryHash,
     normalizeContextLookupRequest,
     normalizeContextLookupResult,
-} from "./context-retrieval";
+} from "./context-protocol";
 import type {
     ContextRankedMatch,
     ContextRankingResult,

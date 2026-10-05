@@ -75,7 +75,12 @@ function createExecutingGoal(
             workflow: {
                 phase: "executing",
             },
-            run: { ...created.state.run, mode: "plan", approvedTask: runTask },
+            run: {
+                ...created.state.run,
+                mode: "plan",
+                approvedTask: runTask,
+                exposedToolIds: [...runProfile.toolIds],
+            },
             messages: [...messages],
         },
     };
@@ -868,7 +873,7 @@ for (const native of [false, true]) {
             },
         };
         await assert.rejects(createExecutor(adapter).execute({
-            goal: createTestGoal(), workingMemory: currentWorkingMemory,
+            goal: createTestGoal("run-read-feedback", { ...profile, toolIds: ["read_file"] }), workingMemory: currentWorkingMemory,
             authorizedTools: [{ id: "read_file", description: "Read a file", isReadOnly: true,
                 inputContract: contract.object({ path: contract.string() }) }],
         }), (error: unknown) => {
@@ -924,8 +929,15 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
             return call("system_complete_task", { summary: "The rules require source inspection and evidence.", evidenceSequences: [evidence.sequence], memoryPatch: null });
         },
     };
-    const initial = createGoal({ ...currentProtocols, id: goalId, runId: "run-repair-read", intent: "Evaluate repository rules", promptBundleVersion: 1,
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-repair-read", intent: "Evaluate repository rules", promptBundleVersion: 1,
         profile: { ...profile, toolIds: definitions.map(tool => tool.id) } });
+    const initial = {
+        ...created,
+        state: {
+            ...created.state,
+            run: { ...created.state.run, exposedToolIds: definitions.map((tool) => tool.id) },
+        },
+    };
     await store.save(initial);
     const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
     const result = await runner.run({ goalId, runId: "run-repair-read" });

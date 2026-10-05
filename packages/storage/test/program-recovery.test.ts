@@ -52,6 +52,7 @@ test("PTC restores committed reads and waits for a write with an unknown result"
                 ...created.state,
                 run: {
                     ...created.state.run,
+                    exposedToolIds: [...created.definition.profile.toolIds],
                     mode: "plan" as const,
                     approvedTask: { objective: "Read then write", completionCriteria: [] },
                 },
@@ -214,7 +215,7 @@ test("PTC resumes a reviewed real write, runs Bash, and returns one parent resul
             store: new JsonFileGoalStore(join(root, "goals")),
             trajectoryStore: new JsonFileTrajectoryStore(join(root, "trajectory")),
         });
-        const code = "const r=await tools.read_file({path:'input.txt'}); const w=await tools.write_file({path:'output.txt',content:r.observation.output.trim()}); const b=await tools.bash({command:'cat output.txt'}); return {read:r.observation.output.trim(),write:w.observation.kind,stdout:b.observation.kind==='success'?b.observation.output.stdout.trim():null};";
+        const code = "const r=await tools.read_file({path:'input.txt'}); const w=await tools.write_file({path:'output.txt',content:r.observation.output.text.trim()}); const b=await tools.bash({command:'cat output.txt'}); return {read:r.observation.output.text.trim(),write:w.observation.kind,stdout:b.observation.kind==='success'?b.observation.output.stdout.trim():null};";
         const created = createGoal({
             ...currentProtocols,
             id: "real-tools-goal", runId: "real-tools-run", intent: "Read, write and verify",
@@ -228,7 +229,7 @@ test("PTC resumes a reviewed real write, runs Bash, and returns one parent resul
         const goal = {
             ...created,
             state: { ...created.state, run: {
-                ...created.state.run, mode: "plan" as const,
+                ...created.state.run, exposedToolIds: [...created.definition.profile.toolIds], mode: "plan" as const,
                 approvedTask: { objective: "Read, write and verify", completionCriteria: [] },
             } },
         };

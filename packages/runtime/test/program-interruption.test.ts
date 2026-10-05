@@ -14,10 +14,10 @@ import {
     Runner,
     type StepExecutor,
 } from "../src/index";
-import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
+import { currentProtocols, InMemoryTrajectoryStore, withDiscoveredProfileTools } from "./current-fixtures";
 
 function setup(code: string, tool?: ReturnType<typeof createToolRegistration>, completeAfterFirst = false) {
-    const created = createGoal({
+    const created = withDiscoveredProfileTools(createGoal({
         ...currentProtocols,
         id: `program-interruption-${Math.random()}`,
         runId: "run",
@@ -30,7 +30,7 @@ function setup(code: string, tool?: ReturnType<typeof createToolRegistration>, c
             toolIds: ["execute_program", ...(tool === undefined ? [] : [tool.definition.id])],
         },
         maxSteps: 3,
-    });
+    }));
     const goal = {
         ...created,
         state: {

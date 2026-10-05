@@ -49,6 +49,7 @@ import {
     JsonFileToolGrantStore,
     JsonFileSandboxGrantStore,
     JsonFileProjectPermissionModeStore,
+    JsonFileProcessSessionStore,
 } from "../../storage/src/index";
 import {
     createHttpService,
@@ -110,6 +111,8 @@ import {
     type LlmModelDescriptor,
 } from "../../llm/src/model-catalog";
 import {
+    DEFAULT_TOOL_IDS,
+    createDefaultToolRegistrations,
     BASH_TOOL_ID,
     BashTool,
     EXECUTE_PROGRAM_TOOL_ID,
@@ -120,6 +123,7 @@ import {
     READ_FILE_TOOL_ID,
     ReadFileTool,
     WriteFileTool,
+    ProcessManager,
 } from "../../tools/src/index";
 import {
     SessionController,
@@ -822,14 +826,7 @@ export async function createCompositionRoot(
                 description: "LazyGoal 默认用户 Profile",
                 systemPrompt: "You are LazyGoal, a goal-driven, resumable agent runtime.",
                 instructions: ["Advance the goal through safe, verified actions."],
-                toolIds: [
-                    READ_FILE_TOOL_ID,
-                    "write_file",
-                    "edit_file",
-                    GREP_TOOL_ID,
-                    "bash",
-                    EXECUTE_PROGRAM_TOOL_ID,
-                ],
+                toolIds: [...DEFAULT_TOOL_IDS],
             };
         }
 
@@ -842,6 +839,16 @@ export async function createCompositionRoot(
         };
     }
 
+    const abortController = options.abortController ?? new AbortController();
+    const resources = new ManagedResourceRegistry();
+    const hostInstanceId = randomUUID();
+    const processSessionStore = new JsonFileProcessSessionStore(dataDirectory, hostInstanceId);
+    const processManager = new ProcessManager({
+        store: processSessionStore,
+        hostInstanceId,
+        resources,
+    });
+
     let toolRegistry: InMemoryToolRegistry;
     let readFileTool: ReadFileTool | undefined;
     if (options.toolRegistry !== undefined) {
@@ -849,18 +856,10 @@ export async function createCompositionRoot(
         readFileTool = undefined;
     } else {
         readFileTool = new ReadFileTool(workspaceRoot);
-        const writeFileTool = new WriteFileTool(workspaceRoot);
-        const editFileTool = new EditFileTool(workspaceRoot);
-        const grepTool = new GrepTool(workspaceRoot);
-        const bashTool = new BashTool(workspaceRoot);
-        toolRegistry = new InMemoryToolRegistry([
-            createToolRegistration(readFileTool),
-            createToolRegistration(writeFileTool),
-            createToolRegistration(editFileTool),
-            createToolRegistration(grepTool),
-            createToolRegistration(bashTool),
-            createExecuteProgramRegistration(),
-        ]);
+        toolRegistry = new InMemoryToolRegistry(createDefaultToolRegistrations(workspaceRoot, {
+            processManager,
+            processSessionStore,
+        }));
     }
 
     const missingToolId = profile.toolIds.find(
@@ -944,8 +943,6 @@ export async function createCompositionRoot(
     const checkpointStore = new CheckpointGateGoalStore(notifyingStore);
     const protocolValidator = createDefaultPromptBundleProtocolValidator();
     const workingMemoryLimits: WorkingMemoryLimits = DEFAULT_WORKING_MEMORY_LIMITS;
-    const abortController = options.abortController ?? new AbortController();
-    const resources = new ManagedResourceRegistry();
     resources.register({
         async close() {
             unsubscribeMetricUpdates();
@@ -1261,6 +1258,7 @@ export async function createCompositionRoot(
                 }
                 await toolGrantStore.deleteGoalGrants(workspaceHomePaths.workspaceId, goalId);
                 await sandboxGrantStore.deleteGoalGrants(workspaceHomePaths.workspaceId, goalId);
+                await processSessionStore.deleteGoalSessions(goalId);
                 await primaryGoalStore.deleteTerminal(goalId);
                 return "ok";
             },

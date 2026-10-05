@@ -8,7 +8,7 @@ function isRecord(value: unknown): value is { readonly [key: string]: unknown } 
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function canonicalize(value: unknown): unknown {
+export function canonicalize(value: unknown): unknown {
     if (Array.isArray(value)) return value.map(canonicalize);
     if (value !== null && typeof value === "object") {
         return Object.fromEntries(

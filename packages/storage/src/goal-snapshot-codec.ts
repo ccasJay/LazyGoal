@@ -216,6 +216,9 @@ function encodeObservation(observation: Observation): GoalSnapshotObservationV1 
                 code: observation.code,
                 message: observation.message,
                 retryable: observation.retryable,
+                ...(observation.details !== undefined
+                    ? { details: structuredClone(observation.details) }
+                    : {}),
             };
         case "rejected":
             return { kind: "rejected", reason: observation.reason };
@@ -265,6 +268,8 @@ function encodeDecision(result: Exclude<StepRecord, { readonly kind: "action" }>
                     ? {}
                     : { filters: structuredClone(result.filters) }),
             };
+        case "tool_discovery":
+            return { kind: "tool_discovery", query: result.query };
         case "goal_plan_update":
             return {
                 kind: "goal_plan_update",
@@ -409,6 +414,7 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                 ...(run.approvedTask === undefined ? {} : { approvedTask: encodeTask(run.approvedTask) }),
                 status: run.status,
                 stepCount: run.stepCount,
+                exposedToolIds: [...run.exposedToolIds],
                 committedThroughSequence: run.committedThroughSequence,
                 ...(run.memoryRevision === undefined
                     ? {}
@@ -569,6 +575,9 @@ function decodeObservation(observation: GoalSnapshotObservationV1): Observation 
                 code: observation.code,
                 message: observation.message,
                 retryable: observation.retryable,
+                ...(observation.details !== undefined
+                    ? { details: structuredClone(observation.details) }
+                    : {}),
             };
         case "rejected":
             return { kind: "rejected", reason: observation.reason };
@@ -618,6 +627,8 @@ function decodeDecision(result: GoalSnapshotDecisionResultV1): Exclude<StepRecor
                     ? {}
                     : { filters: structuredClone(result.filters) }),
             };
+        case "tool_discovery":
+            return { kind: "tool_discovery", query: result.query };
         case "goal_plan_update":
             return {
                 kind: "goal_plan_update",
@@ -754,6 +765,7 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
                 ...(run.approvedTask === undefined ? {} : { approvedTask: decodeTask(run.approvedTask) }),
                 status: run.status,
                 stepCount: run.stepCount,
+                exposedToolIds: [...run.exposedToolIds],
                 committedThroughSequence: run.committedThroughSequence,
                 ...(run.memoryRevision === undefined
                     ? {}
