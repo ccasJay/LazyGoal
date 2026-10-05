@@ -319,7 +319,7 @@ export function buildCommittedEvidenceIndex(
 export function validateFactEvidence(
     evidenceSequences: readonly number[],
     index: CommittedEvidenceIndex,
-    scope: EvidenceValidationScope,
+    scope: EvidenceValidationScope = "execution",
 ): void {
     assertScope(scope);
     if (evidenceSequences.length === 0) {
@@ -385,7 +385,7 @@ function evidenceFromOperation(
 export function validateMemoryPatchEvidence(
     patch: unknown,
     index: CommittedEvidenceIndex,
-    scope: EvidenceValidationScope,
+    scope: EvidenceValidationScope = "execution",
     workingMemory?: WorkingMemory,
 ): asserts patch is MemoryPatch {
     assertScope(scope);
@@ -419,7 +419,7 @@ export function validateMemoryPatchEvidence(
 export function validateCanonicalFactEvidence(
     operations: readonly import("./domain").CanonicalMemoryOperation[],
     index: CommittedEvidenceIndex,
-    scope: EvidenceValidationScope,
+    scope: EvidenceValidationScope = "execution",
 ): void {
     assertScope(scope);
     for (const operation of operations) {
@@ -427,65 +427,6 @@ export function validateCanonicalFactEvidence(
             validateFactEvidence(operation.fact.evidenceSequences, index, scope);
         }
     }
-}
-
-/**
- * 可注入 Coordinator/Runner 的 Evidence Gate。
- *
- * @example
- * ```ts
- * const gate = createEvidenceGate(index);
- * gate.validateFact([12], "execution");
- * ```
- */
-export interface EvidenceGate {
-    /**
-     * @param evidenceSequences - Fact 声明的证据序列。
-     * @param scope - 统一执行生命周期的证据范围。
-     */
-    validateFact(evidenceSequences: readonly number[], scope: EvidenceValidationScope): void;
-    /**
-     * @param patch - 待接受的模型 Patch。
-     * @param scope - 当前业务阶段的证据范围。
-     * @param workingMemory - 可选当前 Memory，用于校验 update 引用。
-     */
-    validatePatch(
-        patch: unknown,
-        scope: EvidenceValidationScope,
-        workingMemory?: WorkingMemory,
-    ): void;
-    /**
-     * @param result - 带原始 source refs 的 found Lookup Result。
-     * @remarks 该方法只校验来源；最终 Fact 仍须引用允许的原始 sequence。
-     * @example
-     * ```ts
-     * gate.validateContextLookup(foundResult);
-     * ```
-     */
-    validateContextLookup(
-        result: Extract<ContextLookupResult, { readonly status: "found" }>,
-    ): void;
-}
-
-/**
- * 创建绑定单次 committed Trajectory 索引的 Evidence Gate。
- *
- * @param index - 当前 Goal/Run 的只读 Evidence 索引。
- * @returns 不持有可变执行状态的 Gate。
- */
-export function createEvidenceGate(index: CommittedEvidenceIndex): EvidenceGate {
-    return Object.freeze({
-        validateFact: (evidenceSequences: readonly number[], scope: EvidenceValidationScope) =>
-            validateFactEvidence(evidenceSequences, index, scope),
-        validatePatch: (
-            patch: unknown,
-            scope: EvidenceValidationScope,
-            workingMemory?: WorkingMemory,
-        ): asserts patch is MemoryPatch =>
-            validateMemoryPatchEvidence(patch, index, scope, workingMemory),
-        validateContextLookup: (result: Extract<ContextLookupResult, { readonly status: "found" }>) =>
-            validateContextLookupSourceReferences(result, index),
-    });
 }
 
 /** 供调用方快速判断 Trajectory 事件是否属于允许 Evidence 类别。 */

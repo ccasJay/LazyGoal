@@ -6,7 +6,6 @@ import {
     allocateImmutableEvent,
     buildCommittedEvidenceIndex,
     computeContentHash,
-    createEvidenceGate,
     resolveEvidenceObservation,
     validateFactEvidence,
     validateMemoryPatchEvidence,
@@ -69,8 +68,6 @@ function index(boundary = 2) {
 
 test("Fact evidence accepts committed Observation and Tool facts", () => {
     validateFactEvidence([1, 2], index(), "execution");
-    const gate = createEvidenceGate(index());
-    gate.validateFact([2], "execution");
 });
 
 test("Fact evidence rejects missing, duplicate and uncommitted sequences", () => {

@@ -254,23 +254,6 @@ export interface Tool<C extends ToolInputContract = ToolInputContract> {
     ) => AsyncIterable<ToolStreamEvent>;
 }
 
-/**
- * 判定 ToolDefinition 是否声明为只读工具。
- *
- * @param tool - ToolDefinition 或其只读能力投影。
- * @returns 当且仅当定义显式标记为 `isReadOnly: true` 时返回 `true`。
- *
- * @example
- * ```ts
- * const readOnly = isReadOnlyTool(readFileTool.definition);
- * ```
- */
-export function isReadOnlyTool(
-    tool: Pick<ToolDefinition, "isReadOnly">,
-): boolean {
-    return tool.isReadOnly;
-}
-
 /** Tool Contract 与语义校验完成后的单次可执行 Action。 */
 export type PreparedToolAction =
     | {

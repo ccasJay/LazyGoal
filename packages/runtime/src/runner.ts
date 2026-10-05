@@ -974,7 +974,18 @@ export class Runner {
     }
 
     /**
-     * 启动或继续一个已经保存的 Goal。
+     * @deprecated 请使用与 RunScheduler 契约一致的 {@link runUntilBlocked}。
+     */
+    async run(
+        ref: RunRef,
+        options: RunExecutionOptions = {},
+        control?: ExecutionControl,
+    ): Promise<RunnerResult> {
+        return this.runUntilBlocked(ref, options, control);
+    }
+
+    /**
+     * 启动或继续一个已经保存的 Goal，推进直到 waiting 或终态。
      *
      * @remarks
      * `created` 会先转换并保存为 `running`；`running` 会继续执行；waiting
@@ -991,7 +1002,7 @@ export class Runner {
      * @throws GoalStore/Trajectory 读取或保存错误；有已提交阶段检查点时阶段调用错误
      *   原样传播且保留恢复指针；中止时抛出 `ExecutionAbortedError`。
      */
-    async run(
+    async runUntilBlocked(
         ref: RunRef,
         options: RunExecutionOptions = {},
         control?: ExecutionControl,
@@ -1014,10 +1025,6 @@ export class Runner {
         }
 
         this.validateGoalProtocol(goal);
-
-        if (goal.state.workflow.phase !== "executing") {
-            return { ok: true, state: goal.state.run };
-        }
 
         if (
             goal.state.run.status === "running"
@@ -1093,23 +1100,6 @@ export class Runner {
             undefined,
             options.sandboxExecutionPlan,
         );
-    }
-
-    /**
-     * {@link run} 的语义化别名，供 Scheduler 表达“运行到阻塞点”。
-     *
-     * @param ref - 目标 Goal 与 Run 的关联键。
-     * @param options - 可选的本次调用瞬时 Action 授权。
-     * @param control - 当前 Run 推进调用共享的中止控制。
-     * @returns 与 {@link run} 相同的 waiting、终态或业务失败结果。
-     * @throws GoalStore 的恢复或保存错误；中止时抛出 `ExecutionAbortedError`。
-     */
-    async runUntilBlocked(
-        ref: RunRef,
-        options?: RunExecutionOptions,
-        control?: ExecutionControl,
-    ): Promise<RunnerResult> {
-        return this.run(ref, options, control);
     }
 
     private async restore(
@@ -1528,13 +1518,6 @@ export class Runner {
         decision: AgentDecision,
         session: WorkingMemorySession,
     ): void {
-        if (goal.state.workflow.phase !== "executing") {
-            throw new RunnerExecutionError(
-                "INVALID_AGENT_DECISION",
-                "structured decisions require an executing Goal",
-            );
-        }
-
         const run = goal.state.run;
         const task = goal.state.run.approvedTask;
         if (decision.kind === "task_proposal" && (run.mode !== "plan" || task !== undefined)) {

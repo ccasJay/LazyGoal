@@ -3,9 +3,9 @@ import { test } from "node:test";
 
 import {
     getSandboxProtectionStatus,
+    isSeatbeltSupported,
     type SandboxProtectionStatus,
-} from "../src/index";
-import { isSeatbeltSupported } from "../../sandbox/src/index";
+} from "../../sandbox/src/index";
 import { BashTool } from "../../tools/src/bash";
 
 test("平台沙箱保护状态准确报告当前能力，非 macOS 绝不误报（Req 7.2）", () => {
