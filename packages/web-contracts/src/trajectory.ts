@@ -202,10 +202,9 @@ export type BrowserTrajectoryEventPayloadWire =
     | BrowserModelRepairFeedbackRecordedPayload
     | BrowserExecutionErrorPayload
     | {
-        readonly type: string;
+        readonly type?: string;
         readonly [key: string]: unknown;
-    }
-    | object;
+    };
 
 /**
  * 轨迹事件的 wire 传输信封。
@@ -320,9 +319,9 @@ export interface BrowserTrajectoryDetail {
         readonly payload: {
             readonly observation?: unknown;
             readonly [key: string]: unknown;
-        } | object;
+        };
         readonly [key: string]: unknown;
-    } | object | undefined;
+    } | undefined;
     /** 工具开始时间。 */
     readonly toolStartedAt?: string | undefined;
     /** 工具结束时间。 */

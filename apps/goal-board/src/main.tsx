@@ -740,6 +740,25 @@ function App() {
     }
   }
 
+  async function submitResume() {
+    if (!session || commandBusy) return;
+    setCommandBusy(true);
+    setCommandError(null);
+    try {
+      const expectedCommittedThroughSequence = session.execution?.committedThroughSequence ?? 0;
+      await browserApi.resumeGoal(session.goalId, {
+        runId: session.currentRunId,
+        expectedCommittedThroughSequence,
+      });
+      await refreshSelectedSession();
+    } catch (error) {
+      setCommandError(errorMessage(error));
+      if (error instanceof BrowserApiError && error.refresh) await refreshSelectedSession();
+    } finally {
+      setCommandBusy(false);
+    }
+  }
+
   async function chooseModel(target: ModelPickerTarget, model: BrowserModelOption, catalog: BrowserModelCatalog): Promise<void> {
     const modelId = model.id;
     if (target.kind === "draft") {
@@ -1178,8 +1197,46 @@ function App() {
                           onSubmit={submitMessage}
                         />
                       )}
-                      {session.runStatus === "running" && <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">Wait for the current Run to reach a saved waiting point or finish.</div></>}
-                      {session.runStatus === "created" && <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">The Runtime is starting this Goal.</div></>}
+                      {session.runStatus === "running" && (
+                        session.execution?.state === "recoverable" ? (
+                          <div className="composer-recover-row">
+                            <div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div>
+                            <div className="composer-recover-actions">
+                              <span className="composer-note">Execution paused or interrupted.</span>
+                              <button
+                                type="button"
+                                className="primary"
+                                disabled={commandBusy}
+                                onClick={() => void submitResume()}
+                              >
+                                {commandBusy ? "Resuming…" : "Resume Run"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">Wait for the current Run to reach a saved waiting point or finish.</div></>
+                        )
+                      )}
+                      {session.runStatus === "created" && (
+                        session.execution?.state === "recoverable" ? (
+                          <div className="composer-recover-row">
+                            <div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div>
+                            <div className="composer-recover-actions">
+                              <span className="composer-note">Run not yet active in this process.</span>
+                              <button
+                                type="button"
+                                className="primary"
+                                disabled={commandBusy}
+                                onClick={() => void submitResume()}
+                              >
+                                {commandBusy ? "Resuming…" : "Resume Run"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">The Runtime is starting this Goal.</div></>
+                        )
+                      )}
                       {session.runStatus === "cancelled" && (
                         <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">Text input is unavailable for this Run.</div></>
                       )}

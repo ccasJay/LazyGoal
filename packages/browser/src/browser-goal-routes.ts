@@ -18,6 +18,8 @@ import type {
     BrowserToolGrantRevokeCommand,
     BrowserPermissionModeCommand,
     BrowserPermissionModeResult,
+    BrowserResumeGoalCommand,
+    BrowserResumeGoalResult,
 } from "./browser-goal-command-service";
 import type {
     BrowserGoalLiveFeed,
@@ -116,6 +118,15 @@ export interface BrowserGoalApiPort {
      * @throws Snapshot 读取或 Coordinator 持久化失败时拒绝。
      */
     enterPlanMode(goalId: string, command: BrowserGoalPlanModeCommand): Promise<BrowserGoalPlanModeResult>;
+    /**
+     * 显式推进中断的未终态 Run。
+     *
+     * @param goalId - URL 路径中的 Goal 身份。
+     * @param command - 目标 Run 标识与页面读取的已提交序列号边界。
+     * @returns 新快照保存确认后的受理结果或稳定拒绝码。
+     * @throws Snapshot 读取失败时拒绝。
+     */
+    resume?(goalId: string, command: BrowserResumeGoalCommand): Promise<BrowserResumeGoalResult>;
     /**
      * 读取草稿默认模型或指定 Goal 当前 Run 的模型目录。
      *
@@ -508,6 +519,34 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         }
     });
 
+    routes.post("/api/goals/:goalId/resume", async (context) => {
+        const goalId = context.req.param("goalId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) {
+            return context.json({ error: "invalid_resume_command" }, 400);
+        }
+        const parsed = await parseResumeCommand(context.req.raw);
+        if (!parsed.ok) {
+            return context.json({ error: parsed.error }, parsed.status);
+        }
+        if (source.resume === undefined) {
+            return context.json({ error: "resume_failed" }, 500);
+        }
+        try {
+            const result = await source.resume(goalId, parsed.command);
+            if (result.ok) {
+                return context.json({
+                    goalId: result.goalId,
+                    runId: result.runId,
+                    existing: result.existing,
+                }, result.existing ? 200 : 202);
+            }
+            const status = resumeErrorStatus(result.error);
+            return context.json({ error: result.error, refresh: true }, status);
+        } catch {
+            return context.json({ error: "resume_failed" }, 500);
+        }
+    });
+
     routes.get("/api/goals/:goalId/events", async (context) => {
         const goalId = context.req.param("goalId");
         const query = new URL(context.req.url).searchParams;
@@ -602,6 +641,38 @@ async function parsePlanModeCommand(
         return { ok: false, error: "invalid_plan_mode_command", status: 400 };
     }
     return { ok: true, command: { runId: body.runId } };
+}
+
+async function parseResumeCommand(
+    request: Request,
+): Promise<
+    | { readonly ok: true; readonly command: BrowserResumeGoalCommand }
+    | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
+> {
+    const parsedBody = await readJsonBody(request);
+    if (!parsedBody.ok) return parsedBody;
+    const value = parsedBody.value;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return { ok: false, error: "invalid_resume_command", status: 400 };
+    }
+    const body = value as Record<string, unknown>;
+    if (
+        Object.keys(body).length !== 2
+        || typeof body.runId !== "string"
+        || !isWireId(body.runId, 256)
+        || typeof body.expectedCommittedThroughSequence !== "number"
+        || !Number.isSafeInteger(body.expectedCommittedThroughSequence)
+        || body.expectedCommittedThroughSequence < 0
+    ) {
+        return { ok: false, error: "invalid_resume_command", status: 400 };
+    }
+    return {
+        ok: true,
+        command: {
+            runId: body.runId,
+            expectedCommittedThroughSequence: body.expectedCommittedThroughSequence,
+        },
+    };
 }
 
 async function parseInteractionCommand(
@@ -897,6 +968,15 @@ function messageErrorStatus(
     if (error === "message_failed") return 500;
     if (error === "model_restore_failed") return 503;
     return 400;
+}
+
+function resumeErrorStatus(
+    error: Extract<BrowserResumeGoalResult, { readonly ok: false }>["error"],
+): 400 | 404 | 409 | 500 | 503 {
+    if (error === "goal_not_found") return 404;
+    if (error === "stale_run" || error === "stale_recovery" || error === "goal_busy" || error === "resume_not_allowed") return 409;
+    if (error === "model_restore_failed" || error === "service_shutting_down") return 503;
+    return 500;
 }
 
 function createEventStreamResponse(

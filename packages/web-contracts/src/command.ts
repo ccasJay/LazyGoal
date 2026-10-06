@@ -566,3 +566,57 @@ export type BrowserGoalArchiveResult =
 export type BrowserGoalDeleteResult =
     | { readonly ok: true }
     | { readonly ok: false; readonly error: string };
+
+/**
+ * 显式恢复 Run 的输入命令。
+ *
+ * @remarks
+ * 精确接收目标 Run ID 和页面读取的提交边界，用于并发防重入与过期检测。
+ *
+ * @example
+ * ```ts
+ * const cmd: BrowserResumeGoalCommand = {
+ *     runId: "run-1",
+ *     expectedCommittedThroughSequence: 12,
+ * };
+ * ```
+ */
+export interface BrowserResumeGoalCommand {
+    /** 目标 Run 标识。 */
+    readonly runId: string;
+    /** 页面读取到的最新已提交序列号边界。 */
+    readonly expectedCommittedThroughSequence: number;
+}
+
+/**
+ * 显式恢复 Run 的处理结果。
+ *
+ * @example
+ * ```ts
+ * const res: BrowserResumeGoalResult = {
+ *     ok: true,
+ *     goalId: "goal-1",
+ *     runId: "run-1",
+ *     existing: false,
+ * };
+ * ```
+ */
+export type BrowserResumeGoalResult =
+    | {
+        readonly ok: true;
+        readonly goalId: string;
+        readonly runId: string;
+        readonly existing: boolean;
+    }
+    | {
+        readonly ok: false;
+        readonly error:
+            | "goal_not_found"
+            | "stale_run"
+            | "stale_recovery"
+            | "goal_busy"
+            | "resume_not_allowed"
+            | "model_restore_failed"
+            | "resume_failed"
+            | "service_shutting_down";
+    };

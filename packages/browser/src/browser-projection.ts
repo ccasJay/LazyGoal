@@ -62,16 +62,27 @@ const MAX_BASH_OUTPUT_LENGTH = 4_000;
  */
 export function projectBrowserGoalList(
     entries: readonly GoalCatalogEntry[],
+    activeGoalId?: string,
 ): readonly BrowserGoalListItem[] {
-    return entries.map((entry) => ({
-        goalId: entry.goalId,
-        runId: entry.runId,
-        intent: boundedText(entry.intent, MAX_TEXT_LENGTH),
-        workflowPhase: entry.workflowPhase,
-        runStatus: entry.runStatus,
-        updatedAt: entry.updatedAt,
-        archived: entry.archived === true,
-    }));
+    return entries.map((entry) => {
+        const isActive = activeGoalId !== undefined && entry.goalId === activeGoalId;
+        const state = isActive ? "active"
+            : (entry.runStatus === "created" || entry.runStatus === "running") ? "recoverable"
+                : "inactive";
+        return {
+            goalId: entry.goalId,
+            runId: entry.runId,
+            intent: boundedText(entry.intent, MAX_TEXT_LENGTH),
+            workflowPhase: entry.workflowPhase,
+            runStatus: entry.runStatus,
+            execution: {
+                state,
+                committedThroughSequence: entry.committedThroughSequence ?? 0,
+            },
+            updatedAt: entry.updatedAt,
+            archived: entry.archived === true,
+        };
+    });
 }
 
 /**
@@ -87,12 +98,13 @@ export function projectBrowserGoalList(
  */
 export async function listBrowserGoals(
     catalog: GoalCatalog,
+    activeGoalId?: string,
 ): Promise<readonly BrowserGoalListItem[]> {
     if (catalog.listHistory === undefined) {
         throw new Error("Browser Goal listing requires a full Goal history catalog");
     }
     const entries = await catalog.listHistory();
-    return projectBrowserGoalList(entries);
+    return projectBrowserGoalList(entries, activeGoalId);
 }
 
 /**
@@ -112,9 +124,15 @@ export async function readBrowserGoalSession(
     goalId: string,
     store: Pick<GoalStore, "restore">,
     readTrajectory: (query: TrajectoryReadQuery) => Promise<Readonly<TrajectoryReadResult>>,
+    activeGoalId?: string,
 ): Promise<BrowserGoalSession | undefined> {
     const goal = await store.restore(goalId);
     if (goal === undefined) return undefined;
+
+    const isActive = activeGoalId !== undefined && goal.id === activeGoalId;
+    const executionState = isActive ? "active"
+        : (goal.state.run.status === "created" || goal.state.run.status === "running") ? "recoverable"
+            : "inactive";
 
     const completedRuns = goal.state.completedRuns ?? [];
     const recentCompletedRuns = completedRuns.slice(-Math.max(0, MAX_RUNS - 1));
@@ -183,6 +201,10 @@ export async function readBrowserGoalSession(
         runStatus: currentRun.status,
         currentRunMode: currentRun.mode,
         ...(goal.state.nextRunMode === undefined ? {} : { nextRunMode: goal.state.nextRunMode }),
+        execution: {
+            state: executionState,
+            committedThroughSequence: currentRun.committedThroughSequence ?? 0,
+        },
         messages,
         runs: projectedRuns,
         ...(goalPlan === undefined ? {} : { goalPlan }),

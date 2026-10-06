@@ -28,6 +28,7 @@ import {
   type BrowserGoalMessageCommand,
   type BrowserGoalPlanModeCommand,
   type BrowserGoalSession,
+  type BrowserResumeGoalCommand,
   type BrowserModelCatalog,
   type BrowserModelInputDetail,
   type BrowserModelInputSummary,
@@ -167,6 +168,17 @@ export const browserApi = {
   ): Promise<AcceptedCommand> {
     return postJson(
       `/api/goals/${encodeURIComponent(goalId)}/plan-mode`,
+      command,
+      isAcceptedCommand,
+    );
+  },
+
+  resumeGoal(
+    goalId: string,
+    command: BrowserResumeGoalCommand,
+  ): Promise<AcceptedCommand> {
+    return postJson(
+      `/api/goals/${encodeURIComponent(goalId)}/resume`,
       command,
       isAcceptedCommand,
     );

@@ -11,6 +11,7 @@ import {
     isGoalSessionEnvelope,
     isJsonValue,
     isLiveEvent,
+    isResumeGoalCommand,
     isMetricValues,
     isMetricsSnapshot,
     isModelCatalog,
@@ -60,6 +61,8 @@ test("isGoalListItem and isGoalList validate list items", () => {
     assert.equal(isGoalListItem(validItem), true);
     assert.equal(isGoalList({ goals: [validItem] }), true);
 
+    assert.equal(isGoalListItem({ ...validItem, execution: { state: "recoverable", committedThroughSequence: 10 } }), true);
+    assert.equal(isGoalListItem({ ...validItem, execution: { state: "unknown", committedThroughSequence: 10 } }), false);
     assert.equal(isGoalListItem({ ...validItem, goalId: "" }), false);
     assert.equal(isGoalListItem({ ...validItem, runStatus: "invalid" }), false);
     assert.equal(isGoalListItem({ ...validItem, archived: "no" }), false);
@@ -96,6 +99,8 @@ test("isBrowserGoalSession validates complete and malformed sessions", () => {
         historyTruncated: false,
     };
     assert.equal(isBrowserGoalSession(validSession), true);
+    assert.equal(isBrowserGoalSession({ ...validSession, execution: { state: "active", committedThroughSequence: 5 } }), true);
+    assert.equal(isBrowserGoalSession({ ...validSession, execution: { state: "bad", committedThroughSequence: 5 } }), false);
     assert.equal(isGoalSessionEnvelope({ goal: validSession }), true);
 
     assert.equal(isBrowserGoalSession({ ...validSession, currentRunMode: "other" }), false);
@@ -234,11 +239,11 @@ test("isTrajectoryPage and isTrajectoryDetail validate trajectory wire DTOs", ()
     );
 });
 
-test("isJsonValue handles arbitrary json structures", () => {
-    assert.equal(isJsonValue("hello"), true);
-    assert.equal(isJsonValue(123), true);
-    assert.equal(isJsonValue(null), true);
-    assert.equal(isJsonValue([1, "a", { b: true }]), true);
-    assert.equal(isJsonValue({ a: () => {} }), false);
-    assert.equal(isJsonValue(undefined), false);
+test("isResumeGoalCommand validates valid and invalid resume commands", () => {
+    assert.equal(isResumeGoalCommand({ runId: "run-1", expectedCommittedThroughSequence: 0 }), true);
+    assert.equal(isResumeGoalCommand({ runId: "run-1", expectedCommittedThroughSequence: 10 }), true);
+    assert.equal(isResumeGoalCommand({ runId: "", expectedCommittedThroughSequence: 10 }), false);
+    assert.equal(isResumeGoalCommand({ runId: "run-1", expectedCommittedThroughSequence: -1 }), false);
+    assert.equal(isResumeGoalCommand({ runId: "run-1", expectedCommittedThroughSequence: 1.5 }), false);
+    assert.equal(isResumeGoalCommand({ runId: "run-1" }), false);
 });

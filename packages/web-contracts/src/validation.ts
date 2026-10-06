@@ -18,6 +18,7 @@ import type {
     BrowserModelInputDetail,
     BrowserModelInputSummary,
     BrowserGoalLiveEvent,
+    BrowserResumeGoalCommand,
     SessionMetricsSnapshot,
 } from "./index";
 
@@ -135,6 +136,11 @@ export function isGoalListItem(value: unknown): value is BrowserGoalListItem {
         && typeof value.intent === "string"
         && typeof value.workflowPhase === "string"
         && isRunStatus(value.runStatus)
+        && (value.execution === undefined || (
+            isRecord(value.execution)
+            && ["active", "recoverable", "inactive"].includes(String(value.execution.state))
+            && typeof value.execution.committedThroughSequence === "number"
+        ))
         && typeof value.archived === "boolean"
         && typeof value.updatedAt === "string";
 }
@@ -295,6 +301,11 @@ export function isBrowserGoalSession(value: unknown): value is BrowserGoalSessio
         || typeof value.historyTruncated !== "boolean") return false;
 
     if (value.goalPlan !== undefined && !isGoalPlan(value.goalPlan)) return false;
+    if (value.execution !== undefined && !(
+        isRecord(value.execution)
+        && ["active", "recoverable", "inactive"].includes(String(value.execution.state))
+        && typeof value.execution.committedThroughSequence === "number"
+    )) return false;
     if (value.pendingInteraction !== undefined && !isPendingInteraction(value.pendingInteraction)) return false;
     if (value.pendingAction !== undefined && !isPendingAction(value.pendingAction)) return false;
     return true;
@@ -685,4 +696,23 @@ export function isMetricsSnapshot(value: unknown): value is SessionMetricsSnapsh
         && Number.isInteger(value.roundCount)
         && Array.isArray(value.runs)
         && value.runs.every((run) => isRecord(run) && isNonEmptyString(run.runId) && isMetricValues(run));
+}
+
+/**
+ * 显式恢复命令类型守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为 BrowserResumeGoalCommand。
+ *
+ * @example
+ * ```ts
+ * if (isResumeGoalCommand(cmd)) console.log(cmd.runId);
+ * ```
+ */
+export function isResumeGoalCommand(value: unknown): value is BrowserResumeGoalCommand {
+    return isRecord(value)
+        && isNonEmptyString(value.runId)
+        && typeof value.expectedCommittedThroughSequence === "number"
+        && Number.isSafeInteger(value.expectedCommittedThroughSequence)
+        && value.expectedCommittedThroughSequence >= 0;
 }

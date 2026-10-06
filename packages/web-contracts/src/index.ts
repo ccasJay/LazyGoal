@@ -1,5 +1,7 @@
 export {
     type BrowserRunStatus,
+    type BrowserExecutionState,
+    type BrowserGoalExecution,
     type BrowserGoalListItem,
     type BrowserSessionMessage,
     type BrowserBashExecutionDetail,
@@ -42,6 +44,8 @@ export {
     type BrowserGoalArchiveCommand,
     type BrowserGoalArchiveResult,
     type BrowserGoalDeleteResult,
+    type BrowserResumeGoalCommand,
+    type BrowserResumeGoalResult,
 } from "./command";
 
 export {
@@ -108,6 +112,7 @@ export {
     isPermissionModeResult,
     isWorkspaceContext,
     isLiveEvent,
+    isResumeGoalCommand,
     isTrajectoryRun,
     isTrajectoryRuns,
     isTrajectoryEntry,

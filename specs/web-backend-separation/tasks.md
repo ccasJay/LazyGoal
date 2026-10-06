@@ -25,7 +25,7 @@ Requirements、Design 已获批准；本文件是待批准的完整任务与验�
   - 验证方式：更新现有 `benchmarks/gaia/test/cli.test.ts`、`benchmarks/swebench/test/manifest-cli.test.ts`，保留并执行 `benchmarks/test/headless-composition-root.test.ts`、`benchmarks/test/prompt-evaluation/cli.test.ts` 及相关 Worker/环境测试；机器入口分发测试（`scripts/lazygoal-entrypoint.test.mjs`，待新增）；执行 `npm run test:gepa-adapter` 和 `npm test`。
   - _Requirements: [2.3](./requirements.md#req-2-3), [7.1](./requirements.md#req-7-1), [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 3. 集成基于提交边界的 Web 显式恢复及活动状态展示
+- [x] //TODO 3. 集成基于提交边界的 Web 显式恢复及活动状态展示
 
   - 实现目标：按 Design 一并扩展纯契约、`BrowserGoalCoordinator.advance`、命令预约与受理、恢复路由、列表/会话活动投影、活动变化订阅、客户端重试和 `Resume Run` 操作；接入当前装配，不另建恢复状态机或持久化活动字段。
   - 成功判据：中断的 `created/running` Run 可从 Web 恢复同一身份和保存模型，读取页面不推进；同边界在途重试复用受理，旧 Run/边界和其他活动 Goal 被拒绝；已提交结果不重放，manual 未知结果、PTC、审批和纠错遵循现有 Runtime；模型/首个保存失败以及受理后故障均可诊断，页面断开不提前释放执行预约，结束后活动展示和监听正确清理。

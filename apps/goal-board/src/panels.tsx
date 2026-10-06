@@ -79,6 +79,12 @@ export function GoalDetails({
           <dt>Run status</dt>
           <dd>{runStatusLabel(session.runStatus)}</dd>
         </div>
+        {session.execution && (
+          <div>
+            <dt>Execution state</dt>
+            <dd>{session.execution.state === "active" ? "Active" : session.execution.state === "recoverable" ? "Recoverable" : "Inactive"}</dd>
+          </div>
+        )}
         <div>
           <dt>Current Run</dt>
           <dd>{session.currentRunId}</dd>

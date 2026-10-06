@@ -26,6 +26,40 @@ export type BrowserRunStatus =
     | "cancelled";
 
 /**
+ * Run 执行与恢复状态。
+ *
+ * @remarks
+ * 由 Snapshot 与服务进程的活动预约共同投影，不保存到持久化 Snapshot。
+ * - `active`: 当前服务正持有该 Goal 的活动执行预约；
+ * - `recoverable`: 该 Run 处于 created/running 且当前服务未持有其执行预约，可显式恢复；
+ * - `inactive`: 处于 waiting 或终态，不可显式恢复。
+ *
+ * @example
+ * ```ts
+ * const state: BrowserExecutionState = "recoverable";
+ * ```
+ */
+export type BrowserExecutionState = "active" | "recoverable" | "inactive";
+
+/**
+ * Run 提交边界与执行活动投影。
+ *
+ * @example
+ * ```ts
+ * const execution: BrowserGoalExecution = {
+ *     state: "recoverable",
+ *     committedThroughSequence: 12,
+ * };
+ * ```
+ */
+export interface BrowserGoalExecution {
+    /** 进程活动状态投影。 */
+    readonly state: BrowserExecutionState;
+    /** 当前 Run 的已提交序列号边界。 */
+    readonly committedThroughSequence: number;
+}
+
+/**
  * 工作区 Goal 列表项的安全传输对象。
  *
  * @remarks
@@ -56,6 +90,8 @@ export interface BrowserGoalListItem {
     readonly workflowPhase: string;
     /** 当前 Run 的真实生命周期状态。 */
     readonly runStatus: BrowserRunStatus;
+    /** 当前 Run 的进程活动与提交边界投影。 */
+    readonly execution?: BrowserGoalExecution;
     /** 快照最后更新时间（ISO 8601 字符串）。 */
     readonly updatedAt: string;
     /** 是否已被用户归档。 */
@@ -452,6 +488,8 @@ export interface BrowserGoalSession {
     readonly currentRunMode: "normal" | "plan";
     /** 下一 Run 预设的模式。 */
     readonly nextRunMode?: "plan";
+    /** 当前 Run 的进程活动与提交边界投影。 */
+    readonly execution?: BrowserGoalExecution;
     /** 会话历史消息。 */
     readonly messages: readonly BrowserSessionMessage[];
     /** 历史与当前 Run 列表。 */

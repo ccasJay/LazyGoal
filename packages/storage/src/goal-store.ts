@@ -243,6 +243,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
                     intent: goal.definition.intent,
                     workflowPhase: goal.state.workflow.phase,
                     runStatus,
+                    committedThroughSequence: goal.state.run.committedThroughSequence,
                     updatedAt: new Date(fileStats.mtimeMs).toISOString(),
                     ...(files.some((candidate) => candidate.name === `${file.name}.archived`) ? { archived: true } : {}),
                 },

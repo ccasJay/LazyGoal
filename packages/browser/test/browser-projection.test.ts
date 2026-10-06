@@ -206,6 +206,10 @@ test("看板列表使用正式 Catalog 摘要并投影白名单字段", async ()
         intent: "真实 Goal",
         workflowPhase: "executing",
         runStatus: "completed",
+        execution: {
+            state: "inactive",
+            committedThroughSequence: 0,
+        },
         updatedAt: "2026-09-26T00:00:00.000Z",
     }]);
     assert.equal(JSON.stringify(result).includes("must-not-appear"), false);
