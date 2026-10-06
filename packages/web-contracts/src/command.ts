@@ -477,12 +477,18 @@ export type BrowserGoalMessageResult =
 /**
  * 结构化交互操作命令。
  *
+ * @remarks
+ * `cancel_ask_user` 仅取消匹配 request ID 的结构化询问，并继续同一 Run；它不会终止 Run。
+ *
  * @example
  * ```ts
  * const cmd: BrowserGoalInteractionCommand = {
  *     kind: "approve_task",
  *     runId: "run-1",
  *     requestId: "req-1",
+ * };
+ * const cancel: BrowserGoalInteractionCommand = {
+ *     kind: "cancel_ask_user", runId: "run-1", requestId: "ask-1",
  * };
  * ```
  */
@@ -492,6 +498,11 @@ export type BrowserGoalInteractionCommand =
         readonly runId: string;
         readonly requestId: string;
         readonly answers: readonly BrowserAskUserAnswer[];
+    }
+    | {
+        readonly kind: "cancel_ask_user";
+        readonly runId: string;
+        readonly requestId: string;
     }
     | {
         readonly kind: "approve_task";

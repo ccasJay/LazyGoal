@@ -115,8 +115,8 @@ export interface BrowserGoalSaveNotifications {
  * 浏览器可提交到当前结构化等待点的操作。
  *
  * @remarks
- * 每种操作都携带当前 Run 身份与相应的 requestId/actionId。普通消息不属于此联合，
- * 也不能借由回答或审批结构绕过 Runtime 的等待类型和请求身份校验。
+ * 交互命令携带当前 Run 身份；回答、取消询问与任务审批还必须匹配对应 requestId，Action
+ * 审批必须匹配 actionId。取消询问仅适用于 AskUser 等待。普通消息不能绕过 Runtime 校验。
  *
  * @example
  * ```ts
@@ -1207,8 +1207,8 @@ export class BrowserGoalCommandService {
 }
 
 function interactionKey(goalId: string, command: BrowserGoalInteractionCommand): string {
-    const requestId = "requestId" in command ? command.requestId : command.actionId;
-    return `${goalId}\u0000${command.runId}\u0000${command.kind}\u0000${requestId}`;
+    const interactionId = "requestId" in command ? command.requestId : command.actionId;
+    return `${goalId}\u0000${command.runId}\u0000${command.kind}\u0000${interactionId}`;
 }
 
 function validateInteractionTarget(
@@ -1219,6 +1219,11 @@ function validateInteractionTarget(
     if (goal.state.run.status !== "waiting") return "goal_not_waiting";
 
     const interaction = goal.state.run.pendingInteraction;
+    if (command.kind === "cancel_ask_user") {
+        return interaction?.kind === "ask_user" && interaction.requestId === command.requestId
+            ? undefined
+            : "stale_request";
+    }
     if (command.kind === "answer_ask_user") {
         return interaction?.kind === "ask_user" && interaction.requestId === command.requestId
             ? undefined
@@ -1244,6 +1249,8 @@ function validateInteractionTarget(
 
 function toRuntimeAction(command: BrowserGoalInteractionCommand): GoalUserAction {
     switch (command.kind) {
+        case "cancel_ask_user":
+            return { kind: "cancel_ask_user", requestId: command.requestId };
         case "answer_ask_user":
             return {
                 kind: "answer_ask_user",

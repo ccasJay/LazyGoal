@@ -706,6 +706,16 @@ async function parseInteractionCommand(
         return { ok: false, error: "invalid_interaction", status: 400 };
     }
 
+    if (kind === "cancel_ask_user") {
+        if (!hasExactKeys(body, ["kind", "runId", "requestId"])) {
+            return { ok: false, error: "invalid_interaction", status: 400 };
+        }
+        const requestId = readWireText(body.requestId, 256);
+        return requestId === undefined
+            ? { ok: false, error: "invalid_interaction", status: 400 }
+            : { ok: true, command: { kind, runId, requestId } };
+    }
+
     if (kind === "answer_ask_user") {
         if (!hasExactKeys(body, ["kind", "runId", "requestId", "answers"])) {
             return { ok: false, error: "invalid_interaction", status: 400 };

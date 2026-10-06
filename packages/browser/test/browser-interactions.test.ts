@@ -119,7 +119,7 @@ function goalAtWaitPoint(goalId: string, waitPoint: WaitPoint): Goal {
 const interactionCases: readonly {
     readonly name: string;
     readonly waitPoint: WaitPoint;
-    readonly command: BrowserGoalInteractionCommand;
+    readonly command: Exclude<BrowserGoalInteractionCommand, { readonly kind: "cancel_ask_user" }>;
     readonly expectedAction: ResumeGoalRequest["action"]["kind"];
 }[] = [
     {
@@ -238,6 +238,70 @@ for (const scenario of interactionCases) {
     });
 }
 
+test("cancel_ask_user 转为 Runtime 询问取消操作并等待快照保存", async () => {
+    const goal = goalAtWaitPoint("goal-cancel-run-1", "ask_user");
+    const store = new NotifyingMemoryStore();
+    await store.save(goal);
+    const requestsSeen: ResumeGoalRequest[] = [];
+    const service = new BrowserGoalCommandService({
+        store,
+        saveNotifications: store,
+        profileId: "default",
+        launcher: { async launch() { throw new Error("Launcher is not used here"); } },
+        coordinator: {
+            async resume(request) {
+                requestsSeen.push(request);
+                const current = await store.restore(goal.id);
+                assert.ok(current);
+                const { pendingInteraction: _pendingInteraction, ...runWithoutPending } = current.state.run;
+                const resumed: Goal = {
+                    ...current,
+                    state: {
+                        ...current.state,
+                        messages: [
+                            ...current.state.messages,
+                            {
+                                role: "user",
+                                content: "I cancelled this question. Continue the current task without relying on an answer to it.",
+                            },
+                        ],
+                        run: { ...runWithoutPending, status: "running" as const },
+                    },
+                };
+                await store.save(resumed);
+                return { ok: true as const, kind: "waiting" as const, phase: "executing" as const, waitingFor: "blocked" as const, goal: resumed };
+            },
+            async continue() { throw new Error("continuation is not used here"); },
+            async enterPlanMode() { throw new Error("plan mode is not used here"); },
+        },
+    });
+
+    const stale = await service.interact(goal.id, {
+        kind: "cancel_ask_user",
+        runId: goal.state.run.id,
+        requestId: "old-ask",
+    });
+    assert.deepEqual(stale, { ok: false, error: "stale_request" });
+    assert.equal(requestsSeen.length, 0);
+
+    const result = await service.interact(goal.id, {
+        kind: "cancel_ask_user",
+        runId: goal.state.run.id,
+        requestId: "ask-1",
+    });
+    assert.deepEqual(result, {
+        ok: true,
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        existing: false,
+    });
+    assert.deepEqual(requestsSeen[0]?.action, { kind: "cancel_ask_user", requestId: "ask-1" });
+    const resumed = await store.restore(goal.id);
+    assert.equal(resumed?.state.run.status, "running");
+    assert.equal(resumed?.state.run.pendingInteraction, undefined);
+    assert.equal(resumed?.state.messages.some((message) => message.content.includes("I cancelled this question")), true);
+});
+
 test("过期 Run 或请求身份在 Coordinator 调用前被拒绝", async () => {
     const goal = goalAtWaitPoint("goal-stale-1", "ask_user");
     const store = new NotifyingMemoryStore();
@@ -337,7 +401,7 @@ test("完整 Action 详情只对当前等待中的 Goal/Run/Action 身份开放"
     });
 });
 
-test("浏览器审批路由传递授权范围并拒绝未知范围", async () => {
+test("浏览器交互路由传递审批与取消命令并拒绝非法字段", async () => {
     const interactions: BrowserGoalInteractionCommand[] = [];
     const routes = createBrowserGoalRoutes({
         async list() { return []; },
@@ -369,6 +433,19 @@ test("浏览器审批路由传递授权范围并拒绝未知范围", async () =>
     }]);
     assert.equal((await approve("unbounded")).status, 400);
     assert.equal(interactions.length, 1);
+
+    const cancelQuestion = (extra: Record<string, unknown> = {}) => routes.request(
+        "http://localhost/api/goals/goal-1/interactions",
+        {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ kind: "cancel_ask_user", runId: "run-1", requestId: "ask-1", ...extra }),
+        },
+    );
+    assert.equal((await cancelQuestion()).status, 202);
+    assert.deepEqual(interactions[1], { kind: "cancel_ask_user", runId: "run-1", requestId: "ask-1" });
+    assert.equal((await cancelQuestion({ reason: "unexpected" })).status, 400);
+    assert.equal(interactions.length, 2);
 });
 
 test("Action 详情路由验证身份参数并只返回服务端授权读取结果", async () => {
