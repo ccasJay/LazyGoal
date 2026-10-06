@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Copy, X } from "lucide-react";
-import type { BrowserModelInputDetail, BrowserTrajectoryEntry } from "../../../packages/browser/src/index";
+import type { BrowserModelInputDetail, BrowserTrajectoryEntry } from "../../../packages/web-contracts/src/index";
 import { browserApi, BrowserApiError } from "./api";
 import type { RequestResult } from "./trajectory-presentation";
 

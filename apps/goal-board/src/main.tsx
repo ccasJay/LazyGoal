@@ -42,10 +42,10 @@ import type {
   BrowserModelOption,
   BrowserPermissionModeResult,
   BrowserWorkspaceContext,
-} from "../../../packages/browser/src/index";
+  SessionMetricsSnapshot,
+} from "../../../packages/web-contracts/src/index";
 import { createSlashCommandRegistry, modelCommandDefinition, planCommandDefinition } from "../../../packages/slash-command/src/index";
 import type { ModelCommandEffect } from "../../../packages/slash-command/src/index";
-import type { SessionMetricsSnapshot } from "../../../packages/session-metrics/src/session-metrics-service";
 import { BrowserApiError, browserApi } from "./api";
 import { GoalDetails, WaitingInteraction } from "./panels";
 import "./style.css";
@@ -740,6 +740,25 @@ function App() {
     }
   }
 
+  async function submitResume() {
+    if (!session || commandBusy) return;
+    setCommandBusy(true);
+    setCommandError(null);
+    try {
+      const expectedCommittedThroughSequence = session.execution?.committedThroughSequence ?? 0;
+      await browserApi.resumeGoal(session.goalId, {
+        runId: session.currentRunId,
+        expectedCommittedThroughSequence,
+      });
+      await refreshSelectedSession();
+    } catch (error) {
+      setCommandError(errorMessage(error));
+      if (error instanceof BrowserApiError && error.refresh) await refreshSelectedSession();
+    } finally {
+      setCommandBusy(false);
+    }
+  }
+
   async function chooseModel(target: ModelPickerTarget, model: BrowserModelOption, catalog: BrowserModelCatalog): Promise<void> {
     const modelId = model.id;
     if (target.kind === "draft") {
@@ -1178,8 +1197,57 @@ function App() {
                           onSubmit={submitMessage}
                         />
                       )}
-                      {session.runStatus === "running" && <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">Wait for the current Run to reach a saved waiting point or finish.</div></>}
-                      {session.runStatus === "created" && <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">The Runtime is starting this Goal.</div></>}
+                      {session.runStatus === "running" && (
+                        session.execution?.state === "recoverable" ? (
+                          <div className="composer-recover-row">
+                            <div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div>
+                            <div className="composer-recover-actions">
+                              <span className="composer-note">Execution paused or interrupted.</span>
+                              <button
+                                type="button"
+                                className="primary"
+                                disabled={commandBusy}
+                                onClick={() => void submitResume()}
+                              >
+                                {commandBusy ? "Resuming…" : "Resume Run"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <MessageComposer
+                            key={session.currentRunId}
+                            showHint={false}
+                            busy={commandBusy}
+                            running
+                            placeholder="Run is in progress…"
+                            footerControls={<>
+                              {renderPermissionControl(true)}
+                              <CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} />
+                            </>}
+                            onSubmit={submitMessage}
+                          />
+                        )
+                      )}
+                      {session.runStatus === "created" && (
+                        session.execution?.state === "recoverable" ? (
+                          <div className="composer-recover-row">
+                            <div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div>
+                            <div className="composer-recover-actions">
+                              <span className="composer-note">Run not yet active in this process.</span>
+                              <button
+                                type="button"
+                                className="primary"
+                                disabled={commandBusy}
+                                onClick={() => void submitResume()}
+                              >
+                                {commandBusy ? "Resuming…" : "Resume Run"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">The Runtime is starting this Goal.</div></>
+                        )
+                      )}
                       {session.runStatus === "cancelled" && (
                         <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">Text input is unavailable for this Run.</div></>
                       )}
@@ -1583,6 +1651,7 @@ function ModelPicker({ target, selectedId, onSelect, onClose, onDone }: {
 
 function MessageComposer({
   busy,
+  running = false,
   sendDisabled = false,
   placeholder,
   footerControls,
@@ -1591,6 +1660,7 @@ function MessageComposer({
   showHint = true,
 }: {
   busy: boolean;
+  running?: boolean;
   sendDisabled?: boolean;
   placeholder: string;
   onSubmit: (content: string) => Promise<boolean>;
@@ -1606,7 +1676,7 @@ function MessageComposer({
   const activeCandidate = candidates[Math.min(selectedCommand, candidates.length - 1)];
 
   async function submit(content = draft) {
-    if (busy || !content.trim()) return;
+    if (busy || running || !content.trim()) return;
     const submittedDraft = draft;
     if (await onSubmit(content)) {
       setDraft((current) => current === submittedDraft ? "" : current);
@@ -1639,11 +1709,11 @@ function MessageComposer({
         <textarea
           aria-label="Message the Goal"
           aria-keyshortcuts="Enter Shift+Enter"
-          title="Enter to send · Shift + Enter for a new line"
+          title={running ? "This Run is in progress." : "Enter to send · Shift + Enter for a new line"}
           placeholder={placeholder}
           autoFocus={autoFocus}
           value={draft}
-          disabled={busy}
+          disabled={busy || running}
           onChange={(event) => {
             setDraft(event.target.value);
             setSelectedCommand(0);
@@ -1677,8 +1747,16 @@ function MessageComposer({
           <div className="composer-controls">
             {footerControls}
           </div>
-          <button type="submit" className="send" aria-label="Send message" disabled={busy || sendDisabled || !draft.trim()}>
-            {busy ? <span className="loading-mark small" /> : <ArrowUp size={16} />}
+          <button
+            type="submit"
+            className={`send ${running ? "is-running" : ""}`}
+            aria-label={running ? "Run in progress" : busy ? "Sending message" : "Send message"}
+            title={running ? "Run in progress" : undefined}
+            disabled={busy || running || sendDisabled || !draft.trim()}
+          >
+            {running
+              ? <><span className="status-dot running" aria-hidden="true" />Running</>
+              : busy ? <span className="loading-mark small" /> : <ArrowUp size={16} />}
           </button>
         </div>
       </form>

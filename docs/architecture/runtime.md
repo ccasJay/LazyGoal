@@ -27,7 +27,7 @@ Goal workflow 只有 `phase: "executing"`。Goal 是可持续恢复的会话聚�
 
 无参数 `/plan` 通过 Coordinator 为尚未提交 `run_started` 的当前 Run 选择 Plan 模式；当前 Run 已完成或失败时，它将 Plan 作为下一 Run 的一次性选择持久化。新 Run 缺省使用普通模式并消费待用选择。模式只属于 Run，GoalPlan 可在任意模式下存在并继续读取。
 
-waiting 输入调用 `resume` 并保留当前 Run；completed 或 failed 输入调用 `continue`，在追加用户消息前归档上一 Run 的终态、保存新 Run，再交给现有 Scheduler。失败 Run 不会原地恢复；只有用户提交新输入才会创建后续 Run。cancelled Run 不接收普通输入；未完成 Todo 不会自动推进。
+waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表单取消当前询问。Runtime 清除该待处理交互，记录询问取消事件，并将“跳过此询问、继续当前任务”的控制消息交给同一 Run；Run 不会因此进入取消终态。completed 或 failed 输入调用 `continue`，在追加用户消息前归档上一 Run 的终态、保存新 Run，再交给现有 Scheduler。失败 Run 不会原地恢复；只有用户提交新输入才会创建后续 Run。未完成 Todo 不会自动推进。
 
 统一 Runner 按当前 Run 模式和获批任务推进：
 
@@ -70,6 +70,6 @@ Trajectory 是恢复事实源，Snapshot 的 `committedThroughSequence` 是当�
 
 ## 当前限制
 
-Runtime 当前只保存每个 Goal 的最新完整 Snapshot，不提供历史快照查询、跨进程租约或 Outbox 双写。Coordinator 实例内的 continue 闸门只保证单进程同一 Goal 串行；TUI/Benchmark 通过 Composition Root 注入 Store、Trajectory、Tool、Agent 和 LLM 适配器。Headless Root 仍以单次 Run 返回，后续 Run 必须由持久化 Goal 的显式 continue 触发。
+Runtime 当前只保存每个 Goal 的最新完整 Snapshot，不提供历史快照查询、跨进程租约或 Outbox 双写。Coordinator 实例内的 continue 闸门只保证单进程同一 Goal 串行；Web Server 与 Benchmark Composition Root 分别注入 Store、Trajectory、Tool、Agent 和 LLM 适配器。Headless Root 仍以单次 Run 返回，后续 Run 必须由持久化 Goal 的显式 continue 触发。
 
 原生模型响应由共享 checkpoint 提交器与接受的阶段结果保存为 `model_response_received`，包含调用身份、Conversation 位置、独立正文与公开 reasoning 摘要以及供应商必要续接字段；响应不进入 Goal Conversation。只有 Snapshot 边界内且具有对应领域结算的响应可回放，审批、Tool replay policy 和 pending Action 仍由现有 Runtime 流程控制。响应已提交而领域决策尚未提交时，恢复后的实际决策只关联其前最近一次 Decide 响应；旧响应不能绑定新 Action。Section frame 的原生身份标记用于结束模型切换前的续接段。

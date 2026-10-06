@@ -109,8 +109,8 @@ export interface ModelContextFramePayload {
  * Domain Event 的稳定事实载荷集合。
  *
  * @remarks
- * 每个事件信封绑定一个 Goal 与 Run。任务审批等待、批准和反馈额外携带同一交互的
- * `requestId`，消费者可据此识别过期操作；反馈或批准不会改变事件所属 Run。
+ * 每个事件信封绑定一个 Goal 与 Run。AskUser 回答/取消及任务审批等待、批准和反馈携带
+ * 同一交互的 `requestId`，消费者可据此识别过期操作；反馈或批准不会改变事件所属 Run。
  * `think_requested` 与 `think_completed` 记录一个 Step 内的阶段控制与自由文本，不是
  * AgentDecision、Tool Observation 或完成证据。
  *
@@ -144,6 +144,10 @@ export type TrajectoryEventPayload =
         readonly type: "ask_user_answered";
         readonly requestId: string;
         readonly answers: readonly AskUserAnswer[];
+    }
+    | {
+        readonly type: "ask_user_cancelled";
+        readonly requestId: string;
     }
     | {
         readonly type: "task_approved";
@@ -746,6 +750,7 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "plan_mode_entered",
     "goal_plan_updated",
     "ask_user_answered",
+    "ask_user_cancelled",
     "task_approved",
     "task_feedback_received",
     "decision_received",
@@ -1163,6 +1168,12 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             }
         }
     }
+    if (eventType === "ask_user_cancelled") {
+        if (Object.keys(payload).some((key) => !["type", "requestId"].includes(key))) {
+            throw new TrajectoryProtocolError("ask_user_cancelled contains unknown fields");
+        }
+        assertNonEmptyString(payload.requestId, "ask_user_cancelled.requestId");
+    }
     if (eventType === "task_approved") {
         if (Object.keys(payload).some((key) => !["type", "requestId", "task"].includes(key))) {
             throw new TrajectoryProtocolError("task_approved contains unknown fields");
@@ -1434,6 +1445,7 @@ export function classifyTrajectoryEvent(
         case "run_resumed":
         case "plan_mode_entered":
         case "ask_user_answered":
+        case "ask_user_cancelled":
         case "task_approved":
         case "task_feedback_received":
             return "lifecycle";

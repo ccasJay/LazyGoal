@@ -5,7 +5,7 @@ import type {
   BrowserGoalInteractionCommand,
   BrowserGoalSession,
   BrowserToolGrantSummary,
-} from "../../../packages/browser/src/index";
+} from "../../../packages/web-contracts/src/index";
 import { BrowserApiError, browserApi } from "./api";
 
 type SessionTab = "Activity" | "Plan" | "Details";
@@ -79,6 +79,12 @@ export function GoalDetails({
           <dt>Run status</dt>
           <dd>{runStatusLabel(session.runStatus)}</dd>
         </div>
+        {session.execution && (
+          <div>
+            <dt>Execution state</dt>
+            <dd>{session.execution.state === "active" ? "Active" : session.execution.state === "recoverable" ? "Recoverable" : "Inactive"}</dd>
+          </div>
+        )}
         <div>
           <dt>Current Run</dt>
           <dd>{session.currentRunId}</dd>
@@ -205,13 +211,16 @@ function AskUserForm({
           kind: "answer_ask_user",
           runId: session.currentRunId,
           requestId: interaction.requestId,
-          answers: interaction.questions.map((question) => ({
-            questionId: question.id,
-            optionIds: selected[question.id] ?? [],
-            ...(otherText[question.id]?.trim()
-              ? { otherText: otherText[question.id]!.trim() }
-              : {}),
-          })),
+          answers: interaction.questions.map((question) => {
+            const otherAnswer = otherText[question.id]?.trim();
+            return {
+              questionId: question.id,
+              optionIds: !question.multiSelect && otherAnswer
+                ? []
+                : selected[question.id] ?? [],
+              ...(otherAnswer ? { otherText: otherAnswer } : {}),
+            };
+          }),
         });
       }}>
         {interaction.questions.map((question) => (
@@ -228,15 +237,20 @@ function AskUserForm({
                       name={`question-${question.id}`}
                       checked={checked}
                       disabled={busy}
-                      onChange={() => setSelected((current) => {
-                        const previous = current[question.id] ?? [];
-                        const next = question.multiSelect
-                          ? checked
-                            ? previous.filter((id) => id !== option.id)
-                            : [...previous, option.id]
-                          : [option.id];
-                        return { ...current, [question.id]: next };
-                      })}
+                      onChange={() => {
+                        setSelected((current) => {
+                          const previous = current[question.id] ?? [];
+                          const next = question.multiSelect
+                            ? checked
+                              ? previous.filter((id) => id !== option.id)
+                              : [...previous, option.id]
+                            : [option.id];
+                          return { ...current, [question.id]: next };
+                        });
+                        if (!question.multiSelect) {
+                          setOtherText((current) => ({ ...current, [question.id]: "" }));
+                        }
+                      }}
                     />
                     <span>{option.label}
                       {option.description && <small>{option.description}</small>}
@@ -250,17 +264,34 @@ function AskUserForm({
               <input
                 value={otherText[question.id] ?? ""}
                 disabled={busy}
-                onChange={(event) => setOtherText((current) => ({
-                  ...current,
-                  [question.id]: event.target.value,
-                }))}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setOtherText((current) => ({ ...current, [question.id]: value }));
+                  if (!question.multiSelect && value.trim().length > 0) {
+                    setSelected((current) => ({ ...current, [question.id]: [] }));
+                  }
+                }}
               />
             </label>
           </fieldset>
         ))}
-        <button className="approval-primary" disabled={busy || !canSubmit} type="submit">
-          <Check size={13} /> Submit answer
-        </button>
+        <div className="ask-user-actions">
+          <button className="approval-primary" disabled={busy || !canSubmit} type="submit">
+            <Check size={13} /> Submit answer
+          </button>
+          <button
+            className="approval-cancel"
+            disabled={busy}
+            onClick={() => onSubmit({
+              kind: "cancel_ask_user",
+              runId: session.currentRunId,
+              requestId: interaction.requestId,
+            })}
+            type="button"
+          >
+            <X size={13} /> Cancel question
+          </button>
+        </div>
       </form>
     </section>
   );

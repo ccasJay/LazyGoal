@@ -13,6 +13,7 @@ bin/             CLI entrypoint and executable wiring for `lazygoal`
 scripts/         Repository maintenance and validation utilities
 apps/            Standalone user-facing client applications
   goal-board/     React browser shell (`@lazygoal/goal-board`) for `lazygoal web`
+  goal-server/    Standalone HTTP service and Composition Root (`@lazygoal/goal-server`)
 benchmarks/      Explicit headless benchmark evaluation
   src/            Shared Headless Composition Root and persistence wiring
   alfworld/       ALFWorld TextWorld tasks, sidecar, tools, and reports
@@ -21,6 +22,7 @@ prompt-evaluation/ External prompt optimization integrations
   gepa/            Official GEPA adapter for LazyGoal Prompt Evaluation
 packages/        Private `@lazygoal/*` workspaces
   contracts/      Contract AST builders and static type inference core
+  web-contracts/  Browser HTTP/SSE wire DTOs and boundary validation
   agent/         Agent prompts, response schemas, and the unified LLM step executor
   execution-stream/ Process-local Goal/Run events and bounded subscriptions
   http/          Reusable loopback HTTP service lifecycle and route mounting
@@ -31,7 +33,6 @@ packages/        Private `@lazygoal/*` workspaces
   storage/       Persistence DTOs, schemas, codecs, errors, and JSON stores for Runtime ports
   sandbox/       Workspace path boundaries, canonical capability contracts, and macOS Seatbelt isolation
   tools/         Agent tools such as filesystem, shell, and workspace utilities
-  tui/           React Ink terminal UI, screens, session controller, and CLI integration
 docs/            Current implemented architecture documentation under `docs/architecture/`
 specs/           Feature requirements, designs, and implementation task checklists
 project-memory/  Durable summaries of completed and verified feature specifications
@@ -87,7 +88,7 @@ Do not provide an unlinked list of changes when concrete source locations are av
 When performing a task, load and follow the matching skill under `.agents/skills/` for that task type:
 
 * Documentation work, including writing, moving, reviewing, and auditing → `lg-doc-standards`
-* Prose work, including Markdown, TSDoc, code comments, test comments, prompts, diagnostics, and CLI/TUI copy → `lg-prose-standard`
+* Prose work, including Markdown, TSDoc, code comments, test comments, prompts, diagnostics, and Web/CLI copy → `lg-prose-standard`
 * Simplification audits, including dead code, duplicate state or lifecycle logic, over-design, and dependency replacement → `lg-find-simplifications`
 * Benchmark integration, sandboxed worker packaging, evaluation runners, and troubleshooting → `lg-benchmark-integration`
 * 在独立 worktree 执行 spec → `lg-spec-worktree-execution`

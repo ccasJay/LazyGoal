@@ -27,13 +27,14 @@ Run tests for one package or one file:
 ```bash
 npx tsx --test packages/runtime/test/*.test.ts
 npx tsx --test packages/runtime/test/runner.test.ts
-npx tsx --test packages/tui/test/session-screen.test.tsx
+npx tsx --test apps/goal-server/test/composition-root-model-switching.test.ts
 ```
 
 Run the TypeScript compiler checks used by the repository configuration:
 
 ```bash
 npx tsc --noEmit
+npx tsc --noEmit -p apps/goal-server/tsconfig.json
 ```
 
 There are currently no repository-defined `build` or `lint` scripts. The source is executed with `tsx`; use `npx tsc --noEmit` as the available static check. The root smoke command makes a real LLM request and may incur provider cost:
@@ -46,11 +47,10 @@ Run the CLI from the repository root after configuring a profile and LLM environ
 
 ```bash
 node bin/lazygoal.cjs
-node bin/lazygoal.cjs -c
-node bin/lazygoal.cjs resume
+node bin/lazygoal.cjs web
 ```
 
-The CLI expects `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, and `LLM_STRUCTURED_OUTPUT_MODE` (`strict` or `prompt_only`), plus a manually-created `.lazygoal/profiles/default.json`. Runtime data is stored under `.lazygoal/goals`; paths are resolved relative to the invoking workspace.
+The CLI expects `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, and `LLM_STRUCTURED_OUTPUT_MODE` (`strict` or `prompt_only`), plus a manually-created `.lazygoal/profiles/default.json`. Runtime data is stored under `.lazygoal/goals`; paths are resolved relative to the invoking workspace. Legacy terminal commands (`-c`, `resume`, `inspect`) fail fast with code 2 directing the user to Web.
 
 ## Architecture
 
@@ -62,7 +62,7 @@ The CLI expects `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, and `LLM_STRUCTURED_
 
 `tools` contains runtime tool implementations and the tool contracts/registry boundary. The current `ReadFileTool` is deliberately read-only and restricts paths to the workspace root, including protection against absolute paths, `..` segments, and escaping symlinks. Runtime checks Profile authorization, Registry membership, input schema, and policy before execution.
 
-`tui` is the React Ink presentation and composition root. `cli.tsx` validates environment, loads the active Profile, constructs the shared Store/Registry/Adapters/Coordinator/Scheduler/Runner stack, and handles SIGINT shutdown. `SessionController` serializes semantic UI commands and exposes immutable view models; screens render those view models and do not mutate runtime state or write snapshots directly. `bin/lazygoal.cjs` resolves the project-local `tsx/esm` loader so the CLI works when invoked from another workspace.
+`goal-server` is the standalone HTTP service and Composition Root (`apps/goal-server`). `cli.ts` validates environment, loads the active Profile, constructs the shared Store/Registry/Adapters/Coordinator/Scheduler/Runner stack, mounts web routes, and handles SIGINT shutdown (exit code 130). `goal-board` (`apps/goal-board`) is the browser client UI that consumes `@lazygoal/web-contracts`. `bin/lazygoal.cjs` directs `lazygoal` and `lazygoal web` to `apps/goal-server/src/cli.ts`.
 
 ## State and lifecycle invariants
 

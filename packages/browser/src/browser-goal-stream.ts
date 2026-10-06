@@ -1,41 +1,11 @@
 import type { Goal, GoalStore } from "../../runtime/src/index";
 import type { BrowserGoalSaveNotifications } from "./browser-goal-command-service";
+import type { BrowserGoalLiveEvent } from "../../web-contracts/src/index";
+
+export type { BrowserGoalLiveEvent };
 
 const MAX_LIVE_TEXT_LENGTH = 2_000;
 const MAX_PENDING_LIVE_EVENTS = 128;
-
-/**
- * 浏览器可见的单 Goal/Run 临时进展或刷新通知。
- *
- * @remarks
- * 实时事件仅用于短期活动展示；`snapshot_changed` 与 `refresh_required` 要求客户端
- * 从正式会话读取边界重建状态。该协议不提供终态事实，也不包含原始 Runtime 载荷。
- *
- * @example
- * ```ts
- * const event: BrowserGoalLiveEvent = {
- *     type: "activity",
- *     goalId: "goal-1",
- *     runId: "run-1",
- *     activity: { kind: "assistant_text_delta", text: "正在检查", truncated: false },
- * };
- * ```
- */
-export type BrowserGoalLiveEvent =
-    | {
-        readonly type: "activity";
-        readonly goalId: string;
-        readonly runId: string;
-        readonly activity:
-            | { readonly kind: "assistant_text_delta"; readonly text: string; readonly truncated: boolean }
-            | { readonly kind: "model_started" }
-            | { readonly kind: "model_completed" }
-            | { readonly kind: "step_started" }
-            | { readonly kind: "tool_started" }
-            | { readonly kind: "tool_finished" };
-    }
-    | { readonly type: "snapshot_changed"; readonly goalId: string; readonly runId: string }
-    | { readonly type: "refresh_required"; readonly goalId: string; readonly runId: string };
 
 /**
  * 一个已绑定 Goal/Run 的有限实时订阅。
@@ -77,6 +47,8 @@ export interface BrowserGoalStreamDependencies {
     readonly saveNotifications: BrowserGoalSaveNotifications;
     /** Runtime 与 Agent 共用的进程内事件发布器。 */
     readonly publisher: BrowserGoalExecutionStream;
+    /** 可选的命令服务活动变更订阅，用于向活跃流发送 refresh_required。 */
+    readonly onGoalActivityChanged?: (listener: (goalId: string, active: boolean) => void) => () => void;
 }
 
 /**
@@ -179,6 +151,7 @@ export class BrowserGoalStreamService {
             this.dependencies.publisher.subscribe({ goalId, runId }, { maxQueueSize: MAX_PENDING_LIVE_EVENTS }),
             this.dependencies.saveNotifications,
             signal,
+            this.dependencies.onGoalActivityChanged,
         );
         let latest: Goal | undefined;
         try {
@@ -209,6 +182,7 @@ interface GoalRunRef {
 class BrowserGoalLiveFeedImpl implements BrowserGoalLiveFeed {
     private readonly queue = new LiveEventQueue();
     private readonly unsubscribeSaves: () => void;
+    private readonly unsubscribeActivity?: () => void;
     private closed = false;
     private readonly onAbort: () => void;
 
@@ -217,8 +191,16 @@ class BrowserGoalLiveFeedImpl implements BrowserGoalLiveFeed {
         private readonly subscription: BrowserGoalExecutionSubscription,
         saveNotifications: BrowserGoalSaveNotifications,
         private readonly signal?: AbortSignal,
+        onGoalActivityChanged?: (listener: (goalId: string, active: boolean) => void) => () => void,
     ) {
         this.unsubscribeSaves = saveNotifications.onSave((goal) => this.onGoalSaved(goal));
+        if (onGoalActivityChanged !== undefined) {
+            this.unsubscribeActivity = onGoalActivityChanged((changedGoalId) => {
+                if (changedGoalId === this.ref.goalId) {
+                    this.push({ type: "refresh_required", ...this.ref });
+                }
+            });
+        }
         this.onAbort = () => this.close();
         if (this.signal?.aborted === true) {
             this.close();
@@ -239,6 +221,9 @@ class BrowserGoalLiveFeedImpl implements BrowserGoalLiveFeed {
         if (this.closed) return;
         this.closed = true;
         this.unsubscribeSaves();
+        if (this.unsubscribeActivity !== undefined) {
+            this.unsubscribeActivity();
+        }
         this.signal?.removeEventListener("abort", this.onAbort);
         this.subscription.close();
         this.queue.close();

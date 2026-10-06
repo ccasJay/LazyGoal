@@ -9,9 +9,17 @@ import type {
     ModelCallMetricsRecorder,
     ModelCallMetricRecord,
 } from "../../runtime/src/model-call-metrics";
+import type {
+    MetricsCoverage,
+    RunSessionMetrics,
+    SessionMetricsSnapshot,
+} from "../../web-contracts/src/index";
 
-/** 当前用量覆盖程度。 */
-export type MetricsCoverage = "complete" | "partial" | "unavailable";
+export type {
+    MetricsCoverage,
+    RunSessionMetrics,
+    SessionMetricsSnapshot,
+};
 
 /**
  * 实时指标订阅中的快照或可恢复读取错误。
@@ -32,102 +40,6 @@ interface RunProjection {
     readonly cacheInputTokens: number;
     readonly throughputOutputTokens: number;
     readonly decodeDurationMs: number;
-}
-
-/**
- * 一个 Run 的模型用量与 Runtime Step 数投影。
- *
- * @remarks
- * Token 合计只包含成功取得供应商确认用量的调用；没有可确认用量的已结束
- * 或恢复后遗留调用计入 `missingCalls`。无真实上报时 token 合计为 `null`。
- *
- * @example
- * ```ts
- * const run: RunSessionMetrics = {
- *     runId: "run-1", stepCount: 2, reportedCalls: 1, missingCalls: 0,
- *     inputTokens: 12, outputTokens: 8, coverage: "complete",
- *     cacheMeasuredCalls: 1, cacheExcludedCalls: 0, cacheHitRate: 0.25,
- *     throughputMeasuredCalls: 1, throughputExcludedCalls: 0, tokensPerSecond: 8,
- * };
- * ```
- */
-export interface RunSessionMetrics {
-    /** 当前或已完成 Run 的稳定标识。 */
-    readonly runId: string;
-    /** 从 Goal 当前状态或已完成 Run 摘要读取的已提交 Step 数。 */
-    readonly stepCount: number;
-    /** 供应商确认输入与输出用量的模型调用数。 */
-    readonly reportedCalls: number;
-    /** 无用量、失败、中止或恢复后缺少结束记录的调用数。 */
-    readonly missingCalls: number;
-    /** 真实上报调用的输入 token 合计；没有上报时为 `null`。 */
-    readonly inputTokens: number | null;
-    /** 真实上报调用的输出 token 合计；没有上报时为 `null`。 */
-    readonly outputTokens: number | null;
-    /** 该 Run 的用量覆盖状态。 */
-    readonly coverage: MetricsCoverage;
-    /** 满足真实缓存读取数及正输入量条件的调用数。 */
-    readonly cacheMeasuredCalls: number;
-    /** 未满足缓存命中率条件的调用数。 */
-    readonly cacheExcludedCalls: number;
-    /** 缓存读取 token / 参与调用输入 token；无参与调用时为 `null`。 */
-    readonly cacheHitRate: number | null;
-    /** 同时具有真实输出 token 与正解码时长的调用数。 */
-    readonly throughputMeasuredCalls: number;
-    /** 未满足生成速度条件的调用数。 */
-    readonly throughputExcludedCalls: number;
-    /** 输出 token / 首文本增量至完成的秒数；无参与调用时为 `null`。 */
-    readonly tokensPerSecond: number | null;
-}
-
-/**
- * 按 Goal 汇总的当前会话模型指标。
- *
- * @example
- * ```ts
- * const snapshot: SessionMetricsSnapshot = {
- *     goalId: "goal-1", roundCount: 1, stepCount: 2,
- *     reportedCalls: 1, missingCalls: 0, inputTokens: 12,
- *     outputTokens: 8, coverage: "complete", cacheMeasuredCalls: 1,
- *     cacheExcludedCalls: 0, cacheHitRate: 0.25, throughputMeasuredCalls: 1,
- *     throughputExcludedCalls: 0, tokensPerSecond: 8, runs: [],
- *     contextRemainingPercent: null,
- * };
- * ```
- */
-export interface SessionMetricsSnapshot {
-    /** Session 的稳定 Goal 标识。 */
-    readonly goalId: string;
-    /** 至少提交一个 Step 的 Run 数。 */
-    readonly roundCount: number;
-    /** 当前及历史 Run 已提交 Step 数之和。 */
-    readonly stepCount: number;
-    /** 供应商确认用量的调用数。 */
-    readonly reportedCalls: number;
-    /** 缺少可确认用量的调用数。 */
-    readonly missingCalls: number;
-    /** 真实上报输入 token 合计；无真实用量时为 `null`。 */
-    readonly inputTokens: number | null;
-    /** 真实上报输出 token 合计；无真实用量时为 `null`。 */
-    readonly outputTokens: number | null;
-    /** 全会话的用量覆盖状态。 */
-    readonly coverage: MetricsCoverage;
-    /** 所有 Run 满足缓存命中率条件的调用数。 */
-    readonly cacheMeasuredCalls: number;
-    /** 所有 Run 未满足缓存命中率条件的调用数。 */
-    readonly cacheExcludedCalls: number;
-    /** 全会话缓存读取 token / 参与调用输入 token；无参与调用时为 `null`。 */
-    readonly cacheHitRate: number | null;
-    /** 所有 Run 满足生成速度条件的调用数。 */
-    readonly throughputMeasuredCalls: number;
-    /** 所有 Run 未满足生成速度条件的调用数。 */
-    readonly throughputExcludedCalls: number;
-    /** 全会话输出 token / 首文本增量至完成的秒数；无参与调用时为 `null`。 */
-    readonly tokensPerSecond: number | null;
-    /** 当前 Run 最近一次当前模型调用完成后，供应商确认的剩余窗口比例；缺少模型容量或用量时为 `null`，尚未提供此指标时可缺省，不预测下一次请求。 */
-    readonly contextRemainingPercent?: number | null;
-    /** 按完成顺序排列的历史 Run，最后一项为当前 Run。 */
-    readonly runs: readonly RunSessionMetrics[];
 }
 
 /**

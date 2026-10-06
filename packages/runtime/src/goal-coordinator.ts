@@ -150,8 +150,9 @@ export type GoalProgressErrorCode =
  * - `approve_task`: 携带当前提案的 `requestId` 批准任务并推进执行；
  * - `feedback_task`: 携带当前提案的 `requestId` 提供反馈，使旧提案失效并重新规划；
  * - `answer_ask_user`: 回答 Agent 发起的 `ask_user` 结构化问卷；
+ * - `cancel_ask_user`: 取消匹配的 `ask_user` 询问，不提供答案并继续当前 Run；
  * - `approve_action`: 批准待审批的工具调用（附带一次性授权）；
- * - `reject_action`: 拒绝待审批的工具调用并记录原因。
+ * - `reject_action`: 拒绝待审批的工具调用并记录原因；
  * 兼容分支 `approve` 与 `approve_task` 行为一致，且同样必须携带当前提案的 `requestId`。
  *
  * @example
@@ -171,6 +172,7 @@ export type GoalUserAction =
         readonly requestId: string;
         readonly answers: readonly AskUserAnswer[];
     }
+    | { readonly kind: "cancel_ask_user"; readonly requestId: string }
     | { readonly kind: "approve_action"; readonly actionId: string; readonly scope?: "action" | ToolGrantScope }
     | {
         readonly kind: "reject_action";
@@ -895,9 +897,62 @@ export class GoalCoordinator {
         const pendingInteraction = goal.state.run.pendingInteraction;
         if (pendingInteraction !== undefined) {
             if (pendingInteraction.kind === "ask_user") {
+                if (request.action.kind === "cancel_ask_user") {
+                    if (request.action.requestId !== pendingInteraction.requestId) {
+                        return this.invalidGoalInput(
+                            `Submitted requestId "${request.action.requestId}" does not match pendingInteraction requestId "${pendingInteraction.requestId}"`,
+                        );
+                    }
+
+                    const resumedRun = transition(goal.state.run, {
+                        kind: "resolve_interaction",
+                        interactionKind: "ask_user",
+                    });
+                    if (!resumedRun.ok) {
+                        throw new Error(
+                            `GoalCoordinator invariant violated: ${resumedRun.error.message}`,
+                        );
+                    }
+                    const resumedGoal: Goal = {
+                        ...goal,
+                        state: {
+                            ...goal.state,
+                            messages: [
+                                ...goal.state.messages,
+                                {
+                                    role: "user",
+                                    content: "I cancelled this question. Continue the current task without relying on an answer to it.",
+                                },
+                            ],
+                            run: resumedRun.state,
+                        },
+                    };
+
+                    throwIfAborted(control);
+                    await this.appendTrajectory({
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        eventType: "run_resumed",
+                        payload: { type: "run_resumed" },
+                    }, control);
+                    await this.appendTrajectory({
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        eventType: "ask_user_cancelled",
+                        payload: {
+                            type: "ask_user_cancelled",
+                            requestId: pendingInteraction.requestId,
+                        },
+                    }, control);
+                    await this.saveCheckpoint(resumedGoal, control);
+                    return this.advance(request.ref, control);
+                }
+
                 if (request.action.kind !== "answer_ask_user") {
                     return this.invalidGoalInput(
-                        "ask_user interaction requires an answer_ask_user action",
+                        "ask_user interaction requires an answer_ask_user or cancel_ask_user action",
                     );
                 }
 

@@ -150,6 +150,9 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "[...document.querySelectorAll('label.answer-option')].find(label => label.innerText.includes('Approved notes')).querySelector('input').click()",
       returnByValue: true,
     });
+    await setText(socket, ".other-answer input", "暂停");
+    assert.equal(await value(socket, "document.querySelector('label.answer-option input:checked') === null"), true, "Other answer clears a single-choice radio selection");
+    assert.equal(await value(socket, "document.querySelector('.ask-user-actions .approval-cancel')?.textContent.includes('Cancel question')"), true, "AskUser exposes a cancel control beside Submit answer");
     await cdp(socket, "Runtime.evaluate", {
       expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Submit answer')).click()",
       returnByValue: true,
@@ -369,6 +372,45 @@ test("real local service restores and completes one authorized Goal conversation
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 10_000);
     assert.equal(await value(socket, "document.body.innerText.includes('PRIVATE_CONTROLLED_TOOL_OUTPUT')"), false);
+
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "[...document.querySelectorAll('button.primary')].find(button => button.textContent.includes('New goal')).click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null");
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Cancellation flow: hold for user input");
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Should this Run continue?')", 15_000);
+    let cancellationSession = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.intent.includes("Cancellation flow") && candidate.pendingInteraction?.kind === "ask_user");
+    assert.equal(await value(socket, "document.querySelector('.ask-user-actions button.approval-primary + button.approval-cancel')?.textContent.includes('Cancel question')"), true);
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "document.querySelector('.ask-user-actions .approval-cancel').click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 10_000);
+    cancellationSession = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.intent.includes("Cancellation flow") && candidate.runStatus === "completed");
+    assert.equal(cancellationSession.pendingInteraction, undefined);
+    const cancellationTrajectory = await api(restarted.origin, `/api/goals/${cancellationSession.goalId}/trajectory?runId=${cancellationSession.currentRunId}`, { token: restarted.token });
+    assert.equal(cancellationTrajectory.response.status, 200);
+    assert.ok(cancellationTrajectory.body.entries.some((event) => event.eventType === "ask_user_cancelled"));
+
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "[...document.querySelectorAll('button.primary')].find(button => button.textContent.includes('New goal')).click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null");
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Composer status flow: verify the running composer remains visible");
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Run in progress\"]') !== null", 10_000);
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled"), true, "the composer remains visible while the active Run owns input");
+    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Run in progress\"]')?.textContent.includes('Running')"), true, "the send button becomes a running status");
+    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
   } finally {
     socket?.close();
     if (chrome !== undefined) await stopProcess(chrome, "SIGTERM", 5_000);

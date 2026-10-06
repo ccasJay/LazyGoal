@@ -1,98 +1,24 @@
 import { Hono } from "hono";
 import { projectTrajectoryEvent } from "../../runtime/src/index";
 import type { Goal, GoalStore, JsonValue, Observation, TrajectoryEvent, TrajectoryEventCategory, TrajectoryReadQuery, TrajectoryReadResult } from "../../runtime/src/index";
+import type {
+    BrowserTrajectoryDetail,
+    BrowserTrajectoryEntry,
+    BrowserTrajectoryEventWire,
+    BrowserTrajectoryPage,
+    BrowserTrajectoryRun,
+} from "../../web-contracts/src/index";
+
+export type {
+    BrowserTrajectoryDetail,
+    BrowserTrajectoryEntry,
+    BrowserTrajectoryPage,
+    BrowserTrajectoryRun,
+};
 
 const PAGE_SIZE = 100;
 const MAX_DETAIL_BYTES = 256 * 1024;
 const categories = ["lifecycle", "decision", "memory", "action", "tool", "observation", "terminal", "commit"];
-
-/**
- * 从 Snapshot 投影的 Run 身份与状态，不携带配置或消息。
- * @example
- * ```ts
- * const run: BrowserTrajectoryRun = { runId: "run-1", status: "running", current: true, committedThroughSequence: 3 };
- * ```
- */
-export interface BrowserTrajectoryRun {
-    readonly runId: string;
-    readonly status: Goal["state"]["run"]["status"];
-    readonly current: boolean;
-    readonly committedThroughSequence: number;
-}
-
-/**
- * 有界事件列表摘要；身份与时间保持原值，正文仅用于预览。
- * @remarks 缺少执行单元或 Step 身份时调用方必须保留在 Run 层级。
- * @example
- * ```ts
- * const event: BrowserTrajectoryEntry = { eventId: "event-1", sequence: 1, occurredAt: "2026-09-30T00:00:00Z", eventType: "run_started", category: "lifecycle", title: "run_started", preview: "", previewTruncated: false };
- * ```
- */
-export interface BrowserTrajectoryEntry {
-    readonly eventId: string;
-    readonly sequence: number;
-    readonly occurredAt: string;
-    readonly eventType: string;
-    readonly category: TrajectoryEventCategory;
-    readonly executionUnitId?: string;
-    readonly stepIndex?: number;
-    readonly actionId?: string;
-    /** 内部程序调用身份，供轨迹审计定位父程序。 */
-    readonly programId?: string;
-    /** 程序内从零开始的调用位置。 */
-    readonly callIndex?: number;
-    /** 该子调用所属的模型发起 Action。 */
-    readonly parentActionId?: string;
-    readonly title: string;
-    readonly preview: string;
-    readonly previewTruncated: boolean;
-    /** 工具单行记录的输入/结束结果预览；完整事实仍通过详情读取。 */
-    readonly inputPreview?: string;
-    readonly resultPreview?: string;
-    /** 模型请求记录身份，只有成功 frame 存在时提供。 */
-    readonly modelCallId?: string;
-    /** 模型尝试或校验反馈所属阶段；不从 Step 顺序推测。 */
-    readonly modelStage?: "think" | "decide";
-}
-
-/**
- * 覆盖所选 Run 全部已提交事实的查询结果中的一页。
- * @remarks 概览仅覆盖 entries；游标在相同查询下有效，total 是完整查询匹配数。
- * @example
- * ```ts
- * console.log(page.entries.length, page.total, page.nextCursor);
- * ```
- */
-export interface BrowserTrajectoryPage {
-    readonly goalId: string;
-    readonly run: BrowserTrajectoryRun;
-    readonly entries: readonly BrowserTrajectoryEntry[];
-    readonly total: number;
-    readonly committedCount: number;
-    readonly previousCursor: number | null;
-    readonly nextCursor: number | null;
-    readonly locatedSequence: number | null;
-}
-
-/**
- * 完整领域事件及同一 Run/Action 内已提交的关联事实。
- * @remarks Raw 不截断；超出读取上限返回 413。result 仅来源于 observation_recorded，
- * 工具结束记录通过 toolFinished 单独返回，不代表观察结果已确认。缺失或异常计时为 null。
- * @example
- * ```ts
- * const raw = JSON.stringify(detail.event, null, 2);
- * ```
- */
-export interface BrowserTrajectoryDetail {
-    readonly event: TrajectoryEvent;
-    readonly input?: JsonValue;
-    readonly result?: Observation;
-    readonly toolFinished?: Extract<TrajectoryEvent, { eventType: "tool_finished" }>;
-    readonly toolStartedAt?: string;
-    readonly toolFinishedAt?: string;
-    readonly toolDurationMs: number | null;
-    readonly observationConfirmed: boolean;
-}
 
 /**
  * 挂载正式工作区的只读 Run、轨迹分页与事件详情路由。
@@ -202,9 +128,9 @@ export function createBrowserTrajectoryRoutes(
                     : decision?.eventType === "decision_received" && decision.payload.decision.kind === "tool_call" ? decision.payload.decision.action.input : undefined;
             const duration = started && finished ? Date.parse(finished.occurredAt) - Date.parse(started.occurredAt) : NaN;
             const detail: BrowserTrajectoryDetail = {
-                event, ...(input === undefined ? {} : { input }),
+                event: event as unknown as BrowserTrajectoryEventWire, ...(input === undefined ? {} : { input }),
                 ...(observation?.eventType === "observation_recorded" ? { result: observation.payload.observation } : {}),
-                ...(finished === undefined ? {} : { toolFinished: finished, toolFinishedAt: finished.occurredAt }),
+                ...(finished === undefined ? {} : { toolFinished: finished as unknown as BrowserTrajectoryDetail["toolFinished"], toolFinishedAt: finished.occurredAt }),
                 ...(started === undefined ? {} : { toolStartedAt: started.occurredAt }),
                 toolDurationMs: Number.isFinite(duration) && duration >= 0 ? duration : null,
                 observationConfirmed: observation !== undefined,

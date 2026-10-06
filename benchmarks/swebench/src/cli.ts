@@ -7,24 +7,14 @@ import { readLlmConfig } from "../../../packages/llm/src/config.js";
 import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
 import { buildSwebenchWorker } from "../../src/worker-builder.js";
 import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
-import { SWE_TOOLS_WORKER_ENTRYPOINT, SWE_ACP_WORKER_ENTRYPOINT, SWE_ACP_WORKER_PROMPT_ASSETS } from "./worker-config.js";
+import { SWE_ACP_WORKER_ENTRYPOINT, SWE_ACP_WORKER_PROMPT_ASSETS } from "./worker-config.js";
 import { gradeSwebenchEvaluation, preflightSwebench, runSwebenchEvaluation } from "./evaluation.js";
-import { loadSwebenchManifest } from "./manifest.js";
+import { loadSwebenchManifest, type SwebenchManifest } from "./manifest.js";
 
 import {
-    runTuiWithSandbox,
-    createSwebenchRemoteToolRegistry,
-    type BenchmarkTaskDescriptor,
-    type TuiExecutionMode,
     type IsolatedEnvironment,
 } from "../../src/index.js";
-import { SWEBENCH_TOOL_IDS, SWEBENCH_READONLY_TOOL_IDS } from "./tool-manifest.js";
-import { SwebenchEnvironmentSpec } from "./environment-spec.js";
-import { parseSwebenchTasks, type SwebenchTask } from "./container.js";
-import { SWE_ACP_PROFILE } from "./worker-runtime.js";
-import { BRIDGE_PATH } from "./evaluation.js";
-import { isRecord, SWEBENCH_VERSION, type SwebenchManifest } from "./manifest.js";
-import { requireSuccess, runProcess } from "../../src/process.js";
+import { type SwebenchTask } from "./container.js";
 
 /**
  * 严格评测命令；output 必须是新目录以避免覆盖已有预测和评分缓存。
@@ -41,12 +31,10 @@ export interface SwebenchCommand {
     readonly manifest: string;
     readonly output: string;
     readonly python: string;
-    /** 是否启用 TUI 交互式沙箱运行时。 */
+    /** 是否指定了已被移除的 TUI 选项。 */
     readonly tui?: boolean;
     /** 单任务评测的目标 instance_id。 */
     readonly task?: string;
-    /** TUI 执行模式（"auto" 或 "review"），默认 "review"。 */
-    readonly mode?: TuiExecutionMode;
     /** 可选单任务最大步数限制。 */
     readonly maxSteps?: number;
 }
@@ -109,44 +97,7 @@ export function parseSwebenchArgs(
     const outputRaw = parsed.values["output-dir"] ?? parsed.values.output;
 
     if (isTui) {
-        if (parsed.positionals.length !== 2 || parsed.positionals[0] !== "eval" || parsed.positionals[1] !== "swebench") {
-            throw new Error("Usage: lazygoal eval swebench --tui --manifest <path> --task <instance-id> --output-dir <dir> [--mode <auto|review>]");
-        }
-        if (!parsed.values.manifest?.trim()) {
-            throw new Error("SWE-bench TUI requires explicit --manifest <path>");
-        }
-        if (!parsed.values.task?.trim()) {
-            throw new Error("SWE-bench TUI requires explicit --task <instance-id>");
-        }
-        if (!outputRaw?.trim()) {
-            throw new Error("SWE-bench TUI requires explicit --output-dir <directory>");
-        }
-        let mode: TuiExecutionMode = "review";
-        if (parsed.values.mode !== undefined) {
-            if (parsed.values.mode !== "auto" && parsed.values.mode !== "review") {
-                throw new Error(`Invalid mode: ${parsed.values.mode}. Must be "auto" or "review"`);
-            }
-            mode = parsed.values.mode;
-        }
-        let maxSteps: number | undefined;
-        if (parsed.values["max-steps"] !== undefined) {
-            const parsedSteps = Number.parseInt(parsed.values["max-steps"], 10);
-            if (!Number.isInteger(parsedSteps) || parsedSteps <= 0) {
-                throw new Error("--max-steps must be a positive integer");
-            }
-            maxSteps = parsedSteps;
-        }
-        if (parsed.values.python !== undefined && !parsed.values.python.trim()) throw new Error("--python must be non-empty");
-
-        return {
-            manifest: resolve(cwd, parsed.values.manifest),
-            output: resolve(cwd, outputRaw),
-            python: parsed.values.python ?? "python3",
-            tui: true,
-            task: parsed.values.task.trim(),
-            mode,
-            ...(maxSteps !== undefined ? { maxSteps } : {}),
-        };
+        throw new Error("SWE-bench --tui 交互模式已被移除，请使用标准 headless 评测命令");
     }
 
     if (parsed.positionals.length !== 2 || parsed.positionals[0] !== "eval" || parsed.positionals[1] !== "swebench"
@@ -216,14 +167,10 @@ export async function runSwebenchGradeCli(argv: readonly string[] = process.argv
  * ```
  */
 export interface SwebenchCliDependencies {
-    /** 自定义 TUI 运行器，默认使用 runTuiWithSandbox。 */
-    readonly runner?: typeof runTuiWithSandbox;
     /** 自定义隔离环境。 */
     readonly isolatedEnvironment?: IsolatedEnvironment;
     /** 自定义隔离容器驱动。 */
     readonly container?: import("../../src/isolated-environment.js").IsolatedContainer;
-    /** 自定义 TUI 渲染器。 */
-    readonly render?: import("../../../packages/tui/src/index.js").MountTuiOptions["render"];
     /** 自定义 LLM 适配器。 */
     readonly adapter?: import("../../../packages/agent/src/index.js").LLMAdapter;
     /** 自定义 Worker 产物。 */
@@ -266,116 +213,6 @@ export async function runSwebenchCli(
     process.on("SIGTERM", abort);
     try {
         const manifest = await loadSwebenchManifest(command.manifest);
-
-        if (command.tui) {
-            const matches = manifest.instanceIds.filter((id) => id === command.task);
-            if (matches.length === 0) {
-                process.stderr.write(`Task ${command.task} not found in manifest\n`);
-                return 2;
-            }
-            if (matches.length > 1) {
-                process.stderr.write(`Task ${command.task} is not unique in manifest\n`);
-                return 2;
-            }
-
-            const adapter = dependencies?.adapter ?? (() => {
-                const config = readLlmConfig(process.env);
-                return createLlmAdapter(config);
-            })();
-
-            if (!dependencies?.skipPreflight) {
-                await preflightSwebench(command.python, undefined, controller.signal);
-            }
-            const benchmarkPaths = await resolveBenchmarkHomePaths(process.cwd(), "swebench");
-            const workerArtifact = dependencies?.workerArtifact ?? await buildSwebenchWorker({
-                projectRoot: process.cwd(),
-                entryPoint: SWE_TOOLS_WORKER_ENTRYPOINT,
-                cacheDirectory: join(benchmarkPaths.cacheDirectory, "tools-worker"),
-            });
-            await mkdir(command.output, { recursive: true });
-
-            let task: SwebenchTask;
-            if (dependencies?.loadTask !== undefined) {
-                task = await dependencies.loadTask({
-                    manifest,
-                    taskId: command.task!,
-                    python: command.python,
-                    output: command.output,
-                });
-            } else {
-                const response: unknown = JSON.parse(requireSuccess(
-                    await runProcess(command.python, [BRIDGE_PATH, "prepare", command.manifest, command.output], {
-                        timeoutMs: 300000,
-                        signal: controller.signal,
-                        maxBytes: 16 * 1024 * 1024,
-                    }),
-                    "Load SWE-bench dataset",
-                ));
-                if (!isRecord(response) || response.harnessVersion !== SWEBENCH_VERSION) {
-                    throw new Error("SWE-bench harness version mismatch");
-                }
-                const tasks = parseSwebenchTasks(response);
-                const found = tasks.find((t) => t.instance_id === command.task);
-                if (!found) throw new Error(`Task ${command.task} not found after prepare`);
-                task = found;
-            }
-
-            const goalId = `swebench-${command.task}-${randomUUID().slice(0, 8)}`;
-            const runId = `run-${randomUUID().slice(0, 8)}`;
-
-            const descriptor: BenchmarkTaskDescriptor = {
-                intent: task.problem_statement,
-                objective: `Resolve SWE-bench instance ${task.instance_id}: ${task.problem_statement.slice(0, 100)}`,
-                completionCriteria: [`Resolve issue for ${task.instance_id}`],
-                maxSteps: command.maxSteps ?? manifest.maxSteps,
-            };
-
-            const spec = new SwebenchEnvironmentSpec({
-                task,
-                artifact: workerArtifact,
-                manifest,
-                metadata: {
-                    instanceId: task.instance_id,
-                    repo: task.repo,
-                    baseCommit: task.base_commit,
-                    problemStatement: task.problem_statement,
-                    goalId,
-                    runId,
-                },
-                domainOnly: true,
-            });
-
-            const runner = dependencies?.runner ?? runTuiWithSandbox;
-            const result = await runner({
-                benchmarkId: "swebench",
-                task,
-                descriptor,
-                spec,
-                outputDirectory: command.output,
-                mode: command.mode ?? "review",
-                profile: SWE_ACP_PROFILE,
-                adapter,
-                readonlyToolIds: SWEBENCH_READONLY_TOOL_IDS,
-                createToolRegistry: (client) => createSwebenchRemoteToolRegistry(client),
-                maxSteps: command.maxSteps ?? manifest.maxSteps,
-                goalId,
-                runId,
-                requireArtifact: true,
-                writeError: (msg) => process.stderr.write(`${msg}\n`),
-                writeOut: (msg) => process.stdout.write(`${msg}\n`),
-                ...(dependencies?.isolatedEnvironment !== undefined
-                    ? { environment: dependencies.isolatedEnvironment }
-                    : {}),
-                ...(dependencies?.container !== undefined
-                    ? { container: dependencies.container }
-                    : {}),
-                ...(dependencies?.render !== undefined
-                    ? { render: dependencies.render }
-                    : {}),
-            });
-
-            return result.exitCode;
-        }
 
         const config = readLlmConfig(process.env);
         const adapter = createLlmAdapter(config);

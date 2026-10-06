@@ -2,7 +2,14 @@ import { EventSummary } from "./trajectory-event-summary";
 import { requestResult } from "./trajectory-presentation";
 import { Fragment, useEffect, useRef, useState, type PointerEvent } from "react";
 import { ArrowDown, ArrowLeft, Check, ChevronRight, Copy, FileText, Hand, Layers, Minus, Plus, RotateCcw, Search, Terminal, X, Zap } from "lucide-react";
-import type { BrowserGoalSession, BrowserModelInputSummary, BrowserTrajectoryDetail, BrowserTrajectoryEntry, BrowserTrajectoryPage, BrowserTrajectoryRun } from "../../../packages/browser/src/index";
+import type {
+  BrowserGoalSession,
+  BrowserModelInputSummary,
+  BrowserTrajectoryDetail,
+  BrowserTrajectoryEntry,
+  BrowserTrajectoryPage,
+  BrowserTrajectoryRun,
+} from "../../../packages/web-contracts/src/index";
 import { BrowserApiError, browserApi } from "./api";
 import "./trajectory.css";
 import { TrajectoryRecords } from "./trajectory-records";

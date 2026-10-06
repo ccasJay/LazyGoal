@@ -49,7 +49,7 @@ const source = (isPromptEval || isGepaReflect || isGepaResolveModels || isGepaIn
                 ? resolve(__dirname, "../benchmarks/alfworld/src/cli.ts")
                 : isSwebenchGrade
                     ? resolve(__dirname, "../benchmarks/swebench/src/cli.ts")
-        : resolve(__dirname, "../packages/tui/src/cli.tsx");
+        : resolve(__dirname, "../apps/goal-server/src/cli.ts");
 const tsxLoader = require.resolve("tsx/esm", { paths: [__dirname] });
 
 const nodeArgs = ["--import", tsxLoader];

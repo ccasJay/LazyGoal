@@ -9,7 +9,7 @@ import {
     checkDependencies,
 } from "./check-dependencies.mjs";
 
-const EXISTING_PACKAGES = ["runtime", "llm", "storage", "agent", "tools", "tui"];
+const EXISTING_PACKAGES = ["runtime", "llm", "storage", "agent", "tools"];
 
 async function fixtureProject(files) {
     const root = await mkdtemp(path.join(os.tmpdir(), "lazygoal-dependencies-"));
@@ -84,6 +84,30 @@ test("rejects tua-bench cross benchmark imports with other benchmarks", async ()
     assert.deepEqual(await analyzeDependencies(root), [
         "禁止 benchmark 交叉依赖：benchmarks/tua-bench 不得导入 benchmarks/alfworld（benchmarks/tua-bench/src/index.ts 引用 ../../alfworld/src/index）",
         "禁止 benchmark 交叉依赖：benchmarks/tua-bench 不得导入 benchmarks/swebench（benchmarks/tua-bench/src/index.ts 引用 ../../swebench/src/worker-runtime）",
+    ]);
+});
+
+test("allows apps/goal-board to import web-contracts and rejects backend packages", async () => {
+    const root = await fixtureProject({
+        "packages/web-contracts/src/index.ts": "export const contracts = true;\n",
+        "packages/runtime/src/index.ts": "export const runtime = true;\n",
+        "apps/goal-board/src/valid.ts": 'export { contracts } from "../../../packages/web-contracts/src/index";\n',
+        "apps/goal-board/src/invalid.ts": 'export { runtime } from "../../../packages/runtime/src/index";\n',
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：apps/goal-board 不得导入 packages/runtime（apps/goal-board/src/invalid.ts 引用 ../../../packages/runtime/src/index）",
+    ]);
+});
+
+test("rejects outbound dependencies from web-contracts", async () => {
+    const root = await fixtureProject({
+        "packages/web-contracts/src/index.ts": 'export {} from "../../runtime/src/index";\n',
+        "packages/runtime/src/index.ts": "export {};\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/web-contracts 不得导入 packages/runtime（packages/web-contracts/src/index.ts 引用 ../../runtime/src/index）",
     ]);
 });
 

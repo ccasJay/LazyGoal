@@ -54,16 +54,8 @@ export async function runGaiaLoadCli(argv: readonly string[]): Promise<number> {
 }
 
 import {
-    runTuiWithSandbox,
-    createGaiaRemoteToolRegistry,
-    type BenchmarkTaskDescriptor,
-    type TuiExecutionMode,
     type IsolatedEnvironment,
 } from "../../src/index.js";
-import { GAIA_TOOL_IDS, GAIA_READONLY_TOOL_IDS } from "./tool-manifest.js";
-import { GAIA_WORKER_PROFILE, GAIA_DEFAULT_MAX_STEPS } from "./worker-entry.js";
-import { GaiaEnvironmentSpec } from "./environment-spec.js";
-import { scoreGaiaAnswer } from "./grading.js";
 
 /**
  * GAIA CLI 运行时依赖注入接口，供单元测试模拟容器与环境。
@@ -76,14 +68,10 @@ import { scoreGaiaAnswer } from "./grading.js";
  * ```
  */
 export interface GaiaCliDependencies {
-    /** 自定义 TUI 运行器，默认使用 runTuiWithSandbox。 */
-    readonly runner?: typeof runTuiWithSandbox;
     /** 自定义隔离环境。 */
     readonly isolatedEnvironment?: IsolatedEnvironment;
     /** 自定义隔离容器驱动。 */
     readonly container?: import("../../src/isolated-environment.js").IsolatedContainer;
-    /** 自定义 TUI 渲染器。 */
-    readonly render?: import("../../../packages/tui/src/index.js").MountTuiOptions["render"];
     /** 自定义 LLM 适配器。 */
     readonly adapter?: import("../../../packages/agent/src/index.js").LLMAdapter;
     /** 自定义 Worker 产物。 */
@@ -117,135 +105,8 @@ export async function runGaiaEvalCli(
 
     const isTui = Boolean(values.tui);
     if (isTui) {
-        if (values.resume !== undefined) {
-            process.stderr.write("错误: GAIA TUI 评测不支持恢复已结束的会话\n");
-            return 2;
-        }
-        if (!values.manifest || typeof values.manifest !== "string" || !values.manifest.trim()) {
-            process.stderr.write("错误: GAIA TUI 必须指定 --manifest <path>\n");
-            return 2;
-        }
-        if (!values.task || typeof values.task !== "string" || !values.task.trim()) {
-            process.stderr.write("错误: GAIA TUI 必须指定 --task <taskId>\n");
-            return 2;
-        }
-        const outputVal = (values["output-dir"] as string | undefined) ?? (values.output as string | undefined);
-        if (!outputVal || typeof outputVal !== "string" || !outputVal.trim()) {
-            process.stderr.write("错误: GAIA TUI 必须指定 --output-dir <dir>\n");
-            return 2;
-        }
-        let mode: TuiExecutionMode = "review";
-        if (values.mode !== undefined) {
-            if (values.mode !== "auto" && values.mode !== "review") {
-                process.stderr.write(`错误: 不支持的 mode: ${values.mode}。必须为 auto 或 review\n`);
-                return 2;
-            }
-            mode = values.mode as TuiExecutionMode;
-        }
-
-        let maxSteps: number | undefined;
-        if (values["max-steps"] !== undefined) {
-            const parsedSteps = Number.parseInt(values["max-steps"] as string, 10);
-            if (!Number.isInteger(parsedSteps) || parsedSteps <= 0) {
-                process.stderr.write("错误: --max-steps 必须为正整数\n");
-                return 2;
-            }
-            maxSteps = parsedSteps;
-        }
-
-        let manifest;
-        try {
-            manifest = await loadGaiaManifest(resolve(values.manifest as string));
-        } catch (error) {
-            process.stderr.write(`错误: 无法加载 Manifest: ${error instanceof Error ? error.message : String(error)}\n`);
-            return 2;
-        }
-
-        const matchingTasks = manifest.tasks.filter((t) => t.taskId === values.task);
-        if (matchingTasks.length === 0) {
-            process.stderr.write(`错误: Manifest 中未找到 taskId 为 ${values.task} 的任务\n`);
-            return 2;
-        }
-        if (matchingTasks.length > 1) {
-            process.stderr.write(`错误: 任务 ${values.task} 在 Manifest 中不唯一\n`);
-            return 2;
-        }
-
-        const targetTask = matchingTasks[0]!;
-        const adapter = dependencies?.adapter ?? (() => {
-            const env = process.env;
-            const provider = (values.provider as string | undefined) ?? env.LLM_PROVIDER;
-            const model = (values.model as string | undefined) ?? env.LLM_MODEL;
-            const llmConfig = readLlmConfig({
-                ...env,
-                ...(provider ? { LLM_PROVIDER: provider } : {}),
-                ...(model ? { LLM_MODEL: model } : {}),
-            });
-            return createLlmAdapter(llmConfig);
-        })();
-
-        const benchmarkPaths = await resolveBenchmarkHomePaths(process.cwd(), "gaia");
-        const workerArtifact = dependencies?.workerArtifact ?? await buildBenchmarkWorker({
-            projectRoot: resolve("."),
-            entryPoint: resolve("benchmarks/gaia/src/tools-worker-entry.ts"),
-            cacheDirectory: join(benchmarkPaths.cacheDirectory, "tools-worker"),
-        });
-        const outputDirectory = resolve(outputVal);
-        await mkdir(outputDirectory, { recursive: true });
-
-        const goalId = `gaia-${targetTask.taskId}-${randomUUID().slice(0, 8)}`;
-        const runId = `run-${randomUUID().slice(0, 8)}`;
-
-        const spec = new GaiaEnvironmentSpec({
-            task: targetTask,
-            dataRoot: manifest.dataRoot,
-            workerArtifact,
-            ...(values["base-image"] ? { baseImage: values["base-image"] as string } : {}),
-            runId,
-            domainOnly: true,
-            workerMode: "tools",
-        });
-
-        const descriptor: BenchmarkTaskDescriptor = {
-            intent: targetTask.question,
-            objective: "回答 GAIA 任务问题并通过 submit_answer 提交最终短答案",
-            completionCriteria: ["调用 submit_answer 提交最终答案"],
-            maxSteps: maxSteps ?? GAIA_DEFAULT_MAX_STEPS,
-        };
-
-        const runner = dependencies?.runner ?? runTuiWithSandbox;
-        const result = await runner({
-            benchmarkId: "gaia",
-            task: targetTask,
-            descriptor,
-            spec,
-            outputDirectory,
-            mode,
-            profile: GAIA_WORKER_PROFILE,
-            adapter,
-            readonlyToolIds: GAIA_READONLY_TOOL_IDS,
-            createToolRegistry: (client) => createGaiaRemoteToolRegistry(client),
-            evaluateOutcome: (artifact) => {
-                const submitted = (artifact as { submittedAnswer?: string | null } | null)?.submittedAnswer ?? null;
-                return scoreGaiaAnswer(submitted, targetTask.expectedAnswer, targetTask.level);
-            },
-            goalId,
-            runId,
-            maxSteps: maxSteps ?? GAIA_DEFAULT_MAX_STEPS,
-            requireArtifact: true,
-            writeError: (msg) => process.stderr.write(`${msg}\n`),
-            writeOut: (msg) => process.stdout.write(`${msg}\n`),
-            ...(dependencies?.isolatedEnvironment !== undefined
-                ? { environment: dependencies.isolatedEnvironment }
-                : {}),
-            ...(dependencies?.container !== undefined
-                ? { container: dependencies.container }
-                : {}),
-            ...(dependencies?.render !== undefined
-                ? { render: dependencies.render }
-                : {}),
-        });
-        return result.exitCode;
+        process.stderr.write("错误: --tui 交互模式已被移除，请使用标准 headless 评测命令\n");
+        return 2;
     }
 
     const manifestPath = values.manifest as string | undefined;

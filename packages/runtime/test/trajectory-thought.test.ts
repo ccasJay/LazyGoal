@@ -11,8 +11,6 @@ import {
     type TrajectoryEventDraft,
 } from "../src/trajectory";
 import { JsonFileTrajectoryStore } from "../../storage/src/json-file-trajectory-store";
-import { projectTrajectoryEvents } from "../../tui/src/trajectory-projector";
-
 test("Trajectory draft 允许合法字符串思考链并拒绝非法类型", () => {
     const validDraft: TrajectoryEventDraft = {
         goalId: "goal-1",
@@ -105,91 +103,4 @@ test("JsonFileTrajectoryStore 持久化并准确回读携带思考链的 Traject
     } finally {
         await rm(tempDir, { recursive: true, force: true });
     }
-});
-
-test("projectTrajectoryEvents 准确将思考链投影至 UiInspectorStep.reasoning 且对缺失项优雅缺省", () => {
-    const goalId = "goal-cot-projector";
-    const runId = "run-1";
-
-    const committedEvents = [
-        freezeTrajectoryEvent({
-            eventSchemaVersion: 1,
-            sequence: 1,
-            eventId: "evt-1",
-            goalId,
-            runId,
-            phase: "executing",
-            eventType: "decision_received",
-            occurredAt: "2026-09-12T00:00:00.000Z",
-            payload: {
-                type: "decision_received",
-                decision: {
-                    kind: "task_proposal",
-                    task: {
-                        objective: "已收集足够上下文，准备制定计划。",
-                        completionCriteria: [{ text: "任务完成" }],
-                    },
-                    approvalRequest: "请批准计划",
-                },
-                thought: "已收集足够上下文，准备制定计划。",
-            },
-        }),
-        freezeTrajectoryEvent({
-            eventSchemaVersion: 1,
-            sequence: 2,
-            eventId: "evt-2",
-            goalId,
-            runId,
-            phase: "executing",
-            executionUnitId: "unit-with-thought",
-            eventType: "decision_received",
-            occurredAt: "2026-09-12T00:00:01.000Z",
-            payload: {
-                type: "decision_received",
-                decision: {
-                    kind: "tool_call",
-                    action: { toolId: "read_file", actionId: "act-1", input: {} },
-                },
-                thought: "执行阶段思考：需要验证文件内容。",
-            },
-        }),
-        freezeTrajectoryEvent({
-            eventSchemaVersion: 1,
-            sequence: 3,
-            eventId: "evt-3",
-            goalId,
-            runId,
-            phase: "executing",
-            executionUnitId: "unit-without-thought",
-            eventType: "decision_received",
-            occurredAt: "2026-09-12T00:00:02.000Z",
-            payload: {
-                type: "decision_received",
-                decision: {
-                    kind: "complete",
-                    summary: "无思考链的传统决策",
-                    completionEvidence: [],
-                },
-            },
-        }),
-    ];
-
-    const steps = projectTrajectoryEvents({
-        goalId,
-        committedEvents,
-    });
-
-    assert.equal(steps.length, 3);
-
-    // Step 1: unified lifecycle
-    assert.equal(steps[0]!.title, "Step 1: Goal Initialized");
-    assert.equal(steps[0]!.reasoning, "已收集足够上下文，准备制定计划。");
-
-    // Step 2: unit-with-thought
-    assert.equal(steps[1]!.title, "Step 2: Execution (unit-with-thought)");
-    assert.equal(steps[1]!.reasoning, "执行阶段思考：需要验证文件内容。");
-
-    // Step 3: unit-without-thought (历史兼容 / 无思考链)
-    assert.equal(steps[2]!.title, "Step 3: Execution (unit-without-thought)");
-    assert.equal(steps[2]!.reasoning, undefined);
 });

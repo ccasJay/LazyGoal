@@ -19,6 +19,7 @@ function port(): BrowserGoalApiPort {
             : archived ? { ok: true } : { ok: false, error: "goal_not_terminal" },
         deleteGoal: async (goalId) => goalId === "terminal" ? { ok: true }
             : { ok: false, error: "goal_not_terminal" },
+        revokeToolGrant: async () => ({ ok: false as const, error: "service_shutting_down" as const }),
     };
 }
 
@@ -33,4 +34,11 @@ test("Goal 管理路由校验输入并区分成功、缺失与非终态", async 
     assert.equal((await archive("terminal", { archived: "yes" })).status, 400);
     assert.equal((await routes.request("/api/goals/terminal", { method: "DELETE" })).status, 200);
     assert.equal((await routes.request("/api/goals/running", { method: "DELETE" })).status, 409);
+    const revoke = await routes.request("/api/goals/terminal/grants/grant-1", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ runId: "run-1", scope: "goal" }),
+    });
+    assert.equal(revoke.status, 503);
+    assert.deepEqual(await revoke.json(), { error: "service_shutting_down" });
 });
