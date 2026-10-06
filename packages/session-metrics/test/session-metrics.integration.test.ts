@@ -7,7 +7,7 @@ import { test } from "node:test";
 
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
-import { createCompositionRoot } from "../../tui/src/cli";
+import { createCompositionRoot } from "../../../apps/goal-server/src/composition-root";
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -70,16 +70,16 @@ test("组合根显式启动 HTTP 后可查询运行指标、接收更新并在�
             env: { LAZYGOAL_HOME: join(workspace, "lazygoal-home") },
             adapter,
             profile,
-            initialScreen: "intent_input",
             goalIdGenerator: () => "goal-metrics-integration",
             runIdGenerator: () => "run-metrics-integration",
         });
         assert.equal(firstRoot.metricsDirectory, join(dataDirectory, "metrics"));
 
-        execution = firstRoot.controller.dispatch({
-            kind: "create",
+        execution = firstRoot.launcher.launch({
+            goalId: "goal-metrics-integration",
             intent: "Complete one model step",
-        });
+            profileId: profile.id,
+        }).then(() => undefined);
         await adapter.entered.promise;
 
         const occupiedServer = createServer();
@@ -130,7 +130,6 @@ test("组合根显式启动 HTTP 后可查询运行指标、接收更新并在�
         assert.equal(persistedSnapshot.roundCount, 1);
         assert.equal(persistedSnapshot.cacheHitRate, 5 / 160);
 
-        firstRoot.controller.dispose();
         await firstRoot.resources.closeAll();
         firstRoot = undefined;
 
@@ -140,7 +139,6 @@ test("组合根显式启动 HTTP 后可查询运行指标、接收更新并在�
             env: { LAZYGOAL_HOME: join(workspace, "lazygoal-home") },
             adapter,
             profile,
-            initialScreen: "intent_input",
         });
         const restoredAddress = await secondRoot.httpService.start(0);
         const restoredResponse = await fetch(
@@ -156,11 +154,9 @@ test("组合根显式启动 HTTP 后可查询运行指标、接收更新并在�
         adapter.finish();
         await execution?.catch(() => undefined);
         if (firstRoot !== undefined) {
-            firstRoot.controller.dispose();
             await firstRoot.resources.closeAll();
         }
         if (secondRoot !== undefined) {
-            secondRoot.controller.dispose();
             await secondRoot.resources.closeAll();
         }
         await rm(workspace, { recursive: true, force: true });

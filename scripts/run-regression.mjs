@@ -57,6 +57,15 @@ function discoverTestFiles() {
         if (!statSync(testDir, { throwIfNoEntry: false })?.isDirectory()) continue;
         tsFiles.push(...collectFiles(testDir, isTsTestFile));
     }
+    const appsDir = join(repoRoot, "apps");
+    if (statSync(appsDir, { throwIfNoEntry: false })?.isDirectory()) {
+        for (const entry of readdirSync(appsDir, { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue;
+            const testDir = join(appsDir, entry.name, "test");
+            if (!statSync(testDir, { throwIfNoEntry: false })?.isDirectory()) continue;
+            tsFiles.push(...collectFiles(testDir, isTsTestFile));
+        }
+    }
     tsFiles.push(...collectFiles(join(repoRoot, "benchmarks", "test"), isTsTestFile));
     for (const entry of readdirSync(join(repoRoot, "benchmarks"), { withFileTypes: true })) {
         if (!entry.isDirectory() || entry.name === "test") continue;

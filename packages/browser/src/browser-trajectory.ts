@@ -4,6 +4,7 @@ import type { Goal, GoalStore, JsonValue, Observation, TrajectoryEvent, Trajecto
 import type {
     BrowserTrajectoryDetail,
     BrowserTrajectoryEntry,
+    BrowserTrajectoryEventWire,
     BrowserTrajectoryPage,
     BrowserTrajectoryRun,
 } from "../../web-contracts/src/index";
@@ -127,9 +128,9 @@ export function createBrowserTrajectoryRoutes(
                     : decision?.eventType === "decision_received" && decision.payload.decision.kind === "tool_call" ? decision.payload.decision.action.input : undefined;
             const duration = started && finished ? Date.parse(finished.occurredAt) - Date.parse(started.occurredAt) : NaN;
             const detail: BrowserTrajectoryDetail = {
-                event, ...(input === undefined ? {} : { input }),
+                event: event as unknown as BrowserTrajectoryEventWire, ...(input === undefined ? {} : { input }),
                 ...(observation?.eventType === "observation_recorded" ? { result: observation.payload.observation } : {}),
-                ...(finished === undefined ? {} : { toolFinished: finished, toolFinishedAt: finished.occurredAt }),
+                ...(finished === undefined ? {} : { toolFinished: finished as unknown as BrowserTrajectoryDetail["toolFinished"], toolFinishedAt: finished.occurredAt }),
                 ...(started === undefined ? {} : { toolStartedAt: started.occurredAt }),
                 toolDurationMs: Number.isFinite(duration) && duration >= 0 ? duration : null,
                 observationConfirmed: observation !== undefined,

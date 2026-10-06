@@ -13,6 +13,7 @@ bin/             CLI entrypoint and executable wiring for `lazygoal`
 scripts/         Repository maintenance and validation utilities
 apps/            Standalone user-facing client applications
   goal-board/     React browser shell (`@lazygoal/goal-board`) for `lazygoal web`
+  goal-server/    Standalone HTTP service and Composition Root (`@lazygoal/goal-server`)
 benchmarks/      Explicit headless benchmark evaluation
   src/            Shared Headless Composition Root and persistence wiring
   alfworld/       ALFWorld TextWorld tasks, sidecar, tools, and reports
@@ -31,7 +32,6 @@ packages/        Private `@lazygoal/*` workspaces
   storage/       Persistence DTOs, schemas, codecs, errors, and JSON stores for Runtime ports
   sandbox/       Workspace path boundaries, canonical capability contracts, and macOS Seatbelt isolation
   tools/         Agent tools such as filesystem, shell, and workspace utilities
-  tui/           React Ink terminal UI, screens, session controller, and CLI integration
 docs/            Current implemented architecture documentation under `docs/architecture/`
 specs/           Feature requirements, designs, and implementation task checklists
 project-memory/  Durable summaries of completed and verified feature specifications

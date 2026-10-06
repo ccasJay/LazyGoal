@@ -20,7 +20,7 @@ import {
     listBrowserGoals,
     readBrowserGoalSession,
 } from "../../../packages/browser/src/index";
-import { createCompositionRoot } from "../../../packages/tui/src/cli";
+import { createCompositionRoot } from "../../goal-server/src/composition-root";
 
 const fixtureInput = contract.object({ value: contract.string() });
 const profile: AgentProfile = {

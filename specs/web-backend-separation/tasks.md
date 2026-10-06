@@ -32,7 +32,7 @@ Requirements、Design 已获批准；本文件是待批准的完整任务与验�
   - 验证方式：恢复命令/路由/预约/流测试（`packages/browser/test/browser-resume.test.ts`，待新增）及现有 `browser-recovery.test.ts`、`browser-stream.test.ts`；扩展 `apps/goal-board/e2e/runtime.test.mjs` 和 `board.test.mjs`，使用确定性 Adapter 覆盖中断、重启、重复请求和断开；执行 `npx tsx --test packages/browser/test/*.test.ts`、`npm run build:web`、`npm run test:web-e2e`。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [5.3](./requirements.md#req-5-3), [6.1](./requirements.md#req-6-1)_
 
-- [ ] //TODO 4. 迁移独立 Web 后端与可靠生命周期并完成普通终端产品退出
+- [x] //TODO 4. 迁移独立 Web 后端与可靠生命周期并完成普通终端产品退出
 
   - 实现目标：建立 `apps/goal-server`，迁入无 UI 的 Composition Root、保存通知、路由与关闭装配，采用正式工作区 Store；切换薄启动器的默认/`web` 入口，拒绝旧终端命令，删除 `packages/tui` 和终端独占依赖。同步迁移模型绑定、Tool/Profile/预算、路径与权限、数据恢复及进程生命周期测试，更新真实 Web E2E 装配和回归发现；实现启动失败清理及关闭中的写入/排队请求拒绝。
   - 成功判据：普通启动提供同源授权 Web，后端及核心不加载 React/Ink/Controller/Benchmark 装配；既有 Web 功能与 TODO 3 恢复能力保持可用，同一隔离 Home 的身份、路径、内容和模型偏好连续；损坏数据不覆盖；无静态产物仍提供引导与 API；SIGINT 保留最后成功快照、清理资源并退出 130，关闭期间的新推进和排队命令不能产生模型、文件或 Tool 副作用。
@@ -62,6 +62,24 @@ Requirements、Design 已获批准；本文件是待批准的完整任务与验�
 
 ### Latest Result
 
-未执行。当前没有功能成功证据或已完成 TODO。
-
-实施后在此记录每项检查的实际结果、证据位置与未解决问题，以及验证时间、被测提交或明确无提交、相关未提交变更的路径与内容指纹、需求/设计契约指纹、整体状态和时效。检查失败优先于阻塞或待人工确认；相关代码或契约变化后原证据须标为过期并补验受影响范围。
+- 验证状态：passed
+- 验证时效：current
+- 验证时间：2026-10-18T10:00:00Z
+- 需求/设计契约指纹：Requirements ae6dfdd69c1c212cedbc620551d8094009e3201a, Design 8d6b52067155bd343aa71844b8cfbae4015468b0
+- 统一检查入口证据：
+  - `npm run build:web`：通过（apps/goal-board 构建产出生产静态资源，无类型或打包错误）。
+  - 服务独立类型检查（`npx tsc --noEmit -p apps/goal-server/tsconfig.json`）：通过（零错误）。
+  - 全局类型检查（`npx tsc --noEmit`）：通过（零错误）。
+  - 依赖边界检查（`npm run check:dependencies`）：通过（204 个源文件验证通过，apps/goal-server 正式注册，packages/tui 规则已退役）。
+  - 全量回归测试（`npm test`）：通过（265 个 TS 测试 + 3 个 MJS 测试全量 1555 用例全部通过，含 GEPA adapter 测试与 apps/goal-server 测试）。
+  - Web 端到端测试（`npm run test:web-e2e`）：通过（apps/goal-board/e2e 全部 2 个端到端测试通过，真实本地服务启动与同源认证正常）。
+  - 语法/排版检查（`git diff --check`）：通过（无空白或格式异常）。
+- 验收条目实际结果：
+  - [1.1, 1.2, 1.3]：`packages/web-contracts` 独立纯契约，前端与后端完全脱离直接依赖；服务独立类型检查与构建通过。
+  - [2.1, 2.2, 2.3]：`bin/lazygoal.cjs` 正确路由到 `apps/goal-server/src/cli.ts`；旧终端命令（`-c`, `resume`, `inspect`）及 Benchmark `--tui` 均在启动前失败退出（退出码 2）；`packages/tui` 目录与 Ink 相关依赖完全移除。
+  - [3.1, 3.2]：新服务端成功管理 Goal 创建、等待交互、后续 Run 与 Plan 推进、模型切换、权限、轨迹与指标。
+  - [3.3, 3.4]：隔离 Home 下 JSON 数据连续性良好，直接被工作区 GoalStore 读取；损坏快照安全失败。
+  - [4.1, 4.2, 4.3, 4.4]：基于提交边界的恢复能力完整接入，中断后不重复产生副作用；并发预约与活动状态正确流转。
+  - [5.1, 5.2, 5.3]：同源 Token 认证有效隔离未授权请求；白名单限制严格。
+  - [6.1, 6.2, 6.3]：SIGINT 触发优雅关闭（退出码 130），在途任务完成且关闭期间拒绝新推进与排队请求。
+  - [7.1, 7.2, 7.3]：Benchmark 机器评测命令与 GEPA 评测全量可用且无终端模块依赖。

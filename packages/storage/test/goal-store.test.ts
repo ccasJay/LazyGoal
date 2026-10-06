@@ -957,6 +957,7 @@ test("JsonFileGoalStore catalogs non-terminal snapshots with stable mtime orderi
             intent: "Intent goal-running",
             workflowPhase: "executing",
             runStatus: "running",
+            committedThroughSequence: 0,
             updatedAt: newest.toISOString(),
         });
         assert.deepEqual(entries[1], {
@@ -965,6 +966,7 @@ test("JsonFileGoalStore catalogs non-terminal snapshots with stable mtime orderi
             intent: "Intent goal-waiting",
             workflowPhase: "executing",
             runStatus: "waiting",
+            committedThroughSequence: 0,
             updatedAt: newest.toISOString(),
         });
     } finally {

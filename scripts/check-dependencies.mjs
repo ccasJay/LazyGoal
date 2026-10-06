@@ -10,7 +10,7 @@ import { pathToFileURL } from "node:url";
  * 使用 execution-stream；storage 只依赖 runtime/contracts；agent/tools 复用
  * runtime、llm（agent）和 execution-stream；session-metrics 通过 Runtime
  * 端口读取 Goal 与调用指标；browser 读取 Runtime 契约并依赖通用 HTTP 宿主；
- * http 不依赖 LazyGoal 包；tui 是组合根，可导入全部实现。
+ * http 不依赖 LazyGoal 包；goal-server 是服务组合根，可导入所需后端实现。
  */
 const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
@@ -29,7 +29,6 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     tools: ["runtime", "contracts", "execution-stream", "sandbox"],
     browser: ["http", "runtime", "permission", "web-contracts"],
     "web-contracts": [],
-    tui: ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts"],
 };
 
 const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);
@@ -37,6 +36,7 @@ const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);
 /** 每个 app 允许的出站目标 package。 */
 const ALLOWED_APP_DEPENDENCIES = {
     "goal-board": ["web-contracts", "slash-command"],
+    "goal-server": ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts"],
 };
 
 const APPS = Object.keys(ALLOWED_APP_DEPENDENCIES);

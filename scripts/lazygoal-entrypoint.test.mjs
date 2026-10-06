@@ -28,3 +28,13 @@ test("lazygoal CLI grade swebench 缺少参数返回退出码 2", () => {
     });
     assert.equal(res.status, 2);
 });
+
+test("lazygoal CLI 显式拒绝旧终端命令 -c / resume / inspect 并返回退出码 2", () => {
+    for (const cmd of ["-c", "resume", "inspect"]) {
+        const res = spawnSync(process.execPath, [BIN_PATH, cmd], {
+            encoding: "utf8",
+        });
+        assert.equal(res.status, 2, `command ${cmd} should exit with code 2`);
+        assert.match(res.stderr, /已被移除.*lazygoal.*web/);
+    }
+});

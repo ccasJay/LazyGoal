@@ -9,7 +9,7 @@ import {
     checkDependencies,
 } from "./check-dependencies.mjs";
 
-const EXISTING_PACKAGES = ["runtime", "llm", "storage", "agent", "tools", "tui"];
+const EXISTING_PACKAGES = ["runtime", "llm", "storage", "agent", "tools"];
 
 async function fixtureProject(files) {
     const root = await mkdtemp(path.join(os.tmpdir(), "lazygoal-dependencies-"));
