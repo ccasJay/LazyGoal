@@ -128,22 +128,6 @@ export type {
     RemoteToolRegistrationOptions,
 } from "./remote-tool-registry.js";
 export {
-    createTuiToolPolicy,
-    createSwebenchTuiToolPolicy,
-    createGaiaTuiToolPolicy,
-} from "./tui-tool-policy.js";
-export type {
-    TuiExecutionMode,
-    TuiToolPolicyOptions,
-} from "./tui-tool-policy.js";
-export {
-    runTuiWithSandbox,
-} from "./tui-benchmark-runner.js";
-export type {
-    TuiSandboxRunOptions,
-    TuiSandboxRunResult,
-} from "./tui-benchmark-runner.js";
-export {
     PROMPT_EVALUATION_EXIT_CODES,
     PROMPT_EVALUATION_PROTOCOL,
     PromptEvaluationRequestError,

@@ -18,7 +18,7 @@ Requirements、Design 已获批准；本文件是待批准的完整任务与验�
   - 验证方式：契约测试（`packages/web-contracts/test/`，待新增）；现有 `packages/browser/test/`、`packages/session-metrics/test/` 和依赖检查测试；执行 `npm run build:web`、`npx tsc --noEmit`、`npm run check:dependencies`、`npm run test:web-e2e`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [3.2](./requirements.md#req-3-2), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 2. 移除 Benchmark 交互终端模式并保持无界面机器命令可执行
+- [x] //TODO 2. 移除 Benchmark 交互终端模式并保持无界面机器命令可执行
 
   - 实现目标：删除 GAIA/SWE-bench 的 `--tui` 分支、渲染注入、共享 TUI 评测运行器/策略及其导出；核对 Tool RPC/Worker 剩余消费者后删除终端独占链，保留 Headless/ACP 与既有 Benchmark、评分、数据准备、Prompt Evaluation、GEPA 路由。
   - 成功判据：`--tui` 在创建模型或容器前被明确拒绝；既有机器命令的参数、输出及退出码保持原语义，Headless 导入不加载终端模块；任务隔离、评分和资源释放行为不受交互分支删除影响。
