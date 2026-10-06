@@ -2,7 +2,7 @@
 
 ## Scope
 
-`benchmarks` 是显式评测入口，不属于普通 TUI 的 Composition Root。当前已实现
+`benchmarks` 是独立的无界面评测入口，不属于 Web Server 的 Composition Root。当前已实现
 通用单 task、单 Run Headless Composition Root，以及 ALFWorld TextWorld、GAIA、TUA-Bench
 和 SWE-bench Verified 的显式评测适配。ALFWorld 提供 Profile、固定 Manifest、容器内 Python JSONL
 sidecar、专用 Tool 和机器可读报告。共享 ACP、进程、Worker 构建和隔离容器位于
@@ -12,8 +12,8 @@ sidecar、专用 Tool 和机器可读报告。共享 ACP、进程、Worker 构�
 
 `bin/lazygoal.cjs` 在参数前缀严格为 `eval alfworld`、`eval swebench`、`eval gaia` 或
 `eval prompt` 时分别转发到
-对应 benchmark CLI（`grade` 和 `load` 亦按相同前缀分发），其它参数仍
-进入 [`packages/tui/src/cli.tsx`](../../packages/tui/src/cli.tsx)。评测入口要求固定
+对应 benchmark CLI（`grade` 和 `load` 亦按相同前缀分发）；其余普通启动参数进入
+[`apps/goal-server`](../../apps/goal-server/README.md)。评测入口要求固定
 Manifest：
 
 ```text
@@ -24,13 +24,9 @@ lazygoal eval gaia --manifest <path> [--output <dir>]
 lazygoal eval prompt --request <request.json>
 ```
 
-单任务 TUI 入口在 `eval gaia` 与 `eval swebench` 下使用
-`--tui --task <id> --output-dir <path> [--mode auto|review]`。它先挂载 Ink
-初始化页，再由 [`runTuiWithSandbox`](../../benchmarks/src/tui-benchmark-runner.ts)
-准备镜像、容器、Worker 和 preflight；沙箱就绪后把同一个挂载切换为带初始 Goal
-的 SessionController，会话结束或清理失败后统一卸载。该路径构建
-`tools-worker-entry` 提供 Tool RPC；ACP Worker 仅用于 Headless 评测，不能作为
-透明代理的工具服务。`auto` / `review` 只控制 Action 审批和用户交互阻塞，不承担任务提案审批。
+GAIA 与 SWE-bench 只保留机器可调用的 Headless/ACP 评测入口；已移除 `--tui`、Ink
+渲染和交互式单题会话。Benchmark 命令按 Profile、Manifest 与环境配置完成预检后运行
+隔离 Worker，并输出机器可读报告；评测不启动 Web 服务或交互终端。
 
 入口按 Profile → Manifest → 领域环境配置的顺序校验配置，全部通过后才构造模型
 Adapter 和容器 Worker。ALFWorld 的 Python/sidecar 预检在容器内完成；SWE-bench 的
@@ -143,7 +139,7 @@ split 和自动发现不进入该生命周期。
 
 ## GEPA lifecycle control plane
 
-GEPA 的长任务优化由 `lazygoal gepa` 控制面管理，而不是由普通 TUI 或 benchmark
+GEPA 的长任务优化由 `lazygoal gepa` 控制面管理，而不是由 Web Server 或 benchmark
 Composition Root 持有。公开机器接口为 `preflight`、`start`、`status`、`stop`、`resume`
 和 `report`；`start`/`resume` 必须带调用方明确确认的 `--yes`。TUA 还要求携带对应当前
 `preflight` 的 `confirmationDigest`，以拒绝确认后发生的请求、数据、模型或 Profile 漂移。

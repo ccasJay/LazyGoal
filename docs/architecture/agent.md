@@ -50,7 +50,7 @@ Decide 的模型原始文本由当前请求 Wire Contract 严格解析：`reques
 
 Agent 不拥有 UI；当 Adapter 提供 `stream` 时，`LLMStepExecutor` 将模型增量映射到
 `@lazygoal/execution-stream`，同时只用最终 `completed` 响应解析 AgentDecision。没有流接口的 Adapter
-继续调用 `generate()` 并发布一次性模型事件；完成审查调用不发布模型文本或函数参数，内部结果只用于审查和诊断。实时显示由 TUI 或 WebUI 的适配器管理。
+继续调用 `generate()` 并发布一次性模型事件；完成审查调用不发布模型文本或函数参数，内部结果只用于审查和诊断。实时显示由 Web Goal Board 的适配器管理。
 
 每次模型调用由 `LLMStepExecutor` 向可选的 Runtime 指标 Recorder 记录开始和结束事实。输入/输出 token 只取原生 Adapter 的供应商上报用量；pi-ai 诊断计数和无用量响应记为不可用。流式调用的生成时长从首个非空文本增量计至完成；非流式调用不推测生成速度。Recorder 失败被隔离，不改变 AgentDecision。
 

@@ -6,7 +6,7 @@
 
 ## 入口与访问边界
 
-显式 `lazygoal web` 命令创建随机能力令牌，将其放入页面 URL fragment，并把访问中间件配置到 Composition Root 的 HTTP Host。服务监听 `127.0.0.1` 上的操作系统分配端口；静态页面根文档、favicon 和 `/assets/` 可不带令牌读取。其他请求须匹配精确 Host、同源约束和 Bearer 令牌。静态响应限制来源、禁止 referrer 并禁用缓存。
+`lazygoal` 与 `lazygoal web` 都由独立 `apps/goal-server` 启动 Web 服务。服务创建随机能力令牌，将其放入页面 URL fragment，并在同源 HTTP Host 上提供 API、SSE 与已构建的 Goal Board 静态资源。服务监听 `127.0.0.1` 上的操作系统分配端口；静态页面根文档、favicon 和 `/assets/` 可不带令牌读取。其他请求须匹配精确 Host、同源约束和 Bearer 令牌。静态响应限制来源、禁止 referrer 并禁用缓存。
 
 授权后，`GET /api/goals` 从正式工作区 Catalog 返回真实 Goal 摘要，`GET /api/goals/:goalId` 从正式 Snapshot 和各 Run 的 Trajectory 返回会话视图。看板读取使用 Composition Root 暴露的正式工作区 Store 与 Trajectory 读取器，不经过含 Benchmark 的聚合目录。会话投影只纳入 Snapshot 提交边界内的事件，限制历史数量、消息正文长度（每条最多 64,000 字符）及其他预览文本，并省略 Profile、模型配置、推理、原始事件及完整 Tool 输入/输出。内置文件、搜索和网页工具仅投影有界路径或查询摘要，用于 Activity 操作标题；写入正文和其他参数仍不投影。Bash 步骤按 Action 身份合并模型决定与执行事件；展开后只显示限长命令，以及已提交 Observation 中的成功输出白名单字段或失败说明，整个会话最多投影 100 组 Bash 详情。步骤可显示已提交的模型纠错和模型/Tool 重试摘要；Run 终态显示稳定失败原因或等待原因。终态 `complete` 决策由 Run 状态显示，不另生成一条步骤。Tool 结果只有在 Snapshot 纳入 `observation_recorded` 后才显示为已完成步骤；恢复后被纳入的新提交边界可能包含旧的 `tool_finished`，单独该事件不会确认结果。缺失 Goal 与不可读数据分别返回 404 和稳定的 500 错误码。
 
@@ -24,7 +24,9 @@
 
 `GET /api/goals/:goalId/events?runId=...` 将连接绑定到 Snapshot 中的当前 Run。事件仅投影白名单活动和长度受限的助手文本；reasoning、Tool 输出及未识别载荷不转发。Trajectory/Checkpoint 事件与 Goal 保存只发送刷新通知；队列缺口、Publisher 关闭或连接故障要求页面重新读取，不代表 Run 完成。
 
-SIGINT 通过 Runtime 已有关闭协调器冻结检查点、取消执行并关闭 HTTP Host。默认 CLI 仍启动 TUI。
+SIGINT 通过 Runtime 已有关闭协调器冻结检查点、取消执行并关闭 HTTP Host。关闭信号生效后，HTTP Host 拒绝新的写请求；已排队的命令在预约锁释放后返回 `service_shutting_down`，不再进入 Runtime 或持久化操作。
+
+恢复路由 `POST /api/goals/:goalId/resume` 要求页面提交当前 Run 与 `committedThroughSequence`。服务端重新读取 Snapshot 并委托真实 `GoalCoordinator.advance`，只有新的对应 Snapshot 保存后才确认受理。列表和会话的 `execution.state` 结合 Snapshot 与当前服务进程预约投影；进程活动状态不写入 Goal。
 
 ## 轨迹查看
 

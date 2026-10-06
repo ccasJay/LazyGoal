@@ -75,7 +75,14 @@ function nativeFixtureMessage(content: string, id: string) {
     } }] };
 }
 
-test("Composition Root carries Memory through task approval into Executing", async () => {
+async function waitForCommandIdle(commands: BrowserGoalCommandService): Promise<void> {
+    for (let attempt = 0; attempt < 750 && commands.getActiveGoalId() !== undefined; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(commands.getActiveGoalId(), undefined, "Expected the previous Run reservation to be released");
+}
+
+test("Composition Root carries Memory through task approval into Executing", { timeout: 120_000 }, async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-prompt-v1-"));
     let root: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
     await writeDefaultProfile(workspace);
@@ -261,7 +268,7 @@ test("Composition Root carries Memory through task approval into Executing", asy
 
         // 等待 advance 执行完成保存初始交互
         let initialGoal = await root.workspaceGoalStore.restore("goal-current");
-        for (let i = 0; i < 50 && initialGoal?.state.run.status !== "waiting"; i++) {
+        for (let i = 0; i < 750 && initialGoal?.state.run.status !== "waiting"; i++) {
             await new Promise((r) => setTimeout(r, 20));
             initialGoal = await root.workspaceGoalStore.restore("goal-current");
         }
@@ -270,7 +277,8 @@ test("Composition Root carries Memory through task approval into Executing", asy
         const askUserInteraction = initialGoal.state.run.pendingInteraction;
         assert.ok(askUserInteraction && askUserInteraction.kind === "ask_user");
 
-        await commands.interact("goal-current", {
+        await waitForCommandIdle(commands);
+        const answer = await commands.interact("goal-current", {
             runId: initialGoal.state.run.id,
             kind: "answer_ask_user",
             requestId: askUserInteraction.requestId,
@@ -279,26 +287,29 @@ test("Composition Root carries Memory through task approval into Executing", asy
                 optionIds: [askUserInteraction.questions[0]!.options[0]!.id],
             }],
         });
+        assert.equal(answer.ok, true, JSON.stringify(answer));
 
         let taskGoal = await root.workspaceGoalStore.restore("goal-current");
-        for (let i = 0; i < 50 && (!taskGoal || taskGoal.state.run.pendingInteraction?.kind !== "task_approval"); i++) {
+        for (let i = 0; i < 750 && (!taskGoal || taskGoal.state.run.pendingInteraction?.kind !== "task_approval"); i++) {
             await new Promise((r) => setTimeout(r, 20));
             taskGoal = await root.workspaceGoalStore.restore("goal-current");
         }
         assert.ok(taskGoal);
         const taskInteraction = taskGoal.state.run.pendingInteraction;
-        assert.ok(taskInteraction && taskInteraction.kind === "task_approval");
+        assert.ok(taskInteraction && taskInteraction.kind === "task_approval", `Expected task approval, got ${JSON.stringify(taskInteraction)}`);
         assert.equal(taskInteraction.proposal.objective, "Initial proposal");
 
-        await commands.interact("goal-current", {
+        await waitForCommandIdle(commands);
+        const feedback = await commands.interact("goal-current", {
             runId: taskGoal.state.run.id,
             kind: "feedback_task",
             requestId: taskInteraction.requestId,
             feedback: "Please use the approved wording.",
         });
+        assert.equal(feedback.ok, true, JSON.stringify(feedback));
 
         let revisedGoal = await root.workspaceGoalStore.restore("goal-current");
-        for (let i = 0; i < 50 && (!revisedGoal || revisedGoal.state.run.pendingInteraction?.kind !== "task_approval" || revisedGoal.state.run.pendingInteraction.proposal.objective !== "Approved proposal"); i++) {
+        for (let i = 0; i < 750 && (!revisedGoal || revisedGoal.state.run.pendingInteraction?.kind !== "task_approval" || revisedGoal.state.run.pendingInteraction.proposal.objective !== "Approved proposal"); i++) {
             await new Promise((r) => setTimeout(r, 20));
             revisedGoal = await root.workspaceGoalStore.restore("goal-current");
         }
@@ -325,14 +336,16 @@ test("Composition Root carries Memory through task approval into Executing", asy
         }
         assertCurrentDefinition(snapshot.definition);
 
-        await commands.interact("goal-current", {
+        await waitForCommandIdle(commands);
+        const approval = await commands.interact("goal-current", {
             runId: revisedGoal.state.run.id,
             kind: "approve_task",
             requestId: revisedInteraction.requestId,
         });
+        assert.equal(approval.ok, true, JSON.stringify(approval));
 
         let completedGoal = await root.workspaceGoalStore.restore("goal-current");
-        for (let i = 0; i < 50 && completedGoal?.state.run.status !== "completed"; i++) {
+        for (let i = 0; i < 750 && completedGoal?.state.run.status !== "completed"; i++) {
             await new Promise((r) => setTimeout(r, 20));
             completedGoal = await root.workspaceGoalStore.restore("goal-current");
         }
@@ -566,7 +579,7 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
         });
 
         let initialGoal = await root.workspaceGoalStore.restore("goal-invalid-wire");
-        for (let i = 0; i < 50 && initialGoal?.state.run.status !== "waiting"; i++) {
+        for (let i = 0; i < 750 && initialGoal?.state.run.status !== "waiting"; i++) {
             await new Promise((r) => setTimeout(r, 20));
             initialGoal = await root.workspaceGoalStore.restore("goal-invalid-wire");
         }
@@ -574,14 +587,16 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
         const proposalInteraction = initialGoal.state.run.pendingInteraction;
         assert.ok(proposalInteraction && proposalInteraction.kind === "task_approval");
 
-        await commands.interact("goal-invalid-wire", {
+        await waitForCommandIdle(commands);
+        const approval = await commands.interact("goal-invalid-wire", {
             runId: initialGoal.state.run.id,
             kind: "approve_task",
             requestId: proposalInteraction.requestId,
         });
+        assert.equal(approval.ok, true, JSON.stringify(approval));
 
         let failedGoal = await root.workspaceGoalStore.restore("goal-invalid-wire");
-        for (let i = 0; i < 50 && failedGoal?.state.run.status !== "failed"; i++) {
+        for (let i = 0; i < 750 && failedGoal?.state.run.status !== "failed"; i++) {
             await new Promise((r) => setTimeout(r, 20));
             failedGoal = await root.workspaceGoalStore.restore("goal-invalid-wire");
         }

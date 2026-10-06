@@ -66,15 +66,15 @@ export interface BrowserGoalApiPort {
      * 设置终态 Goal 的归档状态；不改变 Snapshot 或 Run 历史。
      * @param goalId - 正式工作区 Goal 身份。
      * @param archived - true 移入归档视图，false 恢复默认看板。
-     * @returns 成功或缺失、非终态拒绝码。
+     * @returns 成功，或缺失、非终态、服务关闭期间的稳定拒绝码。
      */
-    setArchived?(goalId: string, archived: boolean): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: "goal_not_found" | "goal_not_terminal" }>;
+    setArchived?(goalId: string, archived: boolean): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: "goal_not_found" | "goal_not_terminal" | "service_shutting_down" }>;
     /**
      * 删除终态 Goal 的本地记录；清理失败时保留快照供重试。
      * @param goalId - 正式工作区 Goal 身份。
-     * @returns 成功或缺失、非终态拒绝码。
+     * @returns 成功，或缺失、非终态、服务关闭期间的稳定拒绝码。
      */
-    deleteGoal?(goalId: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: "goal_not_found" | "goal_not_terminal" }>;
+    deleteGoal?(goalId: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: "goal_not_found" | "goal_not_terminal" | "service_shutting_down" }>;
     /**
      * 读取一个 Goal 的最新已提交会话。
      *
@@ -139,11 +139,11 @@ export interface BrowserGoalApiPort {
      * 验证并保存当前工作区新 Goal 的默认模型身份。
      *
      * @param modelId - 当前 Provider 中须可选择的模型 ID。
-     * @returns 持久化成功或稳定失败；文件写入失败不得报告成功。
+     * @returns 持久化成功或稳定失败；关闭期间拒绝写入，文件写入失败不得报告成功。
      */
     setModelPreference(modelId: string): Promise<
         { readonly ok: true; readonly modelId: string }
-        | { readonly ok: false; readonly error: "model_not_selectable" | "model_catalog_unavailable" | "model_preference_unavailable" }
+        | { readonly ok: false; readonly error: "model_not_selectable" | "model_catalog_unavailable" | "model_preference_unavailable" | "service_shutting_down" }
     >;
     /** 保存由服务端重新验证的当前 Run 模型选择。 */
     selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<BrowserModelSelectionResult>;
@@ -177,7 +177,7 @@ export interface BrowserGoalApiPort {
      * 切换当前工作区的项目权限执行模式。
      *
      * @param command - 目标模式与期望修订号。
-     * @returns 成功切换后的权限事实；冲突或不可用时返回稳定错误。
+     * @returns 成功切换后的权限事实；冲突、关闭或不可用时返回稳定错误。
      * @throws 底层存储写入失败时拒绝。
      */
     setPermissionMode?(command: BrowserPermissionModeCommand): Promise<BrowserPermissionModeResult>;
@@ -282,8 +282,8 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
             });
             if (result.ok) return context.json(result);
             const status = result.error === "goal_not_found" ? 404
-                : result.error === "model_catalog_unavailable" || result.error === "model_selection_failed" ? 503
-                    : 409;
+                : result.error === "model_catalog_unavailable" || result.error === "model_selection_failed" || result.error === "service_shutting_down" ? 503
+                : 409;
             return context.json({ error: result.error, refresh: result.error === "stale_run" }, status);
         } catch {
             return context.json({ error: "model_selection_failed" }, 503);
@@ -311,7 +311,9 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         try {
             const result = await source.setArchived(goalId, (body.value as { archived: boolean }).archived);
             return result.ok ? context.json({ ok: true })
-                : context.json({ error: result.error }, result.error === "goal_not_found" ? 404 : 409);
+                : context.json({ error: result.error }, result.error === "goal_not_found" ? 404
+                    : result.error === "service_shutting_down" ? 503
+                    : 409);
         } catch {
             return context.json({ error: "goal_archive_failed" }, 500);
         }
@@ -324,7 +326,9 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         try {
             const result = await source.deleteGoal(goalId);
             return result.ok ? context.json({ ok: true })
-                : context.json({ error: result.error }, result.error === "goal_not_found" ? 404 : 409);
+                : context.json({ error: result.error }, result.error === "goal_not_found" ? 404
+                    : result.error === "service_shutting_down" ? 503
+                    : 409);
         } catch {
             return context.json({ error: "goal_delete_failed" }, 500);
         }
@@ -371,8 +375,9 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
             const result = await source.listToolGrants(goalId, runId);
             if (result.ok) return context.json(result);
             const status = result.error === "goal_not_found" ? 404
+                : result.error === "service_shutting_down" ? 503
                 : result.error === "permissions_unavailable" || result.error === "grant_failed" ? 500
-                    : 409;
+                : 409;
             return context.json({ error: result.error }, status);
         } catch { return context.json({ error: "grant_failed" }, 500); }
     });
@@ -389,8 +394,9 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
             const result = await source.revokeToolGrant(goalId, { ...parsed.command, grantId });
             if (result.ok) return context.json(result);
             const status = result.error === "goal_not_found" ? 404
+                : result.error === "service_shutting_down" ? 503
                 : result.error === "permissions_unavailable" || result.error === "grant_failed" ? 500
-                    : 409;
+                : 409;
             return context.json({ error: result.error }, status);
         } catch { return context.json({ error: "grant_failed" }, 500); }
     });
@@ -415,7 +421,7 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         try {
             const result = await source.setPermissionMode(parsed.command);
             if (result.ok) return context.json(result);
-            const status = result.error === "conflict" ? 409 : 500;
+            const status = result.error === "service_shutting_down" ? 503 : result.error === "conflict" ? 409 : 500;
             return context.json(result, status);
         } catch {
             return context.json({ error: "permissions_unavailable" }, 500);
@@ -438,8 +444,9 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
             }
             const status = result.error === "goal_create_failed" ? 500
                 : result.error === "model_catalog_unavailable" ? 503
+                : result.error === "service_shutting_down" ? 503
                 : result.error === "goal_busy" || result.error === "goal_id_conflict" ? 409
-                    : 400;
+                : 400;
             return context.json({ error: result.error }, status);
         } catch {
             return context.json({ error: "goal_create_failed" }, 500);
@@ -512,6 +519,7 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
             }
             const status = result.error === "goal_not_found" ? 404
                 : result.error === "plan_mode_failed" ? 500
+                : result.error === "service_shutting_down" ? 503
                     : 409;
             return context.json({ error: result.error, refresh: true }, status);
         } catch {
@@ -954,7 +962,7 @@ function interactionErrorStatus(
     if (error === "goal_busy" || error === "stale_run" || error === "goal_not_waiting"
         || error === "stale_request" || error === "action_not_waiting") return 409;
     if (error === "interaction_failed") return 500;
-    if (error === "model_restore_failed") return 503;
+    if (error === "model_restore_failed" || error === "service_shutting_down") return 503;
     return 400;
 }
 
@@ -966,7 +974,7 @@ function messageErrorStatus(
         || error === "goal_not_completed" || error === "structured_interaction_required"
         || error === "message_conflict") return 409;
     if (error === "message_failed") return 500;
-    if (error === "model_restore_failed") return 503;
+    if (error === "model_restore_failed" || error === "service_shutting_down") return 503;
     return 400;
 }
 

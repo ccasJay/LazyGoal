@@ -56,6 +56,9 @@ export interface BrowserCreateGoalCommand {
 /**
  * 创建 Goal 命令的处理结果。
  *
+ * @remarks
+ * 服务关闭开始后，尚未启动 Launcher 的创建命令以 `service_shutting_down` 拒绝。
+ *
  * @example
  * ```ts
  * const res: BrowserCreateGoalResult = {
@@ -81,7 +84,8 @@ export type BrowserCreateGoalResult =
             | "goal_busy"
             | "model_not_selectable"
             | "model_catalog_unavailable"
-            | "goal_create_failed";
+            | "goal_create_failed"
+            | "service_shutting_down";
     };
 
 /**
@@ -99,6 +103,9 @@ export interface BrowserGoalPlanModeCommand {
 
 /**
  * 切换计划模式结果。
+ *
+ * @remarks
+ * 服务关闭开始后，尚未进入 Runtime 的命令以 `service_shutting_down` 拒绝。
  *
  * @example
  * ```ts
@@ -124,7 +131,8 @@ export type BrowserGoalPlanModeResult =
             | "stale_run"
             | "goal_busy"
             | "plan_mode_busy"
-            | "plan_mode_failed";
+            | "plan_mode_failed"
+            | "service_shutting_down";
     };
 
 /**
@@ -147,6 +155,9 @@ export interface BrowserModelSelectionCommand {
 
 /**
  * 模型选择结果。
+ *
+ * @remarks
+ * 服务关闭开始后，尚未进入持久化的命令以 `service_shutting_down` 拒绝。
  *
  * @example
  * ```ts
@@ -176,7 +187,8 @@ export type BrowserModelSelectionResult =
             | "model_switch_not_allowed"
             | "model_not_selectable"
             | "model_catalog_unavailable"
-            | "model_selection_failed";
+            | "model_selection_failed"
+            | "service_shutting_down";
     };
 
 /**
@@ -274,6 +286,9 @@ export type BrowserActionDetailsResult =
 /**
  * 工具授权查询或撤销结果。
  *
+ * @remarks
+ * 关闭期间拒绝新的授权撤销，并以 `service_shutting_down` 标记。
+ *
  * @example
  * ```ts
  * const res: BrowserToolGrantResult = {
@@ -297,7 +312,8 @@ export type BrowserToolGrantResult =
             | "goal_not_found"
             | "stale_run"
             | "permissions_unavailable"
-            | "grant_failed";
+            | "grant_failed"
+            | "service_shutting_down";
     };
 
 /**
@@ -354,6 +370,9 @@ export interface BrowserPermissionModeCommand {
 /**
  * 权限模式变更结果。
  *
+ * @remarks
+ * 关闭期间拒绝新的权限模式写入，并以 `service_shutting_down` 标记。
+ *
  * @example
  * ```ts
  * const res: BrowserPermissionModeResult = {
@@ -373,7 +392,7 @@ export type BrowserPermissionModeResult =
     }
     | {
         readonly ok: false;
-        readonly error: "permissions_unavailable" | "conflict";
+        readonly error: "permissions_unavailable" | "conflict" | "service_shutting_down";
         readonly actualRevision?: number;
     };
 
@@ -419,6 +438,9 @@ export interface BrowserGoalMessageCommand {
 /**
  * 发送用户消息结果。
  *
+ * @remarks
+ * 服务关闭开始后，尚未进入 Runtime 的命令以 `service_shutting_down` 拒绝。
+ *
  * @example
  * ```ts
  * const res: BrowserGoalMessageResult = {
@@ -448,7 +470,8 @@ export type BrowserGoalMessageResult =
             | "model_restore_failed"
             | "message_conflict"
             | "invalid_message"
-            | "message_failed";
+            | "message_failed"
+            | "service_shutting_down";
     };
 
 /**
@@ -497,6 +520,9 @@ export type BrowserGoalInteractionCommand =
 /**
  * 结构化交互结果。
  *
+ * @remarks
+ * 服务关闭开始后，尚未进入 Runtime 的命令以 `service_shutting_down` 拒绝。
+ *
  * @example
  * ```ts
  * const res: BrowserGoalInteractionResult = {
@@ -527,7 +553,8 @@ export type BrowserGoalInteractionResult =
             | "request_mismatch"
             | "action_mismatch"
             | "invalid_interaction"
-            | "interaction_failed";
+            | "interaction_failed"
+            | "service_shutting_down";
     };
 
 /**

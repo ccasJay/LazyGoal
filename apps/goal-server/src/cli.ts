@@ -174,7 +174,7 @@ export async function runServerSession(
         });
         root.httpService.mount("/", createBrowserWorkspaceRoutes(root.workspaceRoot));
         root.httpService.mount("/", createBrowserGoalRoutes({
-            list: () => listBrowserGoals(root.workspaceGoalStore),
+            list: () => listBrowserGoals(root.workspaceGoalStore, commandService.getActiveGoalId()),
             setArchived: async (goalId, archived) => {
                 const result = await commandService.manageTerminalGoal(goalId, async () => {
                     await root.manageGoal.setArchived(goalId, archived);
@@ -191,6 +191,7 @@ export async function runServerSession(
                 goalId,
                 root.workspaceGoalStore,
                 root.readWorkspaceTrajectory,
+                commandService.getActiveGoalId(),
             ),
             create: (command) => commandService.create(command),
             interact: (goalId, command) => commandService.interact(goalId, command),
@@ -199,6 +200,7 @@ export async function runServerSession(
             enterPlanMode: (goalId, command) => commandService.enterPlanMode(goalId, command),
             selectModel: (goalId, command) => commandService.selectModel(goalId, command),
             setModelPreference: async (modelId) => {
+                if (root.abortController.signal.aborted) return { ok: false, error: "service_shutting_down" };
                 if (root.llmConfig === undefined) return { ok: false, error: "model_catalog_unavailable" };
                 let selectable = false;
                 try {
@@ -208,10 +210,13 @@ export async function runServerSession(
                     );
                     selectable = models.some((model) => model.provider === root.llmConfig?.provider && model.id === modelId && model.selectable);
                 } catch {
+                    if (root.abortController.signal.aborted) return { ok: false, error: "service_shutting_down" };
                     return { ok: false, error: "model_catalog_unavailable" };
                 }
+                if (root.abortController.signal.aborted) return { ok: false, error: "service_shutting_down" };
                 if (!selectable) return { ok: false, error: "model_not_selectable" };
                 try {
+                    if (root.abortController.signal.aborted) return { ok: false, error: "service_shutting_down" };
                     await preferenceStore.set({ provider: root.llmConfig.provider, modelId });
                     return { ok: true, modelId };
                 } catch {

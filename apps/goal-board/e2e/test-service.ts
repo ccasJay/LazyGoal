@@ -243,11 +243,12 @@ const streams = new BrowserGoalStreamService({
 });
 const modelPreferenceStore = new JsonFileModelPreferenceStore(root.workspaceHomeDirectory);
 root.httpService.mount("/", createBrowserGoalRoutes({
-    list: () => listBrowserGoals(root.workspaceGoalStore),
+    list: () => listBrowserGoals(root.workspaceGoalStore, commands.getActiveGoalId()),
     read: (goalId) => readBrowserGoalSession(
         goalId,
         root.workspaceGoalStore,
         root.readWorkspaceTrajectory,
+        commands.getActiveGoalId(),
     ),
     create: (command) => {
         activeGoalId = command.goalId;

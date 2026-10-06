@@ -1,6 +1,6 @@
 # Web 与后端分离及终端产品退出任务
 
-Requirements、Design 已获批准；本文件是待批准的完整任务与验收计划，尚未开始实现。
+Requirements、Design 与 Tasks 已获批准。原始四项实现任务已完成；以下补充项记录质量复核发现的契约回归。
 
 ## 执行约束
 
@@ -39,6 +39,13 @@ Requirements、Design 已获批准；本文件是待批准的完整任务与验�
   - 验证方式：`apps/goal-server/test/` 装配、启动分发、数据连续性和生命周期测试（待新增/迁移）；迁移现有 TUI 中对应业务断言，终端视觉断言随产品退出；建立服务独立类型检查配置（`apps/goal-server/tsconfig.json`，待新增）；执行 `npx tsc --noEmit -p apps/goal-server/tsconfig.json`、`npx tsx --test apps/goal-server/test/*.test.ts`、`npm run build:web`、`npm run check:dependencies`、`npm test` 和 `npm run test:web-e2e`。
   - _Requirements: [1.3](./requirements.md#req-1-3), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [5.1](./requirements.md#req-5-1), [5.3](./requirements.md#req-5-3), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3), [7.2](./requirements.md#req-7-2)_
 
+- [x] //TODO 5. 修复质量复核发现的恢复、活动投影、关闭闸门与服务测试入口回归
+
+  - 实现目标：保留 `GoalCoordinator.advance` 的实例接收者；列表和会话使用当前活动 Goal 投影；预约锁后的排队写入及关闭期间所有 Web 写操作（包括模型偏好）返回稳定 `service_shutting_down` 且不产生副作用；修正服务独立测试脚本以使用仓库 TypeScript 测试运行器。
+  - 成功判据：真实 `apps/goal-server` HTTP 装配可恢复中断 Run；模型请求在途期间列表与会话均报告 `active`；关闭后新请求和已排队写入不执行持久化或推进；服务独立测试命令通过。
+  - 验证方式：以确定性 Adapter 的真实本地 HTTP 服务集成测试覆盖恢复、活动投影和关闭；浏览器命令服务测试覆盖锁后排队写入；执行 `npm run --prefix apps/goal-server test`、受影响 TypeScript 测试、服务及全局类型检查、全量回归、Web E2E 与 `git diff --check`。
+  - _Requirements: [4.1](./requirements.md#req-4-1), [4.3](./requirements.md#req-4-3), [5.3](./requirements.md#req-5-3), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2)_
+
 ## Feature Verification
 
 风险依据：[Design 风险与待确认](./design.md#风险与待确认)。以下是功能验收，不计为编码 TODO；全部 TODO 完成后，在最终组合状态运行，不能只依赖迁移前或单项完成时的结果。
@@ -63,23 +70,9 @@ Requirements、Design 已获批准；本文件是待批准的完整任务与验�
 ### Latest Result
 
 - 验证状态：passed
-- 验证时效：current
-- 验证时间：2026-10-18T10:00:00Z
-- 需求/设计契约指纹：Requirements ae6dfdd69c1c212cedbc620551d8094009e3201a, Design 8d6b52067155bd343aa71844b8cfbae4015468b0
-- 统一检查入口证据：
-  - `npm run build:web`：通过（apps/goal-board 构建产出生产静态资源，无类型或打包错误）。
-  - 服务独立类型检查（`npx tsc --noEmit -p apps/goal-server/tsconfig.json`）：通过（零错误）。
-  - 全局类型检查（`npx tsc --noEmit`）：通过（零错误）。
-  - 依赖边界检查（`npm run check:dependencies`）：通过（204 个源文件验证通过，apps/goal-server 正式注册，packages/tui 规则已退役）。
-  - 全量回归测试（`npm test`）：通过（265 个 TS 测试 + 3 个 MJS 测试全量 1555 用例全部通过，含 GEPA adapter 测试与 apps/goal-server 测试）。
-  - Web 端到端测试（`npm run test:web-e2e`）：通过（apps/goal-board/e2e 全部 2 个端到端测试通过，真实本地服务启动与同源认证正常）。
-  - 语法/排版检查（`git diff --check`）：通过（无空白或格式异常）。
-- 验收条目实际结果：
-  - [1.1, 1.2, 1.3]：`packages/web-contracts` 独立纯契约，前端与后端完全脱离直接依赖；服务独立类型检查与构建通过。
-  - [2.1, 2.2, 2.3]：`bin/lazygoal.cjs` 正确路由到 `apps/goal-server/src/cli.ts`；旧终端命令（`-c`, `resume`, `inspect`）及 Benchmark `--tui` 均在启动前失败退出（退出码 2）；`packages/tui` 目录与 Ink 相关依赖完全移除。
-  - [3.1, 3.2]：新服务端成功管理 Goal 创建、等待交互、后续 Run 与 Plan 推进、模型切换、权限、轨迹与指标。
-  - [3.3, 3.4]：隔离 Home 下 JSON 数据连续性良好，直接被工作区 GoalStore 读取；损坏快照安全失败。
-  - [4.1, 4.2, 4.3, 4.4]：基于提交边界的恢复能力完整接入，中断后不重复产生副作用；并发预约与活动状态正确流转。
-  - [5.1, 5.2, 5.3]：同源 Token 认证有效隔离未授权请求；白名单限制严格。
-  - [6.1, 6.2, 6.3]：SIGINT 触发优雅关闭（退出码 130），在途任务完成且关闭期间拒绝新推进与排队请求。
-  - [7.1, 7.2, 7.3]：Benchmark 机器评测命令与 GEPA 评测全量可用且无终端模块依赖。
+- 验证时效：current（当前工作树；尚未提交）。
+- 验证时间：2026-10-06（Asia/Shanghai）
+- 验证证据：`npm run --prefix apps/goal-server test`（16 项通过）；`npx tsc --noEmit` 与 `npx tsc --noEmit -p apps/goal-server/tsconfig.json`；`npm run check:dependencies`（204 个源文件）；`npm run build:web`；`npm test`（GEPA adapter、1557 项 TypeScript 测试与 20 项脚本测试通过）；`node --test apps/goal-board/e2e/board.test.mjs` 与 `node --test apps/goal-board/e2e/runtime.test.mjs`（各 1 项通过）；`git diff --check`。
+- 回归覆盖：真实 HTTP 恢复保留 Coordinator 接收者；在途 Run 的列表/会话投影为 active；关闭后新的与排队写入均返回 `service_shutting_down` 且不产生写入；认证中间件拒绝响应继续保持正确 HTTP 状态。
+- E2E 备注：组合命令 `npm run test:web-e2e` 在功能修复后曾 2 项全通过；一次后续重跑在并发启动浏览器时挂起，停止后逐个运行两个 E2E 文件，均在最终工作树通过。
+- 构建提示：Vite 报告主 JS chunk 略超 500 kB 提示；构建成功，该提示与本修复无关。

@@ -78,11 +78,13 @@ test("Web 显式恢复：仅在未终态且未活动时受理，按提交边界�
     const advanceGate = deferred<GoalProgressResult>();
     let advanceCalled = 0;
 
-    const coordinator: BrowserGoalCoordinator = {
+    const coordinator: BrowserGoalCoordinator & { advanceCalls: number } = {
+        advanceCalls: 0,
         resume: async () => ({ ok: false, error: { code: "RUN_NOT_FOUND", message: "not_supported" } }),
         continue: async () => ({ ok: false, error: { code: "RUN_NOT_FOUND", message: "not_supported" } }),
         enterPlanMode: async () => ({ ok: false, error: { code: "RUN_NOT_FOUND", message: "not_supported" } }),
-        advance: async (ref) => {
+        async advance(ref: Parameters<NonNullable<BrowserGoalCoordinator["advance"]>>[0]) {
+            this.advanceCalls += 1;
             advanceCalled++;
             assert.equal(ref.goalId, "goal-1");
             assert.equal(ref.runId, "run-goal-1");
@@ -118,6 +120,7 @@ test("Web 显式恢复：仅在未终态且未活动时受理，按提交边界�
     // 等待微任务让 withReservationLock 内设置 activeGoalId
     await new Promise((r) => setImmediate(r));
     assert.equal(service.getActiveGoalId(), "goal-1");
+    assert.equal(coordinator.advanceCalls, 1, "advance must retain the Coordinator instance as its receiver");
 
     // 3. 活动期间另一个恢复请求被拒绝 goal_busy
     const busyResult = await service.resume("goal-2", {
@@ -263,4 +266,46 @@ test("POST /api/goals/:goalId/resume 路由校验与错误状态映射", async (
     assert.equal(staleRes.status, 409);
     const staleBody = await staleRes.json() as { error: string };
     assert.equal(staleBody.error, "stale_recovery");
+});
+
+test("关闭期间排队的写入返回稳定拒绝且不执行变更回调", async () => {
+    const store = new NotifyingMemoryStore();
+    await store.save(goalFor("first", "先占用预约", "completed"));
+    await store.save(goalFor("queued", "排队中的归档", "completed"));
+    const abortController = new AbortController();
+    const operationStarted = deferred<void>();
+    const releaseOperation = deferred<void>();
+    let queuedMutationCalls = 0;
+    let launches = 0;
+
+    const service = new BrowserGoalCommandService({
+        store,
+        saveNotifications: store,
+        launcher: { launch: async () => { launches += 1; throw new Error("launch should not start"); } },
+        coordinator: {
+            resume: async () => ({ ok: false, error: { code: "RUN_NOT_FOUND", message: "not_supported" } }),
+            continue: async () => ({ ok: false, error: { code: "RUN_NOT_FOUND", message: "not_supported" } }),
+            enterPlanMode: async () => ({ ok: false, error: { code: "RUN_NOT_FOUND", message: "not_supported" } }),
+        },
+        profileId: "default",
+        control: { signal: abortController.signal },
+    });
+
+    const admitted = service.manageTerminalGoal("first", async () => {
+        operationStarted.resolve(undefined);
+        await releaseOperation.promise;
+    });
+    await operationStarted.promise;
+    const queued = service.manageTerminalGoal("queued", async () => { queuedMutationCalls += 1; });
+    abortController.abort();
+    releaseOperation.resolve(undefined);
+
+    assert.equal(await admitted, "ok", "a write already in progress may finish");
+    assert.equal(await queued, "service_shutting_down");
+    assert.equal(queuedMutationCalls, 0);
+    assert.deepEqual(await service.create({ goalId: "new-after-shutdown", intent: "create" }), {
+        ok: false,
+        error: "service_shutting_down",
+    });
+    assert.equal(launches, 0);
 });

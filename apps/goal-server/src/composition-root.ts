@@ -525,11 +525,30 @@ export async function createCompositionRoot(
     const unsubscribeMetricUpdates = notifyingStore.onSave((goal) => {
         sessionMetricsService.notifyGoalSaved(goal.id);
     });
-    const httpService = createHttpService(
-        options.httpMiddleware === undefined
-            ? {}
-            : { middleware: options.httpMiddleware },
-    );
+    const rejectWriteAfterShutdown = (method: string): boolean =>
+        abortController.signal.aborted
+        && (method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE");
+    const shutdownAdmission: HttpServiceMiddleware = async (context, next) => {
+        if (rejectWriteAfterShutdown(context.req.method)) {
+            return context.json({ error: "service_shutting_down" }, 503);
+        }
+        await next();
+    };
+    const httpMiddleware: HttpServiceMiddleware = options.httpMiddleware === undefined
+        ? shutdownAdmission
+        : async (context, next) => {
+            let rejectedForShutdown = false;
+            const middlewareResult = await options.httpMiddleware!(context, async () => {
+                if (rejectWriteAfterShutdown(context.req.method)) {
+                    rejectedForShutdown = true;
+                    return;
+                }
+                await next();
+            });
+            if (rejectedForShutdown) return context.json({ error: "service_shutting_down" }, 503);
+            return middlewareResult;
+        };
+    const httpService = createHttpService({ middleware: httpMiddleware });
     httpService.mount("/", createSessionMetricsRoutes(sessionMetricsService));
     const checkpointStore = new CheckpointGateGoalStore(notifyingStore);
     const shutdownCoordinator = new ShutdownCoordinator({

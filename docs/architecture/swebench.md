@@ -3,8 +3,9 @@
 ## 边界
 
 [`eval swebench`](../../benchmarks/swebench/src/cli.ts) 是显式评测入口，使用固定
-Verified Manifest、单题单次作答和官方 `swebench==4.1.0` 评分。普通 TUI 不加载
-Python 或 Docker。配置与依赖预检通过后才构造模型 Adapter。
+Verified Manifest、单题单次作答和官方 `swebench==4.1.0` 评分。无界面 Benchmark
+入口仅在配置与依赖预检通过后才构造模型 Adapter 和容器 Worker；普通 Web 服务不加载
+Python 或 Docker。
 运行方式和产物说明见 [SWE-bench ACP container evaluation](../../benchmarks/swebench/README.md)。
 
 ## 数据与执行

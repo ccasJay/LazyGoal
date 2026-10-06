@@ -230,7 +230,7 @@ export interface BrowserGoalCommandDependencies {
     readonly saveModelPreference?: (selection: GoalModelSelection) => Promise<void>;
     /** 本机 Composition Root 已验证并加载的 Profile ID。 */
     readonly profileId: string;
-    /** 与本机 ShutdownCoordinator 共享的可选取消信号。 */
+    /** 与本机 ShutdownCoordinator 共享的可选信号；中止后拒绝尚未开始的写命令。 */
     readonly control?: ExecutionControl;
 }
 
@@ -333,19 +333,21 @@ export class BrowserGoalCommandService {
      *
      * @param goalId - 要管理的 Goal 身份。
      * @param operation - 已验证终态后执行的持久化操作。
-     * @returns 成功或稳定拒绝码；存储异常原样向路由传播。
+     * @returns 成功、关闭期间拒绝或其他稳定拒绝码；存储异常原样向路由传播。
      * @example
      * ```ts
      * await commands.manageTerminalGoal("goal-1", () => archive("goal-1"));
      * ```
      */
-    async manageTerminalGoal(goalId: string, operation: () => Promise<void>): Promise<"ok" | "goal_not_found" | "goal_not_terminal"> {
+    async manageTerminalGoal(goalId: string, operation: () => Promise<void>): Promise<"ok" | "goal_not_found" | "goal_not_terminal" | "service_shutting_down"> {
         return this.withReservationLock(async () => {
+            if (this.isShuttingDown()) return "service_shutting_down";
             if (this.activeGoalId !== undefined) return "goal_not_terminal";
             const goal = await this.dependencies.store.restore(goalId);
             if (goal === undefined) return "goal_not_found";
             const status = goal.state.run.status;
             if (status !== "completed" && status !== "failed" && status !== "cancelled") return "goal_not_terminal";
+            if (this.isShuttingDown()) return "service_shutting_down";
             await operation();
             return "ok";
         });
@@ -356,10 +358,11 @@ export class BrowserGoalCommandService {
      *
      * @param goalId - URL 路径中的 Goal 身份。
      * @param command - 当前 Run 身份及模型 ID。
-     * @returns 保存成功后的身份，或无副作用的稳定拒绝码。
+     * @returns 保存成功后的身份，或关闭、身份与模型校验失败等稳定拒绝码。
      */
     async selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<BrowserModelSelectionResult> {
         return this.withReservationLock(async () => {
+            if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
             if (this.activeGoalId !== undefined) return { ok: false, error: "goal_busy" };
             const goal = await this.dependencies.store.restore(goalId);
             if (goal === undefined) return { ok: false, error: "goal_not_found" };
@@ -381,6 +384,7 @@ export class BrowserGoalCommandService {
                 return { ok: false, error: "model_catalog_unavailable" };
             }
             if (selection === undefined) return { ok: false, error: "model_not_selectable" };
+            if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
             const saved = await this.dependencies.modelSelectionCoordinator.updateModelSelection({
                 ref: { goalId, runId: command.runId }, selection,
             }, this.dependencies.control);
@@ -392,7 +396,7 @@ export class BrowserGoalCommandService {
                 return { ok: false, error };
             }
             let defaultModelSaved = false;
-            if (this.dependencies.saveModelPreference !== undefined) {
+            if (this.dependencies.saveModelPreference !== undefined && !this.isShuttingDown()) {
                 try {
                     await this.dependencies.saveModelPreference(selection);
                     defaultModelSaved = true;
@@ -413,6 +417,9 @@ export class BrowserGoalCommandService {
      */
     async create(command: BrowserCreateGoalCommand): Promise<BrowserCreateGoalResult> {
         const reservation = await this.withReservationLock(async (): Promise<Reservation> => {
+            if (this.isShuttingDown()) {
+                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
+            }
             const current = this.inFlight.get(command.goalId);
             if (current !== undefined) {
                 if (current.intent !== command.intent || current.mode !== (command.mode ?? "normal") || current.modelId !== command.modelId) {
@@ -472,6 +479,9 @@ export class BrowserGoalCommandService {
                     return { kind: "result", result: { ok: false, error: "model_not_selectable" } };
                 }
             }
+            if (this.isShuttingDown()) {
+                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
+            }
             this.setActiveGoalId(command.goalId);
             const accepted = this.start(command, modelSelection);
             this.inFlight.set(command.goalId, {
@@ -503,6 +513,9 @@ export class BrowserGoalCommandService {
             | { readonly kind: "result"; readonly result: BrowserGoalPlanModeResult }
             | { readonly kind: "in_flight"; readonly accepted: Promise<BrowserGoalPlanModeResult> }
         > => {
+            if (this.isShuttingDown()) {
+                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
+            }
             const current = this.inFlightPlanModes.get(key);
             if (current !== undefined) {
                 return {
@@ -523,6 +536,9 @@ export class BrowserGoalCommandService {
                 return { kind: "result", result: { ok: false, error: "stale_run" } };
             }
 
+            if (this.isShuttingDown()) {
+                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
+            }
             this.setActiveGoalId(goalId);
             const accepted = this.startPlanMode(goalId, command);
             this.inFlightPlanModes.set(key, { accepted });
@@ -613,8 +629,25 @@ export class BrowserGoalCommandService {
         } catch { return { ok: false, error: "grant_failed" }; }
     }
 
-    /** 撤销一条绑定当前 Goal/Run 身份的 Goal 或 workspace 授权。 */
+    /**
+     * 撤销绑定当前 Goal/Run 身份的 Tool 授权。
+     *
+     * @param goalId - 授权所属 Goal。
+     * @param command - 当前 Run 与待撤销 Grant 身份。
+     * @returns 更新后的授权列表；关闭期间返回 `service_shutting_down` 且不写入。
+     * @example
+     * ```ts
+     * await service.revokeToolGrant("goal-1", { runId: "run-1", grantId: "grant-1", scope: "goal" });
+     * ```
+     */
     async revokeToolGrant(goalId: string, command: BrowserToolGrantRevokeCommand): Promise<BrowserToolGrantResult> {
+        return this.withReservationLock(async () => {
+            if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
+            return this.revokeToolGrantWhileOpen(goalId, command);
+        });
+    }
+
+    private async revokeToolGrantWhileOpen(goalId: string, command: BrowserToolGrantRevokeCommand): Promise<BrowserToolGrantResult> {
         const coordinator = this.dependencies.coordinator;
         if (coordinator.revokeGrant === undefined && coordinator.revokeToolGrant === undefined) {
             return { ok: false, error: "permissions_unavailable" };
@@ -624,6 +657,7 @@ export class BrowserGoalCommandService {
         catch { return { ok: false, error: "grant_failed" }; }
         if (goal === undefined) return { ok: false, error: "goal_not_found" };
         if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
+        if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
         try {
             if (coordinator.revokeGrant !== undefined) {
                 await coordinator.revokeGrant({
@@ -671,13 +705,20 @@ export class BrowserGoalCommandService {
      * 切换项目权限执行模式。
      *
      * @param command - 目标模式与期望修订号。
-     * @returns 成功切换后的权限模式结果；版本冲突或底层存储故障时返回稳定错误。
+     * @returns 成功切换后的权限模式结果；关闭期间拒绝、版本冲突或底层存储故障时返回稳定错误。
      * @example
      * ```ts
      * const result = await service.setPermissionMode({ mode: "yolo", expectedRevision: 0 });
      * ```
      */
     async setPermissionMode(command: BrowserPermissionModeCommand): Promise<BrowserPermissionModeResult> {
+        return this.withReservationLock(async () => {
+            if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
+            return this.setPermissionModeWhileOpen(command);
+        });
+    }
+
+    private async setPermissionModeWhileOpen(command: BrowserPermissionModeCommand): Promise<BrowserPermissionModeResult> {
         const coordinator = this.dependencies.coordinator;
         if (coordinator.setPermissionMode === undefined) {
             return { ok: false, error: "permissions_unavailable" };
@@ -711,6 +752,9 @@ export class BrowserGoalCommandService {
             | { readonly kind: "result"; readonly result: BrowserGoalInteractionResult }
             | { readonly kind: "in_flight"; readonly accepted: Promise<BrowserGoalInteractionResult> }
         > => {
+            if (this.isShuttingDown()) {
+                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
+            }
             const current = this.inFlightInteractions.get(key);
             if (current !== undefined) {
                 if (current.fingerprint !== fingerprint) {
@@ -736,12 +780,18 @@ export class BrowserGoalCommandService {
                 return { kind: "result", result: { ok: false, error: mismatch } };
             }
 
+            if (this.isShuttingDown()) {
+                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
+            }
             if (this.dependencies.restoreModelBinding !== undefined) {
                 let restored = false;
                 try { restored = await this.dependencies.restoreModelBinding(goal); } catch { restored = false; }
                 if (!restored) return { kind: "result", result: { ok: false, error: "model_restore_failed" } };
             }
 
+            if (this.isShuttingDown()) {
+                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
+            }
             this.setActiveGoalId(goalId);
             const accepted = this.startInteraction(goalId, command);
             this.inFlightInteractions.set(key, { fingerprint, accepted });
@@ -768,6 +818,9 @@ export class BrowserGoalCommandService {
             | { readonly kind: "result"; readonly result: BrowserGoalMessageResult }
             | { readonly kind: "in_flight"; readonly accepted: Promise<BrowserGoalMessageResult> }
         > => {
+            if (this.isShuttingDown()) {
+                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
+            }
             const current = this.inFlightMessages.get(key);
             if (current !== undefined) {
                 if (current.content !== command.content) {
@@ -805,12 +858,18 @@ export class BrowserGoalCommandService {
                 return { kind: "result", result: { ok: false, error: "goal_not_waiting" } };
             }
 
+            if (this.isShuttingDown()) {
+                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
+            }
             if (this.dependencies.restoreModelBinding !== undefined) {
                 let restored = false;
                 try { restored = await this.dependencies.restoreModelBinding(goal); } catch { restored = false; }
                 if (!restored) return { kind: "result", result: { ok: false, error: "model_restore_failed" } };
             }
 
+            if (this.isShuttingDown()) {
+                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
+            }
             this.setActiveGoalId(goalId);
             const accepted = this.startMessage(goal, command);
             this.inFlightMessages.set(key, { content: command.content, accepted });
@@ -825,7 +884,7 @@ export class BrowserGoalCommandService {
      *
      * @param goalId - 目标 Goal 标识。
      * @param command - 目标 Run 标识与页面读取的已提交序列号边界。
-     * @returns 新快照确认保存后的受理结果或稳定拒绝码。
+     * @returns 新快照确认保存后的受理结果或稳定拒绝码；等待预约锁期间进入关闭时不推进。
      */
     async resume(
         goalId: string,
@@ -874,6 +933,9 @@ export class BrowserGoalCommandService {
                 return { kind: "result", result: { ok: false, error: "stale_recovery" } };
             }
 
+            if (this.isShuttingDown()) {
+                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
+            }
             this.setActiveGoalId(goalId);
 
             if (this.dependencies.restoreModelBinding !== undefined) {
@@ -885,6 +947,10 @@ export class BrowserGoalCommandService {
                 }
             }
 
+            if (this.isShuttingDown()) {
+                this.setActiveGoalId(undefined);
+                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
+            }
             const accepted = this.startResume(goal, command);
             this.inFlightResumes.set(key, {
                 runId: command.runId,
@@ -926,8 +992,8 @@ export class BrowserGoalCommandService {
         });
 
         const advanceFn = this.dependencies.coordinator.advance;
-        const progress = Promise.resolve().then(() => advanceFn !== undefined
-            ? advanceFn({ goalId, runId }, this.dependencies.control)
+        const progress = Promise.resolve().then(() => this.dependencies.coordinator.advance !== undefined
+            ? this.dependencies.coordinator.advance({ goalId, runId }, this.dependencies.control)
             : Promise.reject(new Error("Coordinator advance is not implemented")));
 
         void progress
@@ -1133,6 +1199,10 @@ export class BrowserGoalCommandService {
         } finally {
             release();
         }
+    }
+
+    private isShuttingDown(): boolean {
+        return this.dependencies.control?.signal?.aborted === true;
     }
 }
 
