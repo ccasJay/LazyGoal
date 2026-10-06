@@ -25,13 +25,21 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     llm: ["runtime", "contracts", "execution-stream"],
     storage: ["runtime", "contracts", "permission", "context-retrieval"],
     agent: ["runtime", "llm", "contracts", "execution-stream"],
-    "session-metrics": ["runtime", "http"],
+    "session-metrics": ["runtime", "http", "web-contracts"],
     tools: ["runtime", "contracts", "execution-stream", "sandbox"],
-    browser: ["http", "runtime", "permission"],
-    tui: ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval"],
+    browser: ["http", "runtime", "permission", "web-contracts"],
+    "web-contracts": [],
+    tui: ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts"],
 };
 
 const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);
+
+/** 每个 app 允许的出站目标 package。 */
+const ALLOWED_APP_DEPENDENCIES = {
+    "goal-board": ["web-contracts", "slash-command"],
+};
+
+const APPS = Object.keys(ALLOWED_APP_DEPENDENCIES);
 
 /** Benchmark 目录之间只允许通过 `benchmarks/src/` 共享层通信。 */
 const BENCHMARKS = ["alfworld", "swebench", "gaia", "tua-bench"];
@@ -76,6 +84,12 @@ function packageNameOf(filePath) {
     return match === null ? null : match[1];
 }
 
+/** 从 `apps/<name>/src/...` 绝对路径提取 app 名；非该结构返回 null。 */
+function appNameOf(filePath) {
+    const match = /[/\\]apps[/\\]([^/\\]+)[/\\]src(?:[/\\]|$)/.exec(filePath);
+    return match === null ? null : match[1];
+}
+
 /** 提取文件文本中的相对 import specifier（不含 node 内置与外部依赖）。 */
 function extractRelativeImports(text) {
     const imports = [];
@@ -100,6 +114,13 @@ function relativeResolvedPath(projectRoot, fromFile, specifier) {
 /** 解析一次相对 import 指向的目标 package；指向 package 外返回 null。 */
 function targetPackageOf(projectRoot, fromFile, specifier) {
     return packageNameOf(
+        path.resolve(path.dirname(fromFile), specifier),
+    );
+}
+
+/** 解析一次相对 import 指向的目标 app；指向 app 外返回 null。 */
+function targetAppOf(projectRoot, fromFile, specifier) {
+    return appNameOf(
         path.resolve(path.dirname(fromFile), specifier),
     );
 }
@@ -131,6 +152,18 @@ async function collectSourceFiles(projectRoot) {
     for (const packageName of PACKAGES) {
         await walkSourceFiles(
             path.join(projectRoot, "packages", packageName, "src"),
+            files,
+        );
+    }
+    return files.sort();
+}
+
+/** 递归收集 app 自己的 TypeScript/TSX 源文件。 */
+async function collectAppSourceFiles(projectRoot) {
+    const files = [];
+    for (const appName of APPS) {
+        await walkSourceFiles(
+            path.join(projectRoot, "apps", appName, "src"),
             files,
         );
     }
@@ -218,6 +251,27 @@ export async function analyzeDependencies(projectRoot) {
             violations.push(
                 `禁止 benchmark 交叉依赖：benchmarks/${sourceBenchmark} 不得导入 benchmarks/${targetBenchmark}（${relativePath} 引用 ${specifier}）`,
             );
+        }
+    }
+
+    for (const file of await collectAppSourceFiles(projectRoot)) {
+        const sourceApp = appNameOf(file);
+        if (sourceApp === null || !ALLOWED_APP_DEPENDENCIES[sourceApp]) continue;
+        const text = await readFile(file, "utf8");
+        const relativePath = path.relative(projectRoot, file).split(path.sep).join("/");
+        for (const specifier of extractRelativeImports(text)) {
+            const targetPackage = targetPackageOf(projectRoot, file, specifier);
+            if (targetPackage !== null && !ALLOWED_APP_DEPENDENCIES[sourceApp].includes(targetPackage)) {
+                violations.push(
+                    `禁止依赖方向：apps/${sourceApp} 不得导入 packages/${targetPackage}（${relativePath} 引用 ${specifier}）`,
+                );
+            }
+            const targetApp = targetAppOf(projectRoot, file, specifier);
+            if (targetApp !== null && targetApp !== sourceApp) {
+                violations.push(
+                    `禁止应用交叉依赖：apps/${sourceApp} 不得导入 apps/${targetApp}（${relativePath} 引用 ${specifier}）`,
+                );
+            }
         }
     }
 

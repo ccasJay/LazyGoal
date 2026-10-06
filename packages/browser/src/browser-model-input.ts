@@ -1,38 +1,15 @@
 import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import type { GoalStore, ModelInputRecord, ModelInputMessage } from "../../runtime/src/index";
+import type {
+    BrowserModelInputDetail,
+    BrowserModelInputSummary,
+} from "../../web-contracts/src/index";
 
-/**
- * 调用前保存的输入摘要；消息只预览新增正文，不证明供应商已接收请求。
- * @remarks systemVersion 为内容哈希；首次记录或实际文本变化才产生 System 行。
- * @example
- * ```ts
- * console.log(call.callId, call.systemVersion, call.messages);
- * ```
- */
-export interface BrowserModelInputSummary extends Omit<ModelInputRecord, "messages"> {
-    readonly systemVersion: string;
-    readonly systemChanged: boolean;
-    readonly firstSystem: boolean;
-    readonly previousCallId: string | null;
-    readonly messages: readonly { role: ModelInputMessage["role"]; source: ModelInputMessage["source"]; index: number; preview: string; truncated: boolean }[];
-    readonly omittedMessageCount: number;
-}
-
-/**
- * 一次调用的完整输入与同一 Run 前次调用的系统正文，用于只读对比。
- * @remarks 不截断正文；超过 2 MiB 的详情返回 413，不以预览代替完整输入。
- * @example
- * ```ts
- * const system = detail.call.messages.filter(message => message.role === "system");
- * ```
- */
-export interface BrowserModelInputDetail {
-    readonly call: ModelInputRecord;
-    readonly previousSystem: string | null;
-    readonly previousCallId: string | null;
-    readonly systemVersion: string;
-}
+export type {
+    BrowserModelInputDetail,
+    BrowserModelInputSummary,
+};
 
 const system = (call: ModelInputRecord) => call.messages.filter(message => message.role === "system").map(message => message.content).join("\n");
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");

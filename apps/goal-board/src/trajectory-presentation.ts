@@ -1,4 +1,4 @@
-import type { BrowserModelInputSummary, BrowserTrajectoryEntry } from "../../../packages/browser/src/index";
+import type { BrowserModelInputSummary, BrowserTrajectoryEntry } from "../../../packages/web-contracts/src/index";
 
 /**
  * 当前事件页中可证明的请求结果；Prepared 不意味着供应商已收到请求。

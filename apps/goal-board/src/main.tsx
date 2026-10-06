@@ -42,10 +42,10 @@ import type {
   BrowserModelOption,
   BrowserPermissionModeResult,
   BrowserWorkspaceContext,
-} from "../../../packages/browser/src/index";
+  SessionMetricsSnapshot,
+} from "../../../packages/web-contracts/src/index";
 import { createSlashCommandRegistry, modelCommandDefinition, planCommandDefinition } from "../../../packages/slash-command/src/index";
 import type { ModelCommandEffect } from "../../../packages/slash-command/src/index";
-import type { SessionMetricsSnapshot } from "../../../packages/session-metrics/src/session-metrics-service";
 import { BrowserApiError, browserApi } from "./api";
 import { GoalDetails, WaitingInteraction } from "./panels";
 import "./style.css";

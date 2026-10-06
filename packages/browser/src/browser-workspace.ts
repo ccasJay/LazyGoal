@@ -1,31 +1,11 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { Hono } from "hono";
+import type { BrowserWorkspaceContext } from "../../web-contracts/src/index";
+
+export type { BrowserWorkspaceContext };
 
 const runGit = promisify(execFile);
-
-/**
- * 浏览器所连接执行工作区的当前 Git 位置。
- *
- * @remarks
- * 所有本机 Goal 共用启动工作区；这些值是查询时的 Git 状态，不是 Goal 创建时的
- * 历史绑定。非 Git 工作区没有 worktree 与分支；detached HEAD 只有 worktree。
- *
- * @example
- * ```ts
- * const context: BrowserWorkspaceContext = {
- *     workspaceRoot: "/project/task", worktreeRoot: "/project/task", branch: "feature/task",
- * };
- * ```
- */
-export interface BrowserWorkspaceContext {
-    /** Runtime 与工具实际使用的绝对工作目录。 */
-    readonly workspaceRoot: string;
-    /** 当前 Git worktree 根目录；非 Git 工作区为 `null`。 */
-    readonly worktreeRoot: string | null;
-    /** 当前分支；detached HEAD 或非 Git 工作区为 `null`。 */
-    readonly branch: string | null;
-}
 
 /**
  * 创建执行工作区的只读位置查询路由。

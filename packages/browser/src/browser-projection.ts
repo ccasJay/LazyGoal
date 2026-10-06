@@ -15,6 +15,29 @@ import {
     NETWORK_ALL_OUTBOUND_NOTICE,
     type EffectiveSandboxReview,
 } from "../../permission/src/index";
+import type {
+    BrowserBashExecutionDetail,
+    BrowserGoalListItem,
+    BrowserGoalPlan,
+    BrowserGoalSession,
+    BrowserPendingAction,
+    BrowserPendingInteraction,
+    BrowserSessionMessage,
+    BrowserSessionRun,
+    BrowserSessionStep,
+} from "../../web-contracts/src/index";
+
+export type {
+    BrowserBashExecutionDetail,
+    BrowserGoalListItem,
+    BrowserGoalPlan,
+    BrowserGoalSession,
+    BrowserPendingAction,
+    BrowserPendingInteraction,
+    BrowserSessionMessage,
+    BrowserSessionRun,
+    BrowserSessionStep,
+};
 
 const MAX_TEXT_LENGTH = 4_000;
 const MAX_MESSAGE_LENGTH = 64_000;
@@ -26,301 +49,6 @@ const MAX_STEP_SUMMARY_LENGTH = 1_000;
 const MAX_BASH_EXECUTION_DETAILS = 100;
 const MAX_BASH_COMMAND_LENGTH = 2_000;
 const MAX_BASH_OUTPUT_LENGTH = 4_000;
-
-/**
- * Goal 看板中的安全列表条目。
- *
- * @remarks
- * 只包含正式工作区快照目录可验证的身份、意图、Run 状态和更新时间；不返回
- * Profile、模型选择、凭据、Prompt、Benchmark 元数据或完整 Runtime 对象。
- * 长意图会截断，列表仍按 Catalog 提供的更新时间顺序排列。
- *
- * @example
- * ```ts
- * const item: BrowserGoalListItem = {
- *     goalId: "goal-1",
- *     runId: "run-1",
- *     intent: "实现浏览器会话",
- *     workflowPhase: "executing",
- *     runStatus: "waiting",
- *     updatedAt: "2026-09-26T00:00:00.000Z",
- *     archived: false,
- * };
- * ```
- */
-export interface BrowserGoalListItem {
-    /** Goal 的稳定身份。 */
-    readonly goalId: string;
-    /** 当前快照的 Run 身份。 */
-    readonly runId: string;
-    /** 截断后的真实用户意图。 */
-    readonly intent: string;
-    /** 当前工作流阶段。 */
-    readonly workflowPhase: Goal["state"]["workflow"]["phase"];
-    /** 当前 Run 的真实生命周期状态。 */
-    readonly runStatus: Goal["state"]["run"]["status"];
-    /** Catalog 提供的快照更新时间。 */
-    readonly updatedAt: string;
-    /** 是否已归档，供看板在默认视图与归档视图之间切换。 */
-    readonly archived: boolean;
-}
-
-/**
- * 可在浏览器会话中展示的用户或助手消息。
- *
- * @remarks
- * 消息保持 Goal Snapshot 中的原始顺序，仅暴露角色、最多 64,000 字符的正文和可确定时的
- * Run 身份；Profile 身份及其他 Goal 状态不会随消息返回。
- *
- * @example
- * ```ts
- * const message: BrowserSessionMessage = { role: "assistant", content: "已完成" };
- * ```
- */
-export interface BrowserSessionMessage {
-    /** 实际持久化消息的说话方。 */
-    readonly role: "user" | "assistant";
-    /** 会话正文；超过 64,000 字符时截断，并由会话的 `historyTruncated` 标记。 */
-    readonly content: string;
-    /** 消息所属的 Run；旧历史无法归属时省略。 */
-    readonly runId?: string;
-}
-
-/**
- * 可在已提交 Bash 步骤中查看的有限执行详情。
- *
- * @remarks
- * 仅包含命令和已提交 Observation 中的白名单结果字段，字段均有字符上限；其他
- * Tool 的输入和输出仍不会通过此类型暴露。
- *
- * @example
- * ```ts
- * const detail: BrowserBashExecutionDetail = {
- *     command: "git status --short",
- *     exitCode: 0,
- *     stdout: "M README.md",
- *     stderr: "",
- * };
- * ```
- */
-export interface BrowserBashExecutionDetail {
-    /** Bash 收到的限长命令。 */
-    readonly command: string;
-    /** 仅成功 Observation 提供的退出码。 */
-    readonly exitCode?: number;
-    /** 仅成功 Observation 提供的标准输出。 */
-    readonly stdout?: string;
-    /** 仅成功 Observation 提供的标准错误。 */
-    readonly stderr?: string;
-    /** Bash 失败 Observation 的限长说明。 */
-    readonly failure?: string;
-}
-
-/**
- * 单条已提交执行步骤的安全浏览器投影。
- *
- * @remarks
- * 步骤只从 Snapshot 提交边界内的 Trajectory 事实构造，并按稳定的 Action 身份合并其
- * 生命周期事件。原始事件、模型推理及完整 Tool 输入/输出不会暴露；操作标题只提供
- * 内置工具的限长路径或搜索摘要，Bash 步骤提供命令与已提交 Observation 的白名单详情。
- *
- * @example
- * ```ts
- * const step: BrowserSessionStep = {
- *     runId: "run-1",
- *     executionUnitId: "unit-1",
- *     sequence: 8,
- *     stepIndex: 1,
- *     decisionKind: "tool_call",
- *     toolId: "read_file",
- *     inputSummary: "README.md",
- *     status: "completed",
- *     summary: "已读取文件",
- * };
- * ```
- */
-export interface BrowserSessionStep {
-    /** 此步骤所属的 Run。 */
-    readonly runId: string;
-    /** Runtime 为执行单元分配的稳定身份。 */
-    readonly executionUnitId: string;
-    /** 此步骤首次出现的已提交 Trajectory 序列。 */
-    readonly sequence: number;
-    /** Runtime 记录的 Step 序号；缺失时按当前 Run 的顺序生成。 */
-    readonly stepIndex: number;
-    /** 公开的判定种类，不包含 thought 或完整判定载荷。 */
-    readonly decisionKind?: string;
-    /** 公开的 Tool 标识，不包含 action input。 */
-    readonly toolId?: string;
-    /**
-     * 操作标题使用的输入摘要，最多 240 字符及省略标记。
-     * 只投影内置文件工具的路径、grep 的 pattern、web_search 的 query 和 web_fetch 的 URL；
-     * 不包含写入正文、替换内容或其他参数。Bash 命令由 bashExecution 提供。
-     */
-    readonly inputSummary?: string;
-    /** 已提交 Action 的审批结果。 */
-    readonly actionStatus?: "awaiting_approval" | "approved" | "rejected";
-    /** 步骤结果类别；不由临时流事件推断。 */
-    readonly status: "recorded" | "completed" | "failed" | "rejected";
-    /** 限长后的 Tool Observation 摘要。 */
-    readonly summary?: string;
-    /** 仅 Bash 步骤可见的限长命令与已提交执行结果。 */
-    readonly bashExecution?: BrowserBashExecutionDetail;
-    /** 会话详情数量上限导致此 Bash 步骤省略执行详情。 */
-    readonly bashExecutionOmitted?: true;
-    /** 已提交恢复尝试摘要；只包含阶段、尝试号与稳定错误码/原因。 */
-    readonly recoveryAttempts?: readonly string[];
-}
-
-/**
- * Goal 中单个 Run 的浏览器历史。
- *
- * @remarks
- * 历史步骤只包含该 Run 的已提交 Trajectory；未提交 tail 不会显示。终态 complete
- * 决策由 Run 状态表达，不重复作为单独步骤显示。已归档 Run 的终态由 Snapshot 中的
- * 历史记录确定，当前 Run 的状态直接取自最新快照。
- *
- * @example
- * ```ts
- * const run: BrowserSessionRun = {
- *     runId: "run-1", status: "completed", stepCount: 2, steps: [], current: true,
- * };
- * ```
- */
-export interface BrowserSessionRun {
-    /** Run 的稳定身份。 */
-    readonly runId: string;
-    /** Run 的真实生命周期状态。 */
-    readonly status: Goal["state"]["run"]["status"];
-    /** Snapshot 记录的 Runtime Step 数量，可能包含不单独显示的 complete 决策。 */
-    readonly stepCount: number;
-    /** 该 Run 的有界、已提交步骤历史。 */
-    readonly steps: readonly BrowserSessionStep[];
-    /** 是否为当前快照中的 Run。 */
-    readonly current: boolean;
-    /** 已提交的等待原因或稳定终止错误。 */
-    readonly terminalDetail?: { readonly code?: string; readonly message: string };
-}
-
-/**
- * 当前等待交互的安全白名单视图。
- *
- * @remarks
- * 只投影 AskUser 的问题/选项或任务提案的目标/完成条件；内部 Patch、模型输出原文及
- * 与提交操作无关的 Runtime 数据不会暴露。
- *
- * @example
- * ```ts
- * const pending: BrowserPendingInteraction = {
- *     kind: "ask_user", requestId: "ask-1", mode: "execution", questions: [],
- * };
- * ```
- */
-export type BrowserPendingInteraction =
-    | {
-        readonly kind: "ask_user";
-        readonly requestId: string;
-        readonly mode: "plan" | "execution";
-        readonly questions: readonly {
-            readonly id: string;
-            readonly header: string;
-            readonly question: string;
-            readonly multiSelect: boolean;
-            readonly options: readonly {
-                readonly id: string;
-                readonly label: string;
-                readonly description?: string;
-            }[];
-        }[];
-    }
-    | {
-        readonly kind: "task_approval";
-        readonly requestId: string;
-        readonly objective: string;
-        readonly approvalRequest: string;
-        readonly completionCriteria: readonly string[];
-    };
-
-/**
- * GoalPlan 的浏览器视图。
- *
- * @remarks
- * 仅当 Goal Snapshot 实际包含 GoalPlan 时出现。缺少计划时响应省略此字段，不创建
- * 示例 Todo、占位进度或推算完成比例。
- *
- * @example
- * ```ts
- * const plan: BrowserGoalPlan = { revision: 1, items: [] };
- * ```
- */
-export interface BrowserGoalPlan {
-    /** Runtime 成功更新计划时递增的版本。 */
-    readonly revision: number;
-    /** 按 Runtime 规范顺序排列的计划项。 */
-    readonly items: readonly {
-        readonly id: string;
-        readonly content: string;
-        readonly position: number;
-        readonly status: "pending" | "in_progress" | "completed" | "cancelled";
-    }[];
-}
-
-/**
- * 从最新正式工作区快照与已提交轨迹构造的会话响应。
- *
- * @remarks
- * 这是显式白名单 DTO，不可替换为序列化 Goal、Trajectory Event 或 TUI ViewModel。
- * 消息、Run 和步骤历史具有确定的数量/文本上限，`historyTruncated` 指示是否省略了
- * 历史或截断了消息正文。待处理 Action 返回身份、审批状态及白名单内置工具的有界展示摘要；
- * 不返回原始完整输入，摘要不能代替持续授权所需的完整输入审阅。
- *
- * @example
- * ```ts
- * const session: BrowserGoalSession = {
- *     goalId: "goal-1", intent: "检查项目", currentRunId: "run-1",
- *     runStatus: "waiting", currentRunMode: "normal", messages: [], runs: [], historyTruncated: false,
- * };
- * ```
- */
-export interface BrowserGoalSession {
-    /** Goal 的稳定身份。 */
-    readonly goalId: string;
-    /** 截断后的真实用户意图。 */
-    readonly intent: string;
-    /** 当前快照的 Run 身份。 */
-    readonly currentRunId: string;
-    /** 当前 Run 的真实生命周期状态。 */
-    readonly runStatus: Goal["state"]["run"]["status"];
-    /** 当前 Run 实际使用的模式。 */
-    readonly currentRunMode: RunMode;
-    /** 已完成 Run 后用户为下一 Run 显式选择的模式。 */
-    readonly nextRunMode?: "plan";
-    /** 按 Snapshot 顺序排列的有界真实消息。 */
-    readonly messages: readonly BrowserSessionMessage[];
-    /** 按 Run 时间顺序排列的当前 Run 与近期已归档 Run。 */
-    readonly runs: readonly BrowserSessionRun[];
-    /** 仅在 Snapshot 包含计划时出现。 */
-    readonly goalPlan?: BrowserGoalPlan;
-    /** 当前已提交的结构化等待点。 */
-    readonly pendingInteraction?: BrowserPendingInteraction;
-    /** 当前已提交的待处理 Action；不含原始 Action 输入。 */
-    readonly pendingAction?: {
-        readonly actionId: string;
-        readonly toolId: string;
-        readonly status: "approved" | "awaiting_approval" | "outcome_unknown";
-        /** 内置工具的有界命令或目标摘要，仅供展示；持续授权仍需读取完整输入。 */
-        readonly inputSummary?: string;
-        readonly inputPreview: string;
-        readonly inputPreviewTruncated: boolean;
-        readonly targetPath?: string;
-        readonly approvalKind?: "tool" | "sandbox";
-        readonly sandboxReview?: EffectiveSandboxReview;
-        /** 当前待审操作所属的程序调用；显示父 Action 而不授予额外权限。 */
-        readonly parentProgram?: { readonly actionId: string; readonly callNumber: number };
-    };
-    /** 是否因输出上限截去了消息正文、较早消息、Run 或步骤。 */
-    readonly historyTruncated: boolean;
-}
 
 /**
  * 将正式 Goal Catalog 摘要投影为看板白名单条目。

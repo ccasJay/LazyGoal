@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { BrowserTrajectoryEntry, BrowserModelInputSummary } from "../../../packages/browser/src/index";
+import type { BrowserTrajectoryEntry, BrowserModelInputSummary } from "../../../packages/web-contracts/src/index";
 import { browserApi } from "./api";
 import type { ModelInputSelection } from "./model-input-inspector";
 import { requestResult } from "./trajectory-presentation";

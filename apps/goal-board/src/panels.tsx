@@ -5,7 +5,7 @@ import type {
   BrowserGoalInteractionCommand,
   BrowserGoalSession,
   BrowserToolGrantSummary,
-} from "../../../packages/browser/src/index";
+} from "../../../packages/web-contracts/src/index";
 import { BrowserApiError, browserApi } from "./api";
 
 type SessionTab = "Activity" | "Plan" | "Details";
