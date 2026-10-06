@@ -261,6 +261,44 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelector('.tr-zoom-level').textContent"), retainedZoom);
     assert.equal(await value(socket, "document.querySelector('#trajectory-event-1').getAttribute('aria-pressed')"), "true");
     assert.equal(mock.trajectoryReads(), 1, "retrying inputs does not reload committed events");
+    await setText(socket, "input[aria-label='Search trajectory']", "native");
+    await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('1 / 1 saved model inputs')");
+    assert.equal(await value(socket, "document.querySelector('.mi-input-status [role=alert]') === null"), true);
+    assert.equal(await value(socket, "[...document.querySelectorAll('.ct-record')].some(row => row.textContent.includes('Native tool result'))"), true);
+    assert.equal(await value(socket, "[...document.querySelectorAll('.ct-record')].find(row => row.textContent.includes('Native tool result')).querySelector('.ct-badge').textContent"), "Tool");
+    assert.equal(await value(socket, "(() => { const row = [...document.querySelectorAll('.ct-record')].find(item => item.textContent.includes('Native tool result')); const body = row.querySelector('.ct-record-body'); const preview = row.querySelector('.ct-preview'); const bounds = row.getBoundingClientRect(); return getComputedStyle(row).display === 'flex' && getComputedStyle(body).display === 'flex' && preview.getBoundingClientRect().right <= bounds.right && preview.getBoundingClientRect().height <= bounds.height; })()"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.ct-record')].find(row => row.textContent.includes('Native tool result')).querySelector('.ct-record-body').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.mi-message summary')?.textContent.includes('Tool result')");
+    assert.equal(await value(socket, "document.querySelector('.mi-inspector [role=alert]') === null"), true);
+    assert.equal(await value(socket, "document.querySelectorAll('.tr-inspector').length"), 1);
+    assert.equal(await value(socket, "document.querySelector('.tr-ledger-layout > .mi-inspector') !== null"), true);
+    assert.equal(await value(socket, "document.querySelector('.mi-inspector').getBoundingClientRect().top >= document.querySelector('.tr-overview').getBoundingClientRect().bottom"), true);
+    const detailReads = mock.inputDetailReads();
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.ct-record-body')].find(row => row.textContent.includes('Run mode')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.mi-message.is-selected')?.dataset.messageIndex === '1'");
+    assert.equal(await value(socket, "document.querySelector('.mi-inspector h3').textContent"), "Run mode");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.ct-record-body')].find(row => row.textContent.includes('Authorized tools')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.mi-message.is-selected')?.dataset.messageIndex === '2'");
+    assert.equal(mock.inputDetailReads(), detailReads, "message selection reuses the loaded model request");
+    assert.equal(await value(socket, "document.querySelector('.mi-message[data-message-index=\"1\"]').open"), false);
+    assert.equal(await value(socket, "(() => { const message = document.querySelector('.mi-message.is-selected').getBoundingClientRect(); const body = document.querySelector('.mi-inspector .tr-detail-body').getBoundingClientRect(); return message.top >= body.top && message.top < body.bottom; })()"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Reset timeline zoom\"]').click()", returnByValue: true });
+    const timelinePoint = await value(socket, "(() => { const button = document.querySelector('button[aria-label=\"Locate trajectory event 2\"]'); const r = button.getBoundingClientRect(); const x = r.x + r.width / 2, y = r.y + r.height / 2; return { x, y, reachable: document.elementFromPoint(x, y) === button }; })()");
+    assert.equal(timelinePoint.reachable, true, "the model inspector leaves timeline event markers reachable");
+    await cdp(socket, "Input.dispatchMouseEvent", { type: "mousePressed", x: timelinePoint.x, y: timelinePoint.y, button: "left", clickCount: 1 });
+    await cdp(socket, "Input.dispatchMouseEvent", { type: "mouseReleased", x: timelinePoint.x, y: timelinePoint.y, button: "left", clickCount: 1 });
+    await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #2')");
+    assert.equal(await value(socket, "document.querySelector('.mi-inspector') === null && document.querySelectorAll('.tr-inspector').length === 1"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.ct-record-body')].find(row => row.textContent.includes('Authorized tools')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.mi-message.is-selected')?.dataset.messageIndex === '2'");
+    assert.equal(await value(socket, "document.querySelectorAll('.tr-inspector').length"), 1);
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await waitForExpression(socket, "(() => { const message = document.querySelector('.mi-message.is-selected').getBoundingClientRect(); const body = document.querySelector('.mi-inspector .tr-detail-body').getBoundingClientRect(); return message.top >= body.top && message.top < body.bottom; })()");
+    assert.equal(await value(socket, "(() => { const inspector = document.querySelector('.mi-inspector').getBoundingClientRect(); const ledger = document.querySelector('.tr-ledger').getBoundingClientRect(); const overview = document.querySelector('.tr-overview').getBoundingClientRect(); return inspector.top >= overview.bottom && inspector.bottom <= ledger.top + 1 && ledger.height >= 180 && document.querySelector('.mi-inspector .tr-detail-body').getBoundingClientRect().height >= 100 && document.documentElement.scrollWidth <= window.innerWidth; })()"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close prompt details\"]').click()", returnByValue: true });
+    assert.equal(await value(socket, "document.querySelector('.tr-inspector') === null"), true);
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+
 
 
     mock.resetToAction();
@@ -334,9 +372,14 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.command-candidate')?.textContent.includes('/model')");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.command-candidate').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.model-option') !== null");
+    mock.failNextDefaultSave();
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.model-option')].find(button => button.textContent.includes('Selected Model')).click()", returnByValue: true });
     await waitForLocal(() => mock.lastModelSelection?.modelId === "model-selected");
     await waitForExpression(socket, "document.querySelector('.model-picker') === null");
+    await waitForExpression(socket, "document.querySelector('.command-error')?.textContent.includes('default was not saved')");
+    assert.equal(mock.preferredModelId, "model-default", "committed Goal switch does not claim a failed preference write");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.command-error button')].find(button => button.textContent.includes('Retry saving default')).click()", returnByValue: true });
+    await waitForLocal(() => mock.preferredModelId === "model-selected");
     assert.equal(mock.lastMessage, undefined, "model command does not submit a Goal message");
     mock.delayNextModelCatalog();
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .current-model-control').focus(); document.querySelector('.composer-area .current-model-control').click()", returnByValue: true });
@@ -371,6 +414,15 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.model-option') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.model-option')].find(button => button.textContent.includes('Selected Model')).click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.model-picker') === null");
+    assert.equal(mock.preferredModelId, "model-selected", "draft selection is saved before creating a Goal");
+    mock.delayNextDraftCatalog();
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close session\"]').click(); document.querySelector('.header-actions .primary').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .current-model-control').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.model-option') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.model-option')].find(button => button.textContent.includes('Selected Model')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.model-picker') === null");
+    await delay(220);
+    await waitForExpression(socket, "document.querySelector('.composer-area .current-model-control')?.textContent.includes('Selected Model')");
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Inspect the current workspace");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
     await waitForLocal(() => mock.lastCreate?.modelId === "model-selected");
@@ -414,6 +466,9 @@ function createMockApi() {
   let lastModelSelection;
   let lastCreate;
   let selectedModelId = "model-default";
+  let preferredModelId = "model-default";
+  let delayNextDraftCatalog = false;
+  let failNextDefaultSave = false;
   let rejectNextSelection = false;
   let delayNextCatalog = false;
   let planModeRequests = 0;
@@ -423,6 +478,12 @@ function createMockApi() {
   let authorizedRequestCount = 0;
   let inputReads = 0;
   let trajectoryReads = 0;
+  let inputDetailReads = 0;
+  const nativeCall = { goalId: "goal-1", runId: "run-1", callId: "call-native", stepIndex: 1, stage: "decide", occurredAt: "2026-08-05T09:00:01.000Z", messages: [
+    { role: "tool", source: "native_history", callId: "tool-call", toolId: "read_file", content: "Native tool result" },
+    { role: "user", source: "section", content: `[Dynamic section: run_mode; source: Goal.intent]\n${"Follow the current request.\n".repeat(80)}` },
+    { role: "user", source: "section", content: "[Dynamic section: authorized_tools; source: Runtime.authorizedTools]\nTools available for this request." },
+  ] };
   const server = createServer(async (request, response) => {
     authorizationHeaders.push(request.headers.authorization ?? "");
     if (request.headers.authorization !== `Bearer ${token}`) {
@@ -455,6 +516,8 @@ function createMockApi() {
     if (request.url?.startsWith("/api/goals/goal-1/model-inputs?")) {
       inputReads += 1;
       if (inputReads === 1) { response.writeHead(500); response.end(); }
+      else if (new URL(request.url, "http://localhost").searchParams.get("callId") === "call-native") { inputDetailReads += 1; json(response, { call: nativeCall, previousSystem: null, previousCallId: null, systemVersion: "hash" }); }
+      else if (new URL(request.url, "http://localhost").searchParams.get("q") === "native") json(response, { calls: [{ goalId: "goal-1", runId: "run-1", callId: "call-native", stepIndex: 1, stage: "decide", occurredAt: "2026-08-05T09:00:01.000Z", systemVersion: "hash", systemChanged: false, firstSystem: true, previousCallId: null, omittedMessageCount: 0, messages: nativeCall.messages.map((message, index) => ({ role: message.role, source: message.source, index, preview: index === 0 ? `Native tool result ${"long content ".repeat(200)}` : message.content.slice(0, 700), truncated: true })) }], total: 1, nextOffset: null });
       else json(response, { calls: [], total: 0, nextOffset: null });
       return;
     }
@@ -464,6 +527,10 @@ function createMockApi() {
       else if (request.url.startsWith("/api/goals/goal-1/trajectory?")) {
         trajectoryReads += 1;
         json(response, { goalId: "goal-1", run, entries: [1, 2].map(sequence => ({ eventId: `event-${sequence}`, sequence, occurredAt: `2026-08-05T09:00:0${sequence}.000Z`, eventType: sequence === 1 ? "run_started" : "run_completed", category: "lifecycle", title: "Run", preview: "Committed Run event", previewTruncated: false })), total: 2, committedCount: 2, previousCursor: null, nextCursor: null, locatedSequence: null });
+      } else if (request.url.startsWith("/api/goals/goal-1/trajectory/events/")) {
+        const sequence = Number(request.url.split("/").at(-1).split("?")[0]);
+        const eventType = sequence === 1 ? "run_started" : "run_completed";
+        json(response, { event: { eventSchemaVersion: 1, eventId: `event-${sequence}`, goalId: "goal-1", runId: "run-1", sequence, occurredAt: `2026-08-05T09:00:0${sequence}.000Z`, phase: "executing", eventType, payload: { type: eventType } }, observationConfirmed: false, toolDurationMs: null });
       } else { response.writeHead(404); response.end(); }
       return;
     }
@@ -484,10 +551,26 @@ function createMockApi() {
       return;
     }
     if (request.url === "/api/models" && request.method === "GET") {
-      json(response, { provider: "openai", currentModelId: "model-default", models: [
+      if (delayNextDraftCatalog) {
+        delayNextDraftCatalog = false;
+        await delay(180);
+        json(response, { provider: "openai", currentModelId: "model-default", models: [
+          { id: "model-default", displayName: "Default Model", availabilitySource: "live", metadataSource: "catalog", selectable: true },
+          { id: "model-selected", displayName: "Selected Model", availabilitySource: "catalog", metadataSource: "catalog", selectable: true },
+        ] });
+        return;
+      }
+      json(response, { provider: "openai", currentModelId: preferredModelId, models: [
         { id: "model-default", displayName: "Default Model", availabilitySource: "live", metadataSource: "catalog", selectable: true },
         { id: "model-selected", displayName: "Selected Model", availabilitySource: "catalog", metadataSource: "catalog", selectable: true },
       ] });
+      return;
+    }
+    if (request.url === "/api/project/model-preference" && request.method === "POST") {
+      let body = "";
+      for await (const chunk of request) body += chunk;
+      preferredModelId = JSON.parse(body).modelId;
+      json(response, { ok: true, modelId: preferredModelId });
       return;
     }
     if (request.url === "/api/goals" && request.method === "POST") {
@@ -532,7 +615,10 @@ function createMockApi() {
         return;
       }
       selectedModelId = lastModelSelection.modelId;
-      json(response, { ok: true, goalId: "goal-1", runId: "run-1", modelId: selectedModelId });
+      const defaultModelSaved = !failNextDefaultSave;
+      failNextDefaultSave = false;
+      if (defaultModelSaved) preferredModelId = selectedModelId;
+      json(response, { ok: true, goalId: "goal-1", runId: "run-1", modelId: selectedModelId, defaultModelSaved });
       return;
     }
     if (request.url === "/api/goals/goal-1/plan-mode" && request.method === "POST") {
@@ -622,10 +708,14 @@ function createMockApi() {
     get lastPlanMode() { return lastPlanMode; },
     get lastModelSelection() { return lastModelSelection; },
     get lastCreate() { return lastCreate; },
+    get preferredModelId() { return preferredModelId; },
+    delayNextDraftCatalog() { delayNextDraftCatalog = true; },
+    failNextDefaultSave() { failNextDefaultSave = true; },
     get planModeRequests() { return planModeRequests; },
     get permissionMode() { return permissionMode; },
     authorizedRequests: () => authorizedRequestCount,
     trajectoryReads: () => trajectoryReads,
+    inputDetailReads: () => inputDetailReads,
     rejectNextModelSelection() { rejectNextSelection = true; },
     delayNextModelCatalog() { delayNextCatalog = true; },
     resetToWaiting() {

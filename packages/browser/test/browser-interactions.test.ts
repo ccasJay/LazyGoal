@@ -350,6 +350,7 @@ test("浏览器审批路由传递授权范围并拒绝未知范围", async () =>
         async message() { return { ok: false as const, error: "message_failed" as const }; },
         async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
         async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
+        setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
         async selectModel() { return { ok: false as const, error: "model_selection_failed" as const }; },
         async openStream() { return { ok: false as const, error: "goal_not_found" as const }; },
     });
@@ -380,6 +381,7 @@ test("Action 详情路由验证身份参数并只返回服务端授权读取结�
         async message() { return { ok: false as const, error: "message_failed" as const }; },
         async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
         async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
+        setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
         async selectModel() { return { ok: false as const, error: "model_selection_failed" as const }; },
         async openStream() { return { ok: false as const, error: "goal_not_found" as const }; },
         async readActionDetails(goalId, runId, actionId) {

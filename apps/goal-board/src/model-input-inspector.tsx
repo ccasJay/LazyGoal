@@ -1,11 +1,30 @@
-import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
 import { Copy, X } from "lucide-react";
 import type { BrowserModelInputDetail, BrowserTrajectoryEntry } from "../../../packages/browser/src/index";
 import { browserApi, BrowserApiError } from "./api";
 import type { RequestResult } from "./trajectory-presentation";
 
-export function ModelInputInspector({ goalId, runId, callId, initialTab = "Messages", onClose, result, onViewResult }: { result?: RequestResult; onViewResult?: (entry: BrowserTrajectoryEntry) => void; goalId: string; runId: string; callId: string | null; initialTab?: string; onClose: () => void }) {
+/**
+ * 页面内的一次模型输入选择；消息索引对应保存请求中的原始顺序。
+ * @remarks 选择由 Trajectory 持有，不写入持久化数据；省略索引时展示整个请求。
+ * @example
+ * ```ts
+ * const selection: ModelInputSelection = { callId: "call-1", tab: "Messages", messageIndex: 2 };
+ * ```
+ */
+export interface ModelInputSelection {
+  readonly callId: string | null;
+  readonly tab: string;
+  readonly messageIndex?: number;
+}
+
+/**
+ * 在父组件提供的侧栏中读取完整模型输入；切换消息复用同一调用的已加载数据。
+ * @remarks selectionVersion 变化会重新定位所选消息；关闭或切换调用会取消在途读取。
+ */
+export function ModelInputInspector({ goalId, runId, selection, selectionVersion, onClose, result, onViewResult }: { result?: RequestResult; onViewResult?: (entry: BrowserTrajectoryEntry) => void; goalId: string; runId: string; selection: ModelInputSelection; selectionVersion: number; onClose: () => void }) {
+  const { callId, tab: initialTab, messageIndex } = selection;
+  const body = useRef<HTMLDivElement>(null);
   const [detail, setDetail] = useState<BrowserModelInputDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState(initialTab);
@@ -19,6 +38,25 @@ export function ModelInputInspector({ goalId, runId, callId, initialTab = "Messa
       .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof BrowserApiError && reason.status === 413 ? "Complete input exceeds the 2 MiB viewing limit." : reason instanceof BrowserApiError && reason.status === 404 ? "Prompt not recorded for this request." : reason instanceof BrowserApiError && [401, 403].includes(reason.status) ? "Access expired. Reopen lazygoal web." : "Could not read model input. Retry this request."); });
     return () => controller.abort();
   }, [goalId, runId, callId, retry]);
+  useEffect(() => { setTab(initialTab); }, [initialTab, messageIndex, selectionVersion]);
+  useEffect(() => {
+    const container = body.current;
+    if (!container || !detail) return;
+    const reveal = () => {
+      const message = tab === "Messages" && messageIndex !== undefined
+        ? container.querySelector<HTMLDetailsElement>(`[data-message-index="${messageIndex}"]`) : null;
+      if (message) {
+        message.open = true;
+        container.scrollTop += message.getBoundingClientRect().top - container.getBoundingClientRect().top - 12;
+      } else container.scrollTop = 0;
+    };
+    reveal();
+    if (tab !== "Messages" || messageIndex === undefined) return;
+    const observer = new ResizeObserver(reveal);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [detail, tab, messageIndex, selectionVersion]);
+  const selectedMessage = messageIndex === undefined ? undefined : detail?.call.messages[messageIndex];
   const system = detail?.call.messages.filter(message => message.role === "system").map(message => message.content).join("\n") ?? "";
   const previous = detail?.previousSystem;
   const oldLines = previous?.split("\n") ?? [], newLines = system.split("\n");
@@ -26,15 +64,23 @@ export function ModelInputInspector({ goalId, runId, callId, initialTab = "Messa
   while (prefix < Math.min(oldLines.length, newLines.length) && oldLines[prefix] === newLines[prefix]) prefix++;
   while (suffix < Math.min(oldLines.length, newLines.length) - prefix && oldLines[oldLines.length - suffix - 1] === newLines[newLines.length - suffix - 1]) suffix++;
   const diff = [...newLines.slice(0, prefix).map(text => ({ text, kind: "same" })), ...oldLines.slice(prefix, oldLines.length - suffix).map(text => ({ text, kind: "removed" })), ...newLines.slice(prefix, newLines.length - suffix).map(text => ({ text, kind: "added" })), ...newLines.slice(newLines.length - suffix).map(text => ({ text, kind: "same" }))];
-  return createPortal(<section className="tr-inspector mi-inspector" aria-label="Model prompt details"><header><span>Model input</span><span>{detail ? `Step ${detail.call.stepIndex} / ${detail.call.stage}` : "Request"}</span><button aria-label="Close prompt details" onClick={onClose}><X size={15}/></button></header><div className="tr-detail-title"><h3>{result?.label ?? "Input prepared for the model"}</h3><code>{callId ?? "Not recorded"}</code></div><div className="tr-detail-tabs">{["Messages", "System Prompt", "Diff", "Source", "Raw"].map(value => <button key={value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>{value}</button>)}</div>
-    <div className="tr-detail-body">{error ? <p role="alert">{error}{error === "Could not read model input. Retry this request." && <button onClick={() => setRetry(value => value + 1)}>Retry input</button>}</p> : !detail ? <p role="status">Loading recorded input…</p> : <>
-      {result?.entry && <div className={`mi-result ${result.status}`}><strong>{result.label}</strong><p>{result.status === "rejected" ? result.entry.preview : "A committed context frame records the accepted output."}</p>{onViewResult && <button onClick={() => onViewResult(result.entry!)}>View {result.status === "rejected" ? "rejection" : "accepted frame"} details</button>}</div>}
+  return <section className="tr-inspector mi-inspector" aria-label="Model prompt details"><header><span>Model input</span><span>{detail ? `Step ${detail.call.stepIndex} / ${detail.call.stage}` : "Request"}</span><button aria-label="Close prompt details" onClick={onClose}><X size={15}/></button></header><div className="tr-detail-title"><h3>{selectedMessage ? messageTitle(selectedMessage) : "Model request"}</h3><code>{callId ?? "Not recorded"}</code></div><div className="tr-detail-tabs">{["Messages", "System Prompt", "Diff", "Source", "Raw"].map(value => <button key={value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>{value}</button>)}</div>
+    <div className="tr-detail-body" ref={body}>{error ? <p role="alert">{error}{error === "Could not read model input. Retry this request." && <button onClick={() => setRetry(value => value + 1)}>Retry input</button>}</p> : !detail ? <p role="status">Loading recorded input…</p> : <>
+      {result?.entry && <div className={`mi-result ${result.status}`}><strong>{result.label}</strong>{result.status === "rejected" && <p>{result.entry.preview}</p>}{onViewResult && <button onClick={() => onViewResult(result.entry!)}>View {result.status === "rejected" ? "rejection" : "accepted frame"} details</button>}</div>}
       <div className="mi-version"><span>System {detail.systemVersion.slice(0, 8)}</span><span>{previous === null ? "First recorded" : previous === system ? "Unchanged · version reused" : "Changed from previous request"}</span></div>
-      {tab === "Messages" ? detail.call.messages.map((message, index) => <details className={`mi-message ${message.source === "conversation" ? message.role : message.role === "system" ? "system" : "context"}`} key={index} open={message.role !== "system"}><summary><span>{index + 1}</span><strong>{message.role === "system" ? "System" : message.role === "assistant" ? "Assistant" : message.role === "tool" ? "Tool result" : message.source === "conversation" ? "User" : "Context"}</strong><small>{message.source} · role: {message.role}</small></summary><pre>{message.role === "tool" || message.role === "assistant" && message.continuation !== undefined ? JSON.stringify(message, null, 2) : message.content}</pre></details>)
+      {tab === "Messages" ? detail.call.messages.map((message, index) => <details data-message-index={index} className={`mi-message ${messageIndex === index ? "is-selected" : ""} ${message.source === "conversation" ? message.role : message.role === "system" ? "system" : "context"}`} key={index} open={messageIndex === undefined ? message.role !== "system" : messageIndex === index}><summary><span>{index + 1}</span><strong>{messageTitle(message)}</strong><small title={`Role: ${message.role}`}>{message.source}</small></summary><pre>{message.role === "tool" || message.role === "assistant" && message.continuation !== undefined ? JSON.stringify(message, null, 2) : message.content}</pre></details>)
         : tab === "System Prompt" ? <pre>{system || "No system message in this recorded request."}</pre>
         : tab === "Diff" ? previous === null ? <p>First recorded system prompt. No earlier request in this Run.</p> : previous === system ? <p>System prompt unchanged. The saved version is reused.</p> : diff.length > 2000 ? <p>Diff exceeds 2,000 lines. View complete text in System Prompt or Raw.</p> : <><p>Compared with {detail.previousCallId}. Common prefix and suffix are preserved; the changed region is highlighted.</p><div className="mi-diff">{diff.map((line, index) => <div className={line.kind} key={index}><span>{line.kind === "added" ? "+" : line.kind === "removed" ? "−" : " "}</span><code>{line.text}</code></div>)}</div></>
         : tab === "Source" ? <><dl><div><dt>Call</dt><dd>{detail.call.callId}</dd></div><div><dt>Execution unit</dt><dd>{detail.call.executionUnitId ?? "Unavailable"}</dd></div><div><dt>Stage</dt><dd>{detail.call.stage}</dd></div><div><dt>Prepared at</dt><dd>{detail.call.occurredAt}</dd></div><div><dt>Previous request</dt><dd>{detail.previousCallId ?? "None"}</dd></div></dl><p>Recorded before the Adapter call. This record does not confirm provider receipt and is independent of Snapshot commits.</p></>
         : <pre>{JSON.stringify(detail.call, null, 2)}</pre>}
     </>}</div><footer><button disabled={!detail} onClick={async () => { try { await navigator.clipboard.writeText(tab === "System Prompt" ? system : JSON.stringify(detail?.call, null, 2)); setCopied("Copied"); } catch { setCopied("Copy failed"); } }}><Copy size={12}/>{copied}</button><div/><small>Complete saved messages</small></footer>
-  </section>, document.querySelector(".trajectory-view")!);
+  </section>;
+}
+
+function messageTitle(message: BrowserModelInputDetail["call"]["messages"][number]): string {
+  const section = /^\[Dynamic section(?: update)?: ([^;]+);/.exec(message.content)?.[1];
+  const titles: Record<string, string> = { run_mode: "Run mode", authorized_tools: "Authorized tools", working_memory: "Working memory" };
+  if (section) return titles[section] ?? section;
+  if (message.source === "working_context") return "Working context";
+  return message.role === "system" ? "System" : message.role === "assistant" ? "Assistant" : message.role === "tool" ? "Tool result" : message.source === "conversation" || message.source === "native_history" ? "User" : "Context";
 }

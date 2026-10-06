@@ -1,4 +1,4 @@
-import { JsonFileModelInputStore } from "../../../packages/storage/src/index";
+import { JsonFileModelInputStore, JsonFileModelPreferenceStore } from "../../../packages/storage/src/index";
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
@@ -228,8 +228,11 @@ root.notifyingStore.onSave((goal) => {
 const commands = new BrowserGoalCommandService({
     store: root.workspaceGoalStore,
     saveNotifications: root.notifyingStore,
-    launcher: root.launcher,
+    launcher: root.browserLauncher,
     coordinator: root.coordinator,
+    defaultModelSelection: root.defaultModelSelection,
+    resolveModelSelection: async (modelId) => modelId === root.defaultModelSelection.modelId || modelId === "model-b"
+        ? { ...root.defaultModelSelection, modelId } : undefined,
     profileId: root.profile.id,
     control: { signal: root.abortController.signal },
 });
@@ -238,6 +241,7 @@ const streams = new BrowserGoalStreamService({
     saveNotifications: root.notifyingStore,
     publisher: root.executionStream,
 });
+const modelPreferenceStore = new JsonFileModelPreferenceStore(root.workspaceHomeDirectory);
 root.httpService.mount("/", createBrowserGoalRoutes({
     list: () => listBrowserGoals(root.workspaceGoalStore),
     read: (goalId) => readBrowserGoalSession(
@@ -261,6 +265,31 @@ root.httpService.mount("/", createBrowserGoalRoutes({
         activeGoalId = goalId;
         return commands.enterPlanMode(goalId, command);
     },
+    models: async (target) => ({ ok: true, catalog: {
+        provider: root.defaultModelSelection.provider,
+        currentModelId: target === undefined
+            ? (await modelPreferenceStore.get())?.modelId ?? root.defaultModelSelection.modelId
+            : (await root.workspaceGoalStore.restore(target.goalId))?.state.modelSelection.modelId ?? root.defaultModelSelection.modelId,
+        models: [{
+            id: root.defaultModelSelection.modelId,
+            displayName: "Deterministic test model",
+            availabilitySource: "configured",
+            metadataSource: "configured",
+            selectable: true,
+        }, {
+            id: "model-b",
+            displayName: "Alternate test model",
+            availabilitySource: "configured",
+            metadataSource: "configured",
+            selectable: true,
+        }],
+    } }),
+    setModelPreference: async (modelId) => {
+        if (modelId !== root.defaultModelSelection.modelId && modelId !== "model-b") return { ok: false, error: "model_not_selectable" };
+        await modelPreferenceStore.set({ provider: root.defaultModelSelection.provider, modelId });
+        return { ok: true, modelId };
+    },
+    selectModel: (goalId, command) => commands.selectModel(goalId, command),
     openStream: (goalId, runId, signal) => streams.open(goalId, runId, signal),
 }));
 root.httpService.mount("/", createBrowserTrajectoryRoutes(root.workspaceGoalStore, root.readWorkspaceTrajectory));

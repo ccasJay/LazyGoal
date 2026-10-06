@@ -281,3 +281,38 @@ test("草稿模型由服务端验证，创建快照使用已确认选择且冲�
     });
     assert.deepEqual(launches, ["gpt-selected"]);
 });
+
+test("省略模型的创建首次冻结偏好，相同 Goal ID 重试不因偏好变化冲突", async () => {
+    const store = new NotifyingMemoryStore();
+    const first = { provider: "openai", modelId: "model-a", structuredOutputMode: "two_stage" as const, inputEstimator: { kind: "character-v1" as const } };
+    const second = { ...first, modelId: "model-b" };
+    let preference = first;
+    const launches: string[] = [];
+    const service = new BrowserGoalCommandService({
+        store,
+        saveNotifications: store,
+        profileId: "default",
+        defaultModelSelection: first,
+        resolveDefaultModelSelection: async () => preference,
+        launcher: {
+            async launch(request) {
+                launches.push(request.modelSelection!.modelId);
+                const base = goalFor(request.goalId, request.intent);
+                const goal: Goal = { ...base, state: { ...base.state, modelSelection: request.modelSelection! } };
+                await store.save(goal);
+                return terminal(goal);
+            },
+        },
+        coordinator: {
+            async resume() { throw new Error("unused"); },
+            async continue() { throw new Error("unused"); },
+            async enterPlanMode() { throw new Error("unused"); },
+        },
+    });
+    assert.equal((await service.create({ goalId: "goal-1", intent: "Inspect" })).ok, true);
+    preference = second;
+    assert.deepEqual(await service.create({ goalId: "goal-1", intent: "Inspect" }), {
+        ok: true, goalId: "goal-1", runId: "run-goal-1", existing: true,
+    });
+    assert.deepEqual(launches, ["model-a"]);
+});

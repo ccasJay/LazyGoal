@@ -106,8 +106,12 @@ export const browserApi = {
     return requestJson(path, isModelCatalog, signal);
   },
 
-  selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<{ readonly ok: true; readonly modelId: string }> {
+  selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<{ readonly ok: true; readonly modelId: string; readonly defaultModelSaved: boolean }> {
     return postJson(`/api/goals/${encodeURIComponent(goalId)}/model-selection`, command, isModelSelectionAccepted);
+  },
+
+  setModelPreference(modelId: string): Promise<{ readonly ok: true; readonly modelId: string }> {
+    return postJson("/api/project/model-preference", { modelId }, isModelPreferenceAccepted);
   },
 
   interact(
@@ -340,6 +344,7 @@ function isModelCatalog(value: unknown): value is BrowserModelCatalog {
   return isRecord(value)
     && isNonEmptyString(value.provider)
     && isNonEmptyString(value.currentModelId)
+    && (value.defaultModelNotice === undefined || value.defaultModelNotice === "provider_changed" || value.defaultModelNotice === "model_unavailable")
     && Array.isArray(value.models)
     && value.models.every((model) => isRecord(model)
       && isNonEmptyString(model.id)
@@ -354,7 +359,11 @@ function isModelCatalog(value: unknown): value is BrowserModelCatalog {
       && (model.unavailableReason === undefined || typeof model.unavailableReason === "string"));
 }
 
-function isModelSelectionAccepted(value: unknown): value is { readonly ok: true; readonly modelId: string } {
+function isModelSelectionAccepted(value: unknown): value is { readonly ok: true; readonly modelId: string; readonly defaultModelSaved: boolean } {
+  return isRecord(value) && value.ok === true && isNonEmptyString(value.modelId) && typeof value.defaultModelSaved === "boolean";
+}
+
+function isModelPreferenceAccepted(value: unknown): value is { readonly ok: true; readonly modelId: string } {
   return isRecord(value) && value.ok === true && isNonEmptyString(value.modelId);
 }
 
@@ -600,8 +609,8 @@ function isInputIdentity(value: unknown): value is Record<string, unknown> {
     && typeof value.occurredAt === "string" && (value.executionUnitId === undefined || isNonEmptyString(value.executionUnitId));
 }
 function isInputMessage(value: unknown): value is Record<string, unknown> {
-  return isRecord(value) && ["system", "user", "assistant"].includes(String(value.role))
-    && ["system", "conversation", "section", "working_context", "stage", "request"].includes(String(value.source));
+  return isRecord(value) && ["system", "user", "assistant", "tool"].includes(String(value.role))
+    && ["system", "conversation", "section", "working_context", "stage", "request", "native_history"].includes(String(value.source));
 }
 function isModelInputs(value: unknown): value is { calls: BrowserModelInputSummary[]; total: number; nextOffset: number | null } {
   return isRecord(value) && nullableSequence(value.nextOffset) && Number.isSafeInteger(value.total) && Number(value.total) >= 0 && Array.isArray(value.calls)

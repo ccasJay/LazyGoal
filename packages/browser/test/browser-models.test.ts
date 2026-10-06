@@ -21,6 +21,7 @@ function makePort(
         message: async () => ({ ok: false, error: "message_failed" }),
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models,
+        setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
         selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
         openStream: async () => ({ ok: false, error: "goal_not_found" }),
     };

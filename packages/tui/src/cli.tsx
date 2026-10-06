@@ -49,6 +49,7 @@ import {
     JsonFileToolGrantStore,
     JsonFileSandboxGrantStore,
     JsonFileProjectPermissionModeStore,
+    JsonFileModelPreferenceStore,
     JsonFileProcessSessionStore,
 } from "../../storage/src/index";
 import {
@@ -67,7 +68,9 @@ import {
     createBrowserStaticRoutes,
     listBrowserGoals,
     projectBrowserModelCatalog,
+    resolveBrowserDraftModelCatalog,
     readBrowserGoalSession,
+    type BrowserModelCatalog,
 } from "../../browser/src/index";
 import { createSessionMetricsRoutes, SessionMetricsService } from "../../session-metrics/src/index";
 import {
@@ -531,6 +534,8 @@ export interface CompositionRootOptions {
 export interface CompositionRoot {
     /** `realpath(process.cwd())` 得到的工作区根。 */
     readonly workspaceRoot: string;
+    /** 工作区级私有偏好所在的 LazyGoal Home 目录，与可覆盖的 Goal 数据目录独立。 */
+    readonly workspaceHomeDirectory: string;
     /** 当前使用的持久化根目录（默认为 LazyGoal Home 下当前 workspace 的目录）。 */
     readonly dataDirectory: string;
     /** 项目级 Goal 快照目录。 */
@@ -1217,6 +1222,7 @@ export async function createCompositionRoot(
 
     return {
         workspaceRoot,
+        workspaceHomeDirectory: workspaceHomePaths.workspaceDirectory,
         dataDirectory,
         goalsDirectory,
         trajectoriesDirectory,
@@ -1699,6 +1705,36 @@ async function runBrowserSessionCli(
         if (!existsSync(join(staticDirectory, "index.html"))) {
             process.stderr.write("警告: WebUI 尚未构建，已启用引导模式。可运行 npm run build:web 进行构建。\n");
         }
+        const preferenceStore = new JsonFileModelPreferenceStore(root.workspaceHomeDirectory);
+        const configuredSelection = root.defaultModelSelection;
+        const configuredProvider = root.llmConfig?.provider;
+        const readDraftModel = async (signal?: AbortSignal): Promise<{
+            readonly catalog: BrowserModelCatalog;
+            readonly selection: GoalModelSelection | undefined;
+        }> => {
+            if (root.llmConfig === undefined || configuredProvider === undefined) {
+                throw new Error("Model catalog unavailable.");
+            }
+            const preference = await preferenceStore.get();
+            const models = await root.modelCatalog.list(
+                { ...root.llmConfig, model: configuredSelection.modelId },
+                { signal, requireTokenCapacity: configuredSelection.inputEstimator.kind === "token-encoding" },
+            );
+            const { catalog, selected } = resolveBrowserDraftModelCatalog(
+                configuredProvider, configuredSelection.modelId, preference, models,
+            );
+            return {
+                catalog,
+                selection: selected === undefined ? undefined : {
+                    provider: configuredProvider,
+                    modelId: selected.id,
+                    structuredOutputMode: configuredSelection.structuredOutputMode,
+                    ...(selected.contextWindowTokens === undefined ? {} : { contextWindowTokens: selected.contextWindowTokens }),
+                    ...(selected.maxOutputTokens === undefined ? {} : { maxOutputTokens: selected.maxOutputTokens }),
+                    inputEstimator: configuredSelection.inputEstimator,
+                },
+            };
+        };
         const commandService = new BrowserGoalCommandService({
             store: root.workspaceGoalStore,
             saveNotifications: root.notifyingStore,
@@ -1706,6 +1742,8 @@ async function runBrowserSessionCli(
             coordinator: root.coordinator,
             modelSelectionCoordinator: root.goalModelSelectionCoordinator,
             defaultModelSelection: root.defaultModelSelection,
+            resolveDefaultModelSelection: async () => (await readDraftModel()).selection,
+            saveModelPreference: (selection) => preferenceStore.set({ provider: selection.provider, modelId: selection.modelId }),
             restoreModelBinding: async (goal) => {
                 const provider = root.llmConfig?.provider ?? root.defaultModelSelection.provider;
                 if (goal.state.modelSelection.provider !== provider) return false;
@@ -1768,7 +1806,38 @@ async function runBrowserSessionCli(
             message: (goalId, command) => commandService.message(goalId, command),
             enterPlanMode: (goalId, command) => commandService.enterPlanMode(goalId, command),
             selectModel: (goalId, command) => commandService.selectModel(goalId, command),
+            setModelPreference: async (modelId) => {
+                if (root.llmConfig === undefined) return { ok: false, error: "model_catalog_unavailable" };
+                let selectable = false;
+                try {
+                    const models = await root.modelCatalog.list(
+                        { ...root.llmConfig, model: configuredSelection.modelId },
+                        { requireTokenCapacity: configuredSelection.inputEstimator.kind === "token-encoding" },
+                    );
+                    selectable = models.some((model) => model.provider === root.llmConfig?.provider && model.id === modelId && model.selectable);
+                } catch {
+                    return { ok: false, error: "model_catalog_unavailable" };
+                }
+                if (!selectable) return { ok: false, error: "model_not_selectable" };
+                try {
+                    await preferenceStore.set({ provider: root.llmConfig.provider, modelId });
+                    return { ok: true, modelId };
+                } catch {
+                    return { ok: false, error: "model_preference_unavailable" };
+                }
+            },
             models: async (target, signal) => {
+                if (target === undefined) {
+                    try {
+                        return { ok: true, catalog: (await readDraftModel(signal)).catalog };
+                    } catch (error) {
+                        if (!(error instanceof ModelCatalogError)) return { ok: false, error: "model_catalog_unavailable" };
+                        if (error.kind === "authentication") return { ok: false, error: "model_catalog_authentication" };
+                        if (error.kind === "permission") return { ok: false, error: "model_catalog_permission" };
+                        if (error.kind === "protocol") return { ok: false, error: "model_catalog_protocol" };
+                        return { ok: false, error: "model_catalog_unavailable" };
+                    }
+                }
                 let currentModelId = root.defaultModelSelection.modelId;
                 let requireTokenCapacity = root.defaultModelSelection.inputEstimator.kind === "token-encoding";
                 if (target !== undefined) {

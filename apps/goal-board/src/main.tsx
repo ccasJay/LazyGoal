@@ -123,10 +123,15 @@ function App() {
   const [draftSessionOpen, setDraftSessionOpen] = useState(false);
   const [draftPlanMode, setDraftPlanMode] = useState(false);
   const [draftModelId, setDraftModelId] = useState<string | null>(null);
+  const [draftModelCatalog, setDraftModelCatalog] = useState<BrowserModelCatalog | null>(null);
+  const [draftModelError, setDraftModelError] = useState<string | null>(null);
+  const [modelPreferenceRetry, setModelPreferenceRetry] = useState<string | null>(null);
   const [modelPickerTarget, setModelPickerTarget] = useState<ModelPickerTarget | null>(null);
   const [currentModelCatalog, setCurrentModelCatalog] = useState<BrowserModelCatalog | null>(null);
   const [modelCatalogRefreshKey, setModelCatalogRefreshKey] = useState(0);
   const draftGoalId = useRef<string | null>(null);
+  const draftGeneration = useRef(0);
+  const draftLoadVersion = useRef(0);
   const timeline = useRef<HTMLDivElement>(null);
   const latestSession = useRef<BrowserGoalSession | null>(null);
   const activeGoal = goals.find((goal) => goal.goalId === selectedGoalId);
@@ -140,6 +145,8 @@ function App() {
   const currentModelName = currentModelCatalog === null ? "Current model unavailable"
     : currentModelCatalog.models.find((model) => model.id === currentModelCatalog.currentModelId)?.displayName
       ?? currentModelCatalog.currentModelId;
+  const draftModelName = draftModelId === null ? (draftModelCatalog === null && draftModelError === null ? "Loading model…" : "Choose model")
+    : draftModelCatalog?.models.find((model) => model.id === draftModelId)?.displayName ?? draftModelId;
   const canSwitchCurrentModel = session !== null
     && (session.runStatus === "waiting" || session.runStatus === "completed" || session.runStatus === "failed")
     && session.pendingAction === undefined;
@@ -585,8 +592,13 @@ function App() {
 
   function openNewGoalDraft() {
     setModelPickerTarget(null);
+    setModelPreferenceRetry(null);
     draftGoalId.current = null;
     setDraftModelId(null);
+    setDraftModelCatalog(null);
+    setDraftModelError(null);
+    const generation = ++draftGeneration.current;
+    void loadDraftDefault(generation);
     setSelectedGoalId(null);
     setDraftPlanMode(false);
     setDraftSessionOpen(true);
@@ -596,8 +608,25 @@ function App() {
 
   function closeSession() {
     setModelPickerTarget(null);
+    setModelPreferenceRetry(null);
     setSelectedGoalId(null);
     setDraftSessionOpen(false);
+    draftGeneration.current += 1;
+  }
+
+  async function loadDraftDefault(generation: number) {
+    const version = ++draftLoadVersion.current;
+    setDraftModelError(null);
+    try {
+      const catalog = await browserApi.listModels();
+      if (generation !== draftGeneration.current || version !== draftLoadVersion.current) return;
+      setDraftModelCatalog(catalog);
+      const selected = catalog.models.find((model) => model.id === catalog.currentModelId && model.selectable);
+      setDraftModelId(selected?.id ?? null);
+    } catch {
+      if (generation !== draftGeneration.current || version !== draftLoadVersion.current) return;
+      setDraftModelError("Could not load the new Goal model. Retry or choose a model.");
+    }
   }
 
   async function submitDraftMessage(content: string): Promise<boolean> {
@@ -618,6 +647,10 @@ function App() {
     }
     const intent = dispatched.content.trim();
     if (!intent || commandBusy) return false;
+    if (draftModelId === null) {
+      setCommandError("Choose an available model before creating this Goal.");
+      return false;
+    }
     setCommandBusy(true);
     setCommandError(null);
     try {
@@ -627,7 +660,7 @@ function App() {
         goalId,
         intent,
         ...(draftPlanMode ? { mode: "plan" as const } : {}),
-        ...(draftModelId === null ? {} : { modelId: draftModelId }),
+        modelId: draftModelId,
       });
       setDraftSessionOpen(false);
       setSelectedGoalId(result.goalId);
@@ -635,6 +668,9 @@ function App() {
       return true;
     } catch (error) {
       setCommandError(errorMessage(error));
+      if (error instanceof BrowserApiError && ["model_not_selectable", "model_catalog_unavailable", "goal_busy"].includes(error.code)) {
+        draftGoalId.current = null;
+      }
       return false;
     } finally {
       setCommandBusy(false);
@@ -704,13 +740,28 @@ function App() {
     }
   }
 
-  async function chooseModel(target: ModelPickerTarget, modelId: string): Promise<void> {
+  async function chooseModel(target: ModelPickerTarget, model: BrowserModelOption, catalog: BrowserModelCatalog): Promise<void> {
+    const modelId = model.id;
     if (target.kind === "draft") {
+      if (draftGoalId.current !== null) throw new Error("Retry this Goal with its original model before changing it.");
+      const generation = draftGeneration.current;
+      draftLoadVersion.current += 1;
+      try {
+        await browserApi.setModelPreference(modelId);
+      } catch (error) {
+        if (generation === draftGeneration.current && draftModelId === null) void loadDraftDefault(generation);
+        throw error;
+      }
+      if (generation !== draftGeneration.current) return;
+      setDraftModelCatalog({ ...catalog, currentModelId: modelId, defaultModelNotice: undefined });
       setDraftModelId(modelId);
+      setDraftModelError(null);
       return;
     }
     try {
-      await browserApi.selectModel(target.goalId, { runId: target.runId, modelId });
+      const result = await browserApi.selectModel(target.goalId, { runId: target.runId, modelId });
+      setModelPreferenceRetry(result.defaultModelSaved ? null : modelId);
+      setCommandError(result.defaultModelSaved ? null : "Model switched, but the new Goal default was not saved.");
       if (latestSession.current?.goalId === target.goalId) {
         setModelCatalogRefreshKey((current) => current + 1);
         await refreshSelectedSession();
@@ -720,6 +771,18 @@ function App() {
         await refreshSelectedSession();
       }
       throw error;
+    }
+  }
+
+  async function retryModelPreference() {
+    const modelId = modelPreferenceRetry;
+    if (modelId === null) return;
+    try {
+      await browserApi.setModelPreference(modelId);
+      setModelPreferenceRetry(null);
+      setCommandError(null);
+    } catch (error) {
+      setCommandError(`Could not save the new Goal default: ${errorMessage(error)}`);
     }
   }
 
@@ -874,6 +937,16 @@ function App() {
                         <button aria-label="Dismiss error" onClick={() => setCommandError(null)}><X size={13} /></button>
                       </div>
                     )}
+                    {draftModelCatalog?.defaultModelNotice && <div className="command-error" role="status">
+                      {draftModelCatalog.defaultModelNotice === "provider_changed"
+                        ? `Saved model belongs to a different provider. ${draftModelId === null ? "Choose an available model." : `Using configured default: ${draftModelName}.`}`
+                        : `Saved model is unavailable. ${draftModelId === null ? "Choose an available model." : `Using configured default: ${draftModelName}.`}`}
+                    </div>}
+                    {draftModelCatalog !== null && draftModelId === null && <div className="command-error" role="alert">Configured default model is unavailable. Choose another model.</div>}
+                    {draftModelError !== null && <div className="command-error" role="alert">
+                      <span>{draftModelError}</span>
+                      <button type="button" onClick={() => void loadDraftDefault(draftGeneration.current)}>Retry</button>
+                    </div>}
                     <div className="composer-area">
                       <MessageComposer
                         key="new-goal-draft"
@@ -883,12 +956,13 @@ function App() {
                         footerControls={<>
                           {renderPermissionControl(false)}
                           <CurrentModelControl
-                            label={draftModelId ?? "Choose model"}
-                            enabled={!commandBusy}
+                            label={draftModelName}
+                            enabled={!commandBusy && draftGoalId.current === null}
                             onClick={() => setModelPickerTarget({ kind: "draft" })}
                           />
                         </>}
                         onSubmit={submitDraftMessage}
+                        sendDisabled={draftModelId === null}
                       />
                     </div>
                   </>
@@ -1052,6 +1126,7 @@ function App() {
                     {sessionTab !== "Board" && commandError && (
                       <div className="command-error" role="alert">
                         <span>{commandError}</span>
+                        {modelPreferenceRetry !== null && <button type="button" onClick={() => void retryModelPreference()}>Retry saving default</button>}
                         <button aria-label="Dismiss error" onClick={() => setCommandError(null)}><X size={13} /></button>
                       </div>
                     )}
@@ -1124,7 +1199,7 @@ function App() {
           key={modelPickerTarget.kind === "draft" ? "draft" : `${modelPickerTarget.goalId}:${modelPickerTarget.runId}`}
           target={modelPickerTarget}
           selectedId={modelPickerTarget.kind === "draft" ? draftModelId : null}
-          onSelect={(modelId) => chooseModel(modelPickerTarget, modelId)}
+          onSelect={(model, catalog) => chooseModel(modelPickerTarget, model, catalog)}
           onClose={() => setModelPickerTarget(null)}
           onDone={() => setModelPickerTarget((current) => current === modelPickerTarget ? null : current)}
         />
@@ -1433,7 +1508,7 @@ function SessionMetricsBar({ state }: { state?: MetricsState }) {
 function ModelPicker({ target, selectedId, onSelect, onClose, onDone }: {
   target: ModelPickerTarget;
   selectedId: string | null;
-  onSelect: (modelId: string) => Promise<void>;
+  onSelect: (model: BrowserModelOption, catalog: BrowserModelCatalog) => Promise<void>;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -1463,7 +1538,8 @@ function ModelPicker({ target, selectedId, onSelect, onClose, onDone }: {
     setBusyId(model.id);
     setError(null);
     try {
-      await onSelect(model.id);
+      if (catalog === null) return;
+      await onSelect(model, catalog);
       if (mounted.current) onDone();
     } catch (failure) {
       if (mounted.current) setError(errorMessage(failure));
@@ -1507,6 +1583,7 @@ function ModelPicker({ target, selectedId, onSelect, onClose, onDone }: {
 
 function MessageComposer({
   busy,
+  sendDisabled = false,
   placeholder,
   footerControls,
   onSubmit,
@@ -1514,6 +1591,7 @@ function MessageComposer({
   showHint = true,
 }: {
   busy: boolean;
+  sendDisabled?: boolean;
   placeholder: string;
   onSubmit: (content: string) => Promise<boolean>;
   footerControls?: ReactNode;
@@ -1599,7 +1677,7 @@ function MessageComposer({
           <div className="composer-controls">
             {footerControls}
           </div>
-          <button type="submit" className="send" aria-label="Send message" disabled={busy || !draft.trim()}>
+          <button type="submit" className="send" aria-label="Send message" disabled={busy || sendDisabled || !draft.trim()}>
             {busy ? <span className="loading-mark small" /> : <ArrowUp size={16} />}
           </button>
         </div>

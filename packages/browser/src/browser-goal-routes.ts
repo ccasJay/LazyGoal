@@ -46,6 +46,7 @@ const MAX_COMMAND_TEXT_LENGTH = 4_000;
  *     message: async () => ({ ok: false, error: "message_failed" }),
  *     enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
  *     models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+ *     setModelPreference: async () => ({ ok: false, error: "model_catalog_unavailable" }),
  *     selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
  *     openStream: async () => ({ ok: false, error: "goal_not_found" }),
  * };
@@ -123,6 +124,16 @@ export interface BrowserGoalApiPort {
      * @returns 白名单目录或稳定失败分类，不返回凭据或 Provider 原始响应。
      */
     models(target?: { readonly goalId: string; readonly runId: string }, signal?: AbortSignal): Promise<BrowserModelCatalogReadResult>;
+    /**
+     * 验证并保存当前工作区新 Goal 的默认模型身份。
+     *
+     * @param modelId - 当前 Provider 中须可选择的模型 ID。
+     * @returns 持久化成功或稳定失败；文件写入失败不得报告成功。
+     */
+    setModelPreference(modelId: string): Promise<
+        { readonly ok: true; readonly modelId: string }
+        | { readonly ok: false; readonly error: "model_not_selectable" | "model_catalog_unavailable" | "model_preference_unavailable" }
+    >;
     /** 保存由服务端重新验证的当前 Run 模型选择。 */
     selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<BrowserModelSelectionResult>;
     /**
@@ -213,6 +224,27 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
                 : context.json({ error: result.error, refresh: result.error === "stale_run" }, modelCatalogErrorStatus(result.error));
         } catch {
             return context.json({ error: "model_catalog_unavailable" }, 503);
+        }
+    });
+
+    routes.post("/api/project/model-preference", async (context) => {
+        const body = await readJsonBody(context.req.raw);
+        if (!body.ok) return context.json({ error: body.error }, body.status);
+        const value = body.value;
+        if (typeof value !== "object" || value === null || Array.isArray(value)) {
+            return context.json({ error: "invalid_model_preference" }, 400);
+        }
+        const fields = value as Record<string, unknown>;
+        const modelId = readWireText(fields.modelId, 256);
+        if (Object.keys(fields).length !== 1 || modelId === undefined) {
+            return context.json({ error: "invalid_model_preference" }, 400);
+        }
+        try {
+            const result = await source.setModelPreference(modelId);
+            if (result.ok) return context.json(result);
+            return context.json({ error: result.error }, result.error === "model_not_selectable" ? 409 : 503);
+        } catch {
+            return context.json({ error: "model_preference_unavailable" }, 503);
         }
     });
 

@@ -60,6 +60,7 @@ export { JsonFileTrajectoryStore } from "./json-file-trajectory-store";
 export { JsonFileToolGrantStore } from "./json-file-tool-grant-store";
 export { JsonFileSandboxGrantStore } from "./json-file-sandbox-grant-store";
 export { JsonFileProjectPermissionModeStore } from "./json-file-project-permission-mode-store";
+export { JsonFileModelPreferenceStore } from "./json-file-model-preference-store";
 export {
     JsonFileMetricsStore,
     MODEL_CALL_METRIC_STORE_PROTOCOL_ERROR_CODE,

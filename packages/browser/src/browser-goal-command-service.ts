@@ -42,7 +42,7 @@ export interface BrowserCreateGoalCommand {
     readonly intent: string;
     /** 首个 Run 的显式模式；省略时使用 Normal Mode。 */
     readonly mode?: "plan";
-    /** 草稿预选的模型 ID；省略时使用进程默认模型。 */
+    /** 草稿预选的模型 ID；省略时由 Web 工作区默认值解析器选择。 */
     readonly modelId?: string;
 }
 
@@ -96,9 +96,9 @@ export interface BrowserModelSelectionCommand {
     readonly modelId: string;
 }
 
-/** 模型选择提交的稳定受理结果；失败不会修改 Goal Snapshot。 */
+/** 模型选择提交的稳定受理结果；偏好写入失败时 Goal 选择仍已提交。 */
 export type BrowserModelSelectionResult =
-    | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly modelId: string }
+    | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly modelId: string; readonly defaultModelSaved: boolean }
     | { readonly ok: false; readonly error: "goal_not_found" | "stale_run" | "goal_busy" | "model_switch_not_allowed" | "model_not_selectable" | "model_catalog_unavailable" | "model_selection_failed" };
 
 /** 白名单化后的当前 Goal/workspace 授权摘要。 */
@@ -455,6 +455,10 @@ export interface BrowserGoalCommandDependencies {
     readonly restoreModelBinding?: (goal: Goal) => Promise<boolean>;
     /** 浏览器创建使用的进程默认模型选择。 */
     readonly defaultModelSelection?: GoalModelSelection;
+    /** Web 创建省略模型时解析当前工作区偏好；失败必须拒绝创建。 */
+    readonly resolveDefaultModelSelection?: () => Promise<GoalModelSelection | undefined>;
+    /** Goal 模型提交后保存 Web 工作区偏好；失败不会撤销已提交选择。 */
+    readonly saveModelPreference?: (selection: GoalModelSelection) => Promise<void>;
     /** 本机 Composition Root 已验证并加载的 Profile ID。 */
     readonly profileId: string;
     /** 与本机 ShutdownCoordinator 共享的可选取消信号。 */
@@ -576,7 +580,16 @@ export class BrowserGoalCommandService {
                             : "model_selection_failed";
                 return { ok: false, error };
             }
-            return { ok: true, goalId, runId: command.runId, modelId: selection.modelId };
+            let defaultModelSaved = false;
+            if (this.dependencies.saveModelPreference !== undefined) {
+                try {
+                    await this.dependencies.saveModelPreference(selection);
+                    defaultModelSaved = true;
+                } catch {
+                    // Goal 模型已提交；偏好失败通过结果字段单独报告。
+                }
+            }
+            return { ok: true, goalId, runId: command.runId, modelId: selection.modelId, defaultModelSaved };
         });
     }
 
@@ -606,7 +619,7 @@ export class BrowserGoalCommandService {
             if (existing !== undefined) {
                 return existing.definition.intent === command.intent
                     && existing.state.run.mode === (command.mode ?? "normal")
-                    && existing.state.modelSelection.modelId === (command.modelId ?? this.dependencies.defaultModelSelection?.modelId ?? existing.state.modelSelection.modelId)
+                    && (command.modelId === undefined || existing.state.modelSelection.modelId === command.modelId)
                     ? {
                         kind: "result",
                         result: {
@@ -625,6 +638,16 @@ export class BrowserGoalCommandService {
 
             const defaultSelection = this.dependencies.defaultModelSelection;
             let modelSelection = defaultSelection;
+            if (command.modelId === undefined && this.dependencies.resolveDefaultModelSelection !== undefined) {
+                try {
+                    modelSelection = await this.dependencies.resolveDefaultModelSelection();
+                } catch {
+                    return { kind: "result", result: { ok: false, error: "model_catalog_unavailable" } };
+                }
+                if (modelSelection === undefined) {
+                    return { kind: "result", result: { ok: false, error: "model_not_selectable" } };
+                }
+            }
             if (command.modelId !== undefined) {
                 if (defaultSelection === undefined || this.dependencies.resolveModelSelection === undefined) {
                     return { kind: "result", result: { ok: false, error: "model_catalog_unavailable" } };

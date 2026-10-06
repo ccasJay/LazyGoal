@@ -441,3 +441,4 @@ export type {
 } from "./process-session-store";
 
 export type { ModelInputMessage, ModelInputRecord, ModelInputStore } from "./model-input";
+export type { ModelPreference, ModelPreferenceStore } from "./model-preference";

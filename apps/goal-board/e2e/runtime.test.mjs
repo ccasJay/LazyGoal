@@ -69,6 +69,9 @@ test("real local service restores and completes one authorized Goal conversation
     });
     await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null");
     assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled"), true);
+    await waitForExpression(socket, "document.querySelector('.composer-area .current-model-control')?.textContent.includes('Deterministic test model')");
+    const draftModel = await api(first.origin, "/api/models", { token: first.token });
+    assert.equal(draftModel.body.currentModelId, "default-model");
     let emptyList = await api(first.origin, "/api/goals", { token: first.token });
     assert.deepEqual(emptyList.body.goals, []);
     assert.deepEqual(await readStatus(statusPath), { modelCalls: 0, toolCalls: 0 });
@@ -83,6 +86,8 @@ test("real local service restores and completes one authorized Goal conversation
     let session = await waitForSession(first.origin, first.token, (candidate) => candidate.pendingInteraction?.kind === "ask_user");
     const goalId = session.goalId;
     const firstRunId = session.currentRunId;
+    const createdModel = await api(first.origin, `/api/goals/${goalId}/models?runId=${firstRunId}`, { token: first.token });
+    assert.equal(createdModel.body.currentModelId, draftModel.body.currentModelId, "created Goal uses the displayed draft model");
     const firstRequestId = session.pendingInteraction.requestId;
     assert.equal(session.intent, "Collect approved notes and store one source record");
     assert.equal(session.runStatus, "waiting");
@@ -104,12 +109,22 @@ test("real local service restores and completes one authorized Goal conversation
     assert.equal(plainTextAtAskUser.body.error, "structured_interaction_required");
     assert.deepEqual(await readStatus(statusPath), { modelCalls: 1, toolCalls: 0 });
 
+    const savedPreference = await api(first.origin, "/api/project/model-preference", {
+      token: first.token,
+      method: "POST",
+      headers: { "content-type": "application/json", origin: first.origin },
+      body: JSON.stringify({ modelId: "model-b" }),
+    });
+    assert.deepEqual(savedPreference.body, { ok: true, modelId: "model-b" });
+    assert.equal((await api(first.origin, `/api/goals/${goalId}/models?runId=${firstRunId}`, { token: first.token })).body.currentModelId, "default-model");
+
     await stopService(service);
     await waitForExpression(socket, "!document.querySelector('.stream-state')?.classList.contains('connected')", 10_000);
     assert.ok(await value(socket, "document.querySelector('.structured-form') !== null"), "disconnect preserves the saved answer form");
 
     service = await startService({ workspace, data, home, statusPath, runOffset: 1, modelOffset: 1 });
     const restarted = await service.ready;
+    assert.equal((await api(restarted.origin, "/api/models", { token: restarted.token })).body.currentModelId, "model-b");
     const expiredToken = await api(restarted.origin, "/api/goals", { token: first.token });
     assert.equal(expiredToken.response.status, 401);
     const restartedCrossOrigin = await api(restarted.origin, "/api/goals", {
@@ -265,6 +280,7 @@ test("real local service restores and completes one authorized Goal conversation
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.draft-timeline') !== null && document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null", 10_000);
+    await waitForExpression(socket, "document.querySelector('.composer-area .current-model-control')?.textContent.includes('Alternate test model')");
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/plan");
     await cdp(socket, "Runtime.evaluate", {
       expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
@@ -281,7 +297,12 @@ test("real local service restores and completes one authorized Goal conversation
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Approve the deterministic plan-flow task?')", 15_000);
     await waitForStatus(statusPath, (status) => status.modelCalls === 7 && status.toolCalls === 1);
-    const approvedList = await api(restarted.origin, "/api/goals", { token: restarted.token });
+    const approvedList = await waitFor(async () => {
+      const response = await api(restarted.origin, "/api/goals", { token: restarted.token });
+      return response.body.goals?.some((goal) => goal.intent.includes("Plan flow") && goal.runStatus === "waiting") ? response : undefined;
+    }, "saved Plan Run approval");
+    const planGoal = approvedList.body.goals.find((goal) => goal.intent.includes("Plan flow"));
+    assert.equal((await api(restarted.origin, `/api/goals/${planGoal.goalId}/models?runId=${planGoal.runId}`, { token: restarted.token })).body.currentModelId, "model-b");
     assert.equal(approvedList.response.status, 200, JSON.stringify(approvedList.body));
     const planWaiting = approvedList.body.goals.some((goal) => goal.intent.includes("Plan flow") && goal.runStatus === "waiting");
     if (!planWaiting) {

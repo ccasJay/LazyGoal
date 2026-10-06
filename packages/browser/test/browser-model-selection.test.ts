@@ -80,6 +80,7 @@ const chosen: GoalModelSelection = {
 function serviceFor(store: Store, resolve = async (modelId: string, current: GoalModelSelection): Promise<GoalModelSelection | undefined> =>
     modelId === "gpt-new" && current.provider === "openai" ? chosen : undefined,
     restoreModelBinding?: (goal: Goal) => Promise<boolean>,
+    saveModelPreference?: (selection: GoalModelSelection) => Promise<void>,
 ): BrowserGoalCommandService {
     return new BrowserGoalCommandService({
         store,
@@ -93,6 +94,7 @@ function serviceFor(store: Store, resolve = async (modelId: string, current: Goa
         },
         modelSelectionCoordinator: new DefaultGoalModelSelectionCoordinator({ store }),
         resolveModelSelection: resolve,
+        ...(saveModelPreference === undefined ? {} : { saveModelPreference }),
         ...(restoreModelBinding === undefined ? {} : { restoreModelBinding }),
     });
 }
@@ -109,10 +111,29 @@ test("安全等待点保存服务端目录验证后的模型，旧 Run 与不可
     });
     assert.equal(store.saves, 0);
     assert.deepEqual(await service.selectModel("goal-1", { runId: "run-1", modelId: "gpt-new" }), {
-        ok: true, goalId: "goal-1", runId: "run-1", modelId: "gpt-new",
+        ok: true, goalId: "goal-1", runId: "run-1", modelId: "gpt-new", defaultModelSaved: false,
     });
     assert.deepEqual(store.goal?.state.modelSelection, chosen);
     assert.equal(store.saves, 1);
+});
+
+test("Goal 切换成功后偏好写入失败报告部分成功，随后可单独重试", async () => {
+    const store = new Store();
+    store.goal = goalFor();
+    let attempts = 0;
+    let preferred: string | undefined;
+    const save = async (selection: GoalModelSelection) => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("disk unavailable");
+        preferred = selection.modelId;
+    };
+    const service = serviceFor(store, undefined, undefined, save);
+    assert.deepEqual(await service.selectModel("goal-1", { runId: "run-1", modelId: "gpt-new" }), {
+        ok: true, goalId: "goal-1", runId: "run-1", modelId: "gpt-new", defaultModelSaved: false,
+    });
+    assert.equal(store.goal?.state.modelSelection.modelId, "gpt-new");
+    await save(chosen);
+    assert.equal(preferred, "gpt-new");
 });
 
 test("Action 审批和取消态拒绝选模；保存失败保留原选择", async () => {
@@ -149,6 +170,7 @@ test("模型提交只接受精确 wire 字段，并隐藏服务端错误内容",
         message: async () => ({ ok: false, error: "message_failed" }),
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+        setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
         selectModel: (goalId, command) => service.selectModel(goalId, command),
         openStream: async () => ({ ok: false, error: "goal_not_found" }),
     };
@@ -163,6 +185,36 @@ test("模型提交只接受精确 wire 字段，并隐藏服务端错误内容",
     const failed = await send({ runId: "run-1", modelId: "gpt-new" });
     assert.equal(failed.status, 503);
     assert.deepEqual(await failed.json(), { error: "model_selection_failed", refresh: false });
+});
+
+test("模型偏好路由严格校验请求并区分不可选与持久化故障", async () => {
+    let writes = 0;
+    const route = createBrowserGoalRoutes({
+        list: async () => [],
+        read: async () => undefined,
+        create: async () => ({ ok: false, error: "goal_create_failed" }),
+        interact: async () => ({ ok: false, error: "interaction_failed" }),
+        message: async () => ({ ok: false, error: "message_failed" }),
+        enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
+        models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+        selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
+        setModelPreference: async (modelId) => {
+            writes += 1;
+            return modelId === "valid" ? { ok: true, modelId }
+                : modelId === "missing" ? { ok: false, error: "model_not_selectable" }
+                    : { ok: false, error: "model_preference_unavailable" };
+        },
+        openStream: async () => ({ ok: false, error: "goal_not_found" }),
+    });
+    const send = (body: unknown) => route.request("http://localhost/api/project/model-preference", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+    assert.equal((await send({ modelId: "valid", provider: "openai" })).status, 400);
+    assert.equal((await send({ modelId: null })).status, 400);
+    assert.equal(writes, 0);
+    assert.equal((await send({ modelId: "missing" })).status, 409);
+    assert.equal((await send({ modelId: "write-failure" })).status, 503);
+    assert.deepEqual(await (await send({ modelId: "valid" })).json(), { ok: true, modelId: "valid" });
 });
 
 test("终态预选与下一 Run 串行，下一 Run 继承新选择且旧请求被拒绝", async () => {

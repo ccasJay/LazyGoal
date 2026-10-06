@@ -10,6 +10,7 @@ export {
 export { createBrowserWorkspaceRoutes, type BrowserWorkspaceContext } from "./browser-workspace";
 export {
     projectBrowserModelCatalog,
+    resolveBrowserDraftModelCatalog,
     type BrowserModelCatalog,
     type BrowserModelCatalogError,
     type BrowserModelCatalogReadResult,

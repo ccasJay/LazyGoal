@@ -27,6 +27,7 @@ function createPort(service: BrowserGoalCommandService): BrowserGoalApiPort {
         message: async (gid, cmd) => service.message(gid, cmd),
         enterPlanMode: async (gid, cmd) => service.enterPlanMode(gid, cmd),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+        setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
         selectModel: async (gid, cmd) => service.selectModel(gid, cmd),
         openStream: async () => ({ ok: false, error: "goal_not_found" }),
         getPermissionMode: () => service.getPermissionMode(),
@@ -178,6 +179,7 @@ test("服务未配置或异常时返回 500 permissions_unavailable 且无敏感
         message: async () => ({ ok: false, error: "message_failed" }),
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+        setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
         selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
         openStream: async () => ({ ok: false, error: "goal_not_found" }),
     };
