@@ -14,7 +14,7 @@
   - 验证方式：`npm test` 中 Model Contracts 的迁移测试、全仓 TypeScript 检查及回归通过；保留的既有断言能验证协议结果，而不是只比较同一实现的重复输出。
   - _Requirements: [1.2](./requirements.md#req-1-2), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [3.1](./requirements.md#req-3-1)_
 
-- [ ] //TODO 3. 迁移模型消息与续接协议
+- [x] //TODO 3. 迁移模型消息与续接协议
 
   - 实现目标：将 `model-conversation.ts` 及其消息、供应商续接 DTO 和校验测试迁入 `@lazygoal/model-contracts`，并由新包唯一公开入口导出。
   - 成功判据：合法与非法消息的接受／拒绝结果、解析语义及续接字段保持不变；新包入口不要求调用方绕过公开入口访问内部文件。
