@@ -45,4 +45,10 @@
 
 ### Latest Result
 
-未执行。执行后按 delivery-loop.md 记录逐项证据、整体状态、时效、被测代码状态及未解决问题。
+- 状态：passed / current；验证时间：2026-10-07 22:58 CST。
+- 被测代码：`7afd22ea24d2a66e75edf136484f28e8048f7513`；工作树干净；Requirements SHA-256 `8d076d7a94dfa30bc3f1d9040aef870a034dda5ef6114cfec1927396b7e37c43`，Design SHA-256 `48867f20ab87c6f6829af2d1a05e4976d146995686923f2c330502229b6c9ba2`，Tasks SHA-256 `dfd8eb1aa99a86147825b2a57f9c01439a3d6b9bdfd90696890ab71271d49ed5`。
+- [1.1–1.3](./requirements.md#req-1-1)：Runtime、Browser recovery、Headless Composition Root 和全量回归通过；TODO 1 的 81 项定向测试通过，覆盖普通/Plan Run、等待点、身份与恢复边界。
+- [2.1–2.4](./requirements.md#req-2-1)：多 Run 恢复、pending Action、执行取消和存储恢复测试通过；TODO 1 的 Browser/PTC 恢复与 TODO 3 的 90 项定向测试覆盖恢复仅读取及已确认效果不重做。
+- [3.1–3.5](./requirements.md#req-3-1)：TODO 2 的 27 项 Trajectory/提交器/失败路径测试及 TODO 3 的 90 项 GoalStore/Action-Observation/Runner 测试通过，覆盖短暂写入故障、落盘后报错、部分行、协议错误、重试耗尽和结果核对。
+- 组合与风险：`npm test` 通过（Node 1,586 项、Benchmark 259 项、GEPA adapter 198 项、scripts 24 项）；`npx tsc --noEmit --pretty false` 通过；`npm run check:dependencies` 通过（218 个源文件）；相关 Architecture 与公开 TSDoc 已随实现更新；`git diff --check` 通过。
+- 首次全量回归因 worktree 缺少 `benchmarks/package-lock.json` 中的 `smol-toml` 未通过；在隔离 worktree 按锁文件安装依赖后重跑，全量回归通过。未解决问题：无。

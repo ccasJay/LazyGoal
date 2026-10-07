@@ -11,7 +11,7 @@
 | Run 执行与持久化恢复职责拆分（A） | [run-execution-persistence-separation](./run-execution-persistence-separation/tasks.md) | Requirements、Design、Tasks 均已获用户批准 | 全部 TODO 完成，Feature Verification passed / current |
 | Run 输入与主动终止（B） | [run-input-control](./run-input-control/tasks.md) | 修订后 Requirements、Design、Tasks 均已获用户批准 | 全部 TODO 完成，Feature Verification passed / current |
 
-当前两项均有 3 个未完成 TODO，Feature Verification 均为未执行。
+A 的 3 个 TODO 均已完成，Feature Verification passed / current；B 尚未开始，3 个 TODO 与 Feature Verification 待执行。
 
 ## 依赖关系与执行顺序
 
@@ -58,7 +58,7 @@
 ## 生命周期状态
 
 - [x] 编排已获用户批准
-- [ ] A Feature Verification passed / current
+- [x] A Feature Verification passed / current（提交 `7afd22ea24d2a66e75edf136484f28e8048f7513`；`npm test`、类型检查、依赖边界与定向恢复/存储测试通过）
 - [ ] B Feature Verification passed / current
 - [ ] 各 Spec Feature Verification 全部 passed
 - [ ] 跨 Spec Integration Verification passed
