@@ -9,7 +9,7 @@ import {
     loadProfileToml,
     validateGepaConfig,
     TomlConfigurationError,
-} from "../src/toml-config";
+} from "../src/index";
 
 test("parseTomlConfig 正常解析各小节配置", () => {
     const toml = `

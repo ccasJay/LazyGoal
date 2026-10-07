@@ -25,7 +25,7 @@ packages/        Private `@lazygoal/*` workspaces
   execution-control/ Process-local cancellation primitives and transient model failure protocols
   model-contracts/ Model output contracts, wire projection, schema compilation, and conversation protocols
   working-memory/ Structured working memory domain contracts, patch validation, reduction, and lifecycle
-  config/       LazyGoal Home/workspace paths, identity manifest, and validated model connection configuration
+  config/       LazyGoal Home/workspace paths, TOML/Profile parsing, and validated runtime configuration
   web-contracts/  Browser HTTP/SSE wire DTOs and boundary validation
   agent/         Agent prompts, response schemas, and the unified LLM step executor
   execution-stream/ Process-local Goal/Run events and bounded subscriptions

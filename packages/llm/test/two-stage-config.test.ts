@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { LLMConfigurationError, readLLMConfig } from "../../config/src/index";
-import { loadRuntimeConfig } from "../src/config-loader";
+import { loadRuntimeConfig } from "../../config/src/index";
 import { createLlmAdapter, createLlmStageAdapters } from "../src/factory";
 import { OpenAICompatible } from "../src/openai-compatible";
 import { Gemini } from "../src/gemini";

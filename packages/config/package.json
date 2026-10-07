@@ -5,5 +5,8 @@
   "type": "module",
   "engines": {
     "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "smol-toml": "^1.8.0"
   }
 }

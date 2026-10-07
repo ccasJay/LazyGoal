@@ -22,3 +22,23 @@ export type {
     LLMProvider,
     StructuredOutputMode,
 } from "./llm-config";
+
+export {
+    TomlConfigurationError,
+    parseTomlConfig,
+    parseProfileToml,
+    loadProfileToml,
+    validateGepaConfig,
+} from "./toml-config";
+export type {
+    LLMTomlSection,
+    WorkspaceTomlSection,
+    ProfileTomlSection,
+    TuiTomlSection,
+    GepaTomlSection,
+    GepaConfig,
+    LazyGoalTomlConfig,
+    ProfileTomlConfig,
+} from "./toml-config";
+export { loadRuntimeConfig } from "./config-loader";
+export type { CliConfigOverrides, LazyGoalRuntimeConfig, LoadConfigOptions } from "./config-loader";

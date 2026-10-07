@@ -14,7 +14,7 @@
   - 验证方式：迁移 `packages/llm/test/config.test.ts` 并运行模型配置、Adapter 工厂及模型目录相关测试；运行 `npx tsc --noEmit` 与 `npm run check:dependencies`。
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [4.1](./requirements.md#req-4-1)_
 
-- [ ] //TODO 3. 将常规 TOML/Profile 与运行配置加载迁入配置包
+- [x] //TODO 3. 将常规 TOML/Profile 与运行配置加载迁入配置包
 
   - 实现目标：迁移 TOML/Profile 解析和四层 `loadRuntimeConfig`，将 Goal Server、Benchmark 与 Prompt Evaluation 的常规配置入口接至配置包；移除对应旧实现并更新直接依赖规则。
   - 成功判据：相同文件、Profile 与 CLI 覆盖产生相同配置且不回写；非法输入保持既有校验、错误定位和失败时机；Goal Server 与 Benchmark 继续按原配置装配同一模型与工作区。

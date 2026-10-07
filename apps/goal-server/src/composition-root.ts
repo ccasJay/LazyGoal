@@ -96,7 +96,7 @@ import {
     TrajectoryModelContextAssembler,
 } from "../../../packages/agent/src/index";
 import { LLMConfigurationError, readLLMConfig, type LLMConfig } from "../../../packages/config/src/index";
-import { loadRuntimeConfig } from "../../../packages/llm/src/config-loader";
+import { loadRuntimeConfig } from "../../../packages/config/src/index";
 import {
     ensureSecureConfigFile,
     ensureSecureHomeDirectories,

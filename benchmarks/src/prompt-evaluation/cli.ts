@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
-import { loadRuntimeConfig } from "../../../packages/llm/src/config-loader.js";
+import { loadRuntimeConfig } from "../../../packages/config/src/index.js";
 import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
 import { runGepaReflectCli } from "./reflection-bridge.js";
 import { runGepaResolveModelsCli } from "./model-bridge.js";

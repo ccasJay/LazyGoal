@@ -28,7 +28,7 @@ export class TomlConfigurationError extends Error {
 /**
  * `[llm]` 小节配置结构。
  */
-export interface LlmTomlSection {
+export interface LLMTomlSection {
     /** 模型提供商标识（如 openai, google, openai-compatible 等）。 */
     provider?: string;
     /** 选用的模型名称。 */
@@ -128,7 +128,7 @@ export interface GepaConfig {
  * ```
  */
 export interface LazyGoalTomlConfig {
-    llm?: LlmTomlSection;
+    llm?: LLMTomlSection;
     workspace?: WorkspaceTomlSection;
     profile?: ProfileTomlSection;
     tui?: TuiTomlSection;
@@ -151,7 +151,7 @@ export interface LazyGoalTomlConfig {
 export interface ProfileTomlConfig {
     name?: string;
     description?: string;
-    llm?: LlmTomlSection;
+    llm?: LLMTomlSection;
     tui?: TuiTomlSection;
 }
 
