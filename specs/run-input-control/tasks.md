@@ -73,14 +73,14 @@
 
 ### Latest Result
 
-状态：**passed / current**。验证时间：2026-10-08 00:40（Asia/Shanghai）。被测提交：`808eedeaec11febe8efe4ba6a7a7ead8f3ee7b64`；本次验证与提交内容一致。Requirements SHA-256 `7d8876caa2c04f38a68a0b338e0b9900c900f3120ec31a32e1a46a3623556b0e`，Design SHA-256 `6eb9653ef00550fecc0e1db5f76d8239db043701d418f6ad7e1fcb318c35c84f`。
+状态：**pending-human / current**。全量自动化回归验证时间：2026-10-08 00:40（Asia/Shanghai）；随后补充验收尝试于 2026-10-08 期间进行。已验证代码提交：`808eedeaec11febe8efe4ba6a7a7ead8f3ee7b64`；Requirements SHA-256 `7d8876caa2c04f38a68a0b338e0b9900c900f3120ec31a32e1a46a3623556b0e`，Design SHA-256 `6eb9653ef00550fecc0e1db5f76d8239db043701d418f6ad7e1fcb318c35c84f`。
 
 | 验收范围 | 检查与观察结果 | 证据 |
 | --- | --- | --- |
 | TODO 1–2：持久化 Steer、Interrupt 和有界收尾 | 同一 Run 的 Steer 按序应用；直接 Tool/PTC 未知结果、取消预算、恢复边界与后继 Run 通过。 | `npm test` 全量套件；包括 Steer、Interrupt、PTC、历史记录、Snapshot 与服务关闭检查。 |
-| TODO 3 / Req 2–4、8：Queue、原位发送选择与取消按钮 | 活动 Run 保持可编辑；Enter 打开 Steer/Queue，空输入终止；Steer/Queue 显示顺序。Run 完成后队列顺序续写；失败/取消暂停并由用户显式继续；刷新会丢失队列。真实浏览器流程通过。 | [run-input-control.test.mjs](../../apps/goal-board/e2e/run-input-control.test.mjs)、[runtime.test.mjs](../../apps/goal-board/e2e/runtime.test.mjs)、[board.test.mjs](../../apps/goal-board/e2e/board.test.mjs)：3/3 通过。 |
+| TODO 3 / Req 2–4、8：Queue、原位发送选择与取消按钮 | 通过的 E2E 覆盖运行中编辑、Steer/Queue 选择、Interrupt 后暂停及显式继续。测试代码未直接覆盖正常完成后的多条 Queue 自动续跑和刷新丢弃 Queue；尝试补测时，多条自动续跑场景等待后继 Run 超时，原因尚未定位，因此这两项不记为通过。 | 原有 [runtime.test.mjs](../../apps/goal-board/e2e/runtime.test.mjs)、[run-input-control.test.mjs](../../apps/goal-board/e2e/run-input-control.test.mjs)、[board.test.mjs](../../apps/goal-board/e2e/board.test.mjs)：3/3 通过。补测失败记录见本次执行日志；实现的完成态出队与页面内存状态仅经源码检查。 |
 | 后继身份去重 / Req 3.3、5.4 | cancelled Run 可在原 Goal 续写；相同 message ID 重试返回原后继 Run，正文不一致明确冲突；服务重启后收据仍有效。 | [browser-messages.test.ts](../../packages/browser/test/browser-messages.test.ts)、[goal-multi-run-session.test.ts](../../packages/runtime/test/goal-multi-run-session.test.ts)、[run-input-control.test.mjs](../../apps/goal-board/e2e/run-input-control.test.mjs)。 |
 | 普通关闭及 Run 执行恢复 / Req 7.3、跨 Spec | 宿主取消传播后不执行 Interrupt 收尾、不进行关闭后的持久化读取；最后检查点保留可恢复。Normal/Plan、Headless、审批和已有运行行为通过回归。 | [browser-session.integration.test.ts](../../apps/goal-server/test/browser-session.integration.test.ts)、[execution-control.test.ts](../../packages/runtime/test/execution-control.test.ts)、[shutdown.test.ts](../../packages/runtime/test/shutdown.test.ts)；`npm test`：1,604 项 TS 测试、24 项脚本测试通过。 |
 | 源码、契约和架构一致 | Browser wire 结果校验、Snapshot continuation 收据、公开契约 TSDoc 与 Browser/Runtime 架构文档已更新。 | `npm run build:web` 成功；`npm run check:dependencies` 通过（218 个源文件）；`git diff --check` 通过。 |
 
-未解决问题：无。后续仅待用户在最终 worktree 验证实现体验；InstantInterrupt 不在本 Spec 范围内。
+未解决问题：正常完成后的多条 Queue 自动续跑缺少通过的直接 E2E 验收，补测超时的原因待定位；刷新后 Queue 丢失也缺少通过的直接浏览器断言。用户可先在最终 worktree 验证，若观察到续跑问题需继续修复并补齐验收。InstantInterrupt 不在本 Spec 范围内。
