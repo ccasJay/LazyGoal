@@ -27,7 +27,7 @@ import type {
     ContextLookupRequest,
     ContextLookupResult,
 } from "./context-retrieval";
-import type { ToolObservation } from "./tool";
+import type { ToolObservation } from "../../tool-core/src/index";
 import type { GoalPlan } from "./goal-plan";
 import type { EffectiveSandboxScope, SandboxExecutionPlan } from "../../sandbox/src/index";
 
@@ -722,18 +722,7 @@ export type {
  * ```
  */
 export type Observation =
-    | {
-        readonly kind: "success";
-        readonly output: JsonValue;
-        readonly summary: string;
-    }
-    | {
-        readonly kind: "failure";
-        readonly code: string;
-        readonly message: string;
-        readonly retryable: boolean;
-        readonly details?: JsonValue;
-    }
+    | ToolObservation
     | {
         readonly kind: "rejected";
         readonly reason: string;
