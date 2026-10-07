@@ -300,6 +300,13 @@ export function isBrowserGoalSession(value: unknown): value is BrowserGoalSessio
             || !value.pendingSteers.every((steer) => isRecord(steer)
                 && isNonEmptyString(steer.messageId)
                 && typeof steer.content === "string")))
+        || (value.interruption !== undefined && (!isRecord(value.interruption)
+            || !isNonEmptyString(value.interruption.requestId)
+            || !["requested", "repairing", "finished"].includes(String(value.interruption.status))
+            || !Number.isInteger(value.interruption.repairCallsStarted)
+            || Number(value.interruption.repairCallsStarted) < 0
+            || Number(value.interruption.repairCallsStarted) > 3
+            || (value.interruption.outcomeUnknown !== undefined && typeof value.interruption.outcomeUnknown !== "boolean")))
         || !Array.isArray(value.runs)
         || !value.runs.every(isBrowserRun)
         || typeof value.historyTruncated !== "boolean") return false;

@@ -668,6 +668,8 @@ export interface RunState {
     readonly pendingModelRepair?: PendingModelRepair;
     /** 当前 Run 已受理、尚待模型输入边界应用的 Steer 消息。 */
     readonly steerInputs?: readonly RunSteerInput[];
+    /** 当前 Run 的持久化用户终止意图与有限收尾进度。 */
+    readonly interruption?: RunInterruption;
     readonly stopReason?: RunStopReason;
     /**
      * 当前模型上下文 Epoch。
@@ -699,6 +701,25 @@ export interface RunState {
 export type RunSteerInput =
     | { readonly messageId: string; readonly status: "pending"; readonly content: string }
     | { readonly messageId: string; readonly status: "applied"; readonly messageIndex: number };
+
+/**
+ * 用户 Interrupt 的持久化状态。
+ *
+ * @remarks
+ * 该记录用于区分用户终止与宿主关闭，并恢复收尾模型调用预算。进程内 AbortSignal
+ * 不进入快照；只有明确受理的用户请求才建立此记录。
+ * @example
+ * ```ts
+ * const interruption: RunInterruption = { requestId: "interrupt-1", status: "requested", repairCallsStarted: 0 };
+ * ```
+ */
+export interface RunInterruption {
+    readonly requestId: string;
+    readonly status: "requested" | "repairing" | "finished";
+    readonly repairCallsStarted: number;
+    readonly interruptedActions?: readonly ToolCallAction[];
+    readonly outcomeUnknown?: boolean;
+}
 
 /**
  * 程序执行的最小持久化恢复指针。
@@ -846,7 +867,7 @@ export interface CompletedRunRecord {
     /** 已归档 Run 的稳定 ID。 */
     readonly runId: string;
     /** 归档时的终态，保留失败 Run 的真实状态。 */
-    readonly status: "completed" | "failed";
+    readonly status: "completed" | "failed" | "cancelled";
     /** 归档时的 Step 数量。 */
     readonly stepCount: number;
     /** 该 Run Snapshot 最后纳入的局部 Trajectory sequence。 */

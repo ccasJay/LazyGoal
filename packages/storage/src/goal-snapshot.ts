@@ -369,6 +369,7 @@ export interface GoalSnapshotRunStateV1 {
     readonly pendingThink?: GoalSnapshotPendingThinkV1 | undefined;
     readonly pendingModelRepair?: GoalSnapshotPendingModelRepairV1 | undefined;
     readonly steerInputs?: readonly GoalSnapshotSteerInputV1[] | undefined;
+    readonly interruption?: GoalSnapshotRunInterruptionV1 | undefined;
     readonly stopReason?: GoalSnapshotStopReasonV1 | undefined;
     readonly contextEpoch: GoalSnapshotContextEpochV1;
 }
@@ -385,6 +386,25 @@ export interface GoalSnapshotRunStateV1 {
 export type GoalSnapshotSteerInputV1 =
     | { readonly messageId: string; readonly status: "pending"; readonly content: string }
     | { readonly messageId: string; readonly status: "applied"; readonly messageIndex: number };
+
+/**
+ * Snapshot 中的用户 Interrupt 请求及可恢复收尾预算。
+ *
+ * @remarks 收尾调用计数在每次调用开始前提交，服务重启不能重置预算。
+ * @example
+ * ```ts
+ * const interruption: GoalSnapshotRunInterruptionV1 = {
+ *   requestId: "interrupt-1", status: "repairing", repairCallsStarted: 1,
+ * };
+ * ```
+ */
+export interface GoalSnapshotRunInterruptionV1 {
+    readonly requestId: string;
+    readonly status: "requested" | "repairing" | "finished";
+    readonly repairCallsStarted: number;
+    readonly interruptedActions?: readonly GoalSnapshotToolCallActionV1[];
+    readonly outcomeUnknown?: boolean;
+}
 
 /**
  * Snapshot 中的 GoalPlan Todo。
@@ -426,7 +446,7 @@ export interface GoalSnapshotCompletedRunV1 {
     /** 已归档 Run 的稳定身份。 */
     readonly runId: string;
     /** 已归档 Run 的真实终态。 */
-    readonly status: "completed" | "failed";
+    readonly status: "completed" | "failed" | "cancelled";
     /** 归档时已提交的 Step 数量。 */
     readonly stepCount: number;
     /** 该 Run 的轨迹可见边界。 */
@@ -888,6 +908,14 @@ const SteerInputSchema = z.discriminatedUnion("status", [
     }).strict(),
 ]);
 
+const RunInterruptionSchema = z.object({
+    requestId: NonEmptyStringSchema,
+    status: z.enum(["requested", "repairing", "finished"]),
+    repairCallsStarted: z.number().int().min(0).max(3),
+    interruptedActions: z.array(ToolCallActionSchema).optional(),
+    outcomeUnknown: z.boolean().optional(),
+}).strict();
+
 const StopReasonSchema = z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("max_steps_exceeded") }).strict(),
     z.object({
@@ -988,7 +1016,7 @@ const GoalPlanSchema = z.object({
 
 const CompletedRunSchema = z.object({
     runId: NonEmptyStringSchema,
-    status: z.enum(["completed", "failed"]),
+    status: z.enum(["completed", "failed", "cancelled"]),
     stepCount: z.number().int().nonnegative(),
     committedThroughSequence: z.number().int().nonnegative(),
     messageRange: z.object({
@@ -1053,6 +1081,7 @@ const GoalSnapshotV1BaseSchema = z.object({
             pendingThink: PendingThinkSchema.optional(),
             pendingModelRepair: PendingModelRepairSchema.optional(),
             steerInputs: z.array(SteerInputSchema).optional(),
+            interruption: RunInterruptionSchema.optional(),
             stopReason: StopReasonSchema.optional(),
             contextEpoch: ContextEpochSchema,
         }).strict(),
@@ -1171,6 +1200,22 @@ function validateSnapshotInvariants(
     const pendingInteraction = run.pendingInteraction;
     const pendingThink = run.pendingThink;
     const pendingModelRepair = run.pendingModelRepair;
+    const interruption = run.interruption;
+
+    if (interruption !== undefined) {
+        if (interruption.status === "finished" && run.status !== "cancelled") {
+            addInvariantIssue(context, "finished Interrupt requires a cancelled Run", ["state", "run", "interruption"]);
+        }
+        if (interruption.status !== "finished" && run.status !== "running" && run.status !== "waiting") {
+            addInvariantIssue(context, "active Interrupt requires a running or waiting Run", ["state", "run", "interruption"]);
+        }
+        if (interruption.repairCallsStarted > 0 && interruption.status === "requested") {
+            addInvariantIssue(context, "repair call budget requires an active repair phase", ["state", "run", "interruption"]);
+        }
+        if (interruption.outcomeUnknown === true && (interruption.interruptedActions?.length ?? 0) === 0) {
+            addInvariantIssue(context, "unknown interrupted outcome requires its Action identities", ["state", "run", "interruption"]);
+        }
+    }
 
     if (pendingProgram !== undefined) {
         const input = pendingProgram.action.input;

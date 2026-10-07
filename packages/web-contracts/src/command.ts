@@ -467,6 +467,25 @@ export type BrowserGoalSteerResult =
     | { readonly ok: false; readonly error: "goal_not_found" | "stale_run" | "goal_not_running" | "goal_busy" | "steer_conflict" | "steer_failed" | "service_shutting_down" };
 
 /**
+ * 当前 Run 的用户主动终止命令。
+ *
+ * @remarks 请求 ID 用于在响应丢失时安全重试；提交后服务端会停止目标 Run 并进行有限收尾。
+ * @example
+ * ```ts
+ * const command: BrowserGoalInterruptCommand = { runId: "run-1", requestId: "interrupt-1" };
+ * ```
+ */
+export interface BrowserGoalInterruptCommand {
+    readonly runId: string;
+    readonly requestId: string;
+}
+
+/** Interrupt 请求持久化受理结果；accepted 不表示已完成收尾。 */
+export type BrowserGoalInterruptResult =
+    | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly requestId: string; readonly existing: boolean }
+    | { readonly ok: false; readonly error: "goal_not_found" | "stale_run" | "goal_not_running" | "goal_busy" | "interrupt_conflict" | "interrupt_failed" | "service_shutting_down" };
+
+/**
  * 发送用户消息结果。
  *
  * @remarks

@@ -135,6 +135,9 @@ export type TrajectoryEventPayload =
     | { readonly type: "run_started" }
     | { readonly type: "steer_input_received"; readonly messageId: string }
     | { readonly type: "steer_input_applied"; readonly messageId: string; readonly messageIndex: number }
+    | { readonly type: "run_interrupt_requested"; readonly requestId: string }
+    | { readonly type: "run_interrupted_action_unknown"; readonly requestId: string; readonly actionId: string; readonly toolId: string }
+    | { readonly type: "run_interrupt_repair_started"; readonly requestId: string; readonly attempt: number }
     | {
         readonly type: "run_created";
         readonly mode: "normal" | "plan";
@@ -753,6 +756,9 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "run_started",
     "steer_input_received",
     "steer_input_applied",
+    "run_interrupt_requested",
+    "run_interrupted_action_unknown",
+    "run_interrupt_repair_started",
     "run_created",
     "run_resumed",
     "plan_mode_entered",
@@ -1229,6 +1235,29 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             throw new TrajectoryProtocolError("steer_input_applied.messageIndex is invalid");
         }
     }
+    if (eventType === "run_interrupt_requested") {
+        if (Object.keys(payload).some((key) => !["type", "requestId"].includes(key))) {
+            throw new TrajectoryProtocolError("run_interrupt_requested contains unknown fields");
+        }
+        assertNonEmptyString(payload.requestId, "run_interrupt_requested.requestId");
+    }
+    if (eventType === "run_interrupted_action_unknown") {
+        if (Object.keys(payload).some((key) => !["type", "requestId", "actionId", "toolId"].includes(key))) {
+            throw new TrajectoryProtocolError("run_interrupted_action_unknown contains unknown fields");
+        }
+        assertNonEmptyString(payload.requestId, "run_interrupted_action_unknown.requestId");
+        assertNonEmptyString(payload.actionId, "run_interrupted_action_unknown.actionId");
+        assertNonEmptyString(payload.toolId, "run_interrupted_action_unknown.toolId");
+    }
+    if (eventType === "run_interrupt_repair_started") {
+        if (Object.keys(payload).some((key) => !["type", "requestId", "attempt"].includes(key))) {
+            throw new TrajectoryProtocolError("run_interrupt_repair_started contains unknown fields");
+        }
+        assertNonEmptyString(payload.requestId, "run_interrupt_repair_started.requestId");
+        if (!Number.isSafeInteger(payload.attempt) || (payload.attempt as number) < 1 || (payload.attempt as number) > 3) {
+            throw new TrajectoryProtocolError("run_interrupt_repair_started.attempt is invalid");
+        }
+    }
     if (eventType === "context_epoch_advanced") {
         if (Object.keys(payload).some((key) => ![
             "type", "closedEpoch", "openedEpoch", "reason", "memoryRevisionEventId",
@@ -1473,6 +1502,9 @@ export function classifyTrajectoryEvent(
         case "task_feedback_received":
         case "steer_input_received":
         case "steer_input_applied":
+        case "run_interrupt_requested":
+        case "run_interrupted_action_unknown":
+        case "run_interrupt_repair_started":
             return "lifecycle";
         case "goal_plan_updated":
             return "decision";

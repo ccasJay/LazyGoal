@@ -1,4 +1,4 @@
-import type { Runner, RunnerResult, SteerInputResult } from "./runner";
+import type { InterruptRunResult, Runner, RunnerResult, SteerInputResult } from "./runner";
 import type { RunExecutionOptions, RunRef } from "./domain";
 import {
     throwIfAborted,
@@ -15,7 +15,7 @@ import type { RunScheduler } from "./scheduler";
  */
 export class InlineScheduler implements RunScheduler {
     constructor(
-        private readonly runner: Pick<Runner, "runUntilBlocked"> & Partial<Pick<Runner, "steer">>,
+        private readonly runner: Pick<Runner, "runUntilBlocked"> & Partial<Pick<Runner, "steer" | "interrupt">>,
     ) {}
 
     /**
@@ -58,5 +58,11 @@ export class InlineScheduler implements RunScheduler {
         return this.runner.steer === undefined
             ? Promise.resolve({ ok: false, error: "RUN_CONTROL_UNAVAILABLE" })
             : this.runner.steer(ref, messageId, content);
+    }
+
+    interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {
+        return this.runner.interrupt === undefined
+            ? Promise.resolve({ ok: false, error: "INTERRUPT_CONFLICT" })
+            : this.runner.interrupt(ref, requestId);
     }
 }

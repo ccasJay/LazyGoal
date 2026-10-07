@@ -105,6 +105,7 @@ export type {
     RunRef,
     RunState,
     RunSteerInput,
+    RunInterruption,
     RunStopReason,
     RunStatus,
     Observation,
@@ -257,7 +258,7 @@ export type {
     TrajectoryCheckpointCommitResult,
     TrajectoryCheckpointCommitterDependencies,
 } from "./trajectory-checkpoint-committer";
-export { Runner, type SteerInputResult } from "./runner";
+export { Runner, type InterruptRunResult, type SteerInputResult } from "./runner";
 export { RunRecoveryReader, type RunRecoveryReaderDependencies } from "./run-recovery-reader";
 export type { RunnerDependencies, RunnerResult, SandboxPlanResolver } from "./runner";
 export { InlineScheduler } from "./inline-scheduler";

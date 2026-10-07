@@ -11,6 +11,7 @@ import type {
     RunExecutionOptions,
     RunRef,
     RunState,
+    RunInterruption,
     RunSteerInput,
     ToolCallAction,
     WorkingMemoryPatch,
@@ -199,6 +200,11 @@ class ProgramResourceError extends Error {
 }
 
 class PendingSteerAcceptedError extends Error {}
+class RunInterruptAcceptedError extends Error {}
+
+class InterruptRepairBudgetExhausted extends Error {
+    constructor(readonly goal: Goal) { super("Interrupt repair model-call budget exhausted"); }
+}
 
 /**
  * Steer 命令已保存或被明确拒绝的 Runtime 结果。
@@ -212,6 +218,11 @@ class PendingSteerAcceptedError extends Error {}
 export type SteerInputResult =
     | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly messageId: string; readonly existing: boolean }
     | { readonly ok: false; readonly error: "RUN_NOT_FOUND" | "RUN_NOT_RUNNING" | "STEER_CONFLICT" | "RUN_CONTROL_UNAVAILABLE" };
+
+/** Run Interrupt 命令已持久化受理或被明确拒绝的结果。 */
+export type InterruptRunResult =
+    | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly requestId: string; readonly existing: boolean }
+    | { readonly ok: false; readonly error: "RUN_NOT_FOUND" | "RUN_NOT_RUNNING" | "INTERRUPT_CONFLICT" };
 
 class StageExecutionFailure extends Error {
     constructor(readonly original: unknown) {
@@ -886,6 +897,7 @@ class RunExecutor {
     private readonly traceSink: DiagnosticTraceSink | undefined;
     private readonly sandboxPlanResolver: SandboxPlanResolver | undefined;
     private readonly permissionModeStore: ProjectPermissionModeStore | undefined;
+    private readonly activeRunControllers = new Map<string, AbortController>();
 
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
@@ -1041,6 +1053,38 @@ class RunExecutor {
         options: RunExecutionOptions = {},
         control?: ExecutionControl,
     ): Promise<RunnerResult> {
+        const key = `${ref.goalId}:${ref.runId}`;
+        const runController = new AbortController();
+        if (this.activeRunControllers.has(key)) {
+            return this.runUntilBlockedCore(ref, options, control);
+        }
+        this.activeRunControllers.set(key, runController);
+        const parentSignal = control?.signal ?? options.signal;
+        const abortFromParent = () => runController.abort(parentSignal?.reason);
+        if (parentSignal?.aborted) abortFromParent();
+        else parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+        try {
+            try {
+                return await this.runUntilBlockedCore(ref, options, { signal: runController.signal });
+            } catch (error) {
+                const latest = await this.restore(ref);
+                if (latest?.state.run.interruption !== undefined
+                    && !(parentSignal?.aborted ?? false)) {
+                    return this.resumeInterruptedRun(latest, control);
+                }
+                throw error;
+            }
+        } finally {
+            parentSignal?.removeEventListener("abort", abortFromParent);
+            if (this.activeRunControllers.get(key) === runController) this.activeRunControllers.delete(key);
+        }
+    }
+
+    private async runUntilBlockedCore(
+        ref: RunRef,
+        options: RunExecutionOptions = {},
+        control?: ExecutionControl,
+    ): Promise<RunnerResult> {
         const effectiveControl = resolveExecutionControl(options, control);
         if (effectiveControl?.signal?.aborted
             && effectiveControl.signal.reason === "user_cancel_program") {
@@ -1056,6 +1100,10 @@ class RunExecutor {
 
         if (goal === undefined) {
             return this.runNotFound(ref);
+        }
+
+        if (goal.state.run.interruption !== undefined) {
+            return this.resumeInterruptedRun(goal, control);
         }
 
         this.validateGoalProtocol(goal);
@@ -1157,6 +1205,7 @@ class RunExecutor {
                     : { ok: false, error: "STEER_CONFLICT" };
             }
             if (run.status !== "running") return { ok: false, error: "RUN_NOT_RUNNING" };
+            if (run.interruption !== undefined) return { ok: false, error: "RUN_NOT_RUNNING" };
             const steerInputs: readonly RunSteerInput[] = [
                 ...(run.steerInputs ?? []),
                 { messageId, status: "pending", content },
@@ -1174,6 +1223,146 @@ class RunExecutor {
             this.publishCheckpointCommitted(committed, [fact]);
             return { ok: true, goalId: goal.id, runId: run.id, messageId, existing: false };
         });
+    }
+
+    async interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {
+        if (requestId.trim().length === 0) return { ok: false, error: "INTERRUPT_CONFLICT" };
+        const result = await withRunModeSelectionGate(this.store, ref.goalId, async (): Promise<InterruptRunResult> => {
+            const goal = await this.restore(ref);
+            if (goal === undefined || goal.state.run.id !== ref.runId) return { ok: false, error: "RUN_NOT_FOUND" };
+            const existing = goal.state.run.interruption;
+            if (existing !== undefined) {
+                return existing.requestId === requestId
+                    ? { ok: true, goalId: goal.id, runId: ref.runId, requestId, existing: true }
+                    : { ok: false, error: "INTERRUPT_CONFLICT" };
+            }
+            if (goal.state.run.status !== "running" && goal.state.run.status !== "waiting") {
+                return { ok: false, error: "RUN_NOT_RUNNING" };
+            }
+            const interruption: RunInterruption = { requestId, status: "requested", repairCallsStarted: 0 };
+            const nextGoal = this.withRun(goal, { ...goal.state.run, interruption });
+            const fact: TrajectoryEventDraft = {
+                goalId: goal.id,
+                runId: ref.runId,
+                phase: "executing",
+                eventType: "run_interrupt_requested",
+                payload: { type: "run_interrupt_requested", requestId },
+            };
+            const committed = await this.checkpointCommitter.commit(nextGoal, { facts: [fact] });
+            this.publishCommittedEvents(committed);
+            this.publishCheckpointCommitted(committed, [fact]);
+            return { ok: true, goalId: goal.id, runId: ref.runId, requestId, existing: false };
+        });
+        if (!result.ok) return result;
+        if (result.existing) return result;
+        const controller = this.activeRunControllers.get(`${ref.goalId}:${ref.runId}`);
+        if (controller !== undefined) controller.abort("user_interrupt");
+        else {
+            const goal = await this.restore(ref);
+            if (goal !== undefined) await this.resumeInterruptedRun(goal);
+        }
+        return result;
+    }
+
+    private async resumeInterruptedRun(goal: Goal, control?: ExecutionControl): Promise<RunnerResult> {
+        const interruption = goal.state.run.interruption;
+        if (interruption === undefined) return { ok: true, state: goal.state.run };
+        if (interruption.status === "finished" || goal.state.run.status === "cancelled") {
+            return { ok: true, state: goal.state.run };
+        }
+        if (interruption.status === "requested") {
+            const pending = goal.state.run.pendingAction;
+            const program = goal.state.run.pendingProgram;
+            const unknownActions = [
+                ...(pending?.status === "approved" && (pending.attemptsStarted ?? 0) > 0 ? [pending.action] : []),
+                ...(program === undefined ? [] : [program.action]),
+            ].filter((action, index, actions) => actions.findIndex((candidate) => candidate.actionId === action.actionId) === index);
+            if (unknownActions.length === 0) return this.cancelInterruptedRun(goal, control);
+            const actionId = program?.action.actionId ?? unknownActions[0]!.actionId;
+            const toolId = unknownActions.map((action) => `${action.toolId} (${action.actionId})`).join(", ");
+            const attempt = pending?.attemptsStarted ?? Math.max(1, program?.nextCallIndex ?? 1);
+            const nextInterruption: RunInterruption = {
+                ...interruption,
+                status: "repairing",
+                interruptedActions: unknownActions,
+                outcomeUnknown: true,
+            };
+            const { pendingAction: _pendingAction, pendingProgram: _pendingProgram,
+                pendingThink: _pendingThink, pendingModelRepair: _pendingModelRepair, ...run } = goal.state.run;
+            const nextGoal: Goal = {
+                ...goal,
+                state: {
+                    ...goal.state,
+                    messages: [...goal.state.messages, {
+                        role: "user",
+                        content: `The current Run was interrupted while Tool ${toolId} (Action ${actionId}) was executing. Its external effect is unknown. Do not repeat that operation. Use necessary authorized tools only to inspect and safely repair its outcome, then stop.`,
+                    }],
+                    run: { ...run, status: "running", interruption: nextInterruption },
+                },
+            };
+            const facts: TrajectoryEventDraft[] = unknownActions.flatMap((action) => {
+                const unknownObservation: ToolObservation = {
+                    kind: "failure",
+                    code: "TOOL_INTERRUPTED_OUTCOME_UNKNOWN",
+                    message: `Tool ${action.toolId} was interrupted; its external effect is unknown. The operation was not replayed.`,
+                    retryable: false,
+                    details: { actionId: action.actionId, requestId: interruption.requestId, outcome: "unknown" },
+                };
+                return [
+                    {
+                        goalId: goal.id, runId: goal.state.run.id, phase: "executing", actionId: action.actionId,
+                        eventType: "tool_attempt_failed",
+                        payload: { type: "tool_attempt_failed", actionId: action.actionId, attempt, reason: "outcome_unknown" },
+                    },
+                    {
+                        goalId: goal.id, runId: goal.state.run.id, phase: "executing", actionId: action.actionId,
+                        eventType: "observation_recorded",
+                        payload: { type: "observation_recorded", actionId: action.actionId, observation: unknownObservation },
+                    },
+                    {
+                        goalId: goal.id, runId: goal.state.run.id, phase: "executing", actionId: action.actionId,
+                        eventType: "run_interrupted_action_unknown",
+                        payload: { type: "run_interrupted_action_unknown", requestId: interruption.requestId, actionId: action.actionId, toolId: action.toolId },
+                    },
+                ];
+            });
+            const committed = await this.checkpointCommitter.commit(nextGoal, { facts, ...(control === undefined ? {} : { control }) });
+            this.publishCommittedEvents(committed);
+            this.publishCheckpointCommitted(committed, facts);
+            goal = committed.goal;
+        }
+        if ((goal.state.run.interruption?.repairCallsStarted ?? 0) >= 3) return this.cancelInterruptedRun(goal, control);
+        const contextLookupResult = await this.restoreContextLookupResult(goal, control);
+        const result = await this.runLoop(goal, undefined, control, contextLookupResult, undefined, undefined);
+        const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
+        if (latest === undefined) return { ok: true, state: goal.state.run };
+        if (latest.state.run.status === "waiting") return { ok: true, state: latest.state.run };
+        return this.cancelInterruptedRun(latest, control);
+    }
+
+    private async cancelInterruptedRun(goal: Goal, control?: ExecutionControl): Promise<RunnerResult> {
+        const interruption = goal.state.run.interruption;
+        if (interruption === undefined) return { ok: true, state: goal.state.run };
+        if (goal.state.run.status === "cancelled" || interruption.status === "finished") {
+            return { ok: true, state: goal.state.run };
+        }
+        const cancelledRun = this.applyTransition(goal.state.run, { kind: "cancel" });
+        const cancelledGoal = this.withRun(goal, {
+            ...cancelledRun,
+            interruption: { ...interruption, status: "finished" },
+        });
+        const closed = this.contextEpochClosedFact(cancelledGoal, "run_cancelled");
+        const facts: TrajectoryEventDraft[] = [
+            { goalId: goal.id, runId: goal.state.run.id, phase: "executing", eventType: "run_cancelled", payload: { type: "run_cancelled", reason: "user_interrupt" } },
+            ...(closed === undefined ? [] : [closed]),
+        ];
+        const committed = await this.checkpointCommitter.commit(cancelledGoal, {
+            facts,
+            ...(control === undefined ? {} : { control }),
+        });
+        this.publishCommittedEvents(committed);
+        this.publishCheckpointCommitted(committed, facts);
+        return { ok: true, state: committed.goal.state.run };
     }
 
     private async restore(
@@ -1749,6 +1938,9 @@ class RunExecutor {
     ): Promise<Goal> {
         return withRunModeSelectionGate(this.store, goal.id, async () => {
             const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
+            if (latest?.state.run.interruption?.status === "requested") {
+                throw new RunInterruptAcceptedError("Run Interrupt was accepted before the model checkpoint");
+            }
             if (latest !== undefined && (latest.state.run.steerInputs ?? []).some(input => input.status === "pending")) {
                 throw new PendingSteerAcceptedError();
             }
@@ -1771,6 +1963,9 @@ class RunExecutor {
     ): Promise<TrajectoryCheckpointCommitResult> {
         return withRunModeSelectionGate(this.store, goal.id, async () => {
             const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
+            if (latest?.state.run.interruption?.status === "requested") {
+                throw new RunInterruptAcceptedError("Run Interrupt was accepted before a new Tool attempt");
+            }
             const steerInputs = latest?.state.run.steerInputs;
             const progressGoal = steerInputs === undefined
                 ? goal
@@ -2037,7 +2232,10 @@ class RunExecutor {
             pending = started.pending;
             try {
                 const value = await this.executeModelStage(
-                    () => operation(currentGoal, feedback),
+                    async () => {
+                        currentGoal = await this.reserveInterruptRepairCall(currentGoal, control);
+                        return operation(currentGoal, feedback);
+                    },
                     control,
                     async (attempt, error) => {
                         currentGoal = await this.recordModelRequestFailure(currentGoal, input, stage, attempt, error, control);
@@ -2053,6 +2251,7 @@ class RunExecutor {
                 return { goal: currentGoal, result };
             } catch (error) {
                 if (isExecutionAbortedError(error)) throw error;
+                if (error instanceof InterruptRepairBudgetExhausted) throw error;
                 if (error instanceof StageCheckpointFailure) throw error;
                 if (!(error instanceof ModelStageFeedbackError)) throw new StageExecutionFailure(error);
                 if (error.feedback.stage !== stage
@@ -2072,6 +2271,31 @@ class RunExecutor {
                 }
             }
         }
+    }
+
+    private async reserveInterruptRepairCall(goal: Goal, control?: ExecutionControl): Promise<Goal> {
+        const interruption = goal.state.run.interruption;
+        if (interruption?.status !== "repairing") return goal;
+        if (interruption.repairCallsStarted >= 3) throw new InterruptRepairBudgetExhausted(goal);
+        const attempt = interruption.repairCallsStarted + 1;
+        const nextGoal = this.withRun(goal, {
+            ...goal.state.run,
+            interruption: { ...interruption, repairCallsStarted: attempt },
+        });
+        const fact: TrajectoryEventDraft = {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            eventType: "run_interrupt_repair_started",
+            payload: { type: "run_interrupt_repair_started", requestId: interruption.requestId, attempt },
+        };
+        const committed = await this.checkpointCommitter.commit(nextGoal, {
+            facts: [fact],
+            ...(control === undefined ? {} : { control }),
+        });
+        this.publishCommittedEvents(committed);
+        this.publishCheckpointCommitted(committed, [fact]);
+        return committed.goal;
     }
 
     private createRepairInputBoundary(
@@ -3110,9 +3334,15 @@ class RunExecutor {
             goal = await this.applyPendingSteers(goal, control);
             if (goal.state.run.status !== "running") break;
 
+            const interruption = goal.state.run.interruption;
+            if (interruption?.status === "repairing") {
+                if (interruption.repairCallsStarted >= 3) return this.cancelInterruptedRun(goal, control);
+            }
+
             const maxSteps = goal.definition.executionPolicy.maxSteps;
 
-            if (maxSteps > 0 && goal.state.run.stepCount >= maxSteps) {
+            if (goal.state.run.interruption?.status !== "repairing"
+                && maxSteps > 0 && goal.state.run.stepCount >= maxSteps) {
                 throwIfAborted(control);
                 const lifecyclePatch = await this.createTerminalLifecyclePatch(
                     goal,
@@ -3386,6 +3616,17 @@ class RunExecutor {
                                     ? {}
                                     : { preparedToolAction: decided.result.preparedToolAction }),
                             };
+                            if (goal.state.run.interruption?.status === "repairing") {
+                                const repairDecision = normalized.decision;
+                                if (repairDecision.kind !== "tool_call") {
+                                    return this.cancelInterruptedRun(goal, control);
+                                }
+                                const repeated = (goal.state.run.interruption.interruptedActions ?? []).some((action) =>
+                                    action.toolId === repairDecision.action.toolId
+                                    && JSON.stringify(canonicalizeBoundaryValue(action.input))
+                                        === JSON.stringify(canonicalizeBoundaryValue(repairDecision.action.input)));
+                                if (repeated) return this.cancelInterruptedRun(goal, control);
+                            }
                             break;
                         }
                 } catch (error) {
@@ -4091,6 +4332,9 @@ class RunExecutor {
                 }, control);
 
                 throwIfAborted(control);
+                if (goal.state.run.interruption?.status === "repairing") {
+                    return this.cancelInterruptedRun(goal, control);
+                }
                 const nextRun = this.applyTransition(goal.state.run, {
                     kind: "decision",
                     decision: normalized.decision,
@@ -4166,6 +4410,10 @@ class RunExecutor {
                 contextLookupResult = undefined;
                 contextLookupChainCount = 0;
             } catch (error) {
+                if (error instanceof RunInterruptAcceptedError) throw error;
+                if (error instanceof InterruptRepairBudgetExhausted) {
+                    return this.cancelInterruptedRun(error.goal, control);
+                }
                 if (error instanceof PendingSteerAcceptedError) {
                     goal = await this.applyPendingSteers(goal, control);
                     continue;
@@ -4924,5 +5172,21 @@ export class Runner {
      */
     steer(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult> {
         return this.executor.steer(ref, messageId, content);
+    }
+
+    /**
+     * 受理并中止指定 Run；自动收尾由同一 Run 执行器完成。
+     *
+     * @param ref - Goal 与目标 Run 的稳定身份。
+     * @param requestId - 客户端稳定请求身份。
+     * @returns 已持久化受理或明确拒绝。
+     * @throws Snapshot 或 Trajectory 保存失败时传播原始错误。
+     * @example
+     * ```ts
+     * await runner.interrupt({ goalId, runId }, "interrupt-1");
+     * ```
+     */
+    interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {
+        return this.executor.interrupt(ref, requestId);
     }
 }

@@ -1,4 +1,4 @@
-import type { RunnerResult, SteerInputResult } from "./runner";
+import type { InterruptRunResult, RunnerResult, SteerInputResult } from "./runner";
 import type { RunExecutionOptions, RunRef } from "./domain";
 import type { ExecutionControl } from "../../execution-control/src/index";
 
@@ -44,4 +44,17 @@ export interface RunScheduler {
      * @returns 已受理或稳定拒绝结果。
      */
     steer?(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult>;
+
+    /**
+     * 持久化受理并中止目标 Run；不影响 Scheduler 的其它 Run 调用。
+     * @param ref - 目标 Goal 与 Run 身份。
+     * @param requestId - 重试时复用的稳定请求 ID。
+     * @returns 已持久化受理或稳定拒绝结果。
+     * @throws Goal 快照或轨迹提交失败时拒绝。
+     * @example
+     * ```ts
+     * await scheduler.interrupt?.({ goalId: "goal-1", runId: "run-1" }, "interrupt-1");
+     * ```
+     */
+    interrupt?(ref: RunRef, requestId: string): Promise<InterruptRunResult>;
 }

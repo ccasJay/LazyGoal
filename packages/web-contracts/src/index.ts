@@ -41,6 +41,8 @@ export {
     type BrowserGoalMessageResult,
     type BrowserGoalSteerCommand,
     type BrowserGoalSteerResult,
+    type BrowserGoalInterruptCommand,
+    type BrowserGoalInterruptResult,
     type BrowserGoalInteractionCommand,
     type BrowserGoalInteractionResult,
     type BrowserGoalArchiveCommand,

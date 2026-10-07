@@ -63,6 +63,12 @@ function setup(code: string, tool?: ReturnType<typeof createToolRegistration>, c
     return { goal, store, trajectoryStore, registry, executor };
 }
 
+function deferred() {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => { resolve = done; });
+    return { promise, resolve };
+}
+
 test("PTC reports a stable failure without exposing a program exception", {
     skip: !isSeatbeltSupported(),
 }, async () => {
@@ -453,4 +459,60 @@ test("PTC can be cancelled while a child approval is waiting without executing i
     assert.equal(cancelled.state.pendingAction, undefined);
     assert.equal(cancelled.state.stepCount, 1);
     assert.equal(writes, 0);
+});
+
+test("User Interrupt records unknown PTC parent and child outcomes, then repairs without rerunning the program", {
+    skip: !isSeatbeltSupported(),
+}, async () => {
+    const entered = deferred();
+    let toolCalls = 0;
+    let modelCalls = 0;
+    const write = createToolRegistration({
+        definition: {
+            id: "interrupt_write",
+            description: "Write with interruptible execution",
+            inputContract: contract.object({ value: contract.string() }),
+            isReadOnly: false,
+        },
+        replayPolicy: "manual",
+        validate: () => ({ ok: true }),
+        async execute(_request, control) {
+            toolCalls += 1;
+            entered.resolve();
+            return new Promise((_, reject) => control?.signal?.addEventListener("abort", () => reject(new ExecutionAbortedError()), { once: true }));
+        },
+    });
+    const fixture = setup("await tools.interrupt_write({value:'x'}); return 'done';", write);
+    await fixture.store.save(fixture.goal);
+    const executor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" as const }; },
+        async execute() { throw new Error("Unexpected legacy Execute"); },
+        async decide() {
+            modelCalls += 1;
+            return { kind: "decision" as const, decision: modelCalls === 1
+                ? { kind: "tool_call" as const, action: { actionId: "parent", toolId: "execute_program", input: { code: "await tools.interrupt_write({value:'x'}); return 'done';" } } }
+                : { kind: "fail" as const, error: "Inspection finished" } };
+        },
+        async think() { throw new Error("Unexpected Think"); },
+    };
+    const runner = new Runner({
+        store: fixture.store,
+        trajectoryStore: fixture.trajectoryStore,
+        executor,
+        toolRegistry: new InMemoryToolRegistry([createExecuteProgramRegistration(), write]),
+    });
+    const execution = runner.runUntilBlocked({ goalId: fixture.goal.id, runId: fixture.goal.state.run.id });
+    await entered.promise;
+    const accepted = await runner.interrupt({ goalId: fixture.goal.id, runId: fixture.goal.state.run.id }, "interrupt-ptc");
+    assert.equal(accepted.ok, true);
+    const result = await execution;
+    assert.equal(result.ok, true);
+    assert.equal(modelCalls, 2);
+    assert.equal(toolCalls, 1);
+    if (!result.ok) return;
+    assert.equal(result.state.status, "cancelled");
+    const events = await fixture.trajectoryStore.read({ goalId: fixture.goal.id, runId: fixture.goal.state.run.id });
+    assert.equal(events.some((event) => event.eventType === "run_interrupted_action_unknown" && event.actionId === "parent"), true);
+    assert.equal(events.filter((event) => event.eventType === "run_interrupted_action_unknown").length, 2);
+    assert.equal(events.some((event) => event.eventType === "tool_finished" && event.actionId === "parent"), false);
 });

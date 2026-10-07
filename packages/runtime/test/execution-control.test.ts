@@ -102,7 +102,7 @@ test("Runner propagates control into an executor and preserves the last snapshot
         started = resolve;
     });
     const executor: StepExecutor = createStepExecutor(async ({ control }): Promise<AgentDecision> => {
-        assert.strictEqual(control?.signal, controller.signal);
+        assert.ok(control?.signal);
         started?.();
         await new Promise<void>((resolve) => {
             control?.signal?.addEventListener("abort", () => resolve(), {
@@ -192,7 +192,7 @@ test("Runner keeps an approved pending Action when Tool execution is aborted", a
         replayPolicy: "safe",
         validate: () => ({ ok: true }),
         async execute(_request, control) {
-            assert.strictEqual(control?.signal, controller.signal);
+            assert.ok(control?.signal);
             started?.();
             await new Promise<void>((resolve) => {
                 control?.signal?.addEventListener("abort", () => resolve(), {

@@ -804,3 +804,36 @@ test("创建与交互路由拒绝非法 wire 输入并要求稳定身份", async
     assert.equal(tooLarge.status, 413);
     assert.equal(calls.length, 2);
 });
+
+test("Interrupt 路由校验稳定身份并返回持久化受理", async () => {
+    const received: Array<{ goalId: string; runId: string; requestId: string }> = [];
+    const routes = createBrowserGoalRoutes({
+        async list() { return []; },
+        async read() { return undefined; },
+        async create() { return { ok: false as const, error: "goal_create_failed" as const }; },
+        async interact() { return { ok: false as const, error: "interaction_failed" as const }; },
+        async message() { return { ok: false as const, error: "message_failed" as const }; },
+        async interrupt(goalId, command) {
+            received.push({ goalId, runId: command.runId, requestId: command.requestId });
+            return { ok: true as const, goalId, runId: command.runId, requestId: command.requestId, existing: false };
+        },
+        async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
+        async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
+        async setModelPreference() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
+        async selectModel() { return { ok: false as const, error: "model_selection_failed" as const }; },
+        async openStream() { return { ok: false as const, error: "goal_not_found" as const }; },
+    });
+    const send = (body: unknown) => routes.request("http://localhost/api/goals/goal-1/interrupt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+    });
+    const invalid = await send({ runId: "run-1", requestId: "interrupt-1", extra: true });
+    assert.equal(invalid.status, 400);
+    const accepted = await send({ runId: "run-1", requestId: "interrupt-1" });
+    assert.equal(accepted.status, 202);
+    assert.deepEqual(await accepted.json(), {
+        ok: true, goalId: "goal-1", runId: "run-1", requestId: "interrupt-1", existing: false,
+    });
+    assert.deepEqual(received, [{ goalId: "goal-1", runId: "run-1", requestId: "interrupt-1" }]);
+});

@@ -494,6 +494,13 @@ export interface BrowserGoalSession {
     readonly messages: readonly BrowserSessionMessage[];
     /** 已受理且尚未进入模型输入的 Steer 消息，按受理顺序排列。 */
     readonly pendingSteers?: readonly { readonly messageId: string; readonly content: string }[];
+    /** 已受理的用户终止及自动收尾进度。 */
+    readonly interruption?: {
+        readonly requestId: string;
+        readonly status: "requested" | "repairing" | "finished";
+        readonly repairCallsStarted: number;
+        readonly outcomeUnknown?: boolean;
+    };
     /** 历史与当前 Run 列表。 */
     readonly runs: readonly BrowserSessionRun[];
     /** 任务计划。 */

@@ -11,7 +11,7 @@
 | Run 执行与持久化恢复职责拆分（A） | [run-execution-persistence-separation](./run-execution-persistence-separation/tasks.md) | Requirements、Design、Tasks 均已获用户批准 | 全部 TODO 完成，Feature Verification passed / current |
 | Run 输入与主动终止（B） | [run-input-control](./run-input-control/tasks.md) | 修订后 Requirements、Design、Tasks 均已获用户批准 | 全部 TODO 完成，Feature Verification passed / current |
 
-A 的 3 个 TODO 均已完成，Feature Verification passed / current；B 尚未开始，3 个 TODO 与 Feature Verification 待执行。
+A 的 3 个 TODO 均已完成，Feature Verification passed / current。B 的 Steer 与 Interrupt 两个 Runtime TODO 已提交并通过定向验收；页面 Queue/UI TODO 与完整 Feature Verification 待执行。
 
 ## 依赖关系与执行顺序
 

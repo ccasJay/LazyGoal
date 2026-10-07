@@ -64,6 +64,38 @@ test("Browser accepts Steer for the matching running Run and preserves idempoten
     }), { ok: false, error: "stale_run" });
 });
 
+test("Browser accepts Interrupt only for the matching active Run", async () => {
+    const created = createGoal({ ...currentProtocols, promptBundleVersion: 1, id: "goal-browser-interrupt", intent: "test interrupt", profile, runId: "run-browser-interrupt" });
+    const started = transition(created.state.run, { kind: "start" });
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    const goal = { ...created, state: { ...created.state, run: started.state } };
+    const store = new Store(goal);
+    const accepted: string[] = [];
+    const service = new BrowserGoalCommandService({
+        store,
+        saveNotifications: store,
+        profileId: profile.id,
+        launcher: { async launch() { throw new Error("not used"); } },
+        coordinator: {
+            async resume() { throw new Error("not used"); },
+            async continue() { throw new Error("not used"); },
+            async enterPlanMode() { throw new Error("not used"); },
+            async interrupt(ref, requestId) {
+                accepted.push(`${ref.runId}:${requestId}`);
+                return { ok: true, goalId: ref.goalId, runId: ref.runId, requestId, existing: false };
+            },
+        },
+    });
+    assert.deepEqual(await service.interrupt(goal.id, { runId: goal.state.run.id, requestId: "interrupt-1" }), {
+        ok: true, goalId: goal.id, runId: goal.state.run.id, requestId: "interrupt-1", existing: false,
+    });
+    assert.deepEqual(accepted, ["run-browser-interrupt:interrupt-1"]);
+    assert.deepEqual(await service.interrupt(goal.id, { runId: "stale-run", requestId: "interrupt-2" }), {
+        ok: false, error: "stale_run",
+    });
+});
+
 test("Browser session exposes pending Steer in acceptance order", async () => {
     const created = createGoal({
         ...currentProtocols,
@@ -92,4 +124,20 @@ test("Browser session exposes pending Steer in acceptance order", async () => {
         { messageId: "steer-1", content: "first" },
         { messageId: "steer-2", content: "second" },
     ]);
+});
+
+test("Browser session exposes persisted Interrupt progress", async () => {
+    const created = createGoal({ ...currentProtocols, promptBundleVersion: 1, id: "goal-browser-stopping", intent: "stopping projection", profile, runId: "run-browser-stopping" });
+    const stopping = {
+        ...created,
+        state: { ...created.state, run: {
+            ...created.state.run,
+            status: "running" as const,
+            interruption: { requestId: "interrupt-1", status: "repairing" as const, repairCallsStarted: 1, interruptedActionId: "action-1", outcomeUnknown: true },
+        } },
+    };
+    const session = await readBrowserGoalSession(stopping.id, new Store(stopping), async () => ({ committed: [], uncommittedTail: [] }));
+    assert.deepEqual(session?.interruption, {
+        requestId: "interrupt-1", status: "repairing", repairCallsStarted: 1, outcomeUnknown: true,
+    });
 });

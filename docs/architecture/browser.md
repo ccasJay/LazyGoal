@@ -18,7 +18,7 @@
 
 `GET /api/goals/:goalId/actions/:actionId?runId=...` 仅在该 Goal/Run 仍处于对应 Action 审批等待时返回完整 canonical Tool 输入。常规会话投影只携带限长输入预览；写入类 Tool 额外投影目标路径。`GET /api/goals/:goalId/grants?runId=...` 只列出当前 Goal 与 Workspace 的授权摘要，不暴露精确输入摘要；`DELETE /api/goals/:goalId/grants/:grantId` 按授权层级撤销并返回更新后的列表。三个端点均受 BrowserSessionAccess 保护，并在服务层重验当前 Run 身份。
 
-`POST /api/goals/:goalId/messages` 只接受当前 `runId` 与非空普通文本。普通 blocked 等待恢复同一 Run；已完成或失败 Run 调用 Coordinator 创建后继 Run，并保留旧 Run 的真实终态；提问、提案、Action 等结构化等待以及其他 Run 状态拒绝普通文本。成功受理前确认新增用户消息及对应 Run 变更已保存；同一在途请求重试复用受理结果。 `POST /api/goals/:goalId/steer` 只接受当前 running Run、稳定 `messageId` 与非空正文，并委托 Runtime 持久化；重复身份与相同正文幂等，身份冲突或旧 Run 明确拒绝。会话投影按顺序公开已受理、尚未应用的 Steer，应用后它作为真实用户消息出现在会话历史。
+`POST /api/goals/:goalId/messages` 只接受当前 `runId` 与非空普通文本。普通 blocked 等待恢复同一 Run；已完成或失败 Run 调用 Coordinator 创建后继 Run，并保留旧 Run 的真实终态；提问、提案、Action 等结构化等待以及其他 Run 状态拒绝普通文本。成功受理前确认新增用户消息及对应 Run 变更已保存；同一在途请求重试复用受理结果。 `POST /api/goals/:goalId/steer` 只接受当前 running Run、稳定 `messageId` 与非空正文，并委托 Runtime 持久化；重复身份与相同正文幂等，身份冲突或旧 Run 明确拒绝。会话投影按顺序公开已受理、尚未应用的 Steer，应用后它作为真实用户消息出现在会话历史。 `POST /api/goals/:goalId/interrupt` 按当前 Run 与稳定 requestId 持久化终止意图，并投影停止/收尾进度；重复请求返回既有受理，不重复中止。用户终止只影响目标 Run，最终以 cancelled 结算；普通服务关闭不生成该意图。
 
 `POST /api/goals/:goalId/plan-mode` 只接受当前 `runId`，并由命令服务在转交 Coordinator 前校验 Goal/Run 身份、与其他执行命令串行化。Runtime 允许未启动 Run 进入 Plan Mode，或为已完成或失败 Run 标记下一 Run 使用 Plan Mode；已开始的普通 Run 和其他不允许切换的状态返回稳定错误。命令文本不写入消息或 Step。
 

@@ -11,6 +11,8 @@ import type {
     BrowserGoalMessageResult,
     BrowserGoalSteerCommand,
     BrowserGoalSteerResult,
+    BrowserGoalInterruptCommand,
+    BrowserGoalInterruptResult,
     BrowserGoalPlanModeCommand,
     BrowserGoalPlanModeResult,
     BrowserModelSelectionCommand,
@@ -124,6 +126,19 @@ export interface BrowserGoalApiPort {
      * ```
      */
     steer?(goalId: string, command: BrowserGoalSteerCommand): Promise<BrowserGoalSteerResult>;
+    /** @returns 仅表示 Interrupt 意图已保存，不表示 Run 已完成取消结算。 */
+    /**
+     * 持久化受理目标 Run 的 Interrupt 请求。
+     * @param goalId - URL 中的 Goal 身份。
+     * @param command - 目标 Run 和稳定请求身份。
+     * @returns 仅表示终止意图已保存，不表示 Run 已完成收尾。
+     * @throws Snapshot 读取或 Runtime 保存失败时拒绝。
+     * @example
+     * ```ts
+     * await source.interrupt?.("goal-1", { runId: "run-1", requestId: "interrupt-1" });
+     * ```
+     */
+    interrupt?(goalId: string, command: BrowserGoalInterruptCommand): Promise<BrowserGoalInterruptResult>;
     /**
      * 将带当前 Run 身份的 Plan Mode 选择交给 Runtime Coordinator。
      *
@@ -530,6 +545,22 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         }
     });
 
+    routes.post("/api/goals/:goalId/interrupt", async (context) => {
+        const parsed = await parseInterruptCommand(context.req.param("goalId"), context.req.raw);
+        if (!parsed.ok) return context.json({ error: parsed.error }, parsed.status);
+        try {
+            if (source.interrupt === undefined) return context.json({ error: "interrupt_failed" }, 503);
+            const result = await source.interrupt(context.req.param("goalId"), parsed.command);
+            if (result.ok) return context.json(result, result.existing ? 200 : 202);
+            const status = result.error === "goal_not_found" ? 404
+                : result.error === "interrupt_failed" ? 500
+                    : result.error === "service_shutting_down" ? 503 : 409;
+            return context.json({ error: result.error, refresh: true }, status);
+        } catch {
+            return context.json({ error: "interrupt_failed" }, 500);
+        }
+    });
+
     routes.post("/api/goals/:goalId/plan-mode", async (context) => {
         const goalId = context.req.param("goalId");
         if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) {
@@ -856,6 +887,27 @@ async function parseSteerCommand(
         return { ok: false, error: "invalid_steer", status: 400 };
     }
     return { ok: true, command: { runId, messageId, content } };
+}
+
+async function parseInterruptCommand(
+    goalId: string,
+    request: Request,
+): Promise<
+    | { readonly ok: true; readonly command: BrowserGoalInterruptCommand }
+    | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
+> {
+    if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) return { ok: false, error: "invalid_interrupt", status: 400 };
+    const parsed = await readJsonBody(request);
+    if (!parsed.ok) return parsed;
+    if (typeof parsed.value !== "object" || parsed.value === null || Array.isArray(parsed.value)) {
+        return { ok: false, error: "invalid_interrupt", status: 400 };
+    }
+    const body = parsed.value as Record<string, unknown>;
+    if (!hasExactKeys(body, ["runId", "requestId"])) return { ok: false, error: "invalid_interrupt", status: 400 };
+    const runId = readWireText(body.runId, 256);
+    const requestId = readWireText(body.requestId, 256);
+    if (runId === undefined || requestId === undefined) return { ok: false, error: "invalid_interrupt", status: 400 };
+    return { ok: true, command: { runId, requestId } };
 }
 
 async function parseGrantRevokeCommand(request: Request): Promise<

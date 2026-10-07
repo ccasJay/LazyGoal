@@ -27,6 +27,7 @@ function createGoalWithSteer() {
             ...goal.state,
             run: {
                 ...goal.state.run,
+                status: "running" as const,
                 steerInputs: [
                     { messageId: "message-1", status: "pending" as const, content: "保留接口" },
                     { messageId: "message-2", status: "applied" as const, messageIndex: 0 },
@@ -40,6 +41,28 @@ test("Snapshot round-trips pending Steer bodies and applied message positions", 
     const goal = createGoalWithSteer();
     const restored = goalSnapshotCodec.decode(goalSnapshotCodec.encode(goal));
     assert.deepEqual(restored.state.run.steerInputs, goal.state.run.steerInputs);
+});
+
+test("Snapshot preserves accepted Interrupt intent and repair budget across restart", () => {
+    const goal = createGoalWithSteer();
+    const interrupted = {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: {
+                ...goal.state.run,
+                interruption: {
+                    requestId: "interrupt-1",
+                    status: "repairing" as const,
+                    repairCallsStarted: 2,
+                    interruptedActions: [{ actionId: "action-1", toolId: "probe", input: {} }],
+                    outcomeUnknown: true,
+                },
+            },
+        },
+    };
+    const restored = goalSnapshotCodec.decode(goalSnapshotCodec.encode(interrupted));
+    assert.deepEqual(restored.state.run.interruption, interrupted.state.run.interruption);
 });
 
 test("Snapshot rejects duplicate Steer identities and applied positions that do not point to user messages", () => {

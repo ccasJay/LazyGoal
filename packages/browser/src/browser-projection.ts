@@ -210,6 +210,14 @@ export async function readBrowserGoalSession(
         },
         messages,
         ...(pendingSteers.length === 0 ? {} : { pendingSteers }),
+        ...(currentRun.interruption === undefined ? {} : {
+            interruption: {
+                requestId: currentRun.interruption.requestId,
+                status: currentRun.interruption.status,
+                repairCallsStarted: currentRun.interruption.repairCallsStarted,
+                ...(currentRun.interruption.outcomeUnknown === undefined ? {} : { outcomeUnknown: currentRun.interruption.outcomeUnknown }),
+            },
+        }),
         runs: projectedRuns,
         ...(goalPlan === undefined ? {} : { goalPlan }),
         ...(pendingInteraction === undefined ? {} : { pendingInteraction }),

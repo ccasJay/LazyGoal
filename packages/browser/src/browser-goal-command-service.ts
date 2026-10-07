@@ -29,6 +29,8 @@ import type {
     BrowserGoalMessageResult,
     BrowserGoalSteerCommand,
     BrowserGoalSteerResult,
+    BrowserGoalInterruptCommand,
+    BrowserGoalInterruptResult,
     BrowserGoalPlanModeCommand,
     BrowserGoalPlanModeResult,
     BrowserModelSelectionCommand,
@@ -52,6 +54,8 @@ export type {
     BrowserGoalMessageResult,
     BrowserGoalSteerCommand,
     BrowserGoalSteerResult,
+    BrowserGoalInterruptCommand,
+    BrowserGoalInterruptResult,
     BrowserGoalPlanModeCommand,
     BrowserGoalPlanModeResult,
     BrowserModelSelectionCommand,
@@ -179,6 +183,19 @@ export interface BrowserGoalCoordinator {
      * @throws Snapshot 或 Trajectory 提交失败时传播错误。
      */
     steer?(ref: RunRef, messageId: string, content: string): ReturnType<GoalCoordinator["steer"]>;
+
+    /**
+     * 持久化当前 Run 的 Interrupt 意图并中止其活动执行。
+     * @param ref - 当前 Goal 与 Run 的稳定身份。
+     * @param requestId - 可重试的稳定请求身份。
+     * @returns 已保存的请求或稳定拒绝。
+     * @throws Snapshot 或 Trajectory 提交失败时拒绝。
+     * @example
+     * ```ts
+     * await coordinator.interrupt?.({ goalId: "goal-1", runId: "run-1" }, "interrupt-1");
+     * ```
+     */
+    interrupt?(ref: RunRef, requestId: string): ReturnType<GoalCoordinator["interrupt"]>;
 
     /** 依据当前 Goal/Run 身份选择 Plan Mode，并遵守 Runtime 的 Run 状态限制。 */
     enterPlanMode(
@@ -926,6 +943,34 @@ export class BrowserGoalCommandService {
                     : result.error === "STEER_CONFLICT" ? "steer_conflict" : "steer_failed" };
         } catch {
             return { ok: false, error: "steer_failed" };
+        }
+    }
+
+    /** 按当前 Goal/Run 身份受理用户终止请求。 */
+    async interrupt(goalId: string, command: BrowserGoalInterruptCommand): Promise<BrowserGoalInterruptResult> {
+        if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
+        if (this.activeGoalId !== undefined && this.activeGoalId !== goalId) {
+            return { ok: false, error: "goal_busy" };
+        }
+        if (this.dependencies.coordinator.interrupt === undefined) {
+            return { ok: false, error: "interrupt_failed" };
+        }
+        const goal = await this.dependencies.store.restore(goalId);
+        if (goal === undefined) return { ok: false, error: "goal_not_found" };
+        if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
+        if (goal.state.run.status !== "running" && goal.state.run.status !== "waiting") {
+            return { ok: false, error: "goal_not_running" };
+        }
+        if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
+        try {
+            const result = await this.dependencies.coordinator.interrupt(
+                { goalId, runId: command.runId }, command.requestId,
+            );
+            if (result.ok) return result;
+            return { ok: false, error: result.error === "RUN_NOT_FOUND" ? "goal_not_found"
+                : result.error === "RUN_NOT_RUNNING" ? "goal_not_running" : "interrupt_conflict" };
+        } catch {
+            return { ok: false, error: "interrupt_failed" };
         }
     }
 

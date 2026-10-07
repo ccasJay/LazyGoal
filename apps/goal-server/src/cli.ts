@@ -196,6 +196,7 @@ export async function runServerSession(
             create: (command) => commandService.create(command),
             interact: (goalId, command) => commandService.interact(goalId, command),
             message: (goalId, command) => commandService.message(goalId, command),
+            interrupt: (goalId, command) => commandService.interrupt(goalId, command),
             resume: (goalId, command) => commandService.resume(goalId, command),
             enterPlanMode: (goalId, command) => commandService.enterPlanMode(goalId, command),
             selectModel: (goalId, command) => commandService.selectModel(goalId, command),

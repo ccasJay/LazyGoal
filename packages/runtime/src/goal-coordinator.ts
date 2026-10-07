@@ -20,7 +20,7 @@ import type {
 import { validateAskUserAnswers } from "../../model-contracts/src/index";
 import type { ContextLookupPort } from "./context-retrieval";
 import type { RunScheduler } from "./scheduler";
-import type { SteerInputResult } from "./runner";
+import type { InterruptRunResult, SteerInputResult } from "./runner";
 import {
     InMemoryToolRegistry,
     type ToolObservation,
@@ -731,7 +731,7 @@ export class GoalCoordinator {
      * 为已完成或失败的 Run 创建并推进一个新的会话 Run。
      *
      * @remarks
-     * `continue` 只接受当前 `completed` 或 `failed` Run 和非空输入。它在同一个 Goal 内先
+     * `continue` 只接受当前 `completed`、`failed` 或 `cancelled` Run 和非空输入。它在同一个 Goal 内先
      * 归档上一 Run 的消息区间、追加真实用户消息、创建新 Run，并一次性消费
      * `nextRunMode`；没有待用选择时，新 Run 使用普通模式。新 Run 的创建提交与
      * `/plan` 选择共享同一按 Goal 串行化边界，快照成功后才调用 Scheduler。waiting
@@ -774,7 +774,8 @@ export class GoalCoordinator {
                     if (goal === undefined) return { progress: this.runNotFound(ref) };
                     this.validateGoalProtocol(goal);
 
-                    if (goal.state.run.status !== "completed" && goal.state.run.status !== "failed") {
+                    if (goal.state.run.status !== "completed" && goal.state.run.status !== "failed"
+                        && goal.state.run.status !== "cancelled") {
                         return { progress: this.goalNotCompleted(ref) };
                     }
 
@@ -871,6 +872,24 @@ export class GoalCoordinator {
         return this.scheduler.steer === undefined
             ? Promise.resolve({ ok: false, error: "RUN_CONTROL_UNAVAILABLE" })
             : this.scheduler.steer(ref, messageId, content);
+    }
+
+    /**
+     * 持久化受理当前 Run 的用户 Interrupt，并请求其执行所有者停止原调用。
+     *
+     * @param ref - 当前 Goal 与 Run 的稳定身份。
+     * @param requestId - 客户端稳定请求身份，用于受理结果重试。
+     * @returns 已保存的终止意图或稳定拒绝；受理不表示收尾已经结束。
+     * @throws Snapshot 或 Trajectory 提交失败时传播原始错误。
+     * @example
+     * ```ts
+     * const result = await coordinator.interrupt({ goalId, runId }, "interrupt-1");
+     * ```
+     */
+    interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {
+        return this.scheduler.interrupt === undefined
+            ? Promise.resolve({ ok: false, error: "INTERRUPT_CONFLICT" })
+            : this.scheduler.interrupt(ref, requestId);
     }
 
     /**

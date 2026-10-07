@@ -466,6 +466,7 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                 ...(run.steerInputs === undefined
                     ? {}
                     : { steerInputs: structuredClone(run.steerInputs) }),
+                ...(run.interruption === undefined ? {} : { interruption: structuredClone(run.interruption) }),
                 ...(run.stopReason === undefined ? {} : { stopReason: structuredClone(run.stopReason) }),
                 contextEpoch: structuredClone(run.contextEpoch),
             },
@@ -797,6 +798,7 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
                 ...(run.steerInputs === undefined
                     ? {}
                     : { steerInputs: structuredClone(run.steerInputs) }),
+                ...(run.interruption === undefined ? {} : { interruption: structuredClone(run.interruption) }),
                 ...(run.stopReason === undefined ? {} : { stopReason: structuredClone(run.stopReason) }),
                 contextEpoch: structuredClone(run.contextEpoch),
             },
