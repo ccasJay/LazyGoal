@@ -2,7 +2,7 @@
 
 按编号顺序实施，每步保持现有调用链可用。类型迁出时，现有 Runtime 导出先引用新包的唯一定义；TODO 3 完成调用方迁移后删除这些导出。不得复制类型或算法实现。
 
-- [ ] //TODO 1. 迁出记忆数据契约与基础构造能力
+- [x] //TODO 1. 迁出记忆数据契约与基础构造能力
 
   - 实现目标：建立新包，迁移记忆类型、阶段元数据、`createEmptyWorkingMemory` 和 `isMemoryProtocol`；Runtime 领域状态改为引用新定义，注册依赖规则并接入基础测试。
   - 成功判据：无 Runtime 实例即可构造既有结构的空记忆和识别当前协议；新包无 Runtime 依赖，Runtime 使用同一组定义，Snapshot／revision 字段与当前编码一致。
