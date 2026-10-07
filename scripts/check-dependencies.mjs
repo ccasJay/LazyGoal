@@ -14,6 +14,7 @@ import { pathToFileURL } from "node:url";
  */
 const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
+    "model-contracts": ["contracts"],
     "execution-stream": [],
     "context-retrieval": ["contracts"],
     http: [],

@@ -7,7 +7,7 @@
   - 验证方式：`npm test` 中 Contracts 类型检查与新增 AST 检查测试通过。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2)_
 
-- [ ] //TODO 2. 迁移模型输出协议并保持派生结果
+- [x] //TODO 2. 迁移模型输出协议并保持派生结果
 
   - 实现目标：建立 `@lazygoal/model-contracts` 包，将 `model-output/` 实现和 Canonical、Wire、Provider Schema、Shape Guide 等测试迁入；内部 DSL 访问改用 Contracts 公共入口及统一 AST 检查器。
   - 成功判据：模型输出契约可从新包入口使用；相同输入的 Canonical 接受／拒绝与解析值、Wire 派生和解码值、Provider Schema 及 Shape Guide 内容与迁移前一致；递归节点保留既有 Wire 派生限制。
