@@ -39,6 +39,8 @@ export {
     type BrowserWorkspaceContext,
     type BrowserGoalMessageCommand,
     type BrowserGoalMessageResult,
+    type BrowserGoalSteerCommand,
+    type BrowserGoalSteerResult,
     type BrowserGoalInteractionCommand,
     type BrowserGoalInteractionResult,
     type BrowserGoalArchiveCommand,

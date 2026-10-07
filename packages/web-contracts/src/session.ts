@@ -492,6 +492,8 @@ export interface BrowserGoalSession {
     readonly execution?: BrowserGoalExecution;
     /** 会话历史消息。 */
     readonly messages: readonly BrowserSessionMessage[];
+    /** 已受理且尚未进入模型输入的 Steer 消息，按受理顺序排列。 */
+    readonly pendingSteers?: readonly { readonly messageId: string; readonly content: string }[];
     /** 历史与当前 Run 列表。 */
     readonly runs: readonly BrowserSessionRun[];
     /** 任务计划。 */

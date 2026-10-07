@@ -1,4 +1,4 @@
-import type { RunnerResult } from "./runner";
+import type { RunnerResult, SteerInputResult } from "./runner";
 import type { RunExecutionOptions, RunRef } from "./domain";
 import type { ExecutionControl } from "../../execution-control/src/index";
 
@@ -30,4 +30,18 @@ export interface RunScheduler {
         options?: RunExecutionOptions,
         control?: ExecutionControl,
     ): Promise<RunnerResult>;
+
+    /**
+     * 持久化受理当前活动 Run 的 Steer 消息。
+     *
+     * @remarks
+     * Steer 不启动新 Run、不取消现有调用；执行器在下一模型边界应用。
+     * 实现需通过当前 Run 执行所有者转发，不能直接修改 Snapshot。
+     *
+     * @param ref - 目标 Goal 与 Run 的关联身份。
+     * @param messageId - 客户端分配的幂等消息身份。
+     * @param content - 非空消息正文。
+     * @returns 已受理或稳定拒绝结果。
+     */
+    steer?(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult>;
 }

@@ -368,9 +368,23 @@ export interface GoalSnapshotRunStateV1 {
     readonly pendingInteraction?: GoalSnapshotPendingInteractionV1 | undefined;
     readonly pendingThink?: GoalSnapshotPendingThinkV1 | undefined;
     readonly pendingModelRepair?: GoalSnapshotPendingModelRepairV1 | undefined;
+    readonly steerInputs?: readonly GoalSnapshotSteerInputV1[] | undefined;
     readonly stopReason?: GoalSnapshotStopReasonV1 | undefined;
     readonly contextEpoch: GoalSnapshotContextEpochV1;
 }
+
+/**
+ * Snapshot 中当前 Run 的 Steer 受理与应用记录。
+ *
+ * @remarks pending 保存正文；applied 只指向 Goal.messages 中已提交的用户消息。
+ * @example
+ * ```ts
+ * const input: GoalSnapshotSteerInputV1 = { messageId: "message-1", status: "pending", content: "补充约束" };
+ * ```
+ */
+export type GoalSnapshotSteerInputV1 =
+    | { readonly messageId: string; readonly status: "pending"; readonly content: string }
+    | { readonly messageId: string; readonly status: "applied"; readonly messageIndex: number };
 
 /**
  * Snapshot 中的 GoalPlan Todo。
@@ -861,6 +875,19 @@ const PendingModelRepairSchema = z.object({
     thinkRequestId: NonEmptyStringSchema.optional(),
 }).strict();
 
+const SteerInputSchema = z.discriminatedUnion("status", [
+    z.object({
+        messageId: NonEmptyStringSchema,
+        status: z.literal("pending"),
+        content: z.string().min(1).max(64_000),
+    }).strict(),
+    z.object({
+        messageId: NonEmptyStringSchema,
+        status: z.literal("applied"),
+        messageIndex: z.number().int().nonnegative(),
+    }).strict(),
+]);
+
 const StopReasonSchema = z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("max_steps_exceeded") }).strict(),
     z.object({
@@ -1025,6 +1052,7 @@ const GoalSnapshotV1BaseSchema = z.object({
             pendingInteraction: PendingInteractionSchema.optional(),
             pendingThink: PendingThinkSchema.optional(),
             pendingModelRepair: PendingModelRepairSchema.optional(),
+            steerInputs: z.array(SteerInputSchema).optional(),
             stopReason: StopReasonSchema.optional(),
             contextEpoch: ContextEpochSchema,
         }).strict(),
@@ -1075,6 +1103,18 @@ function validateSnapshotInvariants(
             addInvariantIssue(context, "completedRuns message ranges must be ordered and non-overlapping", ["state", "completedRuns", index, "messageRange"]);
         }
         previousRunEnd = Math.max(previousRunEnd, history.messageRange.end);
+    }
+    const steerIds = new Set<string>();
+    for (const [index, steer] of (run.steerInputs ?? []).entries()) {
+        if (steerIds.has(steer.messageId)) {
+            addInvariantIssue(context, "Steer message IDs must be unique within the Run", ["state", "run", "steerInputs", index, "messageId"]);
+        }
+        steerIds.add(steer.messageId);
+        if (steer.status === "applied"
+            && (steer.messageIndex >= goal.state.messages.length
+                || goal.state.messages[steer.messageIndex]?.role !== "user")) {
+            addInvariantIssue(context, "Applied Steer must point to a real user message", ["state", "run", "steerInputs", index, "messageIndex"]);
+        }
     }
     const step = run.lastStep;
     const result = step?.kind === "decision" ? step.result : undefined;

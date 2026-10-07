@@ -296,6 +296,10 @@ export function isBrowserGoalSession(value: unknown): value is BrowserGoalSessio
         || !value.messages.every((message) => isRecord(message)
             && (message.role === "user" || message.role === "assistant")
             && typeof message.content === "string")
+        || (value.pendingSteers !== undefined && (!Array.isArray(value.pendingSteers)
+            || !value.pendingSteers.every((steer) => isRecord(steer)
+                && isNonEmptyString(steer.messageId)
+                && typeof steer.content === "string")))
         || !Array.isArray(value.runs)
         || !value.runs.every(isBrowserRun)
         || typeof value.historyTruncated !== "boolean") return false;

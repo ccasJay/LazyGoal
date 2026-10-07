@@ -666,6 +666,8 @@ export interface RunState {
     readonly pendingInteraction?: PendingInteraction;
     readonly pendingThink?: PendingThink;
     readonly pendingModelRepair?: PendingModelRepair;
+    /** 当前 Run 已受理、尚待模型输入边界应用的 Steer 消息。 */
+    readonly steerInputs?: readonly RunSteerInput[];
     readonly stopReason?: RunStopReason;
     /**
      * 当前模型上下文 Epoch。
@@ -681,6 +683,22 @@ export interface RunState {
      */
     readonly contextEpoch: ModelContextEpochState;
 }
+
+/**
+ * 当前 Run 的持久化 Steer 受理记录。
+ *
+ * @remarks
+ * pending 项保存正文，应用后只保留稳定身份及真实 Goal 消息的位置，避免重复注入。
+ * 数组顺序是同一 Run 的受理顺序；仅 Runtime 可将 pending 转为 applied。
+ *
+ * @example
+ * ```ts
+ * const input: RunSteerInput = { messageId: "msg-1", status: "pending", content: "保留现有 API" };
+ * ```
+ */
+export type RunSteerInput =
+    | { readonly messageId: string; readonly status: "pending"; readonly content: string }
+    | { readonly messageId: string; readonly status: "applied"; readonly messageIndex: number };
 
 /**
  * 程序执行的最小持久化恢复指针。

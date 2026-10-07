@@ -20,6 +20,7 @@ import type {
 import { validateAskUserAnswers } from "../../model-contracts/src/index";
 import type { ContextLookupPort } from "./context-retrieval";
 import type { RunScheduler } from "./scheduler";
+import type { SteerInputResult } from "./runner";
 import {
     InMemoryToolRegistry,
     type ToolObservation,
@@ -847,6 +848,29 @@ export class GoalCoordinator {
             throwIfAborted(control);
             return this.afterSchedule(preparation.nextRef, scheduled, control);
         });
+    }
+
+    /**
+     * 将用户补充输入交给同一 Run 的执行器持久化受理。
+     *
+     * @remarks
+     * Steer 不创建新 Run，也不取消当前模型或工具调用；执行器在后续模型边界应用。
+     * Coordinator 不直接改写 Goal Snapshot，受理与检查点提交由 Scheduler 中的 Runner 串行化。
+     *
+     * @param ref - 当前 Goal 与 Run 的稳定关联身份。
+     * @param messageId - 客户端生成的幂等身份；相同身份与正文可安全重试。
+     * @param content - 非空的补充或修正文本。
+     * @returns 持久化受理、幂等重试或稳定拒绝结果。
+     * @throws Runner 的 Snapshot 或 Trajectory 提交失败时传播错误。
+     * @example
+     * ```ts
+     * const result = await coordinator.steer({ goalId, runId }, "message-1", "不要修改公开接口");
+     * ```
+     */
+    steer(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult> {
+        return this.scheduler.steer === undefined
+            ? Promise.resolve({ ok: false, error: "RUN_CONTROL_UNAVAILABLE" })
+            : this.scheduler.steer(ref, messageId, content);
     }
 
     /**

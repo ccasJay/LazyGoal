@@ -27,6 +27,8 @@ import type {
     BrowserGoalInteractionResult,
     BrowserGoalMessageCommand,
     BrowserGoalMessageResult,
+    BrowserGoalSteerCommand,
+    BrowserGoalSteerResult,
     BrowserGoalPlanModeCommand,
     BrowserGoalPlanModeResult,
     BrowserModelSelectionCommand,
@@ -48,6 +50,8 @@ export type {
     BrowserGoalInteractionResult,
     BrowserGoalMessageCommand,
     BrowserGoalMessageResult,
+    BrowserGoalSteerCommand,
+    BrowserGoalSteerResult,
     BrowserGoalPlanModeCommand,
     BrowserGoalPlanModeResult,
     BrowserModelSelectionCommand,
@@ -164,6 +168,17 @@ export interface BrowserGoalCoordinator {
         newInput: string,
         control?: ExecutionControl,
     ): ReturnType<GoalCoordinator["continue"]>;
+
+    /**
+     * 通过 Runtime 当前执行所有者受理 Steer。
+     *
+     * @param ref - 当前 Goal 与 Run 身份。
+     * @param messageId - 客户端生成的稳定幂等身份。
+     * @param content - 非空 Steer 正文。
+     * @returns 持久化受理或稳定拒绝；受理不表示模型已应用。
+     * @throws Snapshot 或 Trajectory 提交失败时传播错误。
+     */
+    steer?(ref: RunRef, messageId: string, content: string): ReturnType<GoalCoordinator["steer"]>;
 
     /** 依据当前 Goal/Run 身份选择 Plan Mode，并遵守 Runtime 的 Run 状态限制。 */
     enterPlanMode(
@@ -877,6 +892,41 @@ export class BrowserGoalCommandService {
         });
 
         return reservation.kind === "result" ? reservation.result : reservation.accepted;
+    }
+
+    /**
+     * 向当前运行中的 Run 受理 Steer 命令。
+     *
+     * @param goalId - URL 中的 Goal 身份。
+     * @param command - 当前 Run、稳定消息身份和正文。
+     * @returns Runtime 持久化受理状态；失败时调用方保留草稿。
+     * @throws Snapshot 读取或 Runtime 持久化失败时拒绝。
+     */
+    async steer(goalId: string, command: BrowserGoalSteerCommand): Promise<BrowserGoalSteerResult> {
+        if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
+        if (this.activeGoalId !== undefined && this.activeGoalId !== goalId) {
+            return { ok: false, error: "goal_busy" };
+        }
+        if (this.dependencies.coordinator.steer === undefined) {
+            return { ok: false, error: "steer_failed" };
+        }
+        if (command.content.trim().length === 0) return { ok: false, error: "steer_conflict" };
+        const goal = await this.dependencies.store.restore(goalId);
+        if (goal === undefined) return { ok: false, error: "goal_not_found" };
+        if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
+        if (goal.state.run.status !== "running") return { ok: false, error: "goal_not_running" };
+        if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
+        try {
+            const result = await this.dependencies.coordinator.steer(
+                { goalId, runId: command.runId }, command.messageId, command.content,
+            );
+            if (result.ok) return result;
+            return { ok: false, error: result.error === "RUN_NOT_FOUND" ? "goal_not_found"
+                : result.error === "RUN_NOT_RUNNING" ? "goal_not_running"
+                    : result.error === "STEER_CONFLICT" ? "steer_conflict" : "steer_failed" };
+        } catch {
+            return { ok: false, error: "steer_failed" };
+        }
     }
 
     /**

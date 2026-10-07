@@ -9,6 +9,8 @@ import type {
     BrowserGoalInteractionResult,
     BrowserGoalMessageCommand,
     BrowserGoalMessageResult,
+    BrowserGoalSteerCommand,
+    BrowserGoalSteerResult,
     BrowserGoalPlanModeCommand,
     BrowserGoalPlanModeResult,
     BrowserModelSelectionCommand,
@@ -109,6 +111,19 @@ export interface BrowserGoalApiPort {
      * @throws Snapshot 读取失败时拒绝。
      */
     message(goalId: string, command: BrowserGoalMessageCommand): Promise<BrowserGoalMessageResult>;
+    /**
+     * 持久化受理运行中的 Steer。
+     *
+     * @param goalId - URL 中的 Goal 稳定身份。
+     * @param command - 当前 Run、幂等消息身份和正文。
+     * @returns 已保存的受理结果或稳定拒绝；仅受理后客户端才清除草稿。
+     * @throws Snapshot 读取失败时拒绝；未配置控制能力的实现可省略此端口。
+     * @example
+     * ```ts
+     * await source.steer?.("goal-1", { runId: "run-1", messageId: "message-1", content: "保留接口" });
+     * ```
+     */
+    steer?(goalId: string, command: BrowserGoalSteerCommand): Promise<BrowserGoalSteerResult>;
     /**
      * 将带当前 Run 身份的 Plan Mode 选择交给 Runtime Coordinator。
      *
@@ -499,6 +514,22 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         }
     });
 
+    routes.post("/api/goals/:goalId/steer", async (context) => {
+        const parsed = await parseSteerCommand(context.req.param("goalId"), context.req.raw);
+        if (!parsed.ok) return context.json({ error: parsed.error }, parsed.status);
+        try {
+            if (source.steer === undefined) return context.json({ error: "steer_failed" }, 503);
+            const result = await source.steer(context.req.param("goalId"), parsed.command);
+            if (result.ok) return context.json(result, result.existing ? 200 : 202);
+            const status = result.error === "goal_not_found" ? 404
+                : result.error === "steer_failed" ? 500
+                    : result.error === "service_shutting_down" ? 503 : 409;
+            return context.json({ error: result.error, refresh: true }, status);
+        } catch {
+            return context.json({ error: "steer_failed" }, 500);
+        }
+    });
+
     routes.post("/api/goals/:goalId/plan-mode", async (context) => {
         const goalId = context.req.param("goalId");
         if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) {
@@ -801,6 +832,30 @@ async function parseMessageCommand(
         return { ok: false, error: "invalid_message", status: 400 };
     }
     return { ok: true, command: { runId, content } };
+}
+
+async function parseSteerCommand(
+    goalId: string,
+    request: Request,
+): Promise<
+    | { readonly ok: true; readonly command: BrowserGoalSteerCommand }
+    | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
+> {
+    if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) return { ok: false, error: "invalid_steer", status: 400 };
+    const parsed = await readJsonBody(request);
+    if (!parsed.ok) return parsed;
+    if (typeof parsed.value !== "object" || parsed.value === null || Array.isArray(parsed.value)) {
+        return { ok: false, error: "invalid_steer", status: 400 };
+    }
+    const body = parsed.value as Record<string, unknown>;
+    if (!hasExactKeys(body, ["runId", "messageId", "content"])) return { ok: false, error: "invalid_steer", status: 400 };
+    const runId = readWireText(body.runId, 256);
+    const messageId = readWireText(body.messageId, 256);
+    const content = readWireText(body.content, MAX_COMMAND_TEXT_LENGTH);
+    if (runId === undefined || messageId === undefined || content === undefined || content.trim().length === 0) {
+        return { ok: false, error: "invalid_steer", status: 400 };
+    }
+    return { ok: true, command: { runId, messageId, content } };
 }
 
 async function parseGrantRevokeCommand(request: Request): Promise<

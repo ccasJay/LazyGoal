@@ -2,11 +2,11 @@
 
 前置条件：[职责拆分 Spec 的任务与验收](../run-execution-persistence-separation/tasks.md)全部完成并通过验证；本计划基于其已实现的执行、恢复和共享提交边界。TODO 2 依赖 TODO 1 的活动执行与提交串行边界，TODO 3 依赖前两项的控制 API。执行时保留已有工作树改动与全部 `//TODO` 文本。
 
-- [ ] //TODO 1. 接入持久化 Steer 并在同一 Run 的模型边界应用输入
+- [x] //TODO 1. 接入持久化 Steer 并在同一 Run 的模型边界应用输入
 
   - 实现目标：完成 Runtime 控制入口、活动执行句柄与短暂提交边界，更新当前 Snapshot/Trajectory 契约、受理记录、模型输入与原生历史投影，并接通 Web Steer 路由及会话投影；公开源码契约同步补充中文 TSDoc。
   - 成功判据：模型或 Tool 执行期间可受理多条消息；原调用不被中断，下一模型输入按序纳入且只追加一次；并发受理不被旧检查点覆盖，完成竞争明确决定受理或拒绝；重启恢复同一 Run，旧身份和不同正文的重复身份被拒绝，保存失败不越过提交边界。
-  - 验证方式：新增 `packages/runtime/test/run-steer.test.ts`、`packages/storage/test/run-input-control-snapshot.test.ts`、`packages/browser/test/browser-run-control.test.ts`（均待实现），并补充现有 Think、frame 与原生历史测试；运行 `npx tsx --test packages/runtime/test/run-steer.test.ts packages/storage/test/run-input-control-snapshot.test.ts packages/browser/test/browser-run-control.test.ts packages/runtime/test/think-decision-recovery.test.ts packages/runtime/test/model-context-frame.test.ts packages/agent/test/native-model-history.test.ts`。
+  - 验证方式：`packages/runtime/test/run-steer.test.ts`、`packages/storage/test/run-input-control-snapshot.test.ts`、`packages/browser/test/browser-run-control.test.ts` 与现有 Think、frame、原生历史测试；运行 `npx tsx --test packages/runtime/test/run-steer.test.ts packages/storage/test/run-input-control-snapshot.test.ts packages/browser/test/browser-run-control.test.ts packages/runtime/test/think-decision-recovery.test.ts packages/runtime/test/model-context-frame.test.ts packages/agent/test/native-model-history.test.ts`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [8.4](./requirements.md#req-8-4)_
 
 - [ ] //TODO 2. 接入 Interrupt 并复用既有错误反馈完成有限自动收尾

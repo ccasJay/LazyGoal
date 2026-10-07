@@ -436,6 +436,37 @@ export interface BrowserGoalMessageCommand {
 }
 
 /**
+ * 运行中向同一 Run 补充要求的 Steer 命令。
+ *
+ * @remarks 服务器只有在持久化受理后才确认发送；超时重试复用相同身份与正文。
+ * @example
+ * ```ts
+ * const command: BrowserGoalSteerCommand = { runId: "run-1", messageId: "message-1", content: "保留接口" };
+ * ```
+ */
+export interface BrowserGoalSteerCommand {
+    /** 当前 Run 标识。 */
+    readonly runId: string;
+    /** 客户端生成的幂等消息身份。 */
+    readonly messageId: string;
+    /** 非空 Steer 正文。 */
+    readonly content: string;
+}
+
+/**
+ * Steer 持久化受理结果。
+ *
+ * @remarks `existing` 表示同一消息身份此前已经受理；拒绝时输入应保留在客户端。
+ * @example
+ * ```ts
+ * const result: BrowserGoalSteerResult = { ok: true, goalId: "goal-1", runId: "run-1", messageId: "message-1", existing: false };
+ * ```
+ */
+export type BrowserGoalSteerResult =
+    | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly messageId: string; readonly existing: boolean }
+    | { readonly ok: false; readonly error: "goal_not_found" | "stale_run" | "goal_not_running" | "goal_busy" | "steer_conflict" | "steer_failed" | "service_shutting_down" };
+
+/**
  * 发送用户消息结果。
  *
  * @remarks

@@ -133,6 +133,8 @@ export type TrajectoryEventPayload =
         readonly intent: string;
     }
     | { readonly type: "run_started" }
+    | { readonly type: "steer_input_received"; readonly messageId: string }
+    | { readonly type: "steer_input_applied"; readonly messageId: string; readonly messageIndex: number }
     | {
         readonly type: "run_created";
         readonly mode: "normal" | "plan";
@@ -749,6 +751,8 @@ export class TrajectoryCommitMarkerError extends Error {
 const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "goal_created",
     "run_started",
+    "steer_input_received",
+    "steer_input_applied",
     "run_created",
     "run_resumed",
     "plan_mode_entered",
@@ -1210,6 +1214,21 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             throw new TrajectoryProtocolError("run_waiting.requestId is only valid for task_approval");
         }
     }
+    if (eventType === "steer_input_received") {
+        if (Object.keys(payload).some((key) => !["type", "messageId"].includes(key))) {
+            throw new TrajectoryProtocolError("steer_input_received contains unknown fields");
+        }
+        assertNonEmptyString(payload.messageId, "steer_input_received.messageId");
+    }
+    if (eventType === "steer_input_applied") {
+        if (Object.keys(payload).some((key) => !["type", "messageId", "messageIndex"].includes(key))) {
+            throw new TrajectoryProtocolError("steer_input_applied contains unknown fields");
+        }
+        assertNonEmptyString(payload.messageId, "steer_input_applied.messageId");
+        if (!Number.isSafeInteger(payload.messageIndex) || (payload.messageIndex as number) < 0) {
+            throw new TrajectoryProtocolError("steer_input_applied.messageIndex is invalid");
+        }
+    }
     if (eventType === "context_epoch_advanced") {
         if (Object.keys(payload).some((key) => ![
             "type", "closedEpoch", "openedEpoch", "reason", "memoryRevisionEventId",
@@ -1452,6 +1471,8 @@ export function classifyTrajectoryEvent(
         case "ask_user_cancelled":
         case "task_approved":
         case "task_feedback_received":
+        case "steer_input_received":
+        case "steer_input_applied":
             return "lifecycle";
         case "goal_plan_updated":
             return "decision";

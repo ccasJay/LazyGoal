@@ -463,6 +463,9 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                 ...(run.pendingModelRepair === undefined
                     ? {}
                     : { pendingModelRepair: encodePendingModelRepair(run.pendingModelRepair) }),
+                ...(run.steerInputs === undefined
+                    ? {}
+                    : { steerInputs: structuredClone(run.steerInputs) }),
                 ...(run.stopReason === undefined ? {} : { stopReason: structuredClone(run.stopReason) }),
                 contextEpoch: structuredClone(run.contextEpoch),
             },
@@ -791,6 +794,9 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
                 ...(run.pendingModelRepair === undefined
                     ? {}
                     : { pendingModelRepair: decodePendingModelRepair(run.pendingModelRepair) }),
+                ...(run.steerInputs === undefined
+                    ? {}
+                    : { steerInputs: structuredClone(run.steerInputs) }),
                 ...(run.stopReason === undefined ? {} : { stopReason: structuredClone(run.stopReason) }),
                 contextEpoch: structuredClone(run.contextEpoch),
             },

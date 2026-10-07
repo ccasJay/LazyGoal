@@ -11,6 +11,7 @@ import type {
     RunExecutionOptions,
     RunRef,
     RunState,
+    RunSteerInput,
     ToolCallAction,
     WorkingMemoryPatch,
     GoalProtocolValidator,
@@ -196,6 +197,21 @@ class ProgramResourceError extends Error {
         super(code);
     }
 }
+
+class PendingSteerAcceptedError extends Error {}
+
+/**
+ * Steer 命令已保存或被明确拒绝的 Runtime 结果。
+ *
+ * @remarks `ok: true` 只确认消息已持久化受理，不代表已进入模型输入。
+ * @example
+ * ```ts
+ * const result: SteerInputResult = { ok: true, goalId: "goal-1", runId: "run-1", messageId: "message-1", existing: false };
+ * ```
+ */
+export type SteerInputResult =
+    | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly messageId: string; readonly existing: boolean }
+    | { readonly ok: false; readonly error: "RUN_NOT_FOUND" | "RUN_NOT_RUNNING" | "STEER_CONFLICT" | "RUN_CONTROL_UNAVAILABLE" };
 
 class StageExecutionFailure extends Error {
     constructor(readonly original: unknown) {
@@ -1120,6 +1136,46 @@ class RunExecutor {
         );
     }
 
+    /** 持久化受理当前活动 Run 的 Steer；执行器在下一个模型边界应用。 */
+    async steer(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult> {
+        if (messageId.trim().length === 0 || content.trim().length === 0 || content.length > 64_000) {
+            return { ok: false, error: "STEER_CONFLICT" };
+        }
+        return withRunModeSelectionGate(this.store, ref.goalId, async () => {
+            const goal = await this.restore(ref);
+            if (goal === undefined || goal.state.run.id !== ref.runId) {
+                return { ok: false, error: "RUN_NOT_FOUND" };
+            }
+            const run = goal.state.run;
+            const existing = (run.steerInputs ?? []).find((input) => input.messageId === messageId);
+            if (existing !== undefined) {
+                const existingContent = existing.status === "pending"
+                    ? existing.content
+                    : goal.state.messages[existing.messageIndex]?.content;
+                return existingContent === content
+                    ? { ok: true, goalId: goal.id, runId: run.id, messageId, existing: true }
+                    : { ok: false, error: "STEER_CONFLICT" };
+            }
+            if (run.status !== "running") return { ok: false, error: "RUN_NOT_RUNNING" };
+            const steerInputs: readonly RunSteerInput[] = [
+                ...(run.steerInputs ?? []),
+                { messageId, status: "pending", content },
+            ];
+            const nextGoal = this.withRun(goal, { ...run, steerInputs });
+            const fact: TrajectoryEventDraft = {
+                goalId: goal.id,
+                runId: run.id,
+                phase: "executing",
+                eventType: "steer_input_received",
+                payload: { type: "steer_input_received", messageId },
+            };
+            const committed = await this.checkpointCommitter.commit(nextGoal, { facts: [fact] });
+            this.publishCommittedEvents(committed);
+            this.publishCheckpointCommitted(committed, [fact]);
+            return { ok: true, goalId: goal.id, runId: run.id, messageId, existing: false };
+        });
+    }
+
     private async restore(
         ref: RunRef,
         control?: ExecutionControl,
@@ -1691,15 +1747,88 @@ class RunExecutor {
             readonly stepIndex?: number;
         },
     ): Promise<Goal> {
-        const result = await this.checkpointCommitter.commit(goal, {
-            facts,
-            ...(acceptedPatch === undefined ? {} : { acceptedPatch }),
-            ...(control === undefined ? {} : { control }),
-            ...(modelContextFrame === undefined ? {} : { modelContextFrame }),
+        return withRunModeSelectionGate(this.store, goal.id, async () => {
+            const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
+            if (latest !== undefined && (latest.state.run.steerInputs ?? []).some(input => input.status === "pending")) {
+                throw new PendingSteerAcceptedError();
+            }
+            const result = await this.checkpointCommitter.commit(goal, {
+                facts,
+                ...(acceptedPatch === undefined ? {} : { acceptedPatch }),
+                ...(control === undefined ? {} : { control }),
+                ...(modelContextFrame === undefined ? {} : { modelContextFrame }),
+            });
+            this.publishCommittedEvents(result);
+            this.publishCheckpointCommitted(result, facts);
+            return result.goal;
         });
-        this.publishCommittedEvents(result);
-        this.publishCheckpointCommitted(result, facts);
-        return result.goal;
+    }
+
+    private async commitToolProgressPreservingSteers(
+        goal: Goal,
+        facts: readonly TrajectoryEventDraft[],
+        control?: ExecutionControl,
+    ): Promise<TrajectoryCheckpointCommitResult> {
+        return withRunModeSelectionGate(this.store, goal.id, async () => {
+            const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
+            const steerInputs = latest?.state.run.steerInputs;
+            const progressGoal = steerInputs === undefined
+                ? goal
+                : this.withRun(goal, { ...goal.state.run, steerInputs });
+            const committed = await this.checkpointCommitter.commit(progressGoal, {
+                facts,
+                ...(control === undefined ? {} : { control }),
+            });
+            this.publishCommittedEvents(committed);
+            this.publishCheckpointCommitted(committed, facts);
+            return committed;
+        });
+    }
+
+    private async applyPendingSteers(goal: Goal, control?: ExecutionControl): Promise<Goal> {
+        return withRunModeSelectionGate(this.store, goal.id, async () => {
+            const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
+            if (latest === undefined || latest.state.run.status !== "running") return latest ?? goal;
+            const pending = (latest.state.run.steerInputs ?? []).filter(
+                (input): input is Extract<RunSteerInput, { readonly status: "pending" }> => input.status === "pending",
+            );
+            if (pending.length === 0) return latest;
+            const messages = [...latest.state.messages];
+            const steerInputs = [...(latest.state.run.steerInputs ?? [])];
+            const facts: TrajectoryEventDraft[] = [];
+            for (const input of pending) {
+                const messageIndex = messages.length;
+                messages.push({ role: "user", content: input.content });
+                const index = steerInputs.findIndex(item => item.messageId === input.messageId);
+                steerInputs[index] = { messageId: input.messageId, status: "applied", messageIndex };
+                facts.push({
+                    goalId: latest.id,
+                    runId: latest.state.run.id,
+                    phase: "executing",
+                    eventType: "steer_input_applied",
+                    payload: { type: "steer_input_applied", messageId: input.messageId, messageIndex },
+                });
+            }
+            const nextGoal: Goal = {
+                ...latest,
+                state: {
+                    ...latest.state,
+                    messages,
+                    run: (() => {
+                        const {
+                            pendingThink: _pendingThink,
+                            pendingModelRepair: _pendingModelRepair,
+                            ...runWithoutStaleStage
+                        } = latest.state.run;
+                        return { ...runWithoutStaleStage, steerInputs };
+                    })(),
+                },
+            };
+            const committed = await this.checkpointCommitter.commit(nextGoal, { facts, ...(control === undefined ? {} : { control }) });
+            this.publishCommittedEvents(committed);
+            this.publishCheckpointCommitted(committed, facts);
+            return committed.goal;
+        });
     }
 
     private async commitStageCheckpoint(
@@ -2638,12 +2767,7 @@ class RunExecutor {
                 ...goal.state.run,
                 pendingAction: { ...pending, attemptsStarted: attempt },
             });
-            const attemptCommit = await this.checkpointCommitter.commit(attemptGoal, {
-                facts: [attemptFact],
-                ...(control === undefined ? {} : { control }),
-            });
-            this.publishCommittedEvents(attemptCommit);
-            this.publishCheckpointCommitted(attemptCommit, [attemptFact]);
+            const attemptCommit = await this.commitToolProgressPreservingSteers(attemptGoal, [attemptFact], control);
             goal = attemptCommit.goal;
 
             try {
@@ -2689,12 +2813,7 @@ class RunExecutor {
                                 : { retryAfterMs: Math.min(30_000, Math.max(0, error.retryAfterMs)) }),
                         },
                     };
-                    const failedCommit = await this.checkpointCommitter.commit(goal, {
-                        facts: [failedFact],
-                        ...(control === undefined ? {} : { control }),
-                    });
-                    this.publishCommittedEvents(failedCommit);
-                    this.publishCheckpointCommitted(failedCommit, [failedFact]);
+                    const failedCommit = await this.commitToolProgressPreservingSteers(goal, [failedFact], control);
                     goal = failedCommit.goal;
                     if (attempt === 3) {
                         return {
@@ -2763,76 +2882,59 @@ class RunExecutor {
         }
 
         throwIfAborted(control);
-        const toolFinishedEvent = await this.appendTrajectory({
+        const observationFact: TrajectoryEventDraft = {
             goalId: goal.id,
             runId: goal.state.run.id,
             phase: "executing",
             executionUnitId,
             actionId: prepared.action.actionId,
             ...association,
-            eventType: "tool_finished",
-            payload: {
-                type: "tool_finished",
-                actionId: prepared.action.actionId,
-                toolId: prepared.action.toolId,
-                observation,
-            },
-        }, control);
-        const observedRun = program === undefined
-            ? this.applyTransition(goal.state.run, {
-                kind: "observe_action",
-                actionId: prepared.action.actionId,
-                observation,
-            })
-            : (() => {
-                const { pendingAction: _pendingAction, ...run } = goal.state.run;
-                const current = run.pendingProgram;
-                if (current?.programId !== program.programId
-                    || current.nextCallIndex !== program.callIndex) {
-                    throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
-                }
-                return {
-                    ...run,
-                    pendingProgram: {
-                        ...current,
-                        nextCallIndex: current.nextCallIndex + 1,
-                        resultBytes: current.resultBytes + programResultBytes,
-                    },
-                };
-            })();
-        const observedGoal = this.withRun(goal, observedRun);
-
-        const committed = await this.checkpointCommitter.commit(observedGoal, {
-            facts: [{
-                goalId: goal.id,
-                runId: goal.state.run.id,
+            eventType: "observation_recorded",
+            payload: { type: "observation_recorded", actionId: prepared.action.actionId, observation },
+        };
+        const committed = await withRunModeSelectionGate(this.store, goal.id, async () => {
+            const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
+            if (latest === undefined) throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "Run disappeared before Observation commit");
+            const toolFinishedEvent = await this.appendTrajectory({
+                goalId: latest.id,
+                runId: latest.state.run.id,
                 phase: "executing",
                 executionUnitId,
                 actionId: prepared.action.actionId,
                 ...association,
-                eventType: "observation_recorded",
-                payload: {
-                    type: "observation_recorded",
+                eventType: "tool_finished",
+                payload: { type: "tool_finished", actionId: prepared.action.actionId, toolId: prepared.action.toolId, observation },
+            }, control);
+            void toolFinishedEvent;
+            const observedRun = program === undefined
+                ? this.applyTransition(latest.state.run, {
+                    kind: "observe_action",
                     actionId: prepared.action.actionId,
                     observation,
-                },
-            }],
-            ...(control === undefined ? {} : { control }),
+                })
+                : (() => {
+                    const { pendingAction: _pendingAction, ...run } = latest.state.run;
+                    const current = run.pendingProgram;
+                    if (current?.programId !== program.programId
+                        || current.nextCallIndex !== program.callIndex) {
+                        throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
+                    }
+                    return {
+                        ...run,
+                        pendingProgram: {
+                            ...current,
+                            nextCallIndex: current.nextCallIndex + 1,
+                            resultBytes: current.resultBytes + programResultBytes,
+                        },
+                    };
+                })();
+            return this.checkpointCommitter.commit(this.withRun(latest, observedRun), {
+                facts: [observationFact],
+                ...(control === undefined ? {} : { control }),
+            });
         });
         this.publishCommittedEvents(committed);
-        this.publishCheckpointCommitted(committed, [{
-            goalId: goal.id,
-            runId: goal.state.run.id,
-            phase: "executing",
-            executionUnitId,
-            actionId: prepared.action.actionId,
-            eventType: "observation_recorded",
-            payload: {
-                type: "observation_recorded",
-                actionId: prepared.action.actionId,
-                observation,
-            },
-        }]);
+        this.publishCheckpointCommitted(committed, [observationFact]);
         const checkpoint = committed.goal;
         const sourceSequence = committed.events.find((event) =>
             event.eventType === "observation_recorded"
@@ -3004,6 +3106,9 @@ class RunExecutor {
                 contextLookupChainCount = 0;
                 continue;
             }
+
+            goal = await this.applyPendingSteers(goal, control);
+            if (goal.state.run.status !== "running") break;
 
             const maxSteps = goal.definition.executionPolicy.maxSteps;
 
@@ -4060,6 +4165,12 @@ class RunExecutor {
                 );
                 contextLookupResult = undefined;
                 contextLookupChainCount = 0;
+            } catch (error) {
+                if (error instanceof PendingSteerAcceptedError) {
+                    goal = await this.applyPendingSteers(goal, control);
+                    continue;
+                }
+                throw error;
             } finally {
                 session?.close();
             }
@@ -4792,5 +4903,26 @@ export class Runner {
         control?: ExecutionControl,
     ): Promise<RunnerResult> {
         return this.executor.runUntilBlocked(ref, options, control);
+    }
+
+    /**
+     * 将用户输入持久化受理为当前 Run 的 Steer。
+     *
+     * @remarks
+     * 消息不会中断当前模型调用或工具；执行器在下一模型边界按受理顺序应用。
+     * 同一消息身份与正文的重试幂等，身份复用但正文不同会拒绝。
+     *
+     * @param ref - 目标 Goal 与 Run 的关联身份。
+     * @param messageId - 客户端为该次发送分配的稳定身份。
+     * @param content - 非空 Steer 正文。
+     * @returns 已持久化受理、幂等重试或稳定拒绝结果。
+     * @throws Snapshot 或 Trajectory 保存失败时传播原始错误；失败时不报告受理。
+     * @example
+     * ```ts
+     * const accepted = await runner.steer({ goalId, runId }, "steer-1", "保留当前 API");
+     * ```
+     */
+    steer(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult> {
+        return this.executor.steer(ref, messageId, content);
     }
 }
