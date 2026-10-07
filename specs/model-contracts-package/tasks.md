@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 为核心 Contract AST 增加统一只读检查器
+- [x] //TODO 1. 为核心 Contract AST 增加统一只读检查器
 
   - 实现目标：在 `@lazygoal/contracts` 增加 `inspectContractNode` 与 `ContractNodeInspection`，复用现有私有品牌检查，并补充普通、optional、recursive 与未知节点的测试。
   - 成功判据：核心 DSL 创建的普通、optional、recursive 节点均返回正确类别及原节点引用；未知值返回 `undefined`；公开入口不导出品牌 Symbol，既有 AST 构造与冻结行为不变。

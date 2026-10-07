@@ -9,6 +9,10 @@ export {
     compileJsonSchema,
 } from "./json-schema";
 export {
+    inspectContractNode,
+    type ContractNodeInspection,
+} from "./node-inspection";
+export {
     ContractDefinitionError,
     ContractValidationError,
 } from "./errors";
