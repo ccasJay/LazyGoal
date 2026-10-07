@@ -21,7 +21,7 @@
   - 验证方式：迁移 `packages/llm/test/toml-config.test.ts`、`config-loader.test.ts` 中的常规配置用例，运行相关 Goal Server 与 Benchmark 入口测试、`npx tsc --noEmit` 和 `npm run check:dependencies`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.3](./requirements.md#req-1-3), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.4](./requirements.md#req-3-4), [4.1](./requirements.md#req-4-1), [4.4](./requirements.md#req-4-4)_
 
-- [ ] //TODO 4. 将 GEPA Working/Reflection 配置加载迁入配置包
+- [x] //TODO 4. 将 GEPA Working/Reflection 配置加载迁入配置包
 
   - 实现目标：迁移双模型和 Reflection 配置加载入口，改接 Prompt Evaluation 模型桥；删除 `llm` 残余配置加载实现及公开转发，并收敛配置包公开入口和依赖守卫。
   - 成功判据：Working LM 固定读取 `profiles/default.toml`，Reflection LM 读取独立 Profile 且为 `prompt_only`；缺失、同名或非法 Reflection Profile 在模型调用前失败，不回退或共用凭据；生产配置定义和加载入口仅存在于配置包。
@@ -49,4 +49,9 @@
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+- **整体状态**：通过。
+- **TODO 3**：Config TOML/Profile 与常规配置加载测试 30 项通过；Goal Server 和 Benchmark 入口测试 29 项通过；`npx tsc --noEmit`、`npm run check:dependencies` 与 `git diff --check` 通过。
+- **TODO 4**：Config 配置、GEPA bridge、Reflection bridge（含 adversarial）及 Profile 测试 71 项通过；`npx tsc --noEmit`、`npm run check:dependencies` 与 `git diff --check` 通过。LLM 中旧配置加载器、TOML 实现及旧符号引用搜索无结果。
+- **Feature Verification**：`npm test` 全量回归通过，包括类型检查、依赖边界、GEPA Adapter 和仓库测试。
+- **时间**：2026-10-07 14:46 CST。
+- **被测状态**：TODO 4 完成后的工作树；实现按 TODO 1–4 分别提交。

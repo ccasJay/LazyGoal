@@ -40,5 +40,5 @@ export type {
     LazyGoalTomlConfig,
     ProfileTomlConfig,
 } from "./toml-config";
-export { loadRuntimeConfig } from "./config-loader";
-export type { CliConfigOverrides, LazyGoalRuntimeConfig, LoadConfigOptions } from "./config-loader";
+export { loadRuntimeConfig, loadReflectionRuntimeConfig, loadGepaModelConfigs } from "./config-loader";
+export type { CliConfigOverrides, LazyGoalRuntimeConfig, LoadConfigOptions, GepaModelConfigs } from "./config-loader";

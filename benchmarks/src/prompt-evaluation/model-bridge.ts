@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 
-import { loadGepaModelConfigs } from "../../../packages/llm/src/config-loader.js";
+import { loadGepaModelConfigs } from "../../../packages/config/src/index.js";
 import { redactSensitiveString } from "./protocol.js";
 
 /** GEPA 解析模型身份时允许的单行机器输出最大字符数。 */

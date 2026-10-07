@@ -6,7 +6,7 @@ import { parseArgs } from "node:util";
 import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
 import type { LLMRequest } from "../../../packages/llm/src/core/types.js";
 import { createLlmAdapter, createReflectionLlmAdapter } from "../../../packages/llm/src/factory.js";
-import { loadReflectionRuntimeConfig } from "../../../packages/llm/src/config-loader.js";
+import { loadReflectionRuntimeConfig } from "../../../packages/config/src/index.js";
 import { resolveLazyGoalHomePaths } from "../../../packages/config/src/index.js";
 import { readNormalizedUsage } from "../../../packages/llm/src/core/usage.js";
 

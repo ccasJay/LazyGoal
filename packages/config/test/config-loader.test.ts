@@ -3,12 +3,8 @@ import { test } from "node:test";
 import { join } from "node:path";
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import {
-    loadReflectionRuntimeConfig,
-    loadGepaModelConfigs,
-} from "../src/config-loader";
-import { loadRuntimeConfig, resolveLazyGoalHomePaths, TomlConfigurationError } from "../../config/src/index";
-import { LLMConfigurationError } from "../../config/src/index";
+import { loadRuntimeConfig, loadReflectionRuntimeConfig, loadGepaModelConfigs, resolveLazyGoalHomePaths, TomlConfigurationError } from "../src/index";
+import { LLMConfigurationError } from "../src/index";
 
 test("loadRuntimeConfig 遵循四层覆盖优先级", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "lazygoal-loader-test-"));

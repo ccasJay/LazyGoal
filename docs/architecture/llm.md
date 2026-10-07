@@ -5,9 +5,8 @@
 LLM 模块负责供应商通信。`LLMAdapter.generate` 接收有序文本或原生工具消息，返回正文、
 独立 reasoning 摘要、工具调用、续接字段及诊断 metadata；可选的 `stream` 将 Provider 增量归一化为供应商无关事件，由 Agent
 适配到 `@lazygoal/execution-stream`；Agent 负责 Prompt、JSON 结构和语义校验，Runtime 负责工具、状态与恢复。
-CLI、ALFWorld 和 smoke 的 Home/workspace 路径、TOML/Profile 配置解析、常规运行配置加载及显式环境模型配置来自 `@lazygoal/config`。GEPA 专用双模型加载入口暂由 LLM 提供，迁移完成前具体实现见
-[GEPA 配置加载器](../../packages/llm/src/config-loader.ts)。模型解析在创建 Goal、Store 或 sidecar 前完成，具体实现见
-
+CLI、ALFWorld 和 smoke 的 Home/workspace 路径、TOML/Profile 配置解析、常规运行配置加载及 GEPA 双模型加载均来自 `@lazygoal/config`。模型解析在创建 Goal、Store 或 sidecar 前完成，具体实现见
+[配置架构](./config.md) 与
 [工厂](../../packages/llm/src/factory.ts)。
 Adapter 构造时固定输出模式，不自动降级或切换 provider。
 
@@ -48,7 +47,7 @@ strict 仍需经过同一套本地校验。公开契约见 [adapter.ts](../../pa
 
 ## 配置
 
-常规 TOML/Profile 与运行配置由 [`@lazygoal/config`](./config.md) 加载；LLM 消费校验后的 `LLMConfig`，不拥有系统级配置文件解析。GEPA 双模型加载入口的迁移尚未完成。
+常规 TOML/Profile、GEPA 双模型与运行配置由 [`@lazygoal/config`](./config.md) 加载；LLM 消费校验后的 `LLMConfig`，不拥有系统级配置文件解析。
 
 运行要求 Node ≥22.19.0。系统使用统一的 LazyGoal Home：`LAZYGOAL_HOME` 必须是绝对路径，缺失或空白时回退至 `$HOME/.lazygoal`；`XDG_CONFIG_HOME` 不参与解析。按“内置默认值 → `config.toml` → `profiles/<profile>.toml` → CLI 临时参数”四层单向合并加载运行时配置；同时兼容显式传入的进程环境变量。必填 `provider`、`model`、`api_key`；`structured_output_mode` 省略时默认为 `prompt_only`，也可显式设为 `strict` 或 `two_stage`。Runtime 阶段绑定按 Think/Decide 角色确定实际 Adapter 输出模式。
 
@@ -92,7 +91,7 @@ GEPA 生命周期固定使用两个互不复用的 LLM 配置：Working LM 从 L
 `prompt_only`，只负责根据有界评测信息生成反思文本。Reflection Profile 不能缺失、不能
 命名为 `default`，也不能以路径穿越或非法 Profile 名绕过配置边界。
 
-`loadGepaModelConfigs` 在产生模型调用前同时校验两侧配置；Prompt Evaluation 请求只携带
+`@lazygoal/config` 的 `loadGepaModelConfigs` 在产生模型调用前同时校验两侧配置；Prompt Evaluation 请求只携带
 `configId` 与 `modelId`，凭据仍由 LazyGoal Home Profile 加载。生命周期 Run manifest 冻结两侧模型
 身份，恢复时若任一身份漂移即拒绝恢复。Reflection bridge 不进入 Working Agent 的 Tool
 循环，不将 Reflection LM 失败降级为 Working LM。

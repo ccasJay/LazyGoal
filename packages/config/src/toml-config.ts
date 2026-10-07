@@ -27,6 +27,11 @@ export class TomlConfigurationError extends Error {
 
 /**
  * `[llm]` 小节配置结构。
+ *
+ * @example
+ * ```ts
+ * const llm: LLMTomlSection = { provider: "openai", model: "gpt-4o" };
+ * ```
  */
 export interface LLMTomlSection {
     /** 模型提供商标识（如 openai, google, openai-compatible 等）。 */
@@ -49,6 +54,11 @@ export interface LLMTomlSection {
 
 /**
  * `[workspace]` 小节配置结构。
+ *
+ * @example
+ * ```ts
+ * const workspace: WorkspaceTomlSection = { root: "/work/project" };
+ * ```
  */
 export interface WorkspaceTomlSection {
     /** 默认工作区根目录路径。 */
@@ -57,6 +67,11 @@ export interface WorkspaceTomlSection {
 
 /**
  * `[profile]` 小节配置结构。
+ *
+ * @example
+ * ```ts
+ * const profile: ProfileTomlSection = { active: "default" };
+ * ```
  */
 export interface ProfileTomlSection {
     /** 默认激活的用户级 Profile 名称。 */
@@ -65,6 +80,11 @@ export interface ProfileTomlSection {
 
 /**
  * `[tui]` 小节配置结构。
+ *
+ * @example
+ * ```ts
+ * const tui: TuiTomlSection = { execution_mode: "confirm" };
+ * ```
  */
 export interface TuiTomlSection {
     /** TUI 启动执行模式。 */
