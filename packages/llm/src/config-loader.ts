@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { resolveLazyGoalHomePaths, type LazyGoalHomePaths } from "./xdg";
+import { resolveLazyGoalHomePaths, type LazyGoalHomePaths } from "../../config/src/index";
 import {
     parseTomlConfig,
     loadProfileToml,

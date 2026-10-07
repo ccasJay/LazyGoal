@@ -104,7 +104,7 @@ import {
     ensureWorkspaceManifest,
     resolveLazyGoalHomePaths,
     resolveWorkspaceHomePaths,
-} from "../../../packages/llm/src/xdg";
+} from "../../../packages/config/src/index";
 import { createLlmStageAdapters, type LlmStageAdapters } from "../../../packages/llm/src/factory";
 import type { LLMAdapter } from "../../../packages/llm/src/core/adapter";
 import {

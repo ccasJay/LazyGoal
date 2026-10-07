@@ -8,7 +8,7 @@ import {
     loadReflectionRuntimeConfig,
     loadGepaModelConfigs,
 } from "../src/config-loader";
-import { resolveLazyGoalHomePaths } from "../src/xdg";
+import { resolveLazyGoalHomePaths } from "../../config/src/index";
 import { LlmConfigurationError } from "../src/config";
 import { TomlConfigurationError } from "../src/toml-config";
 

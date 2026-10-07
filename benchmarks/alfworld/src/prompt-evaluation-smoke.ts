@@ -20,7 +20,7 @@ import {
 import { AlfworldPromptEvaluationAdapter } from "./prompt-evaluation-adapter.js";
 import { loadManifest } from "./manifest.js";
 import { loadAlfworldProfile } from "./profile.js";
-import { resolveLazyGoalHomePaths } from "../../../packages/llm/src/xdg.js";
+import { resolveLazyGoalHomePaths } from "../../../packages/config/src/index.js";
 import {
     ALFWORLD_ACP_WORKER_ENTRYPOINT,
     ALFWORLD_ACP_WORKER_PROMPT_ASSETS,

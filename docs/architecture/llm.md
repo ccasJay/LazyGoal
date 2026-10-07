@@ -5,8 +5,10 @@
 LLM 模块负责供应商通信。`LLMAdapter.generate` 接收有序文本或原生工具消息，返回正文、
 独立 reasoning 摘要、工具调用、续接字段及诊断 metadata；可选的 `stream` 将 Provider 增量归一化为供应商无关事件，由 Agent
 适配到 `@lazygoal/execution-stream`；Agent 负责 Prompt、JSON 结构和语义校验，Runtime 负责工具、状态与恢复。
-CLI、ALFWorld 和 smoke 共用 [配置解析](../../packages/llm/src/config.ts) 与
-[工厂](../../packages/llm/src/factory.ts)，在创建 Goal、Store 或 sidecar 前完成模型解析。
+CLI、ALFWorld 和 smoke 的 Home/workspace 路径解析来自 `@lazygoal/config`；TOML 与模型配置
+仍由 LLM 模块加载。模型解析在创建 Goal、Store 或 sidecar 前完成，具体实现见
+[配置加载器](../../packages/llm/src/config-loader.ts) 与
+[工厂](../../packages/llm/src/factory.ts)。
 Adapter 构造时固定输出模式，不自动降级或切换 provider。
 
 | Provider | `prompt_only` | `strict` |

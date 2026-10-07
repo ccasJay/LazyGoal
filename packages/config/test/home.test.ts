@@ -11,7 +11,7 @@ import {
     resolveWorkspaceHomePaths,
     LazyGoalHomeConfigurationError,
     WorkspaceManifestProtocolError,
-} from "../src/xdg";
+} from "../src/index";
 
 test("resolveLazyGoalHomePaths 默认使用 HOME/.lazygoal 且忽略 XDG_CONFIG_HOME", () => {
     const fakeHome = "/tmp/lazygoal-home-user";
@@ -108,6 +108,19 @@ test("ensureWorkspaceManifest 原子创建并拒绝身份不一致", async () =>
     if (process.platform !== "win32") assert.equal((await stat(paths.manifestFile)).mode & 0o777, 0o600);
     await assert.rejects(
         ensureWorkspaceManifest(paths, "/different/workspace"),
+        (error: unknown) => error instanceof WorkspaceManifestProtocolError,
+    );
+});
+
+test("ensureWorkspaceManifest 拒绝损坏的身份清单", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lazygoal-manifest-corrupt-test-"));
+    const home = resolveLazyGoalHomePaths({ LAZYGOAL_HOME: join(root, "home") });
+    const paths = await resolveWorkspaceHomePaths(home, root);
+    await mkdir(paths.workspaceDirectory, { recursive: true });
+    await writeFile(paths.manifestFile, "{invalid-json");
+
+    await assert.rejects(
+        ensureWorkspaceManifest(paths, root),
         (error: unknown) => error instanceof WorkspaceManifestProtocolError,
     );
 });

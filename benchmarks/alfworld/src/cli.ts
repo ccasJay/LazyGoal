@@ -16,7 +16,7 @@ import {
 import { buildBenchmarkWorker } from "../../src/worker-builder.js";
 import { AttemptRecorder } from "../../src/attempt-recorder.js";
 import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
-import { resolveLazyGoalHomePaths } from "../../../packages/llm/src/xdg.js";
+import { resolveLazyGoalHomePaths } from "../../../packages/config/src/index.js";
 import { runAlfworldSupervisor } from "./supervisor.js";
 import {
     ALFWORLD_ACP_WORKER_ENTRYPOINT,
