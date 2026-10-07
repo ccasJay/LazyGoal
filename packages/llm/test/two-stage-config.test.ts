@@ -1,48 +1,48 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { LlmConfigurationError, readLlmConfig } from "../src/config";
+import { LLMConfigurationError, readLLMConfig } from "../../config/src/index";
 import { loadRuntimeConfig } from "../src/config-loader";
 import { createLlmAdapter, createLlmStageAdapters } from "../src/factory";
 import { OpenAICompatible } from "../src/openai-compatible";
 import { Gemini } from "../src/gemini";
 import { PiAiAdapter } from "../src/pi-ai";
 
-test("readLlmConfig 支持解析 two_stage 模式并兼容 strict 与 prompt_only", () => {
+test("readLLMConfig 支持解析 two_stage 模式并兼容 strict 与 prompt_only", () => {
     const base = {
         LLM_PROVIDER: "openai",
         LLM_MODEL: "gpt-4o",
         LLM_API_KEY: "sk-test",
     };
 
-    const configTwoStage = readLlmConfig({
+    const configTwoStage = readLLMConfig({
         ...base,
         LLM_STRUCTURED_OUTPUT_MODE: "two_stage",
     });
     assert.equal(configTwoStage.structuredOutputMode, "two_stage");
 
-    const configStrict = readLlmConfig({
+    const configStrict = readLLMConfig({
         ...base,
         LLM_STRUCTURED_OUTPUT_MODE: "strict",
     });
     assert.equal(configStrict.structuredOutputMode, "strict");
 
-    const configPromptOnly = readLlmConfig({
+    const configPromptOnly = readLLMConfig({
         ...base,
         LLM_STRUCTURED_OUTPUT_MODE: "prompt_only",
     });
     assert.equal(configPromptOnly.structuredOutputMode, "prompt_only");
 });
 
-test("readLlmConfig 拒绝非法的 structured_output_mode 并指出包含 two_stage", () => {
+test("readLLMConfig 拒绝非法的 structured_output_mode 并指出包含 two_stage", () => {
     assert.throws(
-        () => readLlmConfig({
+        () => readLLMConfig({
             LLM_PROVIDER: "openai",
             LLM_MODEL: "gpt-4o",
             LLM_API_KEY: "sk-test",
             LLM_STRUCTURED_OUTPUT_MODE: "invalid_mode",
         }),
-        (err: unknown) => err instanceof LlmConfigurationError
+        (err: unknown) => err instanceof LLMConfigurationError
             && /two_stage/.test(err.message),
     );
 });
@@ -53,7 +53,7 @@ test("不支持原生 strict 的 Provider 仍可配置 two_stage，并为两阶�
         ["openrouter", "~anthropic/claude-haiku-latest"],
         ["deepseek", "deepseek-v4-flash"],
     ] as const) {
-        const config = readLlmConfig({
+        const config = readLLMConfig({
             LLM_PROVIDER: provider,
             LLM_MODEL: model,
             LLM_API_KEY: "sk-test",
@@ -68,7 +68,7 @@ test("不支持原生 strict 的 Provider 仍可配置 two_stage，并为两阶�
 });
 
 test("two_stage 阶段绑定为同一模型创建 prompt_only Think 与 strict Decide", () => {
-    const openaiConfig = readLlmConfig({
+    const openaiConfig = readLLMConfig({
         LLM_PROVIDER: "openai",
         LLM_MODEL: "gpt-4o",
         LLM_API_KEY: "sk-test",
@@ -78,7 +78,7 @@ test("two_stage 阶段绑定为同一模型创建 prompt_only Think 与 strict D
     assert.ok(openaiAdapter instanceof OpenAICompatible);
     assert.equal(openaiAdapter.structuredOutputMode, "strict");
 
-    const geminiConfig = readLlmConfig({
+    const geminiConfig = readLLMConfig({
         LLM_PROVIDER: "google",
         LLM_MODEL: "gemini-2.5-pro",
         LLM_API_KEY: "gm-test",
@@ -95,7 +95,7 @@ test("two_stage 阶段绑定为同一模型创建 prompt_only Think 与 strict D
     assert.equal(googleStages.thinkAdapter.structuredOutputMode, "prompt_only");
     assert.equal(googleStages.decideAdapter.structuredOutputMode, "strict");
 
-    const compatibleConfig = readLlmConfig({
+    const compatibleConfig = readLLMConfig({
         LLM_PROVIDER: "openai-compatible",
         LLM_MODEL: "custom-model",
         LLM_API_KEY: "sk-test",

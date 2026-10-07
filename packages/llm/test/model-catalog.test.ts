@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { LlmConfig } from "../src/config.js";
+import type { LLMConfig } from "../../config/src/index.js";
 import {
     createLlmModelCatalog,
     determineSelectability,
@@ -12,7 +12,7 @@ import {
     type RawFetchedModel,
 } from "../src/model-catalog.js";
 
-const baseOpenAIConfig: LlmConfig = {
+const baseOpenAIConfig: LLMConfig = {
     provider: "openai",
     model: "gpt-4o",
     apiKey: "sk-secret-key-12345",
@@ -211,7 +211,7 @@ test("ModelCatalog: 网关模型缺少容量时按预算模式判定可选性", 
             return [{ id: "gemini-3.8-flash-high", displayName: "Gemini 3.8 Flash", supportedGenerationMethods: ["generateContent"] }];
         },
     });
-    const config: LlmConfig = { ...baseOpenAIConfig, provider: "google" };
+    const config: LLMConfig = { ...baseOpenAIConfig, provider: "google" };
 
     const characterModels = await catalog.list(config);
     assert.equal(characterModels[0]?.selectable, true);
@@ -236,7 +236,7 @@ test("ModelCatalog: 允许降级故障（timeout, unavailable, unsupported）触
     assert(result1.every((m) => m.availabilitySource === "catalog"));
 
     // 2. openai-compatible 遇到 unavailable 只能兜底回退到当前配置模型
-    const compatConfig: LlmConfig = {
+    const compatConfig: LLMConfig = {
         provider: "openai-compatible",
         model: "custom-local-llm",
         apiKey: "test-key",

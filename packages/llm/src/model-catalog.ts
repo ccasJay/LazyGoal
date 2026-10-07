@@ -5,7 +5,7 @@ import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 
-import type { LlmConfig, LlmProvider } from "./config.js";
+import type { LLMConfig, LLMProvider } from "../../config/src/index.js";
 import { DefaultProviderModelFetcher } from "./provider-fetchers.js";
 
 /**
@@ -30,7 +30,7 @@ import { DefaultProviderModelFetcher } from "./provider-fetchers.js";
  */
 export interface LlmModelDescriptor {
     /** 归属的语言模型供应商。 */
-    readonly provider: LlmProvider;
+    readonly provider: LLMProvider;
     /** 稳定唯一的模型 ID（如 gpt-4o、claude-sonnet-4-5）。 */
     readonly id: string;
     /** 面向用户的模型可读名称。 */
@@ -133,7 +133,7 @@ export interface RawFetchedModel {
  */
 export interface ProviderModelFetcher {
     fetchModels(
-        config: LlmConfig,
+        config: LLMConfig,
         options?: { readonly signal?: AbortSignal | undefined; readonly fetch?: typeof fetch | undefined },
     ): Promise<readonly RawFetchedModel[]>;
 }
@@ -162,7 +162,7 @@ export interface LlmModelCatalog {
      * @throws ModelCatalogError 鉴权失败、权限被拒、协议格式错误或已取消时抛出。
      */
     list(
-        config: LlmConfig,
+        config: LLMConfig,
         options?: {
             readonly signal?: AbortSignal | undefined;
             readonly fetch?: typeof fetch | undefined;
@@ -212,7 +212,7 @@ function isKnownNonTextModel(id: string): boolean {
  * @param requireTokenCapacity - Token 预算模式要求上下文容量与输出上限；字符预算模式允许两者缺省。
  */
 export function determineSelectability(
-    provider: LlmProvider,
+    provider: LLMProvider,
     id: string,
     contextWindowTokens: number | undefined,
     maxOutputTokens: number | undefined,
@@ -221,7 +221,7 @@ export function determineSelectability(
         readonly isTextGeneration?: boolean | undefined;
         readonly supportsStrictOutput?: boolean | undefined;
     },
-    config: LlmConfig,
+    config: LLMConfig,
     requireTokenCapacity = false,
 ): { readonly selectable: boolean; readonly unavailableReason?: string | undefined } {
     // 1. 明确声明不支持文本生成，或命中明显非文本正则
@@ -323,7 +323,7 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
     ) {}
 
     public async list(
-        config: LlmConfig,
+        config: LLMConfig,
         options?: {
             readonly signal?: AbortSignal | undefined;
             readonly fetch?: typeof fetch | undefined;
@@ -363,7 +363,7 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
 
     private processLiveModels(
         rawList: readonly RawFetchedModel[],
-        config: LlmConfig,
+        config: LLMConfig,
         requireTokenCapacity: boolean,
     ): readonly LlmModelDescriptor[] {
         const seenIds = new Set<string>();
@@ -440,7 +440,7 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
         return sortModelDescriptors(results, config.model);
     }
 
-    private fallback(config: LlmConfig, requireTokenCapacity: boolean): readonly LlmModelDescriptor[] {
+    private fallback(config: LLMConfig, requireTokenCapacity: boolean): readonly LlmModelDescriptor[] {
         if (config.provider === "openai-compatible") {
             const descriptor: LlmModelDescriptor = {
                 provider: config.provider,

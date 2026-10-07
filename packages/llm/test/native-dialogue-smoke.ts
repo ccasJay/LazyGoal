@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { pathToFileURL } from "node:url";
-import { readLlmConfig } from "../src/config";
+import { readLLMConfig } from "../../config/src/index";
 import { createLlmAdapter } from "../src/factory";
 import type { LLMMessage } from "../src/core/types";
 import type { ExecutionControl } from "../../execution-control/src/index";
@@ -18,7 +18,7 @@ import type { ExecutionControl } from "../../execution-control/src/index";
  * ```
  */
 export async function runNativeDialogueSmoke(env: Readonly<Record<string, string | undefined>>, control?: ExecutionControl) {
-    const config = readLlmConfig({ ...env, LLM_STRUCTURED_OUTPUT_MODE: "strict" });
+    const config = readLLMConfig({ ...env, LLM_STRUCTURED_OUTPUT_MODE: "strict" });
     const adapter = createLlmAdapter(config);
     if (adapter.nativeConversationIdentity === undefined) throw new Error("Native OpenAI or Gemini provider required");
     const messages: LLMMessage[] = [{ role: "user", content: "Call smoke_evidence with empty arguments. The application returns a result, then asks for another call. Do not perform any other work." }];

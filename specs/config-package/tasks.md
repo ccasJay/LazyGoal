@@ -7,7 +7,7 @@
   - 验证方式：迁移 `packages/llm/test/xdg.test.ts` 至配置包并运行路径测试；运行 `benchmarks/test/default-paths.test.ts`、`apps/goal-server/test/cli-xdg.integration.test.ts` 和 `npm run check:dependencies`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.3](./requirements.md#req-1-3), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [4.4](./requirements.md#req-4-4)_
 
-- [ ] //TODO 2. 将显式环境模型配置与输出模式迁入配置包
+- [x] //TODO 2. 将显式环境模型配置与输出模式迁入配置包
 
   - 实现目标：迁移唯一的 `LLMConfig`、`LLMProvider`、`LLMConfigurationError`、`readLLMConfig` 与 `StructuredOutputMode` 定义；改接 Adapter、工厂、目录、Agent 与直接使用者，并移除旧定义或转发。
   - 成功判据：相同环境变量仍产生相同供应商、端点及输出模式；非法凭据、供应商、模式或端点仍按原时机失败，稳定错误码、`missing` 和诊断不变，仅已批准的错误类 `name` 使用新拼写；`llm` 单向依赖 `config`。

@@ -1,5 +1,5 @@
 import type { LLMAdapter } from "./core/adapter";
-import { LlmConfigurationError, type LlmConfig } from "./config";
+import { LLMConfigurationError, type LLMConfig } from "../../config/src/index";
 import { Gemini } from "./gemini";
 import { OpenAICompatible } from "./openai-compatible";
 import { PiAiAdapter } from "./pi-ai";
@@ -23,7 +23,7 @@ export interface LlmStageAdapters {
     readonly decideAdapter: LLMAdapter;
 }
 
-function decideModeForProvider(provider: LlmConfig["provider"]): "strict" | "prompt_only" {
+function decideModeForProvider(provider: LLMConfig["provider"]): "strict" | "prompt_only" {
     return provider === "openai" || provider === "google" || provider === "openai-compatible"
         ? "strict"
         : "prompt_only";
@@ -31,15 +31,15 @@ function decideModeForProvider(provider: LlmConfig["provider"]): "strict" | "pro
 
 /**
  * 离线创建固定供应商及单一实际输出模式的 Adapter，不发请求或写入任何存储。
- * @param config - readLlmConfig 产生的显式连接配置。
+ * @param config - readLLMConfig 产生的显式连接配置。
  * @returns prompt_only 使用 pi-ai；strict 使用现有 OpenAI/Gemini 原生实现；two_stage 返回 provider 对应的 Decide Adapter。
- * @throws LlmConfigurationError strict 不受支持、目录模型不存在或容量超限。
+ * @throws LLMConfigurationError strict 不受支持、目录模型不存在或容量超限。
  * @example
  * ```ts
- * const adapter = createLlmAdapter(readLlmConfig(process.env));
+ * const adapter = createLlmAdapter(readLLMConfig(process.env));
  * ```
  */
-export function createLlmAdapter(config: LlmConfig): LLMAdapter {
+export function createLlmAdapter(config: LLMConfig): LLMAdapter {
     const structuredOutputMode = config.structuredOutputMode === "two_stage"
         ? decideModeForProvider(config.provider)
         : config.structuredOutputMode;
@@ -54,7 +54,7 @@ export function createLlmAdapter(config: LlmConfig): LLMAdapter {
         case "google":
             return new Gemini(stageConfig);
         default:
-            throw new LlmConfigurationError([], `Provider "${stageConfig.provider}" does not support ${stageConfig.structuredOutputMode} output; select prompt_only`);
+            throw new LLMConfigurationError([], `Provider "${stageConfig.provider}" does not support ${stageConfig.structuredOutputMode} output; select prompt_only`);
     }
 }
 
@@ -69,7 +69,7 @@ export function createLlmAdapter(config: LlmConfig): LLMAdapter {
  * const { thinkAdapter, decideAdapter } = createLlmStageAdapters(config);
  * ```
  */
-export function createLlmStageAdapters(config: LlmConfig): Readonly<LlmStageAdapters> {
+export function createLlmStageAdapters(config: LLMConfig): Readonly<LlmStageAdapters> {
     return Object.freeze({
         thinkAdapter: config.structuredOutputMode === "prompt_only"
             ? createLlmAdapter(config)
@@ -100,7 +100,7 @@ export function createLlmStageAdapters(config: LlmConfig): Readonly<LlmStageAdap
  * });
  * ```
  */
-export function createReflectionLlmAdapter(config: LlmConfig): LLMAdapter {
+export function createReflectionLlmAdapter(config: LLMConfig): LLMAdapter {
     switch (config.provider) {
         case "google":
             return new Gemini(config);

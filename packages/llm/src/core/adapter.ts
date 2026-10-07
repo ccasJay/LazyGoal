@@ -3,16 +3,12 @@ import type {
     LLMRequest,
     LLMResponse,
     LLMStreamEvent,
-    StructuredOutputMode,
 } from "./types";
+import type { StructuredOutputMode } from "../../../config/src/index";
 import type { ExecutionControl } from "../../../execution-control/src/index";
 
-export type {
-    LLMRequest,
-    LLMResponse,
-    LLMStreamEvent,
-    StructuredOutputMode,
-};
+export type { LLMRequest, LLMResponse, LLMStreamEvent };
+export type { StructuredOutputMode } from "../../../config/src/index";
 
 /**
  * Agent 与具体 LLM 供应商之间的最小适配边界。

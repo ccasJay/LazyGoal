@@ -3,5 +3,5 @@ export type {
     LLMRequest,
     LLMResponse,
     LLMStreamEvent,
-    StructuredOutputMode,
 } from "./core/types.js";
+export type { StructuredOutputMode } from "../../config/src/index.js";

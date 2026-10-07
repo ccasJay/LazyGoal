@@ -13,3 +13,12 @@ export type {
     WorkspaceHomePaths,
     WorkspaceManifest,
 } from "./home";
+export {
+    LLMConfigurationError,
+    readLLMConfig,
+} from "./llm-config";
+export type {
+    LLMConfig,
+    LLMProvider,
+    StructuredOutputMode,
+} from "./llm-config";

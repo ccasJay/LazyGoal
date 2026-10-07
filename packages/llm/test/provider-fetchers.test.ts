@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { LlmConfig } from "../src/config.js";
+import type { LLMConfig } from "../../config/src/index.js";
 import { createLlmModelCatalog, ModelCatalogError } from "../src/model-catalog.js";
 import { DefaultProviderModelFetcher } from "../src/provider-fetchers.js";
 
@@ -28,7 +28,7 @@ test("ProviderModelFetcher: OpenAI 正常拉取、默认与覆盖端点、认证
     const fetcher = new DefaultProviderModelFetcher();
 
     // 1. 默认官方端点
-    const config1: LlmConfig = {
+    const config1: LLMConfig = {
         provider: "openai",
         model: "gpt-4o",
         apiKey: CANARY_API_KEY,
@@ -40,7 +40,7 @@ test("ProviderModelFetcher: OpenAI 正常拉取、默认与覆盖端点、认证
     assert.deepEqual(result1, [{ id: "gpt-4o" }, { id: "o3-mini" }]);
 
     // 2. 自定义 baseURL
-    const config2: LlmConfig = {
+    const config2: LLMConfig = {
         provider: "openai",
         model: "gpt-4o",
         apiKey: CANARY_API_KEY,
@@ -102,7 +102,7 @@ test("ProviderModelFetcher: Google 正常拉取、去除 models/ 前缀与两页
     };
 
     const fetcher = new DefaultProviderModelFetcher();
-    const config: LlmConfig = {
+    const config: LLMConfig = {
         provider: "google",
         model: "gemini-2.5-flash",
         apiKey: CANARY_API_KEY,
@@ -142,7 +142,7 @@ test("ProviderModelFetcher: Google 拒绝不前进的重复 pageToken", async ()
     };
 
     const fetcher = new DefaultProviderModelFetcher();
-    const config: LlmConfig = {
+    const config: LLMConfig = {
         provider: "google",
         model: "gemini-1.5-flash",
         apiKey: CANARY_API_KEY,
@@ -202,7 +202,7 @@ test("ProviderModelFetcher: Anthropic 认证头、版本头与 cursor 分页遍�
     };
 
     const fetcher = new DefaultProviderModelFetcher();
-    const config: LlmConfig = {
+    const config: LLMConfig = {
         provider: "anthropic",
         model: "claude-sonnet-4-5",
         apiKey: CANARY_API_KEY,
@@ -238,7 +238,7 @@ test("ProviderModelFetcher: Anthropic 拒绝 has_more 为 true 但 last_id 不�
     };
 
     const fetcher = new DefaultProviderModelFetcher();
-    const config: LlmConfig = {
+    const config: LLMConfig = {
         provider: "anthropic",
         model: "claude-sonnet-4-5",
         apiKey: CANARY_API_KEY,
@@ -294,7 +294,7 @@ test("ProviderModelFetcher: OpenRouter 端点与富元数据映射（容量、�
     };
 
     const fetcher = new DefaultProviderModelFetcher();
-    const config: LlmConfig = {
+    const config: LLMConfig = {
         provider: "openrouter",
         model: "anthropic/claude-3.5-sonnet",
         apiKey: CANARY_API_KEY,
@@ -340,7 +340,7 @@ test("ProviderModelFetcher: DeepSeek 官方端点与列表解析", async () => {
     };
 
     const fetcher = new DefaultProviderModelFetcher();
-    const config: LlmConfig = {
+    const config: LLMConfig = {
         provider: "deepseek",
         model: "deepseek-chat",
         apiKey: CANARY_API_KEY,
@@ -376,7 +376,7 @@ test("ProviderModelFetcher: openai-compatible 端点、可选认证与 data/mode
     };
 
     const fetcher = new DefaultProviderModelFetcher();
-    const config: LlmConfig = {
+    const config: LLMConfig = {
         provider: "openai-compatible",
         model: "custom-qwen-72b",
         apiKey: CANARY_API_KEY,
@@ -411,7 +411,7 @@ test("ProviderModelFetcher: HTTP 状态码映射到约定的脱敏错误分类�
     ] as const;
 
     const fetcher = new DefaultProviderModelFetcher();
-    const config: LlmConfig = {
+    const config: LLMConfig = {
         provider: "openai",
         model: "gpt-4o",
         apiKey: CANARY_API_KEY,
@@ -449,7 +449,7 @@ test("ProviderModelFetcher: 网络故障映射为 unavailable 且不泄露凭据
     };
 
     const fetcher = new DefaultProviderModelFetcher();
-    const config: LlmConfig = {
+    const config: LLMConfig = {
         provider: "google",
         model: "gemini-2.5-flash",
         apiKey: CANARY_API_KEY,
@@ -482,7 +482,7 @@ test("ProviderModelFetcher: 超时控制共享并映射为 timeout", async () =>
 
     // 使用较短超时 20ms 测试超时机制
     const fetcher = new DefaultProviderModelFetcher(20);
-    const config: LlmConfig = {
+    const config: LLMConfig = {
         provider: "anthropic",
         model: "claude-sonnet-4-5",
         apiKey: CANARY_API_KEY,
@@ -515,7 +515,7 @@ test("ProviderModelFetcher: 外部 AbortSignal 取消映射为 cancelled", async
     };
 
     const fetcher = new DefaultProviderModelFetcher(10000);
-    const config: LlmConfig = {
+    const config: LLMConfig = {
         provider: "deepseek",
         model: "deepseek-chat",
         apiKey: CANARY_API_KEY,
@@ -548,7 +548,7 @@ test("ProviderModelFetcher: 非法 JSON 与畸形响应结构映射为 protocol 
     ];
 
     const fetcher = new DefaultProviderModelFetcher();
-    const config: LlmConfig = {
+    const config: LLMConfig = {
         provider: "openai",
         model: "gpt-4o",
         apiKey: CANARY_API_KEY,
@@ -586,7 +586,7 @@ test("ProviderModelFetcher: createLlmModelCatalog() 默认集成 DefaultProvider
     };
 
     const catalog = createLlmModelCatalog();
-    const config: LlmConfig = {
+    const config: LLMConfig = {
         provider: "openai",
         model: "gpt-4o",
         apiKey: CANARY_API_KEY,
