@@ -1,5 +1,4 @@
-import type { JsonSchema202012 } from "../../../contracts/src/index";
-import type { JsonValue } from "../../../runtime/src/domain";
+import type { JsonSchema202012, JsonValue } from "../../../contracts/src/index";
 
 import type { ModelAssistantMessage, ModelConversationMessage, ModelToolCall, ModelContinuation } from "../../../contracts/src/model-conversation";
 export type { NativeConversationIdentity } from "../../../contracts/src/model-conversation";

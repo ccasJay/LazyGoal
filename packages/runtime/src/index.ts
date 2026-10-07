@@ -33,11 +33,9 @@ export { findTools } from "./tool-discovery";
 export type { ToolDiscoveryResult } from "./tool-discovery";
 export {
     ModelRequestRetriesExhaustedError,
-    TransientModelRequestFailure,
 } from "./model-request-failure";
 export type {
     ModelRequestAttemptFailure,
-    TransientModelFailureReason,
 } from "./model-request-failure";
 export {
     createRuntimeFeedback,

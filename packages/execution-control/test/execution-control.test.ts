@@ -6,6 +6,7 @@ import {
     ExecutionAbortedError,
     isExecutionAbortedError,
     throwIfAborted,
+    TransientModelRequestFailure,
     type ExecutionControl,
 } from "../src/index.js";
 
@@ -51,3 +52,16 @@ test("throwIfAborted throws ExecutionAbortedError when signal is aborted", () =>
         (err) => isExecutionAbortedError(err) && err instanceof ExecutionAbortedError,
     );
 });
+
+test("TransientModelRequestFailure initializes with kind, reason, status, and retryAfterMs", () => {
+    const failure = new TransientModelRequestFailure("rate_limited", {
+        status: 429,
+        retryAfterMs: 5000,
+    });
+    assert.equal(failure.name, "TransientModelRequestFailure");
+    assert.equal(failure.kind, "transient_model_request");
+    assert.equal(failure.reason, "rate_limited");
+    assert.equal(failure.status, 429);
+    assert.equal(failure.retryAfterMs, 5000);
+});
+

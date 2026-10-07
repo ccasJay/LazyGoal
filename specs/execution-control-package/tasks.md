@@ -7,7 +7,7 @@
   - 验证方式：`npx tsc --noEmit`；`npx tsx --test packages/runtime/test/execution-control.test.ts packages/agent/test/execution-control.test.ts packages/llm/test/execution-control.test.ts packages/tools/test/bash.test.ts`；针对新包公共原语补充测试（待实现）。
   - _Requirements: [1.3](./requirements.md#req-1-3), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2)_
 
-- [ ] //TODO 2. 拆出暂时性模型故障协议并封闭 LLM 依赖边界
+- [x] //TODO 2. 拆出暂时性模型故障协议并封闭 LLM 依赖边界
 
   - 实现目标：将暂时性模型故障类型迁入共享包，保持 Runtime 的尝试摘要与耗尽错误归属；让 LLM 的 `JsonValue` 取自 `contracts`，迁移剩余调用方，并在依赖规则中禁止 `llm → runtime`。
   - 成功判据：LLM 生产源码无 Runtime 导入，反向导入被边界检查拒绝；已识别故障仍按现有上限和退避重试，取消、非暂时错误与结构化纠错保持原行为。
@@ -23,8 +23,8 @@
 | 验收范围 | 场景与预期结果 | 验证方式 |
 | --- | --- | --- |
 | [1.1](./requirements.md#req-1-1) | LLM 所有生产导入均不指向 Runtime。 | `npm run check:dependencies`、源码导入检查与 `npx tsc --noEmit`。 |
-| [1.2](./requirements.md#req-1-2) | 在 LLM 源码中构造反向导入会得到边界违规。 | `scripts/check-dependencies.test.mjs` 的负向用例（待实现）。 |
-| [1.3](./requirements.md#req-1-3) | Runtime 与适配器取得同一错误类；旧路径没有第二份实现或转发导出。 | 新包公共入口测试（待实现）、跨包 `instanceof` 测试、导出检查。 |
+| [1.2](./requirements.md#req-1-2) | 在 LLM 源码中构造反向导入会得到边界违规。 | `scripts/check-dependencies.test.mjs` 的负向用例（已实现并通过）。 |
+| [1.3](./requirements.md#req-1-3) | Runtime 与适配器取得同一错误类；旧路径没有第二份实现或转发导出。 | 新包公共入口测试、跨包 `instanceof` 测试、导出检查。 |
 | [2.1](./requirements.md#req-2-1) | 在各调用阶段中止后，不继续模型或 Tool 调用，错误仍被识别为中止。 | Runtime、Agent、LLM、Tools 取消测试及跨层集成测试。 |
 | [2.2](./requirements.md#req-2-2) | 中止不产生新的业务失败提交；进程退出语义保持不变。 | Runtime 取消／恢复测试与现有退出路径测试。 |
 | [3.1](./requirements.md#req-3-1) | 已分类的暂时故障有界重试、退避可中止，稳定摘要被记录；原始 Provider 异常不进入模型输入。 | LLM 故障分类、Runner 重试及 Agent 输入测试。 |
@@ -34,4 +34,11 @@
 
 ### Latest Result
 
-未执行。实施后按 `delivery-loop.md` 记录逐项证据、整体状态、时效、时间及被测代码状态。
+- 状态：passed
+- 验证时间：2026-10-07
+- 证据摘要：
+  1. `npm run check:dependencies`：206 个源文件 0 违规，成功拦截 `llm -> runtime` 与 `execution-control -> runtime`。
+  2. `node --test scripts/check-dependencies.test.mjs`：9 个依赖测试全部通过。
+  3. `npx tsc --noEmit`：全仓 0 类型错误。
+  4. `npm test`：1564 个核心测试、22 个脚本测试、GEPA 测试全部通过。
+  5. 架构与布局文档已同步：`AGENTS.md`、`docs/architecture/README.md`、`docs/architecture/runtime.md`、`docs/architecture/llm.md`。

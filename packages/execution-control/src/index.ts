@@ -5,3 +5,8 @@ export {
     throwIfAborted,
     type ExecutionControl,
 } from "./execution-control";
+
+export {
+    TransientModelRequestFailure,
+    type TransientModelFailureReason,
+} from "./model-request-failure";

@@ -27,8 +27,8 @@ Runtime 阶段绑定策略，不要求两个 Adapter 使用相同的结构化输
 只返回正常结束的文本，隔离 thinking，拒绝截断、错误、意外工具调用及其它非完成状态。
 空文本仍交给 Agent 拒绝；不在 Adapter 修复 JSON。Adapter 只将限流、暂时性 5xx、连接和超时映射为类型化暂时故障，其他错误保持失败；OpenAI 与 Gemini SDK 内部重试已关闭，避免与 Runtime 调用上限叠加。
 
-所有 Adapter 在请求前后检查取消信号并传入 SDK。取消统一为 `ExecutionAbortedError`；
-pi-ai 返回型失败转换为 `PiAiProviderError`；可识别的暂时 Provider/传输异常映射为 Runtime 故障类型。
+所有 Adapter 在请求前后检查取消信号并传入 SDK。取消统一为 `@lazygoal/execution-control` 的 `ExecutionAbortedError`；
+pi-ai 返回型失败转换为 `PiAiProviderError`；可识别的暂时 Provider/传输异常映射为 `@lazygoal/execution-control` 的 `TransientModelRequestFailure`，LLM 模块不依赖 `@lazygoal/runtime`。
 请求与模式不匹配时抛出 `LLMRequestModeMismatchError`。
 原生 Adapter 在无工具请求中将 strict 映射为 OpenAI `response_format.json_schema` 和 Gemini `responseSchema`；Decide 挂载工具时只使用函数参数 Schema，不同时发送顶层决策 Schema。
 Gemini strict 输出将决策判别联合打平为带 `nullable: true` 的全量 required 扁平对象，从语法机源头约束

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { TransientModelRequestFailure } from "../../runtime/src/model-request-failure";
+import { TransientModelRequestFailure } from "../../execution-control/src/index";
 import { classifyTransientModelFailure } from "../src/core/model-request-failure";
 
 test("classifies retryable status and parses Retry-After", () => {

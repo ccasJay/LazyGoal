@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { contract, createModelOutputContractBundle } from "../../contracts/src/index";
 
-import { ExecutionAbortedError } from "../../execution-control/src/index";
-import { TransientModelRequestFailure } from "../../runtime/src/model-request-failure";
+import { ExecutionAbortedError, TransientModelRequestFailure } from "../../execution-control/src/index";
 import { Gemini } from "../src/gemini";
 import {
     LLMRequestModeMismatchError,

@@ -6,7 +6,8 @@ import type {
     AcpSessionFactory,
     AcpSessionInput,
 } from "../../../packages/acp/src/index.js";
-import { createToolRegistration, InMemoryToolRegistry, isExecutionAbortedError, type AgentProfile, type ToolRegistry } from "../../../packages/runtime/src/index.js";
+import { createToolRegistration, InMemoryToolRegistry, type AgentProfile, type ToolRegistry } from "../../../packages/runtime/src/index.js";
+import { isExecutionAbortedError } from "../../../packages/execution-control/src/index.js";
 import {
     BashTool,
     EditFileTool,

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { isExecutionAbortedError } from "../../../packages/runtime/src/index.js";
+import { isExecutionAbortedError } from "../../../packages/execution-control/src/index.js";
 import { SwebenchContainer } from "../src/container.js";
 import { requireSuccess, runProcess, type InteractiveProcess, type InteractiveProcessRunner, type ProcessRunner } from "../../src/process.js";
 import type { WorkerArtifact } from "../../src/worker-builder.js";

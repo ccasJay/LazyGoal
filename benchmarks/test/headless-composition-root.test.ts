@@ -3,15 +3,17 @@ import { test } from "node:test";
 
 import { contract } from "../../packages/contracts/src/index.js";
 import {
+    ExecutionAbortedError,
+    isExecutionAbortedError,
+} from "../../packages/execution-control/src/index.js";
+import {
     allocateImmutableEvent,
     classifyTrajectoryTail,
     createToolRegistration,
-    ExecutionAbortedError,
     TrajectoryAppendError,
     type AgentProfile,
     type Goal,
     type GoalStore,
-    isExecutionAbortedError,
     type TrajectoryEvent,
     type TrajectoryReadQuery,
     type TrajectoryReadResult,

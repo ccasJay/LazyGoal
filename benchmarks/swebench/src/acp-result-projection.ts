@@ -8,8 +8,8 @@ import type {
     AcpPromptResult,
     AcpSessionUpdate,
 } from "../../../packages/acp/src/index.js";
+import { isExecutionAbortedError } from "../../../packages/execution-control/src/index.js";
 import {
-    isExecutionAbortedError,
     type JsonValue,
     type TrajectoryEvent,
     type TrajectoryEventDraft,
