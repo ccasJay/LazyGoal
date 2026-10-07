@@ -184,23 +184,7 @@ export type {
     ProviderReportedModelCallUsage,
     UnavailableModelCallUsage,
 } from "./model-call-metrics";
-export {
-    DEFAULT_WORKING_MEMORY_LIMITS,
-    WORKING_MEMORY_LIMITS_ERROR_CODE,
-    WORKING_MEMORY_PATCH_ERROR_CODE,
-    WorkingMemoryLimitsError,
-    WorkingMemoryPatchError,
-    applyMemoryPatch,
-    assertValidWorkingMemory,
-    createCanonicalFactId,
-    createSupersedeScopeOperation,
-    mergeNormalizedMemoryPatches,
-    normalizeMemoryPatch,
-    reduceWorkingMemory,
-    resolveWorkingMemoryLimits,
-    validateMemoryPatch,
-    validateMemoryPatchPhase,
-} from "./working-memory-core";
+
 export {
     CONTEXT_LOOKUP_CHAIN_LIMIT_CODE,
     CONTEXT_LOOKUP_FAILED_CODE,
@@ -251,15 +235,7 @@ export type {
     IndexedContextLookupServiceOptions,
     RuntimeContextLookupAdapterOptions,
 } from "./runtime-context-lookup-adapter";
-export type {
-    MemorySuppressionReason,
-    NormalizedWorkingMemoryPatch,
-    SuppressedMemoryOperation,
-    WorkingMemoryLimits,
-    WorkingMemoryLimitsInput,
-    WorkingMemoryPatchNormalizationContext,
-    WorkingMemoryPatchValidationContext,
-} from "./working-memory-core";
+
 export {
     WORKING_MEMORY_RECOVERY_ERROR_CODE,
     WORKING_MEMORY_SESSION_CLOSED_CODE,

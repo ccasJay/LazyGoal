@@ -6,7 +6,7 @@ import type {
 } from "./domain";
 import {
     validateMemoryPatch,
-} from "./working-memory-core";
+} from "../../working-memory/src/index";
 import type {
     TrajectoryEvent,
     TrajectoryEventType,

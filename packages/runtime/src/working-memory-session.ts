@@ -17,7 +17,7 @@ import {
 import {
     reduceWorkingMemory,
     type WorkingMemoryLimitsInput,
-} from "./working-memory-core";
+} from "../../working-memory/src/index";
 import {
     freezeTrajectoryEvent,
     type TrajectoryEvent,

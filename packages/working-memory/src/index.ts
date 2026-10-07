@@ -10,6 +10,8 @@
  * import {
  *     createEmptyWorkingMemory,
  *     isMemoryProtocol,
+ *     normalizeMemoryPatch,
+ *     reduceWorkingMemory,
  *     type WorkingMemory,
  * } from "@lazygoal/working-memory";
  *
@@ -22,6 +24,34 @@ export {
     createEmptyWorkingMemory,
     isMemoryProtocol,
 } from "./protocol";
+
+export {
+    applyMemoryPatch,
+    assertValidWorkingMemory,
+    createCanonicalFactId,
+    createSupersedeScopeOperation,
+    DEFAULT_WORKING_MEMORY_LIMITS,
+    mergeNormalizedMemoryPatches,
+    normalizeMemoryPatch,
+    reduceWorkingMemory,
+    resolveWorkingMemoryLimits,
+    validateMemoryPatch,
+    validateMemoryPatchPhase,
+    WORKING_MEMORY_LIMITS_ERROR_CODE,
+    WORKING_MEMORY_PATCH_ERROR_CODE,
+    WorkingMemoryLimitsError,
+    WorkingMemoryPatchError,
+} from "./core";
+
+export type {
+    MemorySuppressionReason,
+    NormalizedWorkingMemoryPatch,
+    SuppressedMemoryOperation,
+    WorkingMemoryLimits,
+    WorkingMemoryLimitsInput,
+    WorkingMemoryPatchNormalizationContext,
+    WorkingMemoryPatchValidationContext,
+} from "./core";
 
 export type {
     Blocker,

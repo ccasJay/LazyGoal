@@ -9,7 +9,7 @@
   - 验证方式：新包基础契约测试（待实现）；`npx tsc --noEmit`、`npm run check:dependencies`、`node --test scripts/check-dependencies.test.mjs`；`npx tsx --test packages/runtime/test/working-memory-contract.test.ts packages/storage/test/goal-snapshot-current.test.ts`。
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [3.4](./requirements.md#req-3-4)_
 
-- [ ] //TODO 2. 迁出 Patch 算法并接入 Runtime 准入与恢复
+- [x] //TODO 2. 迁出 Patch 算法并接入 Runtime 准入与恢复
 
   - 实现目标：迁移 Core 算法、限制、结果类型和错误；Runner、Evidence Gate、Session 及现有算法调用方直接使用新包，移除旧 Core 文件与算法转发导出；迁移算法测试并补齐提交／恢复的具体覆盖缺口。
   - 成功判据：公开入口对固定输入产生原有 canonical 结果，非法 Patch 原子拒绝；Runtime 继续决定证据资格及提交顺序，只重放有效已提交链，保存失败和损坏数据不放行有效记忆。

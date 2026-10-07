@@ -41,7 +41,7 @@ import {
     selectLatestConversationStart,
     toEpochRange,
 } from "./context-epoch";
-import type { WorkingMemoryLimitsInput } from "./working-memory-core";
+import type { WorkingMemoryLimitsInput } from "../../working-memory/src/index";
 import {
     TrajectoryCheckpointCommitter,
     type TrajectoryCheckpointCommitResult,

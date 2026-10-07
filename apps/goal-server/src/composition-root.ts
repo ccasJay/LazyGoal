@@ -7,7 +7,6 @@ import { dirname, join, resolve } from "node:path";
 import {
     CheckpointGateGoalStore,
     createToolRegistration,
-    DEFAULT_WORKING_MEMORY_LIMITS,
     ManagedResourceRegistry,
     ProcessExitPort,
     ShutdownCoordinator,
@@ -31,9 +30,12 @@ import {
     type TrajectoryReadResult,
     type TrajectoryStore,
     type ToolPolicy,
-    type WorkingMemoryLimits,
     IndexedContextLookupService,
 } from "../../../packages/runtime/src/index";
+import {
+    DEFAULT_WORKING_MEMORY_LIMITS,
+    type WorkingMemoryLimits,
+} from "../../../packages/working-memory/src/index";
 import {
     AgentProfileConfigurationError,
     JsonFileDiagnosticTraceSink,
