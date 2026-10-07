@@ -4,7 +4,7 @@ import {
     isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
-} from "./execution-control";
+} from "../../execution-control/src/index";
 import type { Goal } from "./domain";
 import type {
     TrajectoryEventDraft,

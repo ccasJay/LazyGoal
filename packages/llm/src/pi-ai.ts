@@ -8,7 +8,7 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import type { LLMAdapter } from "./core/adapter";
 import { LLMRequestModeMismatchError, type LLMRequest, type LLMResponse, type LLMStreamEvent, type LLMToolCall } from "./core/types";
 import { LlmConfigurationError, type LlmConfig } from "./config";
-import { ExecutionAbortedError, throwIfAborted, type ExecutionControl } from "../../runtime/src/execution-control";
+import { ExecutionAbortedError, throwIfAborted, type ExecutionControl } from "../../execution-control/src/index";
 import { classifyTransientModelFailure } from "./core/model-request-failure";
 
 /** pi-ai 返回的失败状态；不包含部分输出、凭据或 SDK 响应对象。 */

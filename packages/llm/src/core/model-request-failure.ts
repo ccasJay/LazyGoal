@@ -1,4 +1,4 @@
-import { TransientModelRequestFailure } from "../../../runtime/src/model-request-failure";
+import { TransientModelRequestFailure } from "../../../execution-control/src/index";
 
 const CONNECTION_CODES = new Set([
     "ECONNRESET", "ETIMEDOUT", "ECONNREFUSED", "EAI_AGAIN", "ENETUNREACH",

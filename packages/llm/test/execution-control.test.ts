@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ExecutionAbortedError } from "../../runtime/src/index";
+import { ExecutionAbortedError } from "../../execution-control/src/index";
 import { Gemini } from "../src/gemini";
 import { OpenAICompatible } from "../src/openai-compatible";
 

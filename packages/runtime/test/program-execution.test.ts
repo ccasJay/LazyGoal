@@ -1,3 +1,4 @@
+import { ExecutionAbortedError } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { contract } from "../../contracts/src/index";
@@ -9,7 +10,6 @@ import { buildCommittedContextDocuments } from "../../context-retrieval/src/inde
 import {
     createGoal,
     createToolRegistration,
-    ExecutionAbortedError,
     GoalCoordinator,
     InMemoryToolRegistry,
     InlineScheduler,

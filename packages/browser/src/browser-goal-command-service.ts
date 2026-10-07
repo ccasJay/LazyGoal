@@ -1,5 +1,5 @@
+import type { ExecutionControl } from "../../execution-control/src/index";
 import type {
-    ExecutionControl,
     Goal,
     GoalModelSelection,
     GoalModelSelectionCoordinator,

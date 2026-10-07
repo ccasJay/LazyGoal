@@ -5,7 +5,7 @@ import {
     isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
-} from "../../runtime/src/execution-control";
+} from "../../execution-control/src/index";
 import type {
     TrajectoryEvent,
     ModelContextFramePayload,

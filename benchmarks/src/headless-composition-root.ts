@@ -14,17 +14,19 @@ import {
     readNormalizedUsage,
 } from "../../packages/agent/src/index.js";
 import {
+    isExecutionAbortedError,
+    throwIfAborted,
+    type ExecutionControl,
+} from "../../packages/execution-control/src/index.js";
+import {
     DEFAULT_WORKING_MEMORY_LIMITS,
     GoalCoordinator,
     InlineScheduler,
-    isExecutionAbortedError,
     launch,
     Runner,
-    throwIfAborted,
     type AgentProfile,
     type AgentProfileRegistry,
     type CompletionCriterion,
-    type ExecutionControl,
     type Goal,
     type GoalProgressResult,
     type GoalProtocolValidator,

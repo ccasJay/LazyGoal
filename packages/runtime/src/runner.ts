@@ -96,11 +96,11 @@ import {
     ExecutionAbortedError,
     isExecutionAbortedError,
     throwIfAborted,
+    TransientModelRequestFailure,
     type ExecutionControl,
-} from "./execution-control";
+} from "../../execution-control/src/index";
 import {
     ModelRequestRetriesExhaustedError,
-    TransientModelRequestFailure,
     type ModelRequestAttemptFailure,
 } from "./model-request-failure";
 import {

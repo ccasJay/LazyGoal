@@ -267,11 +267,4 @@ export type {
 export type {
     AgentDecision,
 } from "../../runtime/src/domain";
-export type { ExecutionControl } from "../../runtime/src/execution-control";
-export {
-    EXECUTION_ABORTED_ERROR_CODE,
-    ExecutionAbortedError,
-    isExecutionAbortedError,
-    throwIfAborted,
-} from "../../runtime/src/execution-control";
 export type { ToolDefinition } from "../../runtime/src/tool";

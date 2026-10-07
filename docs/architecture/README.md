@@ -2,7 +2,7 @@
 
 > 本目录只描述当前实现；功能设计、历史决策和迁移说明保留在 `specs/`。
 
-LazyGoal 是一个 Goal 驱动的可恢复 Agent Runtime。`runtime` 拥有 Goal、Run、Trajectory、Working Memory 和持久化边界；`agent` 将当前 Goal 投影为单轮模型请求；`contracts` 生成模型输出契约；`llm` 隔离供应商；`execution-stream` 只提供进程内 JSON-safe 实时事件与有界订阅；`storage` 保存当前 Snapshot 与独立模型调用指标事实；`session-metrics` 从 Goal 和调用事实投影会话统计；`http` 提供显式启动的本机路由宿主。`apps/goal-server` 装配本机 Web 服务，`apps/goal-board` 是独立的浏览器前端；Benchmark 与 GEPA 保留无界面机器入口。当前协议固定为 Prompt Bundle v1、`structured@1`、`trajectory-layered@1` 和 `bm25-lite@1`，不为旧开发数据提供迁移路径。
+LazyGoal 是一个 Goal 驱动的可恢复 Agent Runtime。`runtime` 拥有 Goal、Run、Trajectory、Working Memory 和持久化边界；`agent` 将当前 Goal 投影为单轮模型请求；`contracts` 生成模型输出契约；`execution-control` 提供跨层取消信号与暂时性模型请求故障分类；`llm` 隔离供应商；`execution-stream` 只提供进程内 JSON-safe 实时事件与有界订阅；`storage` 保存当前 Snapshot 与独立模型调用指标事实；`session-metrics` 从 Goal 和调用事实投影会话统计；`http` 提供显式启动的本机路由宿主。`apps/goal-server` 装配本机 Web 服务，`apps/goal-board` 是独立的浏览器前端；Benchmark 与 GEPA 保留无界面机器入口。当前协议固定为 Prompt Bundle v1、`structured@1`、`trajectory-layered@1` 和 `bm25-lite@1`，不为旧开发数据提供迁移路径。
 
 | 概念 | 含义 |
 | --- | --- |

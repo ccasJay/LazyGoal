@@ -8,7 +8,7 @@ import {
     allocateDiagnosticTraceRecord,
 } from "../../runtime/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
-import { TransientModelRequestFailure } from "../../runtime/src/model-request-failure";
+import { TransientModelRequestFailure } from "../../execution-control/src/index";
 
 const MAX_TRACE_PAYLOAD_CHARS = 24_000;
 const MAX_TRACE_STRING_CHARS = 12_000;

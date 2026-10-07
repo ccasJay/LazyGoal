@@ -111,3 +111,26 @@ test("rejects outbound dependencies from web-contracts", async () => {
     ]);
 });
 
+test("rejects outbound dependencies from execution-control", async () => {
+    const root = await fixtureProject({
+        "packages/execution-control/src/index.ts": 'export {} from "../../runtime/src/index";\n',
+        "packages/runtime/src/index.ts": "export {};\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/execution-control 不得导入 packages/runtime（packages/execution-control/src/index.ts 引用 ../../runtime/src/index）",
+    ]);
+});
+
+test("rejects outbound dependencies from llm to runtime", async () => {
+    const root = await fixtureProject({
+        "packages/llm/src/index.ts": 'export {} from "../../runtime/src/index";\n',
+        "packages/runtime/src/index.ts": "export {};\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/llm 不得导入 packages/runtime（packages/llm/src/index.ts 引用 ../../runtime/src/index）",
+    ]);
+});
+
+

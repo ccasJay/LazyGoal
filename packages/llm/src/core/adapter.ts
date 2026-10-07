@@ -5,7 +5,7 @@ import type {
     LLMStreamEvent,
     StructuredOutputMode,
 } from "./types";
-import type { ExecutionControl } from "../../../runtime/src/execution-control";
+import type { ExecutionControl } from "../../../execution-control/src/index";
 
 export type {
     LLMRequest,

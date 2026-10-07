@@ -3,6 +3,8 @@ import { test } from "node:test";
 
 import {
     ExecutionAbortedError,
+} from "../../packages/execution-control/src/index.js";
+import {
     createToolRegistration,
     type ToolObservation,
     type ToolRegistration,

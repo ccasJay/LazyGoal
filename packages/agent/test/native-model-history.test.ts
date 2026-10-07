@@ -1,10 +1,11 @@
+import { ExecutionAbortedError } from "../../execution-control/src/index";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { contract, type ModelAssistantMessage, type NativeConversationIdentity } from "../../contracts/src/index";
-import { allocateImmutableEvent, createGoal, createToolRegistration, InMemoryToolRegistry, Runner, ExecutionAbortedError, GoalCoordinator, InlineScheduler, type TrajectoryEvent, type TrajectoryEventPayload } from "../../runtime/src/index";
+import { allocateImmutableEvent, createGoal, createToolRegistration, InMemoryToolRegistry, Runner, GoalCoordinator, InlineScheduler, type TrajectoryEvent, type TrajectoryEventPayload } from "../../runtime/src/index";
 import { JsonFileGoalStore, JsonFileTrajectoryStore, InMemoryGoalStore } from "../../storage/src/index";
 import { collectNativeModelExchanges } from "../src/native-model-history";
 import { TrajectoryEventProjector } from "../src/trajectory-event-projector";

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { Readable, Writable } from "node:stream";
-import { ExecutionAbortedError } from "../../packages/runtime/src/index.js";
+import { ExecutionAbortedError } from "../../packages/execution-control/src/index.js";
 
 /**
  * 无 shell 插值的子进程请求；超时或中止终止进程组，输出上限按字节计算。

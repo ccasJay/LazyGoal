@@ -13,7 +13,7 @@ import {
     ExecutionAbortedError,
     isExecutionAbortedError,
     throwIfAborted,
-} from "../../runtime/src/execution-control";
+} from "../../execution-control/src/index";
 import type {
     DecideStageResult,
     StepExecutionInput,

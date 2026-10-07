@@ -1,3 +1,4 @@
+import { ExecutionAbortedError, TransientModelRequestFailure } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -7,11 +8,9 @@ import {
     createStepExecutor,
     createToolGrantMatcher,
     createToolRegistration,
-    ExecutionAbortedError,
     GoalCoordinator,
     InlineScheduler,
     Runner,
-    TransientModelRequestFailure,
     TransientToolExecutionFailure,
     transition,
 } from "../src/index";

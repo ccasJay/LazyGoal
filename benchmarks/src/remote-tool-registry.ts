@@ -3,11 +3,13 @@ import {
     safeParse,
 } from "../../packages/contracts/src/index.js";
 import {
+    throwIfAborted,
+    type ExecutionControl,
+} from "../../packages/execution-control/src/index.js";
+import {
     createToolRegistration,
     InMemoryToolRegistry,
-    throwIfAborted,
     type DerivedSandboxAccess,
-    type ExecutionControl,
     type JsonValue,
     type SandboxExecutionPlan,
     type ToolDefinition,

@@ -1,5 +1,4 @@
 import type {
-    ExecutionControl,
     SandboxExecutionPlan,
     ToolObservation,
     ToolRegistration,
@@ -7,7 +6,8 @@ import type {
 import {
     ExecutionAbortedError,
     throwIfAborted,
-} from "../../packages/runtime/src/index.js";
+    type ExecutionControl,
+} from "../../packages/execution-control/src/index.js";
 import { compileJsonSchema } from "../../packages/contracts/src/index.js";
 import type { MuxChannelStream } from "./multiplex.js";
 

@@ -5,9 +5,9 @@ import { pathToFileURL } from "node:url";
 /**
  * 每个 package 允许的出站目标（from -> allowed target packages）。
  *
- * contracts 与 execution-stream 是无出站依赖的基础包；其它 package 可以单向依赖它们。
- * runtime 只依赖 contracts 和 execution-stream；llm 复用 runtime 的中止原语并可
- * 使用 execution-stream；storage 只依赖 runtime/contracts；agent/tools 复用
+ * contracts、execution-stream 与 execution-control 是无出站依赖的基础包；其它 package 可以单向依赖它们。
+ * runtime 依赖 contracts、execution-stream、sandbox、permission、context-retrieval 和 execution-control；
+ * llm 只依赖 contracts、execution-stream 与 execution-control；storage 只依赖 runtime/contracts；agent/tools 复用
  * runtime、llm（agent）和 execution-stream；session-metrics 通过 Runtime
  * 端口读取 Goal 与调用指标；browser 读取 Runtime 契约并依赖通用 HTTP 宿主；
  * http 不依赖 LazyGoal 包；goal-server 是服务组合根，可导入所需后端实现。
@@ -15,19 +15,20 @@ import { pathToFileURL } from "node:url";
 const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
     "execution-stream": [],
+    "execution-control": [],
     "context-retrieval": ["contracts"],
     http: [],
     "slash-command": [],
     acp: [],
     sandbox: [],
     permission: ["contracts", "sandbox"],
-    runtime: ["contracts", "execution-stream", "sandbox", "permission", "context-retrieval"],
-    llm: ["runtime", "contracts", "execution-stream"],
+    runtime: ["contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control"],
+    llm: ["contracts", "execution-stream", "execution-control"],
     storage: ["runtime", "contracts", "permission", "context-retrieval"],
-    agent: ["runtime", "llm", "contracts", "execution-stream"],
+    agent: ["runtime", "llm", "contracts", "execution-stream", "execution-control"],
     "session-metrics": ["runtime", "http", "web-contracts"],
-    tools: ["runtime", "contracts", "execution-stream", "sandbox"],
-    browser: ["http", "runtime", "permission", "web-contracts"],
+    tools: ["runtime", "contracts", "execution-stream", "sandbox", "execution-control"],
+    browser: ["http", "runtime", "permission", "web-contracts", "execution-control"],
     "web-contracts": [],
 };
 

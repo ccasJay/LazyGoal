@@ -1,3 +1,4 @@
+import { ExecutionAbortedError } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -5,8 +6,7 @@ import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
 import {
     createGoal,
-    ExecutionAbortedError,
-} from "../../runtime/src/index";
+    } from "../../runtime/src/index";
 import type {
     AgentProfile,
     Goal,

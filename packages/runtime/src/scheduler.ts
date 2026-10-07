@@ -1,6 +1,6 @@
 import type { RunnerResult } from "./runner";
 import type { RunExecutionOptions, RunRef } from "./domain";
-import type { ExecutionControl } from "./execution-control";
+import type { ExecutionControl } from "../../execution-control/src/index";
 
 /**
  * 对已保存 Goal 发起执行的调度边界。

@@ -1,3 +1,4 @@
+import { ExecutionAbortedError } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,7 +12,6 @@ import {
 } from "../../contracts/src/index";
 import {
     createToolRegistration,
-    ExecutionAbortedError,
     InMemoryToolRegistry,
     type JsonValue,
     type Tool,

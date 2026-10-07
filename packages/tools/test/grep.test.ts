@@ -1,3 +1,4 @@
+import { ExecutionAbortedError } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import {
     mkdtemp,
@@ -13,8 +14,7 @@ import { test } from "node:test";
 import type { JsonValue } from "../../runtime/src/index";
 import {
     createToolRegistration,
-    ExecutionAbortedError,
-} from "../../runtime/src/index";
+    } from "../../runtime/src/index";
 import {
     GREP_TOOL_ID,
     GrepTool,
