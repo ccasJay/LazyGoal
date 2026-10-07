@@ -365,6 +365,7 @@ function encodeCompletedRun(record: CompletedRunRecord): GoalSnapshotCompletedRu
         stepCount: record.stepCount,
         committedThroughSequence: record.committedThroughSequence,
         messageRange: { ...record.messageRange },
+        ...(record.continuation === undefined ? {} : { continuation: { ...record.continuation } }),
     };
 }
 
@@ -735,6 +736,7 @@ function decodeCompletedRun(record: GoalSnapshotCompletedRunV1): CompletedRunRec
         stepCount: record.stepCount,
         committedThroughSequence: record.committedThroughSequence,
         messageRange: { ...record.messageRange },
+        ...(record.continuation === undefined ? {} : { continuation: { ...record.continuation } }),
     };
 }
 

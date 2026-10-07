@@ -874,6 +874,8 @@ export interface CompletedRunRecord {
     readonly committedThroughSequence: number;
     /** 该 Run 在 Goal.messages 中占用的半开区间。 */
     readonly messageRange: { readonly start: number; readonly end: number };
+    /** 若该 Run 是通过可重试的浏览器消息续写，保存消息身份与唯一后继 Run。 */
+    readonly continuation?: { readonly messageId: string; readonly content: string; readonly nextRunId: string };
 }
 
 /**

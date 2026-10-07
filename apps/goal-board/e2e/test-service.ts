@@ -47,6 +47,7 @@ class DeterministicAdapter implements LLMAdapter {
         if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
         const isComposerStatusFlow = request.messages.some((message) => message.content.includes("Composer status flow:"));
         if (isComposerStatusFlow) await new Promise((resolve) => setTimeout(resolve, 1200));
+        if (process.env.LAZYGOAL_E2E_DELAY_MODEL === "1") await new Promise((resolve) => setTimeout(resolve, 5000));
         const isPlanFlow = request.messages.some((message) => message.content.includes("Plan flow:"));
         const isCancellationFlow = request.messages.some((message) => message.content.includes("Cancellation flow:"));
         const cancelledQuestion = request.messages.some((message) => message.content.includes("I cancelled this question."));
@@ -282,6 +283,14 @@ root.httpService.mount("/", createBrowserGoalRoutes({
     message: (goalId, command) => {
         activeGoalId = goalId;
         return commands.message(goalId, command);
+    },
+    steer: (goalId, command) => {
+        activeGoalId = goalId;
+        return commands.steer(goalId, command);
+    },
+    interrupt: (goalId, command) => {
+        activeGoalId = goalId;
+        return commands.interrupt(goalId, command);
     },
     enterPlanMode: (goalId, command) => {
         activeGoalId = goalId;

@@ -424,6 +424,7 @@ export interface BrowserWorkspaceContext {
  * ```ts
  * const cmd: BrowserGoalMessageCommand = {
  *     runId: "run-1",
+ *     messageId: "message-1",
  *     content: "继续推进",
  * };
  * ```
@@ -431,6 +432,8 @@ export interface BrowserWorkspaceContext {
 export interface BrowserGoalMessageCommand {
     /** 当前 Run 标识。 */
     readonly runId: string;
+    /** 客户端为消息生成的稳定身份；网络重试必须复用。 */
+    readonly messageId: string;
     /** 消息文本。 */
     readonly content: string;
 }

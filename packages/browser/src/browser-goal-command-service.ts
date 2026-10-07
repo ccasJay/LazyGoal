@@ -171,6 +171,7 @@ export interface BrowserGoalCoordinator {
         ref: Parameters<GoalCoordinator["continue"]>[0],
         newInput: string,
         control?: ExecutionControl,
+        continuation?: Parameters<GoalCoordinator["continue"]>[3],
     ): ReturnType<GoalCoordinator["continue"]>;
 
     /**
@@ -283,6 +284,7 @@ interface InFlightInteraction {
 }
 
 interface InFlightMessage {
+    readonly messageId: string;
     readonly content: string;
     readonly accepted: Promise<BrowserGoalMessageResult>;
 }
@@ -855,7 +857,7 @@ export class BrowserGoalCommandService {
             }
             const current = this.inFlightMessages.get(key);
             if (current !== undefined) {
-                if (current.content !== command.content) {
+                if (current.messageId !== command.messageId || current.content !== command.content) {
                     return { kind: "result", result: { ok: false, error: "message_conflict" } };
                 }
                 return {
@@ -875,6 +877,18 @@ export class BrowserGoalCommandService {
             if (goal === undefined) {
                 return { kind: "result", result: { ok: false, error: "goal_not_found" } };
             }
+            const receipt = (goal.state.completedRuns ?? []).find((run) => run.runId === command.runId)?.continuation;
+            if (receipt !== undefined) {
+                if (receipt.messageId !== command.messageId || receipt.content !== command.content) {
+                    return { kind: "result", result: { ok: false, error: "message_conflict" } };
+                }
+                return { kind: "result", result: {
+                    ok: true,
+                    goalId,
+                    runId: receipt.nextRunId,
+                    existing: true,
+                } };
+            }
             if (goal.state.run.id !== command.runId) {
                 return { kind: "result", result: { ok: false, error: "stale_run" } };
             }
@@ -886,7 +900,7 @@ export class BrowserGoalCommandService {
                         result: { ok: false, error: "structured_interaction_required" },
                     };
                 }
-            } else if (status !== "completed" && status !== "failed") {
+            } else if (status !== "completed" && status !== "failed" && status !== "cancelled") {
                 return { kind: "result", result: { ok: false, error: "goal_not_waiting" } };
             }
 
@@ -904,7 +918,7 @@ export class BrowserGoalCommandService {
             }
             this.setActiveGoalId(goalId);
             const accepted = this.startMessage(goal, command);
-            this.inFlightMessages.set(key, { content: command.content, accepted });
+            this.inFlightMessages.set(key, { messageId: command.messageId, content: command.content, accepted });
             return { kind: "in_flight", accepted };
         });
 
@@ -1237,7 +1251,7 @@ export class BrowserGoalCommandService {
         const goalId = initialGoal.id;
         const runId = initialGoal.state.run.id;
         const initialMessageCount = initialGoal.state.messages.length;
-        const startsNewRun = initialGoal.state.run.status === "completed" || initialGoal.state.run.status === "failed";
+        const startsNewRun = initialGoal.state.run.status === "completed" || initialGoal.state.run.status === "failed" || initialGoal.state.run.status === "cancelled";
         const key = `${goalId}\u0000${runId}`;
         const unsubscribe = this.dependencies.saveNotifications.onSave((goal) => {
             if (goal.id !== goalId || accepted) return;
@@ -1261,7 +1275,9 @@ export class BrowserGoalCommandService {
         });
 
         const progress = Promise.resolve().then(() => startsNewRun
-            ? this.dependencies.coordinator.continue({ goalId, runId }, command.content, this.dependencies.control)
+            ? this.dependencies.coordinator.continue({ goalId, runId }, command.content, this.dependencies.control, {
+                messageId: command.messageId,
+            })
             : this.dependencies.coordinator.resume({
                 ref: { goalId, runId },
                 action: { kind: "message", content: command.content },

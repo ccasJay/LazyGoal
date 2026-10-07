@@ -16,7 +16,7 @@
   - 验证方式：`packages/runtime/test/run-interrupt.test.ts`、`packages/agent/test/interrupted-tool-history.test.ts`、Snapshot、Browser、PTC、执行控制、关闭及多 Run 恢复测试；运行 `npx tsx --test packages/runtime/test/run-interrupt.test.ts packages/agent/test/interrupted-tool-history.test.ts packages/storage/test/run-input-control-snapshot.test.ts packages/browser/test/browser-run-control.test.ts packages/runtime/test/program-interruption.test.ts packages/storage/test/program-recovery.test.ts packages/runtime/test/execution-control.test.ts packages/runtime/test/shutdown.test.ts packages/runtime/test/goal-multi-run-recovery.test.ts`。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [5.4](./requirements.md#req-5-4), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3), [6.4](./requirements.md#req-6-4), [7.1](./requirements.md#req-7-1), [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 3. 接入页面 Queue 和 Steer、Queue、Interrupt 按钮原位切换
+- [x] //TODO 3. 接入页面 Queue 和 Steer、Queue、Interrupt 按钮原位切换
 
   - 实现目标：在当前页面实现按 Goal 保存的消息队列、暂停与继续，接通稳定消息身份和后继 Run 创建去重；更新运行中 composer、按钮原位选择、停止反馈及 pending 消息展示，并一并调整受影响的既有 Web E2E 断言。
   - 成功判据：未选发送方式不提交；空输入工作按钮点击终止，有输入时原位选择 Steer 或 Queue；Queue 正常完成后逐条创建后继 Run，响应丢失重试不重复创建；等待不出队，失败或终止暂停并保留剩余项，用户明确继续后才启动；页面刷新可丢失队列，被拒绝的 Steer 保留草稿，键盘和减少动态效果设置可用。
@@ -66,4 +66,4 @@
 
 ### Latest Result
 
-未执行。实施后按 delivery-loop.md 记录逐项检查、结果与证据位置、整体状态及时效、验证时间、被测提交或未提交变更指纹、对应需求与设计版本，以及尚未解决的问题。
+TODO 3 的直接检查已通过：`npm run build:web`、消息去重/多 Run 定向测试和 3 个浏览器 E2E 成功。全量回归另发现普通宿主关闭时 Runner 在取消后继续读取 Trace 的竞态，已定位并修复；等待修复任务及全量回归重新验收，Feature Verification 暂为 pending。

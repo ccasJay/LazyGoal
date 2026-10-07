@@ -25,7 +25,7 @@ test("real local service restores and completes one authorized Goal conversation
   let socket;
 
   try {
-    service = await startService({ workspace, data, home, statusPath, runOffset: 0, modelOffset: 0 });
+    service = await startService({ workspace, data, home, statusPath, runOffset: 0, modelOffset: 0, delayModel: true });
     const first = await service.ready;
 
     const noTokenList = await api(first.origin, "/api/goals");
@@ -103,7 +103,7 @@ test("real local service restores and completes one authorized Goal conversation
       token: first.token,
       method: "POST",
       headers: { "content-type": "application/json", origin: first.origin },
-      body: JSON.stringify({ runId: firstRunId, content: "Use approved notes" }),
+      body: JSON.stringify({ runId: firstRunId, messageId: "e2e-message-1", content: "Use approved notes" }),
     });
     assert.equal(plainTextAtAskUser.response.status, 409);
     assert.equal(plainTextAtAskUser.body.error, "structured_interaction_required");
@@ -122,7 +122,7 @@ test("real local service restores and completes one authorized Goal conversation
     await waitForExpression(socket, "!document.querySelector('.stream-state')?.classList.contains('connected')", 10_000);
     assert.ok(await value(socket, "document.querySelector('.structured-form') !== null"), "disconnect preserves the saved answer form");
 
-    service = await startService({ workspace, data, home, statusPath, runOffset: 1, modelOffset: 1 });
+    service = await startService({ workspace, data, home, statusPath, runOffset: 1, modelOffset: 1, delayModel: true });
     const restarted = await service.ready;
     assert.equal((await api(restarted.origin, "/api/models", { token: restarted.token })).body.currentModelId, "model-b");
     const expiredToken = await api(restarted.origin, "/api/goals", { token: first.token });
@@ -403,13 +403,29 @@ test("real local service restores and completes one authorized Goal conversation
     });
     await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null");
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Composer status flow: verify the running composer remains visible");
+    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false", 10_000);
     await cdp(socket, "Runtime.evaluate", {
       expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Run in progress\"]') !== null", 10_000);
-    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled"), true, "the composer remains visible while the active Run owns input");
-    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Run in progress\"]')?.textContent.includes('Running')"), true, "the send button becomes a running status");
+    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Interrupt Run\"]') !== null", 10_000);
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled"), false, "the composer remains editable while the Run is active");
+    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Interrupt Run\"]')?.textContent.includes('Running')"), true, "the empty run button offers Interrupt");
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Steer this active Run");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('textarea[aria-label=\\\"Message the Goal\\\"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.run-send-options') !== null");
+    assert.equal(await value(socket, "document.querySelector('.run-send-options').innerText.includes('Steer') && document.querySelector('.run-send-options').innerText.includes('Queue')"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.run-send-options button')].find(button => button.textContent === 'Steer').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.pending-steers')?.innerText.includes('Steer this active Run')");
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Queue follow-up task");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .send.is-running').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.run-send-options') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.run-send-options button')].find(button => button.textContent === 'Queue').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.queued-inputs')?.innerText.includes('Queue follow-up task')");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\\\"Interrupt Run\\\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('button[aria-label=\\\"Stopping Run\\\"]') !== null || document.querySelector('.queue-paused') !== null", 10_000);
+    await waitForExpression(socket, "document.querySelector('.queue-paused') !== null", 15_000);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.queue-paused button').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
   } finally {
     socket?.close();
@@ -419,7 +435,7 @@ test("real local service restores and completes one authorized Goal conversation
   }
 });
 
-function startService({ workspace, data, home, statusPath, runOffset, modelOffset }) {
+function startService({ workspace, data, home, statusPath, runOffset, modelOffset, delayModel = false }) {
   const child = spawn(process.execPath, ["--import", "tsx/esm", serviceEntry], {
     cwd: repositoryRoot,
     env: {
@@ -430,6 +446,7 @@ function startService({ workspace, data, home, statusPath, runOffset, modelOffse
       LAZYGOAL_E2E_STATUS: statusPath,
       LAZYGOAL_E2E_RUN_COUNTER: String(runOffset),
       LAZYGOAL_E2E_MODEL_OFFSET: String(modelOffset),
+      LAZYGOAL_E2E_DELAY_MODEL: delayModel ? "1" : "0",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

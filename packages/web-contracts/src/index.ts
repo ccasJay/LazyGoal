@@ -100,6 +100,8 @@ export {
     isRunStatus,
     isOkResponse,
     isAcceptedCommand,
+    isBrowserGoalSteerResult,
+    isBrowserGoalInterruptResult,
     isGoalListItem,
     isGoalList,
     isBrowserRun,

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
     isAcceptedCommand,
+    isBrowserGoalSteerResult,
+    isBrowserGoalInterruptResult,
     isActionDetailsResult,
     isBrowserGoalSession,
     isBrowserRun,
@@ -35,6 +37,15 @@ import {
     type BrowserGoalSession,
     type SessionMetricsSnapshot,
 } from "../src/index";
+
+test("Run input control results validate stable accepted identities and known errors", () => {
+    assert.equal(isBrowserGoalSteerResult({ ok: true, goalId: "goal-1", runId: "run-1", messageId: "msg-1", existing: false }), true);
+    assert.equal(isBrowserGoalSteerResult({ ok: false, error: "goal_not_running" }), true);
+    assert.equal(isBrowserGoalSteerResult({ ok: false, error: "unexpected" }), false);
+    assert.equal(isBrowserGoalInterruptResult({ ok: true, goalId: "goal-1", runId: "run-1", requestId: "interrupt-1", existing: true }), true);
+    assert.equal(isBrowserGoalInterruptResult({ ok: false, error: "goal_not_running" }), true);
+    assert.equal(isBrowserGoalInterruptResult({ ok: false, error: "unexpected" }), false);
+});
 
 test("isRunStatus classifies valid and invalid run statuses", () => {
     assert.equal(isRunStatus("created"), true);

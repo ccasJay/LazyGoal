@@ -854,15 +854,16 @@ async function parseMessageCommand(
         return { ok: false, error: "invalid_message", status: 400 };
     }
     const body = value as Record<string, unknown>;
-    if (!hasExactKeys(body, ["runId", "content"])) {
+    if (!hasExactKeys(body, ["runId", "messageId", "content"])) {
         return { ok: false, error: "invalid_message", status: 400 };
     }
     const runId = readWireText(body.runId, 256);
+    const messageId = readWireText(body.messageId, 256);
     const content = readWireText(body.content, MAX_COMMAND_TEXT_LENGTH);
-    if (runId === undefined || content === undefined) {
+    if (runId === undefined || messageId === undefined || content === undefined) {
         return { ok: false, error: "invalid_message", status: 400 };
     }
-    return { ok: true, command: { runId, content } };
+    return { ok: true, command: { runId, messageId, content } };
 }
 
 async function parseSteerCommand(

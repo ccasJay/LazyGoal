@@ -741,6 +741,7 @@ export class GoalCoordinator {
      * @param ref - 当前已完成或失败 Run 的 Goal/Run 关联键。
      * @param newInput - 要追加到 Goal.messages 的非空用户输入。
      * @param control - 当前会话调用共享的可选中止控制。
+     * @param continuation - 可选的浏览器重试收据身份；持久化到被归档 Run 并指向新 Run。
      * @returns 新 Run 调度到 waiting 或终态后的结果；输入或状态非法时返回稳定错误。
      * @throws GoalStore、Trajectory 或 Scheduler 基础设施失败时传播原始异常。
      * @example
@@ -755,6 +756,7 @@ export class GoalCoordinator {
         ref: RunRef,
         newInput: string,
         control?: ExecutionControl,
+        continuation?: { readonly messageId: string },
     ): Promise<GoalProgressResult> {
         return this.withContinuationGate(ref.goalId, async () => {
             const preparation = await withRunModeSelectionGate(
@@ -804,6 +806,9 @@ export class GoalCoordinator {
                             start: previousRangeEnd,
                             end: historyEnd,
                         },
+                        ...(continuation === undefined ? {} : {
+                            continuation: { ...continuation, content: newInput, nextRunId: runId },
+                        }),
                     };
 
                     const nextRunMode = goal.state.nextRunMode ?? "normal";

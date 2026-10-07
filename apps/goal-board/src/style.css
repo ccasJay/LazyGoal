@@ -263,6 +263,19 @@ h1 span { margin-left: 8px; color: #81848e; font-size: 12px; font-weight: 400; l
 .send.is-running { width: auto; min-width: 76px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 9px; background: #343b49; color: #bdc9e4; font-size: 10px; }
 .send.is-running:disabled { opacity: 1; }
 .send.is-running .status-dot { width: 7px; height: 7px; }
+.run-spinner { width: 12px; height: 12px; border: 2px solid #8998b8; border-top-color: #e1e9fb; border-radius: 50%; animation: run-spinner-rotate .8s linear infinite; }
+.run-spinner.stopping { border-top-color: #f0ba9e; }
+@keyframes run-spinner-rotate { to { transform: rotate(360deg); } }
+.run-send-options { display: flex; overflow: hidden; border: 1px solid #7189b8; border-radius: 6px; }
+.run-send-options button { min-width: 58px; padding: 7px 9px; background: #343b49; color: #d9e2f6; font-size: 10px; }
+.run-send-options button + button { border-left: 1px solid #535d73; }
+.run-send-options button:hover:not(:disabled) { background: #46536c; }
+.pending-steers, .queued-inputs { margin-bottom: 8px; padding: 8px 11px; border: 1px solid #3b4352; border-radius: 7px; background: #222630; color: #b8c5df; font-size: 10px; }
+.pending-steers ol, .queued-inputs ol { display: grid; gap: 4px; max-height: 90px; overflow: auto; margin: 6px 0 0; padding-left: 19px; color: #aeb6c5; line-height: 1.5; }
+.queued-inputs-heading { color: #bbc9e8; font-weight: 600; }
+.queue-paused { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; padding-top: 7px; border-top: 1px solid #3b4352; color: #e0bd87; }
+.queue-paused button { padding: 5px 8px; border: 1px solid #7a6749; border-radius: 5px; color: #f0d6a5; font-size: 10px; }
+@media (prefers-reduced-motion: reduce) { .run-spinner { animation: none; border-top-color: #e1e9fb; } }
 .composer-hint { padding-top: 10px; color: #676e7e; font-size: 9px; text-align: center; }
 .session-metrics { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 28px; width: 100%; min-height: 34px; margin-top: 8px; padding: 0 4px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .session-metric { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; white-space: nowrap; }

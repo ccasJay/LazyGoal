@@ -1,5 +1,7 @@
 import {
   isAcceptedCommand,
+  isBrowserGoalSteerResult,
+  isBrowserGoalInterruptResult,
   isActionDetailsResult,
   isBrowserGoalSession,
   isGoalList,
@@ -23,6 +25,8 @@ import {
   type BrowserActionDetailsResult,
   type BrowserCreateGoalCommand,
   type BrowserGoalInteractionCommand,
+  type BrowserGoalSteerCommand,
+  type BrowserGoalInterruptCommand,
   type BrowserGoalListItem,
   type BrowserGoalLiveEvent,
   type BrowserGoalMessageCommand,
@@ -160,6 +164,14 @@ export const browserApi = {
       command,
       isAcceptedCommand,
     );
+  },
+
+  steer(goalId: string, command: BrowserGoalSteerCommand) {
+    return postJson(`/api/goals/${encodeURIComponent(goalId)}/steer`, command, isBrowserGoalSteerResult);
+  },
+
+  interrupt(goalId: string, command: BrowserGoalInterruptCommand) {
+    return postJson(`/api/goals/${encodeURIComponent(goalId)}/interrupt`, command, isBrowserGoalInterruptResult);
   },
 
   enterPlanMode(
@@ -338,5 +350,3 @@ async function responseError(response: Response): Promise<BrowserApiError> {
     body.refresh === true,
   );
 }
-
-

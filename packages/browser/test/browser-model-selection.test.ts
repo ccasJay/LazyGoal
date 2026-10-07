@@ -264,7 +264,7 @@ test("终态预选与下一 Run 串行，下一 Run 继承新选择且旧请求�
 
     const select = service.selectModel("goal-1", { runId: "run-1", modelId: "gpt-new" });
     while (!resolving) await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    const next = service.message("goal-1", { runId: "run-1", content: "Continue" });
+    const next = service.message("goal-1", { runId: "run-1", messageId: "continue-1", content: "Continue" });
     releaseResolution();
     assert.equal((await select).ok, true);
     assert.deepEqual(await next, { ok: true, goalId: "goal-1", runId: "run-2", existing: false });
@@ -279,7 +279,7 @@ test("无法重建 Snapshot 模型绑定时不调用 Runtime 推进", async () =
     const store = new Store();
     store.goal = goalFor();
     const service = serviceFor(store, undefined, async () => false);
-    assert.deepEqual(await service.message("goal-1", { runId: "run-1", content: "Continue" }), {
+    assert.deepEqual(await service.message("goal-1", { runId: "run-1", messageId: "continue-2", content: "Continue" }), {
         ok: false, error: "model_restore_failed",
     });
     assert.equal(store.saves, 0);

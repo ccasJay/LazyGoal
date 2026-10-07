@@ -453,6 +453,8 @@ export interface GoalSnapshotCompletedRunV1 {
     readonly committedThroughSequence: number;
     /** 该 Run 在 Goal 消息数组中的半开区间。 */
     readonly messageRange: { readonly start: number; readonly end: number };
+    /** 浏览器续写的持久化幂等收据。 */
+    readonly continuation?: { readonly messageId: string; readonly content: string; readonly nextRunId: string };
 }
 
 /**
@@ -1023,6 +1025,11 @@ const CompletedRunSchema = z.object({
         start: z.number().int().nonnegative(),
         end: z.number().int().nonnegative(),
     }).strict(),
+    continuation: z.object({
+        messageId: NonEmptyStringSchema,
+        content: NonEmptyStringSchema,
+        nextRunId: NonEmptyStringSchema,
+    }).strict().optional(),
 }).strict();
 
 const GoalSnapshotV1BaseSchema = z.object({

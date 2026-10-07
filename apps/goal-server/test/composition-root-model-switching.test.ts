@@ -389,7 +389,7 @@ test("浏览器推进交替恢复各 Goal 的模型绑定，不串用上一个 G
         const secondGoal = await root.workspaceGoalStore.restore("goal-second");
         assert.ok(firstGoal && secondGoal);
         const firstNext = await commands.message(firstGoal.id, {
-            runId: firstGoal.state.run.id, content: "Continue first goal",
+            runId: firstGoal.state.run.id, messageId: "continue-first", content: "Continue first goal",
         });
         assert.equal(firstNext.ok, true);
         assert.equal(root.modelBinding.current().selection.modelId, "model-first");
@@ -398,7 +398,7 @@ test("浏览器推进交替恢复各 Goal 的模型绑定，不串用上一个 G
 
         await new Promise<void>((resolve) => setTimeout(resolve, 50));
         const secondNext = await commands.message(secondGoal.id, {
-            runId: secondGoal.state.run.id, content: "Continue second goal",
+            runId: secondGoal.state.run.id, messageId: "continue-second", content: "Continue second goal",
         });
         assert.equal(secondNext.ok, true);
         assert.equal(root.modelBinding.current().selection.modelId, "model-second");
@@ -488,7 +488,7 @@ test("服务重启后首次 Web 推进从 Snapshot 恢复模型而不回退默�
         });
         const goal = await restoredRoot.workspaceGoalStore.restore("goal-after-restart");
         assert.ok(goal);
-        const next = await commands.message(goal.id, { runId: goal.state.run.id, content: "Continue after restart" });
+        const next = await commands.message(goal.id, { runId: goal.state.run.id, messageId: "continue-after-restart", content: "Continue after restart" });
         assert.equal(next.ok, true);
         assert.equal(restoredRoot.modelBinding.current().selection.modelId, "model-saved");
         await waitForCompletedRun(restoredRoot.workspaceGoalStore, goal.id);
