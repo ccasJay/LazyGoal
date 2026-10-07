@@ -1,4 +1,4 @@
-import { isModelAssistantMessage, sameNativeIdentity } from "../../contracts/src/model-conversation";
+import { isModelAssistantMessage, sameNativeIdentity } from "../../model-contracts/src/index";
 import type { ModelInputStore, ModelInputRecord } from "../../runtime/src/model-input";
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
@@ -8,7 +8,7 @@ import { readNormalizedUsage } from "../../llm/src/core/usage";
 import type {
     AgentDecision,
 } from "../../runtime/src/domain";
-import type { DecideOutput } from "../../contracts/src/index";
+import type { DecideOutput } from "../../model-contracts/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -51,7 +51,7 @@ import {
     SystemCompletionReviewDeclaration,
     type CompletionReviewResult,
     type SystemToolDeclaration,
-} from "../../contracts/src/index";
+} from "../../model-contracts/src/index";
 import { ContractValidationError } from "../../contracts/src/errors";
 import type { LLMResponse, LLMToolDefinition } from "../../llm/src/core/types";
 import type { ExecutionStreamEventDraft, ExecutionStreamPublisher } from "../../execution-stream/src/index";
@@ -663,7 +663,7 @@ export class LLMStepExecutor implements StepExecutor {
     }
 }
 
-function nativeResponseMessage(response: LLMResponse): import("../../contracts/src/model-conversation").ModelAssistantMessage {
+function nativeResponseMessage(response: LLMResponse): import("../../model-contracts/src/index").ModelAssistantMessage {
     return {
         role: "assistant", content: response.content,
         ...(response.reasoning === undefined ? {} : { reasoning: response.reasoning }),

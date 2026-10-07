@@ -1,4 +1,9 @@
-import { isModelAssistantMessage, sameNativeIdentity, type NativeConversationIdentity, type GeminiContinuationPart } from "../../contracts/src/model-conversation";
+import {
+    isModelAssistantMessage,
+    sameNativeIdentity,
+    type NativeConversationIdentity,
+    type GeminiContinuationPart,
+} from "../../model-contracts/src/index";
 import { randomUUID } from "node:crypto";
 import { 
     GoogleGenAI,

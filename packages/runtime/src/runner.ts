@@ -48,12 +48,12 @@ import {
     type ContextLookupPort,
     type ContextLookupResult,
 } from "./context-retrieval";
+import { safeParse } from "../../contracts/src/index";
 import {
     AgentDecisionContract,
     normalizeAskUserRequest,
-    safeParse,
     validateModelOutputSemantics,
-} from "../../contracts/src/index";
+} from "../../model-contracts/src/index";
 
 import type {
     ToolDefinition,

@@ -32,7 +32,7 @@ import {
 import type {
     ContextLookupFilters,
     ContextLookupNeed,
-} from "../../contracts/src/index";
+} from "../../model-contracts/src/index";
 import type {
     ContextLookupResult,
 } from "./types";

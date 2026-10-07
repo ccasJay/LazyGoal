@@ -21,7 +21,7 @@
   - 验证方式：`npm test` 中迁移后的模型消息协议测试与全仓 TypeScript 检查通过。
   - _Requirements: [1.2](./requirements.md#req-1-2), [2.3](./requirements.md#req-2-3)_
 
-- [ ] //TODO 4. 迁移生产调用方并收紧包依赖边界
+- [x] //TODO 4. 迁移生产调用方并收紧包依赖边界
 
   - 实现目标：将 Agent、Runtime、LLM、Storage 与 Context Retrieval 的模型协议导入改为 `@lazygoal/model-contracts`；从 `@lazygoal/contracts` 删除模型协议旧导出；登记新包依赖和调用方边，并更新仓库布局及当前架构文档。
   - 成功判据：模型协议生产导入全部经过新包公共入口；Contracts 仅导出通用 DSL 与 AST 检查器，且没有 LazyGoal 包出站依赖；仍需通用 DSL 的调用方继续使用 Contracts；依赖检查不接受未登记边。

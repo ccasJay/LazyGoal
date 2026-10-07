@@ -1,6 +1,6 @@
 import type {
     ContextLookupRequest,
-} from "../../contracts/src/index";
+} from "../../model-contracts/src/index";
 import type {
     ContextLookupMatch,
     ContextLookupMatchedField,

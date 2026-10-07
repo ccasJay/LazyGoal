@@ -14,7 +14,7 @@ import type {
     ContextRetriever,
     ContextRetrieverInput,
 } from "../../context-retrieval/src/index";
-import type { ContextLookupRequest } from "../../contracts/src/index";
+import type { ContextLookupRequest } from "../../model-contracts/src/index";
 
 const goalId = "adapter-goal";
 const runId = "adapter-run";

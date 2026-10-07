@@ -4,7 +4,8 @@ import { createGoal, allocateImmutableEvent, type ModelCallMetricRecord, type Mo
 import { readLlmConfig } from "../../llm/src/config";
 import { createLlmAdapter } from "../../llm/src/factory";
 import { LLMStepExecutor, createDefaultPromptBundleRenderer, DropOldestContextCompactor } from "../src/index";
-import { AgentDecisionContract, safeParse } from "../../contracts/src/index";
+import { safeParse } from "../../contracts/src/index";
+import { AgentDecisionContract } from "../../model-contracts/src/index";
 import { buildCommittedEvidenceIndex, validateFactEvidence } from "../../runtime/src/evidence-gate";
 import type { CompletionReviewInput } from "../../runtime/src/step-executor";
 import { currentProtocols } from "./current-fixtures";

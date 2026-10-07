@@ -1,5 +1,7 @@
-import type { ModelAssistantMessage } from "../../contracts/src/model-conversation";
-import type { CompletionReviewResult } from "../../contracts/src/index";
+import type {
+    CompletionReviewResult,
+    ModelAssistantMessage,
+} from "../../model-contracts/src/index";
 import type {
     AgentDecision,
     Goal,

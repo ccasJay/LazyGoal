@@ -1,4 +1,4 @@
-import type { NativeConversationIdentity } from "../../contracts/src/model-conversation";
+import type { NativeConversationIdentity } from "../../model-contracts/src/index";
 import type { LLMMessage, LLMRequest, StructuredOutputMode } from "../../llm/src/core/types";
 import type { Goal, WorkingMemory } from "../../runtime/src/domain";
 import type { ModelContextFramePayload } from "../../runtime/src/index";
@@ -39,13 +39,13 @@ import type {
     AuthorizedToolContract,
     ModelOutputContractBundle,
     SystemToolDeclaration,
-} from "../../contracts/src/index";
+} from "../../model-contracts/src/index";
 import {
     createCheckpointToolDeclarations,
     createExecutingToolDeclarations,
     createUnifiedToolDeclarations,
     createModelOutputContractBundle,
-} from "../../contracts/src/index";
+} from "../../model-contracts/src/index";
 
 export type { ModelInferenceView } from "./model-inference-view";
 export type { StructuredOutputMode } from "../../llm/src/core/types";

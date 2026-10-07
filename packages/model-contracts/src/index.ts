@@ -11,10 +11,9 @@
  * import {
  *     createModelOutputContractBundle,
  *     AgentDecisionContract,
- *     safeParse,
  * } from "@lazygoal/model-contracts";
  *
- * const bundle = createModelOutputContractBundle({ phase: "executing" });
+ * const bundle = createModelOutputContractBundle({ kind: "executing" });
  * ```
  *
  * @packageDocumentation

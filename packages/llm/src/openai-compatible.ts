@@ -1,4 +1,4 @@
-import { sameNativeIdentity, type NativeConversationIdentity } from "../../contracts/src/model-conversation";
+import { sameNativeIdentity, type NativeConversationIdentity } from "../../model-contracts/src/index";
 import OpenAI from "openai";
 import type { LLMAdapter } from "./core/adapter";
 import {

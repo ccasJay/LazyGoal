@@ -1,4 +1,4 @@
-import type { ModelConversationMessage } from "../../contracts/src/model-conversation";
+import type { ModelConversationMessage } from "../../model-contracts/src/index";
 /**
  * 一次调用实际装配的消息及已知来源；正文不截断，顺序与 Adapter 输入一致。
  * @remarks source 只记录装配器已知的来源；request 表示未细分的请求消息，不能从文本猜测插件或技能身份。

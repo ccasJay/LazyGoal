@@ -17,7 +17,7 @@ import type {
     ExecutionStreamPublisher,
     StreamJsonValue,
 } from "../../execution-stream/src/index";
-import { validateAskUserAnswers } from "../../contracts/src/index";
+import { validateAskUserAnswers } from "../../model-contracts/src/index";
 import type { ContextLookupPort } from "./context-retrieval";
 import type { RunScheduler } from "./scheduler";
 import {

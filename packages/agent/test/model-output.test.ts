@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import {
-    contract,
-    createModelOutputContractBundle,
-} from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
+import { createModelOutputContractBundle } from "../../model-contracts/src/index";
 import {
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     LLMResponseProtocolError,

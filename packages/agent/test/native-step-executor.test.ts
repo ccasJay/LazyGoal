@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contract, validateModelOutputSemantics } from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
+import { validateModelOutputSemantics } from "../../model-contracts/src/index";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
 import { createGoal, ModelStageFeedbackError } from "../../runtime/src/index";

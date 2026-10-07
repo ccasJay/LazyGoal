@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
     createModelOutputContractBundle, SystemCompletionReviewDeclaration, type CompletionReviewResult,
-} from "../../contracts/src/index";
+} from "../../model-contracts/src/index";
 import { createGoal, ModelStageFeedbackError, type ModelInputRecord, type ModelCallMetricRecord } from "../../runtime/src/index";
 import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/index";
 import type { LLMAdapter } from "../../llm/src/core/adapter";

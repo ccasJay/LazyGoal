@@ -1,6 +1,6 @@
 import type {
     ExecutingWorkingMemoryPatch,
-} from "../../contracts/src/index";
+} from "../../model-contracts/src/index";
 import type {
     AgentProfile,
     CompletionAcceptance,

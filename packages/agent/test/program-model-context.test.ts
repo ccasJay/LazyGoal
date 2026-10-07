@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { NativeConversationIdentity } from "../../contracts/src/index";
+import type { NativeConversationIdentity } from "../../model-contracts/src/index";
 import {
     allocateImmutableEvent,
     type TrajectoryEvent,

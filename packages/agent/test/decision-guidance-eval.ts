@@ -6,7 +6,7 @@ import {
     createCheckpointToolDeclarations, createUnifiedToolDeclarations,
     createModelOutputContractBundle, decodePhaseToolCall,
     type AgentDecision, type ModelOutputContractBundle,
-} from "../../contracts/src/index";
+} from "../../model-contracts/src/index";
 import type { LLMResponse, StructuredOutputMode } from "../../llm/src/core/types";
 import { readLlmConfig, LlmConfigurationError } from "../../llm/src/config";
 import { createLlmAdapter } from "../../llm/src/factory";

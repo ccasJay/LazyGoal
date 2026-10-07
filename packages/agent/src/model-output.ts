@@ -1,13 +1,13 @@
 import type { LLMRequest } from "../../llm/src/core/types";
+import type { ContractValidationError } from "../../contracts/src/index";
 import type {
     AgentDecision,
-    ContractValidationError,
     ModelOutputContractBundle,
-} from "../../contracts/src/index";
+} from "../../model-contracts/src/index";
 import {
     createModelOutputContractBundle,
     validateModelOutputSemantics,
-} from "../../contracts/src/index";
+} from "../../model-contracts/src/index";
 import {
     LLMResponseProtocolError,
     type LLMResponseProtocolIssue,

@@ -1,3 +1,25 @@
+/**
+ * 核心 Contract AST、解析器与 JSON Schema 编译器。
+ *
+ * @remarks
+ * 提供强类型的契约定义 DSL、运行时安全校验器以及确定性的 JSON Schema 2020-12 编译器。
+ * 作为全仓无出站依赖的核心契约基础包，不包含具体应用领域的模型交互或业务协议。
+ *
+ * @example
+ * ```ts
+ * import { contract, safeParse } from "@lazygoal/contracts";
+ *
+ * const User = contract.object({
+ *     name: contract.string(),
+ *     age: contract.optional(contract.integer()),
+ * });
+ *
+ * const result = safeParse(User, { name: "Alice" });
+ * ```
+ *
+ * @packageDocumentation
+ */
+
 export {
     contract,
 } from "./contract";
@@ -42,155 +64,3 @@ export type {
     JsonSchema202012,
     JsonSchemaValue,
 } from "./json-schema";
-export {
-    AgentDecisionContract,
-    BlockerCreateContract,
-    BlockerUpdateContract,
-    CompleteAgentDecisionContract,
-    NormalCompleteAgentDecisionContract,
-    CompletionAcceptanceContract,
-    CompletionEvidenceContract,
-    CompletionCriterionContract,
-    CompletionExpectOutcomeContract,
-    ContextLookupFiltersContract,
-    ContextLookupNeedContract,
-    ContextLookupRequestContract,
-    ToolDiscoveryDecisionContract,
-    ContextLookupSequenceRangeContract,
-    ExecutingMemoryPatchOperationContract,
-    ExecutingWorkingMemoryPatchContract,
-    FactProposalContract,
-    FactScalarContract,
-    FactStabilityContract,
-    FactValueContract,
-    FailAgentDecisionContract,
-    GoalPlanStatusContract,
-    GoalPlanAddOperationContract,
-    GoalPlanUpdateOperationContract,
-    GoalPlanReorderOperationContract,
-    GoalPlanCancelOperationContract,
-    GoalPlanPatchOperationContract,
-    GoalPlanUpdateAgentDecisionContract,
-    GoalTaskContract,
-    RequestThinkContract,
-    HypothesisCreateContract,
-    HypothesisUpdateContract,
-    JsonValueContract,
-    MemoryEntryScopeContract,
-    MemoryEntryStatusContract,
-    MemoryPatchOperationContract,
-    ModelContextCheckpointResultContract,
-    NonToolExecutingDecisionContract,
-    OrdinaryExecutingDecisionContract,
-    PlanModeExecutingDecisionContract,
-    RetireFactProposalContract,
-    StructuredAgentDecisionContract,
-    ToolCallActionContract,
-    ToolCallAgentDecisionContract,
-    WaitAgentDecisionContract,
-    WorkingMemoryPatchContract,
-    AskUserOptionInputContract,
-    AskUserQuestionInputContract,
-    AskUserAgentDecisionContract,
-    TaskProposalAgentDecisionContract,
-    AskUserAnswerContract,
-    normalizeAskUserRequest,
-    validateAskUserAnswers,
-    validateModelOutputSemantics,
-} from "./model-output/canonical";
-export type {
-    AgentDecision,
-    BlockerCreate,
-    BlockerUpdate,
-    CompletionAcceptance,
-    CompletionEvidence,
-    CompletionCriterion,
-    CompletionExpectOutcome,
-    ContextLookupFilters,
-    ContextLookupNeed,
-    ContextLookupRequest,
-    ToolDiscoveryDecision,
-    ContextLookupSequenceRange,
-    ExecutingMemoryPatchOperation,
-    ExecutingWorkingMemoryPatch,
-    FactProposal,
-    FactScalar,
-    FactStability,
-    FactValue,
-    GoalTask,
-    RequestThink,
-    DecideOutput,
-    GoalPlanStatus,
-    GoalPlanPatchOperation,
-    GoalPlanUpdateAgentDecision,
-    HypothesisCreate,
-    HypothesisUpdate,
-    MemoryEntryScope,
-    MemoryEntryStatus,
-    MemoryPatchOperation,
-    ModelContextCheckpointResult,
-    ModelOutputSemanticIssue,
-    ModelOutputSemanticIssueCode,
-    RetireFactProposal,
-    StructuredAgentDecision,
-    PlanModeExecutingDecision,
-    ToolCallAction,
-    WorkingMemoryPatch,
-    AskUserOptionInput,
-    AskUserQuestionInput,
-    AskUserAgentDecision,
-    TaskProposalAgentDecision,
-    AskUserOption,
-    AskUserQuestion,
-    AskUserAnswer,
-} from "./model-output/canonical";
-export { ModelOutputContractDefinitionError } from "./model-output/errors";
-export {
-    decodeWireResult,
-    deriveWireContract,
-    deriveWireEnvelopeContract,
-} from "./model-output/wire";
-export {
-    buildShapeGuide,
-    compileModelOutputSchema,
-    SHAPE_GUIDE_PREFIX,
-} from "./model-output/provider-schema";
-export {
-    createModelOutputContractBundle,
-    isReadOnlyToolContract,
-} from "./model-output/factory";
-export type {
-    AuthorizedToolContract,
-    ModelOutputContractBundle,
-    ModelOutputRequest,
-} from "./model-output/factory";
-export {
-    SystemCompletionReviewDeclaration,
-    SystemCompleteTaskDeclaration,
-    SystemCompleteRunDeclaration,
-    SystemWaitForInputDeclaration,
-    SystemFailGoalDeclaration,
-    SystemContextLookupDeclaration,
-    SystemFindToolsDeclaration,
-    SystemProposeTaskPlanDeclaration,
-    SystemContextCheckpointDeclaration,
-    SystemAskUserDeclaration,
-    SystemUpdateGoalPlanDeclaration,
-    SystemRequestThinkDeclaration,
-    createExecutingToolDeclarations,
-    createUnifiedToolDeclarations,
-    createCheckpointToolDeclarations,
-    decodePhaseToolCall,
-} from "./model-output/system-tools";
-export type {
-    AskUserTool,
-    SystemToolDeclaration,
-    SystemFindToolsInput,
-} from "./model-output/system-tools";
-export {
-    SystemFindToolsInputContract,
-    SystemUpdateGoalPlanInputContract,
-} from "./model-output/system-tools";
-export * from "./model-conversation";
-export { CompletionReviewResultContract } from "./model-output/completion-review";
-export type { CompletionReviewResult } from "./model-output/completion-review";

@@ -6,26 +6,28 @@ import { pathToFileURL } from "node:url";
  * 每个 package 允许的出站目标（from -> allowed target packages）。
  *
  * contracts 与 execution-stream 是无出站依赖的基础包；其它 package 可以单向依赖它们。
- * runtime 只依赖 contracts 和 execution-stream；llm 复用 runtime 的中止原语并可
- * 使用 execution-stream；storage 只依赖 runtime/contracts；agent/tools 复用
- * runtime、llm（agent）和 execution-stream；session-metrics 通过 Runtime
- * 端口读取 Goal 与调用指标；browser 读取 Runtime 契约并依赖通用 HTTP 宿主；
+ * model-contracts 承载模型输出与对话协议，仅单向依赖 contracts。
+ * runtime 只依赖 contracts、model-contracts 和 execution-stream 等基础与支持包；
+ * llm 复用 runtime 的中止原语，依赖 contracts、model-contracts 和 execution-stream；
+ * storage 只依赖 runtime/contracts/model-contracts 等；
+ * agent 复用 runtime、llm、contracts、model-contracts 和 execution-stream；
+ * session-metrics 通过 Runtime 端口读取 Goal 与调用指标；browser 读取 Runtime 契约并依赖通用 HTTP 宿主；
  * http 不依赖 LazyGoal 包；goal-server 是服务组合根，可导入所需后端实现。
  */
 const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
     "model-contracts": ["contracts"],
     "execution-stream": [],
-    "context-retrieval": ["contracts"],
+    "context-retrieval": ["contracts", "model-contracts"],
     http: [],
     "slash-command": [],
     acp: [],
     sandbox: [],
     permission: ["contracts", "sandbox"],
-    runtime: ["contracts", "execution-stream", "sandbox", "permission", "context-retrieval"],
-    llm: ["runtime", "contracts", "execution-stream"],
-    storage: ["runtime", "contracts", "permission", "context-retrieval"],
-    agent: ["runtime", "llm", "contracts", "execution-stream"],
+    runtime: ["contracts", "model-contracts", "execution-stream", "sandbox", "permission", "context-retrieval"],
+    llm: ["runtime", "contracts", "model-contracts", "execution-stream"],
+    storage: ["runtime", "contracts", "model-contracts", "permission", "context-retrieval"],
+    agent: ["runtime", "llm", "contracts", "model-contracts", "execution-stream"],
     "session-metrics": ["runtime", "http", "web-contracts"],
     tools: ["runtime", "contracts", "execution-stream", "sandbox"],
     browser: ["http", "runtime", "permission", "web-contracts"],

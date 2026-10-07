@@ -22,7 +22,7 @@ import type {
     WorkingMemoryPatch,
     AskUserQuestion,
     AskUserAnswer,
-} from "../../contracts/src/index";
+} from "../../model-contracts/src/index";
 import type {
     ContextLookupRequest,
     ContextLookupResult,

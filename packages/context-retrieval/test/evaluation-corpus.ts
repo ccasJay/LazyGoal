@@ -1,6 +1,6 @@
 import { performance } from "node:perf_hooks";
 
-import type { ContextLookupRequest } from "../../contracts/src/index";
+import type { ContextLookupRequest } from "../../model-contracts/src/index";
 import {
     buildContextInvertedIndex,
     FieldedBm25LiteRanker,
