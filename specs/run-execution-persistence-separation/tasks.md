@@ -14,7 +14,7 @@
   - 验证方式：待实现的文件追加故障注入测试及现有 `trajectory-store.test.ts`、`trajectory-checkpoint-committer.test.ts`、`trajectory-failure.test.ts`；运行 `npx tsx --test packages/storage/test/trajectory-store.test.ts packages/runtime/test/trajectory-checkpoint-committer.test.ts packages/runtime/test/trajectory-failure.test.ts`。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [3.5](./requirements.md#req-3-5)_
 
-- [ ] //TODO 3. 使 Goal 快照原子替换在临时故障后安全重试
+- [x] //TODO 3. 使 Goal 快照原子替换在临时故障后安全重试
 
   - 实现目标：在内置 JSON Goal Store 的单次保存中复用同一快照内容，核对替换结果并有限重试，补充与 Action/Observation 提交边界相连的自动化测试。
   - 成功判据：写入前及正式快照已替换后的临时故障均可安全完成；不可重试错误或次数耗尽时明确失败，恢复只读取有效快照，已发生的 Tool 效果不被重做或报告为回滚。

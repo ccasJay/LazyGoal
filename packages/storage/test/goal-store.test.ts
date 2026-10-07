@@ -5,7 +5,9 @@ import {
     mkdtemp,
     readFile,
     readdir,
+    rename,
     rm,
+    unlink,
     utimes,
     writeFile,
 } from "node:fs/promises";
@@ -807,6 +809,84 @@ test("JsonFileGoalStore saves a full snapshot and restores it in a new instance"
             JSON.parse(await readFile(join(directory, files[0] ?? ""), "utf8")),
             goalSnapshotCodec.encode(goal),
         );
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("JsonFileGoalStore verifies a completed rename and finishes archive cleanup without replaying the save", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-retry-"));
+
+    try {
+        const goal = createSnapshot("run-retry");
+        const archivePath = `${snapshotPath(directory, goal.id)}.archived`;
+        await writeFile(archivePath, "", { mode: 0o600 });
+        let renameCalls = 0;
+        let archiveDeleteCalls = 0;
+        const store = new JsonFileGoalStore(directory, {
+            rename: async (from, to) => {
+                renameCalls += 1;
+                await rename(from, to);
+                if (renameCalls === 1) {
+                    throw Object.assign(new Error("rename result unknown"), { code: "EBUSY" });
+                }
+            },
+            unlink: async (path) => {
+                if (path === archivePath && archiveDeleteCalls === 0) {
+                    archiveDeleteCalls += 1;
+                    await unlink(path);
+                    throw Object.assign(new Error("archive cleanup result unknown"), { code: "EAGAIN" });
+                }
+                await unlink(path);
+            },
+        });
+
+        await store.save(goal);
+
+        assert.equal(renameCalls, 1);
+        assert.equal(archiveDeleteCalls, 1);
+        assert.deepEqual(await store.restore(goal.id), goal);
+        await assert.rejects(readFile(archivePath), (error: unknown) =>
+            error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT");
+        assert.deepEqual((await readdir(directory)).filter((name) => name.endsWith(".tmp")), []);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("JsonFileGoalStore retries only confirmed temporary failures and caps attempts", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-retry-"));
+
+    try {
+        let openCalls = 0;
+        const retrying = new JsonFileGoalStore(directory, {
+            open: async (path, flags, mode) => {
+                openCalls += 1;
+                if (openCalls === 1) {
+                    throw Object.assign(new Error("temporary open failure"), { code: "EINTR" });
+                }
+                const { open } = await import("node:fs/promises");
+                return open(path, flags, mode);
+            },
+        });
+        const goal = createSnapshot("run-open-retry");
+        await retrying.save(goal);
+        assert.equal(openCalls, 2);
+        assert.deepEqual(await retrying.restore(goal.id), goal);
+
+        let attempts = 0;
+        const unavailable = new JsonFileGoalStore(join(directory, "unavailable"), {
+            open: async () => {
+                attempts += 1;
+                throw Object.assign(new Error("temporary open failure"), { code: "EBUSY" });
+            },
+        });
+        await assert.rejects(
+            () => unavailable.save(createSnapshot("run-exhausted")),
+            (error: unknown) => error instanceof Error && (error as NodeJS.ErrnoException).code === "EBUSY",
+        );
+        assert.equal(attempts, 3);
+        assert.deepEqual((await readdir(join(directory, "unavailable"))).filter((name) => name.endsWith(".tmp")), []);
     } finally {
         await rm(directory, { recursive: true, force: true });
     }

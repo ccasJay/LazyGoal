@@ -13,7 +13,7 @@
 | [GoalSnapshotV1 协议](../../packages/storage/src/goal-snapshot.ts) | 当前唯一 Snapshot DTO、严格字段与跨字段不变量校验；保存当前 Prompt/Memory/Model Context/Retrieval 组合、模型选择状态（`modelSelection`）、完整消息、`mode`、GoalPlan、`completedRuns`、Run/todo 关系、Run 的唯一 `exposedToolIds`、Context Epoch 与待执行 Action 的授权引用 | 文件系统 I/O、构造 Runtime Goal、迁移历史 Snapshot |
 | [GoalSnapshotCodec](../../packages/storage/src/goal-snapshot-codec.ts) | Runtime Goal↔v1 Snapshot 的 encode/decode 深复制转换；只接受当前 v1，不迁移或回写历史版本 | 文件系统 I/O、读写 Store |
 | [InMemoryGoalStore](../../packages/storage/src/goal-store.ts) | 实现 Runtime `GoalStore` Port：save 经 Codec encode、restore 经 decode | 跨实例或跨进程恢复 |
-| [JsonFileGoalStore](../../packages/storage/src/goal-store.ts) | 实现 `GoalStore` 与 `GoalCatalog`：base64url 文件名、临时文件 + rename 原子替换、目录扫描摘要 | 乐观锁、租约或版本冲突检测 |
+| [JsonFileGoalStore](../../packages/storage/src/goal-store.ts) | 实现 `GoalStore` 与 `GoalCatalog`：base64url 文件名、临时文件 + rename 原子替换、明确临时故障核对后有界重试、目录扫描摘要 | 跨进程锁、乐观锁、租约或版本冲突检测 |
 | [JsonFileToolGrantStore](../../packages/storage/src/json-file-tool-grant-store.ts) | 严格验证 workspace 授权账本，以临时文件 + fsync + rename 保存 pending/active/revoked Grant，按来源 Action 幂等暂存/激活 | Goal 状态转换、跨进程锁或分布式事务 |
 | [JsonFileModelPreferenceStore](../../packages/storage/src/json-file-model-preference-store.ts) | 在工作区私有目录严格解析并原子替换 Web 模型偏好身份；损坏文件不被覆盖 | 模型可选性判断、Goal Snapshot 或跨进程锁 |
 | [JsonFileTrajectoryStore](../../packages/storage/src/json-file-trajectory-store.ts) | 将每个 Goal/Run 的事实事件（包括结构化 `model_context_frame`）追加到安全编码的 JSONL 文件，提供序列范围读取与 Snapshot 边界分类；对明确临时文件错误核对尾部后有界重试 | Snapshot 恢复、marker 推导边界、跨进程锁与 exactly-once |
@@ -29,7 +29,7 @@ Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按严格 
 
 当前 Snapshot 同时校验 `pendingProgram` 与运行中父 Action、子 `pendingAction` 的身份及调用位置；Codec 原位保存恢复指针和已用结果字节数。PTC 子事实的 `programId/callIndex` 随 Trajectory 严格解析，结果仍以 Snapshot 的提交边界为准。`program_time_reserved` 是例外：它在同一 JSONL 中单独同步到磁盘，恢复时无论 Snapshot 是否纳入该事件都要计入预算，防止崩溃重置额度。Storage 不推断工具是否已经产生外部副作用。
 
-`JsonFileGoalStore.listResumable` 只扫描正式 `.json` 普通文件并忽略 `.tmp`；任一正式快照损坏都会报告协议错误而非静默跳过；过滤三个终态后按 `mtime` 倒序、`goalId` 升序返回摘要。
+`JsonFileGoalStore.save` 对 Snapshot 只编码一次，并在同一目录写临时文件、同步后原子替换。`EINTR`、`EAGAIN`、`EBUSY` 最多尝试三次；每次重试前核对正式快照是否已成为目标内容，只有未替换时才重写相同快照。替换已成功但调用返回临时错误时继续完成归档标记清理，不重放 Runtime 提交。临时文件损坏或无法核实正式文件时停止。`listResumable` 只扫描正式 `.json` 普通文件并忽略 `.tmp`；任一正式快照损坏都会报告协议错误而非静默跳过；过滤三个终态后按 `mtime` 倒序、`goalId` 升序返回摘要。
 
 `JsonFileToolGrantStore` 将当前 workspace 的 Grant 写入私有 `tool-grants.json`；损坏 JSON、Schema 错误、重复 ID/来源或同一来源授权冲突均失败关闭，不会重置账本。只有 active 且 workspace 与操作匹配的 Grant 可被 Runner 查询；goal 范围还必须匹配 `goalId`。pending Grant 仅供 Coordinator 在批准 Snapshot 提交后恢复激活，revoked Grant 不再匹配。Store 实例内写入串行化并原子替换文件，不提供跨进程并发事务。
 
