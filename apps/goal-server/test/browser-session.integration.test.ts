@@ -170,10 +170,11 @@ test("真实 Web 服务恢复保留 Coordinator 接收者、展示活动状态�
             root?.abortController.abort();
             process.emit("SIGINT");
             await serving.catch(() => undefined);
-        } else if (root !== undefined) {
+        }
+        if (root !== undefined) {
             root.checkpointStore.freeze();
             root.abortController.abort();
-            await root.resources.closeAll();
+            await root.resources.closeAll().catch(() => undefined);
         }
         await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
