@@ -6,7 +6,7 @@ import type {
     WorkingMemory,
 } from "./domain";
 import type { ContextLookupResult } from "./context-retrieval";
-import type { ToolDefinition } from "./tool";
+import type { ToolDefinition } from "../../tool-core/src/index";
 import type { ExecutionControl } from "../../execution-control/src/index";
 import type { ExecutionStreamPublisher } from "../../execution-stream/src/index";
 import type { ModelContextFramePayload, TrajectoryEvent } from "./trajectory";

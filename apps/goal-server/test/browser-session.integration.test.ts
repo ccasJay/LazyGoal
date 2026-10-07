@@ -175,6 +175,6 @@ test("真实 Web 服务恢复保留 Coordinator 接收者、展示活动状态�
             root.abortController.abort();
             await root.resources.closeAll();
         }
-        await rm(workspace, { recursive: true, force: true });
+        await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
 });

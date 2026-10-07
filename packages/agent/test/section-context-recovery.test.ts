@@ -5,7 +5,7 @@ import { contract } from "../../contracts/src/index";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal } from "../../runtime/src/domain";
 import type { GoalPlan } from "../../runtime/src/goal-plan";
-import type { ToolDefinition } from "../../runtime/src/tool";
+import type { ToolDefinition } from "../../tool-core/src/index";
 import {
     allocateImmutableEvent,
     classifyTrajectoryTail,

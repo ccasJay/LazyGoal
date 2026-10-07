@@ -22,12 +22,13 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     acp: [],
     sandbox: [],
     permission: ["contracts", "sandbox"],
-    runtime: ["contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control"],
+    "tool-core": ["contracts", "execution-control", "sandbox"],
+    runtime: ["contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control", "tool-core"],
     llm: ["contracts", "execution-stream", "execution-control"],
     storage: ["runtime", "contracts", "permission", "context-retrieval"],
-    agent: ["runtime", "llm", "contracts", "execution-stream", "execution-control"],
+    agent: ["runtime", "llm", "contracts", "execution-stream", "execution-control", "tool-core"],
     "session-metrics": ["runtime", "http", "web-contracts"],
-    tools: ["runtime", "contracts", "execution-stream", "sandbox", "execution-control"],
+    tools: ["runtime", "contracts", "execution-stream", "sandbox", "execution-control", "tool-core"],
     browser: ["http", "runtime", "permission", "web-contracts", "execution-control"],
     "web-contracts": [],
 };
@@ -37,7 +38,7 @@ const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);
 /** 每个 app 允许的出站目标 package。 */
 const ALLOWED_APP_DEPENDENCIES = {
     "goal-board": ["web-contracts", "slash-command"],
-    "goal-server": ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts"],
+    "goal-server": ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts", "tool-core"],
 };
 
 const APPS = Object.keys(ALLOWED_APP_DEPENDENCIES);

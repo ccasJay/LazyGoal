@@ -4,7 +4,7 @@ import {
     type StepRecord,
     type WorkingMemory,
 } from "../../runtime/src/domain";
-import type { ToolDefinition } from "../../runtime/src/tool";
+import type { ToolDefinition } from "../../tool-core/src/index";
 import { canUpdateGoalPlan } from "../../runtime/src/run-mode-capabilities";
 import { compileJsonSchema } from "../../contracts/src/index";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";

@@ -6,8 +6,6 @@ import { test } from "node:test";
 
 import {
     createGoal,
-    createToolRegistration,
-    InMemoryToolRegistry,
     Runner,
     transition,
     type AgentDecision,
@@ -16,6 +14,10 @@ import {
     type StepExecutionInput,
     type StepExecutor,
 } from "../src/index";
+import {
+    createToolRegistration,
+    InMemoryToolRegistry,
+} from "../../tool-core/src/index";
 import {
     WebFetchTool,
     WEB_FETCH_TOOL_ID,

@@ -3,12 +3,15 @@ import { test } from "node:test";
 
 import {
     GoalCoordinator,
-    InMemoryToolRegistry,
     InlineScheduler,
     launch,
     Runner,
-    createToolRegistration,
 } from "../src/index";
+import {
+    createToolRegistration,
+    InMemoryToolRegistry,
+    type Tool,
+} from "../../tool-core/src/index";
 import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { BaseTestStepExecutor, trajectoryStoreFor } from "./current-fixtures";
@@ -22,7 +25,6 @@ import type {
     LaunchResult,
     StepExecutionInput,
     StepExecutor,
-    Tool,
 } from "../src/index";
 
 const profile: AgentProfile = {

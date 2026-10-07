@@ -6,7 +6,7 @@ import {
     createToolRegistration,
     InMemoryToolRegistry,
     TransientToolExecutionFailure,
-} from "../../runtime/src/index";
+} from "../../tool-core/src/index";
 import {
     WEB_SEARCH_INPUT_CONTRACT,
     WEB_SEARCH_TOOL_ID,

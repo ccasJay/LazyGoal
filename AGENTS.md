@@ -33,6 +33,7 @@ packages/        Private `@lazygoal/*` workspaces
   session-metrics/ Session and Run metric projections, persistence reads, and HTTP routes
   storage/       Persistence DTOs, schemas, codecs, errors, and JSON stores for Runtime ports
   sandbox/       Workspace path boundaries, canonical capability contracts, and macOS Seatbelt isolation
+  tool-core/     Tool definition, input validation closure, execution registry, and retryable failures
   tools/         Agent tools such as filesystem, shell, and workspace utilities
 docs/            Current implemented architecture documentation under `docs/architecture/`
 specs/           Feature requirements, designs, and implementation task checklists

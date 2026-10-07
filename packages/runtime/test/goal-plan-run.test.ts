@@ -6,8 +6,6 @@ import {
     createEmptyGoalPlan,
     createRun,
     createStepExecutor,
-    createToolRegistration,
-    InMemoryToolRegistry,
     reduceGoalPlan,
     Runner,
     transition,
@@ -17,9 +15,13 @@ import {
     type GoalTask,
     type StepExecutionInput,
     type StepExecutor,
+} from "../src/index";
+import {
+    createToolRegistration,
+    InMemoryToolRegistry,
     type Tool,
     type ToolDefinition,
-} from "../src/index";
+} from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { BaseTestStepExecutor, currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor } from "./current-fixtures";
 import { contract } from "../../contracts/src/index";

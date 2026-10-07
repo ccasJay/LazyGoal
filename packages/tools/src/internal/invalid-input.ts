@@ -1,4 +1,4 @@
-import type { ToolValidationResult } from "../../../runtime/src/index";
+import type { ToolValidationResult } from "../../../tool-core/src/index";
 
 /**
  * 构造稳定的 `INVALID_TOOL_INPUT` 语义校验失败结果。

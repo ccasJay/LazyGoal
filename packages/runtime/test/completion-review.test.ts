@@ -2,10 +2,11 @@ import { ExecutionAbortedError, TransientModelRequestFailure } from "../../execu
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-    createGoal, createStepExecutor, createToolRegistration, InMemoryToolRegistry,
+    createGoal, createStepExecutor,
     Runner,
     type AgentDecision, type Goal, type GoalStore,
 } from "../src/index";
+import { createToolRegistration, InMemoryToolRegistry } from "../../tool-core/src/index";
 import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";

@@ -60,12 +60,13 @@ import type {
     ToolExecutionContext,
     ToolObservation,
     ToolStreamEvent,
-    ToolPolicy,
     PreparedToolAction as PreparedToolResult,
     ToolRegistration,
     ToolRegistry,
-} from "./tool";
-import { resolveAuthorizedToolDefinitions, TransientToolExecutionFailure } from "./tool";
+} from "../../tool-core/src/index";
+import { TransientToolExecutionFailure } from "../../tool-core/src/index";
+import type { ToolPolicy } from "./tool";
+import { resolveAuthorizedToolDefinitions } from "./tool";
 import {
     isSeatbeltSupported,
     resolveEffectiveSandboxScope,

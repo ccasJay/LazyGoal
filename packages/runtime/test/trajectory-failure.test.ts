@@ -9,14 +9,16 @@ import {
     allocateImmutableEvent,
     createGoal as createUnexposedGoal,
     createStepExecutor,
-    createToolRegistration,
 } from "../src/index";
+import {
+    createToolRegistration,
+    type Tool,
+} from "../../tool-core/src/index";
 import { contract } from "../../contracts/src/index";
 import type {
     AgentProfile,
     Goal,
     GoalStore,
-    Tool,
     TraceRecord,
     TrajectoryEvent,
     TrajectoryEventDraft,

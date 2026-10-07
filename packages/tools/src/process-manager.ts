@@ -7,8 +7,8 @@ import type {
     ManagedResourceRegistry,
     ProcessSessionRecord,
     ProcessSessionStore,
-    ToolExecutionContext,
 } from "../../runtime/src/index";
+import type { ToolExecutionContext } from "../../tool-core/src/index";
 import {
     killProcessGroup,
     spawnRestrictedCommand,

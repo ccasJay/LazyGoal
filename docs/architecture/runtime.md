@@ -17,7 +17,8 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 | [GoalStore](../../packages/runtime/src/goal-store.ts) | 保存/恢复最新 Goal Snapshot | 历史查询和文件格式 |
 | [Model Call Metrics](../../packages/runtime/src/model-call-metrics.ts) | 模型调用开始/结束事实、用量覆盖标记及追加/读取 Port | Goal 恢复状态、指标汇总与诊断 Trace |
 | [Trajectory](../../packages/runtime/src/trajectory.ts) | 追加事实事件、提交 marker 和只读恢复查询 | 改写 Runtime State |
-| [Tool contracts](../../packages/runtime/src/tool.ts) | Tool 描述、输入 Contract、执行闭包、可选流能力、Registry 和 Policy 边界 | 具体 Tool 业务逻辑 |
+| [Tool Core](../../packages/tool-core/src/index.ts) | 通用 Tool 接口、输入 Contract 准备、Registry 与暂时故障分类 | Goal/Run 状态与授权策略 |
+| [Tool contracts](../../packages/runtime/src/tool.ts) | Tool Policy 边界、授权过滤与运行时上下文绑定 | 具体 Tool 业务逻辑与通用输入准备 |
 | [Tool Grant](../../packages/runtime/src/tool-grant.ts) | 将已验证的 Tool 输入映射为按操作匹配的持续授权身份，并定义授权 Store Port | 执行 Tool 或绕过 Profile、输入、Policy 校验 |
 | [Context Retrieval](../../packages/runtime/src/context-retrieval.ts) | 历史查询校验、边界门禁及向 `@lazygoal/context-retrieval` 委托的适配层 | 读取当前 Workspace/Environment |
 

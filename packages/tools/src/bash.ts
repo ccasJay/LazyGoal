@@ -9,7 +9,7 @@ import type {
     ToolObservation,
     ToolStreamEvent,
     ToolValidationResult,
-} from "../../runtime/src/index";
+} from "../../tool-core/src/index";
 import {
     contract,
     type InferContract,

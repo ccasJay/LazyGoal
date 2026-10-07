@@ -9,15 +9,17 @@ import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/ind
 import {
     createGoal,
     createStepExecutor,
-    createToolRegistration,
     readTrajectoryAtSnapshot,
     Runner,
     transition,
 } from "../../runtime/src/index";
+import {
+    createToolRegistration,
+    type Tool,
+} from "../../tool-core/src/index";
 import type {
     AgentProfile,
     Goal,
-    Tool,
     TrajectoryEventDraft,
     TrajectoryReadQuery,
     TrajectoryReadResult,

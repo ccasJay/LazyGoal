@@ -8,9 +8,7 @@ import { test } from "node:test";
 import {
     createGoal,
     createRun,
-    createToolRegistration,
     GoalCoordinator,
-    InMemoryToolRegistry,
     InlineScheduler,
     Runner,
     transition,
@@ -19,6 +17,10 @@ import {
     type Goal,
     type StepExecutor,
 } from "../src/index";
+import {
+    createToolRegistration,
+    InMemoryToolRegistry,
+} from "../../tool-core/src/index";
 import {
     ApplyPatchTool,
     APPLY_PATCH_TOOL_ID,

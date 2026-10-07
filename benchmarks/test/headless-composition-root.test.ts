@@ -9,7 +9,6 @@ import {
 import {
     allocateImmutableEvent,
     classifyTrajectoryTail,
-    createToolRegistration,
     TrajectoryAppendError,
     type AgentProfile,
     type Goal,
@@ -18,8 +17,11 @@ import {
     type TrajectoryReadQuery,
     type TrajectoryReadResult,
     type TrajectoryStore,
-    type Tool,
 } from "../../packages/runtime/src/index.js";
+import {
+    createToolRegistration,
+    type Tool,
+} from "../../packages/tool-core/src/index.js";
 import { InMemoryGoalStore } from "../../packages/storage/src/index.js";
 import {
     HeadlessCompositionRoot,

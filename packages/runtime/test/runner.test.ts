@@ -7,13 +7,19 @@ import {
     createRun,
     createStepExecutor,
     createToolGrantMatcher,
-    createToolRegistration,
     GoalCoordinator,
     InlineScheduler,
     Runner,
-    TransientToolExecutionFailure,
     transition,
 } from "../src/index";
+import {
+    createToolRegistration,
+    TransientToolExecutionFailure,
+    type Tool,
+    type ToolDefinition,
+    type ToolRegistration,
+    type ToolRegistry,
+} from "../../tool-core/src/index";
 import {
     contract,
     type InferContract,
@@ -39,11 +45,7 @@ import type {
     RuntimeFeedback,
     StepExecutionInput,
     StepExecutor,
-    Tool,
-    ToolDefinition,
     ToolPolicy,
-    ToolRegistration,
-    ToolRegistry,
     ToolGrant,
 } from "../src/index";
 

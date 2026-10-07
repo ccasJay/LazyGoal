@@ -8,14 +8,16 @@ import { test } from "node:test";
 
 import {
     createGoal,
-    createToolRegistration,
-    InMemoryToolRegistry,
     Runner,
     transition,
     type AgentDecision,
     type AgentProfile,
     type StepExecutionInput,
 } from "../src/index";
+import {
+    createToolRegistration,
+    InMemoryToolRegistry,
+} from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { JsonFileProcessSessionStore } from "../../storage/src/index";
 import {

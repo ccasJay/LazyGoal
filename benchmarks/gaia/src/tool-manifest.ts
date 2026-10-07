@@ -1,7 +1,7 @@
 import {
     createToolRegistration,
     type ToolRegistration,
-} from "../../../packages/runtime/src/index.js";
+} from "../../../packages/tool-core/src/index.js";
 import {
     BASH_TOOL_ID,
     READ_FILE_TOOL_ID,

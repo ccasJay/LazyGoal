@@ -1,8 +1,8 @@
+import type { ProcessSessionStore } from "../../runtime/src/index";
 import {
     createToolRegistration,
-    type ProcessSessionStore,
     type ToolRegistration,
-} from "../../runtime/src/index";
+} from "../../tool-core/src/index";
 import { ApplyPatchTool, APPLY_PATCH_TOOL_ID } from "./apply-patch";
 import { BashTool, BASH_TOOL_ID } from "./bash";
 import { EditFileTool, EDIT_FILE_TOOL_ID } from "./edit-file";

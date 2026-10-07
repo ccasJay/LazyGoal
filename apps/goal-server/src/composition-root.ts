@@ -5,15 +5,17 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 import {
-    CheckpointGateGoalStore,
     createToolRegistration,
+    InMemoryToolRegistry,
+} from "../../../packages/tool-core/src/index";
+import {
+    CheckpointGateGoalStore,
     DEFAULT_WORKING_MEMORY_LIMITS,
     ManagedResourceRegistry,
     ProcessExitPort,
     ShutdownCoordinator,
     GoalCoordinator,
     DefaultGoalModelSelectionCoordinator,
-    InMemoryToolRegistry,
     InlineScheduler,
     Runner,
     TrajectoryCheckpointCommitter,

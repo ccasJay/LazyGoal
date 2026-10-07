@@ -9,15 +9,19 @@ import {
 import {
     createToolRegistration,
     InMemoryToolRegistry,
-    type DerivedSandboxAccess,
-    type JsonValue,
-    type SandboxExecutionPlan,
     type ToolDefinition,
     type ToolExecutionContext,
     type ToolObservation,
     type ToolRegistration,
     type ToolRegistry,
-} from "../../packages/runtime/src/index.js";
+} from "../../packages/tool-core/src/index.js";
+import type {
+    JsonValue,
+} from "../../packages/contracts/src/index.js";
+import type {
+    DerivedSandboxAccess,
+    SandboxExecutionPlan,
+} from "../../packages/sandbox/src/index.js";
 import {
     BashTool,
     EditFileTool,

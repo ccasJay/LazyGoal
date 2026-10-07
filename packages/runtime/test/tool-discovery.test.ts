@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { contract } from "../../contracts/src/index";
 import { findTools } from "../src/tool-discovery";
-import type { ToolDefinition } from "../src/tool";
+import type { ToolDefinition } from "../../tool-core/src/index";
 
 function tool(id: string, description: string): ToolDefinition {
     return {

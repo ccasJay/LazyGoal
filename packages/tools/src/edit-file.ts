@@ -4,7 +4,7 @@ import type {
     ToolExecutionRequest,
     ToolObservation,
     ToolValidationResult,
-} from "../../runtime/src/index";
+} from "../../tool-core/src/index";
 import {
     contract,
     type InferContract,

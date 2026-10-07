@@ -8,9 +8,7 @@ import {
     createGoal as createUnexposedGoal,
     createRun,
     createStepExecutor,
-    createToolRegistration,
     GoalCoordinator,
-    InMemoryToolRegistry,
     InlineScheduler,
     Runner,
     type AgentDecision,
@@ -19,11 +17,15 @@ import {
     type JsonValue,
     type StepExecutionInput,
     type StepExecutor,
+} from "../src/index";
+import {
+    createToolRegistration,
+    InMemoryToolRegistry,
     type Tool,
     type ToolExecutionRequest,
     type ToolObservation,
     type ToolValidationResult,
-} from "../src/index";
+} from "../../tool-core/src/index";
 import { contract } from "../../contracts/src/index";
 import {
     InMemoryGoalStore,

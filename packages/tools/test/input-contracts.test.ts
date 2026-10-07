@@ -58,7 +58,7 @@ import {
 } from "../src/index";
 import {
     createToolRegistration,
-} from "../../../packages/runtime/src/index";
+} from "../../../packages/tool-core/src/index";
 
 type Equal<Left, Right> =
     (<Value>() => Value extends Left ? 1 : 2) extends

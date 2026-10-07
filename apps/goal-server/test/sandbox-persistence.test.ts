@@ -7,11 +7,13 @@ import { test } from "node:test";
 
 import { createCompositionRoot } from "../src/composition-root";
 import {
-    createToolRegistration,
-    InMemoryToolRegistry,
     type AgentProfile,
     type ToolPolicy,
 } from "../../../packages/runtime/src/index";
+import {
+    createToolRegistration,
+    InMemoryToolRegistry,
+} from "../../../packages/tool-core/src/index";
 import { ReadFileTool, READ_FILE_TOOL_ID } from "../../../packages/tools/src/index";
 import type { LLMAdapter } from "../../../packages/llm/src/core/adapter";
 

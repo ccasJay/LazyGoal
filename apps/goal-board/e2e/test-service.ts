@@ -7,8 +7,9 @@ import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm/
 import {
     createToolRegistration,
     InMemoryToolRegistry,
-} from "../../../packages/runtime/src/index";
-import type { AgentProfile, Goal, Tool, ToolPolicy } from "../../../packages/runtime/src/index";
+    type Tool,
+} from "../../../packages/tool-core/src/index";
+import type { AgentProfile, Goal, ToolPolicy } from "../../../packages/runtime/src/index";
 import {
     createBrowserGoalRoutes,
     createBrowserTrajectoryRoutes,

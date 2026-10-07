@@ -3,15 +3,17 @@ import { test } from "node:test";
 
 import {
     createGoal,
-    createToolRegistration,
     Runner,
     type AgentDecision,
     type Goal,
     type StepExecutionInput,
     type StepExecutor,
+} from "../src/index";
+import {
+    createToolRegistration,
     type Tool,
     type ToolStreamEvent,
-} from "../src/index";
+} from "../../tool-core/src/index";
 import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import {
