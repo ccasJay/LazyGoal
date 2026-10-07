@@ -24,7 +24,7 @@ import {
     InMemoryToolRegistry,
     type ToolObservation,
     type ToolRegistry,
-} from "./tool";
+} from "../../tool-core/src/index";
 import {
     throwIfAborted,
     type ExecutionControl,

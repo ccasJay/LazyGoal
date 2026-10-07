@@ -19,7 +19,7 @@ import type {
     ContextLookupResult,
 } from "./context-retrieval";
 import type { GoalStore } from "./goal-store";
-import type { ToolObservation } from "./tool";
+import type { ToolObservation } from "../../tool-core/src/index";
 import type { EffectiveSandboxScope } from "../../sandbox/src/index";
 
 /** Trajectory 事件允许出现的 Runtime 业务阶段。 */

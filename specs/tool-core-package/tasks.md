@@ -11,7 +11,7 @@
   - 验证方式：`npx tsx --test packages/tool-core/test/*.test.ts`（待创建）；`npx tsc --noEmit`、`npm run check:dependencies`、`node --test scripts/check-dependencies.test.mjs`，Core 导入 Runtime 的负向用例待实现。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4)_
 
-- [ ] //TODO 2. 接入 Runtime 授权调度与 Action 恢复
+- [x] //TODO 2. 接入 Runtime 授权调度与 Action 恢复
 
   - 实现目标：Runtime 的 Runner、Policy、授权过滤、StepExecutor 与程序注册直接使用 Core；保留现有身份注入、输入重新准备、沙箱派生、重试和持久化流程，并补齐具体集成覆盖缺口。
   - 成功判据：未授权、旧身份或输入失败不执行工具；批准后同一 Action 重新准备，可信 context/plan 与既有结果正确传递；safe/manual、暂时故障、不确定结果等待和程序子调用保持原控制结果。

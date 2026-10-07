@@ -1,4 +1,4 @@
-import type { ToolDefinition } from "./tool";
+import type { ToolDefinition } from "../../tool-core/src/index";
 
 /** Decide 阶段可见的工具发现结果。 */
 export interface ToolDiscoveryResult {
