@@ -11,7 +11,7 @@
 | Run 执行与持久化恢复职责拆分（A） | [run-execution-persistence-separation](./run-execution-persistence-separation/tasks.md) | Requirements、Design、Tasks 均已获用户批准 | 全部 TODO 完成，Feature Verification passed / current |
 | Run 输入与主动终止（B） | [run-input-control](./run-input-control/tasks.md) | 修订后 Requirements、Design、Tasks 均已获用户批准 | 全部 TODO 完成，Feature Verification passed / current |
 
-A 的 3 个 TODO 均已完成，Feature Verification passed / current。B 的 Steer 与 Interrupt 两个 Runtime TODO 已提交并通过定向验收；页面 Queue/UI TODO 与完整 Feature Verification 待执行。
+A 的 3 个 TODO 均已完成，Feature Verification passed / current。B 的 4 个 TODO 均已完成并提交；B Feature Verification 与跨 Spec Integration Verification 已通过。
 
 ## 依赖关系与执行顺序
 
@@ -53,16 +53,26 @@ A 的 3 个 TODO 均已完成，Feature Verification passed / current。B 的 St
 
 ### Latest Result
 
-未执行。两项 Feature Verification 均通过且上述集成检查全部满足，才能记录 Integration Verification 为 passed / current。
+状态：**passed / current**。验证时间：2026-10-08 00:40（Asia/Shanghai）。被测提交：`808eedeaec11febe8efe4ba6a7a7ead8f3ee7b64`（B 分支 HEAD）。B Requirements SHA-256 `7d8876caa2c04f38a68a0b338e0b9900c900f3120ec31a32e1a46a3623556b0e`；Design SHA-256 `6eb9653ef00550fecc0e1db5f76d8239db043701d418f6ad7e1fcb318c35c84f`。
+
+| 场景 | 检查与观察结果 | 证据 |
+| --- | --- | --- |
+| Steer 与提交竞争、恢复、存储重试 | Steer 在相同 Run 按序且仅一次应用；提交器/恢复安全检查通过。 | A Feature Verification 仍为 passed/current；`packages/runtime/test/run-steer.test.ts`、`packages/runtime/test/trajectory-checkpoint-committer.test.ts`、Snapshot 与恢复检查纳入 `npm test`。 |
+| Interrupt 与未知工具结果收尾 | 用户终止意图恢复后只进行有界收尾；直接 Tool/PTC 未知结果有原 Action 来源，预算不重置，不重放原调用，最终 cancelled。 | `packages/runtime/test/run-interrupt.test.ts`、`packages/runtime/test/program-interruption.test.ts`、`packages/agent/test/interrupted-tool-history.test.ts`、`packages/storage/test/run-input-control-snapshot.test.ts`；全量回归通过。 |
+| 宿主关闭与用户 Interrupt 区分 | 普通关闭仅传播宿主取消，保留检查点，不写用户终止意图或访问已关闭 Trace；Interrupt 仍按目标 Run 结算。 | `apps/goal-server/test/browser-session.integration.test.ts`、`packages/runtime/test/execution-control.test.ts`、`packages/runtime/test/shutdown.test.ts`。 |
+| Web Steer → Queue → Interrupt → 显式继续 Queue | 可编辑 composer 与按钮原位切换工作；中断后队列暂停，显式继续按同一 Goal 创建后继 Run。响应丢失与服务重启重试返回同一后继身份。 | `apps/goal-board/e2e/runtime.test.mjs`、`apps/goal-board/e2e/run-input-control.test.mjs`、`packages/browser/test/browser-messages.test.ts`。浏览器 E2E 3/3 通过。 |
+| Normal/Plan、审批等待、Headless 与源码契约回归 | 全量 `npm test` 通过：1,604 项 TS 测试、24 项脚本测试；Web 构建、依赖边界和差异格式检查通过。 | `npm test`、`npm run build:web`、`npm run check:dependencies`、`git diff --check`。依赖边界覆盖 218 个源文件。 |
+
+未解决问题：无。代码与架构文档同步；未实现 InstantInterrupt，符合编排范围。
 
 ## 生命周期状态
 
 - [x] 编排已获用户批准
 - [x] A Feature Verification passed / current（提交 `7afd22ea24d2a66e75edf136484f28e8048f7513`；`npm test`、类型检查、依赖边界与定向恢复/存储测试通过）
-- [ ] B Feature Verification passed / current
-- [ ] 各 Spec Feature Verification 全部 passed
-- [ ] 跨 Spec Integration Verification passed
-- [ ] Memory 沉淀门完成（此前用户选择暂不沉淀；交付时沿用该偏好，未经新的授权不写入）
+- [x] B Feature Verification passed / current（commit `808eedeaec11febe8efe4ba6a7a7ead8f3ee7b64`；1,604 TS + 24 脚本测试、3 个浏览器 E2E、构建和依赖边界检查通过）
+- [x] 各 Spec Feature Verification 全部 passed
+- [x] 跨 Spec Integration Verification passed
+- [x] Memory 沉淀门完成（用户明确选择暂不沉淀；本次未写入项目记忆）
 - [ ] 用户确认最终交付
 - [ ] 已删除 orchestration.md
 
