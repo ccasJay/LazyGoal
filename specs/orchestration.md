@@ -2,117 +2,68 @@
 
 ## 编排目标
 
-完成 LazyGoal 四个核心拆包 Spec（Execution Control、Model Contracts、Tool Core、Working Memory）的协同与并行交付，彻底消除跨层反向依赖（如 `@lazygoal/llm` 依赖 `@lazygoal/runtime`）并纯化通用 Contracts DSL，同时严格保持所有既有执行控制、模型协议、工具调度与工作记忆算法的行为、持久化和数据契约不变。
+先完成 Run 执行与持久化恢复职责拆分及安全存储重试，再在其已验证边界上交付 Steer、页面 Queue 和 Interrupt。共同交付范围以两个已批准 Spec 为准，包含 Interrupt 后同一 Run 的有限自动收尾，InstantInterrupt 留待后续。
 
 ## 涉及的 Spec
 
 | Spec | 路径 | 批准状态 | 完成条件 |
-|---|---|---|---|
-| Execution Control | `specs/execution-control-package/` | 已批准 | Feature Verification passed |
-| Model Contracts | `specs/model-contracts-package/` | 已批准 | Feature Verification passed |
-| Tool Core | `specs/tool-core-package/` | 已批准 | Feature Verification passed |
-| Working Memory | `specs/working-memory-package/` | 已批准 | Feature Verification passed |
+| --- | --- | --- | --- |
+| Run 执行与持久化恢复职责拆分（A） | [run-execution-persistence-separation](./run-execution-persistence-separation/tasks.md) | Requirements、Design、Tasks 均已获用户批准 | 全部 TODO 完成，Feature Verification passed / current |
+| Run 输入与主动终止（B） | [run-input-control](./run-input-control/tasks.md) | 修订后 Requirements、Design、Tasks 均已获用户批准 | 全部 TODO 完成，Feature Verification passed / current |
+
+当前两项均有 3 个未完成 TODO，Feature Verification 均为未执行。
 
 ## 依赖关系与执行顺序
 
-四个 Spec 呈现出两条正交、低耦合的领域执行流水线：
-
-```text
-       dev (主开发基线)
-      /                \
-     v                  v
-[Pipeline A: 控制与工具链]    [Pipeline B: 契约与记忆链]
-Execution Control          Model Contracts
-      |                          |
-      v                          v
-  Tool Core                Working Memory
-```
-
-1. **Pipeline A（控制信号与通用工具链）**：`execution-control-package` → `tool-core-package`
-   - `execution-control-package` 建立底层的 `@lazygoal/execution-control`，作为进程内取消信号与暂时性模型故障分类的单一事实源，零 LazyGoal 出站依赖。
-   - `tool-core-package` 明确以前者为前置：复用 `@lazygoal/execution-control` 的 `ExecutionControl` 和 `ExecutionAbortedError`。因此 `tool-core-package` 在 `execution-control-package` 完成后推进。
-2. **Pipeline B（模型协议与记忆核心链）**：`model-contracts-package` → `working-memory-package`
-   - `model-contracts-package` 从 `@lazygoal/contracts` 中拆分出 `@lazygoal/model-contracts`，承载模型输出协议、系统工具与模型消息，包含 `WorkingMemoryPatch` 的权威契约定义。
-   - `working-memory-package` 依据 `model-contracts` 的设计（Req 5），将其 Patch 契约归属对齐到 `@lazygoal/model-contracts`，以类型依赖复用该定义。因此在 `model-contracts-package` 完成后推进 `working-memory-package`。
-3. **跨链关系**：
-   - Pipeline A 与 Pipeline B 彼此正交，无横向代码依赖，两条流水线完全可以并发并行推进。
+`A → B`。A 完成并通过 Feature Verification 后才开始 B；B 消费 A 已实现的 Runner 门面、RunRecoveryReader、RunExecutor 和共享检查点提交边界。每个 Spec 内部的实施与验收由其 tasks.md 和 executing-task 技能管理。
 
 ## 可并行执行的部分
 
-- **阶段一并行（Phase 1 Parallel）**：
-  - 流 A1：`execution-control-package`（在独立 worktree 中执行）
-  - 流 B1：`model-contracts-package`（在独立 worktree 中执行）
-  - 两者均基于 `dev` 分支独立拉出，无重叠文件冲突，完全并发推进。
-- **阶段二并行（Phase 2 Parallel）**：
-  - 流 A2：`execution-control-package` 验收通过后，推进堆叠的 `tool-core-package`；
-  - 流 B2：`model-contracts-package` 验收通过后，推进堆叠的 `working-memory-package`；
-  - 两个后继 Spec 同样保持跨链并行推进。
+无。两项共同修改 Runtime、Storage 和恢复边界，B 有明确的前置依赖；由当前会话依次执行。
 
 ## 分支与合并策略
 
-采用**双链堆叠分支（Stacked Branches）**策略与**独立 Worktree**执行：
-
-1. **分支拓扑**：
-   - Pipeline A:
-     - 分支 `feature/execution-control-package` 基于 `dev` 创建。
-     - 分支 `feature/tool-core-package` 基于 `feature/execution-control-package` 创建。
-   - Pipeline B:
-     - 分支 `feature/model-contracts-package` 基于 `dev` 创建。
-     - 分支 `feature/working-memory-package` 基于 `feature/model-contracts-package` 创建。
-2. **Worktree 路径规划**：
-   - `.worktrees/wt-execution-control` 对应 `feature/execution-control-package`
-   - `.worktrees/wt-model-contracts` 对应 `feature/model-contracts-package`
-   - `.worktrees/wt-tool-core` 对应 `feature/tool-core-package`
-   - `.worktrees/wt-working-memory` 对应 `feature/working-memory-package`
-3. **合并顺序**：
-   - 各 Spec 必须在其所属 worktree 内完成全部 `//TODO` 且 Feature Verification 全部 passed；
-   - 先将 `feature/execution-control-package` 合入 `dev`；
-   - 再将 `feature/tool-core-package` 合入 `dev`；
-   - 接着将 `feature/model-contracts-package` 合入 `dev`；
-   - 最后将 `feature/working-memory-package` 合入 `dev`；
-   - 合并完成后在 `dev` 主工作区执行全量回归与跨 Spec 集成验证。
+- 基础为当前 `dev` 已提交的 `ab39701a`；实施前记录完整提交身份。A 使用 `codex/run-execution-persistence-separation`，B 在 A 验收通过的提交上创建 `codex/run-input-control`，两个分支分别使用包含 Spec 名的独立 worktree。
+- 主工作区保留已有 `apps/goal-board/src/main.tsx`、`apps/goal-board/src/style.css` 修改。请求用户批准从已提交基础隔离执行的处理方式：不要求先提交这些修改，不将其复制或提交到功能分支。B 按自身已批准的按钮需求实现；后续合入时须处理与主工作区按钮修改的重叠。
+- 两个未跟踪的 Spec 目录完整复制到 A 的 worktree 并作为规划材料入库，主工作区保留原文件；B 从 A 继承两份 Spec，使相对依赖链接有效。编排文件作为共同执行记录维护；不同副本出现进度差异时以对应执行分支的 tasks.md 及提交为准。
+- 若目标分支或 worktree 已存在，先核对归属和进度；归属冲突时停止，不覆盖。worktree 依赖单独安装，验证使用隔离测试数据。
+- 集成验证在 B 最终提交上进行。交付时保留分支与 worktree，等待用户验证；合入顺序为 A 后 B，实际 merge、push、PR 和清理 worktree 另行由用户授权。
 
 ## 跨 Spec 协调约束
 
-1. **取消与中止错误身份唯一性**：
-   `@lazygoal/tool-core` 必须且仅能使用 `@lazygoal/execution-control` 提供的取消原语（`ExecutionControl`、`throwIfAborted`、`ExecutionAbortedError`），严禁在 `tool-core` 重新定义或捕获不一致的错误类。
-2. **Working Memory Patch 权威契约唯一性**：
-   `@lazygoal/working-memory` 中的 `WorkingMemoryPatch` 必须通过 `import type` 从 `@lazygoal/model-contracts` 导入，严禁在 `working-memory` 复制 AST 契约或回退引用已移除旧导出的 `@lazygoal/contracts`。
-3. **依赖边界增量注册约束**：
-   `scripts/check-dependencies.mjs` 中的 `ALLOWED_PACKAGE_DEPENDENCIES`：
-   - `execution-control`: `[]`（无出站依赖），`llm` 移除对 `runtime` 的依赖；
-   - `model-contracts`: `["contracts"]`；`contracts` 保持 `[]` 且移除旧模型协议导出；
-   - `tool-core`: `["contracts", "execution-control", "sandbox"]`；
-   - `working-memory`: `["contracts", "model-contracts"]`。
-4. **统一 TSDoc 与架构文档规范**：
-   每个新包的公共接口必须配备契约级中文 TSDoc 与最小使用 `@example`；架构文档必须只记录各阶段已实现的职责，不超前引入未实现内容。
+- Goal Snapshot 仍是唯一可恢复状态；B 的受理记录与终止意图扩展该状态，页面 Queue 保持页面所有权。A 不提前实现 B 的交互。
+- B 沿用 A 的提交端口、事实/frame → Patch → Snapshot → marker 顺序及 Store 内部安全重试。不得通过重试整个提交或原工具调用补偿存储故障。
+- A 的普通关闭、调用级取消与待处理 Action 恢复规则，在 B 中继续有效；只有持久化的用户 Interrupt 进入 B 定义的有限收尾与 cancelled 路径。
+- B 的命令受理、模型输入冻结和检查点提交，使用同一最新已提交 Goal；模型及工具等待不占用短暂串行边界。跨 Spec 修改后重新验证 A 的恢复不变量。
+- Snapshot/Trajectory 按当前开发期策略原位更新，不新增旧数据兼容分支。公开契约 TSDoc 和当前架构文档随实现更新。
+- 若发现需求、接口或架构缺口，返回受影响 Spec 修订；编排不补写产品行为。材料性变更按对应 Spec 及编排的批准流程处理。
 
 ## 跨 Spec 集成验证
 
-在所有 Spec 分支合入后，在主工作区执行以下验证：
+在 B 最终代码状态上执行，并记录提交、契约指纹、验证时间、证据与未解决问题；相关代码变化使原证据失效时重新验证。
 
-1. **依赖边界检查**：
-   - 运行 `npm run check:dependencies`，确认全仓源文件零依赖违规，特别确保 `llm`、`tool-core`、`working-memory` 均无反向 `runtime` 导入，`contracts` 零出站依赖。
-   - 运行 `node --test scripts/check-dependencies.test.mjs`，负向用例全绿。
-2. **静态类型安全**：
-   - 运行 `npx tsc --noEmit`，全仓 TypeScript 类型检查 0 错误。
-3. **全量确定性回归**：
-   - 运行 `npm test`（即 `node scripts/run-regression.mjs`），确保所有包的单测、集成测试、快照测试全部通过。
-4. **关键跨层流端到端验证**：
-   - **执行控制与模型故障流**：
-     `npx tsx --test packages/llm/test/model-request-failure.test.ts packages/runtime/test/execution-control.test.ts packages/agent/test/execution-control.test.ts`
-   - **模型输出契约与 AST 检查**：
-     `npx tsx --test packages/contracts/test/*.test.ts packages/model-contracts/test/*.test.ts`
-   - **工具定义、准备与沙箱执行**：
-     `npx tsx --test packages/tool-core/test/*.test.ts packages/runtime/test/runner.test.ts packages/tools/test/bash.test.ts`
-   - **记忆准入、恢复与快照提交**：
-     `npx tsx --test packages/working-memory/test/*.test.ts packages/runtime/test/working-memory-session.test.ts packages/storage/test/goal-snapshot-current.test.ts`
+| 场景 | 预期结果 | 检查方式 |
+| --- | --- | --- |
+| Steer 受理与模型/frame、完成提交竞争，叠加临时存储故障及重启 | 同一 Run 按序且仅一次应用，旧提交不覆盖受理记录；未提交尾部不成为进度 | 两 Spec 的提交故障、Steer、frame 和恢复检查联合运行；补足跨机制故障组合证据 |
+| Interrupt 受理、工具未知结果和收尾预算保存期间发生故障或重启 | 用户终止意图保留，只恢复有限收尾；存储重试不重复工具效果，预算不重置，最终 cancelled | Interrupt、直接 Tool/PTC、Snapshot 与提交器检查联合运行 |
+| 普通服务关闭与显式 Interrupt 对照 | 普通关闭仍可恢复原进度；用户 Interrupt 只收尾，后端继续运行 | 执行控制、shutdown、多 Run 恢复及 Browser 控制集成检查 |
+| Web Steer → Queue → Interrupt → 收尾 → 显式继续 Queue | 界面状态、队列暂停和新 Run 身份一致；响应丢失重试不重复创建 | B 的真实服务组合 E2E 与后继 Run 去重检查 |
+| 普通/Plan Run、审批等待及 Headless 入口回归 | A 保持的原行为仍成立；B 不绕过授权或等待点 | 两 Spec 已批准的完整回归，包含 `npm test`、`npm run check:dependencies`、`npm run build:web`、`npm run test:web-e2e` |
+| 源码、公开契约和当前架构一致 | 职责、状态所有权及恢复语义与最终实现一致；无无关改动 | 相关源码与文档检查、`git diff --check` |
+
+### Latest Result
+
+未执行。两项 Feature Verification 均通过且上述集成检查全部满足，才能记录 Integration Verification 为 passed / current。
 
 ## 生命周期状态
 
 - [x] 编排已获用户批准
+- [ ] A Feature Verification passed / current
+- [ ] B Feature Verification passed / current
 - [ ] 各 Spec Feature Verification 全部 passed
 - [ ] 跨 Spec Integration Verification passed
-- [ ] Memory 沉淀门完成（需要的写入已获批准并完成，或用户明确确认无需沉淀）
+- [ ] Memory 沉淀门完成（此前用户选择暂不沉淀；交付时沿用该偏好，未经新的授权不写入）
 - [ ] 用户确认最终交付
 - [ ] 已删除 orchestration.md
+
+仅在执行、验收、Memory 门和最终交付确认全部完成后删除本编排文件，保留两份 Spec 及其验收证据。
