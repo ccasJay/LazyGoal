@@ -4,7 +4,7 @@ import type {
     ToolExecutionRequest,
     ToolObservation,
     ToolValidationResult,
-} from "../../runtime/src/index";
+} from "../../tool-core/src/index";
 import {
     contract,
     type InferContract,
@@ -14,7 +14,7 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../execution-control/src/index";
-import { TransientToolExecutionFailure } from "../../runtime/src/tool";
+import { TransientToolExecutionFailure } from "../../tool-core/src/index";
 import type { DerivedSandboxAccess } from "../../sandbox/src/index";
 import { invalidInput } from "./internal/invalid-input";
 

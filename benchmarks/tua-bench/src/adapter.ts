@@ -1,7 +1,7 @@
 import {
     createToolRegistration,
     InMemoryToolRegistry,
-} from "../../../packages/runtime/src/index.js";
+} from "../../../packages/tool-core/src/index.js";
 import type {
     BenchmarkAdapter,
     BenchmarkEpisode,

@@ -1,8 +1,6 @@
 import { contract } from "../../contracts/src/index";
-import {
-    createProgramToolRegistration,
-    type ToolDefinition,
-} from "../../runtime/src/tool";
+import { createProgramToolRegistration } from "../../runtime/src/tool";
+import type { ToolDefinition } from "../../tool-core/src/index";
 
 /** 模型显式触发 PTC 的稳定 Tool ID。 */
 export const EXECUTE_PROGRAM_TOOL_ID = "execute_program";

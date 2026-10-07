@@ -9,13 +9,15 @@ import { TrajectoryExecutionUnitAdapter } from "../../agent/src/index";
 import { buildCommittedContextDocuments } from "../../context-retrieval/src/index";
 import {
     createGoal,
-    createToolRegistration,
     GoalCoordinator,
-    InMemoryToolRegistry,
     InlineScheduler,
     Runner,
     type StepExecutor,
 } from "../src/index";
+import {
+    createToolRegistration,
+    InMemoryToolRegistry,
+} from "../../tool-core/src/index";
 import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
 
 test("PTC executes a program and inner tool without an extra model step", {

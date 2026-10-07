@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import type { ToolExecutionRequest, ToolObservation } from "../../../runtime/src/index";
+import type { ToolExecutionRequest, ToolObservation } from "../../../tool-core/src/index";
 import {
     discoverGitRepository,
     isGitSandboxPlanValid,

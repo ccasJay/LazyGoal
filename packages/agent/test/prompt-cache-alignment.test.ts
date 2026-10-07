@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { contract } from "../../contracts/src/index";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal, StepRecord } from "../../runtime/src/domain";
-import type { ToolDefinition } from "../../runtime/src/tool";
+import type { ToolDefinition } from "../../tool-core/src/index";
 import { goalSnapshotCodec } from "../../storage/src/index";
 import { createDefaultPromptBundleRenderer } from "../src/prompting/default-bundles";
 import { buildStepRequest } from "../src/prompt";

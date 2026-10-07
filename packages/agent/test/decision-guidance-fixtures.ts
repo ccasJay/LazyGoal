@@ -3,7 +3,7 @@ import { allocateImmutableEvent, type TrajectoryEventDraft } from "../../runtime
 import { TrajectoryEventProjector } from "../src/trajectory-event-projector";
 import type { Observation } from "../../runtime/src/domain";
 import { createGoal, type Goal } from "../../runtime/src/domain";
-import type { ToolDefinition } from "../../runtime/src/tool";
+import type { ToolDefinition } from "../../tool-core/src/index";
 import { ModelInferenceProjector } from "../src/model-inference-projector";
 import type { ModelInferenceView } from "../src/model-inference-view";
 import { currentProtocols, currentWorkingMemory, currentContextEpoch } from "./current-fixtures";

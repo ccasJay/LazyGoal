@@ -4,7 +4,7 @@ import type { Goal, WorkingMemory } from "../../runtime/src/domain";
 import type { ModelContextFramePayload } from "../../runtime/src/index";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type { RuntimeFeedback } from "../../runtime/src/runtime-feedback";
-import type { ToolDefinition } from "../../runtime/src/tool";
+import type { ToolDefinition } from "../../tool-core/src/index";
 import type { ToolDiscoveryResult } from "../../runtime/src/tool-discovery";
 import type { ContextCompactor } from "./context-compactor";
 import {

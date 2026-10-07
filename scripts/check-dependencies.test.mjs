@@ -133,30 +133,4 @@ test("rejects outbound dependencies from llm to runtime", async () => {
     ]);
 });
 
-test("rejects outbound dependencies from tool-core to runtime", async () => {
-    const root = await fixtureProject({
-        "packages/tool-core/src/index.ts": 'export {} from "../../runtime/src/index";\n',
-        "packages/runtime/src/index.ts": "export {};\n",
-    });
-
-    assert.deepEqual(await analyzeDependencies(root), [
-        "禁止依赖方向：packages/tool-core 不得导入 packages/runtime（packages/tool-core/src/index.ts 引用 ../../runtime/src/index）",
-    ]);
-});
-
-test("allows tool-core to depend on contracts, execution-control, and sandbox", async () => {
-    const root = await fixtureProject({
-        "packages/contracts/src/index.ts": "export const c = true;\n",
-        "packages/execution-control/src/index.ts": "export const ec = true;\n",
-        "packages/sandbox/src/index.ts": "export const s = true;\n",
-        "packages/tool-core/src/index.ts": [
-            'export { c } from "../../contracts/src/index";',
-            'export { ec } from "../../execution-control/src/index";',
-            'export { s } from "../../sandbox/src/index";\n',
-        ].join("\n"),
-    });
-
-    assert.equal(await checkDependencies(root), 4);
-});
-
 

@@ -6,9 +6,13 @@ import {
     allocateImmutableEvent,
     classifyTrajectoryTail,
     createGoal,
-    createToolRegistration,
     rebuildWorkingMemory,
 } from "../src/index";
+import {
+    createToolRegistration,
+    type Tool,
+    type ToolRegistry,
+} from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { contract } from "../../contracts/src/index";
 import { currentProtocols } from "./current-fixtures";
@@ -18,8 +22,6 @@ import type {
     Goal,
     StepExecutionInput,
     StepExecutor,
-    Tool,
-    ToolRegistry,
     TrajectoryEvent,
     TrajectoryEventDraft,
     TrajectoryReadQuery,

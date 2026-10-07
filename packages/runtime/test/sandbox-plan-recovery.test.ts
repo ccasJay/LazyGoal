@@ -6,7 +6,6 @@ import { join } from "node:path";
 
 import {
     createGoal as createUnexposedGoal,
-    createToolRegistration,
     Runner,
     transition,
     type AgentDecision,
@@ -15,11 +14,14 @@ import {
     type GoalTask,
     type StepExecutionInput,
     type StepExecutor,
+} from "../src/index";
+import {
+    createToolRegistration,
     type Tool,
     type ToolExecutionRequest,
     type ToolObservation,
     type ToolValidationResult,
-} from "../src/index";
+} from "../../tool-core/src/index";
 import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { SandboxExecutionPlan } from "../../sandbox/src/index";

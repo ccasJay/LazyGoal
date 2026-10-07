@@ -36,7 +36,7 @@ import type {
     ModelContextSectionIdentity,
 } from "../../runtime/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import type { ToolDefinition } from "../../runtime/src/tool";
+import type { ToolDefinition } from "../../tool-core/src/index";
 import type {
     ModelConversationMessage,
     ModelContextLookupResult,

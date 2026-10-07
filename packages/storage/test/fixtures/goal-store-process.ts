@@ -1,13 +1,12 @@
 import { JsonFileGoalStore } from "../../src/index";
-import { Runner, createStepExecutor, createToolRegistration } from "../../../runtime/src/index";
+import { Runner, createStepExecutor } from "../../../runtime/src/index";
 import { contract } from "../../../contracts/src/index";
+import { createToolRegistration, type Tool, type ToolRegistration } from "../../../tool-core/src/index";
 import type {
     Goal,
     GoalStore,
     StepExecutionInput,
     StepExecutor,
-    Tool,
-    ToolRegistration,
 } from "../../../runtime/src/index";
 import {
     READ_FILE_INPUT_CONTRACT,

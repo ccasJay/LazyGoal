@@ -6,15 +6,17 @@ import {
     InlineScheduler,
     Runner,
     createGoal as createUnexposedGoal,
-    createToolRegistration,
-    InMemoryToolRegistry,
     type AgentDecision,
     type AgentProfile,
     type StepExecutionInput,
     type StepExecutor,
+} from "../src/index";
+import {
+    createToolRegistration,
+    InMemoryToolRegistry,
     type Tool,
     type ToolDefinition,
-} from "../src/index";
+} from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { BaseTestStepExecutor, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 import { contract, type AskUserQuestionInput } from "../../contracts/src/index";

@@ -10,16 +10,16 @@ import {
     type Contract,
     type InferContract,
 } from "../../contracts/src/index";
+import type { JsonValue } from "../../contracts/src/index";
 import {
     createToolRegistration,
     InMemoryToolRegistry,
-    type JsonValue,
     type Tool,
     type ToolDefinition,
     type ToolExecutionRequest,
     type ToolObservation,
     type ToolValidationResult,
-} from "../../runtime/src/index";
+} from "../../tool-core/src/index";
 import {
     ReadFileTool,
     READ_FILE_TOOL_ID,

@@ -1,7 +1,7 @@
 import {
     createToolRegistration,
     type ToolRegistration,
-} from "../../../packages/runtime/src/index.js";
+} from "../../../packages/tool-core/src/index.js";
 import {
     BashTool,
     EditFileTool,

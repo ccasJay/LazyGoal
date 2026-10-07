@@ -3,11 +3,13 @@ import { join } from "node:path";
 import { contract } from "../../../contracts/src/index";
 import {
     createGoal,
-    createToolRegistration,
-    InMemoryToolRegistry,
     Runner,
     type StepExecutor,
 } from "../../../runtime/src/index";
+import {
+    createToolRegistration,
+    InMemoryToolRegistry,
+} from "../../../tool-core/src/index";
 import { currentProtocols } from "../../../runtime/test/current-fixtures";
 import { createExecuteProgramRegistration } from "../../../tools/src/index";
 import { JsonFileGoalStore } from "../../src/goal-store";

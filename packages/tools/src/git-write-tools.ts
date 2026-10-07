@@ -6,7 +6,7 @@ import type {
     ToolExecutionRequest,
     ToolObservation,
     ToolValidationResult,
-} from "../../runtime/src/index";
+} from "../../tool-core/src/index";
 import type { ExecutionControl } from "../../execution-control/src/index";
 import { invalidInput } from "./internal/invalid-input";
 import {

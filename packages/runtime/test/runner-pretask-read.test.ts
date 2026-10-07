@@ -7,17 +7,19 @@ import {
     Runner,
     createGoal as createUnexposedGoal,
     createStepExecutor,
-    createToolRegistration,
-    InMemoryToolRegistry,
     type AgentDecision,
     type AgentProfile,
     type Goal,
     type StepExecutionInput,
     type StepExecutor,
-    type Tool,
-    type ToolDefinition,
     type ToolPolicy,
 } from "../src/index";
+import {
+    createToolRegistration,
+    InMemoryToolRegistry,
+    type Tool,
+    type ToolDefinition,
+} from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { BaseTestStepExecutor, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 import { contract } from "../../contracts/src/index";

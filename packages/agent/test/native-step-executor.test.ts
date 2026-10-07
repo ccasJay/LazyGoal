@@ -6,7 +6,7 @@ import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
 import { createGoal, ModelStageFeedbackError } from "../../runtime/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import type { Goal, GoalTask } from "../../runtime/src/domain";
-import type { ToolDefinition } from "../../runtime/src/tool";
+import type { ToolDefinition } from "../../tool-core/src/index";
 import {
     createDefaultPromptBundleRenderer,
     DropOldestContextCompactor,

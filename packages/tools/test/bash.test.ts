@@ -6,10 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import type { JsonValue } from "../../runtime/src/index";
+import type { JsonValue } from "../../contracts/src/index";
 import {
     createToolRegistration,
-    } from "../../runtime/src/index";
+} from "../../tool-core/src/index";
 import {
     BASH_MAX_OUTPUT_CHARS,
     BASH_MAX_TIMEOUT_MS,

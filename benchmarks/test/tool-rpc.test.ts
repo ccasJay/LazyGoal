@@ -8,7 +8,7 @@ import {
     createToolRegistration,
     type ToolObservation,
     type ToolRegistration,
-} from "../../packages/runtime/src/index.js";
+} from "../../packages/tool-core/src/index.js";
 import {
     MultiplexedConnection,
     type MuxChannelStream,

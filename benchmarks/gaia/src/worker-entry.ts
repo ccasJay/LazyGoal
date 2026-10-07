@@ -15,12 +15,12 @@ import {
     type AcpSessionFactory,
     type AcpSessionInput,
 } from "../../../packages/acp/src/index.js";
+import type { AgentProfile } from "../../../packages/runtime/src/index.js";
 import {
     createToolRegistration,
     InMemoryToolRegistry,
-    type AgentProfile,
     type ToolRegistry,
-} from "../../../packages/runtime/src/index.js";
+} from "../../../packages/tool-core/src/index.js";
 import {
     READ_FILE_TOOL_ID,
     ReadFileTool,

@@ -35,7 +35,7 @@ import type {
     StepRecord,
     WorkingMemory,
 } from "../../runtime/src/domain";
-import type { ToolDefinition } from "../../runtime/src/tool";
+import type { ToolDefinition } from "../../tool-core/src/index";
 import { currentProtocols, currentWorkingMemory } from "./current-fixtures";
 import { ModelInferenceProjector } from "../src/model-inference-projector";
 import type { PromptStage } from "../src/model-inference-view";

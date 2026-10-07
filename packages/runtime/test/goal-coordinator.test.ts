@@ -8,15 +8,19 @@ import {
     computeContentHash,
     createGoal as createUnexposedGoal,
     createStepExecutor,
-    createToolRegistration,
     createToolGrantMatcher,
-    InMemoryToolRegistry,
     GoalCoordinator,
     InlineScheduler,
     Runner,
     TrajectoryCheckpointCommitter,
     transition,
 } from "../src/index";
+import {
+    createToolRegistration,
+    InMemoryToolRegistry,
+    type Tool,
+    type ToolDefinition,
+} from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { JsonFileGoalStore, JsonFileToolGrantStore } from "../../storage/src/index";
 import { contract } from "../../contracts/src/index";
@@ -34,8 +38,6 @@ import type {
     RunScheduler,
     RunState,
     StepExecutor,
-    Tool,
-    ToolDefinition,
     ToolGrantStore,
 } from "../src/index";
 

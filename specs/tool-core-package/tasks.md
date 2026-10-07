@@ -18,7 +18,7 @@
   - 验证方式：`npx tsx --test packages/runtime/test/runner.test.ts packages/runtime/test/execution-control.test.ts packages/runtime/test/tool-grant.test.ts packages/runtime/test/sandbox-plan-recovery.test.ts packages/runtime/test/program-execution.test.ts packages/storage/test/action-observation-recovery.test.ts`；`npx tsc --noEmit`，保留原测试覆盖并补充缺失断言。
   - _Requirements: [1.3](./requirements.md#req-1-3), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [3.1](./requirements.md#req-3-1), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4)_
 
-- [ ] //TODO 3. 迁移外部调用方并完成唯一公开入口
+- [x] //TODO 3. 迁移外部调用方并完成唯一公开入口
 
   - 实现目标：迁移具体 Tools、Agent、组合根、Benchmark、测试与 smoke 的剩余 Core 导入，移除 Runtime 的旧转发；保持模型投影、远程工具协议及默认装配，并完成入口与 Schema 回归。
   - 成功判据：迁出符号只从新包取得，调用方无旧导入且无重复定义；相同授权目录生成相同 Tool 描述和 Schema，远程请求／结果与真实工具适配仍保持既有结构与调用次数。
@@ -54,4 +54,12 @@
 
 ### Latest Result
 
-未执行。实施后记录逐项实际结果、证据、整体状态与时效、验证时间、被测提交或未提交改动，以及对应的需求与设计版本。
+- 验证状态：PASSED
+- 验证时间：2026-10-07
+- 验证范围与证据：
+  1. `npx tsc --noEmit`：0 错误，静态类型推导与所有导出契约完全匹配。
+  2. `npm run check:dependencies`：211 个源文件验证通过，`packages/tool-core` 单向依赖 `contracts`, `execution-control`, `sandbox`，`runtime`、`agent`、`tools`、`goal-server` 等上层包合法依赖 `tool-core`，无任何反向依赖。
+  3. `node --test scripts/check-dependencies.test.mjs`：负向依赖用例与现有依赖测试通过。
+  4. `npm test`：全部 1565 个单元与集成测试通过，0 失败；22 个 scripts 测试全绿通过。
+  5. 架构与布局文档：`AGENTS.md`、`docs/architecture/runtime.md` 已同步记录 `@lazygoal/tool-core` 职责与出站依赖。
+- 对应版本：`specs/tool-core-package/requirements.md` 与 `specs/tool-core-package/design.md`。

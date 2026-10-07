@@ -306,26 +306,12 @@ export type {
     AgentProfileStore,
 } from "./agent-profile";
 export {
-    createToolRegistration,
     createProgramToolRegistration,
-    InMemoryToolRegistry,
     resolveAuthorizedToolDefinitions,
-    TransientToolExecutionFailure,
 } from "./tool";
 export type {
-    Tool,
-    ToolDefinition,
-    ToolExecutionContext,
-    ToolExecutionRequest,
-    ToolInputContract,
-    ToolObservation,
-    ToolStreamEvent,
     ToolPolicy,
     ToolPolicyContext,
-    PreparedToolAction,
-    ToolRegistration,
-    ToolRegistry,
-    ToolValidationResult,
 } from "./tool";
 export {
     computeInputDigest,

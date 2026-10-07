@@ -7,13 +7,15 @@ import { InMemoryGoalStore } from "../../storage/src/index";
 import { createExecuteProgramRegistration } from "../../tools/src/index";
 import {
     createGoal,
-    createToolRegistration,
     GoalCoordinator,
-    InMemoryToolRegistry,
     InlineScheduler,
     Runner,
     type StepExecutor,
 } from "../src/index";
+import {
+    createToolRegistration,
+    InMemoryToolRegistry,
+} from "../../tool-core/src/index";
 import { currentProtocols, InMemoryTrajectoryStore, withDiscoveredProfileTools } from "./current-fixtures";
 
 function setup(code: string, tool?: ReturnType<typeof createToolRegistration>, completeAfterFirst = false) {

@@ -6,11 +6,14 @@ import {
     createGoal,
     createRun,
     createStepExecutor,
-    createToolRegistration,
     GoalCoordinator,
     InlineScheduler,
     Runner,
     } from "../src/index";
+import {
+    createToolRegistration,
+    type Tool,
+} from "../../tool-core/src/index";
 import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import {
@@ -27,7 +30,6 @@ import type {
     RunExecutionOptions,
     RunRef,
     StepExecutor,
-    Tool,
 } from "../src/index";
 
 const profile: AgentProfile = {

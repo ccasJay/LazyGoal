@@ -14,20 +14,22 @@ import {
 import {
     createEmptyGoalPlan,
     createGoal,
-    createToolRegistration,
     GoalCoordinator,
-    InMemoryToolRegistry,
     reduceGoalPlan,
     Runner,
     type GoalStore,
 } from "../src/index";
+import {
+    createToolRegistration,
+    InMemoryToolRegistry,
+    type Tool,
+} from "../../tool-core/src/index";
 import type {
     AgentProfile,
     Goal,
     GoalModelSelection,
     GoalTask,
     ModelContextFramePayload,
-    Tool,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";

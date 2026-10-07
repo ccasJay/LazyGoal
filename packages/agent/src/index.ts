@@ -267,4 +267,4 @@ export type {
 export type {
     AgentDecision,
 } from "../../runtime/src/domain";
-export type { ToolDefinition } from "../../runtime/src/tool";
+export type { ToolDefinition } from "../../tool-core/src/index";

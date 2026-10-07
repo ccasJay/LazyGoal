@@ -9,44 +9,12 @@ import {
 import {
     throwIfAborted,
 } from "../../execution-control/src/index";
-import {
-    createToolRegistration,
-    InMemoryToolRegistry,
-    TransientToolExecutionFailure,
-    type PreparedToolAction,
-    type Tool,
-    type ToolDefinition,
-    type ToolExecutionContext,
-    type ToolExecutionRequest,
-    type ToolInputContract,
-    type ToolObservation,
-    type ToolRegistration,
-    type ToolRegistry,
-    type ToolStreamEvent,
-    type ToolValidationIssue,
-    type ToolValidationResult,
-} from "../../tool-core/src/index";
-
-export {
-    createToolRegistration,
-    InMemoryToolRegistry,
-    TransientToolExecutionFailure,
-};
-
-export type {
-    PreparedToolAction,
-    Tool,
+import type {
     ToolDefinition,
-    ToolExecutionContext,
-    ToolExecutionRequest,
     ToolInputContract,
-    ToolObservation,
     ToolRegistration,
     ToolRegistry,
-    ToolStreamEvent,
-    ToolValidationIssue,
-    ToolValidationResult,
-};
+} from "../../tool-core/src/index";
 
 /**
  * 注册由 Runner 调度的程序入口；该入口自身不执行任何业务工具。

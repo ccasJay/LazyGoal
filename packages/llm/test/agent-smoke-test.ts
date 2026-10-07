@@ -4,9 +4,13 @@ import { pathToFileURL } from "node:url";
 import { contract } from "../../contracts/src/index";
 import {
     GoalCoordinator, InlineScheduler, Runner, TrajectoryCheckpointCommitter,
-    InMemoryToolRegistry, createToolRegistration, launch,
-    type AgentProfile, type Tool,
-    } from "../../runtime/src/index";
+    launch,
+    type AgentProfile,
+} from "../../runtime/src/index";
+import {
+    InMemoryToolRegistry, createToolRegistration,
+    type Tool,
+} from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { InMemoryTrajectoryStore } from "../../runtime/test/current-fixtures";
 import {

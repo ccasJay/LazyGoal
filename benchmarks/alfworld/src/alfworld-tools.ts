@@ -1,17 +1,18 @@
 import { ExecutionAbortedError, isExecutionAbortedError, throwIfAborted, type ExecutionControl } from "../../../packages/execution-control/src/index.js";
 import type {
-    JsonObject,
     Tool,
     ToolDefinition,
     ToolExecutionRequest,
     ToolObservation,
     ToolRegistry,
     ToolValidationResult,
-} from "../../../packages/runtime/src/index.js";
+} from "../../../packages/tool-core/src/index.js";
 import {
     createToolRegistration,
     InMemoryToolRegistry,
-    } from "../../../packages/runtime/src/index.js";
+} from "../../../packages/tool-core/src/index.js";
+import type { JsonValue } from "../../../packages/contracts/src/index.js";
+type JsonObject = { readonly [key: string]: JsonValue };
 import {
     contract,
     type InferContract,

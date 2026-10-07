@@ -88,7 +88,7 @@ test("宿主正常关闭与强制关闭清理所有受管进程", async () => {
         assert.ok(finalSession);
         assert.equal(finalSession.status, "stopped");
     } finally {
-        await rm(tmpDir, { recursive: true, force: true });
+        await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
 });
 
@@ -127,6 +127,6 @@ test("Goal 删除入口级联清理其进程目录与日志", async () => {
 
         await manager.close();
     } finally {
-        await rm(tmpDir, { recursive: true, force: true });
+        await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
 });

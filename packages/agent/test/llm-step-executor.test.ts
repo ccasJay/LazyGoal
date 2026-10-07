@@ -6,11 +6,14 @@ import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm/src/core/types";
 import {
     createGoal,
-    createToolRegistration,
-    InMemoryToolRegistry,
     ModelStageFeedbackError,
     Runner,
 } from "../../runtime/src/index";
+import {
+    createToolRegistration,
+    InMemoryToolRegistry,
+    type ToolDefinition,
+} from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
@@ -19,7 +22,6 @@ import type {
     GoalMessage,
     GoalTask,
 } from "../../runtime/src/domain";
-import type { ToolDefinition } from "../../runtime/src/tool";
 import {
     createDefaultPromptBundleRenderer,
     DropOldestContextCompactor,
