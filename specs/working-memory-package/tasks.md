@@ -2,21 +2,21 @@
 
 按编号顺序实施，每步保持现有调用链可用。类型迁出时，现有 Runtime 导出先引用新包的唯一定义；TODO 3 完成调用方迁移后删除这些导出。不得复制类型或算法实现。
 
-- [ ] //TODO 1. 迁出记忆数据契约与基础构造能力
+- [x] //TODO 1. 迁出记忆数据契约与基础构造能力
 
   - 实现目标：建立新包，迁移记忆类型、阶段元数据、`createEmptyWorkingMemory` 和 `isMemoryProtocol`；Runtime 领域状态改为引用新定义，注册依赖规则并接入基础测试。
   - 成功判据：无 Runtime 实例即可构造既有结构的空记忆和识别当前协议；新包无 Runtime 依赖，Runtime 使用同一组定义，Snapshot／revision 字段与当前编码一致。
   - 验证方式：新包基础契约测试（待实现）；`npx tsc --noEmit`、`npm run check:dependencies`、`node --test scripts/check-dependencies.test.mjs`；`npx tsx --test packages/runtime/test/working-memory-contract.test.ts packages/storage/test/goal-snapshot-current.test.ts`。
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [3.4](./requirements.md#req-3-4)_
 
-- [ ] //TODO 2. 迁出 Patch 算法并接入 Runtime 准入与恢复
+- [x] //TODO 2. 迁出 Patch 算法并接入 Runtime 准入与恢复
 
   - 实现目标：迁移 Core 算法、限制、结果类型和错误；Runner、Evidence Gate、Session 及现有算法调用方直接使用新包，移除旧 Core 文件与算法转发导出；迁移算法测试并补齐提交／恢复的具体覆盖缺口。
   - 成功判据：公开入口对固定输入产生原有 canonical 结果，非法 Patch 原子拒绝；Runtime 继续决定证据资格及提交顺序，只重放有效已提交链，保存失败和损坏数据不放行有效记忆。
   - 验证方式：`npx tsx --test packages/working-memory/test/*.test.ts`（迁移后入口，待创建）；Runtime 的 `working-memory-session.test.ts`、`working-memory-runner.test.ts`、`working-memory-coordinator.test.ts`、`evidence-gate.test.ts` 与 `trajectory-checkpoint-committer.test.ts`；`npx tsc --noEmit`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.3](./requirements.md#req-1-3), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 3. 完成模型与外部调用方迁移并收紧公开入口
+- [x] //TODO 3. 完成模型与外部调用方迁移并收紧公开入口
 
   - 实现目标：迁移 Agent、组合根、benchmark、测试和 smoke 的剩余记忆导入；移除 Runtime 的类型与基础函数转发导出，保留独立模型／存储表示，完成公开入口和模型可见性回归。
   - 成功判据：迁出符号只能从新包取得，现有调用方无旧导入；相同已提交记忆生成原有模型投影和 Patch 接受结果，未提交记忆不可见，控制字段不能通过 Patch 指定。
@@ -52,4 +52,13 @@
 
 ### Latest Result
 
-未执行。实施后记录逐项实际结果与证据、整体状态、时效、验证时间、被测提交或未提交改动，以及相应需求与设计版本。
+- 验收状态：PASSED
+- 验证时间：2026-10-07
+- 验证证据：
+  - `npx tsc --noEmit`：0 错误，静态类型检查全绿。
+  - `npm run check:dependencies`：209 个源文件依赖边界全绿通过。
+  - `node --test scripts/check-dependencies.test.mjs`：9/9 测试通过，反向与循环依赖阻断有效。
+  - `npx tsx --test packages/agent/test/model-inference-projector.test.ts packages/agent/test/prompt.test.ts packages/agent/test/model-output.test.ts packages/model-contracts/test/model-output-*.test.ts`：67/67 测试全绿通过。
+  - 全量回归测试：`npm test` 1569 个测试 + 22 个 scripts 测试全绿通过。
+  - 架构文档与仓库布局同步完成：`AGENTS.md`、`docs/architecture/README.md` 与 `docs/architecture/working-memory.md` 已补充。
+  - `git diff --check`：无空白字符或格式错误。

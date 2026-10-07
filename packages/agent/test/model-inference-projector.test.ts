@@ -27,13 +27,13 @@ import {
     ALFWORLD_STEP_TOOL_ID,
 } from "../../../benchmarks/alfworld/src/alfworld-tools";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
-import { createEmptyWorkingMemory, createGoal } from "../../runtime/src/domain";
+import { createGoal } from "../../runtime/src/domain";
+import { createEmptyWorkingMemory, type WorkingMemory } from "../../working-memory/src/index";
 import type {
     Goal,
     GoalMessage,
     PendingAction,
     StepRecord,
-    WorkingMemory,
 } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../tool-core/src/index";
 import { currentProtocols, currentWorkingMemory } from "./current-fixtures";

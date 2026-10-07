@@ -7,10 +7,10 @@ import {
     WorkingMemorySession,
     WorkingMemorySessionClosedError,
     allocateImmutableEvent,
-    createCanonicalFactId,
     createGoal,
     rebuildWorkingMemory,
 } from "../src/index";
+import { createCanonicalFactId } from "../../working-memory/src/index";
 import type {
     AgentProfile,
     Goal,

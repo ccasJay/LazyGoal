@@ -135,7 +135,7 @@ import {
     type NormalizedWorkingMemoryPatch,
     type WorkingMemoryLimitsInput,
     validateMemoryPatchPhase,
-} from "./working-memory-core";
+} from "../../working-memory/src/index";
 import { WorkingMemorySession } from "./working-memory-session";
 import { resolveEvidenceObservation } from "./evidence-gate";
 import {

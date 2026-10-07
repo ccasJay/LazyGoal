@@ -31,6 +31,25 @@ import type { ToolObservation } from "../../tool-core/src/index";
 import type { GoalPlan } from "./goal-plan";
 import type { EffectiveSandboxScope, SandboxExecutionPlan } from "../../sandbox/src/index";
 
+import {
+    isMemoryProtocol,
+    type Blocker,
+    type CanonicalMemoryOperation,
+    type EvidenceBackedFact,
+    type Hypothesis,
+    type MemoryEntry,
+    type MemoryEntryBase,
+    type MemoryEntryKind,
+    type MemoryEntryScope,
+    type MemoryEntrySource,
+    type MemoryEntryStatus,
+    type MemoryOriginPhase,
+    type MemoryPatch,
+    type MemoryProtocol,
+    type MemoryRevision,
+    type WorkingMemory,
+} from "../../working-memory/src/index";
+
 export type {
     CompletionAcceptance,
     CompletionExpectOutcome,
@@ -50,9 +69,6 @@ export type RunMode = "normal" | "plan";
 export type GoalPhase =
     | "executing";
 
-/** Goal 创建后冻结的 Working Memory 协议。 */
-export type MemoryProtocol = { readonly kind: "structured"; readonly version: 1 };
-
 /** Goal 创建后冻结的模型上下文协议。 */
 export type ModelContextProtocol = {
     readonly kind: "trajectory-layered";
@@ -65,126 +81,7 @@ export type ContextRetrievalProtocol = {
     readonly version: 1;
 };
 
-/** Hypothesis 与 Blocker 使用的生命周期状态。 */
-export type MemoryEntryStatus = "active" | "resolved" | "superseded";
 
-/** Working Memory 条目跨阶段保留的作用域。 */
-export type MemoryEntryScope = "goal" | "phase";
-
-/** Working Memory 条目可识别的种类。 */
-export type MemoryEntryKind =
-    | "fact"
-    | "hypothesis"
-    | "blocker";
-
-export type {
-    FactStability,
-};
-
-
-/** 已接受 Memory 条目的候选来源。 */
-export type MemoryEntrySource = "model" | "tool_projector" | "runtime";
-
-/**
- * 所有结构化 Memory 条共用的来源和生命周期元数据。
- *
- * @remarks
- * `originSequence` 指向产生该条目的已接受 Patch Event，而不是模型响应或
- * Runtime 当前状态。`scope` 决定阶段转换时的失效范围；`status` 为
- * `superseded` 或 `resolved` 的条目仍可出现在已提交历史中，但不属于当前有效投影。
- * Runtime State 的 checkpoint、pending Action、Step 计数和 Run 状态不属于本接口。
- *
- * @example
- * ```ts
- * const base: MemoryEntryBase = {
- *     id: "fact-1",
- *     originPhase: "executing",
- *     originSequence: 12,
- *     scope: "goal",
- *     updatedAtSequence: 12,
- * };
- * ```
- */
-export interface MemoryEntryBase {
-    /** 条目的跨 Patch 稳定身份。 */
-    readonly id: string;
-    /** 首次被接受的业务阶段。 */
-    readonly originPhase: GoalPhase;
-    /** 产生当前版本条目的 accepted Patch Event sequence。 */
-    readonly originSequence: number;
-    /** 条目在阶段转换时的保留范围。 */
-    readonly scope: MemoryEntryScope;
-    /** 最近一次改变该条目的 accepted Patch sequence。 */
-    readonly updatedAtSequence: number;
-}
-
-/**
- * 由已提交事实 Event 支持的实体化 Fact。
- *
- * @example
- * ```ts
- * const fact: EvidenceBackedFact = { ...base, kind: "fact", subject: "file:a",
- *   predicate: "exists", value: true, stability: "stable", evidenceSequences: [8],
- *   reinforcementCount: 1, lastEvidenceSequence: 8, source: "model" };
- * ```
- */
-export interface EvidenceBackedFact extends MemoryEntryBase {
-    readonly kind: "fact";
-    /** 规范化前的事实主体。 */
-    readonly subject: string;
-    /** 规范化前的主体属性或关系。 */
-    readonly predicate: string;
-    /** 当前已接受的 JSON 值。 */
-    readonly value: JsonValue;
-    /** 事实持续成立或仅表示最后一次观察。 */
-    readonly stability: FactStability;
-    /** 支持当前值的已提交 Trajectory sequences。 */
-    readonly evidenceSequences: readonly number[];
-    /** 同值更新证据成功强化的累计次数，首次接受为 1。 */
-    readonly reinforcementCount: number;
-    /** `evidenceSequences` 中最大的 sequence。 */
-    readonly lastEvidenceSequence: number;
-    /** 最近一次提交当前值的 producer。 */
-    readonly source: MemoryEntrySource;
-}
-
-/**
- * 明确标记为未验证判断的 Hypothesis。
- *
- * @example
- * ```ts
- * const hypothesis: Hypothesis = { ...base, kind: "hypothesis", statement: "cache is stale", status: "active" };
- * ```
- */
-export interface Hypothesis extends MemoryEntryBase {
-    readonly kind: "hypothesis";
-    /** 待验证判断；不能单独作为完成证据。 */
-    readonly statement: string;
-    /** 当前生命周期状态。 */
-    readonly status: MemoryEntryStatus;
-}
-
-/**
- * 表达当前阻塞的 Memory 条目。
- *
- * @example
- * ```ts
- * const blocker: Blocker = { ...base, kind: "blocker", description: "approval required", status: "active" };
- * ```
- */
-export interface Blocker extends MemoryEntryBase {
-    readonly kind: "blocker";
-    /** 阻塞描述；不替代 Runtime 的失败或等待状态。 */
-    readonly description: string;
-    /** 当前生命周期状态。 */
-    readonly status: MemoryEntryStatus;
-}
-
-/** 结构化 Working Memory 中允许出现的条目联合。 */
-export type MemoryEntry =
-    | EvidenceBackedFact
-    | Hypothesis
-    | Blocker;
 
 /**
  * 指向最新已提交 accepted Patch 的不可变 revision。
@@ -225,12 +122,6 @@ export interface PendingModelRepair {
     readonly thinkRequestId?: string;
 }
 
-export interface MemoryRevision {
-    /** accepted Patch Event 的稳定事件 ID。 */
-    readonly eventId: string;
-    /** 该 Event 在当前 Goal/Run 中的 sequence。 */
-    readonly sequence: number;
-}
 
 /**
  * 当前 executing Step 的已提交 Think 链恢复指针。
@@ -279,23 +170,6 @@ export type {
 };
 
 
-/** `WorkingMemoryPatch` 的语义别名，供领域代码使用。 */
-export type MemoryPatch = WorkingMemoryPatch;
-
-/** Runtime 归一化后可持久化的 Memory 操作。 */
-export type CanonicalMemoryOperation =
-    | { readonly type: "upsert_fact"; readonly fact: EvidenceBackedFact }
-    | { readonly type: "retire_fact"; readonly factId: string }
-    | { readonly type: "upsert_hypothesis"; readonly hypothesis: Hypothesis }
-    | { readonly type: "upsert_blocker"; readonly blocker: Blocker }
-    | { readonly type: "evict_entries"; readonly entryIds: readonly string[] }
-    | {
-        readonly type: "supersede_scope";
-        readonly scope: MemoryEntryScope;
-        readonly phase?: GoalPhase;
-        readonly kinds?: readonly MemoryEntryKind[];
-    };
-
 /**
  * 写入 Trajectory 的 accepted Memory Patch 事实载荷。
  *
@@ -311,36 +185,6 @@ export interface MemoryPatchAcceptedPayload {
     readonly producers: readonly ("model" | "tool_projector" | "runtime_lifecycle")[];
     readonly parentRevisionEventId?: string;
     readonly operations: readonly CanonicalMemoryOperation[];
-}
-
-/**
- * 当前进程内的结构化 Working Memory 投影。
- *
- * @remarks
- * 该对象是从已提交 Trajectory 归约出的临时视图，不进入 Goal Snapshot；
- * `derivedThroughSequence` 只能单调前进且不得超过 Snapshot 提交边界。只有
- * `status: "active"` 的条目会作为当前有效上下文提供给模型，历史状态仍由事件账本保留。
- * 本接口不包含 checkpoint、previousStep、pending Action、Step 计数、Run 状态或
- * 其他 Runtime 控制字段。
- *
- * @example
- * ```ts
- * const memory: WorkingMemory = {
- *     protocolVersion: 1,
- *     derivedThroughSequence: 12,
- *     facts: [],
- *     hypotheses: [],
- *     blockers: [],
- * };
- * ```
- */
-export interface WorkingMemory {
-    readonly protocolVersion: 1;
-    readonly derivedThroughSequence: number;
-    readonly revision?: MemoryRevision;
-    readonly facts: readonly EvidenceBackedFact[];
-    readonly hypotheses: readonly Hypothesis[];
-    readonly blockers: readonly Blocker[];
 }
 
 /**
@@ -419,19 +263,6 @@ export class GoalProtocolError extends Error {
     }
 }
 
-/** 判断未知值是否为受支持的 Memory 协议判别联合。 */
-export function isMemoryProtocol(value: unknown): value is MemoryProtocol {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return false;
-    }
-
-    const candidate = value as Record<string, unknown>;
-    return (
-        candidate.kind === "structured"
-        && candidate.version === 1
-        && Object.keys(candidate).every((key) => key === "kind" || key === "version")
-    );
-}
 
 /** 判断未知值是否为受支持的模型上下文协议判别联合。 */
 export function isModelContextProtocol(
@@ -465,50 +296,6 @@ export function isContextRetrievalProtocol(
     );
 }
 
-/** 创建没有条目的、可作为 Reducer 初始值的 Working Memory。 */
-export function createEmptyWorkingMemory(
-    derivedThroughSequence = 0,
-    revision?: MemoryRevision,
-): WorkingMemory {
-    if (!Number.isInteger(derivedThroughSequence) || derivedThroughSequence < 0) {
-        throw new Error("derivedThroughSequence must be a non-negative integer");
-    }
-
-    const revisionCandidate = revision as unknown;
-    if (
-        revisionCandidate !== undefined
-        && (
-            typeof revisionCandidate !== "object"
-            || revisionCandidate === null
-            || Array.isArray(revisionCandidate)
-            || typeof (revisionCandidate as { eventId?: unknown }).eventId !== "string"
-            || (revisionCandidate as { eventId: string }).eventId.trim().length === 0
-            || !Number.isInteger((revisionCandidate as { sequence?: unknown }).sequence)
-            || (revisionCandidate as { sequence: number }).sequence < 0
-            || (revisionCandidate as { sequence: number }).sequence > derivedThroughSequence
-        )
-    ) {
-        throw new Error("revision must be valid and within derivedThroughSequence");
-    }
-
-    const normalizedRevision = revisionCandidate as MemoryRevision | undefined;
-
-    return {
-        protocolVersion: 1,
-        derivedThroughSequence,
-        ...(normalizedRevision === undefined
-            ? {}
-            : {
-                revision: {
-                    eventId: normalizedRevision.eventId,
-                    sequence: normalizedRevision.sequence,
-                },
-            }),
-        facts: [],
-        hypotheses: [],
-        blockers: [],
-    };
-}
 
 /**
  * Tool 输入和 Observation 输出使用的递归 JSON 对象。

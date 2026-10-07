@@ -1,11 +1,9 @@
 export {
     createGoal,
-    createEmptyWorkingMemory,
     createRun,
     DEFAULT_GOAL_MODEL_SELECTION,
     GOAL_PROTOCOL_ERROR_CODE,
     GoalProtocolError,
-    isMemoryProtocol,
     isModelContextProtocol,
     isContextRetrievalProtocol,
 } from "./domain";
@@ -75,14 +73,10 @@ export type {
     CompletionExpectOutcome,
     CompletionCriterion,
     StructuredAgentDecision,
-    Blocker,
     BlockerCreate,
     BlockerUpdate,
-    CanonicalMemoryOperation,
     ContextRetrievalProtocol,
-    EvidenceBackedFact,
     FactProposal,
-    FactStability,
     ExecutionErrorCode,
     GoalPhase,
     GoalProtocolValidationInput,
@@ -97,22 +91,12 @@ export type {
     GoalState,
     GoalTask,
     GoalWorkflowState,
-    Hypothesis,
     HypothesisCreate,
     HypothesisUpdate,
     JsonObject,
     JsonValue,
-    MemoryEntry,
-    MemoryEntryBase,
-    MemoryEntryKind,
-    MemoryEntryScope,
-    MemoryEntrySource,
-    MemoryEntryStatus,
-    MemoryPatch,
     MemoryPatchAcceptedPayload,
     MemoryPatchOperation,
-    MemoryProtocol,
-    MemoryRevision,
     ModelContextProtocol,
     ModelContextEpochState,
     RetireFactProposal,
@@ -134,7 +118,6 @@ export type {
     ToolCallAction,
     TransitionResult,
     UserMessage,
-    WorkingMemory,
     WorkingMemoryPatch,
 } from "./domain";
 export { transition } from "./transition";
@@ -175,23 +158,7 @@ export type {
     ProviderReportedModelCallUsage,
     UnavailableModelCallUsage,
 } from "./model-call-metrics";
-export {
-    DEFAULT_WORKING_MEMORY_LIMITS,
-    WORKING_MEMORY_LIMITS_ERROR_CODE,
-    WORKING_MEMORY_PATCH_ERROR_CODE,
-    WorkingMemoryLimitsError,
-    WorkingMemoryPatchError,
-    applyMemoryPatch,
-    assertValidWorkingMemory,
-    createCanonicalFactId,
-    createSupersedeScopeOperation,
-    mergeNormalizedMemoryPatches,
-    normalizeMemoryPatch,
-    reduceWorkingMemory,
-    resolveWorkingMemoryLimits,
-    validateMemoryPatch,
-    validateMemoryPatchPhase,
-} from "./working-memory-core";
+
 export {
     CONTEXT_LOOKUP_CHAIN_LIMIT_CODE,
     CONTEXT_LOOKUP_FAILED_CODE,
@@ -242,15 +209,7 @@ export type {
     IndexedContextLookupServiceOptions,
     RuntimeContextLookupAdapterOptions,
 } from "./runtime-context-lookup-adapter";
-export type {
-    MemorySuppressionReason,
-    NormalizedWorkingMemoryPatch,
-    SuppressedMemoryOperation,
-    WorkingMemoryLimits,
-    WorkingMemoryLimitsInput,
-    WorkingMemoryPatchNormalizationContext,
-    WorkingMemoryPatchValidationContext,
-} from "./working-memory-core";
+
 export {
     WORKING_MEMORY_RECOVERY_ERROR_CODE,
     WORKING_MEMORY_SESSION_CLOSED_CODE,

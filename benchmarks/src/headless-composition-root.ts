@@ -19,7 +19,6 @@ import {
     type ExecutionControl,
 } from "../../packages/execution-control/src/index.js";
 import {
-    DEFAULT_WORKING_MEMORY_LIMITS,
     GoalCoordinator,
     InlineScheduler,
     launch,
@@ -41,8 +40,11 @@ import {
     type TrajectoryStore,
     type DiagnosticTraceSink,
     TrajectoryCheckpointCommitter,
-    type WorkingMemoryLimits,
 } from "../../packages/runtime/src/index.js";
+import {
+    DEFAULT_WORKING_MEMORY_LIMITS,
+    type WorkingMemoryLimits,
+} from "../../packages/working-memory/src/index.js";
 /**
  * Benchmark 任务转换后的通用 Goal 描述。
  *

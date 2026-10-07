@@ -1,6 +1,7 @@
 import type { NativeConversationIdentity } from "../../model-contracts/src/index";
 import type { LLMMessage, LLMRequest, StructuredOutputMode } from "../../llm/src/core/types";
-import type { Goal, WorkingMemory } from "../../runtime/src/domain";
+import type { Goal } from "../../runtime/src/domain";
+import type { WorkingMemory } from "../../working-memory/src/index";
 import type { ModelContextFramePayload } from "../../runtime/src/index";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type { RuntimeFeedback } from "../../runtime/src/runtime-feedback";

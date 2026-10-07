@@ -1,24 +1,27 @@
 import { createHash } from "node:crypto";
-
+import type { JsonValue } from "../../contracts/src/index";
+import type {
+    FactProposal,
+    FactStability,
+    MemoryPatchOperation,
+    WorkingMemoryPatch,
+} from "../../model-contracts/src/index";
 import type {
     Blocker,
     CanonicalMemoryOperation,
     EvidenceBackedFact,
-    FactProposal,
-    GoalPhase,
     Hypothesis,
-    JsonObject,
-    JsonValue,
     MemoryEntry,
     MemoryEntryKind,
     MemoryEntryScope,
     MemoryEntrySource,
     MemoryEntryStatus,
-    MemoryPatchOperation,
+    MemoryOriginPhase,
     WorkingMemory,
-    WorkingMemoryPatch,
-} from "./domain";
-import { createEmptyWorkingMemory } from "./domain";
+} from "./types";
+import { createEmptyWorkingMemory } from "./protocol";
+
+type JsonObject = { readonly [key: string]: JsonValue };
 
 /** Working Memory Patch 校验失败的稳定错误码。 */
 export const WORKING_MEMORY_PATCH_ERROR_CODE = "INVALID_MEMORY_PATCH" as const;
@@ -127,8 +130,8 @@ export interface WorkingMemoryPatchValidationContext {
  */
 export interface WorkingMemoryPatchNormalizationContext
     extends WorkingMemoryPatchValidationContext {
-    /** proposal 产生时的 Goal phase。 */
-    readonly phase: GoalPhase;
+    /** proposal 产生时的业务阶段。 */
+    readonly phase: MemoryOriginPhase;
     /** accepted Patch Event 的预分配 sequence。 */
     readonly originSequence: number;
     /** proposal 来源；模型调用省略时默认为 `model`。 */
@@ -207,7 +210,7 @@ const MEMORY_ENTRY_STATUSES: readonly MemoryEntryStatus[] = [
     "superseded",
 ];
 const FACT_STABILITIES = ["stable", "last_observed"] as const;
-const GOAL_PHASES: readonly GoalPhase[] = [
+const MEMORY_ORIGIN_PHASES: readonly MemoryOriginPhase[] = [
     "executing",
 ];
 const CONTROL_STATE_TERMS = new Set([
@@ -558,7 +561,7 @@ function allEntries(memory: WorkingMemory): MemoryEntry[] {
 
 function assertBase(entry: MemoryEntry, memory: WorkingMemory): void {
     assertNonEmptyString(entry.id, "workingMemory entry.id");
-    assertOneOf(entry.originPhase, GOAL_PHASES, "workingMemory entry.originPhase");
+    assertOneOf(entry.originPhase, MEMORY_ORIGIN_PHASES, "workingMemory entry.originPhase");
     assertPositiveInteger(entry.originSequence, "workingMemory entry.originSequence");
     assertPositiveInteger(entry.updatedAtSequence, "workingMemory entry.updatedAtSequence");
     assertOneOf(entry.scope, MEMORY_ENTRY_SCOPES, "workingMemory entry.scope");
@@ -645,10 +648,10 @@ export function validateMemoryPatch(
  */
 export function validateMemoryPatchPhase(
     patch: unknown,
-    phase: GoalPhase,
+    phase: MemoryOriginPhase,
     context: WorkingMemoryPatchValidationContext = {},
 ): asserts patch is WorkingMemoryPatch {
-    assertOneOf(phase, GOAL_PHASES, "phase");
+    assertOneOf(phase, MEMORY_ORIGIN_PHASES, "phase");
     validateMemoryPatch(patch, context);
 }
 
@@ -985,7 +988,7 @@ export function normalizeMemoryPatch(
     patch: unknown,
     context: WorkingMemoryPatchNormalizationContext,
 ): NormalizedWorkingMemoryPatch {
-    assertOneOf(context.phase, GOAL_PHASES, "phase");
+    assertOneOf(context.phase, MEMORY_ORIGIN_PHASES, "phase");
     assertPositiveInteger(context.originSequence, "originSequence");
     const source = context.source ?? "model";
     assertOneOf(source, ["model", "tool_projector", "runtime"] as const, "source");
@@ -1120,12 +1123,12 @@ export function applyMemoryPatch(
 export function createSupersedeScopeOperation(
     scope: MemoryEntryScope,
     options: {
-        readonly phase?: GoalPhase;
+        readonly phase?: MemoryOriginPhase;
         readonly kinds?: readonly MemoryEntryKind[];
     } = {},
 ): CanonicalMemoryOperation {
     assertOneOf(scope, MEMORY_ENTRY_SCOPES, "scope");
-    if (options.phase !== undefined) assertOneOf(options.phase, GOAL_PHASES, "phase");
+    if (options.phase !== undefined) assertOneOf(options.phase, MEMORY_ORIGIN_PHASES, "phase");
     if (options.kinds !== undefined) options.kinds.forEach((kind) => assertOneOf(kind, MEMORY_ENTRY_KINDS, "kind"));
     return Object.freeze({
         type: "supersede_scope",

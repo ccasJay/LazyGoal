@@ -2,18 +2,20 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-    createEmptyWorkingMemory,
     createGoal,
     GOAL_PROTOCOL_ERROR_CODE,
     GoalProtocolError,
-    isMemoryProtocol,
 } from "../src/index";
+import {
+    createEmptyWorkingMemory,
+    isMemoryProtocol,
+    type MemoryPatch,
+    type WorkingMemory,
+} from "../../working-memory/src/index";
 import type {
     AgentProfile,
     GoalProtocolValidator,
-    MemoryPatch,
     StepExecutionInput,
-    WorkingMemory,
 } from "../src/index";
 import { currentProtocols } from "./current-fixtures";
 

@@ -1,4 +1,5 @@
-import type { Goal, WorkingMemory } from "../../runtime/src/domain";
+import type { Goal } from "../../runtime/src/domain";
+import type { WorkingMemory } from "../../working-memory/src/index";
 import { allocateImmutableEvent } from "../../runtime/src/trajectory";
 import type {
     TrajectoryEvent,

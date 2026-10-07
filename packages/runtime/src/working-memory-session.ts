@@ -1,11 +1,7 @@
 import type {
     Goal,
-    MemoryPatch,
     MemoryPatchAcceptedPayload,
-    MemoryRevision,
-    WorkingMemory,
 } from "./domain";
-import { createEmptyWorkingMemory } from "./domain";
 import {
     buildCommittedEvidenceIndex,
     validateFactEvidence,
@@ -15,9 +11,13 @@ import {
     validateCanonicalFactEvidence,
 } from "./evidence-gate";
 import {
+    createEmptyWorkingMemory,
     reduceWorkingMemory,
+    type MemoryPatch,
+    type MemoryRevision,
+    type WorkingMemory,
     type WorkingMemoryLimitsInput,
-} from "./working-memory-core";
+} from "../../working-memory/src/index";
 import {
     freezeTrajectoryEvent,
     type TrajectoryEvent,
