@@ -23,6 +23,13 @@
   - 验证方式：新增 `apps/goal-board/e2e/run-input-control.test.mjs`（待实现）并扩展现有确定性测试服务；补充 `browser-messages.test.ts` 的后继身份去重及取消终态续写测试。运行 `npx tsx --test packages/browser/test/browser-messages.test.ts packages/runtime/test/goal-multi-run-session.test.ts`，再运行 `npm run build:web` 和 `node --test --test-concurrency=1 apps/goal-board/e2e/run-input-control.test.mjs apps/goal-board/e2e/runtime.test.mjs apps/goal-board/e2e/board.test.mjs`。
   - _Requirements: [2.4](./requirements.md#req-2-4), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [5.1](./requirements.md#req-5-1), [5.4](./requirements.md#req-5-4), [8.1](./requirements.md#req-8-1), [8.2](./requirements.md#req-8-2), [8.3](./requirements.md#req-8-3), [8.4](./requirements.md#req-8-4)_
 
+- [x] //TODO 4. 修复宿主关闭取消后的 Run 尾随读取（集成验收修复）
+
+  - 实施目标：显式服务关闭中，RunExecutor 收到宿主取消后直接传播取消；不得在已关闭的持久化资源上继续读取，也不得将服务关闭转成用户 Interrupt 或 cancelled。
+  - 成功判据：取消信号使活动调用保留最后已提交快照并停止推进；关闭期间无取消后的 Trace/Snapshot 访问；用户 Interrupt 的有限收尾行为不变。
+  - 验证方式：`apps/goal-server/test/browser-session.integration.test.ts`、`packages/runtime/test/execution-control.test.ts`、`packages/runtime/test/shutdown.test.ts`，以及 `npm test` 全量回归。
+  - _Requirements: [7.3](./requirements.md#req-7-3)_
+
 ## Feature Verification
 
 风险依据：[Design 风险与待确认](./design.md#风险与待确认)。下表中的 `run-steer.test.ts`、`run-interrupt.test.ts`、`run-input-control-snapshot.test.ts`、`browser-run-control.test.ts`、`interrupted-tool-history.test.ts` 与 `run-input-control.test.mjs` 均为待实现检查；表内文件名对应上述 TODO 的完整路径。
@@ -66,4 +73,4 @@
 
 ### Latest Result
 
-TODO 3 的直接检查已通过：`npm run build:web`、消息去重/多 Run 定向测试和 3 个浏览器 E2E 成功。全量回归另发现普通宿主关闭时 Runner 在取消后继续读取 Trace 的竞态，已定位并修复；等待修复任务及全量回归重新验收，Feature Verification 暂为 pending。
+等待 TODO 4 修复后记录完整 Feature Verification。

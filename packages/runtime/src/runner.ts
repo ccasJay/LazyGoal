@@ -1067,9 +1067,9 @@ class RunExecutor {
             try {
                 return await this.runUntilBlockedCore(ref, options, { signal: runController.signal });
             } catch (error) {
+                if (parentSignal?.aborted) throw error;
                 const latest = await this.restore(ref);
-                if (latest?.state.run.interruption !== undefined
-                    && !(parentSignal?.aborted ?? false)) {
+                if (latest?.state.run.interruption !== undefined) {
                     return this.resumeInterruptedRun(latest, control);
                 }
                 throw error;

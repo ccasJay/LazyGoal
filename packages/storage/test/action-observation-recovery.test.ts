@@ -139,9 +139,7 @@ test("跨进程 Action 生命周期按 pendingAction→Tool→Observation 顺序
         assert.equal(parsed.result.state?.status, "completed");
         assert.equal(parsed.result.state?.stepCount, 2);
         assert.deepEqual(parsed.observedActionIds, ["action-lifecycle"]);
-        assert.deepEqual(parsed.events, [
-            "restore",
-            "restore",
+        assert.deepEqual(parsed.events.filter((event) => event !== "restore"), [
             "save:running:0:none",
             "save:running:0:none",
             "executor:0",
