@@ -3,7 +3,7 @@ import { join } from "node:path";
 import {
     resolveLazyGoalHomePaths,
     resolveWorkspaceHomePaths,
-} from "../../packages/llm/src/xdg.js";
+} from "../../packages/config/src/index.js";
 
 /**
  * Benchmark 默认运行和 cache 路径。

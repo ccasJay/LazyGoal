@@ -7,7 +7,7 @@ import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import type { LLMAdapter } from "./core/adapter";
 import { LLMRequestModeMismatchError, type LLMRequest, type LLMResponse, type LLMStreamEvent, type LLMToolCall } from "./core/types";
-import { LlmConfigurationError, type LlmConfig } from "./config";
+import { LLMConfigurationError, type LLMConfig } from "../../config/src/index";
 import { ExecutionAbortedError, throwIfAborted, type ExecutionControl } from "../../execution-control/src/index";
 import { classifyTransientModelFailure } from "./core/model-request-failure";
 
@@ -45,11 +45,11 @@ export class PiAiAdapter implements LLMAdapter {
 
     /**
      * @param config - 显式 API Key、供应商、模型及可选容量配置。
-     * @throws LlmConfigurationError 模式不匹配、模型不在目录或输出上限超过模型容量。
+     * @throws LLMConfigurationError 模式不匹配、模型不在目录或输出上限超过模型容量。
      */
-    constructor(private readonly config: LlmConfig) {
+    constructor(private readonly config: LLMConfig) {
         if (config.structuredOutputMode !== "prompt_only") {
-            throw new LlmConfigurationError([], "PiAiAdapter only supports prompt_only output");
+            throw new LLMConfigurationError([], "PiAiAdapter only supports prompt_only output");
         }
         if (config.provider === "openai-compatible") {
             this.model = {
@@ -73,7 +73,7 @@ export class PiAiAdapter implements LLMAdapter {
             this.models.setProvider(factories[config.provider]());
             const model = this.models.getModel(config.provider, config.model);
             if (model === undefined) {
-                throw new LlmConfigurationError([], `Unknown model "${config.model}" for provider "${config.provider}" in the pinned pi-ai catalog`);
+                throw new LLMConfigurationError([], `Unknown model "${config.model}" for provider "${config.provider}" in the pinned pi-ai catalog`);
             }
             this.model = (config.provider === "openai" || config.provider === "google") && config.baseURL !== undefined
                 ? { ...model, baseUrl: config.baseURL }
@@ -235,7 +235,7 @@ export class PiAiAdapter implements LLMAdapter {
 
     private checkOutputLimit(limit: number | undefined): void {
         if (limit !== undefined && limit > this.model.maxTokens) {
-            throw new LlmConfigurationError([], `Maximum output tokens exceed model "${this.model.id}" limit (${this.model.maxTokens})`);
+            throw new LLMConfigurationError([], `Maximum output tokens exceed model "${this.model.id}" limit (${this.model.maxTokens})`);
         }
     }
 

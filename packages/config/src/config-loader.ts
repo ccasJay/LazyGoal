@@ -1,21 +1,25 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { resolveLazyGoalHomePaths, type LazyGoalHomePaths } from "./xdg";
+import { resolveLazyGoalHomePaths, type LazyGoalHomePaths } from "./home";
 import {
     parseTomlConfig,
     loadProfileToml,
     validateGepaConfig,
     type LazyGoalTomlConfig,
     type ProfileTomlConfig,
-    type LlmTomlSection,
+    type LLMTomlSection,
     type GepaConfig,
     TomlConfigurationError,
 } from "./toml-config";
-import { LlmConfigurationError, type LlmConfig, type LlmProvider } from "./config";
-import type { StructuredOutputMode } from "./core/types";
+import { LLMConfigurationError, type LLMConfig, type LLMProvider, type StructuredOutputMode } from "./llm-config";
 
 /**
  * CLI 命令行传入的临时参数字典。
+ *
+ * @example
+ * ```ts
+ * const overrides: CliConfigOverrides = { model: "gpt-4o" };
+ * ```
  */
 export interface CliConfigOverrides {
     readonly provider?: string;
@@ -33,10 +37,16 @@ export interface CliConfigOverrides {
 
 /**
  * 最终生成的 LazyGoal 运行时不可变配置。
+ *
+ * @example
+ * ```ts
+ * const config = await loadRuntimeConfig();
+ * console.log(config.llm.provider, config.llm.model);
+ * ```
  */
 export interface LazyGoalRuntimeConfig {
     /** 已校验合法的 LLM 供应商连接配置。 */
-    readonly llm: LlmConfig;
+    readonly llm: LLMConfig;
     /** 激活生效的 Profile 名称。 */
     readonly activeProfile?: string;
     /** 默认工作区根路径。 */
@@ -81,7 +91,7 @@ export interface LoadConfigOptions {
  * @param options - 加载选项。
  * @returns 经过深度合并并校验合规的 LazyGoalRuntimeConfig。
  * @throws TomlConfigurationError TOML 语法或语义非法。
- * @throws LlmConfigurationError 必填 LLM 字段缺失或非法。
+ * @throws LLMConfigurationError 必填 LLM 字段缺失或非法。
  * @example
  * ```ts
  * const config = await loadRuntimeConfig({ cliArgs: { model: "gpt-4o" } });
@@ -110,7 +120,7 @@ export async function loadRuntimeConfig(options: LoadConfigOptions = {}): Promis
     }
 
     // 3. 逐层合并配置（Defaults -> config.toml -> profile.toml -> CLI args）
-    const mergedLlm: LlmTomlSection = {
+    const mergedLlm: LLMTomlSection = {
         structured_output_mode: "prompt_only", // 内置默认值
         ...fileConfig.llm,
         ...profileConfig.llm,
@@ -126,41 +136,41 @@ export async function loadRuntimeConfig(options: LoadConfigOptions = {}): Promis
     if (options.cliArgs?.maxOutputTokens) mergedLlm.max_output_tokens = options.cliArgs.maxOutputTokens;
     if (options.cliArgs?.tokenizerEncoding) mergedLlm.tokenizer_encoding = options.cliArgs.tokenizerEncoding;
 
-    // 4. 校验并构建标准 LlmConfig
+    // 4. 校验并构建标准 LLMConfig
     const missing: string[] = [];
     if (!mergedLlm.provider) missing.push("provider");
     if (!mergedLlm.model) missing.push("model");
     if (!mergedLlm.api_key) missing.push("api_key");
 
     if (missing.length > 0) {
-        throw new LlmConfigurationError(
+        throw new LLMConfigurationError(
             missing,
             `缺少必要的 LLM 配置项: ${missing.join(", ")}。请在 ${configFile} 中配置，或通过 CLI 参数传入。`,
         );
     }
 
-    const provider = mergedLlm.provider as LlmProvider;
+    const provider = mergedLlm.provider as LLMProvider;
     const mode = (mergedLlm.structured_output_mode as StructuredOutputMode | undefined) ?? "prompt_only";
 
     if (mergedLlm.structured_output_mode !== undefined && mode !== "strict" && mode !== "prompt_only" && mode !== "two_stage") {
-        throw new LlmConfigurationError(
+        throw new LLMConfigurationError(
             [],
             `无效的 structured_output_mode "${mode}": 必须为 "strict"、"prompt_only" 或 "two_stage"`,
         );
     }
 
     if (mergedLlm.structured_output_mode !== undefined && (mode === "strict" || mode === "two_stage") && !["openai", "google", "openai-compatible"].includes(provider)) {
-        throw new LlmConfigurationError(
+        throw new LLMConfigurationError(
             [],
             `供应商 "${provider}" 不支持 ${mode} 模式，请配置 prompt_only`,
         );
     }
 
-    let verifiedLlmConfig: LlmConfig;
+    let verifiedLlmConfig: LLMConfig;
     if (provider === "openai-compatible") {
-        if (!mergedLlm.base_url) throw new LlmConfigurationError(["base_url"], "openai-compatible 必须配置 base_url");
-        if (!mergedLlm.context_window_tokens) throw new LlmConfigurationError(["context_window_tokens"], "openai-compatible 必须配置 context_window_tokens");
-        if (!mergedLlm.max_output_tokens) throw new LlmConfigurationError(["max_output_tokens"], "openai-compatible 必须配置 max_output_tokens");
+        if (!mergedLlm.base_url) throw new LLMConfigurationError(["base_url"], "openai-compatible 必须配置 base_url");
+        if (!mergedLlm.context_window_tokens) throw new LLMConfigurationError(["context_window_tokens"], "openai-compatible 必须配置 context_window_tokens");
+        if (!mergedLlm.max_output_tokens) throw new LLMConfigurationError(["max_output_tokens"], "openai-compatible 必须配置 max_output_tokens");
 
         verifiedLlmConfig = {
             provider,
@@ -218,7 +228,7 @@ export async function loadRuntimeConfig(options: LoadConfigOptions = {}): Promis
  * @param options - 加载选项。
  * @returns 经过校验的 Reflection LLM 配置及 Profile 元信息。
  * @throws TomlConfigurationError 当 [gepa] 未配置、同名为 default 或目标 profile 文件不存在时。
- * @throws LlmConfigurationError 当 Reflection profile 缺少必要凭据时。
+ * @throws LLMConfigurationError 当 Reflection profile 缺少必要凭据时。
  * @example
  * ```ts
  * const reflection = await loadReflectionRuntimeConfig();
@@ -226,7 +236,7 @@ export async function loadRuntimeConfig(options: LoadConfigOptions = {}): Promis
  * ```
  */
 export async function loadReflectionRuntimeConfig(options: LoadConfigOptions = {}): Promise<{
-    readonly llm: LlmConfig;
+    readonly llm: LLMConfig;
     readonly profileName: string;
 }> {
     const homePaths = options.homePaths ?? resolveLazyGoalHomePaths(options.env);
@@ -271,9 +281,9 @@ export async function loadReflectionRuntimeConfig(options: LoadConfigOptions = {
  */
 export interface GepaModelConfigs {
     /** 负责基准评测任务执行的 Working LM 配置（固定从 default.toml 加载）。 */
-    readonly working: LlmConfig;
+    readonly working: LLMConfig;
     /** 负责 Prompt 变异反思的独立 Reflection LM 配置（固定从 reflection_profile 加载，模式为 prompt_only）。 */
-    readonly reflection: LlmConfig;
+    readonly reflection: LLMConfig;
     /** Working LM 实际解析使用的 Profile 名称，当前固定为 `default`。 */
     readonly workingProfileName: string;
     /** Reflection LM 实际解析使用的 Profile 名称，来自 `[gepa].reflection_profile`。 */
@@ -292,7 +302,7 @@ export interface GepaModelConfigs {
  * @param options - 配置加载选项。
  * @returns 包含独立 working 与 reflection 配置的对象。
  * @throws TomlConfigurationError 当配置语法错误、缺失必要 profile 或同名时。
- * @throws LlmConfigurationError 当缺少必要凭据时。
+ * @throws LLMConfigurationError 当缺少必要凭据时。
  * @example
  * ```ts
  * const configs = await loadGepaModelConfigs();

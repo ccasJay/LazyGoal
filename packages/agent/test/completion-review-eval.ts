@@ -1,7 +1,7 @@
 import { mkdir, writeFile, appendFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createGoal, allocateImmutableEvent, type ModelCallMetricRecord, type ModelInputRecord } from "../../runtime/src/index";
-import { readLlmConfig } from "../../llm/src/config";
+import { readLLMConfig } from "../../config/src/index";
 import { createLlmAdapter } from "../../llm/src/factory";
 import { LLMStepExecutor, createDefaultPromptBundleRenderer, DropOldestContextCompactor } from "../src/index";
 import { safeParse } from "../../contracts/src/index";
@@ -63,7 +63,7 @@ export async function runCompletionReviewEvaluation(env: Readonly<Record<string,
     const outputDir = resolve("build/completion-review", new Date().toISOString().replace(/[:.]/g, "-"));
     await mkdir(outputDir, { recursive: true });
     let config;
-    try { config = readLlmConfig(env); }
+    try { config = readLLMConfig(env); }
     catch { const report = { status: "incomplete", reason: "Missing explicit model configuration", outputDir }; await writeFile(resolve(outputDir, "summary.json"), JSON.stringify(report, null, 2)); return report; }
     const adapter = createLlmAdapter(config);
     const renderer = await createDefaultPromptBundleRenderer();

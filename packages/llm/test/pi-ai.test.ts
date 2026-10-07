@@ -5,7 +5,7 @@ import { once } from "node:events";
 import type { AssistantMessage, Context, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { PiAiAdapter, PiAiProviderError } from "../src/pi-ai";
 import { createLlmAdapter } from "../src/factory";
-import { readLlmConfig, LlmConfigurationError } from "../src/config";
+import { readLLMConfig, LLMConfigurationError } from "../../config/src/index";
 import { LLMRequestModeMismatchError, type LLMRequest } from "../src/core/types";
 import { readNormalizedUsage } from "../src/core/usage";
 import { ExecutionAbortedError } from "../../execution-control/src/index";
@@ -20,7 +20,7 @@ const request: LLMRequest = { messages: [
 ], maxOutputTokens: 100 };
 
 function adapter(provider = "openai", model = "gpt-4.1-mini", baseURL?: string) {
-    return new PiAiAdapter(readLlmConfig({
+    return new PiAiAdapter(readLLMConfig({
         LLM_PROVIDER: provider, LLM_MODEL: model, LLM_API_KEY: "test-explicit-key",
         LLM_STRUCTURED_OUTPUT_MODE: "prompt_only",
         ...(baseURL === undefined ? {} : { LLM_BASE_URL: baseURL }),
@@ -73,7 +73,7 @@ test("invalid request mode, system placement and output cap fail before dispatch
     stub(instance, async () => { assert.fail("must not dispatch"); });
     await assert.rejects(instance.generate({ ...request, structuredOutput: { name: "test", schema: {} } }), LLMRequestModeMismatchError);
     await assert.rejects(instance.generate({ messages: [{ role: "user", content: "hi" }, { role: "system", content: "late" }] }), /System messages must precede/);
-    await assert.rejects(instance.generate({ ...request, maxOutputTokens: 999999999 }), LlmConfigurationError);
+    await assert.rejects(instance.generate({ ...request, maxOutputTokens: 999999999 }), LLMConfigurationError);
 });
 
 test("incomplete, erroneous and tool responses never return partial JSON", async () => {
@@ -171,7 +171,7 @@ test("Google factory uses the configured API prefix with the real SDK in both ou
                         : googleBody);
                 });
             }, async url => {
-                const instance = createLlmAdapter(readLlmConfig({
+                const instance = createLlmAdapter(readLLMConfig({
                     LLM_PROVIDER: "google", LLM_MODEL: "gemini-2.5-flash", LLM_API_KEY: "test-explicit-key",
                     LLM_STRUCTURED_OUTPUT_MODE: mode, LLM_BASE_URL: url + prefix,
                 }));

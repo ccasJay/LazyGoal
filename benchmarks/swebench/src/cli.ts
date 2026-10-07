@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { randomUUID } from "node:crypto";
-import { readLlmConfig } from "../../../packages/llm/src/config.js";
+import { readLLMConfig } from "../../../packages/config/src/index.js";
 import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
 import { buildSwebenchWorker } from "../../src/worker-builder.js";
 import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
@@ -214,7 +214,7 @@ export async function runSwebenchCli(
     try {
         const manifest = await loadSwebenchManifest(command.manifest);
 
-        const config = readLlmConfig(process.env);
+        const config = readLLMConfig(process.env);
         const adapter = createLlmAdapter(config);
         await preflightSwebench(command.python, undefined, controller.signal);
         const benchmarkPaths = await resolveBenchmarkHomePaths(process.cwd(), "swebench");

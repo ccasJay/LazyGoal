@@ -8,7 +8,7 @@ import {
     createDefaultPromptBundleRenderer,
     DropOldestContextCompactor,
 } from "../../../packages/agent/src/index.js";
-import { readLlmConfig } from "../../../packages/llm/src/config.js";
+import { readLLMConfig } from "../../../packages/config/src/index.js";
 import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
 import {
     EvaluationRunner,
@@ -16,7 +16,7 @@ import {
 import { buildBenchmarkWorker } from "../../src/worker-builder.js";
 import { AttemptRecorder } from "../../src/attempt-recorder.js";
 import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
-import { resolveLazyGoalHomePaths } from "../../../packages/llm/src/xdg.js";
+import { resolveLazyGoalHomePaths } from "../../../packages/config/src/index.js";
 import { runAlfworldSupervisor } from "./supervisor.js";
 import {
     ALFWORLD_ACP_WORKER_ENTRYPOINT,
@@ -436,7 +436,7 @@ async function runDefaultEvaluation(
     env: NodeJS.ProcessEnv,
 ): Promise<EvaluationReport> {
     const benchmarkPaths = await resolveBenchmarkHomePaths(context.workspaceRoot, "alfworld", env);
-    const adapter = createLlmAdapter(readLlmConfig(env));
+    const adapter = createLlmAdapter(readLLMConfig(env));
     const renderer = await createDefaultPromptBundleRenderer();
     const contextCompactor = new DropOldestContextCompactor();
     const workerArtifact = await buildBenchmarkWorker({

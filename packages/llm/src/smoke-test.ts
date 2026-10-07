@@ -1,9 +1,9 @@
 import { createLlmAdapter } from "./factory";
-import { readLlmConfig } from "./config";
+import { readLLMConfig } from "../../config/src/index";
 import "dotenv/config";
 
 async function main(): Promise<void> {
-    const adapter = createLlmAdapter(readLlmConfig(process.env));
+    const adapter = createLlmAdapter(readLLMConfig(process.env));
 
     const response = await adapter.generate({
         ...(adapter.structuredOutputMode === "strict" ? { structuredOutput: {

@@ -1,7 +1,18 @@
-import type { StructuredOutputMode } from "./core/types";
+/**
+ * 模型请求支持的输出结构模式。
+ *
+ * @remarks
+ * `two_stage` 表示 Runtime 在 Think/Decide 阶段间绑定输出模式；Adapter 实例实际接收 `strict` 或 `prompt_only`。
+ *
+ * @example
+ * ```ts
+ * const mode: StructuredOutputMode = "two_stage";
+ * ```
+ */
+export type StructuredOutputMode = "strict" | "prompt_only" | "two_stage";
 
 /** 本期开放的供应商；兼容端点使用独立标识，不推断协议。 */
-export type LlmProvider = "openai" | "google" | "anthropic" | "openrouter" | "deepseek" | "openai-compatible";
+export type LLMProvider = "openai" | "google" | "anthropic" | "openrouter" | "deepseek" | "openai-compatible";
 
 type CommonConfig = {
     readonly apiKey: string;
@@ -19,24 +30,24 @@ type CommonConfig = {
  * 配置不写入 Goal 或 Diagnostic Trace。
  * @example
  * ```ts
- * const config: LlmConfig = {
+ * const config: LLMConfig = {
  *     provider: "anthropic", model: "claude-sonnet-4-5",
  *     apiKey: "secret", structuredOutputMode: "prompt_only",
  * };
  * ```
  */
-export type LlmConfig = CommonConfig & (
+export type LLMConfig = CommonConfig & (
     | { readonly provider: "openai" | "google"; readonly baseURL?: string }
     | { readonly provider: "anthropic" | "openrouter" | "deepseek" }
     | { readonly provider: "openai-compatible"; readonly baseURL: string; readonly contextWindowTokens: number; readonly maxOutputTokens: number }
 );
 
 /** 模型配置错误，在创建 Goal、Store 或发起请求前报告。 */
-export class LlmConfigurationError extends Error {
+export class LLMConfigurationError extends Error {
     readonly code = "INVALID_LLM_CONFIG";
     constructor(readonly missing: readonly string[], message?: string) {
         super(message ?? `Missing required environment variable(s): ${missing.join(", ")}`);
-        this.name = "LlmConfigurationError";
+        this.name = "LLMConfigurationError";
     }
 }
 
@@ -44,53 +55,53 @@ export class LlmConfigurationError extends Error {
  * 仅从显式环境对象读取供应商配置，不修改环境或解析其它凭据源。
  * @param env - CLI、benchmark 或调用方选定的环境。
  * @returns 可交给 createLlmAdapter 的配置；模型目录检查由工厂完成。
- * @throws LlmConfigurationError 必填值、模式、端点或容量非法。
+ * @throws LLMConfigurationError 必填值、模式、端点或容量非法。
  * @example
  * ```ts
- * const config = readLlmConfig(process.env);
+ * const config = readLLMConfig(process.env);
  * ```
  */
-export function readLlmConfig(env: Readonly<Record<string, string | undefined>>): LlmConfig {
+export function readLLMConfig(env: Readonly<Record<string, string | undefined>>): LLMConfig {
     const value = (name: string) => env[name]?.trim() ?? "";
     const required = ["LLM_PROVIDER", "LLM_MODEL", "LLM_API_KEY"];
     if (value("LLM_PROVIDER") === "openai-compatible") {
         required.push("LLM_BASE_URL", "LLM_CONTEXT_WINDOW_TOKENS", "LLM_MAX_OUTPUT_TOKENS");
     }
     const missing = required.filter(name => !value(name));
-    if (missing.length) throw new LlmConfigurationError(missing);
+    if (missing.length) throw new LLMConfigurationError(missing);
     const provider = value("LLM_PROVIDER");
     if (!["openai", "google", "anthropic", "openrouter", "deepseek", "openai-compatible"].includes(provider)) {
-        throw new LlmConfigurationError([], `Unsupported LLM_PROVIDER "${provider}"`);
+        throw new LLMConfigurationError([], `Unsupported LLM_PROVIDER "${provider}"`);
     }
     const rawMode = value("LLM_STRUCTURED_OUTPUT_MODE");
     let mode: StructuredOutputMode = "prompt_only";
     if (rawMode) {
         if (rawMode !== "strict" && rawMode !== "prompt_only" && rawMode !== "two_stage") {
-            throw new LlmConfigurationError([], `Invalid LLM_STRUCTURED_OUTPUT_MODE "${rawMode}": must be either "strict", "prompt_only", or "two_stage"`);
+            throw new LLMConfigurationError([], `Invalid LLM_STRUCTURED_OUTPUT_MODE "${rawMode}": must be either "strict", "prompt_only", or "two_stage"`);
         }
         if (rawMode === "strict" && !["openai", "google", "openai-compatible"].includes(provider)) {
-            throw new LlmConfigurationError([], `Provider "${provider}" does not support ${rawMode} output; select prompt_only`);
+            throw new LLMConfigurationError([], `Provider "${provider}" does not support ${rawMode} output; select prompt_only`);
         }
         mode = rawMode as StructuredOutputMode;
     }
     const baseURL = value("LLM_BASE_URL");
     if (baseURL) {
         if (provider !== "openai" && provider !== "google" && provider !== "openai-compatible") {
-            throw new LlmConfigurationError([], `LLM_BASE_URL is not supported for provider "${provider}"`);
+            throw new LLMConfigurationError([], `LLM_BASE_URL is not supported for provider "${provider}"`);
         }
         let url: URL;
         try { url = new URL(baseURL); } catch {
-            throw new LlmConfigurationError([], "LLM_BASE_URL must be an HTTP(S) URL");
+            throw new LLMConfigurationError([], "LLM_BASE_URL must be an HTTP(S) URL");
         }
         if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-            throw new LlmConfigurationError([], "LLM_BASE_URL must be an HTTP(S) URL without credentials, query or fragment");
+            throw new LLMConfigurationError([], "LLM_BASE_URL must be an HTTP(S) URL without credentials, query or fragment");
         }
     }
     const positive = (name: string): number => {
         const raw = value(name);
         const n = Number(raw);
         if (!/^\d+$/.test(raw) || !Number.isSafeInteger(n) || n <= 0) {
-            throw new LlmConfigurationError([], `${name} must be a positive safe integer`);
+            throw new LLMConfigurationError([], `${name} must be a positive safe integer`);
         }
         return n;
     };
@@ -102,7 +113,7 @@ export function readLlmConfig(env: Readonly<Record<string, string | undefined>>)
     if (provider === "openai-compatible") {
         const contextWindowTokens = positive("LLM_CONTEXT_WINDOW_TOKENS");
         if (maxOutputTokens! >= contextWindowTokens) {
-            throw new LlmConfigurationError([], "LLM_MAX_OUTPUT_TOKENS must be less than LLM_CONTEXT_WINDOW_TOKENS");
+            throw new LLMConfigurationError([], "LLM_MAX_OUTPUT_TOKENS must be less than LLM_CONTEXT_WINDOW_TOKENS");
         }
         return { ...common, provider, baseURL, contextWindowTokens, maxOutputTokens: maxOutputTokens! };
     }

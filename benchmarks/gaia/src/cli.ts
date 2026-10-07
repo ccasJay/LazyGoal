@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { randomUUID } from "node:crypto";
 
-import { readLlmConfig } from "../../../packages/llm/src/config.js";
+import { readLLMConfig } from "../../../packages/config/src/index.js";
 import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
 import { buildBenchmarkWorker } from "../../src/worker-builder.js";
 import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
@@ -128,7 +128,7 @@ export async function runGaiaEvalCli(
     const env = process.env;
     const provider = (values.provider as string | undefined) ?? env.LLM_PROVIDER;
     const model = (values.model as string | undefined) ?? env.LLM_MODEL;
-    const llmConfig = readLlmConfig({
+    const llmConfig = readLLMConfig({
         ...env,
         ...(provider ? { LLM_PROVIDER: provider } : {}),
         ...(model ? { LLM_MODEL: model } : {}),

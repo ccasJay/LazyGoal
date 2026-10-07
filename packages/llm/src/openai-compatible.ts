@@ -7,8 +7,8 @@ import {
     type LLMRequest,
     type LLMResponse,
     type LLMToolCall,
-    type StructuredOutputMode,
 } from "./core/types";
+import type { StructuredOutputMode } from "../../config/src/index";
 import { extractOpenAIUsage } from "./core/usage";
 import {
     ExecutionAbortedError,

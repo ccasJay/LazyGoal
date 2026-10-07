@@ -7,8 +7,9 @@ import {
     createModelOutputContractBundle, decodePhaseToolCall,
     type AgentDecision, type ModelOutputContractBundle,
 } from "../../model-contracts/src/index";
-import type { LLMResponse, StructuredOutputMode } from "../../llm/src/core/types";
-import { readLlmConfig, LlmConfigurationError } from "../../llm/src/config";
+import type { LLMResponse } from "../../llm/src/core/types";
+import type { StructuredOutputMode } from "../../config/src/index";
+import { readLLMConfig, LLMConfigurationError } from "../../config/src/index";
 import { createLlmAdapter } from "../../llm/src/factory";
 import { DEFAULT_PROMPT_TEMPLATE_ASSETS, DEFAULT_PROMPT_BUNDLE_MANIFEST } from "../src/prompting/default-bundles";
 import { createPromptBundleRenderer } from "../src/prompting/renderer";
@@ -99,10 +100,10 @@ export async function runDecisionEvaluation(env: Readonly<Record<string, string 
     const outputDir = resolve("build/decision-guidance", new Date().toISOString().replace(/[:.]/g, "-"));
     await mkdir(outputDir, { recursive: true });
     let config;
-    try { config = readLlmConfig(env); }
+    try { config = readLLMConfig(env); }
     catch (error) {
         const report = { status: "incomplete", reason: "Invalid or missing explicit model configuration",
-            missing: error instanceof LlmConfigurationError ? error.missing : [], outputDir };
+            missing: error instanceof LLMConfigurationError ? error.missing : [], outputDir };
         await writeFile(resolve(outputDir, "summary.json"), JSON.stringify(report, null, 2));
         return report;
     }

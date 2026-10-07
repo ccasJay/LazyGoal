@@ -913,7 +913,7 @@ test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing
     const { createServer } = await import("node:http");
     const { once } = await import("node:events");
     const { createLlmAdapter } = await import("../../packages/llm/src/factory.js");
-    const { readLlmConfig } = await import("../../packages/llm/src/config.js");
+    const { readLLMConfig } = await import("../../packages/config/src/index.js");
     const trajectoryStore = new InMemoryTrajectoryStore();
     const dependencies = createDependencies({
         describeTask: () => ({ intent: "Verify pi usage", objective: "Record evidence", completionCriteria: ["Record evidence"], maxSteps: 3 }),
@@ -939,7 +939,7 @@ test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing
     const address = server.address();
     assert.ok(address && typeof address !== "string");
     try {
-        const llmAdapter = createLlmAdapter(readLlmConfig({
+        const llmAdapter = createLlmAdapter(readLLMConfig({
             LLM_PROVIDER: "openai-compatible", LLM_API_KEY: "test-key", LLM_MODEL: "local-model",
             LLM_BASE_URL: `http://127.0.0.1:${address.port}/v1`, LLM_STRUCTURED_OUTPUT_MODE: "prompt_only",
             LLM_CONTEXT_WINDOW_TOKENS: "8192", LLM_MAX_OUTPUT_TOKENS: "1024",

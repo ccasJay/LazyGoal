@@ -1,4 +1,4 @@
-import type { LlmConfig } from "./config.js";
+import type { LLMConfig } from "../../config/src/index.js";
 import {
     ModelCatalogError,
     type ProviderModelFetcher,
@@ -42,7 +42,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
      * ```
      */
     public async fetchModels(
-        config: LlmConfig,
+        config: LLMConfig,
         options?: { readonly signal?: AbortSignal | undefined; readonly fetch?: typeof fetch | undefined },
     ): Promise<readonly RawFetchedModel[]> {
         const timeoutMs = this.defaultTimeoutMs;
@@ -136,7 +136,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
                     return await this.fetchOpenAiCompatible(config, executeRequest);
                 default: {
                     const exhaustive: never = config;
-                    throw new ModelCatalogError("unsupported", `Unsupported provider: ${(exhaustive as LlmConfig).provider}`);
+                    throw new ModelCatalogError("unsupported", `Unsupported provider: ${(exhaustive as LLMConfig).provider}`);
                 }
             }
         } finally {
@@ -146,7 +146,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchOpenAi(
-        config: LlmConfig,
+        config: LLMConfig,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const rawBase = (config.provider === "openai" && config.baseURL) ? config.baseURL : "https://api.openai.com/v1";
@@ -171,7 +171,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchGoogle(
-        config: LlmConfig,
+        config: LLMConfig,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const rawBase = (config.provider === "google" && config.baseURL) ? config.baseURL : "https://generativelanguage.googleapis.com/v1beta";
@@ -247,7 +247,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchAnthropic(
-        config: LlmConfig,
+        config: LLMConfig,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const headers: Record<string, string> = {
@@ -299,7 +299,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchOpenRouter(
-        config: LlmConfig,
+        config: LLMConfig,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const url = "https://openrouter.ai/api/v1/models";
@@ -360,7 +360,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchDeepSeek(
-        config: LlmConfig,
+        config: LLMConfig,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const url = "https://api.deepseek.com/models";
@@ -383,7 +383,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchOpenAiCompatible(
-        config: LlmConfig,
+        config: LLMConfig,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const baseURL = (config as { baseURL: string }).baseURL.replace(/\/$/, "");

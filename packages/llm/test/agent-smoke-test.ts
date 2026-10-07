@@ -18,7 +18,7 @@ import {
     DropOldestContextCompactor, LLMStepExecutor,
     TrajectoryModelContextAssembler,
 } from "../../agent/src/index";
-import { readLlmConfig } from "../src/config";
+import { readLLMConfig } from "../../config/src/index";
 import { createLlmAdapter } from "../src/factory";
 
 /**
@@ -35,7 +35,7 @@ export async function runAgentSmoke(
     env: Readonly<Record<string, string | undefined>>,
     control?: ExecutionControl,
 ) {
-    const config = readLlmConfig(env);
+    const config = readLLMConfig(env);
     const adapter = createLlmAdapter(config);
     const store = new InMemoryGoalStore();
     const trajectoryStore = new InMemoryTrajectoryStore();

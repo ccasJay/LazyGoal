@@ -3,14 +3,8 @@ import { test } from "node:test";
 import { join } from "node:path";
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import {
-    loadRuntimeConfig,
-    loadReflectionRuntimeConfig,
-    loadGepaModelConfigs,
-} from "../src/config-loader";
-import { resolveLazyGoalHomePaths } from "../src/xdg";
-import { LlmConfigurationError } from "../src/config";
-import { TomlConfigurationError } from "../src/toml-config";
+import { loadRuntimeConfig, loadReflectionRuntimeConfig, loadGepaModelConfigs, resolveLazyGoalHomePaths, TomlConfigurationError } from "../src/index";
+import { LLMConfigurationError } from "../src/index";
 
 test("loadRuntimeConfig 遵循四层覆盖优先级", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "lazygoal-loader-test-"));
@@ -67,7 +61,7 @@ test("loadRuntimeConfig 缺少必填项时快速失败并提示配置路径", as
         await assert.rejects(
             async () => loadRuntimeConfig({ homePaths }),
             (err: unknown) => {
-                assert.ok(err instanceof LlmConfigurationError);
+                assert.ok(err instanceof LLMConfigurationError);
                 assert.match(err.message, /缺少必要的 LLM 配置项/);
                 assert.match(err.message, /config\.toml/);
                 return true;

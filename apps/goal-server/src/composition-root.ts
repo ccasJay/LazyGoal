@@ -95,8 +95,8 @@ import {
     type ModelInputEstimator,
     TrajectoryModelContextAssembler,
 } from "../../../packages/agent/src/index";
-import { LlmConfigurationError, readLlmConfig, type LlmConfig } from "../../../packages/llm/src/config";
-import { loadRuntimeConfig } from "../../../packages/llm/src/config-loader";
+import { LLMConfigurationError, readLLMConfig, type LLMConfig } from "../../../packages/config/src/index";
+import { loadRuntimeConfig } from "../../../packages/config/src/index";
 import {
     ensureSecureConfigFile,
     ensureSecureHomeDirectories,
@@ -104,7 +104,7 @@ import {
     ensureWorkspaceManifest,
     resolveLazyGoalHomePaths,
     resolveWorkspaceHomePaths,
-} from "../../../packages/llm/src/xdg";
+} from "../../../packages/config/src/index";
 import { createLlmStageAdapters, type LlmStageAdapters } from "../../../packages/llm/src/factory";
 import type { LLMAdapter } from "../../../packages/llm/src/core/adapter";
 import {
@@ -258,7 +258,7 @@ export interface CompositionRoot {
     readonly tracesDirectory: string;
     readonly metricsDirectory: string;
     readonly contextSidecarsDirectory: string;
-    readonly llmConfig?: LlmConfig;
+    readonly llmConfig?: LLMConfig;
     readonly conversationCharBudget: number;
     readonly contextCompactor: DropOldestContextCompactor;
     readonly modelInputEstimator: ModelInputEstimator;
@@ -325,13 +325,13 @@ export async function createCompositionRoot(
     options: CompositionRootOptions = {},
 ): Promise<CompositionRoot> {
     const env = options.env ?? process.env;
-    let llmConfig: LlmConfig | undefined;
+    let llmConfig: LLMConfig | undefined;
     let adapter: LLMAdapter;
     let configuredStageAdapters: Readonly<LlmStageAdapters> | undefined;
     if (options.adapter !== undefined) {
         adapter = options.adapter;
         try {
-            llmConfig = readLlmConfig(env);
+            llmConfig = readLLMConfig(env);
             configuredStageAdapters = createLlmStageAdapters(llmConfig);
         } catch {
             llmConfig = undefined;
@@ -339,7 +339,7 @@ export async function createCompositionRoot(
         }
     } else {
         try {
-            llmConfig = readLlmConfig(env);
+            llmConfig = readLLMConfig(env);
         } catch (error) {
             const homePaths = resolveLazyGoalHomePaths(env);
             const hasHomeConfig = existsSync(homePaths.configFile)
@@ -348,8 +348,8 @@ export async function createCompositionRoot(
                 const runtimeConfig = await loadRuntimeConfig({ env, homePaths });
                 llmConfig = runtimeConfig.llm;
             } else {
-                if (error instanceof LlmConfigurationError) {
-                    throw new LlmConfigurationError(
+                if (error instanceof LLMConfigurationError) {
+                    throw new LLMConfigurationError(
                         error.missing,
                         `${error.message}。请在 ${homePaths.configFile} 配置，或通过环境变量传入；如需迁移，请手动复制到该 Home 文件。`,
                     );
