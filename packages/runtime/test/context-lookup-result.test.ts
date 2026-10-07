@@ -14,7 +14,7 @@ import {
     type ContextSearchDocument,
     type ContextRankingResult,
 } from "../../context-retrieval/src/index";
-import type { ContextLookupRequest } from "../../contracts/src/index";
+import type { ContextLookupRequest } from "../../model-contracts/src/index";
 
 const goalId = "result-goal";
 const runId = "result-run";

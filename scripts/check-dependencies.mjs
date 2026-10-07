@@ -6,27 +6,31 @@ import { pathToFileURL } from "node:url";
  * 每个 package 允许的出站目标（from -> allowed target packages）。
  *
  * contracts、execution-stream 与 execution-control 是无出站依赖的基础包；其它 package 可以单向依赖它们。
- * runtime 依赖 contracts、execution-stream、sandbox、permission、context-retrieval 和 execution-control；
- * llm 只依赖 contracts、execution-stream 与 execution-control；storage 只依赖 runtime/contracts；agent/tools 复用
- * runtime、llm（agent）和 execution-stream；session-metrics 通过 Runtime
- * 端口读取 Goal 与调用指标；browser 读取 Runtime 契约并依赖通用 HTTP 宿主；
+ * model-contracts 承载模型输出与对话协议，仅单向依赖 contracts。
+ * tool-core 提供通用工具抽象，仅依赖 contracts、execution-control、sandbox。
+ * runtime 依赖 contracts、model-contracts、execution-stream、sandbox、permission、context-retrieval、execution-control 和 tool-core；
+ * llm 只依赖 contracts、model-contracts、execution-stream 与 execution-control；
+ * storage 依赖 runtime、contracts、model-contracts、permission、context-retrieval；
+ * agent 复用 runtime、llm、contracts、model-contracts、execution-stream、execution-control、tool-core；
+ * session-metrics 通过 Runtime 端口读取 Goal 与调用指标；browser 读取 Runtime 契约并依赖通用 HTTP 宿主；
  * http 不依赖 LazyGoal 包；goal-server 是服务组合根，可导入所需后端实现。
  */
 const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
+    "model-contracts": ["contracts"],
     "execution-stream": [],
     "execution-control": [],
-    "context-retrieval": ["contracts"],
+    "context-retrieval": ["contracts", "model-contracts"],
     http: [],
     "slash-command": [],
     acp: [],
     sandbox: [],
     permission: ["contracts", "sandbox"],
     "tool-core": ["contracts", "execution-control", "sandbox"],
-    runtime: ["contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control", "tool-core"],
-    llm: ["contracts", "execution-stream", "execution-control"],
-    storage: ["runtime", "contracts", "permission", "context-retrieval"],
-    agent: ["runtime", "llm", "contracts", "execution-stream", "execution-control", "tool-core"],
+    runtime: ["contracts", "model-contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control", "tool-core"],
+    llm: ["contracts", "model-contracts", "execution-stream", "execution-control"],
+    storage: ["runtime", "contracts", "model-contracts", "permission", "context-retrieval"],
+    agent: ["runtime", "llm", "contracts", "model-contracts", "execution-stream", "execution-control", "tool-core"],
     "session-metrics": ["runtime", "http", "web-contracts"],
     tools: ["runtime", "contracts", "execution-stream", "sandbox", "execution-control", "tool-core"],
     browser: ["http", "runtime", "permission", "web-contracts", "execution-control"],

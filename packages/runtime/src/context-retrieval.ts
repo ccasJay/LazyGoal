@@ -15,7 +15,7 @@ import type {
     ContextLookupFilters,
     ContextLookupNeed,
     ContextLookupRequest,
-} from "../../contracts/src/index";
+} from "../../model-contracts/src/index";
 
 export type {
     ContextLookupFilters,

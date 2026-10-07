@@ -1,7 +1,13 @@
 import type { JsonSchema202012, JsonValue } from "../../../contracts/src/index";
 
-import type { ModelAssistantMessage, ModelConversationMessage, ModelToolCall, ModelContinuation } from "../../../contracts/src/model-conversation";
-export type { NativeConversationIdentity } from "../../../contracts/src/model-conversation";
+import type {
+    ModelAssistantMessage,
+    ModelConversationMessage,
+    ModelToolCall,
+    ModelContinuation,
+    NativeConversationIdentity,
+} from "../../../model-contracts/src/index";
+export type { NativeConversationIdentity };
 
 /** 统一模型消息角色，包含原生工具结果。 */
 export type LLMRole = ModelConversationMessage["role"];

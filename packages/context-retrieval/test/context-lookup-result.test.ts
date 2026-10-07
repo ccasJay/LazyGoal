@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { ContextLookupRequest } from "../../contracts/src/index";
+import type { ContextLookupRequest } from "../../model-contracts/src/index";
 import {
     CONTEXT_LOOKUP_RESULT_BUDGET_CODE,
     buildContextLookupResultFromRanking,

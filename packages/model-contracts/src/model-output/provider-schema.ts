@@ -1,6 +1,9 @@
-import { compileJsonSchema, type JsonSchema202012, type JsonSchemaValue } from "../json-schema";
-import { isContractNode } from "../internal";
-import type { Contract } from "../types";
+import {
+    compileJsonSchema,
+    type Contract,
+    type JsonSchema202012,
+    type JsonSchemaValue,
+} from "../../../contracts/src/index";
 import { ModelOutputContractDefinitionError } from "./errors";
 
 /**

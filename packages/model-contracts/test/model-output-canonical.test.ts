@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+    contract,
+    safeParse,
+} from "../../contracts/src/index";
+import {
     AgentDecisionContract,
     ContextLookupRequestContract,
     ExecutingWorkingMemoryPatchContract,
@@ -12,10 +16,8 @@ import {
     StructuredAgentDecisionContract,
     ToolCallActionContract,
     WorkingMemoryPatchContract,
-    contract,
     createModelOutputContractBundle,
     isReadOnlyToolContract,
-    safeParse,
     validateModelOutputSemantics,
     type AuthorizedToolContract,
 } from "../src/index";

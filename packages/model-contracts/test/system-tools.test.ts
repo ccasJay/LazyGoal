@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contract } from "../src/contract";
-import { ContractValidationError } from "../src/errors";
+import {
+    contract,
+    ContractValidationError,
+} from "../../contracts/src/index";
 import {
     createCheckpointToolDeclarations,
     createExecutingToolDeclarations,

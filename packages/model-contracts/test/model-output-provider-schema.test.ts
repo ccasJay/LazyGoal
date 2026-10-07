@@ -4,13 +4,15 @@ import { test } from "node:test";
 import Ajv2020 from "ajv/dist/2020.js";
 
 import {
-    buildShapeGuide,
-    compileModelOutputSchema,
     contract,
     ContractValidationError,
+    safeParse,
+} from "../../contracts/src/index";
+import {
+    buildShapeGuide,
+    compileModelOutputSchema,
     createModelOutputContractBundle,
     ModelOutputContractDefinitionError,
-    safeParse,
     SHAPE_GUIDE_PREFIX,
 } from "../src/index";
 

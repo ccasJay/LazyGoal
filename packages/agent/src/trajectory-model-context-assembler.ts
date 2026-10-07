@@ -1,4 +1,4 @@
-import type { NativeConversationIdentity } from "../../contracts/src/model-conversation";
+import type { NativeConversationIdentity } from "../../model-contracts/src/index";
 import { collectNativeModelExchanges } from "./native-model-history";
 import type { Goal } from "../../runtime/src/domain";
 import {

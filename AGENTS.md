@@ -23,6 +23,7 @@ prompt-evaluation/ External prompt optimization integrations
 packages/        Private `@lazygoal/*` workspaces
   contracts/      Contract AST builders and static type inference core
   execution-control/ Process-local cancellation primitives and transient model failure protocols
+  model-contracts/ Model output contracts, wire projection, schema compilation, and conversation protocols
   web-contracts/  Browser HTTP/SSE wire DTOs and boundary validation
   agent/         Agent prompts, response schemas, and the unified LLM step executor
   execution-stream/ Process-local Goal/Run events and bounded subscriptions

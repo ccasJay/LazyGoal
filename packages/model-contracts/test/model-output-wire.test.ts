@@ -4,6 +4,9 @@ import { test } from "node:test";
 import {
     contract,
     ContractValidationError,
+    safeParse,
+} from "../../contracts/src/index";
+import {
     createModelOutputContractBundle,
     decodeWireResult,
     deriveWireContract,
@@ -14,7 +17,6 @@ import {
     ModelContextCheckpointResultContract,
     ModelOutputContractDefinitionError,
     OrdinaryExecutingDecisionContract,
-    safeParse,
 } from "../src/index";
 
 test("deriveWireEnvelopeContract 严格要求顶层仅含必填 result envelope（Req 2.1）", () => {

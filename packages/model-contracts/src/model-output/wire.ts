@@ -1,17 +1,17 @@
-import { contract } from "../contract";
-import { safeParse } from "../parser";
-import { ContractValidationError } from "../errors";
-import { isContractNode, isOptionalPropertyNode } from "../internal";
-import type {
-    ArrayOptions,
-    Contract,
-    ContractKind,
-    JsonScalar,
-    NumberOptions,
-    ObjectContract,
-    ObjectShape,
-    StringOptions,
-} from "../types";
+import {
+    contract,
+    safeParse,
+    inspectContractNode,
+    ContractValidationError,
+    type ArrayOptions,
+    type Contract,
+    type ContractKind,
+    type JsonScalar,
+    type NumberOptions,
+    type ObjectContract,
+    type ObjectShape,
+    type StringOptions,
+} from "../../../contracts/src/index";
 import { ModelOutputContractDefinitionError } from "./errors";
 
 type RuntimeContract = Omit<Contract<unknown>, "kind"> & Readonly<Record<PropertyKey, unknown>> & {
@@ -34,11 +34,12 @@ function deriveWireNode(
     node: unknown,
     path: readonly (string | number)[],
 ): Contract<unknown> {
-    if (!isContractNode(node)) {
+    const inspection = inspectContractNode(node);
+    if (!inspection || inspection.category !== "contract") {
         throw new ModelOutputContractDefinitionError("Invalid Contract node", path);
     }
 
-    const runtimeNode = node as unknown as RuntimeContract;
+    const runtimeNode = inspection.node as unknown as RuntimeContract;
 
     switch (runtimeNode.kind) {
         case "string": {
@@ -133,9 +134,11 @@ function deriveWireObject(
 
     for (const [key, prop] of Object.entries(objectNode.shape)) {
         const propPath = [...path, key];
-        if (isOptionalPropertyNode(prop)) {
-            const inner = prop.inner;
-            if (isContractNode(inner) && (inner as unknown as RuntimeContract).kind === "nullable") {
+        const propInspection = inspectContractNode(prop);
+        if (propInspection?.category === "optional-property") {
+            const inner = propInspection.node.inner;
+            const innerInspection = inspectContractNode(inner);
+            if (innerInspection?.category === "contract" && (innerInspection.node as unknown as RuntimeContract).kind === "nullable") {
                 throw new ModelOutputContractDefinitionError(
                     "optional(nullable(...)) is ambiguous and forbidden in wire contract",
                     propPath,
@@ -143,8 +146,8 @@ function deriveWireObject(
             }
             const wireInner = deriveWireNode(inner, propPath);
             wireShape[key] = contract.nullable(wireInner);
-        } else if (isContractNode(prop)) {
-            wireShape[key] = deriveWireNode(prop, propPath);
+        } else if (propInspection?.category === "contract") {
+            wireShape[key] = deriveWireNode(propInspection.node, propPath);
         } else {
             throw new ModelOutputContractDefinitionError("Invalid object property node", propPath);
         }
@@ -234,11 +237,12 @@ function decodeNode(
     value: unknown,
     path: readonly (string | number)[],
 ): unknown {
-    if (!isContractNode(canonicalNode)) {
+    const inspection = inspectContractNode(canonicalNode);
+    if (!inspection || inspection.category !== "contract") {
         return value;
     }
 
-    const runtimeNode = canonicalNode as unknown as RuntimeContract;
+    const runtimeNode = inspection.node as unknown as RuntimeContract;
 
     switch (runtimeNode.kind) {
         case "object": {
@@ -249,7 +253,8 @@ function decodeNode(
             const shape = (canonicalNode as unknown as ObjectContract<ObjectShape>).shape;
 
             for (const [key, prop] of Object.entries(shape)) {
-                if (isOptionalPropertyNode(prop)) {
+                const propInspection = inspectContractNode(prop);
+                if (propInspection?.category === "optional-property") {
                     if (key in value) {
                         const propVal = value[key];
                         if (propVal === null) {
@@ -257,14 +262,14 @@ function decodeNode(
                             continue;
                         }
                         if (propVal !== undefined) {
-                            decoded[key] = decodeNode(prop.inner, propVal, [...path, key]);
+                            decoded[key] = decodeNode(propInspection.node.inner, propVal, [...path, key]);
                         }
                     }
-                } else if (isContractNode(prop)) {
+                } else if (propInspection?.category === "contract") {
                     if (key in value) {
                         const propVal = value[key];
                         // 必选字段即使为 null（如 Fact value: null 或 nullable），原样解码保留
-                        decoded[key] = decodeNode(prop, propVal, [...path, key]);
+                        decoded[key] = decodeNode(propInspection.node, propVal, [...path, key]);
                     }
                 }
             }

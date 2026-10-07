@@ -1,4 +1,4 @@
-import type { ModelConversationMessage } from "../../contracts/src/model-conversation";
+import type { ModelConversationMessage } from "../../model-contracts/src/index";
 import { createHash } from "node:crypto";
 
 import type {

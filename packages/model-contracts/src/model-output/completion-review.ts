@@ -1,6 +1,8 @@
-import { contract } from "../contract";
-import type { InferContract } from "../types";
-import { ContractValidationError } from "../errors";
+import {
+    contract,
+    ContractValidationError,
+    type InferContract,
+} from "../../../contracts/src/index";
 
 /** 完成审查只接受候选或返回缺口，不生成业务决策。 */
 export const CompletionReviewResultContract = contract.discriminatedUnion("kind", [

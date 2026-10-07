@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { contract } from "../contract";
-import type { Contract, InferContract, JsonValue } from "../types";
+import {
+    contract,
+    type Contract,
+    type InferContract,
+    type JsonValue,
+} from "../../../contracts/src/index";
 
 /**
  * 递归 JSON 值契约。

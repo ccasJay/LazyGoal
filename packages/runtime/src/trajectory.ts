@@ -1,4 +1,8 @@
-import { isModelAssistantMessage, type ModelAssistantMessage, type NativeConversationIdentity } from "../../contracts/src/model-conversation";
+import {
+    isModelAssistantMessage,
+    type ModelAssistantMessage,
+    type NativeConversationIdentity,
+} from "../../model-contracts/src/index";
 import { createHash } from "node:crypto";
 
 import type {

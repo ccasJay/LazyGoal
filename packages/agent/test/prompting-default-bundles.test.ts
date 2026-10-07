@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createCheckpointToolDeclarations, createUnifiedToolDeclarations } from "../../contracts/src/index";
+import { createCheckpointToolDeclarations, createUnifiedToolDeclarations } from "../../model-contracts/src/index";
 import type {
     ModelDynamicContext,
     ModelInferenceView,

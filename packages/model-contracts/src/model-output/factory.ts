@@ -1,8 +1,13 @@
-import { contract } from "../contract";
-import { safeParse } from "../parser";
-import { ContractValidationError } from "../errors";
-import type { JsonSchema202012 } from "../json-schema";
-import type { Contract, LiteralContract, ObjectContract, ObjectShape } from "../types";
+import {
+    contract,
+    safeParse,
+    ContractValidationError,
+    type Contract,
+    type JsonSchema202012,
+    type LiteralContract,
+    type ObjectContract,
+    type ObjectShape,
+} from "../../../contracts/src/index";
 import {
     type AgentDecision,
     type DecideOutput,

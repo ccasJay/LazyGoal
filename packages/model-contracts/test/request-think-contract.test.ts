@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { safeParse } from "../../contracts/src/index";
 import {
     AgentDecisionContract,
     createModelOutputContractBundle,
     createUnifiedToolDeclarations,
-    safeParse,
     SystemRequestThinkDeclaration,
 } from "../src/index";
 

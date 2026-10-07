@@ -1,4 +1,4 @@
-import { isModelConversationMessage, type ModelAssistantMessage } from "../../contracts/src/model-conversation";
+import { isModelConversationMessage, type ModelAssistantMessage } from "../../model-contracts/src/index";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";

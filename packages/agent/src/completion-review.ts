@@ -2,7 +2,7 @@ import {
     createModelOutputContractBundle,
     SystemCompletionReviewDeclaration,
     type CompletionReviewResult,
-} from "../../contracts/src/index";
+} from "../../model-contracts/src/index";
 import type { CompletionReviewInput } from "../../runtime/src/step-executor";
 import type { LLMRequest } from "../../llm/src/core/types";
 import type { ModelExecutionBinding } from "./model-execution-binding";

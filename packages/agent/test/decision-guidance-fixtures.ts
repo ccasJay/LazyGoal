@@ -1,4 +1,5 @@
-import { contract, type AgentDecision } from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
+import type { AgentDecision } from "../../model-contracts/src/index";
 import { allocateImmutableEvent, type TrajectoryEventDraft } from "../../runtime/src/trajectory";
 import { TrajectoryEventProjector } from "../src/trajectory-event-projector";
 import type { Observation } from "../../runtime/src/domain";

@@ -1,7 +1,8 @@
 import { BASH_INPUT_CONTRACT, READ_FILE_INPUT_CONTRACT, WRITE_FILE_INPUT_CONTRACT, EDIT_FILE_INPUT_CONTRACT, GREP_INPUT_CONTRACT } from "../../tools/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contract, createModelOutputContractBundle } from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
+import { createModelOutputContractBundle } from "../../model-contracts/src/index";
 
 import { ExecutionAbortedError, TransientModelRequestFailure } from "../../execution-control/src/index";
 import { Gemini } from "../src/gemini";
