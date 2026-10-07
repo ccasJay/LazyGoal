@@ -7,7 +7,7 @@
   - 验证方式：待实现的职责拆分测试及现有 `runner.test.ts`、`goal-multi-run-recovery.test.ts`、`browser-recovery.test.ts`；运行 `npx tsx --test packages/runtime/test/runner.test.ts packages/runtime/test/goal-multi-run-recovery.test.ts packages/browser/test/browser-recovery.test.ts`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4)_
 
-- [ ] //TODO 2. 使 Trajectory 事实与提交标记写入在临时故障后安全重试
+- [x] //TODO 2. 使 Trajectory 事实与提交标记写入在临时故障后安全重试
 
   - 实现目标：在内置 JSONL Trajectory Store 的单次追加中保留事件身份、核对不确定写入结果并有限重试；保持提交端口及事实到 Snapshot 再到标记的顺序。
   - 成功判据：写入前或完整落盘后发生可重试故障时，事实和标记各只出现一次，提交成功后才继续；部分行、协议错误及重试耗尽时停止并报告错误，不调用后续模型或 Tool。
