@@ -1,8 +1,9 @@
+import { ExecutionAbortedError } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
     createGoal, createStepExecutor, createToolRegistration, InMemoryToolRegistry,
-    Runner, ExecutionAbortedError, TransientModelRequestFailure,
+    Runner, TransientModelRequestFailure,
     type AgentDecision, type Goal, type GoalStore,
 } from "../src/index";
 import { contract } from "../../contracts/src/index";

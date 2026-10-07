@@ -32,13 +32,6 @@ export { canUpdateGoalPlan } from "./run-mode-capabilities";
 export { findTools } from "./tool-discovery";
 export type { ToolDiscoveryResult } from "./tool-discovery";
 export {
-    EXECUTION_ABORTED_ERROR_CODE,
-    ExecutionAbortedError,
-    isExecutionAbortedError,
-    throwIfAborted,
-} from "./execution-control";
-export type { ExecutionControl } from "./execution-control";
-export {
     ModelRequestRetriesExhaustedError,
     TransientModelRequestFailure,
 } from "./model-request-failure";

@@ -1,5 +1,5 @@
 import type { Goal, GoalModelSelection, RunRef } from "./domain.js";
-import { throwIfAborted, type ExecutionControl } from "./execution-control.js";
+import { throwIfAborted, type ExecutionControl } from "../../execution-control/src/index";
 import type { GoalStore } from "./goal-store.js";
 
 /**

@@ -1,15 +1,15 @@
 /**
- * 一次 Goal 推进调用共享的进程控制信号。
+ * 跨层执行调用共享的进程控制信号。
  *
  * @remarks
- * `signal` 只表达调用生命周期，不属于 Goal 领域状态，也不会写入快照。
+ * `signal` 只表达调用生命周期，不属于领域持久化状态。
  * 调用链中的每一层都必须在外部调用前以及异步调用返回后检查它；一旦中止，
  * 必须抛出 {@link ExecutionAbortedError}，不得把中止转换成业务失败或新的领域状态。
  *
  * @example
  * ```ts
  * const control: ExecutionControl = { signal: new AbortController().signal };
- * await coordinator.advance(ref, control);
+ * await runner.execute(request, control);
  * ```
  */
 export interface ExecutionControl {
@@ -24,8 +24,8 @@ export const EXECUTION_ABORTED_ERROR_CODE = "EXECUTION_ABORTED" as const;
  * 表示本次执行因外部关闭或中止信号停止，而不是业务执行失败。
  *
  * @remarks
- * 该错误必须沿调用链原样传播。上层关闭协调器可以识别它并结束进程；Runner
- * 不得为它生成 `fail` Step、`execution_error`、`cancelled` 或新的 Goal 快照。
+ * 该错误必须沿调用链原样传播。上层关闭协调器可以识别它并结束进程；执行器
+ * 不得为它生成失败步骤、未捕获业务错误或异常持久化记录。
  *
  * @example
  * ```ts
@@ -41,7 +41,7 @@ export const EXECUTION_ABORTED_ERROR_CODE = "EXECUTION_ABORTED" as const;
 export class ExecutionAbortedError extends Error {
     readonly code = EXECUTION_ABORTED_ERROR_CODE;
 
-    /** @param message - 可选的内部诊断文本，不面向 TUI 用户展示。 */
+    /** @param message - 可选的内部诊断文本，不面向终端用户展示。 */
     constructor(message = "Execution aborted") {
         super(message);
         this.name = "ExecutionAbortedError";
@@ -78,8 +78,7 @@ export function isExecutionAbortedError(
 /**
  * 在继续执行前检查中止信号。
  *
- * @param control - 当前调用共享的执行控制；也接受裸 `AbortSignal` 以便边界
- *   适配器在不构造对象时安全复用该检查。
+ * @param control - 当前调用共享的执行控制；也接受裸 `AbortSignal` 以便边界适配器直接复用。
  * @throws ExecutionAbortedError 当信号已经被中止时抛出。
  *
  * @example

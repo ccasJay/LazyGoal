@@ -13,7 +13,7 @@ import {
 import {
     throwIfAborted,
     type ExecutionControl,
-} from "./execution-control";
+} from "../../execution-control/src/index";
 import type { DerivedSandboxAccess, SandboxExecutionPlan } from "../../sandbox/src/index";
 import type { RuntimeFeedbackIssue } from "./runtime-feedback";
 

@@ -9,7 +9,7 @@ import type {
     ToolObservation,
     ToolValidationResult,
 } from "../../runtime/src/index";
-import { throwIfAborted, type ExecutionControl } from "../../runtime/src/execution-control";
+import { throwIfAborted, type ExecutionControl } from "../../execution-control/src/index";
 import { invalidInput } from "./internal/invalid-input";
 import {
     createWorkspaceSandbox,

@@ -28,7 +28,7 @@ import {
 import {
     throwIfAborted,
     type ExecutionControl,
-} from "./execution-control";
+} from "../../execution-control/src/index";
 import { transition } from "./transition";
 import {
     type DiagnosticTraceSink,

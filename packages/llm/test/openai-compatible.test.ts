@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ExecutionAbortedError } from "../../runtime/src/execution-control";
+import { ExecutionAbortedError } from "../../execution-control/src/index";
 import { OpenAICompatible } from "../src/openai-compatible";
 import {
     LLMRequestModeMismatchError,

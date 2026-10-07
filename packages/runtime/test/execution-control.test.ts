@@ -1,3 +1,4 @@
+import { ExecutionAbortedError, throwIfAborted } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -6,12 +7,10 @@ import {
     createRun,
     createStepExecutor,
     createToolRegistration,
-    ExecutionAbortedError,
     GoalCoordinator,
     InlineScheduler,
     Runner,
-    throwIfAborted,
-} from "../src/index";
+    } from "../src/index";
 import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import {
@@ -85,7 +84,7 @@ test("throwIfAborted uses the dedicated execution abort error", () => {
         () => throwIfAborted({ signal: controller.signal }),
         (error: unknown) => {
             assert.ok(error instanceof ExecutionAbortedError);
-            assert.equal(error.code, "EXECUTION_ABORTED");
+            assert.equal((error as any).code, "EXECUTION_ABORTED");
             return true;
         },
     );

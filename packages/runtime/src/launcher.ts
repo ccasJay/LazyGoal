@@ -9,7 +9,7 @@ import {
     isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
-} from "./execution-control";
+} from "../../execution-control/src/index";
 import type { GoalStore } from "./goal-store";
 import type {
     GoalCoordinator,

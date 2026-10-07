@@ -3,7 +3,7 @@ import type { RunExecutionOptions, RunRef } from "./domain";
 import {
     throwIfAborted,
     type ExecutionControl,
-} from "./execution-control";
+} from "../../execution-control/src/index";
 import type { RunScheduler } from "./scheduler";
 
 /**

@@ -14,7 +14,7 @@ import type {
 import {
     throwIfAborted,
     type ExecutionControl,
-} from "../../../packages/runtime/src/execution-control.js";
+} from "../../../packages/execution-control/src/index.js";
 import { invalidInput } from "../../../packages/tools/src/internal/invalid-input.js";
 
 /** `BashExecTool` 在 Profile 中使用的稳定标识。 */

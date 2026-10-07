@@ -8,7 +8,7 @@ import { createLlmAdapter } from "../src/factory";
 import { readLlmConfig, LlmConfigurationError } from "../src/config";
 import { LLMRequestModeMismatchError, type LLMRequest } from "../src/core/types";
 import { readNormalizedUsage } from "../src/core/usage";
-import { ExecutionAbortedError } from "../../runtime/src/execution-control";
+import { ExecutionAbortedError } from "../../execution-control/src/index";
 
 const json = '{"answer":"ok"}';
 const request: LLMRequest = { messages: [

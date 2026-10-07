@@ -1,3 +1,4 @@
+import { ExecutionAbortedError } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,7 +10,6 @@ import {
     LIST_DIRECTORY_TOOL_ID,
     type ListDirectoryOutput,
 } from "../src/index";
-import { ExecutionAbortedError } from "../../runtime/src/index";
 
 test("ListDirectoryTool 列举工作区根目录并按 path 字符序升序排序", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-list-dir-"));

@@ -1,12 +1,12 @@
+import { isExecutionAbortedError, type ExecutionControl } from "../../execution-control/src/index";
 import "dotenv/config";
 import { pathToFileURL } from "node:url";
 import { contract } from "../../contracts/src/index";
 import {
     GoalCoordinator, InlineScheduler, Runner, TrajectoryCheckpointCommitter,
     InMemoryToolRegistry, createToolRegistration, launch,
-    type AgentProfile, type ExecutionControl, type Tool,
-    isExecutionAbortedError,
-} from "../../runtime/src/index";
+    type AgentProfile, type Tool,
+    } from "../../runtime/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { InMemoryTrajectoryStore } from "../../runtime/test/current-fixtures";
 import {

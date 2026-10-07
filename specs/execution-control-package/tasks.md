@@ -1,6 +1,6 @@
 # 执行控制协议拆包任务
 
-- [ ] //TODO 1. 拆出共享取消协议并迁移现有调用链
+- [x] //TODO 1. 拆出共享取消协议并迁移现有调用链
 
   - 实现目标：建立 `@lazygoal/execution-control` 的单一取消类型来源，迁移 Runtime、Agent、LLM、Tools、Browser、Benchmark 与测试／smoke 的现有取消导入；移除已迁出符号的旧导出和实现，更新所需依赖规则。
   - 成功判据：已中止信号在模型、Agent、Tool 和 Runner 边界仍被识别并阻止后续调用；中止不新增业务失败或 Goal 快照，所有调用方使用同一错误类。

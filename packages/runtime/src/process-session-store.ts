@@ -1,4 +1,4 @@
-import type { ExecutionControl } from "./execution-control";
+import type { ExecutionControl } from "../../execution-control/src/index";
 
 /**
  * 受管进程生命周期的持久化状态。

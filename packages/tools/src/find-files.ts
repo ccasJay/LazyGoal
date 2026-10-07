@@ -18,7 +18,7 @@ import {
     isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
-} from "../../runtime/src/execution-control";
+} from "../../execution-control/src/index";
 import { invalidInput } from "./internal/invalid-input";
 import {
     computeCanonicalDigest,

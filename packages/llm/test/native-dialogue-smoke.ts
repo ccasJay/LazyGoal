@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 import { readLlmConfig } from "../src/config";
 import { createLlmAdapter } from "../src/factory";
 import type { LLMMessage } from "../src/core/types";
-import type { ExecutionControl } from "../../runtime/src/execution-control";
+import type { ExecutionControl } from "../../execution-control/src/index";
 
 /**
  * 使用显式凭据验证两轮原生工具调用及首轮结果回传，不执行文件或外部工具。

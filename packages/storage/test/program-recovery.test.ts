@@ -1,3 +1,4 @@
+import { ExecutionAbortedError } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
@@ -9,7 +10,6 @@ import { contract } from "../../contracts/src/index";
 import {
     createGoal,
     createToolRegistration,
-    ExecutionAbortedError,
     GoalCoordinator,
     InMemoryToolRegistry,
     InlineScheduler,

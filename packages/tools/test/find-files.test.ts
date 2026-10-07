@@ -1,3 +1,4 @@
+import { ExecutionAbortedError } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,7 +10,6 @@ import {
     FIND_FILES_TOOL_ID,
     type FindFilesOutput,
 } from "../src/index";
-import { ExecutionAbortedError } from "../../runtime/src/index";
 
 test("FindFilesTool 匹配工作区文件并跳过 .git, .lazygoal, node_modules", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-find-files-"));

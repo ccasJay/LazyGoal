@@ -1,3 +1,4 @@
+import { ExecutionAbortedError } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { realpath } from "node:fs/promises";
@@ -8,8 +9,7 @@ import { test } from "node:test";
 import type { JsonValue } from "../../runtime/src/index";
 import {
     createToolRegistration,
-    ExecutionAbortedError,
-} from "../../runtime/src/index";
+    } from "../../runtime/src/index";
 import {
     BASH_MAX_OUTPUT_CHARS,
     BASH_MAX_TIMEOUT_MS,
