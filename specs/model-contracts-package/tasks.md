@@ -28,7 +28,7 @@
   - 验证方式：`npm run check:dependencies` 与 `npm test` 通过；检索源码确认生产代码无从 Contracts 导入模型协议的遗留引用，文档准确描述新包职责。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2)_
 
-- [ ] //TODO 5. 同步 Working Memory 的 Patch 契约归属
+- [x] //TODO 5. 同步 Working Memory 的 Patch 契约归属
 
   - 实现目标：修订 `working-memory-package` 的 Design 与 Tasks，将 `WorkingMemoryPatch` 的唯一权威归属改为 `@lazygoal/model-contracts`，并使 Working Memory 仅以类型依赖使用该契约；按 Working Memory Spec 流程分别取得必要审批后，再执行受影响的 Working Memory 实现任务。
   - 成功判据：Working Memory 计划不再把 Patch 契约归于 Contracts，也不复制其定义；Patch 的结构与类型只由 Model Contracts 持有；未获 Working Memory Spec 对修订文件的批准前，不开始其受影响的实现任务。
@@ -57,4 +57,15 @@
 
 ### Latest Result
 
-未执行。
+- 验证状态：PASSED
+- 验证时间：2026-10-07
+- 验证结果：
+  - [1.1] Contracts 仅保留 DSL/AST/Parser/Schema 编译器和检查器，100% 独立于模型协议，TypeScript 及单测全过。
+  - [1.2] Model Contracts 公共入口导出模型输出协议与消息协议，复用 Contracts AST，全仓 TypeScript 与单测通过。
+  - [2.1] Canonical 输入测试全部迁移并保持固定输入接受/拒绝判定。
+  - [2.2] Wire 解码、Schema 和 Shape Guide 测试全部迁移至 Model Contracts 并保持派生行为一致。
+  - [2.3] 模型消息合法性判定及测试全部迁移并通过。
+  - [3.1, 3.2] Contracts 提供统一只读 AST 检查器，无符号泄漏，AST 检查及 Wire 测试全部通过。
+  - [4.1, 4.2] 全仓生产调用方已迁移至 `@lazygoal/model-contracts`，`@lazygoal/contracts` 无出站依赖，`npm run check:dependencies` 与单测全绿。
+  - [5.1, 5.2] Working Memory Design 与 Tasks 已经同步修订，明确 `WorkingMemoryPatch` 唯一归属于 `@lazygoal/model-contracts`。
+  - 全量回归：1563 个测试全部 PASS，scripts 测试 20 个全部 PASS。
