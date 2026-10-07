@@ -10,7 +10,8 @@ import {
     validateFactEvidence,
     validateMemoryPatchEvidence,
 } from "../src/index";
-import type { MemoryPatch, TrajectoryEvent } from "../src/index";
+import type { TrajectoryEvent } from "../src/index";
+import type { MemoryPatch } from "../../working-memory/src/index";
 
 const goalId = "evidence-goal";
 const runId = "evidence-run";

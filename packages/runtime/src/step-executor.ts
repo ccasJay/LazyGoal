@@ -5,8 +5,8 @@ import type {
 import type {
     AgentDecision,
     Goal,
-    WorkingMemory,
 } from "./domain";
+import type { WorkingMemory } from "../../working-memory/src/index";
 import type { ContextLookupResult } from "./context-retrieval";
 import type { ToolDefinition } from "./tool";
 import type { ExecutionControl } from "./execution-control";

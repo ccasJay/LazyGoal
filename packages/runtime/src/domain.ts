@@ -32,7 +32,6 @@ import type { GoalPlan } from "./goal-plan";
 import type { EffectiveSandboxScope, SandboxExecutionPlan } from "../../sandbox/src/index";
 
 import {
-    createEmptyWorkingMemory,
     isMemoryProtocol,
     type Blocker,
     type CanonicalMemoryOperation,
@@ -50,29 +49,6 @@ import {
     type MemoryRevision,
     type WorkingMemory,
 } from "../../working-memory/src/index";
-
-export {
-    createEmptyWorkingMemory,
-    isMemoryProtocol,
-};
-export type {
-    Blocker,
-    CanonicalMemoryOperation,
-    EvidenceBackedFact,
-    FactStability,
-    Hypothesis,
-    MemoryEntry,
-    MemoryEntryBase,
-    MemoryEntryKind,
-    MemoryEntryScope,
-    MemoryEntrySource,
-    MemoryEntryStatus,
-    MemoryOriginPhase,
-    MemoryPatch,
-    MemoryProtocol,
-    MemoryRevision,
-    WorkingMemory,
-};
 
 export type {
     CompletionAcceptance,

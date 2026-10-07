@@ -24,8 +24,8 @@ import {
     allocateImmutableEvent,
     classifyTrajectoryTail,
     createGoal,
-    createEmptyWorkingMemory,
 } from "../../runtime/src/index";
+import { createEmptyWorkingMemory } from "../../working-memory/src/index";
 import { currentProtocols } from "./current-fixtures";
 
 const profile: AgentProfile = {

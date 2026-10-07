@@ -11,7 +11,6 @@ import {
 } from "../src/index";
 import type {
     AgentProfile,
-    CanonicalMemoryOperation,
     Goal,
     GoalStore,
     TrajectoryEvent,
@@ -20,6 +19,7 @@ import type {
     TrajectoryReadResult,
     TrajectoryStore,
 } from "../src/index";
+import type { CanonicalMemoryOperation } from "../../working-memory/src/index";
 import { currentProtocols } from "./current-fixtures";
 
 const profile: AgentProfile = {

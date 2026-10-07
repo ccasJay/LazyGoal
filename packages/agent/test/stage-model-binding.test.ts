@@ -6,9 +6,7 @@ import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
 import { ModelStageFeedbackError } from "../../runtime/src/index";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal } from "../../runtime/src/domain";
-import {
-    createEmptyWorkingMemory,
-} from "../../runtime/src/index";
+import { createEmptyWorkingMemory } from "../../working-memory/src/index";
 import {
     createDefaultPromptBundleRenderer,
     DropOldestContextCompactor,

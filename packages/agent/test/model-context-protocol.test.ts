@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-    createEmptyWorkingMemory,
     createGoal,
     type AgentProfile,
 } from "../../runtime/src/index";
+import { createEmptyWorkingMemory } from "../../working-memory/src/index";
 import {
     createDefaultPromptBundleProtocolValidator,
     createDefaultPromptBundleRenderer,

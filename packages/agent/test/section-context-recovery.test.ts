@@ -9,8 +9,8 @@ import type { ToolDefinition } from "../../runtime/src/tool";
 import {
     allocateImmutableEvent,
     classifyTrajectoryTail,
-    createEmptyWorkingMemory,
 } from "../../runtime/src/index";
+import { createEmptyWorkingMemory } from "../../working-memory/src/index";
 import type {
     ModelContextFramePayload,
     ModelContextSectionUpdate,

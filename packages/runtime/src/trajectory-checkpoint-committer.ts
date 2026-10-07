@@ -1,10 +1,12 @@
 import type { ModelContextFrameForStage } from "./step-executor";
 import type {
-    CanonicalMemoryOperation,
     Goal,
     MemoryPatchAcceptedPayload,
-    MemoryRevision,
 } from "./domain";
+import type {
+    CanonicalMemoryOperation,
+    MemoryRevision,
+} from "../../working-memory/src/index";
 import type { GoalStore } from "./goal-store";
 import {
     isExecutionAbortedError,

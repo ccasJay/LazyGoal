@@ -1,8 +1,8 @@
 import type {
     ContextRetrievalProtocol,
-    MemoryProtocol,
     ModelContextProtocol,
 } from "../src/domain";
+import type { MemoryProtocol } from "../../working-memory/src/index";
 import type {
     AgentDecision,
     StepExecutionInput,

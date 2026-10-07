@@ -16,7 +16,7 @@
   - 验证方式：`npx tsx --test packages/working-memory/test/*.test.ts`（迁移后入口，待创建）；Runtime 的 `working-memory-session.test.ts`、`working-memory-runner.test.ts`、`working-memory-coordinator.test.ts`、`evidence-gate.test.ts` 与 `trajectory-checkpoint-committer.test.ts`；`npx tsc --noEmit`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.3](./requirements.md#req-1-3), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 3. 完成模型与外部调用方迁移并收紧公开入口
+- [x] //TODO 3. 完成模型与外部调用方迁移并收紧公开入口
 
   - 实现目标：迁移 Agent、组合根、benchmark、测试和 smoke 的剩余记忆导入；移除 Runtime 的类型与基础函数转发导出，保留独立模型／存储表示，完成公开入口和模型可见性回归。
   - 成功判据：迁出符号只能从新包取得，现有调用方无旧导入；相同已提交记忆生成原有模型投影和 Patch 接受结果，未提交记忆不可见，控制字段不能通过 Patch 指定。
@@ -52,4 +52,13 @@
 
 ### Latest Result
 
-未执行。实施后记录逐项实际结果与证据、整体状态、时效、验证时间、被测提交或未提交改动，以及相应需求与设计版本。
+- 验收状态：PASSED
+- 验证时间：2026-10-07
+- 验证证据：
+  - `npx tsc --noEmit`：0 错误，静态类型检查全绿。
+  - `npm run check:dependencies`：209 个源文件依赖边界全绿通过。
+  - `node --test scripts/check-dependencies.test.mjs`：9/9 测试通过，反向与循环依赖阻断有效。
+  - `npx tsx --test packages/agent/test/model-inference-projector.test.ts packages/agent/test/prompt.test.ts packages/agent/test/model-output.test.ts packages/model-contracts/test/model-output-*.test.ts`：67/67 测试全绿通过。
+  - 全量回归测试：`npm test` 1569 个测试 + 22 个 scripts 测试全绿通过。
+  - 架构文档与仓库布局同步完成：`AGENTS.md`、`docs/architecture/README.md` 与 `docs/architecture/working-memory.md` 已补充。
+  - `git diff --check`：无空白字符或格式错误。

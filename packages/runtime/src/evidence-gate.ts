@@ -1,11 +1,12 @@
 import type {
-    EvidenceBackedFact,
-    MemoryPatch,
     MemoryPatchOperation,
-    WorkingMemory,
 } from "./domain";
 import {
     validateMemoryPatch,
+    type CanonicalMemoryOperation,
+    type EvidenceBackedFact,
+    type MemoryPatch,
+    type WorkingMemory,
 } from "../../working-memory/src/index";
 import type {
     TrajectoryEvent,
@@ -417,7 +418,7 @@ export function validateMemoryPatchEvidence(
  * @throws EvidenceGateError 当证据引用不能回查时抛出。
  */
 export function validateCanonicalFactEvidence(
-    operations: readonly import("./domain").CanonicalMemoryOperation[],
+    operations: readonly CanonicalMemoryOperation[],
     index: CommittedEvidenceIndex,
     scope: EvidenceValidationScope = "execution",
 ): void {

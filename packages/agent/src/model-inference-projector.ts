@@ -2,8 +2,8 @@ import {
     type Goal,
     type ModelContextEpochState,
     type StepRecord,
-    type WorkingMemory,
 } from "../../runtime/src/domain";
+import type { WorkingMemory } from "../../working-memory/src/index";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import { canUpdateGoalPlan } from "../../runtime/src/run-mode-capabilities";
 import { compileJsonSchema } from "../../contracts/src/index";

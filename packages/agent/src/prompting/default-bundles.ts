@@ -12,10 +12,10 @@ import {
 import {
     GoalProtocolError,
     isContextRetrievalProtocol,
-    isMemoryProtocol,
     isModelContextProtocol,
     type GoalProtocolValidator,
 } from "../../../runtime/src/domain";
+import { isMemoryProtocol } from "../../../working-memory/src/index";
 import type {
     PromptBundleManifest,
     PromptBundleRenderer,

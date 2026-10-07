@@ -7,8 +7,8 @@ import type {
 import {
     isContextRetrievalProtocol,
     isModelContextProtocol,
-    isMemoryProtocol,
 } from "../../../runtime/src/domain";
+import { isMemoryProtocol } from "../../../working-memory/src/index";
 import {
     PromptBundleConfigurationError,
     UnsupportedPromptBundleVersionError,
