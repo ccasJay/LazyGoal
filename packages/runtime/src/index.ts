@@ -257,6 +257,7 @@ export type {
     TrajectoryCheckpointCommitterDependencies,
 } from "./trajectory-checkpoint-committer";
 export { Runner } from "./runner";
+export { RunRecoveryReader, type RunRecoveryReaderDependencies } from "./run-recovery-reader";
 export type { RunnerDependencies, RunnerResult, SandboxPlanResolver } from "./runner";
 export { InlineScheduler } from "./inline-scheduler";
 export type {

@@ -155,6 +155,7 @@ import {
     toEpochRange,
 } from "./context-epoch";
 import { withRunModeSelectionGate } from "./run-mode-selection-gate";
+import { RunRecoveryReader } from "./run-recovery-reader";
 import {
     createSandboxGrantMatcher,
     createToolGrantMatcher,
@@ -824,10 +825,10 @@ export interface RunnerDependencies {
 }
 
 /**
- * 从 GoalStore 恢复并推进一个 Run，直到 waiting 或终态。
+ * 持有单次活动执行的最新已提交 Goal，并推进 Run 直到 waiting 或终态。
  *
  * @remarks
- * Runner 是状态推进与持久化顺序的拥有者。启动、恢复和每个 Step 完成后，
+ * RunExecutor 是状态推进与持久化顺序的拥有者。启动、恢复和每个 Step 完成后，
  * 都会先保存最新完整 Goal，再继续下一步。阶段化 Executor 可在一个 Step 内返回
  * 多个 Decide/Think 结果；每次 Think 的请求与输出先提交 Trajectory 和 Snapshot，
  * Snapshot 的 `pendingThink` 指向当前 Step 最近一个已提交输出。恢复会校验 Goal、Run、
@@ -850,8 +851,9 @@ export interface RunnerDependencies {
  * 已提交 `pendingThink`，传播原错误供调用方恢复，且不伪造 AgentDecision。Store 的
  * 读取或写入异常原样传播，写入失败后不会继续执行下一阶段或 Step。
  */
-export class Runner {
+class RunExecutor {
     private readonly store: GoalStore;
+    private readonly recoveryReader: RunRecoveryReader;
     private readonly executor: StepExecutor;
     private readonly toolRegistry: ToolRegistry;
     private readonly toolPolicy: ToolPolicy;
@@ -872,6 +874,12 @@ export class Runner {
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
         this.store = dependencies.store;
+        this.recoveryReader = new RunRecoveryReader({
+            store: dependencies.store,
+            ...(dependencies.trajectoryStore === undefined
+                ? {}
+                : { trajectoryStore: dependencies.trajectoryStore }),
+        });
         this.executor = dependencies.executor;
         this.toolRegistry = dependencies.toolRegistry ?? EMPTY_TOOL_REGISTRY;
         this.toolPolicy = dependencies.toolPolicy ?? ALLOW_ALL_TOOL_POLICY;
@@ -1116,19 +1124,7 @@ export class Runner {
         ref: RunRef,
         control?: ExecutionControl,
     ): Promise<Goal | undefined> {
-        throwIfAborted(control);
-        const goal = await this.store.restore(ref.goalId);
-        throwIfAborted(control);
-
-        if (
-            goal === undefined
-            || goal.id !== ref.goalId
-            || goal.state.run.id !== ref.runId
-        ) {
-            return undefined;
-        }
-
-        return goal;
+        return this.recoveryReader.restoreGoal(ref, control);
     }
 
     private async restoreContextLookupResult(
@@ -1148,9 +1144,10 @@ export class Runner {
         }
 
         throwIfAborted(control);
-        const raw = await trajectoryStore.readWithBoundary(
+        const raw = await this.recoveryReader.readTrajectory(
             { goalId: goal.id, runId: goal.state.run.id },
             boundary,
+            control,
         );
         throwIfAborted(control);
         const committed = [...raw.committed]
@@ -1166,9 +1163,10 @@ export class Runner {
         const historicalEvidenceIndexes: CommittedEvidenceIndex[] = [];
         for (const source of runBoundaries) {
             if (source.runId === goal.state.run.id) continue;
-            const sourceRaw = await trajectoryStore.readWithBoundary(
+            const sourceRaw = await this.recoveryReader.readTrajectory(
                 { goalId: goal.id, runId: source.runId },
                 source.committedThroughSequence,
+                control,
             );
             historicalEvidenceIndexes.push(buildCommittedEvidenceIndex({
                 goalId: goal.id,
@@ -1262,9 +1260,10 @@ export class Runner {
         const boundary = goal.state.run.committedThroughSequence;
         if (trajectoryStore === undefined || boundary <= 0) return 0;
         throwIfAborted(control);
-        const raw = await trajectoryStore.readWithBoundary(
+        const raw = await this.recoveryReader.readTrajectory(
             { goalId: goal.id, runId: goal.state.run.id },
             boundary,
+            control,
         );
         throwIfAborted(control);
         const facts = [...raw.committed]
@@ -1849,9 +1848,10 @@ export class Runner {
         if (this.trajectoryStore === undefined) {
             throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Cannot restore model repair feedback without Trajectory");
         }
-        const result = await this.trajectoryStore.readWithBoundary(
+        const result = await this.recoveryReader.readTrajectory(
             { goalId: goal.id, runId: goal.state.run.id },
             goal.state.run.committedThroughSequence,
+            control,
         );
         const matches = result.committed.filter((event) =>
             event.eventType === "model_repair_feedback_recorded"
@@ -2020,9 +2020,10 @@ export class Runner {
         if (this.trajectoryStore === undefined || pending.thinkRequestId === undefined) {
             throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Pending Think repair has no restorable request");
         }
-        const result = await this.trajectoryStore.readWithBoundary(
+        const result = await this.recoveryReader.readTrajectory(
             { goalId: goal.id, runId: goal.state.run.id },
             goal.state.run.committedThroughSequence,
+            control,
         );
         const matches = result.committed.filter((event) =>
             event.eventType === "think_requested"
@@ -2204,9 +2205,10 @@ export class Runner {
         let committed: readonly TrajectoryEvent[];
         try {
             throwIfAborted(control);
-            const result = await this.trajectoryStore.readWithBoundary(
+            const result = await this.recoveryReader.readTrajectory(
                 { goalId: goal.id, runId: goal.state.run.id },
                 goal.state.run.committedThroughSequence,
+                control,
             );
             if (result.committed.some((event) =>
                 event.goalId !== goal.id || event.runId !== goal.state.run.id,
@@ -2977,7 +2979,7 @@ export class Runner {
                 }
 
                 if (validated.registration.kind === "program") {
-                    const executionUnitId = await this.findProgramExecutionUnit(goal, validated.action.actionId);
+                    const executionUnitId = await this.findProgramExecutionUnit(goal, validated.action.actionId, control);
                     goal = await this.beginProgram(goal, validated.action, executionUnitId, undefined, control);
                     transientAuthorization = undefined;
                     continue;
@@ -4066,13 +4068,14 @@ export class Runner {
         return { ok: true, state: goal.state.run };
     }
 
-    private async findProgramExecutionUnit(goal: Goal, actionId: string): Promise<string> {
+    private async findProgramExecutionUnit(goal: Goal, actionId: string, control?: ExecutionControl): Promise<string> {
         if (this.trajectoryStore === undefined) {
             throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC requires a Trajectory store");
         }
-        const history = await this.trajectoryStore.readWithBoundary(
+        const history = await this.recoveryReader.readTrajectory(
             { goalId: goal.id, runId: goal.state.run.id },
             goal.state.run.committedThroughSequence,
+            control,
         );
         const decisions = history.committed.filter((event) =>
             event.eventType === "decision_received"
@@ -4202,9 +4205,10 @@ export class Runner {
         if (this.trajectoryStore === undefined) {
             throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
         }
-        const ledger = await this.trajectoryStore.readWithBoundary(
+        const ledger = await this.recoveryReader.readTrajectory(
             { goalId: goal.id, runId: goal.state.run.id },
             goal.state.run.committedThroughSequence,
+            control,
         );
         const starts = ledger.committed.filter((event) => event.eventType === "program_started"
             && event.payload.programId === program.programId);
@@ -4738,5 +4742,55 @@ export class Runner {
         }
 
         return result.state;
+    }
+}
+
+/**
+ * 保持原调度入口的 Run 执行门面。
+ *
+ * @remarks
+ * Runner 将执行推进委派给唯一的 RunExecutor；调用方仍通过原有方法启动或恢复 Run。
+ * 恢复读取使用只读 RunRecoveryReader，执行检查点仍由共享提交器管理。
+ *
+ * @example
+ * ```ts
+ * const runner = new Runner({ store, executor });
+ * await runner.runUntilBlocked({ goalId, runId });
+ * ```
+ */
+export class Runner {
+    private readonly executor: RunExecutor;
+
+    /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
+    constructor(dependencies: RunnerDependencies) {
+        this.executor = new RunExecutor(dependencies);
+    }
+
+    /**
+     * @deprecated 请使用与 RunScheduler 契约一致的 `runUntilBlocked`。
+     */
+    run(
+        ref: RunRef,
+        options: RunExecutionOptions = {},
+        control?: ExecutionControl,
+    ): Promise<RunnerResult> {
+        return this.executor.runUntilBlocked(ref, options, control);
+    }
+
+    /**
+     * 启动或继续一个已保存的 Run，直到等待点或终态。
+     *
+     * @param ref - 目标 Goal 与 Run 的关联键。
+     * @param options - 本次调用的瞬时 Action 授权及恢复上下文。
+     * @param control - 当前推进调用的取消控制。
+     * @returns Run 到达等待点或终态时的结果。
+     * @throws 快照/轨迹读取或提交错误、或调用级中止。
+     */
+    runUntilBlocked(
+        ref: RunRef,
+        options: RunExecutionOptions = {},
+        control?: ExecutionControl,
+    ): Promise<RunnerResult> {
+        return this.executor.runUntilBlocked(ref, options, control);
     }
 }

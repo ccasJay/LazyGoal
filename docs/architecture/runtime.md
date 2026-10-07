@@ -11,7 +11,9 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 | [Domain](../../packages/runtime/src/domain.ts) | Goal definition/state、Run 模式与获批 Task、Action/Observation 和交互等待契约 | I/O 和模型调用 |
 | [Launcher](../../packages/runtime/src/launcher.ts) | 校验输入与协议、冻结 Profile、创建并保存 Goal、启动 Coordinator | 恢复已有 Goal |
 | [GoalCoordinator](../../packages/runtime/src/goal-coordinator.ts) | 统一推进、Run 模式选择、waiting resume、Tool Grant 审批/撤销、completed continue、提交等待点并委派 Scheduler | 直接执行 Tool |
-| [Runner](../../packages/runtime/src/runner.ts) | 模型决策校验、Tool 授权、Action/Observation、PTC 父子调用与恢复、Evidence 和 Run 转换；把可纠正校验失败映射为阶段反馈 | 供应商协议和 UI |
+| [Runner](../../packages/runtime/src/runner.ts) | 保持 RunScheduler 调度入口并委派执行器 | Goal 状态推进和恢复读取实现 |
+| [RunExecutor](../../packages/runtime/src/runner.ts) | 持有单次活动执行的最新已提交 Goal，负责模型决策、Tool 授权、Action/Observation、PTC、Evidence 和 Run 转换；恢复历史经只读 reader 获取，检查点经共享提交器写入 | 供应商协议和 UI |
+| [RunRecoveryReader](../../packages/runtime/src/run-recovery-reader.ts) | 按 Goal/Run 身份恢复最新快照，按 Snapshot 提交边界读取 Trajectory | 推进 Run 或写入持久化 |
 | [WorkingMemorySession](../../packages/runtime/src/working-memory-session.ts) | 按 Snapshot 边界重建临时 Working Memory，校验 Patch/Evidence | 保存 Memory 内容到 Snapshot |
 | [TrajectoryCheckpointCommitter](../../packages/runtime/src/trajectory-checkpoint-committer.ts) | 统一事实、Patch、Snapshot 和提交 marker 的顺序 | 业务分支和模型调用 |
 | [GoalStore](../../packages/runtime/src/goal-store.ts) | 保存/恢复最新 Goal Snapshot | 历史查询和文件格式 |
@@ -30,7 +32,7 @@ Goal workflow 只有 `phase: "executing"`。Goal 是可持续恢复的会话聚�
 
 waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表单取消当前询问。Runtime 清除该待处理交互，记录询问取消事件，并将“跳过此询问、继续当前任务”的控制消息交给同一 Run；Run 不会因此进入取消终态。completed 或 failed 输入调用 `continue`，在追加用户消息前归档上一 Run 的终态、保存新 Run，再交给现有 Scheduler。失败 Run 不会原地恢复；只有用户提交新输入才会创建后续 Run。未完成 Todo 不会自动推进。
 
-统一 Runner 按当前 Run 模式和获批任务推进：
+Runner 将调度契约委派给 RunExecutor；RunExecutor 按当前 Run 模式和获批任务推进：
 
 - 普通 Run 直接以当前用户请求为目标，不等待任务提案；完成声明按当前 Run 已提交的 Tool/Observation Evidence 校验。
 - Plan Run 未批准时，Prompt 要求先提交 `task_proposal`，但 Runtime 不以 `isReadOnly` 或未批准状态增加业务 Tool 门控；现有 Profile、Tool Policy 和 Action 审批仍决定 Tool 权限。该 Run 在获批前不能完成。
@@ -54,7 +56,7 @@ Runner 和 GoalCoordinator 可通过 [`@lazygoal/execution-stream`](./execution-
 
 ## 恢复与持久化
 
-Trajectory 是恢复事实源，Snapshot 的 `committedThroughSequence` 是当前 Run 的可见边界，`memoryRevision` 是 accepted Memory Patch 链头。模型成功响应后可随共享提交器保存 `model_context_frame`，记录请求阶段、Epoch、Conversation 插入位置，以及实际发送的 Section 文本和对应结构化投影；该 frame 不写入 Goal Conversation，也不替代其他 Trajectory 事实。恢复查询只接受 Snapshot 边界内、Goal/Run/阶段/Epoch/Conversation 起点匹配且 Section 身份仍与当前注册表一致的 frame；未知或身份不匹配的 Section 不能成为比较基线。每个 `(goalId, runId)` 有独立的 Trajectory 序号；跨 Run 历史查询必须携带完整 Run 身份。`completedRuns` 记录已归档 completed 或 failed Run 的终态、消息区间和提交边界，不改变当前 Run 的 Evidence 所有权。`WorkingMemorySession` 只沿可达 revision 链重放已提交 Patch，并拒绝跨 Goal/Run、断链、循环、越界或不匹配的事实。
+Runner 的恢复读取委派给无写入能力的 RunRecoveryReader。它不缓存第二份 Goal，也不触发调度；RunExecutor 消费经过身份校验的最新快照和 Snapshot 边界内轨迹事实，仍是唯一推进活动状态的一方。Trajectory 是恢复事实源，Snapshot 的 `committedThroughSequence` 是当前 Run 的可见边界，`memoryRevision` 是 accepted Memory Patch 链头。模型成功响应后可随共享提交器保存 `model_context_frame`，记录请求阶段、Epoch、Conversation 插入位置，以及实际发送的 Section 文本和对应结构化投影；该 frame 不写入 Goal Conversation，也不替代其他 Trajectory 事实。恢复查询只接受 Snapshot 边界内、Goal/Run/阶段/Epoch/Conversation 起点匹配且 Section 身份仍与当前注册表一致的 frame；未知或身份不匹配的 Section 不能成为比较基线。每个 `(goalId, runId)` 有独立的 Trajectory 序号；跨 Run 历史查询必须携带完整 Run 身份。`completedRuns` 记录已归档 completed 或 failed Run 的终态、消息区间和提交边界，不改变当前 Run 的 Evidence 所有权。`WorkingMemorySession` 只沿可达 revision 链重放已提交 Patch，并拒绝跨 Goal/Run、断链、循环、越界或不匹配的事实。
 
 `pendingInteraction` 保存问卷或任务提案的完整请求、模式和关联 ID；获批任务保存在当前 Run，恢复时必须验证 Goal、Run、request ID 与等待状态一致。`pendingAction` 按 Tool 的 replay policy 分为安全重放或 `outcome_unknown` 人工确认，并在 Action 获批后记录授权期限与可选 Grant ID。`safe` Tool 只有显式抛出 `TransientToolExecutionFailure` 才会在同一 Action 内自动重试；每次调用前先提交 `attemptsStarted` 和 Trajectory 事实，最多三次且不增加 Step。普通异常按稳定错误失败，`retryable` Observation 仍作为已知业务结果提交，不单独触发重放。`manual` Tool 异常将该 Action 保存为 `outcome_unknown` 并进入等待，后续只能由用户对原 Action 作出单次恢复选择。Goal/workspace Grant 先以来源 `(goalId, runId, actionId)` 写为 pending，再提交批准事实和 Snapshot，之后才激活并调度；若激活中断，`advance` 必须核验快照身份、授权范围和重新派生的操作匹配器后再恢复激活。pending Grant 从不放行新 Action；撤销立即影响后续查询。`pendingThink` 保存当前未完成 Step 的 Think 输出恢复指针；`pendingModelRepair` 保存 Decide/Think 阶段输入边界、已开始尝试次数及最新尝试和反馈事件身份。模型阶段纠错先追加 Trajectory 事实再提交 Snapshot，恢复只读取已提交反馈，并校验 Goal、Run、执行单元、Step、阶段和输入摘要；Think 恢复还校验原请求目标。每条阶段纠错链最多尝试三次（含首次），Decide 完成候选的协议失败和审查拒绝共用此计数，崩溃中的已记次数不会重复使用。未提交输出不进入恢复历史，身份或输入失配会 fail-closed。有效决策提交时清除相应阶段恢复指针。审查拒绝复用已提交反馈恢复，未完成审查不保存候选接受状态，恢复后需再次审查。当前开发期协议不迁移旧字段；Storage 对旧阶段和旧事件显式拒绝。
 
