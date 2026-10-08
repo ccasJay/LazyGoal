@@ -111,8 +111,7 @@ test("Goal 删除入口级联清理其进程目录与日志", async () => {
         assert.equal(res.kind, "success");
         const processId = (res as any).output.processId;
 
-        // 等待退出
-        await new Promise((r) => setTimeout(r, 200));
+        await manager.close();
 
         const existing = await store.getSession("goal-to-delete", processId);
         assert.ok(existing);
@@ -124,8 +123,6 @@ test("Goal 删除入口级联清理其进程目录与日志", async () => {
         assert.equal(afterDel, undefined);
         const list = await store.listSessions("goal-to-delete");
         assert.equal(list.length, 0);
-
-        await manager.close();
     } finally {
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
