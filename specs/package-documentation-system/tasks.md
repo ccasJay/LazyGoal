@@ -36,4 +36,8 @@
 
 ### Latest Result
 
-未执行。TODO 均未开始，本文件仅记录待批准任务与计划验收范围。执行后记录各项证据、整体状态与时效、验证时间、被测 Git 状态及 Requirements/Design 内容摘要；计划文件的结构检查不代表功能验收通过。
+2026-10-08，特性分支 `codex/package-documentation-system`，文档实现提交 `7850853`；Requirements SHA-256 `aeca44f1a46a0bb06ccb1c9202b2f6658c63cd9b4e29f4fc2408a1c989354ee6`，Design SHA-256 `725204103af59c0f912bdfd6388f12b02aa8c924a6174cc38783569612efc2a3`。TODO 1 已通过聚焦测试并提交 `29aa6c6`；TODO 2 的文档迁移已提交，但全量验证受环境依赖缺失阻断，故仍未勾选。
+
+- `npm run check:docs` 通过：29 个模块、107 份当前说明；旧架构目录已删除。六个检查器测试通过，`npm run check:dependencies` 通过（218 个源文件），`git diff --check` 通过。
+- 实施前后原有 `specs/`（排除本功能）与 `project-memory/` 的 311 个文件路径及 SHA-256 全部一致。当前体系不依赖其中历史架构链接；历史断链是 Design 中已接受的限制。此前已知 `memory:check` 对 `browser-trajectory` 失败，本次未修改或宣称修复。
+- `npm test` 在首个类型检查阶段失败：本环境仅安装根 manifest，缺少子模块的 `zod`、ACP SDK、`smol-toml` 等依赖。`node --test scripts/*.test.mjs` 的 30 例中 26 通过，4 个 CLI 用例因缺少模块依赖提前退出；`packages/acp` 的离线安装因缓存缺少 `zod-4.0.0.tgz` 而失败。待完整依赖可安装后重跑全量检查，再勾选 TODO 2 并关闭 Feature Verification。
