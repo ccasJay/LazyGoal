@@ -19,6 +19,7 @@ import {
   GitBranch,
   LayoutGrid,
   Layers,
+  LoaderCircle,
   MoreHorizontal,
   Plus,
   Search,
@@ -1749,13 +1750,13 @@ function MessageComposer({
           </div>
           <button
             type="submit"
-            className={`send ${running ? "is-running" : ""}`}
+            className={`send${running ? " is-running" : busy ? " is-sending" : ""}`}
             aria-label={running ? "Run in progress" : busy ? "Sending message" : "Send message"}
             title={running ? "Run in progress" : undefined}
             disabled={busy || running || sendDisabled || !draft.trim()}
           >
             {running
-              ? <><span className="status-dot running" aria-hidden="true" />Running</>
+              ? <LoaderCircle className="send-spinner" size={20} strokeWidth={2.25} aria-hidden="true" />
               : busy ? <span className="loading-mark small" /> : <ArrowUp size={16} />}
           </button>
         </div>

@@ -259,10 +259,14 @@ h1 span { margin-left: 8px; color: #81848e; font-size: 12px; font-weight: 400; l
 .composer textarea::placeholder { color: #828996; }
 .composer-tools { display: flex; align-items: center; justify-content: space-between; }
 .composer-tools > span { display: flex; align-items: center; gap: 5px; color: #9097a7; font-size: 10px; }
-.send { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 5px; background: #c3cfec; color: #293348; }
-.send.is-running { width: auto; min-width: 76px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 9px; background: #343b49; color: #bdc9e4; font-size: 10px; }
-.send.is-running:disabled { opacity: 1; }
-.send.is-running .status-dot { width: 7px; height: 7px; }
+.send { width: 40px; height: 40px; display: grid; flex-shrink: 0; place-items: center; padding: 0; border: 1px solid #dce3f5; border-radius: 10px; background: #dce3f5; box-shadow: 0 2px 8px #0003; color: #252d3d; transition: background-color .15s, border-color .15s, box-shadow .15s, transform .15s; }
+.send:hover:not(:disabled) { background: #eff3ff; border-color: #eff3ff; box-shadow: 0 4px 12px #0005; filter: none; transform: translateY(-1px); }
+.send:active:not(:disabled) { box-shadow: 0 1px 3px #0004; transform: translateY(0); }
+.send:disabled { opacity: 1; border-color: #4b5261; background: #343944; box-shadow: none; color: #8e9bb1; }
+.send.is-sending { border-color: #63769d; background: #3b465c; }
+.send.is-sending .loading-mark { border-color: #7082a5; border-top-color: #e2eaff; }
+.send.is-running { border-color: #556783; background: #313c50; color: #c7d7f8; }
+.send-spinner { animation: spin .85s linear infinite; }
 .composer-hint { padding-top: 10px; color: #676e7e; font-size: 9px; text-align: center; }
 .session-metrics { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 28px; width: 100%; min-height: 34px; margin-top: 8px; padding: 0 4px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .session-metric { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; white-space: nowrap; }
