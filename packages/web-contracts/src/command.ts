@@ -424,6 +424,7 @@ export interface BrowserWorkspaceContext {
  * ```ts
  * const cmd: BrowserGoalMessageCommand = {
  *     runId: "run-1",
+ *     messageId: "message-1",
  *     content: "继续推进",
  * };
  * ```
@@ -431,9 +432,61 @@ export interface BrowserWorkspaceContext {
 export interface BrowserGoalMessageCommand {
     /** 当前 Run 标识。 */
     readonly runId: string;
+    /** 客户端为消息生成的稳定身份；网络重试必须复用。 */
+    readonly messageId: string;
     /** 消息文本。 */
     readonly content: string;
 }
+
+/**
+ * 运行中向同一 Run 补充要求的 Steer 命令。
+ *
+ * @remarks 服务器只有在持久化受理后才确认发送；超时重试复用相同身份与正文。
+ * @example
+ * ```ts
+ * const command: BrowserGoalSteerCommand = { runId: "run-1", messageId: "message-1", content: "保留接口" };
+ * ```
+ */
+export interface BrowserGoalSteerCommand {
+    /** 当前 Run 标识。 */
+    readonly runId: string;
+    /** 客户端生成的幂等消息身份。 */
+    readonly messageId: string;
+    /** 非空 Steer 正文。 */
+    readonly content: string;
+}
+
+/**
+ * Steer 持久化受理结果。
+ *
+ * @remarks `existing` 表示同一消息身份此前已经受理；拒绝时输入应保留在客户端。
+ * @example
+ * ```ts
+ * const result: BrowserGoalSteerResult = { ok: true, goalId: "goal-1", runId: "run-1", messageId: "message-1", existing: false };
+ * ```
+ */
+export type BrowserGoalSteerResult =
+    | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly messageId: string; readonly existing: boolean }
+    | { readonly ok: false; readonly error: "goal_not_found" | "stale_run" | "goal_not_running" | "goal_busy" | "steer_conflict" | "steer_failed" | "service_shutting_down" };
+
+/**
+ * 当前 Run 的用户主动终止命令。
+ *
+ * @remarks 请求 ID 用于在响应丢失时安全重试；提交后服务端会停止目标 Run 并进行有限收尾。
+ * @example
+ * ```ts
+ * const command: BrowserGoalInterruptCommand = { runId: "run-1", requestId: "interrupt-1" };
+ * ```
+ */
+export interface BrowserGoalInterruptCommand {
+    readonly runId: string;
+    readonly requestId: string;
+}
+
+/** Interrupt 请求持久化受理结果；accepted 不表示已完成收尾。 */
+export type BrowserGoalInterruptResult =
+    | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly requestId: string; readonly existing: boolean }
+    | { readonly ok: false; readonly error: "goal_not_found" | "stale_run" | "goal_not_running" | "goal_busy" | "interrupt_conflict" | "interrupt_failed" | "service_shutting_down" };
 
 /**
  * 发送用户消息结果。

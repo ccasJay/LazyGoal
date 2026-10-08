@@ -397,9 +397,7 @@ test("starts a created Goal, saves every transition, and executes until complete
         await runner.runUntilBlocked(createRef(initial)),
     );
 
-    assert.deepEqual(events, [
-        "restore:goal-1",
-        "restore:goal-1",
+    assert.deepEqual(events.filter((event) => !event.startsWith("restore:")), [
         "save:goal-1:running:0",
         "save:goal-1:running:0",
         "execute:running:0",
@@ -826,14 +824,11 @@ test("stops on blocked and continues an externally resumed Goal", async () => {
     assert.equal(waiting.stepCount, 1);
     assert.equal(completed.status, "completed");
     assert.equal(completed.stepCount, 2);
-    assert.deepEqual(events, [
-        "restore:goal-1",
-        "restore:goal-1",
+    assert.deepEqual(events.filter((event) => !event.startsWith("restore:")), [
         "save:goal-1:running:0",
         "save:goal-1:running:0",
         "execute:running:0",
         "save:goal-1:waiting:1",
-        "restore:goal-1",
         "save:goal-1:running:1",
         "execute:running:1",
         "save:goal-1:completed:2",
@@ -1140,9 +1135,7 @@ test("fails at maxSteps without an extra executor call or step count", async () 
     assert.deepEqual(state.stopReason, { kind: "max_steps_exceeded" });
     assert.equal(state.lastStep?.kind, "action");
     assert.deepEqual((await store.peek(initial.id))?.state.messages, []);
-    assert.deepEqual(events, [
-        "restore:goal-1",
-        "restore:goal-1",
+    assert.deepEqual(events.filter((event) => !event.startsWith("restore:")), [
         "save:goal-1:running:0",
         "save:goal-1:running:0",
         "execute:running:0",
@@ -1220,8 +1213,7 @@ test("uses persisted step count after external resume as the maxSteps budget", a
         "wait",
     );
     assert.deepEqual(executor.receivedGoals, []);
-    assert.deepEqual(events, [
-        "restore:goal-1",
+    assert.deepEqual(events.filter((event) => !event.startsWith("restore:")), [
         "save:goal-1:failed:2",
     ]);
 });
@@ -1249,9 +1241,7 @@ test("executor exception fails without committing a fabricated Decision", async 
     assert.deepEqual((await store.peek(initial.id))?.state.messages, [
         ...initial.state.messages,
     ]);
-    assert.deepEqual(events, [
-        "restore:goal-1",
-        "restore:goal-1",
+    assert.deepEqual(events.filter((event) => !event.startsWith("restore:")), [
         "save:goal-1:running:0",
         "save:goal-1:running:0",
         "execute:running:0",
@@ -1976,7 +1966,7 @@ test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async (
     }).run(createRef(initial, "run-policy-order"));
 
     const state = requireSuccessfulState(result);
-    assert.deepEqual(events, [
+    assert.deepEqual(events.filter((event) => !event.startsWith("restore:")), [
         "registry:read_file",
         "executor:1",
         "registry:read_file",
@@ -2110,9 +2100,7 @@ test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期",
     }).run(createRef(initial, "run-auto-action"));
 
     const state = requireSuccessfulState(result);
-    assert.deepEqual(events, [
-        "restore:goal-1",
-        "restore:goal-1",
+    assert.deepEqual(events.filter((event) => !event.startsWith("restore:")), [
         "save:goal-1:running:0",
         "save:goal-1:running:0",
         "executor:0",

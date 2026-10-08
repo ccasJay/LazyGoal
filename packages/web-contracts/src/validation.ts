@@ -19,6 +19,8 @@ import type {
     BrowserModelInputSummary,
     BrowserGoalLiveEvent,
     BrowserResumeGoalCommand,
+    BrowserGoalSteerResult,
+    BrowserGoalInterruptResult,
     SessionMetricsSnapshot,
 } from "./index";
 
@@ -116,6 +118,40 @@ export function isAcceptedCommand(value: unknown): value is { readonly goalId: s
         && isNonEmptyString(value.goalId)
         && isNonEmptyString(value.runId)
         && typeof value.existing === "boolean";
+}
+
+/**
+ * 验证 Steer 路由返回的持久化受理或稳定拒绝结果。
+ *
+ * @param value - HTTP 响应 JSON。
+ * @returns 字段与已知错误码均符合 Steer 响应契约时为 `true`。
+ * @example
+ * ```ts
+ * if (isBrowserGoalSteerResult(response)) console.log(response.ok);
+ * ```
+ */
+export function isBrowserGoalSteerResult(value: unknown): value is BrowserGoalSteerResult {
+    if (!isRecord(value)) return false;
+    if (value.ok === true) return isNonEmptyString(value.goalId) && isNonEmptyString(value.runId)
+        && isNonEmptyString(value.messageId) && typeof value.existing === "boolean";
+    return value.ok === false && ["goal_not_found", "stale_run", "goal_not_running", "goal_busy", "steer_conflict", "steer_failed", "service_shutting_down"].includes(String(value.error));
+}
+
+/**
+ * 验证 Interrupt 路由返回的持久化受理或稳定拒绝结果。
+ *
+ * @param value - HTTP 响应 JSON。
+ * @returns 字段与已知错误码均符合 Interrupt 响应契约时为 `true`。
+ * @example
+ * ```ts
+ * if (isBrowserGoalInterruptResult(response)) console.log(response.ok);
+ * ```
+ */
+export function isBrowserGoalInterruptResult(value: unknown): value is BrowserGoalInterruptResult {
+    if (!isRecord(value)) return false;
+    if (value.ok === true) return isNonEmptyString(value.goalId) && isNonEmptyString(value.runId)
+        && isNonEmptyString(value.requestId) && typeof value.existing === "boolean";
+    return value.ok === false && ["goal_not_found", "stale_run", "goal_not_running", "goal_busy", "interrupt_conflict", "interrupt_failed", "service_shutting_down"].includes(String(value.error));
 }
 
 /**
@@ -296,6 +332,17 @@ export function isBrowserGoalSession(value: unknown): value is BrowserGoalSessio
         || !value.messages.every((message) => isRecord(message)
             && (message.role === "user" || message.role === "assistant")
             && typeof message.content === "string")
+        || (value.pendingSteers !== undefined && (!Array.isArray(value.pendingSteers)
+            || !value.pendingSteers.every((steer) => isRecord(steer)
+                && isNonEmptyString(steer.messageId)
+                && typeof steer.content === "string")))
+        || (value.interruption !== undefined && (!isRecord(value.interruption)
+            || !isNonEmptyString(value.interruption.requestId)
+            || !["requested", "repairing", "finished"].includes(String(value.interruption.status))
+            || !Number.isInteger(value.interruption.repairCallsStarted)
+            || Number(value.interruption.repairCallsStarted) < 0
+            || Number(value.interruption.repairCallsStarted) > 3
+            || (value.interruption.outcomeUnknown !== undefined && typeof value.interruption.outcomeUnknown !== "boolean")))
         || !Array.isArray(value.runs)
         || !value.runs.every(isBrowserRun)
         || typeof value.historyTruncated !== "boolean") return false;

@@ -368,8 +368,42 @@ export interface GoalSnapshotRunStateV1 {
     readonly pendingInteraction?: GoalSnapshotPendingInteractionV1 | undefined;
     readonly pendingThink?: GoalSnapshotPendingThinkV1 | undefined;
     readonly pendingModelRepair?: GoalSnapshotPendingModelRepairV1 | undefined;
+    readonly steerInputs?: readonly GoalSnapshotSteerInputV1[] | undefined;
+    readonly interruption?: GoalSnapshotRunInterruptionV1 | undefined;
     readonly stopReason?: GoalSnapshotStopReasonV1 | undefined;
     readonly contextEpoch: GoalSnapshotContextEpochV1;
+}
+
+/**
+ * Snapshot 中当前 Run 的 Steer 受理与应用记录。
+ *
+ * @remarks pending 保存正文；applied 只指向 Goal.messages 中已提交的用户消息。
+ * @example
+ * ```ts
+ * const input: GoalSnapshotSteerInputV1 = { messageId: "message-1", status: "pending", content: "补充约束" };
+ * ```
+ */
+export type GoalSnapshotSteerInputV1 =
+    | { readonly messageId: string; readonly status: "pending"; readonly content: string }
+    | { readonly messageId: string; readonly status: "applied"; readonly messageIndex: number };
+
+/**
+ * Snapshot 中的用户 Interrupt 请求及可恢复收尾预算。
+ *
+ * @remarks 收尾调用计数在每次调用开始前提交，服务重启不能重置预算。
+ * @example
+ * ```ts
+ * const interruption: GoalSnapshotRunInterruptionV1 = {
+ *   requestId: "interrupt-1", status: "repairing", repairCallsStarted: 1,
+ * };
+ * ```
+ */
+export interface GoalSnapshotRunInterruptionV1 {
+    readonly requestId: string;
+    readonly status: "requested" | "repairing" | "finished";
+    readonly repairCallsStarted: number;
+    readonly interruptedActions?: readonly GoalSnapshotToolCallActionV1[];
+    readonly outcomeUnknown?: boolean;
 }
 
 /**
@@ -412,13 +446,15 @@ export interface GoalSnapshotCompletedRunV1 {
     /** 已归档 Run 的稳定身份。 */
     readonly runId: string;
     /** 已归档 Run 的真实终态。 */
-    readonly status: "completed" | "failed";
+    readonly status: "completed" | "failed" | "cancelled";
     /** 归档时已提交的 Step 数量。 */
     readonly stepCount: number;
     /** 该 Run 的轨迹可见边界。 */
     readonly committedThroughSequence: number;
     /** 该 Run 在 Goal 消息数组中的半开区间。 */
     readonly messageRange: { readonly start: number; readonly end: number };
+    /** 浏览器续写的持久化幂等收据。 */
+    readonly continuation?: { readonly messageId: string; readonly content: string; readonly nextRunId: string };
 }
 
 /**
@@ -861,6 +897,27 @@ const PendingModelRepairSchema = z.object({
     thinkRequestId: NonEmptyStringSchema.optional(),
 }).strict();
 
+const SteerInputSchema = z.discriminatedUnion("status", [
+    z.object({
+        messageId: NonEmptyStringSchema,
+        status: z.literal("pending"),
+        content: z.string().min(1).max(64_000),
+    }).strict(),
+    z.object({
+        messageId: NonEmptyStringSchema,
+        status: z.literal("applied"),
+        messageIndex: z.number().int().nonnegative(),
+    }).strict(),
+]);
+
+const RunInterruptionSchema = z.object({
+    requestId: NonEmptyStringSchema,
+    status: z.enum(["requested", "repairing", "finished"]),
+    repairCallsStarted: z.number().int().min(0).max(3),
+    interruptedActions: z.array(ToolCallActionSchema).optional(),
+    outcomeUnknown: z.boolean().optional(),
+}).strict();
+
 const StopReasonSchema = z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("max_steps_exceeded") }).strict(),
     z.object({
@@ -961,13 +1018,18 @@ const GoalPlanSchema = z.object({
 
 const CompletedRunSchema = z.object({
     runId: NonEmptyStringSchema,
-    status: z.enum(["completed", "failed"]),
+    status: z.enum(["completed", "failed", "cancelled"]),
     stepCount: z.number().int().nonnegative(),
     committedThroughSequence: z.number().int().nonnegative(),
     messageRange: z.object({
         start: z.number().int().nonnegative(),
         end: z.number().int().nonnegative(),
     }).strict(),
+    continuation: z.object({
+        messageId: NonEmptyStringSchema,
+        content: NonEmptyStringSchema,
+        nextRunId: NonEmptyStringSchema,
+    }).strict().optional(),
 }).strict();
 
 const GoalSnapshotV1BaseSchema = z.object({
@@ -1025,6 +1087,8 @@ const GoalSnapshotV1BaseSchema = z.object({
             pendingInteraction: PendingInteractionSchema.optional(),
             pendingThink: PendingThinkSchema.optional(),
             pendingModelRepair: PendingModelRepairSchema.optional(),
+            steerInputs: z.array(SteerInputSchema).optional(),
+            interruption: RunInterruptionSchema.optional(),
             stopReason: StopReasonSchema.optional(),
             contextEpoch: ContextEpochSchema,
         }).strict(),
@@ -1075,6 +1139,18 @@ function validateSnapshotInvariants(
             addInvariantIssue(context, "completedRuns message ranges must be ordered and non-overlapping", ["state", "completedRuns", index, "messageRange"]);
         }
         previousRunEnd = Math.max(previousRunEnd, history.messageRange.end);
+    }
+    const steerIds = new Set<string>();
+    for (const [index, steer] of (run.steerInputs ?? []).entries()) {
+        if (steerIds.has(steer.messageId)) {
+            addInvariantIssue(context, "Steer message IDs must be unique within the Run", ["state", "run", "steerInputs", index, "messageId"]);
+        }
+        steerIds.add(steer.messageId);
+        if (steer.status === "applied"
+            && (steer.messageIndex >= goal.state.messages.length
+                || goal.state.messages[steer.messageIndex]?.role !== "user")) {
+            addInvariantIssue(context, "Applied Steer must point to a real user message", ["state", "run", "steerInputs", index, "messageIndex"]);
+        }
     }
     const step = run.lastStep;
     const result = step?.kind === "decision" ? step.result : undefined;
@@ -1131,6 +1207,22 @@ function validateSnapshotInvariants(
     const pendingInteraction = run.pendingInteraction;
     const pendingThink = run.pendingThink;
     const pendingModelRepair = run.pendingModelRepair;
+    const interruption = run.interruption;
+
+    if (interruption !== undefined) {
+        if (interruption.status === "finished" && run.status !== "cancelled") {
+            addInvariantIssue(context, "finished Interrupt requires a cancelled Run", ["state", "run", "interruption"]);
+        }
+        if (interruption.status !== "finished" && run.status !== "running" && run.status !== "waiting") {
+            addInvariantIssue(context, "active Interrupt requires a running or waiting Run", ["state", "run", "interruption"]);
+        }
+        if (interruption.repairCallsStarted > 0 && interruption.status === "requested") {
+            addInvariantIssue(context, "repair call budget requires an active repair phase", ["state", "run", "interruption"]);
+        }
+        if (interruption.outcomeUnknown === true && (interruption.interruptedActions?.length ?? 0) === 0) {
+            addInvariantIssue(context, "unknown interrupted outcome requires its Action identities", ["state", "run", "interruption"]);
+        }
+    }
 
     if (pendingProgram !== undefined) {
         const input = pendingProgram.action.input;

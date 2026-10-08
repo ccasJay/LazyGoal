@@ -101,7 +101,7 @@ test("普通等待消息恢复同一 Run，在途相同重试只保存并调用�
         },
     });
 
-    const command = { runId: goal.state.run.id, content: "继续处理" };
+    const command = { runId: goal.state.run.id, messageId: "message-waiting-1", content: "继续处理" };
     const firstPromise = service.message(goal.id, command);
     const first = await firstPromise;
     assert.deepEqual(first, {
@@ -173,6 +173,7 @@ test(`${terminalStatus} Run 的普通输入调用 continue 并持久化唯一后
 
     const result = await service.message(goal.id, {
         runId: goal.state.run.id,
+        messageId: "message-terminal-1",
         content: "开始后续任务",
     });
     assert.deepEqual(result, {
@@ -235,7 +236,7 @@ test("结构化等待、过期 Run、空消息和非接收状态不调用 Coordi
             async enterPlanMode() { throw new Error("plan mode is not used here"); },
         },
     });
-    const command = { runId: goal.state.run.id, content: "不能代替回答" };
+    const command = { runId: goal.state.run.id, messageId: "message-invalid-1", content: "不能代替回答" };
     assert.deepEqual(await service.message(goal.id, { ...command, runId: "old-run" }), {
         ok: false,
         error: "stale_run",
@@ -266,7 +267,7 @@ test("结构化等待、过期 Run、空消息和非接收状态不调用 Coordi
 });
 
 test("消息路由严格校验 Goal/Run 与正文并返回受理身份", async () => {
-    const calls: Array<{ goalId: string; runId: string; content: string }> = [];
+    const calls: Array<{ goalId: string; runId: string; messageId: string; content: string }> = [];
     const routes = createBrowserGoalRoutes({
         async list() { return []; },
         async read() { return undefined; },
@@ -293,17 +294,18 @@ test("消息路由严格校验 Goal/Run 与正文并返回受理身份", async (
         },
     );
 
-    const accepted = await send("goal-message-1", { runId: "run-1", content: "下一任务" });
+    const accepted = await send("goal-message-1", { runId: "run-1", messageId: "message-route-1", content: "下一任务" });
     assert.equal(accepted.status, 202);
     assert.deepEqual(await accepted.json(), {
         goalId: "goal-message-1",
         runId: "run-next",
         existing: false,
     });
-    assert.deepEqual(calls, [{ goalId: "goal-message-1", runId: "run-1", content: "下一任务" }]);
+    assert.deepEqual(calls, [{ goalId: "goal-message-1", runId: "run-1", messageId: "message-route-1", content: "下一任务" }]);
 
     const extraField = await send("goal-message-1", {
         runId: "run-1",
+        messageId: "message-route-2",
         content: "下一任务",
         approve: true,
     });
@@ -312,7 +314,7 @@ test("消息路由严格校验 Goal/Run 与正文并返回受理身份", async (
     const plainTextMessage = await routes.request("http://localhost/api/goals/goal with spaces/messages", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ runId: "run-1", content: "text" }),
+        body: JSON.stringify({ runId: "run-1", messageId: "message-route-3", content: "text" }),
     });
     assert.equal(plainTextMessage.status, 400);
     assert.equal(calls.length, 1);

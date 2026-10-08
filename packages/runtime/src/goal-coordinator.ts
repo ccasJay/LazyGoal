@@ -20,6 +20,7 @@ import type {
 import { validateAskUserAnswers } from "../../model-contracts/src/index";
 import type { ContextLookupPort } from "./context-retrieval";
 import type { RunScheduler } from "./scheduler";
+import type { InterruptRunResult, SteerInputResult } from "./runner";
 import {
     InMemoryToolRegistry,
     type ToolObservation,
@@ -730,7 +731,7 @@ export class GoalCoordinator {
      * 为已完成或失败的 Run 创建并推进一个新的会话 Run。
      *
      * @remarks
-     * `continue` 只接受当前 `completed` 或 `failed` Run 和非空输入。它在同一个 Goal 内先
+     * `continue` 只接受当前 `completed`、`failed` 或 `cancelled` Run 和非空输入。它在同一个 Goal 内先
      * 归档上一 Run 的消息区间、追加真实用户消息、创建新 Run，并一次性消费
      * `nextRunMode`；没有待用选择时，新 Run 使用普通模式。新 Run 的创建提交与
      * `/plan` 选择共享同一按 Goal 串行化边界，快照成功后才调用 Scheduler。waiting
@@ -740,6 +741,7 @@ export class GoalCoordinator {
      * @param ref - 当前已完成或失败 Run 的 Goal/Run 关联键。
      * @param newInput - 要追加到 Goal.messages 的非空用户输入。
      * @param control - 当前会话调用共享的可选中止控制。
+     * @param continuation - 可选的浏览器重试收据身份；持久化到被归档 Run 并指向新 Run。
      * @returns 新 Run 调度到 waiting 或终态后的结果；输入或状态非法时返回稳定错误。
      * @throws GoalStore、Trajectory 或 Scheduler 基础设施失败时传播原始异常。
      * @example
@@ -754,6 +756,7 @@ export class GoalCoordinator {
         ref: RunRef,
         newInput: string,
         control?: ExecutionControl,
+        continuation?: { readonly messageId: string },
     ): Promise<GoalProgressResult> {
         return this.withContinuationGate(ref.goalId, async () => {
             const preparation = await withRunModeSelectionGate(
@@ -773,7 +776,8 @@ export class GoalCoordinator {
                     if (goal === undefined) return { progress: this.runNotFound(ref) };
                     this.validateGoalProtocol(goal);
 
-                    if (goal.state.run.status !== "completed" && goal.state.run.status !== "failed") {
+                    if (goal.state.run.status !== "completed" && goal.state.run.status !== "failed"
+                        && goal.state.run.status !== "cancelled") {
                         return { progress: this.goalNotCompleted(ref) };
                     }
 
@@ -802,6 +806,9 @@ export class GoalCoordinator {
                             start: previousRangeEnd,
                             end: historyEnd,
                         },
+                        ...(continuation === undefined ? {} : {
+                            continuation: { ...continuation, content: newInput, nextRunId: runId },
+                        }),
                     };
 
                     const nextRunMode = goal.state.nextRunMode ?? "normal";
@@ -847,6 +854,47 @@ export class GoalCoordinator {
             throwIfAborted(control);
             return this.afterSchedule(preparation.nextRef, scheduled, control);
         });
+    }
+
+    /**
+     * 将用户补充输入交给同一 Run 的执行器持久化受理。
+     *
+     * @remarks
+     * Steer 不创建新 Run，也不取消当前模型或工具调用；执行器在后续模型边界应用。
+     * Coordinator 不直接改写 Goal Snapshot，受理与检查点提交由 Scheduler 中的 Runner 串行化。
+     *
+     * @param ref - 当前 Goal 与 Run 的稳定关联身份。
+     * @param messageId - 客户端生成的幂等身份；相同身份与正文可安全重试。
+     * @param content - 非空的补充或修正文本。
+     * @returns 持久化受理、幂等重试或稳定拒绝结果。
+     * @throws Runner 的 Snapshot 或 Trajectory 提交失败时传播错误。
+     * @example
+     * ```ts
+     * const result = await coordinator.steer({ goalId, runId }, "message-1", "不要修改公开接口");
+     * ```
+     */
+    steer(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult> {
+        return this.scheduler.steer === undefined
+            ? Promise.resolve({ ok: false, error: "RUN_CONTROL_UNAVAILABLE" })
+            : this.scheduler.steer(ref, messageId, content);
+    }
+
+    /**
+     * 持久化受理当前 Run 的用户 Interrupt，并请求其执行所有者停止原调用。
+     *
+     * @param ref - 当前 Goal 与 Run 的稳定身份。
+     * @param requestId - 客户端稳定请求身份，用于受理结果重试。
+     * @returns 已保存的终止意图或稳定拒绝；受理不表示收尾已经结束。
+     * @throws Snapshot 或 Trajectory 提交失败时传播原始错误。
+     * @example
+     * ```ts
+     * const result = await coordinator.interrupt({ goalId, runId }, "interrupt-1");
+     * ```
+     */
+    interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {
+        return this.scheduler.interrupt === undefined
+            ? Promise.resolve({ ok: false, error: "INTERRUPT_CONFLICT" })
+            : this.scheduler.interrupt(ref, requestId);
     }
 
     /**

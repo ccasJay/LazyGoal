@@ -3,6 +3,7 @@ import {
     appendFile,
     mkdir,
     mkdtemp,
+    open,
     readFile,
     readdir,
     rm,
@@ -107,6 +108,140 @@ test("JsonFileTrajectoryStore appends ordered JSONL events across instances", as
                 .split("\n").length,
             3,
         );
+    });
+});
+
+test("JsonFileTrajectoryStore retries a temporary append error only after confirming the event is absent", async () => {
+    await withStore(async (_store, directory) => {
+        let attempts = 0;
+        const retrying = new JsonFileTrajectoryStore(directory, {
+            appendFile: async (path, data, options) => {
+                attempts += 1;
+                if (attempts === 1) {
+                    const error = Object.assign(new Error("busy before write"), { code: "EBUSY" });
+                    throw error;
+                }
+                await appendFile(path, data, options);
+            },
+        });
+
+        const event = await retrying.append(draft("run_started", { type: "run_started" }));
+
+        assert.equal(attempts, 2);
+        assert.deepEqual(await retrying.read({ goalId: "goal-1", runId: "run-1" }), [event]);
+    });
+});
+
+test("JsonFileTrajectoryStore recognizes a complete append whose call reported a temporary error", async () => {
+    await withStore(async (_store, directory) => {
+        let attempts = 0;
+        const uncertain = new JsonFileTrajectoryStore(directory, {
+            appendFile: async (path, data, options) => {
+                attempts += 1;
+                await appendFile(path, data, options);
+                if (attempts === 1) {
+                    throw Object.assign(new Error("busy after write"), { code: "EAGAIN" });
+                }
+            },
+        });
+
+        const event = await uncertain.append(draft("run_started", { type: "run_started" }));
+
+        assert.equal(attempts, 1);
+        assert.deepEqual(await uncertain.read({ goalId: "goal-1", runId: "run-1" }), [event]);
+    });
+});
+
+test("JsonFileTrajectoryStore verifies synchronous PTC reservation writes before retrying", async () => {
+    await withStore(async (_store, directory) => {
+        let syncCalls = 0;
+        const durable = new JsonFileTrajectoryStore(directory, {
+            open: async (path, flags, mode) => {
+                const handle = await open(path, flags, mode);
+                if (flags === "a") {
+                    const sync = handle.sync.bind(handle);
+                    Object.defineProperty(handle, "sync", {
+                        configurable: true,
+                        value: async () => {
+                            await sync();
+                            syncCalls += 1;
+                            if (syncCalls === 1) {
+                                throw Object.assign(new Error("sync result unknown"), { code: "EBUSY" });
+                            }
+                        },
+                    });
+                }
+                return handle;
+            },
+        });
+
+        const event = await durable.append(draft("program_time_reserved", {
+            type: "program_time_reserved",
+            programId: "program-1",
+            sliceIndex: 0,
+            milliseconds: 1000,
+        }));
+
+        assert.equal(syncCalls, 1);
+        assert.deepEqual(await durable.read({ goalId: "goal-1", runId: "run-1" }), [event]);
+    });
+});
+
+test("JsonFileTrajectoryStore stops on an incomplete tail instead of replaying an uncertain append", async () => {
+    await withStore(async (_store, directory) => {
+        const partial = new JsonFileTrajectoryStore(directory, {
+            appendFile: async (path, data, options) => {
+                if (typeof data !== "string") throw new Error("Expected a JSONL string write");
+                await appendFile(path, data.slice(0, -3), options);
+                throw Object.assign(new Error("busy after partial write"), { code: "EBUSY" });
+            },
+        });
+
+        await assert.rejects(
+            () => partial.append(draft("run_started", { type: "run_started" })),
+            (error: unknown) => error instanceof TrajectoryProtocolError,
+        );
+        await assert.rejects(
+            () => partial.read({ goalId: "goal-1", runId: "run-1" }),
+            (error: unknown) => error instanceof TrajectoryProtocolError,
+        );
+    });
+});
+
+test("JsonFileTrajectoryStore does not retry a non-transient filesystem error", async () => {
+    await withStore(async (_store, directory) => {
+        let attempts = 0;
+        const denied = new JsonFileTrajectoryStore(directory, {
+            appendFile: async () => {
+                attempts += 1;
+                throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+            },
+        });
+
+        await assert.rejects(
+            () => denied.append(draft("run_started", { type: "run_started" })),
+            (error: unknown) => error instanceof Error && (error as NodeJS.ErrnoException).code === "EACCES",
+        );
+        assert.equal(attempts, 1);
+    });
+});
+
+test("JsonFileTrajectoryStore caps confirmed-no-write retries at three attempts", async () => {
+    await withStore(async (_store, directory) => {
+        let attempts = 0;
+        const unavailable = new JsonFileTrajectoryStore(directory, {
+            appendFile: async () => {
+                attempts += 1;
+                throw Object.assign(new Error("interrupted"), { code: "EINTR" });
+            },
+        });
+
+        await assert.rejects(
+            () => unavailable.append(draft("run_started", { type: "run_started" })),
+            (error: unknown) => error instanceof Error && (error as NodeJS.ErrnoException).code === "EINTR",
+        );
+        assert.equal(attempts, 3);
+        assert.deepEqual(await unavailable.read({ goalId: "goal-1", runId: "run-1" }), []);
     });
 });
 

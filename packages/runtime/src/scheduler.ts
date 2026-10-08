@@ -1,4 +1,4 @@
-import type { RunnerResult } from "./runner";
+import type { InterruptRunResult, RunnerResult, SteerInputResult } from "./runner";
 import type { RunExecutionOptions, RunRef } from "./domain";
 import type { ExecutionControl } from "../../execution-control/src/index";
 
@@ -30,4 +30,31 @@ export interface RunScheduler {
         options?: RunExecutionOptions,
         control?: ExecutionControl,
     ): Promise<RunnerResult>;
+
+    /**
+     * 持久化受理当前活动 Run 的 Steer 消息。
+     *
+     * @remarks
+     * Steer 不启动新 Run、不取消现有调用；执行器在下一模型边界应用。
+     * 实现需通过当前 Run 执行所有者转发，不能直接修改 Snapshot。
+     *
+     * @param ref - 目标 Goal 与 Run 的关联身份。
+     * @param messageId - 客户端分配的幂等消息身份。
+     * @param content - 非空消息正文。
+     * @returns 已受理或稳定拒绝结果。
+     */
+    steer?(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult>;
+
+    /**
+     * 持久化受理并中止目标 Run；不影响 Scheduler 的其它 Run 调用。
+     * @param ref - 目标 Goal 与 Run 身份。
+     * @param requestId - 重试时复用的稳定请求 ID。
+     * @returns 已持久化受理或稳定拒绝结果。
+     * @throws Goal 快照或轨迹提交失败时拒绝。
+     * @example
+     * ```ts
+     * await scheduler.interrupt?.({ goalId: "goal-1", runId: "run-1" }, "interrupt-1");
+     * ```
+     */
+    interrupt?(ref: RunRef, requestId: string): Promise<InterruptRunResult>;
 }

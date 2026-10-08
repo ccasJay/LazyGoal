@@ -24,6 +24,16 @@ import {
 
 /** 尾部反向扫描的单次回读块大小(字节)。 */
 const TAIL_SCAN_BLOCK_BYTES = 4_096;
+const FILE_WRITE_RETRY_LIMIT = 3;
+const FILE_WRITE_RETRY_DELAY_MS = 10;
+const RETRYABLE_FILE_ERROR_CODES = new Set(["EINTR", "EAGAIN", "EBUSY"]);
+
+type JsonTrajectoryFileOperations = {
+    readonly appendFile?: typeof appendFile;
+    readonly mkdir?: typeof mkdir;
+    readonly open?: typeof open;
+    readonly readFile?: typeof readFile;
+};
 
 /**
  * 解析尾部扫描定位到的最后一个非空行,提取其 `sequence`。
@@ -107,13 +117,98 @@ function parseTailSequence(
  */
 export class JsonFileTrajectoryStore implements TrajectoryStore {
     private readonly appendQueues = new Map<string, Promise<unknown>>();
-
     private readonly sequenceCache = new Map<string, number>();
+    private readonly directory: string;
+    private readonly fileOperations: Required<JsonTrajectoryFileOperations>;
 
     /**
      * @param directory - JSONL 轨迹根目录；追加时按需创建 Goal 子目录。
+     * @param fileOperations - 可选文件操作替身，用于确定性验证写入故障；生产默认使用 Node 文件系统。
      */
-    constructor(private readonly directory: string) {}
+    constructor(directory: string, fileOperations: JsonTrajectoryFileOperations = {}) {
+        this.directory = directory;
+        this.fileOperations = {
+            appendFile,
+            mkdir,
+            open,
+            readFile,
+            ...fileOperations,
+        };
+    }
+
+    private async writeEventLine(
+        filePath: string,
+        goalDirectory: string,
+        line: string,
+        event: Readonly<TrajectoryEvent>,
+    ): Promise<void> {
+        for (let attempt = 1; attempt <= FILE_WRITE_RETRY_LIMIT; attempt += 1) {
+            try {
+                await this.fileOperations.mkdir(goalDirectory, { recursive: true });
+                if (event.eventType === "program_time_reserved") {
+                    const file = await this.fileOperations.open(filePath, "a", 0o600);
+                    try {
+                        await file.writeFile(line, "utf8");
+                        await file.sync();
+                    } finally {
+                        await file.close();
+                    }
+                } else {
+                    await this.fileOperations.appendFile(filePath, line, { encoding: "utf8", mode: 0o600 });
+                }
+                return;
+            } catch (error) {
+                const code = error instanceof Error
+                    ? (error as NodeJS.ErrnoException).code
+                    : undefined;
+                if (code === undefined || !RETRYABLE_FILE_ERROR_CODES.has(code)) {
+                    throw error;
+                }
+                const outcome = await this.inspectAppendOutcome(filePath, line, event);
+                if (outcome === "written") return;
+                if (attempt === FILE_WRITE_RETRY_LIMIT) throw error;
+                await new Promise((resolve) => setTimeout(resolve, FILE_WRITE_RETRY_DELAY_MS));
+            }
+        }
+    }
+
+    private async inspectAppendOutcome(
+        filePath: string,
+        line: string,
+        event: Readonly<TrajectoryEvent>,
+    ): Promise<"written" | "absent"> {
+        let content: string;
+        try {
+            content = await this.fileOperations.readFile(filePath, "utf8");
+        } catch (error) {
+            if (error instanceof Error
+                && (error as NodeJS.ErrnoException).code === "ENOENT"
+                && event.sequence === 1) {
+                return "absent";
+            }
+            throw new TrajectoryProtocolError("Cannot verify the result of a temporary Trajectory append failure");
+        }
+
+        if (content.length === 0 && event.sequence === 1) return "absent";
+        if (!content.endsWith("\n")) {
+            throw new TrajectoryProtocolError("Trajectory append left an incomplete JSONL tail");
+        }
+        const lastLine = content.slice(0, -1).split(/\r?\n/).filter((entry) => entry.trim().length > 0).at(-1);
+        if (lastLine === line.slice(0, -1)) return "written";
+        if (lastLine === undefined) {
+            if (event.sequence === 1) return "absent";
+            throw new TrajectoryProtocolError("Cannot verify the preceding Trajectory sequence");
+        }
+
+        const lastSequence = parseTailSequence(
+            lastLine,
+            0,
+            event.goalId,
+            event.runId,
+        );
+        if (lastSequence === event.sequence - 1) return "absent";
+        throw new TrajectoryProtocolError("Trajectory append outcome conflicts with the expected event sequence");
+    }
 
     /**
      * 串行追加一个事实事件并分配同一 Run 内的下一个序号。
@@ -143,21 +238,13 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
             const sequence = lastSequence + 1;
             const event = allocateImmutableEvent(draft, sequence);
 
-            await mkdir(join(this.directory, this.encodeIdentifier(draft.goalId)), {
-                recursive: true,
-            });
             const line = `${JSON.stringify(event)}\n`;
-            if (draft.eventType === "program_time_reserved") {
-                const file = await open(filePath, "a", 0o600);
-                try {
-                    await file.writeFile(line, "utf8");
-                    await file.sync();
-                } finally {
-                    await file.close();
-                }
-            } else {
-                await appendFile(filePath, line, { encoding: "utf8", mode: 0o600 });
-            }
+            await this.writeEventLine(
+                filePath,
+                join(this.directory, this.encodeIdentifier(draft.goalId)),
+                line,
+                event,
+            );
             this.sequenceCache.set(key, sequence);
             return event;
         });
@@ -239,7 +326,7 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
         let handle: FileHandle;
 
         try {
-            handle = await open(filePath, "r");
+            handle = await this.fileOperations.open(filePath, "r");
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === "ENOENT") {
                 return 0;
@@ -306,7 +393,7 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
         let content: string;
 
         try {
-            content = await readFile(filePath, "utf8");
+            content = await this.fileOperations.readFile(filePath, "utf8");
         } catch (error) {
             if (
                 error instanceof Error

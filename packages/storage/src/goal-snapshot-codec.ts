@@ -365,6 +365,7 @@ function encodeCompletedRun(record: CompletedRunRecord): GoalSnapshotCompletedRu
         stepCount: record.stepCount,
         committedThroughSequence: record.committedThroughSequence,
         messageRange: { ...record.messageRange },
+        ...(record.continuation === undefined ? {} : { continuation: { ...record.continuation } }),
     };
 }
 
@@ -463,6 +464,10 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                 ...(run.pendingModelRepair === undefined
                     ? {}
                     : { pendingModelRepair: encodePendingModelRepair(run.pendingModelRepair) }),
+                ...(run.steerInputs === undefined
+                    ? {}
+                    : { steerInputs: structuredClone(run.steerInputs) }),
+                ...(run.interruption === undefined ? {} : { interruption: structuredClone(run.interruption) }),
                 ...(run.stopReason === undefined ? {} : { stopReason: structuredClone(run.stopReason) }),
                 contextEpoch: structuredClone(run.contextEpoch),
             },
@@ -731,6 +736,7 @@ function decodeCompletedRun(record: GoalSnapshotCompletedRunV1): CompletedRunRec
         stepCount: record.stepCount,
         committedThroughSequence: record.committedThroughSequence,
         messageRange: { ...record.messageRange },
+        ...(record.continuation === undefined ? {} : { continuation: { ...record.continuation } }),
     };
 }
 
@@ -791,6 +797,10 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
                 ...(run.pendingModelRepair === undefined
                     ? {}
                     : { pendingModelRepair: decodePendingModelRepair(run.pendingModelRepair) }),
+                ...(run.steerInputs === undefined
+                    ? {}
+                    : { steerInputs: structuredClone(run.steerInputs) }),
+                ...(run.interruption === undefined ? {} : { interruption: structuredClone(run.interruption) }),
                 ...(run.stopReason === undefined ? {} : { stopReason: structuredClone(run.stopReason) }),
                 contextEpoch: structuredClone(run.contextEpoch),
             },

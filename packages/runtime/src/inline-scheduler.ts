@@ -1,4 +1,4 @@
-import type { Runner, RunnerResult } from "./runner";
+import type { InterruptRunResult, Runner, RunnerResult, SteerInputResult } from "./runner";
 import type { RunExecutionOptions, RunRef } from "./domain";
 import {
     throwIfAborted,
@@ -15,7 +15,7 @@ import type { RunScheduler } from "./scheduler";
  */
 export class InlineScheduler implements RunScheduler {
     constructor(
-        private readonly runner: Pick<Runner, "runUntilBlocked">,
+        private readonly runner: Pick<Runner, "runUntilBlocked"> & Partial<Pick<Runner, "steer" | "interrupt">>,
     ) {}
 
     /**
@@ -43,5 +43,26 @@ export class InlineScheduler implements RunScheduler {
         const result = await this.runner.runUntilBlocked(ref, options, effectiveControl);
         throwIfAborted(effectiveControl);
         return result;
+    }
+
+    /**
+     * 通过同一 Runner 执行所有者持久化受理 Steer。
+     *
+     * @param ref - 当前 Goal 与 Run 身份。
+     * @param messageId - 稳定幂等消息身份。
+     * @param content - 非空消息正文。
+     * @returns 持久化受理或 Runner 返回的稳定拒绝。
+     * @throws Snapshot 或 Trajectory 保存失败时传播原始错误。
+     */
+    steer(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult> {
+        return this.runner.steer === undefined
+            ? Promise.resolve({ ok: false, error: "RUN_CONTROL_UNAVAILABLE" })
+            : this.runner.steer(ref, messageId, content);
+    }
+
+    interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {
+        return this.runner.interrupt === undefined
+            ? Promise.resolve({ ok: false, error: "INTERRUPT_CONFLICT" })
+            : this.runner.interrupt(ref, requestId);
     }
 }

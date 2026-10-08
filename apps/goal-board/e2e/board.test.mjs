@@ -396,7 +396,9 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Try again with the saved history')");
-    assert.deepEqual(mock.lastMessage, { runId: "run-1", content: "Try again with the saved history" });
+    assert.equal(mock.lastMessage.runId, "run-1");
+    assert.equal(mock.lastMessage.content, "Try again with the saved history");
+    assert.equal(typeof mock.lastMessage.messageId, "string");
     mock.resetToFailed();
     await navigate(socket, `${webUrl}/?session=escaped#${token}`);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");

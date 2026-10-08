@@ -55,6 +55,7 @@ import { Trajectory } from "./trajectory";
 type GoalStatus = "Ready" | "Running" | "Needs input" | "Completed" | "Stopped";
 type SessionTab = "Board" | "Activity" | "Plan" | "Trajectory";
 type MetricsState = { readonly kind: "ready"; readonly value: SessionMetricsSnapshot } | { readonly kind: "error" };
+type QueuedInput = { readonly messageId: string; readonly content: string };
 
 const statuses: readonly GoalStatus[] = [
   "Ready",
@@ -97,6 +98,9 @@ function App() {
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commandBusy, setCommandBusy] = useState(false);
+  const [stoppingRunId, setStoppingRunId] = useState<string | null>(null);
+  const [queuedByGoal, setQueuedByGoal] = useState<Record<string, readonly QueuedInput[]>>({});
+  const [queuePausedByGoal, setQueuePausedByGoal] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
   const [archivedView, setArchivedView] = useState(false);
   const [manageBusyId, setManageBusyId] = useState<string | null>(null);
@@ -135,6 +139,7 @@ function App() {
   const draftLoadVersion = useRef(0);
   const timeline = useRef<HTMLDivElement>(null);
   const latestSession = useRef<BrowserGoalSession | null>(null);
+  const queueSendInFlight = useRef(new Set<string>());
   const activeGoal = goals.find((goal) => goal.goalId === selectedGoalId);
   const sessionVisible = activeGoal !== undefined || draftSessionOpen;
   const currentRun = session?.runs.find((run) => run.current);
@@ -142,14 +147,14 @@ function App() {
   const canSendText = session !== null
     && session.pendingInteraction === undefined
     && session.pendingAction === undefined
-    && (session.runStatus === "waiting" || session.runStatus === "completed" || session.runStatus === "failed");
+    && (session.runStatus === "waiting" || session.runStatus === "completed" || session.runStatus === "failed" || session.runStatus === "cancelled");
   const currentModelName = currentModelCatalog === null ? "Current model unavailable"
     : currentModelCatalog.models.find((model) => model.id === currentModelCatalog.currentModelId)?.displayName
       ?? currentModelCatalog.currentModelId;
   const draftModelName = draftModelId === null ? (draftModelCatalog === null && draftModelError === null ? "Loading model…" : "Choose model")
     : draftModelCatalog?.models.find((model) => model.id === draftModelId)?.displayName ?? draftModelId;
   const canSwitchCurrentModel = session !== null
-    && (session.runStatus === "waiting" || session.runStatus === "completed" || session.runStatus === "failed")
+    && (session.runStatus === "waiting" || session.runStatus === "completed" || session.runStatus === "failed" || session.runStatus === "cancelled")
     && session.pendingAction === undefined;
 
   useEffect(() => {
@@ -713,6 +718,7 @@ function App() {
     try {
       await browserApi.sendMessage(session.goalId, {
         runId: session.currentRunId,
+        messageId: crypto.randomUUID(),
         content: trimmed,
       });
       await refreshSelectedSession();
@@ -725,6 +731,102 @@ function App() {
       setCommandBusy(false);
     }
   }
+
+  async function submitSteer(content: string): Promise<boolean> {
+    if (!session || session.runStatus !== "running" || !content.trim() || commandBusy) return false;
+    setCommandBusy(true);
+    setCommandError(null);
+    try {
+      await browserApi.steer(session.goalId, {
+        runId: session.currentRunId,
+        messageId: crypto.randomUUID(),
+        content: content.trim(),
+      });
+      await refreshSelectedSession();
+      return true;
+    } catch (error) {
+      setCommandError(errorMessage(error));
+      if (error instanceof BrowserApiError && error.refresh) await refreshSelectedSession();
+      return false;
+    } finally {
+      setCommandBusy(false);
+    }
+  }
+
+  function queueInput(content: string): boolean {
+    if (!session || session.runStatus !== "running" || !content.trim()) return false;
+    const item = { messageId: crypto.randomUUID(), content: content.trim() };
+    setQueuedByGoal((current) => ({ ...current, [session.goalId]: [...(current[session.goalId] ?? []), item] }));
+    return true;
+  }
+
+  async function interruptCurrentRun(): Promise<void> {
+    if (!session || session.runStatus !== "running" || commandBusy) return;
+    setCommandBusy(true);
+    setStoppingRunId(session.currentRunId);
+    setCommandError(null);
+    try {
+      await browserApi.interrupt(session.goalId, {
+        runId: session.currentRunId,
+        requestId: crypto.randomUUID(),
+      });
+      await refreshSelectedSession();
+    } catch (error) {
+      setStoppingRunId(null);
+      setCommandError(errorMessage(error));
+      if (error instanceof BrowserApiError && error.refresh) await refreshSelectedSession();
+    } finally {
+      setCommandBusy(false);
+    }
+  }
+
+  async function startQueuedInput(goalId: string, runId: string, item: QueuedInput): Promise<boolean> {
+    const reservation = `${goalId}:${item.messageId}`;
+    if (queueSendInFlight.current.has(reservation)) return false;
+    queueSendInFlight.current.add(reservation);
+    try {
+      await browserApi.sendMessage(goalId, { runId, messageId: item.messageId, content: item.content });
+      setQueuedByGoal((current) => {
+        const items = current[goalId] ?? [];
+        return { ...current, [goalId]: items[0]?.messageId === item.messageId ? items.slice(1) : items.filter((entry) => entry.messageId !== item.messageId) };
+      });
+      setQueuePausedByGoal((current) => ({ ...current, [goalId]: false }));
+      if (selectedGoalId === goalId) await refreshSelectedSession();
+      return true;
+    } catch (error) {
+      setQueuePausedByGoal((current) => ({ ...current, [goalId]: true }));
+      if (selectedGoalId === goalId) {
+        setCommandError(errorMessage(error));
+        if (error instanceof BrowserApiError && error.refresh) await refreshSelectedSession();
+      }
+      return false;
+    } finally {
+      queueSendInFlight.current.delete(reservation);
+    }
+  }
+
+  async function continueQueue(): Promise<void> {
+    if (!session) return;
+    const first = queuedByGoal[session.goalId]?.[0];
+    if (!first || !["failed", "cancelled", "completed"].includes(session.runStatus)) return;
+    setQueuePausedByGoal((current) => ({ ...current, [session.goalId]: false }));
+    await startQueuedInput(session.goalId, session.currentRunId, first);
+  }
+
+  useEffect(() => {
+    if (!session) return;
+    if (stoppingRunId !== null && session.currentRunId === stoppingRunId && session.runStatus !== "running") {
+      setStoppingRunId(null);
+    }
+    const items = queuedByGoal[session.goalId] ?? [];
+    if (items.length === 0) return;
+    if (session.runStatus === "failed" || session.runStatus === "cancelled") {
+      setQueuePausedByGoal((current) => ({ ...current, [session.goalId]: true }));
+      return;
+    }
+    if (session.runStatus !== "completed" || queuePausedByGoal[session.goalId]) return;
+    void startQueuedInput(session.goalId, session.currentRunId, items[0]!);
+  }, [session?.goalId, session?.currentRunId, session?.runStatus, queuedByGoal, queuePausedByGoal, stoppingRunId]);
 
   async function submitInteraction(command: BrowserGoalInteractionCommand) {
     if (!session || commandBusy) return;
@@ -1151,6 +1253,15 @@ function App() {
                       </div>
                     )}
                     {sessionTab !== "Board" && <div className="composer-area">
+                      {(queuedByGoal[session.goalId]?.length ?? 0) > 0 && (
+                        <div className="queued-inputs" aria-label="Queued messages">
+                          <div className="queued-inputs-heading">Queued messages · next Run order</div>
+                          <ol>{queuedByGoal[session.goalId]!.map((item) => <li key={item.messageId}>{item.content}</li>)}</ol>
+                          {queuePausedByGoal[session.goalId] && <div className="queue-paused">Queue paused. Continue when ready.
+                            <button type="button" disabled={commandBusy} onClick={() => void continueQueue()}>Continue queue</button>
+                          </div>}
+                        </div>
+                      )}
                       {session.runStatus === "waiting" && (
                         session.pendingInteraction !== undefined || session.pendingAction !== undefined
                           ? <>
@@ -1181,12 +1292,12 @@ function App() {
                             />
                       )}
                       {sessionTab === "Trajectory" && canSendText && <button className="trajectory-message-link" onClick={() => setSessionTab("Activity")}>Message this Goal from Activity <ChevronRight size={14}/></button>}
-                      {sessionTab !== "Trajectory" && (session.runStatus === "completed" || session.runStatus === "failed") && session.pendingInteraction === undefined && session.pendingAction === undefined && (
+                      {sessionTab !== "Trajectory" && (session.runStatus === "completed" || session.runStatus === "failed" || session.runStatus === "cancelled") && session.pendingInteraction === undefined && session.pendingAction === undefined && (
                         <MessageComposer
                           key={`${session.currentRunId}:continue`}
                           showHint={false}
                           busy={commandBusy}
-                          placeholder={session.runStatus === "failed" ? "Send a message to continue in a new Run…" : "Continue this Goal with a new task…"}
+                          placeholder={session.runStatus === "failed" || session.runStatus === "cancelled" ? "Send a message to continue in a new Run…" : "Continue this Goal with a new task…"}
                           footerControls={<>
                             {renderPermissionControl(true)}
                             <CurrentModelControl
@@ -1220,7 +1331,12 @@ function App() {
                             showHint={false}
                             busy={commandBusy}
                             running
-                            placeholder="Run is in progress…"
+                            placeholder="Add direction while this Run is working…"
+                            pendingSteers={session.pendingSteers ?? []}
+                            onSteer={submitSteer}
+                            onQueue={queueInput}
+                            onInterrupt={interruptCurrentRun}
+                            stopping={stoppingRunId === session.currentRunId || (session.interruption !== undefined && session.interruption.status !== "finished")}
                             footerControls={<>
                               {renderPermissionControl(true)}
                               <CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} />
@@ -1248,9 +1364,6 @@ function App() {
                         ) : (
                           <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">The Runtime is starting this Goal.</div></>
                         )
-                      )}
-                      {session.runStatus === "cancelled" && (
-                        <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">Text input is unavailable for this Run.</div></>
                       )}
                       {session.runStatus === "waiting" && session.pendingInteraction === undefined && session.pendingAction !== undefined && session.pendingAction.status === "approved" && (
                         <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">The approved action is being recorded.</div></>
@@ -1653,18 +1766,28 @@ function ModelPicker({ target, selectedId, onSelect, onClose, onDone }: {
 function MessageComposer({
   busy,
   running = false,
+  stopping = false,
   sendDisabled = false,
   placeholder,
   footerControls,
   onSubmit,
+  pendingSteers = [],
+  onSteer,
+  onQueue,
+  onInterrupt,
   autoFocus = false,
   showHint = true,
 }: {
   busy: boolean;
   running?: boolean;
+  stopping?: boolean;
   sendDisabled?: boolean;
   placeholder: string;
   onSubmit: (content: string) => Promise<boolean>;
+  pendingSteers?: readonly { readonly messageId: string; readonly content: string }[];
+  onSteer?: (content: string) => Promise<boolean>;
+  onQueue?: (content: string) => boolean;
+  onInterrupt?: () => Promise<void>;
   footerControls?: ReactNode;
   autoFocus?: boolean;
   showHint?: boolean;
@@ -1672,12 +1795,17 @@ function MessageComposer({
   const [draft, setDraft] = useState("");
   const [selectedCommand, setSelectedCommand] = useState(0);
   const [commandMenuClosed, setCommandMenuClosed] = useState(false);
+  const [runSendOptionsOpen, setRunSendOptionsOpen] = useState(false);
   const inspection = slashCommands.inspect(draft);
-  const candidates = inspection.kind === "candidates" && !commandMenuClosed ? inspection.candidates : [];
+  const candidates = !running && inspection.kind === "candidates" && !commandMenuClosed ? inspection.candidates : [];
   const activeCandidate = candidates[Math.min(selectedCommand, candidates.length - 1)];
 
   async function submit(content = draft) {
-    if (busy || running || !content.trim()) return;
+    if (busy || !content.trim()) return;
+    if (running) {
+      setRunSendOptionsOpen(true);
+      return;
+    }
     const submittedDraft = draft;
     if (await onSubmit(content)) {
       setDraft((current) => current === submittedDraft ? "" : current);
@@ -1685,8 +1813,28 @@ function MessageComposer({
       setSelectedCommand(0);
     }
   }
+  async function chooseSteer() {
+    if (!onSteer || busy || !draft.trim()) return;
+    const submittedDraft = draft;
+    if (await onSteer(submittedDraft)) {
+      setDraft((current) => current === submittedDraft ? "" : current);
+      setRunSendOptionsOpen(false);
+    }
+  }
+  function chooseQueue() {
+    if (!onQueue || !draft.trim()) return;
+    const submittedDraft = draft;
+    if (onQueue(submittedDraft)) {
+      setDraft((current) => current === submittedDraft ? "" : current);
+      setRunSendOptionsOpen(false);
+    }
+  }
   return (
     <>
+      {running && pendingSteers.length > 0 && <div className="pending-steers" aria-label="Pending Steer messages">
+        <strong>Steer · waiting for next model call</strong>
+        <ol>{pendingSteers.map((item, index) => <li key={item.messageId}>{index + 1}. {item.content}</li>)}</ol>
+      </div>}
       {candidates.length > 0 && (
         <div className="command-candidates" role="listbox" aria-label="Available commands">
           {candidates.map((candidate, index) => (
@@ -1714,7 +1862,7 @@ function MessageComposer({
           placeholder={placeholder}
           autoFocus={autoFocus}
           value={draft}
-          disabled={busy || running}
+          disabled={busy || (running && stopping)}
           onChange={(event) => {
             setDraft(event.target.value);
             setSelectedCommand(0);
@@ -1738,6 +1886,11 @@ function MessageComposer({
               setCommandMenuClosed(true);
               return;
             }
+            if (event.key === "Escape" && runSendOptionsOpen) {
+              event.preventDefault();
+              setRunSendOptionsOpen(false);
+              return;
+            }
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
               void submit();
@@ -1748,17 +1901,25 @@ function MessageComposer({
           <div className="composer-controls">
             {footerControls}
           </div>
-          <button
-            type="submit"
-            className={`send${running ? " is-running" : busy ? " is-sending" : ""}`}
-            aria-label={running ? "Run in progress" : busy ? "Sending message" : "Send message"}
-            title={running ? "Run in progress" : undefined}
-            disabled={busy || running || sendDisabled || !draft.trim()}
-          >
-            {running
-              ? <LoaderCircle className="send-spinner" size={20} strokeWidth={2.25} aria-hidden="true" />
-              : busy ? <span className="loading-mark small" /> : <ArrowUp size={16} />}
-          </button>
+          {running && runSendOptionsOpen && draft.trim() ? (
+            <div className="run-send-options" role="group" aria-label="Choose message action">
+              <button type="button" disabled={busy} onClick={() => void chooseSteer()}>Steer</button>
+              <button type="button" disabled={busy} onClick={chooseQueue}>Queue</button>
+            </div>
+          ) : (
+            <button
+              type={running ? "button" : "submit"}
+              className={`send ${running ? "is-running" : ""} ${running && stopping ? "is-stopping" : ""}`}
+              aria-label={running ? stopping ? "Stopping Run" : draft.trim() ? "Choose Steer or Queue" : "Interrupt Run" : busy ? "Sending message" : "Send message"}
+              title={running ? stopping ? "Stopping Run" : draft.trim() ? "Choose Steer or Queue" : "Interrupt this Run" : undefined}
+              disabled={busy || (running && stopping) || sendDisabled || (!running && !draft.trim())}
+              onClick={running ? () => draft.trim() ? setRunSendOptionsOpen(true) : void onInterrupt?.() : undefined}
+            >
+              {running
+                ? <>{stopping ? <span className="run-spinner stopping" aria-hidden="true" /> : <span className="run-spinner" aria-hidden="true" />}{stopping ? "Stopping" : "Running"}</>
+                : busy ? <span className="loading-mark small" /> : <ArrowUp size={16} />}
+            </button>
+          )}
         </div>
       </form>
       {showHint && <div className="composer-hint">Enter to send · Shift + Enter for a new line</div>}

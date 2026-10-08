@@ -182,6 +182,43 @@ test("failed Run can accept a new message while preserving its failure in histor
     });
 });
 
+test("cancelled Run can accept a continuation in the same Goal", async () => {
+    const store = new InMemoryGoalStore();
+    const created = createGoal({ ...currentProtocols, id: "goal-continue-cancelled", intent: "被终止的工作", promptBundleVersion: 1, profile, runId: "run-cancelled" });
+    const started = transition(created.state.run, { kind: "start" });
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    const cancelled = transition(started.state, { kind: "cancel" });
+    assert.equal(cancelled.ok, true);
+    if (!cancelled.ok) return;
+    const initial: Goal = {
+        ...created,
+        state: {
+            ...created.state,
+            workflow: { phase: "executing" },
+            run: {
+                ...cancelled.state,
+                interruption: { requestId: "interrupt-1", status: "finished", repairCallsStarted: 0 },
+            },
+        },
+    };
+    await store.save(initial);
+    const scheduler = new WaitingScheduler(store);
+    const coordinator = new GoalCoordinator({
+        store,
+        scheduler,
+        trajectoryStore: trajectoryStoreFor(store),
+        runIdGenerator: () => "run-after-cancel",
+    });
+    const result = await coordinator.continue({ goalId: initial.id, runId: initial.state.run.id }, "继续同一 Goal");
+    assert.equal(result.ok, true);
+    const persisted = await store.restore(initial.id);
+    assert.ok(persisted);
+    assert.equal(persisted.state.run.id, "run-after-cancel");
+    assert.equal(persisted.state.completedRuns?.[0]?.status, "cancelled");
+    assert.equal(persisted.state.run.interruption, undefined);
+});
+
 test("continuing a Plan Run defaults to normal mode and preserves its independent GoalPlan", async () => {
     const store = new InMemoryGoalStore();
     const initial = completedGoal("plan");

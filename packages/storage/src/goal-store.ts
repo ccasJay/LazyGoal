@@ -21,6 +21,11 @@ import { goalSnapshotCodec } from "./goal-snapshot-codec";
 import type { GoalSnapshotV1 } from "./goal-snapshot";
 import { GoalSnapshotProtocolError } from "./goal-snapshot";
 
+type GoalFileOperations = Partial<Pick<typeof import("node:fs/promises"), "mkdir" | "open" | "readFile" | "rename" | "unlink">>;
+const GOAL_WRITE_RETRY_LIMIT = 3;
+const GOAL_WRITE_RETRY_DELAY_MS = 10;
+const RETRYABLE_GOAL_FILE_ERROR_CODES = new Set(["EINTR", "EAGAIN", "EBUSY"]);
+
 /**
  * 单进程内的 Goal 快照存储。
  *
@@ -62,47 +67,131 @@ export class InMemoryGoalStore implements GoalStore {
  * 乐观锁、租约或版本冲突检测。文件系统错误原样传播。
  */
 export class JsonFileGoalStore implements GoalStore, GoalCatalog {
+    private readonly saveQueues = new Map<string, Promise<unknown>>();
+    private readonly directory: string;
+    private readonly fileOperations: Required<GoalFileOperations>;
+
     /**
      * @param directory - 保存 Goal JSON 文件的目录；保存时按需递归创建。
+     * @param fileOperations - 可选文件操作替身，用于确定性验证写入故障；生产默认使用 Node 文件系统。
      */
-    constructor(private readonly directory: string) {}
+    constructor(directory: string, fileOperations: GoalFileOperations = {}) {
+        this.directory = directory;
+        this.fileOperations = {
+            mkdir,
+            open,
+            readFile,
+            rename,
+            unlink,
+            ...fileOperations,
+        };
+    }
 
     /**
      * 编码并原子替换指定 Goal 的最新 JSON 快照。
      *
-     * @throws Goal 不满足快照协议时抛出 GoalSnapshotProtocolError；目录创建、
-     * 临时文件写入或替换失败时传播原始文件系统错误。
+     * @throws Goal 不满足快照协议时抛出 GoalSnapshotProtocolError；确定性文件错误、
+     * 无法确认的替换结果或三次临时故障重试耗尽时传播错误。
      */
-    async save(goal: Goal): Promise<void> {
+    save(goal: Goal): Promise<void> {
         const snapshot = goalSnapshotCodec.encode(goal);
+        const key = snapshot.id;
+        const previous = this.saveQueues.get(key) ?? Promise.resolve();
+        const operation = previous.catch(() => undefined).then(() => this.saveSnapshot(snapshot, goal));
+        let tracked: Promise<unknown>;
+        tracked = operation
+            .catch(() => undefined)
+            .finally(() => {
+                if (this.saveQueues.get(key) === tracked) this.saveQueues.delete(key);
+            });
+        this.saveQueues.set(key, tracked);
+        return operation;
+    }
+
+    private async saveSnapshot(
+        snapshot: GoalSnapshotV1,
+        goal: Goal,
+    ): Promise<void> {
         const filePath = this.filePath(snapshot.id);
         const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
+        const serialized = `${JSON.stringify(snapshot, null, 2)}\n`;
+        let saved = false;
 
-        await mkdir(this.directory, { recursive: true });
-
-        try {
-            const handle = await open(temporaryPath, "wx", 0o600);
-
+        for (let attempt = 1; attempt <= GOAL_WRITE_RETRY_LIMIT; attempt += 1) {
             try {
-                await handle.writeFile(
-                    `${JSON.stringify(snapshot, null, 2)}\n`,
-                    "utf8",
-                );
-                await handle.sync();
-            } finally {
-                await handle.close();
-            }
+                await this.fileOperations.mkdir(this.directory, { recursive: true });
+                const handle = await this.fileOperations.open(temporaryPath, "wx", 0o600);
+                try {
+                    await handle.writeFile(serialized, "utf8");
+                    await handle.sync();
+                } finally {
+                    await handle.close();
+                }
+                await this.fileOperations.rename(temporaryPath, filePath);
+                saved = true;
+                break;
+            } catch (error) {
+                const code = error instanceof Error
+                    ? (error as NodeJS.ErrnoException).code
+                    : undefined;
+                if (code === undefined || !RETRYABLE_GOAL_FILE_ERROR_CODES.has(code)) {
+                    await this.fileOperations.unlink(temporaryPath).catch(() => undefined);
+                    throw error;
+                }
 
-            await rename(temporaryPath, filePath);
-            const status = goal.state.run.status;
-            if (status !== "completed" && status !== "failed" && status !== "cancelled") {
-                await unlink(this.archivePath(goal.id)).catch((error: NodeJS.ErrnoException) => {
-                    if (error.code !== "ENOENT") throw error;
-                });
+                let snapshotWasReplaced: boolean;
+                try {
+                    snapshotWasReplaced = await this.snapshotMatches(filePath, serialized);
+                } catch (verificationError) {
+                    await this.fileOperations.unlink(temporaryPath).catch(() => undefined);
+                    throw verificationError;
+                }
+                if (snapshotWasReplaced) {
+                    saved = true;
+                    break;
+                }
+                await this.fileOperations.unlink(temporaryPath).catch(() => undefined);
+                if (attempt === GOAL_WRITE_RETRY_LIMIT) throw error;
+                await new Promise((resolve) => setTimeout(resolve, GOAL_WRITE_RETRY_DELAY_MS));
             }
+        }
+
+        if (!saved) throw new Error("Goal Snapshot save did not reach a verified state");
+        const status = goal.state.run.status;
+        if (status !== "completed" && status !== "failed" && status !== "cancelled") {
+            await this.removeArchiveMarkerWithRetry(this.archivePath(goal.id));
+        }
+    }
+
+    private async snapshotMatches(filePath: string, expected: string): Promise<boolean> {
+        try {
+            return await this.fileOperations.readFile(filePath, "utf8") === expected;
         } catch (error) {
-            await unlink(temporaryPath).catch(() => undefined);
+            if (error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+                return false;
+            }
             throw error;
+        }
+    }
+
+    private async removeArchiveMarkerWithRetry(markerPath: string): Promise<void> {
+        for (let attempt = 1; attempt <= GOAL_WRITE_RETRY_LIMIT; attempt += 1) {
+            try {
+                await this.fileOperations.unlink(markerPath);
+                return;
+            } catch (error) {
+                if (error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT") return;
+                const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+                if (code === undefined || !RETRYABLE_GOAL_FILE_ERROR_CODES.has(code)) throw error;
+                try {
+                    await this.fileOperations.readFile(markerPath);
+                } catch (readError) {
+                    if (readError instanceof Error && (readError as NodeJS.ErrnoException).code === "ENOENT") return;
+                    throw readError;
+                }
+                if (attempt === GOAL_WRITE_RETRY_LIMIT) throw error;
+                await new Promise((resolve) => setTimeout(resolve, GOAL_WRITE_RETRY_DELAY_MS));
+            }
         }
     }
 
