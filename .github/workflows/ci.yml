@@ -61,8 +61,6 @@ jobs:
           test -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
       - name: Run regression tests
-        env:
-          CI: 'true'
         run: npm test
 
       - name: Typecheck Goal Server
