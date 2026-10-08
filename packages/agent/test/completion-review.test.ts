@@ -3,7 +3,8 @@ import { test } from "node:test";
 import {
     createModelOutputContractBundle, SystemCompletionReviewDeclaration, type CompletionReviewResult,
 } from "../../model-contracts/src/index";
-import { createGoal, ModelStageFeedbackError, type ModelInputRecord, type ModelCallMetricRecord } from "../../runtime/src/index";
+import { allocateImmutableEvent, CompletionReviewInputBudgetError, createGoal, ModelStageFeedbackError,
+    type ModelInputRecord, type ModelCallMetricRecord, type TrajectoryEvent } from "../../runtime/src/index";
 import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/index";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMResponse, LLMStreamEvent } from "../../llm/src/core/types";
@@ -86,8 +87,45 @@ test("required review input overflow is rejected before any model call", async (
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
     const review = input();
     const large = { ...review, goal: { ...review.goal, state: { ...review.goal.state, messages: [{ role: "user" as const, content: "source".repeat(40_000) }] } } };
-    await assert.rejects(executor.reviewCompletion(large), /exceeds the model budget/);
+    await assert.rejects(executor.reviewCompletion(large), error => error instanceof CompletionReviewInputBudgetError
+        && error.code === "COMPLETION_REVIEW_INPUT_TOO_LARGE");
     assert.equal(calls, 0);
+});
+
+test("review retains cited source observations once when many files are read", async () => {
+    const evidence: TrajectoryEvent[] = [];
+    const sequences: number[] = [];
+    for (let index = 0; index < 20; index++) {
+        const actionId = `read-${index}`;
+        const path = `docs/source-${index}.md`;
+        const observation = { kind: "success" as const, output: { path, text: `${path}:${"source".repeat(750)}` }, summary: "Read source" };
+        const common = { goalId: "review-goal", runId: "review-run", phase: "executing" as const, actionId };
+        const start = index * 3 + 1;
+        evidence.push(allocateImmutableEvent({ ...common, eventType: "action_staged",
+            payload: { type: "action_staged", action: { actionId, toolId: "read_file", input: { path } }, approvalStatus: "approved" } }, start, `event-${start}`));
+        evidence.push(allocateImmutableEvent({ ...common, eventType: "tool_finished",
+            payload: { type: "tool_finished", actionId, toolId: "read_file", observation } }, start + 1, `event-${start + 1}`));
+        evidence.push(allocateImmutableEvent({ ...common, eventType: "observation_recorded",
+            payload: { type: "observation_recorded", actionId, observation } }, start + 2, `event-${start + 2}`));
+        sequences.push(start + 2);
+    }
+    let calls = 0;
+    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(request) {
+        calls++;
+        const content = JSON.parse(request.messages[1]!.content);
+        assert.deepEqual(content.candidate.evidenceSequences, sequences);
+        assert.equal(content.committedEvidence.length, 40);
+        assert.equal(content.committedEvidence.filter((event: TrajectoryEvent) => event.eventType === "tool_finished").length, 0);
+        assert.equal(content.committedEvidence.filter((event: TrajectoryEvent) => event.eventType === "observation_recorded").length, 20);
+        assert.ok(request.messages[1]!.content.includes("docs/source-19.md:source"));
+        return { content: "", toolCalls: [{ callId: "review-result", toolId: "system_review_completion",
+            argumentsJson: '{"result":{"kind":"accept"}}' }] };
+    } };
+    const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
+    const review = input();
+    assert.deepEqual(await executor.reviewCompletion({ ...review, evidence,
+        candidate: { kind: "complete", summary: "The cited sources support the report.", evidenceSequences: sequences } }), { kind: "accept" });
+    assert.equal(calls, 1);
 });
 
 test("streaming review text, reasoning and result arguments stay outside the public stream", async () => {
