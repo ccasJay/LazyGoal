@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
@@ -56,6 +57,13 @@ export const GIT_DEFAULT_TIMEOUT_MS = 10_000;
 
 /** Git 输出字符数软上限（防止过大输出耗尽内存）。 */
 export const GIT_MAX_OUTPUT_CHARS = 500_000;
+
+async function resolveGitDeveloperDirectory(): Promise<string> {
+    const selectedDeveloperDirectory = execFileSync("/usr/bin/xcode-select", ["-p"], {
+        encoding: "utf8",
+    }).trim();
+    return await realpath(selectedDeveloperDirectory);
+}
 
 /**
  * Git 仓库资源拓扑信息。
@@ -490,6 +498,7 @@ export async function runRestrictedGit(
             repoInfo.workspaceRoot,
             repoInfo.gitDir,
             repoInfo.commonDir,
+            await resolveGitDeveloperDirectory(),
             ...canonicalExtraReadPaths,
         ];
 
@@ -710,6 +719,7 @@ export async function runRestrictedGitWrite(
                 repoInfo.workspaceRoot,
                 repoInfo.gitDir,
                 repoInfo.commonDir,
+                await resolveGitDeveloperDirectory(),
                 ...canonicalExtraReadPaths,
             ];
 
