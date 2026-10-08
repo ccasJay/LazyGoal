@@ -9,6 +9,7 @@ LazyGoal is a goal-driven, resumable agent runtime. It turns user intent into a 
 * Update this section whenever the repository layout changes.
 
 ```text
+.agents/skills/ Repository-specific agent workflows
 bin/             CLI entrypoint and executable wiring for `lazygoal`
 scripts/         Repository maintenance and validation utilities
 apps/            Standalone user-facing client applications
@@ -94,6 +95,7 @@ When performing a task, load and follow the matching skill under `.agents/skills
 
 * Documentation work, including writing, moving, reviewing, and auditing → `lg-doc-standards`
 * Prose work, including Markdown, TSDoc, code comments, test comments, prompts, diagnostics, and Web/CLI copy → `lg-prose-standard`
+* Domain concepts, state transitions, invariants, and cross-context contracts → `lg-domain-development`
 * Simplification audits, including dead code, duplicate state or lifecycle logic, over-design, and dependency replacement → `lg-find-simplifications`
 * Benchmark integration, sandboxed worker packaging, evaluation runners, and troubleshooting → `lg-benchmark-integration`
 * 在独立 worktree 执行 spec → `lg-spec-worktree-execution`
