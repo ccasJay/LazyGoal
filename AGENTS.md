@@ -18,6 +18,8 @@ benchmarks/      Explicit headless benchmark evaluation
   src/            Shared Headless Composition Root and persistence wiring
   alfworld/       ALFWorld TextWorld tasks, sidecar, tools, and reports
   swebench/       SWE-bench ACP Worker, Verified containers, patch export, and official grading
+  gaia/           GAIA tasks, attachments, answer scoring
+  tua-bench/      TUA terminal tasks, verifier reward
 prompt-evaluation/ External prompt optimization integrations
   gepa/            Official GEPA adapter for LazyGoal Prompt Evaluation
 packages/        Private `@lazygoal/*` workspaces
@@ -38,7 +40,7 @@ packages/        Private `@lazygoal/*` workspaces
   sandbox/       Workspace path boundaries, canonical capability contracts, and macOS Seatbelt isolation
   tool-core/     Tool definition, input validation closure, execution registry, and retryable failures
   tools/         Agent tools such as filesystem, shell, and workspace utilities
-docs/            Current implemented architecture documentation under `docs/architecture/`
+README.md       Project entry and navigation; each module owns README and notes/
 specs/           Feature requirements, designs, and implementation task checklists
 project-memory/  Durable summaries of completed and verified feature specifications
 `~/.lazygoal/`  LazyGoal Home runtime data; workspace-scoped Goal Snapshots, trajectories, traces, benchmark runs, and GEPA runs
@@ -137,21 +139,7 @@ export interface GoalStore {
 
 ## Architecture Documentation
 
-* Treat `docs/architecture/` as the concise source of truth for the currently implemented architecture.
-* Update the relevant architecture document in the same change whenever any of the following changes:
-
-  * module responsibilities,
-  * state ownership,
-  * persistence ownership,
-  * cross-module data flow,
-  * lifecycle semantics,
-  * recovery semantics,
-  * key architectural invariants,
-  * supported protocols,
-  * current architectural limitations.
-* Architecture documentation must describe implemented behavior only.
-* Keep proposed designs, migration plans, historical decisions, and future work in `specs/` rather than presenting them as current architecture.
-* Keep API-level contracts in source TSDoc instead of duplicating them in architecture documents.
-* Prefer links to source contracts and specifications over copying detailed definitions.
-* Keep each architecture document concise enough for a focused 1–2 minute review.
-* When documentation and implementation disagree, treat the implementation as the immediate source of truth and update the documentation in the same task.
+* The root `README.md` is the project navigation. Every package, app, benchmark unit, and GEPA module keeps its own short `README.md`, `notes/overview.md`, and `notes/semantics.md`. Longer module-specific tutorials live in that module's `notes/` and are linked from its overview.
+* The owning module's overview describes current responsibilities, state and persistence ownership, data flow, lifecycle, recovery, supported protocols, and limitations. Its semantic table uses the columns `概念 | 简明含义 | 归属模块 | 权威说明`, linking the owning module README and its authoritative overview or source contract. Cross-module readers link the owner rather than copy its detailed contract.
+* Update the relevant owning module's overview and semantic table in the same change whenever these responsibilities or meanings change; update affected readers' links and descriptions. Run `npm run check:docs` to check coverage and links, and verify claims against current source and tests.
+* Keep public API contracts in source TSDoc. `specs/` records proposed designs and historical changes; `project-memory/` records durable summaries. Do not present their older claims as current behavior when they disagree with the implementation. This documentation migration leaves existing Specs and Memory untouched.

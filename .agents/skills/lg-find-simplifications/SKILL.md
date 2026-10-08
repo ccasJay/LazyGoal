@@ -20,11 +20,11 @@ description: "在 LazyGoal 仓库中进行证据驱动的简化审计：识别�
 
 不要在本 Skill 中维护模块职责、状态流转或生命周期不变量的副本。先从项目文档定位候选所属边界，再用源码和实际调用关系验证当前实现：
 
-- 先读 `docs/architecture/README.md`，确认跨模块关系、主流程、跨模块不变量和模块文档入口。
-- 涉及 Goal/Run、状态转换、Preparation、调度、Tool 授权、持久化、恢复、中止或关闭时，读 `docs/architecture/runtime.md`。
-- 涉及 Working Context、Prompt、响应协议或 Executor 职责时，读 `docs/architecture/agent.md`。
-- 涉及供应商无关接口、Adapter、消息映射或供应商错误时，读 `docs/architecture/llm.md`。
-- 涉及 CLI、Composition Root、`SessionController`、React Ink、Ctrl+C 或进程退出时，读 `docs/architecture/tui.md`。
+- 先读根 `README.md`，定位模块文档入口；跨模块流程按需阅读 Runtime 和 Goal Server 的说明。
+- 涉及 Goal/Run、状态转换、Preparation、调度、Tool 授权、持久化、恢复、中止或关闭时，读 `packages/runtime/notes/overview.md` 和语义表。
+- 涉及 Working Context、Prompt、响应协议或 Executor 职责时，读 `packages/agent/notes/overview.md` 和语义表。
+- 涉及供应商无关接口、Adapter、消息映射或供应商错误时，读 `packages/llm/notes/overview.md` 和语义表。
+- 涉及 CLI、服务装配、Web 交互或进程退出时，读 `apps/goal-server/notes/overview.md` 和 `apps/goal-board/notes/overview.md`。
 - 需要理解架构决定的历史理由时，先读 `project-memory/index.md`，再只读取与候选直接相关且状态有效的 `project-memory/features/*.md`。
 
 架构文档表达当前设计意图，源码和生产调用关系表达已实现事实。两者冲突时，记录为文档漂移并降低候选置信度；不要自行选择其中一方来证明简化安全。不得把功能 Spec 当作当前架构事实来源，也不要把文档中的“当前限制”误判为已经实现的能力。
@@ -125,7 +125,7 @@ description: "在 LazyGoal 仓库中进行证据驱动的简化审计：识别�
 ## 记录和实施边界
 
 - 只有用户明确要求实施或批准后，才修改生产代码；实施时使用 `apply_patch`，保留用户已有 diff。
-- 简化改变模块责任、状态所有权、跨模块数据流、生命周期、不变量或当前限制时，同步更新对应 `docs/architecture/*.md`，并在源码新增/扩展的公共 TypeScript 接口中补齐中文契约级 TSDoc 和最小示例。
+- 简化改变模块责任、状态所有权、跨模块数据流、生命周期、不变量或当前限制时，同步更新所属模块的 `notes/overview.md` 与 `notes/semantics.md`，并在源码新增/扩展的公共 TypeScript 接口中补齐中文契约级 TSDoc 和最小示例。
 - 不读取、新建或修改功能设计材料；需要持久化简化决策时，先由用户指定记录位置和格式。
 - 仅适合局部、低风险清理时，使用短小且可执行的 `TODO(simplify-...)`、`FIXME(simplify-...)` 或 `XXX(simplify-...)`，写明为何安全以及要删除/合并什么。
 - 保留任何 `//TODO N` 任务标记，不替换、删除或改写；本 Skill 默认不主动打开任务文件。

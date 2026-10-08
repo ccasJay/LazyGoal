@@ -81,3 +81,7 @@ mode 只控制边界案例的沟通方式，不扩大写权限：
 - 不假设固定 package manager、测试脚本或 CI gate；每次从当前仓库入口发现。
 - 不在本 Skill 中维护模块职责、架构事实或 TSDoc 细则的副本；按目标路径读取权威来源。
 - 不主动修改 durable memory、功能 Spec 或其他历史材料；只有用户明确授权相应专用流程后才写入。
+
+## 包内说明与语义
+
+语义表保留必要的简明含义，详细契约引用实际所有者的说明或源码；位置与导航规则按 [lg-doc-standards](../lg-doc-standards/SKILL.md) 和根 `AGENTS.md` 执行。

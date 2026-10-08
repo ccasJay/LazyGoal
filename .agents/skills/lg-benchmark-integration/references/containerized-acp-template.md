@@ -22,7 +22,11 @@ benchmarks/<benchmark_name>/
 ├── test/
 │   ├── dataset.test.ts   # 离线解析与契约单元测试
 │   └── runner.test.ts    # Mock 隔离测试与状态流转测试
-├── README.md             # Benchmark 介绍、CLI 命令与快速验证示例
+├── README.md             # 简介与包内说明导航
+├── notes/
+│   ├── overview.md      # 职责、边界、生命周期
+│   ├── semantics.md     # 本模块语义表
+│   └── usage.md         # CLI 前置条件、示例与结果
 └── tsconfig.json         # 独立构建配置（继承根配置）
 ```
 
