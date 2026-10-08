@@ -12,6 +12,7 @@
  *   - packages/<pkg>/test/ 下的全部 *.test.ts / *.test.tsx
  *   - benchmarks/<name>/test/ 与 benchmarks/test/ 下的全部 *.test.ts
  *   - scripts/ 下的全部 *.test.mjs
+ * CI 中逐文件运行 TypeScript 测试,避免真实沙箱与进程测试争用宿主资源。
  */
 
 import { spawnSync } from "node:child_process";
@@ -89,13 +90,14 @@ function runStage(label, command, args) {
 }
 
 const { tsFiles, mjsFiles } = discoverTestFiles();
+const testConcurrencyArgs = process.env.CI === "true" ? ["--test-concurrency=1"] : [];
 console.log(`[regression] 发现测试文件:${tsFiles.length} 个 .ts/.tsx,${mjsFiles.length} 个 .mjs`);
 
 const stages = [
     { label: "类型检查", command: "npx", args: ["tsc", "--noEmit"] },
     { label: "依赖边界检查", command: "npm", args: ["run", "check:dependencies"] },
     { label: "GEPA adapter 测试", command: "npm", args: ["run", "test:gepa-adapter"] },
-    { label: "测试", command: "npx", args: ["tsx", "--test", ...tsFiles] },
+    { label: "测试", command: "npx", args: ["tsx", "--test", ...testConcurrencyArgs, ...tsFiles] },
 ];
 if (mjsFiles.length > 0) {
     stages.push({ label: "scripts 测试", command: "node", args: ["--test", ...mjsFiles] });
