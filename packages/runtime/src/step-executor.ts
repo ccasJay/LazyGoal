@@ -151,6 +151,26 @@ export interface CompletionReviewInput extends StepExecutionInput {
 }
 
 /**
+ * 完成审查的必要输入超过当前模型预算，候选回复不得据此提交。
+ *
+ * @remarks
+ * Agent 在审查模型调用前抛出；Runtime 以独立的执行错误码结算 Run。
+ *
+ * @example
+ * ```ts
+ * throw new CompletionReviewInputBudgetError();
+ * ```
+ */
+export class CompletionReviewInputBudgetError extends RangeError {
+    readonly code = "COMPLETION_REVIEW_INPUT_TOO_LARGE" as const;
+
+    constructor() {
+        super("Required completion review input exceeds the model budget");
+        this.name = "CompletionReviewInputBudgetError";
+    }
+}
+
+/**
  * Agent 与 Runtime 之间的分阶段执行边界。
  *
  * @remarks

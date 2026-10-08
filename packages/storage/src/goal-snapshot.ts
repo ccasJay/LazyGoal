@@ -314,6 +314,7 @@ export type GoalSnapshotStopReasonV1 =
             | "INVALID_TOOL_INPUT"
             | "INVALID_MEMORY_PATCH"
             | "INVALID_AGENT_DECISION"
+            | "COMPLETION_REVIEW_INPUT_TOO_LARGE"
             | "MODEL_REQUEST_FAILED"
             | "TOOL_EXECUTION_ERROR";
         readonly message: string;
@@ -928,6 +929,7 @@ const StopReasonSchema = z.discriminatedUnion("kind", [
             "INVALID_TOOL_INPUT",
             "INVALID_MEMORY_PATCH",
             "INVALID_AGENT_DECISION",
+            "COMPLETION_REVIEW_INPUT_TOO_LARGE",
             "MODEL_REQUEST_FAILED",
             "TOOL_EXECUTION_ERROR",
         ]),

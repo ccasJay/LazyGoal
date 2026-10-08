@@ -32,6 +32,7 @@ import type {
     ThinkExchange,
     ThinkStageResult,
 } from "./step-executor";
+import { CompletionReviewInputBudgetError } from "./step-executor";
 import type {
     ExecutionStreamEventDraft,
     ExecutionStreamPublisher,
@@ -471,6 +472,10 @@ function isProtocolError(error: unknown): boolean {
 function toStableExecutionError(error: unknown): RunnerExecutionError | undefined {
     if (error instanceof RunnerExecutionError) {
         return error;
+    }
+
+    if (error instanceof CompletionReviewInputBudgetError) {
+        return new RunnerExecutionError(error.code, error.message);
     }
 
     if (error instanceof ModelStageFeedbackError) {

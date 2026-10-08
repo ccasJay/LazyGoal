@@ -42,7 +42,7 @@ Contracts 根据当前 Run 的模式、任务批准状态和可见工具集合�
 
 所有完成候选通过 Runtime 协议与引用校验后，由 [`reviewCompletion`](../../packages/agent/src/llm-step-executor.ts) 使用当前 Decide Adapter 独立审查。专用 [Prompt 与请求构造器](../../packages/agent/src/completion-review.ts) 提供当前请求和约束、获批条件、完整候选及 Runtime 解析的引用证据正文；只声明 `system_review_completion`，不执行工具或改写答案。`summary` 承载完整用户回复；Think、模型自述、目录和规模统计不能代替所需实现证据，已提供源码可直接使用，简单请求允许简短回答。
 
-审查使用既有模型预算，必要输入超限则调用前失败，不裁剪后放行。拒绝通过有界 `origin: completion_review` 反馈进入 Decide 纠错链；协议错误与拒绝合计最多三次 Decide 尝试。传输失败沿用请求重试。审查没有 Section frame 或独立恢复阶段；未提交审查恢复后可能重新调用并产生费用。
+审查使用既有模型预算。请求保留引用的已提交 Observation 与操作来源，避免把同一工具输出同时作为工具完成和 Observation 正文发送；必要输入仍超限时，在调用模型前以 `COMPLETION_REVIEW_INPUT_TOO_LARGE` 失败，不裁剪后放行。拒绝通过有界 `origin: completion_review` 反馈进入 Decide 纠错链；协议错误与拒绝合计最多三次 Decide 尝试。传输失败沿用请求重试。审查没有 Section frame 或独立恢复阶段；未提交审查恢复后可能重新调用并产生费用。
 
 ## 输出处理
 

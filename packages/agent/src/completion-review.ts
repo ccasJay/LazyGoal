@@ -3,7 +3,7 @@ import {
     SystemCompletionReviewDeclaration,
     type CompletionReviewResult,
 } from "../../model-contracts/src/index";
-import type { CompletionReviewInput } from "../../runtime/src/step-executor";
+import { CompletionReviewInputBudgetError, type CompletionReviewInput } from "../../runtime/src/step-executor";
 import type { LLMRequest } from "../../llm/src/core/types";
 import type { ModelExecutionBinding } from "./model-execution-binding";
 import { TokenBudgetPlanner } from "./model-context-budget";
@@ -41,7 +41,7 @@ export function buildCompletionReviewRequest(input: CompletionReviewInput, bindi
                 approvedTask: input.goal.state.run.approvedTask,
                 historicalLookup: input.contextLookupResult,
                 candidate: input.candidate,
-                committedEvidence: input.evidence,
+                committedEvidence: input.evidence.filter(event => event.eventType !== "tool_finished"),
             }) },
         ],
         tools: [{ id: SystemCompletionReviewDeclaration.id, description: SystemCompletionReviewDeclaration.description, parametersSchema: SystemCompletionReviewDeclaration.parametersSchema }],
@@ -52,6 +52,6 @@ export function buildCompletionReviewRequest(input: CompletionReviewInput, bindi
     const overflow = binding.modelCapabilities === undefined
         ? binding.modelContextPolicy.plan({ fixedInput: request }).softOverflow
         : new TokenBudgetPlanner(binding.modelCapabilities).measure(request).hardOverflow;
-    if (overflow) throw new RangeError("Required completion review input exceeds the model budget");
+    if (overflow) throw new CompletionReviewInputBudgetError();
     return { request, bundle };
 }

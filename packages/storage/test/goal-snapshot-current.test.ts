@@ -49,6 +49,14 @@ function snapshotPath(directory: string, goalId: string): string {
     return join(directory, `${Buffer.from(goalId, "utf8").toString("base64url")}.json`);
 }
 
+test("completion review input budget error survives the current Goal Snapshot codec", () => {
+    const current = createCurrentGoal();
+    const failed: Goal = { ...current, state: { ...current.state, run: { ...current.state.run,
+        status: "failed", stopReason: { kind: "execution_error", code: "COMPLETION_REVIEW_INPUT_TOO_LARGE",
+            message: "Required completion review input exceeds the model budget" } } } };
+    assert.deepEqual(goalSnapshotCodec.decode(goalSnapshotCodec.encode(failed)).state.run.stopReason, failed.state.run.stopReason);
+});
+
 test("historical Goal Snapshot versions are rejected without mutation", () => {
     const encoded = goalSnapshotCodec.encode(createCurrentGoal());
 

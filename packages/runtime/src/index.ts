@@ -32,6 +32,7 @@ export type { ToolDiscoveryResult } from "./tool-discovery";
 export {
     ModelRequestRetriesExhaustedError,
 } from "./model-request-failure";
+export { CompletionReviewInputBudgetError } from "./step-executor";
 export type {
     ModelRequestAttemptFailure,
 } from "./model-request-failure";
