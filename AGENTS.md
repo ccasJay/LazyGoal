@@ -57,7 +57,8 @@ project-memory/  Durable summaries of completed and verified feature specificati
 * Do not skip, shorten, weaken, or bypass tests merely to finish a task faster.
 * Prefer the smallest implementation that satisfies the current requirement and preserves existing architectural boundaries.
 * Do not introduce abstractions, compatibility layers, fallback paths, or configuration options without a demonstrated current requirement.
-* All user-facing output must be in English, except for commit messages and Chinese TSDoc explicitly required by this document.
+* All user-facing output must be in English, except for GitHub pull request titles and descriptions, commit messages, and Chinese TSDoc explicitly required by this document.
+* Write GitHub pull request titles and descriptions in Chinese by default unless the user explicitly requests another language. Keep code identifiers, commands, and paths unchanged.
 * Commit messages must be concise and written in Chinese. Use the format:
   `feat(scope): 精确的功能描述`  , DO NOT use this `功能 ：精确的功能描述`
   Use the appropriate conventional commit type when `feat` is not suitable.
