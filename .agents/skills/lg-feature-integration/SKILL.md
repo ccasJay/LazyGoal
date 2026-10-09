@@ -1,11 +1,11 @@
 ---
 name: lg-feature-integration
-description: 在 LazyGoal 仓库中检查已完成的功能分支是否可合入，或按用户明确请求将其合入目标分支时使用。处理 Spec 验收证据、堆叠分支依赖、候选合并验证和合入交接；单个 TODO 实现、推送、建 PR 与发布不适用。
+description: 在 LazyGoal 仓库中检查已完成的本地功能分支是否可合入，或按用户明确请求将其合入目标分支时使用。处理 Spec 验收证据、堆叠分支依赖、候选合并验证和合入交接；GitHub 原生堆叠 PR 的落地不适用。
 ---
 
 # LazyGoal 功能分支集成
 
-把已完成的功能分支或 Spec worktree 交接到指定目标分支。先证明源分支的验收结果适用于当前提交，再验证合并后的代码，最后更新目标分支。`lg-spec-worktree-execution` 负责逐任务实现与提交；本 Skill 从其交接状态开始。
+把已完成的功能分支或 Spec worktree 交接到指定目标分支。先证明源分支的验收结果适用于当前提交，再验证合并后的代码，最后更新目标分支。`lg-spec-worktree-execution` 负责逐任务实现与提交；本 Skill 从其交接状态开始。GitHub 原生堆叠 PR 的合并使用 [lg-merging-stacked-prs](../lg-merging-stacked-prs/SKILL.md)。
 
 ## 判断请求与权限
 

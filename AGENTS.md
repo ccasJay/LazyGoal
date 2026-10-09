@@ -102,8 +102,11 @@ When performing a task, load and follow the matching skill under `.agents/skills
 * Domain concepts, state transitions, invariants, and cross-context contracts → `lg-domain-development`
 * Simplification audits, including dead code, duplicate state or lifecycle logic, over-design, and dependency replacement → `lg-find-simplifications`
 * Benchmark integration, sandboxed worker packaging, evaluation runners, and troubleshooting → `lg-benchmark-integration`
+* 指定 GitHub PR 的代码评审与证据化问题报告 → `lg-code-review`
 * 在独立 worktree 执行 spec → `lg-spec-worktree-execution`
-* 功能分支合入就绪检查或按请求合入 → `lg-feature-integration`
+* 本地功能分支合入就绪检查或按请求合入 → `lg-feature-integration`
+* 同仓库 GitHub 堆叠 PR 的合并就绪审查与按请求落地 → `lg-merging-stacked-prs`
+* 推送前变更范围审查、靶向验证、安全推送与 PR CI 跟踪 → `lg-pre-push-checks`
 * 启动单个 GEPA 优化运行、管理与汇报 → `lg-gepa-optimization`
 * 在独立 worktree 执行多轮 GEPA 变异循环与自纠错 → `lg-gepa-loop`
 
