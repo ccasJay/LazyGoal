@@ -242,6 +242,9 @@ test("真实 Runtime 与 Seatbelt：YOLO 下 Git 元数据需审批，批准范�
             { authorizedActionId: "act-git-add-1" },
         );
 
+        const gitObservations = trajectoryStoreFor(store).events.flatMap((event) =>
+            event.payload.type === "tool_finished" ? [event.payload.observation] : []);
+        assert.equal(gitObservations.at(-1)?.kind, "success", JSON.stringify(gitObservations));
         assert.deepEqual(runGit(canonicalWorkspace, ["ls-files"]), "README.md\nstaged.txt\n");
         assert.notDeepEqual(await readFile(canonicalIndexPath), indexBefore);
 
@@ -529,6 +532,9 @@ test("真实 Seatbelt：linked worktree 的 Git 授权不能被 Bash 或受管�
             { goalId: goal.id, runId: goal.state.run.id },
             { authorizedActionId: "act-linked-git-add" },
         );
+        const gitObservations = trajectoryStoreFor(store).events.flatMap((event) =>
+            event.payload.type === "tool_finished" ? [event.payload.observation] : []);
+        assert.equal(gitObservations.at(-1)?.kind, "success", JSON.stringify(gitObservations));
         assert.match(runGit(canonicalWorkspace, ["ls-files"]), /linked-staged\.txt/);
         const indexAfterGit = await readFile(indexPath);
         assert.notDeepEqual(indexAfterGit, indexBefore);

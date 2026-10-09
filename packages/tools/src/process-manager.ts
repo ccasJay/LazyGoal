@@ -229,30 +229,32 @@ export class ProcessManager implements ManagedResource {
 
         // 监听进程退出与关闭
         child.on("close", async (exitCode: number | null, signal: NodeJS.Signals | null) => {
-            unregisterResource();
-            this.activeProcesses.delete(key);
-            resolveDone();
+            try {
+                const current = await this.store.getSession(options.goalId, processId);
+                if (current !== undefined && current.status === "stopped") {
+                    // 已被显式 stop，保留 stopped 状态并更新 exitedAt
+                    await this.store.saveSession({
+                        ...current,
+                        exitedAt: new Date().toISOString(),
+                        exitCode: exitCode ?? null,
+                        signal: signal ?? null,
+                    });
+                    return;
+                }
 
-            const current = await this.store.getSession(options.goalId, processId);
-            if (current !== undefined && current.status === "stopped") {
-                // 已被显式 stop，保留 stopped 状态并更新 exitedAt
-                await this.store.saveSession({
-                    ...current,
+                const exitedRecord: ProcessSessionRecord = {
+                    ...sessionRecord,
+                    status: "exited",
                     exitedAt: new Date().toISOString(),
                     exitCode: exitCode ?? null,
                     signal: signal ?? null,
-                });
-                return;
+                };
+                await this.store.saveSession(exitedRecord);
+            } finally {
+                unregisterResource();
+                this.activeProcesses.delete(key);
+                resolveDone();
             }
-
-            const exitedRecord: ProcessSessionRecord = {
-                ...sessionRecord,
-                status: "exited",
-                exitedAt: new Date().toISOString(),
-                exitCode: exitCode ?? null,
-                signal: signal ?? null,
-            };
-            await this.store.saveSession(exitedRecord);
         });
 
         return { processId, status: "running" };

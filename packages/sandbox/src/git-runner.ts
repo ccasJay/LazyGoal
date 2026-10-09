@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
@@ -56,6 +57,21 @@ export const GIT_DEFAULT_TIMEOUT_MS = 10_000;
 
 /** Git 输出字符数软上限（防止过大输出耗尽内存）。 */
 export const GIT_MAX_OUTPUT_CHARS = 500_000;
+
+async function resolveGitDeveloperDirectory(): Promise<string> {
+    const selectedDeveloperDirectory = execFileSync("/usr/bin/xcode-select", ["-p"], {
+        encoding: "utf8",
+    }).trim();
+    return await realpath(selectedDeveloperDirectory);
+}
+
+async function resolveDeveloperGit(): Promise<{ developerDirectory: string; executable: string }> {
+    const developerDirectory = await resolveGitDeveloperDirectory();
+    return {
+        developerDirectory,
+        executable: await realpath(join(developerDirectory, "usr/bin/git")),
+    };
+}
 
 /**
  * Git 仓库资源拓扑信息。
@@ -481,8 +497,11 @@ export async function runRestrictedGit(
 
     let privateTmpDir: string | undefined;
     let sandboxRunOptions: { policy: string; env: NodeJS.ProcessEnv } | undefined;
+    let gitExecutable = existsSync("/usr/bin/git") ? "/usr/bin/git" : "git";
 
     if (process.platform === "darwin" && enableSeatbelt) {
+        const developerGit = await resolveDeveloperGit();
+        gitExecutable = developerGit.executable;
         privateTmpDir = await createPrivateTmpDir();
 
         const canonicalExtraReadPaths = await Promise.all((options.extraReadPaths ?? []).map(resolveCanonicalPath));
@@ -490,6 +509,7 @@ export async function runRestrictedGit(
             repoInfo.workspaceRoot,
             repoInfo.gitDir,
             repoInfo.commonDir,
+            developerGit.developerDirectory,
             ...canonicalExtraReadPaths,
         ];
 
@@ -513,8 +533,6 @@ export async function runRestrictedGit(
 
         sandboxRunOptions = { policy, env };
     }
-
-    const gitExecutable = existsSync("/usr/bin/git") ? "/usr/bin/git" : "git";
 
     try {
         return await new Promise<RestrictedGitExecutionResult>((resolvePromise, rejectPromise) => {
@@ -700,8 +718,11 @@ export async function runRestrictedGitWrite(
 
         let privateTmpDir: string | undefined;
         let sandboxRunOptions: { policy: string; env: NodeJS.ProcessEnv } | undefined;
+        let gitExecutable = existsSync("/usr/bin/git") ? "/usr/bin/git" : "git";
 
         if (process.platform === "darwin" && enableSeatbelt) {
+            const developerGit = await resolveDeveloperGit();
+            gitExecutable = developerGit.executable;
             privateTmpDir = await createPrivateTmpDir();
 
             const canonicalExtraReadPaths = await Promise.all((options.extraReadPaths ?? []).map(resolveCanonicalPath));
@@ -710,6 +731,7 @@ export async function runRestrictedGitWrite(
                 repoInfo.workspaceRoot,
                 repoInfo.gitDir,
                 repoInfo.commonDir,
+                developerGit.developerDirectory,
                 ...canonicalExtraReadPaths,
             ];
 
@@ -771,8 +793,6 @@ export async function runRestrictedGitWrite(
             ...(options.authorEnv?.GIT_COMMITTER_NAME !== undefined ? { GIT_COMMITTER_NAME: options.authorEnv.GIT_COMMITTER_NAME } : {}),
             ...(options.authorEnv?.GIT_COMMITTER_EMAIL !== undefined ? { GIT_COMMITTER_EMAIL: options.authorEnv.GIT_COMMITTER_EMAIL } : {}),
         };
-
-        const gitExecutable = existsSync("/usr/bin/git") ? "/usr/bin/git" : "git";
 
         try {
             return await new Promise<RestrictedGitExecutionResult>((resolvePromise, rejectPromise) => {
