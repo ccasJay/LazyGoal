@@ -86,7 +86,7 @@ flowchart TD
   - 判定结果统一输出为包含 `score`、`isCorrect`、`details` 的结构化对象，并由 `AttemptRecorder` 归档。
   - 详细陷阱与代码参见 [踩坑排错矩阵: 陷阱 3](./references/troubleshooting-matrix.md#陷阱-3持久化快照与执行轨迹无法回收artifacts-丢失)。
 
-### 步骤 7：CLI 集成与文档规范 (`src/cli.ts` & `README.md`)
+### 步骤 7：CLI 集成与文档规范 (`src/cli.ts` 与包内 `notes/`)
 
 - **职责**：提供符合仓库风格的一致命令行交互入口，并沉淀使用文档。
 - **CLI 常用选项标准**：
@@ -94,7 +94,7 @@ flowchart TD
   - `--output-dir <path>`：评测结果与 Attempt 日志输出路径。
   - `--base-image <image>`：使用预置 Docker 镜像（跳过容器内依赖安装）。
   - `--model <name>` / `--max-steps <num>`：指定模型与步数上限。
-- **文档要求**：每个 Benchmark 必须包含 `README.md`，写明前置条件（Docker / API Key / 依赖镜像）、典型执行命令及结果指标解读。
+- **文档要求**：每个 Benchmark 的简短 `README.md` 链接 `notes/overview.md`、`notes/semantics.md` 和必要的 `notes/usage.md`；前置条件、典型命令与结果指标解读写入 `notes/usage.md`。
 
 ---
 

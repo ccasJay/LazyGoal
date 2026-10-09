@@ -416,8 +416,9 @@ test("real local service restores and completes one authorized Goal conversation
     await waitForExpression(socket, "document.querySelector('.run-send-options') !== null");
     assert.equal(await value(socket, "document.querySelector('.run-send-options').innerText.includes('Steer') && document.querySelector('.run-send-options').innerText.includes('Queue')"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.run-send-options button')].find(button => button.textContent === 'Steer').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.pending-steers')?.innerText.includes('Steer this active Run')");
+    await waitForExpression(socket, "document.querySelector('.pending-steers')?.innerText.includes('Steer this active Run') && document.querySelector('.run-send-options') === null && document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled === false");
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Queue follow-up task");
+    await waitForExpression(socket, "document.querySelector('.composer-area .send.is-running')?.getAttribute('aria-label') === 'Choose Steer or Queue'");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .send.is-running').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.run-send-options') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.run-send-options button')].find(button => button.textContent === 'Queue').click()", returnByValue: true });

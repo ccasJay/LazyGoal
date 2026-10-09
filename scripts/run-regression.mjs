@@ -93,6 +93,7 @@ console.log(`[regression] 发现测试文件:${tsFiles.length} 个 .ts/.tsx,${mj
 
 const stages = [
     { label: "类型检查", command: "npx", args: ["tsc", "--noEmit"] },
+    { label: "包内文档检查", command: "npm", args: ["run", "check:docs"] },
     { label: "依赖边界检查", command: "npm", args: ["run", "check:dependencies"] },
     { label: "GEPA adapter 测试", command: "npm", args: ["run", "test:gepa-adapter"] },
     { label: "测试", command: "npx", args: ["tsx", "--test", ...tsFiles] },

@@ -27,14 +27,14 @@ description: "在 LazyGoal 仓库中把一个已批准的功能 Spec 放入独�
 按 `//TODO N.` 编号顺序执行，禁止跳号或并行推进多个任务。每个任务内：
 
 1. 读取任务标题、子 bullet（改动点、验证命令、文档同步）和 `_Requirements: [N.M](./requirements.md#req-N-M)` 链接，回读对应验收标准与 `design.md` 决策，再动手。
-2. 实现改动。涉及架构文档时按 [lg-doc-standards](../lg-doc-standards/SKILL.md) 同步 `docs/architecture/*.md`；涉及 TSDoc、注释、Prompt 或 UI 文案时按 [lg-prose-standard](../lg-prose-standard/SKILL.md) 编写；新增公共 TypeScript 接口必须带中文契约级 TSDoc 与最小 `@example`。
+2. 实现改动。涉及架构文档时按 [lg-doc-standards](../lg-doc-standards/SKILL.md) 同步受影响模块的 `notes/overview.md` 与 `notes/semantics.md`；涉及 TSDoc、注释、Prompt 或 UI 文案时按 [lg-prose-standard](../lg-prose-standard/SKILL.md) 编写；新增公共 TypeScript 接口必须带中文契约级 TSDoc 与最小 `@example`。
 3. 运行该任务子 bullet 给出的验证命令（如 `npx tsc --noEmit`、对应包的 `npx tsx --test packages/<pkg>/test/*.test.ts`）。验证失败只能在当前任务内修复重试；确认无法完成时停止整个流程，如实报告任务编号与失败原因。
 4. 验证通过后勾选：只把 `[ ]` 改成 `[x]`，禁止改写 `//TODO` 标记及其后的任何任务文本，禁止改动无关任务的缩进或顺序。
 5. 提交：checkbox 翻转与本次代码、测试、文档改动进入同一个 commit。提交信息用简洁中文，严格遵循 `AGENTS.md` 规范（格式必须为 `feat(scope): 精确的功能描述`，严禁使用 `功能：` 等中文冒号格式），不 push。
 
 ## 全量回归与收尾
 
-1. 所有任务完成后运行全量验证：`npx tsc --noEmit`、`npx tsx --test packages/agent/test/*.test.ts packages/llm/test/*.test.ts packages/runtime/test/*.test.ts packages/tools/test/*.test.ts packages/tui/test/*.test.tsx`、`npm run check:dependencies`；若 `tasks.md` 本身含「全量验证」类任务，以其中列出的命令为准。
+1. 所有任务完成后运行全量验证：`npx tsc --noEmit`、`npx tsx --test packages/agent/test/*.test.ts packages/llm/test/*.test.ts packages/runtime/test/*.test.ts packages/tools/test/*.test.ts apps/goal-board/src/**/*.test.tsx`、`npm run check:dependencies`；若 `tasks.md` 本身含「全量验证」类任务，以其中列出的命令为准。
 2. 回归全部通过后**停止在 worktree 内**，按 `AGENTS.md` 的最终总结格式（每项改动配可点击位置链接）汇报：worktree 路径、分支名、逐任务提交清单、验证结果、遗留事项。
 3. 明确禁止自行执行：merge、push、建 PR、删除 worktree、切回主工作区或转向其他任务。这些动作留给用户验证后决定。
 
