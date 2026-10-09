@@ -9,6 +9,7 @@ LazyGoal is a goal-driven, resumable agent runtime. It turns user intent into a 
 * Update this section whenever the repository layout changes.
 
 ```text
+.github/workflows/ GitHub Actions CI checks
 bin/             CLI entrypoint and executable wiring for `lazygoal`
 scripts/         Repository maintenance and validation utilities
 apps/            Standalone user-facing client applications

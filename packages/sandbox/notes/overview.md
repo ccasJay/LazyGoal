@@ -7,8 +7,8 @@
 
 ## 受限进程与 Git 执行底座
 
-- **受限命令与进程组终止**：[restricted-process](../src/restricted-process.ts) 提取统一的受限子进程启动原语（`spawnRestrictedCommand`）。所有长进程与命令执行置于独立 POSIX 进程组（`detached: true`），两阶段终止机制（`killProcessGroup`：先发 SIGTERM，在宽限期到达后升级为 SIGKILL）确保不留孤儿僵尸进程。
-- **Git 专用执行底座**：[git-runner](../src/git-runner.ts) 实现本地 Git 查询与写操作的隔离执行。提供 `discoverGitRepository` 发现仓库、worktree 及其实际 gitdir/common-dir 拓扑；强制固定 argv 白名单（`validateSafeGitArgs` / `validateSafeGitWriteArgs`），禁止外部选项透传。只读查询关闭 hooks 与 external diff/textconv；写操作保留仓库 hooks，并在同一受限 Seatbelt 策略内执行。执行器复核当前 Action 计划与真实元数据、worktree 目标路径；Git 元数据仅按已批准范围开放写入。普通 Bash 与受管进程会拒绝写入 `.git` 指针、真实 gitdir 和共享 common-dir，不能借用 Git Tool 的授权；`.lazygoal` 始终拒绝写入，网络强制为 none。
+- **受限命令与进程组终止**：[restricted-process](../src/restricted-process.ts) 提取统一的受限子进程启动原语（`spawnRestrictedCommand`）。所有长进程与命令执行置于独立 POSIX 进程组（`detached: true`），两阶段终止机制（`killProcessGroup`：先发 SIGTERM，在宽限期到达后升级为 SIGKILL）确保不留孤儿僵尸进程。[ProcessManager](../../tools/src/process-manager.ts) 在退出状态写入持久存储后才完成进程收尾等待。
+- **Git 专用执行底座**：[git-runner](../src/git-runner.ts) 实现本地 Git 查询与写操作的隔离执行。提供 `discoverGitRepository` 发现仓库、worktree 及其实际 gitdir/common-dir 拓扑；强制固定 argv 白名单（`validateSafeGitArgs` / `validateSafeGitWriteArgs`），禁止外部选项透传。只读查询关闭 hooks 与 external diff/textconv；写操作保留仓库 hooks，并在同一受限 Seatbelt 策略内执行。macOS 上直接执行当前 Xcode Developer 目录内的 Git，并只读放行该目录，避免系统 Git 启动器在沙箱外写入 `xcrun` 缓存。执行器复核当前 Action 计划与真实元数据、worktree 目标路径；Git 元数据仅按已批准范围开放写入。普通 Bash 与受管进程会拒绝写入 `.git` 指针、真实 gitdir 和共享 common-dir，不能借用 Git Tool 的授权；`.lazygoal` 始终拒绝写入，网络强制为 none。
 - **写操作排他串行化**：`GitMutex` 在当前进程内按仓库绝对路径互斥串行化写操作，杜绝 `index.lock` 并发冲突。
 
 ## Program-Triggered Computation (PTC)
