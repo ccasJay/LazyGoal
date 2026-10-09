@@ -9,6 +9,7 @@ import {
     BASH_TOOL_ID,
     EDIT_FILE_INPUT_CONTRACT,
     EDIT_FILE_TOOL_ID,
+    EXECUTE_PROGRAM_DEFINITION,
     GREP_INPUT_CONTRACT,
     GREP_TOOL_ID,
     READ_FILE_INPUT_CONTRACT,
@@ -469,6 +470,45 @@ test("按需请求只携带暴露工具 Schema，并将发现结果反馈给 Dec
         "strict", "decide", undefined, undefined, CURRENT_TOOL_DEFINITIONS.map(({ id }) => id),
     );
     assert.ok(inputTokens(discovered) < inputTokens(allTools));
+});
+
+test("PTC 发现后同步进入 Prompt、结构化契约与原生工具声明", async () => {
+    const goal = createExecutingGoal();
+    const tools: readonly ToolDefinition[] = [
+        {
+            id: READ_FILE_TOOL_ID,
+            description: "Read a workspace file",
+            inputContract: READ_FILE_INPUT_CONTRACT,
+            isReadOnly: true,
+        },
+        EXECUTE_PROGRAM_DEFINITION,
+    ];
+    const initial = await buildStepRequest(
+        goal, tools, renderer, contextCompactor, undefined,
+        currentWorkingMemory, trajectoryContextAssembler, undefined, undefined,
+        "strict", "decide", undefined, undefined, [],
+    );
+    const discovered = await buildStepRequest(
+        goal, tools, renderer, contextCompactor, undefined,
+        currentWorkingMemory, trajectoryContextAssembler, undefined, undefined,
+        "strict", "decide", undefined, undefined, ["read_file", "execute_program"],
+    );
+
+    assert.equal(initial.toolDeclarations.some(({ id }) => id === "read_file" || id === "execute_program"), false);
+    assert.equal(JSON.stringify(initial.bundle.jsonSchema).includes("read_file"), false);
+    assert.equal(JSON.stringify(initial.bundle.jsonSchema).includes("execute_program"), false);
+    assert.deepEqual(
+        discovered.toolDeclarations.map(({ id }) => id).filter((id) => id === "read_file" || id === "execute_program"),
+        ["read_file", "execute_program"],
+    );
+    assert.equal(JSON.stringify(discovered.bundle.jsonSchema).includes("execute_program"), true);
+    assert.equal(JSON.stringify(discovered.bundle.jsonSchema).includes("discoveryAliases"), false);
+    assert.equal(JSON.stringify(discovered.toolDeclarations).includes("discoveryAliases"), false);
+    const authorizedSection = discovered.request.messages.find((message) =>
+        message.content.includes("[Dynamic section: authorized_tools"));
+    assert.ok(authorizedSection);
+    assert.match(authorizedSection.content, /all required inner business Tools have been discovered/);
+    assert.doesNotMatch(authorizedSection.content, /discoveryAliases/);
 });
 
 test("下一轮请求把已提交 Lookup Result 作为历史瞬时输入传给模型", async () => {

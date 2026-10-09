@@ -128,6 +128,9 @@ export function resolveAuthorizedToolDefinitions(
             definitions.push(Object.freeze({
                 id: registration.definition.id,
                 description: registration.definition.description,
+                ...(registration.definition.discoveryAliases === undefined
+                    ? {}
+                    : { discoveryAliases: Object.freeze([...registration.definition.discoveryAliases]) }),
                 inputContract: registration.definition.inputContract,
                 isReadOnly: registration.definition.isReadOnly,
             }));
@@ -136,4 +139,3 @@ export function resolveAuthorizedToolDefinitions(
 
     return definitions;
 }
-

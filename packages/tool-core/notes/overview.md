@@ -5,3 +5,5 @@
 ## 输入与执行
 
 [createToolRegistration](../src/registration.ts) 把 Tool Input Contract 的结构解析与语义校验绑定为一次准备过程；[InMemoryToolRegistry](../src/registry.ts) 按工具 ID 查找注册项。[类型契约](../src/types.ts) 规定请求、Observation 与可选流事件。调用方不能跳过已注册的输入准备后直接把模型 JSON 当可信参数。
+
+`ToolDefinition.discoveryAliases` 是可选的工具发现名称，注册时复制保存；它不进入模型 Schema，也不改变 Tool 授权或执行权限。

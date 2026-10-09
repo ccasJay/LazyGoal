@@ -43,6 +43,9 @@ export function createToolRegistration<C extends ToolInputContract>(
     const definition: ToolDefinition = Object.freeze({
         id: tool.definition.id,
         description: tool.definition.description,
+        ...(tool.definition.discoveryAliases === undefined
+            ? {}
+            : { discoveryAliases: Object.freeze([...tool.definition.discoveryAliases]) }),
         inputContract: tool.definition.inputContract,
         isReadOnly: tool.definition.isReadOnly,
     });

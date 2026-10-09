@@ -4,5 +4,6 @@
 
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
+| ToolDefinition | 定义 Tool 输入与可选发现别名。 | [工具核心](../README.md) | [模块说明](./overview.md) |
 | ToolRegistration | 已绑定输入校验的工具。 | [工具核心](../README.md) | [模块说明](./overview.md) |
 | ToolRegistry | 按标识查找工具的内存注册表。 | [工具核心](../README.md) | [模块说明](./overview.md) |
