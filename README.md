@@ -1,0 +1,35 @@
+# LazyGoal
+
+LazyGoal 是 Goal 驱动、可恢复的 Agent Runtime。使用 `node bin/lazygoal.cjs web` 启动本机服务；评测命令从 `node bin/lazygoal.cjs eval` 进入。依赖与常用脚本见 [package.json](./package.json)。
+
+当前实现的领域状态与恢复见 [Runtime](./packages/runtime/notes/overview.md)，服务装配见 [Goal Server](./apps/goal-server/notes/overview.md)。各单元的说明和语义表由自身维护：
+
+- [Goal Board](apps/goal-board/README.md)
+- [Goal Server](apps/goal-server/README.md)
+- [共享评测框架](benchmarks/README.md)
+- [ALFWorld 评测](benchmarks/alfworld/README.md)
+- [GAIA 评测](benchmarks/gaia/README.md)
+- [SWE-bench 评测](benchmarks/swebench/README.md)
+- [TUA-Bench 评测](benchmarks/tua-bench/README.md)
+- [ACP 服务与客户端](packages/acp/README.md)
+- [Agent 模型请求](packages/agent/README.md)
+- [浏览器服务边界](packages/browser/README.md)
+- [配置解析](packages/config/README.md)
+- [上下文检索](packages/context-retrieval/README.md)
+- [通用契约](packages/contracts/README.md)
+- [执行控制](packages/execution-control/README.md)
+- [执行事件流](packages/execution-stream/README.md)
+- [HTTP 宿主](packages/http/README.md)
+- [模型适配](packages/llm/README.md)
+- [模型协议契约](packages/model-contracts/README.md)
+- [授权判断](packages/permission/README.md)
+- [Goal Runtime](packages/runtime/README.md)
+- [沙箱执行](packages/sandbox/README.md)
+- [会话指标](packages/session-metrics/README.md)
+- [斜杠命令](packages/slash-command/README.md)
+- [持久化实现](packages/storage/README.md)
+- [工具核心](packages/tool-core/README.md)
+- [内置工具](packages/tools/README.md)
+- [Web 传输契约](packages/web-contracts/README.md)
+- [结构化工作记忆](packages/working-memory/README.md)
+- [GEPA 优化](prompt-evaluation/gepa/README.md)

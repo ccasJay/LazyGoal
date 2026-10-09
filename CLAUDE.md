@@ -77,7 +77,7 @@ The CLI expects `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, and `LLM_STRUCTURED_
 
 ## Repository guidance
 
-- Treat `docs/architecture/` as the concise source of truth for implemented cross-module behavior; update the relevant document when responsibilities, data flow, lifecycle semantics, or limitations change.
+- Follow the `AGENTS.md` Architecture Documentation rule: start at root `README.md`, then the owning module README, `notes/overview.md`, and `notes/semantics.md`; update the owner when implemented responsibilities, data flow, lifecycle or limits change.
 - Keep detailed API contracts in source TSDoc and feature evolution in `specs/`; do not copy future designs into architecture docs.
 - New or changed public TypeScript interfaces require Chinese contract-level TSDoc, including useful lifecycle/error/side-effect semantics and a minimal `@example`, following the existing conventions in `AGENTS.md`.
 - Follow the repository's existing package boundaries and dependency-injection style: runtime must not depend on a concrete LLM provider, and agent must not take over runtime authorization or persistence.

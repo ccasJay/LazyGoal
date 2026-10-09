@@ -2,7 +2,7 @@ import { ExecutionAbortedError, TransientModelRequestFailure } from "../../execu
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-    createGoal, createStepExecutor,
+    CompletionReviewInputBudgetError, createGoal, createStepExecutor,
     Runner,
     type AgentDecision, type Goal, type GoalStore,
 } from "../src/index";
@@ -18,6 +18,24 @@ function goal(id: string, mode: "normal" | "plan" = "normal"): Goal {
     return { ...created, state: { ...created.state, run: { ...created.state.run, mode, exposedToolIds: ["read"],
         ...(mode === "plan" ? { approvedTask: { objective: created.definition.intent, completionCriteria: [{ text: "Explain implementation behavior" }] } } : {}) } } };
 }
+
+test("review input overflow records its own failure code without publishing the candidate", async () => {
+    const initial = goal("review-input-budget");
+    const store = new InMemoryGoalStore();
+    const trajectory = new InMemoryTrajectoryStore();
+    await store.save(initial);
+    const executor = createStepExecutor(() => complete(initial, "Draft report"), async () => {
+        throw new CompletionReviewInputBudgetError();
+    });
+    const result = await new Runner({ store, trajectoryStore: trajectory, executor }).run({ goalId: initial.id, runId: "run-1" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.state.status, "failed");
+    assert.deepEqual(result.state.stopReason, { kind: "execution_error", code: "COMPLETION_REVIEW_INPUT_TOO_LARGE",
+        message: "Required completion review input exceeds the model budget" });
+    assert.equal((await store.restore(initial.id))!.state.messages.some(message => message.content === "Draft report"), false);
+    assert.equal(trajectory.events.some(event => event.eventType === "run_completed"), false);
+});
 
 function complete(current: Goal, summary: string, sequences: number[] = []): AgentDecision & { kind: "complete" } {
     return current.state.run.mode === "plan"
