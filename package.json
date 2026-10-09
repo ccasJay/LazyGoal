@@ -13,6 +13,7 @@
     "llm:native-dialogue-smoke": "tsx packages/llm/test/native-dialogue-smoke.ts",
     "check:dependencies": "node scripts/check-dependencies.mjs",
     "check:docs": "node scripts/check-docs.mjs",
+    "change-scope": "node scripts/change-scope.mjs",
     "benchmark:context-retrieval": "tsx scripts/benchmark-context-retrieval.ts",
     "memory:check": "node scripts/project-memory.mjs check",
     "memory:index": "node scripts/project-memory.mjs write-index",
