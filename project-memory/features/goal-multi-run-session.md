@@ -4,9 +4,9 @@ status: superseded
 summary: "为 Goal 引入持久化 Plan Mode、稳定 Todo 计划与多 Run 会话生命周期，通过 Coordinator 续写分流与原子证据提交保障跨 Run 安全隔离"
 source_spec: specs/goal-multi-run-session/
 distilled_at: 2026-09-19
-reviewed_at: 2026-09-23
+reviewed_at: 2026-10-10
 tags: [runtime, coordinator, goal-plan, multi-run, session, slash-command, tui, storage]
-authorities: [docs/architecture/runtime.md, docs/architecture/storage.md, docs/architecture/tui.md, packages/runtime/src/goal-plan.ts, packages/runtime/src/goal-coordinator.ts, packages/runtime/src/runner.ts, packages/storage/src/goal-snapshot.ts, packages/storage/src/goal-snapshot-codec.ts, packages/tui/src/session-controller.ts, packages/tui/src/plan-panel.tsx]
+authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overview.md, apps/goal-server/notes/overview.md, packages/runtime/src/goal-plan.ts, packages/runtime/src/goal-coordinator.ts, packages/runtime/src/runner.ts, packages/storage/src/goal-snapshot.ts, packages/storage/src/goal-snapshot-codec.ts, apps/goal-server/src/composition-root.ts, apps/goal-board/src/panels.tsx]
 status_reason: "Run 模式、GoalPlan 所有权、Todo 与 Run 关系及普通模式投影已由 mode-driven-task-proposal 的当前契约完整替代"
 superseded_by: [project-memory/features/mode-driven-task-proposal.md]
 ---
@@ -51,10 +51,10 @@ superseded_by: [project-memory/features/mode-driven-task-proposal.md]
 - S7: `packages/runtime/src/evidence-gate.ts`
 - S8: `packages/storage/src/goal-snapshot-codec.ts`
 - S9: `packages/storage/src/goal-snapshot.ts`
-- S10: `packages/contracts/src/model-output/canonical.ts`
-- S11: `packages/contracts/src/model-output/system-tools.ts`
-- S12: `packages/tui/src/session-controller.ts`
-- S13: `packages/tui/src/plan-panel.tsx`
+- S10: `packages/model-contracts/src/model-output/canonical.ts`
+- S11: `packages/model-contracts/src/model-output/system-tools.ts`
+- S12: `apps/goal-server/src/composition-root.ts`
+- S13: `apps/goal-board/src/panels.tsx`
 - S14: `packages/runtime/test/goal-multi-run-session.test.ts`
 - S15: `packages/runtime/test/goal-plan.test.ts`
 - S16: `packages/storage/test/goal-snapshot-current.test.ts`

@@ -4,9 +4,9 @@ status: active
 summary: "移除无消费者的上下文压缩适配器与 Warm Sidecar，统一为严格协议驱动的执行单元上下文流水线"
 source_spec: specs/context-pipeline-simplification/
 distilled_at: 2026-09-03
-reviewed_at: 2026-09-03
+reviewed_at: 2026-10-10
 tags: [context-pipeline, trajectory, warm-context, dead-code-removal, pruning]
-authorities: [docs/architecture/agent.md, docs/architecture/runtime.md, packages/agent/src/trajectory-model-context-assembler.ts, packages/runtime/src/goal-coordinator.ts]
+authorities: [packages/agent/notes/overview.md, packages/runtime/notes/overview.md, packages/agent/src/trajectory-model-context-assembler.ts, packages/runtime/src/goal-coordinator.ts]
 ---
 
 # Context Pipeline Simplification

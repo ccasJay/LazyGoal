@@ -4,9 +4,9 @@ status: active
 summary: "版本化 Prompt Bundle 组合、确定性 Nunjucks 渲染与不可变 PromptContext 边界"
 source_spec: specs/nunjucks-prompt-bundle/
 distilled_at: 2026-08-23
-reviewed_at: 2026-08-23
+reviewed_at: 2026-10-10
 tags: [prompt-bundle, nunjucks, rendering, prompt-context, snapshot-v5, deterministic]
-authorities: [docs/architecture/agent.md, docs/architecture/runtime.md, docs/architecture/storage.md, packages/agent/src/prompting/default-bundles.ts, packages/agent/src/prompting/renderer.ts, packages/agent/src/model-inference-projector.ts, packages/storage/src/goal-snapshot.ts]
+authorities: [packages/agent/notes/overview.md, packages/runtime/notes/overview.md, packages/storage/notes/overview.md, packages/agent/src/prompting/default-bundles.ts, packages/agent/src/prompting/renderer.ts, packages/agent/src/model-inference-projector.ts, packages/storage/src/goal-snapshot.ts]
 ---
 
 # Nunjucks Prompt Bundle

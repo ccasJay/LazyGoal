@@ -4,9 +4,9 @@ status: active
 summary: "按完整执行单元和字符预算裁剪单轮模型 Conversation，同时保留完整 Goal 历史"
 source_spec: specs/model-context-pruning/
 distilled_at: 2026-08-23
-reviewed_at: 2026-09-18
+reviewed_at: 2026-10-10
 tags: [context-pruning, context-unit, conversation, compactor, agent, recovery]
-authorities: [docs/architecture/agent.md, packages/agent/src/context-unit.ts, packages/agent/src/conversation-context-unit-adapter.ts, packages/agent/src/context-compactor.ts, packages/agent/src/prompt.ts, packages/tui/src/cli.tsx]
+authorities: [packages/agent/notes/overview.md, packages/agent/src/context-unit.ts, packages/agent/src/conversation-context-unit-adapter.ts, packages/agent/src/context-compactor.ts, packages/agent/src/prompt.ts, apps/goal-server/src/composition-root.ts]
 ---
 
 # Model Context Pruning
@@ -49,11 +49,11 @@ authorities: [docs/architecture/agent.md, packages/agent/src/context-unit.ts, pa
 - S4: `packages/agent/src/conversation-context-unit-adapter.ts`
 - S5: `packages/agent/src/context-compactor.ts`
 - S6: `packages/agent/src/prompt.ts`
-- S7: `packages/tui/src/cli.tsx`
+- S7: `apps/goal-server/src/composition-root.ts`
 - S8: `packages/agent/test/conversation-context-unit-adapter.test.ts`
 - S9: `packages/agent/test/context-compactor.test.ts`
 - S10: `packages/agent/test/prompt.test.ts`
 - S11: `packages/agent/test/execution-control.test.ts`
-- S12: `packages/tui/test/cli.test.ts`
-- S13: `packages/tui/test/cli.integration.test.ts`
+- S12: `packages/agent/test/model-context-budget.test.ts`
+- S13: `packages/agent/test/prompt.test.ts`
 - S14: `packages/storage/src/goal-snapshot-codec.ts`

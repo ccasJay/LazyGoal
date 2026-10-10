@@ -4,9 +4,9 @@ status: active
 summary: "基于 TUA-Bench 驱动 LazyGoal 通用 Prompt 自主进化的 GEPA 适配器，包含无特权 Docker 权限管理、两阶段候选变异、确定性 reward 评分、Final Comparison 配对对照与断点安全恢复"
 source_spec: specs/tua-bench-gepa-general-prompt/
 distilled_at: 2026-09-25
-reviewed_at: 2026-09-25
+reviewed_at: 2026-10-10
 tags: [gepa, tua-bench, prompt-optimization, container-isolation, reflection, dac-permissions, checkpoint-resume]
-authorities: [docs/architecture/README.md, benchmarks/tua-bench/src/environment-spec.ts, benchmarks/src/prompt-evaluation/cli.ts, prompt-evaluation/gepa/src/lazygoal_gepa/final_comparison.py, prompt-evaluation/gepa/src/lazygoal_gepa/store.py, prompt-evaluation/gepa/src/lazygoal_gepa/worker.py]
+authorities: [README.md, benchmarks/tua-bench/src/environment-spec.ts, benchmarks/src/prompt-evaluation/cli.ts, prompt-evaluation/gepa/src/lazygoal_gepa/final_comparison.py, prompt-evaluation/gepa/src/lazygoal_gepa/store.py, prompt-evaluation/gepa/src/lazygoal_gepa/worker.py]
 ---
 
 # TUA-Bench GEPA General Prompt

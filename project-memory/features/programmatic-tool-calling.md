@@ -4,9 +4,9 @@ status: active
 summary: "通过专用 Tool 在受限 Node.js 沙箱中编排获授权业务工具，并以可恢复的父 Step 返回显式结果"
 source_spec: specs/programmatic-tool-calling/
 distilled_at: 2026-10-03
-reviewed_at: 2026-10-03
+reviewed_at: 2026-10-10
 tags: [ptc, programmatic-tool-calling, runtime, sandbox, recovery, approval, tool-calling]
-authorities: [docs/architecture/runtime.md, docs/architecture/sandbox.md, packages/agent/src/prompting/authorized-tools@1.njk, packages/runtime/src/runner.ts, packages/sandbox/src/program-sandbox.ts, packages/sandbox/src/macos-seatbelt.ts, packages/storage/src/goal-snapshot.ts]
+authorities: [packages/runtime/notes/overview.md, packages/sandbox/notes/overview.md, packages/agent/src/prompting/authorized-tools@1.njk, packages/runtime/src/runner.ts, packages/sandbox/src/program-sandbox.ts, packages/sandbox/src/macos-seatbelt.ts, packages/storage/src/goal-snapshot.ts]
 ---
 
 # Programmatic Tool Calling
@@ -38,8 +38,8 @@ authorities: [docs/architecture/runtime.md, docs/architecture/sandbox.md, packag
 - S1: `specs/programmatic-tool-calling/requirements.md`
 - S2: `specs/programmatic-tool-calling/design.md`
 - S3: `specs/programmatic-tool-calling/tasks.md`
-- S4: `docs/architecture/runtime.md`
-- S5: `docs/architecture/sandbox.md`
+- S4: `packages/runtime/notes/overview.md`
+- S5: `packages/sandbox/notes/overview.md`
 - S6: `packages/runtime/src/runner.ts`
 - S7: `packages/sandbox/src/program-sandbox.ts`
 - S8: `packages/sandbox/src/macos-seatbelt.ts`

@@ -4,9 +4,9 @@ status: active
 summary: "以只读紧凑记录呈现已提交执行轨迹，并保存可检查的模型输入消息与 System Prompt"
 source_spec: specs/browser-trajectory/
 distilled_at: 2026-10-01
-reviewed_at: 2026-10-02
+reviewed_at: 2026-10-10
 tags: [browser, trajectory, model-input, system-prompt, read-only, compact-ui, timeline-zoom]
-authorities: [docs/architecture/browser.md, docs/architecture/storage.md, packages/runtime/src/model-input.ts, packages/storage/src/json-file-model-input-store.ts, packages/browser/src/browser-model-input.ts, prototypes/goal-board/src/trajectory.tsx, prototypes/goal-board/src/trajectory-records.tsx, prototypes/goal-board/src/model-input-inspector.tsx]
+authorities: [packages/browser/notes/overview.md, packages/storage/notes/overview.md, packages/runtime/src/model-input.ts, packages/storage/src/json-file-model-input-store.ts, packages/browser/src/browser-model-input.ts, apps/goal-board/src/trajectory.tsx, apps/goal-board/src/trajectory-records.tsx, apps/goal-board/src/model-input-inspector.tsx]
 ---
 
 # Browser Trajectory
@@ -41,12 +41,12 @@ authorities: [docs/architecture/browser.md, docs/architecture/storage.md, packag
 
 - S1: `specs/browser-trajectory/requirements.md`
 - S2: `specs/browser-trajectory/verification.md`
-- S3: `docs/architecture/browser.md`
-- S4: `docs/architecture/agent.md`
+- S3: `packages/browser/notes/overview.md`
+- S4: `packages/agent/notes/overview.md`
 - S5: `packages/runtime/src/model-input.ts`
 - S6: `packages/storage/src/json-file-model-input-store.ts`
 - S7: `packages/browser/src/browser-model-input.ts`
-- S8: `prototypes/goal-board/src/trajectory-records.tsx`
+- S8: `apps/goal-board/src/trajectory-records.tsx`
 - S9: `packages/storage/test/model-input-store.test.ts`
-- S10: `prototypes/goal-board/src/trajectory.tsx`
-- S11: `prototypes/goal-board/e2e/board.test.mjs`
+- S10: `apps/goal-board/src/trajectory.tsx`
+- S11: `apps/goal-board/e2e/board.test.mjs`

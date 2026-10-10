@@ -4,9 +4,9 @@ status: active
 summary: "提供跨阶段可恢复、基于 Patch 提议与 Snapshot 提交边界的结构化工作记忆核心"
 source_spec: specs/structured-working-memory-core/
 distilled_at: 2026-09-03
-reviewed_at: 2026-09-18
+reviewed_at: 2026-10-10
 tags: [working-memory, memory-patch, state-separation, restoration, runtime]
-authorities: [docs/architecture/runtime.md, packages/runtime/src/working-memory-core.ts, packages/runtime/src/working-memory-session.ts, packages/runtime/src/domain.ts]
+authorities: [packages/runtime/notes/overview.md, packages/working-memory/src/core.ts, packages/runtime/src/working-memory-session.ts, packages/runtime/src/domain.ts]
 ---
 
 # Structured Working Memory Core
@@ -36,7 +36,7 @@ authorities: [docs/architecture/runtime.md, packages/runtime/src/working-memory-
 
 - S1: `specs/structured-working-memory-core/requirements.md`
 - S2: `specs/structured-working-memory-core/design.md`
-- S3: `packages/runtime/src/working-memory-core.ts`
+- S3: `packages/working-memory/src/core.ts`
 - S4: `packages/runtime/src/working-memory-session.ts`
-- S5: `packages/runtime/test/working-memory-core.test.ts`
+- S5: `packages/working-memory/test/working-memory-core.test.ts`
 - S6: `packages/runtime/test/working-memory-session.test.ts`

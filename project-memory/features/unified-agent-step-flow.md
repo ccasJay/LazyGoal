@@ -4,9 +4,9 @@ status: active
 summary: "统一 Agent 单步执行流与按 Run 模式切换的任务提案 Prompt"
 source_spec: specs/unified-agent-step-flow/
 distilled_at: 2026-09-21
-reviewed_at: 2026-09-23
+reviewed_at: 2026-10-10
 tags: [agent, runtime, step-flow, action-observation, read-only, unified-prompt, task-gate]
-authorities: [docs/architecture/runtime.md, docs/architecture/agent.md, packages/runtime/src/domain.ts, packages/runtime/src/runner.ts, packages/agent/src/step-prompt/agent-decision@1.njk, packages/runtime/src/run-mode-capabilities.ts]
+authorities: [packages/runtime/notes/overview.md, packages/agent/notes/overview.md, packages/runtime/src/domain.ts, packages/runtime/src/runner.ts, packages/agent/src/step-prompt/agent-decision@1.njk, packages/runtime/src/run-mode-capabilities.ts]
 supersedes: [project-memory/features/preparation-read-only-tools.md]
 ---
 
@@ -43,9 +43,9 @@ supersedes: [project-memory/features/preparation-read-only-tools.md]
 - S3: `specs/unified-agent-step-flow/requirements.md`
 - S4: `specs/unified-agent-step-flow/design.md`
 - S5: `specs/unified-agent-step-flow/tasks.md`
-- S6: `docs/architecture/runtime.md`
+- S6: `packages/runtime/notes/overview.md`
 - S7: `packages/runtime/src/runner.ts`
-- S8: `packages/contracts/src/model-output/factory.ts`
+- S8: `packages/model-contracts/src/model-output/factory.ts`
 - S9: `packages/runtime/test/runner-pretask-read.test.ts`
 - S10: `packages/agent/src/step-prompt/agent-decision@1.njk`
 - S11: `packages/agent/test/prompting-default-bundles.test.ts`

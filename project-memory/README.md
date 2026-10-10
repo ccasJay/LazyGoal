@@ -7,8 +7,8 @@ Project Memory 保存已完成且经过实现证据核验的长期决策摘要�
 核验事实时按以下边界使用资料：
 
 1. 源码和测试说明当前实现及可执行契约。
-2. `docs/architecture/` 说明当前模块职责、所有权与数据流。
-3. `specs/` 保存需求、设计与功能演进背景。
+2. 各模块所有者的 `notes/overview.md` 和 `notes/semantics.md` 说明当前模块职责、所有权与数据流。
+3. `specs/` 保存需求、设计与功能演进背景（支持新版 `spec.md` / `plan.md` 及历史规范）。
 4. Project Memory 保存仍然有效的长期决策、理由、护栏和重新评估条件。
 
 Memory 与当前源码、测试或架构文档冲突时，必须将其移出默认召回并完成维护审查，不能仅凭历史 Spec 判断当前行为。
@@ -18,7 +18,7 @@ Memory 与当前源码、测试或架构文档冲突时，必须将其移出默�
 - `active`：完成当前证据核验，可以安全进入默认召回。
 - `needs-review`：发现疑似漂移，暂时退出默认召回；修订并重新核验后可以恢复为 `active`。
 - `superseded`：决策已由其他 Capsule 替代，是终态。
-- `obsolete`：决策不再适用且没有替代 Capsule，是终态。
+- `obsolete`：决策不再适用且没有替代 Capsule，是终态（包含 `[!CAUTION]` 负面护栏）。
 
 状态迁移时才添加 `status_reason`、`supersedes` 或 `superseded_by`；不保留空字段。替代关系必须双向声明。
 
@@ -26,7 +26,7 @@ Memory 与当前源码、测试或架构文档冲突时，必须将其移出默�
 
 每篇 Capsule 的 frontmatter 必须包含：
 
-- `feature`
+- `feature`（或 `learning`）
 - `status`
 - `summary`
 - `source_spec`
@@ -37,9 +37,9 @@ Memory 与当前源码、测试或架构文档冲突时，必须将其移出默�
 
 正文必须按以下顺序组织：
 
-1. `Purpose`
-2. `Durable Decisions`
-3. `Guardrails`
+1. `Purpose`（或 `Applicability` / `Observation`）
+2. `Durable Decisions`（或 `Validated Practice`）
+3. `Guardrails`（或 `Limits`）
 4. `Revisit When`
 5. `Sources`
 

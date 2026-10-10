@@ -4,9 +4,9 @@ status: active
 summary: "Runtime 事实轨迹、Snapshot 提交边界与诊断 Trace 分流"
 source_spec: specs/execution-trajectory/
 distilled_at: 2026-08-26
-reviewed_at: 2026-09-18
+reviewed_at: 2026-10-10
 tags: [trajectory, domain-events, snapshot-boundary, diagnostic-trace, recovery, audit]
-authorities: [docs/architecture/runtime.md, docs/architecture/storage.md, docs/architecture/agent.md, docs/architecture/tui.md, packages/runtime/src/trajectory.ts, packages/runtime/src/runner.ts, packages/runtime/src/goal-coordinator.ts, packages/storage/src/goal-snapshot-codec.ts, packages/storage/src/json-file-trajectory-store.ts, packages/agent/src/llm-diagnostic-trace.ts, packages/tui/src/cli.tsx]
+authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overview.md, packages/agent/notes/overview.md, apps/goal-server/notes/overview.md, packages/runtime/src/trajectory.ts, packages/runtime/src/runner.ts, packages/runtime/src/goal-coordinator.ts, packages/storage/src/goal-snapshot-codec.ts, packages/storage/src/json-file-trajectory-store.ts, packages/agent/src/llm-diagnostic-trace.ts, apps/goal-server/src/composition-root.ts]
 ---
 
 # Execution Trajectory
@@ -46,16 +46,16 @@ authorities: [docs/architecture/runtime.md, docs/architecture/storage.md, docs/a
 - S1: `specs/execution-trajectory/requirements.md`
 - S2: `specs/execution-trajectory/design.md`
 - S3: `specs/execution-trajectory/tasks.md`
-- S4: `docs/architecture/runtime.md`
+- S4: `packages/runtime/notes/overview.md`
 - S5: `packages/runtime/src/trajectory.ts`
 - S6: `packages/runtime/src/runner.ts`
 - S7: `packages/storage/src/goal-snapshot-codec.ts`
 - S8: `packages/storage/src/json-file-trajectory-store.ts`
 - S9: `packages/agent/src/llm-diagnostic-trace.ts`
-- S10: `packages/tui/src/cli.tsx`
+- S10: `apps/goal-server/src/composition-root.ts`
 - S11: `packages/runtime/test/trajectory-lifecycle.test.ts`
 - S12: `packages/runtime/test/trajectory-failure.test.ts`
 - S13: `packages/storage/test/trajectory-store.test.ts`
-- S14: `packages/tui/test/trajectory-projector.test.ts`
+- S14: `apps/goal-board/e2e/board.test.mjs`
 - S15: `specs/preparation-phase-removal/design.md`
-- S16: `docs/architecture/browser.md`
+- S16: `packages/browser/notes/overview.md`

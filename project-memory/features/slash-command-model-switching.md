@@ -4,9 +4,9 @@ status: active
 summary: "独立 Slash Command 架构与 /model 模型切换，支持 Provider 在线发现、离线 Catalog 补全与 Goal Snapshot 跨重启一致恢复"
 source_spec: specs/slash-command-model-switching/
 distilled_at: 2026-09-21
-reviewed_at: 2026-09-21
+reviewed_at: 2026-10-10
 tags: [slash-command, model-switching, catalog, provider, snapshot, tui]
-authorities: [docs/architecture/tui.md, docs/architecture/llm.md, packages/slash-command/src/index.ts, packages/runtime/src/domain.ts, packages/tui/src/session-screen.tsx]
+authorities: [apps/goal-server/notes/overview.md, packages/llm/notes/overview.md, packages/slash-command/src/index.ts, packages/runtime/src/domain.ts, apps/goal-server/test/composition-root-model-switching.test.ts]
 ---
 
 # Slash Command & Model Switching
@@ -38,8 +38,8 @@ authorities: [docs/architecture/tui.md, docs/architecture/llm.md, packages/slash
 - S1: `specs/slash-command-model-switching/requirements.md`
 - S2: `specs/slash-command-model-switching/design.md`
 - S3: `specs/slash-command-model-switching/tasks.md`
-- S4: `docs/architecture/tui.md`
-- S5: `docs/architecture/llm.md`
+- S4: `apps/goal-server/notes/overview.md`
+- S5: `packages/llm/notes/overview.md`
 - S6: `packages/slash-command/src/index.ts`
 - S7: `packages/runtime/src/domain.ts`
-- S8: `packages/tui/src/session-screen.tsx`
+- S8: `apps/goal-server/test/composition-root-model-switching.test.ts`

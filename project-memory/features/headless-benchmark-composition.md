@@ -4,9 +4,9 @@ status: active
 summary: "以普通 Run 执行单任务基准并隔离环境与通用 Goal 生命周期"
 source_spec: specs/headless-benchmark-composition/
 distilled_at: 2026-09-03
-reviewed_at: 2026-09-23
+reviewed_at: 2026-10-10
 tags: [benchmark, headless, composition-root, architecture, runner]
-authorities: [docs/architecture/README.md, docs/architecture/benchmarks.md, benchmarks/src/headless-composition-root.ts, benchmarks/src/tui-benchmark-runner.ts, benchmarks/src/file-persistence-adapter.ts]
+authorities: [README.md, benchmarks/notes/overview.md, benchmarks/src/headless-composition-root.ts, benchmarks/src/headless-composition-root.ts, benchmarks/src/file-persistence-adapter.ts]
 ---
 
 # Headless Benchmark Composition Root
@@ -40,6 +40,6 @@ authorities: [docs/architecture/README.md, docs/architecture/benchmarks.md, benc
 - S3: `specs/mode-driven-task-proposal/requirements.md`
 - S4: `specs/mode-driven-task-proposal/design.md`
 - S5: `benchmarks/src/headless-composition-root.ts`
-- S6: `benchmarks/src/tui-benchmark-runner.ts`
+- S6: `benchmarks/src/headless-composition-root.ts`
 - S7: `benchmarks/test/headless-composition-root.test.ts`
-- S8: `benchmarks/test/tui-benchmark-runner.test.ts`
+- S8: `benchmarks/test/package-wiring.test.ts`

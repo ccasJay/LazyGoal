@@ -4,9 +4,9 @@ status: active
 summary: "Runtime/Storage/LLM 三视图分层、Codec/Projector 转换边界与 Legacy 删除"
 source_spec: specs/three-view-architecture/
 distilled_at: 2026-08-19
-reviewed_at: 2026-09-18
+reviewed_at: 2026-10-10
 tags: [three-view, codec, projector, dependency-boundary, storage, agent, legacy-removal]
-authorities: [docs/architecture/README.md, docs/architecture/runtime.md, docs/architecture/storage.md, docs/architecture/agent.md, packages/storage/src/goal-snapshot-codec.ts, packages/agent/src/model-inference-projector.ts, scripts/check-dependencies.mjs]
+authorities: [README.md, packages/runtime/notes/overview.md, packages/storage/notes/overview.md, packages/agent/notes/overview.md, packages/storage/src/goal-snapshot-codec.ts, packages/agent/src/model-inference-projector.ts, scripts/check-dependencies.mjs]
 supersedes: [project-memory/features/goal-session-persistence.md]
 ---
 

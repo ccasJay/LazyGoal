@@ -4,9 +4,9 @@ status: active
 summary: "基于不可变 AST 的纯 TypeScript 结构契约核心，支持静态类型推导、严格 JSON 校验与确定性 JSON Schema 2020-12 编译"
 source_spec: specs/contract-dsl-core/
 distilled_at: 2026-09-05
-reviewed_at: 2026-09-05
+reviewed_at: 2026-10-10
 tags: [contracts, ast, schema, validation, parser, json-schema, typescript]
-authorities: [docs/architecture/contracts.md, packages/contracts/src/contract.ts, packages/contracts/src/parser.ts, packages/contracts/src/json-schema.ts, packages/contracts/src/types.ts, packages/contracts/src/definition.ts, packages/contracts/src/errors.ts]
+authorities: [packages/contracts/notes/overview.md, packages/contracts/src/contract.ts, packages/contracts/src/parser.ts, packages/contracts/src/json-schema.ts, packages/contracts/src/types.ts, packages/contracts/src/definition.ts, packages/contracts/src/errors.ts]
 ---
 
 # Contract DSL Core

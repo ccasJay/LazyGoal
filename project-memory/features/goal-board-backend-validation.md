@@ -4,9 +4,9 @@ status: active
 summary: "Goal 看板单会话后端接入验证、有界白名单会话投影与防误触审批交互"
 source_spec: specs/goal-board-backend-validation/
 distilled_at: 2026-10-02
-reviewed_at: 2026-10-02
+reviewed_at: 2026-10-10
 tags: [browser, goal-board, session-projection, approval-ux, safe-summary, markdown, e2e]
-authorities: [docs/architecture/browser.md, packages/browser/src/index.ts, packages/browser/src/browser-projection.ts, packages/browser/src/browser-goal-routes.ts, packages/browser/src/browser-goal-command-service.ts, prototypes/goal-board/src/main.tsx, prototypes/goal-board/src/panels.tsx]
+authorities: [packages/browser/notes/overview.md, packages/browser/src/index.ts, packages/browser/src/browser-projection.ts, packages/browser/src/browser-goal-routes.ts, packages/browser/src/browser-goal-command-service.ts, apps/goal-board/src/main.tsx, apps/goal-board/src/panels.tsx]
 ---
 
 # Goal Board Backend Validation
@@ -39,10 +39,10 @@ authorities: [docs/architecture/browser.md, packages/browser/src/index.ts, packa
 
 - S1: `specs/goal-board-backend-validation/requirements.md`
 - S2: `specs/goal-board-backend-validation/tasks.md`
-- S3: `docs/architecture/browser.md`
+- S3: `packages/browser/notes/overview.md`
 - S4: `packages/browser/src/browser-projection.ts`
-- S5: `prototypes/goal-board/src/main.tsx`
-- S6: `prototypes/goal-board/src/panels.tsx`
+- S5: `apps/goal-board/src/main.tsx`
+- S6: `apps/goal-board/src/panels.tsx`
 - S7: `packages/browser/test/browser-commands.test.ts`
 - S8: `packages/browser/test/browser-projection.test.ts`
-- S9: `prototypes/goal-board/e2e/runtime.test.mjs`
+- S9: `apps/goal-board/e2e/runtime.test.mjs`

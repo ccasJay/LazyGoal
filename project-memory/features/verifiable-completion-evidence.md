@@ -4,9 +4,9 @@ status: active
 summary: "通过当前 Run 的已提交证据校验任务完成，并区分 Benchmark 运行时上下文与环境评分"
 source_spec: specs/verifiable-completion-evidence/
 distilled_at: 2026-09-07
-reviewed_at: 2026-09-23
+reviewed_at: 2026-10-10
 tags: [runtime, runner, contracts, evidence-gate, completion-criterion, verifiable-completion, benchmarks]
-authorities: [docs/architecture/runtime.md, docs/architecture/benchmarks.md, packages/contracts/src/model-output/canonical.ts, packages/runtime/src/evidence-gate.ts, packages/runtime/src/runner.ts, packages/storage/src/goal-snapshot-codec.ts, benchmarks/src/headless-composition-root.ts]
+authorities: [packages/runtime/notes/overview.md, benchmarks/notes/overview.md, packages/model-contracts/src/model-output/canonical.ts, packages/runtime/src/evidence-gate.ts, packages/runtime/src/runner.ts, packages/storage/src/goal-snapshot-codec.ts, benchmarks/src/headless-composition-root.ts]
 ---
 
 # Verifiable Completion Evidence
@@ -40,12 +40,12 @@ authorities: [docs/architecture/runtime.md, docs/architecture/benchmarks.md, pac
 
 - S1: `specs/verifiable-completion-evidence/requirements.md`
 - S2: `specs/verifiable-completion-evidence/design.md`
-- S3: `packages/contracts/src/model-output/canonical.ts`
+- S3: `packages/model-contracts/src/model-output/canonical.ts`
 - S4: `packages/storage/src/goal-snapshot-codec.ts`
 - S5: `packages/runtime/src/evidence-gate.ts`
 - S6: `packages/runtime/src/runner.ts`
 - S7: `benchmarks/src/headless-composition-root.ts`
-- S8: `docs/architecture/benchmarks.md`
+- S8: `benchmarks/notes/overview.md`
 - S9: `packages/agent/src/model-inference-view.ts`
 - S10: `packages/runtime/test/runner.test.ts`
 - S11: `packages/storage/test/goal-store.test.ts`

@@ -4,9 +4,9 @@ status: active
 summary: "Runner 的可恢复 Action/Observation 执行与授权边界"
 source_spec: specs/action-observation-loop/
 distilled_at: 2026-08-25
-reviewed_at: 2026-09-23
+reviewed_at: 2026-10-10
 tags: [action, observation, replay, approval, recovery]
-authorities: [docs/architecture/runtime.md, packages/runtime/src/runner.ts, packages/runtime/src/goal-coordinator.ts, packages/runtime/test/runner-pretask-read.test.ts]
+authorities: [packages/runtime/notes/overview.md, packages/runtime/src/runner.ts, packages/runtime/src/goal-coordinator.ts, packages/runtime/test/runner-pretask-read.test.ts]
 ---
 
 # Action/Observation Loop

@@ -4,9 +4,9 @@ status: active
 summary: "按 Run 选择任务提案审批模式并独立持久化 GoalPlan，支持多 Todo 与恢复"
 source_spec: specs/mode-driven-task-proposal/
 distilled_at: 2026-09-23
-reviewed_at: 2026-09-23
+reviewed_at: 2026-10-10
 tags: [runtime, run-mode, task-proposal, goal-plan, todo, recovery, tui, benchmark]
-authorities: [docs/architecture/runtime.md, docs/architecture/tui.md, packages/runtime/src/domain.ts, packages/runtime/src/goal-coordinator.ts, packages/runtime/src/run-mode-capabilities.ts, packages/runtime/src/runner.ts, packages/contracts/src/model-output/factory.ts, packages/storage/src/goal-snapshot-codec.ts, packages/tui/src/session-controller.ts, benchmarks/src/headless-composition-root.ts]
+authorities: [packages/runtime/notes/overview.md, apps/goal-server/notes/overview.md, packages/runtime/src/domain.ts, packages/runtime/src/goal-coordinator.ts, packages/runtime/src/run-mode-capabilities.ts, packages/runtime/src/runner.ts, packages/model-contracts/src/model-output/factory.ts, packages/storage/src/goal-snapshot-codec.ts, apps/goal-server/src/composition-root.ts, benchmarks/src/headless-composition-root.ts]
 supersedes: [project-memory/features/goal-multi-run-session.md]
 ---
 
@@ -54,10 +54,10 @@ supersedes: [project-memory/features/goal-multi-run-session.md]
 - S12: `packages/runtime/test/goal-coordinator-task-interaction.test.ts`
 - S13: `packages/runtime/src/evidence-gate.ts`
 - S14: `packages/storage/src/goal-snapshot-codec.ts`
-- S15: `docs/architecture/runtime.md`
-- S16: `docs/architecture/tui.md`
-- S17: `packages/tui/src/session-controller.ts`
-- S18: `packages/tui/src/plan-panel.tsx`
-- S19: `packages/tui/test/session-screen.test.tsx`
+- S15: `packages/runtime/notes/overview.md`
+- S16: `apps/goal-server/notes/overview.md`
+- S17: `apps/goal-server/src/composition-root.ts`
+- S18: `apps/goal-board/src/panels.tsx`
+- S19: `apps/goal-server/test/prompt-bundle-integration.test.ts`
 - S20: `packages/runtime/test/goal-multi-run-session.test.ts`
-- S21: `packages/contracts/src/model-output/factory.ts`
+- S21: `packages/model-contracts/src/model-output/factory.ts`

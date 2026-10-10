@@ -4,9 +4,9 @@ status: active
 summary: "通过 Run 级工具发现按需投影完整 Schema，并在恢复和 PTC 中保持一致的可见边界"
 source_spec: specs/on-demand-tool-schemas/
 distilled_at: 2026-10-04
-reviewed_at: 2026-10-04
+reviewed_at: 2026-10-10
 tags: [agent, tool-discovery, schema, runtime, snapshot, ptc, token-budget]
-authorities: [docs/architecture/agent.md, docs/architecture/contracts.md, docs/architecture/runtime.md, docs/architecture/storage.md, packages/contracts/src/model-output/system-tools.ts, packages/runtime/src/tool-discovery.ts, packages/runtime/src/runner.ts, packages/agent/src/model-inference-projector.ts, packages/storage/src/goal-snapshot.ts]
+authorities: [packages/agent/notes/overview.md, packages/contracts/notes/overview.md, packages/runtime/notes/overview.md, packages/storage/notes/overview.md, packages/model-contracts/src/model-output/system-tools.ts, packages/runtime/src/tool-discovery.ts, packages/runtime/src/runner.ts, packages/agent/src/model-inference-projector.ts, packages/storage/src/goal-snapshot.ts]
 ---
 
 # On-Demand Tool Schemas
@@ -37,18 +37,18 @@ authorities: [docs/architecture/agent.md, docs/architecture/contracts.md, docs/a
 - S1: `specs/on-demand-tool-schemas/requirements.md`
 - S2: `specs/on-demand-tool-schemas/design.md`
 - S3: `specs/on-demand-tool-schemas/tasks.md`
-- S4: `docs/architecture/agent.md`
-- S5: `docs/architecture/contracts.md`
-- S6: `docs/architecture/runtime.md`
-- S7: `docs/architecture/storage.md`
-- S8: `packages/contracts/src/model-output/system-tools.ts`
+- S4: `packages/agent/notes/overview.md`
+- S5: `packages/contracts/notes/overview.md`
+- S6: `packages/runtime/notes/overview.md`
+- S7: `packages/storage/notes/overview.md`
+- S8: `packages/model-contracts/src/model-output/system-tools.ts`
 - S9: `packages/runtime/src/tool-discovery.ts`
 - S10: `packages/runtime/src/transition.ts`
 - S11: `packages/runtime/src/runner.ts`
 - S12: `packages/agent/src/model-inference-projector.ts`
 - S13: `packages/storage/src/goal-snapshot.ts`
 - S14: `packages/runtime/test/tool-discovery.test.ts`
-- S15: `packages/contracts/test/model-output-canonical.test.ts`
+- S15: `packages/model-contracts/test/model-output-canonical.test.ts`
 - S16: `packages/agent/test/prompt.test.ts`
 - S17: `packages/runtime/test/program-execution.test.ts`
 - S18: `packages/storage/test/goal-snapshot-current.test.ts`
