@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
+    "test": "tsx --test test/*.test.ts test/*.test.tsx",
     "test:e2e": "npm run build && node --test --test-concurrency=1 e2e/*.test.mjs"
   },
   "dependencies": {

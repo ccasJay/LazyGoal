@@ -36,6 +36,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
       "--headless=new",
       "--no-sandbox",
       "--disable-gpu",
+      "--hide-scrollbars",
       "--no-first-run",
       "--no-default-browser-check",
       "--remote-debugging-port=0",
@@ -299,6 +300,104 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelector('.tr-inspector') === null"), true);
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
 
+    // === Trajectory Board 修复验证 ===
+    // 1. A11y 规范验证：列表容器 role="listbox"，且任何 button 上均无非法 aria-selected 属性
+    assert.equal(await value(socket, "document.querySelector('.ct-record-list')?.getAttribute('role')"), "listbox");
+    assert.equal(await value(socket, "document.querySelectorAll('button[aria-selected]').length"), 0);
+
+    // 2. 时间轴滚轮缩放与倍率封顶紧凑化修复验证：
+    // (a) 垂直滚轮在时间轴上直接生效并拦截默认页面滚动
+    const wheelDefaultPrevented = await value(socket, "(() => { const plot = document.querySelector('.tr-plot'); const ev = new WheelEvent('wheel', { deltaY: -100, cancelable: true, bubbles: true }); plot.dispatchEvent(ev); return ev.defaultPrevented; })()");
+    assert.equal(wheelDefaultPrevented, true, "vertical wheel on timeline is intercepted for zooming");
+
+    // (b) 滚轮向上滚动触发放大（> 1x）
+    await waitForExpression(socket, "(() => { const zoom = document.querySelector('.tr-zoom-level')?.textContent; return zoom !== '1×' && zoom !== '1.0×'; })()");
+    const zoomedInLevel = await value(socket, "document.querySelector('.tr-zoom-level')?.textContent");
+    assert.match(zoomedInLevel, /^[1-9]\d*(\.\d+)?×$/, "zoom level increases after scrolling up");
+
+    // (c) 点击 Reset 恢复 1×
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Reset timeline zoom\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent === '1×'");
+
+    // (d) 最低倍率紧凑化验证：向下缩小至 0.5x，所有事件收拢，Zoom out 按钮禁用
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Zoom out timeline\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent === '0.5×'");
+    assert.equal(await value(socket, "document.querySelector('.tr-zoom-level')?.textContent"), "0.5×");
+    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Zoom out timeline\"]').disabled"), true);
+
+    // (e) 再次 Reset 恢复 1×
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Reset timeline zoom\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent === '1×'");
+
+    // (f) 最高倍率封顶验证：放大至 25x 封顶，不再是 1000x，Zoom in 按钮禁用
+    for (let i = 0; i < 6; i += 1) {
+      await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Zoom in timeline\"]:not(:disabled)')?.click()", returnByValue: true });
+    }
+    await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent === '25×'");
+    assert.equal(await value(socket, "document.querySelector('.tr-zoom-level')?.textContent"), "25×");
+    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Zoom in timeline\"]').disabled"), true);
+
+    // (g) Reset 回到 1×
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Reset timeline zoom\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent === '1×'");
+
+    // 3. 泳道筛选弱化与无害定位：未命中刻度透明度弱化 (0.25)，点击弱化刻度不重置搜索，并显示未命中徽章
+    await setText(socket, "input[aria-label='Search trajectory']", "started");
+    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Locate trajectory event 2\"].dimmed') !== null");
+    const dimmedOpacity = await value(socket, "getComputedStyle(document.querySelector('button[aria-label=\"Locate trajectory event 2\"].dimmed')).opacity");
+    assert.equal(dimmedOpacity, "0.25");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Locate trajectory event 2\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #2')");
+    assert.equal(await value(socket, "document.querySelector('input[aria-label=\"Search trajectory\"]').value"), "started");
+    assert.equal(await value(socket, "document.querySelector('.tr-outside-badge')?.textContent"), "Event outside active filter");
+
+    // 4. Tab 偏好记忆与纯净视图：切至 Raw 时不渲染 execution relationship 卡片；导航至相邻事件或点击刻度保持 Raw 偏好；列表直接点击重置为 Summary
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.tr-detail-tabs button')].find(b => b.textContent === 'Raw').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-detail-tabs button.active')?.textContent === 'Raw'");
+    assert.equal(await value(socket, "document.querySelector('.relationship') === null"), true);
+    // 导航保持 Raw 偏好
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Previous trajectory event\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')");
+    assert.equal(await value(socket, "document.querySelector('.tr-detail-tabs button.active')?.textContent"), "Raw");
+    // 刻度点击保持 Raw 偏好
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Locate trajectory event 2\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #2')");
+    assert.equal(await value(socket, "document.querySelector('.tr-detail-tabs button.active')?.textContent"), "Raw");
+    // 列表行直接点击重置为 Summary，且焦点稳定停留在当前选中行
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#trajectory-event-1')?.click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-detail-tabs button.active')?.textContent === 'Summary'");
+    assert.equal(await value(socket, "document.querySelector('.tr-detail-tabs button.active')?.textContent"), "Summary");
+    assert.equal(await value(socket, "document.activeElement?.id"), "trajectory-event-1");
+
+    // 5. 步骤折叠稳定性与准确引导文案：折叠包含选中项的步骤时不反向弹开；全收起时检查器显示指引；展开后恢复详情
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header')[0]?.click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelectorAll('.ct-step-header')[0]?.getAttribute('aria-expanded') === 'false'");
+    assert.equal(await value(socket, "document.querySelectorAll('.ct-step-header')[0]?.getAttribute('aria-expanded')"), "false");
+    assert.equal(await value(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header')[1]?.click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-empty-guidance')?.textContent.includes('所有步骤已收起，请展开步骤以查看事件')");
+    assert.equal(await value(socket, "document.querySelector('.tr-empty-guidance p')?.textContent"), "所有步骤已收起，请展开步骤以查看事件");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header')[0]?.click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')");
+    assert.equal(await value(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')"), true);
+
+    // 6. 复制失败防护：捕获权限拒绝并显示 Copy failed，不抛出未捕获异常
+    await cdp(socket, "Runtime.evaluate", { expression: "navigator.clipboard.writeText = () => Promise.reject(new Error('Permission denied')); document.querySelector('.tr-inspector footer button').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-inspector footer button')?.textContent.includes('Copy failed')");
+    assert.equal(await value(socket, "document.querySelector('.tr-inspector footer button').textContent.includes('Copy failed')"), true);
+
+    // 7. 原型交互验证：加载独立的 trajectory-explorer.html 验证折叠文案、弱化刻度、Tab 回退与 A11y
+    await navigate(socket, "file://" + join(root, "prototypes/trajectory-explorer.html"));
+    await waitForExpression(socket, "document.querySelector('.brand')?.textContent.includes('LazyGoal')");
+    assert.equal(await value(socket, "document.querySelector('#records')?.getAttribute('role')"), "listbox");
+    assert.equal(await value(socket, "document.querySelectorAll('button.row[aria-selected]').length"), 0);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.step').forEach(btn => btn.click())", returnByValue: true });
+    assert.equal(await value(socket, "document.querySelector('#event-title')?.textContent"), "所有步骤已收起，请展开步骤以查看事件");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.step').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "navigator.clipboard.writeText = () => Promise.reject(new Error('Permission denied')); document.querySelector('#copy').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('#copy')?.textContent === 'Copy failed'");
+    assert.equal(await value(socket, "document.querySelector('#copy').textContent"), "Copy failed");
+
 
 
     mock.resetToAction();
@@ -519,7 +618,7 @@ function createMockApi() {
       inputReads += 1;
       if (inputReads === 1) { response.writeHead(500); response.end(); }
       else if (new URL(request.url, "http://localhost").searchParams.get("callId") === "call-native") { inputDetailReads += 1; json(response, { call: nativeCall, previousSystem: null, previousCallId: null, systemVersion: "hash" }); }
-      else if (new URL(request.url, "http://localhost").searchParams.get("q") === "native") json(response, { calls: [{ goalId: "goal-1", runId: "run-1", callId: "call-native", stepIndex: 1, stage: "decide", occurredAt: "2026-08-05T09:00:01.000Z", systemVersion: "hash", systemChanged: false, firstSystem: true, previousCallId: null, omittedMessageCount: 0, messages: nativeCall.messages.map((message, index) => ({ role: message.role, source: message.source, index, preview: index === 0 ? `Native tool result ${"long content ".repeat(200)}` : message.content.slice(0, 700), truncated: true })) }], total: 1, nextOffset: null });
+      else if (new URL(request.url, "http://localhost").searchParams.get("q") === "native") json(response, { calls: [{ goalId: "goal-1", runId: "run-1", callId: "call-native", executionUnitId: "unit-1", stepIndex: 1, stage: "decide", occurredAt: "2026-08-05T09:00:01.000Z", systemVersion: "hash", systemChanged: false, firstSystem: true, previousCallId: null, omittedMessageCount: 0, messages: nativeCall.messages.map((message, index) => ({ role: message.role, source: message.source, index, preview: index === 0 ? `Native tool result ${"long content ".repeat(200)}` : message.content.slice(0, 700), truncated: true })) }], total: 1, nextOffset: null });
       else json(response, { calls: [], total: 0, nextOffset: null });
       return;
     }
@@ -528,7 +627,7 @@ function createMockApi() {
       if (request.url.startsWith("/api/goals/goal-1/trajectory/runs")) json(response, { runs: [run], nextOffset: null });
       else if (request.url.startsWith("/api/goals/goal-1/trajectory?")) {
         trajectoryReads += 1;
-        json(response, { goalId: "goal-1", run, entries: [1, 2].map(sequence => ({ eventId: `event-${sequence}`, sequence, occurredAt: `2026-08-05T09:00:0${sequence}.000Z`, eventType: sequence === 1 ? "run_started" : "run_completed", category: "lifecycle", title: "Run", preview: "Committed Run event", previewTruncated: false })), total: 2, committedCount: 2, previousCursor: null, nextCursor: null, locatedSequence: null });
+        json(response, { goalId: "goal-1", run, entries: [1, 2].map(sequence => ({ eventId: `event-${sequence}`, sequence, stepIndex: sequence - 1, executionUnitId: `unit-${sequence - 1}`, occurredAt: `2026-08-05T09:00:0${sequence}.000Z`, eventType: sequence === 1 ? "run_started" : "run_completed", category: "lifecycle", title: "Run", preview: "Committed Run event", previewTruncated: false })), total: 2, committedCount: 2, previousCursor: null, nextCursor: null, locatedSequence: null });
       } else if (request.url.startsWith("/api/goals/goal-1/trajectory/events/")) {
         const sequence = Number(request.url.split("/").at(-1).split("?")[0]);
         const eventType = sequence === 1 ? "run_started" : "run_completed";
