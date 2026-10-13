@@ -8,6 +8,28 @@ export {
     isContextRetrievalProtocol,
 } from "./domain";
 export {
+    createInitialRunStage,
+    reviseRunStage,
+    rejectCurrentRunStage,
+    acceptCurrentRunStage,
+    RunStageTransitionError,
+} from "./run-stage";
+export type {
+    RunStageState,
+    RunStageRejection,
+    PreviousStageResultRef,
+    DeclareRunStageInput,
+    ReviseRunStageInput,
+} from "./run-stage";
+export {
+    validateAndReduceContextNotes,
+} from "./context-notes";
+export type {
+    RuntimeContextNote,
+    ContextNoteReductionContext,
+    ContextNoteReductionResult,
+} from "./context-notes";
+export {
     applyGoalPlanPatch,
     assertValidGoalPlan,
     createEmptyGoalPlan,
@@ -141,6 +163,7 @@ export type {
 export { createStepExecutor } from "./step-executor";
 export type { StepExecutor } from "./step-executor";
 export type {
+    CompletionReviewCandidate,
     CompletionReviewInput,
     DecideStageResult,
     ModelContextFrameForStage,

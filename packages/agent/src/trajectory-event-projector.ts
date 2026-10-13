@@ -7,6 +7,7 @@ import type {
 import { freezeTrajectoryEvent } from "../../runtime/src/index";
 import type { ModelExecutionUnit } from "./trajectory-execution-unit-adapter";
 import { ModelContextSourceError } from "./trajectory-execution-unit-adapter";
+import { projectContextLookupResult } from "./context-lookup-projection";
 import { stableJson } from "./prompting/environment";
 
 /** 可选的、由上游事件携带或解析出的 Artifact 引用。 */
@@ -186,6 +187,15 @@ export class TrajectoryEventProjector {
     }
 
     private projectPayload(event: TrajectoryEvent): unknown {
+        if (event.eventType === "context_lookup_completed" || event.eventType === "context_lookup_not_found") {
+            return { ...structuredClone(event.payload), result: projectContextLookupResult(event.payload.result) };
+        }
+        if (event.eventType === "context_lookup_failed") {
+            return { ...structuredClone(event.payload), result: projectContextLookupResult({
+                status: "lookup_error", lookupId: event.payload.lookupId,
+                code: event.payload.code, message: event.payload.message,
+            }) };
+        }
         if (event.eventType === "tool_finished") {
             return {
                 ...structuredClone(event.payload),

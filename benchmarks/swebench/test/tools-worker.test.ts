@@ -78,7 +78,7 @@ test("SWE-bench tools worker 执行 write_file, read_file, grep, edit_file 和 b
     const client = new ToolRpcClient({ stream: hostMux.channel("tools") });
 
     // 1. write_file
-    const writeRes = await client.execute({
+    const writeRes = await client.execute({ context: { goalId: "test-goal", runId: "test-run" },
         actionId: "act-1",
         toolId: "write_file",
         input: { path: "hello.py", content: "print('hello from worker')\n" },
@@ -87,7 +87,7 @@ test("SWE-bench tools worker 执行 write_file, read_file, grep, edit_file 和 b
     assert.equal(await readFile(join(workspace, "hello.py"), "utf8"), "print('hello from worker')\n");
 
     // 2. read_file
-    const readRes = await client.execute({
+    const readRes = await client.execute({ context: { goalId: "test-goal", runId: "test-run" },
         actionId: "act-2",
         toolId: "read_file",
         input: { path: "hello.py" },
@@ -96,7 +96,7 @@ test("SWE-bench tools worker 执行 write_file, read_file, grep, edit_file 和 b
     assert.match((readRes as any).output.text, /hello from worker/);
 
     // 3. grep
-    const grepRes = await client.execute({
+    const grepRes = await client.execute({ context: { goalId: "test-goal", runId: "test-run" },
         actionId: "act-3",
         toolId: "grep",
         input: { pattern: "hello" },
@@ -107,7 +107,7 @@ test("SWE-bench tools worker 执行 write_file, read_file, grep, edit_file 和 b
     assert.equal(grepOutput.matches[0]?.path, "hello.py");
 
     // 4. edit_file
-    const editRes = await client.execute({
+    const editRes = await client.execute({ context: { goalId: "test-goal", runId: "test-run" },
         actionId: "act-4",
         toolId: "edit_file",
         input: {
@@ -120,7 +120,7 @@ test("SWE-bench tools worker 执行 write_file, read_file, grep, edit_file 和 b
     assert.equal(await readFile(join(workspace, "hello.py"), "utf8"), "print('edited content')\n");
 
     // 5. bash
-    const bashRes = await client.execute({
+    const bashRes = await client.execute({ context: { goalId: "test-goal", runId: "test-run" },
         actionId: "act-5",
         toolId: "bash",
         input: { command: "python3 hello.py" },
@@ -151,7 +151,7 @@ test("SWE-bench tools worker 支持在途 cancel 终止慢任务", async (t) => 
     const client = new ToolRpcClient({ stream: hostMux.channel("tools") });
 
     const controller = new AbortController();
-    const executePromise = client.execute({
+    const executePromise = client.execute({ context: { goalId: "test-goal", runId: "test-run" },
         actionId: "act-sleep",
         toolId: "bash",
         input: { command: "sleep 10" },

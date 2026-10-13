@@ -135,19 +135,38 @@ export interface StepExecutionInput {
     readonly runtimeFeedback?: RuntimeFeedback;
 }
 
+import type { RunStageState } from "./run-stage";
+
 /**
- * 已通过 Runtime 契约及证据引用校验的完成候选。
+ * 待审查的完成候选类型。
  *
- * @remarks evidence 只包含当前已提交边界内的引用事实及其 Action 来源；正文不得截断后默认为充分。
+ * @remarks
+ * 可以是中间阶段完成候选（`run_stage_complete`）或 Run 最终交付候选（`complete`）。
+ */
+export type CompletionReviewCandidate = Extract<AgentDecision, { readonly kind: "complete" | "run_stage_complete" }>;
+
+/**
+ * 已通过 Runtime 契约及证据引用校验的完成候选输入。
+ *
+ * @remarks
+ * evidence 只包含当前已提交边界内的引用事实及其 Action 来源；正文不得截断后默认为充分。
+ * 若为中间阶段审查，核查阶段目标及完成条件；若为最终交付审查，核查当前阶段与用户整体要求。
  * 审查不得执行 Tool、修改 Goal 或应用候选 Patch。Think 输出不作为审查证据。
+ *
  * @example
  * ```ts
  * const input: CompletionReviewInput = { ...stepInput, candidate, evidence: [] };
  * ```
  */
 export interface CompletionReviewInput extends StepExecutionInput {
-    readonly candidate: Extract<AgentDecision, { readonly kind: "complete" }>;
+    /** 待审查的完成候选，可为中间阶段完成或 Run 最终交付。 */
+    readonly candidate: CompletionReviewCandidate;
+    /** 当前候选引用的已提交证据事实及其来源。 */
     readonly evidence: readonly TrajectoryEvent[];
+    /** 当前 Run 的当前活动阶段说明与修订状态（若有）。 */
+    readonly currentStage?: RunStageState;
+    /** 同一 Run 中已接受阶段的历史原始证据（供最终交付审查整体核验）。 */
+    readonly historicalAcceptedEvidence?: readonly TrajectoryEvent[];
 }
 
 /**
@@ -311,3 +330,5 @@ export function createStepExecutor(
         },
     };
 }
+
+export type { CompletionReviewResult };

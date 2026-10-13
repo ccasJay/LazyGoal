@@ -1,0 +1,22 @@
+{
+  "model": {
+    "provider": "google",
+    "model": "gemini-3.5-flash-lite",
+    "structuredOutputMode": "strict",
+    "endpointHash": "46acb67f444c2496b1d9f5128ab8020457493c4557bd8a2d6df2d77528463663"
+  },
+  "sourceTrace": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-5da01f12-2c50-4b57-98b2-d3f3f2a221bc/continue/capture/artifacts/state/Y29udGV4dA/c2Vzc2lvbg/traces/NGQzMTNhOGMtNzJlMi00YTMwLTkyNTUtNTg0MzZkMzBjMjAw/ZDUyYzQyYzktNzk2NS00ZTQ1LWFkMjItMDkzNDExZGRkMzNj.jsonl",
+  "limitations": "Frozen messages and schemas; tool descriptions reconstructed from unchanged current declarations. No tools execute. Completion repair checks valid complete parameters and reference 38, not independent task grading. Three samples per arm are diagnostic, not a statistical quality claim.",
+  "variants": {
+    "old": {
+      "attempts": 3,
+      "parameterLegal": 1,
+      "completionRepaired": 1
+    },
+    "improved": {
+      "attempts": 3,
+      "parameterLegal": 3,
+      "completionRepaired": 3
+    }
+  }
+}

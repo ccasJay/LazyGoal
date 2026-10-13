@@ -262,11 +262,18 @@ function encodeDecision(result: Exclude<StepRecord, { readonly kind: "action" }>
         case "context_lookup":
             return {
                 kind: "context_lookup",
-                need: result.need,
-                question: result.question,
+                ...(result.operation !== undefined ? { operation: result.operation } : {}),
+                ...(result.need !== undefined ? { need: result.need } : {}),
+                ...(result.question !== undefined ? { question: result.question } : {}),
                 ...(result.filters === undefined
                     ? {}
                     : { filters: structuredClone(result.filters) }),
+                ...(result.query !== undefined ? { query: result.query } : {}),
+                ...(result.cursor !== undefined ? { cursor: result.cursor } : {}),
+                ...(result.limit !== undefined ? { limit: result.limit } : {}),
+                ...(result.category !== undefined ? { category: result.category } : {}),
+                ...(result.sourceRef !== undefined ? { sourceRef: result.sourceRef } : {}),
+                ...(result.offset !== undefined ? { offset: result.offset } : {}),
             };
         case "tool_discovery":
             return { kind: "tool_discovery", query: result.query };
@@ -275,6 +282,30 @@ function encodeDecision(result: Exclude<StepRecord, { readonly kind: "action" }>
                 kind: "goal_plan_update",
                 baseRevision: result.baseRevision,
                 operations: result.operations.map(encodeGoalPlanOperation),
+                ...(result.memoryPatch === undefined
+                    ? {}
+                    : { memoryPatch: structuredClone(result.memoryPatch) }),
+            };
+        case "run_stage_update":
+            return {
+                kind: "run_stage_update",
+                ...(result.stageId !== undefined ? { stageId: result.stageId } : {}),
+                ...(result.baseRevision !== undefined ? { baseRevision: result.baseRevision } : {}),
+                ...(result.reason !== undefined ? { reason: result.reason } : {}),
+                target: result.target,
+                acceptanceCriteria: [...result.acceptanceCriteria],
+                ...(result.memoryPatch === undefined
+                    ? {}
+                    : { memoryPatch: structuredClone(result.memoryPatch) }),
+            };
+        case "run_stage_complete":
+            return {
+                kind: "run_stage_complete",
+                stageId: result.stageId,
+                summary: result.summary,
+                ...(result.evidenceSequences !== undefined
+                    ? { evidenceSequences: [...result.evidenceSequences] }
+                    : {}),
                 ...(result.memoryPatch === undefined
                     ? {}
                     : { memoryPatch: structuredClone(result.memoryPatch) }),
@@ -423,6 +454,38 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                         memoryRevision: {
                             eventId: run.memoryRevision.eventId,
                             sequence: run.memoryRevision.sequence,
+                        },
+                    }),
+                ...(run.currentStage === undefined
+                    ? {}
+                    : {
+                        currentStage: {
+                            stageId: run.currentStage.stageId,
+                            revision: run.currentStage.revision,
+                            status: run.currentStage.status,
+                            target: run.currentStage.target,
+                            acceptanceCriteria: [...run.currentStage.acceptanceCriteria],
+                            ...(run.currentStage.previousStageResultRef === undefined
+                                ? {}
+                                : {
+                                    previousStageResultRef: {
+                                        stageId: run.currentStage.previousStageResultRef.stageId,
+                                        sequence: run.currentStage.previousStageResultRef.sequence,
+                                    },
+                                }),
+                            ...(run.currentStage.latestReviewRejection === undefined
+                                ? {}
+                                : {
+                                    latestReviewRejection: {
+                                        feedback: run.currentStage.latestReviewRejection.feedback,
+                                        ...(run.currentStage.latestReviewRejection.rejectedAtSequence === undefined
+                                            ? {}
+                                            : { rejectedAtSequence: run.currentStage.latestReviewRejection.rejectedAtSequence }),
+                                    },
+                                }),
+                            ...(run.currentStage.acceptedSequence === undefined
+                                ? {}
+                                : { acceptedSequence: run.currentStage.acceptedSequence }),
                         },
                     }),
                 ...(run.lastStep === undefined ? {} : { lastStep: encodeStep(run.lastStep) }),
@@ -626,11 +689,18 @@ function decodeDecision(result: GoalSnapshotDecisionResultV1): Exclude<StepRecor
         case "context_lookup":
             return {
                 kind: "context_lookup",
-                need: result.need,
-                question: result.question,
+                ...(result.operation !== undefined ? { operation: result.operation } : {}),
+                ...(result.need !== undefined ? { need: result.need } : {}),
+                ...(result.question !== undefined ? { question: result.question } : {}),
                 ...(result.filters === undefined
                     ? {}
                     : { filters: structuredClone(result.filters) }),
+                ...(result.query !== undefined ? { query: result.query } : {}),
+                ...(result.cursor !== undefined ? { cursor: result.cursor } : {}),
+                ...(result.limit !== undefined ? { limit: result.limit } : {}),
+                ...(result.category !== undefined ? { category: result.category } : {}),
+                ...(result.sourceRef !== undefined ? { sourceRef: result.sourceRef } : {}),
+                ...(result.offset !== undefined ? { offset: result.offset } : {}),
             };
         case "tool_discovery":
             return { kind: "tool_discovery", query: result.query };
@@ -641,6 +711,30 @@ function decodeDecision(result: GoalSnapshotDecisionResultV1): Exclude<StepRecor
                 operations: result.operations.map((operation) => ({
                     ...operation,
                 })) as GoalPlanPatchOperation[],
+                ...(result.memoryPatch === undefined
+                    ? {}
+                    : { memoryPatch: structuredClone(result.memoryPatch) as ExecutingWorkingMemoryPatch }),
+            };
+        case "run_stage_update":
+            return {
+                kind: "run_stage_update",
+                ...(result.stageId !== undefined ? { stageId: result.stageId } : {}),
+                ...(result.baseRevision !== undefined ? { baseRevision: result.baseRevision } : {}),
+                ...(result.reason !== undefined ? { reason: result.reason } : {}),
+                target: result.target,
+                acceptanceCriteria: [...result.acceptanceCriteria],
+                ...(result.memoryPatch === undefined
+                    ? {}
+                    : { memoryPatch: structuredClone(result.memoryPatch) as ExecutingWorkingMemoryPatch }),
+            };
+        case "run_stage_complete":
+            return {
+                kind: "run_stage_complete",
+                stageId: result.stageId,
+                summary: result.summary,
+                ...(result.evidenceSequences !== undefined
+                    ? { evidenceSequences: [...result.evidenceSequences] }
+                    : {}),
                 ...(result.memoryPatch === undefined
                     ? {}
                     : { memoryPatch: structuredClone(result.memoryPatch) as ExecutingWorkingMemoryPatch }),
@@ -779,6 +873,38 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
                         memoryRevision: {
                             eventId: run.memoryRevision.eventId,
                             sequence: run.memoryRevision.sequence,
+                        },
+                    }),
+                ...(run.currentStage === undefined
+                    ? {}
+                    : {
+                        currentStage: {
+                            stageId: run.currentStage.stageId,
+                            revision: run.currentStage.revision,
+                            status: run.currentStage.status,
+                            target: run.currentStage.target,
+                            acceptanceCriteria: [...run.currentStage.acceptanceCriteria],
+                            ...(run.currentStage.previousStageResultRef === undefined
+                                ? {}
+                                : {
+                                    previousStageResultRef: {
+                                        stageId: run.currentStage.previousStageResultRef.stageId,
+                                        sequence: run.currentStage.previousStageResultRef.sequence,
+                                    },
+                                }),
+                            ...(run.currentStage.latestReviewRejection === undefined
+                                ? {}
+                                : {
+                                    latestReviewRejection: {
+                                        feedback: run.currentStage.latestReviewRejection.feedback,
+                                        ...(run.currentStage.latestReviewRejection.rejectedAtSequence === undefined
+                                            ? {}
+                                            : { rejectedAtSequence: run.currentStage.latestReviewRejection.rejectedAtSequence }),
+                                    },
+                                }),
+                            ...(run.currentStage.acceptedSequence === undefined
+                                ? {}
+                                : { acceptedSequence: run.currentStage.acceptedSequence }),
                         },
                     }),
                 ...(run.lastStep === undefined ? {} : { lastStep: decodeStep(run.lastStep) }),

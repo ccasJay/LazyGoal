@@ -739,7 +739,10 @@ class LifecycleControllerTests(unittest.TestCase):
         self.store.update_state(run_id, lifecycle_status="running")
 
         # 5.1 Lost Worker: PID 不存在但 owner.json 遗留
-        dead_pid = 88888  # 假定不存在的 PID
+        # 使用已回收子进程，避免固定 PID 与同机真实进程碰撞。
+        exited = subprocess.Popen([sys.executable, "-c", "pass"])
+        dead_pid = exited.pid
+        exited.wait(timeout=10)
         owner = OwnerInfo(
             pid=dead_pid,
             worker_token="tok_dead",

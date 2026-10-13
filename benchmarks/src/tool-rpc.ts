@@ -1,8 +1,9 @@
 import type {
-    SandboxExecutionPlan,
     ToolObservation,
+    ToolExecutionContext,
     ToolRegistration,
-} from "../../packages/runtime/src/index.js";
+} from "../../packages/tool-core/src/index.js";
+import type { SandboxExecutionPlan } from "../../packages/sandbox/src/index.js";
 import {
     ExecutionAbortedError,
     throwIfAborted,
@@ -27,7 +28,7 @@ export interface ToolManifestEntry {
 export type ToolRpcMessage =
     | { readonly type: "describe"; readonly id: string }
     | { readonly type: "describe_result"; readonly id: string; readonly tools: readonly ToolManifestEntry[] }
-    | { readonly type: "execute"; readonly id: string; readonly actionId: string; readonly toolId: string; readonly input: unknown; readonly plan?: SandboxExecutionPlan }
+    | { readonly type: "execute"; readonly id: string; readonly actionId: string; readonly toolId: string; readonly input: unknown; readonly context: ToolExecutionContext; readonly plan?: SandboxExecutionPlan }
     | { readonly type: "execute_result"; readonly id: string; readonly actionId: string; readonly observation: ToolObservation }
     | { readonly type: "cancel"; readonly id: string }
     | { readonly type: "cancel_result"; readonly id: string; readonly cancelled: boolean }
@@ -121,23 +122,23 @@ interface ActiveExecution {
  * ```ts
  * const client = new ToolRpcClient({ stream: mux.channel("tools") });
  * const manifest = await client.describe();
- * const obs = await client.execute({ actionId: "a-1", toolId: "grep", input: { pattern: "test" } });
+ * const obs = await client.execute({ actionId: "a-1", toolId: "grep", input: { pattern: "test" }, context: { goalId: "g", runId: "r" } });
  * ```
  */
 export class ToolRpcClient {
     private readonly stream: MuxChannelStream<ToolRpcMessage>;
-    private readonly backendHandler?: ToolBackendHandler;
+    private readonly backendHandler: ToolBackendHandler | undefined;
     private readonly defaultTimeoutMs: number;
     private readonly writer: WritableStreamDefaultWriter<ToolRpcMessage>;
     private reader?: ReadableStreamDefaultReader<ToolRpcMessage>;
     private readonly readPromise: Promise<void>;
     private nextId = 1;
-    private currentExecution?: ActiveExecution;
-    private pendingDescribe?: {
+    private currentExecution: ActiveExecution | undefined;
+    private pendingDescribe: {
         readonly id: string;
         readonly resolve: (tools: readonly ToolManifestEntry[]) => void;
         readonly reject: (error: unknown) => void;
-    };
+    } | undefined;
     private readonly seenActionIds = new Set<string>();
     private closed = false;
     private failure?: ToolRpcError;
@@ -176,7 +177,7 @@ export class ToolRpcClient {
     /**
      * 触发沙箱 Worker 执行指定工具。
      *
-     * @param options - 包含 actionId、toolId、input 与控制信号。
+     * @param options - 包含 actionId、toolId、input、真实 Goal/Run context 与控制信号。
      * @returns 工具执行产出的结构化 Observation。
      * @throws 并发调用、重复 actionId、超时或协议违例时抛出异常。
      */
@@ -184,6 +185,8 @@ export class ToolRpcClient {
         readonly actionId: string;
         readonly toolId: string;
         readonly input: unknown;
+        /** 宿主 Action 的真实 Goal/Run 关联键，原样传递给 Worker Tool。 */
+        readonly context: ToolExecutionContext;
         readonly control?: ExecutionControl;
         readonly timeoutMs?: number;
         readonly plan?: SandboxExecutionPlan;
@@ -238,6 +241,7 @@ export class ToolRpcClient {
                 actionId: options.actionId,
                 toolId: options.toolId,
                 input: options.input,
+                context: options.context,
                 ...(options.plan !== undefined ? { plan: options.plan } : {}),
             }).catch((error) => {
                 clearTimeout(timeoutTimer);
@@ -455,18 +459,18 @@ export class ToolRpcServer {
     private readonly tools: readonly ToolRegistration[];
     private readonly toolMap = new Map<string, ToolRegistration>();
     private readonly executedActionIds = new Set<string>();
-    private inFlightExecution?: {
+    private inFlightExecution: {
         readonly id: string;
         readonly actionId: string;
         readonly toolId: string;
         readonly abortController: AbortController;
-    };
-    private activeBackendCall?: {
+    } | undefined;
+    private activeBackendCall: {
         readonly id: string;
         readonly actionId: string;
         readonly resolve: (result: unknown) => void;
         readonly reject: (error: unknown) => void;
-    };
+    } | undefined;
     private closed = false;
 
     constructor(options: ToolRpcServerOptions) {
@@ -581,6 +585,10 @@ export class ToolRpcServer {
     }
 
     private async handleExecute(msg: Extract<ToolRpcMessage, { readonly type: "execute" }>): Promise<void> {
+        if (!isRecord(msg.context) || typeof msg.context.goalId !== "string" || msg.context.goalId.trim() === "" || typeof msg.context.runId !== "string" || msg.context.runId.trim() === "") {
+            await this.send({ type: "error", id: msg.id, code: "invalid_message", message: "Tool execution context requires Goal/Run identity" });
+            return;
+        }
         if (this.inFlightExecution !== undefined) {
             await this.send({
                 type: "error",
@@ -610,8 +618,7 @@ export class ToolRpcServer {
                 actionId: msg.actionId,
                 observation: {
                     kind: "failure",
-                    error: `Tool "${msg.toolId}" not found in worker registry`,
-                    recoverable: false,
+                    code: "TOOL_NOT_FOUND", message: `Tool "${msg.toolId}" not found in worker registry`, retryable: false,
                 },
             });
             return;
@@ -630,8 +637,7 @@ export class ToolRpcServer {
                     actionId: msg.actionId,
                     observation: {
                         kind: "failure",
-                        error: prepared.error.message,
-                        recoverable: false,
+                        code: prepared.error.code, message: prepared.error.message, retryable: false,
                     },
                 });
                 return;
@@ -639,7 +645,7 @@ export class ToolRpcServer {
 
             const observation = await prepared.execute(
                 msg.actionId,
-                undefined,
+                msg.context,
                 control,
                 msg.plan,
             );
@@ -665,8 +671,7 @@ export class ToolRpcServer {
                     actionId: msg.actionId,
                     observation: {
                         kind: "failure",
-                        error: error instanceof Error ? error.message : String(error),
-                        recoverable: false,
+                        code: "TOOL_EXECUTION_FAILED", message: error instanceof Error ? error.message : String(error), retryable: false,
                     },
                 });
             }

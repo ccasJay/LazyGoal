@@ -1,3 +1,4 @@
+import { CONTEXT_LOOKUP_SOURCE_SCOPE } from "../src/context-lookup-projection";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -61,11 +62,13 @@ test("模型投影不把 not_found 或 lookup_error 替换成历史摘要", () =
     });
 
     assert.deepEqual(notFound, {
+        ...CONTEXT_LOOKUP_SOURCE_SCOPE,
         status: "not_found",
         lookupId: "lookup-nope",
         reason: "no_context_match",
     });
     assert.deepEqual(error, {
+        ...CONTEXT_LOOKUP_SOURCE_SCOPE,
         status: "lookup_error",
         lookupId: "lookup-fail",
         code: "INDEX_FAILED",
@@ -80,3 +83,14 @@ test("模型投影与 Runtime Result 解耦且不会改写输入", () => {
     assert.notStrictEqual(projected, found);
 });
 
+
+test("all historical lookup statuses disclose corpus and negative-result limits", () => {
+    for (const input of [found, { status: "not_found" as const, lookupId: "empty" }, { status: "lookup_error" as const, lookupId: "error", code: "INDEX_FAILED", message: "Unavailable" }]) {
+        const projected = projectContextLookupResult(input);
+        assert.equal(projected.sourceScope, "goal_history");
+        assert.match(projected.limitations, /not searched/);
+        assert.match(projected.limitations, /does not prove/);
+        assert.match(projected.limitations, /not direct/);
+        assert.equal(projected.status, input.status);
+    }
+});

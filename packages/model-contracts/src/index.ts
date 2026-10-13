@@ -31,7 +31,11 @@ export {
     CompletionExpectOutcomeContract,
     ContextLookupFiltersContract,
     ContextLookupNeedContract,
+    ContextLookupOperationContract,
     ContextLookupRequestContract,
+    ContextNoteSourceContract,
+    ContextNoteCategoryContract,
+    ContextNoteProposalContract,
     ToolDiscoveryDecisionContract,
     ContextLookupSequenceRangeContract,
     ExecutingMemoryPatchOperationContract,
@@ -71,6 +75,8 @@ export {
     AskUserAgentDecisionContract,
     TaskProposalAgentDecisionContract,
     AskUserAnswerContract,
+    RunStageUpdateAgentDecisionContract,
+    RunStageCompleteAgentDecisionContract,
     normalizeAskUserRequest,
     validateAskUserAnswers,
     validateModelOutputSemantics,
@@ -86,6 +92,7 @@ export type {
     CompletionExpectOutcome,
     ContextLookupFilters,
     ContextLookupNeed,
+    ContextLookupOperation,
     ContextLookupRequest,
     ToolDiscoveryDecision,
     ContextLookupSequenceRange,
@@ -121,6 +128,11 @@ export type {
     AskUserOption,
     AskUserQuestion,
     AskUserAnswer,
+    RunStageUpdateAgentDecision,
+    RunStageCompleteAgentDecision,
+    ContextNoteSource,
+    ContextNoteCategory,
+    ContextNoteProposal,
 } from "./model-output/canonical";
 
 export { ModelOutputContractDefinitionError } from "./model-output/errors";
@@ -161,6 +173,8 @@ export {
     SystemAskUserDeclaration,
     SystemUpdateGoalPlanDeclaration,
     SystemRequestThinkDeclaration,
+    SystemUpdateRunStageDeclaration,
+    SystemCompleteRunStageDeclaration,
     createExecutingToolDeclarations,
     createUnifiedToolDeclarations,
     createCheckpointToolDeclarations,
@@ -176,6 +190,8 @@ export type {
 export {
     SystemFindToolsInputContract,
     SystemUpdateGoalPlanInputContract,
+    SystemUpdateRunStageInputContract,
+    SystemCompleteRunStageInputContract,
 } from "./model-output/system-tools";
 
 export { CompletionReviewResultContract } from "./model-output/completion-review";

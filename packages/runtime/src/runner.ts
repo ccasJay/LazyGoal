@@ -1978,7 +1978,7 @@ class RunExecutor {
                 issues: [{
                     code: "STAGE_DECLARATION_REQUIRED",
                     path: ["result"],
-                    message: "Previous stage has ended. Declare the next stage using system_update_run_stage before executing actions.",
+                    message: "Declare an executing stage using system_update_run_stage before executing business actions.",
                 }],
                 constraints: ["Declare a stage with target and acceptanceCriteria using system_update_run_stage before executing business tools."],
             }), "Stage declaration required before executing business tools");
@@ -4915,7 +4915,7 @@ class RunExecutor {
                     }
 
                     if (reviewed.kind === "reject") {
-                        const rejectedStage = rejectCurrentRunStage(goal.state.run.currentStage, reviewed.feedback);
+                        const rejectedStage = rejectCurrentRunStage(goal.state.run.currentStage, reviewed.feedback, undefined, true);
                         const nextRun = this.applyTransition(goal.state.run, {
                             kind: "stage_settle",
                             stage: rejectedStage,

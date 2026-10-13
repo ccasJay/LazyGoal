@@ -39,6 +39,7 @@ class BlockingReportedUsageAdapter implements LLMAdapter {
                     summary: "完成",
                     evidenceSequences: [],
                     memoryPatch: null,
+                    contextNotes: null,
                 },
             }),
             providerMetadata: {

@@ -4,7 +4,10 @@ import {
     JsonFileDiagnosticTraceSink,
     JsonFileGoalStore,
     JsonFileTrajectoryStore,
+    JsonFileModelInputStore,
+    JsonFileContextRetrievalIndexStore,
 } from "../../packages/storage/src/index.js";
+import { IndexedContextLookupService } from "../../packages/runtime/src/index.js";
 import type {
     BenchmarkPersistenceAdapter,
     BenchmarkPersistenceBindings,
@@ -98,12 +101,17 @@ export class JsonFileBenchmarkPersistenceAdapter<TTask>
         const goalDirectory = join(directory, "goals");
         const trajectoryDirectory = join(directory, "trajectories");
         const traceDirectory = join(directory, "traces");
+        const trajectoryStore = new JsonFileTrajectoryStore(trajectoryDirectory);
+        const modelInputDirectory = join(directory, "model-inputs");
         const bindings: BenchmarkPersistenceBindings = {
             goalStore: new JsonFileGoalStore(goalDirectory),
-            trajectoryStore: new JsonFileTrajectoryStore(trajectoryDirectory),
+            trajectoryStore,
+            modelInputStore: new JsonFileModelInputStore(modelInputDirectory),
+            contextLookupPort: new IndexedContextLookupService({ trajectoryStore, indexStore: new JsonFileContextRetrievalIndexStore(join(directory, "context-index")) }),
             locator: {
                 goalSnapshot: goalDirectory,
                 trajectory: trajectoryDirectory,
+                modelInputs: modelInputDirectory,
                 ...(this.enableTrace ? { diagnosticTrace: traceDirectory } : {}),
             },
             ...(this.enableTrace

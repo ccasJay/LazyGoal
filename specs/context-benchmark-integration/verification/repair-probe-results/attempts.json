@@ -1,0 +1,352 @@
+[
+  {
+    "variant": "old",
+    "attempt": 1,
+    "requestIdentity": "2709ba8cf58d15f572d3577510f5b9cf25729c763f0b549c6935fb77953abb05",
+    "parameterLegal": true,
+    "completionRepaired": true,
+    "response": {
+      "role": "assistant",
+      "content": "",
+      "toolCalls": [
+        {
+          "callId": "call_865707",
+          "toolId": "system_complete_task",
+          "argumentsJson": "{\"evidenceSequences\":[38],\"memoryPatch\":{\"operations\":[{\"type\":\"upsert_fact\",\"fact\":{\"predicate\":\"timeout\",\"stability\":\"stable\",\"evidenceSequences\":[38],\"subject\":\"config.json\",\"scope\":\"goal\",\"value\":[30]}}],\"protocolVersion\":1},\"summary\":\"I have updated config.json to set the timeout to 30 while preserving other values, verified the file contents, and confirmed that the current timeout value is 30.\"}"
+        }
+      ],
+      "continuation": {
+        "identity": {
+          "provider": "google",
+          "endpoint": "http://100.111.254.42:8317/v1beta",
+          "model": "gemini-3.5-flash-lite",
+          "protocol": "gemini-content"
+        },
+        "parts": [
+          {
+            "thought": true,
+            "text": ""
+          },
+          {
+            "thoughtSignature": "EmcKZQFpFH0TSHqTJidrlj6nMVlEsaTjKjEyhKslLUSsfXMtlRgFrMmhIqhhMwgA/uK/OohDmlzpBAlWcgLcMoFxxMZTVhgB6DLa+dUvC4HmjozYCYwU1ErxqOfH0F3BNB+qpbiO0UpH",
+            "functionCall": {
+              "name": "system_complete_task",
+              "args": {
+                "evidenceSequences": [
+                  38
+                ],
+                "memoryPatch": {
+                  "operations": [
+                    {
+                      "type": "upsert_fact",
+                      "fact": {
+                        "predicate": "timeout",
+                        "stability": "stable",
+                        "evidenceSequences": [
+                          38
+                        ],
+                        "subject": "config.json",
+                        "scope": "goal",
+                        "value": [
+                          30
+                        ]
+                      }
+                    }
+                  ],
+                  "protocolVersion": 1
+                },
+                "summary": "I have updated config.json to set the timeout to 30 while preserving other values, verified the file contents, and confirmed that the current timeout value is 30."
+              },
+              "id": "call_865707"
+            }
+          }
+        ]
+      },
+      "providerMetadata": {
+        "model": "gemini-3.5-flash-lite",
+        "usage": {
+          "inputTokens": 11069,
+          "outputTokens": 120
+        }
+      }
+    },
+    "durationMs": 3616
+  },
+  {
+    "variant": "old",
+    "attempt": 2,
+    "requestIdentity": "2709ba8cf58d15f572d3577510f5b9cf25729c763f0b549c6935fb77953abb05",
+    "parameterLegal": false,
+    "completionRepaired": false,
+    "response": {
+      "role": "assistant",
+      "content": "",
+      "toolCalls": [
+        {
+          "callId": "call_1248211",
+          "toolId": "system_complete_task",
+          "argumentsJson": "{\"memoryPatch\":null,\"evidenceSequences\":[38],\"protocolVersion\":1}"
+        }
+      ],
+      "continuation": {
+        "identity": {
+          "provider": "google",
+          "endpoint": "http://100.111.254.42:8317/v1beta",
+          "model": "gemini-3.5-flash-lite",
+          "protocol": "gemini-content"
+        },
+        "parts": [
+          {
+            "thought": true,
+            "text": ""
+          },
+          {
+            "thoughtSignature": "EmcKZQFpFH0T28bFptSL/aMu0SyopqVNNvpsBTc5RvpTcv/XD2gV7I3pVzINCFiH/c8EG9kOXkJwzRwbczepmyNOLB8dMtv3XL/WnizrW3nWdTstFeMsXpjGD4eIRuSBFgO/aXuMQKi0",
+            "functionCall": {
+              "name": "system_complete_task",
+              "args": {
+                "memoryPatch": null,
+                "evidenceSequences": [
+                  38
+                ],
+                "protocolVersion": 1
+              },
+              "id": "call_1248211"
+            }
+          }
+        ]
+      },
+      "providerMetadata": {
+        "model": "gemini-3.5-flash-lite",
+        "usage": {
+          "inputTokens": 11069,
+          "outputTokens": 29,
+          "cachedInputTokens": 8119
+        }
+      }
+    },
+    "error": "ContractValidationError: Contract validation failed",
+    "durationMs": 3004
+  },
+  {
+    "variant": "old",
+    "attempt": 3,
+    "requestIdentity": "2709ba8cf58d15f572d3577510f5b9cf25729c763f0b549c6935fb77953abb05",
+    "parameterLegal": false,
+    "completionRepaired": false,
+    "response": {
+      "role": "assistant",
+      "content": "",
+      "toolCalls": [
+        {
+          "callId": "call_130748",
+          "toolId": "system_complete_task",
+          "argumentsJson": "{\"protocolVersion\":1,\"memoryPatch\":null,\"evidenceSequences\":[38]}"
+        }
+      ],
+      "continuation": {
+        "identity": {
+          "provider": "google",
+          "endpoint": "http://100.111.254.42:8317/v1beta",
+          "model": "gemini-3.5-flash-lite",
+          "protocol": "gemini-content"
+        },
+        "parts": [
+          {
+            "thought": true,
+            "text": ""
+          },
+          {
+            "thoughtSignature": "EmcKZQFpFH0TviEIAl85ZLcdoUev43hTTrBP8yAMj9hqlLNibWPqGCdfIGilCTosqfC+OOpysLn+m8iWjqugrt4g2TBoCvjE8jriy/utmegcsr/OGArLxz7NWNz9t9YDyPw1EPvzwcz1",
+            "functionCall": {
+              "name": "system_complete_task",
+              "args": {
+                "protocolVersion": 1,
+                "memoryPatch": null,
+                "evidenceSequences": [
+                  38
+                ]
+              },
+              "id": "call_130748"
+            }
+          }
+        ]
+      },
+      "providerMetadata": {
+        "model": "gemini-3.5-flash-lite",
+        "usage": {
+          "inputTokens": 11069,
+          "outputTokens": 29,
+          "cachedInputTokens": 8119
+        }
+      }
+    },
+    "error": "ContractValidationError: Contract validation failed",
+    "durationMs": 7342
+  },
+  {
+    "variant": "improved",
+    "attempt": 1,
+    "requestIdentity": "b6e1cc2ff1205b997066ac2b1e207f3420beba6d007fd59db94142a30088119a",
+    "parameterLegal": true,
+    "completionRepaired": true,
+    "response": {
+      "role": "assistant",
+      "content": "",
+      "toolCalls": [
+        {
+          "callId": "call_194033",
+          "toolId": "system_complete_task",
+          "argumentsJson": "{\"memoryPatch\":null,\"evidenceSequences\":[38],\"summary\":\"I have successfully updated the timeout value to 30 in config.json while preserving all other values. The updated configuration has been verified, and the current timeout value is 30.\"}"
+        }
+      ],
+      "continuation": {
+        "identity": {
+          "provider": "google",
+          "endpoint": "http://100.111.254.42:8317/v1beta",
+          "model": "gemini-3.5-flash-lite",
+          "protocol": "gemini-content"
+        },
+        "parts": [
+          {
+            "thought": true,
+            "text": ""
+          },
+          {
+            "thoughtSignature": "EmcKZQFpFH0TiRAheN8to/lpcI3NKyWz0Wi7iaNaNKsV3VusU6lux7kgk4bZEtF3BWMj04MMVZ32Vf8F87/hHG/RMDItKNd7d9VJF+Au9+Uijse1q7mVmBrL0nhzC65CCyum4eDkTU56",
+            "functionCall": {
+              "name": "system_complete_task",
+              "args": {
+                "memoryPatch": null,
+                "evidenceSequences": [
+                  38
+                ],
+                "summary": "I have successfully updated the timeout value to 30 in config.json while preserving all other values. The updated configuration has been verified, and the current timeout value is 30."
+              },
+              "id": "call_194033"
+            }
+          }
+        ]
+      },
+      "providerMetadata": {
+        "model": "gemini-3.5-flash-lite",
+        "usage": {
+          "inputTokens": 11131,
+          "outputTokens": 67,
+          "cachedInputTokens": 6089
+        }
+      }
+    },
+    "durationMs": 3809
+  },
+  {
+    "variant": "improved",
+    "attempt": 2,
+    "requestIdentity": "b6e1cc2ff1205b997066ac2b1e207f3420beba6d007fd59db94142a30088119a",
+    "parameterLegal": true,
+    "completionRepaired": true,
+    "response": {
+      "role": "assistant",
+      "content": "",
+      "toolCalls": [
+        {
+          "callId": "call_689892",
+          "toolId": "system_complete_task",
+          "argumentsJson": "{\"evidenceSequences\":[38],\"summary\":\"The timeout value in config.json has been updated to 30 while preserving other values, and verified successfully. The current value of timeout is 30.\",\"memoryPatch\":null}"
+        }
+      ],
+      "continuation": {
+        "identity": {
+          "provider": "google",
+          "endpoint": "http://100.111.254.42:8317/v1beta",
+          "model": "gemini-3.5-flash-lite",
+          "protocol": "gemini-content"
+        },
+        "parts": [
+          {
+            "thought": true,
+            "text": ""
+          },
+          {
+            "thoughtSignature": "EmcKZQFpFH0TKkFp1PuBa3Iy45AxkYHikO6U5jTVWft/7/BPvWNRNT5hoO9giJtq8DYrq4HwIvJf8H3oAW/K9tKj+t++WT5iTPwLITXlu0obxVzSjDMWduXqtmjUjSsAYGCEwRtrefng",
+            "functionCall": {
+              "name": "system_complete_task",
+              "args": {
+                "evidenceSequences": [
+                  38
+                ],
+                "summary": "The timeout value in config.json has been updated to 30 while preserving other values, and verified successfully. The current value of timeout is 30.",
+                "memoryPatch": null
+              },
+              "id": "call_689892"
+            }
+          }
+        ]
+      },
+      "providerMetadata": {
+        "model": "gemini-3.5-flash-lite",
+        "usage": {
+          "inputTokens": 11131,
+          "outputTokens": 62,
+          "cachedInputTokens": 8119
+        }
+      }
+    },
+    "durationMs": 3510
+  },
+  {
+    "variant": "improved",
+    "attempt": 3,
+    "requestIdentity": "b6e1cc2ff1205b997066ac2b1e207f3420beba6d007fd59db94142a30088119a",
+    "parameterLegal": true,
+    "completionRepaired": true,
+    "response": {
+      "role": "assistant",
+      "content": "",
+      "toolCalls": [
+        {
+          "callId": "call_909972",
+          "toolId": "system_complete_task",
+          "argumentsJson": "{\"memoryPatch\":null,\"summary\":\"The timeout in config.json has been updated to 30. Current configuration:\\n```json\\n{\\n  \\\"timeout\\\": 30\\n}\\n```\",\"evidenceSequences\":[38]}"
+        }
+      ],
+      "continuation": {
+        "identity": {
+          "provider": "google",
+          "endpoint": "http://100.111.254.42:8317/v1beta",
+          "model": "gemini-3.5-flash-lite",
+          "protocol": "gemini-content"
+        },
+        "parts": [
+          {
+            "thought": true,
+            "text": ""
+          },
+          {
+            "thoughtSignature": "EmcKZQFpFH0TNLHQNi2e4BG8BPXKS+dIT1fa+9oVNGBJ8+DFfi0Xa1SheNvdmt7OtoaxpPlJPtvpLehNpy9Wv4nhN6HPqiHgOwQinlvaTMOjVUYmRRRPaH05K52MyeQtNgHCCyrCtHPT",
+            "functionCall": {
+              "name": "system_complete_task",
+              "args": {
+                "memoryPatch": null,
+                "summary": "The timeout in config.json has been updated to 30. Current configuration:\n```json\n{\n  \"timeout\": 30\n}\n```",
+                "evidenceSequences": [
+                  38
+                ]
+              },
+              "id": "call_909972"
+            }
+          }
+        ]
+      },
+      "providerMetadata": {
+        "model": "gemini-3.5-flash-lite",
+        "usage": {
+          "inputTokens": 11131,
+          "outputTokens": 63,
+          "cachedInputTokens": 8119
+        }
+      }
+    },
+    "durationMs": 2621
+  }
+]

@@ -35,18 +35,18 @@ function fixtures() {
         const event = allocateImmutableEvent({ goalId: "native-goal", runId: "native-run", phase: "executing", executionUnitId: unit, eventType: payload.type, payload } as any, events.length + 1);
         events.push(event); return event;
     };
-    const response = (toolId = "read_file", unit = "unit-1", signature = "signature") => add({ type: "model_response_received", stage: "decide", modelCallId: `call-${events.length}`, epochNumber: 0, conversationPosition: 0, message: message(toolId, {}, signature) }, unit);
+    const response = (toolId = "read_file", unit = "unit-1", signature = "signature", args: Record<string, unknown> = {}) => add({ type: "model_response_received", stage: "decide", modelCallId: `call-${events.length}`, epochNumber: 0, conversationPosition: 0, message: message(toolId, args, signature) }, unit);
     return { events, add, response };
 }
-function actionFixture(kind: "success" | "failure" | "rejected" = "success", signature = "signature") {
+function actionFixture(kind: "success" | "failure" | "rejected" = "success", signature = "signature", args: Record<string, unknown> = {}) {
     const fixture = fixtures();
-    const action = { actionId: "runtime-action", toolId: "read_file", input: {} };
+    const action = { actionId: "runtime-action", toolId: "read_file", input: args as any };
     const observation = kind === "success" ? { kind, output: "x".repeat(1000), summary: "Observed" } : kind === "failure" ? { kind, error: "Failed", retryable: false } : { kind, reason: "Denied" };
-    fixture.response("read_file", "unit-1", signature);
+    fixture.response("read_file", "unit-1", signature, args);
     fixture.add({ type: "decision_received", decision: { kind: "tool_call", action } });
     fixture.add({ type: "action_staged", action, approvalStatus: "approved" });
     if (kind !== "rejected") {
-        fixture.add({ type: "tool_started", actionId: action.actionId, toolId: action.toolId, input: {} });
+        fixture.add({ type: "tool_started", actionId: action.actionId, toolId: action.toolId, input: args as any });
         fixture.add({ type: "tool_finished", actionId: action.actionId, toolId: action.toolId, observation } as any);
     }
     fixture.add({ type: "observation_recorded", actionId: action.actionId, observation } as any);
@@ -100,7 +100,10 @@ test("lookup result closes its system call", () => {
     add({ type: "context_lookup_requested", lookupId: "lookup", request: { need: "historical_execution", question: "Find" } } as any);
     add({ type: "context_lookup_not_found", lookupId: "lookup", result: { status: "not_found", lookupId: "lookup" } });
     const exchange = collectNativeModelExchanges(events, identity, projector).get("unit-1")![0]!;
-    assert.equal(JSON.parse(exchange.messages[1]!.content).result.status, "not_found");
+    const result = JSON.parse(exchange.messages[1]!.content).result;
+    assert.equal(result.status, "not_found");
+    assert.equal(result.sourceScope, "goal_history");
+    assert.match(result.limitations, /does not prove/);
 });
 
 test("provider/model/endpoint changes and a semantic interlude terminate the native segment", () => {
@@ -292,4 +295,64 @@ test("approval waiting restores the same native call ID and executes the approve
     const result = await coordinator.resume({ ref: { goalId: "native-goal", runId: "native-run" }, action: { kind: "approve_action", actionId: pending.action.actionId } });
     assert.equal(result.ok, true);
     assert.equal(executed, 1);
+});
+
+test("已保留原生交换只含一次动作参数，Hot 投影不再重复包含对应 action_staged 与 tool_started 动作参数，且保留操作身份", async () => {
+    const actionArgs = { path: "src/deep/nested/file.ts", limit: 100 };
+    const fixtureWithArgs = actionFixture("success", "signature", actionArgs);
+
+    const plan = await assembledRequest(fixtureWithArgs);
+    const lastUserMessage = plan.request.messages.at(-1)!;
+    const workingContextPayload = JSON.parse(lastUserMessage.content);
+    const hotUnits = workingContextPayload.trajectoryContext.hot;
+    assert.equal(hotUnits.length, 1);
+    const events = hotUnits[0].events;
+    const stagedEvent = events.find((e: any) => e.eventType === "action_staged");
+    assert.ok(stagedEvent, "action_staged should be preserved");
+    assert.equal(stagedEvent.payload.action.actionId, "runtime-action");
+    assert.equal(stagedEvent.payload.action.toolId, "read_file");
+    assert.equal(stagedEvent.payload.action.input, undefined, "action_staged must not repeat action input parameters");
+    assert.equal(stagedEvent.payload.approvalStatus, "approved");
+
+    const startedEvent = events.find((e: any) => e.eventType === "tool_started");
+    assert.ok(startedEvent, "tool_started should be preserved");
+    assert.equal(startedEvent.payload.actionId, "runtime-action");
+    assert.equal(startedEvent.payload.toolId, "read_file");
+    assert.equal(startedEvent.payload.input, undefined, "tool_started must not repeat action input parameters");
+
+    const hotJson = JSON.stringify(workingContextPayload.trajectoryContext.hot);
+    assert.equal(hotJson.includes("src/deep/nested/file.ts"), false, "Hot 投影中绝不得重复包含动作参数");
+
+    // 动作参数仅存在于原生 assistant 消息中，未被 Hot 投影或 Working Context 重复发送
+    const nonAssistantMessages = plan.request.messages.filter(m => m.role !== "assistant");
+    assert.equal(JSON.stringify(nonAssistantMessages).includes("src/deep/nested/file.ts"), false, "非 assistant 消息不得重复出现动作参数");
+});
+
+test("对同一提交边界记录去重前后输入计量，原生去重后输入计量降低且原始事件内容摘要完全相同", async () => {
+    const actionArgs = { query: "large_query_string".repeat(10), verbose: true };
+    const fixture = actionFixture("success", "signature", actionArgs);
+
+    const { createHash } = await import("node:crypto");
+    const rawEventsJson = JSON.stringify(fixture.events);
+    const rawDigestBefore = createHash("sha256").update(rawEventsJson, "utf8").digest("hex");
+
+    const nativePlan = await assembledRequest(fixture);
+    const nativeSize = JSON.stringify(nativePlan.request).length;
+
+    const rawDigestAfter = createHash("sha256").update(JSON.stringify(fixture.events), "utf8").digest("hex");
+    assert.equal(rawDigestBefore, rawDigestAfter, "原始事件不可变，内容摘要必须100%完全相同");
+
+    const store = createInMemoryTrajectoryStore();
+    for (const event of fixture.events) {
+        const { eventId: _, occurredAt: __, sequence: ___, ...draft } = event;
+        await store.append(draft as any);
+    }
+    const goal = initial();
+    const running = { ...goal, state: { ...goal.state, run: { ...goal.state.run, status: "running" as const, committedThroughSequence: fixture.events.length } } };
+    const semanticPlan = await buildStepRequest(running, [], renderer, compactor, undefined, currentWorkingMemory,
+        new TrajectoryModelContextAssembler({ trajectoryStore: store, policy: createModelContextBudgetPolicy({ modelInputBudget: 100000 }) }),
+        undefined, undefined, "prompt_only", "decide", undefined, undefined);
+    const semanticSize = JSON.stringify(semanticPlan.request).length;
+
+    assert.ok(nativeSize < semanticSize, `原生去重后的输入计量 (${nativeSize}) 应该严格小于语义路径 (${semanticSize})`);
 });

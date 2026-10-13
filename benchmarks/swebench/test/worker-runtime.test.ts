@@ -18,13 +18,16 @@ test("Worker Profile exposes exactly five tools rooted at the supplied workspace
 
     const write = toolSet.registry.get("write_file")!.prepare({ path: "fixed.txt", content: "container fact\n" });
     assert.equal(write.ok, true);
-    if (write.ok) await write.execute("write-1");
+    if (write.ok) await write.execute("write-1", { goalId: "test-goal", runId: "test-run" });
     const read = toolSet.registry.get("read_file")!.prepare({ path: "fixed.txt" });
     assert.equal(read.ok, true);
     if (read.ok) {
-        const observation = await read.execute("read-1");
+        const observation = await read.execute("read-1", { goalId: "test-goal", runId: "test-run" });
         assert.equal(observation.kind, "success");
-        if (observation.kind === "success") assert.equal(observation.output.text, "container fact\n");
+        if (observation.kind === "success") {
+            assert.ok(observation.output !== null && typeof observation.output === "object" && !Array.isArray(observation.output) && "text" in observation.output);
+            assert.equal(observation.output.text, "container fact\n");
+        }
     }
     assert.equal(await readFile(join(workspace, "fixed.txt"), "utf8"), "container fact\n");
 });
@@ -98,6 +101,7 @@ test("Worker runtime uses deterministic Headless Root state and isolated instanc
                             summary: "already verified",
                             evidenceSequences: [observationSequence],
                             memoryPatch: null,
+                            contextNotes: null,
                         },
                     }),
                 };

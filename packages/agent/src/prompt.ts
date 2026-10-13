@@ -80,7 +80,15 @@ export interface StepPromptStageContext {
     readonly toolDiscoveryResult?: ToolDiscoveryResult;
 }
 
-function createStageMessages(
+/**
+ * 生成与生产请求一致的阶段消息；最终组装将反馈移至请求末尾，不进入真实 Conversation。
+ * @param stage - 当前 Think 或 Decide 阶段。
+ * @param context - 已提交的阶段历史与有界 Runtime 反馈。
+ * @returns 供 renderRequest 注入的消息，不执行模型或持久化。
+ * @throws Think 缺少明确目标时抛出。
+ * @example `createStageMessages("decide", { runtimeFeedback: feedback });`
+ */
+export function createStageMessages(
     stage: PromptStage,
     context: StepPromptStageContext | undefined,
 ): readonly LLMMessage[] {
@@ -165,6 +173,7 @@ function project(
     workingMemory?: WorkingMemory,
     contextLookupResult?: ContextLookupResult,
     stage: PromptStage = "decide",
+    omitToolInputSchema = false,
 ): ModelInferenceView {
     return new ModelInferenceProjector().project(
         goal,
@@ -173,6 +182,7 @@ function project(
         undefined,
         contextLookupResult,
         stage,
+        omitToolInputSchema,
     );
 }
 
@@ -235,7 +245,7 @@ async function assembleTrajectoryContext(
                     role: message.role,
                     content: message.content,
                 })),
-                ...stageMessages,
+                ...stageMessages.filter(message => !message.content.startsWith('{"source":"runtime_feedback",')),
                 ...sectionPlan.requestMessages.map((message) => ({
                     role: message.role,
                     content: message.content,
@@ -247,6 +257,7 @@ async function assembleTrajectoryContext(
                     view.contextEpoch,
                     undefined,
                 ),
+                ...stageMessages.filter(message => message.content.startsWith('{"source":"runtime_feedback",')),
             ],
         };
     });
@@ -305,12 +316,14 @@ export async function buildStepRequest<Result extends DecideOutput = AgentDecisi
 ): Promise<ModelOutputRequestPlan<Result>> {
     const visibleTools = tools.filter((tool) => exposedToolIds.includes(tool.id));
     const stageMessages = createStageMessages(stage, stageContext);
+    const isNativePath = stage === "decide" && nativeConversationIdentity !== undefined;
     const projected = project(
         goal,
         visibleTools,
         workingMemory,
         contextLookupResult,
         stage,
+        isNativePath,
     );
 
     if (projected.workingContext.phase !== "executing") {

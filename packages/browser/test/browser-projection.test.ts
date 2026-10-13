@@ -837,3 +837,109 @@ test("Interrupt 路由校验稳定身份并返回持久化受理", async () => {
     });
     assert.deepEqual(received, [{ goalId: "goal-1", runId: "run-1", requestId: "interrupt-1" }]);
 });
+
+test("readBrowserGoalSession 正确投影阶段分组与 Step 的 stageId 归属", async () => {
+    const goal = createTestGoal();
+    const runId = goal.state.run.id;
+    const events: TrajectoryEvent[] = [];
+    const add = (payload: any, unit = "unit-1") => {
+        const event = allocateImmutableEvent({
+            goalId: goal.id,
+            runId,
+            phase: "executing",
+            executionUnitId: unit,
+            eventType: payload.type,
+            payload,
+        } as any, events.length + 1);
+        events.push(event);
+        return event;
+    };
+
+    // 1. Run 级控制活动（无阶段）
+    add({ type: "decision_received", decision: { kind: "tool_call", action: { actionId: "init-action", toolId: "read_file", input: {} } } }, "unit-0");
+    add({ type: "action_staged", action: { actionId: "init-action", toolId: "read_file", input: {} }, approvalStatus: "approved" }, "unit-0");
+    add({ type: "observation_recorded", actionId: "init-action", observation: { kind: "success", output: "init", summary: "Initial read" } }, "unit-0");
+
+    // 2. 阶段 1 开始
+    add({
+        type: "run_stage_declared",
+        stageId: "stage-alpha",
+        revision: 1,
+        target: "目标 Alpha",
+        acceptanceCriteria: ["测试通过"],
+    }, "unit-1");
+
+    // 属于阶段 1 的 Step
+    add({ type: "decision_received", decision: { kind: "tool_call", action: { actionId: "a1", toolId: "edit_file", input: {} } } }, "unit-1");
+    add({ type: "action_staged", action: { actionId: "a1", toolId: "edit_file", input: {} }, approvalStatus: "approved" }, "unit-1");
+    add({ type: "observation_recorded", actionId: "a1", observation: { kind: "success", output: "done", summary: "Edit file" } }, "unit-1");
+
+    // 阶段 1 接受
+    add({
+        type: "run_stage_accepted",
+        stageId: "stage-alpha",
+        revision: 1,
+        summary: "Alpha 产物已完成",
+        evidenceSequences: [3],
+    }, "unit-2");
+
+    // 3. 阶段 2 开始并修订
+    add({
+        type: "run_stage_declared",
+        stageId: "stage-beta",
+        revision: 1,
+        target: "目标 Beta 初始",
+        acceptanceCriteria: ["验证"],
+    }, "unit-3");
+
+    add({
+        type: "run_stage_declared",
+        stageId: "stage-beta",
+        revision: 2,
+        target: "目标 Beta 修订",
+        acceptanceCriteria: ["严格验证"],
+        reason: "发现新增约束",
+    }, "unit-3");
+
+    // 阶段 2 拒绝
+    add({
+        type: "run_stage_rejected",
+        stageId: "stage-beta",
+        revision: 2,
+        feedback: "未满足要求",
+    }, "unit-4");
+
+    const session = await readBrowserGoalSession(
+        goal.id,
+        { async restore() { return goal; } },
+        async () => ({ committed: events, uncommittedTail: [] }),
+    );
+
+    assert.ok(session);
+    assert.equal(session.runs.length, 1);
+    const run = session.runs[0]!;
+    assert.ok(run.stages);
+    assert.equal(run.stages.length, 2);
+
+    // Run 级 step
+    assert.equal(run.steps[0]?.stageId, undefined);
+    assert.equal(run.steps[0]?.summary, "Initial read");
+
+    // Stage 1
+    const s1 = run.stages[0]!;
+    assert.equal(s1.stageId, "stage-alpha");
+    assert.equal(s1.status, "accepted");
+    assert.equal(s1.resultSummary, "Alpha 产物已完成");
+    assert.equal(s1.steps.length, 1);
+    assert.equal(s1.steps[0]?.stageId, "stage-alpha");
+
+    // Stage 2
+    const s2 = run.stages[1]!;
+    assert.equal(s2.stageId, "stage-beta");
+    assert.equal(s2.revision, 2);
+    assert.equal(s2.target, "目标 Beta 修订");
+    assert.equal(s2.status, "in_progress");
+    assert.ok(s2.latestReviewRejection);
+    assert.equal(s2.latestReviewRejection?.issues[0], "未满足要求");
+    assert.equal(s2.revisions?.length, 2);
+});

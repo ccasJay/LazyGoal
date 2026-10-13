@@ -219,11 +219,20 @@ export function isBrowserRun(value: unknown): value is BrowserSessionRun {
             && Number.isSafeInteger(step.stepIndex)
             && ["recorded", "completed", "failed", "rejected"].includes(String(step.status))
             && (step.summary === undefined || typeof step.summary === "string")
+            && (step.stageId === undefined || isNonEmptyString(step.stageId))
             && (step.recoveryAttempts === undefined || Array.isArray(step.recoveryAttempts)
                 && step.recoveryAttempts.every((attempt) => typeof attempt === "string")))
         && (value.terminalDetail === undefined || isRecord(value.terminalDetail)
             && typeof value.terminalDetail.message === "string"
             && (value.terminalDetail.code === undefined || typeof value.terminalDetail.code === "string"))
+        && (value.stages === undefined || Array.isArray(value.stages)
+            && value.stages.every((stage) => isRecord(stage)
+                && isNonEmptyString(stage.stageId)
+                && Number.isSafeInteger(stage.revision)
+                && typeof stage.target === "string"
+                && Array.isArray(stage.acceptanceCriteria)
+                && ["in_progress", "review_pending", "accepted"].includes(String(stage.status))
+                && Array.isArray(stage.steps)))
         && typeof value.current === "boolean";
 }
 

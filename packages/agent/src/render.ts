@@ -122,7 +122,7 @@ function renderViewWorkingContextMessage(
  * @param view - 已投影好的 ModelInferenceView。
  * @param renderer - 由 Composition Root 创建并与 Executor 共享的 Bundle Renderer。
  * @param responseShapeGuide - 可选的 prompt-only 结构指引文本；strict 模式时省略。
- * @returns 固定 system、带原生交换的真实会话、阶段输入、动态 section 与 Working Context 的有序消息列表。
+ * @returns 固定 system、原生历史、阶段输入、动态 section、Working Context 和末尾纠错反馈；反馈不进入真实会话。
  * @throws 渲染失败时抛出。
  */
 export function renderRequest(
@@ -159,12 +159,13 @@ export function renderRequest(
                 content: renderer.render(view.prompt),
             },
             ...history,
-            ...filteredStageMessages,
+            ...filteredStageMessages.filter(message => !message.content.startsWith('{"source":"runtime_feedback",')),
             ...(dynamicSections ?? renderer.renderDynamicSections(view)).map((section) => ({
                 role: section.role,
                 content: section.content,
             })),
             renderViewWorkingContextMessage(view, responseShapeGuide),
+            ...filteredStageMessages.filter(message => message.content.startsWith('{"source":"runtime_feedback",')),
         ],
     };
 }

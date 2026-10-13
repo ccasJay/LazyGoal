@@ -428,7 +428,7 @@ test("普通 Run 使用直接执行决策，Plan Run 在提案前仍暴露全部
 
     // 普通 Run 的完成使用当前 Run evidenceSequences，不生成提案分支。
     const normalComplete = bundle.decode({
-        result: { kind: "complete", summary: "完成", evidenceSequences: [3], memoryPatch: null },
+        result: { kind: "complete", summary: "完成", evidenceSequences: [3], memoryPatch: null, contextNotes: null },
     });
     assert.equal(normalComplete.kind, "complete");
     if (normalComplete.kind === "complete" && "evidenceSequences" in normalComplete) {
@@ -476,6 +476,7 @@ test("普通 Run 使用直接执行决策，Plan Run 在提案前仍暴露全部
             summary: "完成",
             completionEvidence: [],
             memoryPatch: null,
+            contextNotes: null,
         },
     });
     assert.equal(decodedExecuting.kind, "complete");

@@ -1,0 +1,297 @@
+{
+  "model": "gemini-3.6-flash-high",
+  "roles": [
+    "capture",
+    "execution",
+    "judge"
+  ],
+  "evidence": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-flash36-20261012-132903",
+  "status": "passed",
+  "exit_code": 0,
+  "verified_at": "2026-10-12T13:36:23.464523+08:00",
+  "configuration_method": "Isolated temporary LazyGoal Home copied default settings and replaced only model; credentials deleted after run. Global default unchanged.",
+  "groups": [
+    {
+      "path": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-flash36-20261012-132903/continue/capture/group.json",
+      "category": "completed",
+      "calls": 9,
+      "combined": null,
+      "deterministic": null,
+      "judge_score": null,
+      "modelConfiguration": {
+        "provider": "google",
+        "model": "gemini-3.6-flash-high",
+        "structuredOutputMode": "strict",
+        "endpointHash": "46acb67f444c2496b1d9f5128ab8020457493c4557bd8a2d6df2d77528463663"
+      },
+      "worker": {
+        "manifestVersion": 1,
+        "workerSha256": "c7a56149625ca006360d4cf2ec1291071dc2a457d63d2e157df3290c7e056759",
+        "sourceDigest": "67c9a4ea0752afb2c30e8906049a9b38a97d0c99aed95a0d88e55c727783f3aa",
+        "lockDigest": "3f2bad18605ca8ff1a40f0e3947467b4284119ee97a82dafa6bb997e2869cd3e",
+        "promptDigest": "311864629d5897b51d73e71fec71091d0f54e3827f1781c561c1aa9609dc5fd2",
+        "buildDigest": "14732624fbb58c5d9d16183abada2d38b10ed72f9d7ccd3e5cb870a98f4b1a24",
+        "nodeVersion": "22.22.2",
+        "nodeImage": "node:22.22.2-bookworm-slim@sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+        "nodeImageId": "sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+        "platform": "linux/amd64",
+        "acpProtocolVersion": 1,
+        "acpSdkVersion": "1.4.0",
+        "entryPoint": "benchmarks/context/src/worker-entry.ts",
+        "workerFile": "worker.mjs",
+        "nodeFile": "node",
+        "nodeSha256": "81925c0995b5c1427b5d538e6a90ca2fdc4daffb786b09af749beaf7369d4e90",
+        "promptAssets": [
+          "packages/agent/src/global-system-prompt/global-overview@1.njk",
+          "packages/agent/src/prompting/approved-task@1.njk",
+          "packages/agent/src/prompting/authorized-tools@1.njk",
+          "packages/agent/src/prompting/goal-plan@1.njk",
+          "packages/agent/src/prompting/profile@1.njk",
+          "packages/agent/src/prompting/run-mode@1.njk",
+          "packages/agent/src/prompting/working-memory@1.njk",
+          "packages/agent/src/step-prompt/agent-decision@1.njk",
+          "packages/agent/src/step-prompt/agent-think@1.njk"
+        ]
+      },
+      "hostBuild": {
+        "sourceDigest": "900f67bf5eda1aacb2f0e8632f66ec04a65c0933fee3f858215bb554b398ab8b"
+      },
+      "scenarioHash": "f9efb3bdc4f7bf64c304bd5682702717ad6ef1ac696e0d38e98555608c77327d"
+    },
+    {
+      "path": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-flash36-20261012-132903/continue/pair/full/group.json",
+      "category": "completed",
+      "calls": 13,
+      "combined": "passed",
+      "deterministic": true,
+      "judge_score": 1,
+      "modelConfiguration": {
+        "provider": "google",
+        "model": "gemini-3.6-flash-high",
+        "structuredOutputMode": "strict",
+        "endpointHash": "46acb67f444c2496b1d9f5128ab8020457493c4557bd8a2d6df2d77528463663"
+      },
+      "worker": {
+        "manifestVersion": 1,
+        "workerSha256": "c7a56149625ca006360d4cf2ec1291071dc2a457d63d2e157df3290c7e056759",
+        "sourceDigest": "67c9a4ea0752afb2c30e8906049a9b38a97d0c99aed95a0d88e55c727783f3aa",
+        "lockDigest": "3f2bad18605ca8ff1a40f0e3947467b4284119ee97a82dafa6bb997e2869cd3e",
+        "promptDigest": "311864629d5897b51d73e71fec71091d0f54e3827f1781c561c1aa9609dc5fd2",
+        "buildDigest": "14732624fbb58c5d9d16183abada2d38b10ed72f9d7ccd3e5cb870a98f4b1a24",
+        "nodeVersion": "22.22.2",
+        "nodeImage": "node:22.22.2-bookworm-slim@sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+        "nodeImageId": "sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+        "platform": "linux/amd64",
+        "acpProtocolVersion": 1,
+        "acpSdkVersion": "1.4.0",
+        "entryPoint": "benchmarks/context/src/worker-entry.ts",
+        "workerFile": "worker.mjs",
+        "nodeFile": "node",
+        "nodeSha256": "81925c0995b5c1427b5d538e6a90ca2fdc4daffb786b09af749beaf7369d4e90",
+        "promptAssets": [
+          "packages/agent/src/global-system-prompt/global-overview@1.njk",
+          "packages/agent/src/prompting/approved-task@1.njk",
+          "packages/agent/src/prompting/authorized-tools@1.njk",
+          "packages/agent/src/prompting/goal-plan@1.njk",
+          "packages/agent/src/prompting/profile@1.njk",
+          "packages/agent/src/prompting/run-mode@1.njk",
+          "packages/agent/src/prompting/working-memory@1.njk",
+          "packages/agent/src/step-prompt/agent-decision@1.njk",
+          "packages/agent/src/step-prompt/agent-think@1.njk"
+        ]
+      },
+      "hostBuild": {
+        "sourceDigest": "900f67bf5eda1aacb2f0e8632f66ec04a65c0933fee3f858215bb554b398ab8b"
+      },
+      "scenarioHash": "f9efb3bdc4f7bf64c304bd5682702717ad6ef1ac696e0d38e98555608c77327d"
+    },
+    {
+      "path": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-flash36-20261012-132903/continue/pair/restore/group.json",
+      "category": "completed",
+      "calls": 7,
+      "combined": "passed",
+      "deterministic": true,
+      "judge_score": 1,
+      "modelConfiguration": {
+        "provider": "google",
+        "model": "gemini-3.6-flash-high",
+        "structuredOutputMode": "strict",
+        "endpointHash": "46acb67f444c2496b1d9f5128ab8020457493c4557bd8a2d6df2d77528463663"
+      },
+      "worker": {
+        "manifestVersion": 1,
+        "workerSha256": "c7a56149625ca006360d4cf2ec1291071dc2a457d63d2e157df3290c7e056759",
+        "sourceDigest": "67c9a4ea0752afb2c30e8906049a9b38a97d0c99aed95a0d88e55c727783f3aa",
+        "lockDigest": "3f2bad18605ca8ff1a40f0e3947467b4284119ee97a82dafa6bb997e2869cd3e",
+        "promptDigest": "311864629d5897b51d73e71fec71091d0f54e3827f1781c561c1aa9609dc5fd2",
+        "buildDigest": "14732624fbb58c5d9d16183abada2d38b10ed72f9d7ccd3e5cb870a98f4b1a24",
+        "nodeVersion": "22.22.2",
+        "nodeImage": "node:22.22.2-bookworm-slim@sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+        "nodeImageId": "sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+        "platform": "linux/amd64",
+        "acpProtocolVersion": 1,
+        "acpSdkVersion": "1.4.0",
+        "entryPoint": "benchmarks/context/src/worker-entry.ts",
+        "workerFile": "worker.mjs",
+        "nodeFile": "node",
+        "nodeSha256": "81925c0995b5c1427b5d538e6a90ca2fdc4daffb786b09af749beaf7369d4e90",
+        "promptAssets": [
+          "packages/agent/src/global-system-prompt/global-overview@1.njk",
+          "packages/agent/src/prompting/approved-task@1.njk",
+          "packages/agent/src/prompting/authorized-tools@1.njk",
+          "packages/agent/src/prompting/goal-plan@1.njk",
+          "packages/agent/src/prompting/profile@1.njk",
+          "packages/agent/src/prompting/run-mode@1.njk",
+          "packages/agent/src/prompting/working-memory@1.njk",
+          "packages/agent/src/step-prompt/agent-decision@1.njk",
+          "packages/agent/src/step-prompt/agent-think@1.njk"
+        ]
+      },
+      "hostBuild": {
+        "sourceDigest": "900f67bf5eda1aacb2f0e8632f66ec04a65c0933fee3f858215bb554b398ab8b"
+      },
+      "scenarioHash": "f9efb3bdc4f7bf64c304bd5682702717ad6ef1ac696e0d38e98555608c77327d"
+    },
+    {
+      "path": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-flash36-20261012-132903/resume/capture/group.json",
+      "category": "completed",
+      "calls": 6,
+      "combined": null,
+      "deterministic": null,
+      "judge_score": null,
+      "modelConfiguration": {
+        "provider": "google",
+        "model": "gemini-3.6-flash-high",
+        "structuredOutputMode": "strict",
+        "endpointHash": "46acb67f444c2496b1d9f5128ab8020457493c4557bd8a2d6df2d77528463663"
+      },
+      "worker": {
+        "manifestVersion": 1,
+        "workerSha256": "c7a56149625ca006360d4cf2ec1291071dc2a457d63d2e157df3290c7e056759",
+        "sourceDigest": "67c9a4ea0752afb2c30e8906049a9b38a97d0c99aed95a0d88e55c727783f3aa",
+        "lockDigest": "3f2bad18605ca8ff1a40f0e3947467b4284119ee97a82dafa6bb997e2869cd3e",
+        "promptDigest": "311864629d5897b51d73e71fec71091d0f54e3827f1781c561c1aa9609dc5fd2",
+        "buildDigest": "14732624fbb58c5d9d16183abada2d38b10ed72f9d7ccd3e5cb870a98f4b1a24",
+        "nodeVersion": "22.22.2",
+        "nodeImage": "node:22.22.2-bookworm-slim@sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+        "nodeImageId": "sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+        "platform": "linux/amd64",
+        "acpProtocolVersion": 1,
+        "acpSdkVersion": "1.4.0",
+        "entryPoint": "benchmarks/context/src/worker-entry.ts",
+        "workerFile": "worker.mjs",
+        "nodeFile": "node",
+        "nodeSha256": "81925c0995b5c1427b5d538e6a90ca2fdc4daffb786b09af749beaf7369d4e90",
+        "promptAssets": [
+          "packages/agent/src/global-system-prompt/global-overview@1.njk",
+          "packages/agent/src/prompting/approved-task@1.njk",
+          "packages/agent/src/prompting/authorized-tools@1.njk",
+          "packages/agent/src/prompting/goal-plan@1.njk",
+          "packages/agent/src/prompting/profile@1.njk",
+          "packages/agent/src/prompting/run-mode@1.njk",
+          "packages/agent/src/prompting/working-memory@1.njk",
+          "packages/agent/src/step-prompt/agent-decision@1.njk",
+          "packages/agent/src/step-prompt/agent-think@1.njk"
+        ]
+      },
+      "hostBuild": {
+        "sourceDigest": "900f67bf5eda1aacb2f0e8632f66ec04a65c0933fee3f858215bb554b398ab8b"
+      },
+      "scenarioHash": "50559a3b4b3ea07b3b43d7131011d9a50fcfd9866ca7726710072a07a938ba4b"
+    },
+    {
+      "path": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-flash36-20261012-132903/resume/pair/full/group.json",
+      "category": "completed",
+      "calls": 8,
+      "combined": "passed",
+      "deterministic": true,
+      "judge_score": 1,
+      "modelConfiguration": {
+        "provider": "google",
+        "model": "gemini-3.6-flash-high",
+        "structuredOutputMode": "strict",
+        "endpointHash": "46acb67f444c2496b1d9f5128ab8020457493c4557bd8a2d6df2d77528463663"
+      },
+      "worker": {
+        "manifestVersion": 1,
+        "workerSha256": "c7a56149625ca006360d4cf2ec1291071dc2a457d63d2e157df3290c7e056759",
+        "sourceDigest": "67c9a4ea0752afb2c30e8906049a9b38a97d0c99aed95a0d88e55c727783f3aa",
+        "lockDigest": "3f2bad18605ca8ff1a40f0e3947467b4284119ee97a82dafa6bb997e2869cd3e",
+        "promptDigest": "311864629d5897b51d73e71fec71091d0f54e3827f1781c561c1aa9609dc5fd2",
+        "buildDigest": "14732624fbb58c5d9d16183abada2d38b10ed72f9d7ccd3e5cb870a98f4b1a24",
+        "nodeVersion": "22.22.2",
+        "nodeImage": "node:22.22.2-bookworm-slim@sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+        "nodeImageId": "sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+        "platform": "linux/amd64",
+        "acpProtocolVersion": 1,
+        "acpSdkVersion": "1.4.0",
+        "entryPoint": "benchmarks/context/src/worker-entry.ts",
+        "workerFile": "worker.mjs",
+        "nodeFile": "node",
+        "nodeSha256": "81925c0995b5c1427b5d538e6a90ca2fdc4daffb786b09af749beaf7369d4e90",
+        "promptAssets": [
+          "packages/agent/src/global-system-prompt/global-overview@1.njk",
+          "packages/agent/src/prompting/approved-task@1.njk",
+          "packages/agent/src/prompting/authorized-tools@1.njk",
+          "packages/agent/src/prompting/goal-plan@1.njk",
+          "packages/agent/src/prompting/profile@1.njk",
+          "packages/agent/src/prompting/run-mode@1.njk",
+          "packages/agent/src/prompting/working-memory@1.njk",
+          "packages/agent/src/step-prompt/agent-decision@1.njk",
+          "packages/agent/src/step-prompt/agent-think@1.njk"
+        ]
+      },
+      "hostBuild": {
+        "sourceDigest": "900f67bf5eda1aacb2f0e8632f66ec04a65c0933fee3f858215bb554b398ab8b"
+      },
+      "scenarioHash": "50559a3b4b3ea07b3b43d7131011d9a50fcfd9866ca7726710072a07a938ba4b"
+    },
+    {
+      "path": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-flash36-20261012-132903/resume/pair/restore/group.json",
+      "category": "completed",
+      "calls": 3,
+      "combined": "passed",
+      "deterministic": true,
+      "judge_score": 1,
+      "modelConfiguration": {
+        "provider": "google",
+        "model": "gemini-3.6-flash-high",
+        "structuredOutputMode": "strict",
+        "endpointHash": "46acb67f444c2496b1d9f5128ab8020457493c4557bd8a2d6df2d77528463663"
+      },
+      "worker": {
+        "manifestVersion": 1,
+        "workerSha256": "c7a56149625ca006360d4cf2ec1291071dc2a457d63d2e157df3290c7e056759",
+        "sourceDigest": "67c9a4ea0752afb2c30e8906049a9b38a97d0c99aed95a0d88e55c727783f3aa",
+        "lockDigest": "3f2bad18605ca8ff1a40f0e3947467b4284119ee97a82dafa6bb997e2869cd3e",
+        "promptDigest": "311864629d5897b51d73e71fec71091d0f54e3827f1781c561c1aa9609dc5fd2",
+        "buildDigest": "14732624fbb58c5d9d16183abada2d38b10ed72f9d7ccd3e5cb870a98f4b1a24",
+        "nodeVersion": "22.22.2",
+        "nodeImage": "node:22.22.2-bookworm-slim@sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+        "nodeImageId": "sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+        "platform": "linux/amd64",
+        "acpProtocolVersion": 1,
+        "acpSdkVersion": "1.4.0",
+        "entryPoint": "benchmarks/context/src/worker-entry.ts",
+        "workerFile": "worker.mjs",
+        "nodeFile": "node",
+        "nodeSha256": "81925c0995b5c1427b5d538e6a90ca2fdc4daffb786b09af749beaf7369d4e90",
+        "promptAssets": [
+          "packages/agent/src/global-system-prompt/global-overview@1.njk",
+          "packages/agent/src/prompting/approved-task@1.njk",
+          "packages/agent/src/prompting/authorized-tools@1.njk",
+          "packages/agent/src/prompting/goal-plan@1.njk",
+          "packages/agent/src/prompting/profile@1.njk",
+          "packages/agent/src/prompting/run-mode@1.njk",
+          "packages/agent/src/prompting/working-memory@1.njk",
+          "packages/agent/src/step-prompt/agent-decision@1.njk",
+          "packages/agent/src/step-prompt/agent-think@1.njk"
+        ]
+      },
+      "hostBuild": {
+        "sourceDigest": "900f67bf5eda1aacb2f0e8632f66ec04a65c0933fee3f858215bb554b398ab8b"
+      },
+      "scenarioHash": "50559a3b4b3ea07b3b43d7131011d9a50fcfd9866ca7726710072a07a938ba4b"
+    }
+  ]
+}

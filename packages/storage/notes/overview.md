@@ -13,7 +13,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 | --- | --- | --- |
 | [AgentProfileFile](../src/agent-profile-file.ts) | Profile 文件 DTO（`schemaVersion: 1`）、严格 Schema 与 `AgentProfileConfigurationError` | 读取文件系统、构造 Runtime Profile |
 | [JsonFileAgentProfileStore](../src/json-file-agent-profile-store.ts) | 实现 Runtime `AgentProfileStore` Port，读取单个 `<profileId>.json` | 扫描其它 Profile、读取 Tool 实例、校验 Tool 注册 |
-| [GoalSnapshotV1 协议](../src/goal-snapshot.ts) | 当前唯一 Snapshot DTO、严格字段与跨字段不变量校验；保存当前 Prompt/Memory/Model Context/Retrieval 组合、模型选择状态（`modelSelection`）、完整消息、`mode`、GoalPlan、`completedRuns`、Run/todo 关系、Run 的唯一 `exposedToolIds`、Context Epoch 与待执行 Action 的授权引用 | 文件系统 I/O、构造 Runtime Goal、迁移历史 Snapshot |
+| [GoalSnapshotV1 协议](../src/goal-snapshot.ts) | 当前唯一 Snapshot DTO、严格字段与跨字段不变量校验；保存当前 Prompt/Memory/Model Context/Retrieval 组合、模型选择状态（`modelSelection`）、完整消息、`mode`、GoalPlan、`completedRuns`、Run/todo 关系、Run 的唯一 `exposedToolIds`、Context Epoch、内部阶段（`currentStage`）与待执行 Action 的授权引用 | 文件系统 I/O、构造 Runtime Goal、迁移历史 Snapshot |
 | [GoalSnapshotCodec](../src/goal-snapshot-codec.ts) | Runtime Goal↔v1 Snapshot 的 encode/decode 深复制转换；只接受当前 v1，不迁移或回写历史版本 | 文件系统 I/O、读写 Store |
 | [InMemoryGoalStore](../src/goal-store.ts) | 实现 Runtime `GoalStore` Port：save 经 Codec encode、restore 经 decode | 跨实例或跨进程恢复 |
 | [JsonFileGoalStore](../src/goal-store.ts) | 实现 `GoalStore` 与 `GoalCatalog`：base64url 文件名、临时文件 + rename 原子替换、明确临时故障核对后有界重试、目录扫描摘要 | 跨进程锁、乐观锁、租约或版本冲突检测 |

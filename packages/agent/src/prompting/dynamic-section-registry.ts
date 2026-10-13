@@ -299,6 +299,8 @@ function getAllowedSystemToolIds(view: ModelInferenceView): readonly string[] {
         "system_context_lookup",
         "ask_user",
         "system_find_tools",
+        "system_update_run_stage",
+        "system_complete_run_stage",
         ...(goalPlanWritable ? ["system_update_goal_plan"] : []),
     ];
 }

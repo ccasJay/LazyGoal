@@ -116,6 +116,7 @@ test("直接 Decide 只调用 Decide Adapter，并保留原生 strict schema", a
             summary: "直接完成",
             completionEvidence: [],
             memoryPatch: null,
+            contextNotes: null,
         },
     }));
     const executor = createExecutor(thinkAdapter, decideAdapter, "openai");

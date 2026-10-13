@@ -25,6 +25,22 @@ export interface LLMResponseProtocolIssue {
 }
 
 /**
+ * 已声明工具校验失败时的字段形状，不包含参数值或响应正文。
+ * @remarks 仅供生成有界纠错提示；不改变调用是否被接受，也不作为恢复权威。
+ * @example
+ * ```ts
+ * const shape: FailedToolCallShape = { toolId: "system_complete_task", providedFields: ["summary"],
+ *   allowedFields: ["summary", "evidenceSequences", "memoryPatch"], requiredFields: ["summary", "evidenceSequences", "memoryPatch"] };
+ * ```
+ */
+export interface FailedToolCallShape {
+    readonly toolId: string;
+    readonly providedFields: readonly string[];
+    readonly allowedFields: readonly string[];
+    readonly requiredFields: readonly string[];
+}
+
+/**
  * 模型响应解析失败时的上下文信息。
  *
  * @example
@@ -36,6 +52,8 @@ export interface LLMResponseProtocolIssue {
  * ```
  */
 export interface LLMResponseProtocolErrorDetails {
+    /** 已声明工具的参数形状；非法 JSON 或未知工具不提供。 */
+    readonly toolCallShape?: FailedToolCallShape;
     /** 底层抛出的原始异常（如有）。 */
     readonly cause?: unknown;
     /** 结构校验或语义校验发现的问题列表。 */
@@ -59,6 +77,8 @@ export interface LLMResponseProtocolErrorDetails {
 export class LLMResponseProtocolError extends Error {
     /** 稳定的协议错误分类码。 */
     readonly code = LLM_RESPONSE_PROTOCOL_ERROR_CODE;
+    /** 只含字段名的工具形状；通过安全反馈转换后才能送入模型。 */
+    readonly toolCallShape?: FailedToolCallShape;
     /** 底层原始异常。 */
     readonly cause?: unknown;
     /** 校验定位问题列表。 */
@@ -70,6 +90,8 @@ export class LLMResponseProtocolError extends Error {
     ) {
         super(`${LLM_RESPONSE_PROTOCOL_ERROR_CODE}: ${message}`);
         this.name = "LLMResponseProtocolError";
+
+        if (details.toolCallShape !== undefined) this.toolCallShape = details.toolCallShape;
 
         if (details.cause !== undefined) {
             this.cause = details.cause;

@@ -307,3 +307,28 @@ test("committer 严格保证 facts -> save Snapshot -> append state_committed �
     ]);
     assert.equal(store.saved[0]?.state.run.committedThroughSequence, 1);
 });
+
+test("final Memory normalization uses the actual sequence after facts and markers", async () => {
+    const store = new RecordingStore();
+    const sink = new RecordingSink();
+    const committer = new TrajectoryCheckpointCommitter({ store, trajectoryStore: sink });
+    const initial = goal();
+    await committer.commit(initial, { facts: [{ goalId: initial.id, runId: initial.state.run.id, phase: "executing", eventType: "run_started", payload: { type: "run_started" } }] });
+    const saved = (await store.restore())!;
+    let sequence = 0;
+    const result = await committer.commit(saved, { acceptedPatch: { producers: ["model"], operations: [], operationsAtSequence(actual) { sequence = actual; return []; } } });
+    assert.equal(sequence, result.memoryPatchEvent!.sequence);
+    assert.ok(sequence > saved.state.run.committedThroughSequence + 1);
+});
+
+test("final normalization failure never commits a Snapshot or accepted Memory event", async () => {
+    const store = new RecordingStore();
+    const sink = new RecordingSink();
+    const committer = new TrajectoryCheckpointCommitter({ store, trajectoryStore: sink });
+    const initial = goal();
+    await store.save(initial);
+    await assert.rejects(committer.commit(initial, { facts: [{ goalId: initial.id, runId: initial.state.run.id, phase: "executing", eventType: "run_started", payload: { type: "run_started" } }],
+        acceptedPatch: { producers: ["model"], operations: [], operationsAtSequence() { throw new Error("final normalization failed"); } } }), /final normalization failed/);
+    assert.equal(store.saved.length, 1);
+    assert.ok(!sink.events.some(event => event.eventType === "memory_patch_accepted"));
+});

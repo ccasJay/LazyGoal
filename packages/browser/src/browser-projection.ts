@@ -25,6 +25,8 @@ import type {
     BrowserSessionMessage,
     BrowserSessionRun,
     BrowserSessionStep,
+    BrowserRunStageGroup,
+    BrowserRunStageStatus,
 } from "../../web-contracts/src/index";
 
 export type {
@@ -37,6 +39,8 @@ export type {
     BrowserSessionMessage,
     BrowserSessionRun,
     BrowserSessionStep,
+    BrowserRunStageGroup,
+    BrowserRunStageStatus,
 };
 
 const MAX_TEXT_LENGTH = 4_000;
@@ -144,12 +148,14 @@ export async function readBrowserGoalSession(
     const currentResult = await readTrajectory({ goalId, runId: currentRun.id });
     const currentSteps = projectBrowserSteps(currentRun.id, currentResult.committed, bashDetailsBudget);
     if (currentSteps.length > MAX_STEPS_PER_RUN) historyTruncated = true;
+    const currentStages = projectBrowserRunStages(currentResult.committed, currentSteps);
     projectedRuns.push({
         runId: currentRun.id,
         status: currentRun.status,
         stepCount: currentRun.stepCount,
         steps: currentSteps.slice(-MAX_STEPS_PER_RUN),
         current: true,
+        ...(currentStages === undefined ? {} : { stages: currentStages }),
         ...projectRunTerminalDetail(currentResult.committed, currentRun.status, currentRun.stopReason),
     });
 
@@ -157,12 +163,14 @@ export async function readBrowserGoalSession(
         const result = await readTrajectory({ goalId, runId: completed.runId });
         const steps = projectBrowserSteps(completed.runId, result.committed, bashDetailsBudget);
         if (steps.length > MAX_STEPS_PER_RUN) historyTruncated = true;
+        const stages = projectBrowserRunStages(result.committed, steps);
         projectedRuns.unshift({
             runId: completed.runId,
             status: completed.status,
             stepCount: completed.stepCount,
             steps: steps.slice(-MAX_STEPS_PER_RUN),
             current: false,
+            ...(stages === undefined ? {} : { stages }),
             ...projectRunTerminalDetail(result.committed, completed.status),
         });
     }
@@ -277,6 +285,20 @@ function projectBrowserSteps(
     committedEvents: readonly TrajectoryEvent[],
     bashDetailsBudget: { remaining: number },
 ): readonly BrowserSessionStep[] {
+    const sortedCommitted = [...committedEvents].sort((left, right) => left.sequence - right.sequence);
+    const unitStageMap = new Map<string, string>();
+    let currentStageId: string | undefined = undefined;
+    for (const event of sortedCommitted) {
+        if (event.payload.type === "run_stage_declared") {
+            currentStageId = event.payload.stageId;
+        }
+        if (event.executionUnitId !== undefined && currentStageId !== undefined) {
+            if (!unitStageMap.has(event.executionUnitId)) {
+                unitStageMap.set(event.executionUnitId, currentStageId);
+            }
+        }
+    }
+
     const actionByExecutionUnit = new Map<string, string | null>();
     for (const event of committedEvents) {
         if (event.programId !== undefined) continue;
@@ -370,6 +392,14 @@ function projectBrowserSteps(
             }
         }
 
+        // 仅包含阶段声明、接受或拒绝等阶段控制事实且无业务行为的单元不作为 Step 展示。
+        const isStageControlOnly = events.every((event) =>
+            event.payload.type === "run_stage_declared"
+            || event.payload.type === "run_stage_accepted"
+            || event.payload.type === "run_stage_rejected"
+        );
+        if (isStageControlOnly) continue;
+
         // complete 决策由 Run 终态展示，不另列一条没有 Action 的重复步骤。
         if (decisionKind === "complete" && toolId === undefined) continue;
 
@@ -384,11 +414,13 @@ function projectBrowserSteps(
             }
         }
 
+        const stageId = unitStageMap.get(executionUnitId);
         steps.push({
             runId,
             executionUnitId,
             sequence: first.sequence,
             stepIndex: first.stepIndex ?? steps.length + 1,
+            ...(stageId === undefined ? {} : { stageId }),
             ...(decisionKind === undefined ? {} : { decisionKind }),
             ...(toolId === undefined ? {} : { toolId }),
             ...(actionStatus === undefined ? {} : { actionStatus }),
@@ -401,6 +433,133 @@ function projectBrowserSteps(
         });
     }
     return steps.sort((left, right) => left.sequence - right.sequence);
+}
+
+interface MutableStageGroup {
+    stageId: string;
+    revision: number;
+    target: string;
+    acceptanceCriteria: string[];
+    status: BrowserRunStageStatus;
+    resultSummary?: string;
+    latestReviewRejection?: { code: string; issues: readonly string[] };
+    previousStageResultRef?: { stageId: string; revision: number };
+    revisions: { revision: number; target: string; reason?: string }[];
+}
+
+/**
+ * 从已提交轨迹事件与已投影步骤中聚合阶段分组。
+ *
+ * @remarks
+ * 按阶段首次声明顺序保留阶段分组，聚合同一阶段的多轮修订、状态、验收条件、
+ * 审查拒绝反馈以及归属于该阶段的真实步骤。若轨迹未包含阶段事件，则返回 `undefined`。
+ *
+ * @param committedEvents - 当前 Run 已提交的轨迹事件列表。
+ * @param steps - 已投影并关联 stageId 的浏览器步骤列表。
+ * @returns 阶段分组列表；若无阶段则返回 `undefined`。
+ *
+ * @example
+ * ```ts
+ * const stages = projectBrowserRunStages(committedEvents, steps);
+ * ```
+ */
+export function projectBrowserRunStages(
+    committedEvents: readonly TrajectoryEvent[],
+    steps: readonly BrowserSessionStep[],
+): readonly BrowserRunStageGroup[] | undefined {
+    const stageIds: string[] = [];
+    const stagesMap = new Map<string, MutableStageGroup>();
+
+    const sortedEvents = [...committedEvents].sort((left, right) => left.sequence - right.sequence);
+    for (const event of sortedEvents) {
+        const payload = event.payload;
+        if (payload.type === "run_stage_declared") {
+            const { stageId, revision, target, acceptanceCriteria, previousStageResultRef, reason } = payload;
+            let group = stagesMap.get(stageId);
+            if (!group) {
+                stageIds.push(stageId);
+                const newGroup: MutableStageGroup = {
+                    stageId,
+                    revision,
+                    target: boundedText(target, MAX_TEXT_LENGTH),
+                    acceptanceCriteria: (acceptanceCriteria ?? []).map((c) => boundedText(c, MAX_TEXT_LENGTH)),
+                    status: "in_progress",
+                    ...(previousStageResultRef !== undefined
+                        ? { previousStageResultRef: { stageId: previousStageResultRef.stageId, revision: previousStageResultRef.sequence } }
+                        : {}),
+                    revisions: [{
+                        revision,
+                        target: boundedText(target, MAX_TEXT_LENGTH),
+                        ...(reason !== undefined ? { reason: boundedText(reason, MAX_TEXT_LENGTH) } : {}),
+                    }],
+                };
+                stagesMap.set(stageId, newGroup);
+            } else {
+                group.revision = revision;
+                group.target = boundedText(target, MAX_TEXT_LENGTH);
+                if (acceptanceCriteria !== undefined) {
+                    group.acceptanceCriteria = acceptanceCriteria.map((c) => boundedText(c, MAX_TEXT_LENGTH));
+                }
+                group.status = "in_progress";
+                if (previousStageResultRef !== undefined) {
+                    group.previousStageResultRef = { stageId: previousStageResultRef.stageId, revision: previousStageResultRef.sequence };
+                }
+                group.revisions.push({
+                    revision,
+                    target: boundedText(target, MAX_TEXT_LENGTH),
+                    ...(reason !== undefined ? { reason: boundedText(reason, MAX_TEXT_LENGTH) } : {}),
+                });
+            }
+        } else if (payload.type === "run_stage_rejected") {
+            const { stageId, feedback } = payload;
+            const group = stagesMap.get(stageId);
+            if (group) {
+                group.status = "in_progress";
+                group.latestReviewRejection = {
+                    code: "stage_rejected",
+                    issues: [boundedText(feedback, MAX_STEP_SUMMARY_LENGTH)],
+                };
+            }
+        } else if (payload.type === "run_stage_accepted") {
+            const { stageId, summary } = payload;
+            const group = stagesMap.get(stageId);
+            if (group) {
+                group.status = "accepted";
+                if (summary !== undefined) {
+                    group.resultSummary = boundedText(summary, MAX_STEP_SUMMARY_LENGTH);
+                }
+            }
+        }
+    }
+
+    if (stageIds.length === 0) {
+        return undefined;
+    }
+
+    const stageStepsMap = new Map<string, BrowserSessionStep[]>();
+    for (const step of steps) {
+        if (step.stageId !== undefined) {
+            const list = stageStepsMap.get(step.stageId) ?? [];
+            list.push(step);
+            stageStepsMap.set(step.stageId, list);
+        }
+    }
+
+    return stageIds.map((id) => {
+        const group = stagesMap.get(id)!;
+        return {
+            stageId: group.stageId,
+            revision: group.revision,
+            target: group.target,
+            acceptanceCriteria: group.acceptanceCriteria,
+            status: group.status,
+            ...(group.resultSummary !== undefined ? { resultSummary: group.resultSummary } : {}),
+            ...(group.latestReviewRejection !== undefined ? { latestReviewRejection: group.latestReviewRejection } : {}),
+            ...(group.previousStageResultRef !== undefined ? { previousStageResultRef: group.previousStageResultRef } : {}),
+            revisions: group.revisions,
+            steps: stageStepsMap.get(id) ?? [],
+        };
+    });
 }
 
 function projectRunTerminalDetail(

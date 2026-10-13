@@ -17,6 +17,8 @@ export type {
     HeadlessEpisodeResult,
     HeadlessModelResult,
     HeadlessRunOptions,
+    HeadlessSession,
+    HeadlessSessionOptions,
     NormalizedBenchmarkTaskDescriptor,
 } from "./headless-composition-root.js";
 export {

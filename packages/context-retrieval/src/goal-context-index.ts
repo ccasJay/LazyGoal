@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { TrajectoryEvent } from "../../runtime/src/index";
-import type { ContextNoteSource, ContextNoteCategory } from "../../runtime/src/context-notes";
+import type { ContextNoteSource, ContextNoteCategory } from "../../model-contracts/src/index";
+import type { ContextRetrievalTrajectoryEvent } from "./context-document.js";
 
 /**
  * 阶段目录条目。
@@ -125,7 +125,7 @@ export interface GoalSourceEnvelope {
         readonly contentHash: string;
     }[];
     /** 按 Run 分组的 Trajectory 事件。 */
-    readonly eventsByRun: ReadonlyMap<string, readonly TrajectoryEvent[]>;
+    readonly eventsByRun: ReadonlyMap<string, readonly ContextRetrievalTrajectoryEvent[]>;
 }
 
 /**
@@ -205,7 +205,13 @@ export function buildGoalContextIndex(envelope: GoalSourceEnvelope): GoalContext
 
         for (const event of committedEvents) {
             if (event.eventType === "run_stage_declared") {
-                const p = event.payload;
+                const p = event.payload as {
+                    readonly stageId: string;
+                    readonly target: string;
+                    readonly acceptanceCriteria: readonly string[];
+                    readonly revision: number;
+                    readonly reason?: string;
+                };
                 const existing = stageEntries.get(p.stageId);
                 stageEntries.set(p.stageId, {
                     target: p.target,
@@ -218,7 +224,11 @@ export function buildGoalContextIndex(envelope: GoalSourceEnvelope): GoalContext
                     eventIds: existing !== undefined ? [...existing.eventIds, event.eventId] : [event.eventId],
                 });
             } else if (event.eventType === "run_stage_accepted") {
-                const p = event.payload;
+                const p = event.payload as {
+                    readonly stageId: string;
+                    readonly revision: number;
+                    readonly summary?: string;
+                };
                 const existing = stageEntries.get(p.stageId);
                 if (existing !== undefined) {
                     existing.status = "accepted";
@@ -228,7 +238,11 @@ export function buildGoalContextIndex(envelope: GoalSourceEnvelope): GoalContext
                     existing.eventIds.push(event.eventId);
                 }
             } else if (event.eventType === "run_stage_rejected") {
-                const p = event.payload;
+                const p = event.payload as {
+                    readonly stageId: string;
+                    readonly revision: number;
+                    readonly feedback: string;
+                };
                 const existing = stageEntries.get(p.stageId);
                 if (existing !== undefined) {
                     existing.status = "rejected";
@@ -238,7 +252,16 @@ export function buildGoalContextIndex(envelope: GoalSourceEnvelope): GoalContext
                     existing.eventIds.push(event.eventId);
                 }
             } else if (event.eventType === "context_note_declared") {
-                const p = event.payload;
+                const p = event.payload as {
+                    readonly noteId: string;
+                    readonly revision: number;
+                    readonly category: ContextNoteCategory;
+                    readonly content: string;
+                    readonly reason?: string;
+                    readonly stageId?: string;
+                    readonly source: ContextNoteSource;
+                    readonly supersedesNoteId?: string;
+                };
                 notesMap.set(p.noteId, {
                     goalId: envelope.goalId,
                     runId: run.runId,

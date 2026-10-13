@@ -1,10 +1,7 @@
 import type { ModelContextBudgetPlan } from "./model-context-budget";
 import type { ModelExecutionUnitProjection } from "./trajectory-event-projector";
 import type { WarmCompactEntry } from "./warm-reducer";
-import type {
-    GoalContextDirectoryEntry,
-    GoalContextExpandedSource,
-} from "../../context-retrieval/src/index";
+
 
 /**
  * ModelInferenceView 的独立 DTO 契约。
@@ -388,6 +385,56 @@ export interface ModelContextLookupFreshness {
  * };
  * ```
  */
+/**
+ * 模型可见的 Goal 阶段与重要信息目录条目投影。
+ */
+export interface ModelGoalContextDirectoryEntry {
+    readonly sourceRef: string;
+    readonly category: "stage" | "decision" | "user_emphasis";
+    readonly runId: string;
+    readonly stageId?: string;
+    readonly title: string;
+    readonly status: string;
+    readonly summary?: string;
+    readonly sourceDescription: string;
+    readonly supersedesNoteId?: string;
+}
+export type GoalContextDirectoryEntry = ModelGoalContextDirectoryEntry;
+
+/**
+ * 模型可见的来源详情展开结果投影。
+ *
+ * @remarks
+ * 与运行时展开源 `GoalContextExpandedSource` 字段对齐，支持分页偏移和截断状态。
+ *
+ * @example
+ * ```ts
+ * const expanded: ModelGoalContextExpandedSource = {
+ *     sourceRef: "stage:stage-1",
+ *     kind: "stage",
+ *     title: "阶段标题",
+ *     content: "阶段内容",
+ *     totalLength: 100,
+ * };
+ * ```
+ */
+export interface ModelGoalContextExpandedSource {
+    readonly sourceRef: string;
+    readonly kind: "stage" | "note" | "message" | "event";
+    readonly runId?: string | undefined;
+    readonly title?: string | undefined;
+    readonly content: string;
+    readonly status?: string | undefined;
+    readonly truncated?: boolean | undefined;
+    readonly totalLength?: number | undefined;
+    readonly isTruncated?: boolean | undefined;
+    readonly offset?: number | undefined;
+    readonly length?: number | undefined;
+    readonly nextOffset?: number | undefined;
+    readonly metadata?: Readonly<Record<string, unknown>> | undefined;
+}
+export type GoalContextExpandedSource = ModelGoalContextExpandedSource;
+
 export type ModelContextLookupResult = {
     readonly sourceScope: "goal_history";
     readonly goal_history?: true;
@@ -404,8 +451,8 @@ export type ModelContextLookupResult = {
         readonly truncated: boolean;
         readonly freshness: ModelContextLookupFreshness;
         readonly operation?: string;
-        readonly directoryEntries?: readonly GoalContextDirectoryEntry[];
-        readonly expandedSource?: GoalContextExpandedSource;
+        readonly directoryEntries?: readonly ModelGoalContextDirectoryEntry[];
+        readonly expandedSource?: ModelGoalContextExpandedSource;
         readonly nextCursor?: string;
         readonly hasMore?: boolean;
     }

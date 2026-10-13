@@ -356,6 +356,45 @@ export type TrajectoryEventPayload =
         readonly actionId?: string;
     }
     | {
+        readonly type: "run_stage_declared";
+        readonly stageId: string;
+        readonly revision: number;
+        readonly target: string;
+        readonly acceptanceCriteria: readonly string[];
+        readonly previousStageResultRef?: { readonly stageId: string; readonly sequence: number } | undefined;
+        readonly reason?: string | undefined;
+    }
+    | {
+        readonly type: "run_stage_rejected";
+        readonly stageId: string;
+        readonly revision: number;
+        readonly feedback: string;
+    }
+    | {
+        readonly type: "run_stage_accepted";
+        readonly stageId: string;
+        readonly revision: number;
+        readonly summary?: string | undefined;
+        readonly evidenceSequences?: readonly number[] | undefined;
+    }
+    | {
+        readonly type: "context_note_declared";
+        readonly noteId: string;
+        readonly revision: number;
+        readonly category: "decision" | "user_emphasis";
+        readonly content: string;
+        readonly reason?: string | undefined;
+        readonly stageId?: string | undefined;
+        readonly source: {
+            readonly kind: "user_message" | "user_decision" | "agent_decision";
+            readonly messageId?: string | undefined;
+            readonly actionId?: string | undefined;
+            readonly verbatimSnippet?: string | undefined;
+            readonly summary?: string | undefined;
+        };
+        readonly supersedesNoteId?: string | undefined;
+    }
+    | {
         readonly type: "state_committed";
         readonly committedThroughSequence: number;
     };
@@ -800,6 +839,10 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "run_cancelled",
     "context_epoch_advanced",
     "context_epoch_closed",
+    "run_stage_declared",
+    "run_stage_rejected",
+    "run_stage_accepted",
+    "context_note_declared",
     "execution_error",
     "state_committed",
 ]);
@@ -859,7 +902,7 @@ function assertRuntimeFeedback(value: unknown, stage: unknown, attempt: unknown)
     }
     if (![
         "response_parse", "output_contract", "decision_semantics", "tool_selection", "tool_input",
-        "completion_evidence", "completion_review",
+        "completion_evidence", "completion_review", "memory_patch",
     ].includes(value.origin as string)) {
         throw new TrajectoryProtocolError(`${field}.origin is invalid`);
     }
@@ -1288,6 +1331,89 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         }
         assertEpochRange(payload.epoch);
     }
+    if (eventType === "run_stage_declared") {
+        if (Object.keys(payload).some((key) => ![
+            "type", "stageId", "revision", "target", "acceptanceCriteria", "previousStageResultRef", "reason",
+        ].includes(key))) {
+            throw new TrajectoryProtocolError("run_stage_declared contains unknown fields");
+        }
+        assertNonEmptyString(payload.stageId, "run_stage_declared.stageId");
+        assertPositiveInteger(payload.revision, "run_stage_declared.revision");
+        assertNonEmptyString(payload.target, "run_stage_declared.target");
+        if (!Array.isArray(payload.acceptanceCriteria) || payload.acceptanceCriteria.length === 0) {
+            throw new TrajectoryProtocolError("run_stage_declared.acceptanceCriteria must be a non-empty array");
+        }
+        for (const [idx, item] of (payload.acceptanceCriteria as unknown[]).entries()) {
+            assertNonEmptyString(item, `run_stage_declared.acceptanceCriteria[${idx}]`);
+        }
+        if (payload.previousStageResultRef !== undefined) {
+            if (!isRecord(payload.previousStageResultRef)) {
+                throw new TrajectoryProtocolError("run_stage_declared.previousStageResultRef must be an object");
+            }
+            assertNonEmptyString(payload.previousStageResultRef.stageId, "run_stage_declared.previousStageResultRef.stageId");
+            if (!Number.isSafeInteger(payload.previousStageResultRef.sequence) || (payload.previousStageResultRef.sequence as number) < 0) {
+                throw new TrajectoryProtocolError("run_stage_declared.previousStageResultRef.sequence must be non-negative integer");
+            }
+        }
+        assertOptionalNonEmptyString(payload.reason, "run_stage_declared.reason");
+    }
+    if (eventType === "run_stage_rejected") {
+        if (Object.keys(payload).some((key) => !["type", "stageId", "revision", "feedback"].includes(key))) {
+            throw new TrajectoryProtocolError("run_stage_rejected contains unknown fields");
+        }
+        assertNonEmptyString(payload.stageId, "run_stage_rejected.stageId");
+        assertPositiveInteger(payload.revision, "run_stage_rejected.revision");
+        assertNonEmptyString(payload.feedback, "run_stage_rejected.feedback");
+    }
+    if (eventType === "run_stage_accepted") {
+        if (Object.keys(payload).some((key) => !["type", "stageId", "revision", "summary", "evidenceSequences"].includes(key))) {
+            throw new TrajectoryProtocolError("run_stage_accepted contains unknown fields");
+        }
+        assertNonEmptyString(payload.stageId, "run_stage_accepted.stageId");
+        assertPositiveInteger(payload.revision, "run_stage_accepted.revision");
+        assertOptionalNonEmptyString(payload.summary, "run_stage_accepted.summary");
+        if (payload.evidenceSequences !== undefined) {
+            if (!Array.isArray(payload.evidenceSequences)) {
+                throw new TrajectoryProtocolError("run_stage_accepted.evidenceSequences must be an array");
+            }
+            for (const seq of payload.evidenceSequences) {
+                if (!Number.isSafeInteger(seq) || (seq as number) < 0) {
+                    throw new TrajectoryProtocolError("run_stage_accepted.evidenceSequences items must be non-negative integers");
+                }
+            }
+        }
+    }
+    if (eventType === "context_note_declared") {
+        if (Object.keys(payload).some((key) => ![
+            "type", "noteId", "revision", "category", "content", "reason", "stageId", "source", "supersedesNoteId",
+        ].includes(key))) {
+            throw new TrajectoryProtocolError("context_note_declared contains unknown fields");
+        }
+        assertNonEmptyString(payload.noteId, "context_note_declared.noteId");
+        assertPositiveInteger(payload.revision, "context_note_declared.revision");
+        if (payload.category !== "decision" && payload.category !== "user_emphasis") {
+            throw new TrajectoryProtocolError("context_note_declared.category is invalid");
+        }
+        assertNonEmptyString(payload.content, "context_note_declared.content");
+        assertOptionalNonEmptyString(payload.reason, "context_note_declared.reason");
+        assertOptionalNonEmptyString(payload.stageId, "context_note_declared.stageId");
+        assertOptionalNonEmptyString(payload.supersedesNoteId, "context_note_declared.supersedesNoteId");
+        if (!isRecord(payload.source)) {
+            throw new TrajectoryProtocolError("context_note_declared.source must be an object");
+        }
+        if (Object.keys(payload.source).some((key) => ![
+            "kind", "messageId", "actionId", "verbatimSnippet", "summary",
+        ].includes(key))) {
+            throw new TrajectoryProtocolError("context_note_declared.source contains unknown fields");
+        }
+        if (payload.source.kind !== "user_message" && payload.source.kind !== "user_decision" && payload.source.kind !== "agent_decision") {
+            throw new TrajectoryProtocolError("context_note_declared.source.kind is invalid");
+        }
+        assertOptionalNonEmptyString(payload.source.messageId, "context_note_declared.source.messageId");
+        assertOptionalNonEmptyString(payload.source.actionId, "context_note_declared.source.actionId");
+        assertOptionalNonEmptyString(payload.source.verbatimSnippet, "context_note_declared.source.verbatimSnippet");
+        assertOptionalNonEmptyString(payload.source.summary, "context_note_declared.source.summary");
+    }
 }
 
 function assertModelContextJson(value: unknown, label: string, depth = 0): asserts value is JsonValue | null {
@@ -1522,6 +1648,10 @@ export function classifyTrajectoryEvent(
         case "context_lookup_completed":
         case "context_lookup_not_found":
         case "context_lookup_failed":
+        case "run_stage_declared":
+        case "run_stage_rejected":
+        case "run_stage_accepted":
+        case "context_note_declared":
             return "decision";
         case "memory_patch_accepted":
             return "memory";

@@ -182,3 +182,11 @@ test("phase lifecycle removes executing intent but retains goal Facts", () => {
     assert.deepEqual(cleaned.hypotheses, []);
     assert.deepEqual(cleaned.blockers, []);
 });
+
+test("proposal diagnostics carry a structured operation path", () => {
+    assert.throws(() => validateMemoryPatch({ protocolVersion: 1, operations: [{ type: "unknown" }] }), (error: unknown) => {
+        assert.ok(error instanceof WorkingMemoryPatchError);
+        assert.deepEqual(error.path, ["operations", 0, "type"]);
+        return true;
+    });
+});

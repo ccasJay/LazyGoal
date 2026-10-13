@@ -37,3 +37,26 @@ test("Agent 字段反馈保持 Runtime 的条数与路径界限，Think 不添�
     assert.ok(mapped.feedback.issues.every(issue => issue.message.length <= 240));
     assert.equal(mapped.feedback.constraints?.some(text => /invalid call/.test(text)), false);
 });
+
+test("Memory-only native parsing errors use the canonical Patch path", () => {
+    const mapped = toModelStageFeedback(new LLMResponseProtocolError("PRIVATE", { issues: [{ code: "invalid_type", path: ["arguments", "memoryPatch", "operations", 0, "fact", "value"], message: "PRIVATE" }] }), { goal }, "decide");
+    assert.ok(mapped instanceof ModelStageFeedbackError);
+    assert.equal(mapped.feedback.origin, "memory_patch");
+    assert.deepEqual(mapped.feedback.issues[0]!.path, ["result", "memoryPatch", "operations", 0, "fact", "value"]);
+    assert.ok(!JSON.stringify(mapped.feedback).includes("PRIVATE"));
+});
+
+
+test("工具形状反馈只包含字段名与当前声明，不回传参数值", () => {
+    const error = new LLMResponseProtocolError("PRIVATE_RESPONSE", {
+        issues: [{ code: "extra_field", path: ["protocolVersion"], message: "PRIVATE_VALUE" }],
+        toolCallShape: { toolId: "system_complete_task", providedFields: ["summary", "protocolVersion"],
+            allowedFields: ["summary", "evidenceSequences", "memoryPatch"], requiredFields: ["summary", "evidenceSequences", "memoryPatch"] },
+    });
+    const mapped = toModelStageFeedback(error, { goal }, "decide");
+    assert.ok(mapped instanceof ModelStageFeedbackError);
+    const text = JSON.stringify(mapped.feedback);
+    for (const field of ["system_complete_task", "Provided fields", "Allowed fields", "Required fields", "protocolVersion"]) assert.ok(text.includes(field));
+    assert.ok(!text.includes("PRIVATE_"));
+    assert.ok(mapped.feedback.constraints!.every(line => line.length <= 240));
+});

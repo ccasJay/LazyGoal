@@ -31,7 +31,7 @@ async function documentUnits(root) {
             }
         }
     }
-    for (const name of ["benchmarks", "benchmarks/alfworld", "benchmarks/gaia", "benchmarks/swebench", "benchmarks/tua-bench", "prompt-evaluation/gepa"]) {
+    for (const name of ["benchmarks", "benchmarks/alfworld", "benchmarks/gaia", "benchmarks/swebench", "benchmarks/tua-bench", "benchmarks/context", "prompt-evaluation/gepa"]) {
         if (existsSync(join(root, name))) units.push(join(root, name));
     }
     return units.sort();

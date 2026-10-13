@@ -226,7 +226,7 @@ function completionAdapter(): LLMAdapter {
                 ?.flatMap((unit) => unit.events ?? [])
                 .filter((event) => event.eventType === "tool_finished")
                 .at(-1)?.sequence;
-            return { content: JSON.stringify({ result: { kind: "complete", summary: "done", evidenceSequences: [sequence], memoryPatch: null } }) };
+            return { content: JSON.stringify({ result: { kind: "complete", summary: "done", evidenceSequences: [sequence], memoryPatch: null, contextNotes: null } }) };
         },
     };
 }

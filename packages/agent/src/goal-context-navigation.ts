@@ -1,8 +1,4 @@
 import type { RunStageState } from "../../runtime/src/domain";
-import type {
-    GoalStageEntry,
-    GoalNoteEntry,
-} from "../../context-retrieval/src/index";
 import type { RuntimeContextNote } from "../../runtime/src/context-notes";
 import type {
     ModelConversationMessage,
@@ -13,6 +9,57 @@ import type {
     ModelRunStageView,
 } from "./model-inference-view";
 import { compareCodeUnits } from "./prompting/environment";
+
+/**
+ * 导航视图支持的历史阶段输入形态。
+ *
+ * @remarks
+ * 结构兼容 `GoalStageEntry`、`ModelGoalContextNavigationStageEntry` 等多形态数据。
+ *
+ * @example
+ * ```ts
+ * const stageInput: GoalContextNavigationHistoricalStageInput = {
+ *     stageId: "stg-1",
+ *     target: "初始任务",
+ *     status: "completed",
+ * };
+ * ```
+ */
+export interface GoalContextNavigationHistoricalStageInput {
+    readonly stageId: string;
+    readonly runId?: string | undefined;
+    readonly revision?: number | undefined;
+    readonly target: string;
+    readonly status: string;
+    readonly summary?: string | undefined;
+    readonly sourceRef?: string | undefined;
+    readonly source?: unknown;
+}
+
+/**
+ * 导航视图支持的决策或用户强调输入形态。
+ *
+ * @remarks
+ * 结构兼容 `GoalNoteEntry`、`RuntimeContextNote`、`ModelGoalContextNavigationNoteEntry` 等多形态数据。
+ *
+ * @example
+ * ```ts
+ * const noteInput: GoalContextNavigationNoteInput = {
+ *     noteId: "note-1",
+ *     category: "decision",
+ *     content: "选择方案 A",
+ * };
+ * ```
+ */
+export interface GoalContextNavigationNoteInput {
+    readonly noteId: string;
+    readonly category: "decision" | "user_emphasis";
+    readonly content: string;
+    readonly sourceRef?: string | undefined;
+    readonly supersedesNoteId?: string | undefined;
+    readonly sourceMessageContent?: string | undefined;
+    readonly source?: unknown;
+}
 
 /**
  * 构建目标工作导航视图的输入参数。
@@ -33,16 +80,9 @@ export interface GoalContextNavigationBuildOptions {
     /** 当前活动阶段；未开启阶段时省略。 */
     readonly currentStage?: RunStageState | ModelRunStageView | ModelGoalContextNavigationCurrentStage | undefined;
     /** 历史已提交阶段列表。 */
-    readonly historicalStages?: readonly (GoalStageEntry | ModelGoalContextNavigationStageEntry)[] | undefined;
+    readonly historicalStages?: readonly (ModelGoalContextNavigationStageEntry | GoalContextNavigationHistoricalStageInput)[] | undefined;
     /** 重要信息与决策记录列表。 */
-    readonly notes?: readonly (GoalNoteEntry | RuntimeContextNote | ModelGoalContextNavigationNoteEntry | {
-        readonly noteId: string;
-        readonly category: "decision" | "user_emphasis";
-        readonly content: string;
-        readonly sourceRef?: string;
-        readonly supersedesNoteId?: string;
-        readonly sourceMessageContent?: string;
-    })[] | undefined;
+    readonly notes?: readonly (RuntimeContextNote | ModelGoalContextNavigationNoteEntry | GoalContextNavigationNoteInput)[] | undefined;
     /** 当前真实会话消息（用于长正文去重引用）。 */
     readonly currentMessages?: readonly ModelConversationMessage[] | readonly { readonly role: string; readonly content: string }[] | undefined;
     /** 当前用户请求或阶段目标文本（用于相关性打分与排序）。 */
@@ -166,16 +206,19 @@ export function buildGoalContextNavigation(
         if (currentStage !== undefined && stage.stageId === currentStage.stageId && ("runId" in stage && stage.status === "executing")) {
             continue;
         }
+        const stageStatus = (stage.status === "accepted" || stage.status === "rejected" || stage.status === "executing")
+            ? stage.status
+            : "accepted";
         formattedHistStages.push({
             stageId: stage.stageId,
-            runId: "runId" in stage ? stage.runId : "run-0",
-            revision: stage.revision,
+            runId: ("runId" in stage && typeof stage.runId === "string") ? stage.runId : "run-0",
+            revision: stage.revision ?? 1,
             target: stage.target,
-            status: stage.status,
+            status: stageStatus,
             ...(stage.summary !== undefined ? { summary: stage.summary } : {}),
             ...(("sourceRef" in stage && typeof stage.sourceRef === "string")
                 ? { sourceRef: stage.sourceRef }
-                : ("source" in stage && typeof stage.source === "object")
+                : ("source" in stage && typeof stage.source === "object" && stage.source !== null)
                     ? { sourceRef: `seq_${(stage.source as { firstSequence?: number }).firstSequence ?? 0}` }
                     : {}),
         });

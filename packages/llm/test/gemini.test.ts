@@ -145,7 +145,7 @@ test("Gemini in strict mode maps structuredOutput to responseMimeType and respon
 test("Gemini preserves valid Plan completion evidence without rewriting", async () => {
     const bundle = createModelOutputContractBundle({ kind: "executing", taskPresent: true, planMode: true, authorizedTools: [] });
     const value = { result: { kind: "complete", summary: "Verified fix", memoryPatch: null,
-        completionEvidence: [{ criterionIndex: 0, evidenceSequences: [96] }] } };
+        completionEvidence: [{ criterionIndex: 0, evidenceSequences: [96] }], contextNotes: null } };
     const adapter = createAdapter("strict");
     const text = JSON.stringify(value);
     (adapter as any).client = { models: { generateContent: async () => ({ text }) } };

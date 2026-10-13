@@ -265,10 +265,14 @@ async function withTempPersistence<T>(run: (persistenceRoot: string) => Promise<
 
 function decision(content: unknown): string {
     if (typeof content === "object" && content !== null && !("result" in content)) {
+        const isDiscovery = "kind" in content && content.kind === "tool_discovery";
+        const isToolCall = "kind" in content && content.kind === "tool_call";
         return JSON.stringify({
-            result: content.kind === "tool_discovery"
+            result: isDiscovery
                 ? content
-                : { memoryPatch: null, ...content },
+                : isToolCall
+                    ? { memoryPatch: null, ...content }
+                    : { memoryPatch: null, contextNotes: null, ...content },
         });
     }
     return JSON.stringify(content);

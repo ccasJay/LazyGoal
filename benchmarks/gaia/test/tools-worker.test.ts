@@ -107,7 +107,7 @@ test("GAIA tools worker 执行 read_file, web_search, web_fetch, bash 与 submit
     });
 
     // 1. read_file
-    const readRes = await client.execute({
+    const readRes = await client.execute({ context: { goalId: "test-goal", runId: "test-run" },
         actionId: "act-read",
         toolId: "read_file",
         input: { path: "question.txt" },
@@ -116,7 +116,7 @@ test("GAIA tools worker 执行 read_file, web_search, web_fetch, bash 与 submit
     assert.match((readRes as any).output.text, /What is 2\+2\?/);
 
     // 2. web_search
-    const searchRes = await client.execute({
+    const searchRes = await client.execute({ context: { goalId: "test-goal", runId: "test-run" },
         actionId: "act-search",
         toolId: "web_search",
         input: { query: "2+2" },
@@ -131,7 +131,7 @@ test("GAIA tools worker 执行 read_file, web_search, web_fetch, bash 与 submit
     assert.equal((searchRes as any).output[0]?.snippet, "2+2=4");
 
     // 3. web_fetch
-    const fetchRes = await client.execute({
+    const fetchRes = await client.execute({ context: { goalId: "test-goal", runId: "test-run" },
         actionId: "act-fetch",
         toolId: "web_fetch",
         input: { url: "https://example.com/math" },
@@ -146,7 +146,7 @@ test("GAIA tools worker 执行 read_file, web_search, web_fetch, bash 与 submit
     assert.match((fetchRes as any).output.text, /Full page text/);
 
     // 4. bash
-    const bashRes = await client.execute({
+    const bashRes = await client.execute({ context: { goalId: "test-goal", runId: "test-run" },
         actionId: "act-bash",
         toolId: "bash",
         input: { command: "python3 -c 'print(2+2)'" },
@@ -155,7 +155,7 @@ test("GAIA tools worker 执行 read_file, web_search, web_fetch, bash 与 submit
     assert.match((bashRes as any).output.stdout, /4/);
 
     // 5. submit_answer
-    const submitRes = await client.execute({
+    const submitRes = await client.execute({ context: { goalId: "test-goal", runId: "test-run" },
         actionId: "act-submit",
         toolId: "submit_answer",
         input: { answer: "4" },
@@ -168,7 +168,7 @@ test("GAIA tools worker 执行 read_file, web_search, web_fetch, bash 与 submit
     assert.equal(writtenAnswer.taskId, "test-task-exec");
 
     // 重复提交被拒绝
-    const duplicateSubmit = await client.execute({
+    const duplicateSubmit = await client.execute({ context: { goalId: "test-goal", runId: "test-run" },
         actionId: "act-submit-2",
         toolId: "submit_answer",
         input: { answer: "4" },

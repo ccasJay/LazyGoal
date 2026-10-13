@@ -276,13 +276,13 @@ export class LLMStepExecutor implements StepExecutor {
         );
         if ((response.toolCalls?.length ?? 0) > 0) {
             const error = new LLMResponseProtocolError("Think stage must not return tool calls");
-            await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "response_parse");
+            await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "response_parse", callId);
             throw error;
         }
         const output = response.content.trim();
         if (output.length === 0) {
             const error = new LLMResponseProtocolError("Think stage returned empty text");
-            await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "response_parse");
+            await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "response_parse", callId);
             throw error;
         }
         return {
@@ -330,13 +330,17 @@ export class LLMStepExecutor implements StepExecutor {
             plan.modelContextFrame.sections.map(section => section.content),
         );
         if (adapter.nativeConversationIdentity !== undefined && response.toolCalls?.length !== 1) {
-            throw new LLMResponseProtocolError("Decide stage requires exactly one native tool call");
+            const error = new LLMResponseProtocolError("Decide stage requires exactly one native tool call");
+            await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "response_parse", callId);
+            throw error;
         }
 
         if (adapter.nativeConversationIdentity !== undefined && (response.continuation === undefined
             || !sameNativeIdentity(response.continuation.identity, adapter.nativeConversationIdentity)
             || !isModelAssistantMessage(nativeResponseMessage(response)))) {
-            throw new LLMResponseProtocolError("Invalid native response identity or continuation data");
+            const error = new LLMResponseProtocolError("Invalid native response identity or continuation data");
+            await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "response_parse", callId);
+            throw error;
         }
 
         let output: DecideOutput;
@@ -357,9 +361,10 @@ export class LLMStepExecutor implements StepExecutor {
                         }],
                     },
                 );
-                await recordLlmError(this.traceSink, goal, parseErr, Date.now() - startedAt, "response_parse");
+                await recordLlmError(this.traceSink, goal, parseErr, Date.now() - startedAt, "response_parse", callId);
                 throw parseErr;
             }
+            const declaration = plan.toolDeclarations.find(tool => tool.id === toolCall.toolId);
             try {
                 output = decodePhaseToolCall(
                     plan.toolDeclarations as readonly SystemToolDeclaration<unknown>[],
@@ -379,10 +384,18 @@ export class LLMStepExecutor implements StepExecutor {
                                 message: i.message,
                             })),
                             cause: error,
+                            ...(declaration === undefined || rawArgs === null || typeof rawArgs !== "object" || Array.isArray(rawArgs) ? {} : {
+                                toolCallShape: {
+                                    toolId: declaration.id,
+                                    providedFields: Object.keys(rawArgs),
+                                    allowedFields: Object.keys(declaration.parametersSchema.properties ?? {}),
+                                    requiredFields: (declaration.parametersSchema.required ?? []) as readonly string[],
+                                },
+                            }),
                         },
                     )
                     : error;
-                await recordLlmError(this.traceSink, goal, validationErr, Date.now() - startedAt, "response_parse");
+                await recordLlmError(this.traceSink, goal, validationErr, Date.now() - startedAt, "response_parse", callId);
                 throw validationErr;
             }
             if (output.kind === "tool_call") {
@@ -396,7 +409,7 @@ export class LLMStepExecutor implements StepExecutor {
             try {
                 output = parseModelOutput(response.content, plan.bundle);
             } catch (error) {
-                await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "response_parse");
+                await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "response_parse", callId);
                 throw error;
             }
         }
@@ -411,7 +424,7 @@ export class LLMStepExecutor implements StepExecutor {
                         message: "Think goal must contain non-whitespace text.",
                     }],
                 });
-                await recordLlmError(this.traceSink, input.goal, error, Date.now() - startedAt, "response_parse");
+                await recordLlmError(this.traceSink, input.goal, error, Date.now() - startedAt, "response_parse", callId);
                 throw error;
             }
             output = { ...output, goal };
@@ -450,7 +463,8 @@ export class LLMStepExecutor implements StepExecutor {
                 ...message,
                 source: message.role === "tool" || message.role === "assistant" && message.continuation !== undefined ? "native_history" as const
                     : message.role === "system" ? "system" as const
-                    : index === providerRequest.messages.length - 1 ? "working_context" as const
+                    : message.content.startsWith('{"source":"runtime_feedback",') ? "request" as const
+                    : index === providerRequest.messages.length - 1 - (providerRequest.messages.at(-1)?.content.startsWith('{"source":"runtime_feedback",') ? 1 : 0) ? "working_context" as const
                     : goal.state.messages.some(saved => saved.role === message.role && saved.content === message.content) ? "conversation" as const
                     : sections.includes(message.content) ? "section" as const
                     : input.thinkHistory?.some(exchange => exchange.output === message.content) ? "stage" as const
@@ -458,7 +472,7 @@ export class LLMStepExecutor implements StepExecutor {
             })),
         });
         throwIfAborted(control);
-        await recordLlmRequest(this.traceSink, goal, providerRequest, this.modelInputStore === undefined ? undefined : callId);
+        await recordLlmRequest(this.traceSink, goal, providerRequest, this.modelInputStore === undefined ? undefined : callId, callId);
         await this.appendModelMetric({
             recordType: "call_started",
             ...metricIdentity,
@@ -485,7 +499,7 @@ export class LLMStepExecutor implements StepExecutor {
                 outcome: isExecutionAbortedError(error) || control?.signal?.aborted ? "cancelled" : "failed",
                 usage: { source: "unavailable" },
             });
-            await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "adapter");
+            await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "adapter", callId);
             if (isExecutionAbortedError(error)) throw error;
             if (control?.signal?.aborted) throw new ExecutionAbortedError();
             throw error;
@@ -499,7 +513,7 @@ export class LLMStepExecutor implements StepExecutor {
             usage: usage === undefined ? { source: "unavailable" } : { source: "provider_reported", ...usage },
             ...(decodeDurationMs === undefined ? {} : { decodeDurationMs }),
         });
-        await recordLlmResponse(this.traceSink, goal, response, Date.now() - startedAt);
+        await recordLlmResponse(this.traceSink, goal, response, Date.now() - startedAt, callId);
         return { response, startedAt, callId };
     }
 

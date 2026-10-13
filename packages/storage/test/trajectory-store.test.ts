@@ -483,3 +483,14 @@ test("JsonFileTrajectoryStore rejects unsafe queries and malformed or non-monoto
         );
     });
 });
+
+test("memory_patch feedback survives the durable Trajectory boundary", async () => {
+    await withStore(async (store, directory) => {
+        const feedback = { goalId: "goal-1", runId: "run-1", executionUnitId: "unit-1", stepOrdinal: 1,
+            stage: "decide" as const, origin: "memory_patch" as const, code: "INVALID_MEMORY_EVIDENCE", attempt: 1,
+            issues: [{ code: "missing_evidence", path: ["result", "memoryPatch", "operations", 0, "fact", "evidenceSequences", 0], message: "Reference committed evidence." }] };
+        await store.append(draft("model_repair_feedback_recorded", { type: "model_repair_feedback_recorded", stage: "decide", attempt: 1, feedback }, { executionUnitId: "unit-1", stepIndex: 1 }));
+        const events = await new JsonFileTrajectoryStore(directory).read({ goalId: "goal-1", runId: "run-1" });
+        assert.deepEqual(events[0]!.payload, { type: "model_repair_feedback_recorded", stage: "decide", attempt: 1, feedback });
+    });
+});

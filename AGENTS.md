@@ -22,6 +22,7 @@ benchmarks/      Explicit headless benchmark evaluation
   swebench/       SWE-bench ACP Worker, Verified containers, patch export, and official grading
   gaia/           GAIA tasks, attachments, answer scoring
   tua-bench/      TUA terminal tasks, verifier reward
+  context/        Native checkpoint capture, frozen scripts, paired recovery evaluation
 prompt-evaluation/ External prompt optimization integrations
   gepa/            Official GEPA adapter for LazyGoal Prompt Evaluation
 packages/        Private `@lazygoal/*` workspaces

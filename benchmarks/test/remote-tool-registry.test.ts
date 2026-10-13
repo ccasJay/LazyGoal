@@ -82,6 +82,7 @@ test("remote ToolRegistration 的 prepare 阶段绝不向 Worker 发送 execute 
     const dummyTool = {
         id: "dummy",
         description: "dummy tool",
+        isReadOnly: true,
         inputContract: contract.object({}),
     };
 
@@ -208,7 +209,7 @@ test("Worker 响应身份不符时中止执行并保留检查点", async () => {
                         type: "execute_result",
                         id: msg.id,
                         actionId: "tampered-wrong-action-id",
-                        observation: { kind: "success", content: "data" },
+                        observation: { kind: "success", output: "data", summary: "data" },
                     });
                 }
             }

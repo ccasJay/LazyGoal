@@ -173,6 +173,7 @@ class StreamingAdapter implements LLMAdapter {
                         summary: "streamed",
                         completionEvidence: [],
                         memoryPatch: null,
+                        contextNotes: null,
                     },
                 }),
             },
@@ -200,6 +201,7 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
             summary: "继续执行",
             completionEvidence: [],
             memoryPatch: null,
+            contextNotes: null,
         },
     });
     const adapter = new FakeAdapter(responseContent);
@@ -295,6 +297,7 @@ test("LLMStepExecutor 对不支持流式的 Adapter 保留 generate 回退并发
             summary: "fallback",
             completionEvidence: [],
             memoryPatch: null,
+            contextNotes: null,
         },
     });
     const adapter = new FakeAdapter(responseContent);
@@ -347,6 +350,7 @@ test("LLMStepExecutor 不修改传入的 Goal", async () => {
             summary: "已完成",
             completionEvidence: [],
             memoryPatch: null,
+            contextNotes: null,
         },
     })));
 
@@ -374,6 +378,7 @@ test("LLMStepExecutor 在未知 Prompt Bundle 版本时不调用 Adapter", async
             summary: "不应生成",
             completionEvidence: [],
             memoryPatch: null,
+            contextNotes: null,
         },
     }));
     const executor = createExecutor(adapter);
@@ -521,6 +526,7 @@ test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async 
             summary: "完成",
             completionEvidence: [],
             memoryPatch: null,
+            contextNotes: null,
         },
     });
     const adapter = new SequenceAdapter([completeContent, JSON.stringify({ result: { kind: "accept" } })]);
@@ -698,6 +704,7 @@ test("LLMStepExecutor: 连续调用能感知 bindingProvider 发布的新 genera
             summary: "第一代完成",
             completionEvidence: [],
             memoryPatch: null,
+            contextNotes: null,
         },
     }));
     const adapter2 = new FakeAdapter(JSON.stringify({
@@ -706,6 +713,7 @@ test("LLMStepExecutor: 连续调用能感知 bindingProvider 发布的新 genera
             summary: "第二代完成",
             completionEvidence: [],
             memoryPatch: null,
+            contextNotes: null,
         },
     }));
 
@@ -791,6 +799,7 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
             summary: "第二代",
             completionEvidence: [],
             memoryPatch: null,
+            contextNotes: null,
         },
     }));
 
@@ -849,6 +858,7 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
                 summary: "第一代挂起完成",
                 completionEvidence: [],
                 memoryPatch: null,
+                contextNotes: null,
             },
         }),
     });

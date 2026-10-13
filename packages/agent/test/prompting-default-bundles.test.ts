@@ -96,6 +96,7 @@ test("默认 Bundle v1 只组合固定 system section，动态 section 独立注
             "approved-task@1",
             "goal-plan@1",
             "working-memory@1",
+            "goal-context-navigation@1",
         ],
     );
 });

@@ -496,11 +496,9 @@ export function runFixedCorpusEvaluation(): FixedCorpusEvaluationReport {
             topK: 5,
             minimumScore: 0,
         }).rank({
-            kind: "context_lookup",
-            need: tc.need,
             question: tc.question,
             ...(tc.filters ? { filters: tc.filters } : {}),
-        } as ContextLookupRequest);
+        });
 
         const lookupResult = buildContextLookupResultFromRanking({
             goalId,

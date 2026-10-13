@@ -197,7 +197,6 @@ test("GAIA Prompt Evaluation adapter maps an authoritative wrong answer to faile
         loadManifestFile: async () => ({
             source: "huggingface",
             loadedAt: "2026-09-20T00:00:00.000Z",
-            dataRoot: "/data/gaia",
             dataRoot: testDataRoot,
             tasks: [task],
         }),
@@ -227,7 +226,6 @@ test("GAIA Prompt Evaluation adapter does not turn infrastructure errors into sc
         loadManifestFile: async () => ({
             source: "huggingface",
             loadedAt: "2026-09-20T00:00:00.000Z",
-            dataRoot: "/data/gaia",
             dataRoot: testDataRoot,
             tasks: [task],
         }),
@@ -260,7 +258,6 @@ test("GAIA Prompt Evaluation adapter treats agent failure as infrastructure, not
         loadManifestFile: async () => ({
             source: "huggingface",
             loadedAt: "2026-09-20T00:00:00.000Z",
-            dataRoot: "/data/gaia",
             dataRoot: testDataRoot,
             tasks: [task],
         }),

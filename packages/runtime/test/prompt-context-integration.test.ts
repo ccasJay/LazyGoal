@@ -76,13 +76,17 @@ class ScriptedAdapter implements LLMAdapter {
 }
 
 function response(result: unknown): string {
-    const wireResult = typeof result === "object"
-        && result !== null
-        && "kind" in result
-        && result.kind !== "request_think"
-        && !("memoryPatch" in result)
-        ? { ...result, memoryPatch: null }
-        : result;
+    if (typeof result !== "object" || result === null || !("kind" in result) || result.kind === "request_think") {
+        return JSON.stringify({ result });
+    }
+    const candidate = result as Record<string, unknown>;
+    const wireResult = {
+        ...candidate,
+        ...(!("memoryPatch" in candidate) ? { memoryPatch: null } : {}),
+        ...((candidate.kind === "wait" || candidate.kind === "fail" || candidate.kind === "complete" || candidate.kind === "run_stage_update") && !("contextNotes" in candidate)
+            ? { contextNotes: null }
+            : {}),
+    };
     return JSON.stringify({ result: wireResult });
 }
 
