@@ -10,18 +10,26 @@ import type {
     TrajectoryEventDraft,
     TrajectoryPhase,
 } from "./trajectory";
-import type { ContextDocumentSource } from "../../context-retrieval/src/index";
+import type {
+    ContextDocumentSource,
+    GoalContextDirectoryEntry,
+    GoalContextExpandedSource,
+} from "../../context-retrieval/src/index";
 import type {
     ContextLookupFilters,
     ContextLookupNeed,
+    ContextLookupOperation,
     ContextLookupRequest,
 } from "../../model-contracts/src/index";
 
 export type {
     ContextLookupFilters,
     ContextLookupNeed,
+    ContextLookupOperation,
     ContextLookupRequest,
     ContextDocumentSource,
+    GoalContextDirectoryEntry,
+    GoalContextExpandedSource,
 };
 
 
@@ -100,12 +108,23 @@ export type ContextLookupResult =
         readonly truncated: boolean;
         /** found 命中涉及的全部 Run 边界；缺省表示仅当前 Run。 */
         readonly sourceRunBoundaries?: readonly ContextLookupRunBoundary[];
+        /** 本次执行的操作类别。 */
+        readonly operation?: ContextLookupOperation;
+        /** 目录浏览或目录搜索的条目列表。 */
+        readonly directoryEntries?: readonly GoalContextDirectoryEntry[];
+        /** 来源直接展开的详情内容。 */
+        readonly expandedSource?: GoalContextExpandedSource;
+        /** 分页游标。 */
+        readonly nextCursor?: string;
+        /** 是否还有更多结果。 */
+        readonly hasMore?: boolean;
     }
     | {
         readonly status: "not_found";
         readonly lookupId: string;
         readonly committedThroughSequence?: number;
         readonly reason?: string;
+        readonly operation?: ContextLookupOperation;
     }
     | {
         readonly status: "lookup_error";
@@ -113,6 +132,7 @@ export type ContextLookupResult =
         readonly code: string;
         readonly message: string;
         readonly committedThroughSequence?: number;
+        readonly operation?: ContextLookupOperation;
     };
 
 /** 交给检索实现的一次有界查询输入。 */
@@ -569,6 +589,15 @@ export function normalizeContextLookupResult(
                     ? {}
                     : { source: structuredClone(match.source) }),
             }))),
+            ...(result.operation !== undefined ? { operation: result.operation } : {}),
+            ...(result.directoryEntries !== undefined
+                ? { directoryEntries: Object.freeze(result.directoryEntries.map((e) => Object.freeze({ ...e }))) }
+                : {}),
+            ...(result.expandedSource !== undefined
+                ? { expandedSource: Object.freeze({ ...result.expandedSource }) }
+                : {}),
+            ...(result.nextCursor !== undefined ? { nextCursor: result.nextCursor } : {}),
+            ...(result.hasMore !== undefined ? { hasMore: result.hasMore } : {}),
         });
     }
     if (result.committedThroughSequence === undefined) {
@@ -627,6 +656,22 @@ export function assertContextLookupResultOwnership(
             || boundary === undefined
             || (match.source?.kind !== "conversation" && match.lastSequence > boundary)
         ) {
+            throw new ContextLookupProtocolError(
+                "found result references an unknown or uncommitted Goal/Run",
+            );
+        }
+    }
+    for (const entry of result.directoryEntries ?? []) {
+        const boundary = boundaries.get(entry.runId);
+        if (boundary === undefined) {
+            throw new ContextLookupProtocolError(
+                "found result references an unknown or uncommitted Goal/Run",
+            );
+        }
+    }
+    if (result.expandedSource?.runId !== undefined) {
+        const boundary = boundaries.get(result.expandedSource.runId);
+        if (boundary === undefined) {
             throw new ContextLookupProtocolError(
                 "found result references an unknown or uncommitted Goal/Run",
             );

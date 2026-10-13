@@ -8,6 +8,13 @@ import type {
     ModelContextLookupResult,
 } from "./model-inference-view";
 
+/** 各状态共享的历史语料范围与否定结论限制；不是证据。 */
+export const CONTEXT_LOOKUP_SOURCE_SCOPE = {
+    sourceScope: "goal_history",
+    goal_history: true,
+    limitations: "Only committed conversation and trajectory history of this Goal was searched. Workspace files were not searched. No match does not prove an object is absent. Lookup request and result events are not direct Fact or completion evidence.",
+} as const;
+
 /** 模型输入中固定显示的历史结果时效警告。 */
 export const CONTEXT_LOOKUP_FRESHNESS_WARNING =
     "该结果来自 committed Trajectory 的历史记录；涉及可能变化的 Workspace、Environment 或验证状态时，必须通过授权 Tool 重新观察。" as const;
@@ -17,7 +24,7 @@ export const CONTEXT_LOOKUP_FRESHNESS_WARNING =
  *
  * @remarks
  * 投影只复制结果和原始 source refs，不把 lookup 事件转换成 Evidence。found 结果
- * 增加 committed boundary 与固定历史时效警告；not_found 和 lookup_error 保持可区分，
+ * 各状态增加历史语料范围及未命中限制；found 保留时效警告，not_found 和 lookup_error 保持可区分，
  * 不生成替代摘要。投影不会修改 Runtime Result 或 Goal。
  *
  * @param result - Runtime 已返回的 Context Lookup Result。
@@ -38,7 +45,7 @@ export function projectContextLookupResult(
         boundary,
     );
     if (validated.status !== "found") {
-        return deepFreeze(structuredClone(validated)) as ModelContextLookupResult;
+        return deepFreeze({ ...structuredClone(validated), ...CONTEXT_LOOKUP_SOURCE_SCOPE }) as ModelContextLookupResult;
     }
 
     const freshness: ModelContextLookupFreshness = {
@@ -62,14 +69,21 @@ export function projectContextLookupResult(
         ...(match.source === undefined ? {} : { source: structuredClone(match.source) }),
     }));
     return deepFreeze({
+        ...CONTEXT_LOOKUP_SOURCE_SCOPE,
         status: "found",
         lookupId: validated.lookupId,
         committedThroughSequence: validated.committedThroughSequence,
         ...(validated.queryHash === undefined ? {} : { queryHash: validated.queryHash }),
         ...(validated.indexVersion === undefined ? {} : { indexVersion: validated.indexVersion }),
+        ...(validated.sourceRunBoundaries === undefined ? {} : { sourceRunBoundaries: structuredClone(validated.sourceRunBoundaries) }),
         matches,
         truncated: validated.truncated,
         freshness,
+        ...(validated.operation !== undefined ? { operation: validated.operation } : {}),
+        ...(validated.directoryEntries !== undefined ? { directoryEntries: structuredClone(validated.directoryEntries) } : {}),
+        ...(validated.expandedSource !== undefined ? { expandedSource: structuredClone(validated.expandedSource) } : {}),
+        ...(validated.nextCursor !== undefined ? { nextCursor: validated.nextCursor } : {}),
+        ...(validated.hasMore !== undefined ? { hasMore: validated.hasMore } : {}),
     });
 }
 

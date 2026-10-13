@@ -1,6 +1,10 @@
 import type { ModelContextBudgetPlan } from "./model-context-budget";
 import type { ModelExecutionUnitProjection } from "./trajectory-event-projector";
 import type { WarmCompactEntry } from "./warm-reducer";
+import type {
+    GoalContextDirectoryEntry,
+    GoalContextExpandedSource,
+} from "../../context-retrieval/src/index";
 
 /**
  * ModelInferenceView 的独立 DTO 契约。
@@ -130,9 +134,16 @@ export type ModelStepRecord =
             | { readonly kind: "fail"; readonly error: string }
             | {
                 readonly kind: "context_lookup";
-                readonly need: "conversation_history" | "historical_execution" | "decision_rationale";
-                readonly question: string;
+                readonly operation?: import("../../model-contracts/src/index").ContextLookupOperation;
+                readonly need?: "conversation_history" | "historical_execution" | "decision_rationale";
+                readonly question?: string;
                 readonly filters?: import("../../runtime/src/context-retrieval").ContextLookupFilters;
+                readonly query?: string;
+                readonly cursor?: string;
+                readonly limit?: number;
+                readonly category?: string;
+                readonly sourceRef?: string;
+                readonly offset?: number;
             }
             | { readonly kind: "tool_discovery"; readonly query: string }
             | {
@@ -150,6 +161,20 @@ export type ModelStepRecord =
                     | { readonly type: "reorder"; readonly id: string; readonly position: number }
                     | { readonly type: "cancel"; readonly id: string }
                 )[];
+            }
+            | {
+                readonly kind: "run_stage_update";
+                readonly stageId?: string | undefined;
+                readonly baseRevision?: number | undefined;
+                readonly reason?: string | undefined;
+                readonly target: string;
+                readonly acceptanceCriteria: readonly string[];
+            }
+            | {
+                readonly kind: "run_stage_complete";
+                readonly stageId: string;
+                readonly summary: string;
+                readonly evidenceSequences?: readonly number[] | undefined;
             };
     };
 
@@ -159,11 +184,23 @@ export interface ModelPendingAction {
     readonly status: "approved" | "awaiting_approval" | "outcome_unknown";
 }
 
-/** 已授权且经 Registry 解析出的 Tool 描述投影。 */
+/**
+ * 已授权且经 Registry 解析出的 Tool 描述投影。
+ *
+ * @remarks
+ * 在原生工具调用路径中，由于请求工具声明已携带完整的参数 Schema，动态授权 Section 移除重复
+ * 参数 Schema，仅保留授权身份和描述；而在 prompt_only 模式下保留完整的解码契约。
+ *
+ * @example
+ * ```ts
+ * const tool: ModelToolDefinition = { id: "read_file", description: "Read file" };
+ * ```
+ */
 export interface ModelToolDefinition {
     readonly id: string;
     readonly description: string;
-    readonly inputSchema: unknown;
+    /** 参数 Schema；原生路径下省略以避免重复声明，prompt_only 模式下保留。 */
+    readonly inputSchema?: unknown;
 }
 
 /** Prompt Bundle 渲染时的 Runtime 业务阶段（当前统一为 executing）。 */
@@ -337,7 +374,8 @@ export interface ModelContextLookupFreshness {
  * Context Lookup Result 的模型投影。
  *
  * @remarks
- * found 结果携带固定的历史时效提示；模型不能把 Lookup 事件或预览文本本身
+ * 各状态携带 sourceScope 与 limitations，明确当前 Goal 历史不搜索仓库文件；
+ * 未命中不能证明对象不存在。found 保留原来源边界与时效提示；模型不能把 Lookup 事件或预览文本本身
  * 当作完成证据，若当前状态可能变化，仍须通过授权 Tool 重新观察。
  *
  * @example
@@ -345,10 +383,16 @@ export interface ModelContextLookupFreshness {
  * const result: ModelContextLookupResult = {
  *   status: "not_found",
  *   lookupId: "lookup-1",
+ *   sourceScope: "goal_history",
+ *   limitations: "Workspace files were not searched.",
  * };
  * ```
  */
-export type ModelContextLookupResult =
+export type ModelContextLookupResult = {
+    readonly sourceScope: "goal_history";
+    readonly goal_history?: true;
+    readonly limitations: string;
+} & (
     | {
         readonly status: "found";
         readonly lookupId: string;
@@ -356,14 +400,21 @@ export type ModelContextLookupResult =
         readonly queryHash?: string;
         readonly indexVersion?: string;
         readonly matches: readonly ModelContextLookupMatch[];
+        readonly sourceRunBoundaries?: readonly { readonly runId: string; readonly committedThroughSequence: number }[];
         readonly truncated: boolean;
         readonly freshness: ModelContextLookupFreshness;
+        readonly operation?: string;
+        readonly directoryEntries?: readonly GoalContextDirectoryEntry[];
+        readonly expandedSource?: GoalContextExpandedSource;
+        readonly nextCursor?: string;
+        readonly hasMore?: boolean;
     }
     | {
         readonly status: "not_found";
         readonly lookupId: string;
         readonly committedThroughSequence?: number;
         readonly reason?: string;
+        readonly operation?: string;
     }
     | {
         readonly status: "lookup_error";
@@ -371,7 +422,8 @@ export type ModelContextLookupResult =
         readonly code: string;
         readonly message: string;
         readonly committedThroughSequence?: number;
-    };
+        readonly operation?: string;
+    });
 
 /**
  * 一次 Prompt 渲染所需的、从 Runtime State 单向投影出的不可变上下文。
@@ -442,6 +494,33 @@ export interface ModelDynamicContext {
  * 仅包含 Goal intent 和有界执行记忆（Step 预算、最近 Step 与 pending Action）；
  * Run 模式和已批准任务由独立动态 section 提供。
  */
+/**
+ * 模型可见的当前 Run 内部阶段投影。
+ *
+ * @remarks
+ * 包含当前阶段的稳定身份、修订版本、目标、完成条件、前序结果引用与最新审查拒绝反馈。
+ *
+ * @example
+ * ```ts
+ * const stage: ModelRunStageView = {
+ *     stageId: "stage-1",
+ *     revision: 1,
+ *     status: "executing",
+ *     target: "梳理模块职责",
+ *     acceptanceCriteria: ["列出所有导出符号"],
+ * };
+ * ```
+ */
+export interface ModelRunStageView {
+    readonly stageId: string;
+    readonly revision: number;
+    readonly status: "executing" | "accepted";
+    readonly target: string;
+    readonly acceptanceCriteria: readonly string[];
+    readonly previousStageResultRef?: { readonly stageId: string; readonly sequence: number } | undefined;
+    readonly latestReviewRejection?: { readonly feedback: string; readonly rejectedAtSequence?: number } | undefined;
+}
+
 export interface ModelWorkingContext {
     readonly phase: "executing";
     readonly intent: string;
@@ -450,6 +529,7 @@ export interface ModelWorkingContext {
         readonly maxSteps?: number;
         readonly previousStep?: ModelStepRecord;
         readonly pendingAction?: ModelPendingAction;
+        readonly currentStage?: ModelRunStageView;
     };
 }
 
@@ -476,6 +556,7 @@ export interface StepDynamicPayload {
         readonly maxSteps?: number;
         readonly previousStep?: ModelStepRecord;
         readonly pendingAction?: ModelPendingAction;
+        readonly currentStage?: ModelRunStageView;
     };
     readonly trajectoryContext?: {
         readonly hot: readonly ModelExecutionUnitProjection[];
