@@ -54,14 +54,73 @@ export function statusClass(status: GoalStatus): string {
   return status.toLowerCase().replaceAll(" ", "-");
 }
 
+export interface StatusPresentation {
+  readonly label: string;
+  readonly className: string;
+}
+
+/**
+ * 计算 Goal 卡片的状态标签与样式类名。
+ *
+ * @remarks
+ * 统一看板卡片与详情状态：异常失败明确标记为 Failed（配合红色样式）；正常或用户终止标记为 Stopped。
+ */
+export function cardStatusPresentation(status: BrowserGoalListItem["runStatus"]): StatusPresentation {
+  switch (status) {
+    case "created":
+      return { label: "Ready", className: "ready" };
+    case "running":
+      return { label: "Running", className: "running" };
+    case "waiting":
+      return { label: "Needs input", className: "needs-input" };
+    case "completed":
+      return { label: "Completed", className: "completed" };
+    case "failed":
+      return { label: "Failed", className: "failed" };
+    case "cancelled":
+      return { label: "Stopped", className: "stopped" };
+  }
+}
+
+/**
+ * 计算会话详情页顶部状态的指示样式。
+ */
+export function sessionStatusTone(session: BrowserGoalSession): string {
+  if (
+    session.pendingAction?.status === "outcome_unknown" ||
+    session.pendingAction?.status === "awaiting_approval" ||
+    session.pendingInteraction
+  ) {
+    return "needs-input attention";
+  }
+  switch (session.runStatus) {
+    case "failed":
+      return "failed";
+    case "cancelled":
+      return "stopped";
+    case "completed":
+      return "completed";
+    case "running":
+      return "running";
+    case "waiting":
+      return "needs-input";
+    case "created":
+      return "ready";
+    default:
+      return "default";
+  }
+}
+
 export function sessionStatus(session: BrowserGoalSession): string {
   if (session.pendingAction?.status === "outcome_unknown") return "Outcome needs review";
   if (session.pendingAction?.status === "awaiting_approval") return "Awaiting approval";
   if (session.pendingAction?.status === "approved") return "Action accepted";
   if (session.pendingInteraction?.kind === "task_approval") return "Awaiting task approval";
   if (session.pendingInteraction) return "Awaiting your response";
+  if (session.runStatus === "cancelled") return "Stopped";
   return session.runStatus.charAt(0).toUpperCase() + session.runStatus.slice(1);
 }
+
 
 export function metricNumber(value: number | null): string {
   return value === null ? "—" : new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value);
