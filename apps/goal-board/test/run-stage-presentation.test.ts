@@ -5,7 +5,11 @@ import type {
   BrowserSessionRun,
   BrowserSessionStep,
 } from "../../packages/web-contracts/src/index";
-import { groupStepsByStage, renderStageStatusLabel } from "../src/components/run-stage-utils";
+import {
+  formatRunStepsTitle,
+  groupStepsByStage,
+  renderStageStatusLabel,
+} from "../src/components/run-stage-utils";
 
 function makeStep(id: string, seq: number, stageId?: string): BrowserSessionStep {
   return {
@@ -123,3 +127,44 @@ test("阶段接受不改变 Run 生命周期状态标签", () => {
   assert.equal(run.status, "running", "中间阶段 accepted 不得使 run 标签变为 completed");
   assert.equal(run.stages?.[0]?.status, "accepted");
 });
+
+test("formatRunStepsTitle 正确格式化当前 Run 与历史 Run 标题并提取首动作摘要", () => {
+  const currentRun: BrowserSessionRun = {
+    runId: "run-2",
+    status: "running",
+    stepCount: 3,
+    steps: [makeStep("u-1", 1)],
+    current: true,
+  };
+  assert.equal(formatRunStepsTitle(currentRun, 2), "Execution activity");
+
+  const earlierRun: BrowserSessionRun = {
+    runId: "run-1",
+    status: "completed",
+    stepCount: 2,
+    steps: [
+      {
+        runId: "run-1",
+        executionUnitId: "u-1",
+        sequence: 1,
+        stepIndex: 1,
+        status: "completed",
+        toolId: "bash",
+        bashExecution: { command: "git status" },
+      },
+      makeStep("u-2", 2),
+    ],
+    current: false,
+  };
+  assert.equal(formatRunStepsTitle(earlierRun, 1), "Run 1 (2 steps) · Ran git status");
+
+  const emptyEarlierRun: BrowserSessionRun = {
+    runId: "run-0",
+    status: "completed",
+    stepCount: 0,
+    steps: [],
+    current: false,
+  };
+  assert.equal(formatRunStepsTitle(emptyEarlierRun, 1), "Run 1 (0 steps)");
+});
+
