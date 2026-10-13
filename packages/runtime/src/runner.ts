@@ -6,6 +6,7 @@ import type {
     AgentDecision,
     ExecutionErrorCode,
     Goal,
+    GoalState,
     JsonValue,
     RunInput,
     RunExecutionOptions,
@@ -1607,6 +1608,106 @@ class RunExecutor {
         return count;
     }
 
+    /**
+     * 恢复并填充运行时 Goal 的历史阶段和 notes，用于支持模型请求中的工作导航投影。
+     */
+    private async populateHistoricalContext(goal: Goal, control?: ExecutionControl): Promise<Goal> {
+        if (goal.state.historicalStages !== undefined && goal.state.notes !== undefined) {
+            return goal;
+        }
+
+        const trajectoryStore = this.trajectoryStore;
+        if (trajectoryStore === undefined) {
+            return {
+                ...goal,
+                state: {
+                    ...goal.state,
+                    historicalStages: goal.state.historicalStages ?? Object.freeze([]),
+                    notes: goal.state.notes ?? Object.freeze([]),
+                },
+            };
+        }
+
+        const runIds = [
+            ...(goal.state.completedRuns ?? []).map((r) => r.runId),
+            goal.state.run.id,
+        ];
+
+        const stagesList: RunStageState[] = [];
+        const notesMap = new Map<string, RuntimeContextNote>();
+
+        for (const runId of runIds) {
+            throwIfAborted(control);
+            let events: readonly TrajectoryEvent[] = [];
+            try {
+                events = await trajectoryStore.read({ goalId: goal.id, runId });
+            } catch {
+                events = [];
+            }
+
+            const stagesByStageId = new Map<string, RunStageState>();
+            for (const event of events) {
+                if (event.eventType === "run_stage_declared") {
+                    const p = event.payload as any;
+                    stagesByStageId.set(p.stageId, {
+                        stageId: p.stageId,
+                        revision: p.revision,
+                        status: "executing",
+                        target: p.target,
+                        acceptanceCriteria: p.acceptanceCriteria,
+                        ...(p.previousStageResultRef !== undefined ? { previousStageResultRef: p.previousStageResultRef } : {}),
+                        runId,
+                    });
+                } else if (event.eventType === "run_stage_accepted") {
+                    const p = event.payload as any;
+                    const existing = stagesByStageId.get(p.stageId);
+                    if (existing !== undefined) {
+                        stagesByStageId.set(p.stageId, {
+                            ...existing,
+                            revision: p.revision,
+                            status: "accepted",
+                            acceptedSequence: event.sequence,
+                            ...(p.summary !== undefined ? { summary: p.summary } : {}),
+                            runId,
+                        });
+                    }
+                } else if (event.eventType === "context_note_declared") {
+                    const p = event.payload as any;
+                    const noteKey = `${runId}:${p.noteId}`;
+                    notesMap.set(noteKey, {
+                        noteId: p.noteId,
+                        revision: p.revision,
+                        category: p.category,
+                        content: p.content,
+                        ...(p.reason !== undefined ? { reason: p.reason } : {}),
+                        ...(p.stageId !== undefined ? { stageId: p.stageId } : {}),
+                        source: p.source as ContextNoteSource,
+                        ...(p.supersedesNoteId !== undefined ? { supersedesNoteId: p.supersedesNoteId } : {}),
+                    });
+                }
+            }
+
+            for (const stage of stagesByStageId.values()) {
+                if (stage.status === "accepted") {
+                    stagesList.push(stage);
+                }
+            }
+        }
+
+        if (stagesList.length === 0 && notesMap.size === 0) {
+            return goal;
+        }
+
+        return {
+            ...goal,
+            state: {
+                ...goal.state,
+                historicalStages: goal.state.historicalStages ?? Object.freeze(stagesList),
+                notes: goal.state.notes ?? Object.freeze([...notesMap.values()]),
+            },
+        };
+    }
+
     private validateGoalProtocol(goal: Goal): void {
         if (this.protocolValidator === undefined) return;
 
@@ -1813,9 +1914,11 @@ class RunExecutor {
         let acceptedContextNotes: readonly RuntimeContextNote[] | undefined;
         if ("contextNotes" in decision && Array.isArray(decision.contextNotes) && decision.contextNotes.length > 0) {
             try {
-                const existingNotes = session === undefined
-                    ? []
-                    : extractExistingContextNotesFromEvents([...session.evidenceIndex.events.values()]);
+                const existingNotes = goal.state.notes ?? (
+                    session === undefined
+                        ? []
+                        : extractExistingContextNotesFromEvents([...session.evidenceIndex.events.values()])
+                );
                 const committedMessages = goal.state.messages.map((m, idx) => {
                     const steerInput = (goal.state.run.steerInputs ?? []).find(
                         (s) => s.status === "applied" && s.messageIndex === idx,
@@ -1965,25 +2068,27 @@ class RunExecutor {
             };
         }
 
-        const isBusinessTool = !decision.action.toolId.startsWith("system_");
+        const isSystemTool = decision.action.toolId.startsWith("system_");
         const isPlanModePreApproval = goal.state.run.mode === "plan" && goal.state.run.approvedTask === undefined;
-        if (isBusinessTool && !isPlanModePreApproval && (goal.state.run.currentStage === undefined || goal.state.run.currentStage.status !== "executing")) {
-            throw new ModelStageFeedbackError(createRuntimeFeedback({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                executionUnitId,
-                stepOrdinal: goal.state.run.stepCount + 1,
-                stage: "decide",
-                origin: "decision_semantics",
-                code: "STAGE_DECLARATION_REQUIRED",
-                attempt: 1,
-                issues: [{
+        if (!isSystemTool && !isPlanModePreApproval) {
+            if (goal.state.run.currentStage === undefined || goal.state.run.currentStage.status !== "executing") {
+                throw new ModelStageFeedbackError(createRuntimeFeedback({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    executionUnitId,
+                    stepOrdinal: goal.state.run.stepCount + 1,
+                    stage: "decide",
+                    origin: "decision_semantics",
                     code: "STAGE_DECLARATION_REQUIRED",
-                    path: ["result"],
-                    message: "Declare an executing stage using system_update_run_stage before executing business actions.",
-                }],
-                constraints: ["Declare a stage with target and acceptanceCriteria using system_update_run_stage before executing business tools."],
-            }), "Stage declaration required before executing business tools");
+                    attempt: 1,
+                    issues: [{
+                        code: "STAGE_DECLARATION_REQUIRED",
+                        path: ["result"],
+                        message: "Declare an executing stage using system_update_run_stage before executing business actions.",
+                    }],
+                    constraints: ["Declare a stage with target and acceptanceCriteria using system_update_run_stage before executing business tools."],
+                }), "Stage declaration required before executing business tools");
+            }
         }
 
         let prepared: PreparedToolAction;
@@ -2249,7 +2354,57 @@ class RunExecutor {
             });
             this.publishCommittedEvents(result);
             this.publishCheckpointCommitted(result, facts);
-            return result.goal;
+
+            let nextHistStages = goal.state.historicalStages ?? [];
+            let nextNotes = goal.state.notes ?? [];
+
+            for (const fact of facts) {
+                if (fact.eventType === "run_stage_accepted") {
+                    const p = fact.payload as any;
+                    const current = goal.state.run.currentStage;
+                    if (current !== undefined && current.stageId === p.stageId) {
+                        const acceptedItem: RunStageState = {
+                            ...current,
+                            revision: p.revision,
+                            status: "accepted",
+                            ...(p.summary !== undefined ? { summary: p.summary } : {}),
+                            ...(goal.state.run.id !== undefined ? { runId: goal.state.run.id } : {}),
+                        };
+                        const filtered = nextHistStages.filter(s => !(s.stageId === acceptedItem.stageId && s.runId === acceptedItem.runId));
+                        nextHistStages = [...filtered, acceptedItem];
+                    }
+                } else if (fact.eventType === "context_note_declared") {
+                    const p = fact.payload as any;
+                    const noteItem: RuntimeContextNote = {
+                        noteId: p.noteId,
+                        revision: p.revision,
+                        category: p.category,
+                        content: p.content,
+                        ...(p.reason !== undefined ? { reason: p.reason } : {}),
+                        ...(p.stageId !== undefined ? { stageId: p.stageId } : {}),
+                        source: p.source,
+                        ...(p.supersedesNoteId !== undefined ? { supersedesNoteId: p.supersedesNoteId } : {}),
+                    };
+                    const filtered = nextNotes.filter(n => n.noteId !== noteItem.noteId);
+                    nextNotes = [...filtered, noteItem];
+                }
+            }
+
+            const shouldSetHist = nextHistStages.length > 0 || goal.state.historicalStages !== undefined;
+            const shouldSetNotes = nextNotes.length > 0 || goal.state.notes !== undefined;
+
+            if (!shouldSetHist && !shouldSetNotes) {
+                return result.goal;
+            }
+
+            return {
+                ...result.goal,
+                state: {
+                    ...result.goal.state,
+                    ...(shouldSetHist ? { historicalStages: Object.freeze(nextHistStages) } : {}),
+                    ...(shouldSetNotes ? { notes: Object.freeze(nextNotes) } : {}),
+                },
+            };
         });
     }
 
@@ -2273,18 +2428,45 @@ class RunExecutor {
             });
             this.publishCommittedEvents(committed);
             this.publishCheckpointCommitted(committed, facts);
-            return committed;
+            if (goal.state.historicalStages === undefined && goal.state.notes === undefined) {
+                return committed;
+            }
+            const nextState: GoalState = {
+                ...committed.goal.state,
+                ...(goal.state.historicalStages !== undefined ? { historicalStages: goal.state.historicalStages } : {}),
+                ...(goal.state.notes !== undefined ? { notes: goal.state.notes } : {}),
+            };
+            return {
+                ...committed,
+                goal: {
+                    ...committed.goal,
+                    state: nextState,
+                },
+            };
         });
     }
 
     private async applyPendingSteers(goal: Goal, control?: ExecutionControl): Promise<Goal> {
-        return withRunModeSelectionGate(this.store, goal.id, async () => {
+        return withRunModeSelectionGate(this.store, goal.id, async (): Promise<Goal> => {
             const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
             if (latest === undefined || latest.state.run.status !== "running") return latest ?? goal;
             const pending = (latest.state.run.steerInputs ?? []).filter(
                 (input): input is Extract<RunSteerInput, { readonly status: "pending" }> => input.status === "pending",
             );
-            if (pending.length === 0) return latest;
+            if (pending.length === 0) {
+                if (goal.state.historicalStages === undefined && goal.state.notes === undefined) {
+                    return latest;
+                }
+                const nextState: GoalState = {
+                    ...latest.state,
+                    ...(goal.state.historicalStages !== undefined ? { historicalStages: goal.state.historicalStages } : {}),
+                    ...(goal.state.notes !== undefined ? { notes: goal.state.notes } : {}),
+                };
+                return {
+                    ...latest,
+                    state: nextState,
+                };
+            }
             const messages = [...latest.state.messages];
             const steerInputs = [...(latest.state.run.steerInputs ?? [])];
             const facts: TrajectoryEventDraft[] = [];
@@ -2301,25 +2483,36 @@ class RunExecutor {
                     payload: { type: "steer_input_applied", messageId: input.messageId, messageIndex },
                 });
             }
+            const nextState: GoalState = {
+                ...latest.state,
+                messages,
+                ...(goal.state.historicalStages !== undefined ? { historicalStages: goal.state.historicalStages } : {}),
+                ...(goal.state.notes !== undefined ? { notes: goal.state.notes } : {}),
+                run: (() => {
+                    const {
+                        pendingThink: _pendingThink,
+                        pendingModelRepair: _pendingModelRepair,
+                        ...runWithoutStaleStage
+                    } = latest.state.run;
+                    return { ...runWithoutStaleStage, steerInputs };
+                })(),
+            };
             const nextGoal: Goal = {
                 ...latest,
-                state: {
-                    ...latest.state,
-                    messages,
-                    run: (() => {
-                        const {
-                            pendingThink: _pendingThink,
-                            pendingModelRepair: _pendingModelRepair,
-                            ...runWithoutStaleStage
-                        } = latest.state.run;
-                        return { ...runWithoutStaleStage, steerInputs };
-                    })(),
-                },
+                state: nextState,
             };
             const committed = await this.checkpointCommitter.commit(nextGoal, { facts, ...(control === undefined ? {} : { control }) });
             this.publishCommittedEvents(committed);
             this.publishCheckpointCommitted(committed, facts);
-            return committed.goal;
+            const finalState: GoalState = {
+                ...committed.goal.state,
+                ...(goal.state.historicalStages !== undefined ? { historicalStages: goal.state.historicalStages } : {}),
+                ...(goal.state.notes !== undefined ? { notes: goal.state.notes } : {}),
+            };
+            return {
+                ...committed.goal,
+                state: finalState,
+            };
         });
     }
 
@@ -3527,7 +3720,7 @@ class RunExecutor {
         initialPreparedAction?: PreparedToolAction,
         initialSandboxPlan?: SandboxExecutionPlan,
     ): Promise<RunnerResult> {
-        let goal = initialGoal;
+        let goal = await this.populateHistoricalContext(initialGoal, control);
         let transientAuthorization = authorizedActionId;
         let transientSandboxPlan = initialSandboxPlan;
         let contextLookupResult = initialContextLookupResult;
