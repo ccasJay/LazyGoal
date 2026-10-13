@@ -305,8 +305,10 @@ export function GoalSession({
           ) : (
             <>
               <div className="activity-filter">
-                <label>
+                <label htmlFor="filter-execution-steps">
                   <input
+                    id="filter-execution-steps"
+                    name="showTools"
                     type="checkbox"
                     checked={showTools}
                     onChange={(event) => setShowTools(event.target.checked)}
