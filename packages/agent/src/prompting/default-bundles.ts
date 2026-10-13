@@ -43,6 +43,7 @@ const DYNAMIC_SECTION_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
     { id: "approved-task@1", sourceUrl: new URL("./approved-task@1.njk", import.meta.url) },
     { id: "goal-plan@1", sourceUrl: new URL("./goal-plan@1.njk", import.meta.url) },
     { id: "working-memory@1", sourceUrl: new URL("./working-memory@1.njk", import.meta.url) },
+    { id: "goal-context-navigation@1", sourceUrl: new URL("./goal-context-navigation@1.njk", import.meta.url) },
 ];
 
 /** 默认 Renderer 使用的当前模板资产。 */

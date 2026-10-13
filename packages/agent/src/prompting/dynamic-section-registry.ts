@@ -265,6 +265,14 @@ export function createDefaultDynamicSectionRegistry(): DynamicSectionRegistry {
             templateId: "working-memory@1",
             project: (view) => view.workingMemory,
         },
+        {
+            id: "goal_context_navigation",
+            order: 60,
+            source: "GoalContextNavigation",
+            role: "user",
+            templateId: "goal-context-navigation@1",
+            project: (view) => view.dynamicContext.goalContextNavigation,
+        },
     ]);
 }
 

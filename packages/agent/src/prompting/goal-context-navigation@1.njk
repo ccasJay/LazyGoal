@@ -1,0 +1,30 @@
+Goal Context Navigation:
+{% if section.projection.currentStage -%}
+Current Stage: [{{ section.projection.currentStage.stageId }} (rev {{ section.projection.currentStage.revision }})]
+- Target: {{ section.projection.currentStage.target }}
+- Acceptance Criteria:
+{% for criterion in section.projection.currentStage.acceptanceCriteria -%}
+  * {{ criterion }}
+{% endfor -%}
+{% if section.projection.currentStage.latestReviewRejection -%}
+- Unresolved Gap / Review Rejection: {{ section.projection.currentStage.latestReviewRejection.feedback }}
+{% endif -%}
+{% if section.projection.currentStage.previousStageResultRef -%}
+- Previous Stage Result Ref: stage {{ section.projection.currentStage.previousStageResultRef.stageId }} at seq {{ section.projection.currentStage.previousStageResultRef.sequence }}
+{% endif -%}
+{% endif -%}
+{% if section.projection.historicalStages and section.projection.historicalStages.length > 0 -%}
+Historical Stages:
+{% for stage in section.projection.historicalStages -%}
+- [{{ stage.stageId }} (Run: {{ stage.runId }})] {{ stage.target }} | Status: {{ stage.status }}{% if stage.summary %} | Summary: {{ stage.summary }}{% endif %}{% if stage.sourceRef %} (Ref: {{ stage.sourceRef }}){% endif %}
+{% endfor -%}
+{% endif -%}
+{% if section.projection.notes and section.projection.notes.length > 0 -%}
+Important Context Notes & Decisions:
+{% for note in section.projection.notes -%}
+- [{{ note.category }}] {{ note.content }}{% if note.sourceRef %} (Source: {{ note.sourceRef }}){% endif %}{% if note.supersedesNoteId %} [Supersedes: {{ note.supersedesNoteId }}]{% endif %}
+{% endfor -%}
+{% endif -%}
+{% if section.projection.hasMore or (section.projection.omittedCount and section.projection.omittedCount > 0) -%}
+Note: {{ section.projection.omittedCount }} historical item(s) omitted to fit budget. Use `system_context_lookup` (directory_browse / directory_search / source_expand) to query full history.
+{% endif -%}

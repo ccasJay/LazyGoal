@@ -485,6 +485,115 @@ export interface ModelDynamicContext {
     readonly task?: ModelTask;
     /** 已提交 GoalPlan；不存在时省略。 */
     readonly goalPlan?: ModelGoalPlan;
+    /** 目标工作导航视图；不存在时省略。 */
+    readonly goalContextNavigation?: ModelGoalContextNavigationView;
+}
+
+/**
+ * 目标工作导航中的当前阶段信息。
+ *
+ * @remarks
+ * 包含当前阶段的稳定身份、修订版本、目标、验收条件、最新审查拒绝反馈缺口与前序结果引用。
+ *
+ * @example
+ * ```ts
+ * const currentStage: ModelGoalContextNavigationCurrentStage = {
+ *     stageId: "stage-1",
+ *     revision: 1,
+ *     status: "executing",
+ *     target: "重构网络层",
+ *     acceptanceCriteria: ["测试通过"],
+ * };
+ * ```
+ */
+export interface ModelGoalContextNavigationCurrentStage {
+    readonly stageId: string;
+    readonly revision: number;
+    readonly status: "executing" | "accepted";
+    readonly target: string;
+    readonly acceptanceCriteria: readonly string[];
+    readonly previousStageResultRef?: { readonly stageId: string; readonly sequence: number } | undefined;
+    readonly latestReviewRejection?: { readonly feedback: string; readonly rejectedAtSequence?: number } | undefined;
+}
+
+/**
+ * 目标工作导航中的历史阶段条目。
+ *
+ * @remarks
+ * 只读展示历史阶段的目标、状态、摘要与来源引用，不内联完整轨迹。
+ *
+ * @example
+ * ```ts
+ * const entry: ModelGoalContextNavigationStageEntry = {
+ *     stageId: "stage-0",
+ *     runId: "run-0",
+ *     revision: 1,
+ *     target: "环境初始化",
+ *     status: "accepted",
+ *     summary: "已完成初始化",
+ * };
+ * ```
+ */
+export interface ModelGoalContextNavigationStageEntry {
+    readonly stageId: string;
+    readonly runId: string;
+    readonly revision: number;
+    readonly target: string;
+    readonly status: "executing" | "accepted" | "rejected";
+    readonly summary?: string | undefined;
+    readonly sourceRef?: string | undefined;
+}
+
+/**
+ * 目标工作导航中的重要信息与决策条目。
+ *
+ * @remarks
+ * 包含决策或用户强调，暴露可引用身份而不复制完整长正文。
+ *
+ * @example
+ * ```ts
+ * const entry: ModelGoalContextNavigationNoteEntry = {
+ *     noteId: "note-1",
+ *     category: "decision",
+ *     content: "选用 SQLite",
+ *     sourceRef: "src-1",
+ * };
+ * ```
+ */
+export interface ModelGoalContextNavigationNoteEntry {
+    readonly noteId: string;
+    readonly category: "decision" | "user_emphasis";
+    readonly content: string;
+    readonly sourceRef: string;
+    readonly supersedesNoteId?: string | undefined;
+}
+
+/**
+ * 目标工作导航视图。
+ *
+ * @remarks
+ * 由动态 section `goal_context_navigation` 消费，为模型每轮提供当前阶段、
+ * 缺口、相关历史和决策导航；支持预算内裁剪并提供省略标记与继续查询入口。
+ *
+ * @example
+ * ```ts
+ * const nav: ModelGoalContextNavigationView = {
+ *     currentStage: {
+ *         stageId: "stage-1",
+ *         revision: 1,
+ *         status: "executing",
+ *         target: "目标",
+ *         acceptanceCriteria: ["标准"],
+ *     },
+ * };
+ * ```
+ */
+export interface ModelGoalContextNavigationView {
+    readonly currentStage?: ModelGoalContextNavigationCurrentStage | undefined;
+    readonly historicalStages?: readonly ModelGoalContextNavigationStageEntry[] | undefined;
+    readonly notes?: readonly ModelGoalContextNavigationNoteEntry[] | undefined;
+    readonly omittedCount?: number | undefined;
+    readonly hasMore?: boolean | undefined;
 }
 
 /**
