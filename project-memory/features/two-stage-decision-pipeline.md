@@ -5,9 +5,9 @@ status_reason: "已由原生双通道工具调用架构 (native-tool-calling-arc
 summary: "同模型双阶段决策流水线，单步内串行 Think 与 Decide 解决思维链与严格 Schema 冲突（已由 native-tool-calling-architecture 取代）"
 source_spec: specs/two-stage-decision-pipeline/
 distilled_at: 2026-09-21
-reviewed_at: 2026-09-21
+reviewed_at: 2026-10-10
 tags: [agent, decision-pipeline, two-stage, thinking, cot, superseded]
-authorities: [docs/architecture/agent.md, docs/architecture/README.md, packages/runtime/src/trajectory.ts]
+authorities: [packages/agent/notes/overview.md, README.md, packages/runtime/src/trajectory.ts]
 superseded_by: [project-memory/features/native-tool-calling-architecture.md]
 ---
 
@@ -36,6 +36,6 @@ superseded_by: [project-memory/features/native-tool-calling-architecture.md]
 - S1: `specs/two-stage-decision-pipeline/requirements.md`
 - S2: `specs/two-stage-decision-pipeline/design.md`
 - S3: `specs/two-stage-decision-pipeline/tasks.md`
-- S4: `docs/architecture/agent.md`
-- S5: `docs/architecture/README.md`
+- S4: `packages/agent/notes/overview.md`
+- S5: `README.md`
 - S6: `packages/runtime/src/trajectory.ts`

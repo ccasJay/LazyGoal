@@ -4,9 +4,9 @@ status: active
 summary: "从持久化模型调用事实与 Goal Snapshot 投影逐 Run 和全会话指标，提供可信用量、效率、覆盖状态及本机只读订阅"
 source_spec: specs/session-metrics-projection/
 distilled_at: 2026-09-30
-reviewed_at: 2026-09-30
+reviewed_at: 2026-10-10
 tags: [session-metrics, model-usage, cache-hit, throughput, run, http, coverage]
-authorities: [docs/architecture/session-metrics.md, docs/architecture/http.md, packages/runtime/src/model-call-metrics.ts, packages/agent/src/llm-step-executor.ts, packages/storage/src/json-file-metrics-store.ts, packages/session-metrics/src/session-metrics-service.ts, packages/session-metrics/src/session-metrics-http.ts, packages/http/src/http-service.ts, packages/tui/src/cli.tsx]
+authorities: [packages/session-metrics/notes/overview.md, packages/http/notes/overview.md, packages/runtime/src/model-call-metrics.ts, packages/agent/src/llm-step-executor.ts, packages/storage/src/json-file-metrics-store.ts, packages/session-metrics/src/session-metrics-service.ts, packages/session-metrics/src/session-metrics-http.ts, packages/http/src/http-service.ts, apps/goal-server/src/composition-root.ts]
 ---
 
 # Session Metrics Projection
@@ -40,15 +40,15 @@ authorities: [docs/architecture/session-metrics.md, docs/architecture/http.md, p
 - S1: `specs/session-metrics-projection/requirements.md`
 - S2: `specs/session-metrics-projection/design.md`
 - S3: `specs/session-metrics-projection/tasks.md`
-- S4: `docs/architecture/session-metrics.md`
+- S4: `packages/session-metrics/notes/overview.md`
 - S5: `packages/runtime/src/model-call-metrics.ts`
 - S6: `packages/agent/src/llm-step-executor.ts`
 - S7: `packages/storage/src/json-file-metrics-store.ts`
 - S8: `packages/session-metrics/src/session-metrics-service.ts`
 - S9: `packages/http/src/http-service.ts`
 - S10: `packages/session-metrics/src/session-metrics-http.ts`
-- S11: `packages/tui/src/cli.tsx`
+- S11: `apps/goal-server/src/composition-root.ts`
 - S12: `packages/session-metrics/test/session-metrics-service.test.ts`
 - S13: `packages/session-metrics/test/session-metrics.integration.test.ts`
 - S14: `packages/session-metrics/test/session-metrics-http.test.ts`
-- S15: `docs/architecture/http.md`
+- S15: `packages/http/notes/overview.md`

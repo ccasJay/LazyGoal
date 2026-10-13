@@ -205,7 +205,7 @@ test("real local service restores and completes one authorized Goal conversation
     await waitForExpression(socket, "document.querySelector('.tr-detail-body pre') !== null");
     assert.equal(await value(socket, "document.activeElement?.id"), `trajectory-event-${trajectory.body.locatedSequence}`);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#trajectory-event-" + toolEvent.sequence + "').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.tr-detail-title')?.innerText.includes('tool_started')");
+    await waitForExpression(socket, "document.querySelector('.tr-detail-title h3')?.textContent === 'browser_fixture_write'");
     await waitForExpression(socket, "[...document.querySelectorAll('.tr-detail-tabs button')].some(button => button.textContent === 'Result') && !document.querySelector('.tr-detail-body')?.innerText.includes('Loading recorded details')");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.tr-detail-tabs button')].find(button => button.textContent === 'Result').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-detail-body')?.innerText.includes('PRIVATE_CONTROLLED_TOOL_OUTPUT')");
@@ -228,12 +228,12 @@ test("real local service restores and completes one authorized Goal conversation
     const timelineBounds = await value(socket, "(() => { const bounds = document.querySelector('.tr-plot').getBoundingClientRect(); return { x: bounds.left, y: bounds.top, width: bounds.width, height: bounds.height }; })()");
     const rulerValues = () => value(socket, "[...document.querySelectorAll('.tr-ruler span')].map(tick => parseFloat(tick.textContent))");
     const fullRuler = await rulerValues();
-    const fullLedger = await value(socket, "document.querySelector('.tr-ledger-foot > span').textContent");
+    const fullLedger = await value(socket, "document.querySelector('.tr-page-count').textContent");
     await cdp(socket, "Input.dispatchMouseEvent", { type: "mouseWheel", x: timelineBounds.x + timelineBounds.width * .6, y: timelineBounds.y + 30, deltaX: 0, deltaY: -180 });
     await waitForExpression(socket, "document.querySelector('.tr-zoom-level').textContent !== '1×'");
     const zoomRuler = await rulerValues();
     assert.ok(zoomRuler.at(-1) - zoomRuler[0] < fullRuler.at(-1) - fullRuler[0]);
-    assert.equal(await value(socket, "document.querySelector('.tr-ledger-foot > span').textContent"), fullLedger, "visual zoom preserves the event query");
+    assert.equal(await value(socket, "document.querySelector('.tr-page-count').textContent"), fullLedger, "visual zoom preserves the event query");
     await cdp(socket, "Input.dispatchMouseEvent", { type: "mouseWheel", x: timelineBounds.x + timelineBounds.width * .6, y: timelineBounds.y + 30, deltaX: 100, deltaY: 0 });
     await waitForExpression(socket, `parseFloat(document.querySelector('.tr-ruler span').textContent) > ${zoomRuler[0]}`);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.tr-plot').focus()", returnByValue: true });
@@ -243,9 +243,10 @@ test("real local service restores and completes one authorized Goal conversation
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Zoom in timeline\"]').click()", returnByValue: true });
     const beforeDrag = await rulerValues();
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Pan timeline\"]').click()", returnByValue: true });
-    await cdp(socket, "Input.dispatchMouseEvent", { type: "mousePressed", x: timelineBounds.x + timelineBounds.width * .6, y: timelineBounds.y + timelineBounds.height - 7, button: "left", buttons: 1, clickCount: 1 });
-    await cdp(socket, "Input.dispatchMouseEvent", { type: "mouseMoved", x: timelineBounds.x + timelineBounds.width * .4, y: timelineBounds.y + timelineBounds.height - 7, button: "left", buttons: 1 });
-    await cdp(socket, "Input.dispatchMouseEvent", { type: "mouseReleased", x: timelineBounds.x + timelineBounds.width * .4, y: timelineBounds.y + timelineBounds.height - 7, button: "left", clickCount: 1 });
+    const dragBounds = await value(socket, "(() => { const bounds = document.querySelector('.tr-plot').getBoundingClientRect(); return { x: bounds.left, y: bounds.top, width: bounds.width, height: bounds.height }; })()");
+    await cdp(socket, "Input.dispatchMouseEvent", { type: "mousePressed", x: dragBounds.x + dragBounds.width * .6, y: dragBounds.y + dragBounds.height - 7, button: "left", buttons: 1, clickCount: 1 });
+    await cdp(socket, "Input.dispatchMouseEvent", { type: "mouseMoved", x: dragBounds.x + dragBounds.width * .4, y: dragBounds.y + dragBounds.height - 7, button: "left", buttons: 1 });
+    await cdp(socket, "Input.dispatchMouseEvent", { type: "mouseReleased", x: dragBounds.x + dragBounds.width * .4, y: dragBounds.y + dragBounds.height - 7, button: "left", clickCount: 1 });
     await waitForExpression(socket, `parseFloat(document.querySelector('.tr-ruler span').textContent) > ${beforeDrag[0]}`);
     assert.equal(await value(socket, "[...document.querySelectorAll('.tr-ledger-foot button')].some(button => button.textContent === 'Clear range')"), false, "pan does not create a range filter");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Reset timeline zoom\"]').click(); document.querySelector('button[aria-label=\"Pan timeline\"]').click()", returnByValue: true });
@@ -626,7 +627,7 @@ async function navigate(socket, url) {
 
 async function value(socket, expression) {
   const result = await cdp(socket, "Runtime.evaluate", { expression, returnByValue: true });
-  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+  if (result.exceptionDetails) throw new Error(`${result.exceptionDetails.text}: ${result.exceptionDetails.exception?.description ?? expression}`);
   return result.result.value;
 }
 

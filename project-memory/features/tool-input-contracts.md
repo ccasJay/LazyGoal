@@ -4,9 +4,9 @@ status: active
 summary: "Tool 输入契约全面迁移至不可变 Contract AST，建立单次准备边界与确定性模型 Schema 投影"
 source_spec: specs/tool-input-contracts/
 distilled_at: 2026-09-05
-reviewed_at: 2026-09-05
+reviewed_at: 2026-10-10
 tags: [tool, contracts, tool-registration, prepared-action, runtime, schema-projection]
-authorities: [docs/architecture/runtime.md, packages/runtime/src/tool.ts, packages/runtime/src/runner.ts, packages/agent/src/model-inference-projector.ts]
+authorities: [packages/runtime/notes/overview.md, packages/runtime/src/tool.ts, packages/runtime/src/runner.ts, packages/agent/src/model-inference-projector.ts]
 ---
 
 # Tool Input Contracts

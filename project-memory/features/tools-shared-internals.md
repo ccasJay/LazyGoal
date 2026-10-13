@@ -6,9 +6,9 @@ superseded_by: [project-memory/features/permission.md]
 summary: "文件级 Tool 共享沙箱、单次校验与公共导出收窄"
 source_spec: specs/tools-shared-internals/
 distilled_at: 2026-08-25
-reviewed_at: 2026-10-01
+reviewed_at: 2026-10-10
 tags: [tools, sandbox, internals, exports, validation]
-authorities: [docs/architecture/runtime.md, packages/sandbox/src/index.ts, packages/tools/src/index.ts]
+authorities: [packages/runtime/notes/overview.md, packages/sandbox/src/index.ts, packages/tools/src/index.ts]
 ---
 
 # Tools Shared Internals

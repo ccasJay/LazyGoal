@@ -5,9 +5,9 @@ status_reason: "声明式只读工具元数据已由 unified-agent-step-flow 继
 summary: "准备阶段声明式只读工具筛选与受控探查循环（已由 unified-agent-step-flow 与 preparation-phase-removal 取代）"
 source_spec: specs/preparation-read-only-tools/
 distilled_at: 2026-09-21
-reviewed_at: 2026-09-21
+reviewed_at: 2026-10-10
 tags: [preparation, read-only, tools, probe-action, superseded]
-authorities: [docs/architecture/runtime.md, docs/architecture/README.md, packages/runtime/src/domain.ts, packages/tools/src/index.ts]
+authorities: [packages/runtime/notes/overview.md, README.md, packages/runtime/src/domain.ts, packages/tools/src/index.ts]
 superseded_by: [project-memory/features/unified-agent-step-flow.md]
 ---
 
@@ -36,7 +36,7 @@ superseded_by: [project-memory/features/unified-agent-step-flow.md]
 - S1: `specs/preparation-read-only-tools/requirements.md`
 - S2: `specs/preparation-read-only-tools/design.md`
 - S3: `specs/preparation-read-only-tools/tasks.md`
-- S4: `docs/architecture/runtime.md`
-- S5: `docs/architecture/README.md`
+- S4: `packages/runtime/notes/overview.md`
+- S5: `README.md`
 - S6: `packages/runtime/src/domain.ts`
 - S7: `packages/tools/src/index.ts`

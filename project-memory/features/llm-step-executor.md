@@ -4,9 +4,9 @@ status: active
 summary: "单次模型决策、严格 AgentDecision 协议与 ToolDefinition 输入边界"
 source_spec: specs/llm-step-executor/
 distilled_at: 2026-08-16
-reviewed_at: 2026-08-18
+reviewed_at: 2026-10-10
 tags: [agent, llm, agent-decision, tool-definition]
-authorities: [docs/architecture/agent.md, packages/agent/src/llm-step-executor.ts]
+authorities: [packages/agent/notes/overview.md, packages/agent/src/llm-step-executor.ts]
 ---
 
 # LLM Step Executor

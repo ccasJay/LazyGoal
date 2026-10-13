@@ -4,9 +4,9 @@ status: active
 summary: "Bash 有界流式输出与专用 Tool 优先策略"
 source_spec: specs/tool-output-safety/
 distilled_at: 2026-08-25
-reviewed_at: 2026-09-03
+reviewed_at: 2026-10-10
 tags: [bash, output-bound, prompt, tool-selection, truncation]
-authorities: [docs/architecture/agent.md, docs/architecture/runtime.md, packages/tools/src/bash.ts]
+authorities: [packages/agent/notes/overview.md, packages/runtime/notes/overview.md, packages/tools/src/bash.ts]
 ---
 
 # Tool Output Safety
@@ -39,5 +39,5 @@ authorities: [docs/architecture/agent.md, docs/architecture/runtime.md, packages
 - S4: `packages/tools/test/bash.test.ts`
 - S5: `packages/agent/src/step-prompt/agent-decision@1.njk`
 - S6: `packages/agent/test/prompting-default-bundles.test.ts`
-- S7: `docs/architecture/agent.md`
-- S8: `docs/architecture/runtime.md`
+- S7: `packages/agent/notes/overview.md`
+- S8: `packages/runtime/notes/overview.md`

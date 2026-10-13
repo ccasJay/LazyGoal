@@ -14,6 +14,7 @@ export const EXECUTE_PROGRAM_INPUT_CONTRACT = contract.object({
 export const EXECUTE_PROGRAM_DEFINITION: ToolDefinition<typeof EXECUTE_PROGRAM_INPUT_CONTRACT> = {
     id: EXECUTE_PROGRAM_TOOL_ID,
     description: "Run a bounded JavaScript program that calls authorized tools via tools[toolId](input) and returns one JSON-safe conclusion.",
+    discoveryAliases: ["ptc", "programmatic tool calling", "程序化工具调用"],
     inputContract: EXECUTE_PROGRAM_INPUT_CONTRACT,
     isReadOnly: false,
 };

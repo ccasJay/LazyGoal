@@ -4,9 +4,9 @@ status: active
 summary: "按 Token 预算组装包含 Hot 执行单元与有界 Warm 紧缩的有界模型上下文"
 source_spec: specs/trajectory-model-context/
 distilled_at: 2026-09-03
-reviewed_at: 2026-09-03
+reviewed_at: 2026-10-10
 tags: [trajectory, context-assembly, hot-window, warm-compact, token-budget]
-authorities: [docs/architecture/agent.md, packages/agent/src/trajectory-model-context-assembler.ts, packages/agent/src/model-inference-view.ts]
+authorities: [packages/agent/notes/overview.md, packages/agent/src/trajectory-model-context-assembler.ts, packages/agent/src/model-inference-view.ts]
 ---
 
 # Trajectory Model Context

@@ -4,9 +4,9 @@ status: active
 summary: "纯状态转换、Step 计数与不可逆终态边界"
 source_spec: specs/goal-driven-loop-foundation/
 distilled_at: 2026-08-16
-reviewed_at: 2026-08-18
+reviewed_at: 2026-10-10
 tags: [transition, state-machine, step-count, terminal-state]
-authorities: [docs/architecture/runtime.md, packages/runtime/src/transition.ts]
+authorities: [packages/runtime/notes/overview.md, packages/runtime/src/transition.ts]
 ---
 
 # Goal-Driven Loop Foundation

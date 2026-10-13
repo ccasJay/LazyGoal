@@ -4,9 +4,9 @@ status: active
 summary: "提供基于独立 Conda 环境的 ALFWorld TextWorld 端到端可复现评测能力"
 source_spec: specs/alfworld-textworld-eval/
 distilled_at: 2026-09-03
-reviewed_at: 2026-09-03
+reviewed_at: 2026-10-10
 tags: [benchmark, alfworld, textworld, evaluation, tool]
-authorities: [docs/architecture/README.md, benchmarks/alfworld/src/evaluation-runner.ts, benchmarks/alfworld/src/alfworld-tools.ts, benchmarks/alfworld/src/sidecar-client.ts]
+authorities: [README.md, benchmarks/alfworld/src/evaluation-runner.ts, benchmarks/alfworld/src/alfworld-tools.ts, benchmarks/alfworld/src/sidecar-client.ts]
 ---
 
 # ALFWorld TextWorld Evaluation

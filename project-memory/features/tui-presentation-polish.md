@@ -1,52 +1,44 @@
 ---
 feature: tui-presentation-polish
-status: active
-summary: "TUI 进度、错误、输入和响应式终端展示的一致性约定"
+status: obsolete
+status_reason: "LazyGoal 退出终端 TUI 产品形态，终端渲染打磨与 ANSI 样式代码已完全废弃，展示逻辑迁移至 Web goal-board。"
+summary: "TUI 进度、错误、输入和响应式终端展示的一致性约定（已退役为负面护栏）"
 source_spec: specs/tui-presentation-polish/
 distilled_at: 2026-08-25
-reviewed_at: 2026-09-18
-tags: [tui, presentation, spinner, error, input, rendering, terminal-width]
-authorities: [docs/architecture/tui.md, packages/tui/src/status-spinner.tsx, packages/tui/src/error-line.tsx, packages/tui/src/ansi-styles.ts, packages/tui/src/goal-list.tsx, packages/tui/src/goal-select-screen.tsx, packages/tui/src/inspector-screen.tsx]
+reviewed_at: 2026-10-10
+tags: [tui, presentation, spinner, error, input, rendering, terminal-width, obsolete]
+authorities: [apps/goal-board/notes/overview.md, apps/goal-server/notes/overview.md]
 ---
 
 # TUI Presentation Polish
 
+> [!CAUTION]
+> 负面护栏：针对终端字符渲染、ANSI 槽线对齐与 Ink 终端组件的适配方案已被淘汰。现代 LazyGoal 交互由浏览器端 React CSS 布局处理，不得在核心包中维护终端特定的字符宽度或渲染折叠逻辑。
+
 ## Purpose
 
-- TUI 表现层使用共享进度和错误原语、统一输入反馈，并按终端显示列宽和可用高度组织主页、历史列表与 Inspector；不改变 Runtime、Agent 或 Storage 状态机。 [S1, S2, S3, S4, S8, S9, S10, S11, S12]
+- 早期 TUI 表现层使用共享进度和错误原语、统一输入反馈，并按终端显示列宽和可用高度组织主页、历史列表与 Inspector。 [S1, S2]
 
 ## Durable Decisions
 
-- D1 — `StatusSpinner` 是 TUI 唯一的 Spinner 渲染原语，`ErrorLine` 是统一错误展示原语；不同屏幕只提供上下文相关的 label 和错误数据。 [S1, S2, S3, S4, S7]
-- D2 — ask_user question、blocked 和 task feedback 输入在合法提交成功后清空，busy 时推进控件停用；当前实现以 `defaultValue + key` 实现该可观察行为，不把受控 `value` 作为当前实现契约。 [S1, S2, S5, S6, S7]
-- D3 — Action JSON 超过展示阈值时只在 TUI 层折叠并显示省略字符数；Goal ID 只显示可辨认前缀，批准面板统一使用 Y/N，终态和异常路由保持现有语义。 [S1, S2, S5, S7]
-- D4 — ANSI 分隔条和槽线使用 `string-width` 与 `wrap-ansi` 按终端显示列宽换行；中文、Emoji 和组合字符不按 JavaScript 字符串长度计算，续行保持槽线对齐。 [S8, S9, S13]
-- D5 — 历史列表分开展示标题与状态/ID/更新时间，按实际描述高度计算可见项；Inspector 的帮助栏只显示当前可用的 Reasoning/Output 操作，窄终端使用最小视口退化，背景继承终端主题。 [S8, S10, S11, S12, S13]
+- D1 — 早期 `StatusSpinner` 与 `ErrorLine` 作为终端展示原语。 [S1, S2]
+- D2 — 早期输入控件在合法提交成功后清空，busy 时停用。 [S1, S2]
+- D3 — 早期 Action JSON 超过展示阈值时只在 TUI 层折叠并显示省略字符数。 [S1, S2]
+- D4 — 早期 ANSI 分隔条和槽线使用 `string-width` 与 `wrap-ansi` 按终端显示列宽换行。 [S1, S2]
+- D5 — 早期历史列表分开展示标题与状态，Inspector 提供最小视口退化。 [S1, S2]
 
 ## Guardrails
 
-- 表现层截断、折行、折叠和帮助文案只影响渲染，不得修改 Action 输入、Observation、Snapshot 或传给 Runtime 的原始数据。 [S1, S2, S5, S6, S8, S9]
-- Spinner、错误优先级、busy 禁用和 dispatch 异常处理必须保持可识别且一致；未知业务异常不得被静默吞掉。 [S1, S2, S3, S4, S7]
-- 所有宽度和高度计算必须保留窄终端可读性；新页面继续复用现有官方输入/选择组件，不引入新的手写基础控件或外部项目名称。 [S1, S2, S8, S9, S10, S11, S12, S13]
+- 表现层截断、折行和折叠只影响渲染，不得修改 Action 输入、Observation、Snapshot 或传给 Runtime 的原始数据。 [S1, S2]
+- 终端展示层代码已废弃，不得在核心运行时中重新引入终端 ANSI 布局依赖。 [S1, S3, S4]
 
 ## Revisit When
 
-- `@inkjs/ui` 提供稳定受控输入 API，或输入清空需要改为真正的 `value + onChange` 时。
-- TUI 引入新的共享展示原语、不同终端渲染协议或结构化 Action 展示时。
-- 终端宽度测量库、Ink resize 行为或可访问性要求发生变化时。
+- 评估轻量级终端日志高亮格式化工具时。
 
 ## Sources
 
 - S1: `specs/tui-presentation-polish/requirements.md`
 - S2: `specs/tui-presentation-polish/design.md`
-- S3: `packages/tui/src/status-spinner.tsx`
-- S4: `packages/tui/src/error-line.tsx`
-- S5: `packages/tui/src/session-screen.tsx`
-- S6: `packages/tui/src/ask-user-panel.tsx`
-- S7: `packages/tui/test/screens.test.tsx`
-- S8: `docs/architecture/tui.md`
-- S9: `packages/tui/src/ansi-styles.ts`
-- S10: `packages/tui/src/goal-list.tsx`
-- S11: `packages/tui/src/goal-select-screen.tsx`
-- S12: `packages/tui/src/inspector-screen.tsx`
-- S13: `packages/tui/test/ansi-styles.test.ts`
+- S3: `specs/web-backend-separation/requirements.md`
+- S4: `apps/goal-board/notes/overview.md`

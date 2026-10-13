@@ -4,9 +4,9 @@ status: active
 summary: "实现 Goal-stable → Epoch-stable → Step-dynamic 三层请求拓扑以最大化大模型前缀缓存命中"
 source_spec: specs/prompt-cache-alignment/
 distilled_at: 2026-09-03
-reviewed_at: 2026-10-01
+reviewed_at: 2026-10-10
 tags: [prompt-cache, kv-cache, prompt-topology, token-budget, stateless-render]
-authorities: [docs/architecture/agent.md, packages/agent/src/model-inference-view.ts, packages/agent/src/render.ts, packages/agent/src/step-prompt/agent-decision@1.njk]
+authorities: [packages/agent/notes/overview.md, packages/agent/src/model-inference-view.ts, packages/agent/src/render.ts, packages/agent/src/step-prompt/agent-decision@1.njk]
 ---
 
 # Prompt Cache Alignment

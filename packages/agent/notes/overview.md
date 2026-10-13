@@ -5,7 +5,7 @@
 
 ## 职责
 
-Agent 将 Runtime 提供的 Goal、Profile、授权 Tool、当前 Run 的 `exposedToolIds`、Working Memory 和已提交 Context Lookup 结果投影为模型请求。业务 Schema 只取授权目录与暴露 ID 的交集，并统一供 Prompt、Wire Contract、native declarations 和 PTC 子工具说明使用。Decide 可通过 `system_find_tools` 请求 Runtime 查询工具目录；匹配结果只作为下一次 Decide 的临时反馈，Think 不带发现分支或系统工具声明。主要入口是 [`LLMStepExecutor`](../src/llm-step-executor.ts)、[`model-inference-view.ts`](../src/model-inference-view.ts)、[`prompt.ts`](../src/prompt.ts) 和 [`render.ts`](../src/render.ts)。授权列表含 `execute_program` 时，Prompt 说明由模型按任务选择程序或直接 Tool；PTC 内部调用事实不进入原生历史、Hot/Warm 或检索索引，只有已结算的父程序结果参与下一次模型请求。Agent 不保存 Goal，不执行 Tool，不生成 Runtime ID，也不决定审批结果。
+Agent 将 Runtime 提供的 Goal、Profile、授权 Tool、当前 Run 的 `exposedToolIds`、Working Memory 和已提交 Context Lookup 结果投影为模型请求。业务 Schema 只取授权目录与暴露 ID 的交集，并统一供 Prompt、Wire Contract、native declarations 和 PTC 子工具说明使用。Decide 可通过 `system_find_tools` 请求 Runtime 查询工具目录；匹配结果只作为下一次 Decide 的临时反馈，Think 不带发现分支或系统工具声明。主要入口是 [`LLMStepExecutor`](../src/llm-step-executor.ts)、[`model-inference-view.ts`](../src/model-inference-view.ts)、[`prompt.ts`](../src/prompt.ts) 和 [`render.ts`](../src/render.ts)。Decide 指引大量文件审阅先发现 `execute_program` 及其子工具；程序入口暴露后，Prompt 指引模型批量读取、过滤并返回简洁证据，简单或依赖逐项推理的操作可直接调用 Tool。PTC 内部调用事实不进入原生历史、Hot/Warm 或检索索引，只有已结算的父程序结果参与下一次模型请求。Agent 不保存 Goal，不执行 Tool，不生成 Runtime ID，也不决定审批结果。
 
 ## Prompt Bundle
 

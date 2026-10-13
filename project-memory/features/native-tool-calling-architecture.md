@@ -4,9 +4,9 @@ status: active
 summary: "每次 Decide 调用以原生双通道和单次往返生成约束决策，并按当前 Run 可见工具集投影 Schema"
 source_spec: specs/native-tool-calling-architecture/
 distilled_at: 2026-09-21
-reviewed_at: 2026-10-04
+reviewed_at: 2026-10-10
 tags: [agent, llm, tool-calling, dual-channel, 1-rtt, system-tools, function-calling]
-authorities: [docs/architecture/llm.md, docs/architecture/agent.md, docs/architecture/contracts.md, packages/llm/src/core/types.ts, packages/contracts/src/model-output/system-tools.ts, packages/agent/src/llm-step-executor.ts, packages/runtime/src/tool-discovery.ts, packages/runtime/src/runner.ts, packages/agent/src/model-inference-projector.ts]
+authorities: [packages/llm/notes/overview.md, packages/agent/notes/overview.md, packages/contracts/notes/overview.md, packages/llm/src/core/types.ts, packages/model-contracts/src/model-output/system-tools.ts, packages/agent/src/llm-step-executor.ts, packages/runtime/src/tool-discovery.ts, packages/runtime/src/runner.ts, packages/agent/src/model-inference-projector.ts]
 supersedes: [project-memory/features/two-stage-decision-pipeline.md]
 ---
 
@@ -39,14 +39,14 @@ supersedes: [project-memory/features/two-stage-decision-pipeline.md]
 - S1: `specs/native-tool-calling-architecture/requirements.md`
 - S2: `specs/native-tool-calling-architecture/design.md`
 - S3: `specs/native-tool-calling-architecture/tasks.md`
-- S4: `docs/architecture/llm.md`
-- S5: `docs/architecture/agent.md`
+- S4: `packages/llm/notes/overview.md`
+- S5: `packages/agent/notes/overview.md`
 - S6: `packages/llm/src/core/types.ts`
-- S7: `packages/contracts/src/model-output/system-tools.ts`
+- S7: `packages/model-contracts/src/model-output/system-tools.ts`
 - S8: `packages/agent/src/llm-step-executor.ts`
 - S9: `specs/on-demand-tool-schemas/requirements.md`
 - S10: `specs/on-demand-tool-schemas/design.md`
-- S11: `docs/architecture/contracts.md`
+- S11: `packages/contracts/notes/overview.md`
 - S12: `packages/runtime/src/runner.ts`
 - S13: `packages/agent/src/model-inference-projector.ts`
 - S14: `packages/runtime/test/tool-discovery.test.ts`

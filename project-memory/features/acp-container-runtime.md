@@ -4,9 +4,9 @@ status: active
 summary: "SWE-bench 容器化评测运行时，基于 ACP 双通道 Mux 协议实现宿主与容器隔离、环境预检及产物回收"
 source_spec: specs/acp-container-runtime/
 distilled_at: 2026-09-10
-reviewed_at: 2026-09-10
+reviewed_at: 2026-10-10
 tags: [swebench, acp, container, isolation, multiplex, supervisor, preflight, recovery]
-authorities: [docs/architecture/swebench.md, benchmarks/swebench/src/container.ts, benchmarks/swebench/src/supervisor.ts, benchmarks/swebench/src/worker-preflight.ts, benchmarks/swebench/src/result-recovery.ts]
+authorities: [benchmarks/swebench/notes/overview.md, benchmarks/swebench/src/container.ts, benchmarks/swebench/src/supervisor.ts, benchmarks/swebench/src/worker-preflight.ts, benchmarks/swebench/src/result-recovery.ts]
 ---
 
 # ACP Container Runtime
@@ -44,4 +44,4 @@ authorities: [docs/architecture/swebench.md, benchmarks/swebench/src/container.t
 - S5: `benchmarks/swebench/src/worker-preflight.ts`
 - S6: `benchmarks/swebench/src/acp-result-projection.ts`
 - S7: `benchmarks/swebench/src/result-recovery.ts`
-- S8: `docs/architecture/swebench.md`
+- S8: `benchmarks/swebench/notes/overview.md`
