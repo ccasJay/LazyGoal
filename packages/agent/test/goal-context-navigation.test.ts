@@ -343,3 +343,36 @@ test("TODO 5.4 & 6.4: runtime_feedback 仍在末尾，历史数据不升级为�
     assert.ok(lastMessage);
     assert.match(lastMessage.content, /"source":"runtime_feedback"/, "runtime_feedback 必须位于请求末尾");
 });
+
+test("跨 Run 同名阶段不被误判为当前阶段而隐藏", () => {
+    const currentStage: RunStageState = {
+        stageId: "stage-1",
+        revision: 1,
+        status: "executing",
+        target: "当前 Run 的阶段 1",
+        acceptanceCriteria: ["测试"],
+    };
+
+    const historicalStages = [
+        {
+            stageId: "stage-1",
+            runId: "run-historical",
+            revision: 1,
+            status: "executing",
+            target: "旧 Run 的阶段 1",
+            summary: "已完成旧阶段",
+        },
+    ];
+
+    const nav = buildGoalContextNavigation({
+        currentStage,
+        currentRunId: "run-current",
+        historicalStages,
+        currentRequestText: "继续任务",
+    });
+
+    assert.ok(nav !== undefined);
+    assert.equal(nav.currentStage?.stageId, "stage-1");
+    assert.ok(nav.historicalStages !== undefined && nav.historicalStages.length === 1, "旧 Run 的同名 stage-1 必须保留在历史中");
+    assert.equal(nav.historicalStages[0]?.runId, "run-historical");
+});

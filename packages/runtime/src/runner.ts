@@ -1965,7 +1965,7 @@ class RunExecutor {
             };
         }
 
-        if (goal.state.run.currentStage !== undefined && goal.state.run.currentStage.status !== "executing") {
+        if (goal.state.run.currentStage === undefined || goal.state.run.currentStage.status !== "executing") {
             throw new ModelStageFeedbackError(createRuntimeFeedback({
                 goalId: goal.id,
                 runId: goal.state.run.id,

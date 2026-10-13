@@ -170,3 +170,61 @@ test("2.3 & 2.4: 区分用户决定与 Agent 方案，禁止 Agent 方案替代�
     assert.equal(res.acceptedEvents[0]!.noteId, "note-agent-plan");
     assert.equal(res.acceptedEvents[0]!.revision, 3);
 });
+
+test("修订既有记录时不提供 baseRevision 必须抛错拒绝", () => {
+    const existingNotes: RuntimeContextNote[] = [
+        {
+            noteId: "note-1",
+            revision: 1,
+            category: "decision",
+            content: "现有方案",
+            source: { kind: "agent_decision", summary: "现有" },
+        },
+    ];
+
+    const missingBaseRevision = {
+        noteId: "note-1",
+        category: "decision" as const,
+        content: "新方案",
+        source: { kind: "agent_decision" as const, summary: "新" },
+    };
+
+    assert.throws(() => {
+        validateAndReduceContextNotes([missingBaseRevision], {
+            goalId: "goal-1",
+            runId: "run-1",
+            committedMessages: [],
+            existingNotes,
+        });
+    }, /baseRevision is required/i);
+});
+
+test("禁止将 user_emphasis 记录修订或篡改为 Agent 方案/决策", () => {
+    const existingNotes: RuntimeContextNote[] = [
+        {
+            noteId: "note-user-1",
+            revision: 1,
+            category: "user_emphasis",
+            content: "必须向后兼容",
+            source: { kind: "user_message", messageId: "msg-0", verbatimSnippet: "必须向后兼容", summary: "兼容" },
+        },
+    ];
+
+    // 尝试将 user_emphasis 修订为 Agent decision
+    const tamperProposal = {
+        noteId: "note-user-1",
+        baseRevision: 1,
+        category: "decision" as const,
+        content: "重构并不保留兼容",
+        source: { kind: "agent_decision" as const, summary: "放弃兼容" },
+    };
+
+    assert.throws(() => {
+        validateAndReduceContextNotes([tamperProposal], {
+            goalId: "goal-1",
+            runId: "run-1",
+            committedMessages: [{ messageId: "msg-0", role: "user", content: "必须向后兼容" }],
+            existingNotes,
+        });
+    }, /Cannot revise user_emphasis note into agent decision/i);
+});

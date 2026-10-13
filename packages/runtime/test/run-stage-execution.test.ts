@@ -404,3 +404,79 @@ test("1.2 & 2.4: Steer inputs are durably accepted and applied during stage upda
     assert.equal(saved.state.run.steerInputs[0]?.messageId, "steer-stage-1");
     assert.equal(saved.state.run.steerInputs[0]?.status, "applied");
 });
+
+test("未声明任何阶段时提议执行业务工具被严格拦截拒绝", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectory = trajectoryStoreFor(store);
+    const initial = createGoal({
+        ...currentProtocols,
+        promptBundleVersion: 1,
+        id: "goal-no-stage",
+        intent: "test stage interception when currentStage is undefined",
+        profile,
+        runId: "run-no-stage",
+        maxSteps: 5,
+    });
+    // 确保 currentStage 为 undefined
+    assert.equal(initial.state.run.currentStage, undefined);
+    await store.save(initial);
+
+    let sideEffectCalled = false;
+    const toolRegistry = {
+        get(id: string) {
+            return id === "sample_tool" ? createToolRegistration({
+                definition: sampleTool,
+                replayPolicy: "safe",
+                validate: () => ({ ok: true }),
+                execute: async () => {
+                    sideEffectCalled = true;
+                    return { kind: "success" as const, output: { echoed: "done" }, summary: "done" };
+                },
+            }) : undefined;
+        },
+        has(id: string) { return id === "sample_tool"; },
+        list() { return []; },
+        entries() { return []; },
+    } as unknown as ToolRegistry;
+
+    let feedbackReceived: any = undefined;
+    let step = 0;
+    const executor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" }; },
+        async think() { throw new Error("unexpected think"); },
+        async decide({ runtimeFeedback }) {
+            step++;
+            if (runtimeFeedback) {
+                feedbackReceived = runtimeFeedback;
+                return {
+                    kind: "decision",
+                    decision: { kind: "fail", error: "Interrupted after expected feedback" },
+                };
+            }
+            return {
+                kind: "decision",
+                decision: {
+                    kind: "tool_call",
+                    action: {
+                        actionId: "act-biz-1",
+                        toolId: "sample_tool",
+                        input: { value: "test" },
+                    },
+                },
+            };
+        },
+    };
+
+    const runner = new Runner({
+        store,
+        trajectoryStore: trajectory,
+        toolRegistry,
+        executor,
+    });
+
+    const result = await runner.runUntilBlocked({ goalId: initial.id, runId: initial.state.run.id });
+    assert.equal(result.ok, true);
+    assert.equal(sideEffectCalled, false, "业务工具绝不能被执行");
+    assert.ok(feedbackReceived !== undefined, "必须收到纠错 feedback");
+    assert.equal(feedbackReceived.code, "STAGE_DECLARATION_REQUIRED");
+});

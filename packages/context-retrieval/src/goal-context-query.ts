@@ -103,9 +103,14 @@ function extractDirectoryEntries(
     }
 
     // 重要信息记录条目
+    const noteIdCounts = new Map<string, number>();
     for (const note of index.notes) {
+        noteIdCounts.set(note.noteId, (noteIdCounts.get(note.noteId) ?? 0) + 1);
+    }
+    for (const note of index.notes) {
+        const isDuplicateId = (noteIdCounts.get(note.noteId) ?? 0) > 1;
         entries.push({
-            sourceRef: `note:${note.noteId}`,
+            sourceRef: isDuplicateId ? `note:${note.runId}:${note.noteId}` : `note:${note.noteId}`,
             category: note.category,
             runId: note.runId,
             ...(note.stageId !== undefined ? { stageId: note.stageId } : {}),
@@ -349,15 +354,20 @@ export function executeSourceExpand(
         };
     }
 
-    // 2. 重要信息展开: note:<noteId>
+    // 2. 重要信息展开: note:<noteId> 或 note:<runId>:<noteId>
     if (ref.startsWith("note:")) {
         const parts = ref.split(":");
-        if (parts.length !== 2) {
+        let note: typeof index.notes[number] | undefined;
+        if (parts.length === 3) {
+            const runId = parts[1]!;
+            const noteId = parts[2]!;
+            note = index.notes.find((n) => n.runId === runId && n.noteId === noteId);
+        } else if (parts.length === 2) {
+            const noteId = parts[1]!;
+            note = index.notes.find((n) => n.noteId === noteId);
+        } else {
             throw new ContextLookupProtocolError(`Invalid note sourceRef format: ${ref}`);
         }
-        const noteId = parts[1]!;
-
-        const note = index.notes.find((n) => n.noteId === noteId);
         if (note === undefined) {
             throw new ContextLookupProtocolError(`Note not found: ${ref}`);
         }
@@ -469,7 +479,7 @@ export function executeSourceExpand(
             throw new ContextLookupProtocolError(`Message not found: ${ref}`);
         }
 
-        const fullContent = `Message [${msg.messageIndex}] (${msg.role}): Content Hash ${msg.contentHash}`;
+        const fullContent = msg.content ?? `Message [${msg.messageIndex}] (${msg.role}): Content Hash ${msg.contentHash}`;
         const slice = fullContent.slice(offset, offset + limit);
         const truncated = offset + limit < fullContent.length;
 

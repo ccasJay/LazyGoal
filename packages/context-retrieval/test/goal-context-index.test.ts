@@ -319,3 +319,44 @@ test("TODO 3.6: 确定性 sourceDigest 计算，来源变化必引发摘要改�
     const indexModifiedBoundary = buildGoalContextIndex(envelopeModifiedBoundary);
     assert.notEqual(index1.sourceDigest, indexModifiedBoundary.sourceDigest, "Run 边界变动必引发 sourceDigest 改变");
 });
+
+test("跨 Run 提交相同 noteId 时，Goal 目录索引合并后两者皆保留且互不覆盖", () => {
+    const run1Event = createDummyEvent("goal-cross-run", "run-1", 1, "context_note_declared", {
+        type: "context_note_declared",
+        noteId: "note-1",
+        revision: 1,
+        category: "decision",
+        content: "Run 1 选型 SQLite",
+        source: { kind: "agent_decision", summary: "Run 1 决策" },
+    });
+    const run2Event = createDummyEvent("goal-cross-run", "run-2", 1, "context_note_declared", {
+        type: "context_note_declared",
+        noteId: "note-1",
+        revision: 1,
+        category: "decision",
+        content: "Run 2 选型 PostgreSQL",
+        source: { kind: "agent_decision", summary: "Run 2 决策" },
+    });
+
+    const envelope: GoalSourceEnvelope = {
+        goalId: "goal-cross-run",
+        runs: [
+            { runId: "run-1", committedThroughSequence: 1 },
+            { runId: "run-2", committedThroughSequence: 1 },
+        ],
+        messages: [{ messageIndex: 0, role: "user", contentHash: "hash-cross" }],
+        eventsByRun: new Map([
+            ["run-1", [run1Event]],
+            ["run-2", [run2Event]],
+        ]),
+    };
+
+    const index = buildGoalContextIndex(envelope);
+    assert.equal(index.notes.length, 2, "来自两个 Run 的 note-1 必须同时保留在索引中");
+    const noteRun1 = index.notes.find((n) => n.runId === "run-1");
+    const noteRun2 = index.notes.find((n) => n.runId === "run-2");
+    assert.ok(noteRun1 !== undefined);
+    assert.ok(noteRun2 !== undefined);
+    assert.equal(noteRun1.content, "Run 1 选型 SQLite");
+    assert.equal(noteRun2.content, "Run 2 选型 PostgreSQL");
+});

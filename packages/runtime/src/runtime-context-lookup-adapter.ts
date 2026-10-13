@@ -105,6 +105,7 @@ export class RuntimeContextLookupAdapter implements ContextLookupPort {
                     messageIndex: index,
                     role: msg.role,
                     contentHash: createHash("sha256").update(msg.content, "utf8").digest("hex"),
+                    content: msg.content,
                 })),
                 eventsByRun,
             };

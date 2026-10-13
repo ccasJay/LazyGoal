@@ -367,3 +367,32 @@ test("TODO 4.6: 目录搜索 directory_search 支持按关键词定位阶段与�
     assert.equal(searchResult.entries[0]?.sourceRef, "note:note-jwt");
     assert.ok(searchResult.entries[0]?.title.includes("RS256"));
 });
+
+test("source_expand 展开真实消息正文并支持准确切片与原文核对", () => {
+    const rawMessageContent = "用户特别强调：项目配置文件必须存放在 /etc/myapp/config.yaml，且严格禁止读取环境变量。";
+    const envelope: GoalSourceEnvelope = {
+        goalId: "goal-msg-expand",
+        runs: [{ runId: "run-1", committedThroughSequence: 1 }],
+        messages: [
+            {
+                messageIndex: 0,
+                role: "user",
+                contentHash: "hash-msg-0",
+                content: rawMessageContent,
+            },
+        ],
+        eventsByRun: new Map([["run-1", []]]),
+    };
+    const index = buildGoalContextIndex(envelope);
+
+    const expanded = executeSourceExpand(index, envelope, {
+        sourceRef: "message:0",
+        offset: 0,
+        limit: 30,
+    });
+
+    assert.equal(expanded.kind, "message");
+    assert.equal(expanded.truncated, true);
+    assert.equal(expanded.totalLength, rawMessageContent.length);
+    assert.equal(expanded.content, rawMessageContent.slice(0, 30), "必须切片返回真实消息正文，而非伪哈希正文");
+});

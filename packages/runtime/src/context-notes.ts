@@ -76,8 +76,9 @@ export interface ContextNoteReductionResult {
  * 严格执行以下业务校验：
  * 1. user_emphasis 必须引用真实已应用的当前 Goal 用户消息，且原文片段必须在用户消息正文中存在；
  * 2. 禁止 Agent 方案替代用户明确要求（supersedesNoteId 指向 user_emphasis 记录被拒绝）；
- * 3. 修订既有记录时 baseRevision 必须匹配当前最新版本，防止基于过期信息修改；
- * 4. 自动分配稳定 noteId 与单调递增 revision。
+ * 3. 修订既有记录时 baseRevision 必须显式提供且匹配当前最新版本，防止未指定版本或基于过期信息修改；
+ * 4. 禁止将 user_emphasis 记录修订或篡改为 Agent 方案/决策；
+ * 5. 自动分配稳定且连续唯一的 noteId 与单调递增 revision。
  *
  * @param proposals - 模型提议的重要信息列表。
  * @param context - 验证所需的权威上下文。
@@ -102,7 +103,17 @@ export function validateAndReduceContextNotes(
         notesMap.set(note.noteId, note);
     }
 
-    let noteSequence = existingNotes.length;
+    let maxSequence = 0;
+    for (const note of existingNotes) {
+        const match = /^note-(\d+)$/.exec(note.noteId);
+        if (match) {
+            const val = parseInt(match[1]!, 10);
+            if (val > maxSequence) {
+                maxSequence = val;
+            }
+        }
+    }
+    let noteSequence = Math.max(existingNotes.length, maxSequence);
 
     for (const proposal of proposals) {
         // 1. 校验分类与来源匹配
@@ -143,8 +154,14 @@ export function validateAndReduceContextNotes(
             if (!existing) {
                 throw new Error(`Note not found for revision: ${proposal.noteId}`);
             }
-            if (proposal.baseRevision !== undefined && proposal.baseRevision !== existing.revision) {
+            if (proposal.baseRevision === undefined) {
+                throw new Error("baseRevision is required when revising a note");
+            }
+            if (proposal.baseRevision !== existing.revision) {
                 throw new Error(`Stale revision: expected ${existing.revision}, got ${proposal.baseRevision}`);
+            }
+            if (existing.category === "user_emphasis" && (proposal.category !== "user_emphasis" || proposal.source.kind === "agent_decision")) {
+                throw new Error("Cannot revise user_emphasis note into agent decision");
             }
             noteId = existing.noteId;
             revision = existing.revision + 1;

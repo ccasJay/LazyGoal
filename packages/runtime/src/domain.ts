@@ -35,6 +35,7 @@ import type {
     RunStageRejection,
     PreviousStageResultRef,
 } from "./run-stage";
+import type { RuntimeContextNote } from "./context-notes";
 
 import {
     isMemoryProtocol,
@@ -858,6 +859,10 @@ export interface GoalState {
     readonly goalPlan?: GoalPlan;
     /** 已归档终态 Run 的只读摘要；初始 Goal 为空。 */
     readonly completedRuns?: readonly CompletedRunRecord[];
+    /** 可选的 Goal 已归档历史阶段列表（用于模型请求中的工作导航投影）。 */
+    readonly historicalStages?: readonly RunStageState[];
+    /** 可选的 Goal 重要决策与用户强调记录列表（用于模型请求中的工作导航投影）。 */
+    readonly notes?: readonly RuntimeContextNote[];
 }
 
 /**

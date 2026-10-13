@@ -79,6 +79,8 @@ export interface GoalContextNavigationNoteInput {
 export interface GoalContextNavigationBuildOptions {
     /** 当前活动阶段；未开启阶段时省略。 */
     readonly currentStage?: RunStageState | ModelRunStageView | ModelGoalContextNavigationCurrentStage | undefined;
+    /** 当前活动 Run 的稳定标识（用于跨 Run 隔离同名 stageId，避免历史同名阶段被误判为当前阶段而隐藏）。 */
+    readonly currentRunId?: string | undefined;
     /** 历史已提交阶段列表。 */
     readonly historicalStages?: readonly (ModelGoalContextNavigationStageEntry | GoalContextNavigationHistoricalStageInput)[] | undefined;
     /** 重要信息与决策记录列表。 */
@@ -202,8 +204,10 @@ export function buildGoalContextNavigation(
     // 格式化历史阶段
     const formattedHistStages: ModelGoalContextNavigationStageEntry[] = [];
     for (const stage of rawHistStages) {
-        // 如果与当前阶段相同（同 runId + stageId），不作为历史阶段重复列出
-        if (currentStage !== undefined && stage.stageId === currentStage.stageId && ("runId" in stage && stage.status === "executing")) {
+        // 如果与当前阶段相同（同 runId + stageId 且处于 executing 状态），不作为历史阶段重复列出
+        const stageRunId = ("runId" in stage && typeof stage.runId === "string") ? stage.runId : undefined;
+        const isSameRun = options.currentRunId === undefined || stageRunId === undefined || stageRunId === options.currentRunId;
+        if (currentStage !== undefined && stage.stageId === currentStage.stageId && isSameRun && stage.status === "executing") {
             continue;
         }
         const stageStatus = (stage.status === "accepted" || stage.status === "rejected" || stage.status === "executing")

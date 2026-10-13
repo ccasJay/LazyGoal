@@ -765,3 +765,40 @@ test("五类实际通用 Tool 实例的 definition 与 CURRENT_TOOL_DEFINITIONS 
         assert.strictEqual(inst.inputContract, found.inputContract);
     }
 });
+
+test("Projector 将 Goal 的历史阶段和 notes 透传至 goalContextNavigation", () => {
+    const baseGoal = createExecutingGoal();
+    const goalWithHistory = {
+        ...baseGoal,
+        state: {
+            ...baseGoal.state,
+            historicalStages: [
+                {
+                    stageId: "stage-hist-1",
+                    target: "历史设计阶段",
+                    acceptanceCriteria: ["产出文档"],
+                    status: "accepted" as const,
+                    revision: 1,
+                    summary: "已完成架构设计",
+                },
+            ],
+            notes: [
+                {
+                    noteId: "note-hist-1",
+                    revision: 1,
+                    category: "decision" as const,
+                    content: "选用轻量级 SQLite",
+                    source: { kind: "agent_decision" as const, summary: "选型" },
+                },
+            ],
+        },
+    };
+
+    const view = projector.project(goalWithHistory, [], createEmptyWorkingMemory());
+    const nav = view.dynamicContext.goalContextNavigation;
+    assert.ok(nav !== undefined, "应生成 goalContextNavigation");
+    assert.ok(nav.historicalStages !== undefined && nav.historicalStages.length > 0, "历史阶段应成功接入导航");
+    assert.equal(nav.historicalStages[0]?.stageId, "stage-hist-1");
+    assert.ok(nav.notes !== undefined && nav.notes.length > 0, "notes 应成功接入导航");
+    assert.equal(nav.notes[0]?.noteId, "note-hist-1");
+});

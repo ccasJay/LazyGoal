@@ -118,11 +118,13 @@ export interface GoalSourceEnvelope {
         readonly runId: string;
         readonly committedThroughSequence: number;
     }[];
-    /** 消息来源摘要。 */
+    /** 消息来源摘要与真实正文。 */
     readonly messages: readonly {
         readonly messageIndex: number;
         readonly role: "user" | "assistant";
         readonly contentHash: string;
+        /** 真实消息正文（用于 source_expand 原文核对）。 */
+        readonly content?: string;
     }[];
     /** 按 Run 分组的 Trajectory 事件。 */
     readonly eventsByRun: ReadonlyMap<string, readonly ContextRetrievalTrajectoryEvent[]>;
@@ -262,7 +264,8 @@ export function buildGoalContextIndex(envelope: GoalSourceEnvelope): GoalContext
                     readonly source: ContextNoteSource;
                     readonly supersedesNoteId?: string;
                 };
-                notesMap.set(p.noteId, {
+                const noteKey = `${run.runId}:${p.noteId}`;
+                notesMap.set(noteKey, {
                     goalId: envelope.goalId,
                     runId: run.runId,
                     noteId: p.noteId,
@@ -306,7 +309,11 @@ export function buildGoalContextIndex(envelope: GoalSourceEnvelope): GoalContext
     });
 
     const notesList = [...notesMap.values()];
-    notesList.sort((a, b) => a.noteId.localeCompare(b.noteId));
+    notesList.sort((a, b) => {
+        const idCmp = a.noteId.localeCompare(b.noteId);
+        if (idCmp !== 0) return idCmp;
+        return a.runId.localeCompare(b.runId);
+    });
 
     // 计算确定性 sourceDigest
     const hash = createHash("sha256");
@@ -321,7 +328,7 @@ export function buildGoalContextIndex(envelope: GoalSourceEnvelope): GoalContext
         hash.update(`stage:${s.runId}:${s.stageId}:${s.revision}:${s.status}:${s.summary ?? ""}:${s.rejectionFeedback ?? ""}\n`);
     }
     for (const n of notesList) {
-        hash.update(`note:${n.noteId}:${n.revision}:${n.category}:${n.content}:${n.supersedesNoteId ?? ""}\n`);
+        hash.update(`note:${n.runId}:${n.noteId}:${n.revision}:${n.category}:${n.content}:${n.supersedesNoteId ?? ""}\n`);
     }
     const sourceDigest = hash.digest("hex");
 
