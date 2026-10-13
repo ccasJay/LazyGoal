@@ -138,6 +138,7 @@ async function completedDecision() {
         summary: "The controlled action completed.",
         evidenceSequences,
         memoryPatch: null,
+        contextNotes: null,
     };
 }
 
@@ -148,6 +149,7 @@ async function completedPlanDecision() {
         summary: "The controlled plan flow is complete.",
         completionEvidence: [{ criterionIndex: 0, evidenceSequences: result.evidenceSequences }],
         memoryPatch: null,
+        contextNotes: null,
     };
 }
 
@@ -203,38 +205,41 @@ const root = await createCompositionRoot({
 });
 compositionRoot = root;
 const originalSave = root.notifyingStore.save.bind(root.notifyingStore);
-root.notifyingStore.save = async (goal: Goal) => {
-    const patched = goal.state.run.exposedToolIds.length === 0
-        ? {
-            ...goal,
-            state: {
-                ...goal.state,
-                run: {
-                    ...goal.state.run,
-                    exposedToolIds: [...profile.toolIds],
-                },
+function patchRun(run: Goal["state"]["run"]): Goal["state"]["run"] {
+    return {
+        ...run,
+        ...(run.exposedToolIds.length === 0 ? { exposedToolIds: [...profile.toolIds] } : {}),
+        ...(run.currentStage === undefined ? {
+            currentStage: {
+                stageId: "stage-e2e-1",
+                revision: 1,
+                status: "executing" as const,
+                target: "Acceptance test execution",
+                acceptanceCriteria: ["Run acceptance actions"],
             },
-        }
-        : goal;
-    return originalSave(patched);
+        } : {}),
+    };
+}
+root.notifyingStore.save = async (goal: Goal) => {
+    return originalSave({
+        ...goal,
+        state: {
+            ...goal.state,
+            run: patchRun(goal.state.run),
+        },
+    });
 };
 const originalRestore = root.notifyingStore.restore.bind(root.notifyingStore);
 root.notifyingStore.restore = async (goalId: string) => {
     const goal = await originalRestore(goalId);
     if (goal === undefined) return undefined;
-    if (goal.state.run.exposedToolIds.length === 0) {
-        return {
-            ...goal,
-            state: {
-                ...goal.state,
-                run: {
-                    ...goal.state.run,
-                    exposedToolIds: [...profile.toolIds],
-                },
-            },
-        };
-    }
-    return goal;
+    return {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: patchRun(goal.state.run),
+        },
+    };
 };
 root.notifyingStore.onSave((goal) => {
     if (goal.state.run.stopReason !== undefined) {

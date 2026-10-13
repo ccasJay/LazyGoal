@@ -593,7 +593,7 @@ export function GoalSession({
                             </div>
                             <div className="failure-card-body">
                               <p className="failure-message">
-                                {run.terminalDetail?.message ?? "This Run stopped unexpectedly. Its saved trajectory and history are still available."}
+                                {run.terminalDetail?.message ?? "This Run failed. Its saved trajectory and history are still available."}
                               </p>
                               <div className="failure-guidance">
                                 <span>Send a message below to retry with adjusted instructions, provide more context, or start a new task.</span>
