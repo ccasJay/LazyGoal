@@ -5,6 +5,12 @@ type SnapshotContextLookupNeed =
     | "historical_execution"
     | "decision_rationale";
 
+type SnapshotContextLookupOperation =
+    | "history_search"
+    | "directory_browse"
+    | "directory_search"
+    | "source_expand";
+
 /** Snapshot 中 Tool 输入与 Observation 输出允许的递归 JSON 值。 */
 export type SnapshotJsonValue =
     | string
@@ -170,9 +176,16 @@ export type GoalSnapshotStructuredDecisionResultV1 =
     }
     | {
         readonly kind: "context_lookup";
-        readonly need: SnapshotContextLookupNeed;
-        readonly question: string;
+        readonly operation?: SnapshotContextLookupOperation | undefined;
+        readonly need?: SnapshotContextLookupNeed | undefined;
+        readonly question?: string | undefined;
         readonly filters?: GoalSnapshotContextLookupFiltersV1 | undefined;
+        readonly query?: string | undefined;
+        readonly cursor?: string | undefined;
+        readonly limit?: number | undefined;
+        readonly category?: string | undefined;
+        readonly sourceRef?: string | undefined;
+        readonly offset?: number | undefined;
     }
     | {
         readonly kind: "tool_discovery";
@@ -182,6 +195,22 @@ export type GoalSnapshotStructuredDecisionResultV1 =
         readonly kind: "goal_plan_update";
         readonly baseRevision: number;
         readonly operations: readonly GoalSnapshotGoalPlanPatchOperationV1[];
+        readonly memoryPatch?: GoalSnapshotMemoryPatchV1 | undefined;
+    }
+    | {
+        readonly kind: "run_stage_update";
+        readonly stageId?: string | undefined;
+        readonly baseRevision?: number | undefined;
+        readonly reason?: string | undefined;
+        readonly target: string;
+        readonly acceptanceCriteria: readonly string[];
+        readonly memoryPatch?: GoalSnapshotMemoryPatchV1 | undefined;
+    }
+    | {
+        readonly kind: "run_stage_complete";
+        readonly stageId: string;
+        readonly summary: string;
+        readonly evidenceSequences?: readonly number[] | undefined;
         readonly memoryPatch?: GoalSnapshotMemoryPatchV1 | undefined;
     };
 
@@ -328,6 +357,30 @@ export interface GoalSnapshotContextEpochV1 {
     readonly openedAtSequence: number;
 }
 
+/** Snapshot 中前序阶段结果的引用指针。 */
+export interface GoalSnapshotPreviousStageResultRefV1 {
+    readonly stageId: string;
+    readonly sequence: number;
+}
+
+/** Snapshot 中阶段审查拒绝反馈。 */
+export interface GoalSnapshotStageRejectionV1 {
+    readonly feedback: string;
+    readonly rejectedAtSequence?: number | undefined;
+}
+
+/** Snapshot 中当前活动阶段的状态。 */
+export interface GoalSnapshotRunStageV1 {
+    readonly stageId: string;
+    readonly revision: number;
+    readonly status: "executing" | "accepted";
+    readonly target: string;
+    readonly acceptanceCriteria: readonly string[];
+    readonly previousStageResultRef?: GoalSnapshotPreviousStageResultRefV1 | undefined;
+    readonly latestReviewRejection?: GoalSnapshotStageRejectionV1 | undefined;
+    readonly acceptedSequence?: number | undefined;
+}
+
 /**
  * Snapshot 中的 Run 状态。
  *
@@ -363,6 +416,8 @@ export interface GoalSnapshotRunStateV1 {
     /** Trajectory 可见高水位；包含已提交的模型上下文 frame。 */
     readonly committedThroughSequence: number;
     readonly memoryRevision?: GoalSnapshotMemoryRevisionV1 | undefined;
+    /** Snapshot 中当前活动或最新已接受的 Run 内部阶段。 */
+    readonly currentStage?: GoalSnapshotRunStageV1 | undefined;
     readonly lastStep?: GoalSnapshotStepRecordV1 | undefined;
     readonly pendingAction?: GoalSnapshotPendingActionV1 | undefined;
     readonly pendingProgram?: GoalSnapshotPendingProgramV1 | undefined;
@@ -740,9 +795,16 @@ const ContextLookupFiltersSchema = z.object({
 
 const ContextLookupDecisionResultSchema = z.object({
     kind: z.literal("context_lookup"),
-    need: z.enum(["conversation_history", "historical_execution", "decision_rationale"]),
-    question: NonEmptyStringSchema.max(1024),
+    operation: z.enum(["history_search", "directory_browse", "directory_search", "source_expand"]).optional(),
+    need: z.enum(["conversation_history", "historical_execution", "decision_rationale"]).optional(),
+    question: NonEmptyStringSchema.max(1024).optional(),
     filters: ContextLookupFiltersSchema.optional(),
+    query: NonEmptyStringSchema.max(512).optional(),
+    cursor: NonEmptyStringSchema.max(512).optional(),
+    limit: z.number().int().min(1).max(50).optional(),
+    category: NonEmptyStringSchema.max(64).optional(),
+    sourceRef: NonEmptyStringSchema.max(512).optional(),
+    offset: z.number().int().min(0).optional(),
 }).strict();
 
 const ToolDiscoveryDecisionResultSchema = z.object({
@@ -813,6 +875,22 @@ const StructuredDecisionResultSchema = z.union([
         kind: z.literal("goal_plan_update"),
         baseRevision: z.number().int().nonnegative(),
         operations: z.array(GoalPlanPatchOperationSchema).min(1),
+        memoryPatch: MemoryPatchSchema.optional(),
+    }).strict(),
+    z.object({
+        kind: z.literal("run_stage_update"),
+        stageId: NonEmptyStringSchema.optional(),
+        baseRevision: z.number().int().positive().optional(),
+        reason: NonEmptyStringSchema.optional(),
+        target: NonEmptyStringSchema,
+        acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
+        memoryPatch: MemoryPatchSchema.optional(),
+    }).strict(),
+    z.object({
+        kind: z.literal("run_stage_complete"),
+        stageId: NonEmptyStringSchema,
+        summary: NonEmptyStringSchema,
+        evidenceSequences: z.array(z.number().int().nonnegative()).optional(),
         memoryPatch: MemoryPatchSchema.optional(),
     }).strict(),
 ]);
@@ -970,6 +1048,27 @@ const PendingInteractionSchema = z.discriminatedUnion("kind", [
     PendingInteractionTaskApprovalSchema,
 ]);
 
+const PreviousStageResultRefSchema = z.object({
+    stageId: NonEmptyStringSchema,
+    sequence: z.number().int().nonnegative(),
+}).strict();
+
+const StageRejectionSchema = z.object({
+    feedback: NonEmptyStringSchema,
+    rejectedAtSequence: z.number().int().nonnegative().optional(),
+}).strict();
+
+const RunStageSchema = z.object({
+    stageId: NonEmptyStringSchema,
+    revision: z.number().int().positive(),
+    status: z.enum(["executing", "accepted"]),
+    target: NonEmptyStringSchema,
+    acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
+    previousStageResultRef: PreviousStageResultRefSchema.optional(),
+    latestReviewRejection: StageRejectionSchema.optional(),
+    acceptedSequence: z.number().int().nonnegative().optional(),
+}).strict();
+
 const WorkflowSchema = z.object({
     phase: z.literal("executing"),
 }).strict();
@@ -1083,6 +1182,7 @@ const GoalSnapshotV1BaseSchema = z.object({
                 eventId: NonEmptyStringSchema,
                 sequence: z.number().int().positive(),
             }).strict().optional(),
+            currentStage: RunStageSchema.optional(),
             lastStep: StepRecordSchema.optional(),
             pendingAction: PendingActionSchema.optional(),
             pendingProgram: PendingProgramSchema.optional(),
@@ -1360,7 +1460,12 @@ function validateSnapshotInvariants(
             const validPreviousStep = step?.kind === "action"
                 || result?.kind === "wait"
                 || result?.kind === "context_lookup"
-                || result?.kind === "tool_discovery";
+                || result?.kind === "tool_discovery"
+                || result?.kind === "goal_plan_update"
+                || result?.kind === "run_stage_update"
+                || result?.kind === "run_stage_complete"
+                || (result?.kind === "complete" && run.currentStage?.status === "executing"
+                    && run.currentStage.latestReviewRejection !== undefined);
             const maxSteps = goal.definition.executionPolicy.maxSteps;
             if (maxSteps <= 0 || run.stepCount < maxSteps || !validPreviousStep) {
                 addInvariantIssue(context, "maxSteps failure requires a reached positive execution limit");
@@ -1375,10 +1480,14 @@ function validateSnapshotInvariants(
         && result?.kind !== "context_lookup"
         && result?.kind !== "tool_discovery"
         && result?.kind !== "goal_plan_update"
+        && result?.kind !== "run_stage_update"
+        && result?.kind !== "run_stage_complete"
+        && !(result?.kind === "complete" && run.currentStage?.status === "executing"
+            && run.currentStage.latestReviewRejection !== undefined)
     ) {
         addInvariantIssue(
             context,
-            "running Run can only preserve a resumed wait, Context Lookup, or Tool Discovery decision",
+            "running Run can only preserve a resumed wait, Context Lookup, Tool Discovery, GoalPlan update, or Run Stage decision",
         );
     }
 

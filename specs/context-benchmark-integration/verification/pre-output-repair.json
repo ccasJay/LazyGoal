@@ -1,0 +1,237 @@
+{
+  "status": "not_delivered",
+  "verification": "failed",
+  "freshness": "current",
+  "verified_at": "2026-10-12T12:25:50.910702+08:00",
+  "git_head": "7ff5fbb392d5eeeeada3146870cb0af2431a5134",
+  "implementation_fingerprint": "3d0d50d0a2f644e98545d6d97dfb45512c9b37d60b4584ad2a665d23fc85af4e",
+  "spec_fingerprint": "5c8b2dae355b17b48f173b93ac6f53d2b8a2a7729ee42f841366a538a0208105",
+  "checks": {
+    "benchmark_typecheck": "passed",
+    "benchmark_tests": {
+      "status": "passed",
+      "tests": 286,
+      "log": "/tmp/context-todo7-regression-fixed.log"
+    },
+    "shared_targeted": {
+      "status": "passed",
+      "tests": 23
+    },
+    "full_regression": {
+      "status": "passed",
+      "typescript_tests": 1680,
+      "script_tests": 33
+    },
+    "docs": {
+      "status": "passed",
+      "modules": 30,
+      "documents": 115
+    },
+    "dependencies": "passed",
+    "diff_check": "passed",
+    "docker_smoke": {
+      "status": "passed",
+      "evidence": "/var/folders/c4/k7g00s897_sd1dljjplt44t40000gn/T/context-worker-smoke-Elxo9B"
+    },
+    "real_model_smoke": {
+      "status": "failed",
+      "model": "gemini-3.5-flash-lite",
+      "roles": [
+        "default",
+        "default",
+        "default"
+      ],
+      "evidence": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-5da01f12-2c50-4b57-98b2-d3f3f2a221bc",
+      "groups": [
+        {
+          "path": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-5da01f12-2c50-4b57-98b2-d3f3f2a221bc/continue/capture/group.json",
+          "category": "behavior_failed",
+          "calls": 6,
+          "combined": null,
+          "worker": {
+            "manifestVersion": 1,
+            "workerSha256": "ba63736fb9c411621455adc50fc55241ca8b20f7169ce602ae9d1c3d15cffd73",
+            "sourceDigest": "50bb1e624e34b16c31ba7d1ebf075ef99215798b70729061b71b491cd0049221",
+            "lockDigest": "3f2bad18605ca8ff1a40f0e3947467b4284119ee97a82dafa6bb997e2869cd3e",
+            "promptDigest": "311864629d5897b51d73e71fec71091d0f54e3827f1781c561c1aa9609dc5fd2",
+            "buildDigest": "3d0d50d0a2f644e98545d6d97dfb45512c9b37d60b4584ad2a665d23fc85af4e",
+            "nodeVersion": "22.22.2",
+            "nodeImage": "node:22.22.2-bookworm-slim@sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+            "nodeImageId": "sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+            "platform": "linux/amd64",
+            "acpProtocolVersion": 1,
+            "acpSdkVersion": "1.4.0",
+            "entryPoint": "benchmarks/context/src/worker-entry.ts",
+            "workerFile": "worker.mjs",
+            "nodeFile": "node",
+            "nodeSha256": "81925c0995b5c1427b5d538e6a90ca2fdc4daffb786b09af749beaf7369d4e90",
+            "promptAssets": [
+              "packages/agent/src/global-system-prompt/global-overview@1.njk",
+              "packages/agent/src/prompting/approved-task@1.njk",
+              "packages/agent/src/prompting/authorized-tools@1.njk",
+              "packages/agent/src/prompting/goal-plan@1.njk",
+              "packages/agent/src/prompting/profile@1.njk",
+              "packages/agent/src/prompting/run-mode@1.njk",
+              "packages/agent/src/prompting/working-memory@1.njk",
+              "packages/agent/src/step-prompt/agent-decision@1.njk",
+              "packages/agent/src/step-prompt/agent-think@1.njk"
+            ]
+          },
+          "hostBuild": {
+            "sourceDigest": "900f67bf5eda1aacb2f0e8632f66ec04a65c0933fee3f858215bb554b398ab8b"
+          },
+          "scenarioHash": "f9efb3bdc4f7bf64c304bd5682702717ad6ef1ac696e0d38e98555608c77327d"
+        },
+        {
+          "path": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-5da01f12-2c50-4b57-98b2-d3f3f2a221bc/resume/capture/group.json",
+          "category": "completed",
+          "calls": 4,
+          "combined": null,
+          "worker": {
+            "manifestVersion": 1,
+            "workerSha256": "ba63736fb9c411621455adc50fc55241ca8b20f7169ce602ae9d1c3d15cffd73",
+            "sourceDigest": "50bb1e624e34b16c31ba7d1ebf075ef99215798b70729061b71b491cd0049221",
+            "lockDigest": "3f2bad18605ca8ff1a40f0e3947467b4284119ee97a82dafa6bb997e2869cd3e",
+            "promptDigest": "311864629d5897b51d73e71fec71091d0f54e3827f1781c561c1aa9609dc5fd2",
+            "buildDigest": "3d0d50d0a2f644e98545d6d97dfb45512c9b37d60b4584ad2a665d23fc85af4e",
+            "nodeVersion": "22.22.2",
+            "nodeImage": "node:22.22.2-bookworm-slim@sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+            "nodeImageId": "sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+            "platform": "linux/amd64",
+            "acpProtocolVersion": 1,
+            "acpSdkVersion": "1.4.0",
+            "entryPoint": "benchmarks/context/src/worker-entry.ts",
+            "workerFile": "worker.mjs",
+            "nodeFile": "node",
+            "nodeSha256": "81925c0995b5c1427b5d538e6a90ca2fdc4daffb786b09af749beaf7369d4e90",
+            "promptAssets": [
+              "packages/agent/src/global-system-prompt/global-overview@1.njk",
+              "packages/agent/src/prompting/approved-task@1.njk",
+              "packages/agent/src/prompting/authorized-tools@1.njk",
+              "packages/agent/src/prompting/goal-plan@1.njk",
+              "packages/agent/src/prompting/profile@1.njk",
+              "packages/agent/src/prompting/run-mode@1.njk",
+              "packages/agent/src/prompting/working-memory@1.njk",
+              "packages/agent/src/step-prompt/agent-decision@1.njk",
+              "packages/agent/src/step-prompt/agent-think@1.njk"
+            ]
+          },
+          "hostBuild": {
+            "sourceDigest": "900f67bf5eda1aacb2f0e8632f66ec04a65c0933fee3f858215bb554b398ab8b"
+          },
+          "scenarioHash": "50559a3b4b3ea07b3b43d7131011d9a50fcfd9866ca7726710072a07a938ba4b"
+        },
+        {
+          "path": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-5da01f12-2c50-4b57-98b2-d3f3f2a221bc/resume/pair/full/group.json",
+          "category": "completed",
+          "calls": 9,
+          "combined": "passed",
+          "worker": {
+            "manifestVersion": 1,
+            "workerSha256": "ba63736fb9c411621455adc50fc55241ca8b20f7169ce602ae9d1c3d15cffd73",
+            "sourceDigest": "50bb1e624e34b16c31ba7d1ebf075ef99215798b70729061b71b491cd0049221",
+            "lockDigest": "3f2bad18605ca8ff1a40f0e3947467b4284119ee97a82dafa6bb997e2869cd3e",
+            "promptDigest": "311864629d5897b51d73e71fec71091d0f54e3827f1781c561c1aa9609dc5fd2",
+            "buildDigest": "3d0d50d0a2f644e98545d6d97dfb45512c9b37d60b4584ad2a665d23fc85af4e",
+            "nodeVersion": "22.22.2",
+            "nodeImage": "node:22.22.2-bookworm-slim@sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+            "nodeImageId": "sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+            "platform": "linux/amd64",
+            "acpProtocolVersion": 1,
+            "acpSdkVersion": "1.4.0",
+            "entryPoint": "benchmarks/context/src/worker-entry.ts",
+            "workerFile": "worker.mjs",
+            "nodeFile": "node",
+            "nodeSha256": "81925c0995b5c1427b5d538e6a90ca2fdc4daffb786b09af749beaf7369d4e90",
+            "promptAssets": [
+              "packages/agent/src/global-system-prompt/global-overview@1.njk",
+              "packages/agent/src/prompting/approved-task@1.njk",
+              "packages/agent/src/prompting/authorized-tools@1.njk",
+              "packages/agent/src/prompting/goal-plan@1.njk",
+              "packages/agent/src/prompting/profile@1.njk",
+              "packages/agent/src/prompting/run-mode@1.njk",
+              "packages/agent/src/prompting/working-memory@1.njk",
+              "packages/agent/src/step-prompt/agent-decision@1.njk",
+              "packages/agent/src/step-prompt/agent-think@1.njk"
+            ]
+          },
+          "hostBuild": {
+            "sourceDigest": "900f67bf5eda1aacb2f0e8632f66ec04a65c0933fee3f858215bb554b398ab8b"
+          },
+          "scenarioHash": "50559a3b4b3ea07b3b43d7131011d9a50fcfd9866ca7726710072a07a938ba4b"
+        },
+        {
+          "path": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-5da01f12-2c50-4b57-98b2-d3f3f2a221bc/resume/pair/restore/group.json",
+          "category": "completed",
+          "calls": 3,
+          "combined": "passed",
+          "worker": {
+            "manifestVersion": 1,
+            "workerSha256": "ba63736fb9c411621455adc50fc55241ca8b20f7169ce602ae9d1c3d15cffd73",
+            "sourceDigest": "50bb1e624e34b16c31ba7d1ebf075ef99215798b70729061b71b491cd0049221",
+            "lockDigest": "3f2bad18605ca8ff1a40f0e3947467b4284119ee97a82dafa6bb997e2869cd3e",
+            "promptDigest": "311864629d5897b51d73e71fec71091d0f54e3827f1781c561c1aa9609dc5fd2",
+            "buildDigest": "3d0d50d0a2f644e98545d6d97dfb45512c9b37d60b4584ad2a665d23fc85af4e",
+            "nodeVersion": "22.22.2",
+            "nodeImage": "node:22.22.2-bookworm-slim@sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+            "nodeImageId": "sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+            "platform": "linux/amd64",
+            "acpProtocolVersion": 1,
+            "acpSdkVersion": "1.4.0",
+            "entryPoint": "benchmarks/context/src/worker-entry.ts",
+            "workerFile": "worker.mjs",
+            "nodeFile": "node",
+            "nodeSha256": "81925c0995b5c1427b5d538e6a90ca2fdc4daffb786b09af749beaf7369d4e90",
+            "promptAssets": [
+              "packages/agent/src/global-system-prompt/global-overview@1.njk",
+              "packages/agent/src/prompting/approved-task@1.njk",
+              "packages/agent/src/prompting/authorized-tools@1.njk",
+              "packages/agent/src/prompting/goal-plan@1.njk",
+              "packages/agent/src/prompting/profile@1.njk",
+              "packages/agent/src/prompting/run-mode@1.njk",
+              "packages/agent/src/prompting/working-memory@1.njk",
+              "packages/agent/src/step-prompt/agent-decision@1.njk",
+              "packages/agent/src/step-prompt/agent-think@1.njk"
+            ]
+          },
+          "hostBuild": {
+            "sourceDigest": "900f67bf5eda1aacb2f0e8632f66ec04a65c0933fee3f858215bb554b398ab8b"
+          },
+          "scenarioHash": "50559a3b4b3ea07b3b43d7131011d9a50fcfd9866ca7726710072a07a938ba4b"
+        }
+      ],
+      "failures": [
+        {
+          "snapshot": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-5da01f12-2c50-4b57-98b2-d3f3f2a221bc/continue/capture/artifacts/state/Y29udGV4dA/c2Vzc2lvbg/goals/NGQzMTNhOGMtNzJlMi00YTMwLTkyNTUtNTg0MzZkMzBjMjAw.json",
+          "stopReason": {
+            "kind": "execution_error",
+            "code": "INVALID_AGENT_DECISION",
+            "message": "Model output correction exhausted after three decide attempts (INVALID_LLM_RESPONSE)"
+          }
+        }
+      ],
+      "exit_code": 1,
+      "log": "/tmp/context-model-diag-retry.log",
+      "diagnostics": "verification/invalid-responses.json"
+    }
+  },
+  "remaining": "TODO 7: continue capture failed; two illegal protocolVersion arguments, then protocolVersion plus missing summary. Resume capture and both paired scores passed.",
+  "retry_note": "Real model and benchmark regression rerun after Trace integration. Prior full regression remains historical; no output contract or model configuration changes.",
+  "diagnostic_integration": {
+    "status": "implemented",
+    "agent_tests": {
+      "passed": 247,
+      "failed": 0
+    },
+    "benchmark_tests": {
+      "passed": 286,
+      "failed": 0
+    },
+    "root_typecheck": "passed",
+    "benchmark_typecheck": "passed",
+    "docs": "passed",
+    "docker_smoke": "/var/folders/c4/k7g00s897_sd1dljjplt44t40000gn/T/context-worker-smoke-oekGMW",
+    "real_model_gate": "rerun; failed with correlated response/schema/issues"
+  },
+  "implementation_fingerprint_method": "Actual model-smoke Worker buildDigest; see per-group hostBuild and worker source/prompt identities."
+}

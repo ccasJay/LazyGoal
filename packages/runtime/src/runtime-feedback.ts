@@ -1,3 +1,6 @@
+import { eventIsEvidence, type CommittedEvidenceIndex, type EvidenceGateError } from "./evidence-gate";
+import type { WorkingMemoryPatchError } from "../../working-memory/src/index";
+
 /** 可纠正模型输出所归属的模型阶段。 */
 export type RuntimeFeedbackStage = "decide" | "think";
 
@@ -9,7 +12,8 @@ export type RuntimeFeedbackOrigin =
     | "tool_selection"
     | "tool_input"
     | "completion_evidence"
-    | "completion_review";
+    | "completion_review"
+    | "memory_patch";
 
 /**
  * 一项经过界限化且不包含模型原始响应的修复提示。
@@ -35,7 +39,8 @@ export interface RuntimeFeedbackIssue {
  * @remarks
  * 只携带 Goal/Run/Step 阶段身份、稳定错误码、有效约束和有界问题定位，不携带原始模型输出、
  * 用户消息、凭据或内部异常对象。该记录是阶段输入，不能并入真实 Goal Conversation。完成审查的缺口使用 completion_review 来源，
- * 仍归属 Decide，不新增恢复阶段。
+ * 仍归属 Decide，不新增恢复阶段。模型记忆提议的拒绝使用 memory_patch 来源，
+ * 与恢复、存储或 Runtime 生命周期错误分流。
  *
  * @example
  * ```ts
@@ -120,4 +125,37 @@ export function createRuntimeFeedback(
 
 function boundText(value: string, maxLength: number): string {
     return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
+}
+
+/**
+ * 将模型候选边界已判定的 Memory 拒绝转换为原 Decide 阶段的有界反馈。
+ * @remarks 不执行校验、I/O 或持久化；恢复和配置错误不属于本入口。
+ * @param error - 规则所有者生成的安全诊断，不接受模型原始响应。
+ * @param identity - 当前阶段的可信身份。
+ * @param index - 当前提交边界的证据索引，用于生成有限例子而非证明命题。
+ * @returns 不携带事实值或文件正文的字段级反馈。
+ * @example
+ * ```ts
+ * const feedback = createMemoryPatchFeedback(error, {
+ *   goalId: "goal-1", runId: "run-1", executionUnitId: "unit-1", stepOrdinal: 2,
+ * }, index);
+ * ```
+ */
+export function createMemoryPatchFeedback(
+    error: WorkingMemoryPatchError | EvidenceGateError,
+    identity: Pick<RuntimeFeedback, "goalId" | "runId" | "executionUnitId" | "stepOrdinal">,
+    index: CommittedEvidenceIndex,
+): RuntimeFeedback {
+    const valid = [...index.events.values()].filter(eventIsEvidence).map(event => event.sequence);
+    const message = "sequence" in error && error.sequence !== undefined
+        ? `Reference ${error.sequence}${error.eventType === undefined ? "" : ` (${error.eventType})`} is invalid: ${error.reason}.`
+        : error.message;
+    return createRuntimeFeedback({
+        ...identity, stage: "decide", origin: "memory_patch", code: error.code, attempt: 1,
+        issues: [{ code: error.reason, path: ["result", "memoryPatch", ...error.path], message }],
+        constraints: [
+            `Examples of valid committed Fact evidence: ${valid.slice(0, 5).join(", ") || "none"}. Examples are bounded and do not establish relevance to your claim.`,
+            "Correct or omit the unsupported Fact, or obtain relevant Tool/Observation evidence. Continue the original task; a rejected Patch does not complete it.",
+        ],
+    });
 }

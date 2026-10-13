@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import type { JsonValue, ToolExecutionRequest } from "../../../packages/runtime/src/index.js";
+import type { JsonValue } from "../../../packages/runtime/src/index.js";
+import type { ToolExecutionRequest } from "../../../packages/tool-core/src/index.js";
 import {
     ALFWORLD_PROFILE_ID,
     ALFWORLD_PROFILE_TOOL_IDS,

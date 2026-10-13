@@ -178,8 +178,18 @@ export interface NormalizedWorkingMemoryPatch {
 export class WorkingMemoryPatchError extends Error {
     readonly code = WORKING_MEMORY_PATCH_ERROR_CODE;
 
-    /** @param message - 不包含模型原文的稳定诊断信息。 */
-    constructor(message: string) {
+    /**
+     * @param message - 不包含模型原文的稳定诊断信息。
+     * @param path - 校验调用点提供的字段位置，不携带模型值。
+     * @param reason - 稳定的诊断原因。
+     */
+    constructor(
+        message: string,
+        /** 相对 memoryPatch 的安全字段路径；不从异常正文推断。 */
+        readonly path: readonly (string | number)[] = [],
+        /** 可供阶段反馈使用的稳定原因。 */
+        readonly reason: string = "invalid_memory_patch",
+    ) {
         super(`${WORKING_MEMORY_PATCH_ERROR_CODE}: ${message}`);
         this.name = "WorkingMemoryPatchError";
     }
@@ -231,16 +241,24 @@ function isRecord(value: unknown): value is RecordValue {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// 路径来自校验器自己构造的字段标签，不能从异常正文或模型文本解析。
+function diagnosticPath(label: string): readonly (string | number)[] {
+    return [...label.matchAll(/([A-Za-z_]+)|\[(\d+)\]/g)]
+        .map(match => match[2] === undefined ? match[1]! : Number(match[2]))
+        .filter((part, index) => index !== 0 || part !== "memoryPatch")
+        .slice(0, 8);
+}
+
 function assertExactKeys(
     value: unknown,
     keys: readonly string[],
     label: string,
 ): asserts value is RecordValue {
-    if (!isRecord(value)) throw new WorkingMemoryPatchError(`${label} must be an object`);
+    if (!isRecord(value)) throw new WorkingMemoryPatchError(`${label} must be an object`, diagnosticPath(label));
     const expected = new Set(keys);
     const actual = Object.keys(value);
     if (actual.length !== expected.size || actual.some((key) => !expected.has(key))) {
-        throw new WorkingMemoryPatchError(`${label} contains unknown or missing fields`);
+        throw new WorkingMemoryPatchError(`${label} contains unknown or missing fields`, diagnosticPath(label));
     }
 }
 
@@ -250,31 +268,31 @@ function assertAllowedKeys(
     allowed: readonly string[],
     label: string,
 ): asserts value is RecordValue {
-    if (!isRecord(value)) throw new WorkingMemoryPatchError(`${label} must be an object`);
+    if (!isRecord(value)) throw new WorkingMemoryPatchError(`${label} must be an object`, diagnosticPath(label));
     const allowedSet = new Set(allowed);
     if (Object.keys(value).some((key) => !allowedSet.has(key))) {
-        throw new WorkingMemoryPatchError(`${label} contains unknown fields`);
+        throw new WorkingMemoryPatchError(`${label} contains unknown fields`, diagnosticPath(label));
     }
     for (const key of required) {
-        if (!(key in value)) throw new WorkingMemoryPatchError(`${label} is missing ${key}`);
+        if (!(key in value)) throw new WorkingMemoryPatchError(`${label} is missing ${key}`, diagnosticPath(label));
     }
 }
 
 function assertNonEmptyString(value: unknown, label: string): asserts value is string {
     if (typeof value !== "string" || value.trim().length === 0) {
-        throw new WorkingMemoryPatchError(`${label} must be a non-empty string`);
+        throw new WorkingMemoryPatchError(`${label} must be a non-empty string`, diagnosticPath(label));
     }
 }
 
 function assertPositiveInteger(value: unknown, label: string): asserts value is number {
     if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
-        throw new WorkingMemoryPatchError(`${label} must be a positive integer`);
+        throw new WorkingMemoryPatchError(`${label} must be a positive integer`, diagnosticPath(label));
     }
 }
 
 function assertNonNegativeInteger(value: unknown, label: string): asserts value is number {
     if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-        throw new WorkingMemoryPatchError(`${label} must be a non-negative integer`);
+        throw new WorkingMemoryPatchError(`${label} must be a non-negative integer`, diagnosticPath(label));
     }
 }
 
@@ -284,7 +302,7 @@ function assertOneOf<T extends string>(
     label: string,
 ): asserts value is T {
     if (typeof value !== "string" || !choices.includes(value as T)) {
-        throw new WorkingMemoryPatchError(`${label} is invalid`);
+        throw new WorkingMemoryPatchError(`${label} is invalid`, diagnosticPath(label));
     }
 }
 
@@ -329,7 +347,7 @@ function jsonEquals(left: JsonValue, right: JsonValue): boolean {
 function assertJsonValue(value: unknown, label: string, depth = 0): asserts value is JsonValue {
     if (value === null || typeof value === "string" || typeof value === "boolean") return;
     if (typeof value === "number") {
-        if (!Number.isFinite(value)) throw new WorkingMemoryPatchError(`${label} must be finite JSON`);
+        if (!Number.isFinite(value)) throw new WorkingMemoryPatchError(`${label} must be finite JSON`, diagnosticPath(label));
         return;
     }
     if (Array.isArray(value)) {
@@ -340,12 +358,12 @@ function assertJsonValue(value: unknown, label: string, depth = 0): asserts valu
     }
     if (isRecord(value)) {
         for (const [key, item] of Object.entries(value)) {
-            if (key.length === 0) throw new WorkingMemoryPatchError(`${label} has an empty key`);
+            if (key.length === 0) throw new WorkingMemoryPatchError(`${label} has an empty key`, diagnosticPath(label));
             assertJsonValue(item, `${label}.${key}`, depth + 1);
         }
         return;
     }
-    throw new WorkingMemoryPatchError(`${label} must be JSON-serializable`);
+    throw new WorkingMemoryPatchError(`${label} must be JSON-serializable`, diagnosticPath(label));
 }
 
 function assertLimit(value: unknown, label: string, positive = false): asserts value is number {
@@ -385,14 +403,14 @@ export function resolveWorkingMemoryLimits(
 function assertText(value: unknown, label: string, limits: WorkingMemoryLimits): asserts value is string {
     assertNonEmptyString(value, label);
     if (value.length > limits.maxTextLength) {
-        throw new WorkingMemoryPatchError(`${label} exceeds maxTextLength (${limits.maxTextLength})`);
+        throw new WorkingMemoryPatchError(`${label} exceeds maxTextLength (${limits.maxTextLength})`, diagnosticPath(label));
     }
 }
 
 function assertId(value: unknown, label: string, limits: WorkingMemoryLimits): asserts value is string {
     assertNonEmptyString(value, label);
     if (value.length > limits.maxStableIdLength) {
-        throw new WorkingMemoryPatchError(`${label} exceeds maxStableIdLength (${limits.maxStableIdLength})`);
+        throw new WorkingMemoryPatchError(`${label} exceeds maxStableIdLength (${limits.maxStableIdLength})`, diagnosticPath(label));
     }
 }
 
@@ -401,11 +419,11 @@ function assertStringIds(
     label: string,
     limits: WorkingMemoryLimits,
 ): asserts value is readonly string[] {
-    if (!Array.isArray(value)) throw new WorkingMemoryPatchError(`${label} must be an array`);
+    if (!Array.isArray(value)) throw new WorkingMemoryPatchError(`${label} must be an array`, diagnosticPath(label));
     const seen = new Set<string>();
     for (const id of value) {
         assertId(id, `${label} item`, limits);
-        if (seen.has(id)) throw new WorkingMemoryPatchError(`${label} contains duplicate ID`);
+        if (seen.has(id)) throw new WorkingMemoryPatchError(`${label} contains duplicate ID`, diagnosticPath(label));
         seen.add(id);
     }
 }
@@ -416,9 +434,9 @@ function assertEvidence(
     limits: WorkingMemoryLimits,
     allowEmpty = false,
 ): asserts value is readonly number[] {
-    if (!Array.isArray(value)) throw new WorkingMemoryPatchError(`${label} must be an array`);
+    if (!Array.isArray(value)) throw new WorkingMemoryPatchError(`${label} must be an array`, diagnosticPath(label));
     if (!allowEmpty && value.length === 0) {
-        throw new WorkingMemoryPatchError(`${label} must not be empty`);
+        throw new WorkingMemoryPatchError(`${label} must not be empty`, diagnosticPath(label));
     }
     if (value.length > limits.maxEvidenceReferences) {
         throw new WorkingMemoryPatchError(
@@ -426,9 +444,9 @@ function assertEvidence(
         );
     }
     const seen = new Set<number>();
-    for (const sequence of value) {
-        assertPositiveInteger(sequence, `${label} sequence`);
-        if (seen.has(sequence)) throw new WorkingMemoryPatchError(`${label} contains duplicate sequence`);
+    for (const [itemIndex, sequence] of value.entries()) {
+        assertPositiveInteger(sequence, `${label}[${itemIndex}]`);
+        if (seen.has(sequence)) throw new WorkingMemoryPatchError(`${label} contains duplicate sequence`, [...diagnosticPath(label), itemIndex], "duplicate_evidence");
         seen.add(sequence);
     }
 }
@@ -448,7 +466,7 @@ function assertFactProposal(
     assertText(value.predicate, `${label}.predicate`, limits);
     assertJsonValue(value.value, `${label}.value`);
     if (jsonDepth(value.value) > limits.maxJsonDepth) {
-        throw new WorkingMemoryPatchError(`${label}.value exceeds maxJsonDepth (${limits.maxJsonDepth})`);
+        throw new WorkingMemoryPatchError(`${label}.value exceeds maxJsonDepth (${limits.maxJsonDepth})`, diagnosticPath(label));
     }
     assertOneOf(value.stability, FACT_STABILITIES, `${label}.stability`);
     assertEvidence(value.evidenceSequences, `${label}.evidenceSequences`, limits);
@@ -462,7 +480,7 @@ function assertFactProposal(
         .toLowerCase()
         .replace(/[\s.-]+/g, "_");
     if ([...CONTROL_STATE_TERMS].some((term) => controlKey.split("_").includes(term) || controlKey.includes(term))) {
-        throw new WorkingMemoryPatchError(`${label} attempts to store Runtime control state`);
+        throw new WorkingMemoryPatchError(`${label} attempts to store Runtime control state`, diagnosticPath(label));
     }
 }
 
@@ -473,7 +491,7 @@ function assertOperation(
 ): asserts value is MemoryPatchOperation {
     const label = `operations[${index}]`;
     if (!isRecord(value) || typeof value.type !== "string") {
-        throw new WorkingMemoryPatchError(`${label} must have a type`);
+        throw new WorkingMemoryPatchError(`${label} must have a type`, diagnosticPath(label));
     }
     switch (value.type) {
         case "upsert_fact":
@@ -505,7 +523,7 @@ function assertOperation(
                 assertOneOf(value.hypothesis.status, MEMORY_ENTRY_STATUSES, `${label}.hypothesis.status`);
             }
             if (value.hypothesis.statement === undefined && value.hypothesis.status === undefined) {
-                throw new WorkingMemoryPatchError(`${label}.hypothesis must change a field`);
+                throw new WorkingMemoryPatchError(`${label}.hypothesis must change a field`, diagnosticPath(label));
             }
             return;
         case "create_blocker":
@@ -527,11 +545,11 @@ function assertOperation(
                 assertOneOf(value.blocker.status, MEMORY_ENTRY_STATUSES, `${label}.blocker.status`);
             }
             if (value.blocker.description === undefined && value.blocker.status === undefined) {
-                throw new WorkingMemoryPatchError(`${label}.blocker must change a field`);
+                throw new WorkingMemoryPatchError(`${label}.blocker must change a field`, diagnosticPath(label));
             }
             return;
         default:
-            throw new WorkingMemoryPatchError(`${label} has unknown type`);
+            throw new WorkingMemoryPatchError(`${label} has unknown type`, [...diagnosticPath(label), "type"]);
     }
 }
 
@@ -541,10 +559,10 @@ function assertPatch(
 ): asserts patch is WorkingMemoryPatch {
     assertExactKeys(patch, ["protocolVersion", "operations"], "memoryPatch");
     if (patch.protocolVersion !== 1) {
-        throw new WorkingMemoryPatchError("memoryPatch.protocolVersion must be 1");
+        throw new WorkingMemoryPatchError("memoryPatch.protocolVersion must be 1", ["protocolVersion"]);
     }
     if (!Array.isArray(patch.operations)) {
-        throw new WorkingMemoryPatchError("memoryPatch.operations must be an array");
+        throw new WorkingMemoryPatchError("memoryPatch.operations must be an array", ["operations"]);
     }
     if (patch.operations.length > limits.maxOperations) {
         throw new WorkingMemoryPatchError(`operations exceeds maxOperations (${limits.maxOperations})`);
@@ -632,9 +650,8 @@ export function validateMemoryPatch(
  *
  * @remarks
  * 本函数只读取 Patch、阶段和当前 Working Memory，不产生 canonical operation，也不
- * 修改调用方对象。它同时执行基础 Patch schema 校验，随后按原始操作类型执行唯一的
- * 统一执行阶段只允许更新当前投影中已有的 PlanItem，禁止模型创建新的 PlanItem。
- * 任一操作不满足策略时，整个 Patch 都会被拒绝；Runtime lifecycle 的 canonical
+ * 修改调用方对象；阶段必须符合当前协议，并使用同一 proposal schema 校验。
+ * 任一操作不满足规则时，整个 Patch 都会被拒绝；Runtime lifecycle 的 canonical
  * `supersede_scope` 不经过本入口。
  *
  * @param patch - 尚未 canonicalize 的结构化 Patch。
@@ -687,7 +704,7 @@ function assertActiveReference<T extends MemoryEntry["kind"]>(
 ): Extract<MemoryEntry, { kind: T }> {
     const entry = findEntry(memory, id);
     if (entry === undefined || entry.kind !== kind) {
-        throw new WorkingMemoryPatchError(`${label} does not reference a current ${kind}`);
+        throw new WorkingMemoryPatchError(`${label} does not reference a current ${kind}`, diagnosticPath(label));
     }
     return entry as Extract<MemoryEntry, { kind: T }>;
 }
@@ -697,10 +714,10 @@ function assertLifecycleTransition(
     next: MemoryEntryStatus,
     label: string,
 ): void {
-    if (current !== "active") throw new WorkingMemoryPatchError(`${label} is terminal`);
+    if (current !== "active") throw new WorkingMemoryPatchError(`${label} is terminal`, diagnosticPath(label));
     if (next === "active") return;
     if (next !== "resolved" && next !== "superseded") {
-        throw new WorkingMemoryPatchError(`${label} transition is invalid`);
+        throw new WorkingMemoryPatchError(`${label} transition is invalid`, diagnosticPath(label));
     }
 }
 
@@ -790,7 +807,7 @@ function canonicalizeOperation(
                     && latest === existing.lastEvidenceSequence
                     && sourcePriority(context.source) <= sourcePriority(existing.source)
                 ) {
-                    throw new WorkingMemoryPatchError("Fact conflict lacks newer or higher-priority evidence");
+                    throw new WorkingMemoryPatchError("Fact conflict lacks newer or higher-priority evidence", ["operations", index, "fact", "evidenceSequences"], "fact_conflict");
                 }
                 const mergedEvidence = sameValue
                     ? sortedEvidence([...existing.evidenceSequences, ...evidence])
@@ -839,7 +856,7 @@ function canonicalizeOperation(
             };
         }
         case "retire_fact": {
-            const existing = assertActiveReference(memory, operation.fact.id, "fact", "retire_fact.id");
+            const existing = assertActiveReference(memory, operation.fact.id, "fact", `operations[${index}].fact.id`);
             const latest = Math.max(...operation.fact.evidenceSequences);
             if (latest <= existing.lastEvidenceSequence) return { suppression: "stale_evidence" };
             return { operation: { type: "retire_fact", factId: existing.id } };
@@ -861,9 +878,9 @@ function canonicalizeOperation(
                 },
             };
         case "update_hypothesis": {
-            const existing = assertActiveReference(memory, operation.hypothesis.id, "hypothesis", "update_hypothesis.id");
+            const existing = assertActiveReference(memory, operation.hypothesis.id, "hypothesis", `operations[${index}].hypothesis.id`);
             const status = operation.hypothesis.status ?? existing.status;
-            assertLifecycleTransition(existing.status, status, "Hypothesis");
+            assertLifecycleTransition(existing.status, status, `operations[${index}].hypothesis.status`);
             const statement = operation.hypothesis.statement === undefined
                 ? existing.statement
                 : normalizeText(operation.hypothesis.statement);
@@ -892,9 +909,9 @@ function canonicalizeOperation(
                 },
             };
         case "update_blocker": {
-            const existing = assertActiveReference(memory, operation.blocker.id, "blocker", "update_blocker.id");
+            const existing = assertActiveReference(memory, operation.blocker.id, "blocker", `operations[${index}].blocker.id`);
             const status = operation.blocker.status ?? existing.status;
-            assertLifecycleTransition(existing.status, status, "Blocker");
+            assertLifecycleTransition(existing.status, status, `operations[${index}].blocker.status`);
             const description = operation.blocker.description === undefined
                 ? existing.description
                 : normalizeText(operation.blocker.description);
@@ -960,7 +977,7 @@ function selectEvictions(
                 : { type: "upsert_blocker", blocker: entry });
     }
     if (memoryViolatesLimits(protectedMemory, limits)) {
-        throw new WorkingMemoryPatchError("protected Working Memory exceeds capacity");
+        throw new WorkingMemoryPatchError("protected Working Memory exceeds capacity", ["operations"], "protected_capacity_exceeded");
     }
     const candidates = allEntries(memory)
         .filter((entry) => !protectedSet.has(entry.id))
@@ -973,7 +990,7 @@ function selectEvictions(
         selected = applyOne(selected, { type: "evict_entries", entryIds: [entry.id] });
     }
     if (memoryViolatesLimits(selected, limits)) {
-        throw new WorkingMemoryPatchError("Working Memory capacity cannot be satisfied");
+        throw new WorkingMemoryPatchError("Working Memory capacity cannot be satisfied", ["operations"], "capacity_exceeded");
     }
     return evicted;
 }

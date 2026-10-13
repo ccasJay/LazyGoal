@@ -13,6 +13,8 @@ import {
 import type {
   BrowserGoalListItem,
   BrowserSessionMessage,
+  BrowserSessionRun,
+  BrowserSessionStep,
   BrowserToolGrantSummary,
 } from "../../../../packages/web-contracts/src/index";
 import { GoalDetails, WaitingInteraction } from "../panels";
@@ -24,6 +26,7 @@ import { MessageComposer, AssistantMarkdown, CurrentModelControl } from "./Messa
 import { SessionMetricsBar } from "./SessionMetricsBar";
 import { WorkspaceContext } from "./WorkspaceContext";
 import { stepActivity } from "./step-activity";
+import { groupStepsByStage, renderStageStatusLabel } from "./run-stage-utils";
 
 export function GoalSession({
   activeGoal,
@@ -351,101 +354,156 @@ export function GoalSession({
                     return (
                       <div className="run-timeline" key={run.runId}>
                         {renderMessages(runMessages.filter((message) => message.role === "user"))}
-                        {showTools && run.steps.length > 0 && (
-                          <details className="run-steps" open>
-                            <summary className="run-steps-heading">
-                              <Layers size={13} aria-hidden="true" />
-                              <span>{run.current ? "Execution activity" : "Earlier activity"}</span>
-                              <ChevronDown className="activity-chevron" size={12} aria-hidden="true" />
-                            </summary>
-                            {run.steps.map((step) => {
-                              const activity = stepActivity(step);
-                              const ActivityIcon = activity.icon;
-                              return (
-                                <details className="tool-event" key={step.executionUnitId}>
-                                  <summary>
-                                    <ActivityIcon size={13} aria-hidden="true" />
-                                    <span className="tool-activity-label" title={activity.label}>
-                                      {activity.label}
+                        {showTools && run.steps.length > 0 && (() => {
+                          const renderStepItem = (step: BrowserSessionStep) => {
+                            const activity = stepActivity(step);
+                            const ActivityIcon = activity.icon;
+                            return (
+                              <details className="tool-event" key={step.executionUnitId}>
+                                <summary>
+                                  <ActivityIcon size={13} aria-hidden="true" />
+                                  <span className="tool-activity-label" title={activity.label}>
+                                    {activity.label}
+                                  </span>
+                                  {step.status !== "completed" && (
+                                    <span className={`step-status ${step.status}`}>
+                                      {step.status === "recorded"
+                                        ? "Attempt recorded"
+                                        : step.status}
                                     </span>
-                                    {step.status !== "completed" && (
-                                      <span className={`step-status ${step.status}`}>
-                                        {step.status === "recorded"
-                                          ? "Attempt recorded"
-                                          : step.status}
-                                      </span>
-                                    )}
-                                    <ChevronRight className="tool-chevron" size={12} aria-hidden="true" />
-                                  </summary>
-                                  <div className="tool-event-detail">
-                                    {step.recoveryAttempts?.map((attempt, index) => (
-                                      <div
-                                        className="step-recovery"
-                                        key={`${step.executionUnitId}:recovery:${index}`}
-                                      >
-                                        {attempt}
+                                  )}
+                                  <ChevronRight className="tool-chevron" size={12} aria-hidden="true" />
+                                </summary>
+                                <div className="tool-event-detail">
+                                  {step.recoveryAttempts?.map((attempt, index) => (
+                                    <div
+                                      className="step-recovery"
+                                      key={`${step.executionUnitId}:recovery:${index}`}
+                                    >
+                                      {attempt}
+                                    </div>
+                                  ))}
+                                  {step.bashExecution && (
+                                    <div className="tool-execution">
+                                      <div className="tool-execution-field">
+                                        <span>Command</span>
+                                        <pre>{step.bashExecution.command}</pre>
                                       </div>
-                                    ))}
-                                    {step.bashExecution && (
-                                      <div className="tool-execution">
+                                      {step.bashExecution.exitCode !== undefined && (
                                         <div className="tool-execution-field">
-                                          <span>Command</span>
-                                          <pre>{step.bashExecution.command}</pre>
+                                          <span>Exit code</span>
+                                          <pre>{step.bashExecution.exitCode}</pre>
                                         </div>
-                                        {step.bashExecution.exitCode !== undefined && (
-                                          <div className="tool-execution-field">
-                                            <span>Exit code</span>
-                                            <pre>{step.bashExecution.exitCode}</pre>
-                                          </div>
-                                        )}
-                                        {step.bashExecution.stdout !== undefined && (
-                                          <div className="tool-execution-field">
-                                            <span>stdout</span>
-                                            <pre>{step.bashExecution.stdout || "(empty)"}</pre>
-                                          </div>
-                                        )}
-                                        {step.bashExecution.stderr !== undefined && (
-                                          <div className="tool-execution-field">
-                                            <span>stderr</span>
-                                            <pre>{step.bashExecution.stderr || "(empty)"}</pre>
-                                          </div>
-                                        )}
-                                        {step.bashExecution.failure !== undefined && (
-                                          <div className="tool-execution-field">
-                                            <span>Result</span>
-                                            <pre>{step.bashExecution.failure}</pre>
-                                          </div>
-                                        )}
+                                      )}
+                                      {step.bashExecution.stdout !== undefined && (
+                                        <div className="tool-execution-field">
+                                          <span>stdout</span>
+                                          <pre>{step.bashExecution.stdout || "(empty)"}</pre>
+                                        </div>
+                                      )}
+                                      {step.bashExecution.stderr !== undefined && (
+                                        <div className="tool-execution-field">
+                                          <span>stderr</span>
+                                          <pre>{step.bashExecution.stderr || "(empty)"}</pre>
+                                        </div>
+                                      )}
+                                      {step.bashExecution.failure !== undefined && (
+                                        <div className="tool-execution-field">
+                                          <span>Result</span>
+                                          <pre>{step.bashExecution.failure}</pre>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                  {step.bashExecutionOmitted && (
+                                    <pre>Execution details omitted by the session size limit.</pre>
+                                  )}
+                                  {!step.bashExecution &&
+                                    !step.bashExecutionOmitted &&
+                                    step.summary && <pre>{step.summary}</pre>}
+                                  <footer className="trajectory-link">
+                                    <button
+                                      aria-label={`View Step ${step.stepIndex} in trajectory`}
+                                      onClick={() => {
+                                        setTrajectoryTarget({
+                                          runId: run.runId,
+                                          executionUnitId: step.executionUnitId,
+                                          nonce: Date.now(),
+                                        });
+                                        setSessionTab("Trajectory");
+                                      }}
+                                    >
+                                      <Layers size={13} />View in trajectory
+                                      <ChevronRight size={12} />
+                                    </button>
+                                  </footer>
+                                </div>
+                              </details>
+                            );
+                          };
+
+                          if (run.stages && run.stages.length > 0) {
+                            const { runLevelSteps, stages } = groupStepsByStage(run.steps, run.stages);
+                            return (
+                              <div className="run-stages-container">
+                                {runLevelSteps.length > 0 && (
+                                  <details className="run-steps run-level-steps" open>
+                                    <summary className="run-steps-heading">
+                                      <Layers size={13} aria-hidden="true" />
+                                      <span>Run-level activity</span>
+                                      <ChevronDown className="activity-chevron" size={12} aria-hidden="true" />
+                                    </summary>
+                                    {runLevelSteps.map(renderStepItem)}
+                                  </details>
+                                )}
+                                {stages.map((stage) => (
+                                  <details className="run-stage-group" key={stage.stageId} open>
+                                    <summary className="run-stage-heading">
+                                      <Layers size={13} aria-hidden="true" />
+                                      <span className="stage-target">{stage.target}</span>
+                                      <span className={`stage-status ${stage.status}`}>
+                                        {renderStageStatusLabel(stage.status)}
+                                      </span>
+                                      {stage.revision > 1 && (
+                                        <span className="stage-revision">Rev {stage.revision}</span>
+                                      )}
+                                      <ChevronDown className="activity-chevron" size={12} aria-hidden="true" />
+                                    </summary>
+                                    <div className="stage-content">
+                                      {stage.resultSummary && (
+                                        <div className="stage-result-summary">
+                                          <strong>Result:</strong> {stage.resultSummary}
+                                        </div>
+                                      )}
+                                      {stage.latestReviewRejection && (
+                                        <div className="stage-rejection-feedback" role="alert">
+                                          <strong>Review feedback:</strong>
+                                          {stage.latestReviewRejection.issues.map((issue, idx) => (
+                                            <p key={idx}>{issue}</p>
+                                          ))}
+                                        </div>
+                                      )}
+                                      <div className="stage-steps">
+                                        {stage.steps.map(renderStepItem)}
                                       </div>
-                                    )}
-                                    {step.bashExecutionOmitted && (
-                                      <pre>Execution details omitted by the session size limit.</pre>
-                                    )}
-                                    {!step.bashExecution &&
-                                      !step.bashExecutionOmitted &&
-                                      step.summary && <pre>{step.summary}</pre>}
-                                    <footer className="trajectory-link">
-                                      <button
-                                        aria-label={`View Step ${step.stepIndex} in trajectory`}
-                                        onClick={() => {
-                                          setTrajectoryTarget({
-                                            runId: run.runId,
-                                            executionUnitId: step.executionUnitId,
-                                            nonce: Date.now(),
-                                          });
-                                          setSessionTab("Trajectory");
-                                        }}
-                                      >
-                                        <Layers size={13} />View in trajectory
-                                        <ChevronRight size={12} />
-                                      </button>
-                                    </footer>
-                                  </div>
-                                </details>
-                              );
-                            })}
-                          </details>
-                        )}
+                                    </div>
+                                  </details>
+                                ))}
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <details className="run-steps" open>
+                              <summary className="run-steps-heading">
+                                <Layers size={13} aria-hidden="true" />
+                                <span>{run.current ? "Execution activity" : "Earlier activity"}</span>
+                                <ChevronDown className="activity-chevron" size={12} aria-hidden="true" />
+                              </summary>
+                              {run.steps.map(renderStepItem)}
+                            </details>
+                          );
+                        })()}
                         {run.current && liveText && (
                           <article
                             className="message assistant transient-message"

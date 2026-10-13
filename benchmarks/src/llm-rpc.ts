@@ -1,3 +1,4 @@
+import { isModelConversationMessage } from "../../packages/model-contracts/src/index.js";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../packages/agent/src/index.js";
 import type { ExecutionControl } from "../../packages/execution-control/src/index.js";
 import { ExecutionAbortedError, throwIfAborted } from "../../packages/execution-control/src/index.js";
@@ -29,6 +30,8 @@ export class LlmRpcError extends Error {
  * ```
  */
 export interface RpcLlmAdapterOptions {
+    /** 宿主已声明的原生历史身份；缺省时不启用原生回放。不得携带凭据。 */
+    readonly nativeConversationIdentity?: NonNullable<LLMAdapter["nativeConversationIdentity"]>;
     readonly stream: MuxChannelStream<LlmRpcMessage>;
     readonly structuredOutputMode: StructuredOutputMode;
 }
@@ -56,8 +59,9 @@ interface PendingRequest {
  * ```
  */
 export class RpcLlmAdapter implements LLMAdapter {
+    readonly nativeConversationIdentity?: NonNullable<LLMAdapter["nativeConversationIdentity"]>;
     readonly structuredOutputMode: StructuredOutputMode;
-    private readonly stream: MuxChannelStream<LlmRpcMessage>;
+    private readonly channelStream: MuxChannelStream<LlmRpcMessage>;
     private readonly pending = new Map<string, PendingRequest>();
     private readonly cancelled = new Set<string>();
     private readonly readPromise: Promise<void>;
@@ -67,16 +71,17 @@ export class RpcLlmAdapter implements LLMAdapter {
     private closedError: unknown;
 
     constructor(options: RpcLlmAdapterOptions) {
-        this.stream = options.stream;
+        if (options.nativeConversationIdentity !== undefined) this.nativeConversationIdentity = options.nativeConversationIdentity;
+        this.channelStream = options.stream;
         this.structuredOutputMode = options.structuredOutputMode;
-        this.writer = this.stream.writable.getWriter();
+        this.writer = this.channelStream.writable.getWriter();
         this.readPromise = this.readResponses();
         this.readPromise.catch(() => undefined);
     }
 
     async generate(request: LLMRequest, control?: ExecutionControl): Promise<LLMResponse> {
         throwIfAborted(control);
-        validateMode(this.structuredOutputMode, request);
+        validateMode(this.structuredOutputMode, request, this.nativeConversationIdentity !== undefined);
         if (this.closedError !== undefined) throw this.closedError;
         const id = `llm-${this.nextId++}`;
         return new Promise<LLMResponse>((resolve, reject) => {
@@ -125,7 +130,7 @@ export class RpcLlmAdapter implements LLMAdapter {
     }
 
     private async readResponses(): Promise<void> {
-        const reader = this.stream.readable.getReader();
+        const reader = this.channelStream.readable.getReader();
         this.reader = reader;
         try {
             while (true) {
@@ -211,7 +216,7 @@ interface ActiveRequest {
  */
 export class LlmRpcServer {
     readonly closed: Promise<void>;
-    private readonly stream: MuxChannelStream<LlmRpcMessage>;
+    private readonly channelStream: MuxChannelStream<LlmRpcMessage>;
     private readonly adapter: LLMAdapter;
     private readonly active = new Map<string, ActiveRequest>();
     private readonly readPromise: Promise<void>;
@@ -221,9 +226,9 @@ export class LlmRpcServer {
     private closedState = false;
 
     constructor(options: LlmRpcServerOptions) {
-        this.stream = options.stream;
+        this.channelStream = options.stream;
         this.adapter = options.adapter;
-        this.writer = this.stream.writable.getWriter();
+        this.writer = this.channelStream.writable.getWriter();
         this.closed = new Promise<void>((resolve) => { this.resolveClosed = resolve; });
         this.readPromise = this.run();
         this.readPromise.catch(() => undefined);
@@ -238,13 +243,22 @@ export class LlmRpcServer {
     }
 
     private async run(): Promise<void> {
-        const reader = this.stream.readable.getReader();
+        const reader = this.channelStream.readable.getReader();
         this.reader = reader;
         try {
             while (true) {
                 const next = await reader.read();
                 if (next.done) break;
-                const message = parseLlmRpcMessage(next.value);
+                let message: LlmRpcMessage;
+                try { message = parseLlmRpcMessage(next.value); }
+                catch (error) {
+                    const raw = next.value;
+                    if (isRecord(raw) && raw.type === "generate" && typeof raw.id === "string" && raw.id.length > 0) {
+                        await this.send({ type: "error", id: raw.id, code: "protocol", message: "Invalid LLM RPC request" });
+                        continue;
+                    }
+                    throw error;
+                }
                 if (message.type === "generate") {
                     void this.acceptGenerate(message).catch((error: unknown) => this.finish(error));
                 } else if (message.type === "cancel") {
@@ -268,7 +282,7 @@ export class LlmRpcServer {
             return;
         }
         try {
-            validateMode(this.adapter.structuredOutputMode, message.request);
+            validateMode(this.adapter.structuredOutputMode, message.request, this.adapter.nativeConversationIdentity !== undefined);
             if (message.structuredOutputMode !== this.adapter.structuredOutputMode) {
                 throw new LlmRpcError("Structured-output mode mismatch", "mode_mismatch");
             }
@@ -330,8 +344,8 @@ export function createLlmRpcServer(options: LlmRpcServerOptions): LlmRpcServer {
     return new LlmRpcServer(options);
 }
 
-function validateMode(mode: StructuredOutputMode, request: LLMRequest): void {
-    if (mode === "strict" && request.structuredOutput === undefined) {
+function validateMode(mode: StructuredOutputMode, request: LLMRequest, native = false): void {
+    if (mode === "strict" && request.structuredOutput === undefined && !(native && request.tools?.length && request.toolChoice === "required")) {
         throw new LlmRpcError("Strict mode requires structuredOutput", "mode_mismatch");
     }
     if (mode === "prompt_only" && request.structuredOutput !== undefined) {
@@ -379,7 +393,7 @@ function validateLlmRequest(request: LLMRequest): void {
         throw new LlmRpcError("Invalid LLM request", "protocol");
     }
     for (const message of request.messages) {
-        if (!isRecord(message) || (message.role !== "system" && message.role !== "user" && message.role !== "assistant") || typeof message.content !== "string") {
+        if (!isModelConversationMessage(message)) {
             throw new LlmRpcError("Invalid LLM request", "protocol");
         }
     }

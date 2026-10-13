@@ -330,11 +330,14 @@ export class TrajectoryModelContextAssembler {
             const exchanges = native.get(unit.executionUnitId);
             if (exchanges === undefined) return projection;
             return {
-                ...projection, nativeExchanges: exchanges,
-                events: projection.events.filter(event => ![
-                    "model_response_received", "decision_received", "think_requested", "think_completed",
-                    "tool_finished", "observation_recorded", "context_lookup_completed", "context_lookup_not_found", "context_lookup_failed",
-                ].includes(event.eventType)),
+                ...projection,
+                nativeExchanges: exchanges,
+                events: projection.events
+                    .filter(event => ![
+                        "model_response_received", "decision_received", "think_requested", "think_completed",
+                        "tool_finished", "observation_recorded", "context_lookup_completed", "context_lookup_not_found", "context_lookup_failed",
+                    ].includes(event.eventType))
+                    .map(stripActionParameters),
             };
         }));
         const fixedInput = input.fixedInput ?? defaultFixedInput(input.view);
@@ -587,4 +590,38 @@ function assertNonNegativeSafeInteger(value: number, field: string): void {
             `${field} must be a non-negative safe integer`,
         );
     }
+}
+
+function stripActionParameters(event: import("./trajectory-event-projector").ModelTrajectoryEvent): import("./trajectory-event-projector").ModelTrajectoryEvent {
+    if (event.eventType === "action_staged") {
+        const payload = event.payload as {
+            readonly type: "action_staged";
+            readonly action: { readonly actionId: string; readonly toolId: string; readonly input?: unknown };
+            readonly approvalStatus: "approved" | "awaiting_approval";
+            readonly approvalKind?: "tool" | "sandbox" | undefined;
+            readonly effectiveSandboxScope?: unknown;
+        };
+        const { input: _, ...actionWithoutInput } = payload.action;
+        return Object.freeze({
+            ...event,
+            payload: Object.freeze({
+                ...payload,
+                action: Object.freeze(actionWithoutInput),
+            }),
+        });
+    }
+    if (event.eventType === "tool_started") {
+        const payload = event.payload as {
+            readonly type: "tool_started";
+            readonly actionId: string;
+            readonly toolId: string;
+            readonly input?: unknown;
+        };
+        const { input: _, ...payloadWithoutInput } = payload;
+        return Object.freeze({
+            ...event,
+            payload: Object.freeze(payloadWithoutInput),
+        });
+    }
+    return event;
 }

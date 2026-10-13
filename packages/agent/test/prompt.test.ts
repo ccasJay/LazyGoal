@@ -1,3 +1,7 @@
+import { projectContextLookupResult } from "../src/context-lookup-projection";
+import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
+import type { NativeConversationIdentity } from "../../model-contracts/src/index";
+import type { RuntimeFeedback } from "../../runtime/src/runtime-feedback";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { getEncoding } from "js-tiktoken";
@@ -197,7 +201,7 @@ async function stepRequest(
     goal: Goal,
     tools: readonly ToolDefinition[] = [],
     requestRenderer: PromptBundleRenderer = renderer,
-    lookupResult?: ModelContextLookupResult,
+    lookupResult?: ContextLookupResult,
 ) {
     const plan = await buildStepRequest(
         goal,
@@ -216,7 +220,7 @@ async function stepPlan(
     goal: Goal,
     tools: readonly ToolDefinition[] = [],
     requestRenderer: PromptBundleRenderer = renderer,
-    lookupResult?: ModelContextLookupResult,
+    lookupResult?: ContextLookupResult,
 ) {
     return buildStepRequest(
         goal,
@@ -513,7 +517,7 @@ test("PTC 发现后同步进入 Prompt、结构化契约与原生工具声明", 
 
 test("下一轮请求把已提交 Lookup Result 作为历史瞬时输入传给模型", async () => {
     const goal = createExecutingGoal();
-    const lookupResult: ModelContextLookupResult = {
+    const lookupResult: ContextLookupResult = {
         status: "not_found",
         lookupId: "lookup-next-round",
         committedThroughSequence: 7,
@@ -524,7 +528,7 @@ test("下一轮请求把已提交 Lookup Result 作为历史瞬时输入传给�
         readonly contextLookupResult?: ModelContextLookupResult;
     };
 
-    assert.deepEqual(control.contextLookupResult, lookupResult);
+    assert.deepEqual(control.contextLookupResult, projectContextLookupResult(lookupResult));
     assert.match(
         request.messages[0]?.content ?? "",
         /A historical lookup can locate prior events or rationale, but cannot establish the current state/,
@@ -912,6 +916,8 @@ test("RuntimeFeedback is a tagged stage message and does not alter Conversation 
     const feedbackMessage = strictPlan.request.messages.find((message) => message.content.includes("runtime_feedback"));
 
     assert.ok(feedbackMessage);
+    assert.equal(strictPlan.request.messages.at(-1), feedbackMessage);
+    assert.ok(promptOnlyPlan.request.messages.at(-1)!.content.includes("runtime_feedback"));
     assert.equal(feedbackMessage.role, "user");
     assert.deepEqual(JSON.parse(feedbackMessage.content), {
         source: "runtime_feedback",
@@ -1041,4 +1047,112 @@ test("GoalPlan Tool 仅在 Plan Mode 暴露，已存在的计划在普通模式�
     assert.match(normalSection, /GoalPlan \(read-only projection/);
     assert.match(normalSection, /普通模式可见/);
     assert.doesNotMatch(normalSection, /system_update_goal_plan/);
+});
+
+test("原生路径的授权 Section 移除重复参数 Schema，保留授权身份、描述及指导；prompt_only 保留解码契约", async () => {
+    const goal = createExecutingGoal();
+    const nativeIdentity: NativeConversationIdentity = {
+        provider: "google",
+        endpoint: "https://generativelanguage.googleapis.com/v1beta",
+        model: "gemini-3.6-flash-high",
+        protocol: "gemini-content",
+    };
+
+    // 1. 原生请求
+    const nativePlan = await buildStepRequest(
+        goal,
+        CURRENT_TOOL_DEFINITIONS,
+        renderer,
+        contextCompactor,
+        undefined,
+        currentWorkingMemory,
+        trajectoryContextAssembler,
+        undefined,
+        undefined,
+        "strict",
+        "decide",
+        undefined,
+        nativeIdentity,
+    );
+
+    const toolsMarker = "Authorized business Tool definitions (only these business Tool IDs may be requested; system tools are declared separately for this request):\n";
+    const nativeToolsMsg = nativePlan.request.messages.find((m) => m.content.includes("section: authorized_tools"))?.content ?? "";
+    const nativeOffset = nativeToolsMsg.indexOf(toolsMarker);
+    assert.notEqual(nativeOffset, -1);
+    const nativeProjected = JSON.parse(nativeToolsMsg.slice(nativeOffset + toolsMarker.length));
+
+    // 原生路径下：每个工具只保留 id 和 description，移除 inputSchema
+    assert.ok(nativeProjected.length > 0);
+    for (const tool of nativeProjected) {
+        assert.ok(tool.id);
+        assert.ok(tool.description);
+        assert.equal(tool.inputSchema, undefined, `原生授权 Section 中的 ${tool.id} 不得包含重复参数 Schema`);
+    }
+    // 原生 request.tools 包含原生 declaration 且具有完整 parametersSchema
+    assert.ok(nativePlan.request.tools && nativePlan.request.tools.length > 0);
+    const nativeGrep = nativePlan.request.tools.find(t => t.id === GREP_TOOL_ID);
+    assert.ok(nativeGrep?.parametersSchema, "原生 tools 声明应包含 parametersSchema");
+
+    // 2. prompt_only 请求
+    const promptOnlyPlan = await buildStepRequest(
+        goal,
+        CURRENT_TOOL_DEFINITIONS,
+        renderer,
+        contextCompactor,
+        undefined,
+        currentWorkingMemory,
+        trajectoryContextAssembler,
+        undefined,
+        undefined,
+        "prompt_only",
+        "decide",
+        undefined,
+        undefined,
+    );
+
+    const poToolsMsg = promptOnlyPlan.request.messages.find((m) => m.content.includes("section: authorized_tools"))?.content ?? "";
+    const poOffset = poToolsMsg.indexOf(toolsMarker);
+    assert.notEqual(poOffset, -1);
+    const poProjected = JSON.parse(poToolsMsg.slice(poOffset + toolsMarker.length));
+
+    // prompt_only 模式下保留解码契约（含 inputSchema）
+    for (const tool of poProjected) {
+        assert.ok(tool.inputSchema, `prompt_only 模式下 ${tool.id} 必须保留 inputSchema 解码契约`);
+    }
+});
+
+test("当前 runtime_feedback 始终位于请求末尾，不进入真实 Conversation", async () => {
+    const goal = createExecutingGoal();
+    const feedback: RuntimeFeedback = {
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        executionUnitId: "unit-1",
+        stepOrdinal: 1,
+        stage: "decide" as const,
+        origin: "completion_review" as const,
+        code: "semantic_gap",
+        attempt: 1,
+        issues: [{ code: "gap", path: [], message: "未满足用户要求" }],
+    };
+
+    const plan = await buildStepRequest(
+        goal,
+        CURRENT_TOOL_DEFINITIONS,
+        renderer,
+        contextCompactor,
+        undefined,
+        currentWorkingMemory,
+        trajectoryContextAssembler,
+        undefined,
+        undefined,
+        "strict",
+        "decide",
+        { runtimeFeedback: feedback },
+    );
+
+    const lastMessage = plan.request.messages.at(-1);
+    assert.ok(lastMessage, "请求必须包含消息");
+    assert.equal(lastMessage.role, "user");
+    assert.match(lastMessage.content, /"source":\s*"runtime_feedback"/);
+    assert.match(lastMessage.content, /"code":\s*"semantic_gap"/);
 });

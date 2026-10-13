@@ -1,3 +1,4 @@
+import { contract } from "../../packages/contracts/src/index.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -79,18 +80,18 @@ test("ToolRpcClient 调用 execute 获得真实 Observation 且 Worker 执行计
         definition: {
             id: "echo_tool",
             description: "Echo tool for testing",
-            inputSchema: { type: "object", properties: { text: { type: "string" } } },
+            isReadOnly: true, inputContract: contract.object({ text: contract.string() }),
         },
         replayPolicy: "safe",
         prepare: (input) => {
             return {
                 ok: true,
-                parsedInput: input,
+                input: input,
                 execute: async () => {
                     executionCount += 1;
                     return {
                         kind: "success",
-                        content: `Echo: ${JSON.stringify(input)}`,
+                        output: `Echo: ${JSON.stringify(input)}`, summary: "Echo result",
                     };
                 },
             };
@@ -103,19 +104,19 @@ test("ToolRpcClient 调用 execute 获得真实 Observation 且 Worker 执行计
     });
     const client = new ToolRpcClient({ stream: pipe.hostStream });
 
-    const observation = await client.execute({
+    const observation = await client.execute({ context: { goalId: "test-goal", runId: "test-run" },
         actionId: "act-1",
         toolId: "echo_tool",
         input: { text: "hello" },
     });
 
     assert.equal(observation.kind, "success");
-    assert.match((observation as any).content, /Echo: {"text":"hello"}/);
+    assert.match((observation as any).output, /Echo: {"text":"hello"}/);
     assert.equal(executionCount, 1);
 
     // 重复相同 actionId 被客户端拦截快速失败，且 Worker 计数不增加
     await assert.rejects(
-        client.execute({
+        client.execute({ context: { goalId: "test-goal", runId: "test-run" },
             actionId: "act-1",
             toolId: "echo_tool",
             input: { text: "hello" },
@@ -136,14 +137,14 @@ test("ToolRpcClient 严格禁止并发 execute 请求", async () => {
     const blockPromise = new Promise<void>((r) => { resolveExecution = r; });
 
     const mockTool: ToolRegistration = {
-        definition: { id: "slow_tool", description: "slow", inputSchema: {} },
+        definition: { id: "slow_tool", description: "slow", isReadOnly: true, inputContract: contract.object({}) },
         replayPolicy: "safe",
         prepare: () => ({
             ok: true,
-            parsedInput: {},
+            input: {},
             execute: async () => {
                 await blockPromise;
-                return { kind: "success", content: "done" };
+                return { kind: "success", output: "done", summary: "done" };
             },
         }),
     };
@@ -154,11 +155,11 @@ test("ToolRpcClient 严格禁止并发 execute 请求", async () => {
     });
     const client = new ToolRpcClient({ stream: pipe.hostStream });
 
-    const p1 = client.execute({ actionId: "a1", toolId: "slow_tool", input: {} });
+    const p1 = client.execute({ context: { goalId: "test-goal", runId: "test-run" }, actionId: "a1", toolId: "slow_tool", input: {} });
 
     // 尝试并发发送 a2
     await assert.rejects(
-        client.execute({ actionId: "a2", toolId: "slow_tool", input: {} }),
+        client.execute({ context: { goalId: "test-goal", runId: "test-run" }, actionId: "a2", toolId: "slow_tool", input: {} }),
         (error: unknown) => error instanceof ToolRpcError && error.code === "concurrent_execution",
     );
 
@@ -176,12 +177,12 @@ test("execute 支持在途 cancel 并抛出 ExecutionAbortedError", async () => 
     const controller = new AbortController();
 
     const mockTool: ToolRegistration = {
-        definition: { id: "hanging_tool", description: "hang", inputSchema: {} },
+        definition: { id: "hanging_tool", description: "hang", isReadOnly: true, inputContract: contract.object({}) },
         replayPolicy: "safe",
         prepare: () => ({
             ok: true,
-            parsedInput: {},
-            execute: async (control) => {
+            input: {},
+            execute: async (_actionId, _context, control) => {
                 return new Promise((_, reject) => {
                     control?.signal?.addEventListener("abort", () => {
                         reject(new ExecutionAbortedError());
@@ -197,7 +198,7 @@ test("execute 支持在途 cancel 并抛出 ExecutionAbortedError", async () => 
     });
     const client = new ToolRpcClient({ stream: pipe.hostStream });
 
-    const executePromise = client.execute({
+    const executePromise = client.execute({ context: { goalId: "test-goal", runId: "test-run" },
         actionId: "act-cancel",
         toolId: "hanging_tool",
         input: {},
@@ -221,14 +222,14 @@ test("execute 支持受限 backend 调用代理回宿主", async () => {
     const server = new ToolRpcServer({
         stream: pipe.workerStream,
         getTools: (backend) => [{
-            definition: { id: "web_search", description: "search", inputSchema: {} },
+            definition: { id: "web_search", description: "search", isReadOnly: true, inputContract: contract.object({}) },
             replayPolicy: "safe",
             prepare: (input) => ({
                 ok: true,
-                parsedInput: input,
+                input: input,
                 execute: async () => {
                     const res = await backend.call("search", { q: "test" });
-                    return { kind: "success", content: JSON.stringify(res) };
+                    return { kind: "success", output: JSON.stringify(res), summary: "Search result" };
                 },
             }),
         }],
@@ -244,7 +245,7 @@ test("execute 支持受限 backend 调用代理回宿主", async () => {
         },
     });
 
-    const obs = await client.execute({
+    const obs = await client.execute({ context: { goalId: "test-goal", runId: "test-run" },
         actionId: "act-backend",
         toolId: "web_search",
         input: {},
@@ -252,7 +253,7 @@ test("execute 支持受限 backend 调用代理回宿主", async () => {
 
     assert.equal(obs.kind, "success");
     assert.equal(backendCalls, 1);
-    assert.match((obs as any).content, /item1/);
+    assert.match((obs as any).output, /item1/);
 
     await client.close();
     server.close();

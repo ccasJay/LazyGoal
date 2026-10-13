@@ -1,3 +1,4 @@
+import { CONTEXT_LOOKUP_SOURCE_SCOPE } from "../src/context-lookup-projection";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -227,6 +228,7 @@ test("当前请求在控制消息中携带带时效边界的历史 Lookup Result
         execution: { stepCount: 1 },
     };
     const contextLookupResult: ModelContextLookupResult = {
+        ...CONTEXT_LOOKUP_SOURCE_SCOPE,
         status: "not_found",
         lookupId: "lookup-1",
         committedThroughSequence: 12,
@@ -345,4 +347,44 @@ test("Step-dynamic 尾部控制消息精简为纯动态增量且剥离冗余 bud
     assert.equal("budget" in parsed.trajectoryContext, false);
     assert.equal("intent" in parsed, false);
     assert.equal("task" in parsed, false);
+});
+
+test("renderRequest 将 runtime_feedback 置于请求末尾，且原生交换被正确嵌入会话历史", () => {
+    const workingContext: ModelWorkingContext = {
+        phase: "executing",
+        intent: "完成示例任务",
+        execution: { stepCount: 0 },
+    };
+    const view = buildView(workingContext);
+    const feedbackMsg = {
+        role: "user" as const,
+        content: JSON.stringify({
+            source: "runtime_feedback",
+            stage: "decide",
+            origin: "review",
+            code: "semantic_gap",
+            attempt: 1,
+            issues: ["缺口"],
+        }),
+    };
+    const otherStageMsg = {
+        role: "user" as const,
+        content: JSON.stringify({
+            source: "runtime_tool_discovery_result",
+            tools: [],
+        }),
+    };
+
+    const request = renderRequest(
+        view,
+        renderer,
+        undefined,
+        undefined,
+        [otherStageMsg, feedbackMsg],
+    );
+
+    const lastMessage = request.messages.at(-1);
+    assert.ok(lastMessage);
+    assert.equal(lastMessage.role, "user");
+    assert.match(lastMessage.content, /"source":\s*"runtime_feedback"/);
 });

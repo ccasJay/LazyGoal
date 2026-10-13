@@ -1,3 +1,4 @@
+import type { Tool } from "../../packages/tool-core/src/index.js";
 import {
     compileJsonSchema,
     safeParse,
@@ -109,10 +110,11 @@ export function createRemoteToolRegistration(
                     throwIfAborted(execControl);
                     return await options.client.execute({
                         actionId,
+                        context: _context,
                         toolId: options.definition.id,
                         input: parsed.data,
-                        control: execControl,
-                        plan,
+                        ...(execControl === undefined ? {} : { control: execControl }),
+                        ...(plan === undefined ? {} : { plan }),
                     });
                 },
             };
@@ -171,7 +173,7 @@ export function createSwebenchRemoteToolRegistry(client: ToolRpcClient): InMemor
  */
 export function createGaiaRemoteToolRegistry(client: ToolRpcClient): InMemoryToolRegistry {
     const dummyRoot = "/dummy";
-    const tools = [
+    const tools: Tool[] = [
         new ReadFileTool(dummyRoot),
         new WebSearchTool(async () => []),
         new WebFetchTool(async () => ""),

@@ -30,6 +30,12 @@ import type {
 import type { ToolObservation } from "../../tool-core/src/index";
 import type { GoalPlan } from "./goal-plan";
 import type { EffectiveSandboxScope, SandboxExecutionPlan } from "../../sandbox/src/index";
+import type {
+    RunStageState,
+    RunStageRejection,
+    PreviousStageResultRef,
+} from "./run-stage";
+import type { RuntimeContextNote } from "./context-notes";
 
 import {
     isMemoryProtocol,
@@ -59,6 +65,9 @@ export type {
     AskUserAnswer,
     ToolObservation,
     SandboxExecutionPlan,
+    RunStageState,
+    RunStageRejection,
+    PreviousStageResultRef,
 };
 export type { GoalPlan, GoalPlanItem, GoalPlanPatch, GoalPlanPatchOperation, GoalPlanStatus } from "./goal-plan";
 
@@ -660,6 +669,8 @@ export interface RunState {
      * Memory 内容，恢复时由 Trajectory 反查并重放。
      */
     readonly memoryRevision?: MemoryRevision;
+    /** 当前活动或最新已接受的 Run 内部阶段状态。 */
+    readonly currentStage?: RunStageState;
     readonly lastStep?: StepRecord;
     readonly pendingAction?: PendingAction;
     /** 当前由 Runtime 持有的程序父 Action；内部调用结算前不得增加 Step。 */
@@ -848,6 +859,10 @@ export interface GoalState {
     readonly goalPlan?: GoalPlan;
     /** 已归档终态 Run 的只读摘要；初始 Goal 为空。 */
     readonly completedRuns?: readonly CompletedRunRecord[];
+    /** 可选的 Goal 已归档历史阶段列表（用于模型请求中的工作导航投影）。 */
+    readonly historicalStages?: readonly RunStageState[];
+    /** 可选的 Goal 重要决策与用户强调记录列表（用于模型请求中的工作导航投影）。 */
+    readonly notes?: readonly RuntimeContextNote[];
 }
 
 /**
@@ -992,7 +1007,30 @@ export type RunInput =
             | { readonly kind: "context_checkpoint" }
             | { readonly kind: "ask_user" }
             | { readonly kind: "task_proposal" }
+            | { readonly kind: "goal_plan_update" }
+            | { readonly kind: "run_stage_update" }
+            | { readonly kind: "run_stage_complete" }
         >;
+        /** 当 decision 为 complete 时，若当前存在活动阶段，可随 Run 完成原子更新为 accepted 阶段。 */
+        readonly stage?: RunStageState;
+    }
+    | {
+        /** 声明或修订当前 Run 内部阶段；推进 stepCount 并更新 currentStage。 */
+        readonly kind: "stage_update";
+        readonly stage: RunStageState;
+        readonly decision: Extract<AgentDecision, { readonly kind: "run_stage_update" }>;
+    }
+    | {
+        /**
+         * 结算当前 Run 阶段完成候选（接受或拒绝）；推进 stepCount 并更新 currentStage，保持 running。
+         *
+         * @remarks
+         * 中间阶段接受将 currentStage 标记为 accepted；审查拒绝记录 latestReviewRejection 缺口；
+         * 均不终结 Run。
+         */
+        readonly kind: "stage_settle";
+        readonly stage: RunStageState;
+        readonly decision: Extract<AgentDecision, { readonly kind: "run_stage_complete" | "complete" }>;
     }
     | {
         /** 完成一次 Plan Mode 的 GoalPlan 更新 Step；不改变 Run 的终态。 */

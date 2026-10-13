@@ -4,5 +4,5 @@
 
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
-| HeadlessCompositionRoot | 单任务普通 Run 装配。 | [共享评测框架](../README.md) | [模块说明](./overview.md) |
+| HeadlessCompositionRoot | 单任务装配及显式多阶段 Goal 会话。 | [共享评测框架](../README.md) | [模块说明](./overview.md) |
 | Attempt | 一次评测尝试的独立事实。 | [共享评测框架](../README.md) | [模块说明](./overview.md) |

@@ -7,7 +7,7 @@ const renderers = await evaluationRenderers();
 const response = (toolId: string, args: unknown) => ({ content: "", toolCalls: [{ callId: "test", toolId, argumentsJson: JSON.stringify(args) }] });
 
 test("对照请求仅改变模板与系统工具描述，不改变状态、授权、输入 Schema 或判据", () => {
-    assert.equal(decisionScenarios.length, 15);
+    assert.equal(decisionScenarios.length, 17);
     for (const scenario of decisionScenarios) {
         for (const mode of ["strict", "prompt_only", "two_stage"] as const) {
             const old = evaluationRequest(scenario, renderers.old, mode, renderers.oldDescriptions);
@@ -86,4 +86,38 @@ test("仓库取证与寒暄场景使用现有评估入口，拒绝目录列表�
     assert.match(system, /directory listings prove only file existence/);
     assert.match(system, /correct the fields identified by Runtime feedback/);
     assert.match(system, /JSON `null`, never a string sentinel/);
+});
+
+test("source selection and Memory repair use scoped production inputs and reject invented evidence", () => {
+    for (const id of ["repository-history-no-match", "memory-feedback-source"]) {
+        const scenario = decisionScenarios.find(s => s.id === id)!;
+        const plan = evaluationRequest(scenario, renderers.new, "strict");
+        const context = plan.request.messages.map(m => { try { return JSON.parse(m.content); } catch { return undefined; } }).find(m => m?.contextLookupResult);
+        assert.equal(context.contextLookupResult.sourceScope, "goal_history");
+        if (scenario.runtimeFeedback) {
+            const message = plan.request.messages.map(m => { try { return JSON.parse(m.content); } catch { return undefined; } }).find(m => m?.source === "runtime_feedback");
+            assert.equal(message.origin, "memory_patch");
+            assert.deepEqual(message.issues[0].path, scenario.runtimeFeedback.issues[0]!.path);
+        }
+        assert.equal(evaluateResponse(scenario, plan, response("read_file", { path: "project-memory/index.md" })).passed, true);
+        assert.equal(evaluateResponse(scenario, plan, response("read_file", { path: "other.md" })).passed, false);
+        const decision = { kind: "tool_call" as const, action: { actionId: "read", toolId: "read_file", input: { path: "project-memory/index.md" } } };
+        assert.equal(scoreDecision(scenario, { ...decision, memoryPatch: { protocolVersion: 1, operations: [{ type: "upsert_fact", fact: {
+            subject: "repository", predicate: "absent", value: true, stability: "stable", evidenceSequences: [11],
+        } }] } }), false);
+        assert.equal(evaluateResponse(scenario, plan, response("system_complete_task", { summary: "No decisions exist", evidenceSequences: [] })).criticalViolation, true);
+    }
+});
+
+
+test("evaluation Run mode and native declarations agree with proposal and completion contracts", () => {
+    const proposal = evaluationRequest(decisionScenarios[0]!, renderers.new, "strict");
+    assert.ok(proposal.request.tools.some(t => t.id === "system_propose_task_plan"));
+    assert.ok(!proposal.request.tools.some(t => t.id === "system_complete_task"));
+    const inspect = evaluationRequest(decisionScenarios[1]!, renderers.new, "strict");
+    assert.ok(!inspect.request.tools.some(t => t.id === "system_propose_task_plan"));
+    assert.match(inspect.request.messages.map(m => m.content).join("\n"), /Normal Run: act directly/);
+    const approved = evaluationRequest(decisionScenarios[10]!, renderers.new, "strict");
+    const declaration = approved.request.tools.find(t => t.id === "system_complete_task")!;
+    assert.ok(JSON.stringify(declaration.parametersSchema).includes("completionEvidence"));
 });

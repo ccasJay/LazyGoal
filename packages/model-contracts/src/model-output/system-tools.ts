@@ -17,6 +17,7 @@ import {
     CompletionEvidenceContract,
     ContextLookupFiltersContract,
     ContextLookupNeedContract,
+    ContextLookupOperationContract,
     ExecutingFailAgentDecisionContract,
     ExecutingWaitAgentDecisionContract,
     ExecutingWorkingMemoryPatchContract,
@@ -218,9 +219,16 @@ export const SystemFailGoalInputContract = contract.object({
 
 /** 历史上下文检索工具参数契约。 */
 export const SystemContextLookupInputContract = contract.object({
-    need: ContextLookupNeedContract,
-    question: contract.string(),
+    operation: contract.optional(ContextLookupOperationContract),
+    need: contract.optional(ContextLookupNeedContract),
+    question: contract.optional(contract.string()),
     filters: contract.optional(ContextLookupFiltersContract),
+    query: contract.optional(contract.string()),
+    cursor: contract.optional(contract.string()),
+    limit: contract.optional(contract.integer({ minimum: 1, maximum: 50 })),
+    category: contract.optional(contract.string()),
+    sourceRef: contract.optional(contract.string()),
+    offset: contract.optional(contract.integer({ minimum: 0 })),
 });
 
 /** 统一执行流提交任务提案工具参数契约。 */
@@ -251,6 +259,24 @@ export const SystemAskUserInputContract = contract.object({
 export const SystemUpdateGoalPlanInputContract = contract.object({
     baseRevision: contract.integer({ minimum: 0 }),
     operations: contract.array(GoalPlanPatchOperationContract),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+});
+
+/** 阶段更新工具参数契约。 */
+export const SystemUpdateRunStageInputContract = contract.object({
+    stageId: contract.optional(contract.string()),
+    baseRevision: contract.optional(contract.integer({ minimum: 1 })),
+    reason: contract.optional(contract.string()),
+    target: contract.string(),
+    acceptanceCriteria: contract.array(contract.string(), { minItems: 1 }),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+});
+
+/** 阶段完成候选工具参数契约。 */
+export const SystemCompleteRunStageInputContract = contract.object({
+    stageId: contract.string(),
+    summary: contract.string(),
+    evidenceSequences: contract.optional(contract.array(contract.integer({ minimum: 0 }))),
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
@@ -314,13 +340,31 @@ export const SystemFailGoalDeclaration: SystemToolDeclaration<AgentDecision> = b
 
 export const SystemContextLookupDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_context_lookup",
-    "Recover necessary historical execution, user decisions or rationale from trajectory or conversation records. Results do not establish current external state; use authorized tools for that. Filters are optional; omit sequenceRange unless targeting known event sequences.",
+    "Recover necessary historical execution, user decisions or rationale from trajectory or conversation records. Workspace files are not searched. No match does not prove a repository object is absent. Lookup events are not direct Fact or completion evidence. Use authorized file tools when requested repository contents are missing. Results do not establish current external state; use authorized tools for that. Filters are optional; omit sequenceRange unless targeting known event sequences.",
     SystemContextLookupInputContract,
-    (args: { need: any; question: string; filters?: any }) => ({
+    (args: {
+        operation?: any;
+        need?: any;
+        question?: string;
+        filters?: any;
+        query?: string;
+        cursor?: string;
+        limit?: number;
+        category?: string;
+        sourceRef?: string;
+        offset?: number;
+    }) => ({
         kind: "context_lookup" as const,
-        need: args.need,
-        question: args.question,
+        ...(args.operation !== undefined ? { operation: args.operation } : {}),
+        ...(args.need !== undefined ? { need: args.need } : {}),
+        ...(args.question !== undefined ? { question: args.question } : {}),
         ...(args.filters !== undefined ? { filters: args.filters } : {}),
+        ...(args.query !== undefined ? { query: args.query } : {}),
+        ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
+        ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        ...(args.category !== undefined ? { category: args.category } : {}),
+        ...(args.sourceRef !== undefined ? { sourceRef: args.sourceRef } : {}),
+        ...(args.offset !== undefined ? { offset: args.offset } : {}),
     }),
 );
 
@@ -432,6 +476,34 @@ export const SystemUpdateGoalPlanDeclaration: SystemToolDeclaration<AgentDecisio
     }),
 );
 
+export const SystemUpdateRunStageDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
+    "system_update_run_stage",
+    "Declare a new internal stage or revise the current active stage. When declaring, provide target and acceptanceCriteria. When revising, specify stageId, baseRevision, and reason.",
+    SystemUpdateRunStageInputContract,
+    (args: { target: string; acceptanceCriteria: string[]; stageId?: string; baseRevision?: number; reason?: string; memoryPatch?: unknown }): AgentDecision => ({
+        kind: "run_stage_update",
+        target: args.target,
+        acceptanceCriteria: args.acceptanceCriteria,
+        ...(args.stageId !== undefined ? { stageId: args.stageId } : {}),
+        ...(args.baseRevision !== undefined ? { baseRevision: args.baseRevision } : {}),
+        ...(args.reason !== undefined ? { reason: args.reason } : {}),
+        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
+    }),
+);
+
+export const SystemCompleteRunStageDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
+    "system_complete_run_stage",
+    "Submit a completion candidate for the current active stage to trigger review. Requires stageId and summary.",
+    SystemCompleteRunStageInputContract,
+    (args: { stageId: string; summary: string; evidenceSequences?: number[]; memoryPatch?: unknown }): AgentDecision => ({
+        kind: "run_stage_complete",
+        stageId: args.stageId,
+        summary: args.summary,
+        ...(args.evidenceSequences !== undefined ? { evidenceSequences: args.evidenceSequences } : {}),
+        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
+    }),
+);
+
 /**
  * Decide 阶段的 Think 控制声明。
  *
@@ -521,6 +593,8 @@ export function createExecutingToolDeclarations(
         SystemContextLookupDeclaration as SystemToolDeclaration<AgentDecision>,
         SystemFindToolsDeclaration,
         SystemAskUserDeclaration,
+        SystemUpdateRunStageDeclaration,
+        SystemCompleteRunStageDeclaration,
     ];
 }
 
@@ -585,6 +659,8 @@ export function createUnifiedToolDeclarations(
             SystemContextLookupDeclaration as SystemToolDeclaration<AgentDecision>,
             SystemFindToolsDeclaration,
             SystemAskUserDeclaration,
+            SystemUpdateRunStageDeclaration,
+            SystemCompleteRunStageDeclaration,
             ...(goalPlanWritable ? [SystemUpdateGoalPlanDeclaration] : []),
             ...thinkDeclaration,
         ];

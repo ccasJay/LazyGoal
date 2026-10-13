@@ -8,11 +8,12 @@ import {
     allocateDiagnosticTraceRecord,
 } from "../../runtime/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
+import { LLMResponseProtocolError } from "./errors";
 import { TransientModelRequestFailure } from "../../execution-control/src/index";
 
 const MAX_TRACE_PAYLOAD_CHARS = 24_000;
 const MAX_TRACE_STRING_CHARS = 12_000;
-const MAX_TRACE_DEPTH = 6;
+const MAX_TRACE_DEPTH = 64;
 const MAX_TRACE_ITEMS = 100;
 const REDACTED = "[REDACTED]";
 const TRUNCATED = "[TRUNCATED]";
@@ -20,6 +21,7 @@ const SENSITIVE_KEY_PATTERN = /api[-_]?key|authorization|cookie|password|secret|
 
 /** Agent LLM 诊断事件的稳定内部类型。 */
 type LlmTraceKind =
+    | "model_tool_schema"
     | "model_request"
     | "model_response"
     | "model_error"
@@ -62,28 +64,41 @@ export async function recordLlmDiagnosticTrace(input: {
 
 /**
  * 记录一次模型请求准备；已有完整输入日志时只保存引用，避免重复 system 正文。
+ * @param callId - 关联请求、适配器响应及校验错误的调用身份；schema 为发送给 Adapter 的有界脱敏副本。
  * @param modelInputCallId - 已落盘的完整输入身份；未配置输入 Store 时保留有界诊断预览。
  */
-export function recordLlmRequest(
+export async function recordLlmRequest(
     sink: DiagnosticTraceSink | undefined,
     goal: Goal,
     request: LLMRequest,
     modelInputCallId?: string,
+    callId?: string,
 ): Promise<void> {
-    return recordLlmDiagnosticTrace({
+    await recordLlmDiagnosticTrace({
         sink,
         goal,
         kind: "model_request",
-        payload: modelInputCallId === undefined ? { messages: request.messages } : { modelInputCallId },
+        payload: {
+            ...(callId === undefined ? {} : { callId }),
+            ...(modelInputCallId === undefined ? { messages: request.messages } : { modelInputCallId }),
+            ...(request.tools === undefined ? {} : { toolIds: request.tools.map(tool => tool.id) }),
+            ...(request.structuredOutput === undefined ? {} : { structuredOutput: request.structuredOutput }),
+            ...(request.toolChoice === undefined ? {} : { toolChoice: request.toolChoice }),
+        },
     });
+    for (const tool of request.tools ?? []) {
+        await recordLlmDiagnosticTrace({ sink, goal, kind: "model_tool_schema",
+            payload: { ...(callId === undefined ? {} : { callId }), toolId: tool.id, parametersSchema: tool.parametersSchema } });
+    }
 }
 
-/** 记录一次模型响应及供应商扩展 metadata。 */
+/** 记录 Adapter 返回的有界响应、工具原始参数和 metadata；callId 与请求及校验错误关联。 */
 export function recordLlmResponse(
     sink: DiagnosticTraceSink | undefined,
     goal: Goal,
     response: LLMResponse,
     durationMs: number,
+    callId?: string,
 ): Promise<void> {
     const providerMetadata = readProviderMetadata(response);
 
@@ -92,6 +107,7 @@ export function recordLlmResponse(
         goal,
         kind: "model_response",
         payload: {
+            ...(callId === undefined ? {} : { callId }),
             content: response.content,
             ...(response.toolCalls !== undefined && response.toolCalls.length > 0
                 ? { toolCalls: response.toolCalls }
@@ -102,18 +118,20 @@ export function recordLlmResponse(
     });
 }
 
-/** 记录适配器或响应解析异常。 */
+/** 记录适配器或响应解析异常及结构化校验问题；callId 关联原始响应，不改变错误传播。 */
 export function recordLlmError(
     sink: DiagnosticTraceSink | undefined,
     goal: Goal,
     error: unknown,
     durationMs: number,
     stage: "adapter" | "response_parse",
+    callId?: string,
 ): Promise<void> {
     const details = error instanceof Error
         ? {
             name: error.name,
             message: error.message,
+            ...(error instanceof LLMResponseProtocolError ? { code: error.code, ...(error.issues === undefined ? {} : { issues: error.issues }) } : {}),
             ...(error instanceof TransientModelRequestFailure
                 ? {
                     retryable: true,
@@ -130,7 +148,7 @@ export function recordLlmError(
         sink,
         goal,
         kind: "model_error",
-        payload: { stage, durationMs, error: details },
+        payload: { ...(callId === undefined ? {} : { callId }), stage, durationMs, error: details },
     });
 }
 
@@ -184,6 +202,7 @@ function boundJsonValue(value: unknown): JsonValue {
     }
 
     return {
+        ...(isRecord(value) && typeof value.callId === "string" ? { callId: value.callId } : {}),
         truncated: true,
         preview: serialized.slice(0, MAX_TRACE_PAYLOAD_CHARS),
     };

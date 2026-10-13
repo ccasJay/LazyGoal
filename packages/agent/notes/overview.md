@@ -23,7 +23,7 @@ Run 模式、已批准任务、GoalPlan、授权工具和 Working Memory 不进�
 
 ## 单轮请求
 
-`ModelInferenceProjector` 从 Goal 生成深冻结的 `ModelInferenceView`，包括固定 Prompt 上下文、动态运行状态、真实 Conversation、Working Memory、Context Epoch 和可选的已提交 Lookup Result。模型只能看到稳定 DTO，不能提交 Runtime 的 Goal/Run、Step、Epoch、Todo ID、Action ID 或内部计数。
+`ModelInferenceProjector` 从 Goal 生成深冻结的 `ModelInferenceView`，包括固定 Prompt 上下文、动态运行状态（含当前活动阶段 `currentStage` 目标、条件与审查反馈投影）、真实 Conversation、Working Memory、Context Epoch 和可选的已提交 Lookup Result。模型只能看到稳定 DTO，不能提交 Runtime 的 Goal/Run、Step、Epoch、Todo ID、Action ID 或内部计数。
 
 `buildStepRequest` 在单次调用内完成上下文组装、预算裁剪和 Prompt 渲染，并返回与请求绑定的 `ModelOutputContractBundle`。`TrajectoryModelContextAssembler` 按 Goal Snapshot 的 committed boundary、Goal/Run、当前 Decide/Think 阶段、Epoch、Conversation 起点和注册身份筛选 Section frame，并在同一次 Trajectory 读取中构造固定预算输入及 Hot/Warm 上下文。Planner 将每个当前 Section 的最新状态重建进无状态请求；变化只产生完整替换或失效更新，未变化 Section 沿用已提交的最新消息。Epoch 切换、历史裁剪或缺少有效基线时，当前投影会重新完整注入。
 
@@ -49,7 +49,7 @@ Contracts 根据当前 Run 的模式、任务批准状态和可见工具集合�
 
 ## 输出处理
 
-Decide 的模型原始文本由当前请求 Wire Contract 严格解析：`request_think` 解码为独立阶段控制结果，业务输出解码为 Canonical `AgentDecision`。Think 不解析 AgentDecision，拒绝空文本和任何工具调用。Plan Mode 的 `goal_plan_update` 仍只是模型提案，由 Runtime 的 GoalPlan reducer 分配 Todo ID、校验 revision/状态并提交 Snapshot；普通模式不会解码该分支。解析、Schema、分支或 Tool 参数错误会转换为带稳定来源、路径和有界安全提示的 `RuntimeFeedback`，字段提示按稳定错误码生成，业务工具参数路径统一标记为 `action.input`（正文 JSON 带 `result` 前缀），并指导模型纠正调用后继续取证。反馈可作为标记为 `runtime_feedback` 的临时阶段消息注入原阶段请求；它不会追加到 Goal Conversation，也不会改变 strict 或 prompt_only 输出模式。Runner 在提交反馈后最多尝试同一 Decide 或 Think 纠错链三次（含首次）；恢复只读取 Snapshot 边界内的反馈事实，并忽略未提交输出。原始响应可进入独立诊断 Trace，但不进入 Goal Conversation；已提交 Think 的目标与输出以专用 Trajectory 事实保存。
+Decide 的模型原始文本由当前请求 Wire Contract 严格解析：`request_think` 解码为独立阶段控制结果，业务输出解码为 Canonical `AgentDecision`。Think 不解析 AgentDecision，拒绝空文本和任何工具调用。Plan Mode 的 `goal_plan_update` 仍只是模型提案，由 Runtime 的 GoalPlan reducer 分配 Todo ID、校验 revision/状态并提交 Snapshot；普通模式不会解码该分支。解析、Schema、分支或 Tool 参数错误会转换为带稳定来源、路径和有界安全提示的 `RuntimeFeedback`，字段提示按稳定错误码生成，业务工具参数路径统一标记为 `action.input`（正文 JSON 带 `result` 前缀），并指导模型纠正调用后继续取证。已声明原生工具的 Object 参数校验失败时，反馈 constraints 附工具名、已提供字段以及允许和必填字段的有界形状摘要；不回传参数值，非法 JSON 与未知工具不生成该摘要。反馈作为标记为 `runtime_feedback` 的临时阶段消息追加到历史、动态 Section 与 Working Context 之后；它不会追加到 Goal Conversation，也不会改变 strict 或 prompt_only 输出模式。Runner 在提交反馈后最多尝试同一 Decide 或 Think 纠错链三次（含首次）；恢复只读取 Snapshot 边界内的反馈事实，并忽略未提交输出。原始响应可进入独立诊断 Trace，但不进入 Goal Conversation；已提交 Think 的目标与输出以专用 Trajectory 事实保存。
 
 Agent 不拥有 UI；当 Adapter 提供 `stream` 时，`LLMStepExecutor` 将模型增量映射到
 `@lazygoal/execution-stream`，同时只用最终 `completed` 响应解析 AgentDecision。没有流接口的 Adapter
@@ -59,10 +59,16 @@ Agent 不拥有 UI；当 Adapter 提供 `stream` 时，`LLMStepExecutor` 将模�
 
 ## 模型消息记录
 
-正式组合根为 LLMStepExecutor 注入独立的 [`ModelInputStore`](../../runtime/src/model-input.ts)。每次 Think、Decide 或 `completion_review` 在 Adapter 调用前保存最终消息正文与顺序，调用身份与指标共享；审查使用独立 callId，成功 Decide/Think frame 由 modelCallId 关联。写入失败阻止当前调用；调用失败不删除已保存输入，输入事实不推进 Section 比较基线。诊断请求日志通过调用引用指向完整消息，避免再次写入 system 正文。
+正式组合根为 LLMStepExecutor 注入独立的 [`ModelInputStore`](../../runtime/src/model-input.ts)。每次 Think、Decide 或 `completion_review` 在 Adapter 调用前保存最终消息正文与顺序，调用身份与指标共享；审查使用独立 callId，成功 Decide/Think frame 由 modelCallId 关联。写入失败阻止当前调用；调用失败不删除已保存输入，输入事实不推进 Section 比较基线。诊断请求日志通过调用引用指向完整消息，避免再次写入 system 正文。请求、Adapter 原始响应及校验错误通过同一 callId 关联；每个原生工具的实际请求 schema 单独记录为 model_tool_schema，错误保留 code 与 issues。Trace 仍为脱敏、有界且 best effort 的诊断，超限标记截断，不保证供应商 HTTP wire 原文，也不参与恢复。
 
 ## 原生工具对话历史
 
 OpenAI Chat Completions 与 Gemini 的 Decide 请求从 Snapshot 提交边界内重建原生调用交换。Agent 返回规范化响应，Runner 随接受的阶段 checkpoint 提交 `model_response_received`；诊断和输入日志不参与恢复。供应商调用 ID 与 Runtime Action ID 独立，工具 Observation、lookup 结果、已提交 Think 输出或系统决策接受确认按调用 ID 配对。审批等待和未结算调用不进入下一请求。
 
-同身份的近期交换按 Conversation 位置插入请求；调用、结果及签名以完整执行单元参与 Hot 预算，被替代的结果不再重复写入 Hot 文本或 previousStep。当前未结束 Step 的已结算 Think 交换也可见，输出只通过配对 tool result 发送。较旧单元由原始语义投影提取 Warm；切换 provider、端点、模型、协议或进入语义 Adapter 路径结束旧续接段。Think 请求保持纯文本，不携带原生调用历史。契约见 [model-conversation.ts](../../model-contracts/src/model-conversation.ts)，组装见 [native-model-history.ts](../src/native-model-history.ts)。
+同身份的近期交换按 Conversation 位置插入请求；调用、结果及签名以完整执行单元参与 Hot 预算，被替代的结果不再重复写入 Hot 文本或 previousStep。已纳入请求的原生工具交换消除 Hot 投影中重复的 `action_staged` 与 `tool_started` 动作参数，只保留必要操作身份与状态；原生路径的动态授权 Section 移除重复参数 Schema，仅保留授权身份、描述及 `execute_program` 等必要指导；`prompt_only` 模式保留完整解码 Schema。当前未结束 Step 的已结算 Think 交换也可见，输出只通过配对 tool result 发送。较旧单元由原始语义投影提取 Warm；切换 provider、端点、模型、协议或进入语义 Adapter 路径结束旧续接段。Think 请求保持纯文本，不携带原生调用历史。契约见 [model-conversation.ts](../../model-contracts/src/model-conversation.ts)，组装见 [native-model-history.ts](../src/native-model-history.ts)。
+
+Context Lookup 的 found、not_found、lookup_error 模型投影统一标记 `sourceScope: goal_history` 与来源限制；普通上下文和原生工具结果共用该投影。语料不搜索仓库文件，未命中不证明文件或决策不存在。用户指定资料尚缺时通过授权文件工具读取，充分已有来源可复用。完成审查同样接收范围说明，并核对指定来源与实际交付物；通用示例不能替代要求的真实案例，是否附带 Memory Patch 不影响判断。
+
+来源选择与 Memory 修复的固定单步评测沿用 `npm run llm:decision-eval`，完成审查评测使用 `npm run llm:decision-eval -- --completion-review`。新来源场景使用实际文件 Tool Schema 和生产反馈消息注入，每项重复三次；缺失调用标记 incomplete，任何新场景失败不通过。报告只衡量固定单步／候选判断，不代表长期任务成功率。
+
+完成审查按用户原文、当前阶段、完整候选和引用的已提交证据组装输入，不默认重放完整会话。保守保留历史用户要求；当前 Run 用户回复紧邻的 Assistant 消息用于问答、批准及沿用结果的语境，记录原始消息位置。其他历史答复通过显式 Context Lookup 来源提供。必要原文或证据仍超预算时在调用前失败，不截断后放行。

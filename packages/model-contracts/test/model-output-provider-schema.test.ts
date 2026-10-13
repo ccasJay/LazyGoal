@@ -144,6 +144,7 @@ test("Executing Schema、Shape Guide 与 decode 均拒绝 PlanItem 操作，并�
                     },
                 }],
             },
+            contextNotes: null,
         },
     };
     assert.equal(validate(validUpdateBlocker), true);

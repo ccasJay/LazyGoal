@@ -784,7 +784,7 @@ function normalizeContextRetrievalQuery(input: ContextRetrievalQuery): ContextRe
     }
     return {
         need,
-        question: request.question,
+        question: request.question ?? "",
         ...(request.filters === undefined ? {} : { filters: request.filters }),
         committedThroughSequence: input.committedThroughSequence,
         indexVersion: input.indexVersion,

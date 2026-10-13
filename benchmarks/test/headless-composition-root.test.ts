@@ -45,6 +45,7 @@ const evidenceTool: Tool = {
     definition: {
         id: "benchmark_evidence",
         description: "Produce a committed benchmark fact.",
+        isReadOnly: true,
         inputContract: EMPTY_INPUT_CONTRACT,
     },
     replayPolicy: "safe",
@@ -131,6 +132,7 @@ function createDependencies<TTask, TOutcome>(
                                 summary: "done",
                                 evidenceSequences: [],
                                 memoryPatch: null,
+                                contextNotes: null,
                             },
                         }),
                     };
@@ -157,6 +159,7 @@ function createDependencies<TTask, TOutcome>(
                             summary: "done",
                             evidenceSequences: [latestObservationSequence(trajectoryStore)],
                             memoryPatch: null,
+                            contextNotes: null,
                         },
                     }),
                 };
@@ -358,6 +361,7 @@ test("aggregates normalized usage across model calls and counts missing usage ca
                         summary: "done",
                         evidenceSequences: [latestObservationSequence(trajectoryStore)],
                         memoryPatch: null,
+                        contextNotes: null,
                     },
                 }),
                 providerMetadata: {
@@ -846,6 +850,7 @@ test("passes structured benchmark criteria as context without making them Runtim
                     summary: "done",
                     evidenceSequences: [obsSeq],
                     memoryPatch: null,
+                    contextNotes: null,
                 },
             }),
         };
@@ -927,7 +932,7 @@ test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing
             ? { kind: "tool_discovery", query: "benchmark evidence" }
             : calls === 2
                 ? { kind: "tool_call", action: { actionId: "pi-evidence", toolId: "benchmark_evidence", input: {} }, memoryPatch: null }
-                : calls === 3 ? { kind: "complete", summary: "done", evidenceSequences: [latestObservationSequence(trajectoryStore)], memoryPatch: null } : { kind: "accept" };
+                : calls === 3 ? { kind: "complete", summary: "done", evidenceSequences: [latestObservationSequence(trajectoryStore)], memoryPatch: null, contextNotes: null } : { kind: "accept" };
         res.setHeader("Content-Type", "text/event-stream");
         res.end(`data: ${JSON.stringify({
             id: "pi-usage", model: "local-model", choices: [{ index: 0, delta: { role: "assistant", content: JSON.stringify({ result }) }, finish_reason: "stop" }],
@@ -953,4 +958,111 @@ test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing
         server.closeAllConnections();
         await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     }
+});
+
+test("persistent sessions keep a Goal across continue and close exactly once", async () => {
+    let closed = 0;
+    const dependencies = createDependencies({
+        describeTask: () => ({ intent: "First stage", objective: "Collect evidence", completionCriteria: ["Follow the current message"], maxSteps: 1 }),
+        createEpisode: async () => ({
+            registry: { get: () => undefined },
+            readOutcome: () => true,
+            close: async () => { closed += 1; },
+        }),
+    }, new InMemoryTrajectoryStore());
+    dependencies.llmAdapter.generate = async () => ({ content: JSON.stringify({ result: { kind: "fail", error: "Expected stage failure", memoryPatch: null, contextNotes: null } }) });
+    let nextRun = 0;
+    const session = await new HeadlessCompositionRoot({ ...dependencies, runIdGenerator: () => `session-run-${++nextRun}` }).openSession({ id: "session" });
+    try {
+        const first = await session.launch();
+        assert.equal(first.goal.state.run.status, "failed");
+        const second = await session.continue("Retry with the same workspace.");
+        assert.equal(second.goal.id, first.goal.id);
+        assert.notEqual(second.goal.state.run.id, first.goal.state.run.id);
+        assert.equal(second.goal.state.completedRuns?.length, 1);
+        assert.ok(second.goal.state.messages.some(message => message.role === "user" && message.content === "Retry with the same workspace."));
+        assert.equal(closed, 0);
+        assert.equal((await session.restore()).state.run.id, second.goal.state.run.id);
+    } finally {
+        await session.close();
+        await session.close();
+    }
+    assert.equal(closed, 1);
+});
+
+test("a rebuilt file-backed session resumes waiting in the same Run and records every model input", async () => {
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { JsonFileBenchmarkPersistenceAdapter } = await import("../src/file-persistence-adapter.js");
+    const directory = await mkdtemp(join(tmpdir(), "headless-resume-"));
+    const persistence = new JsonFileBenchmarkPersistenceAdapter<{ id: string }>({ rootDirectory: directory, namespaceFor: task => task.id });
+    const dependencies = createDependencies({
+        describeTask: () => ({ intent: "Wait for retry count", objective: "Follow user instructions", completionCriteria: ["Follow the current message"], maxSteps: 5 }),
+        createEpisode: async () => ({ registry: { get: () => undefined }, readOutcome: () => true, close: async () => undefined }),
+    }, new InMemoryTrajectoryStore());
+    let fileRun = 0;
+    const fileDependencies = { ...dependencies, persistence, runIdGenerator: () => `file-run-${++fileRun}` };
+    dependencies.llmAdapter.generate = async () => ({ content: JSON.stringify({ result: { kind: "wait", reason: "Provide retry count", memoryPatch: null, contextNotes: null } }) });
+    try {
+        const first = await new HeadlessCompositionRoot(fileDependencies).openSession({ id: "waiting" });
+        const waiting = await first.launch();
+        assert.equal(waiting.progress.ok && waiting.progress.kind, "waiting", JSON.stringify(waiting.goal.state.run));
+        const ref = { goalId: waiting.goal.id, runId: waiting.goal.state.run.id };
+        await first.close();
+        const bindings = await persistence.open({ benchmarkId: dependencies.benchmarkId, namespace: "waiting", ...ref });
+        const before = await bindings.modelInputStore!.read(ref.goalId, ref.runId);
+        assert.equal(before.length, 1);
+        assert.ok(before[0]!.messages.length > 0);
+        dependencies.llmAdapter.generate = async () => ({ content: JSON.stringify({ result: { kind: "fail", error: "Expected end of probe", memoryPatch: null, contextNotes: null } }) });
+        let latestRef = ref;
+        const rebuilt = await new HeadlessCompositionRoot(fileDependencies).openSession({ id: "waiting" }, { restoreRef: ref });
+        try {
+            const resumed = await rebuilt.resume({ kind: "message", content: "3 retries" });
+            assert.equal(resumed.goal.state.run.id, ref.runId);
+            assert.ok(resumed.goal.state.messages.some(message => message.role === "user" && message.content === "3 retries"));
+            const after = await bindings.modelInputStore!.read(ref.goalId, ref.runId);
+            assert.equal(after.length, 2);
+            assert.ok(after[1]!.messages.some(message => message.content.includes("3 retries")));
+            const continued = await rebuilt.continue("Start another stage");
+            latestRef = { goalId: continued.goal.id, runId: continued.goal.state.run.id };
+            const lookup = await bindings.contextLookupPort!.lookup({
+                goal: continued.goal, lookupId: "cross-run-probe",
+                committedThroughSequence: continued.goal.state.run.committedThroughSequence,
+                request: { kind: "context_lookup", need: "conversation_history", question: "3 retries" },
+            });
+            assert.equal(lookup.status, "found", JSON.stringify(lookup));
+            assert.ok(JSON.stringify(lookup).includes(ref.runId));
+
+        } finally { await rebuilt.close(); }
+        const incompatible = { ...fileDependencies, profile: { ...dependencies.profile, systemPrompt: "Changed" } };
+        await assert.rejects(() => new HeadlessCompositionRoot(incompatible).openSession({ id: "waiting" }, { restoreRef: latestRef }), /Profile mismatch/);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("usage recording preserves native identity and committed provider call/result history", async () => {
+    const identity = { provider: "google" as const, endpoint: "https://provider.test/v1", model: "native-test", protocol: "gemini-content" as const };
+    let calls = 0;
+    const dependencies = createDependencies({
+        describeTask: () => ({ intent: "Inspect", objective: "Inspect", completionCriteria: ["Inspect"], maxSteps: 4 }),
+        createEpisode: async () => ({ registry: { get: () => undefined }, readOutcome: () => null, close: async () => undefined }),
+    }, new InMemoryTrajectoryStore());
+    const nativeAdapter: import("../../packages/agent/src/index.js").LLMAdapter = {
+        structuredOutputMode: "strict", nativeConversationIdentity: identity,
+        async generate(request) {
+            calls++;
+            assert.equal(request.structuredOutput, undefined);
+            if (calls === 2) {
+                assert.ok(request.messages.some(message => message.role === "tool"));
+                assert.ok(request.messages.some(message => message.role === "assistant" && "continuation" in message));
+            }
+            const name = calls === 1 ? "system_find_tools" : "system_fail_goal";
+            const args = calls === 1 ? { query: "benchmark evidence" } : { error: "Expected probe end", memoryPatch: null };
+            return { content: "", toolCalls: [{ callId: "provider-call-" + calls, toolId: name, argumentsJson: JSON.stringify(args) }],
+                continuation: { identity, parts: [{ functionCall: { name, args }, thoughtSignature: "signature-" + calls }] } };
+        },
+    };
+    const result = await new HeadlessCompositionRoot({ ...dependencies, llmAdapter: nativeAdapter }).run(null);
+    assert.equal(result.goal.state.run.status, "failed");
+    assert.equal(calls, 2);
 });

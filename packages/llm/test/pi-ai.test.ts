@@ -316,7 +316,7 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
                     const nativeObservation = body.messages.find((message: any) => message.role === "tool" && JSON.parse(message.content).observation !== undefined);
                     decision = observation === undefined && nativeObservation === undefined
                         ? { kind: "tool_call", action: { actionId: "smoke-action-1", toolId: "smoke_evidence", input: {} }, memoryPatch: null }
-                        : { kind: "complete", summary: "Smoke passed", completionEvidence: [{ criterionIndex: 0, evidenceSequences: [observation?.sequence ?? JSON.parse(nativeObservation.content).sourceSequence] }], memoryPatch: null };
+                        : { kind: "complete", summary: "Smoke passed", completionEvidence: [{ criterionIndex: 0, evidenceSequences: [observation?.sequence ?? JSON.parse(nativeObservation.content).sourceSequence] }], memoryPatch: null, contextNotes: null };
                 }
                 const content = JSON.stringify({ result: decision });
                 if (mode === "strict") {

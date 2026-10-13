@@ -3,7 +3,7 @@ import {
     BASH_TOOL_ID,
     BashTool,
 } from "../../../packages/tools/src/index.js";
-import type { ToolDefinition } from "../../../packages/runtime/src/index.js";
+import type { ToolDefinition } from "../../../packages/tool-core/src/index.js";
 
 export {
     BASH_INPUT_CONTRACT,

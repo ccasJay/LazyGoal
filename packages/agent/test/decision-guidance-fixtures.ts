@@ -1,3 +1,9 @@
+import { ReadFileTool } from "../../tools/src/read-file";
+import { projectContextLookupResult } from "../src/context-lookup-projection";
+import { createMemoryPatchFeedback, type RuntimeFeedback } from "../../runtime/src/runtime-feedback";
+import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
+import { validateMemoryPatchEvidence, buildCommittedEvidenceIndex, EvidenceGateError } from "../../runtime/src/evidence-gate";
+import { normalizeMemoryPatch } from "../../working-memory/src/index";
 import { contract } from "../../contracts/src/index";
 import type { AgentDecision } from "../../model-contracts/src/index";
 import { allocateImmutableEvent, type TrajectoryEventDraft } from "../../runtime/src/trajectory";
@@ -19,6 +25,10 @@ type Scenario = {
     expected: readonly string[];
     target?: string;
     detail?: RegExp;
+    fileSource?: boolean;
+    required?: boolean;
+    lookupResult?: ContextLookupResult;
+    runtimeFeedback?: RuntimeFeedback;
 };
 
 const input = contract.object({ target: contract.string(), value: contract.optional(contract.string()) });
@@ -31,6 +41,21 @@ export const decisionTools: readonly ToolDefinition[] = [
 ];
 
 // 判据先于实测固定；工具名称与输入约束不随旧、新 Prompt 改变。
+function memoryRejectionFeedback(): RuntimeFeedback {
+    const query: TrajectoryEventDraft = { goalId: "decision-eval", runId: "run-1", phase: "executing", eventType: "context_lookup_requested",
+        payload: { type: "context_lookup_requested", lookupId: "history", request: { kind: "context_lookup", need: "conversation_history", question: "Any project decisions?" } } };
+    const index = buildCommittedEvidenceIndex({ goalId: "decision-eval", runId: "run-1", committedThroughSequence: 12, events: [allocateImmutableEvent(query, 11)] });
+    try {
+        validateMemoryPatchEvidence({ protocolVersion: 1, operations: [{ type: "upsert_fact", fact: {
+            subject: "project_memory", predicate: "searched_project_memory", value: ["no_historical_decision_found"], stability: "stable", evidenceSequences: [11],
+        } }] }, index);
+    } catch (error) {
+        if (!(error instanceof EvidenceGateError)) throw error;
+        return createMemoryPatchFeedback(error, { goalId: "decision-eval", runId: "run-1", executionUnitId: "unit-1", stepOrdinal: 2 }, index);
+    }
+    throw new Error("The negative Memory fixture must be rejected by the production Evidence Gate");
+}
+
 export const decisionScenarios: readonly Scenario[] = [
     { id: "proposal", approved: false, intent: "Change the existing banner text to Welcome. Scope is banner text only. Acceptance: verify reports the banner text is Welcome.", expected: ["task_proposal"] },
     { id: "inspect", approved: false, intent: "Fix the failing checkout. Its current failure is unknown, and the scope depends on the checkout error. Resource: checkout.", expected: ["read_state", "verify"], target: "checkout" },
@@ -47,27 +72,42 @@ export const decisionScenarios: readonly Scenario[] = [
     { id: "repository-listing", approved: false, normal: true, intent: "Evaluate this repository's development rules based on their contents.", observation: { tool: "read_state", target: "repository", outcome: "success", text: "Directory listing: AGENTS.md, CLAUDE.md, packages/. No file contents have been read." }, expected: ["read_state"], target: "AGENTS.md" },
     { id: "repository-content", approved: false, normal: true, intent: "Explain the contract documentation rule stated in AGENTS.md. Evaluate only that stated rule, not implementation compliance.", observation: { tool: "read_state", target: "AGENTS.md", outcome: "success", text: "AGENTS.md contents: Every public TypeScript interface must include contract-level documentation covering responsibilities, lifecycle semantics and a minimal example. These are the complete relevant rules for this request." }, expected: ["complete"], detail: /contract|TypeScript|documentation/i },
     { id: "greeting", approved: false, normal: true, intent: "Hi!", expected: ["complete"] },
+    { id: "repository-history-no-match", approved: false, normal: true, fileSource: true, required: true,
+        intent: "Read project-memory/index.md, choose a real historical decision from the repository documents and propose its reversal condition. The file contents have not been provided.",
+        lookupResult: { status: "not_found", lookupId: "history", reason: "no_context_match" }, expected: ["read_file"], target: "project-memory/index.md" },
+    { id: "memory-feedback-source", approved: false, normal: true, fileSource: true, required: true,
+        intent: "Read project-memory/index.md, choose a real historical decision and propose a reversal condition. Its contents have not been read.",
+        lookupResult: { status: "not_found", lookupId: "history", reason: "no_context_match" },
+        runtimeFeedback: memoryRejectionFeedback(),
+        expected: ["read_file"], target: "project-memory/index.md" },
+
 ];
+
+/** 采用实际只读文件工具 Schema 的来源场景，不执行该工具。 */
+export function decisionScenarioTools(scenario: Scenario): readonly ToolDefinition[] {
+    return scenario.fileSource ? [new ReadFileTool(process.cwd()).definition] : decisionTools.filter(t => scenario.approved || t.isReadOnly);
+}
 
 /** 构造固定的模型输入夹具；观察作为已提交轨迹投影提供，不执行任何业务工具。 */
 export function decisionScenarioView(scenario: Scenario): ModelInferenceView {
-    const profile = { id: "decision-eval", systemPrompt: "You are a general-purpose task agent.", instructions: [], toolIds: decisionTools.map(t => t.id) };
+    const profile = { id: "decision-eval", systemPrompt: "You are a general-purpose task agent.", instructions: [], toolIds: decisionScenarioTools(scenario).map(t => t.id) };
     const base = createGoal({ ...currentProtocols, promptBundleVersion: 1, id: "decision-eval", runId: "run-1", intent: scenario.intent, profile });
     const goal: Goal = { ...base, state: { ...base.state,
         workflow: { phase: "executing", ...(scenario.approved ? { } : {}) },
         run: {
             ...base.state.run,
             status: "running",
-            mode: scenario.normal ? "normal" : "plan",
+            ...(scenario.fileSource ? { stepCount: 1, committedThroughSequence: 12, exposedToolIds: decisionScenarioTools(scenario).map(t => t.id) } : {}),
+            mode: scenario.approved || scenario.id === "proposal" ? "plan" : "normal",
             ...(scenario.approved
                 ? { approvedTask: { objective: scenario.intent, completionCriteria: [{ text: scenario.intent }] } }
                 : {}),
         },
     } };
-    const view = new ModelInferenceProjector().project(goal, decisionTools, currentWorkingMemory);
+    const view = new ModelInferenceProjector().project(goal, decisionScenarioTools(scenario), scenario.fileSource ? { ...currentWorkingMemory, derivedThroughSequence: 12 } : currentWorkingMemory);
     const observation = scenario.observation;
     if (scenario.checkpoint) return { ...view, contextEpoch: { ...currentContextEpoch, control: { status: "checkpoint_required", reason: "input_threshold" } } };
-    if (!observation) return view;
+    if (!observation) return scenario.lookupResult === undefined ? view : { ...view, contextLookupResult: projectContextLookupResult(scenario.lookupResult) };
     const action = { actionId: "action-1", toolId: observation.tool, input: { target: observation.target, ...(observation.tool === "apply_change" ? { value: scenario.id === "adjust" ? "timeout=30" : "Welcome" } : {}) } };
     const result: Exclude<Observation, { kind: "rejected" }> = observation.outcome === "success"
         ? { kind: "success", output: { text: observation.text }, summary: observation.text }
@@ -94,16 +134,23 @@ export function decisionScenarioView(scenario: Scenario): ModelInferenceView {
 
 /** 用固定允许集合及关键参数判断单步决策；不依赖模型对自己的解释。 */
 export function scoreDecision(scenario: Scenario, decision: AgentDecision): boolean {
+    if (scenario.fileSource && "memoryPatch" in decision && decision.memoryPatch !== undefined) {
+        try {
+            validateMemoryPatchEvidence(decision.memoryPatch, buildCommittedEvidenceIndex({ goalId: "decision-eval", runId: "run-1", committedThroughSequence: 0, events: [] }), "execution", currentWorkingMemory);
+            normalizeMemoryPatch(decision.memoryPatch, { phase: "executing", originSequence: 1, workingMemory: currentWorkingMemory });
+        } catch { return false; }
+    }
     const key = decision.kind === "tool_call" ? decision.action.toolId : decision.kind;
     if (!scenario.expected.includes(key)) return false;
     if (decision.kind === "tool_call") {
         const args = decision.action.input as { target?: string; value?: string };
+        if (scenario.fileSource) return (decision.action.input as { path?: string }).path === scenario.target;
         return args.target === scenario.target && (!scenario.detail || scenario.detail.test(args.value ?? ""));
     }
     switch (decision.kind) {
         case "ask_user": return decision.questions.some(q => scenario.detail!.test(q.question));
-        case "context_lookup": return ["conversation_history", "decision_rationale"].includes(decision.need)
-            && /banner|wording|select|chose|chosen/i.test(decision.question);
+        case "context_lookup": return Boolean(decision.need && ["conversation_history", "decision_rationale"].includes(decision.need))
+            && Boolean(decision.question && /banner|wording|select|chose|chosen/i.test(decision.question));
         case "wait": return scenario.detail!.test(decision.reason) && /grant|enable|restor|approv|resum/i.test(decision.reason);
         case "fail": return scenario.detail!.test(decision.error);
         case "task_proposal": return /banner/i.test(decision.task.objective) && /Welcome/.test(decision.task.objective)

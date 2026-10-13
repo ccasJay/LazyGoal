@@ -390,6 +390,54 @@ export function transition(
                         ...clearPendingThink(currentState),
                         status,
                         stepCount: currentState.stepCount + 1,
+                        ...(input.stage !== undefined ? { currentStage: input.stage } : {}),
+                        lastStep: {
+                            kind: "decision",
+                            result: input.decision,
+                        },
+                    },
+                };
+            }
+            if (input.kind === "stage_update") {
+                if (currentState.pendingAction !== undefined || currentState.pendingInteraction !== undefined) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Cannot apply a stage update while an Action or interaction is pending",
+                    );
+                }
+
+                return {
+                    ok: true,
+                    state: {
+                        ...clearPendingThink(currentState),
+                        status: "running",
+                        stepCount: currentState.stepCount + 1,
+                        currentStage: input.stage,
+                        lastStep: {
+                            kind: "decision",
+                            result: input.decision,
+                        },
+                    },
+                };
+            }
+
+            if (input.kind === "stage_settle") {
+                if (currentState.pendingAction !== undefined || currentState.pendingInteraction !== undefined) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Cannot apply a stage settlement while an Action or interaction is pending",
+                    );
+                }
+
+                return {
+                    ok: true,
+                    state: {
+                        ...clearPendingThink(currentState),
+                        status: "running",
+                        stepCount: currentState.stepCount + 1,
+                        currentStage: input.stage,
                         lastStep: {
                             kind: "decision",
                             result: input.decision,

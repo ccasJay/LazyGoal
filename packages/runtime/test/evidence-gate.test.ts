@@ -299,3 +299,53 @@ test("resolveEvidenceObservation 正确解析四类场景（直接解析/配对�
     assert.equal(resolveEvidenceObservation(9, testIndex), undefined);
 });
 
+
+test("Patch evidence diagnostics locate the exact item without exposing the Fact value", () => {
+    const patch: MemoryPatch = { protocolVersion: 1, operations: [{ type: "upsert_fact", fact: {
+        subject: "repository", predicate: "absent", value: "PRIVATE_VALUE", stability: "stable", evidenceSequences: [1],
+    } }] };
+    const event = allocateImmutableEvent({ goalId, runId, phase: "executing", eventType: "run_started", payload: { type: "run_started" } }, 1);
+    const forbidden = buildCommittedEvidenceIndex({ goalId, runId, committedThroughSequence: 2, events: [event] });
+    assert.throws(() => validateMemoryPatchEvidence(patch, forbidden), (error: unknown) => {
+        assert.ok(error instanceof EvidenceGateError);
+        assert.deepEqual(error.path, ["operations", 0, "fact", "evidenceSequences", 0]);
+        assert.equal(error.reason, "evidence_type_not_allowed");
+        assert.equal(error.sequence, 1);
+        assert.equal(error.eventType, "run_started");
+        assert.ok(!JSON.stringify(error).includes("PRIVATE_VALUE"));
+        return true;
+    });
+});
+
+for (const [references, reason, item] of [
+    [[1, 1], "duplicate_evidence", 1], [[3], "uncommitted_evidence", 0],
+] as const) {
+    test(`Fact evidence distinguishes ${reason}`, () => {
+        assert.throws(() => validateFactEvidence(references, index()), (error: unknown) => {
+            assert.ok(error instanceof EvidenceGateError);
+            assert.equal(error.reason, reason);
+            assert.deepEqual(error.path, [item]);
+            return true;
+        });
+    });
+}
+
+test("local missing evidence is not labelled as a known foreign event; rejected observations are unusable", () => {
+    const missing = buildCommittedEvidenceIndex({ goalId, runId, committedThroughSequence: 2, events: [observationEvent(1)] });
+    assert.throws(() => validateFactEvidence([2], missing), (error: unknown) => {
+        assert.ok(error instanceof EvidenceGateError);
+        assert.equal(error.reason, "missing_evidence");
+        assert.equal(error.sequence, 2);
+        assert.equal(error.eventType, undefined);
+        return true;
+    });
+    const rejected = allocateImmutableEvent({ goalId, runId, phase: "executing", actionId: "denied", eventType: "observation_recorded",
+        payload: { type: "observation_recorded", actionId: "denied", observation: { kind: "rejected", reason: "Policy denied" } } }, 1);
+    const denied = buildCommittedEvidenceIndex({ goalId, runId, committedThroughSequence: 1, events: [rejected] });
+    assert.throws(() => validateFactEvidence([1], denied), (error: unknown) => {
+        assert.ok(error instanceof EvidenceGateError);
+        assert.equal(error.reason, "evidence_type_not_allowed");
+        assert.equal(error.eventType, "observation_recorded");
+        return true;
+    });
+});

@@ -33,7 +33,7 @@ export type MemoryPatchProducer = "model" | "tool_projector" | "runtime_lifecycl
  * 需要由共享提交器追加的规范化 Memory Patch。
  *
  * @remarks `operations` 必须已经通过 Working Memory Core 与业务分支校验；提交器
- * 只负责把它作为独立事实追加，并把返回 Event 作为 Snapshot 的 memory revision。
+ * 在追加前可调用规则所有者的纯归约回调绑定实际序号，再把返回 Event 作为 Snapshot 的 memory revision。
  *
  * @example
  * ```ts
@@ -49,8 +49,15 @@ export interface AcceptedMemoryPatchInput {
     readonly phase?: TrajectoryPhase;
     /** 组成该 Patch 的来源；提交器按 model、runtime_lifecycle 去重排序。 */
     readonly producers: readonly MemoryPatchProducer[];
-    /** 已由 Core 规范化、带来源元数据的操作。 */
+    /** 已由 Core 规范化的候选操作；未提供序号回调时即最终操作。 */
     readonly operations: readonly CanonicalMemoryOperation[];
+    /**
+     * 在事实追加后按实际 Patch 序号重新生成操作，覆盖试归约身份。
+     * @remarks 由规则所有者提供的纯函数；不得执行 I/O 或修改调用方状态。抛错时不提交 Snapshot。
+     * @param sequence - 即将追加的 accepted Patch 序号。
+     * @returns 已经过相同规则归约的最终操作。
+     */
+    readonly operationsAtSequence?: (sequence: number) => readonly CanonicalMemoryOperation[];
     /** 该 Patch 链头的父 accepted Event；省略时沿用 Goal 当前 revision。 */
     readonly parentRevisionEventId?: string;
     /** 可选的执行单元关联键。 */
@@ -372,7 +379,14 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
         if (request.acceptedPatch !== undefined) {
             const patch = request.acceptedPatch;
             const phase = patch.phase ?? goal.state.workflow.phase;
-            const payload = asMemoryPatchPayload(patch, goal);
+            let finalPatch = patch;
+            if (patch.operationsAtSequence !== undefined) {
+                const lastSequence = events.at(-1)?.sequence
+                    ?? (await this.trajectoryStore!.read({ goalId: goal.id, runId: goal.state.run.id })).at(-1)?.sequence
+                    ?? 0;
+                finalPatch = { ...patch, operations: patch.operationsAtSequence(lastSequence + 1) };
+            }
+            const payload = asMemoryPatchPayload(finalPatch, goal);
             memoryPatchEvent = await this.append({
                 goalId: goal.id,
                 runId: goal.state.run.id,

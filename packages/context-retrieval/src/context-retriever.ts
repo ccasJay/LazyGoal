@@ -162,14 +162,17 @@ export class IndexedContextRetriever implements ContextRetriever {
             }
         }
 
+        const need = input.request.need ?? "historical_execution";
+        const question = input.request.question ?? "";
+
         const documents = filterDocuments(
             session.sidecar.documents,
-            input.request.need,
+            need,
         );
 
         const query = {
-            need: input.request.need,
-            question: input.request.question,
+            need,
+            question,
             ...(input.request.filters === undefined ? {} : { filters: input.request.filters }),
             committedThroughSequence: boundary,
             indexVersion: session.sidecar.indexVersion,
@@ -197,7 +200,10 @@ export class IndexedContextRetriever implements ContextRetriever {
         const ranking = new FieldedBm25LiteRanker(index, {
             topK: this.options.topK ?? 5,
             minimumScore: this.options.minimumScore ?? 0,
-        }).rank(input.request);
+        }).rank({
+            question,
+            ...(input.request.filters === undefined ? {} : { filters: input.request.filters }),
+        });
 
         const result = buildContextLookupResultFromRanking({
             goalId: input.goalId,
@@ -240,7 +246,10 @@ export class IndexedContextRetriever implements ContextRetriever {
             }));
         }
 
-        const filtered = filterDocuments(Object.freeze(documents), input.request.need);
+        const need = input.request.need ?? "historical_execution";
+        const question = input.request.question ?? "";
+
+        const filtered = filterDocuments(Object.freeze(documents), need);
         const boundary = Math.max(...input.runBoundaries.map((s) => s.committedThroughSequence));
 
         if (filtered.length === 0) {
@@ -256,7 +265,10 @@ export class IndexedContextRetriever implements ContextRetriever {
         const ranking = new FieldedBm25LiteRanker(index, {
             topK: this.options.topK ?? 5,
             minimumScore: this.options.minimumScore ?? 0,
-        }).rank(input.request);
+        }).rank({
+            question,
+            ...(input.request.filters === undefined ? {} : { filters: input.request.filters }),
+        });
 
         return buildContextLookupResultFromRanking({
             goalId: input.goalId,

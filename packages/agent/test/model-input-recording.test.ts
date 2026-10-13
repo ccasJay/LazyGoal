@@ -32,7 +32,11 @@ test("model input is saved before failed Adapter calls and shares call identity 
     assert.equal(saved.length, 2); assert.equal(saved[1]!.stage, "think");
     assert.equal(result.modelContextFrame!.modelCallId, saved[1]!.callId);
     assert.notEqual(saved[0]!.callId, saved[1]!.callId);
-    assert.deepEqual(traces.filter(trace => trace.kind === "model_request").map(trace => trace.payload), saved.map(call => ({ modelInputCallId: call.callId })));
+    assert.deepEqual(traces.filter(trace => trace.kind === "model_request").map(trace => {
+        const payload = trace.payload as { modelInputCallId: string; callId: string; messages?: unknown };
+        assert.equal(payload.messages, undefined);
+        return { modelInputCallId: payload.modelInputCallId, callId: payload.callId };
+    }), saved.map(call => ({ modelInputCallId: call.callId, callId: call.callId })));
 });
 
 test("configured model input storage failure prevents sending an unrecorded request", async () => {

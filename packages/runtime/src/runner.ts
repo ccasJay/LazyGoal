@@ -23,6 +23,7 @@ import type {
     PendingThink,
     PendingModelRepair,
 } from "./domain";
+import { validateAndReduceContextNotes, type RuntimeContextNote, type ContextNoteSource } from "./context-notes";
 import type { ModelContextCheckpointResult } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type {
@@ -31,6 +32,7 @@ import type {
     StepExecutor,
     ThinkExchange,
     ThinkStageResult,
+    CompletionReviewResult,
 } from "./step-executor";
 import { CompletionReviewInputBudgetError } from "./step-executor";
 import type {
@@ -109,6 +111,7 @@ import {
 } from "./model-request-failure";
 import {
     createRuntimeFeedback,
+    createMemoryPatchFeedback,
     ModelStageFeedbackError,
     type RuntimeFeedback,
     type RuntimeFeedbackOrigin,
@@ -117,6 +120,14 @@ import {
 } from "./runtime-feedback";
 import { transition } from "./transition";
 import { findTools, type ToolDiscoveryResult } from "./tool-discovery";
+import {
+    createInitialRunStage,
+    reviseRunStage,
+    acceptCurrentRunStage,
+    rejectCurrentRunStage,
+    RunStageTransitionError,
+    type RunStageState,
+} from "./run-stage";
 import {
     createEmptyGoalPlan,
     reduceGoalPlan,
@@ -135,12 +146,13 @@ import {
 import {
     createSupersedeScopeOperation,
     normalizeMemoryPatch,
+    WorkingMemoryPatchError,
     type NormalizedWorkingMemoryPatch,
     type WorkingMemoryLimitsInput,
     validateMemoryPatchPhase,
 } from "../../working-memory/src/index";
 import { WorkingMemorySession } from "./working-memory-session";
-import { resolveEvidenceObservation } from "./evidence-gate";
+import { resolveEvidenceObservation, EvidenceGateError } from "./evidence-gate";
 import {
     buildCommittedEvidenceIndex,
     validateContextLookupSourceReferences,
@@ -243,7 +255,55 @@ type NormalizedExecution = {
     readonly decision: AgentDecision;
     readonly thought?: string;
     readonly preparedToolAction?: PreparedToolAction;
+    readonly acceptedContextNotes?: readonly RuntimeContextNote[];
 };
+
+function extractExistingContextNotesFromEvents(events: readonly TrajectoryEvent[]): readonly RuntimeContextNote[] {
+    const notesMap = new Map<string, RuntimeContextNote>();
+    for (const event of events) {
+        if (event.eventType === "context_note_declared") {
+            const p = event.payload;
+            notesMap.set(p.noteId, {
+                noteId: p.noteId,
+                revision: p.revision,
+                category: p.category,
+                content: p.content,
+                ...(p.reason !== undefined ? { reason: p.reason } : {}),
+                ...(p.stageId !== undefined ? { stageId: p.stageId } : {}),
+                source: p.source as ContextNoteSource,
+                ...(p.supersedesNoteId !== undefined ? { supersedesNoteId: p.supersedesNoteId } : {}),
+            });
+        }
+    }
+    return [...notesMap.values()];
+}
+
+function toContextNoteEventDrafts(
+    notes: readonly RuntimeContextNote[] | undefined,
+    goalId: string,
+    runId: string,
+    executionUnitId: string,
+): readonly TrajectoryEventDraft[] {
+    if (!notes || notes.length === 0) return [];
+    return notes.map((note) => ({
+        goalId,
+        runId,
+        phase: "executing",
+        executionUnitId,
+        eventType: "context_note_declared",
+        payload: {
+            type: "context_note_declared",
+            noteId: note.noteId,
+            revision: note.revision,
+            category: note.category,
+            content: note.content,
+            ...(note.reason !== undefined ? { reason: note.reason } : {}),
+            ...(note.stageId !== undefined ? { stageId: note.stageId } : {}),
+            source: note.source,
+            ...(note.supersedesNoteId !== undefined ? { supersedesNoteId: note.supersedesNoteId } : {}),
+        },
+    }));
+}
 
 let executionUnitCounter = 0;
 
@@ -1614,6 +1674,35 @@ class RunExecutor {
         return session;
     }
 
+    private validateDecisionPatchForStage(
+        goal: Goal,
+        decision: AgentDecision,
+        session: WorkingMemorySession,
+        executionUnitId: string,
+    ): void {
+        if (!("memoryPatch" in decision) || decision.memoryPatch === undefined) return;
+        const workingMemory = session.workingMemory;
+        try {
+            validateMemoryPatchPhase(decision.memoryPatch, "executing", {
+                workingMemory,
+                ...(this.workingMemoryLimits === undefined ? {} : { limits: this.workingMemoryLimits }),
+            });
+            session.validatePatch(decision.memoryPatch, "execution");
+            // 试归约只检验冲突和容量；阶段检查点后按实际序号重新生成条目身份。
+            normalizeMemoryPatch(decision.memoryPatch, {
+                phase: "executing", originSequence: goal.state.run.committedThroughSequence + 1,
+                workingMemory,
+                ...(this.workingMemoryLimits === undefined ? {} : { limits: this.workingMemoryLimits }),
+            });
+        } catch (error) {
+            if (!(error instanceof WorkingMemoryPatchError) && !(error instanceof EvidenceGateError)) throw error;
+            throw new ModelStageFeedbackError(createMemoryPatchFeedback(error, {
+                goalId: goal.id, runId: goal.state.run.id, executionUnitId,
+                stepOrdinal: goal.state.run.stepCount + 1,
+            }, session.evidenceIndex), "Decide Memory proposal failed validation", error);
+        }
+    }
+
     private normalizeDecisionPatch(
         goal: Goal,
         decision: AgentDecision,
@@ -1667,6 +1756,15 @@ class RunExecutor {
                     ...(terminalLifecycle.length === 0 ? [] : ["runtime_lifecycle" as const]),
                 ],
                 operations,
+                ...(memoryPatch === undefined ? {} : {
+                    operationsAtSequence: (originSequence: number) => [
+                        ...normalizeMemoryPatch(memoryPatch, {
+                            phase: "executing", originSequence, workingMemory,
+                            ...(this.workingMemoryLimits === undefined ? {} : { limits: this.workingMemoryLimits }),
+                        }).operations,
+                        ...terminalLifecycle,
+                    ],
+                }),
             };
         } catch (error) {
             if (error instanceof RunnerExecutionError) throw error;
@@ -1700,6 +1798,7 @@ class RunExecutor {
         candidate: unknown,
         executionUnitId: string,
         control?: ExecutionControl,
+        session?: WorkingMemorySession,
     ): NormalizedExecution {
         let decision: AgentDecision;
         try {
@@ -1710,7 +1809,180 @@ class RunExecutor {
             }
             throw error;
         }
-        if (decision.kind !== "tool_call") return { decision };
+
+        let acceptedContextNotes: readonly RuntimeContextNote[] | undefined;
+        if ("contextNotes" in decision && Array.isArray(decision.contextNotes) && decision.contextNotes.length > 0) {
+            try {
+                const existingNotes = session === undefined
+                    ? []
+                    : extractExistingContextNotesFromEvents([...session.evidenceIndex.events.values()]);
+                const committedMessages = goal.state.messages.map((m, idx) => {
+                    const steerInput = (goal.state.run.steerInputs ?? []).find(
+                        (s) => s.status === "applied" && s.messageIndex === idx,
+                    );
+                    const messageId = steerInput?.messageId ?? (idx === 0 ? "msg-0" : `msg-${idx}`);
+                    return {
+                        messageId,
+                        role: m.role,
+                        content: m.content,
+                    };
+                });
+                const reduction = validateAndReduceContextNotes(decision.contextNotes, {
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    ...(goal.state.run.currentStage?.stageId !== undefined
+                        ? { currentStageId: goal.state.run.currentStage.stageId }
+                        : {}),
+                    committedMessages,
+                    existingNotes,
+                });
+                acceptedContextNotes = reduction.acceptedEvents;
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                throw new ModelStageFeedbackError(createRuntimeFeedback({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    executionUnitId,
+                    stepOrdinal: goal.state.run.stepCount + 1,
+                    stage: "decide",
+                    origin: "decision_semantics",
+                    code: "INVALID_AGENT_DECISION",
+                    attempt: 1,
+                    issues: [{
+                        code: "INVALID_AGENT_DECISION",
+                        path: ["result", "contextNotes"],
+                        message,
+                    }],
+                    constraints: ["Provide valid contextNotes citing verified sources and matching current revisions."],
+                }), message);
+            }
+        }
+
+        if (decision.kind === "run_stage_update") {
+            try {
+                if (decision.stageId === undefined) {
+                    const previousStage = goal.state.run.currentStage;
+                    const stageOrdinal = previousStage !== undefined
+                        ? parseInt(previousStage.stageId.replace("stage-", ""), 10) + 1
+                        : 1;
+                    createInitialRunStage(
+                        { target: decision.target, acceptanceCriteria: decision.acceptanceCriteria },
+                        stageOrdinal,
+                        previousStage,
+                    );
+                } else {
+                    if (goal.state.run.currentStage === undefined) {
+                        throw new RunStageTransitionError("Cannot revise stage: no active stage exists");
+                    }
+                    if (decision.baseRevision === undefined) {
+                        throw new RunStageTransitionError("baseRevision is required when revising a stage");
+                    }
+                    if (decision.reason === undefined || decision.reason.trim().length === 0) {
+                        throw new RunStageTransitionError("reason is required when revising a stage");
+                    }
+                    reviseRunStage(goal.state.run.currentStage, {
+                        stageId: decision.stageId,
+                        baseRevision: decision.baseRevision,
+                        reason: decision.reason,
+                        target: decision.target,
+                        acceptanceCriteria: decision.acceptanceCriteria,
+                    });
+                }
+            } catch (error) {
+                if (error instanceof RunStageTransitionError) {
+                    throw new ModelStageFeedbackError(createRuntimeFeedback({
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        executionUnitId,
+                        stepOrdinal: goal.state.run.stepCount + 1,
+                        stage: "decide",
+                        origin: "decision_semantics",
+                        code: "INVALID_STAGE_PROPOSAL",
+                        attempt: 1,
+                        issues: [{
+                            code: "INVALID_STAGE_PROPOSAL",
+                            path: ["result"],
+                            message: error.message,
+                        }],
+                        constraints: ["Provide valid stage parameters or match the current active stage revision."],
+                    }), error.message);
+                }
+                throw error;
+            }
+            return {
+                decision,
+                ...(acceptedContextNotes !== undefined ? { acceptedContextNotes } : {}),
+            };
+        }
+
+        if (decision.kind === "run_stage_complete") {
+            if (goal.state.run.currentStage === undefined || goal.state.run.currentStage.status !== "executing") {
+                throw new ModelStageFeedbackError(createRuntimeFeedback({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    executionUnitId,
+                    stepOrdinal: goal.state.run.stepCount + 1,
+                    stage: "decide",
+                    origin: "decision_semantics",
+                    code: "INVALID_STAGE_COMPLETION",
+                    attempt: 1,
+                    issues: [{
+                        code: "INVALID_STAGE_COMPLETION",
+                        path: ["result"],
+                        message: "Cannot submit stage completion without an active executing stage.",
+                    }],
+                    constraints: ["Declare a stage before completing it."],
+                }), "No active stage to complete");
+            }
+            if (goal.state.run.currentStage.stageId !== decision.stageId) {
+                throw new ModelStageFeedbackError(createRuntimeFeedback({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    executionUnitId,
+                    stepOrdinal: goal.state.run.stepCount + 1,
+                    stage: "decide",
+                    origin: "decision_semantics",
+                    code: "INVALID_STAGE_COMPLETION",
+                    attempt: 1,
+                    issues: [{
+                        code: "INVALID_STAGE_COMPLETION",
+                        path: ["result", "stageId"],
+                        message: `stageId mismatch: active stage is "${goal.state.run.currentStage.stageId}", got "${decision.stageId}"`,
+                    }],
+                    constraints: ["Use the current active stageId."],
+                }), "stageId mismatch in stage completion candidate");
+            }
+            return {
+                decision,
+                ...(acceptedContextNotes !== undefined ? { acceptedContextNotes } : {}),
+            };
+        }
+
+        if (decision.kind !== "tool_call") {
+            return {
+                decision,
+                ...(acceptedContextNotes !== undefined ? { acceptedContextNotes } : {}),
+            };
+        }
+
+        if (goal.state.run.currentStage === undefined || goal.state.run.currentStage.status !== "executing") {
+            throw new ModelStageFeedbackError(createRuntimeFeedback({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                executionUnitId,
+                stepOrdinal: goal.state.run.stepCount + 1,
+                stage: "decide",
+                origin: "decision_semantics",
+                code: "STAGE_DECLARATION_REQUIRED",
+                attempt: 1,
+                issues: [{
+                    code: "STAGE_DECLARATION_REQUIRED",
+                    path: ["result"],
+                    message: "Declare an executing stage using system_update_run_stage before executing business actions.",
+                }],
+                constraints: ["Declare a stage with target and acceptanceCriteria using system_update_run_stage before executing business tools."],
+            }), "Stage declaration required before executing business tools");
+        }
 
         let prepared: PreparedToolAction;
         try {
@@ -1742,7 +2014,11 @@ class RunExecutor {
             }
             throw error;
         }
-        return { decision: { ...decision, action: prepared.action }, preparedToolAction: prepared };
+        return {
+            decision: { ...decision, action: prepared.action },
+            preparedToolAction: prepared,
+            ...(acceptedContextNotes !== undefined ? { acceptedContextNotes } : {}),
+        };
     }
 
     private validateEvidenceForStage(
@@ -1755,7 +2031,7 @@ class RunExecutor {
             this.validateCompletionEvidence(goal, decision, session);
         } catch (error) {
             if (!(error instanceof RunnerExecutionError) || error.code !== "INVALID_AGENT_DECISION") throw error;
-            if (decision.kind !== "complete") {
+            if (decision.kind !== "complete" && decision.kind !== "run_stage_complete") {
                 throw createRunnerFeedbackError(error, goal, executionUnitId, "decide", "decision_semantics");
             }
             const validSequences = [...session.evidenceIndex.events.entries()]
@@ -1798,6 +2074,20 @@ class RunExecutor {
                     "INVALID_AGENT_DECISION",
                     `${decision.kind} is not allowed before a Plan task is approved`,
                 );
+            }
+            return;
+        }
+
+        if (decision.kind === "run_stage_complete") {
+            if (decision.evidenceSequences && decision.evidenceSequences.length > 0) {
+                try {
+                    session.validateEvidence(decision.evidenceSequences);
+                } catch (error) {
+                    throw new RunnerExecutionError(
+                        "INVALID_AGENT_DECISION",
+                        error instanceof Error ? error.message : String(error),
+                    );
+                }
             }
             return;
         }
@@ -3400,14 +3690,36 @@ class RunExecutor {
 
             try {
                 let normalized: NormalizedExecution;
+                let stepInput!: StepExecutionInput;
                 let pendingThinkRequestCommitted = false;
                 try {
                     throwIfAborted(control);
                     const tools = this.getAuthorizedToolDefinitions(goal, control);
-                    const stepInput: StepExecutionInput = {
+                    const stageFeedback = goal.state.run.currentStage?.latestReviewRejection !== undefined
+                        ? createRuntimeFeedback({
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            executionUnitId,
+                            stepOrdinal: goal.state.run.stepCount + 1,
+                            stage: "decide",
+                            origin: "completion_review",
+                            code: "INCOMPLETE_COMPLETION",
+                            attempt: 1,
+                            issues: [{
+                                code: "incomplete_completion",
+                                path: ["summary"],
+                                message: goal.state.run.currentStage.latestReviewRejection.feedback,
+                            }],
+                            constraints: [
+                                "Continue the original task. Obtain missing evidence or provide the requested deliverable before submitting another completion candidate.",
+                            ],
+                        })
+                        : undefined;
+                    stepInput = {
                         goal,
                         authorizedTools: tools,
                         exposedToolIds: goal.state.run.exposedToolIds,
+                        ...(stageFeedback === undefined ? {} : { runtimeFeedback: stageFeedback }),
                         ...(session === undefined
                             ? {}
                             : { workingMemory: session.workingMemory }),
@@ -3501,6 +3813,7 @@ class RunExecutor {
                                         result.decision,
                                         executionUnitId,
                                         control,
+                                        session,
                                     );
                                     this.validateEvidenceForStage(
                                         activeGoal,
@@ -3508,7 +3821,10 @@ class RunExecutor {
                                         session,
                                         executionUnitId,
                                     );
-                                    if (normalizedDecision.decision.kind === "complete") {
+                                    this.validateDecisionPatchForStage(
+                                        activeGoal, normalizedDecision.decision, session, executionUnitId,
+                                    );
+                                    if (normalizedDecision.decision.kind === "complete" && activeGoal.state.run.currentStage === undefined) {
                                         const candidate = normalizedDecision.decision;
                                         const sequences = new Set("evidenceSequences" in candidate
                                             ? candidate.evidenceSequences
@@ -3540,6 +3856,9 @@ class RunExecutor {
                                         ...(normalizedDecision.preparedToolAction === undefined
                                             ? {}
                                             : { preparedToolAction: normalizedDecision.preparedToolAction }),
+                                        ...(normalizedDecision.acceptedContextNotes === undefined
+                                            ? {}
+                                            : { acceptedContextNotes: normalizedDecision.acceptedContextNotes }),
                                     };
                                 },
                                 control,
@@ -3620,6 +3939,10 @@ class RunExecutor {
                                     || decided.result.preparedToolAction === undefined
                                     ? {}
                                     : { preparedToolAction: decided.result.preparedToolAction }),
+                                ...(!("acceptedContextNotes" in decided.result)
+                                    || decided.result.acceptedContextNotes === undefined
+                                    ? {}
+                                    : { acceptedContextNotes: decided.result.acceptedContextNotes }),
                             };
                             if (goal.state.run.interruption?.status === "repairing") {
                                 const repairDecision = normalized.decision;
@@ -3727,6 +4050,12 @@ class RunExecutor {
                 }
 
                 toolDiscoveryResult = undefined;
+                const contextNoteDrafts = toContextNoteEventDrafts(
+                    normalized.acceptedContextNotes,
+                    goal.id,
+                    goal.state.run.id,
+                    executionUnitId,
+                );
                 let acceptedPatch: AcceptedMemoryPatchInput | undefined;
                 try {
                     acceptedPatch = this.normalizeDecisionPatch(
@@ -3773,7 +4102,7 @@ class RunExecutor {
                                 decision: normalized.decision,
                                 ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
                             },
-                        }],
+                        }, ...contextNoteDrafts],
                         acceptedPatch,
                         control,
                     );
@@ -3834,6 +4163,7 @@ class RunExecutor {
                                     ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
                                 },
                             },
+                            ...contextNoteDrafts,
                             ...invocation.facts,
                         ],
                         undefined,
@@ -3893,7 +4223,7 @@ class RunExecutor {
                             openedEpoch: nextEpoch,
                             reason: "input_threshold",
                         },
-                    }], acceptedPatch, control);
+                    }, ...contextNoteDrafts], acceptedPatch, control);
                     contextLookupResult = undefined;
                     contextLookupChainCount = 0;
                     continue;
@@ -3944,7 +4274,7 @@ class RunExecutor {
 
                     goal = await this.commitDecision(
                         nextGoal,
-                        [decisionFact, waitingFact],
+                        [decisionFact, ...contextNoteDrafts, waitingFact],
                         acceptedPatch,
                         control,
                     );
@@ -4012,7 +4342,7 @@ class RunExecutor {
 
                     goal = await this.commitDecision(
                         nextGoal,
-                        [decisionFact, waitingFact],
+                        [decisionFact, ...contextNoteDrafts, waitingFact],
                         acceptedPatch,
                         control,
                     );
@@ -4093,10 +4423,10 @@ class RunExecutor {
                                     ...(authorization.approvalKind === undefined
                                         ? {} : { approvalKind: authorization.approvalKind }),
                                 },
-                            }], acceptedPatch, control);
+                            }, ...contextNoteDrafts], acceptedPatch, control);
                             continue;
                         }
-                        goal = await this.beginProgram(goal, validated.action, executionUnitId, acceptedPatch, control);
+                        goal = await this.beginProgram(goal, validated.action, executionUnitId, acceptedPatch, control, contextNoteDrafts);
                         continue;
                     }
 
@@ -4141,7 +4471,7 @@ class RunExecutor {
                                     ...(approvalKind === undefined ? {} : { approvalKind }),
                                     ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
                                 },
-                            }],
+                            }, ...contextNoteDrafts],
                             acceptedPatch,
                             control,
                         );
@@ -4173,7 +4503,7 @@ class RunExecutor {
                                 action: validated.action,
                                 approvalStatus: "approved",
                             },
-                        }],
+                        }, ...contextNoteDrafts],
                         acceptedPatch,
                         control,
                     );
@@ -4200,6 +4530,85 @@ class RunExecutor {
                     }
 
                     goal = outcome.goal;
+                    contextLookupResult = undefined;
+                    contextLookupChainCount = 0;
+                    continue;
+                }
+
+                if (normalized.decision.kind === "run_stage_update") {
+                    const stageDecision = normalized.decision;
+                    let nextStage: RunStageState;
+                    if (stageDecision.stageId === undefined) {
+                        const previousStage = goal.state.run.currentStage;
+                        const stageOrdinal = previousStage !== undefined
+                            ? parseInt(previousStage.stageId.replace("stage-", ""), 10) + 1
+                            : 1;
+                        nextStage = createInitialRunStage(
+                            {
+                                target: stageDecision.target,
+                                acceptanceCriteria: stageDecision.acceptanceCriteria,
+                            },
+                            stageOrdinal,
+                            previousStage,
+                        );
+                    } else {
+                        nextStage = reviseRunStage(
+                            goal.state.run.currentStage!,
+                            {
+                                stageId: stageDecision.stageId,
+                                baseRevision: stageDecision.baseRevision!,
+                                reason: stageDecision.reason!,
+                                target: stageDecision.target,
+                                acceptanceCriteria: stageDecision.acceptanceCriteria,
+                            },
+                        );
+                    }
+
+                    const nextRun = this.applyTransition(goal.state.run, {
+                        kind: "stage_update",
+                        stage: nextStage,
+                        decision: normalized.decision,
+                    });
+                    const nextGoal = this.withRun(goal, nextRun);
+
+                    goal = await this.commitDecision(
+                        nextGoal,
+                        [
+                            {
+                                goalId: goal.id,
+                                runId: goal.state.run.id,
+                                phase: "executing",
+                                executionUnitId,
+                                eventType: "decision_received",
+                                payload: {
+                                    type: "decision_received",
+                                    decision: normalized.decision,
+                                    ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
+                                },
+                            },
+                            {
+                                goalId: goal.id,
+                                runId: goal.state.run.id,
+                                phase: "executing",
+                                executionUnitId,
+                                eventType: "run_stage_declared",
+                                payload: {
+                                    type: "run_stage_declared",
+                                    stageId: nextStage.stageId,
+                                    revision: nextStage.revision,
+                                    target: nextStage.target,
+                                    acceptanceCriteria: nextStage.acceptanceCriteria,
+                                    ...(nextStage.previousStageResultRef !== undefined
+                                        ? { previousStageResultRef: nextStage.previousStageResultRef }
+                                        : {}),
+                                    ...(stageDecision.reason !== undefined ? { reason: stageDecision.reason } : {}),
+                                },
+                            },
+                            ...contextNoteDrafts,
+                        ],
+                        acceptedPatch,
+                        control,
+                    );
                     contextLookupResult = undefined;
                     contextLookupChainCount = 0;
                     continue;
@@ -4314,6 +4723,7 @@ class RunExecutor {
                                     operations: normalized.decision.operations,
                                 },
                             },
+                            ...contextNoteDrafts,
                         ],
                         acceptedPatch,
                         control,
@@ -4321,6 +4731,238 @@ class RunExecutor {
                     contextLookupResult = undefined;
                     contextLookupChainCount = 0;
                     continue;
+                }
+
+                if (normalized.decision.kind === "run_stage_complete") {
+                    const stageDecision = normalized.decision;
+                    if (goal.state.run.currentStage === undefined) {
+                        return this.stopWithExecutionError(
+                            goal,
+                            new RunnerExecutionError(
+                                "INVALID_AGENT_DECISION",
+                                "run_stage_complete requires an active RunStageState",
+                            ),
+                            control,
+                        );
+                    }
+                    const candidate = stageDecision;
+                    const sequences = new Set(candidate.evidenceSequences ?? []);
+                    const events = session === undefined ? [] : [...session.evidenceIndex.events.values()];
+                    const actions = new Set(events.filter(event => sequences.has(event.sequence))
+                        .map(event => event.actionId).filter(id => id !== undefined));
+                    const evidence = events.filter(event => sequences.has(event.sequence)
+                        || (event.actionId !== undefined && actions.has(event.actionId)
+                            && ["action_staged", "tool_started", "tool_finished", "observation_recorded"].includes(event.eventType)));
+
+                    let reviewed: CompletionReviewResult;
+                    try {
+                        reviewed = await this.executor.reviewCompletion({
+                            ...stepInput,
+                            goal,
+                            candidate,
+                            evidence,
+                            currentStage: goal.state.run.currentStage,
+                        });
+                    } catch (error) {
+                        const stableError = toStableExecutionError(error);
+                        if (stableError !== undefined) {
+                            return this.stopWithExecutionError(goal, stableError, control);
+                        }
+                        throw error;
+                    }
+
+                    throwIfAborted(control);
+                    if (goal.state.run.interruption?.status === "repairing") {
+                        return this.cancelInterruptedRun(goal, control);
+                    }
+
+                    if (reviewed.kind === "reject") {
+                        const rejectedStage = rejectCurrentRunStage(goal.state.run.currentStage, reviewed.feedback);
+                        const nextRun = this.applyTransition(goal.state.run, {
+                            kind: "stage_settle",
+                            stage: rejectedStage,
+                            decision: stageDecision,
+                        });
+                        const nextGoal = this.withRun(goal, nextRun);
+                        goal = await this.commitDecision(
+                            nextGoal,
+                            [
+                                {
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "executing",
+                                    executionUnitId,
+                                    eventType: "decision_received",
+                                    payload: {
+                                        type: "decision_received",
+                                        decision: stageDecision,
+                                        ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
+                                    },
+                                },
+                                {
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "executing",
+                                    executionUnitId,
+                                    eventType: "run_stage_rejected",
+                                    payload: {
+                                        type: "run_stage_rejected",
+                                        stageId: rejectedStage.stageId,
+                                        revision: rejectedStage.revision,
+                                        feedback: reviewed.feedback,
+                                    },
+                                },
+                            ],
+                            undefined,
+                            control,
+                        );
+                        contextLookupResult = undefined;
+                        contextLookupChainCount = 0;
+                        continue;
+                    }
+
+                    const acceptedSequence = goal.state.run.committedThroughSequence + 2;
+                    const acceptedStage = acceptCurrentRunStage(goal.state.run.currentStage, acceptedSequence);
+                    const nextRun = this.applyTransition(goal.state.run, {
+                        kind: "stage_settle",
+                        stage: acceptedStage,
+                        decision: stageDecision,
+                    });
+                    const nextGoal = this.withRun(goal, nextRun);
+                    goal = await this.commitDecision(
+                        nextGoal,
+                        [
+                            {
+                                goalId: goal.id,
+                                runId: goal.state.run.id,
+                                phase: "executing",
+                                executionUnitId,
+                                eventType: "decision_received",
+                                payload: {
+                                    type: "decision_received",
+                                    decision: stageDecision,
+                                    ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
+                                },
+                            },
+                            {
+                                goalId: goal.id,
+                                runId: goal.state.run.id,
+                                phase: "executing",
+                                executionUnitId,
+                                eventType: "run_stage_accepted",
+                                payload: {
+                                    type: "run_stage_accepted",
+                                    stageId: acceptedStage.stageId,
+                                    revision: acceptedStage.revision,
+                                    summary: stageDecision.summary,
+                                    ...(stageDecision.evidenceSequences !== undefined
+                                        ? { evidenceSequences: stageDecision.evidenceSequences }
+                                        : {}),
+                                },
+                            },
+                            ...contextNoteDrafts,
+                        ],
+                        acceptedPatch,
+                        control,
+                    );
+                    contextLookupResult = undefined;
+                    contextLookupChainCount = 0;
+                    continue;
+                }
+
+                let acceptedStage: RunStageState | undefined;
+                if (normalized.decision.kind === "complete" && goal.state.run.currentStage !== undefined) {
+                    const candidate = normalized.decision;
+                    const sequences = new Set("evidenceSequences" in candidate && candidate.evidenceSequences !== undefined
+                        ? candidate.evidenceSequences
+                        : "completionEvidence" in candidate && candidate.completionEvidence !== undefined
+                            ? candidate.completionEvidence.flatMap(item => item.evidenceSequences)
+                            : []);
+                    const events = session === undefined ? [] : [...session.evidenceIndex.events.values()];
+                    const actions = new Set(events.filter(event => sequences.has(event.sequence))
+                        .map(event => event.actionId).filter(id => id !== undefined));
+                    const evidence = events.filter(event => sequences.has(event.sequence)
+                        || (event.actionId !== undefined && actions.has(event.actionId)
+                            && ["action_staged", "tool_started", "tool_finished", "observation_recorded"].includes(event.eventType)));
+
+                    const acceptedStageEvents = events.filter(e => e.eventType === "run_stage_accepted");
+                    const histSeqs = new Set(acceptedStageEvents.flatMap(e => (e.payload as any).evidenceSequences ?? []));
+                    const historicalAcceptedEvidence = histSeqs.size > 0
+                        ? events.filter(e => histSeqs.has(e.sequence))
+                        : undefined;
+
+                    let reviewed: CompletionReviewResult;
+                    try {
+                        reviewed = await this.executor.reviewCompletion({
+                            ...stepInput,
+                            goal,
+                            candidate,
+                            evidence,
+                            currentStage: goal.state.run.currentStage,
+                            ...(historicalAcceptedEvidence !== undefined ? { historicalAcceptedEvidence } : {}),
+                        });
+                    } catch (error) {
+                        const stableError = toStableExecutionError(error);
+                        if (stableError !== undefined) {
+                            return this.stopWithExecutionError(goal, stableError, control);
+                        }
+                        throw error;
+                    }
+
+                    throwIfAborted(control);
+                    if (goal.state.run.interruption?.status === "repairing") {
+                        return this.cancelInterruptedRun(goal, control);
+                    }
+
+                    if (reviewed.kind === "reject") {
+                        const rejectedStage = rejectCurrentRunStage(goal.state.run.currentStage, reviewed.feedback, undefined, true);
+                        const nextRun = this.applyTransition(goal.state.run, {
+                            kind: "stage_settle",
+                            stage: rejectedStage,
+                            decision: normalized.decision,
+                        });
+                        const nextGoal = this.withRun(goal, nextRun);
+                        goal = await this.commitDecision(
+                            nextGoal,
+                            [
+                                {
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "executing",
+                                    executionUnitId,
+                                    eventType: "decision_received",
+                                    payload: {
+                                        type: "decision_received",
+                                        decision: normalized.decision,
+                                        ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
+                                    },
+                                },
+                                {
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "executing",
+                                    executionUnitId,
+                                    eventType: "run_stage_rejected",
+                                    payload: {
+                                        type: "run_stage_rejected",
+                                        stageId: rejectedStage.stageId,
+                                        revision: rejectedStage.revision,
+                                        feedback: reviewed.feedback,
+                                    },
+                                },
+                            ],
+                            undefined,
+                            control,
+                        );
+                        contextLookupResult = undefined;
+                        contextLookupChainCount = 0;
+                        continue;
+                    }
+
+                    if (goal.state.run.currentStage.status === "executing") {
+                        const acceptedSequence = goal.state.run.committedThroughSequence + 2;
+                        acceptedStage = acceptCurrentRunStage(goal.state.run.currentStage, acceptedSequence);
+                    }
                 }
 
                 await this.appendTrajectory({
@@ -4343,6 +4985,7 @@ class RunExecutor {
                 const nextRun = this.applyTransition(goal.state.run, {
                     kind: "decision",
                     decision: normalized.decision,
+                    ...(acceptedStage !== undefined ? { stage: acceptedStage } : {}),
                 });
                 let nextGoal = this.appendDecisionMessage(
                     this.withRun(goal, nextRun),
@@ -4395,9 +5038,29 @@ class RunExecutor {
                         control,
                     );
                 }
+                const stageAcceptedFact: TrajectoryEventDraft | undefined = acceptedStage !== undefined
+                    ? {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        executionUnitId,
+                        eventType: "run_stage_accepted",
+                        payload: {
+                            type: "run_stage_accepted",
+                            stageId: acceptedStage.stageId,
+                            revision: acceptedStage.revision,
+                            summary: normalized.decision.kind === "complete" ? normalized.decision.summary : undefined,
+                            ...(normalized.decision.kind === "complete" && "evidenceSequences" in normalized.decision && normalized.decision.evidenceSequences !== undefined
+                                ? { evidenceSequences: normalized.decision.evidenceSequences }
+                                : {}),
+                        },
+                    }
+                    : undefined;
                 goal = await this.commitDecision(
                     nextGoal,
                     [
+                        ...contextNoteDrafts,
+                        ...(stageAcceptedFact !== undefined ? [stageAcceptedFact] : []),
                         terminalFact,
                         ...(normalized.decision.kind === "complete" || normalized.decision.kind === "fail"
                             ? (() => {
@@ -4457,6 +5120,7 @@ class RunExecutor {
         executionUnitId: string,
         acceptedPatch?: AcceptedMemoryPatchInput,
         control?: ExecutionControl,
+        contextNoteDrafts: readonly TrajectoryEventDraft[] = [],
     ): Promise<Goal> {
         if (this.trajectoryStore === undefined || goal.state.run.pendingProgram !== undefined) {
             throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC requires a fresh program and Trajectory store");
@@ -4491,7 +5155,7 @@ class RunExecutor {
             actionId: action.actionId,
             eventType: "action_staged",
             payload: { type: "action_staged", action, approvalStatus: "approved" },
-        }, {
+        }, ...contextNoteDrafts, {
             goalId: goal.id,
             runId: goal.state.run.id,
             phase: "executing",
@@ -5067,6 +5731,8 @@ class RunExecutor {
                 | { readonly kind: "ask_user" }
                 | { readonly kind: "task_proposal" }
                 | { readonly kind: "goal_plan_update" }
+                | { readonly kind: "run_stage_update" }
+                | { readonly kind: "run_stage_complete" }
         >,
     ): Goal {
         const content = decision.kind === "complete"

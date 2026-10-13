@@ -71,6 +71,7 @@ function completedResponse(providerMetadata?: LLMResponse["providerMetadata"]): 
                 summary: "检查完成",
                 completionEvidence: [],
                 memoryPatch: null,
+                contextNotes: null,
             },
         }),
         ...(providerMetadata === undefined ? {} : { providerMetadata }),

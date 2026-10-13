@@ -21,6 +21,7 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 | [TrajectoryCheckpointCommitter](../src/trajectory-checkpoint-committer.ts) | 统一事实、Patch、Snapshot 和提交 marker 的顺序 | 业务分支和模型调用 |
 | [GoalStore](../src/goal-store.ts) | 保存/恢复最新 Goal Snapshot | 历史查询和文件格式 |
 | [Model Call Metrics](../src/model-call-metrics.ts) | 模型调用开始/结束事实、用量覆盖标记及追加/读取 Port | Goal 恢复状态、指标汇总与诊断 Trace |
+| [RunStage](../src/run-stage.ts) | Run 内部阶段声明、修订与流转纯规则、前序接受约束与审查拒绝记录 | 执行调度与模型调用 |
 | [Trajectory](../src/trajectory.ts) | 追加事实事件、提交 marker 和只读恢复查询 | 改写 Runtime State |
 | [Tool Core](../../tool-core/src/index.ts) | 通用 Tool 接口、输入 Contract 准备、Registry 与暂时故障分类 | Goal/Run 状态与授权策略 |
 | [Tool contracts](../src/tool.ts) | Tool Policy 边界、授权过滤与运行时上下文绑定 | 具体 Tool 业务逻辑与通用输入准备 |
@@ -53,7 +54,7 @@ Runner 将调度契约委派给 RunExecutor；RunExecutor 按当前 Run 模式�
 - `ask_user` 进入带 request ID、模式和问题列表的等待点；答案先写入真实消息与回答事实，再恢复 Runner。
 - 阶段化 Executor 在单个 Step 内由 Runner 管理 Decide/Think 循环。每次 `request_think` 先和 Decide frame 提交；Think 输出和 Think frame 另存为已提交事实后，Runner 才再次 Decide。Think 不增加 `stepCount`，不执行 Tool；只有最终有效 `AgentDecision` 进入既有转换、授权和证据校验。
 
-所有普通和获批 Plan Run 的完成候选先经过协议、语义和 Evidence 引用校验，再调用必需的 `StepExecutor.reviewCompletion`。Runner 从当前 Run 提交边界解析引用正文与关联 Action 来源，审查接受后才提交完成、候选回复原文和 Memory Patch；拒绝不增加 Step、不产生最终回复，并以 `origin: completion_review` 反馈返回 Decide。该审查不替代工具授权、任务批准或 Benchmark 环境评分。
+中间阶段完成候选与 Run 最终完成候选均须先经过协议、语义、阶段状态和 Evidence 引用校验，再调用必需的 `StepExecutor.reviewCompletion`。输入包含当前阶段说明、修订及同一 Run 前序已接受阶段的历史原始证据，消除成对 Observation 重复正文；最终完成审查在同一次调用中兼顾局部阶段与用户整体交付。审查接受后才提交对应阶段结果或最终完成；无效候选在调用审查前被确定性门禁拦截。该审查不替代工具授权、任务批准或 Benchmark 环境评分。
 
 每次下游模型或 Tool 调用前，Runtime 先保存所需事实和 Snapshot。完成声明必须引用已提交的 Tool/Observation Evidence；用户回答本身不能成为完成证据。运行时错误、协议错误、身份不匹配和旧 Snapshot 均 fail-closed。
 
@@ -102,3 +103,9 @@ Runtime 当前只保存每个 Goal 的最新完整 Snapshot，不提供历史快
 - Working Memory 只从已提交 Trajectory 重建；原始事实账本不被 Compact 覆盖。
 - Prompt Bundle 与三个当前协议由 Composition Root 一起冻结；未知版本、旧 Snapshot 和交叉协议组合 fail-closed。
 - `contracts` 保持零出站依赖；依赖方向由 `npm run check:dependencies` 校验。
+
+Memory proposal 在模型候选边界以 `memory_patch` 来源提供字段级反馈；证据诊断区分重复、缺失、越界与事件类别，持久化仍使用既有阶段反馈事件。诊断不携带模型事实值或文件正文。
+
+所有携带模型 `memoryPatch` 的 Decide 候选在动作、等待、Epoch 转换和完成审查之前先做原子校验与无 I/O 试归约。试归约身份被丢弃，最终条目按阶段检查点之后的实际提交序号生成；提交器只调用 Runner 提供的纯归约回调，不裁决领域规则。语义阶段审查拒绝（`run_stage_rejected`）作为正常 Step 结算并跨正常 Step 推进，不占用 Decide 参数格式纠错预算；非法参数、证据门禁与格式异常仍在原 Decide 三次预算内纠错。中间阶段接受保持 Run running，最终 complete 接受原子提交阶段与 Run 完成；恢复、配置、存储与生命周期失败不转换为模型修复。
+
+阶段业务工具执行前必须存在 executing 阶段。最终交付审查拒绝可以重新打开已接受阶段：保持阶段身份和历史接受事实，清除当前接受指针并提交拒绝缺口，在同一 Run 的新 Step 修正。此时 Snapshot 允许保存带拒绝缺口的 complete 候选作为最近 Step，但不将 Run 标记完成。

@@ -7,3 +7,5 @@ export * from "./context-protocol";
 export * from "./context-lookup-result";
 export * from "./context-retrieval-index";
 export * from "./context-retriever";
+export * from "./goal-context-index";
+export * from "./goal-context-query";

@@ -4,7 +4,7 @@ status: active
 summary: "将有限授权、可安全重试与模型纠错反馈纳入可恢复 Runtime 阶段流程"
 source_spec: specs/runtime-feedback-tool-approval/
 distilled_at: 2026-10-01
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-11
 tags: [runtime-feedback, model-repair, retry, tool-approval, recovery, authorization]
 authorities: [packages/agent/notes/overview.md, packages/runtime/src/runner.ts, packages/runtime/src/runtime-feedback.ts, packages/agent/src/stage-feedback.ts, packages/runtime/test/runner.test.ts, packages/runtime/test/think-decision-recovery.test.ts]
 ---
@@ -17,7 +17,7 @@ authorities: [packages/agent/notes/overview.md, packages/runtime/src/runner.ts, 
 
 ## Durable Decisions
 
-- D1 — 模型输出解析、Contract、可纠正决策语义、Tool 选择／输入或完成证据错误，必须先阻止无效决策及其副作用，再把稳定错误码、问题路径与安全约束反馈至原 Think／Decide 阶段。纠错保留同一执行单元身份；Decide 错误保留已提交 Think 结果。 [S1, S2, S3, S5, S6]
+- D1 — 模型输出解析、Contract、可纠正决策语义、Tool 选择／输入、完成证据错误或模型候选 Memory Patch 错误，必须先阻止无效决策及其副作用，再把稳定错误码、问题路径与安全约束反馈至原 Think／Decide 阶段。纠错保留同一执行单元身份；Decide 错误保留已提交 Think 结果。Patch 的准入和诊断由本次来源约束功能持有。 [S1, S2, S3, S5, S6, S8]
 - D2 — 每次纠错重新通过相同解析、授权和证据验证；无效 JSON／决策不成为 Conversation 完成消息。反馈以身份绑定的 Trajectory 事实持久化，恢复时只读取当前 Goal／Run／executionUnit／Step／stage 对应的提交反馈。 [S1, S2, S3, S4, S6]
 - D3 — 模型纠错每个阶段最多三次总调用；耗尽后停止并报告终态失败。普通 `request_think` 循环不受该纠错次数限制。 [S1, S2, S3, S4, S7]
 - D4 — 系统对可识别的暂时 Provider 故障作有限重试；Tool 只有在声明可安全重放且当前 Action 获准时才重放，并保留 Action 身份及原授权。取消立即停止；不确定结果的 manual Tool 不自动重放。 [S1, S2, S3, S7]
@@ -27,7 +27,7 @@ authorities: [packages/agent/notes/overview.md, packages/runtime/src/runner.ts, 
 
 - RuntimeFeedback 不是用户消息或授权指令；模型纠错不能放宽输出 Contract、Tool 输入校验、Profile、Evidence 或授权范围。 [S1, S2, S3, S5]
 - 适配器／Contract decoder 的单次调用仍只执行一次，不在其中隐式重试；模型纠错必须先追加匹配当前阶段的持久化反馈，再以新的阶段调用继续。 [S1, S2, S3, S4]
-- 未提交的失败反馈、授权或结果不能驱动恢复执行；达到尝试上限、取消或不可纠正错误时停止后续模型与 Tool 调用。 [S1, S2, S3, S4, S7]
+- 未提交的失败反馈、授权或结果不能驱动恢复执行；达到尝试上限、取消、恢复损坏、配置或存储失败时停止后续模型与 Tool 调用，不能将其归为候选 Patch 错误。 [S1, S2, S3, S4, S7, S8]
 
 ## Revisit When
 
@@ -43,3 +43,4 @@ authorities: [packages/agent/notes/overview.md, packages/runtime/src/runner.ts, 
 - S5: `packages/agent/src/stage-feedback.ts`
 - S6: `packages/runtime/src/runtime-feedback.ts`
 - S7: `packages/runtime/test/think-decision-recovery.test.ts`
+- S8: `specs/memory-evidence-repair-and-source-grounding/spec.md`

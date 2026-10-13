@@ -26,6 +26,7 @@ export {
 } from "./model-inference-projector";
 export {
     CONTEXT_LOOKUP_FRESHNESS_WARNING,
+    CONTEXT_LOOKUP_SOURCE_SCOPE,
     projectContextLookupResult,
     projectLookupResult,
 } from "./context-lookup-projection";
@@ -199,6 +200,7 @@ export {
     LLMResponseProtocolError,
 } from "./errors";
 export type {
+    FailedToolCallShape,
     LLMResponseProtocolErrorDetails,
     LLMResponseProtocolIssue,
 } from "./errors";
@@ -268,3 +270,16 @@ export type {
     AgentDecision,
 } from "../../runtime/src/domain";
 export type { ToolDefinition } from "../../tool-core/src/index";
+
+export {
+    buildGoalContextNavigation,
+} from "./goal-context-navigation";
+export type {
+    GoalContextNavigationBuildOptions,
+} from "./goal-context-navigation";
+export type {
+    ModelGoalContextNavigationCurrentStage,
+    ModelGoalContextNavigationStageEntry,
+    ModelGoalContextNavigationNoteEntry,
+    ModelGoalContextNavigationView,
+} from "./model-inference-view";

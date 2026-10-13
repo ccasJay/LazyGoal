@@ -415,7 +415,7 @@ class CompleteAdapter extends FakeAdapter {
     override async generate(request: LLMRequest): Promise<LLMResponse> {
         this.calls.push(request);
         if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
-        return { content: JSON.stringify({ result: { kind: "complete", summary: `done by ${this.modelId}`, evidenceSequences: [], memoryPatch: null } }) };
+        return { content: JSON.stringify({ result: { kind: "complete", summary: `done by ${this.modelId}`, evidenceSequences: [], memoryPatch: null, contextNotes: null } }) };
     }
 }
 

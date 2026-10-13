@@ -208,8 +208,24 @@ export function validateContextLookupSourceReferences(
 export class EvidenceGateError extends Error {
     readonly code = WORKING_MEMORY_EVIDENCE_ERROR_CODE;
 
-    /** @param message - 不包含任务正文的稳定诊断信息。 */
-    constructor(message: string) {
+    /**
+     * @param message - 不包含任务正文的稳定诊断信息。
+     * @param path - 校验器明确提供的字段位置。
+     * @param reason - 稳定的拒绝原因。
+     * @param sequence - 实际被拒的引用序号。
+     * @param eventType - 索引中实际事件类型；不存在时不猜测。
+     */
+    constructor(
+        message: string,
+        /** 相对 evidenceSequences 或 memoryPatch 的字段路径。 */
+        readonly path: readonly (string | number)[] = [],
+        /** 不包含模型正文的稳定原因。 */
+        readonly reason: string = "invalid_evidence_reference",
+        /** 校验失败的引用序号；未知时不提供。 */
+        readonly sequence?: number,
+        /** 当前提交索引中实际事件的类型。 */
+        readonly eventType?: TrajectoryEventType,
+    ) {
         super(`${WORKING_MEMORY_EVIDENCE_ERROR_CODE}: ${message}`);
         this.name = "EvidenceGateError";
     }
@@ -237,7 +253,8 @@ function assertScope(value: unknown): asserts value is EvidenceValidationScope {
     }
 }
 
-function eventIsEvidence(event: Readonly<TrajectoryEvent>): boolean {
+/** 判定实际事件能否作为直接证据；拒绝的 Observation 不可用。 */
+export function eventIsEvidence(event: Readonly<TrajectoryEvent>): boolean {
     if (!EVIDENCE_EVENT_TYPES.includes(event.eventType)) return false;
     if (
         event.eventType === "observation_recorded"
@@ -328,28 +345,28 @@ export function validateFactEvidence(
     }
 
     const seen = new Set<number>();
-    for (const sequence of evidenceSequences) {
+    for (const [itemIndex, sequence] of evidenceSequences.entries()) {
         if (
             typeof sequence !== "number"
             || !Number.isInteger(sequence)
             || sequence <= 0
         ) {
-            throw new EvidenceGateError("evidence sequence must be a positive integer");
+            throw new EvidenceGateError("evidence sequence must be a positive integer", [itemIndex], "invalid_sequence", sequence);
         }
         if (seen.has(sequence)) {
-            throw new EvidenceGateError("Fact contains duplicate evidence sequence");
+            throw new EvidenceGateError("Fact contains duplicate evidence sequence", [itemIndex], "duplicate_evidence", sequence);
         }
         seen.add(sequence);
 
         if (sequence > index.committedThroughSequence) {
-            throw new EvidenceGateError("evidence sequence is beyond committed boundary");
+            throw new EvidenceGateError("evidence sequence is beyond committed boundary", [itemIndex], "uncommitted_evidence", sequence);
         }
         const event = index.get(sequence);
         if (event === undefined) {
-            throw new EvidenceGateError("evidence sequence does not belong to this Goal/Run");
+            throw new EvidenceGateError("evidence sequence does not belong to this Goal/Run", [itemIndex], "missing_evidence", sequence);
         }
         if (!eventIsEvidence(event)) {
-            throw new EvidenceGateError("evidence event type is not allowed for Fact");
+            throw new EvidenceGateError("evidence event type is not allowed for Fact", [itemIndex], "evidence_type_not_allowed", sequence, event.eventType);
         }
     }
 }
@@ -394,18 +411,19 @@ export function validateMemoryPatchEvidence(
         patch,
         workingMemory === undefined ? {} : { workingMemory },
     );
-    for (const operation of patch.operations) {
+    for (const [operationIndex, operation] of patch.operations.entries()) {
         const evidence = evidenceFromOperation(operation);
         if (evidence === undefined || evidence.sequences.length === 0) continue;
-        if (evidence.kind === "retire_fact") {
-            validateFactEvidence(evidence.sequences, index, "execution");
-            continue;
+        try {
+            validateFactEvidence(evidence.sequences, index, scope);
+        } catch (error) {
+            if (!(error instanceof EvidenceGateError)) throw error;
+            throw new EvidenceGateError(
+                "Fact evidence does not satisfy the committed evidence rules",
+                ["operations", operationIndex, "fact", "evidenceSequences", ...error.path],
+                error.reason, error.sequence, error.eventType,
+            );
         }
-        validateFactEvidence(
-            evidence.sequences,
-            index,
-            scope,
-        );
     }
 }
 

@@ -150,3 +150,158 @@ test("streaming review text, reasoning and result arguments stay outside the pub
     subscription.close();
     stream.dispose();
 });
+
+test("review receives the actual source request and scoped lookup without an optional Patch", async () => {
+    const fixture = input();
+    const request = "Read project memory files, select a real historical decision and propose a reversal condition.";
+    const goal = { ...fixture.goal, state: { ...fixture.goal.state, messages: [{ role: "user" as const, content: request }] } };
+    const candidate = { kind: "complete" as const, summary: "A generic example is to split a monolith into microservices.", evidenceSequences: [] };
+    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
+        const content = JSON.parse(modelRequest.messages[1]!.content);
+        assert.equal(content.conversation[0].content, request);
+        assert.deepEqual(content.candidate, candidate);
+        assert.equal(content.historicalLookup.sourceScope, "goal_history");
+        assert.match(content.historicalLookup.limitations, /not searched/);
+        assert.deepEqual(content.committedEvidence, []);
+        return { content: '{"result":{"kind":"reject","feedback":"Read the requested repository files and identify a documented real decision."}}' };
+    } };
+    const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
+    const reviewed = await executor.reviewCompletion({ ...fixture, goal, candidate, contextLookupResult: { status: "not_found", lookupId: "query", reason: "no_context_match" } });
+    assert.deepEqual(reviewed, { kind: "reject", feedback: "Read the requested repository files and identify a documented real decision." });
+});
+
+test("deduplicates paired tool output text while preserving action identity and failed observation", async () => {
+    const fixture = input();
+    const action1 = "act-read-success";
+    const longSuccessText = "export const answer = 42; " + "repeat-content-".repeat(50);
+    const successObs = { kind: "success" as const, output: { path: "src/a.ts", text: longSuccessText }, summary: "Read success" };
+
+    const action2 = "act-read-fail";
+    const failObs = { kind: "failure" as const, code: "FILE_NOT_FOUND", message: "File not found", retryable: false };
+
+    const events: TrajectoryEvent[] = [
+        // action 1: 包含 action_staged, tool_finished 和 observation_recorded
+        allocateImmutableEvent({ goalId: "review-goal", runId: "review-run", phase: "executing", actionId: action1, eventType: "action_staged",
+            payload: { type: "action_staged", action: { actionId: action1, toolId: "read_file", input: { path: "src/a.ts" } }, approvalStatus: "approved" } }, 1),
+        allocateImmutableEvent({ goalId: "review-goal", runId: "review-run", phase: "executing", actionId: action1, eventType: "tool_finished",
+            payload: { type: "tool_finished", actionId: action1, toolId: "read_file", observation: successObs } }, 2),
+        allocateImmutableEvent({ goalId: "review-goal", runId: "review-run", phase: "executing", actionId: action1, eventType: "observation_recorded",
+            payload: { type: "observation_recorded", actionId: action1, observation: successObs } }, 3),
+
+        // action 2: 只有 action_staged 与 tool_finished (失败观测)
+        allocateImmutableEvent({ goalId: "review-goal", runId: "review-run", phase: "executing", actionId: action2, eventType: "action_staged",
+            payload: { type: "action_staged", action: { actionId: action2, toolId: "read_file", input: { path: "src/missing.ts" } }, approvalStatus: "approved" } }, 4),
+        allocateImmutableEvent({ goalId: "review-goal", runId: "review-run", phase: "executing", actionId: action2, eventType: "tool_finished",
+            payload: { type: "tool_finished", actionId: action2, toolId: "read_file", observation: failObs } }, 5),
+
+        // 内部 Think 与阶段声明不作为外部事实
+        allocateImmutableEvent({ goalId: "review-goal", runId: "review-run", phase: "executing", eventType: "think_completed",
+            payload: { type: "think_completed", requestId: "req-1", stepOrdinal: 1, goal: "analyze", output: "think output" } }, 6),
+        allocateImmutableEvent({ goalId: "review-goal", runId: "review-run", phase: "executing", eventType: "run_stage_declared",
+            payload: { type: "run_stage_declared", stageId: "stage-1", revision: 1, target: "Analyze code", acceptanceCriteria: ["Tests pass"] } }, 7),
+    ];
+
+    let recordedContent: any = null;
+    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
+        recordedContent = JSON.parse(modelRequest.messages[1]!.content);
+        return { content: "", toolCalls: [{ callId: "c1", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' }] };
+    } };
+    const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
+    await executor.reviewCompletion({ ...fixture, evidence: events });
+
+    assert.ok(recordedContent !== null);
+    // 检查成对事件的 tool_finished 已被去重，但唯一的 tool_finished (action 2) 被保留
+    const committed = recordedContent.committedEvidence as TrajectoryEvent[];
+    assert.equal(committed.some(e => e.eventType === "think_completed"), false);
+    assert.equal(committed.some(e => e.eventType === "run_stage_declared"), false);
+    // action1 的 tool_finished 应当被剔除，只有 observation_recorded
+    assert.equal(committed.filter(e => e.actionId === action1 && e.eventType === "tool_finished").length, 0);
+    assert.equal(committed.filter(e => e.actionId === action1 && e.eventType === "observation_recorded").length, 1);
+    // action2 的 tool_finished 应当被保留
+    assert.equal(committed.filter(e => e.actionId === action2 && e.eventType === "tool_finished").length, 1);
+    // 整个 payload 中，长正文 longSuccessText 只出现一次（在 observation_recorded 中）
+    const occurrences = (JSON.stringify(committed).match(/repeat-content-/g) || []).length;
+    assert.equal(occurrences, 50); // 只有一份
+});
+
+test("review request includes current stage and supports run_stage_complete candidate", async () => {
+    const fixture = input();
+    const currentStage = {
+        stageId: "stage-inspect",
+        revision: 2,
+        status: "executing" as const,
+        target: "Inspect auth module",
+        acceptanceCriteria: ["Identify auth boundaries"],
+        latestReviewRejection: { feedback: "Missing boundaries" },
+    };
+    const candidate = {
+        kind: "run_stage_complete" as const,
+        stageId: "stage-inspect",
+        summary: "Auth boundaries identified in src/auth.ts.",
+    };
+
+    let recordedContent: any = null;
+    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
+        recordedContent = JSON.parse(modelRequest.messages[1]!.content);
+        return { content: "", toolCalls: [{ callId: "c1", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' }] };
+    } };
+    const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
+    await executor.reviewCompletion({ ...fixture, candidate, currentStage });
+
+    assert.ok(recordedContent !== null);
+    assert.deepEqual(recordedContent.candidate, candidate);
+    assert.deepEqual(recordedContent.currentStage, {
+        stageId: "stage-inspect",
+        revision: 2,
+        target: "Inspect auth module",
+        acceptanceCriteria: ["Identify auth boundaries"],
+        status: "executing",
+        latestReviewRejection: { feedback: "Missing boundaries" },
+    });
+});
+
+test("review request includes historical accepted stage evidence for overall verification", async () => {
+    const fixture = input();
+    const histEvent = allocateImmutableEvent({
+        goalId: "review-goal", runId: "review-run", phase: "executing", actionId: "hist-read", eventType: "observation_recorded",
+        payload: { type: "observation_recorded", actionId: "hist-read", observation: { kind: "success", output: { text: "prior stage fact" }, summary: "done" } },
+    }, 1);
+
+    let recordedContent: any = null;
+    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
+        recordedContent = JSON.parse(modelRequest.messages[1]!.content);
+        return { content: "", toolCalls: [{ callId: "c1", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' }] };
+    } };
+    const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
+    await executor.reviewCompletion({ ...fixture, historicalAcceptedEvidence: [histEvent] });
+
+    assert.ok(recordedContent !== null);
+    assert.ok(recordedContent.historicalAcceptedEvidence !== undefined);
+    assert.equal(recordedContent.historicalAcceptedEvidence.length, 1);
+    assert.match(JSON.stringify(recordedContent.historicalAcceptedEvidence), /prior stage fact/);
+});
+
+
+test("review omits unrelated assistant history while retaining original user constraints and source positions", async () => {
+    const fixture = input();
+    const messages = [
+        { role: "user" as const, content: "Keep the public API unchanged." },
+        { role: "assistant" as const, assistant: { profileId: "review" }, content: "irrelevant-history".repeat(40_000) },
+        { role: "assistant" as const, assistant: { profileId: "review" }, content: "Which result should I verify?" },
+        { role: "user" as const, content: "Now verify the final result." },
+    ];
+    let called = false;
+    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(request) {
+        called = true;
+        const content = JSON.parse(request.messages[1]!.content);
+        assert.deepEqual(content.conversation, [messages[0], messages[2], messages[3]]);
+        assert.deepEqual(content.conversationSources.map((source: { messageIndex: number }) => source.messageIndex), [0, 2, 3]);
+        assert.equal(content.originalIntent, fixture.goal.definition.intent);
+        assert.deepEqual(content.profile, fixture.goal.definition.profile);
+        assert.deepEqual(content.candidate, fixture.candidate);
+        return { content: '{"result":{"kind":"accept"}}' };
+    } };
+    const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
+    await executor.reviewCompletion({ ...fixture, goal: { ...fixture.goal, state: { ...fixture.goal.state, messages } } });
+    assert.equal(called, true);
+});

@@ -23,6 +23,8 @@
     "swebench/src/**/*.ts",
     "swebench/test/**/*.ts",
     "gaia/src/**/*.ts",
-    "gaia/test/**/*.ts"
+    "gaia/test/**/*.ts",
+    "context/src/**/*.ts",
+    "context/test/**/*.ts"
   ]
 }

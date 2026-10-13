@@ -52,6 +52,7 @@ export {
     type BrowserSessionMessage,
     type BrowserSessionRun,
     type BrowserSessionStep,
+    type BrowserRunStageGroup,
 } from "./browser-projection";
 export {
     BrowserGoalStreamService,

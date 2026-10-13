@@ -1,3 +1,5 @@
+import type { ToolRegistry } from "../../packages/tool-core/src/index.js";
+import { isDeepStrictEqual } from "node:util";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -30,11 +32,13 @@ import {
     type GoalProgressResult,
     type GoalProtocolValidator,
     type GoalStore,
+    type GoalUserAction,
+    type ModelInputStore,
+    type ContextLookupPort,
     type RunIdGenerator,
     readTrajectoryAtSnapshot,
     type RunnerResult,
     type ToolPolicy,
-    type ToolRegistry,
     type TrajectoryReadQuery,
     type TrajectoryReadResult,
     type TrajectoryStore,
@@ -211,6 +215,8 @@ export interface BenchmarkPersistenceLocator {
     readonly trajectory: string;
     /** 启用时 Diagnostic Trace 的稳定定位标识。 */
     readonly diagnosticTrace?: string;
+    /** 完整模型输入记录目录；不是恢复权威。 */
+    readonly modelInputs?: string;
 }
 
 /**
@@ -237,6 +243,10 @@ export interface BenchmarkPersistenceBindings {
     readonly trajectoryStore: TrajectoryStore;
     /** 可选的独立 Diagnostic Trace 旁路。 */
     readonly traceSink?: DiagnosticTraceSink;
+    /** 所有模型阶段调用前保存完整输入。 */
+    readonly modelInputStore?: ModelInputStore;
+    /** 只查询同一 Goal 已提交历史的检索端口。 */
+    readonly contextLookupPort?: ContextLookupPort;
     /** 当前 task 的稳定存储定位。 */
     readonly locator: BenchmarkPersistenceLocator;
 }
@@ -395,6 +405,43 @@ export interface HeadlessRunOptions {
 }
 
 /**
+ * 保持同一 Goal 和环境资源的 headless 会话。
+ * @remarks 操作串行调用；close 后不得再推进。恢复读取 Snapshot，不回放模型请求。
+ * 用量累计当前会话调用，不包含恢复前的采集成本。调用方负责 finally 中关闭。
+ * @example
+ * ```ts
+ * const session = await root.openSession(task);
+ * try { await session.launch(); await session.continue("Next stage"); }
+ * finally { await session.close(); }
+ * ```
+ */
+export interface HeadlessSession<TOutcome> {
+    /** 创建新 Goal 并推进到等待点或终态；只能调用一次。 */
+    launch(): Promise<HeadlessEpisodeResult<TOutcome>>;
+    /** 从当前终态创建后继 Run；用户输入由 Coordinator 持久化。 */
+    continue(input: string): Promise<HeadlessEpisodeResult<TOutcome>>;
+    /** 通过 Runtime 校验等待类型并恢复同一 Run。 */
+    resume(action: GoalUserAction): Promise<HeadlessEpisodeResult<TOutcome>>;
+    /** 读取当前权威 Snapshot；缺失时拒绝。 */
+    restore(): Promise<Goal>;
+    /** 幂等关闭 Episode；关闭失败传播原始异常。 */
+    close(): Promise<void>;
+}
+
+/**
+ * 新建或打开已存在 Goal 会话的选项。
+ * @remarks restoreRef 必须指向同一持久化 namespace；Profile 不符拒绝，不改写 Snapshot。
+ * @example
+ * ```ts
+ * const session = await root.openSession(task, { restoreRef: { goalId: "g", runId: "r" } });
+ * ```
+ */
+export interface HeadlessSessionOptions extends HeadlessRunOptions {
+    /** 恢复 Goal 的稳定关联键；省略时准备创建新 Goal。 */
+    readonly restoreRef?: { readonly goalId: string; readonly runId: string };
+}
+
+/**
  * 创建 {@link HeadlessCompositionRoot} 所需的通用依赖。
  *
  * @remarks
@@ -486,6 +533,35 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
         task: TTask,
         options: HeadlessRunOptions = {},
     ): Promise<HeadlessEpisodeResult<TOutcome>> {
+        let session: HeadlessSession<TOutcome> | undefined;
+        let result: HeadlessEpisodeResult<TOutcome> | undefined;
+        let primaryError: unknown;
+        let failed = false;
+        try {
+            session = await this.openSession(task, options);
+            result = await session.launch();
+        } catch (error) { failed = true; primaryError = error; }
+        try { await session?.close(); }
+        catch (cleanupError) {
+            if (failed) {
+                if (isExecutionAbortedError(primaryError)) attachCleanupError(primaryError, cleanupError);
+                else throw new HeadlessEpisodeCleanupError(primaryError, cleanupError);
+            } else if (result !== undefined) return { ...result, cleanupError };
+            else throw cleanupError;
+        }
+        if (failed) throw primaryError;
+        if (result === undefined) throw new Error("Headless Root completed without a result");
+        return result;
+    }
+
+    /**
+     * 打开保持环境的会话；不会在打开时调用模型。
+     * @param task - 适配器任务及持久化 namespace 的来源。
+     * @param options - 中止信号与可选恢复关联键。
+     * @returns 由调用方拥有并负责关闭的会话。
+     * @throws 恢复键或 Profile 不匹配、持久化或环境创建失败时拒绝。
+     */
+    async openSession(task: TTask, options: HeadlessSessionOptions = {}): Promise<HeadlessSession<TOutcome>> {
         const control = toExecutionControl(options.signal);
         throwIfAborted(control);
         const descriptor = validateTaskDescriptor(
@@ -494,11 +570,11 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
         );
         throwIfAborted(control);
         const goalId = createIdentifier(
-            this.dependencies.goalIdGenerator,
+            options.restoreRef === undefined ? this.dependencies.goalIdGenerator : () => options.restoreRef!.goalId,
             "goal",
         );
         const runId = createIdentifier(
-            this.dependencies.runIdGenerator,
+            options.restoreRef === undefined ? this.dependencies.runIdGenerator : () => options.restoreRef!.runId,
             "run",
         );
         const namespace = validateIdentifier(
@@ -514,20 +590,14 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
         throwIfAborted(control);
         validateBindings(bindings);
 
-        let episode: BenchmarkEpisode<TOutcome> | undefined;
-        let result: HeadlessEpisodeResult<TOutcome> | undefined;
-        let primaryError: unknown;
-        let executionFailed = false;
-
+        const episode = await this.dependencies.adapter.createEpisode(task, {
+            workspaceRoot: this.dependencies.workspaceRoot,
+            profile: this.dependencies.profile,
+            ...(options.signal === undefined ? {} : { signal: options.signal }),
+        });
         try {
-            episode = await this.dependencies.adapter.createEpisode(task, {
-                workspaceRoot: this.dependencies.workspaceRoot,
-                profile: this.dependencies.profile,
-                ...(options.signal === undefined ? {} : { signal: options.signal }),
-            });
             throwIfAborted(control);
             validateEpisode(episode);
-
             const profileRegistry = createSingleProfileRegistry(this.dependencies.profile);
             const usageRecorder = new UsageRecordingLLMAdapter(this.dependencies.llmAdapter);
             const workingMemoryLimits = this.dependencies.workingMemoryLimits
@@ -549,6 +619,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                     contextCompactor: this.dependencies.contextCompactor,
                     ...(bindings.traceSink === undefined ? {} : { traceSink: bindings.traceSink }),
                     trajectoryContextAssembler,
+                    ...(bindings.modelInputStore === undefined ? {} : { modelInputStore: bindings.modelInputStore }),
                 }),
                 toolRegistry: episode.registry,
                 ...(this.dependencies.toolPolicy === undefined
@@ -560,6 +631,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                 ...(this.dependencies.protocolValidator === undefined
                     ? {}
                     : { protocolValidator: this.dependencies.protocolValidator }),
+                ...(bindings.contextLookupPort === undefined ? {} : { contextLookupPort: bindings.contextLookupPort }),
                 checkpointCommitter,
             });
             let runnerResult: RunnerResult | undefined;
@@ -570,6 +642,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                 },
             });
             const coordinator = new GoalCoordinator({
+                ...(this.dependencies.runIdGenerator === undefined ? {} : { runIdGenerator: this.dependencies.runIdGenerator }),
                 store: bindings.goalStore,
                 scheduler,
                 toolRegistry: episode.registry,
@@ -579,6 +652,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                 ...(this.dependencies.protocolValidator === undefined
                     ? {}
                     : { protocolValidator: this.dependencies.protocolValidator }),
+                ...(bindings.contextLookupPort === undefined ? {} : { contextLookupPort: bindings.contextLookupPort }),
                 checkpointCommitter,
             });
             const intent = [
@@ -595,6 +669,33 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                 }),
                 "These criteria do not become Runtime completion requirements.",
             ].join("\n");
+            let closed = false;
+            let launchedOnce = options.restoreRef !== undefined;
+            const restore = async (): Promise<Goal> => {
+                if (closed) throw new Error("Headless session is closed");
+                const goal = await bindings.goalStore.restore(goalId);
+                if (goal === undefined) throw new Error("Headless session Goal is missing");
+                return goal;
+            };
+            if (options.restoreRef !== undefined) {
+                const goal = await restore();
+                if (goal.state.run.id !== runId || goal.definition.executionPolicy.maxSteps !== descriptor.maxSteps || !isDeepStrictEqual(goal.definition.profile, this.dependencies.profile)) {
+                    throw new Error("Headless restore Run or Profile mismatch");
+                }
+            }
+            const finish = async (progress: GoalProgressResult): Promise<HeadlessEpisodeResult<TOutcome>> => {
+                if (!progress.ok) throw new Error(`${progress.error.code}: ${progress.error.message}`);
+                const goal = await restore();
+                return {
+                    goal, progress, runner: runnerResult ?? null,
+                    model: modelResult(goal, usageRecorder.snapshot()),
+                    outcome: episode.readOutcome(), persistence: bindings.locator,
+                };
+            };
+            return {
+                launch: async () => {
+                    if (closed || launchedOnce) throw new Error("Headless session cannot launch twice or after close");
+                    launchedOnce = true;
             const launched = await launch(
                 {
                     goalId,
@@ -615,63 +716,28 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                 },
                 control,
             );
-            if (!launched.ok) {
-                throw new Error(`${launched.error.code}: ${launched.error.message}`);
-            }
-            const progress = launched;
-            const goal = await bindings.goalStore.restore(goalId);
-
-            if (goal === undefined || goal.state.run.id !== runId) {
-                throw new Error("Headless Root could not restore its final Goal");
-            }
-
-            result = {
-                goal,
-                progress,
-                runner: runnerResult ?? null,
-                model: modelResult(goal, usageRecorder.snapshot()),
-                outcome: episode.readOutcome(),
-                persistence: bindings.locator,
+                    if (!launched.ok) throw new Error(`${launched.error.code}: ${launched.error.message}`);
+                    return finish(launched);
+                },
+                continue: async (input) => {
+                    const goal = await restore();
+                    return finish(await coordinator.continue({ goalId, runId: goal.state.run.id }, input, control));
+                },
+                resume: async (action) => {
+                    const goal = await restore();
+                    return finish(await coordinator.resume({ ref: { goalId, runId: goal.state.run.id }, action }, control));
+                },
+                restore,
+                close: async () => { if (!closed) { closed = true; await episode.close(); } },
             };
         } catch (error) {
-            executionFailed = true;
-            primaryError = error;
-        }
-
-        let cleanupError: unknown;
-        let cleanupFailed = false;
-        if (episode !== undefined) {
-            try {
-                await episode.close();
-            } catch (error) {
-                cleanupFailed = true;
-                cleanupError = error;
+            try { await episode.close(); }
+            catch (cleanupError) {
+                if (isExecutionAbortedError(error)) attachCleanupError(error, cleanupError);
+                else throw new HeadlessEpisodeCleanupError(error, cleanupError);
             }
+            throw error;
         }
-
-        if (executionFailed) {
-            if (cleanupFailed && isExecutionAbortedError(primaryError)) {
-                attachCleanupError(primaryError, cleanupError);
-            } else if (cleanupFailed) {
-                throw new HeadlessEpisodeCleanupError(primaryError, cleanupError);
-            }
-            throw primaryError;
-        }
-
-        if (cleanupFailed) {
-            if (result === undefined) {
-                throw cleanupError;
-            }
-            return {
-                ...result,
-                cleanupError,
-            };
-        }
-
-        if (result === undefined) {
-            throw new Error("Headless Root completed without a result");
-        }
-        return result;
     }
 
 }
@@ -726,6 +792,7 @@ function createSingleProfileRegistry(profile: AgentProfile): AgentProfileRegistr
  * 最后一次合法值。
  */
 class UsageRecordingLLMAdapter implements LLMAdapter {
+    readonly nativeConversationIdentity?: NonNullable<LLMAdapter["nativeConversationIdentity"]>;
     readonly structuredOutputMode: LLMAdapter["structuredOutputMode"];
     private readonly inner: LLMAdapter;
     private inputTokens = 0;
@@ -736,6 +803,7 @@ class UsageRecordingLLMAdapter implements LLMAdapter {
 
     constructor(inner: LLMAdapter) {
         this.inner = inner;
+        if (inner.nativeConversationIdentity !== undefined) this.nativeConversationIdentity = inner.nativeConversationIdentity;
         this.structuredOutputMode = inner.structuredOutputMode;
     }
 
