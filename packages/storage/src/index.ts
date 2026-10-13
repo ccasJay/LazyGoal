@@ -88,3 +88,11 @@ export type {
 } from "./context-retrieval-index-sidecar";
 
 export { JsonFileModelInputStore } from "./json-file-model-input-store";
+
+export {
+    JsonFileGoalContextIndexStore,
+} from "./goal-context-index-store";
+export type {
+    GoalContextIndexStore,
+    GoalContextIndexRestoreOptions,
+} from "./goal-context-index-store";
