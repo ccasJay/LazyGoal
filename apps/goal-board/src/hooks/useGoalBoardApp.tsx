@@ -256,6 +256,7 @@ export function useGoalBoardApp() {
     isCurrentGoalSelected: sessionManager.session?.goalId === sessionManager.selectedGoalId,
     closeSession: sessionManager.closeSession,
     openNewGoalDraft: sessionManager.openNewGoalDraft,
+    draftSessionOpen: sessionManager.draftSessionOpen,
     setGoalInfoOpen,
     manageError: goalsManager.manageError,
     manageBusyId: goalsManager.manageBusyId,

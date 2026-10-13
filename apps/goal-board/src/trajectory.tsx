@@ -327,7 +327,7 @@ export function Trajectory({ session, target }: { session: BrowserGoalSession; t
     : selectedEntry?.eventType === "run_completed" ? "Completed"
     : "Recorded";
   return <div className="trajectory-view compact-real trace-workbench" aria-label="Run trajectory" aria-busy={loading}>
-    <div className="tr-runbar"><div className="tr-page-title"><h2>Execution trajectory</h2><span>Inspect what the agent saw and called</span></div><select aria-label="Select trajectory run" value={runId} onChange={event => switchRun(event.target.value)}>
+    <div className="tr-runbar"><div className="tr-page-title"><h2>Execution trajectory</h2><span>Inspect what the agent saw and called</span></div><select id="trajectory-run-select" name="runId" aria-label="Select trajectory run" value={runId} onChange={event => switchRun(event.target.value)}>
       {runs.length === 0 && <option value={runId}>{runId.slice(0, 12)}</option>}
       {runs.map((run, index) => <option key={run.runId} value={run.runId}>{run.current ? "Current Run" : `Earlier Run ${runs.length - index}`} · {run.runId.slice(0, 8)}</option>)}
     </select><span className={`tr-status ${selectedRun?.status === "failed" ? "failed" : ""}`}>{selectedRun?.status ?? "Loading"}</span><span className="tr-event-count">{page?.committedCount ?? "—"} committed events</span></div>
@@ -383,8 +383,8 @@ export function Trajectory({ session, target }: { session: BrowserGoalSession; t
       <div className="tr-ruler">{[0,.25,.5,.75,1].map(n => <span key={n} style={{left: `${n*98}%`}}>{timed ? `${((times.at(-1)!-times[0]!)*(viewport[0]+viewWidth*n)/1000).toFixed(timeDigits)}s` : first ? Math.round(first.sequence + (last!.sequence-first.sequence)*(viewport[0]+viewWidth*n)) : "—"}</span>)}</div>
     </div></section>
     <div className={`tr-ledger-layout ${inspection || (allCollapsed && entries.length > 0) ? "has-inspector" : ""}`}><section className="tr-ledger" aria-label="Trajectory events">
-      <div className="tr-toolbar"><label className="tr-search"><Search size={14}/><input aria-label="Search trajectory" maxLength={500} placeholder="Search events, tools, files…" value={query} onChange={event => { setQuery(event.target.value); setInspection(null); resetWindow(); }}/>{query && <button aria-label="Clear trajectory search" onClick={() => { setQuery(""); setInspection(null); resetWindow(); }}><X size={12}/></button>}</label>
-        <select aria-label="Filter trajectory events" value={category} onChange={event => { setCategory(event.target.value); setInspection(null); resetWindow(); }}>{categoryLabels.map(label => <option key={label}>{label}</option>)}</select>
+      <div className="tr-toolbar"><label className="tr-search" htmlFor="trajectory-search"><Search size={14}/><input id="trajectory-search" name="search" aria-label="Search trajectory" maxLength={500} placeholder="Search events, tools, files…" value={query} onChange={event => { setQuery(event.target.value); setInspection(null); resetWindow(); }}/>{query && <button aria-label="Clear trajectory search" onClick={() => { setQuery(""); setInspection(null); resetWindow(); }}><X size={12}/></button>}</label>
+        <select id="trajectory-category-select" name="category" aria-label="Filter trajectory events" value={category} onChange={event => { setCategory(event.target.value); setInspection(null); resetWindow(); }}>{categoryLabels.map(label => <option key={label}>{label}</option>)}</select>
         <button aria-pressed={showSteps} onClick={() => setShowSteps(!showSteps)}>⊟ Steps</button><button aria-pressed={showRequests} onClick={() => setShowRequests(!showRequests)}>⊟ Requests</button>
       </div>
       <div className="tr-records" ref={ledger} onScroll={event => { savedScroll.current = event.currentTarget.scrollTop; follow.current = inspection === null && !query && category === "All events" && !range && event.currentTarget.scrollHeight - event.currentTarget.scrollTop - event.currentTarget.clientHeight < 30; }}>

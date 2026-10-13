@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { BrowserGoalListItem } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
 import { type MetricsState, errorMessage } from "../types";
@@ -17,11 +17,15 @@ export function useGoals({
   const [manageError, setManageError] = useState<string | null>(null);
   const [undoArchiveId, setUndoArchiveId] = useState<string | null>(null);
 
+  const loadedMetricsRef = useRef<Set<string>>(new Set());
+  const pendingMetricsRef = useRef<Set<string>>(new Set());
+
   const refreshGoals = useCallback(async () => {
     setGoalsLoading(true);
     try {
       const result = await browserApi.listGoals();
       setGoals(result);
+      loadedMetricsRef.current.clear();
       onError?.(null);
     } catch (error) {
       onError?.(errorMessage(error));
@@ -54,26 +58,59 @@ export function useGoals({
 
   useEffect(() => {
     if (goals.length === 0) return;
+
+    const goalsToFetch = goals.filter(
+      (goal) => !loadedMetricsRef.current.has(goal.goalId) && !pendingMetricsRef.current.has(goal.goalId)
+    );
+    if (goalsToFetch.length === 0) return;
+
     const controller = new AbortController();
-    for (const goal of goals) {
-      void browserApi
-        .readMetrics(goal.goalId, controller.signal)
-        .then((value) => {
-          if (!controller.signal.aborted)
-            setMetricsByGoal((current) => ({
-              ...current,
-              [goal.goalId]: { kind: "ready", value },
-            }));
-        })
-        .catch(() => {
-          if (!controller.signal.aborted)
-            setMetricsByGoal((current) => ({
-              ...current,
-              [goal.goalId]: { kind: "error" },
-            }));
-        });
-    }
-    return () => controller.abort();
+    const timer = window.setTimeout(async () => {
+      if (controller.signal.aborted) return;
+
+      for (const goal of goalsToFetch) {
+        pendingMetricsRef.current.add(goal.goalId);
+      }
+
+      const BATCH_SIZE = 4;
+      for (let i = 0; i < goalsToFetch.length; i += BATCH_SIZE) {
+        if (controller.signal.aborted) break;
+        const batch = goalsToFetch.slice(i, i + BATCH_SIZE);
+
+        const results = await Promise.allSettled(
+          batch.map(async (goal) => {
+            const value = await browserApi.readMetrics(goal.goalId, controller.signal);
+            return { goalId: goal.goalId, value };
+          })
+        );
+
+        if (controller.signal.aborted) break;
+
+        const updates: Record<string, MetricsState> = {};
+        for (let j = 0; j < results.length; j++) {
+          const res = results[j];
+          const goal = batch[j];
+          if (!goal) continue;
+          pendingMetricsRef.current.delete(goal.goalId);
+          if (res.status === "fulfilled") {
+            loadedMetricsRef.current.add(goal.goalId);
+            updates[goal.goalId] = { kind: "ready", value: res.value.value };
+          } else {
+            updates[goal.goalId] = { kind: "error" };
+          }
+        }
+
+        setMetricsByGoal((current) => ({ ...current, ...updates }));
+      }
+    }, 200);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+      for (const goal of goalsToFetch) {
+        pendingMetricsRef.current.delete(goal.goalId);
+      }
+    };
   }, [goals]);
 
   useEffect(() => {
@@ -88,6 +125,7 @@ export function useGoals({
               ...current,
               [selectedGoalId]: { kind: "ready", value },
             }));
+            loadedMetricsRef.current.add(selectedGoalId);
           }
         } catch {
           if (controller.signal.aborted) return;
@@ -140,6 +178,14 @@ export function useGoals({
       try {
         await browserApi.deleteGoal(goal.goalId);
         setGoals((current) => current.filter((item) => item.goalId !== goal.goalId));
+        loadedMetricsRef.current.delete(goal.goalId);
+        pendingMetricsRef.current.delete(goal.goalId);
+        setMetricsByGoal((current) => {
+          if (!(goal.goalId in current)) return current;
+          const next = { ...current };
+          delete next[goal.goalId];
+          return next;
+        });
         setUndoArchiveId(null);
         onDeleted?.();
       } catch (error) {

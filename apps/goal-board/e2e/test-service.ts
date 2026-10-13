@@ -175,6 +175,7 @@ const root = await createCompositionRoot({
     exitPort: { exit() {} },
 });
 compositionRoot = root;
+
 root.notifyingStore.onSave((goal) => {
     if (goal.state.run.stopReason !== undefined) {
         void writeFile(`${statusFile}.run-stop`, JSON.stringify({

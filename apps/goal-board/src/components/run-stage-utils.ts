@@ -1,8 +1,11 @@
 import type {
   BrowserRunStageGroup,
   BrowserRunStageStatus,
+  BrowserSessionRun,
   BrowserSessionStep,
 } from "../../../../packages/web-contracts/src/index";
+import { stepActivity } from "./step-activity";
+
 
 export interface GroupedStagesResult {
   readonly runLevelSteps: readonly BrowserSessionStep[];
@@ -68,3 +71,42 @@ export function renderStageStatusLabel(status: BrowserRunStageStatus): string {
       return status;
   }
 }
+
+/**
+ * 格式化未按 Stage 划分的 Run 步骤折叠卡片标题。
+ *
+ * @remarks
+ * 在长会话中，未按 Stage 划分的历史 Run 降级显示为 `Run ${runIndex} (${stepCount} steps)`，
+ * 并尽可能提取首个动作摘要提高辨识度；当前最新 Run 显示为 `Execution activity`。
+ *
+ * @param run - 该 Run 的全部状态。
+ * @param runIndex - 该 Run 在会话历史中的序号（1-indexed）。
+ * @returns 折叠卡片标题文案。
+ *
+ * @example
+ * ```ts
+ * const title = formatRunStepsTitle(run, 1);
+ * // "Run 1 (3 steps) · Ran ls -la"
+ * ```
+ */
+export function formatRunStepsTitle(
+  run: BrowserSessionRun,
+  runIndex?: number
+): string {
+  if (run.current) {
+    return "Execution activity";
+  }
+
+  const indexPart = runIndex !== undefined ? `Run ${runIndex}` : "Earlier Run";
+  const stepCount = run.stepCount || run.steps.length;
+  const countLabel = `${stepCount} ${stepCount === 1 ? "step" : "steps"}`;
+
+  const firstStep = run.steps[0];
+  const firstAction = firstStep ? stepActivity(firstStep).label : undefined;
+
+  if (firstAction) {
+    return `${indexPart} (${countLabel}) · ${firstAction}`;
+  }
+  return `${indexPart} (${countLabel})`;
+}
+

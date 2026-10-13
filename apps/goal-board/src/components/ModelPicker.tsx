@@ -76,6 +76,8 @@ export function ModelPicker({
       )}
       {error !== null && <p className="model-error" role="alert">{error}</p>}
       <input
+        id="model-picker-search"
+        name="search"
         className="model-search"
         data-modal-autofocus
         type="search"

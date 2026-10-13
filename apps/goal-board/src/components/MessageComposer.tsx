@@ -179,6 +179,8 @@ export function MessageComposer({
         }}
       >
         <textarea
+          id="message-composer-draft"
+          name="message"
           aria-label="Message the Goal"
           aria-keyshortcuts="Enter Shift+Enter"
           title={running ? "This Run is in progress." : "Enter to send · Shift + Enter for a new line"}

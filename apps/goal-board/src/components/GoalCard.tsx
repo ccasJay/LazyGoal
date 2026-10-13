@@ -3,6 +3,7 @@ import { Archive, MoreHorizontal, Trash2 } from "lucide-react";
 import type { BrowserGoalListItem } from "../../../../packages/web-contracts/src/index";
 import {
   type MetricsState,
+  cardStatusPresentation,
   formatUpdatedAt,
   metricCoverage,
   metricNumber,
@@ -69,6 +70,7 @@ export function GoalCard({
   }, [menuOpen]);
 
   const status = statusFromRun(goal.runStatus);
+  const { label: statusLabel, className: statusPillClass } = cardStatusPresentation(goal.runStatus);
   const terminal = goal.runStatus === "completed" || goal.runStatus === "failed" || goal.runStatus === "cancelled";
 
   return (
@@ -81,9 +83,9 @@ export function GoalCard({
         <h3>{goal.intent}</h3>
         <CardMetrics state={metrics} />
         <div className="card-footer">
-          <span className={`status-pill ${statusClass(status)}`}>
+          <span className={`status-pill ${statusPillClass}`}>
             <span className="status-dot" />
-            {status}
+            {statusLabel}
           </span>
           <time dateTime={goal.updatedAt} title={goal.updatedAt}>
             {formatUpdatedAt(goal.updatedAt)}

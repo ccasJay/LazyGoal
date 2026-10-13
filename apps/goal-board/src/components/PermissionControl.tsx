@@ -64,8 +64,9 @@ export function PermissionControl({
       {open && (
         <section className="permission-popover" aria-label="Project permissions">
           <fieldset className="permission-modes" aria-label="Execution mode" disabled={modeBusy || mode === null}>
-            <label className={mode === "default" ? "selected" : ""}>
+            <label className={mode === "default" ? "selected" : ""} htmlFor="permission-mode-default">
               <input
+                id="permission-mode-default"
                 type="radio"
                 name="project-permission-mode"
                 checked={mode === "default"}
@@ -78,8 +79,9 @@ export function PermissionControl({
               </span>
               {mode === "default" && <Check className="permission-selected-icon" size={15} aria-hidden="true" />}
             </label>
-            <label className={mode === "yolo" ? "selected" : ""}>
+            <label className={mode === "yolo" ? "selected" : ""} htmlFor="permission-mode-yolo">
               <input
+                id="permission-mode-yolo"
                 type="radio"
                 name="project-permission-mode"
                 checked={mode === "yolo"}

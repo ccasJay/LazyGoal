@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
+  AlertCircle,
   ArrowDown,
   Check,
   ChevronDown,
@@ -19,14 +20,18 @@ import type {
 } from "../../../../packages/web-contracts/src/index";
 import { GoalDetails, WaitingInteraction } from "../panels";
 import { Trajectory } from "../trajectory";
-import { sessionStatus } from "../types";
+import { sessionStatus, sessionStatusTone } from "../types";
 import { useGoalSessionContext } from "../context/GoalSessionContext";
 import { useRunControlContext } from "../context/RunControlContext";
 import { MessageComposer, AssistantMarkdown, CurrentModelControl } from "./MessageComposer";
 import { SessionMetricsBar } from "./SessionMetricsBar";
 import { WorkspaceContext } from "./WorkspaceContext";
 import { stepActivity } from "./step-activity";
-import { groupStepsByStage, renderStageStatusLabel } from "./run-stage-utils";
+import {
+  formatRunStepsTitle,
+  groupStepsByStage,
+  renderStageStatusLabel,
+} from "./run-stage-utils";
 
 export function GoalSession({
   activeGoal,
@@ -102,6 +107,18 @@ export function GoalSession({
 
   const timeline = useRef<HTMLDivElement>(null);
   const currentRun = session?.runs.find((run) => run.current);
+  const [draftNoticeDismissed, setDraftNoticeDismissed] = useState(false);
+
+  useEffect(() => {
+    setDraftNoticeDismissed(false);
+  }, [draftModelCatalog?.defaultModelNotice]);
+
+  const isWaitingApprovalOrInput =
+    session !== null &&
+    session.runStatus === "waiting" &&
+    (session.pendingInteraction !== undefined ||
+      session.pendingAction?.status === "awaiting_approval" ||
+      session.pendingAction?.status === "outcome_unknown");
 
   useEffect(() => {
     if (follow && timeline.current) {
@@ -139,29 +156,36 @@ export function GoalSession({
   return (
     <section className="session">
       {goalInfoOpen && session && (
-        <section className="goal-info-panel" aria-label="Goal information">
-          <header>
-            <strong>Goal information</strong>
-            <button
-              className="icon"
-              aria-label="Close Goal information"
-              onClick={() => setGoalInfoOpen(false)}
-            >
-              <X size={17} />
-            </button>
-          </header>
-          <GoalDetails
-            session={session}
-            tab="Details"
-            grants={toolGrants}
-            grantsLoading={toolGrantsLoading}
-            grantsError={toolGrantsError}
-            revokingGrantId={revokingGrantId}
-            onRevokeGrant={(grant) => void onRevokeToolGrant(grant)}
-            onDelete={activeGoal ? () => void onDeleteGoal?.(activeGoal) : undefined}
-            deleteBusy={manageBusyId === session.goalId}
+        <>
+          <div
+            className="goal-info-backdrop"
+            aria-hidden="true"
+            onClick={() => setGoalInfoOpen(false)}
           />
-        </section>
+          <section className="goal-info-panel" aria-label="Goal information">
+            <header>
+              <strong>Goal information</strong>
+              <button
+                className="icon"
+                aria-label="Close Goal information"
+                onClick={() => setGoalInfoOpen(false)}
+              >
+                <X size={17} />
+              </button>
+            </header>
+            <GoalDetails
+              session={session}
+              tab="Details"
+              grants={toolGrants}
+              grantsLoading={toolGrantsLoading}
+              grantsError={toolGrantsError}
+              revokingGrantId={revokingGrantId}
+              onRevokeGrant={(grant) => void onRevokeToolGrant(grant)}
+              onDelete={activeGoal ? () => void onDeleteGoal?.(activeGoal) : undefined}
+              deleteBusy={manageBusyId === session.goalId}
+            />
+          </section>
+        </>
       )}
 
       {draftSessionOpen ? (
@@ -199,11 +223,16 @@ export function GoalSession({
               </button>
             </div>
           )}
-          {draftModelCatalog?.defaultModelNotice && (
-            <div className="command-error" role="status">
-              {draftModelCatalog.defaultModelNotice === "provider_changed"
-                ? `Saved model belongs to a different provider. ${draftModelId === null ? "Choose an available model." : `Using configured default: ${draftModelName}.`}`
-                : `Saved model is unavailable. ${draftModelId === null ? "Choose an available model." : `Using configured default: ${draftModelName}.`}`}
+          {draftModelCatalog?.defaultModelNotice && !draftNoticeDismissed && (
+            <div className="command-notice" role="status">
+              <span>
+                {draftModelCatalog.defaultModelNotice === "provider_changed"
+                  ? `Saved model belongs to a different provider. ${draftModelId === null ? "Choose an available model." : `Using configured default: ${draftModelName}.`}`
+                  : `Saved model is unavailable. ${draftModelId === null ? "Choose an available model." : `Using configured default: ${draftModelName}.`}`}
+              </span>
+              <button aria-label="Dismiss notice" onClick={() => setDraftNoticeDismissed(true)}>
+                <X size={13} />
+              </button>
             </div>
           )}
           {draftModelCatalog !== null && draftModelId === null && (
@@ -281,9 +310,8 @@ export function GoalSession({
               ))}
             </div>
             <div className="session-state">
-              <span
-                className={`task-state ${session.pendingAction?.status === "awaiting_approval" || session.pendingAction?.status === "outcome_unknown" || session.pendingInteraction ? "attention" : ""}`}
-              >
+              <span className={`task-state ${sessionStatusTone(session)}`}>
+                <span className="status-dot" />
                 {sessionStatus(session)}
               </span>
               <span className={`stream-state ${streamConnected ? "connected" : ""}`}>
@@ -313,8 +341,10 @@ export function GoalSession({
           ) : (
             <>
               <div className="activity-filter">
-                <label>
+                <label htmlFor="filter-execution-steps">
                   <input
+                    id="filter-execution-steps"
+                    name="showTools"
                     type="checkbox"
                     checked={showTools}
                     onChange={(event) => setShowTools(event.target.checked)}
@@ -324,6 +354,30 @@ export function GoalSession({
                 <span>{session.messages.length} saved messages</span>
               </div>
               <div className="timeline-region">
+                {isWaitingApprovalOrInput && !follow && (
+                  <button
+                    type="button"
+                    className="floating-approval-guide"
+                    aria-label="Scroll to pending approval form"
+                    onClick={() => {
+                      setFollow(true);
+                      timeline.current?.scrollTo({
+                        top: timeline.current.scrollHeight,
+                        behavior: "smooth",
+                      });
+                    }}
+                  >
+                    <AlertCircle size={14} aria-hidden="true" />
+                    <span>
+                      {session.pendingInteraction?.kind === "task_approval"
+                        ? "Awaiting task approval · Click to review"
+                        : session.pendingAction?.status === "awaiting_approval"
+                        ? "Awaiting action approval · Click to review"
+                        : "Awaiting your response · Click to reply"}
+                    </span>
+                    <ArrowDown size={14} aria-hidden="true" />
+                  </button>
+                )}
                 <div
                   className="timeline"
                   ref={timeline}
@@ -347,7 +401,7 @@ export function GoalSession({
                         !session.runs.some((run) => run.runId === message.runId)
                     )
                   )}
-                  {session.runs.map((run) => {
+                  {session.runs.map((run, runIndex) => {
                     const runMessages = session.messages.filter(
                       (message) => message.runId === run.runId
                     );
@@ -497,7 +551,7 @@ export function GoalSession({
                             <details className="run-steps" open>
                               <summary className="run-steps-heading">
                                 <Layers size={13} aria-hidden="true" />
-                                <span>{run.current ? "Execution activity" : "Earlier activity"}</span>
+                                <span>{formatRunStepsTitle(run, runIndex + 1)}</span>
                                 <ChevronDown className="activity-chevron" size={12} aria-hidden="true" />
                               </summary>
                               {run.steps.map(renderStepItem)}
@@ -537,17 +591,29 @@ export function GoalSession({
                           </div>
                         )}
                         {run.status === "failed" && (
-                          <div className="terminal-status failed">
-                            {run.terminalDetail
-                              ? `${run.terminalDetail.code ? `[${run.terminalDetail.code}] ` : ""}${run.terminalDetail.message}`
-                              : "This Run failed. Its saved history is still available."}
+                          <div className="run-failure-card" role="alert">
+                            <div className="failure-card-header">
+                              <AlertCircle size={15} aria-hidden="true" />
+                              <strong>Run execution failed</strong>
+                              {run.terminalDetail?.code && (
+                                <span className="failure-code-badge">{run.terminalDetail.code}</span>
+                              )}
+                            </div>
+                            <div className="failure-card-body">
+                              <p className="failure-message">
+                                {run.terminalDetail?.message ?? "This Run failed. Its saved trajectory and history are still available."}
+                              </p>
+                              <div className="failure-guidance">
+                                <span>Send a message below to retry with adjusted instructions, provide more context, or start a new task.</span>
+                              </div>
+                            </div>
                           </div>
                         )}
                         {run.status === "waiting" && run.terminalDetail && (
                           <div className="terminal-status">Waiting: {run.terminalDetail.message}</div>
                         )}
                         {run.status === "cancelled" && (
-                          <div className="terminal-status">This Run was cancelled.</div>
+                          <div className="terminal-status">This Run was stopped.</div>
                         )}
                         {renderMessages(runMessages.filter((message) => message.role === "assistant"))}
                       </div>

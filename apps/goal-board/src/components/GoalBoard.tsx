@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Clock3, Plus, Search, X } from "lucide-react";
+import { ChevronLeft, Clock3, Plus, Search, X } from "lucide-react";
 import type { BrowserGoalListItem } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
 import { GoalCard } from "./GoalCard";
@@ -44,6 +44,14 @@ export function GoalBoard({
 }) {
   const [search, setSearch] = useState("");
   const [archivedView, setArchivedView] = useState(false);
+  const [collapsedColumns, setCollapsedColumns] = useState<Record<string, boolean>>({});
+
+  const toggleColumnCollapse = (status: string) => {
+    setCollapsedColumns((prev) => ({
+      ...prev,
+      [status]: !(prev[status] ?? true),
+    }));
+  };
 
   const visibleGoals = useMemo(
     () =>
@@ -55,12 +63,21 @@ export function GoalBoard({
     [goals, search, archivedView]
   );
 
+  const totalCount = useMemo(
+    () => goals.filter((goal) => goal.archived === archivedView).length,
+    [goals, archivedView]
+  );
+
   return (
     <section className="board-area">
       <div className="toolbar">
         <strong className="board-title">
           {archivedView ? "Archived" : "All goals"}{" "}
-          <span>{goals.filter((goal) => goal.archived === archivedView).length}</span>
+          <span>
+            {search.trim().length > 0
+              ? `(${visibleGoals.length} / ${totalCount})`
+              : totalCount}
+          </span>
         </strong>
         <button
           className={`archive-view-toggle ${archivedView ? "is-active" : ""}`}
@@ -71,9 +88,11 @@ export function GoalBoard({
         >
           {archivedView ? "All goals" : `Archived (${goals.filter((goal) => goal.archived).length})`}
         </button>
-        <label className="search">
+        <label className="search" htmlFor="goal-board-search">
           <Search size={14} />
           <input
+            id="goal-board-search"
+            name="search"
             aria-label="Search goals"
             placeholder="Search goals…"
             value={search}
@@ -159,12 +178,48 @@ export function GoalBoard({
         <div className="board">
           {statuses.map((status) => {
             const statusGoals = visibleGoals.filter((item) => statusFromRun(item.runStatus) === status);
+            const isEmpty = statusGoals.length === 0;
+            const isCollapsed = isEmpty && (collapsedColumns[status] ?? true);
+
+            if (isCollapsed) {
+              return (
+                <section
+                  className={`column ${statusClass(status)} is-collapsed`}
+                  key={status}
+                  aria-label={`${status} column collapsed`}
+                >
+                  <button
+                    type="button"
+                    className="column-collapsed-bar"
+                    title={`Expand ${status} column (0 goals)`}
+                    aria-label={`Expand ${status} column`}
+                    onClick={() => toggleColumnCollapse(status)}
+                  >
+                    <span className="status-dot" />
+                    <span className="collapsed-column-title">{status}</span>
+                    <span className="count">0</span>
+                  </button>
+                </section>
+              );
+            }
+
             return (
               <section className={`column ${statusClass(status)}`} key={status}>
                 <div className="column-heading">
                   <span className="status-dot" />
                   <h2>{status}</h2>
                   <span className="count">{statusGoals.length}</span>
+                  {isEmpty && (
+                    <button
+                      type="button"
+                      className="column-collapse-toggle"
+                      title={`Collapse ${status} column`}
+                      aria-label={`Collapse ${status} column`}
+                      onClick={() => toggleColumnCollapse(status)}
+                    >
+                      <ChevronLeft size={13} />
+                    </button>
+                  )}
                 </div>
                 <div className="cards">
                   {statusGoals.map((goal) => (
@@ -179,7 +234,18 @@ export function GoalBoard({
                       onDelete={() => void onDeleteGoal(goal)}
                     />
                   ))}
-                  {statusGoals.length === 0 && <div className="empty-column">No goals here</div>}
+                  {statusGoals.length === 0 && (
+                    <div className="empty-column">
+                      No goals here
+                      <button
+                        type="button"
+                        className="empty-column-collapse-btn"
+                        onClick={() => toggleColumnCollapse(status)}
+                      >
+                        Collapse column
+                      </button>
+                    </div>
+                  )}
                 </div>
               </section>
             );
