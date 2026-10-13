@@ -53,7 +53,7 @@ function App() {
                 <button
                   className="primary"
                   onClick={app.openNewGoalDraft}
-                  disabled={!browserApi.hasAccessToken}
+                  disabled={!browserApi.hasAccessToken || app.draftSessionOpen}
                 >
                   <Plus size={15} /> New goal
                 </button>

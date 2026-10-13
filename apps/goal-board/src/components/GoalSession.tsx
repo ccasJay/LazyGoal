@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ArrowDown,
@@ -102,6 +102,11 @@ export function GoalSession({
 
   const timeline = useRef<HTMLDivElement>(null);
   const currentRun = session?.runs.find((run) => run.current);
+  const [draftNoticeDismissed, setDraftNoticeDismissed] = useState(false);
+
+  useEffect(() => {
+    setDraftNoticeDismissed(false);
+  }, [draftModelCatalog?.defaultModelNotice]);
 
   useEffect(() => {
     if (follow && timeline.current) {
@@ -195,11 +200,16 @@ export function GoalSession({
               </button>
             </div>
           )}
-          {draftModelCatalog?.defaultModelNotice && (
-            <div className="command-error" role="status">
-              {draftModelCatalog.defaultModelNotice === "provider_changed"
-                ? `Saved model belongs to a different provider. ${draftModelId === null ? "Choose an available model." : `Using configured default: ${draftModelName}.`}`
-                : `Saved model is unavailable. ${draftModelId === null ? "Choose an available model." : `Using configured default: ${draftModelName}.`}`}
+          {draftModelCatalog?.defaultModelNotice && !draftNoticeDismissed && (
+            <div className="command-notice" role="status">
+              <span>
+                {draftModelCatalog.defaultModelNotice === "provider_changed"
+                  ? `Saved model belongs to a different provider. ${draftModelId === null ? "Choose an available model." : `Using configured default: ${draftModelName}.`}`
+                  : `Saved model is unavailable. ${draftModelId === null ? "Choose an available model." : `Using configured default: ${draftModelName}.`}`}
+              </span>
+              <button aria-label="Dismiss notice" onClick={() => setDraftNoticeDismissed(true)}>
+                <X size={13} />
+              </button>
             </div>
           )}
           {draftModelCatalog !== null && draftModelId === null && (
