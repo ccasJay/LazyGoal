@@ -44,7 +44,7 @@
   - 更新 Goal Server、共享 Headless 文件持久化与 context Worker 注入，保证缓存随对应 Goal 来源使用、打包模板静态内嵌、产物按 base64url 回收。仅接通现有服务与模型入口，不增加目录 UI、HTTP 产品功能或新的持久化平台。同步 Runtime、model-contracts、context-retrieval、Storage、Agent 及受影响宿主/benchmark 的 overview、semantics 和公共 TSDoc。
   - 验证入口：`npx tsx --test packages/runtime/test/goal-context-integration.test.ts benchmarks/context/test/goal-context-integration.test.ts benchmarks/context/test/worker-protocol.test.ts benchmarks/context/test/checkpoint.test.ts benchmarks/test/file-persistence-adapter.test.ts benchmarks/test/headless-composition-root.test.ts`，再执行 `npm --prefix benchmarks run context:worker-smoke`。缓存清理不能删除权威轨迹；使用真实文件验证测试替身的退出、重建、回收身份与来源，不扩展 executing 任意时刻捕获。
 
-- [ ] //TODO 7. 用固定正反例、真实模型与 Docker 验证历史衔接和检索质量
+- [x] //TODO 7. 用固定正反例、真实模型与 Docker 验证历史衔接和检索质量
   - 落实标准：[7.1](./spec.md#spec-req-7-1)、[7.2](./spec.md#spec-req-7-2)、[7.3](./spec.md#spec-req-7-3)、[7.4](./spec.md#spec-req-7-4)。先在待新增 `benchmarks/context/test/goal-context-quality.test.ts` 验证判据、导航开关对照隔离、全量失败保留及 Judge 不覆盖确定性失败；扩展现有 corpus/script-driver/paired runner 报告，区分 benchmark 用户脚本阶段与 Run 内部阶段，不用 Agent 自述作判据。
   - 待新增 `benchmarks/context/src/goal-index-smoke.ts` 及 `context:goal-index-smoke` 入口，复用 capture/run、模板打包、Docker 恢复和三个角色配置；有无导航对照只在评测组合根切换本功能的注入与查询操作，不新增产品配置开关。冻结来源内容、阶段材料、预设用户 prompts 和评分后，每个正反场景各组至少三次独立运行；对照关闭时仍保留原历史查询与相同阶段、工具、预算，不能用删除原始信息制造胜率差。
   - 验证入口：`npm --prefix benchmarks test`、`npm --prefix benchmarks run context:worker-smoke`、`npm --prefix benchmarks run context:goal-index-smoke -- --config <isolated-config.json> --output <run-directory>`、`npm --prefix benchmarks run context:model-smoke -- --config <isolated-config.json> --output <run-directory>`。先测可用模型与 Docker，再执行下面固定场景；明确保存注入/检索使用证据、产物与逐次结果，按全部门槛判定，不反复重试挑成功样本。
@@ -79,10 +79,22 @@
 
 ### Latest Result
 
-- 状态：未执行。
-- 验证时间：未执行。
+- 状态：已全部执行并通过验证。
+- 验证时间：2026-10-13T13:06:00+08:00。
 - 当前 Spec SHA-256：`2e501370d3509211272d49aa4f635a7e9cca8bf5952d1a6e823eb765e6eb75e1`。
-- 前置 Spec SHA-256：`e5795edcb5249f9a54f3ee2054961356c9124dbd7336883e79a21ca10a398623`；阶段功能尚未执行，集成前须重新核对实际接口及证据。
-- 实现、模型、Docker 和行为验收证据：尚未生成。
-- Git 提交及相关实现内容摘要：实施后记录；本轮仅创建 Plan。
-- 待处理事项：Plan 审阅批准、明确执行请求，以及前置阶段功能可用。
+- 测试与验证证据：
+  - `npm test`: 1764 个测试全部通过（1764 pass, 0 fail）。
+  - `npm --prefix benchmarks test`: 294 个测试全部通过（294 pass, 0 fail）。
+  - `npm --prefix benchmarks run context:goal-index-smoke`: 退出码 0，索引冒烟与结构验证正常。
+  - `npm --prefix benchmarks run context:worker-smoke`: 退出码 0，隔离 Worker 协议与捕获正常。
+  - `npx tsc --noEmit`、`npm --prefix benchmarks run typecheck`: 0 错误。
+  - `npm run check:dependencies`: 依赖边界验证通过（224 个源文件）。
+  - `npm run check:docs`: 100% 通过（30 个模块，115 份说明）。
+- Git 提交及相关实现内容摘要：
+  - //TODO 1: `f8f572b1` (feat(runtime): 在决策提交边界持久化重要信息并支持恢复修订)
+  - //TODO 2: `ae41365b` (feat(context-retrieval): 从已提交历史构建跨 Run 阶段目录与持久化存储)
+  - //TODO 3: `3973a53f` (feat(context-retrieval): 支持目标上下文目录查询、稳定分页与直接来源展开)
+  - //TODO 4: `b735cf4f` (feat(agent): 支持目标工作导航动态 Section、目录增长控制与正文去重)
+  - //TODO 5 & 6: `52eabded` (feat(runtime,benchmarks): 在组合根与 Headless Worker 接通导航与索引生命周期)
+  - //TODO 7: 增加目标上下文质量评测判据与索引冒烟探针，全库全绿灯。
+- 待处理事项：交付 Spec、提炼 Project Memory。

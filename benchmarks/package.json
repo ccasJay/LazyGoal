@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts alfworld/test/*.test.ts swebench/test/*.test.ts gaia/test/*.test.ts tua-bench/test/*.test.ts",
+    "test": "tsx --test test/*.test.ts alfworld/test/*.test.ts swebench/test/*.test.ts gaia/test/*.test.ts tua-bench/test/*.test.ts context/test/*.test.ts",
     "tua-bench:worker-smoke": "cd .. && tsx benchmarks/tua-bench/src/worker-smoke.ts",
     "gaia:worker-smoke": "cd .. && tsx benchmarks/gaia/src/worker-smoke.ts",
     "gaia:eval": "cd .. && tsx benchmarks/gaia/src/cli.ts eval gaia",
@@ -27,7 +27,10 @@
     "prompt-evaluation:smoke": "cd .. && tsx benchmarks/alfworld/src/prompt-evaluation-smoke.ts",
     "alfworld:eval": "cd .. && tsx benchmarks/alfworld/src/cli.ts",
     "alfworld:smoke": "cd .. && tsx benchmarks/alfworld/src/cli.ts eval alfworld --manifest benchmarks/alfworld/manifests/smoke.json --min-success-rate 0",
-    "alfworld:regression": "cd .. && tsx benchmarks/alfworld/src/cli.ts eval alfworld --manifest benchmarks/alfworld/manifests/regression.json --min-success-rate 0"
+    "alfworld:regression": "cd .. && tsx benchmarks/alfworld/src/cli.ts eval alfworld --manifest benchmarks/alfworld/manifests/regression.json --min-success-rate 0",
+    "context:worker-smoke": "cd .. && tsx benchmarks/context/src/worker-smoke.ts",
+    "context:model-smoke": "cd .. && tsx benchmarks/context/src/model-smoke.ts",
+    "context:goal-index-smoke": "cd .. && tsx benchmarks/context/src/goal-index-smoke.ts"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

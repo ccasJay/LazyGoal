@@ -51,6 +51,7 @@ function createMockAdapter(): LLMAdapter {
                     kind: "wait",
                     reason: "Wait for the persistence attempt to be inspected.",
                     memoryPatch: null,
+                    contextNotes: null,
                 },
             }),
             usage: { inputTokens: 10, outputTokens: 10 },
