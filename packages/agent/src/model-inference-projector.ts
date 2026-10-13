@@ -108,8 +108,8 @@ export class ModelInferenceProjector {
             contextRetrievalProtocol: projectContextRetrievalProtocol(contextRetrievalProtocol),
         });
         const conversationMessages = projectConversation(goal);
-        const historicalStages = goal.state.historicalStages ?? (goal as any).historicalStages;
-        const notes = goal.state.notes ?? (goal as any).notes;
+        const historicalStages = goal.state.historicalStages;
+        const notes = goal.state.notes;
         const projectedNavigation = buildGoalContextNavigation({
             currentStage: goal.state.run.currentStage,
             currentRunId: goal.state.run.id,

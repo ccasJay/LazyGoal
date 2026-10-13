@@ -312,7 +312,7 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
                     decision = { kind: "tool_discovery", query: "smoke evidence" };
                 }
                 else {
-                    const observation = working.trajectoryContext.hot.flatMap((unit: any) => unit.events).find((event: any) => event.eventType === "observation_recorded");
+                    const observation = working.trajectoryContext?.hot?.flatMap((unit: any) => unit.events).find((event: any) => event.eventType === "observation_recorded");
                     const nativeObservation = body.messages.find((message: any) => message.role === "tool" && JSON.parse(message.content).observation !== undefined);
                     decision = observation === undefined && nativeObservation === undefined
                         ? { kind: "tool_call", action: { actionId: "smoke-action-1", toolId: "smoke_evidence", input: {} }, memoryPatch: null }
