@@ -30,7 +30,8 @@
     "alfworld:regression": "cd .. && tsx benchmarks/alfworld/src/cli.ts eval alfworld --manifest benchmarks/alfworld/manifests/regression.json --min-success-rate 0",
     "context:worker-smoke": "cd .. && tsx benchmarks/context/src/worker-smoke.ts",
     "context:model-smoke": "cd .. && tsx benchmarks/context/src/model-smoke.ts",
-    "context:goal-index-smoke": "cd .. && tsx benchmarks/context/src/goal-index-smoke.ts"
+    "context:goal-index-smoke": "cd .. && tsx benchmarks/context/src/goal-index-smoke.ts",
+    "context:swebench-smoke": "cd .. && tsx benchmarks/context-swebench-smoke.ts"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

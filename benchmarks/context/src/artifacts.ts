@@ -1,18 +1,11 @@
-import { createHash } from "node:crypto";
+import { digest } from "../../src/content-identity.js";
+export { digest, identity } from "../../src/content-identity.js";
 import { lstat, readdir, readFile, mkdir, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
+import { hashArchiveFile } from "../../src/filesystem-archive.js";
 import { safePath } from "./scenario.js";
-/** 内容身份使用实际字节；不以 Git HEAD 替代工作树。 */
-export function digest(value: string | Uint8Array): string { return createHash("sha256").update(value).digest("hex"); }
-/** 确定性 JSON 身份；数组顺序保留，对象键排序。 */
-export function identity(value: unknown): string { return digest(canonical(value)); }
-function canonical(value: unknown): string {
-    if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
-    if (value !== null && typeof value === "object") return "{" + Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => JSON.stringify(key) + ":" + canonical(item)).join(",") + "}";
-    return JSON.stringify(value);
-}
 /** 读取普通文件树，拒绝符号链接、隐藏目录与过量产物，保证限定归档路径。 */
-export async function hashTree(directory: string): Promise<Record<string, string>> {
+export async function hashTree(directory: string, filesystemArchive = false): Promise<Record<string, string>> {
     const result: Record<string, string> = {};
     let bytes = 0;
     async function walk(prefix: string): Promise<void> {
@@ -24,6 +17,10 @@ export async function hashTree(directory: string): Promise<Record<string, string
             if (stats.isSymbolicLink()) throw new Error("Artifact symlink rejected");
             if (stats.isDirectory()) await walk(path);
             else if (stats.isFile()) {
+                if (filesystemArchive && path === "filesystem.tar") {
+                    result[path] = await hashArchiveFile(file);
+                    continue;
+                }
                 bytes += stats.size;
                 if (bytes > 64 * 1024 * 1024 || Object.keys(result).length >= 10000) throw new Error("Artifact archive limit exceeded");
                 result[path] = digest(await readFile(file));

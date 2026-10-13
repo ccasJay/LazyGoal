@@ -51,7 +51,7 @@ const ALLOWED_APP_DEPENDENCIES = {
 const APPS = Object.keys(ALLOWED_APP_DEPENDENCIES);
 
 /** Benchmark 目录之间只允许通过 `benchmarks/src/` 共享层通信。 */
-const BENCHMARKS = ["alfworld", "swebench", "gaia", "tua-bench"];
+const BENCHMARKS = ["alfworld", "swebench", "gaia", "tua-bench", "context"];
 
 /**
  * 即使 package 出站边被允许、也禁止导入所列 package 的单个文件。

@@ -39,7 +39,7 @@ import {
     isSeatbeltSupported,
     type SandboxExecutionPlan,
 } from "../../sandbox/src/index";
-import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 
 function runGit(cwd: string, args: readonly string[]): string {
     return execFileSync("git", [...args], {
@@ -165,7 +165,7 @@ test("真实 Runtime 与 Seatbelt：YOLO 下 Git 元数据需审批，批准范�
             profile,
             runId: "run-git-sandbox",
         });
-        await store.save(goal);
+        await store.save(withDiscoveredProfileTools(goal));
         await runner.run({ goalId: goal.id, runId: goal.state.run.id });
 
         const waitingGoal = await store.restore(goal.id);
@@ -301,7 +301,7 @@ test("真实 Runtime 与 Seatbelt：YOLO 下 Git 元数据需审批，批准范�
             profile: { ...profile, id: "git-worktree-add", toolIds: [GIT_WORKTREE_ADD_TOOL_ID] },
             runId: "run-git-worktree-add",
         });
-        await worktreeStore.save(addWorktreeGoal);
+        await worktreeStore.save(withDiscoveredProfileTools(addWorktreeGoal));
         const worktreesBeforeAdd = runGit(canonicalWorkspace, ["worktree", "list", "--porcelain"]);
         await worktreeRunner.run({ goalId: addWorktreeGoal.id, runId: addWorktreeGoal.state.run.id });
         const waitingAddGoal = await worktreeStore.restore(addWorktreeGoal.id);
@@ -375,7 +375,7 @@ test("真实 Runtime 与 Seatbelt：YOLO 下 Git 元数据需审批，批准范�
             profile: { ...profile, id: "git-worktree-remove", toolIds: [GIT_WORKTREE_REMOVE_TOOL_ID] },
             runId: "run-git-worktree-remove",
         });
-        await removeStore.save(removeWorktreeGoal);
+        await removeStore.save(withDiscoveredProfileTools(removeWorktreeGoal));
         const worktreesBeforeRemove = runGit(canonicalWorkspace, ["worktree", "list", "--porcelain"]);
         await removeRunner.run({ goalId: removeWorktreeGoal.id, runId: removeWorktreeGoal.state.run.id });
         const waitingRemoveGoal = await removeStore.restore(removeWorktreeGoal.id);
@@ -506,7 +506,7 @@ test("真实 Seatbelt：linked worktree 的 Git 授权不能被 Bash 或受管�
             profile,
             runId: "run-linked-git-sandbox",
         });
-        await store.save(goal);
+        await store.save(withDiscoveredProfileTools(goal));
         await runner.run({ goalId: goal.id, runId: goal.state.run.id });
 
         const waitingGoal = await store.restore(goal.id);

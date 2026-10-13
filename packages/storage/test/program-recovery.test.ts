@@ -57,6 +57,13 @@ test("PTC restores committed reads and waits for a write with an unknown result"
                     exposedToolIds: [...created.definition.profile.toolIds],
                     mode: "plan" as const,
                     approvedTask: { objective: "Read then write", completionCriteria: [] },
+                    currentStage: {
+                        stageId: "stage-1",
+                        revision: 1,
+                        status: "executing" as const,
+                        target: "Read then write",
+                        acceptanceCriteria: ["测试完成"],
+                    },
                 },
             },
         };
@@ -235,6 +242,13 @@ test("PTC resumes a reviewed real write, runs Bash, and returns one parent resul
             state: { ...created.state, run: {
                 ...created.state.run, exposedToolIds: [...created.definition.profile.toolIds], mode: "plan" as const,
                 approvedTask: { objective: "Read, write and verify", completionCriteria: [] },
+                currentStage: {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing" as const,
+                    target: "Read, write and verify",
+                    acceptanceCriteria: ["测试完成"],
+                },
             } },
         };
         await stores().store.save(goal);

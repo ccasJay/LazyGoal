@@ -10,3 +10,9 @@
 | Combined score | 确定性检查、隔离约束与 Judge 的联合结果。 | [Context Benchmark](../README.md) | [评分契约](../src/evaluator.ts) |
 
 | 模型诊断 Trace | 回收的调用关联诊断，供检查非法响应，非恢复依据。 | [Agent 模型请求](../../../packages/agent/README.md) | [诊断说明](../../../packages/agent/notes/overview.md) |
+
+| Source case | 来源工程任务与固定恢复模式的待审/冻结用例。 | [Context Benchmark](../README.md) | [来源模板](../src/source-scenario.ts) |
+| Continuity annotation | 人工复核的约束、决定及原始来源。 | [Context Benchmark](../README.md) | [来源审核契约](../src/source-evidence.ts) |
+| Source task package | 与评分秘密隔离的固定公开任务。 | [共享评测层](../../README.md) | [来源端口](../../src/task-source.ts) |
+| Filesystem archive | 静止容器的镜像归档，不包含卷或进程内存。 | [共享评测层](../../README.md) | [归档契约](../../src/filesystem-archive.ts) |
+| Engineering grade | 来源官方 harness 的独立工程结果。 | [SWE-bench](../../swebench/README.md) | [来源评分实现](../../swebench/src/context-source.ts) |

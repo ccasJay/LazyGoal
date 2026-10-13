@@ -8,7 +8,12 @@ export function parseBoundary(raw: unknown): ScriptBoundary {
     const value = record(raw);
     if (!["completed", "failed", "cancelled", "waiting"].includes(String(value.status)) || !Number.isSafeInteger(value.sequence) || (value.sequence as number) < 0) throw new Error("Invalid Worker boundary");
     if (value.workerPid !== undefined && (!Number.isSafeInteger(value.workerPid) || (value.workerPid as number) < 1)) throw new Error("Invalid Worker PID");
-    return { ...(value.workerInstanceId === undefined ? {} : { workerInstanceId: textValue(value.workerInstanceId) }), ...(value.workerPid === undefined ? {} : { workerPid: value.workerPid as number }), goalId: textValue(value.goalId), runId: textValue(value.runId), status: value.status as ScriptBoundary["status"], sequence: value.sequence as number,
+    let questions: ScriptBoundary["questions"];
+    if (value.questions !== undefined) {
+        if (!Array.isArray(value.questions)) throw new Error("Invalid boundary questions");
+        questions = value.questions.map(raw => { const q = record(raw); return { id: textValue(q.id), question: textValue(q.question) }; });
+    }
+    return { ...(questions ? { questions } : {}), ...(value.workerInstanceId === undefined ? {} : { workerInstanceId: textValue(value.workerInstanceId) }), ...(value.workerPid === undefined ? {} : { workerPid: value.workerPid as number }), goalId: textValue(value.goalId), runId: textValue(value.runId), status: value.status as ScriptBoundary["status"], sequence: value.sequence as number,
         ...(value.waitingFor === undefined ? {} : { waitingFor: textValue(value.waitingFor) }),
         ...(value.userMessage === undefined ? {} : { userMessage: textValue(value.userMessage) }),
         ...(value.stopReason === undefined ? {} : { stopReason: textValue(value.stopReason) }),
@@ -28,7 +33,7 @@ export async function runContextSession(stream: AcpStream, scenario: ContextScen
         signal.throwIfAborted();
         await connection.request(methods.agent.initialize, { protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} });
         const session = await connection.request(methods.agent.session.new, {
-            cwd: "/workspace/project", mcpServers: [], _meta: { profile: scenario.profile, maxSteps: scenario.budget.maxSteps, mode,
+            cwd: scenario.kind === "source" ? "/testbed" : "/workspace/project", mcpServers: [], _meta: { profile: scenario.profile, maxSteps: scenario.budget.maxSteps, mode,
                 ...(nativeIdentity === undefined ? {} : { nativeIdentity }),
                 ...(initial === null ? {} : { restoreRef: { goalId: initial.goalId, runId: initial.runId } }) },
         });

@@ -45,7 +45,23 @@ function complete(current: Goal, summary: string, sequences: number[] = []): Age
 
 for (const mode of ["normal", "plan"] as const) {
     test(`${mode}: rejected delivery and Patch stay uncommitted; source investigation and full reply follow`, async () => {
-        const initial = goal(`review-${mode}`, mode);
+        const base = goal(`review-${mode}`, mode);
+        const initial = {
+            ...base,
+            state: {
+                ...base.state,
+                run: {
+                    ...base.state.run,
+                    currentStage: {
+                        stageId: "stage-1",
+                        revision: 1,
+                        status: "executing" as const,
+                        target: "Explain implementation behavior",
+                        acceptanceCriteria: ["测试条件"],
+                    },
+                },
+            },
+        };
         const store = new InMemoryGoalStore();
         const trajectory = new InMemoryTrajectoryStore();
         await store.save(initial);
@@ -90,14 +106,14 @@ for (const mode of ["normal", "plan"] as const) {
         assert.equal(result.ok, true);
         if (!result.ok) return;
         assert.equal(result.state.status, "completed", JSON.stringify(result.state));
-        assert.equal(result.state.stepCount, 3);
+        assert.equal(result.state.stepCount, 4);
         assert.equal(reviews, 2);
         assert.deepEqual(reads, ["packages", "cache.ts"]);
         const saved = (await store.restore(initial.id))!;
         assert.deepEqual(saved.state.messages.filter(message => message.role === "assistant").map(message => message.content), [finalReply]);
         assert.equal(trajectory.events.filter(event => event.eventType === "memory_patch_accepted").some(event => JSON.stringify(event.payload).includes("rejected_claim")), false);
         assert.equal(trajectory.events.filter(event => event.eventType === "run_completed").length, 1);
-        assert.equal(trajectory.events.some(event => event.eventType === "model_repair_feedback_recorded" && event.payload.feedback.origin === "completion_review"), true);
+        assert.equal(trajectory.events.some(event => event.eventType === "run_stage_rejected" && event.payload.feedback.includes("Read source")), true);
     });
 }
 
@@ -212,7 +228,23 @@ test("review transport retries preserve candidate and failed completion saves ne
 for (const mode of ["normal", "plan"] as const) {
     for (const kind of ["complete", "tool_call", "wait", "context_checkpoint"] as const) {
         test(`${mode}: invalid ${kind} Memory proposal is repaired before its effect`, async () => {
-            const initial = goal(`patch-${mode}-${kind}`, mode);
+            const base = goal(`patch-${mode}-${kind}`, mode);
+            const initial = {
+                ...base,
+                state: {
+                    ...base.state,
+                    run: {
+                        ...base.state.run,
+                        currentStage: {
+                            stageId: "stage-1",
+                            revision: 1,
+                            status: "executing" as const,
+                            target: "source investigation",
+                            acceptanceCriteria: ["测试条件"],
+                        },
+                    },
+                },
+            };
             const store = new InMemoryGoalStore();
             const trajectory = new InMemoryTrajectoryStore();
             await store.save(initial);

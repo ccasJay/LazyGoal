@@ -291,7 +291,21 @@ function createInitialGoal(
             workflow: {
                 phase: "executing",
             },
-            run: { ...created.state.run, mode: "plan", approvedTask: goalDefinition, exposedToolIds },
+            run: {
+                ...created.state.run,
+                mode: "plan",
+                approvedTask: goalDefinition,
+                exposedToolIds,
+                currentStage: {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing",
+                    target: goalDefinition.objective,
+                    acceptanceCriteria: goalDefinition.completionCriteria.length > 0
+                        ? goalDefinition.completionCriteria.map(c => typeof c === "string" ? c : (c as any).text ?? "完成测试")
+                        : ["完成测试"],
+                },
+            },
             messages: [...messages],
         },
     };

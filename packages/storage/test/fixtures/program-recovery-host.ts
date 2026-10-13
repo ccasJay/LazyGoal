@@ -49,6 +49,13 @@ if (mode === "start") {
                 exposedToolIds: [...created.definition.profile.toolIds],
                 mode: "plan",
                 approvedTask: { objective: "Recover program", completionCriteria: [] },
+                currentStage: {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing" as const,
+                    target: "Recover program",
+                    acceptanceCriteria: ["测试完成"],
+                },
             },
         },
     });

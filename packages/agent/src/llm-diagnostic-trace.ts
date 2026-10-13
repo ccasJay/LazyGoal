@@ -203,6 +203,7 @@ function boundJsonValue(value: unknown): JsonValue {
 
     return {
         ...(isRecord(value) && typeof value.callId === "string" ? { callId: value.callId } : {}),
+        ...(isRecord(value) && typeof value.modelInputCallId === "string" ? { modelInputCallId: value.modelInputCallId } : {}),
         truncated: true,
         preview: serialized.slice(0, MAX_TRACE_PAYLOAD_CHARS),
     };

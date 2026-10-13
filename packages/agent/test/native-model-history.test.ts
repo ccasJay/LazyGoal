@@ -23,7 +23,23 @@ const renderer = await createDefaultPromptBundleRenderer();
 const compactor = new DropOldestContextCompactor();
 const initial = () => {
     const goal = createGoal({ ...currentProtocols, id: "native-goal", runId: "native-run", intent: "Read files", promptBundleVersion: 1, profile });
-    return { ...goal, state: { ...goal.state, run: { ...goal.state.run, exposedToolIds: [...profile.toolIds] } } };
+    return {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: {
+                ...goal.state.run,
+                exposedToolIds: [...profile.toolIds],
+                currentStage: {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing" as const,
+                    target: "Read files",
+                    acceptanceCriteria: ["Files read"],
+                },
+            },
+        },
+    };
 };
 function message(toolId = "read_file", args: Record<string, unknown> = {}, signature = "signature"): ModelAssistantMessage {
     return { role: "assistant", content: "Checking", reasoning: "Summary", toolCalls: [{ callId: "provider-call", toolId, argumentsJson: JSON.stringify(args) }],

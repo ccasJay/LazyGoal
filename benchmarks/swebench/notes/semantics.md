@@ -6,3 +6,5 @@
 | --- | --- | --- | --- |
 | SWE-bench instance | 固定清单中的仓库问题。 | [SWE-bench 评测](../README.md) | [模块说明](./overview.md) |
 | Patch | 提交给官方评分器的导出差异。 | [SWE-bench 评测](../README.md) | [模块说明](./overview.md) |
+
+| Context source adapter | 固定任务公开投影、官方环境和评分的宿主适配。 | [SWE-bench](../README.md) | [来源实现](../src/context-source.ts) |

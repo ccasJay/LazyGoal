@@ -18,6 +18,7 @@ export interface ScriptBoundary {
     readonly sequence: number;
     readonly waitingFor?: string;
     readonly requestId?: string;
+    readonly questions?: readonly { readonly id: string; readonly question: string }[];
     /** Runtime 的预算终止事实；与普通预期失败区分。 */
     readonly stopReason?: string;
     /** Snapshot 中实际持久化的用户消息；launch 可包含共享上下文说明。 */
@@ -82,6 +83,7 @@ export async function driveScript(
         records.push(event);
         if (boundary.stopReason === "max_steps_exceeded") throw new ScriptBudgetExceeded("Runtime step budget exceeded", records);
         if (boundary.status !== stage.expect || (stage.expect === "waiting" && boundary.waitingFor !== stage.waitingFor)) throw new ScriptMismatch("Actual state does not match frozen stage", records);
+        if (stage.waitingQuestion !== undefined && (boundary.questions?.length !== 1 || boundary.questions[0]?.id !== "q-1" || boundary.questions[0]?.question !== stage.waitingQuestion)) throw new ScriptMismatch("Waiting question does not match frozen template", records);
         if (previous !== null && (boundary.goalId !== previous.goalId || (stage.operation === "resume" ? boundary.runId !== previous.runId : boundary.runId === previous.runId))) throw new ScriptMismatch("Goal/Run identity violated", records);
         previous = boundary;
     }

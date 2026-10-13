@@ -1,3 +1,5 @@
+import { validateAnnotations } from "./source-evidence.js";
+import { constants } from "node:fs";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { hashTree, identity } from "./artifacts.js";
@@ -28,7 +30,8 @@ export async function reviewCandidate(directory: string): Promise<string> {
     await validateCheckpoint(directory, scenario, checkpoint.worker as never, textValue(checkpoint.imageId));
     const source = record(JSON.parse(await readFile(join(directory, "capture.json"), "utf8")));
     if (!source.model || !source.worker || !source.stages) throw new Error("Candidate provenance missing");
-    return identity(await hashTree(directory));
+    if (scenario.kind === "source") await validateAnnotations(directory, scenario);
+    return identity(await hashTree(directory, scenario.kind === "source"));
 }
 /** 人工明确批准指定哈希后冻结；wx/mkdir 排他写拒绝相同版本覆盖。 */
 export async function freezeCandidate(candidate: string, corpus: string, set: "core" | "challenge", version: string, expectedHash: string, approvedBy: string): Promise<string> {
@@ -39,7 +42,7 @@ export async function freezeCandidate(candidate: string, corpus: string, set: "c
     const target = join(corpus, set, segment(version), segment(scenario.id));
     await mkdir(join(corpus, set, segment(version)), { recursive: true });
     await mkdir(target);
-    await cp(candidate, join(target, "case"), { recursive: true, errorOnExist: true, force: false });
+    await cp(candidate, join(target, "case"), { recursive: true, errorOnExist: true, force: false, mode: constants.COPYFILE_FICLONE });
     const manifest: FrozenCase = { set, version: textValue(version), caseId: scenario.id, candidateHash, approvedBy: textValue(approvedBy), approvedAt: new Date().toISOString() };
     await writeFile(join(target, "frozen.json"), JSON.stringify(manifest, null, 2), { flag: "wx" });
     return target;

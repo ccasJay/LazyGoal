@@ -65,9 +65,17 @@ function createExecutingGoal(
                 status: "running",
                 exposedToolIds: [...toolIds],
 
-                mode: "plan", approvedTask: {
+                mode: "plan",
+                approvedTask: {
                     objective: goal.definition.intent,
                     completionCriteria: [{ text: "Abort is not converted into a failure" }],
+                },
+                currentStage: {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing" as const,
+                    target: goal.definition.intent,
+                    acceptanceCriteria: ["Abort is not converted into a failure"],
                 },
             },
         },

@@ -28,13 +28,23 @@ export const currentProtocols: {
     contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
 };
 
-/** Marks the business tools directly scripted by a legacy Runtime fixture as discovered. */
+/** Marks the business tools directly scripted by a legacy Runtime fixture as discovered and active in an executing stage. */
 export function withDiscoveredProfileTools(goal: Goal): Goal {
     return {
         ...goal,
         state: {
             ...goal.state,
-            run: { ...goal.state.run, exposedToolIds: [...goal.definition.profile.toolIds] },
+            run: {
+                ...goal.state.run,
+                exposedToolIds: [...goal.definition.profile.toolIds],
+                currentStage: goal.state.run.currentStage ?? {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing",
+                    target: goal.definition.intent || "测试阶段",
+                    acceptanceCriteria: ["测试条件"],
+                },
+            },
         },
     };
 }

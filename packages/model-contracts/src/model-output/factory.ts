@@ -24,6 +24,8 @@ import {
     ModelContextCheckpointResultContract,
     NonToolExecutingDecisionContract,
     TaskProposalAgentDecisionContract,
+    RunStageUpdateAgentDecisionContract,
+    RunStageCompleteAgentDecisionContract,
 } from "./canonical";
 import { ModelOutputContractDefinitionError } from "./errors";
 import { CompletionReviewResultContract, validateCompletionReviewResult, type CompletionReviewResult } from "./completion-review";
@@ -274,6 +276,8 @@ export function createModelOutputContractBundle<Result extends DecideOutput | Co
                         ContextLookupRequestContract,
                         ...(request.allowToolDiscovery === false ? [] : [ToolDiscoveryDecisionContract]),
                         AskUserAgentDecisionContract,
+                        RunStageUpdateAgentDecisionContract,
+                        RunStageCompleteAgentDecisionContract,
                     ]
                     : [
                         AskUserAgentDecisionContract,
@@ -288,6 +292,8 @@ export function createModelOutputContractBundle<Result extends DecideOutput | Co
                     ContextLookupRequestContract,
                     ...(request.allowToolDiscovery === false ? [] : [ToolDiscoveryDecisionContract]),
                     AskUserAgentDecisionContract,
+                    RunStageUpdateAgentDecisionContract,
+                    RunStageCompleteAgentDecisionContract,
                 ];
             if (request.allowThink === true) {
                 nonToolCanonicalBranches.push(RequestThinkContract);

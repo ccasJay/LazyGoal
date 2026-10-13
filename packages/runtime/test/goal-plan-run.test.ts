@@ -162,7 +162,17 @@ function withObservationTool(goal: Goal): Goal {
         },
         state: {
             ...goal.state,
-            run: { ...goal.state.run, exposedToolIds: [OBSERVATION_TOOL_DEFINITION.id] },
+            run: {
+                ...goal.state.run,
+                exposedToolIds: [OBSERVATION_TOOL_DEFINITION.id],
+                currentStage: {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing" as const,
+                    target: goal.definition.intent,
+                    acceptanceCriteria: ["测试完成"],
+                },
+            },
         },
     };
 }

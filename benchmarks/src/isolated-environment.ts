@@ -1,3 +1,4 @@
+import { hashArchiveFile, type FilesystemArchive } from "./filesystem-archive.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -166,6 +167,13 @@ export interface EnvironmentHandle {
      * @throws 基线缺失、进程快照读取失败或发现仍存活的新进程时抛出。
      */
     assertAgentProcessesExited?(): Promise<void>;
+    /**
+     * 在 Agent 已停止的产物回收阶段保存完整文件系统；挂载/卷存在时拒绝。
+     * @param directory - 宿主归档目录；文件固定为 filesystem.tar。
+     * @returns 可重导入的归档身份；不保存进程内存。
+     * @throws 进程未静止、存在挂载、提交或归档失败时抛出。
+     */
+    saveFilesystemArchive?(directory: string): Promise<FilesystemArchive>;
     /** 将宿主准备文件复制到容器内的绝对路径。 */
     copyInto(source: string, target: string): Promise<void>;
     /** 将容器内的领域产物复制到宿主目标路径，并返回该路径。 */
@@ -460,7 +468,7 @@ export class IsolatedEnvironment {
         const workdir = workerConfig.cwd ?? "/workspace";
         const errors: IsolatedEnvironmentError[] = [];
         const controller = new AbortController();
-        const agentProcessBaseline: { value?: ReadonlySet<string> } = {};
+        const agentProcessBaseline: { value?: ReadonlySet<string>; collecting?: boolean } = {};
         let isTimedOut = false;
         let isCancelled = options.signal?.aborted === true || options.forceSignal?.aborted === true;
         const forwardAbort = () => {
@@ -684,6 +692,7 @@ export class IsolatedEnvironment {
                 const isForceAborted = options.forceSignal?.aborted || (hasForceSignal && remainingForArtifacts <= 0);
 
                 if (!isForceAborted) {
+                    agentProcessBaseline.collecting = true;
                     const artifactController = new AbortController();
                     const forwardForce = () => artifactController.abort();
                     if (options.forceSignal !== undefined) {
@@ -759,7 +768,7 @@ export class IsolatedEnvironment {
         containerName: string,
         workdir: string,
         signal: AbortSignal,
-        agentProcessBaseline: { value?: ReadonlySet<string> },
+        agentProcessBaseline: { value?: ReadonlySet<string>; collecting?: boolean },
     ): EnvironmentHandle {
         const run = this.runProcess;
         const readProcessSnapshot = async (): Promise<ReadonlySet<string>> => {
@@ -827,6 +836,23 @@ export class IsolatedEnvironment {
                     await new Promise((resolve) => setTimeout(resolve, 100));
                 }
                 throw new Error(`TUA scoring isolation failed: ${remaining.length} Agent process(es) remain: ${remaining.join(", ")}`);
+            },
+            saveFilesystemArchive: async (directory: string): Promise<FilesystemArchive> => {
+                if (!agentProcessBaseline.collecting || agentProcessBaseline.value === undefined) throw new Error("Filesystem capture requires stopped Agent collection boundary");
+                const current = await readProcessSnapshot();
+                if ([...current].some(process => !agentProcessBaseline.value!.has(process))) throw new Error("Agent processes remain during filesystem capture");
+                const mounts = JSON.parse(requireSuccess(await run("docker", ["inspect", containerName, "--format", "{{json .Mounts}}"], { timeoutMs: 15_000, signal }), "Inspect checkpoint mounts"));
+                if (!Array.isArray(mounts) || mounts.length) throw new Error("Filesystem checkpoint cannot capture mounted state");
+                await mkdir(directory, { recursive: true });
+                const imageId = requireSuccess(await run("docker", ["commit", containerName], { timeoutMs: 300_000, signal }), "Commit filesystem checkpoint").trim();
+                if (!/^sha256:[a-f0-9]{64}$/.test(imageId)) throw new Error("Invalid committed image identity");
+                try {
+                    const file = resolve(directory, "filesystem.tar");
+                    requireSuccess(await run("docker", ["save", "--output", file, imageId], { timeoutMs: 1_200_000, signal }), "Save filesystem checkpoint");
+                    return { file: "filesystem.tar", imageId, sha256: await hashArchiveFile(file) };
+                } finally {
+                    requireSuccess(await run("docker", ["image", "rm", imageId], { timeoutMs: 30_000 }), "Remove temporary checkpoint image");
+                }
             },
             copyInto: async (source: string, target: string) => {
                 requireSuccess(await run("docker", ["cp", source, `${containerName}:${target}`], { timeoutMs: 60_000, signal }), "Copy environment input");

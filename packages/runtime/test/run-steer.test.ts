@@ -103,7 +103,23 @@ test("Steer received during a Tool waits for its committed Observation before en
         runId: "run-steer-tool",
         maxSteps: 3,
     });
-    const prepared = { ...initial, state: { ...initial.state, run: { ...initial.state.run, exposedToolIds: ["probe"] } } };
+    const prepared = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: {
+                ...initial.state.run,
+                exposedToolIds: ["probe"],
+                currentStage: {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing" as const,
+                    target: "test tool steer",
+                    acceptanceCriteria: ["完成测试"],
+                },
+            },
+        },
+    };
     await store.save(prepared);
     const entered = deferred();
     const release = deferred();

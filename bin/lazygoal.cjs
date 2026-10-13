@@ -38,7 +38,7 @@ const isAlfworldGrade = argv[0] === "grade" && argv[1] === "alfworld";
 const isSwebenchGrade = argv[0] === "grade" && argv[1] === "swebench";
 const isGaiaGrade = argv[0] === "grade" && argv[1] === "gaia";
 const isGaiaLoad = (argv[0] === "load" && argv[1] === "gaia") || (argv[0] === "gaia" && argv[1] === "load");
-const source = isContextEval ? resolve(__dirname, "../benchmarks/context/src/cli.ts") : (isPromptEval || isGepaReflect || isGepaResolveModels || isGepaInspectTua || isGepaAuditTuaCandidate)
+const source = isContextEval ? resolve(__dirname, "../benchmarks/context-cli.ts") : (isPromptEval || isGepaReflect || isGepaResolveModels || isGepaInspectTua || isGepaAuditTuaCandidate)
     ? resolve(__dirname, "../benchmarks/src/prompt-evaluation/cli.ts")
     : isAlfworldEval
     ? resolve(__dirname, "../benchmarks/alfworld/src/cli.ts")

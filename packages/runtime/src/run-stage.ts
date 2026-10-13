@@ -60,6 +60,10 @@ export interface RunStageState {
     readonly latestReviewRejection?: RunStageRejection;
     /** 阶段被接受时的 Trajectory 事实序列号（仅在 status 为 accepted 时存在）。 */
     readonly acceptedSequence?: number;
+    /** 阶段归档所属的 Run 稳定标识（跨 Run 隔离同名 stageId 时使用）。 */
+    readonly runId?: string;
+    /** 阶段被接受时的阶段完成总结摘要。 */
+    readonly summary?: string;
 }
 
 /**
