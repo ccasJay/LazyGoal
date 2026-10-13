@@ -84,9 +84,16 @@ export function TrajectoryRecords({ goalId, runId, entries, refresh, selectEvent
     const selected = row.entry
       ? row.entry.sequence === selectedSequence
       : (row.request || row.tab !== undefined || row.messageIndex !== undefined) && selectedInput?.callId === row.call?.callId && selectedInput?.tab === (row.tab ?? "Messages") && selectedInput?.messageIndex === row.messageIndex;
-    return <div role="option" aria-selected={selected} className={`ct-record ${row.status ?? ""} ${selected ? "selected" : ""} ${row.entry?.parentActionId !== undefined && row.entry.callIndex !== undefined ? "child" : ""}`} key={row.id}>
-      <div className="ct-gutter"><span className="ct-sequence">{row.entry?.sequence ?? "·"}</span>{showRequests && row.request && <button className="ct-request-dot" aria-label={row.entry ? `View prompt for event ${row.entry.sequence}` : `Inspect model request ${row.call!.callId}`} onClick={() => selectInput({ callId: row.call?.callId ?? row.promptCallId ?? row.entry?.modelCallId ?? null, tab: "Messages" })}/>}</div>
-      <button id={row.entry ? `trajectory-event-${row.entry.sequence}` : undefined} className="ct-record-body" aria-pressed={selected} onClick={() => row.entry ? selectEvent(row.entry) : selectInput({ callId: row.call!.callId, tab: row.tab ?? "Messages", messageIndex: row.messageIndex })}>
+    const handleSelect = () => {
+      if (row.entry) {
+        selectEvent(row.entry);
+      } else {
+        selectInput({ callId: row.call!.callId, tab: row.tab ?? "Messages", messageIndex: row.messageIndex });
+      }
+    };
+    return <div role="option" aria-selected={selected} className={`ct-record ${row.status ?? ""} ${selected ? "selected" : ""} ${row.entry?.parentActionId !== undefined && row.entry.callIndex !== undefined ? "child" : ""}`} key={row.id} onClick={handleSelect}>
+      <div className="ct-gutter"><span className="ct-sequence">{row.entry?.sequence ?? "·"}</span>{showRequests && row.request && <button className="ct-request-dot" aria-label={row.entry ? `View prompt for event ${row.entry.sequence}` : `Inspect model request ${row.call!.callId}`} onClick={(event) => { event.stopPropagation(); selectInput({ callId: row.call?.callId ?? row.promptCallId ?? row.entry?.modelCallId ?? null, tab: "Messages" }); }}/>}</div>
+      <button id={row.entry ? `trajectory-event-${row.entry.sequence}` : undefined} className="ct-record-body" aria-pressed={selected} onClick={(event) => { event.stopPropagation(); handleSelect(); }}>
         <span className="ct-preview"><span className={`ct-badge ${row.role.toLowerCase()}`}>{row.role}</span><span className="ct-event-text"><strong>{row.text}</strong>{row.entry?.parentActionId !== undefined && row.entry.callIndex !== undefined && <small title={`Program ${row.entry.parentActionId}`}>Program call {row.entry.callIndex + 1}</small>}</span></span>
         <time className="ct-time" dateTime={row.time} title={row.time}>{formatEventTime(row.time)}</time>
         <span className="ct-detail">{row.entry?.resultPreview ?? row.result ?? row.entry?.inputPreview ?? row.input ?? row.entry?.preview ?? ""}</span>

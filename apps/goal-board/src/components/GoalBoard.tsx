@@ -63,12 +63,21 @@ export function GoalBoard({
     [goals, search, archivedView]
   );
 
+  const totalCount = useMemo(
+    () => goals.filter((goal) => goal.archived === archivedView).length,
+    [goals, archivedView]
+  );
+
   return (
     <section className="board-area">
       <div className="toolbar">
         <strong className="board-title">
           {archivedView ? "Archived" : "All goals"}{" "}
-          <span>{goals.filter((goal) => goal.archived === archivedView).length}</span>
+          <span>
+            {search.trim().length > 0
+              ? `(${visibleGoals.length} / ${totalCount})`
+              : totalCount}
+          </span>
         </strong>
         <button
           className={`archive-view-toggle ${archivedView ? "is-active" : ""}`}
@@ -79,9 +88,11 @@ export function GoalBoard({
         >
           {archivedView ? "All goals" : `Archived (${goals.filter((goal) => goal.archived).length})`}
         </button>
-        <label className="search">
+        <label className="search" htmlFor="goal-board-search">
           <Search size={14} />
           <input
+            id="goal-board-search"
+            name="search"
             aria-label="Search goals"
             placeholder="Search goals…"
             value={search}
