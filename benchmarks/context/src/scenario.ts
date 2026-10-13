@@ -1,3 +1,4 @@
+import { parseSourceTask, type SourceTaskPackage } from "../../src/task-source.js";
 import type { AgentProfile } from "../../../packages/runtime/src/index.js";
 
 /**
@@ -13,6 +14,8 @@ export interface ScriptStage {
     readonly prompt: string;
     readonly expect: "completed" | "failed" | "cancelled" | "waiting";
     readonly waitingFor?: "blocked" | "ask_user";
+    /** 来源型等待脚本只接受此固定确认问题。 */
+    readonly waitingQuestion?: string;
     /** ask_user 回答按冻结 questionId 关联；requestId 从当前真实等待边界读取。 */
     readonly answers?: readonly { readonly questionId: string; readonly answer: string }[];
 }
@@ -25,6 +28,11 @@ export interface ScriptStage {
  * ```
  */
 export interface ContextScenario {
+    /** source 场景使用完整容器检查点，原生场景仍使用普通文件包。 */
+    readonly kind?: "source";
+    /** Agent 可见来源任务；完整评分数据不得出现在此投影。 */
+    readonly source?: SourceTaskPackage;
+    readonly mode?: "cross-run" | "waiting";
     readonly id: string;
     readonly image: string;
     readonly initialFiles: Readonly<Record<string, string>>;
@@ -55,10 +63,14 @@ export function safePath(value: string): string {
 /** 从冻结 JSON 解析场景；不启动模型或容器。 */
 export function parseScenario(raw: unknown): ContextScenario {
     const value = record(raw);
+    const source = value.kind === "source" ? parseSourceTask(value.source) : undefined;
+    if ((value.kind !== undefined && value.kind !== "source") || (source === undefined && (value.source !== undefined || value.mode !== undefined)) ||
+        (source !== undefined && value.mode !== "cross-run" && value.mode !== "waiting")) throw new Error("Invalid scenario source/mode");
+    const toolIds = source ? ["read_file", "write_file", "edit_file", "grep", "bash"] : ["context_shell"];
     const profile = record(value.profile);
     if (!Array.isArray(profile.instructions) || !profile.instructions.every(x => typeof x === "string") ||
-        !Array.isArray(profile.toolIds) || profile.toolIds.length !== 1 || profile.toolIds[0] !== "context_shell") throw new Error("Profile must declare context_shell only");
-    const frozenProfile: AgentProfile = { id: textValue(profile.id), systemPrompt: textValue(profile.systemPrompt), instructions: profile.instructions as string[], toolIds: ["context_shell"] };
+        !Array.isArray(profile.toolIds) || JSON.stringify(profile.toolIds) !== JSON.stringify(toolIds)) throw new Error("Profile must declare context_shell only");
+    const frozenProfile: AgentProfile = { id: textValue(profile.id), systemPrompt: textValue(profile.systemPrompt), instructions: profile.instructions as string[], toolIds };
     const budget = record(value.budget);
     for (const field of ["maxSteps", "maxCalls", "stageTimeoutMs", "totalTimeoutMs"]) {
         if (!Number.isSafeInteger(budget[field]) || (budget[field] as number) <= 0) throw new Error(`Invalid budget ${field}`);
@@ -78,6 +90,7 @@ export function parseScenario(raw: unknown): ContextScenario {
             answers = stage.answers.map(item => { const answer = record(item); return { questionId: textValue(answer.questionId), answer: textValue(answer.answer) }; });
         }
         return { operation, prompt: textValue(stage.prompt), expect: expect as ScriptStage["expect"],
+            ...(stage.waitingQuestion === undefined ? {} : { waitingQuestion: textValue(stage.waitingQuestion) }),
             ...(stage.waitingFor === undefined ? {} : { waitingFor: stage.waitingFor as "blocked" | "ask_user" }),
             ...(answers === undefined ? {} : { answers }) };
     });
@@ -87,11 +100,18 @@ export function parseScenario(raw: unknown): ContextScenario {
         if (previous.waitingFor === "ask_user" && !stages[index]!.answers?.length) throw new Error("ask_user requires fixed answers");
     }
     if (!Number.isSafeInteger(value.checkpointAfter) || (value.checkpointAfter as number) < 0 || (value.checkpointAfter as number) >= stages.length - 1) throw new Error("Invalid checkpoint position");
-    const files = record(value.initialFiles);
+    const files = record(source ? {} : value.initialFiles);
+    if (source && value.initialFiles !== undefined && Object.keys(record(value.initialFiles)).length) throw new Error("Source scenario cannot contain initialFiles");
     for (const [path, content] of Object.entries(files)) { safePath(path); if (typeof content !== "string") throw new Error("Invalid file content"); }
+    if (source) {
+        const expectedFirst = value.mode === "waiting" ? "waiting" : "completed";
+        if (stages.length !== 2 || value.checkpointAfter !== 0 || stages[0]!.expect !== expectedFirst ||
+            stages[1]!.operation !== (value.mode === "waiting" ? "resume" : "continue") || stages[1]!.expect !== "completed" ||
+            !stages[0]!.prompt.includes(source.problemStatement) || value.image !== source.imageId) throw new Error("Source lifecycle/template mismatch");
+    }
     const rubric = record(value.rubric);
     if (typeof rubric.threshold !== "number" || rubric.threshold < 0 || rubric.threshold > 1) throw new Error("Invalid Judge threshold");
-    return { id: textValue(value.id), image: textValue(value.image), initialFiles: files as Record<string, string>, stages,
+    return { ...(source ? { kind: "source" as const, source, mode: value.mode as "cross-run" | "waiting" } : {}), id: textValue(value.id), image: textValue(value.image), initialFiles: files as Record<string, string>, stages,
         checkpointAfter: value.checkpointAfter as number, profile: frozenProfile, budget: budget as unknown as ContextScenario["budget"],
         verifier: textValue(value.verifier), rubric: { text: textValue(rubric.text), threshold: rubric.threshold }, limitations: textValue(value.limitations) };
 }

@@ -32,3 +32,15 @@ test("freeze CLI records an explicit hash approval without model configuration",
         assert.equal(frozen.approvedBy, "explicit-test-reviewer");
     } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test("top-level source import is invoked once with the injected adapter", async t => {
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const root = await mkdtemp(join(tmpdir(), "context-import-cli-")); t.after(() => rm(root, { recursive: true, force: true }));
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL("../../../bin/lazygoal.cjs", import.meta.url)), "eval", "context", "import", "--manifest", join(root, "missing.json"), "--output", join(root, "output")],
+        { cwd: fileURLToPath(new URL("../../../", import.meta.url)), encoding: "utf8", timeout: 10000 });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /missing.json/);
+    assert.doesNotMatch(result.stderr, /Source adapter required/);
+});

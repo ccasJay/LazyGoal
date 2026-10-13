@@ -1,0 +1,412 @@
+{
+  "status": "passed",
+  "evaluationKind": "infrastructure_validation",
+  "actualModelCalls": 0,
+  "plannedGroups": 20,
+  "attemptedGroups": 20,
+  "worker": {
+    "manifestVersion": 1,
+    "workerSha256": "298484ed2f8780434683c796d8cff711ea67edfcbc2ae662970edd7d5661d8cc",
+    "sourceDigest": "c8189e9857e6034dc2ab2c7c62f9aaedf8c9cb2bd1bb09d96c03587dc5898e4e",
+    "lockDigest": "3f2bad18605ca8ff1a40f0e3947467b4284119ee97a82dafa6bb997e2869cd3e",
+    "promptDigest": "98745b5d84fbc2af401f9128d97b00e6c709de07011ea9e17bc0e4de2970424e",
+    "buildDigest": "db455dc451b527a29943d68f69dd4e4b8c75b762981c6ae37f73a885c8c19a34",
+    "nodeVersion": "22.22.2",
+    "nodeImage": "node:22.22.2-bookworm-slim@sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+    "nodeImageId": "sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201",
+    "platform": "linux/amd64",
+    "acpProtocolVersion": 1,
+    "acpSdkVersion": "1.4.0",
+    "entryPoint": "benchmarks/swebench/src/context-worker-entry.ts",
+    "workerFile": "worker.mjs",
+    "nodeFile": "node",
+    "nodeSha256": "81925c0995b5c1427b5d538e6a90ca2fdc4daffb786b09af749beaf7369d4e90",
+    "promptAssets": [
+      "packages/agent/src/global-system-prompt/global-overview@1.njk",
+      "packages/agent/src/prompting/approved-task@1.njk",
+      "packages/agent/src/prompting/authorized-tools@1.njk",
+      "packages/agent/src/prompting/goal-context-navigation@1.njk",
+      "packages/agent/src/prompting/goal-plan@1.njk",
+      "packages/agent/src/prompting/profile@1.njk",
+      "packages/agent/src/prompting/run-mode@1.njk",
+      "packages/agent/src/prompting/working-memory@1.njk",
+      "packages/agent/src/step-prompt/agent-decision@1.njk",
+      "packages/agent/src/step-prompt/agent-think@1.njk"
+    ]
+  },
+  "failures": [],
+  "cases": [
+    {
+      "caseId": "astropy__astropy-12907:cross-run",
+      "pairable": true,
+      "sourceBuild": {
+        "sourceDigest": "3c9035148b0b5f2fda66422bbb686194e7c7be4bfb6844120a0ba52df9103892",
+        "bridgeDigest": "4a83329fee4b2a7b509c2032a6be7b54986c53f502209864619b7970fb82f657"
+      },
+      "sharedBuild": {
+        "sourceDigest": "e80a71fec59c43fb65f77e10fd52598efc8ea4ebb9c1b52e316e41b25a930659"
+      },
+      "groups": [
+        {
+          "group": "restore",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        },
+        {
+          "group": "full",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "caseId": "astropy__astropy-12907:waiting",
+      "pairable": true,
+      "sourceBuild": {
+        "sourceDigest": "3c9035148b0b5f2fda66422bbb686194e7c7be4bfb6844120a0ba52df9103892",
+        "bridgeDigest": "4a83329fee4b2a7b509c2032a6be7b54986c53f502209864619b7970fb82f657"
+      },
+      "sharedBuild": {
+        "sourceDigest": "e80a71fec59c43fb65f77e10fd52598efc8ea4ebb9c1b52e316e41b25a930659"
+      },
+      "groups": [
+        {
+          "group": "restore",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        },
+        {
+          "group": "full",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "caseId": "astropy__astropy-13033:cross-run",
+      "pairable": true,
+      "sourceBuild": {
+        "sourceDigest": "3c9035148b0b5f2fda66422bbb686194e7c7be4bfb6844120a0ba52df9103892",
+        "bridgeDigest": "4a83329fee4b2a7b509c2032a6be7b54986c53f502209864619b7970fb82f657"
+      },
+      "sharedBuild": {
+        "sourceDigest": "e80a71fec59c43fb65f77e10fd52598efc8ea4ebb9c1b52e316e41b25a930659"
+      },
+      "groups": [
+        {
+          "group": "restore",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        },
+        {
+          "group": "full",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "caseId": "astropy__astropy-13033:waiting",
+      "pairable": true,
+      "sourceBuild": {
+        "sourceDigest": "3c9035148b0b5f2fda66422bbb686194e7c7be4bfb6844120a0ba52df9103892",
+        "bridgeDigest": "4a83329fee4b2a7b509c2032a6be7b54986c53f502209864619b7970fb82f657"
+      },
+      "sharedBuild": {
+        "sourceDigest": "e80a71fec59c43fb65f77e10fd52598efc8ea4ebb9c1b52e316e41b25a930659"
+      },
+      "groups": [
+        {
+          "group": "restore",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        },
+        {
+          "group": "full",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "caseId": "astropy__astropy-13236:cross-run",
+      "pairable": true,
+      "sourceBuild": {
+        "sourceDigest": "3c9035148b0b5f2fda66422bbb686194e7c7be4bfb6844120a0ba52df9103892",
+        "bridgeDigest": "4a83329fee4b2a7b509c2032a6be7b54986c53f502209864619b7970fb82f657"
+      },
+      "sharedBuild": {
+        "sourceDigest": "e80a71fec59c43fb65f77e10fd52598efc8ea4ebb9c1b52e316e41b25a930659"
+      },
+      "groups": [
+        {
+          "group": "restore",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        },
+        {
+          "group": "full",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "caseId": "astropy__astropy-13236:waiting",
+      "pairable": true,
+      "sourceBuild": {
+        "sourceDigest": "3c9035148b0b5f2fda66422bbb686194e7c7be4bfb6844120a0ba52df9103892",
+        "bridgeDigest": "4a83329fee4b2a7b509c2032a6be7b54986c53f502209864619b7970fb82f657"
+      },
+      "sharedBuild": {
+        "sourceDigest": "e80a71fec59c43fb65f77e10fd52598efc8ea4ebb9c1b52e316e41b25a930659"
+      },
+      "groups": [
+        {
+          "group": "restore",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        },
+        {
+          "group": "full",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "caseId": "astropy__astropy-13398:cross-run",
+      "pairable": true,
+      "sourceBuild": {
+        "sourceDigest": "3c9035148b0b5f2fda66422bbb686194e7c7be4bfb6844120a0ba52df9103892",
+        "bridgeDigest": "4a83329fee4b2a7b509c2032a6be7b54986c53f502209864619b7970fb82f657"
+      },
+      "sharedBuild": {
+        "sourceDigest": "e80a71fec59c43fb65f77e10fd52598efc8ea4ebb9c1b52e316e41b25a930659"
+      },
+      "groups": [
+        {
+          "group": "restore",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        },
+        {
+          "group": "full",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "caseId": "astropy__astropy-13398:waiting",
+      "pairable": true,
+      "sourceBuild": {
+        "sourceDigest": "3c9035148b0b5f2fda66422bbb686194e7c7be4bfb6844120a0ba52df9103892",
+        "bridgeDigest": "4a83329fee4b2a7b509c2032a6be7b54986c53f502209864619b7970fb82f657"
+      },
+      "sharedBuild": {
+        "sourceDigest": "e80a71fec59c43fb65f77e10fd52598efc8ea4ebb9c1b52e316e41b25a930659"
+      },
+      "groups": [
+        {
+          "group": "restore",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        },
+        {
+          "group": "full",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "caseId": "astropy__astropy-13453:cross-run",
+      "pairable": true,
+      "sourceBuild": {
+        "sourceDigest": "3c9035148b0b5f2fda66422bbb686194e7c7be4bfb6844120a0ba52df9103892",
+        "bridgeDigest": "4a83329fee4b2a7b509c2032a6be7b54986c53f502209864619b7970fb82f657"
+      },
+      "sharedBuild": {
+        "sourceDigest": "e80a71fec59c43fb65f77e10fd52598efc8ea4ebb9c1b52e316e41b25a930659"
+      },
+      "groups": [
+        {
+          "group": "restore",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        },
+        {
+          "group": "full",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "caseId": "astropy__astropy-13453:waiting",
+      "pairable": true,
+      "sourceBuild": {
+        "sourceDigest": "3c9035148b0b5f2fda66422bbb686194e7c7be4bfb6844120a0ba52df9103892",
+        "bridgeDigest": "4a83329fee4b2a7b509c2032a6be7b54986c53f502209864619b7970fb82f657"
+      },
+      "sharedBuild": {
+        "sourceDigest": "e80a71fec59c43fb65f77e10fd52598efc8ea4ebb9c1b52e316e41b25a930659"
+      },
+      "groups": [
+        {
+          "group": "restore",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        },
+        {
+          "group": "full",
+          "category": "completed",
+          "contextMechanism": true,
+          "contextFixtureSemantic": 1,
+          "contextCombined": "passed",
+          "taskScore": "unresolved",
+          "actualModelCalls": 0,
+          "errors": []
+        }
+      ]
+    }
+  ],
+  "official-positive": {
+    "status": "resolved",
+    "resolved": true,
+    "patchSha256": "0f3e44432ed8540e9526edff4f83793948a2f139fc3971b67c30043c1eb7964a",
+    "harnessVersion": "4.1.0",
+    "sourceBuild": {
+      "sourceDigest": "3c9035148b0b5f2fda66422bbb686194e7c7be4bfb6844120a0ba52df9103892",
+      "bridgeDigest": "4a83329fee4b2a7b509c2032a6be7b54986c53f502209864619b7970fb82f657"
+    },
+    "imageId": "sha256:e082963099ed7d5a5f75a0be46e338be36faae33b2cba5289a9ddbd505997f1f",
+    "raw": {
+      "exitCode": 0,
+      "results": [
+        {
+          "instanceId": "astropy__astropy-12907",
+          "logDirectory": "/tmp/lazygoal-swe-context-five-final-20261013/official-positive/logs/run_evaluation/context-fc4400dc-5dda-4177-9251-a7eb2fc44de6/lazygoal-context/astropy__astropy-12907",
+          "status": "resolved"
+        }
+      ]
+    }
+  },
+  "official-negative": {
+    "status": "unresolved",
+    "resolved": false,
+    "patchSha256": "e0eb6f0ae6b1ec099776fb20bc268b53b87743962fc7403e7f8b2b947f9c0f1b",
+    "harnessVersion": "4.1.0",
+    "sourceBuild": {
+      "sourceDigest": "3c9035148b0b5f2fda66422bbb686194e7c7be4bfb6844120a0ba52df9103892",
+      "bridgeDigest": "4a83329fee4b2a7b509c2032a6be7b54986c53f502209864619b7970fb82f657"
+    },
+    "imageId": "sha256:e082963099ed7d5a5f75a0be46e338be36faae33b2cba5289a9ddbd505997f1f",
+    "raw": {
+      "exitCode": 0,
+      "results": [
+        {
+          "instanceId": "astropy__astropy-12907",
+          "logDirectory": "/tmp/lazygoal-swe-context-five-final-20261013/official-negative/logs/run_evaluation/context-c8015e5c-c7ce-4a7a-ae66-d3a686214658/lazygoal-context/astropy__astropy-12907",
+          "status": "unresolved"
+        }
+      ]
+    }
+  }
+}

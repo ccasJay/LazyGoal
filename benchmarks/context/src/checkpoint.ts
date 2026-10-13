@@ -1,3 +1,5 @@
+import { hashRuntimeFiles } from "../../src/runtime-files.js";
+import { validateFilesystemArchive, type FilesystemArchive } from "../../src/filesystem-archive.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { JsonFileGoalStore } from "../../../packages/storage/src/index.js";
@@ -17,6 +19,7 @@ import type { ScriptBoundary } from "./script-driver.js";
  * ```
  */
 export interface ContextCheckpoint {
+    readonly archive?: FilesystemArchive;
     readonly contract: "context-checkpoint";
     readonly afterStage: number;
     readonly boundary: ScriptBoundary;
@@ -26,7 +29,7 @@ export interface ContextCheckpoint {
     readonly files: Readonly<Record<string, string>>;
     readonly contentHash: string;
 }
-async function validateRuntime(directory: string, boundary: ScriptBoundary, scenario: ContextScenario): Promise<void> {
+export async function validateRuntime(directory: string, boundary: ScriptBoundary, scenario: ContextScenario): Promise<void> {
     const base = join(directory, "state", Buffer.from("context").toString("base64url"), Buffer.from("session").toString("base64url"));
     const goal = await new JsonFileGoalStore(join(base, "goals")).restore(boundary.goalId);
     if (goal === undefined || goal.state.run.id !== boundary.runId || goal.state.run.status !== boundary.status ||
@@ -45,11 +48,13 @@ async function validateRuntime(directory: string, boundary: ScriptBoundary, scen
     }
 }
 /** 发布检查点；调用方必须先完成进程静止检查，出错不写清单。 */
-export async function publishCheckpoint(directory: string, scenario: ContextScenario, boundary: ScriptBoundary, worker: WorkerIdentity, imageId: string): Promise<ContextCheckpoint> {
+export async function publishCheckpoint(directory: string, scenario: ContextScenario, boundary: ScriptBoundary, worker: WorkerIdentity, imageId: string, archive?: FilesystemArchive): Promise<ContextCheckpoint> {
+    if (scenario.kind === "source" && archive === undefined) throw new Error("Source checkpoint archive missing");
+    if (archive) await validateFilesystemArchive(directory, archive);
     await validateRuntime(directory, boundary, scenario);
-    const files = { ...Object.fromEntries(Object.entries(await hashTree(join(directory, "project"))).map(([path, hash]) => ["project/" + path, hash])),
-        ...Object.fromEntries(Object.entries(await hashTree(join(directory, "state"))).filter(([path]) => !path.includes("/context-index/")).map(([path, hash]) => ["state/" + path, hash])) };
-    const body = { contract: "context-checkpoint" as const, afterStage: scenario.checkpointAfter, boundary, scenarioHash: identity(scenario), worker, imageId, files };
+    const files = { ...Object.fromEntries(Object.entries(scenario.kind === "source" ? {} : await hashTree(join(directory, "project"))).map(([path, hash]) => ["project/" + path, hash])),
+        ...Object.fromEntries(Object.entries(await hashRuntimeFiles(join(directory, "state"))).map(([path, hash]) => ["state/" + path, hash])) };
+    const body = { contract: "context-checkpoint" as const, afterStage: scenario.checkpointAfter, boundary, scenarioHash: identity(scenario), worker, imageId, files, ...(archive ? { archive } : {}) };
     const checkpoint: ContextCheckpoint = { ...body, contentHash: identity(body) };
     await writeFile(join(directory, "checkpoint.json"), JSON.stringify(checkpoint, null, 2), { flag: "wx" });
     return checkpoint;
@@ -60,8 +65,12 @@ export async function validateCheckpoint(directory: string, scenario: ContextSce
     const { contentHash, ...body } = checkpoint;
     if (checkpoint.contract !== "context-checkpoint" || identity(body) !== contentHash || checkpoint.scenarioHash !== identity(scenario) ||
         checkpoint.afterStage !== scenario.checkpointAfter || checkpoint.worker.acpProtocolVersion !== worker.acpProtocolVersion || checkpoint.worker.acpSdkVersion !== worker.acpSdkVersion || checkpoint.worker.platform !== worker.platform || checkpoint.worker.nodeVersion !== worker.nodeVersion || checkpoint.worker.nodeImageId !== worker.nodeImageId || checkpoint.imageId !== imageId) throw new Error("Checkpoint content/build/image mismatch");
-    const actualFiles = { ...Object.fromEntries(Object.entries(await hashTree(join(directory, "project"))).map(([path, hash]) => ["project/" + path, hash])),
-        ...Object.fromEntries(Object.entries(await hashTree(join(directory, "state"))).filter(([path]) => !path.includes("/context-index/")).map(([path, hash]) => ["state/" + path, hash])) };
+    if (scenario.kind === "source") {
+        if (!checkpoint.archive || identity(checkpoint.worker) !== identity(worker)) throw new Error("Source checkpoint build/archive mismatch");
+        await validateFilesystemArchive(directory, checkpoint.archive);
+    }
+    const actualFiles = { ...Object.fromEntries(Object.entries(scenario.kind === "source" ? {} : await hashTree(join(directory, "project"))).map(([path, hash]) => ["project/" + path, hash])),
+        ...Object.fromEntries(Object.entries(await hashRuntimeFiles(join(directory, "state"))).map(([path, hash]) => ["state/" + path, hash])) };
     if (identity(actualFiles) !== identity(checkpoint.files)) throw new Error("Checkpoint files corrupted");
     await validateRuntime(directory, checkpoint.boundary, scenario);
     return checkpoint;

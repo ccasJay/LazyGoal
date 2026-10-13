@@ -102,3 +102,9 @@ SIGINT/SIGTERM 清理本次容器并保存已有产物，但不支持从 Goal Sn
 ## 操作说明
 
 运行前提、命令和结果示例见 [使用说明](./usage.md)。
+
+## Context 任务来源适配
+
+[来源适配器](../src/context-source.ts) 提供固定公开任务包、隔离评分数据、官方初始环境与最终 patch/评分能力。完整原始数据仅在宿主私有目录保存，公开投影与不可变镜像 ID 受摘要绑定。普通 SWE 执行入口的评分语义不变。
+
+[来源 Worker](../src/context-worker-entry.ts) 复用本模块五工具，生命周期由 [共享脚本 Worker](../../src/scripted-worker.ts) 驱动。任务数据、官方环境与评分仍属于 SWE；采集/审核/恢复编排属于 [Context Benchmark](../../context/README.md)。顶层组装注入共享端口，双方无横向代码导入。官方评分不使用恢复镜像，也不把测试补丁提供给执行 Agent。

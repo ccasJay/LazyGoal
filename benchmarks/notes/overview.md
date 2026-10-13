@@ -158,3 +158,9 @@ split 和自动发现不进入该生命周期。
 Headless 用量包装器保留 Adapter 的 nativeConversationIdentity。Context Worker 的 RPC 显式传递该身份，
 原生 strict 请求使用 required Tool 调用；JSON strict 请求仍须携带 structuredOutput。
 同身份已提交调用与结果按正常 Agent 管线回放，模型或端点不符时由当前管线停止原生片段。
+
+## 工程任务来源与文件系统恢复
+
+[任务来源端口](../src/task-source.ts) 提供公开投影、环境和独立工程评分；顶层组合根连接具体来源与 Context，共享层不依赖 benchmark 实现。 [脚本 Worker](../src/scripted-worker.ts) 复用 Runtime 会话入口，领域模块只提供固定工具 Registry。
+
+[容器归档](../src/filesystem-archive.ts) 使用流式字节摘要校验镜像工件。IsolatedEnvironment 只在 Agent 已停止的回收阶段允许归档，拒绝挂载/卷，删除自己创建的临时镜像；归档不保存进程内存。恢复使用校验后的 docker load 和镜像身份检查，不依赖缓存。大型镜像归档不受原生项目文件包的大小限制。

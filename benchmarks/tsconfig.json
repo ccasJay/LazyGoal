@@ -16,6 +16,8 @@
   },
   "include": [
     "src/**/*.ts",
+    "context-cli.ts",
+    "context-swebench-smoke.ts",
     "test/**/*.ts",
     "alfworld/src/**/*.ts",
     "alfworld/scripts/**/*.ts",

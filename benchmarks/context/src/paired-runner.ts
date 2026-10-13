@@ -1,3 +1,4 @@
+import { ScriptBudgetExceeded } from "./script-driver.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { GroupResult } from "./runner.js";
@@ -9,7 +10,8 @@ export async function executePairedGroups(directory: string, model: string, exec
         await mkdir(output, { recursive: true });
         try { groups.push(await execute(group, output)); }
         catch (error) {
-            const result: GroupResult = { group, category: "infrastructure_error", stages: [], model, calls: [], durationMs: 0, imageId: null, artifacts: null, score: null, errors: [String(error)] };
+            const budget = error instanceof ScriptBudgetExceeded;
+            const result: GroupResult = { group, category: budget ? "budget_exceeded" : "infrastructure_error", stages: [], model, calls: [], durationMs: 0, imageId: null, artifacts: null, score: budget ? { deterministic: false, judge: null, violations: [], combined: "failed" } : null, errors: [String(error)] };
             await writeFile(join(output, "group.json"), JSON.stringify(result, null, 2));
             groups.push(result);
         }

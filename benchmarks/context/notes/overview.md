@@ -17,7 +17,7 @@ Worker 使用共享 Headless 会话调用真实 launch、continue 或 resume；�
 capture 在声明的终态或 waiting 阶段边界停止 Worker，再核对新增子进程已退出。
 [检查点](../src/checkpoint.ts) 保存该时刻 Snapshot、历史、完整模型输入、项目文件及其哈希，
 记录实际 Worker 源码、模板和镜像身份。Worker 启用独立诊断 Trace，并随 state 回收至 traces；请求、响应、schema 与校验错误按 callId 关联，超限内容带截断标记。Snapshot 是恢复权威；模型输入和诊断不参与回放。Agent 源码和模板可在当前协议下演进；检查点保留采集构建身份，报告另记录实际执行 Worker 和宿主评测源码身份。
-首期拒绝 executing 中途捕获、符号链接、隐藏文件、node_modules 和超出归档上限的材料。
+原生普通文件场景拒绝 executing 中途捕获、符号链接、隐藏文件、node_modules 和超出归档上限的材料。来源型场景使用完整容器文件系统归档，不把仓库转换为普通文件树。
 
 ## 候选与版本
 
@@ -37,4 +37,16 @@ agent 完全停止后执行隐藏 verifier，比较评分前后文件哈希；�
 缺失用量记为 null。JSON 与英文报告保留双方结果、计划分母和可配对性。
 未完成和失败样本不被过滤。检索与输入暴露是审计材料，不自动证明模型使用了信息。
 
-不接公开数据集、GEPA、动态 prompt、自动入库、历史协议迁移或后台服务。
+## SWE-bench 来源
+
+[来源场景](../src/source-scenario.ts) 保留固定任务包的完整 issue，分别生成跨 Run 调查后 continue 与 ask_user 后 resume 的脚本。waiting 模板固定单个确认问题，Runtime 分配 q-1；实际问题不匹配时停止。两组复用来源五工具，不改变 Runtime 语义。
+
+来源接口归属 [共享评测层](../../README.md)，SWE 实现归属 [SWE-bench](../../swebench/README.md)，由顶层 CLI 注入；具体 benchmark 不横向导入。来源任务的评分数据只留宿主，容器使用不可变镜像 ID、/testbed 和宿主模型 RPC。
+
+capture 停止 Agent 后保存可导入 filesystem.tar 和镜像/字节摘要，包含依赖、未跟踪文件、仓库和 Runtime 状态；挂载/卷拒绝，不保存进程内存。恢复不重置源码，校验当前 Worker 构建身份；原生场景仍按原文件路径恢复。
+
+[审核标注](../src/source-evidence.ts) 引用已提交原始事实。annotations.json 必须经人工补齐并显式批准才能冻结，不按修复成功筛题。候选、归档、脚本、任务、rubric 与标注都受完整内容摘要保护。
+
+来源型结果分别保留官方工程评分与 Context 机制/语义结果。官方评分使用宿主私有数据和干净容器；completed 不等于 resolved，unresolved 不能覆盖 Context 通过。full 组使用自身来源，不要求复制采集分支决定。恢复宿主预算扣除已捕获前缀，waiting 的 Runtime Step 额度由原 Snapshot 保留。
+
+不支持任意 executing 暂停、GEPA、动态 prompt、自动入库、历史协议迁移或后台服务。显式脚本/固定 Judge 验证报告标记 infrastructure_validation，不能作为真实模型质量证据。
