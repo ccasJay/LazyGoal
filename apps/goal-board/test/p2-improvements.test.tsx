@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import React from "react";
+
+(globalThis as any).React = React;
 
 if (typeof globalThis.window === "undefined") {
   (globalThis as any).window = {
