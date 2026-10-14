@@ -190,6 +190,10 @@ export function GoalSession({
 
       {draftSessionOpen ? (
         <>
+          {sessionError && <div className="command-error" role="alert">
+            <p>{sessionError}</p>
+            <button className="secondary" onClick={() => void refreshSelectedSession()}>Reload session</button>
+          </div>}
           <WorkspaceContext context={workspaceContext} error={workspaceContextError} />
           <div className="session-tabs">
             <div className="session-tab-buttons">
@@ -248,7 +252,7 @@ export function GoalSession({
             <MessageComposer
               key="new-goal-draft"
               autoFocus
-              busy={commandBusy}
+              busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
               placeholder="Message LazyGoal…"
               footerControls={
                 <>
@@ -270,7 +274,7 @@ export function GoalSession({
           <span className="loading-mark" />
           <p>Loading the latest saved session…</p>
         </div>
-      ) : sessionError ? (
+      ) : sessionError && session === null ? (
         <div className="session-empty" role="alert">
           <CircleHelp size={24} />
           <p>{sessionError}</p>
@@ -284,6 +288,10 @@ export function GoalSession({
         </div>
       ) : (
         <>
+          {sessionError && <div className="command-error" role="alert">
+            <p>{sessionError}</p>
+            <button className="secondary" onClick={() => void refreshSelectedSession()}>Reload session</button>
+          </div>}
           <WorkspaceContext context={workspaceContext} error={workspaceContextError} />
           {session.nextRunMode === "plan" && <div className="session-intro">Next Run · Plan Mode</div>}
           <div className="session-tabs">
@@ -655,7 +663,7 @@ export function GoalSession({
                       Queue paused. Continue when ready.
                       <button
                         type="button"
-                        disabled={commandBusy}
+                        disabled={commandBusy || sessionError !== null}
                         onClick={() => void onContinueQueue()}
                       >
                         Continue queue
@@ -671,7 +679,7 @@ export function GoalSession({
                       {renderPermissionControl(true)}
                       <CurrentModelControl
                         label={currentModelName}
-                        enabled={canSwitchCurrentModel && !commandBusy}
+                        enabled={canSwitchCurrentModel && !commandBusy && sessionError === null}
                         onClick={() =>
                           setModelPickerTarget({
                             kind: "goal",
@@ -683,7 +691,7 @@ export function GoalSession({
                     </div>
                     <WaitingInteraction
                       session={session}
-                      busy={commandBusy}
+                      busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
                       onSubmit={(command) => void onSubmitInteraction(command)}
                     />
                   </>
@@ -691,14 +699,14 @@ export function GoalSession({
                   <MessageComposer
                     key={session.currentRunId}
                     showHint={false}
-                    busy={commandBusy}
+                    busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
                     placeholder="Give direction or ask a question…"
                     footerControls={
                       <>
                         {renderPermissionControl(true)}
                         <CurrentModelControl
                           label={currentModelName}
-                          enabled={canSwitchCurrentModel && !commandBusy}
+                          enabled={canSwitchCurrentModel && !commandBusy && sessionError === null}
                           onClick={() =>
                             setModelPickerTarget({
                               kind: "goal",
@@ -729,7 +737,7 @@ export function GoalSession({
                   <MessageComposer
                     key={`${session.currentRunId}:continue`}
                     showHint={false}
-                    busy={commandBusy}
+                    busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
                     placeholder={
                       session.runStatus === "failed" || session.runStatus === "cancelled"
                         ? "Send a message to continue in a new Run…"
@@ -740,7 +748,7 @@ export function GoalSession({
                         {renderPermissionControl(true)}
                         <CurrentModelControl
                           label={currentModelName}
-                          enabled={canSwitchCurrentModel && !commandBusy}
+                          enabled={canSwitchCurrentModel && !commandBusy && sessionError === null}
                           onClick={() =>
                             setModelPickerTarget({
                               kind: "goal",
@@ -770,7 +778,7 @@ export function GoalSession({
                       <button
                         type="button"
                         className="primary"
-                        disabled={commandBusy}
+                        disabled={commandBusy || sessionError !== null}
                         onClick={() => void onSubmitResume()}
                       >
                         {commandBusy ? "Resuming…" : "Resume Run"}
@@ -781,7 +789,7 @@ export function GoalSession({
                   <MessageComposer
                     key={session.currentRunId}
                     showHint={false}
-                    busy={commandBusy}
+                    busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
                     running
                     placeholder="Add direction while this Run is working…"
                     pendingSteers={session.pendingSteers ?? []}
@@ -822,7 +830,7 @@ export function GoalSession({
                       <button
                         type="button"
                         className="primary"
-                        disabled={commandBusy}
+                        disabled={commandBusy || sessionError !== null}
                         onClick={() => void onSubmitResume()}
                       >
                         {commandBusy ? "Resuming…" : "Resume Run"}
