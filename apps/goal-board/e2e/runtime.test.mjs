@@ -119,9 +119,14 @@ test("real local service restores and completes one authorized Goal conversation
     assert.deepEqual(savedPreference.body, { ok: true, modelId: "model-b" });
     assert.equal((await api(first.origin, `/api/goals/${goalId}/models?runId=${firstRunId}`, { token: first.token })).body.currentModelId, "default-model");
 
+    await waitForExpression(socket, "document.querySelector('.other-answer input') !== null");
+    await setText(socket, ".other-answer input", "Saved answer draft");
     await stopService(service);
     await waitForExpression(socket, "!document.querySelector('.stream-state')?.classList.contains('connected')", 10_000);
     assert.ok(await value(socket, "document.querySelector('.structured-form') !== null"), "disconnect preserves the saved answer form");
+    await waitForExpression(socket, "document.querySelector('.session [role=alert]') !== null");
+    assert.equal(await value(socket, "document.querySelector('.other-answer input').value"), "Saved answer draft");
+    assert.equal(await value(socket, "document.querySelector('.structured-form button[type=submit]').disabled"), true);
 
     service = await startService({ workspace, data, home, statusPath, runOffset: 1, modelOffset: 1, delayModel: true });
     const restarted = await service.ready;
@@ -326,6 +331,7 @@ test("real local service restores and completes one authorized Goal conversation
     assert.equal(planSession.currentRunMode, "plan");
     assert.ok(planSession.messages.some((message) => message.role === "user" && message.content === "Plan flow: inspect and complete the acceptance path"));
     assert.equal(planSession.messages.some((message) => message.content === "/plan"), false);
+    await waitForExpression(socket, "[...document.querySelectorAll('.structured-form button')].filter(button => button.textContent.includes('Approve task') && !button.disabled).length === 1");
     await cdp(socket, "Runtime.evaluate", {
       expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Approve task')).click()",
       returnByValue: true,
@@ -590,11 +596,24 @@ async function connectCdp(url) {
     socket.addEventListener("open", resolve, { once: true });
     socket.addEventListener("error", reject, { once: true });
   });
+  socket.requests = new Map();
   socket.pending = new Map();
   socket.nextId = 0;
   socket.addEventListener("message", async (event) => {
     const raw = typeof event.data === "string" ? event.data : await event.data.text();
     const message = JSON.parse(raw);
+    if (message.method === "Network.requestWillBeSent") {
+      const { requestId, request } = message.params;
+      const pathname = new URL(request.url).pathname;
+      if (pathname.startsWith("/api/")) {
+        socket.requests.set(requestId, { path: pathname, method: request.method });
+        if (socket.requests.size > 20) socket.requests.delete(socket.requests.keys().next().value);
+      }
+    }
+    if (message.method === "Network.responseReceived") {
+      const entry = socket.requests.get(message.params.requestId);
+      if (entry) entry.status = message.params.response.status;
+    }
     if (message.id === undefined) return;
     const pending = socket.pending.get(message.id);
     if (pending === undefined) return;
@@ -602,6 +621,7 @@ async function connectCdp(url) {
     if (message.error) pending.reject(new Error(message.error.message));
     else pending.resolve(message.result);
   });
+  await cdp(socket, "Network.enable");
   return socket;
 }
 
@@ -642,5 +662,10 @@ async function waitForExpression(socket, expression, timeoutMs = 5_000) {
     if (await value(socket, expression)) return;
     await delay(50);
   }
-  throw new Error(`Timed out waiting for browser expression: ${expression}; page text: ${await value(socket, "document.body.innerText")}`);
+  throw new Error(`Timed out waiting for browser expression: ${expression}; diagnostics: ${await browserDiagnostics(socket)}`);
+}
+
+async function browserDiagnostics(socket) {
+  const page = await value(socket, "({url: location.origin + location.pathname, state: document.querySelector('.task-state')?.textContent, connection: document.querySelector('.stream-state')?.textContent, buttons: [...document.querySelectorAll('.structured-form button, .command-candidate')].map(button => ({text: button.textContent.trim(), disabled: button.disabled}))})");
+  return JSON.stringify({ ...page, requests: [...socket.requests.values()] });
 }

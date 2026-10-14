@@ -349,7 +349,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Locate trajectory event 2\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #2')");
     assert.equal(await value(socket, "document.querySelector('input[aria-label=\"Search trajectory\"]').value"), "started");
-    assert.equal(await value(socket, "document.querySelector('.tr-outside-badge')?.textContent"), "Event outside active filter");
+    await waitForExpression(socket, "document.querySelector('.tr-outside-badge')?.textContent === 'Event outside active filter'");
 
     // 4. Tab 偏好记忆与纯净视图：切至 Raw 时不渲染 execution relationship 卡片；导航至相邻事件或点击刻度保持 Raw 偏好；列表直接点击重置为 Summary
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.tr-detail-tabs button')].find(b => b.textContent === 'Raw').click()", returnByValue: true });
@@ -363,8 +363,10 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Locate trajectory event 2\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #2')");
     assert.equal(await value(socket, "document.querySelector('.tr-detail-tabs button.active')?.textContent"), "Raw");
+    await setText(socket, "input[aria-label='Search trajectory']", "");
+    await waitForExpression(socket, "document.querySelector('#trajectory-event-1') !== null");
     // 列表行直接点击重置为 Summary，且焦点稳定停留在当前选中行
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#trajectory-event-1')?.click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#trajectory-event-1').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-detail-tabs button.active')?.textContent === 'Summary'");
     assert.equal(await value(socket, "document.querySelector('.tr-detail-tabs button.active')?.textContent"), "Summary");
     assert.equal(await value(socket, "document.activeElement?.id"), "trajectory-event-1");
@@ -452,14 +454,14 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelector('.command-candidates') === null"), true);
     assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]').value"), "/p");
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/pl");
-    await waitForExpression(socket, "document.querySelector('.command-candidate') !== null");
+    await waitForExpression(socket, "document.querySelectorAll('.command-candidate').length === 1 && !document.querySelector('.command-candidate').disabled");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.command-candidate').click()", returnByValue: true });
     await waitForLocal(() => mock.planModeRequests === 1);
     assert.deepEqual(mock.lastPlanMode, { runId: "run-1" });
     assert.equal(mock.lastMessage, undefined, "command selection does not submit a Goal message");
     await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled === false");
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/p");
-    await waitForExpression(socket, "document.querySelector('.command-candidate') !== null");
+    await waitForExpression(socket, "document.querySelectorAll('.command-candidate').length === 1 && !document.querySelector('.command-candidate').disabled");
     await cdp(socket, "Runtime.evaluate", {
       expression: "document.querySelector('textarea[aria-label=\"Message the Goal\"]').focus()",
       returnByValue: true,
@@ -1012,11 +1014,24 @@ async function connectCdp(url) {
     socket.addEventListener("open", resolveOpen, { once: true });
     socket.addEventListener("error", reject, { once: true });
   });
+  socket.requests = new Map();
   socket.pending = new Map();
   socket.nextId = 0;
   socket.addEventListener("message", async (event) => {
     const raw = typeof event.data === "string" ? event.data : await event.data.text();
     const message = JSON.parse(raw);
+    if (message.method === "Network.requestWillBeSent") {
+      const { requestId, request } = message.params;
+      const pathname = new URL(request.url).pathname;
+      if (pathname.startsWith("/api/")) {
+        socket.requests.set(requestId, { path: pathname, method: request.method });
+        if (socket.requests.size > 20) socket.requests.delete(socket.requests.keys().next().value);
+      }
+    }
+    if (message.method === "Network.responseReceived") {
+      const entry = socket.requests.get(message.params.requestId);
+      if (entry) entry.status = message.params.response.status;
+    }
     if (message.id === undefined) return;
     const pending = socket.pending.get(message.id);
     if (pending === undefined) return;
@@ -1024,6 +1039,7 @@ async function connectCdp(url) {
     if (message.error) pending.reject(new Error(message.error.message));
     else pending.resolve(message.result);
   });
+  await cdp(socket, "Network.enable");
   return socket;
 }
 
@@ -1057,7 +1073,7 @@ async function waitForExpression(socket, expression) {
     if (await value(socket, expression)) return;
     await delay(50);
   }
-  throw new Error(`Timed out waiting for browser expression: ${expression}; page text: ${await value(socket, "document.body.innerText")}`);
+  throw new Error(`Timed out waiting for browser expression: ${expression}; diagnostics: ${await browserDiagnostics(socket)}`);
 }
 
 async function waitForLocal(predicate) {
@@ -1067,4 +1083,9 @@ async function waitForLocal(predicate) {
     await delay(50);
   }
   throw new Error("Timed out waiting for local browser request");
+}
+
+async function browserDiagnostics(socket) {
+  const page = await value(socket, "({url: location.origin + location.pathname, state: document.querySelector('.task-state')?.textContent, connection: document.querySelector('.stream-state')?.textContent, buttons: [...document.querySelectorAll('.structured-form button, .command-candidate')].map(button => ({text: button.textContent.trim(), disabled: button.disabled}))})");
+  return JSON.stringify({ ...page, requests: [...socket.requests.values()] });
 }
