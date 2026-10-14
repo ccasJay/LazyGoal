@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { BrowserGoalSession } from "../../../../packages/web-contracts/src/index";
-import { BrowserApiError, browserApi } from "../api";
+import { browserApi } from "../api";
 
 export function useRunStream({
   selectedGoalId,
@@ -104,15 +104,13 @@ export function useRunStream({
             await refreshLatest();
             await delay();
           }
-        } catch (error) {
+        } catch {
           if (!active || controller.signal.aborted) return;
           setStreamConnected(false);
-          if (error instanceof BrowserApiError && error.refresh) {
-            try {
-              await refreshLatest();
-            } catch {
-              // The next connection attempt will retry the official Snapshot read.
-            }
+          try {
+            await refreshLatest();
+          } catch {
+            // Snapshot read failures must not stop stream reconnection.
           }
           await delay();
         }
