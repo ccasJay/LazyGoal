@@ -255,6 +255,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.textContent === 'Trajectory').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('Retry inputs')");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Zoom in timeline\"]').click(); document.querySelector('#trajectory-event-1').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent !== '1×'");
     const retainedZoom = await value(socket, "document.querySelector('.tr-zoom-level').textContent");
     assert.notEqual(retainedZoom, "1×");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.mi-input-status button')].find(button => button.textContent === 'Retry inputs').click()", returnByValue: true });
