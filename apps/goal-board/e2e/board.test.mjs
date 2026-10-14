@@ -371,8 +371,10 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Locate trajectory event 2\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #2')");
     assert.equal(await value(socket, "document.querySelector('.tr-detail-tabs button.active')?.textContent"), "Raw");
+    const unfilteredRead = mock.trajectoryReads() + 1;
     await setText(socket, "input[aria-label='Search trajectory']", "");
-    await waitForExpression(socket, "document.querySelector('#trajectory-event-1') !== null");
+    await waitForLocal(() => mock.trajectoryReads() >= unfilteredRead);
+    await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('Historical model inputs not recorded.') && document.querySelectorAll('.ct-step-header').length === 2 && document.querySelector('#trajectory-event-1') !== null && !document.querySelector('.tr-coverage')?.textContent.includes('Loading')");
     // 列表行直接点击重置为 Summary，且焦点稳定停留在当前选中行
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#trajectory-event-1').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-detail-tabs button.active')?.textContent === 'Summary'");
@@ -380,14 +382,15 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.activeElement?.id"), "trajectory-event-1");
 
     // 5. 步骤折叠稳定性与准确引导文案：折叠包含选中项的步骤时不反向弹开；全收起时检查器显示指引；展开后恢复详情
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header')[0]?.click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header')[0].click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelectorAll('.ct-step-header')[0]?.getAttribute('aria-expanded') === 'false'");
     assert.equal(await value(socket, "document.querySelectorAll('.ct-step-header')[0]?.getAttribute('aria-expanded')"), "false");
+    await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')");
     assert.equal(await value(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')"), true);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header')[1]?.click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header')[1].click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-empty-guidance')?.textContent.includes('所有步骤已收起，请展开步骤以查看事件')");
     assert.equal(await value(socket, "document.querySelector('.tr-empty-guidance p')?.textContent"), "所有步骤已收起，请展开步骤以查看事件");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header')[0]?.click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header')[0].click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')");
     assert.equal(await value(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')"), true);
 
@@ -634,15 +637,15 @@ function createMockApi() {
       return;
     }
     if (request.url?.startsWith("/api/goals/goal-1/trajectory")) {
-      const run = { runId: "run-1", status: "completed", current: true, committedThroughSequence: 2 };
+      const run = { runId: "run-1", status: "completed", current: true, committedThroughSequence: 3 };
       if (request.url.startsWith("/api/goals/goal-1/trajectory/runs")) json(response, { runs: [run], nextOffset: null });
       else if (request.url.startsWith("/api/goals/goal-1/trajectory?")) {
         trajectoryReads += 1;
-        json(response, { goalId: "goal-1", run, entries: [1, 2].map(sequence => ({ eventId: `event-${sequence}`, sequence, stepIndex: sequence - 1, executionUnitId: `unit-${sequence - 1}`, occurredAt: `2026-08-05T09:00:0${sequence}.000Z`, eventType: sequence === 1 ? "run_started" : "run_completed", category: "lifecycle", title: "Run", preview: "Committed Run event", previewTruncated: false })), total: 2, committedCount: 2, previousCursor: null, nextCursor: null, locatedSequence: null });
+        json(response, { goalId: "goal-1", run, entries: [1, 2, 3].map(sequence => ({ eventId: `event-${sequence}`, sequence, ...(sequence <= 2 ? { stepIndex: sequence - 1 } : {}), executionUnitId: `unit-${sequence - 1}`, occurredAt: `2026-08-05T09:00:0${sequence}.000Z`, eventType: sequence === 1 ? "run_started" : sequence === 2 ? "think_completed" : "run_completed", category: sequence === 2 ? "decision" : "lifecycle", title: sequence === 2 ? "Thinking" : "Run", preview: "Committed Run event", previewTruncated: false })), total: 3, committedCount: 3, previousCursor: null, nextCursor: null, locatedSequence: null });
       } else if (request.url.startsWith("/api/goals/goal-1/trajectory/events/")) {
         const sequence = Number(request.url.split("/").at(-1).split("?")[0]);
-        const eventType = sequence === 1 ? "run_started" : "run_completed";
-        json(response, { event: { eventSchemaVersion: 1, eventId: `event-${sequence}`, goalId: "goal-1", runId: "run-1", sequence, occurredAt: `2026-08-05T09:00:0${sequence}.000Z`, phase: "executing", eventType, payload: { type: eventType } }, observationConfirmed: false, toolDurationMs: null });
+        const eventType = sequence === 1 ? "run_started" : sequence === 2 ? "think_completed" : "run_completed";
+        json(response, { event: { eventSchemaVersion: 1, eventId: `event-${sequence}`, goalId: "goal-1", runId: "run-1", sequence, occurredAt: `2026-08-05T09:00:0${sequence}.000Z`, phase: "executing", eventType, payload: eventType === "think_completed" ? { type: eventType, requestId: "think-1", stepOrdinal: 1, goal: "Inspect the saved workflow", output: "Inspection finished." } : { type: eventType } }, observationConfirmed: false, toolDurationMs: null });
       } else { response.writeHead(404); response.end(); }
       return;
     }
