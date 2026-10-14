@@ -70,8 +70,10 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.match(await value(socket, "document.querySelector('.session').innerText"), /Live response/);
     assert.match(await value(socket, "document.querySelector('.session').innerText"), /Not saved yet/);
     assert.doesNotMatch(await value(socket, "document.querySelector('.session').innerText"), /Run completed/);
+    mock.advanceReviewActivity();
     await waitForExpression(socket, "document.querySelector('.transient-message h1')?.textContent === 'Reviewing result…'");
     assert.doesNotMatch(await value(socket, "document.querySelector('.transient-message').innerText"), /Checking saved notes/);
+    mock.commitWaitingActivity();
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which source should I use?')");
     const conversationBounds = await value(socket, "(() => { const timeline = document.querySelector('.run-timeline').getBoundingClientRect(); const composer = document.querySelector('.composer-area .approval').getBoundingClientRect(); return { timelineWidth: timeline.width, composerWidth: composer.width, centerGap: Math.abs((timeline.left + timeline.right - composer.left - composer.right) / 2) }; })()");
     assert.ok(conversationBounds.timelineWidth <= 800 && conversationBounds.composerWidth <= 800);
@@ -95,7 +97,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
 
     assert.equal(await value(socket, "document.querySelector('.topbar .goal-info-toggle') !== null"), true);
     assert.deepEqual(await value(socket, "[...document.querySelectorAll('.session-tab-buttons button')].map(button => button.textContent)"), ["Board", "Activity", "Trajectory"]);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.session-tab-buttons button').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.session-tab-buttons button:first-child').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.session .board-area .goal-card') !== null");
     assert.equal(await value(socket, "document.querySelectorAll('.session .board .column').length"), 5);
     assert.equal(await value(socket, "document.querySelector('.session .board-footer') === null"), true);
@@ -243,7 +245,9 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelector('.approval-scopes input').checked"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.action-details-toggle').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.action-input-full') !== null");
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.approval-scopes label')].find(label => label.innerText.includes('This Goal')).querySelector('input').click(); document.querySelector('.approval-primary').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.approval-scopes label')].find(label => label.innerText.includes('This Goal')).querySelector('input').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.approval-primary')?.textContent.includes('Approve for this Goal')");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.approval-primary').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('I collected the approved notes.')");
     assert.equal(await value(socket, "document.querySelector('.message.assistant:not(.transient-message) h1')?.textContent"), "I collected the approved notes.");
     assert.equal(await value(socket, "document.querySelector('.message.assistant .markdown-table-scroll th')?.textContent"), "Field");
@@ -284,7 +288,10 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(mock.inputDetailReads(), detailReads, "message selection reuses the loaded model request");
     assert.equal(await value(socket, "document.querySelector('.mi-message[data-message-index=\"1\"]').open"), false);
     assert.equal(await value(socket, "(() => { const message = document.querySelector('.mi-message.is-selected').getBoundingClientRect(); const body = document.querySelector('.mi-inspector .tr-detail-body').getBoundingClientRect(); return message.top >= body.top && message.top < body.bottom; })()"), true);
+    if (await value(socket, "document.querySelector('.tr-zoom-level')?.textContent !== '1×'")) {
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Reset timeline zoom\"]').click()", returnByValue: true });
+    }
+    await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent === '1×'");
     const timelinePoint = await value(socket, "(() => { const button = document.querySelector('button[aria-label=\"Locate trajectory event 2\"]'); const r = button.getBoundingClientRect(); const x = r.x + r.width / 2, y = r.y + r.height / 2; return { x, y, reachable: document.elementFromPoint(x, y) === button }; })()");
     assert.equal(timelinePoint.reachable, true, "the model inspector leaves timeline event markers reachable");
     await cdp(socket, "Input.dispatchMouseEvent", { type: "mousePressed", x: timelinePoint.x, y: timelinePoint.y, button: "left", clickCount: 1 });
@@ -396,7 +403,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelectorAll('button.row[aria-selected]').length"), 0);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.step').forEach(btn => btn.click())", returnByValue: true });
     assert.equal(await value(socket, "document.querySelector('#event-title')?.textContent"), "所有步骤已收起，请展开步骤以查看事件");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.step').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.step:first-child').click()", returnByValue: true });
     await cdp(socket, "Runtime.evaluate", { expression: "navigator.clipboard.writeText = () => Promise.reject(new Error('Permission denied')); document.querySelector('#copy').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('#copy')?.textContent === 'Copy failed'");
     assert.equal(await value(socket, "document.querySelector('#copy').textContent"), "Copy failed");
@@ -564,6 +571,7 @@ function createMockApi() {
   let session = waitingSession();
   let currentListItem = listItem("waiting");
   let liveTransitionSent = false;
+  let activityResponse;
   let lastInteraction;
   let lastMessage;
   let lastPlanMode;
@@ -754,6 +762,7 @@ function createMockApi() {
       });
       if (!liveTransitionSent) {
         liveTransitionSent = true;
+        activityResponse = response;
         response.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "model_started" } })}\n\n`);
         response.write(`data: ${JSON.stringify({
           goalId: "goal-1",
@@ -761,16 +770,7 @@ function createMockApi() {
           type: "activity",
           activity: { kind: "assistant_text_delta", text: "# Checking saved notes…\n", truncated: false },
         })}\n\n`);
-        const timer = setTimeout(() => {
-          response.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "model_started" } })}\n\n`);
-          response.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "assistant_text_delta", text: "# Reviewing result…\n", truncated: false } })}\n\n`);
-        }, 120);
-        const settle = setTimeout(() => {
-          session = interactionSession();
-          currentListItem = listItem("waiting");
-          response.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "snapshot_changed" })}\n\n`);
-        }, 240);
-        request.on("close", () => { clearTimeout(timer); clearTimeout(settle); });
+
       }
       return;
     }
@@ -806,6 +806,17 @@ function createMockApi() {
   });
   return {
     server,
+    advanceReviewActivity() {
+      assert.ok(activityResponse && !activityResponse.destroyed);
+      activityResponse.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "model_started" } })}\n\n`);
+      activityResponse.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "assistant_text_delta", text: "# Reviewing result…\n", truncated: false } })}\n\n`);
+    },
+    commitWaitingActivity() {
+      assert.ok(activityResponse && !activityResponse.destroyed);
+      session = interactionSession();
+      currentListItem = listItem("waiting");
+      activityResponse.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "snapshot_changed" })}\n\n`);
+    },
     authorizationHeaders,
     get lastInteraction() { return lastInteraction; },
     get lastMessage() { return lastMessage; },
@@ -1044,7 +1055,20 @@ async function connectCdp(url) {
   return socket;
 }
 
-function cdp(socket, method, params = {}) {
+async function cdp(socket, method, params = {}) {
+  const expression = params.expression;
+  if (method === "Runtime.evaluate" && typeof expression === "string" && expression.endsWith(".click()") && !expression.includes("?.click()")) {
+    const operations = expression.split(";").map(operation => operation.trim()).filter(Boolean);
+    if (operations.length > 1) {
+      let result;
+      for (const operation of operations) result = await cdp(socket, method, { ...params, expression: operation });
+      return result;
+    }
+    const target = expression.slice(0, -".click()".length);
+    const selector = /^document\.querySelector\((.+)\)$/.exec(target);
+    const unique = selector ? `document.querySelectorAll(${selector[1]}).length === 1 && ` : "";
+    await waitForExpression(socket, `(() => { try { const target = ${target}; return ${unique}target != null && target.isConnected && target.checkVisibility() && !target.disabled; } catch (error) { if (error instanceof TypeError) return false; throw error; } })()`);
+  }
   const id = ++socket.nextId;
   return new Promise((resolveResult, reject) => {
     socket.pending.set(id, { resolve: resolveResult, reject });

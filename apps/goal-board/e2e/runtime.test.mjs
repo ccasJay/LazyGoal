@@ -143,7 +143,7 @@ test("real local service restores and completes one authorized Goal conversation
     await navigate(socket, restarted.launchUrl);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null", 10_000);
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('.goal-card').click()",
+      expression: "document.querySelectorAll('.goal-card')[0].click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Which notes should I include?')", 10_000);
@@ -379,7 +379,7 @@ test("real local service restores and completes one authorized Goal conversation
     await cdp(socket, "Page.reload");
     await waitForExpression(socket, "document.readyState === 'complete' && document.querySelector('.goal-card') !== null", 10_000);
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('.goal-card').click()",
+      expression: "document.querySelectorAll('.goal-card')[0].click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 10_000);
@@ -625,7 +625,20 @@ async function connectCdp(url) {
   return socket;
 }
 
-function cdp(socket, method, params = {}) {
+async function cdp(socket, method, params = {}) {
+  const expression = params.expression;
+  if (method === "Runtime.evaluate" && typeof expression === "string" && expression.endsWith(".click()") && !expression.includes("?.click()")) {
+    const operations = expression.split(";").map(operation => operation.trim()).filter(Boolean);
+    if (operations.length > 1) {
+      let result;
+      for (const operation of operations) result = await cdp(socket, method, { ...params, expression: operation });
+      return result;
+    }
+    const target = expression.slice(0, -".click()".length);
+    const selector = /^document\.querySelector\((.+)\)$/.exec(target);
+    const unique = selector ? `document.querySelectorAll(${selector[1]}).length === 1 && ` : "";
+    await waitForExpression(socket, `(() => { try { const target = ${target}; return ${unique}target != null && target.isConnected && target.checkVisibility() && !target.disabled; } catch (error) { if (error instanceof TypeError) return false; throw error; } })()`);
+  }
   const id = ++socket.nextId;
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
