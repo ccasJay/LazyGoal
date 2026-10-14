@@ -4,11 +4,11 @@ status: superseded
 summary: "规范 Preparation 结构化增量、用户输入溯源与 Working Memory 阶段提交边界"
 source_spec: specs/preparation-runtime-flow/
 distilled_at: 2026-09-03
-reviewed_at: 2026-09-18
+reviewed_at: 2026-10-10
 status_reason: "Preparation 专属数据流已由 preparation-phase-removal 的统一 executing、pendingInteraction 与 Evidence 边界替代。"
 superseded_by: [project-memory/features/preparation-phase-removal.md]
 tags: [preparation, runtime, working-memory, provenance, evidence-gate]
-authorities: [docs/architecture/runtime.md, docs/architecture/agent.md, packages/runtime/src/evidence-gate.ts, packages/runtime/src/working-memory-core.ts, packages/runtime/src/trajectory-checkpoint-committer.ts]
+authorities: [packages/runtime/notes/overview.md, packages/agent/notes/overview.md, packages/runtime/src/evidence-gate.ts, packages/working-memory/src/core.ts, packages/runtime/src/trajectory-checkpoint-committer.ts]
 ---
 
 # Preparation Runtime Flow
@@ -42,7 +42,7 @@ authorities: [docs/architecture/runtime.md, docs/architecture/agent.md, packages
 - S1: `specs/preparation-runtime-flow/requirements.md`
 - S2: `specs/preparation-runtime-flow/design.md`
 - S3: `packages/runtime/src/evidence-gate.ts`
-- S4: `packages/runtime/src/working-memory-core.ts`
+- S4: `packages/working-memory/src/core.ts`
 - S5: `packages/runtime/src/trajectory-checkpoint-committer.ts`
 - S6: `packages/agent/src/render.ts`
 - S7: `packages/runtime/test/evidence-gate.test.ts`

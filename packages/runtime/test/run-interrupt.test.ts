@@ -73,7 +73,24 @@ test("Interrupted Tool records an unknown failure for repair and never fabricate
     const trajectory = trajectoryStoreFor(store);
     const toolProfile: AgentProfile = { ...profile, toolIds: ["write_probe"] };
     const created = createGoal({ ...currentProtocols, promptBundleVersion: 1, id: "goal-interrupt-tool", intent: "inspect interrupted write", profile: toolProfile, runId: "run-interrupt-tool" });
-    const initial = { ...created, state: { ...created.state, run: { ...created.state.run, status: "running" as const, exposedToolIds: ["write_probe"] } } };
+    const initial = {
+        ...created,
+        state: {
+            ...created.state,
+            run: {
+                ...created.state.run,
+                status: "running" as const,
+                exposedToolIds: ["write_probe"],
+                currentStage: {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing" as const,
+                    target: "inspect interrupted write",
+                    acceptanceCriteria: ["完成测试"],
+                },
+            },
+        },
+    };
     await store.save(initial);
     const entered = deferred();
     let calls = 0;

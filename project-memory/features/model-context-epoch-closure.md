@@ -4,9 +4,9 @@ status: active
 summary: "基于 Token 预算、Context Epoch 与安全检查点的长任务上下文闭环"
 source_spec: specs/model-context-epoch-closure/
 distilled_at: 2026-09-03
-reviewed_at: 2026-09-03
+reviewed_at: 2026-10-10
 tags: [context, epoch, token-budget, checkpoint, long-running]
-authorities: [docs/architecture/runtime.md, docs/architecture/agent.md, packages/runtime/src/context-epoch.ts, packages/runtime/src/runner.ts, packages/agent/src/model-inference-projector.ts]
+authorities: [packages/runtime/notes/overview.md, packages/agent/notes/overview.md, packages/runtime/src/context-epoch.ts, packages/runtime/src/runner.ts, packages/agent/src/model-inference-projector.ts]
 ---
 
 # Model Context Epoch Closure

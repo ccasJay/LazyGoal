@@ -1,0 +1,8 @@
+{
+  "provider": "google",
+  "model": "gemini-3.5-flash-lite",
+  "mode": "strict",
+  "durationMs": 3572,
+  "toolCalls": 1,
+  "status": "responded"
+}

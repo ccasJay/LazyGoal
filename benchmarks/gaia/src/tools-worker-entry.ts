@@ -104,7 +104,7 @@ function parseArgs(args: readonly string[]): {
         }
     }
 
-    return { workspaceRoot, taskId, answerFilePath };
+    return { ...(workspaceRoot === undefined ? {} : { workspaceRoot }), ...(taskId === undefined ? {} : { taskId }), ...(answerFilePath === undefined ? {} : { answerFilePath }) };
 }
 
 if (

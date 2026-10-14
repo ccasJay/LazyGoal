@@ -221,6 +221,7 @@ test("已提交阶段反馈后中止，恢复时重用反馈并继续同一 Deci
     const trajectory = new InMemoryTrajectoryStore();
     const initial = createExecutingGoal("decide-repair-recovery");
     await store.save(initial);
+    const shapeConstraints = ["Failed declared tool: system_complete_task.", "Provided fields: protocolVersion.", "Allowed fields: summary, evidenceSequences, memoryPatch.", "Required fields: summary, evidenceSequences, memoryPatch."];
     const controller = new AbortController();
     const first = new ScriptedExecutor(
         async (input, call) => {
@@ -234,10 +235,12 @@ test("已提交阶段反馈后中止，恢复时重用反馈并继续同一 Deci
                     origin: "output_contract",
                     code: "INVALID_LLM_RESPONSE",
                     attempt: 1,
+                    constraints: shapeConstraints,
                     issues: [{ code: "missing_required_property", path: ["result"], message: "Return the required result object." }],
                 }), "invalid Decide output");
             }
             assert.equal(input.runtimeFeedback?.attempt, 1);
+            assert.deepEqual(input.runtimeFeedback?.constraints, shapeConstraints);
             controller.abort();
             throw new ExecutionAbortedError("cancel between repair attempts");
         },
@@ -256,6 +259,7 @@ test("已提交阶段反馈后中止，恢复时重用反馈并继续同一 Deci
     const resumed = new ScriptedExecutor(
         async (input) => {
             assert.equal(input.runtimeFeedback?.attempt, 1);
+            assert.deepEqual(input.runtimeFeedback?.constraints, shapeConstraints);
             return waitDecision(input);
         },
         async () => { throw new Error("Decide recovery must not call Think"); },

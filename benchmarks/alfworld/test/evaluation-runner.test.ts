@@ -265,10 +265,14 @@ async function withTempPersistence<T>(run: (persistenceRoot: string) => Promise<
 
 function decision(content: unknown): string {
     if (typeof content === "object" && content !== null && !("result" in content)) {
+        const isDiscovery = "kind" in content && content.kind === "tool_discovery";
+        const isToolCall = "kind" in content && content.kind === "tool_call";
         return JSON.stringify({
-            result: content.kind === "tool_discovery"
+            result: isDiscovery
                 ? content
-                : { memoryPatch: null, ...content },
+                : isToolCall
+                    ? { memoryPatch: null, ...content }
+                    : { memoryPatch: null, contextNotes: null, ...content },
         });
     }
     return JSON.stringify(content);
@@ -293,6 +297,16 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
         let closed = 0;
         const responses: unknown[] = [
             { kind: "tool_discovery", query: "alfworld reset step" },
+            {
+                kind: "run_stage_update",
+                stageId: null,
+                baseRevision: null,
+                reason: null,
+                target: "Solve ALFWorld task",
+                acceptanceCriteria: ["Environment won"],
+                memoryPatch: null,
+                contextNotes: null,
+            },
             {
                 kind: "tool_call",
                 action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
@@ -371,7 +385,7 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
         assert.deepEqual(result.model, {
             runStatus: "completed",
             completed: true,
-            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 5 },
+            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 6 },
         });
         assert.equal(result.failure, undefined);
         assert.equal(closed, 1);
@@ -382,6 +396,16 @@ test("ALFWorld model completion without an environment win remains evaluator-own
     await withTempPersistence(async (persistenceRoot) => {
         const responses: unknown[] = [
             { kind: "tool_discovery", query: "alfworld reset" },
+            {
+                kind: "run_stage_update",
+                stageId: null,
+                baseRevision: null,
+                reason: null,
+                target: "Reset ALFWorld task",
+                acceptanceCriteria: ["Reset completed"],
+                memoryPatch: null,
+                contextNotes: null,
+            },
             {
                 kind: "tool_call",
                 action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
@@ -439,7 +463,7 @@ test("ALFWorld model completion without an environment win remains evaluator-own
         assert.deepEqual(result.model, {
             runStatus: "completed",
             completed: true,
-            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 4 },
+            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 5 },
         });
         assert.equal(result.failure, undefined);
 
@@ -460,9 +484,27 @@ test("ALFWorld sidecar errors remain infrastructure failures", async () => {
                 structuredOutputMode: "strict" as const,
                 generate: (() => {
                     let calls = 0;
-                    return async () => ({ content: decision(calls++ === 0
-                        ? { kind: "tool_discovery", query: "alfworld reset" }
-                        : { kind: "tool_call", action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} } }) });
+                    return async () => {
+                        const callIndex = calls++;
+                        if (callIndex === 0) {
+                            return { content: decision({ kind: "tool_discovery", query: "alfworld reset" }) };
+                        }
+                        if (callIndex === 1) {
+                            return {
+                                content: decision({
+                                    kind: "run_stage_update",
+                                    stageId: null,
+                                    baseRevision: null,
+                                    reason: null,
+                                    target: "Reset ALFWorld task",
+                                    acceptanceCriteria: ["Reset completed"],
+                                    memoryPatch: null,
+                                    contextNotes: null,
+                                }),
+                            };
+                        }
+                        return { content: decision({ kind: "tool_call", action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} } }) };
+                    };
                 })(),
             },
             renderer: {

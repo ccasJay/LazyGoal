@@ -6,3 +6,4 @@
 | --- | --- | --- | --- |
 | WorkingMemory | 结构化上下文数据。 | [结构化工作记忆](../README.md) | [模块说明](./overview.md) |
 | Memory Patch | 已接受事实的规范化变更。 | [结构化工作记忆](../README.md) | [模块说明](./overview.md) |
+| Patch 诊断 | 原子拒绝携带相对字段路径；不拥有重试。 | [结构化工作记忆](../README.md) | [Core](../src/core.ts) |

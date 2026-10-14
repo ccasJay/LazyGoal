@@ -29,3 +29,7 @@
 - [基础协议与空状态](../src/protocol.ts)：协议识别与空工作记忆工厂。
 - [归约算法与限制](../src/core.ts)：Patch 校验、规范化归约与容量管理。
 - [公开导出入口](../src/index.ts)：模块统一门面。
+
+`WorkingMemoryPatchError` 携带校验调用点产生的相对字段路径与稳定原因；Runtime 在模型候选边界决定是否反馈修复，Core 不拥有重试或持久化。
+
+Runtime 可用相同规则进行候选试归约，但产物不成为 accepted Patch；实际归约仍绑定最终提交序号。Core 的合法 duplicate/stale 抑制不等于忽略非法操作，Patch 拒绝仍然原子。

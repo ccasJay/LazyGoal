@@ -34,7 +34,6 @@ const profile: AgentProfile = {
 let toolCalls = 0;
 let nextRunId = Number(process.env.LAZYGOAL_E2E_RUN_COUNTER ?? "0");
 let activeGoalId: string | undefined;
-let planTaskProposed = false;
 let compositionRoot: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
 
 class DeterministicAdapter implements LLMAdapter {
@@ -45,75 +44,47 @@ class DeterministicAdapter implements LLMAdapter {
         this.calls += 1;
         await writeStatus();
         if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
-        const isComposerStatusFlow = request.messages.some((message) => message.content.includes("Composer status flow:"));
-        if (isComposerStatusFlow) await new Promise((resolve) => setTimeout(resolve, 1200));
-        if (process.env.LAZYGOAL_E2E_DELAY_MODEL === "1") await new Promise((resolve) => setTimeout(resolve, 5000));
-        const isPlanFlow = request.messages.some((message) => message.content.includes("Plan flow:"));
-        const isCancellationFlow = request.messages.some((message) => message.content.includes("Cancellation flow:"));
-        const cancelledQuestion = request.messages.some((message) => message.content.includes("I cancelled this question."));
-        const result = isCancellationFlow
-            ? cancelledQuestion
-                ? await completedDecision()
-                : {
-                kind: "ask_user",
-                questions: [{
-                    header: "Stop check",
-                    question: "Should this Run continue?",
-                    options: [
-                        { label: "Continue", description: null },
-                        { label: "Stop", description: null },
-                    ],
-                    multiSelect: false,
-                }],
+        if (compositionRoot === undefined || activeGoalId === undefined) throw new Error("The fixture needs the active Goal");
+        const goal = await compositionRoot.workspaceGoalStore.restore(activeGoalId);
+        if (goal === undefined) throw new Error("The active fixture Goal disappeared");
+        const trajectory = await compositionRoot.readWorkspaceTrajectory({ goalId: goal.id, runId: goal.state.run.id });
+        const answered = trajectory.committed.some(event => event.eventType === "ask_user_answered");
+        const cancelled = trajectory.committed.some(event => event.eventType === "ask_user_cancelled");
+        const observed = trajectory.committed.some(event => event.eventType === "observation_recorded");
+        const lastUser = goal.state.messages.filter(message => message.role === "user").at(-1)?.content ?? "";
+        const cancellationFlow = goal.definition.intent.includes("Cancellation flow:");
+        const needsQuestion = cancellationFlow ? !cancelled : goal.definition.intent.includes("Collect approved notes") && !lastUser.includes("follow-up") && !answered;
+        let result: Record<string, unknown>;
+        if (goal.state.run.mode === "plan" && goal.state.run.approvedTask === undefined) {
+            result = {
+                kind: "task_proposal",
+                task: { objective: "Finish the controlled plan-flow check", completionCriteria: [{ text: "Plan Run completed", acceptance: null }] },
+                approvalRequest: "Approve the deterministic plan-flow task?",
                 memoryPatch: null,
-            }
-            : isPlanFlow
-            ? !planTaskProposed
-                ? (planTaskProposed = true, {
-                    kind: "task_proposal",
-                    task: {
-                        objective: "Finish the controlled plan-flow check",
-                        completionCriteria: [{ text: "Plan Run completed", acceptance: null }],
-                    },
-                    approvalRequest: "Approve the deterministic plan-flow task?",
-                    memoryPatch: null,
-                })
-                : this.calls === 8
-                    ? {
-                        kind: "tool_call",
-                        action: {
-                            actionId: "action-browser-e2e-plan-1",
-                            toolId: "browser_fixture_write",
-                            input: { value: "controlled plan write" },
-                        },
-                        memoryPatch: null,
-                    }
-                    : await completedPlanDecision()
-            : this.calls === 1
-            ? {
+            };
+        } else if (needsQuestion) {
+            result = {
                 kind: "ask_user",
-                questions: [{
-                    header: "Choose a source",
-                    question: "Which notes should I include?",
-                    options: [
-                        { label: "Approved notes", description: null },
-                        { label: "All notes", description: null },
-                    ],
-                    multiSelect: false,
-                }],
+                questions: [{ header: cancellationFlow ? "Stop check" : "Choose a source", question: cancellationFlow ? "Should this Run continue?" : "Which notes should I include?", options: cancellationFlow ? [{ label: "Continue", description: null }, { label: "Stop", description: null }] : [{ label: "Approved notes", description: null }, { label: "All notes", description: null }], multiSelect: false }],
                 memoryPatch: null,
+            };
+        } else {
+            const needsWrite = !cancellationFlow && !lastUser.includes("follow-up") && !observed;
+            if (needsWrite && !goal.state.run.exposedToolIds.includes("browser_fixture_write")) {
+                result = { kind: "tool_discovery", query: "browser_fixture_write" };
+            } else if (goal.state.run.currentStage === undefined) {
+                result = { kind: "run_stage_update", stageId: null, baseRevision: null, reason: null, contextNotes: null, target: "Complete the controlled acceptance flow", acceptanceCriteria: ["Complete the requested acceptance actions"], memoryPatch: null };
+            } else if (needsWrite) {
+                const plan = goal.state.run.mode === "plan";
+                result = { kind: "tool_call", action: { actionId: plan ? "action-browser-e2e-plan-1" : "action-browser-e2e-1", toolId: "browser_fixture_write", input: { value: plan ? "controlled plan write" : "controlled write" } }, memoryPatch: null };
+            } else {
+                result = goal.state.run.mode === "plan" ? await completedPlanDecision() : await completedDecision();
             }
-            : this.calls === 2
-                ? {
-                    kind: "tool_call",
-                    action: {
-                        actionId: "action-browser-e2e-1",
-                        toolId: "browser_fixture_write",
-                        input: { value: "controlled write" },
-                    },
-                    memoryPatch: null,
-                }
-                : await completedDecision();
+        }
+        await appendFile(`${statusFile}.decisions`, JSON.stringify({ kind: result.kind, call: this.calls, feedback: request.messages.flatMap(message => { try { const data = JSON.parse(message.content); return data.source === "runtime_feedback" ? [{code: data.code, issues: data.issues.map((issue: {code: string; path: unknown}) => ({code: issue.code, path: issue.path}))}] : []; } catch { return []; } }) }) + "\n");
+        const isComposerStatusFlow = request.messages.some(message => message.content.includes("Composer status flow:"));
+        if (isComposerStatusFlow) await new Promise(resolve => setTimeout(resolve, 1200));
+        if (process.env.LAZYGOAL_E2E_DELAY_MODEL === "1" && !["run_stage_update", "tool_discovery"].includes(result.kind as string)) await new Promise(resolve => setTimeout(resolve, 5000));
         return { content: JSON.stringify({ result }) };
     }
 }
@@ -138,6 +109,7 @@ async function completedDecision() {
         summary: "The controlled action completed.",
         evidenceSequences,
         memoryPatch: null,
+        contextNotes: null,
     };
 }
 
@@ -148,6 +120,7 @@ async function completedPlanDecision() {
         summary: "The controlled plan flow is complete.",
         completionEvidence: [{ criterionIndex: 0, evidenceSequences: result.evidenceSequences }],
         memoryPatch: null,
+        contextNotes: null,
     };
 }
 
@@ -202,40 +175,7 @@ const root = await createCompositionRoot({
     exitPort: { exit() {} },
 });
 compositionRoot = root;
-const originalSave = root.notifyingStore.save.bind(root.notifyingStore);
-root.notifyingStore.save = async (goal: Goal) => {
-    const patched = goal.state.run.exposedToolIds.length === 0
-        ? {
-            ...goal,
-            state: {
-                ...goal.state,
-                run: {
-                    ...goal.state.run,
-                    exposedToolIds: [...profile.toolIds],
-                },
-            },
-        }
-        : goal;
-    return originalSave(patched);
-};
-const originalRestore = root.notifyingStore.restore.bind(root.notifyingStore);
-root.notifyingStore.restore = async (goalId: string) => {
-    const goal = await originalRestore(goalId);
-    if (goal === undefined) return undefined;
-    if (goal.state.run.exposedToolIds.length === 0) {
-        return {
-            ...goal,
-            state: {
-                ...goal.state,
-                run: {
-                    ...goal.state.run,
-                    exposedToolIds: [...profile.toolIds],
-                },
-            },
-        };
-    }
-    return goal;
-};
+
 root.notifyingStore.onSave((goal) => {
     if (goal.state.run.stopReason !== undefined) {
         void writeFile(`${statusFile}.run-stop`, JSON.stringify({

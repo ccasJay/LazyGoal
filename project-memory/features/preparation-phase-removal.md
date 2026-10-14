@@ -4,9 +4,9 @@ status: active
 summary: "统一 executing 生命周期、Run 级任务审批、普通读取 Step 与可恢复交互"
 source_spec: specs/preparation-phase-removal/
 distilled_at: 2026-09-18
-reviewed_at: 2026-09-23
+reviewed_at: 2026-10-10
 tags: [lifecycle, interaction, ask-user, task-approval, ordinary-step, action-observation, evidence, persistence, tui]
-authorities: [docs/architecture/runtime.md, docs/architecture/agent.md, docs/architecture/tui.md, packages/runtime/src/domain.ts, packages/runtime/src/runner.ts, packages/runtime/src/run-mode-capabilities.ts, packages/agent/src/trajectory-execution-unit-adapter.ts, packages/agent/src/step-prompt/agent-decision@1.njk, packages/contracts/src/model-output/factory.ts, packages/storage/src/goal-snapshot-codec.ts, packages/tui/src/session-controller.ts]
+authorities: [packages/runtime/notes/overview.md, packages/agent/notes/overview.md, apps/goal-server/notes/overview.md, packages/runtime/src/domain.ts, packages/runtime/src/runner.ts, packages/runtime/src/run-mode-capabilities.ts, packages/agent/src/trajectory-execution-unit-adapter.ts, packages/agent/src/step-prompt/agent-decision@1.njk, packages/model-contracts/src/model-output/factory.ts, packages/storage/src/goal-snapshot-codec.ts, apps/goal-server/src/composition-root.ts]
 supersedes: [project-memory/features/goal-preparation-workflow.md, project-memory/features/preparation-runtime-flow.md]
 ---
 
@@ -44,17 +44,17 @@ supersedes: [project-memory/features/goal-preparation-workflow.md, project-memor
 - S1: `specs/mode-driven-task-proposal/requirements.md`
 - S2: `specs/mode-driven-task-proposal/design.md`
 - S3: `specs/mode-driven-task-proposal/tasks.md`
-- S4: `docs/architecture/runtime.md`
-- S5: `docs/architecture/tui.md`
+- S4: `packages/runtime/notes/overview.md`
+- S5: `apps/goal-server/notes/overview.md`
 - S6: `packages/runtime/src/domain.ts`
 - S7: `packages/runtime/src/runner.ts`
-- S8: `packages/contracts/src/model-output/factory.ts`
+- S8: `packages/model-contracts/src/model-output/factory.ts`
 - S9: `packages/storage/src/goal-snapshot-codec.ts`
-- S10: `packages/tui/src/session-controller.ts`
-- S11: `packages/tui/src/session-screen.tsx`
+- S10: `apps/goal-server/src/composition-root.ts`
+- S11: `apps/goal-server/test/composition-root-model-switching.test.ts`
 - S12: `packages/runtime/test/runner-pretask-read.test.ts`
 - S13: `packages/runtime/test/goal-coordinator-task-interaction.test.ts`
 - S14: `packages/runtime/test/goal-plan-mode.test.ts`
 - S15: `packages/runtime/src/evidence-gate.ts`
 - S16: `packages/runtime/test/goal-plan-run.test.ts`
-- S17: `packages/tui/test/session-controller-timeline.test.ts`
+- S17: `apps/goal-server/test/process-lifecycle.integration.test.ts`

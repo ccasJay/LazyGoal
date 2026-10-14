@@ -1,0 +1,83 @@
+{
+  "status": "not_delivered",
+  "verification": "failed",
+  "freshness": "current",
+  "verified_at": "2026-10-11T22:27:13.557612+08:00",
+  "git_head": "7ff5fbb392d5eeeeada3146870cb0af2431a5134",
+  "implementation_fingerprint": "3326f8afa004d31d2f1a17aa7518d6746604eb5db2e9c3b706242fcdf48e9bed",
+  "spec_fingerprint": "5c8b2dae355b17b48f173b93ac6f53d2b8a2a7729ee42f841366a538a0208105",
+  "checks": {
+    "benchmark_typecheck": "passed",
+    "benchmark_tests": {
+      "status": "passed",
+      "tests": 286
+    },
+    "shared_targeted": {
+      "status": "passed",
+      "tests": 23
+    },
+    "full_regression": {
+      "status": "passed",
+      "typescript_tests": 1680,
+      "script_tests": 33
+    },
+    "docs": {
+      "status": "passed",
+      "modules": 30,
+      "documents": 115
+    },
+    "dependencies": "passed",
+    "diff_check": "passed",
+    "docker_smoke": {
+      "status": "passed",
+      "evidence": "/var/folders/c4/k7g00s897_sd1dljjplt44t40000gn/T/context-worker-smoke-Elxo9B"
+    },
+    "real_model_smoke": {
+      "status": "failed",
+      "model": "gemini-3.5-flash-lite",
+      "roles": [
+        "default",
+        "default",
+        "default"
+      ],
+      "evidence": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-027b8895-8c2b-4252-af43-8f1cb27bffd1",
+      "groups": [
+        {
+          "path": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-027b8895-8c2b-4252-af43-8f1cb27bffd1/resume/capture/group.json",
+          "category": "completed",
+          "calls": 5,
+          "combined": null
+        },
+        {
+          "path": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-027b8895-8c2b-4252-af43-8f1cb27bffd1/resume/pair/full/group.json",
+          "category": "completed",
+          "calls": 12,
+          "combined": "passed"
+        },
+        {
+          "path": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-027b8895-8c2b-4252-af43-8f1cb27bffd1/resume/pair/restore/group.json",
+          "category": "completed",
+          "calls": 5,
+          "combined": "passed"
+        },
+        {
+          "path": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-027b8895-8c2b-4252-af43-8f1cb27bffd1/continue/capture/group.json",
+          "category": "behavior_failed",
+          "calls": 6,
+          "combined": null
+        }
+      ],
+      "failures": [
+        {
+          "snapshot": "/Users/sawyerlau/.lazygoal/workspaces/ff6ceb47b1fee227489f8feb89dda49e5242f8870a6aeaddc408d14c44627d1a/benchmarks/context/runs/model-smoke-027b8895-8c2b-4252-af43-8f1cb27bffd1/continue/capture/artifacts/state/Y29udGV4dA/c2Vzc2lvbg/goals/MjBlZTRkMzctZDY4ZS00NzA1LTllNGUtYmM2MDljMjY4MDQ4.json",
+          "stopReason": {
+            "kind": "execution_error",
+            "code": "INVALID_AGENT_DECISION",
+            "message": "Model output correction exhausted after three decide attempts (INVALID_LLM_RESPONSE)"
+          }
+        }
+      ]
+    }
+  },
+  "remaining": "TODO 7: real model end-to-end acceptance has not passed. No evidence/type/patch validation was weakened."
+}

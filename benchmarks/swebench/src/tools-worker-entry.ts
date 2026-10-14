@@ -64,7 +64,7 @@ function parseArgs(args: readonly string[]): { readonly workspaceRoot?: string }
             i++;
         }
     }
-    return { workspaceRoot };
+    return workspaceRoot === undefined ? {} : { workspaceRoot };
 }
 
 if (

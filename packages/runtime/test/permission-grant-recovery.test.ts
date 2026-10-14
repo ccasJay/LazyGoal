@@ -188,7 +188,11 @@ test("持续授权生命周期：沙箱审批选择 Goal 范围并在后续 Acti
             promptBundleVersion: 1,
             ...currentProtocols,
         });
-        const run = { ...createRun("run-1"), exposedToolIds: [...TEST_PROFILE.toolIds] };
+        const run = {
+            ...createRun("run-1"),
+            exposedToolIds: [...TEST_PROFILE.toolIds],
+            ...(initialGoal.state.run.currentStage !== undefined ? { currentStage: initialGoal.state.run.currentStage } : {}),
+        };
         const startedGoal: Goal = { ...initialGoal, state: { ...initialGoal.state, run } };
         await store.save(startedGoal);
 
@@ -294,7 +298,11 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
             promptBundleVersion: 1,
             ...currentProtocols,
         });
-        const run = { ...createRun("run-1"), exposedToolIds: [...TEST_PROFILE.toolIds] };
+        const run = {
+            ...createRun("run-1"),
+            exposedToolIds: [...TEST_PROFILE.toolIds],
+            ...(initialGoal.state.run.currentStage !== undefined ? { currentStage: initialGoal.state.run.currentStage } : {}),
+        };
         await store.save({ ...initialGoal, state: { ...initialGoal.state, run } });
 
         // 步骤 1：第一次请求挂起审批并批准持续授权
@@ -332,7 +340,11 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
             ...initialGoal,
             state: {
                 ...initialGoal.state,
-                run: { ...createRun("run-2"), exposedToolIds: [...TEST_PROFILE.toolIds] },
+                run: {
+                    ...createRun("run-2"),
+                    exposedToolIds: [...TEST_PROFILE.toolIds],
+                    ...(initialGoal.state.run.currentStage !== undefined ? { currentStage: initialGoal.state.run.currentStage } : {}),
+                },
             },
         };
         await store.save(goalWithRun2);
@@ -391,7 +403,11 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
             ...initialGoal,
             state: {
                 ...initialGoal.state,
-                run: { ...createRun("run-3"), exposedToolIds: [...TEST_PROFILE.toolIds] },
+                run: {
+                    ...createRun("run-3"),
+                    exposedToolIds: [...TEST_PROFILE.toolIds],
+                    ...(initialGoal.state.run.currentStage !== undefined ? { currentStage: initialGoal.state.run.currentStage } : {}),
+                },
             },
         };
         await store.save(goalWithRun3);

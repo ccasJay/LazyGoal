@@ -96,6 +96,7 @@ test("默认 Bundle v1 只组合固定 system section，动态 section 独立注
             "approved-task@1",
             "goal-plan@1",
             "working-memory@1",
+            "goal-context-navigation@1",
         ],
     );
 });
@@ -191,6 +192,8 @@ test("PTC 指引仅随专用 Tool 授权出现", async () => {
         }],
     })));
     assert.match(authorized, /tools\[toolId\]\(input\)/);
+    assert.match(authorized, /For a repository audit spanning many files/);
+    assert.match(authorized, /all required inner business Tools have been discovered/);
     assert.match(authorized, /result\.observation\.output\.text\.split/);
     assert.match(authorized, /no require, process, fs, or direct workspace access/);
     assert.match(authorized, /do not shadow the provided tools object/);
@@ -218,7 +221,7 @@ test("PTC 指引仅随专用 Tool 授权出现", async () => {
             inputSchema: { type: "object" },
         }],
     })));
-    assert.doesNotMatch(withoutProgram, /tools\[toolId\]\(input\)|result\.observation\.output|numeric limit/);
+    assert.doesNotMatch(withoutProgram, /repository audit spanning many files|tools\[toolId\]\(input\)|result\.observation\.output|numeric limit/);
 });
 
 test("GoalPlan、Working Memory 与检查点各自保持独立来源和动态 section 身份", async () => {

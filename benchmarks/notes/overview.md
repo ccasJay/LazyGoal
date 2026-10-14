@@ -6,7 +6,7 @@ Headless Composition Root、隔离 Worker、Attempt 和 Prompt Evaluation 协议
 ## Scope
 
 `benchmarks` 是独立的无界面评测入口，不属于 Web Server 的 Composition Root。当前已实现
-通用单 task、单 Run Headless Composition Root，以及 ALFWorld TextWorld、GAIA、TUA-Bench
+通用单 task Headless Composition Root 与保持同一 Goal 的显式会话，以及 ALFWorld TextWorld、GAIA、TUA-Bench
 和 SWE-bench Verified 的显式评测适配。ALFWorld 提供 Profile、固定 Manifest、容器内 Python JSONL
 sidecar、专用 Tool 和机器可读报告。共享 ACP、进程、Worker 构建和隔离容器位于
 [`benchmarks/src/`](../src)，具体 benchmark 只声明环境和评分适配。
@@ -68,8 +68,8 @@ Goal Snapshot 和 JSONL Trajectory，并可启用独立 Diagnostic Trace；Snaps
 `committedThroughSequence` 是恢复边界，未提交 tail 只供审计，不会自动 replay。
 Root 为每个 Goal 固定冻结 Prompt Bundle v1、`structured@1`、`trajectory-layered@1` 和
 `bm25-lite@1`，并把同一 `TrajectoryModelContextAssembler` 注入 `LLMStepExecutor`；
-模型上下文因此从当前 Trajectory Snapshot 组装。benchmark 目前只装配 Trajectory 层，
-不自动创建 Cold Trajectory 索引或 Lookup Port；需要检索的 benchmark 必须额外提供该依赖。
+模型上下文因此从当前 Trajectory Snapshot 组装。文件持久化适配器同时装配完整 ModelInputStore 与 committed history 检索索引，
+Root 将同一 Lookup Port 注入 Runner 与 Coordinator。内存适配器可按需要提供这些诊断与检索端口。
 任务描述符 `BenchmarkTaskDescriptor.objective` 与 `completionCriteria` 会作为初始用户消息中的执行上下文提供给 Agent；criteria 支持纯文本与携带验收声明的结构化条件，不转换为 `Run.approvedTask`，也不成为 Runtime 完成门槛。Runtime 的 `complete` 仍须按当前 Run 已提交 Observation Evidence 校验；Benchmark 的最终成功由环境评分决定，模型完成声明不能覆盖环境结果。基础设施重试追加新的 Attempt，不覆盖原始记录。
 通用 Headless Root 为每个 task 创建普通 Run，不生成任务提案或自动批准任务，并在该 Run 的 waiting 或终态返回；它不会因为 GoalPlan 仍有 pending Todo 而串行创建后继 Run。后继 Run 只能由持久化 Goal 的显式 `GoalCoordinator.continue` 触发。GoalPlan 是否存在独立于 Run 模式。
 
@@ -139,3 +139,28 @@ TUA GEPA Worker 将官方 GEPA 选择器固定为 `all`，让一次提案覆盖 
 GAIA GEPA 的数据校验只接受 validation Level 1/2；任务可声明附件，但每个附件必须是
 `dataRoot` 内存在的相对文件，随后由 GAIA Environment 挂载到隔离容器。Level 3、test
 split 和自动发现不进入该生命周期。
+
+## Persistent Headless sessions
+
+`HeadlessCompositionRoot.openSession` 提供 launch、continue、resume、restore 和幂等 close。
+调用方串行推进并在 finally 中关闭；restoreRef 从既有 Snapshot 打开，Run 与 Profile 不匹配时拒绝。
+会话不自动推进后继 Run，不复制 Runtime 状态机，不把模型输入记录作为恢复权威。
+用量为该进程会话内累计值，恢复前的调用不计入其中。既有 run(task) 仍在一次推进后关闭 Episode。
+
+## Context Benchmark
+
+[Context Benchmark](../context/README.md) 拥有固定用户脚本、静止检查点、人工冻结版本、恢复与从头配对评分。
+入口为 `lazygoal eval context capture|run|freeze`。容器、Worker、RPC 和持久化仍由共享层拥有。
+
+工具 RPC 的执行请求携带宿主 Action 的真实 Goal/Run context，Worker 原样传给 Tool；
+缺失关联键拒绝执行，不生成替代 Goal/Run 身份。失败 Observation 使用当前 Tool Core 的 code、message 和 retryable。
+
+Headless 用量包装器保留 Adapter 的 nativeConversationIdentity。Context Worker 的 RPC 显式传递该身份，
+原生 strict 请求使用 required Tool 调用；JSON strict 请求仍须携带 structuredOutput。
+同身份已提交调用与结果按正常 Agent 管线回放，模型或端点不符时由当前管线停止原生片段。
+
+## 工程任务来源与文件系统恢复
+
+[任务来源端口](../src/task-source.ts) 提供公开投影、环境和独立工程评分；顶层组合根连接具体来源与 Context，共享层不依赖 benchmark 实现。 [脚本 Worker](../src/scripted-worker.ts) 复用 Runtime 会话入口，领域模块只提供固定工具 Registry。
+
+[容器归档](../src/filesystem-archive.ts) 使用流式字节摘要校验镜像工件。IsolatedEnvironment 只在 Agent 已停止的回收阶段允许归档，拒绝挂载/卷，删除自己创建的临时镜像；归档不保存进程内存。恢复使用校验后的 docker load 和镜像身份检查，不依赖缓存。大型镜像归档不受原生项目文件包的大小限制。

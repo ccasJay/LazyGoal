@@ -18,13 +18,16 @@ test("Worker Profile exposes exactly five tools rooted at the supplied workspace
 
     const write = toolSet.registry.get("write_file")!.prepare({ path: "fixed.txt", content: "container fact\n" });
     assert.equal(write.ok, true);
-    if (write.ok) await write.execute("write-1");
+    if (write.ok) await write.execute("write-1", { goalId: "test-goal", runId: "test-run" });
     const read = toolSet.registry.get("read_file")!.prepare({ path: "fixed.txt" });
     assert.equal(read.ok, true);
     if (read.ok) {
-        const observation = await read.execute("read-1");
+        const observation = await read.execute("read-1", { goalId: "test-goal", runId: "test-run" });
         assert.equal(observation.kind, "success");
-        if (observation.kind === "success") assert.equal(observation.output.text, "container fact\n");
+        if (observation.kind === "success") {
+            assert.ok(observation.output !== null && typeof observation.output === "object" && !Array.isArray(observation.output) && "text" in observation.output);
+            assert.equal(observation.output.text, "container fact\n");
+        }
     }
     assert.equal(await readFile(join(workspace, "fixed.txt"), "utf8"), "container fact\n");
 });
@@ -39,7 +42,7 @@ test("Worker runtime uses deterministic Headless Root state and isolated instanc
         problemStatement: "Fix the reported issue.",
         goalId: "goal-worker-1",
         runId: "run-worker-1",
-        maxSteps: 3,
+        maxSteps: 4,
         structuredOutputMode: "strict" as const,
     };
     let modelCalls = 0;
@@ -63,6 +66,22 @@ test("Worker runtime uses deterministic Headless Root state and isolated instanc
                     };
                 }
                 if (modelCalls === 2) {
+                    return {
+                        content: JSON.stringify({
+                            result: {
+                                kind: "run_stage_update",
+                                stageId: null,
+                                baseRevision: null,
+                                reason: null,
+                                target: "Fix the reported issue",
+                                acceptanceCriteria: ["File written"],
+                                memoryPatch: null,
+                                contextNotes: null,
+                            },
+                        }),
+                    };
+                }
+                if (modelCalls === 3) {
                     return {
                         content: JSON.stringify({
                             result: {
@@ -98,6 +117,7 @@ test("Worker runtime uses deterministic Headless Root state and isolated instanc
                             summary: "already verified",
                             evidenceSequences: [observationSequence],
                             memoryPatch: null,
+                            contextNotes: null,
                         },
                     }),
                 };
@@ -117,7 +137,7 @@ test("Worker runtime uses deterministic Headless Root state and isolated instanc
     assert.equal(result.goal.state.run.status, "completed");
     assert.match(result.persistence.goalSnapshot, /state/);
     assert.match(result.persistence.goalSnapshot, new RegExp(Buffer.from("swebench-acp", "utf8").toString("base64url")));
-    assert.equal(modelCalls, 3);
+    assert.equal(modelCalls, 4);
 });
 
 test("Worker runtime rejects metadata that could cross task or workspace boundaries", async () => {

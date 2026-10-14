@@ -1,0 +1,1406 @@
+[
+  {
+    "id": "status-only",
+    "messagesCount": 2,
+    "systemPromptLength": 3003,
+    "userContentLength": 1049,
+    "userContentDigest": "sha256:7f342143ddb6c7a18e73e9ce34b020dbfbc52e0f01d1e7415a5b9f151618bdc9",
+    "tools": [
+      {
+        "id": "system_review_completion",
+        "description": "Accept only a complete, supported user-facing deliverable. Otherwise reject with the concrete missing deliverable or evidence and what needs correction. Do not rewrite the answer or execute tools.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "accept"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "reject"
+                      ]
+                    },
+                    "feedback": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "feedback"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "toolChoice": "required",
+    "structuredOutputSchema": {
+      "name": "completion_review_result",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "accept"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "reject"
+                    ]
+                  },
+                  "feedback": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "feedback"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "bundleName": "completion_review_result"
+  },
+  {
+    "id": "directory-only",
+    "messagesCount": 2,
+    "systemPromptLength": 3003,
+    "userContentLength": 1091,
+    "userContentDigest": "sha256:de71542d57d797546d5d3bbbe441dcf596281d21370f28c103d0001b25747eb5",
+    "tools": [
+      {
+        "id": "system_review_completion",
+        "description": "Accept only a complete, supported user-facing deliverable. Otherwise reject with the concrete missing deliverable or evidence and what needs correction. Do not rewrite the answer or execute tools.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "accept"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "reject"
+                      ]
+                    },
+                    "feedback": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "feedback"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "toolChoice": "required",
+    "structuredOutputSchema": {
+      "name": "completion_review_result",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "accept"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "reject"
+                    ]
+                  },
+                  "feedback": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "feedback"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "bundleName": "completion_review_result"
+  },
+  {
+    "id": "unverified-change",
+    "messagesCount": 2,
+    "systemPromptLength": 3003,
+    "userContentLength": 1004,
+    "userContentDigest": "sha256:835cea4bc87b9f83448f74340e2b0deb5166f96665c6f5b2f12ee874b8bb9f85",
+    "tools": [
+      {
+        "id": "system_review_completion",
+        "description": "Accept only a complete, supported user-facing deliverable. Otherwise reject with the concrete missing deliverable or evidence and what needs correction. Do not rewrite the answer or execute tools.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "accept"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "reject"
+                      ]
+                    },
+                    "feedback": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "feedback"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "toolChoice": "required",
+    "structuredOutputSchema": {
+      "name": "completion_review_result",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "accept"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "reject"
+                    ]
+                  },
+                  "feedback": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "feedback"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "bundleName": "completion_review_result"
+  },
+  {
+    "id": "missing-criterion",
+    "messagesCount": 2,
+    "systemPromptLength": 3003,
+    "userContentLength": 1222,
+    "userContentDigest": "sha256:149ebe9cc7a0f47286bae2a8d71a1eb88b83dcc7139ad8e6d1af1fdfadc2fd8e",
+    "tools": [
+      {
+        "id": "system_review_completion",
+        "description": "Accept only a complete, supported user-facing deliverable. Otherwise reject with the concrete missing deliverable or evidence and what needs correction. Do not rewrite the answer or execute tools.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "accept"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "reject"
+                      ]
+                    },
+                    "feedback": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "feedback"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "toolChoice": "required",
+    "structuredOutputSchema": {
+      "name": "completion_review_result",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "accept"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "reject"
+                    ]
+                  },
+                  "feedback": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "feedback"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "bundleName": "completion_review_result"
+  },
+  {
+    "id": "supported-analysis",
+    "messagesCount": 2,
+    "systemPromptLength": 3003,
+    "userContentLength": 1268,
+    "userContentDigest": "sha256:0dbd7a6039f407692af819afb458e4de49e164a4178b02020b64382d03cd2da0",
+    "tools": [
+      {
+        "id": "system_review_completion",
+        "description": "Accept only a complete, supported user-facing deliverable. Otherwise reject with the concrete missing deliverable or evidence and what needs correction. Do not rewrite the answer or execute tools.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "accept"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "reject"
+                      ]
+                    },
+                    "feedback": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "feedback"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "toolChoice": "required",
+    "structuredOutputSchema": {
+      "name": "completion_review_result",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "accept"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "reject"
+                    ]
+                  },
+                  "feedback": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "feedback"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "bundleName": "completion_review_result"
+  },
+  {
+    "id": "greeting",
+    "messagesCount": 2,
+    "systemPromptLength": 3003,
+    "userContentLength": 374,
+    "userContentDigest": "sha256:4e90fc9bd42ed1e4ad91e47e5791ea1a89dfaa7c44e026fafc906ff758c23cad",
+    "tools": [
+      {
+        "id": "system_review_completion",
+        "description": "Accept only a complete, supported user-facing deliverable. Otherwise reject with the concrete missing deliverable or evidence and what needs correction. Do not rewrite the answer or execute tools.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "accept"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "reject"
+                      ]
+                    },
+                    "feedback": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "feedback"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "toolChoice": "required",
+    "structuredOutputSchema": {
+      "name": "completion_review_result",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "accept"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "reject"
+                    ]
+                  },
+                  "feedback": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "feedback"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "bundleName": "completion_review_result"
+  },
+  {
+    "id": "supplied-source",
+    "messagesCount": 2,
+    "systemPromptLength": 3003,
+    "userContentLength": 644,
+    "userContentDigest": "sha256:63307b5922b7f4a50752e4c37fc653b19027ed6aff44da15b100c08a5a2373bd",
+    "tools": [
+      {
+        "id": "system_review_completion",
+        "description": "Accept only a complete, supported user-facing deliverable. Otherwise reject with the concrete missing deliverable or evidence and what needs correction. Do not rewrite the answer or execute tools.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "accept"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "reject"
+                      ]
+                    },
+                    "feedback": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "feedback"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "toolChoice": "required",
+    "structuredOutputSchema": {
+      "name": "completion_review_result",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "accept"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "reject"
+                    ]
+                  },
+                  "feedback": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "feedback"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "bundleName": "completion_review_result"
+  },
+  {
+    "id": "verified-change",
+    "messagesCount": 2,
+    "systemPromptLength": 3003,
+    "userContentLength": 1065,
+    "userContentDigest": "sha256:e26e1d057719ac0b8f89047a30e3340abef42a9f864d4bc5ffe3dff0b71fd92c",
+    "tools": [
+      {
+        "id": "system_review_completion",
+        "description": "Accept only a complete, supported user-facing deliverable. Otherwise reject with the concrete missing deliverable or evidence and what needs correction. Do not rewrite the answer or execute tools.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "accept"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "reject"
+                      ]
+                    },
+                    "feedback": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "feedback"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "toolChoice": "required",
+    "structuredOutputSchema": {
+      "name": "completion_review_result",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "accept"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "reject"
+                    ]
+                  },
+                  "feedback": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "feedback"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "bundleName": "completion_review_result"
+  },
+  {
+    "id": "generic-for-real-case",
+    "messagesCount": 2,
+    "systemPromptLength": 3003,
+    "userContentLength": 1051,
+    "userContentDigest": "sha256:09656720c43df019472d470dd4e926543f287e77b923e72f5d32cc5e469dbaa3",
+    "tools": [
+      {
+        "id": "system_review_completion",
+        "description": "Accept only a complete, supported user-facing deliverable. Otherwise reject with the concrete missing deliverable or evidence and what needs correction. Do not rewrite the answer or execute tools.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "accept"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "reject"
+                      ]
+                    },
+                    "feedback": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "feedback"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "toolChoice": "required",
+    "structuredOutputSchema": {
+      "name": "completion_review_result",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "accept"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "reject"
+                    ]
+                  },
+                  "feedback": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "feedback"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "bundleName": "completion_review_result"
+  },
+  {
+    "id": "lookup-absence",
+    "messagesCount": 2,
+    "systemPromptLength": 3003,
+    "userContentLength": 983,
+    "userContentDigest": "sha256:5cb643df490ae810c2b9af0954a043b7a74e7a3e98062b1146dee75daa81ba3f",
+    "tools": [
+      {
+        "id": "system_review_completion",
+        "description": "Accept only a complete, supported user-facing deliverable. Otherwise reject with the concrete missing deliverable or evidence and what needs correction. Do not rewrite the answer or execute tools.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "accept"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "reject"
+                      ]
+                    },
+                    "feedback": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "feedback"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "toolChoice": "required",
+    "structuredOutputSchema": {
+      "name": "completion_review_result",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "accept"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "reject"
+                    ]
+                  },
+                  "feedback": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "feedback"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "bundleName": "completion_review_result"
+  },
+  {
+    "id": "design-as-implementation",
+    "messagesCount": 2,
+    "systemPromptLength": 3003,
+    "userContentLength": 1077,
+    "userContentDigest": "sha256:f9c1efff5802ed3a6e4e87ecb144d6abcaa1b54d362609ff3c1229dad6d4806d",
+    "tools": [
+      {
+        "id": "system_review_completion",
+        "description": "Accept only a complete, supported user-facing deliverable. Otherwise reject with the concrete missing deliverable or evidence and what needs correction. Do not rewrite the answer or execute tools.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "accept"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "reject"
+                      ]
+                    },
+                    "feedback": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "feedback"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "toolChoice": "required",
+    "structuredOutputSchema": {
+      "name": "completion_review_result",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "accept"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "reject"
+                    ]
+                  },
+                  "feedback": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "feedback"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "bundleName": "completion_review_result"
+  },
+  {
+    "id": "documented-real-case",
+    "messagesCount": 2,
+    "systemPromptLength": 3003,
+    "userContentLength": 1471,
+    "userContentDigest": "sha256:2b9c8958676674ea602a28cb9b910376ebb0e943be59519d9428bf3aa7661c03",
+    "tools": [
+      {
+        "id": "system_review_completion",
+        "description": "Accept only a complete, supported user-facing deliverable. Otherwise reject with the concrete missing deliverable or evidence and what needs correction. Do not rewrite the answer or execute tools.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "accept"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "reject"
+                      ]
+                    },
+                    "feedback": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "feedback"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "toolChoice": "required",
+    "structuredOutputSchema": {
+      "name": "completion_review_result",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "accept"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "reject"
+                    ]
+                  },
+                  "feedback": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "feedback"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "bundleName": "completion_review_result"
+  },
+  {
+    "id": "explicit-generic-example",
+    "messagesCount": 2,
+    "systemPromptLength": 3003,
+    "userContentLength": 773,
+    "userContentDigest": "sha256:a751b074689108cc03e7c42a529bba9596c39f129f05f361fb97ffa5d3a21256",
+    "tools": [
+      {
+        "id": "system_review_completion",
+        "description": "Accept only a complete, supported user-facing deliverable. Otherwise reject with the concrete missing deliverable or evidence and what needs correction. Do not rewrite the answer or execute tools.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "accept"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "reject"
+                      ]
+                    },
+                    "feedback": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "feedback"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "toolChoice": "required",
+    "structuredOutputSchema": {
+      "name": "completion_review_result",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "accept"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "reject"
+                    ]
+                  },
+                  "feedback": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "feedback"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "bundleName": "completion_review_result"
+  }
+]

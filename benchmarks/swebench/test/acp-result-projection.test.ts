@@ -112,7 +112,7 @@ test("ACP Session maps a real Headless completion and max-step terminal", async 
         problemStatement: "Fix the reported issue.",
         goalId: "goal-projection-1",
         runId: "run-projection-1",
-        maxSteps: 3,
+        maxSteps: 4,
         structuredOutputMode: "strict",
     };
     const updates: AcpSessionUpdate[] = [];
@@ -215,10 +215,26 @@ function completionAdapter(): LLMAdapter {
     return {
         structuredOutputMode: "strict",
         generate: async (request) => {
-        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
+            if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
             calls += 1;
             if (calls === 1) return { content: JSON.stringify({ result: { kind: "tool_discovery", query: "write file" } }) };
-            if (calls === 2) return { content: JSON.stringify({ result: toolDecision("write-1") }) };
+            if (calls === 2) {
+                return {
+                    content: JSON.stringify({
+                        result: {
+                            kind: "run_stage_update",
+                            stageId: null,
+                            baseRevision: null,
+                            reason: null,
+                            target: "Fix the reported issue",
+                            acceptanceCriteria: ["File written"],
+                            memoryPatch: null,
+                            contextNotes: null,
+                        },
+                    }),
+                };
+            }
+            if (calls === 3) return { content: JSON.stringify({ result: toolDecision("write-1") }) };
             const context = JSON.parse(request.messages.at(-1)?.content ?? "{}") as {
                 trajectoryContext?: { hot?: readonly { events?: readonly { eventType?: string; sequence?: number }[] }[] };
             };
@@ -226,7 +242,7 @@ function completionAdapter(): LLMAdapter {
                 ?.flatMap((unit) => unit.events ?? [])
                 .filter((event) => event.eventType === "tool_finished")
                 .at(-1)?.sequence;
-            return { content: JSON.stringify({ result: { kind: "complete", summary: "done", evidenceSequences: [sequence], memoryPatch: null } }) };
+            return { content: JSON.stringify({ result: { kind: "complete", summary: "done", evidenceSequences: [sequence], memoryPatch: null, contextNotes: null } }) };
         },
     };
 }

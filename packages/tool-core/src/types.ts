@@ -34,6 +34,10 @@ export interface ToolExecutionContext {
 /**
  * Tool 对外展示和输入校验所需的静态描述。
  *
+ * @remarks
+ * 注册时复制为稳定定义；发现别名只影响授权目录中的搜索，不改变
+ * Profile 授权、模型调用结构或执行检查。
+ *
  * @example
  * ```ts
  * const definition: ToolDefinition<typeof InputContract> = {
@@ -49,6 +53,14 @@ export interface ToolDefinition<C extends ToolInputContract = ToolInputContract>
     readonly id: string;
     /** 面向 Agent 的用途说明。 */
     readonly description: string;
+    /**
+     * 供 Runtime 工具发现匹配的可选名称，不参与模型 Schema 或执行授权。
+     *
+     * @remarks
+     * 别名只帮助找到已获 Profile 授权且已注册的 Tool；发现后仍须经过
+     * 当前 Run 的暴露、Policy、审批和沙箱检查。
+     */
+    readonly discoveryAliases?: readonly string[];
     /** Tool 输入结构唯一事实源；模型 Schema 由该 AST 编译得到。 */
     readonly inputContract: C;
     /**

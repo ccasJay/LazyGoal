@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Goal } from "./domain";
 import type { TrajectoryEvent } from "./trajectory";
 import type {
@@ -12,8 +13,15 @@ import type {
     ContextRetrieverInput,
     IndexedContextRetrieverOptions,
     TrajectoryRetrievalIndexStore,
+    GoalSourceEnvelope,
 } from "../../context-retrieval/src/index";
-import { IndexedContextRetriever } from "../../context-retrieval/src/index";
+import {
+    IndexedContextRetriever,
+    buildGoalContextIndex,
+    executeDirectoryBrowse,
+    executeDirectorySearch,
+    executeSourceExpand,
+} from "../../context-retrieval/src/index";
 
 /**
  * 运行时上下文检索适配器配置。
@@ -76,6 +84,90 @@ export class RuntimeContextLookupAdapter implements ContextLookupPort {
                 );
                 events.push(...raw.committed);
             }
+        }
+
+        const op = input.request.operation;
+        if (op === "directory_browse" || op === "directory_search" || op === "source_expand") {
+            const eventsByRun = new Map<string, TrajectoryEvent[]>();
+            for (const event of events) {
+                let list = eventsByRun.get(event.runId);
+                if (list === undefined) {
+                    list = [];
+                    eventsByRun.set(event.runId, list);
+                }
+                list.push(event);
+            }
+
+            const envelope: GoalSourceEnvelope = {
+                goalId: input.goal.id,
+                runs: runBoundaries,
+                messages: (input.goal.state.messages ?? []).map((msg, index) => ({
+                    messageIndex: index,
+                    role: msg.role,
+                    contentHash: createHash("sha256").update(msg.content, "utf8").digest("hex"),
+                    content: msg.content,
+                })),
+                eventsByRun,
+            };
+
+            const goalIndex = buildGoalContextIndex(envelope);
+
+            if (op === "directory_browse") {
+                const browseResult = executeDirectoryBrowse(goalIndex, {
+                    ...(input.request.cursor !== undefined ? { cursor: input.request.cursor } : {}),
+                    ...(input.request.limit !== undefined ? { limit: input.request.limit } : {}),
+                    ...(input.request.category !== undefined ? { category: input.request.category } : {}),
+                });
+                return {
+                    status: "found",
+                    lookupId: input.lookupId,
+                    committedThroughSequence: boundary,
+                    matches: [],
+                    truncated: false,
+                    sourceRunBoundaries: runBoundaries,
+                    operation: "directory_browse",
+                    directoryEntries: browseResult.entries,
+                    ...(browseResult.nextCursor !== undefined ? { nextCursor: browseResult.nextCursor } : {}),
+                    hasMore: browseResult.hasMore,
+                };
+            }
+
+            if (op === "directory_search") {
+                const searchResult = executeDirectorySearch(goalIndex, {
+                    query: input.request.query ?? "",
+                    ...(input.request.cursor !== undefined ? { cursor: input.request.cursor } : {}),
+                    ...(input.request.limit !== undefined ? { limit: input.request.limit } : {}),
+                    ...(input.request.category !== undefined ? { category: input.request.category } : {}),
+                });
+                return {
+                    status: "found",
+                    lookupId: input.lookupId,
+                    committedThroughSequence: boundary,
+                    matches: [],
+                    truncated: false,
+                    sourceRunBoundaries: runBoundaries,
+                    operation: "directory_search",
+                    directoryEntries: searchResult.entries,
+                    ...(searchResult.nextCursor !== undefined ? { nextCursor: searchResult.nextCursor } : {}),
+                    hasMore: searchResult.hasMore,
+                };
+            }
+
+            const expandResult = executeSourceExpand(goalIndex, envelope, {
+                sourceRef: input.request.sourceRef ?? "",
+                ...(input.request.offset !== undefined ? { offset: input.request.offset } : {}),
+                ...(input.request.limit !== undefined ? { limit: input.request.limit } : {}),
+            });
+            return {
+                status: "found",
+                lookupId: input.lookupId,
+                committedThroughSequence: boundary,
+                matches: [],
+                truncated: expandResult.truncated,
+                sourceRunBoundaries: runBoundaries,
+                operation: "source_expand",
+                expandedSource: expandResult,
+            };
         }
 
         const completedRunMessageRanges = input.goal.state.completedRuns?.map((history) => ({

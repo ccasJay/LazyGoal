@@ -51,8 +51,8 @@ test("动态 Tool 按稳定 ID 码点序派生 tool_call 分支，空集合省�
     assert.ok(Array.isArray(resultProp.anyOf));
     const anyOf = resultProp.anyOf as Array<Record<string, unknown>>;
 
-    // 应该包含 3 个 tool 分支 + 6 个 non-tool 分支（含 tool_discovery）= 9 个分支
-    assert.equal(anyOf.length, 9);
+    // 应该包含 3 个 tool 分支 + 8 个 non-tool 分支（含 tool_discovery, stage_update, stage_complete）= 11 个分支
+    assert.equal(anyOf.length, 11);
 
     // 前 3 个分支必须严格按 Tool ID 码点序排序: edit_file < read_file < write_file
     const toolBranches = anyOf.filter((b) => {
@@ -78,7 +78,7 @@ test("动态 Tool 按稳定 ID 码点序派生 tool_call 分支，空集合省�
     const emptySchema = emptyBundle.jsonSchema;
     const emptyResultProp = (emptySchema.properties as Record<string, unknown>).result as Record<string, unknown>;
     const emptyAnyOf = emptyResultProp.anyOf as Array<Record<string, unknown>>;
-    assert.equal(emptyAnyOf.length, 6); // complete, wait, fail, context_lookup, tool_discovery, ask_user
+    assert.equal(emptyAnyOf.length, 8); // complete, wait, fail, context_lookup, tool_discovery, ask_user, stage_update, stage_complete
     const hasToolCall = emptyAnyOf.some((b) => {
         const props = b.properties as Record<string, unknown> | undefined;
         const kindProp = props?.kind as Record<string, unknown> | undefined;
@@ -144,6 +144,7 @@ test("Executing Schema、Shape Guide 与 decode 均拒绝 PlanItem 操作，并�
                     },
                 }],
             },
+            contextNotes: null,
         },
     };
     assert.equal(validate(validUpdateBlocker), true);

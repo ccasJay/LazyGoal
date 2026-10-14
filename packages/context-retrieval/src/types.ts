@@ -1,4 +1,5 @@
 import type { ContextDocumentSource } from "./context-document";
+import type { ContextLookupOperation } from "../../model-contracts/src/index";
 
 /** 检索结果中的稳定字段名称。 */
 export type ContextLookupMatchedField =
@@ -85,10 +86,99 @@ export interface ContextLookupMatch {
 }
 
 /**
+ * Goal 目录检索或浏览返回的单项摘要条目。
+ *
+ * @remarks
+ * 面向 Agent 的结构化目录条目，包含稳定引用 `sourceRef`、所属 Run 与阶段、
+ * 目标/内容、状态、摘要及替代关系。
+ *
+ * @example
+ * ```ts
+ * const entry: GoalContextDirectoryEntry = {
+ *     sourceRef: "stage:run-1:stage-1",
+ *     category: "stage",
+ *     runId: "run-1",
+ *     stageId: "stage-1",
+ *     title: "初始化架构",
+ *     status: "accepted",
+ *     summary: "已完成基础骨架构建",
+ *     sourceDescription: "events: 2-5",
+ * };
+ * ```
+ */
+export interface GoalContextDirectoryEntry {
+    /** 条目唯一引用标识，用于 source_expand。 */
+    readonly sourceRef: string;
+    /** 所属类别。 */
+    readonly category: "stage" | "decision" | "user_emphasis";
+    /** 所属 Run 标识。 */
+    readonly runId: string;
+    /** 所属阶段标识（若有）。 */
+    readonly stageId?: string;
+    /** 标识名称或简述（阶段目标或重要信息内容）。 */
+    readonly title: string;
+    /** 状态（executing / accepted / rejected / active / superseded）。 */
+    readonly status: string;
+    /** 结果摘要或决策理由。 */
+    readonly summary?: string;
+    /** 原始来源范围或类型。 */
+    readonly sourceDescription: string;
+    /** 是否被后续版本替代。 */
+    readonly superseded?: boolean;
+    /** 替代它的条目标识或 noteId。 */
+    readonly supersedesNoteId?: string;
+}
+
+/**
+ * 直接展开来源详情的结果。
+ *
+ * @remarks
+ * 无需关键词搜索直接定位阶段、信息记录、原始消息或轨迹事件的详细正文，
+ * 包含有界截断、总长度与继续读取偏移量。
+ *
+ * @example
+ * ```ts
+ * const expanded: GoalContextExpandedSource = {
+ *     sourceRef: "stage:run-1:stage-1",
+ *     kind: "stage",
+ *     runId: "run-1",
+ *     title: "阶段 1 详情",
+ *     content: "完整阶段验收标准与摘要",
+ *     status: "accepted",
+ *     truncated: false,
+ *     totalLength: 120,
+ * };
+ * ```
+ */
+export interface GoalContextExpandedSource {
+    /** 被展开的引用标识。 */
+    readonly sourceRef: string;
+    /** 来源类别。 */
+    readonly kind: "stage" | "note" | "message" | "event";
+    /** 所属 Run 标识。 */
+    readonly runId?: string;
+    /** 来源标题或摘要。 */
+    readonly title: string;
+    /** 完整详情文本（或当前分页文本）。 */
+    readonly content: string;
+    /** 该来源是否被标记为替代或失效。 */
+    readonly status: string;
+    /** 该正文是否因为超过单次上限被截断。 */
+    readonly truncated: boolean;
+    /** 下一读取偏移量；若未截断或已读完则为 undefined。 */
+    readonly nextOffset?: number;
+    /** 总字符数。 */
+    readonly totalLength: number;
+    /** 原始元数据（如 sequence 范围、时间、角色等）。 */
+    readonly metadata?: Readonly<Record<string, unknown>>;
+}
+
+/**
  * Context Lookup 的结构化结果；未命中与故障必须保持可区分。
  *
  * @remarks
  * 包含 `found`、`not_found`、`lookup_error` 三种判别联合状态。
+ * 支持 history_search 的 matches，以及目录操作的 directoryEntries 与 expandedSource。
  *
  * @example
  * ```ts
@@ -112,12 +202,23 @@ export type ContextLookupResult =
         readonly truncated: boolean;
         /** found 命中涉及的全部 Run 边界；缺省表示仅当前 Run。 */
         readonly sourceRunBoundaries?: readonly ContextLookupRunBoundary[];
+        /** 本次执行的操作类别。 */
+        readonly operation?: ContextLookupOperation;
+        /** 目录浏览或目录搜索的条目列表。 */
+        readonly directoryEntries?: readonly GoalContextDirectoryEntry[];
+        /** 来源直接展开的详情内容。 */
+        readonly expandedSource?: GoalContextExpandedSource;
+        /** 分页游标。 */
+        readonly nextCursor?: string;
+        /** 是否还有更多结果。 */
+        readonly hasMore?: boolean;
     }
     | {
         readonly status: "not_found";
         readonly lookupId: string;
         readonly committedThroughSequence?: number;
         readonly reason?: string;
+        readonly operation?: ContextLookupOperation;
     }
     | {
         readonly status: "lookup_error";
@@ -125,6 +226,7 @@ export type ContextLookupResult =
         readonly code: string;
         readonly message: string;
         readonly committedThroughSequence?: number;
+        readonly operation?: ContextLookupOperation;
     };
 
 /** Context Lookup 结果的固定协议版本。 */

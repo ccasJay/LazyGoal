@@ -195,6 +195,78 @@ export interface BrowserSessionStep {
     readonly bashExecutionOmitted?: true;
     /** 错误纠正或恢复尝试摘要。 */
     readonly recoveryAttempts?: readonly string[];
+    /** 所属稳定阶段身份；若为 Run 级控制活动则省略。 */
+    readonly stageId?: string;
+}
+
+/**
+ * 阶段生命周期状态。
+ *
+ * @remarks
+ * - `in_progress`: 阶段执行中；
+ * - `review_pending`: 阶段提出候选等待审查；
+ * - `accepted`: 阶段候选已获审查接受。
+ */
+export type BrowserRunStageStatus = "in_progress" | "review_pending" | "accepted";
+
+/**
+ * 阶段修订历史记录。
+ */
+export interface BrowserRunStageRevision {
+    /** 修订版本号。 */
+    readonly revision: number;
+    /** 该修订的目标说明。 */
+    readonly target: string;
+    /** 该修订提出的理由。 */
+    readonly reason?: string;
+}
+
+/**
+ * Run 中按稳定身份聚合的阶段执行与审查记录看板投影。
+ *
+ * @remarks
+ * 聚合同一阶段的多轮修订、阶段状态、验收条件、审查拒绝反馈、已接受结果摘要，以及归属该阶段的真实 Steps。
+ *
+ * @example
+ * ```ts
+ * const stage: BrowserRunStageGroup = {
+ *     stageId: "stage-1",
+ *     revision: 1,
+ *     target: "完成基础配置",
+ *     acceptanceCriteria: ["测试通过"],
+ *     status: "accepted",
+ *     resultSummary: "配置验证成功",
+ *     steps: [],
+ * };
+ * ```
+ */
+export interface BrowserRunStageGroup {
+    /** 稳定阶段身份。 */
+    readonly stageId: string;
+    /** 当前最新修订号。 */
+    readonly revision: number;
+    /** 当前阶段目标。 */
+    readonly target: string;
+    /** 阶段验收条件。 */
+    readonly acceptanceCriteria: readonly string[];
+    /** 阶段生命周期状态。 */
+    readonly status: BrowserRunStageStatus;
+    /** 已提交阶段结果摘要（若已接受）。 */
+    readonly resultSummary?: string;
+    /** 最新审查拒绝缺口（若在当前或此前修订中被拒绝）。 */
+    readonly latestReviewRejection?: {
+        readonly code: string;
+        readonly issues: readonly string[];
+    };
+    /** 前序阶段结果引用。 */
+    readonly previousStageResultRef?: {
+        readonly stageId: string;
+        readonly revision: number;
+    };
+    /** 修订记录。 */
+    readonly revisions?: readonly BrowserRunStageRevision[];
+    /** 归属该阶段的真实 Step 列表。 */
+    readonly steps: readonly BrowserSessionStep[];
 }
 
 /**
@@ -225,6 +297,8 @@ export interface BrowserSessionRun {
     readonly steps: readonly BrowserSessionStep[];
     /** 是否为当前最新 Run。 */
     readonly current: boolean;
+    /** 该 Run 划分的阶段分组列表；若未包含阶段操作则为空或省略。 */
+    readonly stages?: readonly BrowserRunStageGroup[];
     /** 终态原因详情。 */
     readonly terminalDetail?: {
         readonly code?: string;

@@ -231,8 +231,9 @@ function AskUserForm({
               {question.options.map((option) => {
                 const checked = (selected[question.id] ?? []).includes(option.id);
                 return (
-                  <label className="answer-option" key={option.id}>
+                  <label className="answer-option" key={option.id} htmlFor={`question-${question.id}-option-${option.id}`}>
                     <input
+                      id={`question-${question.id}-option-${option.id}`}
                       type={question.multiSelect ? "checkbox" : "radio"}
                       name={`question-${question.id}`}
                       checked={checked}
@@ -259,9 +260,11 @@ function AskUserForm({
                 );
               })}
             </div>
-            <label className="other-answer">
+            <label className="other-answer" htmlFor={`question-${question.id}-other`}>
               <span>Other answer</span>
               <input
+                id={`question-${question.id}-other`}
+                name={`question-${question.id}-other`}
                 value={otherText[question.id] ?? ""}
                 disabled={busy}
                 onChange={(event) => {
@@ -347,6 +350,7 @@ function TaskApprovalForm({
         <label htmlFor="task-feedback">Or send feedback</label>
         <textarea
           id="task-feedback"
+          name="task-feedback"
           value={feedback}
           disabled={busy}
           onChange={(event) => setFeedback(event.target.value)}
@@ -420,14 +424,36 @@ function ActionApprovalForm({
       </p>}
       {!recovery && <fieldset className="approval-scopes" disabled={busy}>
         <legend>Allow this action</legend>
-        <label><input type="radio" name={`scope-${action.actionId}`} checked={scope === "action"} onChange={() => setScope("action")} />
-          <span><strong>Once</strong><small>Approve this action only.</small></span></label>
-        <label className={persistentDisabled ? "is-disabled" : ""}>
-          <input type="radio" name={`scope-${action.actionId}`} checked={scope === "goal"} disabled={persistentDisabled} onChange={() => setScope("goal")} />
+        <label htmlFor={`scope-${action.actionId}-action`}>
+          <input
+            id={`scope-${action.actionId}-action`}
+            type="radio"
+            name={`scope-${action.actionId}`}
+            checked={scope === "action"}
+            onChange={() => setScope("action")}
+          />
+          <span><strong>Once</strong><small>Approve this action only.</small></span>
+        </label>
+        <label className={persistentDisabled ? "is-disabled" : ""} htmlFor={`scope-${action.actionId}-goal`}>
+          <input
+            id={`scope-${action.actionId}-goal`}
+            type="radio"
+            name={`scope-${action.actionId}`}
+            checked={scope === "goal"}
+            disabled={persistentDisabled}
+            onChange={() => setScope("goal")}
+          />
           <span><strong>This Goal</strong><small>Allow matching actions in this session.</small></span>
         </label>
-        <label className={persistentDisabled ? "is-disabled" : ""}>
-          <input type="radio" name={`scope-${action.actionId}`} checked={scope === "workspace"} disabled={persistentDisabled} onChange={() => setScope("workspace")} />
+        <label className={persistentDisabled ? "is-disabled" : ""} htmlFor={`scope-${action.actionId}-workspace`}>
+          <input
+            id={`scope-${action.actionId}-workspace`}
+            type="radio"
+            name={`scope-${action.actionId}`}
+            checked={scope === "workspace"}
+            disabled={persistentDisabled}
+            onChange={() => setScope("workspace")}
+          />
           <span><strong>This project</strong><small>Allow matching actions in future Goals.</small></span>
         </label>
       </fieldset>}
@@ -459,6 +485,7 @@ function ActionApprovalForm({
             <label htmlFor="action-reason">Reason for rejecting</label>
             <textarea
               id="action-reason"
+              name="action-reason"
               value={reason}
               disabled={busy}
               onChange={(event) => setReason(event.target.value)}

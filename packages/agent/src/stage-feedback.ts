@@ -18,14 +18,17 @@ export function toModelStageFeedback(
 
     const issues = error.issues?.slice(0, 8).map((issue) => ({
         code: issue.code,
-        path: issue.path,
+        path: issue.path.includes("memoryPatch")
+            ? ["result", ...issue.path.slice(issue.path.indexOf("memoryPatch"))]
+            : issue.path,
         message: safeIssueMessage(issue.code),
     })) ?? [{
         code: error.code,
         path: [],
         message: safeStageMessage(stage),
     }];
-    const origin = stage === "decide" && issues.some((issue) =>
+    const origin = stage === "decide" && issues.length > 0 && issues.every(issue => issue.path.includes("memoryPatch"))
+        ? "memory_patch" : stage === "decide" && issues.some((issue) =>
         issue.path.some((part, index) => part === "action" && issue.path[index + 1] === "input")
         || issue.path[0] === "arguments",
     ) ? "tool_input" : classifyOrigin(issues.map((issue) => issue.code), stage);
@@ -41,6 +44,12 @@ export function toModelStageFeedback(
         issues,
         constraints: [
             "Follow the response schema and rules already included in this request.",
+            ...(error.toolCallShape === undefined ? [] : [
+                `Failed declared tool: ${error.toolCallShape.toolId}. Regenerate complete arguments using its current schema.`,
+                `Provided fields: ${safeFields(error.toolCallShape.providedFields)}.`,
+                `Allowed fields: ${safeFields(error.toolCallShape.allowedFields)}.`,
+                `Required fields: ${safeFields(error.toolCallShape.requiredFields)}.`,
+            ]),
             ...(stage === "decide" ? [
                 "Correct the invalid call and continue the original task, or choose a more suitable authorized Tool. A validation failure does not complete the task; gather missing evidence before completing.",
             ] : []),
@@ -97,4 +106,9 @@ function safeStageMessage(stage: RuntimeFeedbackStage): string {
     return stage === "think"
         ? "Return non-empty Think text without Tool calls."
         : "Return one response that satisfies the active response contract.";
+}
+
+function safeFields(fields: readonly string[]): string {
+    const safe = fields.filter(field => /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(field));
+    return safe.slice(0, 8).join(", ") + (safe.length > 8 ? " (partial list; follow the full schema)" : "");
 }

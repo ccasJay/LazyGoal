@@ -312,6 +312,7 @@ test("createModelOutputContractBundle 支持统一执行请求与上下文检查
             kind: "wait",
             reason: "等待后台任务完成",
             memoryPatch: null,
+            contextNotes: null,
         },
     });
     assert.equal(executingDecoded.kind, "wait");

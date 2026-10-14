@@ -217,3 +217,17 @@ test("reads trajectory using the latest Goal Snapshot boundary", async () => {
         await rm(directory, { recursive: true, force: true });
     }
 });
+
+test("context lookup uses committed history and excludes uncommitted tail", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "benchmark-lookup-"));
+    try {
+        const adapter = new JsonFileBenchmarkPersistenceAdapter({ rootDirectory: directory, namespaceFor: () => "lookup" });
+        const bindings = await adapter.open({ benchmarkId: "context", namespace: "lookup", goalId: "g", runId: "r" });
+        const goal = createGoal({ id: "g", intent: "A task", profile, runId: "r", maxSteps: 1, promptBundleVersion: 1, memoryProtocol: { kind: "structured", version: 1 }, modelContextProtocol: { kind: "trajectory-layered", version: 1 }, contextRetrievalProtocol: { kind: "bm25-lite", version: 1 } });
+        await bindings.trajectoryStore.append({ goalId: "g", runId: "r", phase: "executing", eventType: "run_failed", payload: { type: "run_failed", code: "TEST", message: "committed_retry_token" } });
+        await bindings.trajectoryStore.append({ goalId: "g", runId: "r", phase: "executing", eventType: "run_failed", payload: { type: "run_failed", code: "TEST", message: "uncommitted_secret_token" } });
+        const committed = { ...goal, state: { ...goal.state, run: { ...goal.state.run, committedThroughSequence: 1 } } };
+        const result = await bindings.contextLookupPort!.lookup({ goal: committed, lookupId: "probe", committedThroughSequence: 1, request: { kind: "context_lookup", need: "historical_execution", question: "uncommitted_secret_token" } });
+        assert.equal(result.status, "not_found");
+    } finally { await rm(directory, { recursive: true, force: true }); }
+});

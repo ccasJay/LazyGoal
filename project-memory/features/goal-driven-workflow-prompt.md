@@ -4,9 +4,9 @@ status: active
 summary: "按 Run 模式引导任务提案、获授权工具与证据闭环的统一工作流 Prompt"
 source_spec: specs/goal-driven-workflow-prompt/
 distilled_at: 2026-08-25
-reviewed_at: 2026-09-23
+reviewed_at: 2026-10-10
 tags: [prompt, workflow, evidence, planning, completion]
-authorities: [docs/architecture/agent.md, packages/agent/src/step-prompt/agent-decision@1.njk, packages/agent/src/prompt.ts, packages/contracts/src/model-output/factory.ts]
+authorities: [packages/agent/notes/overview.md, packages/agent/src/step-prompt/agent-decision@1.njk, packages/agent/src/prompt.ts, packages/model-contracts/src/model-output/factory.ts]
 ---
 
 # Goal-Driven Workflow Prompt
@@ -36,11 +36,11 @@ authorities: [docs/architecture/agent.md, packages/agent/src/step-prompt/agent-d
 - S1: `specs/mode-driven-task-proposal/requirements.md`
 - S2: `specs/mode-driven-task-proposal/design.md`
 - S3: `specs/goal-driven-workflow-prompt/requirements.md`
-- S4: `docs/architecture/agent.md`
+- S4: `packages/agent/notes/overview.md`
 - S5: `packages/agent/src/step-prompt/agent-decision@1.njk`
-- S6: `packages/contracts/src/model-output/factory.ts`
+- S6: `packages/model-contracts/src/model-output/factory.ts`
 - S7: `packages/agent/test/prompting-default-bundles.test.ts`
 - S8: `specs/verifiable-completion-evidence/requirements.md`
 - S9: `packages/runtime/src/evidence-gate.ts`
 - S10: `packages/runtime/test/runner.test.ts`
-- S11: `packages/tui/test/prompt-bundle-integration.test.ts`
+- S11: `apps/goal-server/test/prompt-bundle-integration.test.ts`

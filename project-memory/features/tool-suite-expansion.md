@@ -4,9 +4,9 @@ status: active
 summary: "为工作区任务提供有界文件、补丁、网页、长进程与本地 Git 工具，并沿用 Runtime 授权和恢复边界"
 source_spec: specs/tool-suite-expansion/
 distilled_at: 2026-10-04
-reviewed_at: 2026-10-04
+reviewed_at: 2026-10-10
 tags: [tools, filesystem, patch, web, process, git, sandbox, recovery]
-authorities: [docs/architecture/runtime.md, docs/architecture/sandbox.md, packages/tools/src/default-tools.ts, packages/tools/src/apply-patch.ts, packages/tools/src/process-manager.ts, packages/storage/src/json-file-process-session-store.ts, packages/tools/src/internal/git-sandbox-access.ts, packages/sandbox/src/git-runner.ts]
+authorities: [packages/runtime/notes/overview.md, packages/sandbox/notes/overview.md, packages/tools/src/default-tools.ts, packages/tools/src/apply-patch.ts, packages/tools/src/process-manager.ts, packages/storage/src/json-file-process-session-store.ts, packages/tools/src/internal/git-sandbox-access.ts, packages/sandbox/src/git-runner.ts]
 ---
 
 # Tool Suite Expansion
@@ -43,8 +43,8 @@ authorities: [docs/architecture/runtime.md, docs/architecture/sandbox.md, packag
 - S1: `specs/tool-suite-expansion/requirements.md`
 - S2: `specs/tool-suite-expansion/design.md`
 - S3: `specs/tool-suite-expansion/tasks.md`
-- S4: `docs/architecture/runtime.md`
-- S5: `docs/architecture/sandbox.md`
+- S4: `packages/runtime/notes/overview.md`
+- S5: `packages/sandbox/notes/overview.md`
 - S6: `packages/tools/src/default-tools.ts`
 - S7: `packages/tools/src/list-directory.ts`
 - S8: `packages/tools/src/find-files.ts`
@@ -57,12 +57,12 @@ authorities: [docs/architecture/runtime.md, docs/architecture/sandbox.md, packag
 - S15: `packages/runtime/test/web-tool-permission.test.ts`
 - S16: `packages/tools/src/process-manager.ts`
 - S17: `packages/storage/src/json-file-process-session-store.ts`
-- S18: `packages/tui/test/process-lifecycle.integration.test.ts`
+- S18: `apps/goal-server/test/process-lifecycle.integration.test.ts`
 - S19: `packages/tools/src/internal/git-sandbox-access.ts`
 - S20: `packages/sandbox/src/git-runner.ts`
 - S21: `packages/tools/src/git-read-tools.ts`
 - S22: `packages/tools/src/git-write-tools.ts`
 - S23: `packages/tools/src/git-worktree-tools.ts`
 - S24: `packages/runtime/test/git-sandbox-authorization.test.ts`
-- S25: `packages/tui/test/tool-suite.integration.test.ts`
+- S25: `apps/goal-server/test/tool-suite.integration.test.ts`
 - S26: `packages/tools/test/git-worktree-tools.test.ts`

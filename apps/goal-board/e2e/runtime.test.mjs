@@ -57,6 +57,7 @@ test("real local service restores and completes one authorized Goal conversation
     await cdp(socket, "Page.enable");
     await cdp(socket, "Runtime.enable");
 
+    socket.statusPath = statusPath;
     await navigate(socket, `${first.origin}/`);
     await waitForExpression(socket, "document.body.innerText.includes('lazygoal web')");
     assert.equal(await value(socket, "document.querySelector('.primary')?.disabled"), true);
@@ -119,9 +120,14 @@ test("real local service restores and completes one authorized Goal conversation
     assert.deepEqual(savedPreference.body, { ok: true, modelId: "model-b" });
     assert.equal((await api(first.origin, `/api/goals/${goalId}/models?runId=${firstRunId}`, { token: first.token })).body.currentModelId, "default-model");
 
+    await waitForExpression(socket, "document.querySelector('.other-answer input') !== null");
+    await setText(socket, ".other-answer input", "Saved answer draft");
     await stopService(service);
     await waitForExpression(socket, "!document.querySelector('.stream-state')?.classList.contains('connected')", 10_000);
     assert.ok(await value(socket, "document.querySelector('.structured-form') !== null"), "disconnect preserves the saved answer form");
+    await waitForExpression(socket, "document.querySelector('.session [role=alert]') !== null");
+    assert.equal(await value(socket, "document.querySelector('.other-answer input').value"), "Saved answer draft");
+    assert.equal(await value(socket, "document.querySelector('.structured-form button[type=submit]').disabled"), true);
 
     service = await startService({ workspace, data, home, statusPath, runOffset: 1, modelOffset: 1, delayModel: true });
     const restarted = await service.ready;
@@ -138,7 +144,7 @@ test("real local service restores and completes one authorized Goal conversation
     await navigate(socket, restarted.launchUrl);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null", 10_000);
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('.goal-card').click()",
+      expression: "document.querySelectorAll('.goal-card')[0].click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Which notes should I include?')", 10_000);
@@ -159,7 +165,7 @@ test("real local service restores and completes one authorized Goal conversation
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Your approval is needed')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 2 && status.toolCalls === 0);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 4 && status.toolCalls === 0);
     session = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.pendingAction?.status === "awaiting_approval");
     const pendingActionId = session.pendingAction.actionId;
 
@@ -171,14 +177,14 @@ test("real local service restores and completes one authorized Goal conversation
     });
     assert.equal(staleApproval.response.status, 409);
     assert.equal(staleApproval.body.error, "action_not_waiting");
-    assert.deepEqual(await readStatus(statusPath), { modelCalls: 2, toolCalls: 0 });
+    assert.deepEqual(await readStatus(statusPath), { modelCalls: 4, toolCalls: 0 });
 
     await cdp(socket, "Runtime.evaluate", {
       expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Approve once')).click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 4 && status.toolCalls === 1);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 6 && status.toolCalls === 1);
     session = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.runStatus === "completed");
     assert.equal(session.pendingAction, undefined);
     assert.ok(session.runs.find((run) => run.current)?.steps.some((step) => step.toolId === "browser_fixture_write" && step.status === "completed"));
@@ -205,7 +211,7 @@ test("real local service restores and completes one authorized Goal conversation
     await waitForExpression(socket, "document.querySelector('.tr-detail-body pre') !== null");
     assert.equal(await value(socket, "document.activeElement?.id"), `trajectory-event-${trajectory.body.locatedSequence}`);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#trajectory-event-" + toolEvent.sequence + "').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.tr-detail-title')?.innerText.includes('tool_started')");
+    await waitForExpression(socket, "document.querySelector('.tr-detail-title h3')?.textContent === 'browser_fixture_write'");
     await waitForExpression(socket, "[...document.querySelectorAll('.tr-detail-tabs button')].some(button => button.textContent === 'Result') && !document.querySelector('.tr-detail-body')?.innerText.includes('Loading recorded details')");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.tr-detail-tabs button')].find(button => button.textContent === 'Result').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-detail-body')?.innerText.includes('PRIVATE_CONTROLLED_TOOL_OUTPUT')");
@@ -228,12 +234,12 @@ test("real local service restores and completes one authorized Goal conversation
     const timelineBounds = await value(socket, "(() => { const bounds = document.querySelector('.tr-plot').getBoundingClientRect(); return { x: bounds.left, y: bounds.top, width: bounds.width, height: bounds.height }; })()");
     const rulerValues = () => value(socket, "[...document.querySelectorAll('.tr-ruler span')].map(tick => parseFloat(tick.textContent))");
     const fullRuler = await rulerValues();
-    const fullLedger = await value(socket, "document.querySelector('.tr-ledger-foot > span').textContent");
+    const fullLedger = await value(socket, "document.querySelector('.tr-page-count').textContent");
     await cdp(socket, "Input.dispatchMouseEvent", { type: "mouseWheel", x: timelineBounds.x + timelineBounds.width * .6, y: timelineBounds.y + 30, deltaX: 0, deltaY: -180 });
     await waitForExpression(socket, "document.querySelector('.tr-zoom-level').textContent !== '1×'");
     const zoomRuler = await rulerValues();
     assert.ok(zoomRuler.at(-1) - zoomRuler[0] < fullRuler.at(-1) - fullRuler[0]);
-    assert.equal(await value(socket, "document.querySelector('.tr-ledger-foot > span').textContent"), fullLedger, "visual zoom preserves the event query");
+    assert.equal(await value(socket, "document.querySelector('.tr-page-count').textContent"), fullLedger, "visual zoom preserves the event query");
     await cdp(socket, "Input.dispatchMouseEvent", { type: "mouseWheel", x: timelineBounds.x + timelineBounds.width * .6, y: timelineBounds.y + 30, deltaX: 100, deltaY: 0 });
     await waitForExpression(socket, `parseFloat(document.querySelector('.tr-ruler span').textContent) > ${zoomRuler[0]}`);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.tr-plot').focus()", returnByValue: true });
@@ -243,9 +249,10 @@ test("real local service restores and completes one authorized Goal conversation
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Zoom in timeline\"]').click()", returnByValue: true });
     const beforeDrag = await rulerValues();
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Pan timeline\"]').click()", returnByValue: true });
-    await cdp(socket, "Input.dispatchMouseEvent", { type: "mousePressed", x: timelineBounds.x + timelineBounds.width * .6, y: timelineBounds.y + timelineBounds.height - 7, button: "left", buttons: 1, clickCount: 1 });
-    await cdp(socket, "Input.dispatchMouseEvent", { type: "mouseMoved", x: timelineBounds.x + timelineBounds.width * .4, y: timelineBounds.y + timelineBounds.height - 7, button: "left", buttons: 1 });
-    await cdp(socket, "Input.dispatchMouseEvent", { type: "mouseReleased", x: timelineBounds.x + timelineBounds.width * .4, y: timelineBounds.y + timelineBounds.height - 7, button: "left", clickCount: 1 });
+    const dragBounds = await value(socket, "(() => { const bounds = document.querySelector('.tr-plot').getBoundingClientRect(); return { x: bounds.left, y: bounds.top, width: bounds.width, height: bounds.height }; })()");
+    await cdp(socket, "Input.dispatchMouseEvent", { type: "mousePressed", x: dragBounds.x + dragBounds.width * .6, y: dragBounds.y + dragBounds.height - 7, button: "left", buttons: 1, clickCount: 1 });
+    await cdp(socket, "Input.dispatchMouseEvent", { type: "mouseMoved", x: dragBounds.x + dragBounds.width * .4, y: dragBounds.y + dragBounds.height - 7, button: "left", buttons: 1 });
+    await cdp(socket, "Input.dispatchMouseEvent", { type: "mouseReleased", x: dragBounds.x + dragBounds.width * .4, y: dragBounds.y + dragBounds.height - 7, button: "left", clickCount: 1 });
     await waitForExpression(socket, `parseFloat(document.querySelector('.tr-ruler span').textContent) > ${beforeDrag[0]}`);
     assert.equal(await value(socket, "[...document.querySelectorAll('.tr-ledger-foot button')].some(button => button.textContent === 'Clear range')"), false, "pan does not create a range filter");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Reset timeline zoom\"]').click(); document.querySelector('button[aria-label=\"Pan timeline\"]').click()", returnByValue: true });
@@ -265,7 +272,7 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
       returnByValue: true,
     });
-    await waitForStatus(statusPath, (status) => status.modelCalls === 6 && status.toolCalls === 1);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 9 && status.toolCalls === 1);
     session = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.runStatus === "completed" && candidate.currentRunId !== firstRunId);
     assert.equal(session.runs.length, 2);
     assert.ok(session.messages.some((message) => message.role === "user" && message.content === "Record one follow-up note"));
@@ -295,7 +302,7 @@ test("real local service restores and completes one authorized Goal conversation
     await waitForExpression(socket, "document.querySelector('.session-intro')?.innerText.includes('Plan Mode')", 10_000);
     emptyList = await api(restarted.origin, "/api/goals", { token: restarted.token });
     assert.equal(emptyList.body.goals.length, 1, "draft /plan does not persist a Goal");
-    assert.deepEqual(await readStatus(statusPath), { modelCalls: 6, toolCalls: 1 });
+    assert.deepEqual(await readStatus(statusPath), { modelCalls: 9, toolCalls: 1 });
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Plan flow: inspect and complete the acceptance path");
     await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false", 10_000);
     await cdp(socket, "Runtime.evaluate", {
@@ -303,7 +310,7 @@ test("real local service restores and completes one authorized Goal conversation
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Approve the deterministic plan-flow task?')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 7 && status.toolCalls === 1);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 10 && status.toolCalls === 1);
     const approvedList = await waitFor(async () => {
       const response = await api(restarted.origin, "/api/goals", { token: restarted.token });
       return response.body.goals?.some((goal) => goal.intent.includes("Plan flow") && goal.runStatus === "waiting") ? response : undefined;
@@ -325,12 +332,13 @@ test("real local service restores and completes one authorized Goal conversation
     assert.equal(planSession.currentRunMode, "plan");
     assert.ok(planSession.messages.some((message) => message.role === "user" && message.content === "Plan flow: inspect and complete the acceptance path"));
     assert.equal(planSession.messages.some((message) => message.content === "/plan"), false);
+    await waitForExpression(socket, "[...document.querySelectorAll('.structured-form button')].filter(button => button.textContent.includes('Approve task') && !button.disabled).length === 1");
     await cdp(socket, "Runtime.evaluate", {
       expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Approve task')).click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Approve once')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 8 && status.toolCalls === 1);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 13 && status.toolCalls === 1);
     const planActionSession = await waitForSession(
       restarted.origin,
       restarted.token,
@@ -342,7 +350,7 @@ test("real local service restores and completes one authorized Goal conversation
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 10 && status.toolCalls === 2);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 15 && status.toolCalls === 2);
     const completedPlanSession = await waitForSession(
       restarted.origin,
       restarted.token,
@@ -367,12 +375,12 @@ test("real local service restores and completes one authorized Goal conversation
     const nextPlan = await api(restarted.origin, `/api/goals/${completedPlanSession.goalId}`, { token: restarted.token });
     assert.equal(nextPlan.body.goal.nextRunMode, "plan");
     assert.equal(nextPlan.body.goal.messages.some((message) => message.content === "/plan"), false);
-    assert.deepEqual(await readStatus(statusPath), { modelCalls: 10, toolCalls: 2 });
+    assert.deepEqual(await readStatus(statusPath), { modelCalls: 15, toolCalls: 2 });
 
     await cdp(socket, "Page.reload");
     await waitForExpression(socket, "document.readyState === 'complete' && document.querySelector('.goal-card') !== null", 10_000);
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('.goal-card').click()",
+      expression: "document.querySelectorAll('.goal-card')[0].click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 10_000);
@@ -589,11 +597,24 @@ async function connectCdp(url) {
     socket.addEventListener("open", resolve, { once: true });
     socket.addEventListener("error", reject, { once: true });
   });
+  socket.requests = new Map();
   socket.pending = new Map();
   socket.nextId = 0;
   socket.addEventListener("message", async (event) => {
     const raw = typeof event.data === "string" ? event.data : await event.data.text();
     const message = JSON.parse(raw);
+    if (message.method === "Network.requestWillBeSent") {
+      const { requestId, request } = message.params;
+      const pathname = new URL(request.url).pathname;
+      if (pathname.startsWith("/api/")) {
+        socket.requests.set(requestId, { path: pathname, method: request.method });
+        if (socket.requests.size > 20) socket.requests.delete(socket.requests.keys().next().value);
+      }
+    }
+    if (message.method === "Network.responseReceived") {
+      const entry = socket.requests.get(message.params.requestId);
+      if (entry) entry.status = message.params.response.status;
+    }
     if (message.id === undefined) return;
     const pending = socket.pending.get(message.id);
     if (pending === undefined) return;
@@ -601,10 +622,24 @@ async function connectCdp(url) {
     if (message.error) pending.reject(new Error(message.error.message));
     else pending.resolve(message.result);
   });
+  await cdp(socket, "Network.enable");
   return socket;
 }
 
-function cdp(socket, method, params = {}) {
+async function cdp(socket, method, params = {}) {
+  const expression = params.expression;
+  if (method === "Runtime.evaluate" && typeof expression === "string" && expression.endsWith(".click()") && !expression.includes("?.click()")) {
+    const operations = expression.split(";").map(operation => operation.trim()).filter(Boolean);
+    if (operations.length > 1) {
+      let result;
+      for (const operation of operations) result = await cdp(socket, method, { ...params, expression: operation });
+      return result;
+    }
+    const target = expression.slice(0, -".click()".length);
+    const selector = /^document\.querySelector\((.+)\)$/.exec(target);
+    const unique = selector ? `document.querySelectorAll(${selector[1]}).length === 1 && ` : "";
+    await waitForExpression(socket, `(() => { try { const target = ${target}; return ${unique}target != null && target.isConnected && target.checkVisibility() && !target.disabled; } catch (error) { if (error instanceof TypeError) return false; throw error; } })()`);
+  }
   const id = ++socket.nextId;
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -626,7 +661,7 @@ async function navigate(socket, url) {
 
 async function value(socket, expression) {
   const result = await cdp(socket, "Runtime.evaluate", { expression, returnByValue: true });
-  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+  if (result.exceptionDetails) throw new Error(`${result.exceptionDetails.text}: ${result.exceptionDetails.exception?.description ?? expression}`);
   return result.result.value;
 }
 
@@ -641,5 +676,14 @@ async function waitForExpression(socket, expression, timeoutMs = 5_000) {
     if (await value(socket, expression)) return;
     await delay(50);
   }
-  throw new Error(`Timed out waiting for browser expression: ${expression}; page text: ${await value(socket, "document.body.innerText")}`);
+  throw new Error(`Timed out waiting for browser expression: ${expression}; diagnostics: ${await browserDiagnostics(socket)}`);
+}
+
+async function browserDiagnostics(socket) {
+  const page = await value(socket, "({url: location.origin + location.pathname, state: document.querySelector('.task-state')?.textContent, connection: document.querySelector('.stream-state')?.textContent, buttons: [...document.querySelectorAll('.structured-form button, .command-candidate')].map(button => ({text: button.textContent.trim(), disabled: button.disabled}))})");
+  let stop;
+  try { const recorded = JSON.parse(await readFile(`${socket.statusPath}.run-stop`, "utf8")); stop = {status: recorded.status, code: recorded.stopReason?.code, kind: recorded.stopReason?.kind, message: recorded.stopReason?.message?.replaceAll("PRIVATE_CONTROLLED_TOOL_OUTPUT", "[redacted]")}; } catch {}
+  let decisions;
+  try { decisions = (await readFile(`${socket.statusPath}.decisions`, "utf8")).trim().split("\n").map(line => JSON.parse(line)); } catch {}
+  return JSON.stringify({ ...page, stop, decisions, requests: [...socket.requests.values()] });
 }

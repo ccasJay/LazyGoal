@@ -29,6 +29,7 @@ import type {
 } from "./model-inference-view";
 import { projectContextLookupResult } from "./context-lookup-projection";
 import { compareCodeUnits } from "./prompting/environment";
+import { buildGoalContextNavigation } from "./goal-context-navigation";
 
 /**
  * 从 Runtime State 派生 LLM Input View 的单向投影边界。
@@ -55,6 +56,7 @@ export class ModelInferenceProjector {
      * @param trajectoryContext - 可选的分层历史轨迹上下文。
      * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果。
      * @param stage - 当前推理职责；省略时投影 Decide 阶段。
+     * @param omitToolInputSchema - 原生路径下是否省略授权 Section 中的 Tool inputSchema 以消除重复 Schema。
      * @returns 与当前状态对应的全新 ModelInferenceView。
      * @throws Goal 当前状态不允许调用模型时抛出 Error。
      */
@@ -65,6 +67,7 @@ export class ModelInferenceProjector {
         trajectoryContext?: ModelTrajectoryContext,
         contextLookupResult?: ContextLookupResult,
         stage: PromptStage = "decide",
+        omitToolInputSchema = false,
     ): ModelInferenceView {
         const memoryProtocol = goal.definition.memoryProtocol;
         const modelContextProtocol = goal.definition.modelContextProtocol;
@@ -104,10 +107,22 @@ export class ModelInferenceProjector {
             modelContextProtocol: projectModelContextProtocol(modelContextProtocol),
             contextRetrievalProtocol: projectContextRetrievalProtocol(contextRetrievalProtocol),
         });
+        const conversationMessages = projectConversation(goal);
+        const historicalStages = goal.state.historicalStages;
+        const notes = goal.state.notes;
+        const projectedNavigation = buildGoalContextNavigation({
+            currentStage: goal.state.run.currentStage,
+            currentRunId: goal.state.run.id,
+            historicalStages,
+            notes,
+            currentMessages: conversationMessages,
+            currentRequestText: goal.state.messages?.at(-1)?.content,
+        });
+
         const dynamicContext: ModelDynamicContext = deepFreeze({
             runMode: goal.state.run.mode,
             goalPlanWritable: canUpdateGoalPlan(goal.state.run.mode),
-            authorizedTools: projectTools(tools),
+            authorizedTools: projectTools(tools, omitToolInputSchema),
             ...(goal.state.run.approvedTask === undefined
                 ? {}
                 : {
@@ -129,6 +144,7 @@ export class ModelInferenceProjector {
                     },
                 }),
             ...(projectedGoalPlan === undefined ? {} : { goalPlan: projectedGoalPlan }),
+            ...(projectedNavigation !== undefined ? { goalContextNavigation: projectedNavigation } : {}),
         });
 
         return {
@@ -247,6 +263,23 @@ export class ModelInferenceProjector {
                             goal.state.run.pendingAction,
                         ),
                     }),
+                ...(goal.state.run.currentStage === undefined
+                    ? {}
+                    : {
+                        currentStage: {
+                            stageId: goal.state.run.currentStage.stageId,
+                            revision: goal.state.run.currentStage.revision,
+                            status: goal.state.run.currentStage.status,
+                            target: goal.state.run.currentStage.target,
+                            acceptanceCriteria: goal.state.run.currentStage.acceptanceCriteria,
+                            ...(goal.state.run.currentStage.previousStageResultRef !== undefined
+                                ? { previousStageResultRef: goal.state.run.currentStage.previousStageResultRef }
+                                : {}),
+                            ...(goal.state.run.currentStage.latestReviewRejection !== undefined
+                                ? { latestReviewRejection: goal.state.run.currentStage.latestReviewRejection }
+                                : {}),
+                        },
+                    }),
             },
         };
     }
@@ -307,14 +340,22 @@ function projectConversation(
 
 function projectTools(
     tools: readonly ToolDefinition[],
+    omitInputSchema = false,
 ): readonly ModelToolDefinition[] {
     const seen = new Set<string>();
-    const projected = tools.map((tool) => {
+    const projected: ModelToolDefinition[] = tools.map((tool) => {
         if (seen.has(tool.id)) {
             throw new Error(`重复的 Tool ID：${tool.id}`);
         }
 
         seen.add(tool.id);
+
+        if (omitInputSchema) {
+            return {
+                id: tool.id,
+                description: tool.description,
+            };
+        }
 
         const { $schema: _schema, ...inputSchema } = compileJsonSchema(
             tool.inputContract,

@@ -4,9 +4,9 @@ status: active
 summary: "Launcher 的 Profile 冻结、首次保存与 Coordinator 委派边界"
 source_spec: specs/minimal-step-loop/
 distilled_at: 2026-08-16
-reviewed_at: 2026-09-18
+reviewed_at: 2026-10-10
 tags: [launcher, profile, initial-snapshot, coordinator]
-authorities: [docs/architecture/runtime.md, packages/runtime/src/launcher.ts]
+authorities: [packages/runtime/notes/overview.md, packages/runtime/src/launcher.ts]
 ---
 
 # Minimal Step Loop

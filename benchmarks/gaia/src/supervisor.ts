@@ -4,6 +4,7 @@ import type { LLMAdapter } from "../../../packages/agent/src/index.js";
 import {
     AttemptRecorder,
     type BenchmarkAttemptRecord,
+    type BenchmarkAttemptStatus,
     type PromptEvaluationAttemptMetadata,
 } from "../../src/attempt-recorder.js";
 import {

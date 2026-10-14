@@ -69,31 +69,144 @@ export function normalizeContextLookupRequest(
     if (!isRecord(value) || value.kind !== "context_lookup") {
         throw new ContextLookupProtocolError("kind must be context_lookup");
     }
-    assertExactKeys(value, ["kind", "need", "question", "filters"]);
+
+    const op = value.operation;
     if (
-        value.need !== "conversation_history"
-        && value.need !== "historical_execution"
-        && value.need !== "decision_rationale"
+        op !== undefined
+        && op !== "history_search"
+        && op !== "directory_browse"
+        && op !== "directory_search"
+        && op !== "source_expand"
     ) {
-        throw new ContextLookupProtocolError("need is invalid");
-    }
-    if (
-        typeof value.question !== "string"
-        || value.question.trim().length === 0
-        || value.question.length > CONTEXT_LOOKUP_MAX_QUESTION_LENGTH
-    ) {
-        throw new ContextLookupProtocolError(
-            `question must be non-empty and at most ${CONTEXT_LOOKUP_MAX_QUESTION_LENGTH} characters`,
-        );
+        throw new ContextLookupProtocolError(`operation is invalid: ${String(op)}`);
     }
 
+    // 1. 传统历史搜索: history_search
+    if (op === undefined || op === "history_search") {
+        assertExactKeys(value, ["kind", "operation", "need", "question", "filters"]);
+        if (
+            value.need !== "conversation_history"
+            && value.need !== "historical_execution"
+            && value.need !== "decision_rationale"
+        ) {
+            throw new ContextLookupProtocolError("need is invalid");
+        }
+        if (
+            typeof value.question !== "string"
+            || value.question.trim().length === 0
+            || value.question.length > CONTEXT_LOOKUP_MAX_QUESTION_LENGTH
+        ) {
+            throw new ContextLookupProtocolError(
+                `question must be non-empty and at most ${CONTEXT_LOOKUP_MAX_QUESTION_LENGTH} characters`,
+            );
+        }
+
+        return {
+            kind: "context_lookup",
+            ...(op !== undefined ? { operation: op } : {}),
+            need: value.need,
+            question: value.question.trim(),
+            ...(value.filters === undefined
+                ? {}
+                : { filters: normalizeContextLookupFilters(value.filters) }),
+        };
+    }
+
+    // 2. 目录浏览: directory_browse
+    if (op === "directory_browse") {
+        assertExactKeys(value, ["kind", "operation", "cursor", "limit", "category"]);
+        let limit: number | undefined;
+        if (value.limit !== undefined) {
+            if (!Number.isSafeInteger(value.limit) || Number(value.limit) < 1 || Number(value.limit) > 50) {
+                throw new ContextLookupProtocolError("limit must be an integer between 1 and 50");
+            }
+            limit = Number(value.limit);
+        }
+        let cursor: string | undefined;
+        if (value.cursor !== undefined) {
+            if (typeof value.cursor !== "string") {
+                throw new ContextLookupProtocolError("cursor must be a string");
+            }
+            cursor = value.cursor.trim();
+        }
+        let category: string | undefined;
+        if (value.category !== undefined) {
+            if (typeof value.category !== "string") {
+                throw new ContextLookupProtocolError("category must be a string");
+            }
+            category = value.category.trim();
+        }
+        return {
+            kind: "context_lookup",
+            operation: "directory_browse",
+            ...(cursor !== undefined ? { cursor } : {}),
+            ...(limit !== undefined ? { limit } : {}),
+            ...(category !== undefined ? { category } : {}),
+        };
+    }
+
+    // 3. 目录搜索: directory_search
+    if (op === "directory_search") {
+        assertExactKeys(value, ["kind", "operation", "query", "cursor", "limit", "category"]);
+        if (typeof value.query !== "string" || value.query.trim().length === 0) {
+            throw new ContextLookupProtocolError("query must be non-empty for directory_search");
+        }
+        let limit: number | undefined;
+        if (value.limit !== undefined) {
+            if (!Number.isSafeInteger(value.limit) || Number(value.limit) < 1 || Number(value.limit) > 50) {
+                throw new ContextLookupProtocolError("limit must be an integer between 1 and 50");
+            }
+            limit = Number(value.limit);
+        }
+        let cursor: string | undefined;
+        if (value.cursor !== undefined) {
+            if (typeof value.cursor !== "string") {
+                throw new ContextLookupProtocolError("cursor must be a string");
+            }
+            cursor = value.cursor.trim();
+        }
+        let category: string | undefined;
+        if (value.category !== undefined) {
+            if (typeof value.category !== "string") {
+                throw new ContextLookupProtocolError("category must be a string");
+            }
+            category = value.category.trim();
+        }
+        return {
+            kind: "context_lookup",
+            operation: "directory_search",
+            query: value.query.trim(),
+            ...(cursor !== undefined ? { cursor } : {}),
+            ...(limit !== undefined ? { limit } : {}),
+            ...(category !== undefined ? { category } : {}),
+        };
+    }
+
+    // 4. 来源直接展开: source_expand
+    assertExactKeys(value, ["kind", "operation", "sourceRef", "offset", "limit"]);
+    if (typeof value.sourceRef !== "string" || value.sourceRef.trim().length === 0) {
+        throw new ContextLookupProtocolError("sourceRef must be non-empty for source_expand");
+    }
+    let offset: number | undefined;
+    if (value.offset !== undefined) {
+        if (!Number.isSafeInteger(value.offset) || Number(value.offset) < 0) {
+            throw new ContextLookupProtocolError("offset must be a non-negative integer");
+        }
+        offset = Number(value.offset);
+    }
+    let limit: number | undefined;
+    if (value.limit !== undefined) {
+        if (!Number.isSafeInteger(value.limit) || Number(value.limit) < 1) {
+            throw new ContextLookupProtocolError("limit must be a positive integer");
+        }
+        limit = Number(value.limit);
+    }
     return {
         kind: "context_lookup",
-        need: value.need,
-        question: value.question.trim(),
-        ...(value.filters === undefined
-            ? {}
-            : { filters: normalizeContextLookupFilters(value.filters) }),
+        operation: "source_expand",
+        sourceRef: value.sourceRef.trim(),
+        ...(offset !== undefined ? { offset } : {}),
+        ...(limit !== undefined ? { limit } : {}),
     };
 }
 
@@ -118,6 +231,7 @@ export function validateContextLookupResult(
             "lookupId",
             "committedThroughSequence",
             "reason",
+            "operation",
         ]);
         if (value.committedThroughSequence !== undefined) {
             assertNonNegativeSafeInteger(value.committedThroughSequence, "result boundary");
@@ -139,6 +253,7 @@ export function validateContextLookupResult(
                 ? {}
                 : { committedThroughSequence: value.committedThroughSequence }),
             ...(value.reason === undefined ? {} : { reason: value.reason }),
+            ...(value.operation !== undefined ? { operation: value.operation as any } : {}),
         };
     }
 
@@ -149,6 +264,7 @@ export function validateContextLookupResult(
             "code",
             "message",
             "committedThroughSequence",
+            "operation",
         ]);
         assertBoundedString(
             value.code,
@@ -174,6 +290,7 @@ export function validateContextLookupResult(
             ...(value.committedThroughSequence === undefined
                 ? {}
                 : { committedThroughSequence: value.committedThroughSequence }),
+            ...(value.operation !== undefined ? { operation: value.operation as any } : {}),
         };
     }
 
@@ -186,18 +303,27 @@ export function validateContextLookupResult(
         "matches",
         "truncated",
         "sourceRunBoundaries",
+        "operation",
+        "directoryEntries",
+        "expandedSource",
+        "nextCursor",
+        "hasMore",
     ]);
     assertNonNegativeSafeInteger(value.committedThroughSequence, "result boundary");
     if (value.committedThroughSequence > boundary) {
         throw new ContextLookupProtocolError("result boundary exceeds request boundary");
     }
-    if (!Array.isArray(value.matches) || value.matches.length === 0) {
-        throw new ContextLookupProtocolError("found result requires at least one match");
-    }
-    if (value.matches.length > CONTEXT_LOOKUP_MAX_MATCHES) {
-        throw new ContextLookupProtocolError(
-            `found result contains more than ${CONTEXT_LOOKUP_MAX_MATCHES} matches`,
-        );
+
+    const isHistorySearch = value.operation === undefined || value.operation === "history_search";
+    if (isHistorySearch) {
+        if (!Array.isArray(value.matches) || value.matches.length === 0) {
+            throw new ContextLookupProtocolError("found result requires at least one match");
+        }
+        if (value.matches.length > CONTEXT_LOOKUP_MAX_MATCHES) {
+            throw new ContextLookupProtocolError(
+                `found result contains more than ${CONTEXT_LOOKUP_MAX_MATCHES} matches`,
+            );
+        }
     }
     if (typeof value.truncated !== "boolean") {
         throw new ContextLookupProtocolError("found result truncated must be boolean");
@@ -214,7 +340,8 @@ export function validateContextLookupResult(
     const boundaryByRun = new Map(
         (sourceRunBoundaries ?? []).map((source) => [source.runId, source.committedThroughSequence]),
     );
-    const matches = value.matches.map((match, index) => validateContextLookupMatch(
+    const rawMatches = Array.isArray(value.matches) ? value.matches : [];
+    const matches = rawMatches.map((match, index) => validateContextLookupMatch(
         match,
         boundaryByRun.get(isRecord(match) && typeof match.runId === "string" ? match.runId : "") ?? boundary,
         index,
@@ -251,6 +378,11 @@ export function validateContextLookupResult(
         matches,
         truncated: value.truncated,
         ...(sourceRunBoundaries === undefined ? {} : { sourceRunBoundaries }),
+        ...(value.operation !== undefined ? { operation: value.operation as any } : {}),
+        ...(value.directoryEntries !== undefined ? { directoryEntries: value.directoryEntries as any } : {}),
+        ...(value.expandedSource !== undefined ? { expandedSource: value.expandedSource as any } : {}),
+        ...(value.nextCursor !== undefined ? { nextCursor: value.nextCursor as string } : {}),
+        ...(value.hasMore !== undefined ? { hasMore: Boolean(value.hasMore) } : {}),
     } as const;
     if (Buffer.byteLength(JSON.stringify(result), "utf8") > CONTEXT_LOOKUP_MAX_RESULT_BYTES) {
         throw new ContextLookupProtocolError(

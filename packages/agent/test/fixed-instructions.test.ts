@@ -52,6 +52,8 @@ test("Decide 与 Think 固定指令测量真实 tokens 并检查最低覆盖，�
             assert.match(fixedText, /exactly one decision result/);
             assert.match(fixedText, /committed Tool\/Observation evidence/);
             assert.match(fixedText, /Plan Run without an approved task/);
+            assert.match(fixedText, /discover execute_program \(PTC\) and the business Tools the program needs/);
+            assert.match(fixedText, /focused, separate queries such as "ptc", "read", and "search"/);
         } else {
             assert.match(fixedText, /explicit Think goal/);
             assert.match(fixedText, /free-text output/);

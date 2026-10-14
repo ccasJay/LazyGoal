@@ -4,9 +4,9 @@ status: active
 summary: "TUA-Bench 通用终端代理评测套件，基于官方 Docker custom 镜像、声明式容器网络放行、bash_exec 工具与确定性 reward 评分"
 source_spec: specs/tua-bench-integration/
 distilled_at: 2026-09-20
-reviewed_at: 2026-09-20
+reviewed_at: 2026-10-10
 tags: [benchmark, tua-bench, terminal, bash, evaluation, container, acp]
-authorities: [docs/architecture/README.md, benchmarks/tua-bench/src/environment-spec.ts, benchmarks/tua-bench/src/bash-exec-tool.ts, benchmarks/tua-bench/src/scoring.ts, benchmarks/tua-bench/src/worker-entry.ts]
+authorities: [README.md, benchmarks/tua-bench/src/environment-spec.ts, benchmarks/tua-bench/src/bash-exec-tool.ts, benchmarks/tua-bench/src/scoring.ts, benchmarks/tua-bench/src/worker-entry.ts]
 ---
 
 # TUA-Bench Integration

@@ -56,7 +56,7 @@ export class JsonFileDiagnosticTraceSink implements DiagnosticTraceSink {
             if (this.appendQueues.get(key) === tracked) {
                 this.appendQueues.delete(key);
             }
-        });
+        }).catch(() => undefined);
         this.appendQueues.set(key, tracked);
         return operation;
     }

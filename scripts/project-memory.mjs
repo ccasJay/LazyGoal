@@ -231,8 +231,10 @@ async function validateCapsule(projectRoot, capsulePath, text) {
     if (fields.reviewed_at < fields.distilled_at) {
         fail(`${relativePath}: reviewed_at 不能早于 distilled_at`);
     }
-    if (!await isRegularFile(path.join(projectRoot, fields.source_spec, "requirements.md"))) {
-        fail(`${relativePath}: source_spec 缺少 requirements.md`);
+    const hasSpecDoc = await isRegularFile(path.join(projectRoot, fields.source_spec, "spec.md"))
+        || await isRegularFile(path.join(projectRoot, fields.source_spec, "requirements.md"));
+    if (!hasSpecDoc) {
+        fail(`${relativePath}: source_spec 缺少 spec.md 或 requirements.md`);
     }
     for (const authority of fields.authorities) {
         assertRelativeProjectPath(authority, "authorities", relativePath);
@@ -346,11 +348,13 @@ async function coverageWarnings(projectRoot, capsules) {
             continue;
         }
         const specRoot = path.join(specsRoot, entry.name);
-        const required = ["requirements.md", "design.md", "tasks.md"];
-        if (!(await Promise.all(required.map((name) => isRegularFile(path.join(specRoot, name))))).every(Boolean)) {
+        const hasLegacy = (await Promise.all(["requirements.md", "design.md", "tasks.md"].map((name) => isRegularFile(path.join(specRoot, name))))).every(Boolean);
+        const hasV2 = await isRegularFile(path.join(specRoot, "spec.md")) && await isRegularFile(path.join(specRoot, "plan.md"));
+        if (!hasLegacy && !hasV2) {
             continue;
         }
-        const tasks = await readFile(path.join(specRoot, "tasks.md"), "utf8");
+        const taskPath = hasV2 ? path.join(specRoot, "plan.md") : path.join(specRoot, "tasks.md");
+        const tasks = await readFile(taskPath, "utf8");
         const checkboxes = [...tasks.matchAll(/^\s*- \[([ xX])\] /gm)];
         if (checkboxes.length > 0 && checkboxes.every((match) => match[1].toLowerCase() === "x")) {
             warnings.push(`specs/${entry.name}/ 的 checkbox 已全部完成但尚无 Capsule；需要单独证据核验和明确 distillation 授权`);

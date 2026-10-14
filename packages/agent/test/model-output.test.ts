@@ -322,6 +322,7 @@ test("parseModelOutput 拦截基础语义违规（空白字符串、反转范围
             kind: "wait",
             reason: "   \t\n  ",
             memoryPatch: null,
+            contextNotes: null,
         },
     });
     assert.throws(
@@ -340,6 +341,7 @@ test("parseModelOutput 拦截基础语义违规（空白字符串、反转范围
     const invertedRange = JSON.stringify({
         result: {
             kind: "context_lookup",
+            operation: null,
             need: "historical_execution",
             question: "查找执行历史",
             filters: {
@@ -355,6 +357,12 @@ test("parseModelOutput 拦截基础语义违规（空白字符串、反转范围
                     to: 10,
                 },
             },
+            query: null,
+            cursor: null,
+            limit: null,
+            category: null,
+            sourceRef: null,
+            offset: null,
         },
     });
     assert.throws(
@@ -384,6 +392,7 @@ test("parseModelOutput 拦截基础语义违规（空白字符串、反转范围
                     },
                 }],
             },
+            contextNotes: null,
         },
     });
     assert.throws(
@@ -404,6 +413,7 @@ test("parseAgentDecision 成功解析合法决策", () => {
             kind: "wait",
             reason: "等待用户回复",
             memoryPatch: null,
+            contextNotes: null,
         },
     });
     const decision = parseAgentDecision(validDecisionRaw);

@@ -49,12 +49,12 @@ function createAdapter(
     runTask: (input: PromptEvaluationTaskInput<FixtureTask>) => Promise<{
         readonly taskId: string;
         readonly status: "passed" | "failed" | "infrastructure_error" | "cancelled";
-        readonly domainResult: { readonly won: boolean } | null;
+        readonly domainResult: { readonly won?: boolean; readonly correct?: boolean } | null;
         readonly attemptPath: string | null;
-        readonly artifactLocator: null;
-        readonly errors: readonly [];
+        readonly artifactLocator: import("../../src/headless-composition-root.js").BenchmarkPersistenceLocator | null;
+        readonly errors: readonly import("../../src/attempt-recorder.js").BenchmarkAttemptError[];
     }>,
-): PromptEvaluationBenchmarkAdapter<FixtureTask, { readonly won: boolean }> {
+): PromptEvaluationBenchmarkAdapter<FixtureTask, { readonly won?: boolean; readonly correct?: boolean }> {
     return {
         benchmarkId: "alfworld",
         async loadManifest() { return tasks; },
@@ -65,7 +65,7 @@ function createAdapter(
     };
 }
 
-function registry(adapter: PromptEvaluationBenchmarkAdapter<FixtureTask, { readonly won: boolean }>) {
+function registry(adapter: PromptEvaluationBenchmarkAdapter<FixtureTask, { readonly won?: boolean; readonly correct?: boolean }>) {
     return new PromptEvaluationBenchmarkRegistry([adapter]);
 }
 

@@ -7,11 +7,12 @@ export interface ToolDiscoveryResult {
 }
 
 /**
- * 在当前 Run 获准的工具集合中执行稳定的子串搜索。
+ * 在当前 Run 获准的工具集合中执行稳定的名称与描述搜索。
  *
  * @remarks
- * 查询按空白拆分为小写词项；每个词项在工具 ID 或描述中命中即计一分。
- * 并列时保留授权 Profile 顺序，结果最多五项。
+ * 精确提及工具 ID 或发现别名的结果优先；其余按小写词项在 ID 或描述中的
+ * 命中数排序。并列时保留授权 Profile 顺序，结果最多五项。发现别名只参与
+ * 排序，不进入返回值，也不授予执行权限。
  *
  * @example
  * ```ts
@@ -27,16 +28,31 @@ export function findTools(
 ): ToolDiscoveryResult {
     const terms = [...new Set(query.trim().toLowerCase().split(/\s+/).filter(Boolean))];
     if (terms.length === 0) return { tools: [] };
+    const normalizedQuery = query.toLowerCase().replace(/[^\p{L}\p{N}_]+/gu, " ").trim();
+    const paddedQuery = " " + normalizedQuery + " ";
+    const mentionsName = (name: string): boolean => {
+        const normalizedName = name.toLowerCase().replace(/[^\p{L}\p{N}_]+/gu, " ").trim();
+        return normalizedName.length > 0 && (
+            paddedQuery.includes(" " + normalizedName + " ")
+            || (/[\u3400-\u9fff]/u.test(normalizedName)
+                && query.toLowerCase().includes(normalizedName))
+        );
+    };
 
     return {
         tools: tools
             .map((tool, index) => {
                 const searchable = `${tool.id}\n${tool.description}`.toLowerCase();
                 const score = terms.reduce((total, term) => total + (searchable.includes(term) ? 1 : 0), 0);
-                return { tool, index, score };
+                const exactMatch = mentionsName(tool.id)
+                    || tool.discoveryAliases?.some(mentionsName) === true;
+                return { tool, index, score, exactMatch };
             })
-            .filter((candidate) => candidate.score > 0)
-            .sort((left, right) => right.score - left.score || left.index - right.index)
+            .filter((candidate) => candidate.score > 0 || candidate.exactMatch)
+            .sort((left, right) =>
+                Number(right.exactMatch) - Number(left.exactMatch)
+                || right.score - left.score
+                || left.index - right.index)
             .slice(0, 5)
             .map(({ tool }) => ({ id: tool.id, description: tool.description })),
     };

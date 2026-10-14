@@ -227,25 +227,54 @@ export const ContextLookupFiltersContract = contract.object({
 export type ContextLookupFilters = InferContract<typeof ContextLookupFiltersContract>;
 
 /**
+ * Context Lookup 操作类别契约。
+ *
+ * @remarks
+ * 支持历史 BM25 检索、有界目录浏览、阶段/决策目录搜索以及直接来源展开四种互斥操作。
+ *
+ * @example
+ * ```ts
+ * const operation: ContextLookupOperation = "directory_browse";
+ * ```
+ */
+export const ContextLookupOperationContract = contract.enum([
+    "history_search",
+    "directory_browse",
+    "directory_search",
+    "source_expand",
+] as const);
+
+/** Context Lookup 操作类别。 */
+export type ContextLookupOperation = InferContract<typeof ContextLookupOperationContract>;
+
+/**
  * Context Lookup 请求契约。
  *
  * @remarks
- * Agent 统一执行请求从已提交 Trajectory 查询上下文的独占结果分支。
+ * Agent 统一执行请求从已提交 Trajectory 与派生索引查询上下文的独占结果分支。
+ * 支持 history_search、directory_browse、directory_search 与 source_expand 互斥操作。
  *
  * @example
  * ```ts
  * const request: ContextLookupRequest = {
  *     kind: "context_lookup",
- *     need: "historical_execution",
- *     question: "之前读取了哪个文件？",
+ *     operation: "directory_browse",
+ *     limit: 10,
  * };
  * ```
  */
 export const ContextLookupRequestContract = contract.object({
     kind: contract.literal("context_lookup"),
-    need: ContextLookupNeedContract,
-    question: contract.string(),
+    operation: contract.optional(ContextLookupOperationContract),
+    need: contract.optional(ContextLookupNeedContract),
+    question: contract.optional(contract.string()),
     filters: contract.optional(ContextLookupFiltersContract),
+    query: contract.optional(contract.string()),
+    cursor: contract.optional(contract.string()),
+    limit: contract.optional(contract.integer({ minimum: 1, maximum: 50 })),
+    category: contract.optional(contract.string()),
+    sourceRef: contract.optional(contract.string()),
+    offset: contract.optional(contract.integer({ minimum: 0 })),
 });
 
 /** Context Lookup 请求公开类型。 */
@@ -598,6 +627,96 @@ export type ExecutingMemoryPatchOperation = MemoryPatchOperation;
 /** Executing 阶段 Working Memory 增量 Patch 契约（与 WorkingMemoryPatchContract 统一）。 */
 export const ExecutingWorkingMemoryPatchContract = WorkingMemoryPatchContract;
 
+/**
+ * 重要信息提议来源契约。
+ *
+ * @remarks
+ * 标识该重要信息的真实出处：
+ * - `user_message`: 真实已应用的用户消息，必须携带 messageId、原文片段 verbatimSnippet 及模型提取简述 summary；
+ * - `user_decision`: 用户明确作出的决定，可选携带 messageId；
+ * - `agent_decision`: Agent 自主采纳的决定，可选携带 actionId。
+ *
+ * @example
+ * ```ts
+ * const source: ContextNoteSource = {
+ *     kind: "user_message",
+ *     messageId: "msg-1",
+ *     verbatimSnippet: "必须保证向后兼容",
+ *     summary: "兼容性要求",
+ * };
+ * ```
+ */
+export const ContextNoteSourceContract = contract.union([
+    contract.object({
+        kind: contract.literal("user_message"),
+        messageId: contract.string(),
+        verbatimSnippet: contract.string(),
+        summary: contract.optional(contract.string()),
+    }),
+    contract.object({
+        kind: contract.literal("user_decision"),
+        messageId: contract.optional(contract.string()),
+        summary: contract.optional(contract.string()),
+    }),
+    contract.object({
+        kind: contract.literal("agent_decision"),
+        actionId: contract.optional(contract.string()),
+        summary: contract.optional(contract.string()),
+    }),
+]);
+export type ContextNoteSource = InferContract<typeof ContextNoteSourceContract>;
+
+/**
+ * 重要信息记录类别契约。
+ *
+ * @remarks
+ * 限定为重要决策与用户强调信息：
+ * - `decision`: 重要决策；
+ * - `user_emphasis`: 用户强调信息。
+ *
+ * @example
+ * ```ts
+ * const category: ContextNoteCategory = "decision";
+ * ```
+ */
+export const ContextNoteCategoryContract = contract.union([
+    contract.literal("decision"),
+    contract.literal("user_emphasis"),
+]);
+export type ContextNoteCategory = InferContract<typeof ContextNoteCategoryContract>;
+
+/**
+ * 重要信息提议契约。
+ *
+ * @remarks
+ * 模型在合法决策上附加提出的重要信息记录，支持新创建、修订既有记录（指定 noteId 与 baseRevision）
+ * 或显式替代旧记录（指定 supersedesNoteId）。
+ *
+ * @example
+ * ```ts
+ * const proposal: ContextNoteProposal = {
+ *     category: "decision",
+ *     content: "选择方案 A 进行重构",
+ *     reason: "方案 A 依赖更少",
+ *     source: {
+ *         kind: "user_decision",
+ *         messageId: "msg-1",
+ *     },
+ * };
+ * ```
+ */
+export const ContextNoteProposalContract = contract.object({
+    category: ContextNoteCategoryContract,
+    content: contract.string(),
+    reason: contract.optional(contract.string()),
+    stageId: contract.optional(contract.string()),
+    noteId: contract.optional(contract.string()),
+    baseRevision: contract.optional(contract.integer({ minimum: 1 })),
+    supersedesNoteId: contract.optional(contract.string()),
+    source: ContextNoteSourceContract,
+});
+export type ContextNoteProposal = InferContract<typeof ContextNoteProposalContract>;
+
 /** Executing 阶段 Working Memory 增量 Patch 公开类型。 */
 export type ExecutingWorkingMemoryPatch = WorkingMemoryPatch;
 
@@ -659,6 +778,7 @@ export const ToolCallAgentDecisionContract = contract.object({
     kind: contract.literal("tool_call"),
     action: ToolCallActionContract,
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+    contextNotes: contract.optional(contract.array(ContextNoteProposalContract)),
 });
 
 /** 普通 Run 的完成决策契约。 */
@@ -667,6 +787,7 @@ export const NormalCompleteAgentDecisionContract = contract.object({
     summary: contract.string(),
     evidenceSequences: contract.array(contract.integer({ minimum: 0 })),
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+    contextNotes: contract.optional(contract.array(ContextNoteProposalContract)),
 });
 
 /**
@@ -681,6 +802,7 @@ export const WaitAgentDecisionContract = contract.object({
     kind: contract.literal("wait"),
     reason: contract.string(),
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+    contextNotes: contract.optional(contract.array(ContextNoteProposalContract)),
 });
 
 /**
@@ -695,6 +817,7 @@ export const FailAgentDecisionContract = contract.object({
     kind: contract.literal("fail"),
     error: contract.string(),
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+    contextNotes: contract.optional(contract.array(ContextNoteProposalContract)),
 });
 
 /**
@@ -708,6 +831,7 @@ export const ExecutingCompleteAgentDecisionContract = contract.object({
     summary: contract.string(),
     completionEvidence: contract.array(CompletionEvidenceContract),
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+    contextNotes: contract.optional(contract.array(ContextNoteProposalContract)),
 });
 
 /**
@@ -732,6 +856,60 @@ export const ExecutingWaitAgentDecisionContract = WaitAgentDecisionContract;
 
 /** Executing 阶段失败决策契约（与 FailAgentDecisionContract 统一）。 */
 export const ExecutingFailAgentDecisionContract = FailAgentDecisionContract;
+
+/**
+ * Run 阶段更新决策契约（用于声明新阶段或修订当前阶段）。
+ *
+ * @remarks
+ * 当 target/acceptanceCriteria 存在时，表示声明新阶段或修订阶段。
+ * 当需要修订时，可携带 stageId、baseRevision 和 reason。
+ *
+ * @example
+ * ```ts
+ * const declareDecision: RunStageUpdateAgentDecision = {
+ *     kind: "run_stage_update",
+ *     target: "探索代码库",
+ *     acceptanceCriteria: ["阅读关键入口"],
+ * };
+ * ```
+ */
+export const RunStageUpdateAgentDecisionContract = contract.object({
+    kind: contract.literal("run_stage_update"),
+    stageId: contract.optional(contract.string()),
+    baseRevision: contract.optional(contract.integer({ minimum: 1 })),
+    reason: contract.optional(contract.string()),
+    target: contract.string(),
+    acceptanceCriteria: contract.array(contract.string()),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+    contextNotes: contract.optional(contract.array(ContextNoteProposalContract)),
+});
+export type RunStageUpdateAgentDecision = InferContract<typeof RunStageUpdateAgentDecisionContract>;
+
+/**
+ * Run 中间阶段完成候选决策契约。
+ *
+ * @remarks
+ * 用于向 Runtime 提交当前阶段的完成候选，触发阶段审查；接受后标记当前阶段通过并允许进入下一阶段。
+ *
+ * @example
+ * ```ts
+ * const completeStage: RunStageCompleteAgentDecision = {
+ *     kind: "run_stage_complete",
+ *     stageId: "stage-1",
+ *     summary: "已完成第一阶段工作",
+ *     evidenceSequences: [10, 11],
+ * };
+ * ```
+ */
+export const RunStageCompleteAgentDecisionContract = contract.object({
+    kind: contract.literal("run_stage_complete"),
+    stageId: contract.string(),
+    summary: contract.string(),
+    evidenceSequences: contract.optional(contract.array(contract.integer({ minimum: 0 }))),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+    contextNotes: contract.optional(contract.array(ContextNoteProposalContract)),
+});
+export type RunStageCompleteAgentDecision = InferContract<typeof RunStageCompleteAgentDecisionContract>;
 
 /**
  * AskUser 问题选项输入契约。
@@ -1073,6 +1251,8 @@ export const NonToolExecutingDecisionContract = contract.union([
     ToolDiscoveryDecisionContract,
     AskUserAgentDecisionContract,
     TaskProposalAgentDecisionContract,
+    RunStageUpdateAgentDecisionContract,
+    RunStageCompleteAgentDecisionContract,
 ]);
 
 /**
@@ -1101,6 +1281,8 @@ export const PlanModeExecutingDecisionContract = contract.discriminatedUnion("ki
     AskUserAgentDecisionContract,
     TaskProposalAgentDecisionContract,
     GoalPlanUpdateAgentDecisionContract,
+    RunStageUpdateAgentDecisionContract,
+    RunStageCompleteAgentDecisionContract,
 ]);
 
 /** Plan Mode Executing 决策公开类型。 */
@@ -1130,6 +1312,8 @@ export const AgentDecisionContract = contract.union([
     AskUserAgentDecisionContract,
     TaskProposalAgentDecisionContract,
     GoalPlanUpdateAgentDecisionContract,
+    RunStageUpdateAgentDecisionContract,
+    RunStageCompleteAgentDecisionContract,
 ]);
 
 /** Agent 决策公开类型。 */

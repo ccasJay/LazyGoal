@@ -4,9 +4,9 @@ status: active
 summary: "Runner 生命周期所有权、累计预算与持久化顺序"
 source_spec: specs/minimal-run-loop/
 distilled_at: 2026-08-16
-reviewed_at: 2026-09-18
+reviewed_at: 2026-10-10
 tags: [runner, execution-loop, max-steps, persistence-order]
-authorities: [docs/architecture/runtime.md, packages/runtime/src/runner.ts]
+authorities: [packages/runtime/notes/overview.md, packages/runtime/src/runner.ts]
 ---
 
 # Minimal Run Loop

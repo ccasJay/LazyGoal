@@ -46,6 +46,13 @@ test("PTC executes a program and inner tool without an extra model step", {
                 mode: "plan" as const,
                 approvedTask: { objective: "Count content", completionCriteria: [] },
                 exposedToolIds: ["execute_program", "read_file"],
+                currentStage: {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing" as const,
+                    target: "Count content",
+                    acceptanceCriteria: ["测试完成"],
+                },
             },
         },
     };
@@ -157,6 +164,13 @@ test("PTC rejects a child Tool outside the exposed set before preparation or exe
                 mode: "plan" as const,
                 approvedTask: { objective: "Read one file", completionCriteria: [] },
                 exposedToolIds: ["execute_program"],
+                currentStage: {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing" as const,
+                    target: "Read one file",
+                    acceptanceCriteria: ["测试完成"],
+                },
             },
         },
     };
@@ -219,6 +233,13 @@ test("PTC never automatically replays an unknown write even if the tool says saf
                 mode: "plan" as const,
                 approvedTask: { objective: "Write once", completionCriteria: [] },
                 exposedToolIds: ["execute_program", "write_file"],
+                currentStage: {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing" as const,
+                    target: "Write once",
+                    acceptanceCriteria: ["测试完成"],
+                },
             },
         },
     };
@@ -302,6 +323,13 @@ test("PTC pauses for a real child approval and resumes the same code", {
                 mode: "plan" as const,
                 approvedTask: { objective: "Write content", completionCriteria: [] },
                 exposedToolIds: ["execute_program", "write_file"],
+                currentStage: {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing" as const,
+                    target: "Write content",
+                    acceptanceCriteria: ["测试完成"],
+                },
             },
         },
     };
