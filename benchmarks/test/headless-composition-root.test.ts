@@ -141,6 +141,22 @@ function createDependencies<TTask, TOutcome>(
                     return {
                         content: JSON.stringify({
                             result: {
+                                kind: "run_stage_update",
+                                stageId: null,
+                                baseRevision: null,
+                                reason: null,
+                                target: "Execute benchmark task",
+                                acceptanceCriteria: ["Benchmark evidence obtained"],
+                                memoryPatch: null,
+                                contextNotes: null,
+                            },
+                        }),
+                    };
+                }
+                if (modelCalls === 3) {
+                    return {
+                        content: JSON.stringify({
+                            result: {
                                 kind: "tool_call",
                                 action: {
                                     actionId: "benchmark-evidence-1",
@@ -328,9 +344,14 @@ test("aggregates normalized usage across model calls and counts missing usage ca
             return {
                 content: JSON.stringify({
                     result: {
-                        kind: "tool_call",
-                        action: { actionId: "benchmark-evidence-1", toolId: "benchmark_evidence", input: {} },
+                        kind: "run_stage_update",
+                        stageId: null,
+                        baseRevision: null,
+                        reason: null,
+                        target: "Execute benchmark task",
+                        acceptanceCriteria: ["Benchmark evidence obtained"],
                         memoryPatch: null,
+                        contextNotes: null,
                     },
                 }),
             };
@@ -340,20 +361,31 @@ test("aggregates normalized usage across model calls and counts missing usage ca
                 content: JSON.stringify({
                     result: {
                         kind: "tool_call",
+                        action: { actionId: "benchmark-evidence-1", toolId: "benchmark_evidence", input: {} },
+                        memoryPatch: null,
+                    },
+                }),
+            };
+        }
+        if (modelCalls === 4) {
+            return {
+                content: JSON.stringify({
+                    result: {
+                        kind: "tool_call",
                         action: {
-                            actionId: `benchmark-evidence-${modelCalls - 1}`,
+                            actionId: `benchmark-evidence-${modelCalls - 2}`,
                             toolId: "benchmark_evidence",
                             input: {},
                         },
                         memoryPatch: null,
                     },
                 }),
-                ...(modelCalls === 3 ? { providerMetadata: {
+                providerMetadata: {
                     usage: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 10 },
-                } } : {}),
+                },
             };
         }
-        if (modelCalls === 4) {
+        if (modelCalls === 5) {
             return {
                 content: JSON.stringify({
                     result: {
@@ -376,11 +408,11 @@ test("aggregates normalized usage across model calls and counts missing usage ca
     const result = await root.run({ id: "usage-aggregation" });
 
     assert.equal(result.model.completed, true);
-    assert.equal(modelCalls, 5);
+    assert.equal(modelCalls, 6);
     assert.deepEqual(result.model.usage, {
         inputTokens: 180,
         outputTokens: 27,
-        missingCalls: 2,
+        missingCalls: 3,
     });
 });
 
@@ -835,6 +867,22 @@ test("passes structured benchmark criteria as context without making them Runtim
             return {
                 content: JSON.stringify({
                     result: {
+                        kind: "run_stage_update",
+                        stageId: null,
+                        baseRevision: null,
+                        reason: null,
+                        target: "Verify structured criteria injection",
+                        acceptanceCriteria: ["Benchmark evidence obtained"],
+                        memoryPatch: null,
+                        contextNotes: null,
+                    },
+                }),
+            };
+        }
+        if (modelCalls === 3) {
+            return {
+                content: JSON.stringify({
+                    result: {
                         kind: "tool_call",
                         action: { actionId: "benchmark-evidence-1", toolId: "benchmark_evidence", input: {} },
                         memoryPatch: null,
@@ -868,7 +916,7 @@ test("passes structured benchmark criteria as context without making them Runtim
     assert.match(benchmarkMessage.content, /String criterion/);
     assert.match(benchmarkMessage.content, /Evidence produced by tool/);
     assert.match(benchmarkMessage.content, /expectToolId/);
-    assert.equal(modelCalls, 4);
+    assert.equal(modelCalls, 5);
 });
 
 test("fails before creating episode when task descriptor requires an unauthorized tool", async () => {
@@ -921,7 +969,7 @@ test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing
     const { readLLMConfig } = await import("../../packages/config/src/index.js");
     const trajectoryStore = new InMemoryTrajectoryStore();
     const dependencies = createDependencies({
-        describeTask: () => ({ intent: "Verify pi usage", objective: "Record evidence", completionCriteria: ["Record evidence"], maxSteps: 3 }),
+        describeTask: () => ({ intent: "Verify pi usage", objective: "Record evidence", completionCriteria: ["Record evidence"], maxSteps: 4 }),
         createEpisode: async () => ({ registry: { get: () => undefined }, readOutcome: () => true, close: async () => undefined }),
     }, trajectoryStore);
     let calls = 0;
@@ -931,8 +979,19 @@ test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing
         const result = calls === 1
             ? { kind: "tool_discovery", query: "benchmark evidence" }
             : calls === 2
-                ? { kind: "tool_call", action: { actionId: "pi-evidence", toolId: "benchmark_evidence", input: {} }, memoryPatch: null }
-                : calls === 3 ? { kind: "complete", summary: "done", evidenceSequences: [latestObservationSequence(trajectoryStore)], memoryPatch: null, contextNotes: null } : { kind: "accept" };
+                ? {
+                    kind: "run_stage_update",
+                    stageId: null,
+                    baseRevision: null,
+                    reason: null,
+                    target: "Record evidence",
+                    acceptanceCriteria: ["Evidence recorded"],
+                    memoryPatch: null,
+                    contextNotes: null,
+                }
+                : calls === 3
+                    ? { kind: "tool_call", action: { actionId: "pi-evidence", toolId: "benchmark_evidence", input: {} }, memoryPatch: null }
+                    : calls === 4 ? { kind: "complete", summary: "done", evidenceSequences: [latestObservationSequence(trajectoryStore)], memoryPatch: null, contextNotes: null } : { kind: "accept" };
         res.setHeader("Content-Type", "text/event-stream");
         res.end(`data: ${JSON.stringify({
             id: "pi-usage", model: "local-model", choices: [{ index: 0, delta: { role: "assistant", content: JSON.stringify({ result }) }, finish_reason: "stop" }],
@@ -952,8 +1011,8 @@ test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing
         const root = new HeadlessCompositionRoot({ ...dependencies, llmAdapter });
         const result = await root.run({ id: "pi-usage" });
         assert.equal(result.model.completed, true);
-        assert.equal(calls, 4);
-        assert.deepEqual(result.model.usage, { inputTokens: 0, outputTokens: 0, missingCalls: 4 });
+        assert.equal(calls, 5);
+        assert.deepEqual(result.model.usage, { inputTokens: 0, outputTokens: 0, missingCalls: 5 });
     } finally {
         server.closeAllConnections();
         await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

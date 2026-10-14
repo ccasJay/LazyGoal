@@ -57,6 +57,7 @@ test("real local service restores and completes one authorized Goal conversation
     await cdp(socket, "Page.enable");
     await cdp(socket, "Runtime.enable");
 
+    socket.statusPath = statusPath;
     await navigate(socket, `${first.origin}/`);
     await waitForExpression(socket, "document.body.innerText.includes('lazygoal web')");
     assert.equal(await value(socket, "document.querySelector('.primary')?.disabled"), true);
@@ -164,7 +165,7 @@ test("real local service restores and completes one authorized Goal conversation
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Your approval is needed')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 2 && status.toolCalls === 0);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 4 && status.toolCalls === 0);
     session = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.pendingAction?.status === "awaiting_approval");
     const pendingActionId = session.pendingAction.actionId;
 
@@ -176,14 +177,14 @@ test("real local service restores and completes one authorized Goal conversation
     });
     assert.equal(staleApproval.response.status, 409);
     assert.equal(staleApproval.body.error, "action_not_waiting");
-    assert.deepEqual(await readStatus(statusPath), { modelCalls: 2, toolCalls: 0 });
+    assert.deepEqual(await readStatus(statusPath), { modelCalls: 4, toolCalls: 0 });
 
     await cdp(socket, "Runtime.evaluate", {
       expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Approve once')).click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 4 && status.toolCalls === 1);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 6 && status.toolCalls === 1);
     session = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.runStatus === "completed");
     assert.equal(session.pendingAction, undefined);
     assert.ok(session.runs.find((run) => run.current)?.steps.some((step) => step.toolId === "browser_fixture_write" && step.status === "completed"));
@@ -271,7 +272,7 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
       returnByValue: true,
     });
-    await waitForStatus(statusPath, (status) => status.modelCalls === 6 && status.toolCalls === 1);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 9 && status.toolCalls === 1);
     session = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.runStatus === "completed" && candidate.currentRunId !== firstRunId);
     assert.equal(session.runs.length, 2);
     assert.ok(session.messages.some((message) => message.role === "user" && message.content === "Record one follow-up note"));
@@ -301,7 +302,7 @@ test("real local service restores and completes one authorized Goal conversation
     await waitForExpression(socket, "document.querySelector('.session-intro')?.innerText.includes('Plan Mode')", 10_000);
     emptyList = await api(restarted.origin, "/api/goals", { token: restarted.token });
     assert.equal(emptyList.body.goals.length, 1, "draft /plan does not persist a Goal");
-    assert.deepEqual(await readStatus(statusPath), { modelCalls: 6, toolCalls: 1 });
+    assert.deepEqual(await readStatus(statusPath), { modelCalls: 9, toolCalls: 1 });
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Plan flow: inspect and complete the acceptance path");
     await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false", 10_000);
     await cdp(socket, "Runtime.evaluate", {
@@ -309,7 +310,7 @@ test("real local service restores and completes one authorized Goal conversation
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Approve the deterministic plan-flow task?')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 7 && status.toolCalls === 1);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 10 && status.toolCalls === 1);
     const approvedList = await waitFor(async () => {
       const response = await api(restarted.origin, "/api/goals", { token: restarted.token });
       return response.body.goals?.some((goal) => goal.intent.includes("Plan flow") && goal.runStatus === "waiting") ? response : undefined;
@@ -337,7 +338,7 @@ test("real local service restores and completes one authorized Goal conversation
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Approve once')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 8 && status.toolCalls === 1);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 13 && status.toolCalls === 1);
     const planActionSession = await waitForSession(
       restarted.origin,
       restarted.token,
@@ -349,7 +350,7 @@ test("real local service restores and completes one authorized Goal conversation
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 10 && status.toolCalls === 2);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 15 && status.toolCalls === 2);
     const completedPlanSession = await waitForSession(
       restarted.origin,
       restarted.token,
@@ -374,7 +375,7 @@ test("real local service restores and completes one authorized Goal conversation
     const nextPlan = await api(restarted.origin, `/api/goals/${completedPlanSession.goalId}`, { token: restarted.token });
     assert.equal(nextPlan.body.goal.nextRunMode, "plan");
     assert.equal(nextPlan.body.goal.messages.some((message) => message.content === "/plan"), false);
-    assert.deepEqual(await readStatus(statusPath), { modelCalls: 10, toolCalls: 2 });
+    assert.deepEqual(await readStatus(statusPath), { modelCalls: 15, toolCalls: 2 });
 
     await cdp(socket, "Page.reload");
     await waitForExpression(socket, "document.readyState === 'complete' && document.querySelector('.goal-card') !== null", 10_000);
@@ -680,5 +681,9 @@ async function waitForExpression(socket, expression, timeoutMs = 5_000) {
 
 async function browserDiagnostics(socket) {
   const page = await value(socket, "({url: location.origin + location.pathname, state: document.querySelector('.task-state')?.textContent, connection: document.querySelector('.stream-state')?.textContent, buttons: [...document.querySelectorAll('.structured-form button, .command-candidate')].map(button => ({text: button.textContent.trim(), disabled: button.disabled}))})");
-  return JSON.stringify({ ...page, requests: [...socket.requests.values()] });
+  let stop;
+  try { const recorded = JSON.parse(await readFile(`${socket.statusPath}.run-stop`, "utf8")); stop = {status: recorded.status, code: recorded.stopReason?.code, kind: recorded.stopReason?.kind, message: recorded.stopReason?.message?.replaceAll("PRIVATE_CONTROLLED_TOOL_OUTPUT", "[redacted]")}; } catch {}
+  let decisions;
+  try { decisions = (await readFile(`${socket.statusPath}.decisions`, "utf8")).trim().split("\n").map(line => JSON.parse(line)); } catch {}
+  return JSON.stringify({ ...page, stop, decisions, requests: [...socket.requests.values()] });
 }

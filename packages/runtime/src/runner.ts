@@ -1965,7 +1965,9 @@ class RunExecutor {
             };
         }
 
-        if (goal.state.run.currentStage === undefined || goal.state.run.currentStage.status !== "executing") {
+        const isBusinessTool = !decision.action.toolId.startsWith("system_");
+        const isPlanModePreApproval = goal.state.run.mode === "plan" && goal.state.run.approvedTask === undefined;
+        if (isBusinessTool && !isPlanModePreApproval && (goal.state.run.currentStage === undefined || goal.state.run.currentStage.status !== "executing")) {
             throw new ModelStageFeedbackError(createRuntimeFeedback({
                 goalId: goal.id,
                 runId: goal.state.run.id,

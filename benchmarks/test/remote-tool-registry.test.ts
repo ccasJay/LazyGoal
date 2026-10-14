@@ -67,7 +67,20 @@ function createTestGoal(goalId: string, runId: string, runProfile: AgentProfile)
     });
     return {
         ...goal,
-        state: { ...goal.state, run: { ...goal.state.run, exposedToolIds: [...runProfile.toolIds] } },
+        state: {
+            ...goal.state,
+            run: {
+                ...goal.state.run,
+                exposedToolIds: [...runProfile.toolIds],
+                currentStage: {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing" as const,
+                    target: "Test remote execution",
+                    acceptanceCriteria: ["Execution verified"],
+                },
+            },
+        },
     };
 }
 

@@ -951,7 +951,17 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
         ...created,
         state: {
             ...created.state,
-            run: { ...created.state.run, exposedToolIds: definitions.map((tool) => tool.id) },
+            run: {
+                ...created.state.run,
+                exposedToolIds: definitions.map((tool) => tool.id),
+                currentStage: {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing" as const,
+                    target: "Evaluate repository rules",
+                    acceptanceCriteria: ["Rule evaluated"],
+                },
+            },
         },
     };
     await store.save(initial);

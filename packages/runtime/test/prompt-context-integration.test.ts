@@ -155,7 +155,16 @@ function createRunningGoal(input: {
                 status: "running",
                 mode: input.mode ?? "normal",
                 exposedToolIds: [...profile.toolIds],
-                ...(input.approvedTask === undefined ? {} : { approvedTask: input.approvedTask }),
+                ...(input.approvedTask === undefined ? {} : {
+                    approvedTask: input.approvedTask,
+                    currentStage: {
+                        stageId: "stage-1",
+                        revision: 1,
+                        status: "executing" as const,
+                        target: input.approvedTask.objective,
+                        acceptanceCriteria: ["测试完成"],
+                    },
+                }),
             },
         },
     };
