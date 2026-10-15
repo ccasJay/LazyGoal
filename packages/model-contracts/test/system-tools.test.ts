@@ -17,6 +17,7 @@ import {
     SystemContextLookupDeclaration,
     SystemProposeTaskPlanDeclaration,
     SystemUpdateGoalPlanDeclaration,
+    SystemUpdatePlanRouteDeclaration,
 } from "../src/index";
 
 test("系统函数具有严格的参数 JSON Schema 定义", () => {
@@ -28,6 +29,7 @@ test("系统函数具有严格的参数 JSON Schema 定义", () => {
         SystemAskUserDeclaration,
         SystemContextLookupDeclaration,
         SystemProposeTaskPlanDeclaration,
+        SystemUpdatePlanRouteDeclaration,
     ]) {
         assert.equal(decl.parametersSchema.type, "object");
         assert.equal(decl.parametersSchema.additionalProperties, false);
@@ -63,6 +65,7 @@ test("Executing 阶段工具集合包含业务工具与系统终态工具", () =
     assert.ok(ids.includes("system_wait_for_input"));
     assert.ok(ids.includes("system_fail_goal"));
     assert.ok(ids.includes("system_context_lookup"));
+    assert.equal(ids.includes("system_update_plan_route"), false);
     assert.ok(ids.includes("system_find_tools"));
 
     const discovery = decodePhaseToolCall(decls, "system_find_tools", { query: "read file" });
@@ -92,28 +95,24 @@ test("Executing 阶段工具集合包含业务工具与系统终态工具", () =
     }
 });
 
-test("Plan 提案前保留全部授权业务工具，但系统决策仅允许提案和交互", () => {
-    const mixedTools = [
+test("Plan 提案前声明只包含 Runtime 提供的只读业务工具", () => {
+    const preApprovalTools = [
         {
             id: "read_file",
             inputContract: contract.object({ path: contract.string() }),
             isReadOnly: true,
         },
-        {
-            id: "write_file",
-            inputContract: contract.object({ path: contract.string(), content: contract.string() }),
-            isReadOnly: false,
-        },
     ];
 
-    const decls = createUnifiedToolDeclarations(mixedTools, false, true);
+    const decls = createUnifiedToolDeclarations(preApprovalTools, false, true);
     const ids = decls.map(d => d.id);
 
     assert.ok(ids.includes("read_file"));
-    assert.ok(ids.includes("write_file"), "Run 模式本身不新增业务 Tool 门控");
+    assert.equal(ids.includes("write_file"), false);
     assert.ok(ids.includes("ask_user"));
     assert.ok(ids.includes("system_propose_task_plan"));
     assert.ok(ids.includes("system_context_lookup"));
+    assert.equal(ids.includes("system_update_plan_route"), false);
 
     // Profile 已授权的业务工具仍作为普通 tool_call。
     const read = decodePhaseToolCall(decls, "read_file", { path: "README.md" });
@@ -164,8 +163,8 @@ test("Plan 提案前挂载获授权读取与任务提案工具", () => {
     });
     assert.equal(proposal.kind, "task_proposal");
     if (proposal.kind === "task_proposal") {
-        assert.deepEqual(proposal.planRoute, { stages: [{ target: "实现功能", acceptanceCriteria: ["单测通过"] }] });
         assert.equal(proposal.task.objective, "构建新特性");
+        assert.deepEqual(proposal.planRoute, { stages: [{ target: "实现功能", acceptanceCriteria: ["单测通过"] }] });
         assert.equal(proposal.approvalRequest, "是否批准计划？");
     }
 });
@@ -222,6 +221,26 @@ test("普通 Run 完成声明使用当前 Run 证据序列", () => {
         assert.deepEqual(decision.evidenceSequences, [4]);
         assert.equal("completionEvidence" in decision, false);
     }
+});
+
+test("完整路线修订工具仅向获批 Plan Run 暴露并保留理由和审批请求", () => {
+    const plan = createUnifiedToolDeclarations([], true, true);
+    const normal = createUnifiedToolDeclarations([], true, false);
+    assert.equal(plan.some((decl) => decl.id === "system_update_plan_route"), true);
+    assert.equal(normal.some((decl) => decl.id === "system_update_plan_route"), false);
+    const decision = decodePhaseToolCall(plan, "system_update_plan_route", {
+        baseRevision: 1,
+        reason: "测试发现当前路线遗漏兼容检查",
+        route: { stages: [{ target: "补充兼容验证", acceptanceCriteria: ["兼容测试通过"] }] },
+        approvalRequest: "增加兼容验证会扩大已批准范围，请确认。",
+    });
+    assert.deepEqual(decision, {
+        kind: "run_plan_route_update",
+        baseRevision: 1,
+        reason: "测试发现当前路线遗漏兼容检查",
+        route: { stages: [{ target: "补充兼容验证", acceptanceCriteria: ["兼容测试通过"] }] },
+        approvalRequest: "增加兼容验证会扩大已批准范围，请确认。",
+    });
 });
 
 test("Checkpoint 阶段挂载检查点保存工具", () => {

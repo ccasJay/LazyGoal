@@ -151,6 +151,7 @@ export type {
     PendingProgram,
     PendingInteraction,
     PendingInteractionAskUser,
+    PendingPlanRouteRevisionApproval,
     PendingInteractionTaskApproval,
     PendingThink,
     PendingModelRepair,

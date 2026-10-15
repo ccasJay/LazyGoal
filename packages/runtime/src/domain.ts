@@ -422,13 +422,41 @@ export interface PendingInteractionAskUser {
     readonly requestId: string;
     readonly mode: "plan" | "execution";
     readonly questions: readonly AskUserQuestion[];
+    /** 路线扩展审批请求；只有明确选择批准选项才会应用候选路线。 */
+    readonly routeRevision?: PendingPlanRouteRevisionApproval;
+}
+
+/**
+ * 等待用户决定是否批准的获批 Plan 路线修订。
+ *
+ * @remarks
+ * 候选路线和理由与 AskUser 请求一起进入 Snapshot；Runtime 在用户批准前不更改路线，
+ * 选择 ID 与已规范化的单选项绑定，Other 文本不构成批准。
+ *
+ * @example
+ * ```ts
+ * const approval: PendingPlanRouteRevisionApproval = {
+ *     baseRevision: 1,
+ *     candidate: { stages: [{ target: "新增验收", acceptanceCriteria: ["审查报告"] }] },
+ *     reason: "新发现的要求扩大了交付范围",
+ *     approvalRequest: "是否批准扩展后的路线？",
+ *     approvalOptionId: "o-1",
+ * };
+ * ```
+ */
+export interface PendingPlanRouteRevisionApproval {
+    readonly baseRevision: number;
+    readonly candidate: RunPlanRouteCandidate;
+    readonly reason: string;
+    readonly approvalRequest: string;
+    readonly approvalOptionId: string;
 }
 
 /**
  * 等待用户审查并批准任务提案的挂起状态。
  *
  * @remarks
- * 包含当前 Run 的稳定请求 ID、Agent 提出的任务目标、验收标准与审批提示。
+ * 包含当前 Run 的稳定请求 ID、Agent 提出的任务目标、验收标准、完整阶段路线与审批提示。
  * 用户恢复交互时必须回传相同 request ID；反馈或批准后该 ID 立即失效。
  *
  * @example

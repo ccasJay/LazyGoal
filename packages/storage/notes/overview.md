@@ -34,6 +34,8 @@ Plan Run 的 `planRoute` 仅能出现在已有 `approvedTask` 的 Plan Run 上�
 
 待审批 Plan Run 的 `task_approval` 交互必须包含非空阶段和验收条件组成的 `planRouteCandidate`。Snapshot 对候选做严格字段和非空约束校验，Codec 深复制往返；该字段不含 Runtime 身份或执行状态，批准后候选随等待交互清除并由 Runtime 创建正式路线。不迁移缺失字段的旧开发快照。
 
+路线扩展等待保存在 `pendingInteraction.routeRevision`，包括基于的路线 revision、完整候选、修订理由和唯一批准选项。只有选择该批准项才应用修订；用户选择保留当前路线时，Snapshot 中的路线不变。路线修订事实进入 Trajectory，Snapshot 游标决定恢复时可见的修订边界。
+
 
 当前 Snapshot 同时校验 `pendingProgram` 与运行中父 Action、子 `pendingAction` 的身份及调用位置；Codec 原位保存恢复指针和已用结果字节数。PTC 子事实的 `programId/callIndex` 随 Trajectory 严格解析，结果仍以 Snapshot 的提交边界为准。`program_time_reserved` 是例外：它在同一 JSONL 中单独同步到磁盘，恢复时无论 Snapshot 是否纳入该事件都要计入预算，防止崩溃重置额度。Storage 不推断工具是否已经产生外部副作用。
 

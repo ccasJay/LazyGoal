@@ -212,6 +212,14 @@ export type GoalSnapshotStructuredDecisionResultV1 =
         readonly summary: string;
         readonly evidenceSequences?: readonly number[] | undefined;
         readonly memoryPatch?: GoalSnapshotMemoryPatchV1 | undefined;
+    }
+    | {
+        readonly kind: "run_plan_route_update";
+        readonly baseRevision: number;
+        readonly reason: string;
+        readonly route: GoalSnapshotPlanRouteCandidateV1;
+        readonly approvalRequest?: string | undefined;
+        readonly memoryPatch?: GoalSnapshotMemoryPatchV1 | undefined;
     };
 
 /** Snapshot 中最近一次完成 Step 的 Decision 结果。 */
@@ -614,6 +622,16 @@ export interface GoalSnapshotPendingInteractionAskUserV1 {
     readonly requestId: string;
     readonly mode: "plan" | "execution";
     readonly questions: readonly GoalSnapshotAskUserQuestionV1[];
+    readonly routeRevision?: GoalSnapshotPendingPlanRouteRevisionApprovalV1;
+}
+
+/** Snapshot 中等待确认的完整路线修订及绑定的批准选项。 */
+export interface GoalSnapshotPendingPlanRouteRevisionApprovalV1 {
+    readonly baseRevision: number;
+    readonly candidate: GoalSnapshotPlanRouteCandidateV1;
+    readonly reason: string;
+    readonly approvalRequest: string;
+    readonly approvalOptionId: string;
 }
 
 /**
@@ -967,6 +985,19 @@ const StructuredDecisionResultSchema = z.union([
         evidenceSequences: z.array(z.number().int().nonnegative()).optional(),
         memoryPatch: MemoryPatchSchema.optional(),
     }).strict(),
+    z.object({
+        kind: z.literal("run_plan_route_update"),
+        baseRevision: z.number().int().positive(),
+        reason: NonEmptyStringSchema,
+        route: z.object({
+            stages: z.array(z.object({
+                target: NonEmptyStringSchema,
+                acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
+            }).strict()).min(1),
+        }).strict(),
+        approvalRequest: NonEmptyStringSchema.optional(),
+        memoryPatch: MemoryPatchSchema.optional(),
+    }).strict(),
 ]);
 
 const StepRecordSchema = z.discriminatedUnion("kind", [
@@ -1108,6 +1139,18 @@ const PendingInteractionAskUserSchema = z.object({
     requestId: NonEmptyStringSchema,
     mode: z.enum(["plan", "execution"]),
     questions: z.array(AskUserQuestionSchema).min(1).max(3),
+    routeRevision: z.object({
+        baseRevision: z.number().int().positive(),
+        candidate: z.object({
+            stages: z.array(z.object({
+                target: NonEmptyStringSchema,
+                acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
+            }).strict()).min(1),
+        }).strict(),
+        reason: NonEmptyStringSchema,
+        approvalRequest: NonEmptyStringSchema,
+        approvalOptionId: NonEmptyStringSchema,
+    }).strict().optional(),
 }).strict();
 
 const PendingInteractionTaskApprovalSchema = z.object({
@@ -1467,6 +1510,21 @@ function validateSnapshotInvariants(
     const pendingModelRepair = run.pendingModelRepair;
     const interruption = run.interruption;
 
+    if (pendingInteraction?.kind === "ask_user" && pendingInteraction.routeRevision !== undefined) {
+        const approval = pendingInteraction.routeRevision;
+        const approvalQuestion = pendingInteraction.questions[0];
+        if (run.mode !== "plan"
+            || run.approvedTask === undefined
+            || run.planRoute === undefined
+            || approval.baseRevision !== run.planRoute.revision
+            || pendingInteraction.questions.length !== 1
+            || approvalQuestion === undefined
+            || approvalQuestion.multiSelect
+            || !approvalQuestion.options.some((option) => option.id === approval.approvalOptionId)) {
+            addInvariantIssue(context, "route revision approval must bind one current Plan route and its explicit approval option", ["state", "run", "pendingInteraction", "routeRevision"]);
+        }
+    }
+
     if (interruption !== undefined) {
         if (interruption.status === "finished" && run.status !== "cancelled") {
             addInvariantIssue(context, "finished Interrupt requires a cancelled Run", ["state", "run", "interruption"]);
@@ -1620,6 +1678,7 @@ function validateSnapshotInvariants(
                 || result?.kind === "goal_plan_update"
                 || result?.kind === "run_stage_update"
                 || result?.kind === "run_stage_complete"
+                || result?.kind === "run_plan_route_update"
                 || (result?.kind === "complete" && run.currentStage?.status === "executing"
                     && run.currentStage.latestReviewRejection !== undefined);
             const maxSteps = goal.definition.executionPolicy.maxSteps;
@@ -1638,6 +1697,7 @@ function validateSnapshotInvariants(
         && result?.kind !== "goal_plan_update"
         && result?.kind !== "run_stage_update"
         && result?.kind !== "run_stage_complete"
+        && result?.kind !== "run_plan_route_update"
         && !(result?.kind === "complete" && run.currentStage?.status === "executing"
             && run.currentStage.latestReviewRejection !== undefined)
     ) {

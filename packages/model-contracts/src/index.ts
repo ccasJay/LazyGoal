@@ -78,6 +78,7 @@ export {
     AskUserAnswerContract,
     RunStageUpdateAgentDecisionContract,
     RunStageCompleteAgentDecisionContract,
+    RunPlanRouteUpdateAgentDecisionContract,
     normalizeAskUserRequest,
     validateAskUserAnswers,
     validateModelOutputSemantics,
@@ -105,6 +106,7 @@ export type {
     FactValue,
     GoalTask,
     RunPlanRouteCandidate,
+    RunPlanRouteUpdateAgentDecision,
     RequestThink,
     DecideOutput,
     GoalPlanStatus,
@@ -176,6 +178,7 @@ export {
     SystemUpdateGoalPlanDeclaration,
     SystemRequestThinkDeclaration,
     SystemUpdateRunStageDeclaration,
+    SystemUpdatePlanRouteDeclaration,
     SystemCompleteRunStageDeclaration,
     createExecutingToolDeclarations,
     createUnifiedToolDeclarations,
@@ -193,6 +196,7 @@ export {
     SystemFindToolsInputContract,
     SystemUpdateGoalPlanInputContract,
     SystemUpdateRunStageInputContract,
+    SystemUpdatePlanRouteInputContract,
     SystemCompleteRunStageInputContract,
 } from "./model-output/system-tools";
 

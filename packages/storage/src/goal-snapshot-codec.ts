@@ -177,6 +177,20 @@ function encodePendingInteraction(
                     })),
                     multiSelect: q.multiSelect,
                 })),
+                ...(interaction.routeRevision === undefined ? {} : {
+                    routeRevision: {
+                        baseRevision: interaction.routeRevision.baseRevision,
+                        candidate: {
+                            stages: interaction.routeRevision.candidate.stages.map((stage) => ({
+                                target: stage.target,
+                                acceptanceCriteria: [...stage.acceptanceCriteria],
+                            })),
+                        },
+                        reason: interaction.routeRevision.reason,
+                        approvalRequest: interaction.routeRevision.approvalRequest,
+                        approvalOptionId: interaction.routeRevision.approvalOptionId,
+                    },
+                }),
             };
         case "task_approval":
             return {
@@ -332,6 +346,22 @@ function encodeDecision(result: Exclude<StepRecord, { readonly kind: "action" }>
                 ...(result.evidenceSequences !== undefined
                     ? { evidenceSequences: [...result.evidenceSequences] }
                     : {}),
+                ...(result.memoryPatch === undefined
+                    ? {}
+                    : { memoryPatch: structuredClone(result.memoryPatch) }),
+            };
+        case "run_plan_route_update":
+            return {
+                kind: "run_plan_route_update",
+                baseRevision: result.baseRevision,
+                reason: result.reason,
+                route: {
+                    stages: result.route.stages.map((stage) => ({
+                        target: stage.target,
+                        acceptanceCriteria: [...stage.acceptanceCriteria],
+                    })),
+                },
+                ...(result.approvalRequest === undefined ? {} : { approvalRequest: result.approvalRequest }),
                 ...(result.memoryPatch === undefined
                     ? {}
                     : { memoryPatch: structuredClone(result.memoryPatch) }),
@@ -654,6 +684,20 @@ function decodePendingInteraction(
                     })),
                     multiSelect: q.multiSelect,
                 })),
+                ...(interaction.routeRevision === undefined ? {} : {
+                    routeRevision: {
+                        baseRevision: interaction.routeRevision.baseRevision,
+                        candidate: {
+                            stages: interaction.routeRevision.candidate.stages.map((stage) => ({
+                                target: stage.target,
+                                acceptanceCriteria: [...stage.acceptanceCriteria],
+                            })),
+                        },
+                        reason: interaction.routeRevision.reason,
+                        approvalRequest: interaction.routeRevision.approvalRequest,
+                        approvalOptionId: interaction.routeRevision.approvalOptionId,
+                    },
+                }),
             };
         case "task_approval":
             return {
@@ -785,6 +829,22 @@ function decodeDecision(result: GoalSnapshotDecisionResultV1): Exclude<StepRecor
                 ...(result.evidenceSequences !== undefined
                     ? { evidenceSequences: [...result.evidenceSequences] }
                     : {}),
+                ...(result.memoryPatch === undefined
+                    ? {}
+                    : { memoryPatch: structuredClone(result.memoryPatch) as ExecutingWorkingMemoryPatch }),
+            };
+        case "run_plan_route_update":
+            return {
+                kind: "run_plan_route_update",
+                baseRevision: result.baseRevision,
+                reason: result.reason,
+                route: {
+                    stages: result.route.stages.map((stage) => ({
+                        target: stage.target,
+                        acceptanceCriteria: [...stage.acceptanceCriteria],
+                    })),
+                },
+                ...(result.approvalRequest === undefined ? {} : { approvalRequest: result.approvalRequest }),
                 ...(result.memoryPatch === undefined
                     ? {}
                     : { memoryPatch: structuredClone(result.memoryPatch) as ExecutingWorkingMemoryPatch }),

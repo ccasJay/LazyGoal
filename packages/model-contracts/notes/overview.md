@@ -17,3 +17,5 @@
 `system_update_run_stage` 与 `system_complete_run_stage` 分别声明 Run 内部阶段的新建/修订提议及阶段完成候选提交。系统工具声明包含参数校验契约并编译为结构化 Provider Schema，由 Runtime 统一分配 stageId 与管理执行流转。
 
 `RunPlanRouteCandidateContract` 校验 Plan Run 阶段路线候选中的有序目标与验收条件。候选作为 `task_proposal` 的一部分提交，与任务范围及总体验收条件共用一次审批；候选不包含由 Runtime 管理的阶段身份、状态或恢复游标。
+
+获批路线只在 Plan Run 的执行声明中暴露。`system_update_plan_route` 要求模型提供当前修订号、完整候选路线与具体理由；超出批准范围时一并提供用户审批请求。Runtime 保留已接受阶段并在检查点提交修订。

@@ -130,6 +130,13 @@ import {
     type RunStageState,
 } from "./run-stage";
 import {
+    acceptRunPlanStage,
+    reviseRunPlanExecution,
+    reviseRunPlanRoute,
+    updateRunPlanStage,
+    RunPlanTransitionError,
+} from "./run-plan";
+import {
     createEmptyGoalPlan,
     reduceGoalPlan,
 } from "./goal-plan";
@@ -1975,7 +1982,15 @@ class RunExecutor {
 
         if (decision.kind === "run_stage_update") {
             try {
-                if (decision.stageId === undefined) {
+                if (goal.state.run.planRoute !== undefined) {
+                    updateRunPlanStage(goal.state.run.planRoute, {
+                        target: decision.target,
+                        acceptanceCriteria: decision.acceptanceCriteria,
+                        ...(decision.stageId !== undefined ? { stageId: decision.stageId } : {}),
+                        ...(decision.baseRevision !== undefined ? { baseRevision: decision.baseRevision } : {}),
+                        ...(decision.reason !== undefined ? { reason: decision.reason } : {}),
+                    });
+                } else if (decision.stageId === undefined) {
                     const previousStage = goal.state.run.currentStage;
                     const stageOrdinal = previousStage !== undefined
                         ? parseInt(previousStage.stageId.replace("stage-", ""), 10) + 1
@@ -2004,7 +2019,7 @@ class RunExecutor {
                     });
                 }
             } catch (error) {
-                if (error instanceof RunStageTransitionError) {
+                if (error instanceof RunStageTransitionError || error instanceof RunPlanTransitionError) {
                     throw new ModelStageFeedbackError(createRuntimeFeedback({
                         goalId: goal.id,
                         runId: goal.state.run.id,
@@ -2020,6 +2035,47 @@ class RunExecutor {
                             message: error.message,
                         }],
                         constraints: ["Provide valid stage parameters or match the current active stage revision."],
+                    }), error.message);
+                }
+                throw error;
+            }
+            return {
+                decision,
+                ...(acceptedContextNotes !== undefined ? { acceptedContextNotes } : {}),
+            };
+        }
+
+        if (decision.kind === "run_plan_route_update") {
+            try {
+                const route = goal.state.run.planRoute;
+                if (goal.state.run.mode !== "plan"
+                    || goal.state.run.approvedTask === undefined
+                    || route === undefined) {
+                    throw new RunPlanTransitionError("完整路线修订仅允许用于已批准的 Plan Run");
+                }
+                if (decision.baseRevision !== route.revision) {
+                    throw new RunPlanTransitionError("路线修订 baseRevision 与当前路线不匹配");
+                }
+                reviseRunPlanRoute(route, decision.route, decision.reason);
+            } catch (error) {
+                if (error instanceof RunPlanTransitionError) {
+                    throw new ModelStageFeedbackError(createRuntimeFeedback({
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        executionUnitId,
+                        stepOrdinal: goal.state.run.stepCount + 1,
+                        stage: "decide",
+                        origin: "decision_semantics",
+                        code: "INVALID_AGENT_DECISION",
+                        attempt: 1,
+                        issues: [{
+                            code: "INVALID_AGENT_DECISION",
+                            path: ["result", "route"],
+                            message: error.message,
+                        }],
+                        constraints: [
+                            "Use the current route revision, provide a concrete reason, and preserve every accepted stage exactly.",
+                        ],
                     }), error.message);
                 }
                 throw error;
@@ -2071,6 +2127,32 @@ class RunExecutor {
                 decision,
                 ...(acceptedContextNotes !== undefined ? { acceptedContextNotes } : {}),
             };
+        }
+
+        if (decision.kind === "complete" && goal.state.run.planRoute !== undefined) {
+            const route = goal.state.run.planRoute;
+            const allStagesAccepted = route.nextStageIndex === route.stages.length;
+            const completingFinalActiveStage = route.nextStageIndex === route.stages.length - 1
+                && goal.state.run.currentStage?.status === "executing"
+                && goal.state.run.currentStage.stageId === route.stages[route.nextStageIndex]?.stageId;
+            if (!allStagesAccepted && !completingFinalActiveStage) {
+                throw new ModelStageFeedbackError(createRuntimeFeedback({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    executionUnitId,
+                    stepOrdinal: goal.state.run.stepCount + 1,
+                    stage: "decide",
+                    origin: "decision_semantics",
+                    code: "INVALID_AGENT_DECISION",
+                    attempt: 1,
+                    issues: [{
+                        code: "INVALID_AGENT_DECISION",
+                        path: ["result"],
+                        message: "The approved Plan route still has an incomplete stage.",
+                    }],
+                    constraints: ["Complete each approved route stage in order before completing the Run."],
+                }), "Approved Plan route is incomplete");
+            }
         }
 
         if (decision.kind !== "tool_call") {
@@ -2174,6 +2256,13 @@ class RunExecutor {
     ): void {
         const run = goal.state.run;
         const task = goal.state.run.approvedTask;
+        if (decision.kind === "run_plan_route_update"
+            && (run.mode !== "plan" || task === undefined || run.planRoute === undefined)) {
+            throw new RunnerExecutionError(
+                "INVALID_AGENT_DECISION",
+                "run_plan_route_update is only allowed for an approved Plan route",
+            );
+        }
         if (decision.kind === "task_proposal" && (run.mode !== "plan" || task !== undefined)) {
             throw new RunnerExecutionError(
                 "INVALID_AGENT_DECISION",
@@ -4478,12 +4567,139 @@ class RunExecutor {
                         payload: {
                             type: "run_waiting",
                             reason: "ask_user",
+                            requestId: normalizedReq.requestId,
                         },
                     };
 
                     goal = await this.commitDecision(
                         nextGoal,
                         [decisionFact, ...contextNoteDrafts, waitingFact],
+                        acceptedPatch,
+                        control,
+                    );
+                    contextLookupResult = undefined;
+                    contextLookupChainCount = 0;
+                    continue;
+                }
+
+                if (normalized.decision.kind === "run_plan_route_update") {
+                    const decision = normalized.decision;
+                    const currentRoute = goal.state.run.planRoute;
+                    if (currentRoute === undefined) {
+                        return this.stopWithExecutionError(
+                            goal,
+                            new RunnerExecutionError("INVALID_AGENT_DECISION", "Approved Plan route is unavailable"),
+                            control,
+                        );
+                    }
+                    if (decision.approvalRequest !== undefined) {
+                        const normalizedAsk = normalizeAskUserRequest({
+                            questions: [{
+                                header: "Plan route revision",
+                                question: decision.approvalRequest,
+                                options: [
+                                    { label: "Approve revised route" },
+                                    { label: "Keep current route" },
+                                ],
+                                multiSelect: false,
+                            }],
+                        });
+                        const pendingInteraction: PendingInteractionAskUser = {
+                            kind: "ask_user",
+                            requestId: normalizedAsk.requestId,
+                            mode: "execution",
+                            questions: normalizedAsk.questions,
+                            routeRevision: {
+                                baseRevision: decision.baseRevision,
+                                candidate: decision.route,
+                                reason: decision.reason,
+                                approvalRequest: decision.approvalRequest,
+                                approvalOptionId: normalizedAsk.questions[0]!.options[0]!.id,
+                            },
+                        };
+                        const nextRun = this.applyTransition(goal.state.run, {
+                            kind: "stage_interaction",
+                            interaction: pendingInteraction,
+                        });
+                        const nextGoal = this.appendAssistantContent(
+                            this.withRun(goal, nextRun),
+                            this.formatAskUserQuestions(normalizedAsk.questions),
+                        );
+                        goal = await this.commitDecision(
+                            nextGoal,
+                            [
+                                {
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "executing",
+                                    executionUnitId,
+                                    eventType: "decision_received",
+                                    payload: {
+                                        type: "decision_received",
+                                        decision,
+                                        ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
+                                    },
+                                },
+                                {
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "executing",
+                                    executionUnitId,
+                                    eventType: "run_waiting",
+                                    payload: {
+                                        type: "run_waiting",
+                                        reason: "ask_user",
+                                        requestId: normalizedAsk.requestId,
+                                    },
+                                },
+                            ],
+                            acceptedPatch,
+                            control,
+                        );
+                        contextLookupResult = undefined;
+                        contextLookupChainCount = 0;
+                        continue;
+                    }
+
+                    const revised = reviseRunPlanExecution(
+                        currentRoute,
+                        decision.route,
+                        decision.reason,
+                        goal.state.run.currentStage,
+                    );
+                    const nextGoal = this.withRun(goal, {
+                        ...goal.state.run,
+                        planRoute: revised.route,
+                        ...(revised.currentStage === undefined ? {} : { currentStage: revised.currentStage }),
+                    });
+                    goal = await this.commitDecision(
+                        nextGoal,
+                        [
+                            {
+                                goalId: goal.id,
+                                runId: goal.state.run.id,
+                                phase: "executing",
+                                executionUnitId,
+                                eventType: "decision_received",
+                                payload: {
+                                    type: "decision_received",
+                                    decision,
+                                    ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
+                                },
+                            },
+                            {
+                                goalId: goal.id,
+                                runId: goal.state.run.id,
+                                phase: "executing",
+                                executionUnitId,
+                                eventType: "run_plan_route_revised",
+                                payload: {
+                                    type: "run_plan_route_revised",
+                                    route: revised.route,
+                                    reason: decision.reason,
+                                },
+                            },
+                        ],
                         acceptedPatch,
                         control,
                     );
@@ -4747,6 +4963,15 @@ class RunExecutor {
 
                 if (normalized.decision.kind === "run_stage_update") {
                     const stageDecision = normalized.decision;
+                    const nextPlanRoute = goal.state.run.planRoute === undefined
+                        ? undefined
+                        : updateRunPlanStage(goal.state.run.planRoute, {
+                            target: stageDecision.target,
+                            acceptanceCriteria: stageDecision.acceptanceCriteria,
+                            ...(stageDecision.stageId !== undefined ? { stageId: stageDecision.stageId } : {}),
+                            ...(stageDecision.baseRevision !== undefined ? { baseRevision: stageDecision.baseRevision } : {}),
+                            ...(stageDecision.reason !== undefined ? { reason: stageDecision.reason } : {}),
+                        });
                     let nextStage: RunStageState;
                     if (stageDecision.stageId === undefined) {
                         const previousStage = goal.state.run.currentStage;
@@ -4774,11 +4999,14 @@ class RunExecutor {
                         );
                     }
 
-                    const nextRun = this.applyTransition(goal.state.run, {
+                    const transitionedRun = this.applyTransition(goal.state.run, {
                         kind: "stage_update",
                         stage: nextStage,
                         decision: normalized.decision,
                     });
+                    const nextRun = nextPlanRoute === undefined
+                        ? transitionedRun
+                        : { ...transitionedRun, planRoute: nextPlanRoute };
                     const nextGoal = this.withRun(goal, nextRun);
 
                     goal = await this.commitDecision(
@@ -4814,6 +5042,22 @@ class RunExecutor {
                                     ...(stageDecision.reason !== undefined ? { reason: stageDecision.reason } : {}),
                                 },
                             },
+                            ...(nextPlanRoute !== undefined
+                                && goal.state.run.planRoute !== undefined
+                                && nextPlanRoute.revision !== goal.state.run.planRoute.revision
+                                ? [{
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "executing" as const,
+                                    executionUnitId,
+                                    eventType: "run_plan_route_revised" as const,
+                                    payload: {
+                                        type: "run_plan_route_revised" as const,
+                                        route: nextPlanRoute,
+                                        reason: stageDecision.reason!,
+                                    },
+                                }]
+                                : []),
                             ...contextNoteDrafts,
                         ],
                         acceptedPatch,
@@ -5033,11 +5277,17 @@ class RunExecutor {
 
                     const acceptedSequence = goal.state.run.committedThroughSequence + 2;
                     const acceptedStage = acceptCurrentRunStage(goal.state.run.currentStage, acceptedSequence);
-                    const nextRun = this.applyTransition(goal.state.run, {
+                    const nextPlanRoute = goal.state.run.planRoute === undefined
+                        ? undefined
+                        : acceptRunPlanStage(goal.state.run.planRoute, acceptedStage.stageId, acceptedSequence);
+                    const transitionedRun = this.applyTransition(goal.state.run, {
                         kind: "stage_settle",
                         stage: acceptedStage,
                         decision: stageDecision,
                     });
+                    const nextRun = nextPlanRoute === undefined
+                        ? transitionedRun
+                        : { ...transitionedRun, planRoute: nextPlanRoute };
                     const nextGoal = this.withRun(goal, nextRun);
                     goal = await this.commitDecision(
                         nextGoal,
@@ -5081,6 +5331,7 @@ class RunExecutor {
                 }
 
                 let acceptedStage: RunStageState | undefined;
+                let acceptedPlanRoute = goal.state.run.planRoute;
                 if (normalized.decision.kind === "complete" && goal.state.run.currentStage !== undefined) {
                     const candidate = normalized.decision;
                     const sequences = new Set("evidenceSequences" in candidate && candidate.evidenceSequences !== undefined
@@ -5172,6 +5423,9 @@ class RunExecutor {
                     if (goal.state.run.currentStage.status === "executing") {
                         const acceptedSequence = goal.state.run.committedThroughSequence + 2;
                         acceptedStage = acceptCurrentRunStage(goal.state.run.currentStage, acceptedSequence);
+                        if (acceptedPlanRoute !== undefined) {
+                            acceptedPlanRoute = acceptRunPlanStage(acceptedPlanRoute, acceptedStage.stageId, acceptedSequence);
+                        }
                     }
                 }
 
@@ -5192,11 +5446,14 @@ class RunExecutor {
                 if (goal.state.run.interruption?.status === "repairing") {
                     return this.cancelInterruptedRun(goal, control);
                 }
-                const nextRun = this.applyTransition(goal.state.run, {
+                const transitionedRun = this.applyTransition(goal.state.run, {
                     kind: "decision",
                     decision: normalized.decision,
                     ...(acceptedStage !== undefined ? { stage: acceptedStage } : {}),
                 });
+                const nextRun = acceptedPlanRoute === undefined
+                    ? transitionedRun
+                    : { ...transitionedRun, planRoute: acceptedPlanRoute };
                 let nextGoal = this.appendDecisionMessage(
                     this.withRun(goal, nextRun),
                     normalized.decision,
@@ -5943,6 +6200,7 @@ class RunExecutor {
                 | { readonly kind: "goal_plan_update" }
                 | { readonly kind: "run_stage_update" }
                 | { readonly kind: "run_stage_complete" }
+                | { readonly kind: "run_plan_route_update" }
         >,
     ): Goal {
         const content = decision.kind === "complete"

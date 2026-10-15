@@ -26,7 +26,7 @@
   - 将路线候选接入 Plan Run 的模型输出契约、Prompt 与现有任务提案交互；批准对象保持单一。普通模式 Prompt 与 Runtime 不新增全路线输出要求。保留只读探查、用户提问、拒绝提案与恢复已有语义。更新 agent、model-contracts、runtime 所有者说明。
   - 验证入口：npx tsx --test packages/model-contracts/test/model-output-canonical.test.ts packages/model-contracts/test/model-output-wire.test.ts packages/agent/test/prompt.test.ts packages/agent/test/prompting-renderer.test.ts packages/runtime/test/goal-plan-run.test.ts packages/runtime/test/pre-approval-stage-gate.test.ts。
 
-- [ ] //TODO 4. 在同一获批 Plan Run 中推进、修订并恢复阶段路线
+- [x] //TODO 4. 在同一获批 Plan Run 中推进、修订并恢复阶段路线
   - 落实标准：[1.3](./spec.md#spec-req-1-3)、[1.5](./spec.md#spec-req-1-5)、[2.5](./spec.md#spec-req-2-5)、[2.6](./spec.md#spec-req-2-6)、[2.7](./spec.md#spec-req-2-7)、[4.2](./spec.md#spec-req-4-2)、[4.3](./spec.md#spec-req-4-3)、[4.4](./spec.md#spec-req-4-4)。
   - 先在待新增的 Run 路线执行/恢复测试及现有 Runtime 测试中断言：批准后同一 Run 依路线顺序执行；任一时刻最多一个活动阶段；中间阶段接受只推进游标、不完成 Run/Goal；阶段切换、路线修订和批准状态先通过领域校验及检查点提交；获批范围内修订需记录理由且保留仍有效结果；扩大范围时暂停并等待用户决定；进程恢复不重复审批或重放已完成工具副作用；GoalPlan 不被创建或改写。
   - 将阶段启动、接受、路线修订与提案批准接入 Runtime 的 transition/checkpoint/recovery 生命周期。路线版本和审批范围保持对应；修订按新证据保留仍有效结果，不静默覆盖已接受的历史事实；普通 Run 继续按当前 RunStage 接受/拒绝及恢复逻辑，不新增路线状态。更新 runtime、storage 所有者说明和公开契约 TSDoc。

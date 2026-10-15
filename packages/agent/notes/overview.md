@@ -41,6 +41,8 @@ Decide 按阶段专用 Adapter 执行：支持原生严格输出的供应商在�
 
 Contracts 根据当前 Run 的模式、任务批准状态和可见工具集合生成决策声明：普通 Run 可直接提交完成候选，Plan Run 必须先批准任务才可完成。任务未批准时，Runtime 只传入明确声明 `isReadOnly: true` 的工具，固定 Prompt 说明此边界；Plan Mode 额外暴露 `system_update_goal_plan`。Plan Prompt 要求先收集影响范围、正确性或授权的关键信息，再按独立交付结果、真实依赖和验收关口形成单阶段或多阶段完整路线，并随单个任务提案提交；普通 Run 不要求全路线。Schema 可见性不授予执行权；Runtime 仍在调用入口校验只读门、Profile、Registry、Policy、审批和沙箱规则。
 
+获批 Plan Run 的动态上下文包含 Runtime 权威路线和游标。Prompt 要求按序声明下一阶段、保留已接受结果，并在需要改动完整路线时调用 `system_update_plan_route`；普通 Run 不投影路线，也不暴露该声明。
+
 ## 完成审查
 
 所有完成候选通过 Runtime 协议与引用校验后，由 [`reviewCompletion`](../src/llm-step-executor.ts) 使用当前 Decide Adapter 独立审查。专用 [Prompt 与请求构造器](../src/completion-review.ts) 提供当前请求和约束、获批条件、完整候选及 Runtime 解析的引用证据正文；只声明 `system_review_completion`，不执行工具或改写答案。`summary` 承载完整用户回复；Think、模型自述、目录和规模统计不能代替所需实现证据，已提供源码可直接使用，简单请求允许简短回答。

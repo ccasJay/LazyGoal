@@ -54,6 +54,34 @@ export interface ModelTask {
 }
 
 /**
+ * Plan Run 中模型可见的完整有序阶段路线。
+ *
+ * @remarks
+ * ID、状态、revision 和游标均由 Runtime 分配；模型只能按获批路线声明/修订当前阶段，
+ * 不得跳过待执行阶段或自行标记阶段已接受。
+ *
+ * @example
+ * ```ts
+ * const route: ModelPlanRoute = {
+ *   revision: 1, nextStageIndex: 0,
+ *   stages: [{ stageId: "stage-1", revision: 1, status: "pending", target: "调查", acceptanceCriteria: ["定位入口"] }],
+ * };
+ * ```
+ */
+export interface ModelPlanRoute {
+    readonly revision: number;
+    readonly revisionReason?: string | undefined;
+    readonly nextStageIndex: number;
+    readonly stages: readonly {
+        readonly stageId: string;
+        readonly revision: number;
+        readonly status: "pending" | "executing" | "accepted";
+        readonly target: string;
+        readonly acceptanceCriteria: readonly string[];
+    }[];
+}
+
+/**
  * 模型可见的单个 GoalPlan Todo 投影。
  *
  * @example
@@ -172,6 +200,13 @@ export type ModelStepRecord =
                 readonly stageId: string;
                 readonly summary: string;
                 readonly evidenceSequences?: readonly number[] | undefined;
+            }
+            | {
+                readonly kind: "run_plan_route_update";
+                readonly baseRevision: number;
+                readonly reason: string;
+                readonly route: { readonly stages: readonly { readonly target: string; readonly acceptanceCriteria: readonly string[] }[] };
+                readonly approvalRequest?: string | undefined;
             };
     };
 
@@ -530,6 +565,8 @@ export interface ModelDynamicContext {
     readonly authorizedTools: readonly ModelToolDefinition[];
     /** 已批准任务；不存在时省略。 */
     readonly task?: ModelTask;
+    /** 已批准 Plan Run 的完整阶段路线；未批准或普通 Run 时省略。 */
+    readonly planRoute?: ModelPlanRoute;
     /** 已提交 GoalPlan；不存在时省略。 */
     readonly goalPlan?: ModelGoalPlan;
     /** 目标工作导航视图；不存在时省略。 */

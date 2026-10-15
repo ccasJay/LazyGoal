@@ -15,6 +15,7 @@ import {
     type AskUserAgentDecision,
     type CompletionEvidence,
     type RunPlanRouteCandidate,
+    type RunPlanRouteUpdateAgentDecision,
     CompletionEvidenceContract,
     ContextLookupFiltersContract,
     ContextLookupNeedContract,
@@ -26,6 +27,7 @@ import {
     type GoalPlanPatchOperation,
     GoalTaskContract,
     RunPlanRouteCandidateContract,
+    RunPlanRouteUpdateAgentDecisionContract,
     AskUserQuestionInputContract,
 } from "./canonical";
 import { ModelOutputContractDefinitionError } from "./errors";
@@ -231,6 +233,15 @@ export const SystemContextLookupInputContract = contract.object({
     category: contract.optional(contract.string()),
     sourceRef: contract.optional(contract.string()),
     offset: contract.optional(contract.integer({ minimum: 0 })),
+});
+
+/** Plan Run 获批后的完整路线修订输入契约。 */
+export const SystemUpdatePlanRouteInputContract = contract.object({
+    baseRevision: contract.integer({ minimum: 1 }),
+    reason: contract.string(),
+    route: RunPlanRouteCandidateContract,
+    approvalRequest: contract.optional(contract.string()),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
 /** 统一执行流提交任务提案工具参数契约。 */
@@ -443,6 +454,42 @@ export const SystemProposeTaskPlanDeclaration: SystemToolDeclaration<AgentDecisi
     }),
 );
 
+/**
+ * 获批 Plan Run 的完整路线修订工具。
+ *
+ * @remarks
+ * Runtime 会校验 revision、保留已接受阶段并分配新增阶段身份；提供 approvalRequest 时，
+ * 修订在用户确认前只以待处理交互保存，不会改变当前路线或执行状态。
+ *
+ * @example
+ * ```ts
+ * const decision = SystemUpdatePlanRouteDeclaration.decode({
+ *   baseRevision: 1,
+ *   reason: "新证据表明可以复用现有验证步骤",
+ *   route: { stages: [{ target: "修复", acceptanceCriteria: ["回归通过"] }] },
+ * });
+ * ```
+ */
+export const SystemUpdatePlanRouteDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
+    "system_update_plan_route",
+    "After new evidence changes the approved route, submit the complete revised route and a concrete reason. Preserve accepted stages exactly. Omit approvalRequest only when the revision stays within the approved task scope and promised outcomes. Include approvalRequest when it expands scope or changes promised outcomes; Runtime will pause for a user decision before applying it.",
+    SystemUpdatePlanRouteInputContract,
+    (args: {
+        baseRevision: number;
+        reason: string;
+        route: RunPlanRouteCandidate;
+        approvalRequest?: string;
+        memoryPatch?: unknown;
+    }): RunPlanRouteUpdateAgentDecision => ({
+        kind: "run_plan_route_update",
+        baseRevision: args.baseRevision,
+        reason: args.reason,
+        route: args.route,
+        ...(args.approvalRequest !== undefined ? { approvalRequest: args.approvalRequest } : {}),
+        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
+    }),
+);
+
 export const SystemContextCheckpointDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_context_checkpoint",
     "When checkpointRequired is true, make this the only call, ahead of all ordinary actions and system decisions. Preserve supported durable memory updates; Runtime owns checkpoint metadata.",
@@ -609,7 +656,7 @@ export function createExecutingToolDeclarations(
  * 按 Run 模式与任务审批状态派生决策工具：
  * - 普通模式：暴露传入业务工具与普通完成、wait、fail、lookup、find_tools、ask_user；
  * - Plan 未批准：暴露传入业务工具与 ask_user、task_proposal、lookup、find_tools；
- * - Plan 已批准：暴露传入业务工具与逐条件完成、wait、fail、lookup、find_tools、ask_user；
+ * - Plan 已批准：暴露传入业务工具、路线修订、逐条件完成、wait、fail、lookup、find_tools、ask_user；
  * - 任一状态是否额外暴露 GoalPlan 更新工具，由 `goalPlanWritable` 单独决定。
  *
  * @param authorizedTools - 当前 Goal 授权的业务工具列表。
@@ -685,6 +732,7 @@ export function createUnifiedToolDeclarations(
 
     return [
         ...createExecutingToolDeclarations(authorizedTools),
+        SystemUpdatePlanRouteDeclaration,
         ...(goalPlanWritable ? [SystemUpdateGoalPlanDeclaration] : []),
         ...thinkDeclaration,
     ];
