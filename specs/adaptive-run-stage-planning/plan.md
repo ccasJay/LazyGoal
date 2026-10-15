@@ -14,7 +14,7 @@
   - 实现模型候选到 Runtime 权威状态的映射、稳定身份分配、顺序/状态校验与 Snapshot 编解码。路线由 Runtime 保存完整历史所需的当前修订和阶段结果；不把模型候选当成已批准状态，不新增旧开发 Snapshot 迁移路径。更新 runtime、model-contracts、storage 的所有者说明。
   - 验证入口：npx tsx --test packages/runtime/test/run-plan-route.test.ts packages/model-contracts/test/run-plan-route.test.ts packages/storage/test/run-plan-route-snapshot.test.ts packages/storage/test/goal-snapshot-current.test.ts（前三项待新增）。
 
-- [ ] //TODO 2. 在 Plan Run 审批前建立只读工具边界
+- [x] //TODO 2. 在 Plan Run 审批前建立只读工具边界
   - 落实标准：[2.1](./spec.md#spec-req-2-1)、[2.2](./spec.md#spec-req-2-2)、[2.6](./spec.md#spec-req-2-6)、[3.1](./spec.md#spec-req-3-1)、[3.2](./spec.md#spec-req-3-2)、[3.3](./spec.md#spec-req-3-3)。
   - 先扩展 packages/runtime/test/pre-approval-stage-gate.test.ts：未批准 Plan Run 只可调用必要控制工具和 ToolDefinition.isReadOnly 为 true 的业务工具；伪造模型输出直接调用未标记工具时 Runtime 在执行前拒绝；Prompt/Schema 暴露范围与 Runtime 实际门禁一致；请求批准或等待用户时不执行写入；普通 Run 的工具授权、当前阶段、恢复及审批行为保持不变。
   - 以现有 ToolDefinition.isReadOnly 契约作为唯一只读依据，在模型可见工具集合和 Runner 调用入口同时施加边界；不解析 Bash 文本，不将只读声明视为授权，也不改变 Tool Grant、YOLO、Action 审批或沙箱策略。更新 tool-core、runtime 和 model-contracts 所有者说明及相关 TSDoc。

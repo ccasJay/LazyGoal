@@ -572,6 +572,10 @@ interface PreparedToolAction {
     stream?(control?: ExecutionControl, plan?: SandboxExecutionPlan): AsyncIterable<ToolStreamEvent>;
 }
 
+function isPlanRunAwaitingTaskApproval(goal: Goal): boolean {
+    return goal.state.run.mode === "plan" && goal.state.run.approvedTask === undefined;
+}
+
 function prepareToolAction(
     goal: Goal,
     action: Extract<AgentDecision, { readonly kind: "tool_call" }>['action'],
@@ -619,6 +623,14 @@ function prepareToolAction(
         throw new RunnerExecutionError(
             "TOOL_NOT_FOUND",
             `Authorized Tool "${action.toolId}" is not registered`,
+        );
+    }
+
+    if (isPlanRunAwaitingTaskApproval(goal)
+        && registration.definition.isReadOnly !== true) {
+        throw new RunnerExecutionError(
+            "TOOL_NOT_AUTHORIZED",
+            `Tool "${action.toolId}" is not explicitly read-only before the Plan task is approved`,
         );
     }
 
@@ -2069,7 +2081,7 @@ class RunExecutor {
         }
 
         const isSystemTool = decision.action.toolId.startsWith("system_");
-        const isPlanModePreApproval = goal.state.run.mode === "plan" && goal.state.run.approvedTask === undefined;
+        const isPlanModePreApproval = isPlanRunAwaitingTaskApproval(goal);
         if (!isSystemTool && !isPlanModePreApproval) {
             if (goal.state.run.currentStage === undefined || goal.state.run.currentStage.status !== "executing") {
                 throw new ModelStageFeedbackError(createRuntimeFeedback({
@@ -3347,7 +3359,9 @@ class RunExecutor {
                 this.toolRegistry,
             );
             throwIfAborted(control);
-            return definitions;
+            return isPlanRunAwaitingTaskApproval(goal)
+                ? definitions.filter((definition) => definition.isReadOnly === true)
+                : definitions;
         } catch (error) {
             if (isExecutionAbortedError(error)) {
                 throw error;

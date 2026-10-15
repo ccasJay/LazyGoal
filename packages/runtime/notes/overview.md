@@ -44,7 +44,7 @@ waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表�
 Runner 将调度契约委派给 RunExecutor；RunExecutor 按当前 Run 模式和获批任务推进：
 
 - 普通 Run 直接以当前用户请求为目标，不等待任务提案；完成声明按当前 Run 已提交的 Tool/Observation Evidence 校验。
-- Plan Run 未批准时，Prompt 要求先提交 `task_proposal`，但 Runtime 不以 `isReadOnly` 或未批准状态增加业务 Tool 门控；现有 Profile、Tool Policy 和 Action 审批仍决定 Tool 权限。该 Run 在获批前不能完成。
+- Plan Run 未批准时，Runtime 只向模型暴露 `isReadOnly === true` 的业务工具，并在 Action 准备入口拒绝其他工具；提案等待前可继续只读调查。该 Run 在获批前不能完成。
 - 提案进入持久化的 `task_approval` 等待点后停止模型和 Tool 调用；反馈使旧提案失效并重新请求，批准后将任务保存在当前 Run 的 `approvedTask`。
 - 获批 Plan Run 可调用已授权业务 Tool，并按获批任务的完成条件校验证据。GoalPlan 写入由 Run 模式能力授权；计划状态本身不授予业务 Tool 权限。
 - 各模式中的 Tool 调用统一沿用 Tool Registry、Action ID、Policy、Trajectory 和 Observation 提交路径。
