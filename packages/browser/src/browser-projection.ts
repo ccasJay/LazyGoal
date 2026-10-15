@@ -346,6 +346,7 @@ function projectBrowserSteps(
     }
 
     const steps: BrowserSessionStep[] = [];
+    const sourceRangeByEventId = new Map<string, { readonly first: number; readonly last: number }>();
     for (const events of groups.values()) {
         events.sort((left, right) => left.sequence - right.sequence);
         const first = events[0];
@@ -442,6 +443,9 @@ function projectBrowserSteps(
             executionUnitId,
             sequence: first.sequence,
             stepIndex: first.stepIndex ?? steps.length + 1,
+            sourceEventId: first.eventId,
+            ...(actionByExecutionUnit.get(executionUnitId) === undefined || actionByExecutionUnit.get(executionUnitId) === null
+                ? {} : { actionId: actionByExecutionUnit.get(executionUnitId)! }),
             ...(stageId === undefined ? {} : { stageId }),
             ...(decisionKind === undefined ? {} : { decisionKind }),
             ...(toolId === undefined ? {} : { toolId }),
@@ -453,8 +457,79 @@ function projectBrowserSteps(
             ...(bashExecutionOmitted === undefined ? {} : { bashExecutionOmitted }),
             ...(recoveryAttempts.length === 0 ? {} : { recoveryAttempts }),
         });
+        sourceRangeByEventId.set(first.eventId, {
+            first: first.sequence,
+            last: events.at(-1)?.sequence ?? first.sequence,
+        });
     }
-    return steps.sort((left, right) => left.sequence - right.sequence);
+    const orderedSteps = steps.sort((left, right) => left.sequence - right.sequence);
+    let previousRange: { readonly last: number; readonly stageId?: string } | undefined;
+    return orderedSteps.map((step) => {
+        const range = step.sourceEventId === undefined ? undefined : sourceRangeByEventId.get(step.sourceEventId);
+        const hasBoundaryInStep = range !== undefined && sortedCommitted.some((event) =>
+            event.sequence >= range.first && event.sequence <= range.last && isActivityBoundaryEvent(event));
+        const boundaryBefore = previousRange !== undefined
+            && (hasBoundaryInStep || previousRange.stageId !== step.stageId
+                || range === undefined || !hasVerifiedActivityBridge(previousRange.last, range.first, sortedCommitted));
+        if (range !== undefined) previousRange = { last: range.last, ...(step.stageId === undefined ? {} : { stageId: step.stageId }) };
+        return boundaryBefore ? { ...step, activityBoundaryBefore: true as const } : step;
+    });
+}
+
+function hasVerifiedActivityBridge(previousSequence: number, nextSequence: number, events: readonly TrajectoryEvent[]): boolean {
+    if (nextSequence <= previousSequence) return false;
+    let expectedSequence = previousSequence + 1;
+    for (const event of events) {
+        if (event.sequence <= previousSequence || event.sequence >= nextSequence) continue;
+        if (event.sequence !== expectedSequence || isActivityBoundaryEvent(event) || !isTransparentActivityBridge(event)) return false;
+        expectedSequence += 1;
+    }
+    return expectedSequence === nextSequence;
+}
+
+function isActivityBoundaryEvent(event: TrajectoryEvent): boolean {
+    const payload = event.payload;
+    if (payload.type === "decision_received") return payload.decision.kind !== "tool_call";
+    return payload.type === "run_waiting"
+        || payload.type === "ask_user_answered"
+        || payload.type === "ask_user_cancelled"
+        || payload.type === "task_approved"
+        || payload.type === "task_feedback_received"
+        || payload.type === "run_stage_declared"
+        || payload.type === "run_stage_accepted"
+        || payload.type === "run_stage_rejected"
+        || payload.type === "run_plan_route_revised"
+        || payload.type === "run_completed"
+        || payload.type === "run_failed"
+        || payload.type === "run_cancelled"
+        || payload.type === "execution_error"
+        || payload.type === "action_rejected";
+}
+
+function isTransparentActivityBridge(event: TrajectoryEvent): boolean {
+    const type = event.payload.type;
+    if (type === "decision_received") return event.payload.decision.kind === "tool_call";
+    return type === "action_staged"
+        || type === "action_approved"
+        || type === "action_recovered"
+        || type === "tool_started"
+        || type === "tool_attempt_started"
+        || type === "tool_attempt_failed"
+        || type === "tool_finished"
+        || type === "observation_recorded"
+        || type === "state_committed"
+        || type === "model_context_frame"
+        || type === "model_response_received"
+        || type === "model_repair_attempt_started"
+        || type === "model_repair_feedback_recorded"
+        || type === "model_request_retry_recorded"
+        || type === "think_requested"
+        || type === "think_completed"
+        || type === "context_lookup_requested"
+        || type === "context_lookup_completed"
+        || type === "context_lookup_not_found"
+        || type === "context_lookup_failed"
+        || type === "memory_patch_accepted";
 }
 
 interface MutableStageGroup {

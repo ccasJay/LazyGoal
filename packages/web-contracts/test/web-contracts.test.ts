@@ -134,6 +134,30 @@ test("isBrowserRun validates complete Plan Run route states", () => {
     assert.equal(isBrowserRun({ runId: "run-1", status: "running", stepCount: 2, steps: [], current: true, planRoute: { ...route, stages: [{ ...route.stages[0], status: "pending" }, route.stages[1]] } }), false);
 });
 
+test("isLiveEvent validates activity identities without conflating trajectory IDs", () => {
+    const activity = {
+        type: "activity",
+        goalId: "goal-1",
+        runId: "run-1",
+        activity: {
+            kind: "tool_started",
+            sourceEventId: "event-1",
+            sourceCursor: 1,
+            actionId: "action-1",
+            executionUnitId: "unit-1",
+            toolId: "read_file",
+            inputSummary: "src/index.ts",
+        },
+    };
+    assert.equal(isLiveEvent(activity), true);
+    assert.equal(isLiveEvent({ ...activity, activity: { ...activity.activity, sourceCursor: 0 } }), false);
+    assert.equal(isLiveEvent({ ...activity, activity: { ...activity.activity, actionId: "" } }), false);
+    assert.equal(isLiveEvent({ ...activity, activity: { ...activity.activity, inputSummary: "x".repeat(241) } }), false);
+    assert.equal(isLiveEvent({
+        type: "activity", goalId: "goal-1", runId: "run-1",
+        activity: { kind: "activity_boundary", sourceEventId: "event-2", sourceCursor: 2, reason: "private_reasoning" },
+    }), false);
+});
 test("isPendingInteraction validates ask_user and task_approval", () => {
     assert.equal(
         isPendingInteraction({

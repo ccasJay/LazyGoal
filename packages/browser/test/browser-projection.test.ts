@@ -9,6 +9,7 @@ import {
     type GoalCatalogEntry,
     type GoalStore,
     type TrajectoryEvent,
+    type TrajectoryEventDraft,
     type TrajectoryReadResult,
 } from "../../runtime/src/index";
 import { allocateImmutableEvent } from "../../runtime/src/index";
@@ -388,6 +389,8 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
     assert.deepEqual(session.runs[0]?.steps[0], {
         runId: "run-real-1",
         executionUnitId: "unit-1",
+        sourceEventId: committed[0]!.eventId,
+        actionId: "action-1",
         sequence: 1,
         stepIndex: 1,
         decisionKind: "tool_call",
@@ -406,6 +409,40 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
     assert.equal(serialized.includes("systemPrompt"), false);
 });
 
+test("会话步骤只有来源顺序连续时才允许后续活动组拼接", async () => {
+    const initial = createTestGoal();
+    const createCall = (firstSequence: number, unit: string, actionId: string): TrajectoryEvent[] => {
+        const decision: TrajectoryEventDraft = {
+            goalId: initial.id, runId: initial.state.run.id, phase: "executing", executionUnitId: unit, stepIndex: firstSequence,
+            eventType: "decision_received",
+            payload: { type: "decision_received", decision: { kind: "tool_call", action: { actionId, toolId: "read_file", input: { path: `${actionId}.ts` } } } },
+        };
+        const started: TrajectoryEventDraft = {
+            goalId: initial.id, runId: initial.state.run.id, phase: "executing", executionUnitId: unit, stepIndex: firstSequence,
+            eventType: "tool_started", actionId,
+            payload: { type: "tool_started", actionId, toolId: "read_file", input: { path: `${actionId}.ts` } },
+        };
+        const observed: TrajectoryEventDraft = {
+            goalId: initial.id, runId: initial.state.run.id, phase: "executing", executionUnitId: unit, stepIndex: firstSequence,
+            eventType: "observation_recorded", actionId,
+            payload: { type: "observation_recorded", actionId, observation: { kind: "success", output: "content", summary: "Read file" } },
+        };
+        return [decision, started, observed].map((draft, offset) => allocateImmutableEvent(draft, firstSequence + offset));
+    };
+
+    const adjacent = [...createCall(1, "unit-1", "action-1"), ...createCall(4, "unit-2", "action-2")];
+    const adjacentSession = await readBrowserGoalSession(initial.id, new TestGoalStore(initial), async () => ({ committed: adjacent, uncommittedTail: [] }));
+    assert.equal(adjacentSession?.runs[0]?.steps[1]?.activityBoundaryBefore, undefined);
+    assert.equal(adjacentSession?.runs[0]?.steps[0]?.sourceEventId, adjacent[0]?.eventId);
+
+    const boundary: TrajectoryEventDraft = {
+        goalId: initial.id, runId: initial.state.run.id, phase: "executing", executionUnitId: "assistant-unit",
+        eventType: "decision_received", payload: { type: "decision_received", decision: { kind: "complete", summary: "A visible reply", completionEvidence: [] } },
+    };
+    const separated = [...createCall(1, "unit-1", "action-1"), allocateImmutableEvent(boundary, 4), ...createCall(5, "unit-2", "action-2")];
+    const separatedSession = await readBrowserGoalSession(initial.id, new TestGoalStore(initial), async () => ({ committed: separated, uncommittedTail: [] }));
+    assert.equal(separatedSession?.runs[0]?.steps[1]?.activityBoundaryBefore, true);
+});
 test("会话保留完整的常规长答复，并标记超出消息上限的正文", async () => {
     const initial = createTestGoal();
     const report = "完整报告。".repeat(901);

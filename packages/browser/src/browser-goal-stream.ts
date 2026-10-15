@@ -6,6 +6,7 @@ export type { BrowserGoalLiveEvent };
 
 const MAX_LIVE_TEXT_LENGTH = 2_000;
 const MAX_PENDING_LIVE_EVENTS = 128;
+type ActivityBoundaryReason = "assistant_reply" | "user_wait" | "stage_change" | "terminal" | "failure" | "unknown";
 
 /**
  * 一个已绑定 Goal/Run 的有限实时订阅。
@@ -80,6 +81,7 @@ export interface BrowserGoalExecutionStream {
  * ```ts
  * const event: BrowserGoalExecutionEvent = {
  *     goalId: "goal-1", runId: "run-1", kind: "model_started",
+ *     eventId: "event-1", cursor: 1,
  *     visibility: "public", durability: "live", payload: {},
  * };
  * ```
@@ -88,6 +90,12 @@ export interface BrowserGoalExecutionEvent {
     readonly goalId: string;
     readonly runId: string;
     readonly kind: string;
+    /** ExecutionStream 来源身份；不得与 Trajectory eventId 混用。 */
+    readonly eventId?: string;
+    /** ExecutionStream 来源 cursor；只在该实时来源内排序。 */
+    readonly cursor?: number;
+    readonly executionUnitId?: string;
+    readonly actionId?: string;
     readonly visibility: "public" | "diagnostic" | "restricted";
     readonly durability: "live" | "trajectory" | "checkpoint";
     readonly payload: unknown;
@@ -327,27 +335,133 @@ class LiveEventQueue implements AsyncIterable<BrowserGoalLiveEvent>, AsyncIterat
 function projectLiveActivity(
     event: BrowserGoalExecutionEvent,
 ): Extract<BrowserGoalLiveEvent, { readonly type: "activity" }>["activity"] | undefined {
+    const sourceEventId = event.eventId;
+    const sourceCursor = event.cursor;
+    const identity = sourceEventId !== undefined && sourceCursor !== undefined
+        ? { sourceEventId, sourceCursor }
+        : undefined;
     switch (event.kind) {
         case "model_started":
-        case "tool_started":
-        case "tool_finished":
             return { kind: event.kind };
         case "model_completed":
             return { kind: "model_completed" };
         case "step_started":
             return { kind: "step_started" };
+        case "tool_started": {
+            if (identity === undefined || event.actionId === undefined || event.executionUnitId === undefined
+                || !isRecord(event.payload) || typeof event.payload.toolId !== "string") return undefined;
+            const inputSummary = projectSafeToolInputSummary(event.payload.toolId, event.payload.input);
+            return {
+                kind: "tool_started",
+                ...identity,
+                actionId: event.actionId,
+                executionUnitId: event.executionUnitId,
+                toolId: event.payload.toolId,
+                ...(inputSummary === undefined ? {} : { inputSummary }),
+            };
+        }
+        case "tool_finished": {
+            if (identity === undefined || event.actionId === undefined || !isRecord(event.payload)
+                || typeof event.payload.toolId !== "string" || !isRecord(event.payload.observation)) return undefined;
+            const observation = event.payload.observation;
+            const outcome = observation.kind === "failure" ? "failure" : observation.kind === "success" ? "success" : undefined;
+            if (outcome === undefined) return undefined;
+            const summary = outcome === "failure" && typeof observation.message === "string"
+                ? observation.message
+                : typeof observation.summary === "string" ? observation.summary : undefined;
+            return {
+                kind: "tool_finished",
+                ...identity,
+                actionId: event.actionId,
+                toolId: event.payload.toolId,
+                outcome,
+                ...(summary === undefined ? {} : { summary: summary.slice(0, 500) }),
+            };
+        }
+        case "tool_attempt_started": {
+            if (identity === undefined || event.actionId === undefined || !isRecord(event.payload)
+                || !Number.isSafeInteger(event.payload.attempt)) return undefined;
+            return { kind: "tool_attempt_started", ...identity, actionId: event.actionId, attempt: Number(event.payload.attempt) };
+        }
+        case "tool_attempt_failed": {
+            if (identity === undefined || event.actionId === undefined || !isRecord(event.payload)
+                || !Number.isSafeInteger(event.payload.attempt) || typeof event.payload.reason !== "string") return undefined;
+            return {
+                kind: "tool_attempt_failed", ...identity, actionId: event.actionId,
+                attempt: Number(event.payload.attempt), reason: event.payload.reason.slice(0, 160),
+            };
+        }
         case "assistant_text_delta": {
             if (!isRecord(event.payload) || typeof event.payload.text !== "string") return undefined;
             const text = event.payload.text;
+            if (identity === undefined) return undefined;
             return {
                 kind: "assistant_text_delta",
+                ...identity,
                 text: text.slice(0, MAX_LIVE_TEXT_LENGTH),
                 truncated: text.length > MAX_LIVE_TEXT_LENGTH,
             };
         }
-        default:
+        case "decision_received": {
+            if (isRecord(event.payload) && isRecord(event.payload.decision) && event.payload.decision.kind === "tool_call") return undefined;
+            return projectActivityBoundary(identity, "assistant_reply");
+        }
+        case "run_waiting":
+        case "task_approved":
+        case "task_feedback_received":
+        case "ask_user_answered":
+        case "ask_user_cancelled":
+            return projectActivityBoundary(identity, "user_wait");
+        case "run_stage_declared":
+        case "run_stage_accepted":
+        case "run_stage_rejected":
+        case "run_plan_route_revised":
+            return projectActivityBoundary(identity, "stage_change");
+        case "run_failed":
+        case "run_completed":
+        case "run_cancelled":
+            return projectActivityBoundary(identity, "terminal");
+        case "execution_error":
+        case "action_rejected":
+            return projectActivityBoundary(identity, "failure");
+        case "model_response_received":
+        case "model_context_frame":
+        case "think_requested":
+        case "think_completed":
+        case "model_repair_attempt_started":
+        case "model_repair_feedback_recorded":
+        case "model_request_retry_recorded":
+        case "action_staged":
+        case "action_approved":
+        case "action_recovered":
+        case "observation_recorded":
+        case "state_committed":
+        case "memory_patch_accepted":
+        case "context_lookup_requested":
+        case "context_lookup_completed":
+        case "context_lookup_not_found":
+        case "context_lookup_failed":
             return undefined;
+        default:
+            return projectActivityBoundary(identity, "unknown");
     }
+}
+
+function projectSafeToolInputSummary(toolId: string, input: unknown): string | undefined {
+    if (!isRecord(input)) return undefined;
+    const key = toolId === "read_file" || toolId === "write_file" || toolId === "edit_file" ? "path"
+        : toolId === "grep" ? "pattern"
+            : toolId === "web_search" ? "query"
+                : toolId === "web_fetch" ? "url" : undefined;
+    const value = key === undefined ? undefined : input[key];
+    return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 240) : undefined;
+}
+
+function projectActivityBoundary(
+    identity: { readonly sourceEventId: string; readonly sourceCursor: number } | undefined,
+    reason: ActivityBoundaryReason,
+): Extract<BrowserGoalLiveEvent, { readonly type: "activity" }> ["activity"] | undefined {
+    return identity === undefined ? undefined : { kind: "activity_boundary", ...identity, reason };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

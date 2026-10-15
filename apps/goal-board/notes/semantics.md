@@ -8,3 +8,5 @@
 | Pending interaction | 等待用户处理的当前请求。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
 | GoalSessionContext | 隔离当前活动 Goal 会话快照、时间轴、指标与视图状态的局部上下文。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
 | RunControlContext | 隔离指令分发、客户端排队有限状态机与原子单飞防重锁的局部上下文。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
+| ActivityGroup | 从相邻且相关的真实调用派生的可展开展示组；不持久化且不影响 Runtime。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
+| Live Activity | 当前 Run 的短期公开活动；按来源身份去重并通过 Action ID 对齐已提交步骤。 | [Goal Board](../README.md) | [useRunStream](../src/hooks/useRunStream.ts) |

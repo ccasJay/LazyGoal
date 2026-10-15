@@ -215,6 +215,9 @@ export function isBrowserRun(value: unknown): value is BrowserSessionRun {
         && Array.isArray(value.steps)
         && value.steps.every((step) => isRecord(step)
             && isNonEmptyString(step.executionUnitId)
+            && (step.sourceEventId === undefined || isNonEmptyString(step.sourceEventId))
+            && (step.actionId === undefined || isNonEmptyString(step.actionId))
+            && (step.activityBoundaryBefore === undefined || step.activityBoundaryBefore === true)
             && Number.isSafeInteger(step.sequence)
             && Number.isSafeInteger(step.stepIndex)
             && ["recorded", "completed", "failed", "rejected"].includes(String(step.status))
@@ -609,10 +612,51 @@ export function isLiveEvent(value: unknown): value is BrowserGoalLiveEvent {
     if (value.type !== "activity" || !isRecord(value.activity)) return false;
     const activity = value.activity;
     if (activity.kind === "assistant_text_delta") {
-        return typeof activity.text === "string" && typeof activity.truncated === "boolean";
+        return typeof activity.text === "string" && activity.text.length <= 2_000 && typeof activity.truncated === "boolean"
+            && isNonEmptyString(activity.sourceEventId)
+            && activity.sourceEventId.length <= 200
+            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0;
     }
-    return ["model_started", "model_completed", "step_started", "tool_started", "tool_finished"]
-        .includes(String(activity.kind));
+    if (["model_started", "model_completed", "step_started"].includes(String(activity.kind))) return true;
+    if (activity.kind === "tool_started") {
+        return isNonEmptyString(activity.sourceEventId)
+            && activity.sourceEventId.length <= 200
+            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
+            && isNonEmptyString(activity.actionId)
+            && activity.actionId.length <= 200
+            && isNonEmptyString(activity.executionUnitId)
+            && activity.executionUnitId.length <= 200
+            && isNonEmptyString(activity.toolId)
+            && activity.toolId.length <= 128
+            && (activity.inputSummary === undefined || (typeof activity.inputSummary === "string" && activity.inputSummary.length <= 240));
+    }
+    if (activity.kind === "tool_finished") {
+        return isNonEmptyString(activity.sourceEventId)
+            && activity.sourceEventId.length <= 200
+            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
+            && isNonEmptyString(activity.actionId)
+            && activity.actionId.length <= 200
+            && isNonEmptyString(activity.toolId)
+            && activity.toolId.length <= 128
+            && ["success", "failure"].includes(String(activity.outcome))
+            && (activity.summary === undefined || (typeof activity.summary === "string" && activity.summary.length <= 500));
+    }
+    if (activity.kind === "tool_attempt_started" || activity.kind === "tool_attempt_failed") {
+        return isNonEmptyString(activity.sourceEventId)
+            && activity.sourceEventId.length <= 200
+            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
+            && isNonEmptyString(activity.actionId)
+            && activity.actionId.length <= 200
+            && Number.isSafeInteger(activity.attempt) && Number(activity.attempt) > 0
+            && (activity.kind !== "tool_attempt_failed" || (typeof activity.reason === "string" && activity.reason.length <= 160));
+    }
+    if (activity.kind === "activity_boundary") {
+        return isNonEmptyString(activity.sourceEventId)
+            && activity.sourceEventId.length <= 200
+            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
+            && ["assistant_reply", "user_wait", "stage_change", "terminal", "failure", "unknown"].includes(String(activity.reason));
+    }
+    return false;
 }
 
 function nullableSequence(value: unknown): boolean {

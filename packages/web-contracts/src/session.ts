@@ -173,6 +173,12 @@ export interface BrowserSessionStep {
     readonly runId: string;
     /** 执行单元标识。 */
     readonly executionUnitId: string;
+    /** 已提交事实中的稳定来源事件 ID，用于活动投影与 Trajectory 定位。 */
+    readonly sourceEventId?: string;
+    /** 已提交工具调用的稳定 Action 身份；多调用执行单元省略。 */
+    readonly actionId?: string;
+    /** 已验证的来源边界；`true` 表示此 Step 必须与前一活动组断开。 */
+    readonly activityBoundaryBefore?: true;
     /** 轨迹序列号。 */
     readonly sequence: number;
     /** Step 序号。 */

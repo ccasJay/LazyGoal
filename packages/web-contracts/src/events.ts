@@ -11,6 +11,8 @@
  *     kind: "assistant_text_delta",
  *     text: "分析中...",
  *     truncated: false,
+ *     sourceEventId: "stream-event-1",
+ *     sourceCursor: 1,
  * };
  * ```
  */
@@ -19,12 +21,51 @@ export type BrowserGoalActivityEvent =
         readonly kind: "assistant_text_delta";
         readonly text: string;
         readonly truncated: boolean;
+        readonly sourceEventId: string;
+        readonly sourceCursor: number;
     }
     | { readonly kind: "model_started" }
     | { readonly kind: "model_completed" }
     | { readonly kind: "step_started" }
-    | { readonly kind: "tool_started" }
-    | { readonly kind: "tool_finished" };
+    | {
+        readonly kind: "tool_started";
+        readonly sourceEventId: string;
+        readonly sourceCursor: number;
+        readonly actionId: string;
+        readonly executionUnitId: string;
+        readonly toolId: string;
+        readonly inputSummary?: string;
+    }
+    | {
+        readonly kind: "tool_finished";
+        readonly sourceEventId: string;
+        readonly sourceCursor: number;
+        readonly actionId: string;
+        readonly toolId: string;
+        readonly outcome: "success" | "failure";
+        readonly summary?: string;
+    }
+    | {
+        readonly kind: "tool_attempt_started";
+        readonly sourceEventId: string;
+        readonly sourceCursor: number;
+        readonly actionId: string;
+        readonly attempt: number;
+    }
+    | {
+        readonly kind: "tool_attempt_failed";
+        readonly sourceEventId: string;
+        readonly sourceCursor: number;
+        readonly actionId: string;
+        readonly attempt: number;
+        readonly reason: string;
+    }
+    | {
+        readonly kind: "activity_boundary";
+        readonly sourceEventId: string;
+        readonly sourceCursor: number;
+        readonly reason: "assistant_reply" | "user_wait" | "stage_change" | "terminal" | "failure" | "unknown";
+    };
 
 /**
  * 浏览器端消费的实时推送事件。

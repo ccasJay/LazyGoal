@@ -38,7 +38,7 @@
   - 从 Snapshot 的 Runtime 权威路线投影安全 DTO，并在会话视图以独立列表展示；不将路线复制到 Trajectory、GoalPlan 或活动组。为 DTO 与新增组件补中文 TSDoc/界面契约，并更新 browser、web-contracts、goal-board 所有者说明。
   - 验证入口：npx tsx --test packages/browser/test/browser-projection.test.ts packages/web-contracts/test/web-contracts.test.ts apps/goal-board/test/run-stage-presentation.test.ts。
 
-- [ ] //TODO 6. 实现按调用身份和来源相邻关系派生活动组
+- [x] //TODO 6. 实现按调用身份和来源相邻关系派生活动组
   - 落实标准：[5.2](./spec.md#spec-req-5-2)、[5.3](./spec.md#spec-req-5-3)、[5.4](./spec.md#spec-req-5-4)、[5.5](./spec.md#spec-req-5-5)、[5.6](./spec.md#spec-req-5-6)、[5.8](./spec.md#spec-req-5-8)。
   - 先在待新增的纯 ActivityProjector 测试、浏览器事件流测试和现有 trajectory-page-window 测试中建立断言：同 Run/阶段内相邻且同类调用可合并；阶段/Run/用户等待/助手可见决策/终态失败/类别切换形成边界；同一 actionId 的流式开始、输出、重试和结束更新同一个调用；attempt 失败后同 Action 成功不导致组失败；ExecutionStream 与 Trajectory 的 eventId、cursor、sequence 独立去重；实时未提交增量不进入恢复历史；跨页只在事件身份与相邻序号可验证时合并；未知类别原样保留；隐藏推理内容不输出。
   - 建立可重放的纯投影器，分别消费实时事件与已提交 Trajectory，再以 actionId 和提交边界协调；保留组内详情顺序、可见性、耐久性及来源引用，不创建持久化组 ID，不依靠相同摘要/工具名/时间近似猜测成员。更新 goal-board/browser/web-contracts 说明与新增接口 TSDoc。

@@ -31,6 +31,8 @@ Plan Run 的待审批会话 DTO 会投影候选路线中的全部阶段顺序、
 
 `GET /api/goals/:goalId/events?runId=...` 将连接绑定到 Snapshot 中的当前 Run。事件仅投影白名单活动和长度受限的助手文本；reasoning、Tool 输出及未识别载荷不转发。Trajectory/Checkpoint 事件与 Goal 保存只发送刷新通知；队列缺口、Publisher 关闭或连接故障要求页面重新读取，不代表 Run 完成。
 
+活动投影会把公开实时 ExecutionStream 事件和已提交 Trajectory 步骤分别作为短期覆盖与恢复历史。实时输入和结果仅投影有界白名单摘要，并保留独立的 `sourceEventId/sourceCursor`；Action ID 只用于把同一调用的临时状态与已提交步骤对齐。助手可见回复、等待、阶段变化、终态、失败及未知公开事件会切断相邻关系；Trajectory 分页只有在 Goal/Run、提交边界、cursor 和序号都证明连续时才允许拼接。
+
 SIGINT 通过 Runtime 已有关闭协调器冻结检查点、取消执行并关闭 HTTP Host。关闭信号生效后，HTTP Host 拒绝新的写请求；已排队的命令在预约锁释放后返回 `service_shutting_down`，不再进入 Runtime 或持久化操作。
 
 恢复路由 `POST /api/goals/:goalId/resume` 要求页面提交当前 Run 与 `committedThroughSequence`。服务端重新读取 Snapshot 并委托真实 `GoalCoordinator.advance`，只有新的对应 Snapshot 保存后才确认受理。列表和会话的 `execution.state` 结合 Snapshot 与当前服务进程预约投影；进程活动状态不写入 Goal。

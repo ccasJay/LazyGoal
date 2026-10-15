@@ -6,3 +6,4 @@
 | --- | --- | --- | --- |
 | BrowserSessionAccess | 短期授权和请求边界。 | [浏览器服务边界](../README.md) | [模块说明](./overview.md) |
 | BrowserGoalCommandService | Web 命令到协调器的适配。 | [浏览器服务边界](../README.md) | [模块说明](./overview.md) |
+| Safe live activity projection | 白名单公开的短期 SSE 活动和 ExecutionStream 来源身份；与 Trajectory 标识空间分离。 | [浏览器服务边界](../README.md) | [Browser Goal Stream](../src/browser-goal-stream.ts) |
