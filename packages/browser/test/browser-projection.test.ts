@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
     createGoal,
+    createRunPlanRoute,
     type Goal,
     type GoalCatalog,
     type GoalCatalogEntry,
@@ -106,6 +107,100 @@ test("Plan task approval projection preserves the complete ordered route", async
     ]);
 });
 
+
+test("Plan Run session projection includes the authoritative complete route only when present", async () => {
+    const initial = createTestGoal();
+    const planRoute = createRunPlanRoute({
+        stages: [
+            { target: "Inspect existing behavior", acceptanceCriteria: ["Find the entry point"] },
+            { target: "Implement the change", acceptanceCriteria: ["Feature works", "Regression checks pass"] },
+        ],
+    });
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: {
+                ...initial.state.run,
+                mode: "plan",
+                approvedTask: { objective: "Implement the feature", completionCriteria: [{ text: "All checks pass" }] },
+                planRoute: { ...planRoute, revision: 2, revisionReason: "Evidence confirmed a separate verification gate" },
+            },
+        },
+    };
+    const planSession = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.deepEqual(planSession?.runs[0]?.planRoute, {
+        revision: 2,
+        revisionReason: "Evidence confirmed a separate verification gate",
+        nextStageIndex: 0,
+        stages: [
+            { stageId: "stage-1", revision: 1, status: "pending", target: "Inspect existing behavior", acceptanceCriteria: ["Find the entry point"] },
+            { stageId: "stage-2", revision: 1, status: "pending", target: "Implement the change", acceptanceCriteria: ["Feature works", "Regression checks pass"] },
+        ],
+    });
+
+    const normalSession = await readBrowserGoalSession(initial.id, new TestGoalStore(initial), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.equal(normalSession?.runs[0]?.planRoute, undefined);
+});
+
+test("Plan route revision approval projection includes reason and full candidate route", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: {
+                ...initial.state.run,
+                mode: "plan",
+                status: "waiting",
+                approvedTask: { objective: "Repair feature", completionCriteria: [{ text: "Feature works" }] },
+                planRoute: {
+                    revision: 1,
+                    nextStageIndex: 0,
+                    nextStageOrdinal: 2,
+                    stages: [{ stageId: "stage-1", revision: 1, status: "pending", target: "Repair", acceptanceCriteria: ["Behavior works"] }],
+                },
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "route-approval-1",
+                    mode: "execution",
+                    questions: [{
+                        id: "q-1",
+                        header: "Plan route revision",
+                        question: "Should this added outcome be approved?",
+                        options: [{ id: "o-1", label: "Approve" }, { id: "o-2", label: "Keep current route" }],
+                        multiSelect: false,
+                    }],
+                    routeRevision: {
+                        baseRevision: 1,
+                        candidate: { stages: [
+                            { target: "Repair", acceptanceCriteria: ["Behavior works"] },
+                            { target: "Write report", acceptanceCriteria: ["Report is reviewed"] },
+                        ] },
+                        reason: "New evidence adds a deliverable outside the approved scope",
+                        approvalRequest: "Approve this additional outcome?",
+                        approvalOptionId: "o-1",
+                    },
+                },
+            },
+        },
+    };
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.deepEqual(session?.pendingInteraction?.kind === "ask_user" ? session.pendingInteraction.routeRevision : undefined, {
+        approvalRequest: "Approve this additional outcome?",
+        reason: "New evidence adds a deliverable outside the approved scope",
+        route: [
+            { target: "Repair", acceptanceCriteria: ["Behavior works"] },
+            { target: "Write report", acceptanceCriteria: ["Report is reviewed"] },
+        ],
+    });
+});
 
 function event(
     sequence: number,

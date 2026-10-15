@@ -232,6 +232,23 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .transient-message .message-heading small { color: var(--muted); }
 .cursor { width: 5px; height: 13px; display: inline-block; margin-left: 3px; background: var(--accent-ink); vertical-align: middle; animation: pulse 1s infinite; }
 .run-steps { margin: 12px 0 22px 29px; }
+.plan-route-list { max-width: 760px; margin: 12px 0 18px 29px; padding: 10px 12px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text-secondary); }
+.plan-route-heading, .plan-route-stage-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.plan-route-heading { margin-bottom: 8px; color: var(--text-secondary); font-size: 11px; }
+.plan-route-heading > span, .plan-route-reason { color: var(--muted); font-size: 10px; }
+.plan-route-reason { margin: 0 0 8px; }
+.plan-route-list > ol { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.plan-route-stage { display: flex; align-items: flex-start; gap: 9px; padding: 8px 9px; border-radius: 6px; background: var(--surface); }
+.plan-route-stage.executing { border: 1px solid var(--accent-ink); background: var(--accent-soft); }
+.plan-route-index { display: grid; flex: 0 0 18px; place-items: center; width: 18px; height: 18px; border: 1px solid var(--line); border-radius: 50%; color: var(--text-secondary); font-size: 9px; }
+.plan-route-stage.executing .plan-route-index { border-color: var(--accent-ink); color: var(--accent-ink); }
+.plan-route-stage-content { flex: 1; min-width: 0; }
+.plan-route-stage-heading { min-height: 18px; color: var(--text-secondary); font-size: 10px; }
+.plan-route-status { flex-shrink: 0; color: var(--muted); font-size: 9px; }
+.plan-route-status.executing { color: var(--accent-ink); }
+.plan-route-status.accepted { color: var(--success); }
+.plan-route-stage-content > ul { margin: 4px 0 0; padding-left: 16px; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.plan-route-stage-content > ul li { margin: 2px 0; }
 .run-steps-heading { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; padding: 4px 0; color: var(--muted); font-size: 12px; cursor: pointer; list-style: none; }
 .run-steps-heading::-webkit-details-marker, .tool-event summary::-webkit-details-marker { display: none; }
 .run-steps:not([open]) .activity-chevron { transform: rotate(-90deg); }
@@ -370,6 +387,12 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .feedback-form button { justify-self: end; padding: 6px 9px; border: 1px solid var(--control-border); border-radius: 4px; color: var(--text-secondary); font-size: 10px; }
 .feedback-form button:disabled { opacity: .4; }
 .criteria-list { display: grid; gap: 6px; padding-left: 17px; color: var(--text-secondary); font-size: 10px; line-height: 1.6; }
+.proposed-route { margin: 12px 0; border-top: 1px solid var(--line); padding-top: 10px; }
+.proposed-route h5 { margin: 0 0 7px; color: var(--muted); font-size: 10px; font-weight: 550; text-transform: uppercase; letter-spacing: .05em; }
+.proposed-route > ol { display: grid; gap: 8px; margin: 0; padding-left: 18px; font-size: 11px; line-height: 1.5; }
+.proposed-route > ol > li::marker { color: var(--warning); }
+.proposed-route strong { font-weight: 550; }
+.proposed-route ul { display: grid; gap: 3px; margin: 3px 0 0; padding-left: 16px; color: var(--muted); font-size: 10px; }
 .action-approval { max-height: min(56vh, 460px); padding: 16px; border-color: var(--line); border-left: 3px solid var(--warning); border-radius: 10px; background: var(--surface); }
 .action-approval .approval-heading { flex-wrap: wrap; font-size: 14px; }
 .action-approval p { margin: 0; color: var(--muted); }

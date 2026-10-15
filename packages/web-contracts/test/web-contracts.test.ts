@@ -119,6 +119,21 @@ test("isBrowserGoalSession validates complete and malformed sessions", () => {
     assert.equal(isGoalSessionEnvelope({ goal: null }), false);
 });
 
+test("isBrowserRun validates complete Plan Run route states", () => {
+    const route = {
+        revision: 2,
+        revisionReason: "Evidence confirmed another verification gate",
+        nextStageIndex: 1,
+        stages: [
+            { stageId: "stage-1", revision: 1, status: "accepted", target: "Inspect", acceptanceCriteria: ["Entry found"], acceptedSequence: 12 },
+            { stageId: "stage-2", revision: 2, status: "executing", target: "Implement", acceptanceCriteria: ["Checks pass"] },
+        ],
+    };
+    assert.equal(isBrowserRun({ runId: "run-1", status: "running", stepCount: 2, steps: [], current: true, planRoute: route }), true);
+    assert.equal(isBrowserRun({ runId: "run-1", status: "running", stepCount: 2, steps: [], current: true, planRoute: { ...route, nextStageIndex: 8 } }), false);
+    assert.equal(isBrowserRun({ runId: "run-1", status: "running", stepCount: 2, steps: [], current: true, planRoute: { ...route, stages: [{ ...route.stages[0], status: "pending" }, route.stages[1]] } }), false);
+});
+
 test("isPendingInteraction validates ask_user and task_approval", () => {
     assert.equal(
         isPendingInteraction({
@@ -158,6 +173,20 @@ test("isPendingInteraction validates ask_user and task_approval", () => {
     );
     assert.equal(isPendingInteraction({ kind: "unknown", requestId: "r" }), false);
     assert.equal(isPendingInteraction({ kind: "task_approval", requestId: "" }), false);
+});
+
+test("isPendingInteraction validates Plan route revision approval", () => {
+    const base = {
+        kind: "ask_user",
+        requestId: "route-revision",
+        mode: "execution",
+        questions: [{ id: "q-1", header: "Approve route", question: "Approve?", multiSelect: false, options: [{ id: "o-1", label: "Approve" }] }],
+    };
+    assert.equal(isPendingInteraction({
+        ...base,
+        routeRevision: { approvalRequest: "Approve the new deliverable?", reason: "New evidence", route: [{ target: "Report", acceptanceCriteria: ["Reviewed"] }] },
+    }), true);
+    assert.equal(isPendingInteraction({ ...base, routeRevision: { approvalRequest: "Approve?", reason: "New evidence", route: [] } }), false);
 });
 
 test("isMetricsSnapshot validates metrics", () => {

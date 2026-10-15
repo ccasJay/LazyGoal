@@ -233,8 +233,45 @@ export function isBrowserRun(value: unknown): value is BrowserSessionRun {
                 && Array.isArray(stage.acceptanceCriteria)
                 && ["in_progress", "review_pending", "accepted"].includes(String(stage.status))
                 && Array.isArray(stage.steps)))
+        && (value.planRoute === undefined || isBrowserPlanRoute(value.planRoute))
         && typeof value.current === "boolean";
 }
+
+function isBrowserPlanRoute(value: unknown): boolean {
+    if (!isRecord(value)
+        || !Number.isSafeInteger(value.revision)
+        || Number(value.revision) < 1
+        || (value.revisionReason !== undefined && !isNonEmptyString(value.revisionReason))
+        || (Number(value.revision) > 1 && !isNonEmptyString(value.revisionReason))
+        || !Number.isSafeInteger(value.nextStageIndex)
+        || !Array.isArray(value.stages)
+        || value.stages.length === 0
+        || Number(value.nextStageIndex) < 0
+        || Number(value.nextStageIndex) > value.stages.length) return false;
+
+    const ids = new Set<string>();
+    return value.stages.every((stage, index) => {
+        if (!isRecord(stage)
+            || !isNonEmptyString(stage.stageId)
+            || ids.has(stage.stageId)
+            || !Number.isSafeInteger(stage.revision)
+            || Number(stage.revision) < 1
+            || !["pending", "executing", "accepted"].includes(String(stage.status))
+            || !isNonEmptyString(stage.target)
+            || !Array.isArray(stage.acceptanceCriteria)
+            || stage.acceptanceCriteria.length === 0
+            || !stage.acceptanceCriteria.every(isNonEmptyString)
+            || (stage.acceptedSequence !== undefined && (!Number.isSafeInteger(stage.acceptedSequence) || Number(stage.acceptedSequence) < 0))) return false;
+        ids.add(stage.stageId);
+        const cursor = Number(value.nextStageIndex);
+        const expectedStatus = index < cursor ? "accepted"
+            : index === cursor && stage.status === "executing" ? "executing"
+                : "pending";
+        return stage.status === expectedStatus
+            && ((stage.status === "accepted") === (stage.acceptedSequence !== undefined));
+    });
+}
+
 
 /**
  * 目标任务计划类型守卫。
@@ -284,8 +321,20 @@ export function isPendingInteraction(value: unknown): value is BrowserPendingInt
                 && stage.acceptanceCriteria.length > 0
                 && stage.acceptanceCriteria.every(isNonEmptyString));
     }
+    const validRouteRevision = value.routeRevision === undefined
+        || (isRecord(value.routeRevision)
+            && isNonEmptyString(value.routeRevision.approvalRequest)
+            && isNonEmptyString(value.routeRevision.reason)
+            && Array.isArray(value.routeRevision.route)
+            && value.routeRevision.route.length > 0
+            && value.routeRevision.route.every((stage) => isRecord(stage)
+                && isNonEmptyString(stage.target)
+                && Array.isArray(stage.acceptanceCriteria)
+                && stage.acceptanceCriteria.length > 0
+                && stage.acceptanceCriteria.every(isNonEmptyString)));
     return value.kind === "ask_user"
         && (value.mode === "plan" || value.mode === "execution")
+        && validRouteRevision
         && Array.isArray(value.questions)
         && value.questions.every((question) => isRecord(question)
             && isNonEmptyString(question.id)

@@ -32,7 +32,7 @@
   - 将阶段启动、接受、路线修订与提案批准接入 Runtime 的 transition/checkpoint/recovery 生命周期。路线版本和审批范围保持对应；修订按新证据保留仍有效结果，不静默覆盖已接受的历史事实；普通 Run 继续按当前 RunStage 接受/拒绝及恢复逻辑，不新增路线状态。更新 runtime、storage 所有者说明和公开契约 TSDoc。
   - 验证入口：npx tsx --test packages/runtime/test/run-plan-execution.test.ts packages/runtime/test/run-plan-recovery.test.ts packages/runtime/test/run-stage.test.ts packages/runtime/test/run-stage-recovery.test.ts packages/runtime/test/goal-multi-run-recovery.test.ts packages/storage/test/run-stage-snapshot.test.ts（前两项待新增）。
 
-- [ ] //TODO 5. 将 Plan Run 完整路线投影到会话 DTO 并独立呈现
+- [x] //TODO 5. 将 Plan Run 完整路线投影到会话 DTO 并独立呈现
   - 落实标准：[3.1](./spec.md#spec-req-3-1)、[3.3](./spec.md#spec-req-3-3)、[5.1](./spec.md#spec-req-5-1)。
   - 先在 packages/browser/test/browser-projection.test.ts、packages/web-contracts/test/web-contracts.test.ts 和 Goal Board 阶段展示测试中断言：Plan Run 显示完整路线及每阶段顺序、目标和状态；普通 Run 不暴露路线字段且仍显示现有当前/最新阶段；未执行阶段也能出现；路线视图不取代轨迹/事件视图，已有 RunStage 数据不被误读为完整路线。
   - 从 Snapshot 的 Runtime 权威路线投影安全 DTO，并在会话视图以独立列表展示；不将路线复制到 Trajectory、GoalPlan 或活动组。为 DTO 与新增组件补中文 TSDoc/界面契约，并更新 browser、web-contracts、goal-board 所有者说明。

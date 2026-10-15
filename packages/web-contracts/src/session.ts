@@ -270,6 +270,56 @@ export interface BrowserRunStageGroup {
 }
 
 /**
+ * Plan Run 会话中的一条已批准路线。
+ *
+ * @remarks
+ * 表示 Runtime Snapshot 中的权威路线和当前游标，不包含普通 Run 的 RunStage，也不把模型候选伪装成已批准路线。
+ *
+ * @example
+ * ```ts
+ * const route: BrowserPlanRoute = {
+ *     revision: 1, nextStageIndex: 0,
+ *     stages: [{ stageId: "stage-1", revision: 1, status: "pending", target: "调查", acceptanceCriteria: ["定位入口"] }],
+ * };
+ * ```
+ */
+export interface BrowserPlanRoute {
+    /** 当前完整路线修订号。 */
+    readonly revision: number;
+    /** 最近一次路线修订理由；初始路线省略。 */
+    readonly revisionReason?: string;
+    /** 唯一可激活阶段的零基位置；等于阶段数表示路线全部接受。 */
+    readonly nextStageIndex: number;
+    /** Runtime 分配的完整有序阶段状态。 */
+    readonly stages: readonly BrowserPlanRouteStageState[];
+}
+
+/**
+ * 已批准 Plan Run 中带 Runtime 身份的阶段状态。
+ *
+ * @example
+ * ```ts
+ * const stage: BrowserPlanRouteStageState = {
+ *     stageId: "stage-1", revision: 1, status: "pending", target: "调查", acceptanceCriteria: ["定位入口"],
+ * };
+ * ```
+ */
+export interface BrowserPlanRouteStageState {
+    /** Runtime 分配且在路线修订间稳定的阶段身份。 */
+    readonly stageId: string;
+    /** 当前阶段定义修订号。 */
+    readonly revision: number;
+    /** 路线阶段状态。 */
+    readonly status: "pending" | "executing" | "accepted";
+    /** 阶段目标。 */
+    readonly target: string;
+    /** 阶段验收条件。 */
+    readonly acceptanceCriteria: readonly string[];
+    /** 阶段接受事实的 Trajectory 序号。 */
+    readonly acceptedSequence?: number;
+}
+
+/**
  * 会话中单个 Run 的历史投影。
  *
  * @remarks
@@ -299,6 +349,8 @@ export interface BrowserSessionRun {
     readonly current: boolean;
     /** 该 Run 划分的阶段分组列表；若未包含阶段操作则为空或省略。 */
     readonly stages?: readonly BrowserRunStageGroup[];
+    /** 当前 Run 为已获批 Plan Run 时的完整 Runtime 权威路线；普通 Run 省略。 */
+    readonly planRoute?: BrowserPlanRoute;
     /** 终态原因详情。 */
     readonly terminalDetail?: {
         readonly code?: string;
@@ -415,6 +467,11 @@ export type BrowserPendingInteraction =
         readonly requestId: string;
         readonly mode: "plan" | "execution";
         readonly questions: readonly BrowserAskUserQuestion[];
+        readonly routeRevision?: {
+            readonly approvalRequest: string;
+            readonly reason: string;
+            readonly route: readonly BrowserPlanRouteStage[];
+        };
     }
     | {
         readonly kind: "task_approval";

@@ -73,6 +73,25 @@ export function renderStageStatusLabel(status: BrowserRunStageStatus): string {
 }
 
 /**
+ * 将完整 Plan Run 路线阶段状态转换为会话展示标签。
+ *
+ * @param status - Runtime 权威路线阶段状态。
+ * @returns 对应的英文界面状态。
+ * @example
+ * ```ts
+ * const label = renderPlanRouteStatusLabel("pending");
+ * // "Pending"
+ * ```
+ */
+export function renderPlanRouteStatusLabel(status: "pending" | "executing" | "accepted"): string {
+  switch (status) {
+    case "pending": return "Pending";
+    case "executing": return "In progress";
+    case "accepted": return "Accepted";
+  }
+}
+
+/**
  * 格式化未按 Stage 划分的 Run 步骤折叠卡片标题。
  *
  * @remarks

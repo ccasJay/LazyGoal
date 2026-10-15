@@ -26,6 +26,7 @@ import { useGoalSessionContext } from "../context/GoalSessionContext";
 import { useRunControlContext } from "../context/RunControlContext";
 import { MessageComposer, AssistantMarkdown, CurrentModelControl } from "./MessageComposer";
 import { SessionMetricsBar } from "./SessionMetricsBar";
+import { PlanRouteList } from "./PlanRouteList";
 import { WorkspaceContext } from "./WorkspaceContext";
 import { stepActivity } from "./step-activity";
 import {
@@ -409,6 +410,7 @@ export function GoalSession({
                     return (
                       <div className="run-timeline" key={run.runId}>
                         {renderMessages(runMessages.filter((message) => message.role === "user"))}
+                        <PlanRouteList route={run.planRoute} />
                         {showTools && run.steps.length > 0 && (() => {
                           const renderStepItem = (step: BrowserSessionStep) => {
                             const activity = stepActivity(step);

@@ -13,6 +13,10 @@
 
 授权后，`GET /api/goals` 从正式工作区 Catalog 返回真实 Goal 摘要，`GET /api/goals/:goalId` 从正式 Snapshot 和各 Run 的 Trajectory 返回会话视图。看板读取使用 Composition Root 暴露的正式工作区 Store 与 Trajectory 读取器，不经过含 Benchmark 的聚合目录。会话投影只纳入 Snapshot 提交边界内的事件，限制历史数量、消息正文长度（每条最多 64,000 字符）及其他预览文本，并省略 Profile、模型配置、推理、原始事件及完整 Tool 输入/输出。内置文件、搜索和网页工具仅投影有界路径或查询摘要，用于 Activity 操作标题；写入正文和其他参数仍不投影。Bash 步骤按 Action 身份合并模型决定与执行事件；展开后只显示限长命令，以及已提交 Observation 中的成功输出白名单字段或失败说明，整个会话最多投影 100 组 Bash 详情。步骤可显示已提交的模型纠错和模型/Tool 重试摘要；Run 终态显示稳定失败原因或等待原因。终态 `complete` 决策由 Run 状态显示，不另生成一条步骤。Tool 结果只有在 Snapshot 纳入 `observation_recorded` 后才显示为已完成步骤；恢复后被纳入的新提交边界可能包含旧的 `tool_finished`，单独该事件不会确认结果。缺失 Goal 与不可读数据分别返回 404 和稳定的 500 错误码。在包含内部阶段的 Run 中，服务端从已提交轨迹事件聚合阶段分组（`stages`），按首次声明顺序保留阶段身份，聚合同一阶段的多轮修订、验收条件、阶段生命周期状态、审查拒绝反馈与接受后的结果摘要；归属于阶段的步骤关联 `stageId` 并在看板中按阶段折叠展示，首个阶段声明前的控制活动保留在 Run 级展示。中间阶段接受不标记 Run 完成，审查拒绝后阶段维持进行中并展示具体缺口原因；刷新或重连后均保持一致的稳定身份投影。
 
+Plan Run 的待审批会话 DTO 会投影候选路线中的全部阶段顺序、目标和验收条件，文本受有界投影处理。普通会话不返回路线字段；候选仍属于待审批 Snapshot，不代表 Runtime 已批准或正在执行的阶段。
+
+当前已批准 Plan Run 另从 Runtime Snapshot 投影完整 `planRoute`：保留路线修订与理由、下一个阶段游标、每个阶段的稳定 ID/修订/状态/目标/验收条件及接受序号。路线文本按界面 DTO 限长；普通 Run 以及待审批 Run 不含权威路线字段。该路线投影独立于从 Trajectory 派生的 `stages` 执行记录，不替代活动事件视图。
+
 看板列表包含持久化的归档标记。卡片菜单仅允许对已完成、失败或取消的 Goal 归档与删除；归档保留 Snapshot 和运行记录，从默认看板移到 Archived 视图，可恢复到默认看板。`POST /api/goals/:goalId/archive` 设置或清除归档标记。`DELETE /api/goals/:goalId` 清理该 Goal 的 Snapshot、Trajectory、模型输入、指标、诊断 Trace、检索 Sidecar 和 Goal 级授权，保留 Workspace 级授权与工作区文件。浏览器命令预约锁阻止这些操作与正在推进的 Goal 并发；删除先清理附属数据、最后删除快照，清理失败时可重试。两条路由都受会话令牌保护，缺失返回 404，非终态返回 409。
 
 `POST /api/goals` 只接受有界 JSON 中的稳定 Goal ID、非空意图、可选 `mode: "plan"` 与可选 `modelId`；省略模式时由 Runtime 使用 Normal Mode，省略模型时解析当前工作区 Web 模型偏好。模型 ID 由服务端目录重新验证；Profile 和执行策略仍由本机决定。同 ID、同意图、同初始模式及同显式模型 ID 的重试复用在途受理或已有快照；省略模型的重试不因偏好随后变化而冲突。另一个 Goal 正在运行时拒绝新建。浏览器 Launcher 在初始快照保存前对齐请求模型的执行绑定；保存前失败则重建先前绑定。受理仅在初始 Snapshot 成功保存后返回，执行继续由现有 Launcher 推进到等待点或终态；页面断开不会取消已受理的执行。

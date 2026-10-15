@@ -27,6 +27,7 @@ import type {
     BrowserSessionStep,
     BrowserRunStageGroup,
     BrowserRunStageStatus,
+    BrowserPlanRoute,
     BrowserPlanRouteStage,
 } from "../../web-contracts/src/index";
 
@@ -42,6 +43,7 @@ export type {
     BrowserSessionStep,
     BrowserRunStageGroup,
     BrowserRunStageStatus,
+    BrowserPlanRoute,
     BrowserPlanRouteStage,
 };
 
@@ -151,6 +153,7 @@ export async function readBrowserGoalSession(
     const currentSteps = projectBrowserSteps(currentRun.id, currentResult.committed, bashDetailsBudget);
     if (currentSteps.length > MAX_STEPS_PER_RUN) historyTruncated = true;
     const currentStages = projectBrowserRunStages(currentResult.committed, currentSteps);
+    const currentPlanRoute = currentRun.planRoute === undefined ? undefined : projectBrowserPlanRoute(currentRun.planRoute);
     projectedRuns.push({
         runId: currentRun.id,
         status: currentRun.status,
@@ -158,6 +161,7 @@ export async function readBrowserGoalSession(
         steps: currentSteps.slice(-MAX_STEPS_PER_RUN),
         current: true,
         ...(currentStages === undefined ? {} : { stages: currentStages }),
+        ...(currentPlanRoute === undefined ? {} : { planRoute: currentPlanRoute }),
         ...projectRunTerminalDetail(currentResult.committed, currentRun.status, currentRun.stopReason),
     });
 
@@ -233,6 +237,22 @@ export async function readBrowserGoalSession(
         ...(pendingInteraction === undefined ? {} : { pendingInteraction }),
         ...(pendingAction === undefined ? {} : { pendingAction }),
         historyTruncated,
+    };
+}
+
+function projectBrowserPlanRoute(route: NonNullable<Goal["state"]["run"]["planRoute"]>): BrowserPlanRoute {
+    return {
+        revision: route.revision,
+        ...(route.revisionReason === undefined ? {} : { revisionReason: boundedText(route.revisionReason, 1_000) }),
+        nextStageIndex: route.nextStageIndex,
+        stages: route.stages.map((stage) => ({
+            stageId: stage.stageId,
+            revision: stage.revision,
+            status: stage.status,
+            target: boundedText(stage.target, 1_000),
+            acceptanceCriteria: stage.acceptanceCriteria.map((criterion) => boundedText(criterion, 500)),
+            ...(stage.acceptedSequence === undefined ? {} : { acceptedSequence: stage.acceptedSequence }),
+        })),
     };
 }
 
@@ -593,6 +613,16 @@ function projectPendingInteraction(
             kind: "ask_user",
             requestId: pending.requestId,
             mode: pending.mode,
+            ...(pending.routeRevision === undefined ? {} : {
+                routeRevision: {
+                    approvalRequest: boundedText(pending.routeRevision.approvalRequest, 1_000),
+                    reason: boundedText(pending.routeRevision.reason, 1_000),
+                    route: pending.routeRevision.candidate.stages.map((stage): BrowserPlanRouteStage => ({
+                        target: boundedText(stage.target, 1_000),
+                        acceptanceCriteria: stage.acceptanceCriteria.map((criterion) => boundedText(criterion, 500)),
+                    })),
+                },
+            }),
             questions: pending.questions.map((question) => ({
                 id: question.id,
                 header: boundedText(question.header, 500),
