@@ -36,6 +36,7 @@ import type {
     PreviousStageResultRef,
 } from "./run-stage";
 import type { RuntimeContextNote } from "./context-notes";
+import type { RunPlanRouteState } from "./run-plan";
 
 import {
     isMemoryProtocol,
@@ -651,6 +652,8 @@ export interface RunState {
     readonly mode: RunMode;
     /** Plan Run 经用户批准后固定的任务范围；普通 Run 与待审批 Run 省略。 */
     readonly approvedTask?: GoalTask;
+    /** Plan Run 获批的完整阶段路线及其恢复游标；普通 Run 与待审批 Run 省略。 */
+    readonly planRoute?: RunPlanRouteState;
     readonly status: RunStatus;
     readonly stepCount: number;
     /** 当前 Run 已向模型暴露完整 Schema 的工具 ID；只由 Runtime 更新并持久化。 */

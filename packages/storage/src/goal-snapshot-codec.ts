@@ -13,6 +13,7 @@ import type {
     GoalMessage,
     GoalModelSelection,
     GoalTask,
+    RunPlanRouteState,
     GoalWorkflowState,
     Observation,
     PendingAction,
@@ -41,6 +42,8 @@ import {
     type GoalSnapshotPendingInteractionV1,
     type GoalSnapshotPendingThinkV1,
     type GoalSnapshotPendingModelRepairV1,
+    type GoalSnapshotPlanRouteStageV1,
+    type GoalSnapshotPlanRouteV1,
     type GoalSnapshotProfileV1,
     type GoalSnapshotStepRecordV1,
     type GoalSnapshotTaskV1,
@@ -130,6 +133,23 @@ function encodeTask(task: GoalTask): GoalSnapshotTaskV1 {
     return {
         objective: task.objective,
         completionCriteria: task.completionCriteria.map(encodeCriterion),
+    };
+}
+
+function encodePlanRoute(route: RunPlanRouteState): GoalSnapshotPlanRouteV1 {
+    return {
+        revision: route.revision,
+        ...(route.revisionReason === undefined ? {} : { revisionReason: route.revisionReason }),
+        nextStageIndex: route.nextStageIndex,
+        nextStageOrdinal: route.nextStageOrdinal,
+        stages: route.stages.map((stage): GoalSnapshotPlanRouteStageV1 => ({
+            stageId: stage.stageId,
+            revision: stage.revision,
+            status: stage.status,
+            target: stage.target,
+            acceptanceCriteria: [...stage.acceptanceCriteria],
+            ...(stage.acceptedSequence === undefined ? {} : { acceptedSequence: stage.acceptedSequence }),
+        })),
     };
 }
 
@@ -488,6 +508,7 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                                 : { acceptedSequence: run.currentStage.acceptedSequence }),
                         },
                     }),
+                ...(run.planRoute === undefined ? {} : { planRoute: encodePlanRoute(run.planRoute) }),
                 ...(run.lastStep === undefined ? {} : { lastStep: encodeStep(run.lastStep) }),
                 ...(run.pendingAction === undefined
                     ? {}
@@ -583,6 +604,23 @@ function decodeTask(task: GoalSnapshotTaskV1): GoalTask {
     return {
         objective: task.objective,
         completionCriteria: task.completionCriteria.map(decodeCriterion),
+    };
+}
+
+function decodePlanRoute(route: GoalSnapshotPlanRouteV1): RunPlanRouteState {
+    return {
+        revision: route.revision,
+        ...(route.revisionReason === undefined ? {} : { revisionReason: route.revisionReason }),
+        nextStageIndex: route.nextStageIndex,
+        nextStageOrdinal: route.nextStageOrdinal,
+        stages: route.stages.map((stage) => ({
+            stageId: stage.stageId,
+            revision: stage.revision,
+            status: stage.status,
+            target: stage.target,
+            acceptanceCriteria: [...stage.acceptanceCriteria],
+            ...(stage.acceptedSequence === undefined ? {} : { acceptedSequence: stage.acceptedSequence }),
+        })),
     };
 }
 
@@ -907,6 +945,7 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
                                 : { acceptedSequence: run.currentStage.acceptedSequence }),
                         },
                     }),
+                ...(run.planRoute === undefined ? {} : { planRoute: decodePlanRoute(run.planRoute) }),
                 ...(run.lastStep === undefined ? {} : { lastStep: decodeStep(run.lastStep) }),
                 ...(run.pendingAction === undefined
                     ? {}

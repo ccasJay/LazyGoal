@@ -382,6 +382,47 @@ export interface GoalSnapshotRunStageV1 {
 }
 
 /**
+ * Snapshot 中单个 Plan Run 路线阶段。
+ *
+ * @example
+ * ```ts
+ * const stage: GoalSnapshotPlanRouteStageV1 = {
+ *     stageId: "stage-1", revision: 1, status: "pending",
+ *     target: "调查入口", acceptanceCriteria: ["定位实现"],
+ * };
+ * ```
+ */
+export interface GoalSnapshotPlanRouteStageV1 {
+    readonly stageId: string;
+    readonly revision: number;
+    readonly status: "pending" | "executing" | "accepted";
+    readonly target: string;
+    readonly acceptanceCriteria: readonly string[];
+    readonly acceptedSequence?: number | undefined;
+}
+
+/**
+ * Snapshot 中已批准 Plan Run 的完整阶段路线与恢复游标。
+ *
+ * @remarks 普通 Run 和尚未批准任务提案的 Plan Run 不包含该状态。
+ *
+ * @example
+ * ```ts
+ * const route: GoalSnapshotPlanRouteV1 = {
+ *     revision: 1, nextStageIndex: 0, nextStageOrdinal: 2,
+ *     stages: [{ stageId: "stage-1", revision: 1, status: "pending", target: "调查", acceptanceCriteria: ["定位入口"] }],
+ * };
+ * ```
+ */
+export interface GoalSnapshotPlanRouteV1 {
+    readonly revision: number;
+    readonly revisionReason?: string;
+    readonly nextStageIndex: number;
+    readonly nextStageOrdinal: number;
+    readonly stages: readonly GoalSnapshotPlanRouteStageV1[];
+}
+
+/**
  * Snapshot 中的 Run 状态。
  *
  * @remarks
@@ -1069,6 +1110,23 @@ const RunStageSchema = z.object({
     acceptedSequence: z.number().int().nonnegative().optional(),
 }).strict();
 
+const PlanRouteStageSchema = z.object({
+    stageId: NonEmptyStringSchema,
+    revision: z.number().int().positive(),
+    status: z.enum(["pending", "executing", "accepted"]),
+    target: NonEmptyStringSchema,
+    acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
+    acceptedSequence: z.number().int().nonnegative().optional(),
+}).strict();
+
+const PlanRouteSchema = z.object({
+    revision: z.number().int().positive(),
+    revisionReason: NonEmptyStringSchema.optional(),
+    nextStageIndex: z.number().int().nonnegative(),
+    nextStageOrdinal: z.number().int().positive(),
+    stages: z.array(PlanRouteStageSchema).min(1),
+}).strict();
+
 const WorkflowSchema = z.object({
     phase: z.literal("executing"),
 }).strict();
@@ -1183,6 +1241,7 @@ const GoalSnapshotV1BaseSchema = z.object({
                 sequence: z.number().int().positive(),
             }).strict().optional(),
             currentStage: RunStageSchema.optional(),
+            planRoute: PlanRouteSchema.optional(),
             lastStep: StepRecordSchema.optional(),
             pendingAction: PendingActionSchema.optional(),
             pendingProgram: PendingProgramSchema.optional(),
@@ -1216,6 +1275,64 @@ function validateSnapshotInvariants(
     const pendingTaskApproval = run.pendingInteraction?.kind === "task_approval";
     if (run.mode === "normal" && run.approvedTask !== undefined) {
         addInvariantIssue(context, "normal Run cannot contain an approved task", ["state", "run", "approvedTask"]);
+    }
+    if (run.mode === "normal" && run.planRoute !== undefined) {
+        addInvariantIssue(context, "normal Run cannot contain a full Plan route", ["state", "run", "planRoute"]);
+    }
+    if (run.planRoute !== undefined) {
+        const route = run.planRoute;
+        if (run.approvedTask === undefined) {
+            addInvariantIssue(context, "Plan route requires an approved task", ["state", "run", "planRoute"]);
+        }
+        if (route.nextStageIndex > route.stages.length) {
+            addInvariantIssue(context, "Plan route cursor exceeds its stage count", ["state", "run", "planRoute", "nextStageIndex"]);
+        }
+        const stageIds = new Set<string>();
+        let maximumOrdinal = 0;
+        for (const [index, stage] of route.stages.entries()) {
+            if (stageIds.has(stage.stageId)) {
+                addInvariantIssue(context, "Plan route stage IDs must be unique", ["state", "run", "planRoute", "stages", index, "stageId"]);
+            }
+            stageIds.add(stage.stageId);
+            const ordinal = /^stage-(\d+)$/.exec(stage.stageId)?.[1];
+            if (ordinal !== undefined) maximumOrdinal = Math.max(maximumOrdinal, Number(ordinal));
+            const expectedStatus = index < route.nextStageIndex
+                ? "accepted"
+                : index === route.nextStageIndex && stage.status === "executing"
+                    ? "executing"
+                    : "pending";
+            if (stage.status !== expectedStatus) {
+                addInvariantIssue(context, "Plan route stage status does not match its order and cursor", ["state", "run", "planRoute", "stages", index, "status"]);
+            }
+            if ((stage.status === "accepted") !== (stage.acceptedSequence !== undefined)) {
+                addInvariantIssue(context, "Only accepted Plan route stages may contain acceptedSequence", ["state", "run", "planRoute", "stages", index, "acceptedSequence"]);
+            }
+            if (stage.acceptedSequence !== undefined && stage.acceptedSequence > run.committedThroughSequence) {
+                addInvariantIssue(context, "Plan route acceptedSequence exceeds the committed Snapshot boundary", ["state", "run", "planRoute", "stages", index, "acceptedSequence"]);
+            }
+        }
+        if (route.nextStageOrdinal <= maximumOrdinal) {
+            addInvariantIssue(context, "Plan route nextStageOrdinal must exceed assigned stage ordinals", ["state", "run", "planRoute", "nextStageOrdinal"]);
+        }
+        if (route.revision > 1 && route.revisionReason === undefined) {
+            addInvariantIssue(context, "Revised Plan route requires its persisted reason", ["state", "run", "planRoute", "revisionReason"]);
+        }
+        if (run.currentStage !== undefined) {
+            const routeStageIndex = run.currentStage.status === "executing"
+                ? route.nextStageIndex
+                : route.nextStageIndex - 1;
+            const routeStage = route.stages[routeStageIndex];
+            if (routeStage === undefined
+                || routeStage.stageId !== run.currentStage.stageId
+                || routeStage.revision !== run.currentStage.revision
+                || routeStage.status !== run.currentStage.status
+                || routeStage.target !== run.currentStage.target
+                || routeStage.acceptanceCriteria.length !== run.currentStage.acceptanceCriteria.length
+                || routeStage.acceptanceCriteria.some((criterion, index) => criterion !== run.currentStage?.acceptanceCriteria[index])
+                || (routeStage.status === "accepted" && routeStage.acceptedSequence !== run.currentStage.acceptedSequence)) {
+                addInvariantIssue(context, "Current RunStage must match the active or latest accepted Plan route stage", ["state", "run", "currentStage"]);
+            }
+        }
     }
     if (pendingTaskApproval && run.mode !== "plan") {
         addInvariantIssue(context, "task approval requires a Plan Run", ["state", "run", "pendingInteraction"]);

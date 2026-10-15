@@ -22,6 +22,7 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 | [GoalStore](../src/goal-store.ts) | 保存/恢复最新 Goal Snapshot | 历史查询和文件格式 |
 | [Model Call Metrics](../src/model-call-metrics.ts) | 模型调用开始/结束事实、用量覆盖标记及追加/读取 Port | Goal 恢复状态、指标汇总与诊断 Trace |
 | [RunStage](../src/run-stage.ts) | Run 内部阶段声明、修订与流转纯规则、前序接受约束与审查拒绝记录 | 执行调度与模型调用 |
+| [RunPlan](../src/run-plan.ts) | Plan Run 完整路线的 Runtime 身份分配、顺序游标及阶段状态流转 | 模型复杂度判断与 I/O |
 | [Trajectory](../src/trajectory.ts) | 追加事实事件、提交 marker 和只读恢复查询 | 改写 Runtime State |
 | [Tool Core](../../tool-core/src/index.ts) | 通用 Tool 接口、输入 Contract 准备、Registry 与暂时故障分类 | Goal/Run 状态与授权策略 |
 | [Tool contracts](../src/tool.ts) | Tool Policy 边界、授权过滤与运行时上下文绑定 | 具体 Tool 业务逻辑与通用输入准备 |

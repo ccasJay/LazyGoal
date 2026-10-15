@@ -117,6 +117,30 @@ export const GoalTaskContract = contract.object({
 /** Goal 任务公开类型。 */
 export type GoalTask = InferContract<typeof GoalTaskContract>;
 
+/**
+ * Plan Run 阶段路线的模型候选契约。
+ *
+ * @remarks
+ * 候选只携带有序阶段目标与验收条件，不含阶段身份、状态或恢复游标；这些事实由 Runtime
+ * 在任务提案批准后分配和持久化。路线至少包含一个阶段。
+ *
+ * @example
+ * ```ts
+ * const route: RunPlanRouteCandidate = {
+ *     stages: [{ target: "调查入口", acceptanceCriteria: ["定位现有实现"] }],
+ * };
+ * ```
+ */
+export const RunPlanRouteCandidateContract = contract.object({
+    stages: contract.array(contract.object({
+        target: contract.string(),
+        acceptanceCriteria: contract.array(contract.string(), { minItems: 1 }),
+    }), { minItems: 1 }),
+});
+
+/** Plan Run 的有序阶段路线候选；不包含 Runtime 状态。 */
+export type RunPlanRouteCandidate = InferContract<typeof RunPlanRouteCandidateContract>;
+
 /** GoalPlan Todo 的生命周期状态契约。 */
 export const GoalPlanStatusContract = contract.enum([
     "pending",

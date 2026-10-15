@@ -8,7 +8,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 建立 Plan Run 专属的阶段路线契约、状态流转与检查点恢复
+- [x] //TODO 1. 建立 Plan Run 专属的阶段路线契约、状态流转与检查点恢复
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)、[4.1](./spec.md#spec-req-4-1)、[4.3](./spec.md#spec-req-4-3)、[4.4](./spec.md#spec-req-4-4)、[4.5](./spec.md#spec-req-4-5)。
   - 先在待新增的 Runtime 路线状态测试、Model Contracts 路线候选测试和 Storage Snapshot 往返/恢复测试中断言：Runtime 分配路线与阶段身份；仅 Plan Run 可持有完整路线；阶段目标、验收条件、顺序、游标和状态无效时整份拒绝；普通 Run Snapshot 不增加路线状态；GoalPlan 不随路线变化；只恢复 Snapshot 提交边界内的路线事实，不读取未提交候选或旧版兼容字段。
   - 实现模型候选到 Runtime 权威状态的映射、稳定身份分配、顺序/状态校验与 Snapshot 编解码。路线由 Runtime 保存完整历史所需的当前修订和阶段结果；不把模型候选当成已批准状态，不新增旧开发 Snapshot 迁移路径。更新 runtime、model-contracts、storage 的所有者说明。
