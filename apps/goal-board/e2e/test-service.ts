@@ -58,6 +58,7 @@ class DeterministicAdapter implements LLMAdapter {
         if (goal.state.run.mode === "plan" && goal.state.run.approvedTask === undefined) {
             result = {
                 kind: "task_proposal",
+                planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                 task: { objective: "Finish the controlled plan-flow check", completionCriteria: [{ text: "Plan Run completed", acceptance: null }] },
                 approvalRequest: "Approve the deterministic plan-flow task?",
                 memoryPatch: null,
@@ -73,7 +74,17 @@ class DeterministicAdapter implements LLMAdapter {
             if (needsWrite && !goal.state.run.exposedToolIds.includes("browser_fixture_write")) {
                 result = { kind: "tool_discovery", query: "browser_fixture_write" };
             } else if (goal.state.run.currentStage === undefined) {
-                result = { kind: "run_stage_update", stageId: null, baseRevision: null, reason: null, contextNotes: null, target: "Complete the controlled acceptance flow", acceptanceCriteria: ["Complete the requested acceptance actions"], memoryPatch: null };
+                const plannedStage = goal.state.run.planRoute?.stages.find(stage => stage.status === "pending");
+                result = {
+                    kind: "run_stage_update",
+                    stageId: null,
+                    baseRevision: null,
+                    reason: null,
+                    contextNotes: null,
+                    target: plannedStage?.target ?? "Complete the controlled acceptance flow",
+                    acceptanceCriteria: plannedStage?.acceptanceCriteria ?? ["Complete the requested acceptance actions"],
+                    memoryPatch: null,
+                };
             } else if (needsWrite) {
                 const plan = goal.state.run.mode === "plan";
                 result = { kind: "tool_call", action: { actionId: plan ? "action-browser-e2e-plan-1" : "action-browser-e2e-1", toolId: "browser_fixture_write", input: { value: plan ? "controlled plan write" : "controlled write" } }, memoryPatch: null };

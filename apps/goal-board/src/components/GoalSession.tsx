@@ -7,7 +7,10 @@ import {
   ChevronDown,
   ChevronRight,
   CircleHelp,
+  FilePenLine,
   Layers,
+  Search,
+  Terminal,
   X,
   Zap,
 } from "lucide-react";
@@ -15,7 +18,6 @@ import type {
   BrowserGoalListItem,
   BrowserSessionMessage,
   BrowserSessionRun,
-  BrowserSessionStep,
   BrowserToolGrantSummary,
 } from "../../../../packages/web-contracts/src/index";
 import { GoalDetails, WaitingInteraction } from "../panels";
@@ -28,10 +30,9 @@ import { MessageComposer, AssistantMarkdown, CurrentModelControl } from "./Messa
 import { SessionMetricsBar } from "./SessionMetricsBar";
 import { PlanRouteList } from "./PlanRouteList";
 import { WorkspaceContext } from "./WorkspaceContext";
-import { stepActivity } from "./step-activity";
+import { projectActivityGroups } from "../activity-projector";
 import {
   formatRunStepsTitle,
-  groupStepsByStage,
   renderStageStatusLabel,
 } from "./run-stage-utils";
 
@@ -72,6 +73,7 @@ export function GoalSession({
     revokingGrantId,
     liveText,
     liveActivity,
+    liveEvents,
     streamConnected,
     metricsByGoal,
     currentModelName,
@@ -411,73 +413,72 @@ export function GoalSession({
                       <div className="run-timeline" key={run.runId}>
                         {renderMessages(runMessages.filter((message) => message.role === "user"))}
                         <PlanRouteList route={run.planRoute} />
-                        {showTools && run.steps.length > 0 && (() => {
-                          const renderStepItem = (step: BrowserSessionStep) => {
-                            const activity = stepActivity(step);
-                            const ActivityIcon = activity.icon;
+                        {showTools && (() => {
+                          const groups = projectActivityGroups({
+                            goalId: session.goalId,
+                            run,
+                            liveEvents: run.current ? liveEvents : [],
+                          });
+                          const stages = run.stages ?? [];
+                          if (groups.length === 0 && stages.length === 0) return null;
+
+                          const renderMember = (member: ReturnType<typeof projectActivityGroups>[number]["members"][number]) => {
+                            const step = member.step;
                             return (
-                              <details className="tool-event" key={step.executionUnitId}>
-                                <summary>
-                                  <ActivityIcon size={13} aria-hidden="true" />
-                                  <span className="tool-activity-label" title={activity.label}>
-                                    {activity.label}
-                                  </span>
-                                  {step.status !== "completed" && (
-                                    <span className={`step-status ${step.status}`}>
-                                      {step.status === "recorded"
-                                        ? "Attempt recorded"
-                                        : step.status}
+                              <article className="activity-member" key={member.id}>
+                                <div className="activity-member-heading">
+                                  <strong className="tool-activity-label">{member.label}</strong>
+                                  {member.status !== "completed" && (
+                                    <span className={`step-status ${member.status}`}>
+                                      {member.status === "running" ? "In progress" : member.status}
                                     </span>
                                   )}
-                                  <ChevronRight className="tool-chevron" size={12} aria-hidden="true" />
-                                </summary>
-                                <div className="tool-event-detail">
-                                  {step.recoveryAttempts?.map((attempt, index) => (
-                                    <div
-                                      className="step-recovery"
-                                      key={`${step.executionUnitId}:recovery:${index}`}
-                                    >
-                                      {attempt}
+                                  {!member.isCommitted && <small>Temporary activity · Not saved yet</small>}
+                                  {member.hasLiveUpdate && <small>Live update · Not saved yet</small>}
+                                </div>
+                                {member.inputSummary && (
+                                  <div className="activity-member-input">{member.inputSummary}</div>
+                                )}
+                                {member.attempts.map((attempt, index) => (
+                                  <div className="step-recovery" key={`${member.id}:attempt:${index}`}>
+                                    {attempt}
+                                  </div>
+                                ))}
+                                {step?.bashExecution && (
+                                  <div className="tool-execution">
+                                    <div className="tool-execution-field">
+                                      <span>Command</span>
+                                      <pre>{step.bashExecution.command}</pre>
                                     </div>
-                                  ))}
-                                  {step.bashExecution && (
-                                    <div className="tool-execution">
+                                    {step.bashExecution.exitCode !== undefined && (
                                       <div className="tool-execution-field">
-                                        <span>Command</span>
-                                        <pre>{step.bashExecution.command}</pre>
+                                        <span>Exit code</span>
+                                        <pre>{step.bashExecution.exitCode}</pre>
                                       </div>
-                                      {step.bashExecution.exitCode !== undefined && (
-                                        <div className="tool-execution-field">
-                                          <span>Exit code</span>
-                                          <pre>{step.bashExecution.exitCode}</pre>
-                                        </div>
-                                      )}
-                                      {step.bashExecution.stdout !== undefined && (
-                                        <div className="tool-execution-field">
-                                          <span>stdout</span>
-                                          <pre>{step.bashExecution.stdout || "(empty)"}</pre>
-                                        </div>
-                                      )}
-                                      {step.bashExecution.stderr !== undefined && (
-                                        <div className="tool-execution-field">
-                                          <span>stderr</span>
-                                          <pre>{step.bashExecution.stderr || "(empty)"}</pre>
-                                        </div>
-                                      )}
-                                      {step.bashExecution.failure !== undefined && (
-                                        <div className="tool-execution-field">
-                                          <span>Result</span>
-                                          <pre>{step.bashExecution.failure}</pre>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                  {step.bashExecutionOmitted && (
-                                    <pre>Execution details omitted by the session size limit.</pre>
-                                  )}
-                                  {!step.bashExecution &&
-                                    !step.bashExecutionOmitted &&
-                                    step.summary && <pre>{step.summary}</pre>}
+                                    )}
+                                    {step.bashExecution.stdout !== undefined && (
+                                      <div className="tool-execution-field">
+                                        <span>stdout</span>
+                                        <pre>{step.bashExecution.stdout || "(empty)"}</pre>
+                                      </div>
+                                    )}
+                                    {step.bashExecution.stderr !== undefined && (
+                                      <div className="tool-execution-field">
+                                        <span>stderr</span>
+                                        <pre>{step.bashExecution.stderr || "(empty)"}</pre>
+                                      </div>
+                                    )}
+                                    {step.bashExecution.failure !== undefined && (
+                                      <div className="tool-execution-field">
+                                        <span>Result</span>
+                                        <pre>{step.bashExecution.failure}</pre>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {step?.bashExecutionOmitted && <pre>Execution details omitted by the session size limit.</pre>}
+                                {!step?.bashExecution && !step?.bashExecutionOmitted && member.summary && <pre>{member.summary}</pre>}
+                                {step && (
                                   <footer className="trajectory-link">
                                     <button
                                       aria-label={`View Step ${step.stepIndex} in trajectory`}
@@ -494,23 +495,45 @@ export function GoalSession({
                                       <ChevronRight size={12} />
                                     </button>
                                   </footer>
-                                </div>
+                                )}
+                              </article>
+                            );
+                          };
+
+                          const renderGroup = (group: ReturnType<typeof projectActivityGroups>[number]) => {
+                            const ActivityIcon = group.category === "execute" ? Terminal
+                              : group.category === "edit" ? FilePenLine
+                                : group.category === "explore" ? Search : Zap;
+                            return (
+                              <details className={`activity-group ${group.category} ${group.status}`} key={group.id}>
+                                <summary>
+                                  <ActivityIcon size={13} aria-hidden="true" />
+                                  <span>{group.summary}</span>
+                                  {group.status !== "completed" && (
+                                    <span className={`step-status ${group.status}`}>
+                                      {group.status === "running" ? "In progress" : group.status}
+                                    </span>
+                                  )}
+                                  <ChevronRight className="tool-chevron" size={12} aria-hidden="true" />
+                                </summary>
+                                <div className="activity-group-members">{group.members.map(renderMember)}</div>
                               </details>
                             );
                           };
 
-                          if (run.stages && run.stages.length > 0) {
-                            const { runLevelSteps, stages } = groupStepsByStage(run.steps, run.stages);
+                          if (stages.length > 0) {
+                            const stageIds = new Set(stages.map((stage) => stage.stageId));
+                            const runLevelGroups = groups.filter((group) => group.stageId === undefined || !stageIds.has(group.stageId));
                             return (
                               <div className="run-stages-container">
-                                {runLevelSteps.length > 0 && (
+                                {runLevelGroups.length > 0 && (
                                   <details className="run-steps run-level-steps" open>
                                     <summary className="run-steps-heading">
                                       <Layers size={13} aria-hidden="true" />
                                       <span>Run-level activity</span>
                                       <ChevronDown className="activity-chevron" size={12} aria-hidden="true" />
                                     </summary>
-                                    {runLevelSteps.map(renderStepItem)}
+                                    {runLevelGroups.map(renderGroup)}
                                   </details>
                                 )}
                                 {stages.map((stage) => (
@@ -521,27 +544,18 @@ export function GoalSession({
                                       <span className={`stage-status ${stage.status}`}>
                                         {renderStageStatusLabel(stage.status)}
                                       </span>
-                                      {stage.revision > 1 && (
-                                        <span className="stage-revision">Rev {stage.revision}</span>
-                                      )}
+                                      {stage.revision > 1 && <span className="stage-revision">Rev {stage.revision}</span>}
                                       <ChevronDown className="activity-chevron" size={12} aria-hidden="true" />
                                     </summary>
                                     <div className="stage-content">
-                                      {stage.resultSummary && (
-                                        <div className="stage-result-summary">
-                                          <strong>Result:</strong> {stage.resultSummary}
-                                        </div>
-                                      )}
                                       {stage.latestReviewRejection && (
                                         <div className="stage-rejection-feedback" role="alert">
                                           <strong>Review feedback:</strong>
-                                          {stage.latestReviewRejection.issues.map((issue, idx) => (
-                                            <p key={idx}>{issue}</p>
-                                          ))}
+                                          {stage.latestReviewRejection.issues.map((issue, idx) => <p key={idx}>{issue}</p>)}
                                         </div>
                                       )}
                                       <div className="stage-steps">
-                                        {stage.steps.map(renderStepItem)}
+                                        {groups.filter((group) => group.stageId === stage.stageId).map(renderGroup)}
                                       </div>
                                     </div>
                                   </details>
@@ -557,7 +571,7 @@ export function GoalSession({
                                 <span>{formatRunStepsTitle(run, runIndex + 1)}</span>
                                 <ChevronDown className="activity-chevron" size={12} aria-hidden="true" />
                               </summary>
-                              {run.steps.map(renderStepItem)}
+                              {groups.map(renderGroup)}
                             </details>
                           );
                         })()}

@@ -219,8 +219,8 @@ test("real local service restores and completes one authorized Goal conversation
     assert.equal(fullDetail.response.status, 200);
     assert.equal(fullDetail.body.observationConfirmed, true);
     assert.ok(JSON.stringify(fullDetail.body.result).includes("PRIVATE_CONTROLLED_TOOL_OUTPUT"));
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.tool-event')].find(step => step.querySelector('summary').textContent.includes('browser_fixture_write')).querySelector('summary').click()", returnByValue: true });
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.tool-event')].find(step => step.querySelector('summary').textContent.includes('browser_fixture_write')).querySelector('.trajectory-link button').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.activity-group')].find(group => group.querySelector('.tool-activity-label')?.textContent.includes('browser_fixture_write')).querySelector('summary').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.activity-member')].find(step => step.querySelector('.tool-activity-label')?.textContent.includes('browser_fixture_write')).querySelector('.trajectory-link button').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.trajectory-view .ct-record-body[aria-pressed=\"true\"]') !== null");
     await waitForExpression(socket, "document.querySelector('.tr-detail-body pre') !== null");
     assert.equal(await value(socket, "document.activeElement?.id"), `trajectory-event-${trajectory.body.locatedSequence}`);
@@ -370,6 +370,16 @@ test("real local service restores and completes one authorized Goal conversation
       restarted.token,
       (candidate) => candidate.runStatus === "completed" && candidate.currentRunMode === "plan",
     );
+    const completedPlanRun = completedPlanSession.runs.find((run) => run.current);
+    assert.equal(completedPlanRun.planRoute.stages.length, 1);
+    assert.equal(completedPlanRun.planRoute.stages[0].status, "accepted");
+    await waitForExpression(socket, "document.querySelector('.plan-route-list') !== null");
+    assert.equal(await value(socket, "document.querySelectorAll('.activity-group').length > 0"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#filter-execution-steps').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.activity-group') === null");
+    assert.equal(await value(socket, "document.querySelector('.plan-route-list') !== null"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#filter-execution-steps').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.activity-group') !== null");
     const completedList = await api(restarted.origin, "/api/goals", { token: restarted.token });
     assert.equal(completedList.response.status, 200, JSON.stringify(completedList.body));
     const planCompleted = completedList.body.goals.some((goal) => goal.intent.includes("Plan flow") && goal.runStatus === "completed");

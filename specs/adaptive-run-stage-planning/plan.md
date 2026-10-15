@@ -44,7 +44,7 @@
   - 建立可重放的纯投影器，分别消费实时事件与已提交 Trajectory，再以 actionId 和提交边界协调；保留组内详情顺序、可见性、耐久性及来源引用，不创建持久化组 ID，不依靠相同摘要/工具名/时间近似猜测成员。更新 goal-board/browser/web-contracts 说明与新增接口 TSDoc。
   - 验证入口：npx tsx --test apps/goal-board/test/activity-projector.test.ts packages/browser/test/browser-stream.test.ts packages/browser/test/browser-trajectory.test.ts apps/goal-board/test/trajectory-page-window.test.ts packages/execution-stream/test/execution-stream.test.ts（ActivityProjector 测试待新增）。
 
-- [ ] //TODO 7. 在两种模式的会话活动中展示可展开活动组并保留原始检查入口
+- [x] //TODO 7. 在两种模式的会话活动中展示可展开活动组并保留原始检查入口
   - 落实标准：[5.2](./spec.md#spec-req-5-2)、[5.3](./spec.md#spec-req-5-3)、[5.4](./spec.md#spec-req-5-4)、[5.5](./spec.md#spec-req-5-5)、[5.6](./spec.md#spec-req-5-6)、[5.7](./spec.md#spec-req-5-7)、[5.8](./spec.md#spec-req-5-8)。
   - 先在 Goal Board 单元与 E2E 测试中断言：展开组可按原顺序查看成员、命令/工具调用、结果和错误；详情入口仍定位原事件；重连、刷新和补页不产生重复/错配；Plan Run 的路线与实际活动各自呈现；普通 Run 也用活动组但保留现有阶段显示；折叠或摘要不改变 Runtime、授权、Trajectory 或评测数据。
   - 将 ActivityProjector 接入实际实时订阅、轨迹分页和会话 UI；安全 Web DTO 必须保留分组所需身份与公开事件信息，不扩大 restricted/diagnostic 可见范围。新增界面行为通过键盘可访问的展开控件暴露；更新 goal-board 的 TSDoc 与模块说明。

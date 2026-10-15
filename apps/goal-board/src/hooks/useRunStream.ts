@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { BrowserGoalSession } from "../../../../packages/web-contracts/src/index";
+import type { BrowserGoalActivityEvent, BrowserGoalLiveEvent, BrowserGoalSession } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
 
 export function useRunStream({
@@ -15,6 +15,7 @@ export function useRunStream({
 }) {
   const [liveText, setLiveText] = useState("");
   const [liveActivity, setLiveActivity] = useState<string | null>(null);
+  const [liveEvents, setLiveEvents] = useState<BrowserGoalLiveEvent[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
   const onRefreshRef = useRef(onRefresh);
 
@@ -26,6 +27,7 @@ export function useRunStream({
     if (selectedGoalId === null) {
       setLiveText("");
       setLiveActivity(null);
+      setLiveEvents([]);
       setStreamConnected(false);
     }
   }, [selectedGoalId]);
@@ -40,6 +42,7 @@ export function useRunStream({
 
     const controller = new AbortController();
     let active = true;
+    setLiveEvents([]);
     setStreamConnected(false);
 
     const refreshLatest = async () => {
@@ -70,8 +73,32 @@ export function useRunStream({
             if (!active) return;
             setStreamConnected(true);
             if (event.type === "snapshot_changed" || event.type === "refresh_required") {
+              setLiveEvents([]);
+              if (event.type === "refresh_required") {
+                setLiveActivity("Waiting for the saved result");
+              }
               await refreshLatest();
               continue;
+            }
+            const retainedActivity: BrowserGoalActivityEvent | undefined = event.activity.kind === "assistant_text_delta"
+              ? {
+                  kind: "activity_boundary",
+                  sourceEventId: event.activity.sourceEventId,
+                  sourceCursor: event.activity.sourceCursor,
+                  reason: "assistant_reply",
+                }
+              : event.activity.kind === "tool_started"
+                || event.activity.kind === "tool_finished"
+                || event.activity.kind === "tool_attempt_started"
+                || event.activity.kind === "tool_attempt_failed"
+                || event.activity.kind === "activity_boundary"
+                ? event.activity
+                : undefined;
+            if (retainedActivity !== undefined) {
+              setLiveEvents((current) => [
+                ...current,
+                { ...event, activity: retainedActivity },
+              ].slice(-256));
             }
             switch (event.activity.kind) {
               case "assistant_text_delta": {
@@ -129,6 +156,7 @@ export function useRunStream({
     setLiveText,
     liveActivity,
     setLiveActivity,
+    liveEvents,
     streamConnected,
   };
 }

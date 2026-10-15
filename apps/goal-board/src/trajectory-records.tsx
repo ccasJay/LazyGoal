@@ -7,7 +7,7 @@ import { requestResult } from "./trajectory-presentation";
 import { isEventMatched } from "./trajectory-event-filter";
 
 /** 读取轨迹输入摘要并发出选择请求；详情选择及互斥关系由父组件持有。 */
-export function TrajectoryRecords({ goalId, runId, entries, refresh, selectEvent, selectedInput, selectInput, showSteps, showRequests, onCalls, onRevealSelection, selectedSequence, query, category, onAllStepsCollapsedChange }: { onCalls: (calls: BrowserModelInputSummary[]) => void; onRevealSelection: () => void; selectedSequence: number | null; query: string; category: string; goalId: string; runId: string; entries: readonly BrowserTrajectoryEntry[]; refresh: unknown; selectEvent: (entry: BrowserTrajectoryEntry) => void; selectedInput: ModelInputSelection | null; selectInput: (input: ModelInputSelection) => void; showSteps: boolean; showRequests: boolean; onAllStepsCollapsedChange?: (allCollapsed: boolean) => void }) {
+export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBoundarySequences, refresh, selectEvent, selectedInput, selectInput, showSteps, showRequests, onCalls, onRevealSelection, selectedSequence, query, category, onAllStepsCollapsedChange }: { onCalls: (calls: BrowserModelInputSummary[]) => void; onRevealSelection: () => void; selectedSequence: number | null; query: string; category: string; goalId: string; runId: string; entries: readonly BrowserTrajectoryEntry[]; unverifiedPageBoundarySequences: readonly number[]; refresh: unknown; selectEvent: (entry: BrowserTrajectoryEntry) => void; selectedInput: ModelInputSelection | null; selectInput: (input: ModelInputSelection) => void; showSteps: boolean; showRequests: boolean; onAllStepsCollapsedChange?: (allCollapsed: boolean) => void }) {
   const [calls, setCalls] = useState<BrowserModelInputSummary[]>([]);
   const [offset, setOffset] = useState(0);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
@@ -29,7 +29,7 @@ export function TrajectoryRecords({ goalId, runId, entries, refresh, selectEvent
   }, [goalId, runId, offset, refresh, query, retry]);
   useEffect(() => { setOffset(0); }, [query]);
   useEffect(() => { onCalls(calls); }, [calls, onCalls]);
-  type RecordRow = { id: string; role: string; text: string; time: string; step?: number; entry?: BrowserTrajectoryEntry; call?: BrowserModelInputSummary; tab?: string; messageIndex?: number; input?: string; result?: string; request?: boolean; promptCallId?: string; status?: string; retryKey?: string };
+  type RecordRow = { id: string; role: string; text: string; time: string; step?: number; entry?: BrowserTrajectoryEntry; call?: BrowserModelInputSummary; tab?: string; messageIndex?: number; input?: string; result?: string; request?: boolean; promptCallId?: string; status?: string; retryKey?: string; pageBoundaryBefore?: true };
   const rows: RecordRow[] = [];
   const visibleCalls = (category === "All events" || category === "decision" || category === "memory" ? calls : []).filter(call => entries.length === 0 || entries.some(entry => call.executionUnitId === undefined || entry.executionUnitId === call.executionUnitId));
   const results = new Map(calls.map(call => [call.callId, requestResult(call, calls, entries, !query && category === "All events")]));
@@ -64,6 +64,16 @@ export function TrajectoryRecords({ goalId, runId, entries, refresh, selectEvent
     rows.push(...(slots.get(index) ?? []));
     if (events[index]) rows.push(events[index]!);
   }
+  let pageBoundaryIndex = 0;
+  const pageBoundaries = [...unverifiedPageBoundarySequences].sort((left, right) => left - right);
+  for (const row of rows) {
+    if (row.entry === undefined) continue;
+    const boundary = pageBoundaries[pageBoundaryIndex];
+    if (boundary !== undefined && row.entry.sequence >= boundary) {
+      row.pageBoundaryBefore = true;
+      pageBoundaryIndex += 1;
+    }
+  }
   const retryKeys = new Set(visibleCalls.filter(call => call.executionUnitId && results.get(call.callId)?.status === "rejected" && visibleCalls.filter(other => other.executionUnitId === call.executionUnitId && other.stage === call.stage).length > 1).map(call => `${call.executionUnitId}:${call.stage}`));
   for (const row of rows) {
     const unit = row.call?.executionUnitId ?? row.entry?.executionUnitId;
@@ -77,7 +87,7 @@ export function TrajectoryRecords({ goalId, runId, entries, refresh, selectEvent
   const chunks: { key: string; rows: RecordRow[]; retry: boolean }[] = [];
   for (const row of rows) {
     const previous = chunks.at(-1);
-    if (row.retryKey && previous?.key === row.retryKey) previous.rows.push(row);
+    if (row.retryKey && previous?.key === row.retryKey && row.pageBoundaryBefore !== true) previous.rows.push(row);
     else chunks.push({ key: row.retryKey ?? row.id, rows: [row], retry: row.retryKey !== undefined });
   }
   const renderRow = (row: RecordRow) => {
@@ -119,7 +129,8 @@ export function TrajectoryRecords({ goalId, runId, entries, refresh, selectEvent
   for (const chunk of chunks) {
     const step = chunk.rows[0]?.step;
     const previous = stepGroups.at(-1);
-    if (previous && previous.step === step) previous.chunks.push(chunk);
+    const pageBoundaryBefore = chunk.rows.some((row) => row.pageBoundaryBefore === true);
+    if (previous && previous.step === step && !pageBoundaryBefore) previous.chunks.push(chunk);
     else stepGroups.push({ key: `${step ?? "run"}:${chunk.rows[0]!.id}`, ...(step === undefined ? {} : { step }), chunks: [chunk] });
   }
   const nonRunGroups = stepGroups.filter(g => g.step !== undefined);

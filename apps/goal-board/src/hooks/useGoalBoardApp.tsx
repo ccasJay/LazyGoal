@@ -203,6 +203,7 @@ export function useGoalBoardApp() {
     revokingGrantId: permissionsManager.revokingGrantId,
     liveText: streamManager.liveText,
     liveActivity: streamManager.liveActivity,
+    liveEvents: streamManager.liveEvents,
     streamConnected: streamManager.streamConnected,
     metricsByGoal: goalsManager.metricsByGoal,
     currentModelCatalog: modelSelectionManager.currentModelCatalog,

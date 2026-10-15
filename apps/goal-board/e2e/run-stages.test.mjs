@@ -69,12 +69,12 @@ test("Web goal session presents run stages, revisions, rejection feedback, and c
     const stageGroupsCount = await value(socket, "document.querySelectorAll('.run-stage-group').length");
     assert.equal(stageGroupsCount, 2);
 
-    // 3. 验证 Stage 1: Accepted 状态与结果摘要，中间接受不显示 Run completed
+    // 3. 验证 Stage 1: Accepted 状态，不展示阶段结果摘要或 Run completed
     const stage1Target = await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelector('.stage-target').textContent");
     assert.equal(stage1Target, "Alpha Setup");
     const stage1Status = await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelector('.stage-status').textContent");
     assert.equal(stage1Status, "Accepted");
-    assert.match(await value(socket, "document.querySelectorAll('.run-stage-group')[0].innerText"), /Alpha completed successfully/);
+    assert.doesNotMatch(await value(socket, "document.querySelectorAll('.run-stage-group')[0].innerText"), /Alpha completed successfully/);
     assert.doesNotMatch(await value(socket, "document.querySelector('.session').innerText"), /Run completed/);
 
     // 4. 验证 Stage 2: 修订版本、In progress 状态与审查拒绝反馈
@@ -88,9 +88,11 @@ test("Web goal session presents run stages, revisions, rejection feedback, and c
     assert.match(await value(socket, "document.querySelectorAll('.run-stage-group')[1].innerText"), /Missing error handling/);
 
     // 5. 验证所属 Steps 存在且可展开
-    const stage1StepsCount = await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelectorAll('.tool-event').length");
+    const stage1StepsCount = await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelectorAll('.activity-group').length");
     assert.equal(stage1StepsCount, 1);
-    const stage2StepsCount = await value(socket, "document.querySelectorAll('.run-stage-group')[1].querySelectorAll('.tool-event').length");
+    assert.match(await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelector('.activity-group > summary').innerText"), /Edited 2 files/);
+    assert.equal(await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelectorAll('.activity-member').length"), 2);
+    const stage2StepsCount = await value(socket, "document.querySelectorAll('.run-stage-group')[1].querySelectorAll('.activity-group').length");
     assert.equal(stage2StepsCount, 1);
   } finally {
     if (socket) socket.close();
@@ -116,7 +118,7 @@ function createStageMockApi() {
     runs: [{
       runId: "run-1",
       status: "running",
-      stepCount: 3,
+      stepCount: 4,
       current: true,
       stages: [
         {
@@ -159,6 +161,8 @@ function createStageMockApi() {
         {
           runId: "run-1",
           executionUnitId: "unit-1",
+          sourceEventId: "trajectory-edit-1",
+          actionId: "action-edit-1",
           sequence: 2,
           stepIndex: 2,
           stageId: "stage-alpha",
@@ -170,8 +174,23 @@ function createStageMockApi() {
         {
           runId: "run-1",
           executionUnitId: "unit-2",
+          sourceEventId: "trajectory-edit-2",
+          actionId: "action-edit-2",
           sequence: 3,
           stepIndex: 3,
+          stageId: "stage-alpha",
+          toolId: "write_file",
+          inputSummary: "src/index.test.ts",
+          status: "completed",
+          summary: "Wrote test file",
+        },
+        {
+          runId: "run-1",
+          executionUnitId: "unit-3",
+          sourceEventId: "trajectory-bash-1",
+          actionId: "action-bash-1",
+          sequence: 4,
+          stepIndex: 4,
           stageId: "stage-beta",
           toolId: "bash",
           inputSummary: "npm test",

@@ -2,6 +2,7 @@ import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import type {
   BrowserGoalSession,
+  BrowserGoalLiveEvent,
   BrowserModelCatalog,
   BrowserToolGrantSummary,
   BrowserWorkspaceContext,
@@ -31,6 +32,7 @@ export interface GoalSessionContextValue {
   readonly revokingGrantId: string | null;
   readonly liveText: string;
   readonly liveActivity: string | null;
+  readonly liveEvents: readonly BrowserGoalLiveEvent[];
   readonly streamConnected: boolean;
   readonly metricsByGoal: Record<string, MetricsState>;
   readonly currentModelCatalog: BrowserModelCatalog | null;

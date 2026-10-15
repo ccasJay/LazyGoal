@@ -226,6 +226,7 @@ test("TrajectoryRecords 渲染记录行时包含外层容器与内部交互按�
       goalId: "g1",
       runId: "r1",
       entries: dummyEntries,
+      unverifiedPageBoundarySequences: [],
       refresh: {},
       selectEvent: () => {},
       selectedInput: null,

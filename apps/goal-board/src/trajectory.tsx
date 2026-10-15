@@ -212,6 +212,10 @@ export function Trajectory({ session, target }: { session: BrowserGoalSession; t
       .values()]
       .sort((left, right) => left.sequence - right.sequence)
     : [];
+  const unverifiedPageBoundarySequences = loadedPages.slice(1).flatMap((loaded, index) => {
+    const first = loaded.entries[0];
+    return first !== undefined && pageWindow.verifiedAdjacentPages[index] !== true ? [first.sequence] : [];
+  });
   useEffect(() => {
     if (loading || page?.run.runId !== runId || inspection?.kind !== "event" || entries.length === 0) return;
     if (!entries.some(entry => entry.sequence === inspection.sequence)) setInspection(null);
@@ -388,7 +392,7 @@ export function Trajectory({ session, target }: { session: BrowserGoalSession; t
         <button aria-pressed={showSteps} onClick={() => setShowSteps(!showSteps)}>⊟ Steps</button><button aria-pressed={showRequests} onClick={() => setShowRequests(!showRequests)}>⊟ Requests</button>
       </div>
       <div className="tr-records" ref={ledger} onScroll={event => { savedScroll.current = event.currentTarget.scrollTop; follow.current = inspection === null && !query && category === "All events" && !range && event.currentTarget.scrollHeight - event.currentTarget.scrollTop - event.currentTarget.clientHeight < 30; }}>
-      <TrajectoryRecords goalId={session.goalId} runId={runId} entries={entries} refresh={session} selectEvent={select} selectedInput={selectedInput} selectInput={inspectInput} showSteps={showSteps} showRequests={showRequests} onCalls={setInputCalls} onRevealSelection={() => setRecordsRevealVersion(version => version + 1)} selectedSequence={selected} query={search} category={category} onAllStepsCollapsedChange={setAllCollapsed}/>
+      <TrajectoryRecords goalId={session.goalId} runId={runId} entries={entries} unverifiedPageBoundarySequences={unverifiedPageBoundarySequences} refresh={session} selectEvent={select} selectedInput={selectedInput} selectInput={inspectInput} showSteps={showSteps} showRequests={showRequests} onCalls={setInputCalls} onRevealSelection={() => setRecordsRevealVersion(version => version + 1)} selectedSequence={selected} query={search} category={category} onAllStepsCollapsedChange={setAllCollapsed}/>
       {!loading && !error && entries.length === 0 && <div className="tr-empty">{page?.committedCount === 0 ? "No committed trajectory yet." : "No events match this view."}<button onClick={() => { setQuery(""); setSearch(""); setCategory("All events"); setRange(null); resetWindow(); setRefresh(value => value + 1); }}>{page?.committedCount === 0 ? "Refresh" : "Clear filters"}</button></div>}
     </div><footer className="tr-ledger-foot">
       <div className="tr-page-control" role="group" aria-label="Trajectory pagination">
