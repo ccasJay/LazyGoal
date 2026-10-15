@@ -4509,6 +4509,7 @@ class RunExecutor {
                         kind: "task_approval",
                         requestId,
                         proposal: normalized.decision.task,
+                        planRouteCandidate: normalized.decision.planRoute,
                         approvalRequest: normalized.decision.approvalRequest,
                     };
 

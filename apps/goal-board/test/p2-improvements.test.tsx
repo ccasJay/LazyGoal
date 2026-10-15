@@ -59,6 +59,46 @@ test("GoalBoard 搜索框包含 id 与 name 属性且在初始状态展示总数
   assert.match(html, /<span>2<\/span>/);
 });
 
+test("任务批准卡片在批准按钮前展示完整有序阶段路线", async () => {
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { WaitingInteraction } = await import("../src/panels");
+  const session = {
+    goalId: "goal-1",
+    intent: "Implement a feature",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    archived: false,
+    runStatus: "waiting",
+    currentRunId: "run-1",
+    messages: [],
+    runs: [],
+    pendingInteraction: {
+      kind: "task_approval",
+      requestId: "proposal-1",
+      objective: "Implement the feature",
+      approvalRequest: "Review the complete plan",
+      completionCriteria: ["All checks pass"],
+      planRoute: [
+        { target: "Inspect current behavior", acceptanceCriteria: ["Find the entry point"] },
+        { target: "Implement the change", acceptanceCriteria: ["Feature works", "Regression checks pass"] },
+      ],
+    },
+  } as any;
+  const html = renderToStaticMarkup(React.createElement(WaitingInteraction, {
+    session,
+    busy: false,
+    onSubmit: () => {},
+  }));
+
+  const firstStage = html.indexOf("Inspect current behavior");
+  const secondStage = html.indexOf("Implement the change");
+  const approveButton = html.indexOf("Approve task");
+  assert.ok(firstStage >= 0 && secondStage > firstStage && approveButton > secondStage);
+  assert.match(html, /Find the entry point/);
+  assert.match(html, /Regression checks pass/);
+});
+
+
 test("PermissionControl 单选框包含 id 和 name 属性并正确关联 label", async () => {
   const React = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");

@@ -375,6 +375,23 @@ export interface BrowserAskUserAnswer {
 }
 
 /**
+ * Plan Run 任务提案中的一个有序阶段。
+ *
+ * @example
+ * ```ts
+ * const stage: BrowserPlanRouteStage = {
+ *     target: "调查入口", acceptanceCriteria: ["定位现有实现"],
+ * };
+ * ```
+ */
+export interface BrowserPlanRouteStage {
+    /** 阶段目标。 */
+    readonly target: string;
+    /** 阶段验收条件。 */
+    readonly acceptanceCriteria: readonly string[];
+}
+
+/**
  * 当前等待人工交互的请求视图。
  *
  * @remarks
@@ -388,6 +405,7 @@ export interface BrowserAskUserAnswer {
  *     objective: "完成重构",
  *     approvalRequest: "是否批准执行？",
  *     completionCriteria: ["测试全部通过"],
+ *     planRoute: [{ target: "调查", acceptanceCriteria: ["定位入口"] }],
  * };
  * ```
  */
@@ -404,6 +422,8 @@ export type BrowserPendingInteraction =
         readonly objective: string;
         readonly approvalRequest: string;
         readonly completionCriteria: readonly string[];
+        /** Plan Run 一次审批覆盖的完整有序候选路线。 */
+        readonly planRoute: readonly BrowserPlanRouteStage[];
     };
 
 /**

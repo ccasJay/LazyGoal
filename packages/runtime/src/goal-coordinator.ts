@@ -31,6 +31,7 @@ import {
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import { transition } from "./transition";
+import { createRunPlanRoute } from "./run-plan";
 import {
     type DiagnosticTraceSink,
     type TrajectoryEventDraft,
@@ -1103,13 +1104,15 @@ export class GoalCoordinator {
                         );
                     }
 
+                    const { currentStage: _currentStage, ...approvedRun } = resolvedRun.state;
                     const approvedGoal: Goal = {
                         ...epoch.goal,
                         state: {
                             ...epoch.goal.state,
                             run: {
-                                ...resolvedRun.state,
+                                ...approvedRun,
                                 approvedTask: cloneTask(proposal),
+                                planRoute: createRunPlanRoute(pendingInteraction.planRouteCandidate),
                             },
                         },
                     };

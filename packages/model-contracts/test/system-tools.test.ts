@@ -158,11 +158,13 @@ test("Plan 提案前挂载获授权读取与任务提案工具", () => {
             objective: "构建新特性",
             completionCriteria: [{ text: "单测通过" }],
         },
+        planRoute: { stages: [{ target: "实现功能", acceptanceCriteria: ["单测通过"] }] },
         approvalRequest: "是否批准计划？",
         memoryPatch: null,
     });
     assert.equal(proposal.kind, "task_proposal");
     if (proposal.kind === "task_proposal") {
+        assert.deepEqual(proposal.planRoute, { stages: [{ target: "实现功能", acceptanceCriteria: ["单测通过"] }] });
         assert.equal(proposal.task.objective, "构建新特性");
         assert.equal(proposal.approvalRequest, "是否批准计划？");
     }

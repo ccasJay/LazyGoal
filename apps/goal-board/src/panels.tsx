@@ -326,6 +326,19 @@ function TaskApprovalForm({
           {interaction.completionCriteria.map((criterion, index) => <li key={index}>{criterion}</li>)}
         </ul>
       )}
+      <div className="proposed-route" aria-label="Proposed stages">
+        <h5>Proposed stages</h5>
+        <ol>
+          {interaction.planRoute.map((stage, index) => (
+            <li key={index}>
+              <strong>{stage.target}</strong>
+              <ul>{stage.acceptanceCriteria.map((criterion, criterionIndex) => (
+                <li key={criterionIndex}>{criterion}</li>
+              ))}</ul>
+            </li>
+          ))}
+        </ol>
+      </div>
       <button
         className="approval-primary"
         disabled={busy}

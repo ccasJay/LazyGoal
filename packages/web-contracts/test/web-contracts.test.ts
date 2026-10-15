@@ -127,9 +127,18 @@ test("isPendingInteraction validates ask_user and task_approval", () => {
             objective: "Do task",
             approvalRequest: "Approve?",
             completionCriteria: ["Criterion 1"],
+            planRoute: [{ target: "Implement", acceptanceCriteria: ["Checks pass"] }],
         }),
         true,
     );
+    assert.equal(isPendingInteraction({
+        kind: "task_approval", requestId: "req-3", objective: "Do task", approvalRequest: "Approve?",
+        completionCriteria: [], planRoute: [],
+    }), false);
+    assert.equal(isPendingInteraction({
+        kind: "task_approval", requestId: "req-4", objective: "Do task", approvalRequest: "Approve?",
+        completionCriteria: [], planRoute: [{ target: " ", acceptanceCriteria: ["criterion"] }],
+    }), false);
     assert.equal(
         isPendingInteraction({
             kind: "ask_user",

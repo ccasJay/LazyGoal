@@ -72,6 +72,41 @@ test("browser approval projection identifies the parent program and call number"
     });
 });
 
+test("Plan task approval projection preserves the complete ordered route", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: {
+                ...initial.state.run,
+                mode: "plan",
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "task_approval",
+                    requestId: "proposal-1",
+                    proposal: { objective: "Implement the feature", completionCriteria: [{ text: "All checks pass" }] },
+                    planRouteCandidate: {
+                        stages: [
+                            { target: "Inspect existing behavior", acceptanceCriteria: ["Identify the current entry point"] },
+                            { target: "Implement the change", acceptanceCriteria: ["The feature behaves as requested", "Regression coverage passes"] },
+                        ],
+                    },
+                    approvalRequest: "Review the full plan",
+                },
+            },
+        },
+    };
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.deepEqual(session?.pendingInteraction?.kind === "task_approval" ? session.pendingInteraction.planRoute : undefined, [
+        { target: "Inspect existing behavior", acceptanceCriteria: ["Identify the current entry point"] },
+        { target: "Implement the change", acceptanceCriteria: ["The feature behaves as requested", "Regression coverage passes"] },
+    ]);
+});
+
+
 function event(
     sequence: number,
     eventType: "decision_received" | "action_staged" | "tool_finished" | "observation_recorded",

@@ -30,6 +30,11 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 
 Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按严格 v1 Schema 校验（拒绝多余字段、非法 StepRecord，缺失或非法的 `modelSelection`，以及非法的 Trajectory/Memory/Model Context/Retrieval 组合）再深复制 encode；`restore`/decode 只接受当前 v1。Schema 同时保证 normal Goal 没有 GoalPlan、Plan Mode 必须有 GoalPlan、Todo ID/position/status 与 `Run.todoId` 一致、历史 Run 的消息区间有序且不包含当前 Run。历史 Snapshot、未知版本、缺失 `modelSelection` 的旧开发快照和不完整的当前恢复状态统一在 Codec 边界抛出 `INVALID_GOAL_SNAPSHOT`，不会自动迁移、保存或回写。
 
+Plan Run 的 `planRoute` 仅能出现在已有 `approvedTask` 的 Plan Run 上。Schema 校验路线非空、阶段身份唯一、顺序状态与恢复游标一致、已接受阶段有提交序列，且序列不超过 Snapshot 的 `committedThroughSequence`；修订后的路线还必须保存非空理由。普通 Run 和待审批 Run 不能保存完整路线。Codec 对路线及修订理由做深复制往返，旧开发快照不迁移。
+
+待审批 Plan Run 的 `task_approval` 交互必须包含非空阶段和验收条件组成的 `planRouteCandidate`。Snapshot 对候选做严格字段和非空约束校验，Codec 深复制往返；该字段不含 Runtime 身份或执行状态，批准后候选随等待交互清除并由 Runtime 创建正式路线。不迁移缺失字段的旧开发快照。
+
+
 当前 Snapshot 同时校验 `pendingProgram` 与运行中父 Action、子 `pendingAction` 的身份及调用位置；Codec 原位保存恢复指针和已用结果字节数。PTC 子事实的 `programId/callIndex` 随 Trajectory 严格解析，结果仍以 Snapshot 的提交边界为准。`program_time_reserved` 是例外：它在同一 JSONL 中单独同步到磁盘，恢复时无论 Snapshot 是否纳入该事件都要计入预算，防止崩溃重置额度。Storage 不推断工具是否已经产生外部副作用。
 
 `JsonFileGoalStore.save` 对 Snapshot 只编码一次，并在同一目录写临时文件、同步后原子替换。`EINTR`、`EAGAIN`、`EBUSY` 最多尝试三次；每次重试前核对正式快照是否已成为目标内容，只有未替换时才重写相同快照。替换已成功但调用返回临时错误时继续完成归档标记清理，不重放 Runtime 提交。临时文件损坏或无法核实正式文件时停止。`listResumable` 只扫描正式 `.json` 普通文件并忽略 `.tmp`；任一正式快照损坏都会报告协议错误而非静默跳过；过滤三个终态后按 `mtime` 倒序、`goalId` 升序返回摘要。

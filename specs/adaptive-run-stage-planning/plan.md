@@ -20,7 +20,7 @@
   - 以现有 ToolDefinition.isReadOnly 契约作为唯一只读依据，在模型可见工具集合和 Runner 调用入口同时施加边界；不解析 Bash 文本，不将只读声明视为授权，也不改变 Tool Grant、YOLO、Action 审批或沙箱策略。更新 tool-core、runtime 和 model-contracts 所有者说明及相关 TSDoc。
   - 验证入口：npx tsx --test packages/runtime/test/pre-approval-stage-gate.test.ts packages/runtime/test/goal-plan-mode.test.ts packages/runtime/test/goal-plan-run.test.ts packages/runtime/test/tool-discovery.test.ts packages/runtime/test/tool-grant.test.ts。
 
-- [ ] //TODO 3. 让 Plan Run 按复杂度形成路线，并把路线纳入单一任务提案
+- [x] //TODO 3. 让 Plan Run 按复杂度形成路线，并把路线纳入单一任务提案
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.4](./spec.md#spec-req-1-4)、[2.3](./spec.md#spec-req-2-3)、[2.4](./spec.md#spec-req-2-4)。
   - 先在 Agent Prompt、模型输出和 Runtime 任务提案测试中断言：单一连贯结果产出一个阶段；多个可独立验收结果、真实依赖或不同验证关口产出有序多阶段路线；不按 Step/工具/token 数凑阶段；影响范围、正确性或授权的未知信息先通过 ask_user 收集；一次 task_proposal 同时包含范围、总体验收条件和完整路线。
   - 将路线候选接入 Plan Run 的模型输出契约、Prompt 与现有任务提案交互；批准对象保持单一。普通模式 Prompt 与 Runtime 不新增全路线输出要求。保留只读探查、用户提问、拒绝提案与恢复已有语义。更新 agent、model-contracts、runtime 所有者说明。

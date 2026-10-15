@@ -14,6 +14,7 @@ import {
     type RequestThink,
     type AskUserAgentDecision,
     type CompletionEvidence,
+    type RunPlanRouteCandidate,
     CompletionEvidenceContract,
     ContextLookupFiltersContract,
     ContextLookupNeedContract,
@@ -24,6 +25,7 @@ import {
     GoalPlanPatchOperationContract,
     type GoalPlanPatchOperation,
     GoalTaskContract,
+    RunPlanRouteCandidateContract,
     AskUserQuestionInputContract,
 } from "./canonical";
 import { ModelOutputContractDefinitionError } from "./errors";
@@ -234,6 +236,7 @@ export const SystemContextLookupInputContract = contract.object({
 /** 统一执行流提交任务提案工具参数契约。 */
 export const SystemProposeTaskPlanInputContract = contract.object({
     task: GoalTaskContract,
+    planRoute: RunPlanRouteCandidateContract,
     approvalRequest: contract.string(),
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
@@ -429,11 +432,12 @@ export const SystemAskUserDeclaration: AskUserTool = buildDeclaration(
 
 export const SystemProposeTaskPlanDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_propose_task_plan",
-    "Before task approval, propose the goal task objective and verifiable completion criteria for user approval once its scope is clear; do not add routine confirmation questions. Note: acceptance is optional; only specify acceptance for criteria verifiable by an authorized execution tool (e.g. bash, read_file). NEVER use system functions (like system_complete_task) as expectToolId. For analysis or summary criteria, omit acceptance.",
+    "After collecting missing information that materially affects scope, correctness or authorization, submit one approval proposal containing the task objective, verifiable completion criteria, and the complete ordered stage route. Use one stage for one coherent outcome; use multiple stages for independently verifiable deliverables, real dependencies, or distinct verification gates. Do not split by expected Step, Tool call, duration or token counts. Each route stage needs a target and acceptance criteria. Do not add routine confirmation questions. Task criterion acceptance is optional and should only reference authorized business tools; never use system functions as expectToolId.",
     SystemProposeTaskPlanInputContract,
     (args: { task: any; approvalRequest: string; memoryPatch?: unknown }): AgentDecision => ({
         kind: "task_proposal",
         task: args.task,
+        planRoute: args.planRoute,
         approvalRequest: args.approvalRequest,
         ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
     }),

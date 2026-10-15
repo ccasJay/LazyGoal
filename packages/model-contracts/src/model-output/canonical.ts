@@ -1021,6 +1021,7 @@ export type AskUserAgentDecision = InferContract<typeof AskUserAgentDecisionCont
  * const proposal: TaskProposalAgentDecision = {
  *     kind: "task_proposal",
  *     task: { objective: "修复问题", completionCriteria: [{ text: "测试通过" }] },
+ *     planRoute: { stages: [{ target: "实现修复", acceptanceCriteria: ["测试通过"] }] },
  *     approvalRequest: "请批准任务计划",
  * };
  * ```
@@ -1028,6 +1029,7 @@ export type AskUserAgentDecision = InferContract<typeof AskUserAgentDecisionCont
 export const TaskProposalAgentDecisionContract = contract.object({
     kind: contract.literal("task_proposal"),
     task: GoalTaskContract,
+    planRoute: RunPlanRouteCandidateContract,
     approvalRequest: contract.string(),
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });

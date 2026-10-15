@@ -12,6 +12,7 @@ import type {
     FactStability,
     FactValue,
     GoalTask,
+    RunPlanRouteCandidate,
     HypothesisCreate,
     HypothesisUpdate,
     MemoryPatchOperation,
@@ -62,6 +63,7 @@ export type {
     CompletionExpectOutcome,
     CompletionCriterion,
     GoalTask,
+    RunPlanRouteCandidate,
     AskUserQuestion,
     AskUserAnswer,
     ToolObservation,
@@ -435,6 +437,7 @@ export interface PendingInteractionAskUser {
  *     kind: "task_approval",
  *     requestId: "proposal-1",
  *     proposal: task,
+ *     planRouteCandidate: { stages: [{ target: "调查", acceptanceCriteria: ["定位入口"] }] },
  *     approvalRequest: "请确认任务目标",
  * };
  * ```
@@ -443,6 +446,8 @@ export interface PendingInteractionTaskApproval {
     readonly kind: "task_approval";
     readonly requestId: string;
     readonly proposal: GoalTask;
+    /** 待用户批准的完整有序路线；仅 Plan Run 任务提案包含此交互。 */
+    readonly planRouteCandidate: RunPlanRouteCandidate;
     readonly approvalRequest: string;
 }
 

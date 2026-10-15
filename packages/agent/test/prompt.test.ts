@@ -576,20 +576,14 @@ test("Context Epoch 按 Conversation 原始索引过滤，而不是按裁剪后�
     assert.ok(request.messages.slice(3, -1).some((message) => message.content.includes("section: run_mode")));
 });
 
-test("Plan 未批准时保留全部已授权 ToolDefinition", async () => {
+test("Plan 未批准时仅投影 Runtime 提供的只读 ToolDefinition", async () => {
     const readOnlyTool: ToolDefinition = {
         id: "read_file",
         description: "读取文件",
         inputContract: PATH_INPUT_CONTRACT,
         isReadOnly: true,
     };
-    const writeTool: ToolDefinition = {
-        id: "write_file",
-        description: "写入文件",
-        inputContract: PATH_INPUT_CONTRACT,
-        isReadOnly: false,
-    };
-    const tools: readonly ToolDefinition[] = [readOnlyTool, writeTool];
+    const tools: readonly ToolDefinition[] = [readOnlyTool];
     const views: ModelInferenceView[] = [];
     const capturingRenderer: PromptBundleRenderer = {
         render() {
@@ -607,8 +601,8 @@ test("Plan 未批准时保留全部已授权 ToolDefinition", async () => {
     await stepRequest(createUnapprovedGoal(), tools, capturingRenderer);
 
     assert.ok(views.length > 0);
-    assert.ok(views.every((view) => view.dynamicContext.authorizedTools.length === 2));
-    assert.deepEqual(views[0]?.dynamicContext.authorizedTools.map((tool) => tool.id), ["read_file", "write_file"]);
+    assert.ok(views.every((view) => view.dynamicContext.authorizedTools.length === 1));
+    assert.deepEqual(views[0]?.dynamicContext.authorizedTools.map((tool) => tool.id), ["read_file"]);
     assert.notStrictEqual(views[0]?.dynamicContext.authorizedTools[0], readOnlyTool);
     assert.notStrictEqual(views[0]?.dynamicContext.authorizedTools[0]?.inputSchema, PATH_INPUT_CONTRACT);
     assert.equal(Object.isFrozen(views[0]?.dynamicContext.authorizedTools[0]?.inputSchema), true);
@@ -934,7 +928,7 @@ test("RuntimeFeedback is a tagged stage message and does not alter Conversation 
     assert.deepEqual(goal.state.messages, originalMessages);
 });
 
-test("buildStepRequest 在 Plan 提案前不按 isReadOnly 过滤 Profile 已授权工具", async () => {
+test("buildStepRequest 在 Plan 提案前只编码 Runtime 提供的明确只读工具", async () => {
     const mixedTools: readonly ToolDefinition[] = [
         // 1. 内置只读工具
         {
@@ -974,9 +968,10 @@ test("buildStepRequest 在 Plan 提案前不按 isReadOnly 过滤 Profile 已授
     ];
 
     const unapprovedGoal = createUnapprovedGoal();
+    const readonlyTools = mixedTools.filter((tool) => tool.isReadOnly === true);
     const plan = await buildStepRequest(
         unapprovedGoal,
-        mixedTools,
+        readonlyTools,
         renderer,
         contextCompactor,
         undefined,
@@ -985,9 +980,14 @@ test("buildStepRequest 在 Plan 提案前不按 isReadOnly 过滤 Profile 已授
     );
 
     const dynamicText = plan.request.messages.slice(1, -1).map((message) => message.content).join("\n");
-    for (const id of ["read_file", "web_search", "custom_doc_search", "write_file", "bash", "unknown_side_effect_tool"]) {
-        assert.ok(dynamicText.includes(id), `Profile 已授权的 ${id} 应保持暴露`);
+    for (const id of ["read_file", "web_search", "custom_doc_search"]) {
+        assert.ok(dynamicText.includes(id), `审批前明确只读的 ${id} 应保持暴露`);
     }
+    for (const id of ["write_file", "bash", "unknown_side_effect_tool"]) {
+        assert.equal(dynamicText.includes(id), false, `审批前不应暴露 ${id}`);
+    }
+    assert.match(dynamicText, /only with business Tools explicitly marked `isReadOnly: true`/);
+    assert.match(dynamicText, /Do not call a mutating or unclassified Tool before task approval/);
 });
 
 test("GoalPlan Tool 仅在 Plan Mode 暴露，已存在的计划在普通模式仍投影", async () => {

@@ -459,6 +459,8 @@ export interface GoalSnapshotRunStateV1 {
     readonly memoryRevision?: GoalSnapshotMemoryRevisionV1 | undefined;
     /** Snapshot 中当前活动或最新已接受的 Run 内部阶段。 */
     readonly currentStage?: GoalSnapshotRunStageV1 | undefined;
+    /** 已批准 Plan Run 的完整路线；普通 Run 和待审批 Run 省略。 */
+    readonly planRoute?: GoalSnapshotPlanRouteV1 | undefined;
     readonly lastStep?: GoalSnapshotStepRecordV1 | undefined;
     readonly pendingAction?: GoalSnapshotPendingActionV1 | undefined;
     readonly pendingProgram?: GoalSnapshotPendingProgramV1 | undefined;
@@ -623,6 +625,7 @@ export interface GoalSnapshotPendingInteractionAskUserV1 {
  *     kind: "task_approval",
  *     requestId: "proposal-1",
  *     proposal: { objective: "重构模块", completionCriteria: [] },
+ *     planRouteCandidate: { stages: [{ target: "调查", acceptanceCriteria: ["定位入口"] }] },
  *     approvalRequest: "请确认任务目标",
  * };
  * ```
@@ -631,7 +634,37 @@ export interface GoalSnapshotPendingInteractionTaskApprovalV1 {
     readonly kind: "task_approval";
     readonly requestId: string;
     readonly proposal: GoalSnapshotTaskV1;
+    readonly planRouteCandidate: GoalSnapshotPlanRouteCandidateV1;
     readonly approvalRequest: string;
+}
+
+/**
+ * Snapshot 中待审批路线的单个候选阶段。
+ *
+ * @example
+ * ```ts
+ * const stage: GoalSnapshotPlanRouteCandidateStageV1 = {
+ *     target: "调查入口", acceptanceCriteria: ["定位现有实现"],
+ * };
+ * ```
+ */
+export interface GoalSnapshotPlanRouteCandidateStageV1 {
+    readonly target: string;
+    readonly acceptanceCriteria: readonly string[];
+}
+
+/**
+ * Snapshot 中任务审批交互携带的完整候选路线；获批后 Runtime 才分配阶段身份。
+ *
+ * @example
+ * ```ts
+ * const route: GoalSnapshotPlanRouteCandidateV1 = {
+ *     stages: [{ target: "调查入口", acceptanceCriteria: ["定位现有实现"] }],
+ * };
+ * ```
+ */
+export interface GoalSnapshotPlanRouteCandidateV1 {
+    readonly stages: readonly GoalSnapshotPlanRouteCandidateStageV1[];
 }
 
 /** Snapshot 中的挂起用户交互联合类型。 */
@@ -1081,6 +1114,12 @@ const PendingInteractionTaskApprovalSchema = z.object({
     kind: z.literal("task_approval"),
     requestId: NonEmptyStringSchema,
     proposal: GoalSnapshotTaskSchema,
+    planRouteCandidate: z.object({
+        stages: z.array(z.object({
+            target: NonEmptyStringSchema,
+            acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
+        }).strict()).min(1),
+    }).strict(),
     approvalRequest: NonEmptyStringSchema,
 }).strict();
 

@@ -39,7 +39,7 @@ Decide 按阶段专用 Adapter 执行：支持原生严格输出的供应商在�
 
 ## 当前决策门控
 
-Contracts 根据当前 Run 的模式、任务批准状态和可见工具集合生成决策声明：普通 Run 可直接提交完成候选，Plan Run 必须先批准任务才可完成。Plan Mode 额外暴露 `system_update_goal_plan`。Schema 可见性不授予执行权；Runtime 仍执行 Profile、Registry、Policy、审批和沙箱校验。
+Contracts 根据当前 Run 的模式、任务批准状态和可见工具集合生成决策声明：普通 Run 可直接提交完成候选，Plan Run 必须先批准任务才可完成。任务未批准时，Runtime 只传入明确声明 `isReadOnly: true` 的工具，固定 Prompt 说明此边界；Plan Mode 额外暴露 `system_update_goal_plan`。Plan Prompt 要求先收集影响范围、正确性或授权的关键信息，再按独立交付结果、真实依赖和验收关口形成单阶段或多阶段完整路线，并随单个任务提案提交；普通 Run 不要求全路线。Schema 可见性不授予执行权；Runtime 仍在调用入口校验只读门、Profile、Registry、Policy、审批和沙箱规则。
 
 ## 完成审查
 

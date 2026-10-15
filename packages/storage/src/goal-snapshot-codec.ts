@@ -183,6 +183,12 @@ function encodePendingInteraction(
                 kind: "task_approval",
                 requestId: interaction.requestId,
                 proposal: encodeTask(interaction.proposal),
+                planRouteCandidate: {
+                    stages: interaction.planRouteCandidate.stages.map((stage) => ({
+                        target: stage.target,
+                        acceptanceCriteria: [...stage.acceptanceCriteria],
+                    })),
+                },
                 approvalRequest: interaction.approvalRequest,
             };
     }
@@ -654,6 +660,12 @@ function decodePendingInteraction(
                 kind: "task_approval",
                 requestId: interaction.requestId,
                 proposal: decodeTask(interaction.proposal),
+                planRouteCandidate: {
+                    stages: interaction.planRouteCandidate.stages.map((stage) => ({
+                        target: stage.target,
+                        acceptanceCriteria: [...stage.acceptanceCriteria],
+                    })),
+                },
                 approvalRequest: interaction.approvalRequest,
             };
     }

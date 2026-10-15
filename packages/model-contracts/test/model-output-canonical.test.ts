@@ -130,9 +130,16 @@ test("统一 AgentDecision 接受 ask_user 与 task_proposal 并拒绝额外字�
             objective: "构建模块",
             completionCriteria: [{ text: "标准 1" }],
         },
+        planRoute: { stages: [{ target: "调查模块", acceptanceCriteria: ["定位入口"] }] },
         approvalRequest: "是否确认？",
     };
     assert.equal(safeParse(AgentDecisionContract, taskProposal).success, true);
+    const { planRoute: _route, ...missingRoute } = taskProposal;
+    assert.equal(safeParse(AgentDecisionContract, missingRoute).success, false);
+    assert.equal(safeParse(AgentDecisionContract, {
+        ...taskProposal,
+        planRoute: { stages: [] },
+    }).success, false);
 
     const withExtra = {
         ...askUser,
@@ -249,6 +256,7 @@ test("validateModelOutputSemantics 拦截空白文本语义且不 trim 输入", 
             objective: "",
             completionCriteria: [{ text: "标准 1" }, { text: "  ", acceptance: { expectToolId: "  ", expectOutcome: "success" } }],
         },
+        planRoute: { stages: [{ target: "调查", acceptanceCriteria: ["定位入口"] }] },
     };
     const taskIssues = validateModelOutputSemantics(blankTask);
     assert.equal(taskIssues.length, 4);
@@ -281,6 +289,7 @@ test("validateModelOutputSemantics 拦截空白文本语义且不 trim 输入", 
                 { text: "总结分析", acceptance: { expectToolId: "system_complete_task", expectOutcome: "success" } },
             ],
         },
+        planRoute: { stages: [{ target: "分析", acceptanceCriteria: ["列出发现"] }] },
     };
     const systemToolIssues = validateModelOutputSemantics(systemToolTask);
     assert.equal(systemToolIssues.length, 1);
@@ -371,7 +380,7 @@ test("AuthorizedToolContract 支持 isReadOnly 属性并通过 isReadOnlyToolCon
     assert.equal(isReadOnlyToolContract(defaultTool), false);
 });
 
-test("普通 Run 使用直接执行决策，Plan Run 在提案前仍暴露全部授权 Tool", () => {
+test("普通 Run 保留现有工具 Schema，Plan Run 提案前只接受 Runtime 提供的只读工具", () => {
     const readFileInputContract = contract.object({ path: contract.string() });
     const grepInputContract = contract.object({ pattern: contract.string() });
     const writeFileInputContract = contract.object({ path: contract.string(), content: contract.string() });
@@ -442,11 +451,11 @@ test("普通 Run 使用直接执行决策，Plan Run 在提案前仍暴露全部
         kind: "executing",
         taskPresent: false,
         planMode: true,
-        authorizedTools: tools,
+        authorizedTools: tools.filter(isReadOnlyToolContract),
     });
     assert.equal(planBundle.name, "plan_mode_unapproved_executing_agent_decision");
 
-    // Plan Prompt 要求先提案，但响应契约不会按 isReadOnly 过滤已授权 Tool。
+    // Runtime 筛选出的工具集合成为 Plan Run 输出契约的 Schema 边界。
     const illegalWriteWireJson = {
         result: {
             kind: "tool_call",
@@ -458,7 +467,7 @@ test("普通 Run 使用直接执行决策，Plan Run 在提案前仍暴露全部
             memoryPatch: null,
         },
     };
-    assert.equal(planBundle.decode(illegalWriteWireJson).kind, "tool_call");
+    assert.throws(() => planBundle.decode(illegalWriteWireJson));
     assert.throws(() => planBundle.decode({
         result: { kind: "complete", summary: "未批准完成", completionEvidence: [], memoryPatch: null },
     }));

@@ -27,6 +27,7 @@ import type {
     BrowserSessionStep,
     BrowserRunStageGroup,
     BrowserRunStageStatus,
+    BrowserPlanRouteStage,
 } from "../../web-contracts/src/index";
 
 export type {
@@ -41,6 +42,7 @@ export type {
     BrowserSessionStep,
     BrowserRunStageGroup,
     BrowserRunStageStatus,
+    BrowserPlanRouteStage,
 };
 
 const MAX_TEXT_LENGTH = 4_000;
@@ -614,6 +616,10 @@ function projectPendingInteraction(
         completionCriteria: pending.proposal.completionCriteria
             .slice(0, 32)
             .map((criterion) => boundedText(criterion.text, 1_000)),
+        planRoute: pending.planRouteCandidate.stages.map((stage): BrowserPlanRouteStage => ({
+            target: boundedText(stage.target, 1_000),
+            acceptanceCriteria: stage.acceptanceCriteria.map((criterion) => boundedText(criterion, 500)),
+        })),
     };
 }
 

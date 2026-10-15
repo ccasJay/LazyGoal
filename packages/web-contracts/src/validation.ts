@@ -275,7 +275,14 @@ export function isPendingInteraction(value: unknown): value is BrowserPendingInt
         return typeof value.objective === "string"
             && typeof value.approvalRequest === "string"
             && Array.isArray(value.completionCriteria)
-            && value.completionCriteria.every((item) => typeof item === "string");
+            && value.completionCriteria.every((item) => typeof item === "string")
+            && Array.isArray(value.planRoute)
+            && value.planRoute.length > 0
+            && value.planRoute.every((stage) => isRecord(stage)
+                && isNonEmptyString(stage.target)
+                && Array.isArray(stage.acceptanceCriteria)
+                && stage.acceptanceCriteria.length > 0
+                && stage.acceptanceCriteria.every(isNonEmptyString));
     }
     return value.kind === "ask_user"
         && (value.mode === "plan" || value.mode === "execution")
