@@ -19,6 +19,7 @@ import type {
   BrowserToolGrantSummary,
 } from "../../../../packages/web-contracts/src/index";
 import { GoalDetails, WaitingInteraction } from "../panels";
+import brandMark from "../assets/lazygoal/mark-on-light.svg?no-inline";
 import { Trajectory } from "../trajectory";
 import { sessionStatus, sessionStatusTone } from "../types";
 import { useGoalSessionContext } from "../context/GoalSessionContext";
@@ -134,7 +135,7 @@ export function GoalSession({
       >
         <div className="message-heading">
           <span className={`message-avatar ${message.role}`}>
-            {message.role === "user" ? "You" : <Zap size={12} />}
+            {message.role === "user" ? "You" : <img src={brandMark} alt="" width={18} height={18} />}
           </span>
           <strong>{message.role === "user" ? "You" : "LazyGoal"}</strong>
         </div>
@@ -565,7 +566,7 @@ export function GoalSession({
                           >
                             <div className="message-heading">
                               <span className="message-avatar assistant">
-                                <Zap size={12} />
+                                <img src={brandMark} alt="" width={18} height={18} />
                               </span>
                               <strong>Live response</strong>
                               <small>Not saved yet</small>

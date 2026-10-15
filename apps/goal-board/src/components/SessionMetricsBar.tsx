@@ -57,8 +57,8 @@ export function SessionMetricsBar({ state }: { state?: MetricsState }) {
             style={{
               background:
                 metrics.contextRemainingPercent == null
-                  ? "#59606d"
-                  : `conic-gradient(var(--blue) ${metrics.contextRemainingPercent * 100}%, #59606d 0)`,
+                  ? "var(--control-border)"
+                  : `conic-gradient(var(--accent-ink) ${metrics.contextRemainingPercent * 100}%, var(--control-border) 0)`,
             }}
             aria-hidden="true"
           />

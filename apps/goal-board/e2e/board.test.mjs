@@ -56,6 +56,26 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelector('button.primary')?.disabled"), true);
     assert.equal(mock.authorizedRequests(), 0, "preview without a fragment token makes no API requests");
 
+    for (const width of [1280, 761, 760, 390, 320]) {
+      await cdp(socket, "Emulation.setDeviceMetricsOverride", {
+        width, height: 900, deviceScaleFactor: 1, mobile: width <= 760,
+      });
+      const assetName = width <= 760 ? "mark-on-light" : "logo-on-light";
+      await waitForExpression(socket, `(() => { const image = document.querySelector('.brand-logo img'); return image?.complete && image.naturalWidth > 0 && image.currentSrc.includes('${assetName}'); })()`);
+      const brand = await value(socket, `(() => {
+        const button = document.querySelector('button[aria-label="Open Board"]');
+        const image = button.querySelector('img');
+        const bounds = image.getBoundingClientRect();
+        return { width: bounds.width, height: bounds.height, alt: image.alt, text: button.textContent.trim(), fits: bounds.left >= 0 && bounds.right <= innerWidth };
+      })()`);
+      assert.equal(brand.width, width <= 760 ? 28 : 124);
+      assert.equal(brand.height, width <= 760 ? 28 : 30);
+      assert.equal(brand.alt, "LazyGoal");
+      assert.equal(brand.text, "");
+      assert.equal(brand.fits, true);
+    }
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+
     await navigate(socket, `${webUrl}/?session=desktop#${token}`);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
     assert.equal(await value(socket, "document.querySelector('.sidebar, .view-switch, .filter') === null"), true);
@@ -74,6 +94,10 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.transient-message h1')?.textContent === 'Reviewing result…'");
     assert.doesNotMatch(await value(socket, "document.querySelector('.transient-message').innerText"), /Checking saved notes/);
     mock.commitWaitingActivity();
+    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which source should I use?')");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Open Board\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.goal-card') !== null && document.querySelector('.session') === null");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which source should I use?')");
     const conversationBounds = await value(socket, "(() => { const timeline = document.querySelector('.run-timeline').getBoundingClientRect(); const composer = document.querySelector('.composer-area .approval').getBoundingClientRect(); return { timelineWidth: timeline.width, composerWidth: composer.width, centerGap: Math.abs((timeline.left + timeline.right - composer.left - composer.right) / 2) }; })()");
     assert.ok(conversationBounds.timelineWidth <= 800 && conversationBounds.composerWidth <= 800);
@@ -254,7 +278,9 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelector('.message.assistant .markdown-table-scroll td')?.textContent"), "Source");
     assert.equal(await value(socket, "document.querySelector('.message.assistant li strong')?.textContent"), "Verified");
     assert.equal(await value(socket, "document.querySelector('.message.assistant pre code')?.textContent.trim()"), "run-1");
-    assert.equal(await value(socket, "document.querySelector('.message.assistant script, .message.assistant img') === null"), true);
+    assert.equal(await value(socket, "document.querySelector('.message.assistant script, .message.assistant .message-body img') === null"), true);
+    await waitForExpression(socket, "document.querySelector('.message.assistant .message-avatar img')?.naturalWidth > 0");
+    assert.match(await value(socket, "document.querySelector('.message.assistant .message-avatar img').currentSrc"), /mark-on-light/);
     assert.equal(mock.lastInteraction.scope, "goal");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.textContent === 'Trajectory').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('Retry inputs')");

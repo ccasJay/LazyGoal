@@ -61,6 +61,20 @@ test("real local service restores and completes one authorized Goal conversation
     await navigate(socket, `${first.origin}/`);
     await waitForExpression(socket, "document.body.innerText.includes('lazygoal web')");
     assert.equal(await value(socket, "document.querySelector('.primary')?.disabled"), true);
+    await waitForExpression(socket, "document.querySelector('.brand-logo img')?.complete && document.querySelector('.brand-logo img').naturalWidth > 0");
+    const brandAssets = await value(socket, `[
+      document.querySelector('.brand-logo img').currentSrc,
+      new URL(document.querySelector('.brand-logo source').srcset, location.href).href,
+      document.querySelector('link[rel="icon"]').href,
+    ]`);
+    for (const assetUrl of brandAssets) {
+      assert.equal(new URL(assetUrl).origin, first.origin);
+      assert.match(new URL(assetUrl).pathname, /^\/assets\/.*\.svg$/);
+      const asset = await fetch(assetUrl);
+      assert.equal(asset.status, 200, "brand assets are public on the real static service");
+      assert.match(asset.headers.get("content-type"), /image\/svg\+xml/);
+      assert.match(await asset.text(), /<svg\b/);
+    }
     await navigate(socket, "about:blank");
     await navigate(socket, first.launchUrl);
     await waitForExpression(socket, "document.body.innerText.includes('No saved Goals yet')");

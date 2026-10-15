@@ -1,7 +1,9 @@
 import { createRoot } from "react-dom/client";
-import { ChevronRight, Folder, Plus, X, Zap } from "lucide-react";
+import { ChevronRight, Folder, Plus, X } from "lucide-react";
 
 import { browserApi } from "./api";
+import logoOnLight from "./assets/lazygoal/logo-on-light.svg?no-inline";
+import markOnLight from "./assets/lazygoal/mark-on-light.svg?no-inline";
 import { GoalSession } from "./components/GoalSession";
 import { ModelPicker } from "./components/ModelPicker";
 import { GoalSessionProvider } from "./context/GoalSessionContext";
@@ -20,7 +22,10 @@ function App() {
             <header className="topbar">
               <div className="topbar-identity">
                 <button className="topbar-brand" aria-label="Open Board" onClick={app.closeSession}>
-                  <span className="brand-icon"><Zap size={19} fill="currentColor" /></span>LazyGoal
+                  <picture className="brand-logo">
+                    <source media="(max-width: 760px)" srcSet={markOnLight} />
+                    <img src={logoOnLight} alt="LazyGoal" width={124} height={30} />
+                  </picture>
                 </button>
                 <div className="breadcrumb">
                   <Folder size={15} />

@@ -3,23 +3,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 
-test("favicon.ico exists and has valid ICO header", () => {
-  const faviconPath = path.resolve(import.meta.dirname, "../public/favicon.ico");
-  assert.equal(fs.existsSync(faviconPath), true, "public/favicon.ico must exist");
-
-  const buffer = fs.readFileSync(faviconPath);
-  assert.ok(buffer.length > 22, "ICO file must be larger than header size");
-
-  // Reserved 0x0000, type 0x0001 (ICO), count >= 1
-  assert.equal(buffer.readUInt16LE(0), 0);
-  assert.equal(buffer.readUInt16LE(2), 1);
-  assert.ok(buffer.readUInt16LE(4) >= 1);
-});
-
-test("index.html references favicon.ico", () => {
+test("index.html references the bundled SVG favicon", () => {
   const htmlPath = path.resolve(import.meta.dirname, "../index.html");
   const html = fs.readFileSync(htmlPath, "utf-8");
-  assert.ok(html.includes('href="/favicon.ico"'), "index.html must reference /favicon.ico");
+  const icon = html.match(/<link\s+rel="icon"\s+type="image\/svg\+xml"\s+href="([^"]+)"/);
+  assert.ok(icon, "index.html must reference an SVG favicon");
+  const faviconPath = icon[1].split("?")[0];
+  const favicon = fs.readFileSync(path.resolve(import.meta.dirname, `..${faviconPath}`), "utf-8");
+  assert.match(favicon, /<svg\b[^>]*xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+  assert.match(favicon, /viewBox="0 0 100 100"/);
 });
 
 test("style.css contains fixed activity-filter, jump and command-notice styles", () => {
@@ -28,7 +20,7 @@ test("style.css contains fixed activity-filter, jump and command-notice styles",
 
   // 1. activity-filter solid background & border
   assert.ok(css.includes(".activity-filter"));
-  assert.ok(css.includes("border-bottom: 1px solid rgba(255, 255, 255, 0.08)"));
+  assert.ok(css.includes("border-bottom: 1px solid var(--line)"));
   assert.ok(css.includes("background: var(--panel)"));
 
   // 2. jump button positioned at bottom-right
