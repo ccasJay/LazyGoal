@@ -50,7 +50,7 @@
   - 将 ActivityProjector 接入实际实时订阅、轨迹分页和会话 UI；安全 Web DTO 必须保留分组所需身份与公开事件信息，不扩大 restricted/diagnostic 可见范围。新增界面行为通过键盘可访问的展开控件暴露；更新 goal-board 的 TSDoc 与模块说明。
   - 验证入口：npm run --prefix apps/goal-board test；npm run --prefix apps/goal-board test:e2e（扩展 apps/goal-board/e2e/run-stages.test.mjs 或新增对应场景）。
 
-- [ ] //TODO 8. 联调 Plan/普通 Run 边界并完成模块说明
+- [x] //TODO 8. 联调 Plan/普通 Run 边界并完成模块说明
   - 落实标准：[3.1](./spec.md#spec-req-3-1)、[3.2](./spec.md#spec-req-3-2)、[3.3](./spec.md#spec-req-3-3)、[4.4](./spec.md#spec-req-4-4)、[4.5](./spec.md#spec-req-4-5)、[5.1](./spec.md#spec-req-5-1)、[5.8](./spec.md#spec-req-5-8)。
   - 先建立跨层场景断言：Plan Run 从只读调查、信息收集、单次路线审批到多阶段执行/中途恢复完整闭环；普通 Run 保持原阶段决策及审批边界且没有完整路线字段或审批前只读门；两种模式活动组都可展开并追溯来源；GoalPlan 与 Run/Goal 终态语义不变。
   - 核对并同步 Runtime、Model Contracts、Agent、Storage、Browser、Web Contracts 和 Goal Board 所有者 README、notes/overview.md、notes/semantics.md 与语义表；不改写已有历史 Spec/Memory。完成文档链接、类型和依赖边界检查。
@@ -95,4 +95,7 @@
 
 ### Latest Result
 
-- 总体状态：未执行
+- 总体状态：failed；freshness：current。验证时间：2026-10-16T06:28:42+08:00；实现测试所基于的提交为 `e618394e`，TODO8 仅增加 README 与本结果记录。
+- 通过：TODO8 指定的 Runtime/Browser/Projector 跨层命令共 40/40；Goal Board 单元测试 47/47；`npm run check:docs`（30 个模块、115 篇当前文档）；`npm run check:dependencies`（225 个源文件）；Goal Board TypeScript 构建；阶段路线和活动组相关 E2E 场景通过。
+- 未通过：完整 `npm run --prefix apps/goal-board test:e2e` 为 3/4。`apps/goal-board/e2e/board.test.mjs` 的通用会话场景在发送 `//plan` 后等待 `/plan` 消息请求超时（第 566 行）；同一测试单独运行通过 1/1，显示该用例在完整套件中有间歇性失败。此处未观察到路线/活动组断言失败；活动组断言和专属阶段/恢复 E2E 均通过。
+- 归属与复现：测试时 HEAD 为 `e618394e`；当时工作区含其他未提交功能，`packages/**/src|test` 与 `apps/**/src|test|e2e` 相对 HEAD 的二进制 diff SHA-256 为 `60d47c0720b7d88e28a4e452ff897850faeea854b97da7a97e4f3179aadae2f7`。验证结果适用于该工作区快照；完整 E2E 套件仍需排查并复验，故 Spec 暂不标记为 delivered。
