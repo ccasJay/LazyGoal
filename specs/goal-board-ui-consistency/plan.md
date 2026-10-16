@@ -44,7 +44,7 @@
   - 实施目标：以 trace-workbench 终态为基准将 `trajectory.css` 重写为可读格式的单层规则；`.goal-info-toggle`/`.goal-info-panel` 迁至 `style.css`；重写后每个选择器至多定义一次，消费 TODO 1 的字号 token。
   - 验证手段：grep 断言脚本扩展（`test/design-token.test.ts`：trajectory.css 无重复选择器定义、无非 Trajectory 规则）+ `npm run test:e2e --prefix apps/goal-board` 全绿（选择器与几何保持）+ 对重写前后截取 Trajectory 视图截图比对（评审记录）。
 
-- [ ] //TODO 9. Queue 的 localStorage 持久化与恢复
+- [x] //TODO 9. Queue 的 localStorage 持久化与恢复
   - 落实标准：[7.1](./spec.md#spec-req-7-1), [7.2](./spec.md#spec-req-7-2), [7.3](./spec.md#spec-req-7-3), [7.4](./spec.md#spec-req-7-4), [7.5](./spec.md#spec-req-7-5)
   - 实施目标：`useQueue` 新增 localStorage 镜像层（key `lazygoal.queue.<goalId>`），入队/暂停/继续/消费/删除时同步写删；读取经 JSON 结构守卫，非法即清空降级内存；存储异常不阻塞状态机；同步更新 `apps/goal-board/notes/overview.md` 与语义表（删除"刷新页面会丢失 Queue"限制，写入持久化语义与归属模块）。`RunControlContext` 对外契约不变。
   - 验证手段：新增 `apps/goal-board/test/queue-persistence.test.ts`（写读恢复、损坏数据清空、写失败降级、跨 Goal 隔离）+ `npm test --prefix apps/goal-board` 全绿 + e2e `runtime.test.mjs` 补刷新恢复场景断言。
