@@ -98,7 +98,6 @@ test("任务批准卡片在批准按钮前展示完整有序阶段路线", async
   assert.match(html, /Regression checks pass/);
 });
 
-
 test("路线扩展 AskUser 卡片展示审批理由和完整候选阶段", async () => {
   const React = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
