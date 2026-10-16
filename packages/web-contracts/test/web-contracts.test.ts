@@ -21,6 +21,12 @@ import {
     isModelInputs,
     isModelPreferenceAccepted,
     isModelSelectionAccepted,
+    isProviderProfile,
+    isProviderSettingsReadResult,
+    isProviderProfileWriteResult,
+    isProviderProfileDeleteResult,
+    isProviderProfileActivationResult,
+    isProviderProfileTestResult,
     isOkResponse,
     isPendingAction,
     isPendingInteraction,
@@ -326,4 +332,56 @@ test("isResumeGoalCommand validates valid and invalid resume commands", () => {
     assert.equal(isResumeGoalCommand({ runId: "run-1", expectedCommittedThroughSequence: -1 }), false);
     assert.equal(isResumeGoalCommand({ runId: "run-1", expectedCommittedThroughSequence: 1.5 }), false);
     assert.equal(isResumeGoalCommand({ runId: "run-1" }), false);
+});
+
+const maskedProfile = {
+    id: "profile-1",
+    label: "OpenAI 主账号",
+    kind: "openai",
+    defaultModel: "gpt-4o",
+    hasApiKey: true,
+    apiKeyMask: "****c123",
+};
+
+test("Provider 档案守卫接受掩码投影并拒绝明文凭据字段", () => {
+    assert.equal(isProviderProfile(maskedProfile), true);
+    assert.equal(isProviderProfile({ ...maskedProfile, apiKey: "sk-raw" }), false);
+    assert.equal(isProviderProfile({ ...maskedProfile, id: "" }), false);
+    assert.equal(isProviderProfile({ ...maskedProfile, hasApiKey: "yes" }), false);
+    assert.equal(isProviderProfile({ ...maskedProfile, structuredOutputMode: "nope" }), false);
+    assert.equal(isProviderProfile({ ...maskedProfile, structuredOutputMode: "prompt_only" }), true);
+});
+
+test("Provider 设置守卫校验来源维度、回退与错误分类", () => {
+    assert.equal(isProviderSettingsReadResult({
+        ok: true,
+        settings: {
+            activeProfileId: "profile-1",
+            profiles: [maskedProfile],
+            fallback: { source: "config", provider: "google", model: "gemini-2.5-pro" },
+        },
+    }), true);
+    assert.equal(isProviderSettingsReadResult({ ok: true, settings: { profiles: [] } }), true);
+    assert.equal(isProviderSettingsReadResult({ ok: true, settings: { profiles: [{ ...maskedProfile, apiKey: "sk-raw" }] } }), false);
+    assert.equal(isProviderSettingsReadResult({ ok: true, settings: { profiles: [], fallback: { source: "env", provider: "openai", model: "gpt-4o" } } }), false);
+    assert.equal(isProviderSettingsReadResult({ ok: false, error: "provider_profile_unavailable" }), true);
+    assert.equal(isProviderSettingsReadResult({ ok: false }), false);
+});
+
+test("Provider 写入、删除、激活与测试守卫区分成功与失败形态", () => {
+    assert.equal(isProviderProfileWriteResult({ ok: true, profile: maskedProfile }), true);
+    assert.equal(isProviderProfileWriteResult({ ok: false, error: "provider_profile_invalid", fields: ["base_url"] }), true);
+    assert.equal(isProviderProfileWriteResult({ ok: false, error: "provider_profile_invalid", fields: [1] }), false);
+    assert.equal(isProviderProfileWriteResult({ ok: true, profile: { ...maskedProfile, apiKey: "sk-raw" } }), false);
+
+    assert.equal(isProviderProfileDeleteResult({ ok: true, profile: maskedProfile, mayBeReferencedByGoals: true }), true);
+    assert.equal(isProviderProfileDeleteResult({ ok: true, profile: maskedProfile }), false);
+    assert.equal(isProviderProfileDeleteResult({ ok: false, error: "provider_profile_active" }), true);
+
+    assert.equal(isProviderProfileActivationResult({ ok: true, activeProfileId: "profile-1" }), true);
+    assert.equal(isProviderProfileActivationResult({ ok: true }), false);
+
+    assert.equal(isProviderProfileTestResult({ ok: true, modelCount: 29 }), true);
+    assert.equal(isProviderProfileTestResult({ ok: true, modelCount: -1 }), false);
+    assert.equal(isProviderProfileTestResult({ ok: false, error: "model_catalog_authentication" }), true);
 });

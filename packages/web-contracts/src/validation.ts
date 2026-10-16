@@ -22,6 +22,12 @@ import type {
     BrowserGoalSteerResult,
     BrowserGoalInterruptResult,
     SessionMetricsSnapshot,
+    BrowserProviderProfile,
+    BrowserProviderSettings,
+    BrowserProviderProfileWriteResult,
+    BrowserProviderProfileDeleteResult,
+    BrowserProviderProfileActivationResult,
+    BrowserProviderProfileTestResult,
 } from "./index";
 
 /**
@@ -498,6 +504,131 @@ export function isModelSelectionAccepted(value: unknown): value is { readonly ok
  */
 export function isModelPreferenceAccepted(value: unknown): value is { readonly ok: true; readonly modelId: string } {
     return isRecord(value) && value.ok === true && isNonEmptyString(value.modelId);
+}
+
+/**
+ * 受管 Provider 档案投影守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为掩码投影；含明文凭据字段时返回 false。
+ *
+ * @example
+ * ```ts
+ * if (isProviderProfile(p)) console.log(p.apiKeyMask);
+ * ```
+ */
+export function isProviderProfile(value: unknown): value is BrowserProviderProfile {
+    if (!isRecord(value)) return false;
+    if ("apiKey" in value) return false;
+    return isNonEmptyString(value.id)
+        && isNonEmptyString(value.label)
+        && isNonEmptyString(value.kind)
+        && isNonEmptyString(value.defaultModel)
+        && typeof value.hasApiKey === "boolean"
+        && typeof value.apiKeyMask === "string"
+        && (value.baseURL === undefined || typeof value.baseURL === "string")
+        && (value.contextWindowTokens === undefined || typeof value.contextWindowTokens === "number")
+        && (value.maxOutputTokens === undefined || typeof value.maxOutputTokens === "number")
+        && (value.structuredOutputMode === undefined || value.structuredOutputMode === "strict"
+            || value.structuredOutputMode === "prompt_only" || value.structuredOutputMode === "two_stage");
+}
+
+/**
+ * 设置页读取结果守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为读取成功响应或稳定错误响应。
+ *
+ * @example
+ * ```ts
+ * if (isProviderSettingsReadResult(res) && res.ok) console.log(res.settings.profiles.length);
+ * ```
+ */
+export function isProviderSettingsReadResult(value: unknown): value is
+    | { readonly ok: true; readonly settings: BrowserProviderSettings }
+    | { readonly ok: false; readonly error: string } {
+    if (!isRecord(value) || typeof value.ok !== "boolean") return false;
+    if (!value.ok) return typeof value.error === "string";
+    const settings = value.settings;
+    return isRecord(settings)
+        && (settings.activeProfileId === undefined || typeof settings.activeProfileId === "string")
+        && Array.isArray(settings.profiles)
+        && settings.profiles.every((profile) => isProviderProfile(profile))
+        && (settings.fallback === undefined || (isRecord(settings.fallback)
+            && settings.fallback.source === "config"
+            && isNonEmptyString(settings.fallback.provider)
+            && isNonEmptyString(settings.fallback.model)));
+}
+
+/**
+ * 档案写入结果守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为创建/更新成功响应或稳定错误响应。
+ *
+ * @example
+ * ```ts
+ * if (isProviderProfileWriteResult(res) && res.ok) console.log(res.profile.id);
+ * ```
+ */
+export function isProviderProfileWriteResult(value: unknown): value is BrowserProviderProfileWriteResult {
+    if (!isRecord(value) || typeof value.ok !== "boolean") return false;
+    if (!value.ok) {
+        return typeof value.error === "string" && (value.fields === undefined
+            || (Array.isArray(value.fields) && value.fields.every((field) => typeof field === "string")));
+    }
+    return isProviderProfile(value.profile);
+}
+
+/**
+ * 档案删除结果守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为删除成功响应或稳定错误响应。
+ *
+ * @example
+ * ```ts
+ * if (isProviderProfileDeleteResult(res) && res.ok) console.log(res.mayBeReferencedByGoals);
+ * ```
+ */
+export function isProviderProfileDeleteResult(value: unknown): value is BrowserProviderProfileDeleteResult {
+    if (!isRecord(value) || typeof value.ok !== "boolean") return false;
+    if (!value.ok) return typeof value.error === "string";
+    return isProviderProfile(value.profile) && typeof value.mayBeReferencedByGoals === "boolean";
+}
+
+/**
+ * 档案激活结果守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为激活成功响应或稳定错误响应。
+ *
+ * @example
+ * ```ts
+ * if (isProviderProfileActivationResult(res) && res.ok) console.log(res.activeProfileId);
+ * ```
+ */
+export function isProviderProfileActivationResult(value: unknown): value is BrowserProviderProfileActivationResult {
+    if (!isRecord(value) || typeof value.ok !== "boolean") return false;
+    if (!value.ok) return typeof value.error === "string";
+    return isNonEmptyString(value.activeProfileId);
+}
+
+/**
+ * 连接测试结果守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为测试成功响应或稳定错误响应。
+ *
+ * @example
+ * ```ts
+ * if (isProviderProfileTestResult(res) && res.ok) console.log(res.modelCount);
+ * ```
+ */
+export function isProviderProfileTestResult(value: unknown): value is BrowserProviderProfileTestResult {
+    if (!isRecord(value) || typeof value.ok !== "boolean") return false;
+    if (!value.ok) return typeof value.error === "string";
+    return typeof value.modelCount === "number" && Number.isFinite(value.modelCount) && value.modelCount >= 0;
 }
 
 /**

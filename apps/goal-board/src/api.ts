@@ -12,6 +12,12 @@ import {
   isModelInputDetail,
   isModelInputs,
   isModelPreferenceAccepted,
+  isProviderProfile,
+  isProviderSettingsReadResult,
+  isProviderProfileWriteResult,
+  isProviderProfileDeleteResult,
+  isProviderProfileActivationResult,
+  isProviderProfileTestResult,
   isModelSelectionAccepted,
   isOkResponse,
   isPermissionModeResult,
@@ -46,6 +52,12 @@ import {
   type BrowserTrajectoryPage,
   type BrowserTrajectoryRun,
   type BrowserWorkspaceContext,
+  type BrowserProviderProfileInput,
+  type BrowserProviderProfileWriteResult,
+  type BrowserProviderProfileDeleteResult,
+  type BrowserProviderProfileActivationResult,
+  type BrowserProviderProfileTestResult,
+  type BrowserProviderSettings,
   type SessionMetricsSnapshot,
 } from "../../../packages/web-contracts/src/index";
 
@@ -130,9 +142,14 @@ export const browserApi = {
     return postJson("/api/goals", command, isAcceptedCommand);
   },
 
-  listModels(target?: { goalId: string; runId: string }, signal?: AbortSignal): Promise<BrowserModelCatalog> {
-    const path = target === undefined ? "/api/models"
-      : `/api/goals/${encodeURIComponent(target.goalId)}/models?runId=${encodeURIComponent(target.runId)}`;
+  listModels(target?: { goalId?: string; runId?: string; providerProfileId?: string }, signal?: AbortSignal): Promise<BrowserModelCatalog> {
+    const params = new URLSearchParams();
+    if (target?.runId !== undefined) params.set("runId", target.runId);
+    if (target?.providerProfileId !== undefined) params.set("providerProfileId", target.providerProfileId);
+    const query = params.size === 0 ? "" : `?${params.toString()}`;
+    const path = target?.goalId === undefined
+      ? `/api/models${query}`
+      : `/api/goals/${encodeURIComponent(target.goalId)}/models${query}`;
     return requestJson(path, isModelCatalog, signal);
   },
 
@@ -140,8 +157,42 @@ export const browserApi = {
     return postJson(`/api/goals/${encodeURIComponent(goalId)}/model-selection`, command, isModelSelectionAccepted);
   },
 
-  setModelPreference(modelId: string): Promise<{ readonly ok: true; readonly modelId: string }> {
-    return postJson("/api/project/model-preference", { modelId }, isModelPreferenceAccepted);
+  setModelPreference(modelId: string, providerProfileId?: string): Promise<{ readonly ok: true; readonly modelId: string }> {
+    return postJson("/api/project/model-preference", {
+      modelId,
+      ...(providerProfileId === undefined ? {} : { providerProfileId }),
+    }, isModelPreferenceAccepted);
+  },
+
+  listProviders(signal?: AbortSignal): Promise<BrowserProviderSettings> {
+    return requestJson("/api/providers", isProviderSettingsReadResult, signal).then((body) => {
+      if (!body.ok) throw new BrowserApiError(body.error, 503, false);
+      return body.settings;
+    });
+  },
+
+  createProvider(input: BrowserProviderProfileInput): Promise<BrowserProviderProfileWriteResult> {
+    return postJson("/api/providers", input, isProviderProfileWriteResult);
+  },
+
+  updateProvider(profileId: string, input: BrowserProviderProfileInput, signal?: AbortSignal): Promise<BrowserProviderProfileWriteResult> {
+    return requestJson(`/api/providers/${encodeURIComponent(profileId)}`, isProviderProfileWriteResult, signal, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  },
+
+  deleteProvider(profileId: string, signal?: AbortSignal): Promise<BrowserProviderProfileDeleteResult> {
+    return requestJson(`/api/providers/${encodeURIComponent(profileId)}`, isProviderProfileDeleteResult, signal, { method: "DELETE" });
+  },
+
+  activateProvider(profileId: string, signal?: AbortSignal): Promise<BrowserProviderProfileActivationResult> {
+    return requestJson(`/api/providers/${encodeURIComponent(profileId)}/activate`, isProviderProfileActivationResult, signal, { method: "POST" });
+  },
+
+  testProvider(profileId: string, signal?: AbortSignal): Promise<BrowserProviderProfileTestResult> {
+    return requestJson(`/api/providers/${encodeURIComponent(profileId)}/test`, isProviderProfileTestResult, signal, { method: "POST" });
   },
 
   interact(
