@@ -111,12 +111,19 @@ export async function runServerSession(
                 { signal, requireTokenCapacity: configuredSelection.inputEstimator.kind === "token-encoding" },
             );
             const { catalog, selected } = resolveBrowserDraftModelCatalog(
-                configuredProvider, configuredSelection.modelId, preference, models,
+                {
+                    provider: configuredProvider,
+                    ...(configuredSelection.profileId === undefined ? {} : { profileId: configuredSelection.profileId }),
+                },
+                configuredSelection.modelId,
+                preference,
+                models,
             );
             return {
                 catalog,
                 selection: selected === undefined ? undefined : {
                     provider: configuredProvider,
+                    ...(configuredSelection.profileId === undefined ? {} : { profileId: configuredSelection.profileId }),
                     modelId: selected.id,
                     structuredOutputMode: configuredSelection.structuredOutputMode,
                     ...(selected.contextWindowTokens === undefined ? {} : { contextWindowTokens: selected.contextWindowTokens }),
@@ -133,29 +140,50 @@ export async function runServerSession(
             modelSelectionCoordinator: root.goalModelSelectionCoordinator,
             defaultModelSelection: root.defaultModelSelection,
             resolveDefaultModelSelection: async () => (await readDraftModel()).selection,
-            saveModelPreference: (selection) => preferenceStore.set({ provider: selection.provider, modelId: selection.modelId }),
+            saveModelPreference: (selection) => preferenceStore.set({
+                ...(selection.profileId === undefined ? {} : { profileId: selection.profileId }),
+                modelId: selection.modelId,
+            }),
             restoreModelBinding: async (goal) => {
-                const provider = root.llmConfig?.provider ?? root.defaultModelSelection.provider;
-                if (goal.state.modelSelection.provider !== provider) return false;
+                const selection = goal.state.modelSelection;
+                if (selection.profileId === undefined) {
+                    const provider = root.llmConfig?.provider ?? root.defaultModelSelection.provider;
+                    if (selection.provider !== provider) return false;
+                } else {
+                    try {
+                        if (root.resolveProviderProfileConfig(selection.profileId, selection.modelId).provider !== selection.provider) {
+                            return false;
+                        }
+                    } catch {
+                        return false;
+                    }
+                }
                 try {
-                    root.alignModelBinding(goal.state.modelSelection);
+                    root.alignModelBinding(selection);
                     return true;
                 } catch {
                     return false;
                 }
             },
             resolveModelSelection: async (modelId, current) => {
-                if (root.llmConfig === undefined || current.provider !== root.llmConfig.provider) {
-                    return undefined;
+                let config = root.llmConfig;
+                if (current.profileId !== undefined) {
+                    try {
+                        config = root.resolveProviderProfileConfig(current.profileId, current.modelId);
+                    } catch {
+                        return undefined;
+                    }
                 }
+                if (config === undefined) return undefined;
                 const models = await root.modelCatalog.list(
-                    { ...root.llmConfig, model: current.modelId },
+                    { ...config, model: current.modelId },
                     { requireTokenCapacity: current.inputEstimator.kind === "token-encoding" },
                 );
                 const model = models.find((entry) => entry.provider === current.provider && entry.id === modelId && entry.selectable);
                 if (model === undefined) return undefined;
                 return {
                     provider: model.provider,
+                    ...(current.profileId === undefined ? {} : { profileId: current.profileId }),
                     modelId: model.id,
                     structuredOutputMode: current.structuredOutputMode,
                     ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens }),
@@ -218,7 +246,10 @@ export async function runServerSession(
                 if (!selectable) return { ok: false, error: "model_not_selectable" };
                 try {
                     if (root.abortController.signal.aborted) return { ok: false, error: "service_shutting_down" };
-                    await preferenceStore.set({ provider: root.llmConfig.provider, modelId });
+                    await preferenceStore.set({
+                        ...(configuredSelection.profileId === undefined ? {} : { profileId: configuredSelection.profileId }),
+                        modelId,
+                    });
                     return { ok: true, modelId };
                 } catch {
                     return { ok: false, error: "model_preference_unavailable" };

@@ -14,7 +14,7 @@
   - 实施目标：先在 `apps/goal-server/test/composition-root-provider-profiles.test.ts` 断言：解析受管 Profile 后阶段适配器使用该 Profile 的凭据与端点；选择引用不可解析 Profile（已删除、kind 不匹配、校验失败）时显式失败且不回退其它 Profile/Provider/启动配置；无 `profileId` 时回退启动配置；Provider 专属注入（如 OpenCode Go 的自有 User-Agent 与会话头）在受管 Profile 路径下仍然生效。再在 Composition Root 引入 Profile 解析（`resolve(profileId) → LLMConfig`）并把阶段适配器构造改为按 `{profileId, modelId}`。
   - 验证手段：`npx tsx --test apps/goal-server/test/composition-root-provider-profiles.test.ts apps/goal-server/test/composition-root-model-switching.test.ts packages/llm/test/pi-ai.test.ts`；断言解析结果、不可解析时的失败语义与专属注入保留。
 
-- [ ] //TODO 3. 承载 Provider 偏好记录与跨 Provider 恢复/切换语义
+- [x] //TODO 3. 承载 Provider 偏好记录与跨 Provider 恢复/切换语义
   - 落实标准：[5.3](./spec.md#spec-req-5-3)、[5.4](./spec.md#spec-req-5-4)、[5.5](./spec.md#spec-req-5-5)、[6.1](./spec.md#spec-req-6-1)、[6.2](./spec.md#spec-req-6-2)、[2.5](./spec.md#spec-req-2-5)
   - 实施目标：先在 `packages/storage/test/json-file-model-preference-store.test.ts`、`packages/runtime/test/goal-model-selection-coordinator.test.ts` 与 `packages/browser/test/browser-model-preference.test.ts` 断言：偏好记录为 `{profileId, modelId}` 且不可用时回退激活档案并给出 notice；恢复时 `profileId` 不可解析必须阻断并提示重新选择（复用 `model_restore_failed` 语义）；跨 Provider 切换只在安全点发生且不重建 `modelContextEpoch`。再实现偏好记录迁移、`cli.ts` 的恢复门禁放宽与安全点切换。
   - 实施目标：先在 `packages/storage/test/goal-snapshot-current.test.ts` 与 `apps/goal-server/test/composition-root-provider-profiles.test.ts` 断言：`profileId` 随选择往返且严格 schema 继续拒绝任何凭据字段；不含 `profileId` 的既有 Goal 仍可解析；按档案解析凭据与端点；不可解析档案显式失败且不回退。已随本切片交付：`toLlmConfig` 映射、Composition Root 的档案解析与启动配置来源判定、`GoalModelSelection.profileId` 与 Snapshot 编解码、`ProviderProfileResolutionError`。

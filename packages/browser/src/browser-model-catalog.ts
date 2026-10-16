@@ -55,30 +55,33 @@ export function projectBrowserModelCatalog(
  * 从当前目录解析 Web 新 Goal 的默认模型与可见回退原因。
  *
  * @remarks
- * 已保存偏好只作为候选身份；当前 Provider 与模型可选性每次重新验证。
- * 配置默认模型也不可用时 `selected` 缺失，页面和创建服务须要求明确选择。
+ * 已保存偏好只作为候选身份；当前 Provider 来源与模型可选性每次重新验证。
+ * 偏好记录的档案标识与当前来源不一致（含档案被删除）时给出 `provider_changed`，
+ * 同档案但模型不可选时给出 `model_unavailable`。配置默认模型也不可用时 `selected` 缺失，
+ * 页面和创建服务须要求明确选择。
  *
- * @param provider - 当前配置的 Provider。
+ * @param context - 当前配置的 Provider 种类与受管档案标识（未使用受管档案时省略）。
  * @param configuredModelId - 原配置默认模型 ID。
  * @param preference - 当前工作区已保存的明确选择。
  * @param source - 当前模型目录结果。
  * @returns 页面目录和可用于创建的已验证模型。
  */
 export function resolveBrowserDraftModelCatalog(
-    provider: string,
+    context: { readonly provider: string; readonly profileId?: string | undefined },
     configuredModelId: string,
     preference: ModelPreference | undefined,
     source: readonly BrowserModelSource[],
 ): { readonly catalog: BrowserModelCatalog; readonly selected: BrowserModelSource | undefined } {
     const selectable = (modelId: string) => source.find((model) =>
-        model.provider === provider && model.id === modelId && model.selectable);
-    const preferred = preference?.provider === provider ? selectable(preference.modelId) : undefined;
+        model.provider === context.provider && model.id === modelId && model.selectable);
+    const sameSource = preference !== undefined && preference.profileId === context.profileId;
+    const preferred = sameSource ? selectable(preference.modelId) : undefined;
     const notice = preference === undefined ? undefined
-        : preference.provider !== provider ? "provider_changed" as const
+        : !sameSource ? "provider_changed" as const
             : preferred === undefined ? "model_unavailable" as const : undefined;
     const selected = preferred ?? selectable(configuredModelId);
     return {
-        catalog: projectBrowserModelCatalog(provider, selected?.id ?? configuredModelId, source, notice),
+        catalog: projectBrowserModelCatalog(context.provider, selected?.id ?? configuredModelId, source, notice),
         selected,
     };
 }
