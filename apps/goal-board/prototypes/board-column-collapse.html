@@ -1,0 +1,1047 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LazyGoal · Board Column Collapse UI/UX Prototype</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --canvas: #17181b;
+      --panel: #202126;
+      --surface: #272930;
+      --surface-card: #2a2c33;
+      --surface-hover: #333640;
+      --line: #3b3e47;
+      --line-subtle: #2d3039;
+      --text: #eceef4;
+      --muted: #a6adb9;
+      --quiet: #6d7382;
+      --blue: #adc0f1;
+      --blue-subtle: rgba(173, 192, 241, 0.12);
+      --amber: #e8bf7a;
+      --amber-subtle: rgba(232, 191, 122, 0.12);
+      --green: #8bc7ab;
+      --green-subtle: rgba(139, 199, 171, 0.12);
+      --stopped: #d18e92;
+      --stopped-subtle: rgba(209, 142, 146, 0.12);
+      --ready: #92959e;
+      --ready-subtle: rgba(146, 149, 158, 0.12);
+      --focus: #adc0f1;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--canvas);
+      color: var(--text);
+      overflow: hidden;
+      font-size: 13px;
+    }
+
+    button, input, select { font: inherit; }
+    button { cursor: pointer; color: inherit; border: 0; background: none; }
+    button:disabled { cursor: not-allowed; opacity: 0.45; }
+    button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+    /* Shell Layout */
+    .app-shell {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Topbar */
+    .topbar {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 20px;
+      background: #1b1c21;
+      border-bottom: 1px solid var(--line);
+      flex: none;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 15px;
+      font-weight: 650;
+      letter-spacing: -0.3px;
+      color: #fff;
+    }
+    .brand-mark {
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      border-radius: 6px;
+      background: #e4e7ef;
+      color: #24262d;
+      font-weight: 800;
+      font-size: 14px;
+    }
+    .breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .breadcrumb-sep { color: var(--quiet); }
+    .prototype-badge {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--amber);
+      background: var(--amber-subtle);
+      border: 1px solid rgba(232, 191, 122, 0.3);
+      padding: 3px 9px;
+      border-radius: 12px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .prototype-badge::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      background: var(--amber);
+      border-radius: 50%;
+    }
+
+    /* Sub-toolbar */
+    .board-toolbar {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 20px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      flex: none;
+    }
+    .board-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #e2e5ec;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .board-title .counter {
+      color: var(--quiet);
+      font-weight: 400;
+    }
+    .divider {
+      width: 1px;
+      height: 18px;
+      background: var(--line);
+      margin: 0 4px;
+    }
+
+    /* View Controls in Toolbar */
+    .view-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-view {
+      height: 26px;
+      padding: 0 9px;
+      border-radius: 5px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--muted);
+      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s ease;
+    }
+    .btn-view:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      border-color: #555b6a;
+    }
+    .btn-view.active {
+      background: #2f3442;
+      color: var(--blue);
+      border-color: #4a5775;
+    }
+
+    .search-box {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 10px;
+      height: 28px;
+    }
+    .search-box input {
+      border: 0;
+      background: none;
+      color: var(--text);
+      font-size: 11px;
+      width: 140px;
+      outline: none;
+    }
+    .search-box input::placeholder { color: var(--quiet); }
+
+    /* Playground Help Hint */
+    .playground-tip {
+      font-size: 11px;
+      color: #9aa4b7;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #252833;
+      padding: 3px 8px;
+      border-radius: 4px;
+      border: 1px solid #363b48;
+    }
+
+    /* Board Area */
+    .board-container {
+      flex: 1;
+      display: flex;
+      align-items: stretch;
+      gap: 14px;
+      padding: 16px 20px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      background: var(--canvas);
+      position: relative;
+    }
+
+    /* Column Base */
+    .column {
+      flex: 1 1 0;
+      min-width: 230px;
+      max-width: 420px;
+      display: flex;
+      flex-direction: column;
+      border-radius: 9px;
+      background: rgba(32, 33, 38, 0.7);
+      border: 1px solid var(--line-subtle);
+      transition: flex 0.24s cubic-bezier(0.2, 0, 0, 1),
+                  min-width 0.24s cubic-bezier(0.2, 0, 0, 1),
+                  max-width 0.24s cubic-bezier(0.2, 0, 0, 1),
+                  border-color 0.18s ease;
+      position: relative;
+    }
+    .column:hover {
+      border-color: #484c58;
+    }
+
+    /* Column Heading */
+    .column-heading {
+      height: 40px;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--line-subtle);
+      flex: none;
+      user-select: none;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .column-heading h2 {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 600;
+      color: #e1e4ed;
+      letter-spacing: -0.1px;
+      white-space: nowrap;
+    }
+    .column-count-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Collapse Action Button in Heading */
+    .btn-collapse-column {
+      margin-left: auto;
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      border-radius: 5px;
+      color: var(--quiet);
+      background: transparent;
+      transition: all 0.15s ease;
+    }
+    .btn-collapse-column:hover {
+      background: #343743;
+      color: var(--text);
+    }
+    .btn-collapse-column svg {
+      transition: transform 0.2s ease;
+    }
+
+    /* Cards Scroll Area */
+    .cards-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* Card Component */
+    .goal-card {
+      background: var(--surface-card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      text-align: left;
+      cursor: pointer;
+      position: relative;
+      transition: transform 0.12s ease, border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .goal-card:hover {
+      background: var(--surface-hover);
+      border-color: #555b6a;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    }
+    .goal-card.selected {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 1px var(--blue);
+      background: #2a2e3a;
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 550;
+      line-height: 1.45;
+      color: #f0f2f7;
+      margin: 0;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .card-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--quiet);
+      font-size: 11px;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .card-tag {
+      font-size: 10px;
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+
+    /* Empty Column State */
+    .empty-column {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      min-height: 180px;
+      color: var(--quiet);
+      font-size: 12px;
+      gap: 8px;
+      border: 1px dashed rgba(255, 255, 255, 0.08);
+      border-radius: 7px;
+      margin: 4px;
+    }
+    .empty-column-collapse-hint {
+      font-size: 11px;
+      color: var(--muted);
+      text-decoration: underline;
+      cursor: pointer;
+      background: none;
+      border: 0;
+      padding: 0;
+    }
+    .empty-column-collapse-hint:hover { color: var(--text); }
+
+    /* ========================================================= */
+    /* NEW REDESIGNED COLLAPSED COLUMN RAIL                       */
+    /* ========================================================= */
+    .column.is-collapsed {
+      flex: 0 0 48px;
+      min-width: 48px;
+      max-width: 48px;
+      background: #1e1f25;
+      border-color: var(--line-subtle);
+      overflow: visible; /* Allows hover popover overflow */
+    }
+    .column.is-collapsed:hover {
+      border-color: #4b5161;
+      background: #23252d;
+    }
+
+    /* Status-specific Accent Stripe */
+    .column.is-collapsed::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 3px;
+      border-top-left-radius: 9px;
+      border-bottom-left-radius: 9px;
+      opacity: 0.8;
+      transition: opacity 0.15s ease, width 0.15s ease;
+    }
+    .column.is-collapsed:hover::before {
+      opacity: 1;
+      width: 4px;
+    }
+
+    /* Rail Button Container */
+    .column-collapsed-rail {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px 0 16px;
+      gap: 16px;
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+    }
+
+    /* Top Action Area: Expand Icon + Status Dot */
+    .rail-top {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    .rail-expand-trigger {
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--quiet);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      transition: all 0.15s ease;
+    }
+    .column-collapsed-rail:hover .rail-expand-trigger {
+      background: #373b48;
+      color: var(--text);
+      border-color: #555c6e;
+      transform: scale(1.08);
+    }
+
+    /* Middle Vertical Title */
+    .rail-center {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .rail-title {
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: #9299a9;
+      white-space: nowrap;
+      transition: color 0.15s ease, letter-spacing 0.15s ease;
+    }
+    .column-collapsed-rail:hover .rail-title {
+      color: #e2e6f0;
+      letter-spacing: 1.6px;
+    }
+
+    /* Bottom Count Badge */
+    .rail-bottom {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .rail-badge {
+      min-width: 22px;
+      height: 22px;
+      padding: 0 6px;
+      border-radius: 11px;
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      background: rgba(255, 255, 255, 0.07);
+      color: var(--muted);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.15s ease;
+    }
+    .column-collapsed-rail:hover .rail-badge {
+      transform: scale(1.1);
+    }
+    .rail-badge.has-cards {
+      background: #2b303d;
+      color: #f0f2f7;
+      border-color: #4f576b;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    }
+
+    /* ========================================================= */
+    /* HOVER PEEK FLYOUT (预览抽屉面板)                            */
+    /* ========================================================= */
+    .hover-peek-flyout {
+      position: absolute;
+      top: 10px;
+      left: calc(100% + 10px);
+      width: 290px;
+      max-height: 480px;
+      background: #22242c;
+      border: 1px solid #484d5d;
+      border-radius: 10px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(-8px) scale(0.97);
+      transition: opacity 0.16s ease, transform 0.16s ease;
+    }
+    /* Smart placement: if it's near the right edge, pop to the left */
+    .column:nth-last-child(-n+2) .hover-peek-flyout {
+      left: auto;
+      right: calc(100% + 10px);
+      transform: translateX(8px) scale(0.97);
+    }
+
+    .column.is-collapsed:hover .hover-peek-flyout,
+    .hover-peek-flyout:hover {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateX(0) scale(1);
+      transition-delay: 0.12s; /* Gentle debounce before popping */
+    }
+    .column:nth-last-child(-n+2).is-collapsed:hover .hover-peek-flyout,
+    .column:nth-last-child(-n+2) .hover-peek-flyout:hover {
+      transform: translateX(0) scale(1);
+    }
+
+    .peek-header {
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .peek-header strong {
+      font-size: 12px;
+      font-weight: 650;
+      color: #fff;
+    }
+    .peek-header .peek-count {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .peek-list {
+      padding: 8px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 340px;
+    }
+    .peek-card {
+      padding: 9px 10px;
+      background: #2a2c35;
+      border: 1px solid #3c404e;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #e5e8f2;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s;
+    }
+    .peek-card:hover {
+      background: #343743;
+      border-color: #5b6276;
+    }
+    .peek-card-title {
+      font-weight: 500;
+      line-height: 1.35;
+    }
+    .peek-card-time {
+      font-size: 10px;
+      color: var(--quiet);
+    }
+    .peek-empty {
+      padding: 24px 16px;
+      text-align: center;
+      color: var(--quiet);
+      font-size: 11px;
+    }
+    .peek-footer {
+      padding: 8px 12px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: flex-end;
+      background: rgba(0, 0, 0, 0.15);
+    }
+    .btn-peek-expand {
+      font-size: 11px;
+      color: var(--blue);
+      font-weight: 550;
+      padding: 4px 8px;
+      border-radius: 4px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .btn-peek-expand:hover {
+      background: var(--blue-subtle);
+    }
+
+    /* Status Accent Colors */
+    .status-running .status-dot { background: var(--blue); }
+    .status-running.is-collapsed::before { background: var(--blue); box-shadow: 0 0 10px var(--blue); }
+    .status-running .rail-badge.has-cards { background: #222c3d; color: var(--blue); border-color: #3b4d6e; }
+
+    .status-needs-input .status-dot { background: var(--amber); }
+    .status-needs-input.is-collapsed::before { background: var(--amber); box-shadow: 0 0 10px var(--amber); }
+    .status-needs-input .rail-badge.has-cards { background: #352b1e; color: var(--amber); border-color: #634d2b; }
+
+    .status-completed .status-dot { background: var(--green); }
+    .status-completed.is-collapsed::before { background: var(--green); }
+    .status-completed .rail-badge.has-cards { background: #1f3027; color: var(--green); border-color: #345844; }
+
+    .status-stopped .status-dot { background: var(--stopped); }
+    .status-stopped.is-collapsed::before { background: var(--stopped); }
+    .status-stopped .rail-badge.has-cards { background: #342224; color: var(--stopped); border-color: #5c393c; }
+
+    .status-ready .status-dot { background: var(--ready); }
+    .status-ready.is-collapsed::before { background: var(--ready); }
+    .status-ready .rail-badge.has-cards { background: #26272e; color: #ced2dc; border-color: #434652; }
+
+    /* Playground Bottom Banner */
+    .control-deck {
+      height: 48px;
+      background: #191a1e;
+      border-top: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      gap: 16px;
+      font-size: 11px;
+      color: var(--muted);
+      flex: none;
+    }
+    .deck-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .deck-tag {
+      font-weight: 600;
+      color: #fff;
+    }
+    .btn-deck {
+      padding: 4px 10px;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      font-size: 11px;
+    }
+    .btn-deck:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: #5d6375;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Topbar -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">⚡</span> LazyGoal
+      </div>
+      <div class="breadcrumb">
+        <span>Workspace</span>
+        <span class="breadcrumb-sep">/</span>
+        <strong>Goals Board</strong>
+      </div>
+      <div class="prototype-badge">
+        Interactive UI/UX Prototype · Column Collapse Redesign
+      </div>
+    </header>
+
+    <!-- Toolbar -->
+    <div class="board-toolbar">
+      <div class="board-title">
+        <span>All goals</span>
+        <span class="counter" id="total-count-label">(7)</span>
+      </div>
+      <div class="divider"></div>
+
+      <!-- Quick View Column Controls -->
+      <div class="view-actions">
+        <button class="btn-view" id="btn-collapse-empty" title="Collapse all columns with 0 cards">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h16M12 4v16"/></svg>
+          Collapse empty
+        </button>
+        <button class="btn-view" id="btn-expand-all" title="Expand all 5 columns">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          Expand all
+        </button>
+        <button class="btn-view" id="btn-focus-active" title="Collapse Completed, Stopped and Ready to focus on Running and Needs input">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Focus active
+        </button>
+      </div>
+
+      <div class="search-box">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--quiet)"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="filter-search" placeholder="Filter goals…">
+      </div>
+
+      <div class="playground-tip">
+        <span>💡 试一试：点击列头折叠按钮、点击折叠条直接展开、悬停在折叠条上查看卡片抽屉</span>
+      </div>
+    </div>
+
+    <!-- Board Area -->
+    <main class="board-container" id="board-container">
+      <!-- Columns rendered by JS -->
+    </main>
+
+    <!-- Playground Footer -->
+    <footer class="control-deck">
+      <div class="deck-group">
+        <span class="deck-tag">Playground Controls:</span>
+        <button class="btn-deck" id="btn-add-sample">Add Goal to "Ready"</button>
+        <button class="btn-deck" id="btn-toggle-stopped">Toggle Goal in "Stopped"</button>
+        <button class="btn-deck" id="btn-reset-data">Reset Demo Data</button>
+      </div>
+      <div style="margin-left:auto; display:flex; gap:16px;">
+        <span>Current Collapsed: <strong id="collapsed-stats-label">1 column</strong></span>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    // Sample Data
+    const INITIAL_COLUMNS = [
+      {
+        id: "Ready",
+        title: "Ready",
+        statusClass: "status-ready",
+        goals: [
+          { id: "g-1", intent: "Draft deployment manifest for staging cluster", time: "10m ago", steps: "0/0" },
+          { id: "g-2", intent: "Prepare benchmark context fixtures for GAIA", time: "1h ago", steps: "0/0" }
+        ]
+      },
+      {
+        id: "Running",
+        title: "Running",
+        statusClass: "status-running",
+        goals: [
+          { id: "g-3", intent: "Collect approved notes and execute SWE-bench evaluation", time: "3s ago", steps: "4/8" }
+        ]
+      },
+      {
+        id: "Needs input",
+        title: "Needs input",
+        statusClass: "status-needs-input",
+        goals: [
+          { id: "g-4", intent: "Destructive file removal requires user confirmation in workspace", time: "2m ago", steps: "2/5" }
+        ]
+      },
+      {
+        id: "Completed",
+        title: "Completed",
+        statusClass: "status-completed",
+        goals: [
+          { id: "g-5", intent: "Migrate GoalBoard architecture to separate context hooks", time: "Yesterday", steps: "6/6" },
+          { id: "g-6", intent: "Verify contract DSL AST generator with strict boundaries", time: "2d ago", steps: "3/3" },
+          { id: "g-7", intent: "Audit dead code across runtime persistence modules", time: "3d ago", steps: "5/5" }
+        ]
+      },
+      {
+        id: "Stopped",
+        title: "Stopped",
+        statusClass: "status-stopped",
+        goals: [] // Initially empty
+      }
+    ];
+
+    let columnsData = JSON.parse(JSON.stringify(INITIAL_COLUMNS));
+    // Collapsed state: key -> boolean (default: empty columns collapsed)
+    let collapsedState = {
+      "Stopped": true
+    };
+    let selectedGoalId = "g-3";
+    let searchQuery = "";
+
+    const boardContainer = document.getElementById("board-container");
+    const totalCountLabel = document.getElementById("total-count-label");
+    const collapsedStatsLabel = document.getElementById("collapsed-stats-label");
+
+    function renderBoard() {
+      boardContainer.innerHTML = "";
+      let totalGoals = 0;
+      let totalCollapsed = 0;
+
+      columnsData.forEach((col) => {
+        const visibleGoals = col.goals.filter(g =>
+          !searchQuery || g.intent.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+        totalGoals += visibleGoals.length;
+
+        const isCollapsed = Boolean(collapsedState[col.id]);
+        if (isCollapsed) totalCollapsed++;
+
+        const colEl = document.createElement("section");
+        colEl.className = `column ${col.statusClass} ${isCollapsed ? "is-collapsed" : ""}`;
+        colEl.id = `column-${col.id}`;
+        colEl.setAttribute("aria-label", `${col.title} column ${isCollapsed ? "collapsed" : "expanded"}`);
+
+        if (isCollapsed) {
+          // Render Collapsed Rail
+          colEl.innerHTML = `
+            <div class="column-collapsed-rail" role="button" tabindex="0" title="Click to expand ${col.title} (${visibleGoals.length} goals)" aria-expanded="false">
+              <div class="rail-top">
+                <span class="status-dot"></span>
+                <div class="rail-expand-trigger" aria-label="Expand">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                </div>
+              </div>
+              <div class="rail-center">
+                <span class="rail-title">${col.title}</span>
+              </div>
+              <div class="rail-bottom">
+                <span class="rail-badge ${visibleGoals.length > 0 ? "has-cards" : ""}">${visibleGoals.length}</span>
+              </div>
+            </div>
+
+            <!-- Hover Peek Flyout -->
+            <div class="hover-peek-flyout" role="tooltip">
+              <div class="peek-header">
+                <span class="status-dot"></span>
+                <strong>${col.title}</strong>
+                <span class="peek-count">${visibleGoals.length} goal${visibleGoals.length === 1 ? "" : "s"}</span>
+              </div>
+              <div class="peek-list">
+                ${visibleGoals.length === 0 ? `
+                  <div class="peek-empty">No goals in this column</div>
+                ` : visibleGoals.map(g => `
+                  <div class="peek-card" data-goal-id="${g.id}">
+                    <div class="peek-card-title">${escapeHtml(g.intent)}</div>
+                    <div class="peek-card-time">Updated ${g.time} · Steps ${g.steps}</div>
+                  </div>
+                `).join("")}
+              </div>
+              <div class="peek-footer">
+                <button class="btn-peek-expand" data-expand-col="${col.id}">
+                  Expand column
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
+              </div>
+            </div>
+          `;
+
+          // Handle click on rail to expand
+          const rail = colEl.querySelector(".column-collapsed-rail");
+          rail.addEventListener("click", () => toggleColumn(col.id));
+          rail.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              toggleColumn(col.id);
+            }
+          });
+
+          // Handle peek expand button
+          const btnExpand = colEl.querySelector(".btn-peek-expand");
+          btnExpand.addEventListener("click", (e) => {
+            e.stopPropagation();
+            toggleColumn(col.id);
+          });
+
+          // Handle peek card click
+          colEl.querySelectorAll(".peek-card").forEach(pc => {
+            pc.addEventListener("click", (e) => {
+              e.stopPropagation();
+              selectedGoalId = pc.dataset.goalId;
+              alert(`Selected Goal: ${pc.dataset.goalId} from Hover Peek!`);
+              renderBoard();
+            });
+          });
+
+        } else {
+          // Render Expanded Column
+          colEl.innerHTML = `
+            <div class="column-heading">
+              <span class="status-dot"></span>
+              <h2>${col.title}</h2>
+              <span class="column-count-badge">${visibleGoals.length}</span>
+              <button class="btn-collapse-column" title="Collapse ${col.title} column" aria-label="Collapse ${col.title}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+            </div>
+            <div class="cards-area">
+              ${visibleGoals.length === 0 ? `
+                <div class="empty-column">
+                  <span>No goals here</span>
+                  <button class="empty-column-collapse-hint" data-col="${col.id}">Collapse column</button>
+                </div>
+              ` : visibleGoals.map(g => `
+                <div class="goal-card ${selectedGoalId === g.id ? "selected" : ""}" data-goal-id="${g.id}">
+                  <h3 class="card-title">${escapeHtml(g.intent)}</h3>
+                  <div class="card-meta">
+                    <span>${g.time}</span>
+                    <span class="card-tag">Steps: ${g.steps}</span>
+                  </div>
+                </div>
+              `).join("")}
+            </div>
+          `;
+
+          // Handle Collapse click
+          const btnCollapse = colEl.querySelector(".btn-collapse-column");
+          btnCollapse.addEventListener("click", () => toggleColumn(col.id));
+
+          // Handle empty collapse hint
+          const emptyHint = colEl.querySelector(".empty-column-collapse-hint");
+          if (emptyHint) {
+            emptyHint.addEventListener("click", () => toggleColumn(col.id));
+          }
+
+          // Handle Card select
+          colEl.querySelectorAll(".goal-card").forEach(card => {
+            card.addEventListener("click", () => {
+              selectedGoalId = card.dataset.goalId;
+              renderBoard();
+            });
+          });
+        }
+
+        boardContainer.appendChild(colEl);
+      });
+
+      totalCountLabel.textContent = `(${totalGoals})`;
+      collapsedStatsLabel.textContent = `${totalCollapsed} / ${columnsData.length} collapsed`;
+    }
+
+    function toggleColumn(colId) {
+      collapsedState[colId] = !collapsedState[colId];
+      renderBoard();
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    // Quick Toolbar View Actions
+    document.getElementById("btn-collapse-empty").addEventListener("click", () => {
+      columnsData.forEach(col => {
+        if (col.goals.length === 0) {
+          collapsedState[col.id] = true;
+        }
+      });
+      renderBoard();
+    });
+
+    document.getElementById("btn-expand-all").addEventListener("click", () => {
+      columnsData.forEach(col => {
+        collapsedState[col.id] = false;
+      });
+      renderBoard();
+    });
+
+    document.getElementById("btn-focus-active").addEventListener("click", () => {
+      // Collapse Completed, Stopped, Ready; Expand Running, Needs input
+      columnsData.forEach(col => {
+        if (col.id === "Running" || col.id === "Needs input") {
+          collapsedState[col.id] = false;
+        } else {
+          collapsedState[col.id] = true;
+        }
+      });
+      renderBoard();
+    });
+
+    // Search filter
+    document.getElementById("filter-search").addEventListener("input", (e) => {
+      searchQuery = e.target.value.trim();
+      renderBoard();
+    });
+
+    // Playground Controls
+    document.getElementById("btn-add-sample").addEventListener("click", () => {
+      const readyCol = columnsData.find(c => c.id === "Ready");
+      const newId = `g-${Date.now().toString().slice(-4)}`;
+      readyCol.goals.unshift({
+        id: newId,
+        intent: `Newly created task: verify container sandbox boundaries (${newId})`,
+        time: "Just now",
+        steps: "0/0"
+      });
+      renderBoard();
+    });
+
+    document.getElementById("btn-toggle-stopped").addEventListener("click", () => {
+      const stoppedCol = columnsData.find(c => c.id === "Stopped");
+      if (stoppedCol.goals.length === 0) {
+        stoppedCol.goals.push({
+          id: "g-stopped-1",
+          intent: "Process interrupted by signal SIGINT during bash execution",
+          time: "5m ago",
+          steps: "1/4"
+        });
+      } else {
+        stoppedCol.goals = [];
+      }
+      renderBoard();
+    });
+
+    document.getElementById("btn-reset-data").addEventListener("click", () => {
+      columnsData = JSON.parse(JSON.stringify(INITIAL_COLUMNS));
+      collapsedState = { "Stopped": true };
+      selectedGoalId = "g-3";
+      searchQuery = "";
+      document.getElementById("filter-search").value = "";
+      renderBoard();
+    });
+
+    // Initial render
+    renderBoard();
+  </script>
+</body>
+</html>
