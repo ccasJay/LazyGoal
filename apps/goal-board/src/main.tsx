@@ -6,6 +6,7 @@ import logoOnLight from "./assets/lazygoal/logo-on-light.svg?no-inline";
 import markOnLight from "./assets/lazygoal/mark-on-light.svg?no-inline";
 import { GoalSession } from "./components/GoalSession";
 import { ModelPicker } from "./components/ModelPicker";
+import { SessionBoundary } from "./components/error-boundary";
 import { GoalSessionProvider } from "./context/GoalSessionContext";
 import { RunControlProvider } from "./context/RunControlContext";
 import { useGoalBoardApp } from "./hooks/useGoalBoardApp";
@@ -65,23 +66,25 @@ function App() {
               </div>
             </header>
             <div className={`content ${app.sessionVisible ? "session-open" : ""}`}>
-              {app.sessionVisible && app.manageError && (
-                <div className="manage-error-overlay" role="alert">
-                  {app.manageError}
-                  <button onClick={app.onClearManageError}>Dismiss</button>
-                </div>
-              )}
-              {!app.sessionVisible && app.goalBoardElement}
-              {app.sessionVisible && (
-                <GoalSession
-                  activeGoal={app.activeGoal}
-                  boardContent={app.goalBoardElement}
-                  renderPermissionControl={app.renderPermissionControl}
-                  onRevokeToolGrant={app.revokeToolGrant}
-                  onDeleteGoal={app.onDeleteGoal}
-                  manageBusyId={app.manageBusyId}
-                />
-              )}
+              <SessionBoundary label="Board and session content" onReload={() => window.location.reload()}>
+                {app.manageError && app.sessionVisible && (
+                  <div className="manage-error-overlay" role="alert">
+                    {app.manageError}
+                    <button onClick={app.onClearManageError}>Dismiss</button>
+                  </div>
+                )}
+                {!app.sessionVisible && app.goalBoardElement}
+                {app.sessionVisible && (
+                  <GoalSession
+                    activeGoal={app.activeGoal}
+                    boardContent={app.goalBoardElement}
+                    renderPermissionControl={app.renderPermissionControl}
+                    onRevokeToolGrant={app.revokeToolGrant}
+                    onDeleteGoal={app.onDeleteGoal}
+                    manageBusyId={app.manageBusyId}
+                  />
+                )}
+              </SessionBoundary>
             </div>
           </main>
           {app.modelPickerTarget !== null && (

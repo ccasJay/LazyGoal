@@ -54,7 +54,7 @@
   - 实施目标：GoalSession 新增窗口状态：首渲渲染最近 ≥1 个完整 Run（且消息数 ≥ 阈值 50 条时截窗口），顶部"See earlier messages"按钮按完整 Run 边界向上扩页并基本保持视口位置；`history-note` 提示未渲染历史规模；窗内消息时不显示控件。
   - 验证手段：新增 `apps/goal-board/test/session-window.test.tsx`（多 Run fixture：首渲窗口、扩页边界、全量收口）+ `npm test --prefix apps/goal-board` 全绿 + e2e board 用例（少于阈值行为不变）通过。
 
-- [ ] //TODO 11. 渲染错误边界与会话错误卡
+- [x] //TODO 11. 渲染错误边界与会话错误卡
   - 落实标准：[9.1](./spec.md#spec-req-9-1), [9.2](./spec.md#spec-req-9-2)
   - 实施目标：新增 class `ErrorBoundary`（React 内置 API，无第三方）：顶层包裹 `content` 会话区、Trajectory 视图内再包一层；捕获时在会话区域渲染错误摘要 + "Reload session"（复用 `sessionError` 重载入口），并将 error + 组件栈输出到 console.error；不改变现有清理副作用。
   - 验证手段：新增 `apps/goal-board/test/error-boundary.test.tsx`（注入抛错子组件：shell 可用、错误卡可见、console 记录）+ `npm test --prefix apps/goal-board` 全绿。

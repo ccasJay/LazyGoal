@@ -31,6 +31,7 @@ import { MessageComposer, AssistantMarkdown, CurrentModelControl } from "./Messa
 import { SessionMetricsBar } from "./SessionMetricsBar";
 import { PlanRouteList } from "./PlanRouteList";
 import { WorkspaceContext } from "./WorkspaceContext";
+import { SessionBoundary } from "./error-boundary";
 import { projectActivityGroups, type ActivityGroup } from "../activity-projector";
 import { collectActivityProjections } from "../collect-activity-projections";
 import {
@@ -407,11 +408,13 @@ export function GoalSession({
           {sessionTab === "Board" ? (
             boardContent
           ) : sessionTab === "Trajectory" ? (
-            <Trajectory
-              key={`${session.goalId}:${trajectoryTarget?.nonce ?? "browse"}`}
-              session={session}
-              target={trajectoryTarget}
-            />
+            <SessionBoundary label="Trajectory view" onReload={() => void refreshSelectedSession()}>
+              <Trajectory
+                key={`${session.goalId}:${trajectoryTarget?.nonce ?? "browse"}`}
+                session={session}
+                target={trajectoryTarget}
+              />
+            </SessionBoundary>
           ) : sessionTab === "Plan" ? (
             <GoalDetails
               session={session}
@@ -437,6 +440,7 @@ export function GoalSession({
                 </label>
                 <span>{session.messages.length} saved messages</span>
               </div>
+              <SessionBoundary label="Activity view" onReload={() => void refreshSelectedSession()}>
               <div className="timeline-region">
                 {isWaitingApprovalOrInput && !follow && (
                   <button
@@ -734,6 +738,7 @@ export function GoalSession({
                   </button>
                 )}
               </div>
+              </SessionBoundary>
             </>
           )}
 
