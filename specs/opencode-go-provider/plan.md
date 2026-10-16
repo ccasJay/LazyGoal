@@ -43,7 +43,13 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 新鲜度：-
-- 验证时间：-
-- 验证摘要：尚未开始执行。
+- 状态：passed
+- 新鲜度：current
+- 验证时间：2026-10-16（CST）
+- 测试 Git 状态：分支 `codex/opencode-go-provider`，HEAD `5c949c6a4de449586356ab31e853446ef6e6fd8e`；工作区干净。
+- 端点对齐探针：`opencodeGoProvider()` 报告 `provider=opencode-go`、`models=29`，baseUrl 集合为 `https://opencode.ai/inference/go` 与 `https://opencode.ai/inference/go/v1`，`hasZen=false`。
+- 定向验收：`npx tsx --test packages/llm/test/pi-ai.test.ts packages/llm/test/provider-fetchers.test.ts packages/llm/test/model-catalog.test.ts packages/llm/test/two-stage-config.test.ts packages/llm/test/native-tool-calling.test.ts packages/config/test/llm-config.test.ts packages/agent/test/llm-step-executor.test.ts packages/agent/test/llm-step-executor-metrics.test.ts` 通过（78/78）；覆盖供应商注册与模式固定、仅 opencode-go 注入 lazygoal UA 与 `x-opencode-session`、`goal.id` 会话身份传递、opencode-go 目录端点/鉴权/解析与静态目录合并/降级。
+- 全量回归：`npm test` 全部通过（类型检查、包内文档检查、依赖边界检查、GEPA adapter 测试、1846 项 TS 测试、33 项 scripts 测试，0 失败）。
+- 文档与差异：`npm run check:docs` 通过（30 个模块、115 份说明）；`git diff --check` 干净。
+- 待人工验证（超出自动化证据范围，需真实 OpenCode Go Key）：`https://opencode.ai/inference/go` 端点与 `x-opencode-session` 在真实订阅下的端到端行为尚未实测；未运行前不得宣称 OpenCode Go 供应商端到端验证通过。该验证可能产生订阅费用。
+- 未解决问题：自动化可覆盖范围内无。基底分支 `codex/goal-board-brand-theme` 原有的 4 个陈旧脚本化决策用例失败已修复并随本分支提交，非本功能引入。
