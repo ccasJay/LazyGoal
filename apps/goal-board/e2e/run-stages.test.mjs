@@ -94,6 +94,32 @@ test("Web goal session presents run stages, revisions, rejection feedback, and c
     assert.equal(await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelectorAll('.activity-member').length"), 2);
     const stage2StepsCount = await value(socket, "document.querySelectorAll('.run-stage-group')[1].querySelectorAll('.activity-group').length");
     assert.equal(stage2StepsCount, 1);
+
+    // 6. 样式呈现断言：类名存在但 CSS 缺失时在此回归（spec-req-1-3）
+    const headingStyle = JSON.parse(await value(socket, `JSON.stringify((() => {
+      const style = getComputedStyle(document.querySelector('.run-stage-heading'));
+      return { display: style.display, alignItems: style.alignItems, minHeight: style.minHeight };
+    })())`));
+    assert.equal(headingStyle.display, "flex");
+    assert.equal(headingStyle.alignItems, "center");
+
+    const containerDisplay = await value(socket, "getComputedStyle(document.querySelector('.run-stages-container')).display");
+    assert.match(containerDisplay, /grid/);
+
+    const containerMargin = await value(socket, "getComputedStyle(document.querySelector('.run-stages-container')).marginLeft");
+    assert.notEqual(String(containerMargin), "0px");
+
+    const levelStepsDisplay = await value(socket, "getComputedStyle(document.querySelector('.run-level-steps')).display");
+    assert.equal(levelStepsDisplay, "block");
+
+    const contentBorder = await value(socket, "getComputedStyle(document.querySelector('.stage-content')).borderLeftWidth");
+    assert.equal(contentBorder, "1px");
+
+    const feedbackBackground = await value(socket, "getComputedStyle(document.querySelector('.stage-rejection-feedback')).backgroundColor");
+    assert.ok(
+      feedbackBackground && feedbackBackground !== "rgba(0, 0, 0, 0)",
+      `stage rejection feedback must draw the warning surface, got ${feedbackBackground}`,
+    );
   } finally {
     if (socket) socket.close();
     if (chrome) {

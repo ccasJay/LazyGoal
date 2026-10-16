@@ -14,7 +14,7 @@
   - 实施目标：在 `style.css` 为 `.run-stages-container`、`.run-level-steps`、`.run-stage-group`、`.run-stage-heading`、`.stage-target`、`.stage-status`（in_progress/review_pending/accepted 三态色）、`.stage-revision`、`.stage-content`、`.stage-steps`、`.stage-rejection-feedback` 写终态单层规则，复用 `--line/--accent-ink/--warning` token，禁止新增 DOM 包裹层。
   - 验证手段：新增 `apps/goal-board/test/run-stage-styles.test.ts`（读 style.css 断言关键类选中器存在）+ e2e `run-stages.test.mjs` 补 computed-style 断言（见 TODO 9 前置）通过。
 
-- [ ] //TODO 3. e2e 增加 stage 样式 computed-style 断言
+- [x] //TODO 3. e2e 增加 stage 样式 computed-style 断言
   - 落实标准：[1.3](./spec.md#spec-req-1-3), [1.4](./spec.md#spec-req-1-4)
   - 实施目标：在 `e2e/run-stages.test.mjs` 中对 `.run-stages-container`、`.run-level-steps`、`.run-stage-heading`、`.stage-content`、`.stage-rejection-feedback` 断言 `display: flex / grid`、`align-items` 与字号下限，防样式缺失回归；不改变既有 DOM 断言语义。
   - 验证手段：`npm run test:e2e --prefix apps/goal-board`（含 run-stages 用例）全绿。
