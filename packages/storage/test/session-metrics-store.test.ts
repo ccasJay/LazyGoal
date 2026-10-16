@@ -83,6 +83,49 @@ test("JsonFileMetricsStore persists numeric call facts and restores them in orde
     }
 });
 
+test("JsonFileMetricsStore reads legacy facts and round trips request durations", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-metrics-request-duration-"));
+
+    try {
+        const store = new JsonFileMetricsStore(directory);
+        const legacyStarted = started("legacy-call");
+        const legacyFinished: ModelCallMetricRecord = {
+            recordType: "call_finished",
+            goalId: "goal/1",
+            runId: "run 1",
+            callId: "legacy-call",
+            occurredAt: "2026-09-25T10:00:01.000Z",
+            outcome: "completed",
+            usage: { source: "provider_reported", inputTokens: 10, outputTokens: 3 },
+        };
+        const currentStarted = started("current-call");
+        const currentFinished = {
+            recordType: "call_finished" as const,
+            goalId: "goal/1",
+            runId: "run 1",
+            callId: "current-call",
+            occurredAt: "2026-09-25T10:00:02.000Z",
+            outcome: "completed" as const,
+            usage: { source: "provider_reported" as const, inputTokens: 20, outputTokens: 6 },
+            requestDurationMs: 125.5,
+        } as ModelCallMetricRecord;
+
+        await store.append(legacyStarted);
+        await store.append(legacyFinished);
+        await store.append(currentStarted);
+        await store.append(currentFinished);
+
+        assert.deepEqual(await store.read({ goalId: "goal/1", runId: "run 1" }), [
+            legacyStarted,
+            legacyFinished,
+            currentStarted,
+            currentFinished,
+        ]);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
 test("JsonFileMetricsStore rejects invalid append payloads", async () => {
     const directory = await mkdtemp(join(tmpdir(), "lazygoal-metrics-invalid-"));
 
@@ -95,6 +138,19 @@ test("JsonFileMetricsStore rejects invalid append payloads", async () => {
 
         assert.throws(
             () => store.append(invalid),
+            ModelCallMetricStoreProtocolError,
+        );
+        assert.throws(
+            () => store.append({
+                recordType: "call_finished",
+                goalId: "goal/1",
+                runId: "run 1",
+                callId: "call-invalid-duration",
+                occurredAt: "2026-09-25T10:00:01.000Z",
+                outcome: "completed",
+                usage: { source: "provider_reported", inputTokens: 0, outputTokens: 0 },
+                requestDurationMs: 0,
+            } as unknown as ModelCallMetricRecord),
             ModelCallMetricStoreProtocolError,
         );
         assert.deepEqual(

@@ -481,23 +481,36 @@ export class LLMStepExecutor implements StepExecutor {
         });
         let response: LLMResponse;
         let decodeDurationMs: number | undefined;
+        let requestStartedAt: number | undefined;
+        let requestDurationMs: number | undefined;
         try {
             if (adapter.stream === undefined) {
+                requestStartedAt = performance.now();
                 response = await adapter.generate(providerRequest, control);
+                const elapsedMs = performance.now() - requestStartedAt;
+                if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
                 this.publishFallbackModelEvents(input, response);
             } else {
+                requestStartedAt = performance.now();
                 const streamed = await this.consumeModelStream(adapter, providerRequest, input, control);
                 response = streamed.response;
                 decodeDurationMs = streamed.decodeDurationMs;
+                const elapsedMs = performance.now() - requestStartedAt;
+                if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
             }
             throwIfAborted(control);
         } catch (error) {
+            if (requestDurationMs === undefined && requestStartedAt !== undefined) {
+                const elapsedMs = performance.now() - requestStartedAt;
+                if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
+            }
             await this.appendModelMetric({
                 recordType: "call_finished",
                 ...metricIdentity,
                 occurredAt: new Date().toISOString(),
                 outcome: isExecutionAbortedError(error) || control?.signal?.aborted ? "cancelled" : "failed",
                 usage: { source: "unavailable" },
+                ...(requestDurationMs === undefined ? {} : { requestDurationMs }),
             });
             await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "adapter", callId);
             if (isExecutionAbortedError(error)) throw error;
@@ -511,6 +524,7 @@ export class LLMStepExecutor implements StepExecutor {
             occurredAt: new Date().toISOString(),
             outcome: "completed",
             usage: usage === undefined ? { source: "unavailable" } : { source: "provider_reported", ...usage },
+            ...(requestDurationMs === undefined ? {} : { requestDurationMs }),
             ...(decodeDurationMs === undefined ? {} : { decodeDurationMs }),
         });
         await recordLlmResponse(this.traceSink, goal, response, Date.now() - startedAt, callId);

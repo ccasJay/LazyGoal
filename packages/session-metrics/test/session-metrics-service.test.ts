@@ -65,6 +65,7 @@ function finish(
     callId: string,
     usage: Extract<ModelCallMetricRecord, { recordType: "call_finished" }>["usage"],
     decodeDurationMs?: number,
+    requestDurationMs?: number,
 ): ModelCallMetricRecord {
     return {
         recordType: "call_finished",
@@ -75,6 +76,7 @@ function finish(
         outcome: "completed",
         usage,
         ...(decodeDurationMs === undefined ? {} : { decodeDurationMs }),
+        ...(requestDurationMs === undefined ? {} : { requestDurationMs }),
     };
 }
 
@@ -173,28 +175,36 @@ test("SessionMetricsService rejects conflicting facts and distinguishes a missin
     assert.equal(await service.read("missing-goal"), undefined);
 });
 
-test("SessionMetricsService derives cache hit rate and generation speed from eligible calls only", async () => {
+test("SessionMetricsService derives cache hit rate and end-to-end output rate from eligible calls only", async () => {
     const goalId = "goal-projection";
     const service = serviceFor(new Map([
         ["run-history", [
             start(goalId, "run-history", "cache-speed"),
             finish(goalId, "run-history", "cache-speed", {
                 source: "provider_reported", inputTokens: 100, outputTokens: 50, cachedInputTokens: 40,
-            }, 500),
+            }, 500, 2000),
             start(goalId, "run-history", "no-cache-or-speed"),
             finish(goalId, "run-history", "no-cache-or-speed", {
                 source: "provider_reported", inputTokens: 50, outputTokens: 10,
-            }),
+            }, undefined, 500),
             start(goalId, "run-history", "zero-input"),
             finish(goalId, "run-history", "zero-input", {
                 source: "provider_reported", inputTokens: 0, outputTokens: 20, cachedInputTokens: 0,
-            }, 1000),
+            }, 1000, 1000),
             start(goalId, "run-history", "cache-over-input"),
             finish(goalId, "run-history", "cache-over-input", {
                 source: "provider_reported", inputTokens: 20, outputTokens: 10, cachedInputTokens: 21,
-            }, 1000),
+            }, 1000, 1000),
             start(goalId, "run-history", "missing-usage"),
             finish(goalId, "run-history", "missing-usage", { source: "unavailable" }),
+            start(goalId, "run-history", "decode-only"),
+            finish(goalId, "run-history", "decode-only", {
+                source: "provider_reported", inputTokens: 10, outputTokens: 3,
+            }, 300),
+            start(goalId, "run-history", "zero-output"),
+            finish(goalId, "run-history", "zero-output", {
+                source: "provider_reported", inputTokens: 0, outputTokens: 0,
+            }, undefined, 1000),
         ]],
     ]));
 
@@ -204,12 +214,12 @@ test("SessionMetricsService derives cache hit rate and generation speed from eli
     const run = snapshot.runs[0]!;
     assert.equal(run.cacheHitRate, 0.4);
     assert.equal(run.cacheMeasuredCalls, 1);
-    assert.equal(run.cacheExcludedCalls, 4);
-    assert.equal(run.tokensPerSecond, 80 / 2.5);
-    assert.equal(run.throughputMeasuredCalls, 3);
+    assert.equal(run.cacheExcludedCalls, 6);
+    assert.equal(run.tokensPerSecond, 90 / 5.5);
+    assert.equal(run.throughputMeasuredCalls, 5);
     assert.equal(run.throughputExcludedCalls, 2);
     assert.equal(snapshot.cacheHitRate, 0.4);
-    assert.equal(snapshot.tokensPerSecond, 80 / 2.5);
+    assert.equal(snapshot.tokensPerSecond, 90 / 5.5);
 });
 
 test("SessionMetricsService reports context left only for the latest confirmed call on the selected model", async () => {
@@ -249,7 +259,7 @@ test("SessionMetricsService returns unavailable efficiency values when no call q
             start("goal-projection", "run-history", "missing-cache"),
             finish("goal-projection", "run-history", "missing-cache", {
                 source: "provider_reported", inputTokens: 10, outputTokens: 5,
-            }),
+            }, 800),
         ]],
     ]));
 
@@ -295,14 +305,20 @@ test("SessionMetricsService excludes active calls and publishes facts and Goal s
     if (activeUpdate.value?.kind !== "snapshot") assert.fail("expected active-call snapshot");
     assert.equal(activeUpdate.value.snapshot.missingCalls, 0);
     assert.equal(activeUpdate.value.snapshot.runs.at(-1)?.cacheExcludedCalls, 1);
+    assert.equal(activeUpdate.value.snapshot.runs.at(-1)?.tokensPerSecond, null);
+    assert.equal(activeUpdate.value.snapshot.runs.at(-1)?.throughputMeasuredCalls, 0);
+    assert.equal(activeUpdate.value.snapshot.runs.at(-1)?.throughputExcludedCalls, 0);
 
     await service.record(finish(goal.id, "run-current", "active-call", {
         source: "provider_reported", inputTokens: 12, outputTokens: 6,
-    }));
+    }, undefined, 2000));
     const completedUpdate = await iterator.next();
     assert.equal(completedUpdate.value?.kind, "snapshot");
     if (completedUpdate.value?.kind !== "snapshot") assert.fail("expected completed-call snapshot");
     assert.equal(completedUpdate.value.snapshot.inputTokens, 12);
+    assert.equal(completedUpdate.value.snapshot.runs.at(-1)?.tokensPerSecond, 3);
+    assert.equal(completedUpdate.value.snapshot.runs.at(-1)?.throughputMeasuredCalls, 1);
+    assert.equal(completedUpdate.value.snapshot.runs.at(-1)?.throughputExcludedCalls, 0);
 
     goal = {
         ...goal,

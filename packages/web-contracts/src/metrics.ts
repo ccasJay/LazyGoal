@@ -55,11 +55,11 @@ export interface RunSessionMetrics {
     readonly cacheExcludedCalls: number;
     /** 缓存命中率（0-1 之间）。 */
     readonly cacheHitRate: number | null;
-    /** 参与吞吐量统计的调用数。 */
+    /** 纳入端到端输出速率统计的已结束调用数。 */
     readonly throughputMeasuredCalls: number;
-    /** 排除在吞吐量统计外的调用数。 */
+    /** 未纳入端到端输出速率统计的已结束调用数；运行中调用不计入。 */
     readonly throughputExcludedCalls: number;
-    /** 生成速度（Token/秒）。 */
+    /** 端到端输出速率：Provider 确认的输出 token 总数除以请求耗时总秒数；无可测调用时为 `null`。 */
     readonly tokensPerSecond: number | null;
 }
 
@@ -111,11 +111,11 @@ export interface SessionMetricsSnapshot {
     readonly cacheExcludedCalls: number;
     /** 全会话缓存命中率。 */
     readonly cacheHitRate: number | null;
-    /** 参与吞吐量统计调用数。 */
+    /** 纳入端到端输出速率统计的已结束调用数。 */
     readonly throughputMeasuredCalls: number;
-    /** 排除吞吐量统计调用数。 */
+    /** 未纳入端到端输出速率统计的已结束调用数；运行中调用不计入。 */
     readonly throughputExcludedCalls: number;
-    /** 全会话输出速度。 */
+    /** 全会话端到端输出速率：Provider 确认的输出 token 总数除以请求耗时总秒数；无可测调用时为 `null`。 */
     readonly tokensPerSecond: number | null;
     /** 当前 Run 最近一次调用剩余上下文比例（0-1）。 */
     readonly contextRemainingPercent?: number | null;

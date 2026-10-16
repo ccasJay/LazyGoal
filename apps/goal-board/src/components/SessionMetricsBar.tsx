@@ -33,7 +33,7 @@ export function SessionMetricsBar({ state }: { state?: MetricsState }) {
           <span
             title={`${metrics.throughputMeasuredCalls} measured calls; ${metrics.throughputExcludedCalls} excluded calls`}
           >
-            {metricSpeed(metrics.tokensPerSecond)} tok/s
+            Output rate {metricSpeed(metrics.tokensPerSecond)} tok/s
           </span>
         </span>
         <span className="session-metric">
@@ -91,11 +91,14 @@ export function SessionMetricsBar({ state }: { state?: MetricsState }) {
             <dd>
               {metricNumber(metrics.inputTokens)} / {metricNumber(metrics.outputTokens)}
             </dd>
-            <dt>Generation</dt>
+            <dt>Output rate</dt>
             <dd>
               {metricSpeed(metrics.tokensPerSecond)} tok/s{" "}
               <small>
                 {metrics.throughputMeasuredCalls} measured · {metrics.throughputExcludedCalls} excluded calls
+              </small>
+              <small>
+                Application-observed end-to-end provider request rate. Includes provider wait and response transfer; not provider-internal decode speed.
               </small>
             </dd>
             <dt>Cache hit</dt>

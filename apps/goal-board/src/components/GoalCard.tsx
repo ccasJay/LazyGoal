@@ -21,7 +21,7 @@ export function CardMetrics({ state }: { state?: MetricsState }) {
   return (
     <div
       className="card-metrics"
-      aria-label={`Goal total: ${metrics.stepCount} committed steps, ${metrics.inputTokens ?? "unavailable"} input tokens, ${metrics.outputTokens ?? "unavailable"} output tokens`}
+      aria-label={`Goal total: ${metrics.stepCount} committed steps, ${metrics.inputTokens ?? "unavailable"} input tokens, ${metrics.outputTokens ?? "unavailable"} output tokens; end-to-end output rate ${metricSpeed(metrics.tokensPerSecond)} tokens per second`}
     >
       <span>
         <strong>{metrics.stepCount}</strong> step{metrics.stepCount === 1 ? "" : "s"}<i />{" "}
@@ -29,17 +29,14 @@ export function CardMetrics({ state }: { state?: MetricsState }) {
         <span className="metric-separator">/</span>{" "}
         <strong>{metricNumber(metrics.outputTokens)}</strong> out
       </span>
-      <span
-        className={coverage === null ? "" : "metric-coverage"}
-        title={coverage ?? "Goal cache hit rate and generation speed"}
-      >
-        {coverage ?? (
-          <>
-            <strong>{metricPercent(metrics.cacheHitRate)}</strong> cache<i />
-            <strong>{metricSpeed(metrics.tokensPerSecond)}</strong> tok/s
-          </>
-        )}
+      <span>
+        <strong>{metricPercent(metrics.cacheHitRate)}</strong> cache<i />
+        <strong>Output rate</strong>{" "}
+        <span title={`${metrics.throughputMeasuredCalls} measured calls; ${metrics.throughputExcludedCalls} excluded calls`}>
+          <strong>{metricSpeed(metrics.tokensPerSecond)}</strong> tok/s
+        </span>
       </span>
+      {coverage !== null && <span className="metric-coverage" title="Provider usage coverage">{coverage}</span>}
     </div>
   );
 }

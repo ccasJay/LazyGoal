@@ -3,8 +3,9 @@
  *
  * @remarks
  * 记录不进入 Goal 恢复状态。开始记录用于识别进程中断的未完成调用；结束记录
- * 只保存供应商确认的数值，或明确的用量缺失标记。计时仅保存首个非空文本增量
- * 到模型调用结束之间的单调时钟时长。
+ * 只保存供应商确认的数值，或明确的用量缺失标记。`requestDurationMs` 记录适配器
+ * 请求到完整响应消费结束的单调时钟时长；`decodeDurationMs` 保留首个非空文本增量
+ * 到模型调用结束的既有流式计时语义。
  *
  * @example
  * ```ts
@@ -99,6 +100,7 @@ export interface UnavailableModelCallUsage {
  *     occurredAt: new Date().toISOString(),
  *     outcome: "completed",
  *     usage: { source: "unavailable" },
+ *     requestDurationMs: 850,
  * };
  * ```
  */
@@ -106,6 +108,11 @@ export interface ModelCallFinishedMetricRecord extends ModelCallMetricIdentity {
     readonly recordType: "call_finished";
     readonly outcome: "completed" | "failed" | "cancelled";
     readonly usage: ProviderReportedModelCallUsage | UnavailableModelCallUsage;
+    /**
+     * 应用观察到的适配器请求端到端耗时，单位为毫秒；涵盖流式/非流式请求直到完整响应消费结束。
+     * 失败调用可以记录已观测耗时；无法测得有效正时长时省略。
+     */
+    readonly requestDurationMs?: number;
     readonly decodeDurationMs?: number;
 }
 
