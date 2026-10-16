@@ -52,6 +52,7 @@ test("不支持原生 strict 的 Provider 仍可配置 two_stage，并为两阶�
         ["anthropic", "claude-sonnet-4-5"],
         ["openrouter", "~anthropic/claude-haiku-latest"],
         ["deepseek", "deepseek-v4-pro"],
+        ["opencode-go", "kimi-k3"],
     ] as const) {
         const config = readLLMConfig({
             LLM_PROVIDER: provider,

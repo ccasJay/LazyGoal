@@ -4,6 +4,7 @@ import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
+import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import type { LLMAdapter } from "./core/adapter";
 import { LLMRequestModeMismatchError, type LLMRequest, type LLMResponse, type LLMStreamEvent, type LLMToolCall } from "./core/types";
@@ -26,6 +27,7 @@ const factories = {
     anthropic: anthropicProvider,
     openrouter: openrouterProvider,
     deepseek: deepseekProvider,
+    "opencode-go": opencodeGoProvider,
 };
 
 /**

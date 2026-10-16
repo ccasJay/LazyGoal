@@ -12,7 +12,7 @@
 export type StructuredOutputMode = "strict" | "prompt_only" | "two_stage";
 
 /** 本期开放的供应商；兼容端点使用独立标识，不推断协议。 */
-export type LLMProvider = "openai" | "google" | "anthropic" | "openrouter" | "deepseek" | "openai-compatible";
+export type LLMProvider = "openai" | "google" | "anthropic" | "openrouter" | "deepseek" | "openai-compatible" | "opencode-go";
 
 type CommonConfig = {
     readonly apiKey: string;
@@ -38,7 +38,7 @@ type CommonConfig = {
  */
 export type LLMConfig = CommonConfig & (
     | { readonly provider: "openai" | "google"; readonly baseURL?: string }
-    | { readonly provider: "anthropic" | "openrouter" | "deepseek" }
+    | { readonly provider: "anthropic" | "openrouter" | "deepseek" | "opencode-go" }
     | { readonly provider: "openai-compatible"; readonly baseURL: string; readonly contextWindowTokens: number; readonly maxOutputTokens: number }
 );
 
@@ -70,7 +70,7 @@ export function readLLMConfig(env: Readonly<Record<string, string | undefined>>)
     const missing = required.filter(name => !value(name));
     if (missing.length) throw new LLMConfigurationError(missing);
     const provider = value("LLM_PROVIDER");
-    if (!["openai", "google", "anthropic", "openrouter", "deepseek", "openai-compatible"].includes(provider)) {
+    if (!["openai", "google", "anthropic", "openrouter", "deepseek", "openai-compatible", "opencode-go"].includes(provider)) {
         throw new LLMConfigurationError([], `Unsupported LLM_PROVIDER "${provider}"`);
     }
     const rawMode = value("LLM_STRUCTURED_OUTPUT_MODE");
@@ -118,5 +118,5 @@ export function readLLMConfig(env: Readonly<Record<string, string | undefined>>)
         return { ...common, provider, baseURL, contextWindowTokens, maxOutputTokens: maxOutputTokens! };
     }
     if (provider === "openai" || provider === "google") return { ...common, provider, ...(baseURL ? { baseURL } : {}) };
-    return { ...common, provider: provider as "anthropic" | "openrouter" | "deepseek" };
+    return { ...common, provider: provider as "anthropic" | "openrouter" | "deepseek" | "opencode-go" };
 }
