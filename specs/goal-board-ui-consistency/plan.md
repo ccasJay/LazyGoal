@@ -39,7 +39,7 @@
   - 实施目标：`AssistantMarkdown` 包 `React.memo`（props 为 content 字符串）；单条消息组件 memo 化；GoalSession 内 `projectActivityGroups` 调用按 `(run, liveEvents, showTools)` `useMemo` 记忆化，liveText 变化不重投影；不引入包装 DOM。
   - 验证手段：新增 `apps/goal-board/test/activity-projection-memo.test.tsx`（渲染计数探针）+ `npm test --prefix apps/goal-board` 全绿 + e2e 几何不变。
 
-- [ ] //TODO 8. trajectory.css 单层终态重写与会话样式归位
+- [x] //TODO 8. trajectory.css 单层终态重写与会话样式归位
   - 落实标准：[5.1](./spec.md#spec-req-5-1), [5.2](./spec.md#spec-req-5-2), [5.3](./spec.md#spec-req-5-3)
   - 实施目标：以 trace-workbench 终态为基准将 `trajectory.css` 重写为可读格式的单层规则；`.goal-info-toggle`/`.goal-info-panel` 迁至 `style.css`；重写后每个选择器至多定义一次，消费 TODO 1 的字号 token。
   - 验证手段：grep 断言脚本扩展（`test/design-token.test.ts`：trajectory.css 无重复选择器定义、无非 Trajectory 规则）+ `npm run test:e2e --prefix apps/goal-board` 全绿（选择器与几何保持）+ 对重写前后截取 Trajectory 视图截图比对（评审记录）。

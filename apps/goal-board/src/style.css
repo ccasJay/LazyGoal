@@ -152,6 +152,9 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .session > .board-area { min-height: 0; }
 .goal-info-backdrop { position: absolute; inset: 0; z-index: 18; background: var(--overlay); backdrop-filter: blur(1.5px); animation: fadeIn .18s ease; }
 .session .goal-info-panel { position: absolute; top: 0; right: 0; bottom: 0; left: auto; width: min(520px, 88vw); border-left: 1px solid var(--line); background: var(--surface); box-shadow: -12px 0 32px var(--shadow-strong); z-index: 20; display: flex; flex-direction: column; animation: drawerSlideIn .22s cubic-bezier(0.16, 1, 0.3, 1); }
+.goal-info-toggle { font-size: 10px; color: var(--accent-ink); padding: 5px; }
+.goal-info-panel > header { display: flex; align-items: center; justify-content: space-between; padding: 12px 22px; border-bottom: 1px solid var(--line); }
+.goal-info-panel .detail-panel { flex: 1; min-height: 0; overflow: auto; }
 @keyframes drawerSlideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
@@ -301,6 +304,8 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .step-status.failed, .step-status.rejected { color: var(--danger); }
 .step-recovery { padding: 4px 0; color: var(--warning); font-size: 10px; }
 .tool-event .trajectory-link { justify-content: flex-start; padding: 8px 0 2px; border: 0; }
+.trajectory-link { border-top: 1px solid var(--line); padding: 10px; display: flex; justify-content: flex-end; }
+.trajectory-link button { display: flex; align-items: center; gap: 6px; color: var(--accent-ink); font-size: 10px; }
 .live-status { display: flex; align-items: center; gap: 8px; margin: 0 0 15px 29px; padding: 4px 0 10px; color: var(--accent-ink); font-size: 10px; }
 .live-status > span:last-child { margin-left: auto; color: var(--subtle); font-size: var(--font-size-xs); text-align: right; }
 .pulse { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--accent-ink); animation: pulse 1.7s infinite; }
