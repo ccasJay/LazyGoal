@@ -29,7 +29,7 @@
   - 实施目标：`trajectory.tsx` 折叠指导文案改为英文等义句；新增 `apps/goal-board/test/user-copy-language.test.ts` 扫描 `src/**/*.tsx` 字符串字面量中的 CJK 字符（白名单：注释、中文 TSDoc、项目专有词），断言为空。
   - 验证手段：`npm test --prefix apps/goal-board`（新增检查用例）全绿。
 
-- [ ] //TODO 6. liveText 通路帧合并与滚动跟随节流
+- [x] //TODO 6. liveText 通路帧合并与滚动跟随节流
   - 落实标准：[4.1](./spec.md#spec-req-4-1), [4.3](./spec.md#spec-req-4-3)
   - 实施目标：`useRunStream` 内以 rAF（无 rAF 环境退化为 setTimeout 16ms）缓冲 `assistant_text_delta`，每帧最多一次 `setLiveText` 提交，流结束时 flush 保证文本完整；`GoalSession` 跟随滚动 effect 改为按帧合并读写 scrollTop（scrollHeight 读 ≤1 次/帧），`follow` 语义与 jump 按钮不变。
   - 验证手段：新增 `apps/goal-board/test/live-text-batch.test.ts`（模拟高频 delta：断言最终文本逐字一致、两次提交间存在帧合并）+ `npm test --prefix apps/goal-board` 全绿。

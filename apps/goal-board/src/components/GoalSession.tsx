@@ -110,12 +110,17 @@ export function GoalSession({
   } = useRunControlContext();
 
   const timeline = useRef<HTMLDivElement>(null);
+  const followFrame = useRef<number | null>(null);
   const currentRun = session?.runs.find((run) => run.current);
   const [draftNoticeDismissed, setDraftNoticeDismissed] = useState(false);
 
   useEffect(() => {
     setDraftNoticeDismissed(false);
   }, [draftModelCatalog?.defaultModelNotice]);
+
+  useEffect(() => () => {
+    if (followFrame.current !== null) window.cancelAnimationFrame(followFrame.current);
+  }, []);
 
   const isWaitingApprovalOrInput =
     session !== null &&
@@ -125,8 +130,14 @@ export function GoalSession({
       session.pendingAction?.status === "outcome_unknown");
 
   useEffect(() => {
-    if (follow && timeline.current) {
-      timeline.current.scrollTop = timeline.current.scrollHeight;
+    if (follow && timeline.current && followFrame.current === null) {
+      // 以帧为刻度合并滚动跳变，避免每个流式增量都同步读写布局值。
+      followFrame.current = window.requestAnimationFrame(() => {
+        followFrame.current = null;
+        if (follow && timeline.current) {
+          timeline.current.scrollTop = timeline.current.scrollHeight;
+        }
+      });
     }
   }, [session?.messages, currentRun?.steps, liveText, follow]);
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { BrowserGoalActivityEvent, BrowserGoalLiveEvent, BrowserGoalSession } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
+import { createTextBatcher } from "../live-text-batch";
 
 export function useRunStream({
   selectedGoalId,
@@ -18,6 +19,17 @@ export function useRunStream({
   const [liveEvents, setLiveEvents] = useState<BrowserGoalLiveEvent[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
   const onRefreshRef = useRef(onRefresh);
+
+  /**
+   * 打字机增量的按帧合并缓冲；`setLiveText` 引用稳定，缓冲可在首次渲染时一次性创建。
+   */
+  const textBatcherRef = useRef<ReturnType<typeof createTextBatcher> | null>(null);
+  if (textBatcherRef.current === null) {
+    textBatcherRef.current = createTextBatcher((delta) => {
+      setLiveText((current) => (current + delta).slice(-8_000));
+    });
+  }
+  const textBatcher = textBatcherRef.current;
 
   useEffect(() => {
     onRefreshRef.current = onRefresh;
@@ -102,12 +114,12 @@ export function useRunStream({
             }
             switch (event.activity.kind) {
               case "assistant_text_delta": {
-                const text = event.activity.text;
+                textBatcher.push(event.activity.text);
                 setLiveActivity("A response is being generated");
-                setLiveText((current) => (current + text).slice(-8_000));
                 break;
               }
               case "model_started":
+                textBatcher.clear();
                 setLiveText("");
                 setLiveActivity("Runtime is working on this Goal");
                 break;
@@ -115,6 +127,7 @@ export function useRunStream({
                 setLiveActivity("Waiting for the saved result");
                 break;
               case "step_started":
+                textBatcher.clear();
                 setLiveText("");
                 setLiveActivity("A new execution step has started");
                 break;
@@ -148,6 +161,7 @@ export function useRunStream({
     return () => {
       active = false;
       controller.abort();
+      textBatcher.dispose();
     };
   }, [selectedGoalId, session?.currentRunId, session?.goalId, sessionLoading]);
 
