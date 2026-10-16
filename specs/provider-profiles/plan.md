@@ -32,7 +32,7 @@
 
 - [ ] //TODO 6. 交付 goal-board Settings 面与 ModelPicker 两级选择
   - 落实标准：[7.1](./spec.md#spec-req-7-1)、[7.2](./spec.md#spec-req-7-2)、[7.3](./spec.md#spec-req-7-3)、[7.4](./spec.md#spec-req-7-4)、[1.3](./spec.md#spec-req-1-3)
-  - 实施目标：先在 `apps/goal-board/test/` 下建立组件/状态断言与 `apps/goal-board/e2e/` 端到端断言：Settings 面能列出/新增/编辑/删除/测试/激活 Provider，并以只读方式展示 `config.toml` 回退项；表单不回显明文密钥、空值提交表示不修改；ModelPicker 可先选 Provider 再选模型且结果写入对应偏好或 Goal 选择；失败以现有错误分类呈现。再实现 UI 与 API 客户端接入。
+  - 实施目标：先在 `apps/goal-board/test/` 下建立组件/状态断言与 `apps/goal-board/e2e/` 端到端断言：Settings 面能列出/新增/编辑/删除/测试/激活 Provider，并以只读方式展示 `config.toml` 回退项；表单不回显明文密钥、空值提交表示不修改；ModelPicker 可先选 Provider 再选模型且结果写入对应偏好或 Goal 选择；失败以现有错误分类呈现。再实现 UI 与 API 客户端接入。挂载点为已交付的 `apps/goal-board/src/components/SettingsPage.tsx` 空壳（当前无配置项与 API 调用）与 `WorkspaceShell` 导航，本切片负责填充该空壳而非新建界面。
   - 验证手段：`npx tsx --test apps/goal-board/test/*.test.ts apps/goal-board/test/*.test.tsx` 与 `npm run build:web`；端到端按 `apps/goal-board/e2e/` 既有运行方式执行新增用例。
 
 - [ ] //TODO 7. 同步文档、为既有 Spec 增添范围修订说明并完成全量回归
