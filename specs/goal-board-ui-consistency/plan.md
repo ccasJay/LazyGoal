@@ -19,7 +19,7 @@
   - 实施目标：在 `e2e/run-stages.test.mjs` 中对 `.run-stages-container`、`.run-level-steps`、`.run-stage-heading`、`.stage-content`、`.stage-rejection-feedback` 断言 `display: flex / grid`、`align-items` 与字号下限，防样式缺失回归；不改变既有 DOM 断言语义。
   - 验证手段：`npm run test:e2e --prefix apps/goal-board`（含 run-stages 用例）全绿。
 
-- [ ] //TODO 4. 补齐会话提示条与恢复行动作排布
+- [x] //TODO 4. 补齐会话提示条与恢复行样式
   - 落实标准：[2.1](./spec.md#spec-req-2-1), [2.2](./spec.md#spec-req-2-2)
   - 实施目标：`style.css` 新增 `.session-intro` 终态规则（居中提示条、`--accent-ink`、11–12px）；`.composer-recover-row`/`.composer-recover-actions` 对齐 `--conversation-width`，标签与 Resume Run 按钮水平排布、右对齐。
   - 验证手段：e2e（扩展 `runtime.test.mjs` 或既有 recoverable 用例）断言 `.composer-recover-actions { display:flex; justify-content:flex-end }` computed style + `npm run test:e2e --prefix apps/goal-board` 全绿。

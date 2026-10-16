@@ -315,6 +315,10 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .command-error button { display: grid; place-items: center; color: var(--danger); }
 .command-notice { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 14px; border-top: 1px solid var(--line); background: var(--surface); color: var(--accent-ink); font-size: 10px; line-height: 1.5; }
 .command-notice button { display: grid; place-items: center; color: var(--accent-ink); }
+.session-intro { margin: 14px 23px 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--accent-ink); font-size: var(--font-size-sm); text-align: center; }
+.composer-recover-row { display: grid; gap: 8px; }
+.composer-recover-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.composer-recover-actions button { flex-shrink: 0; }
 .composer-area { position: relative; flex-shrink: 0; padding: 15px 18px 12px; }
 .composer-area > * { width: min(100%, var(--conversation-width)); margin-inline: auto; }
 .permission-control { position: relative; z-index: 3; margin: 0; }

@@ -396,6 +396,13 @@ test("real local service restores and completes one authorized Goal conversation
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session-intro')?.innerText.includes('Next Run · Plan Mode')", 10_000);
+    const introStyle = JSON.parse(await value(socket, `JSON.stringify((() => {
+      const style = getComputedStyle(document.querySelector('.session-intro'));
+      return { color: style.color, textAlign: style.textAlign, borderRadius: style.borderRadius };
+    })())`));
+    assert.equal(introStyle.textAlign, "center");
+    assert.ok(introStyle.color !== "rgb(24, 35, 31)", "session intro must use the accent ink color, not default text");
+    assert.ok(Number.parseFloat(introStyle.borderRadius) > 0, "session intro must render as a notice bar card");
     const nextPlan = await api(restarted.origin, `/api/goals/${completedPlanSession.goalId}`, { token: restarted.token });
     assert.equal(nextPlan.body.goal.nextRunMode, "plan");
     assert.equal(nextPlan.body.goal.messages.some((message) => message.content === "/plan"), false);
