@@ -2,7 +2,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 升级 `@earendil-works/pi-ai` 至 `1.3.0` 并保持既有供应商行为等价
+- [x] //TODO 1. 升级 `@earendil-works/pi-ai` 至 `1.3.0` 并保持既有供应商行为等价
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)
   - 实施目标：先将 `packages/llm/package.json` 的 `@earendil-works/pi-ai` 由 `0.85.1` 提升到 `1.3.0` 并安装；对照 1.3.0 的目录格式（`chat:` 前缀、`type` 字段）与 API 形状，修正 `pi-ai.ts`（`createModels`/`getModel`/`completeSimple`/`streamSimple`/`api/*` 子路径）与 `model-catalog.ts` 中受影响的用法，确保既有 `openai`/`google`/`anthropic`/`openrouter`/`deepseek` 全部编译并通过原有测试。用一次性探针确认升级后的 `opencodeGoProvider()` 目录 baseUrl 为 `https://opencode.ai/inference/go`。先运行既有测试建立绿色基线，再改动依赖并复跑，任何回归都在本任务内修复到行为等价。
   - 验证手段：`npx tsx --test packages/llm/test/pi-ai.test.ts packages/llm/test/provider-fetchers.test.ts packages/llm/test/model-catalog.test.ts packages/llm/test/two-stage-config.test.ts packages/llm/test/native-tool-calling.test.ts`；断言既有供应商请求形态与断言全部通过，且 opencode-go 目录端点为官方 `/inference/go`。
