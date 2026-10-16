@@ -83,6 +83,19 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 验证时间：-
-- 验证摘要：尚未开始执行。
+- 状态：passed（含 1 项 pending-human：打字机输出顺滑度的主观体验核对，需真实 Runtime 流式场景；单测断言的帧合并与不丢字事实均已覆盖）
+- 验证时间：2026-10-16
+- 测试基准：worktree `codex/goal-board-ui-consistency` @ 45b748e0；单测 74/74 绿；e2e run-stages / runtime / run-input-control 3/3 绿；`npm run build`、`npx tsc --noEmit`、`npm run check:docs` 通过。
+- 证据摘要：
+  - 阶段分组呈现与防回归：截图 `02-stage-styled`（阶段卡 / Accepted·In progress 徽章 / Rev 2 / warning 反馈块）、e2e run-stages 含 computed-style 断言（8b29e733）。
+  - 提示条与恢复行：runtime e2e computed-style（text-align center + 圆角 + accent 色）；CSS 规则单测（session-chrome-styles）。
+  - 文案一致性：user-copy-language 全 src 扫描绿。
+  - 帧合并与投影记忆化：live-text-batch 假调度器 4 用例 + collect-activity-projections 2 用例。
+  - CSS 归位等价：逐属性"后者覆盖"合并（366→354，同作用域无重复选择器断言）+ e2e；goal-info 样式已迁 style.css。
+  - 字号触控：design-token 断言（9px 清零、3 档 token、热区 ≥36px）。
+  - Queue 持久化：queue-persistence 4 用例（round-trip / 损坏清空 / 孤儿清理 / 降级）；overview.md 语义更新。
+  - 渐进加载：mock UI 实测 99 消息会话首渲 58 条 DOM + "See earlier messages · 40 hidden in 1 earlier run" → 点击后 98 条全量渲染、按钮消失（截图 09/10-after）。
+  - 错误边界：error-boundary 实例级行为断言 + 接线 build 全绿。
+- 失败装填写本表之外：worktree 内依赖经符号链接指向主仓 node_modules（zod 等嵌套包解析）。
+- 未解决事项（验收范围外、预存）：`e2e/board.test.mjs` 在基线分支即失败——commit 80341000 将用量覆盖提示移至 `.card-footer .metric-coverage`，而测试仍在 `.card-metrics` 内等待 `call unreported` 文案。本 Spec 未触碰 CardMetrics 结构；/dev 修复需把该 e2e 断言迁移到卡片级 innerText，等待用户授权后另行处理。
+- 关联未提交变更：`main` 树 apps/goal-board 的 `activity-projector.ts`（+8 行 `stage-summary` 接引用）与 `GoalSession.tsx`（1 行 title 属性）未进入本分支；本分支目标文件以上列提交为准。
