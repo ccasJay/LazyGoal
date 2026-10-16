@@ -182,3 +182,7 @@ body:has(.workspace-sidebar.is-resizing), body:has(.workspace-sidebar.is-resizin
 .settings-provider-form-actions { display: flex; gap: 8px; margin-top: 4px; }
 .settings-provider-form-actions button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-raised); color: var(--text); font-size: 13px; }
 .settings-provider-form-actions button[type="submit"] { border-color: var(--accent-ink); color: var(--accent-ink); }
+
+.model-sources { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; }
+.model-sources label { color: var(--muted); font-size: 12px; }
+.model-sources select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-raised); color: var(--text); font-size: 12px; }

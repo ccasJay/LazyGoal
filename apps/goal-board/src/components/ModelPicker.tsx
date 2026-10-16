@@ -26,13 +26,26 @@ export function ModelPicker({
   const [busyId, setBusyId] = useState<string | null>(null);
   const mounted = useRef(true);
   const [search, setSearch] = useState("");
+  const [sourceProfileId, setSourceProfileId] = useState<string | undefined>(undefined);
+  const sourceInitialised = useRef(false);
 
   useEffect(() => {
     mounted.current = true;
     const controller = new AbortController();
     const goalTarget = target.kind === "goal" ? { goalId: target.goalId, runId: target.runId } : undefined;
-    void browserApi.listModels(goalTarget, controller.signal).then((result) => {
-      if (!controller.signal.aborted && mounted.current) setCatalog(result);
+    void browserApi.listModels(
+      {
+        ...(goalTarget ?? {}),
+        ...(sourceProfileId === undefined ? {} : { providerProfileId: sourceProfileId }),
+      },
+      controller.signal,
+    ).then((result) => {
+      if (controller.signal.aborted || !mounted.current) return;
+      setCatalog(result);
+      if (!sourceInitialised.current) {
+        sourceInitialised.current = true;
+        if (result.profileId !== undefined && result.profileId !== sourceProfileId) setSourceProfileId(result.profileId);
+      }
     }).catch((failure: unknown) => {
       if (!controller.signal.aborted && mounted.current) setError(errorMessage(failure));
     });
@@ -40,7 +53,7 @@ export function ModelPicker({
       mounted.current = false;
       controller.abort();
     };
-  }, [target.kind, target.kind === "goal" ? target.goalId : undefined, target.kind === "goal" ? target.runId : undefined]);
+  }, [target.kind, target.kind === "goal" ? target.goalId : undefined, target.kind === "goal" ? target.runId : undefined, sourceProfileId]);
 
   async function pick(model: BrowserModelOption) {
     if (!model.selectable || busyId !== null) return;
@@ -69,6 +82,23 @@ export function ModelPicker({
         </button>
       </div>
       {catalog !== null && <p className="model-provider">Configured provider · {catalog.provider}</p>}
+      {catalog !== null && catalog.sources !== undefined && catalog.sources.length > 1 && (
+        <div className="model-sources">
+          <label htmlFor="model-picker-source">Provider</label>
+          <select
+            id="model-picker-source"
+            aria-label="Choose provider"
+            value={sourceProfileId ?? ""}
+            onChange={(event) => setSourceProfileId(event.target.value.length === 0 ? undefined : event.target.value)}
+          >
+            {catalog.sources.map((source) => (
+              <option key={source.profileId ?? "config"} value={source.profileId ?? ""}>
+                {source.label}{source.label === source.kind ? "" : ` · ${source.kind}`}{source.active ? " (active)" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {catalog === null && error === null && (
         <p className="model-loading">
           <span className="loading-mark small" /> Loading models…
