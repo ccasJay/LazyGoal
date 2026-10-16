@@ -249,6 +249,24 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .run-steps-heading { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; padding: 4px 0; color: var(--muted); font-size: 12px; cursor: pointer; list-style: none; }
 .run-steps-heading::-webkit-details-marker, .tool-event summary::-webkit-details-marker { display: none; }
 .run-steps:not([open]) .activity-chevron { transform: rotate(-90deg); }
+.run-stages-container { display: grid; gap: 12px; margin: 12px 0 22px 29px; }
+.run-stages-container .run-steps { margin: 0; }
+.run-level-steps { color: var(--muted); font-size: var(--font-size-sm); }
+.run-stage-group { color: var(--muted); font-size: var(--font-size-sm); }
+.run-stage-heading { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text-secondary); cursor: pointer; list-style: none; }
+.run-stage-group[open] > .run-stage-heading { background: var(--surface-raised); }
+.run-stage-heading::-webkit-details-marker { display: none; }
+.stage-target { flex: 1; min-width: 0; overflow: hidden; color: var(--text); font-size: var(--font-size-xs); font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.stage-status { flex-shrink: 0; padding: 2px 7px; border-radius: 4px; background: var(--surface-wash); color: var(--muted); font-size: 10px; white-space: nowrap; }
+.stage-status.in_progress { color: var(--accent-ink); }
+.stage-status.review_pending { color: var(--warning); }
+.stage-status.accepted { color: var(--success); }
+.stage-revision { flex-shrink: 0; padding: 2px 6px; border: 1px solid var(--line); border-radius: 4px; color: var(--subtle); font-size: 10px; white-space: nowrap; }
+.stage-rejection-feedback { margin: 4px 0 10px; padding: 8px 11px; border: 1px solid var(--warning-border); border-left-width: 3px; border-radius: 6px; background: var(--warning-soft); color: var(--warning); font-size: var(--font-size-xs); line-height: 1.6; }
+.stage-rejection-feedback strong { font-weight: 550; }
+.stage-rejection-feedback p { margin: 3px 0 0; }
+.stage-content { margin: 2px 0 8px 13px; padding: 0 0 4px 12px; border-left: 1px solid var(--line); }
+.stage-steps { display: grid; gap: 2px; }
 .activity-group { margin: 0; color: var(--muted); font-size: 12px; }
 .activity-group > summary { display: flex; align-items: center; gap: 8px; min-height: 29px; padding: 5px 7px; border-radius: 6px; cursor: pointer; list-style: none; }
 .activity-group > summary::-webkit-details-marker { display: none; }

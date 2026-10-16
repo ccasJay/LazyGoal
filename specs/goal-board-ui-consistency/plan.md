@@ -9,7 +9,7 @@
   - 实施目标：在 `style.css` `:root` 新增 `--font-size-xs/sm/base`（11/12/14px）并让既有 `9px` 字号全部归零、`10px` 仅保留给状态徽章/短标签（时间、序号）；`.icon`、`.tr-page-arrow`、`.goal-card-options` 热区以 padding 扩至 ≥36×36px（不放大可见图标）。
   - 验证手段：grep 断言脚本（新增 `apps/goal-board/test/design-token.test.ts`：style.css/trajectory.css 中不得出现 `font-size: 9px`；`--font-size-*` token 存在）+ `npm test --prefix apps/goal-board` 全绿 + `npm run test:e2e --prefix apps/goal-board` 几何断言通过（失败项按 6.3 同步更新see期望值并记录于提交说明）。
 
-- [ ] //TODO 2. 补齐 Plan Run 阶段分组缺失样式
+- [x] //TODO 2. 补齐 Plan Run 阶段分组缺失样式
   - 落实标准：[1.1](./spec.md#spec-req-1-1), [1.2](./spec.md#spec-req-1-2), [1.4](./spec.md#spec-req-1-4)
   - 实施目标：在 `style.css` 为 `.run-stages-container`、`.run-level-steps`、`.run-stage-group`、`.run-stage-heading`、`.stage-target`、`.stage-status`（in_progress/review_pending/accepted 三态色）、`.stage-revision`、`.stage-content`、`.stage-steps`、`.stage-rejection-feedback` 写终态单层规则，复用 `--line/--accent-ink/--warning` token，禁止新增 DOM 包裹层。
   - 验证手段：新增 `apps/goal-board/test/run-stage-styles.test.ts`（读 style.css 断言关键类选中器存在）+ e2e `run-stages.test.mjs` 补 computed-style 断言（见 TODO 9 前置）通过。
