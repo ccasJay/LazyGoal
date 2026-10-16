@@ -24,7 +24,7 @@
   - 实施目标：`style.css` 新增 `.session-intro` 终态规则（居中提示条、`--accent-ink`、11–12px）；`.composer-recover-row`/`.composer-recover-actions` 对齐 `--conversation-width`，标签与 Resume Run 按钮水平排布、右对齐。
   - 验证手段：e2e（扩展 `runtime.test.mjs` 或既有 recoverable 用例）断言 `.composer-recover-actions { display:flex; justify-content:flex-end }` computed style + `npm run test:e2e --prefix apps/goal-board` 全绿。
 
-- [ ] //TODO 5. 用户文案全英文化并加语言回归检查
+- [x] //TODO 5. 用户文案全英文化并加语言回归检查
   - 落实标准：[3.1](./spec.md#spec-req-3-1), [3.2](./spec.md#spec-req-3-2)
   - 实施目标：`trajectory.tsx` 折叠指导文案改为英文等义句；新增 `apps/goal-board/test/user-copy-language.test.ts` 扫描 `src/**/*.tsx` 字符串字面量中的 CJK 字符（白名单：注释、中文 TSDoc、项目专有词），断言为空。
   - 验证手段：`npm test --prefix apps/goal-board`（新增检查用例）全绿。
