@@ -124,7 +124,7 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .card-metrics i { display: inline-block; width: 1px; height: 8px; margin: 0 5px; background: var(--surface-raised); }
 .card-metrics.muted { color: var(--muted); }
 .metric-separator { color: var(--subtle); }
-.card-metrics .metric-coverage { color: var(--warning); }
+.card-footer .metric-coverage { flex: 1; min-width: 0; overflow: hidden; color: var(--warning); font-size: 10px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .card-footer { grid-row: 3; display: flex; align-items: center; justify-content: space-between; gap: 4px; color: var(--muted); font-size: 11px; }
 .card-footer time { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 7px; border-radius: 4px; background: var(--surface-wash); font-size: 10px; white-space: nowrap; }

@@ -17,7 +17,6 @@ export function CardMetrics({ state }: { state?: MetricsState }) {
   if (state?.kind === "error") return <div className="card-metrics muted">Metrics unavailable</div>;
   if (state === undefined) return <div className="card-metrics muted">Loading metrics…</div>;
   const metrics = state.value;
-  const coverage = metricCoverage(metrics);
   return (
     <div
       className="card-metrics"
@@ -36,7 +35,6 @@ export function CardMetrics({ state }: { state?: MetricsState }) {
           <strong>{metricSpeed(metrics.tokensPerSecond)}</strong> tok/s
         </span>
       </span>
-      {coverage !== null && <span className="metric-coverage" title="Provider usage coverage">{coverage}</span>}
     </div>
   );
 }
@@ -69,6 +67,7 @@ export function GoalCard({
   const status = statusFromRun(goal.runStatus);
   const { label: statusLabel, className: statusPillClass } = cardStatusPresentation(goal.runStatus);
   const terminal = goal.runStatus === "completed" || goal.runStatus === "failed" || goal.runStatus === "cancelled";
+  const coverage = metrics?.kind === "ready" ? metricCoverage(metrics.value) : null;
 
   return (
     <article className="goal-card-shell">
@@ -84,6 +83,11 @@ export function GoalCard({
             <span className="status-dot" />
             {statusLabel}
           </span>
+          {coverage !== null && (
+            <span className="metric-coverage" title={coverage}>
+              {coverage}
+            </span>
+          )}
           <time dateTime={goal.updatedAt} title={goal.updatedAt}>
             {formatUpdatedAt(goal.updatedAt)}
           </time>
