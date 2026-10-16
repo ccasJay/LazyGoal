@@ -171,7 +171,9 @@ async function executeGroup(scenario: ContextScenario, worker: WorkerArtifact, r
             const goal = await new JsonFileGoalStore(goals).restore(lastBoundary.goalId);
             if (goal === undefined || goal.state.run.id !== lastBoundary.runId || goal.state.run.status !== lastBoundary.status ||
                 goal.state.run.committedThroughSequence !== lastBoundary.sequence) throw new Error("Collected Snapshot does not match final Worker boundary");
-            answer = goal.state.messages.filter(message => message.role === "assistant").at(-1)?.content ?? "";
+            if (lastBoundary.status === "completed") {
+                answer = goal.state.messages.filter(message => message.role === "assistant").at(-1)?.content ?? "";
+            }
             runtimeCode = goal.state.run.stopReason?.kind === "execution_error" ? goal.state.run.stopReason.code : undefined;
         } catch (error) { artifactErrors.push({ stage: "snapshot_read", message: String(error) }); }
     }
@@ -187,7 +189,12 @@ async function executeGroup(scenario: ContextScenario, worker: WorkerArtifact, r
     }
     if (group !== "capture") {
         let judgeRecord = null;
-        if (result.artifact !== null && judge !== undefined) {
+        if (
+            result.artifact !== null
+            && judge !== undefined
+            && reportedCategory === "completed"
+            && lastBoundary?.status === "completed"
+        ) {
             let evidence: Readonly<Record<string, string>> = { output: answer, verifier: JSON.stringify(result.artifact.verifier), artifacts: JSON.stringify(result.artifact.files) };
             if (scenario.kind === "source") {
                 try { evidence = lastBoundary ? await continuityJudgeEvidence(reviewDirectory!, result.artifact.directory, scenario, group, lastBoundary) : {}; }
