@@ -1,3 +1,4 @@
+import { toolResponseFixture } from "./tool-response-fixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -34,7 +35,7 @@ class ReplyAdapter implements LLMAdapter {
 
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.requests.push(request);
-        return { content: this.reply };
+        return request.toolChoice === "required" ? toolResponseFixture(this.reply) : { content: this.reply };
     }
 }
 
@@ -108,7 +109,7 @@ function createExecutor(
     });
 }
 
-test("直接 Decide 只调用 Decide Adapter，并保留原生 strict schema", async () => {
+test("直接 Decide 只调用 Decide Adapter，并使用工具参数 schema", async () => {
     const thinkAdapter = new ReplyAdapter("prompt_only", "不得调用");
     const decideAdapter = new ReplyAdapter("strict", JSON.stringify({
         result: {
@@ -130,7 +131,7 @@ test("直接 Decide 只调用 Decide Adapter，并保留原生 strict schema", a
     assert.equal(result.kind, "complete");
     assert.equal(thinkAdapter.requests.length, 0);
     assert.equal(decideAdapter.requests.length, 1);
-    assert.ok(decideAdapter.requests[0]?.structuredOutput !== undefined);
+    assert.equal(decideAdapter.requests[0]?.structuredOutput, undefined);
 });
 
 test("prompt_only Decide 仍经本地输出契约拒绝非法响应", async () => {
@@ -177,7 +178,7 @@ test("Decide 可请求 Think，Think 使用 prompt_only 且不挂载工具或结
     assert.equal(request.modelContextFrame?.stage, "decide");
     assert.equal(decideAdapter.requests.length, 1);
     assert.equal(thinkAdapter.requests.length, 0);
-    assert.ok(decideAdapter.requests[0]?.structuredOutput !== undefined);
+    assert.equal(decideAdapter.requests[0]?.structuredOutput, undefined);
     assert.ok(decideAdapter.requests[0]?.tools?.some((tool) => tool.id === "system_request_think"));
 
     const thought = await executor.think({

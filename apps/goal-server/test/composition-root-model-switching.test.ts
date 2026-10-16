@@ -1,3 +1,4 @@
+import { toolResponseFixture } from "../../../packages/agent/test/tool-response-fixture";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -33,7 +34,7 @@ class FakeAdapter implements LLMAdapter {
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.calls.push(request);
         return {
-            content: JSON.stringify({
+            ...toolResponseFixture(JSON.stringify({
                 result: {
                     kind: "ask_user",
                     questions: [
@@ -49,7 +50,7 @@ class FakeAdapter implements LLMAdapter {
                     ],
                     memoryPatch: null,
                 },
-            }),
+            })),
         };
     }
 }
@@ -414,8 +415,8 @@ test("浏览器推进交替恢复各 Goal 的模型绑定，不串用上一个 G
 class CompleteAdapter extends FakeAdapter {
     override async generate(request: LLMRequest): Promise<LLMResponse> {
         this.calls.push(request);
-        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
-        return { content: JSON.stringify({ result: { kind: "complete", summary: `done by ${this.modelId}`, evidenceSequences: [], memoryPatch: null, contextNotes: null } }) };
+        if (request.tools?.[0]?.id === "system_review_completion") return { ...toolResponseFixture(JSON.stringify({ result: { kind: "accept" } })) };
+        return { ...toolResponseFixture(JSON.stringify({ result: { kind: "complete", summary: `done by ${this.modelId}`, evidenceSequences: [], memoryPatch: null, contextNotes: null } })) };
     }
 }
 

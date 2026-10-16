@@ -1,3 +1,4 @@
+import { toolResponseFixture } from "../../../packages/agent/test/tool-response-fixture";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -53,21 +54,21 @@ test("Worker runtime uses deterministic Headless Root state and isolated instanc
         llmAdapter: {
             structuredOutputMode: "strict",
             generate: async (request) => {
-        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
+        if (request.tools?.[0]?.id === "system_review_completion") return { ...toolResponseFixture(JSON.stringify({ result: { kind: "accept" } })) };
                 modelCalls += 1;
                 if (modelCalls === 1) {
                     return {
-                        content: JSON.stringify({
+                        ...toolResponseFixture(JSON.stringify({
                             result: {
                                 kind: "tool_discovery",
                                 query: "write file",
                             },
-                        }),
+                        })),
                     };
                 }
                 if (modelCalls === 2) {
                     return {
-                        content: JSON.stringify({
+                        ...toolResponseFixture(JSON.stringify({
                             result: {
                                 kind: "run_stage_update",
                                 stageId: null,
@@ -78,12 +79,12 @@ test("Worker runtime uses deterministic Headless Root state and isolated instanc
                                 memoryPatch: null,
                                 contextNotes: null,
                             },
-                        }),
+                        })),
                     };
                 }
                 if (modelCalls === 3) {
                     return {
-                        content: JSON.stringify({
+                        ...toolResponseFixture(JSON.stringify({
                             result: {
                                 kind: "tool_call",
                                 action: {
@@ -93,7 +94,7 @@ test("Worker runtime uses deterministic Headless Root state and isolated instanc
                                 },
                                 memoryPatch: null,
                             },
-                        }),
+                        })),
                     };
                 }
                 const contextMessage = request.messages.at(-1)?.content;
@@ -111,7 +112,7 @@ test("Worker runtime uses deterministic Headless Root state and isolated instanc
                     .at(-1)?.sequence;
                 assert.equal(typeof observationSequence, "number");
                 return {
-                    content: JSON.stringify({
+                    ...toolResponseFixture(JSON.stringify({
                         result: {
                             kind: "complete",
                             summary: "already verified",
@@ -119,7 +120,7 @@ test("Worker runtime uses deterministic Headless Root state and isolated instanc
                             memoryPatch: null,
                             contextNotes: null,
                         },
-                    }),
+                    })),
                 };
             },
         },

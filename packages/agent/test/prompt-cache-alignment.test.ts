@@ -209,13 +209,13 @@ test("尾部 Step-dynamic 控制消息精简为纯增量，彻底剥离 intent�
     assert.equal("intent" in payload, false, "不能在尾部重复序列化 intent");
     assert.equal("task" in payload, false, "不能在尾部重复序列化 task");
     assert.equal("contextEpoch" in payload, false, "不能在尾部序列化静态 contextEpoch");
-    assert.equal("responseShapeGuide" in payload, false, "strict 模式默认不注入 responseShapeGuide");
+    assert.match(payload.responseShapeGuide, /Call exactly one declared tool/);
     if (payload.trajectoryContext) {
         assert.equal("budget" in payload.trajectoryContext, false, "不能在尾部泄露内部 budget 报告");
     }
 });
 
-test("prompt-only 模式仅在尾部动态消息末尾注入 Shape Guide，Goal-stable 与 Epoch-stable 前缀完全保持固定", async () => {
+test("工具调用指令仅进入尾部动态消息，Goal-stable 与 Epoch-stable 前缀完全保持固定", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
     const goalHashes: string[] = [];
     const epochHashes: string[] = [];
@@ -250,8 +250,8 @@ test("prompt-only 模式仅在尾部动态消息末尾注入 Shape Guide，Goal-
         assert.equal(lastMessage.role, "user");
         const payload = JSON.parse(lastMessage.content);
         assert.equal(typeof payload.responseShapeGuide, "string");
-        assert.match(payload.responseShapeGuide, /Respond with a JSON object conforming to the following schema:/);
-        assert.match(payload.responseShapeGuide, /"result"/);
+        assert.match(payload.responseShapeGuide, /Call exactly one declared tool/);
+        assert.doesNotMatch(payload.responseShapeGuide, /Respond with a JSON object|"result"/);
     }
 
     // 验证前缀稳定完全一致

@@ -1,4 +1,4 @@
-import { createModels, createProvider, type Model, type Api, type Context, type AssistantMessage, type AssistantMessageEvent } from "@earendil-works/pi-ai";
+import { createModels, createProvider, hasApi, type StreamOptions, type Model, type Api, type Context, type AssistantMessage, type AssistantMessageEvent } from "@earendil-works/pi-ai";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
@@ -66,6 +66,8 @@ export function buildPiAiRequestOptions(input: {
  * 构造时离线解析模型目录；不执行登录、目录刷新或凭据持久化。
  * 内部聚合流式输出，只有正常结束的文本交给 Agent。pi-ai usage 无法证明
  * 原始计数是否存在，因此只返回诊断 piUsage，不参与正式用量累计。
+ * 工具选择按模型 API 映射：auto/none 使用 simple 入口；required 使用完整 API，
+ * OpenAI 发送 required，Anthropic/Google 发送 any，不改变 Runtime 的工具授权。
  */
 export class PiAiAdapter implements LLMAdapter {
     readonly structuredOutputMode = "prompt_only" as const;
@@ -129,7 +131,7 @@ export class PiAiAdapter implements LLMAdapter {
         const context = this.toContext(request);
         let response: AssistantMessage;
         try {
-            response = await this.models.completeSimple(this.model, context, {
+            const options = {
                 apiKey: this.config.apiKey,
                 ...(maxTokens === undefined ? {} : { maxTokens }),
                 ...(control?.signal === undefined ? {} : { signal: control.signal }),
@@ -137,7 +139,13 @@ export class PiAiAdapter implements LLMAdapter {
                     provider: this.config.provider,
                     ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId }),
                 }),
-            });
+            };
+            response = request.toolChoice === "required"
+                ? await this.requiredToolStream(context, options).result()
+                : await this.models.completeSimple(this.model, context, {
+                    ...options,
+                    ...(request.toolChoice === undefined ? {} : { toolChoice: request.toolChoice }),
+                });
             throwIfAborted(control);
         } catch (error) {
             throwIfAborted(control);
@@ -171,7 +179,7 @@ export class PiAiAdapter implements LLMAdapter {
 
         let completed = false;
         try {
-            const stream = this.models.streamSimple(this.model, context, {
+            const options = {
                 apiKey: this.config.apiKey,
                 ...(maxTokens === undefined ? {} : { maxTokens }),
                 ...(control?.signal === undefined ? {} : { signal: control.signal }),
@@ -179,7 +187,13 @@ export class PiAiAdapter implements LLMAdapter {
                     provider: this.config.provider,
                     ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId }),
                 }),
-            });
+            };
+            const stream = request.toolChoice === "required"
+                ? this.requiredToolStream(context, options)
+                : this.models.streamSimple(this.model, context, {
+                    ...options,
+                    ...(request.toolChoice === undefined ? {} : { toolChoice: request.toolChoice }),
+                });
             for await (const event of stream as AsyncIterable<AssistantMessageEvent>) {
                 throwIfAborted(control);
                 if (event.type === "text_delta" && event.delta.length > 0) {
@@ -220,6 +234,21 @@ export class PiAiAdapter implements LLMAdapter {
         }
     }
 
+    private requiredToolStream(context: Context, options: StreamOptions) {
+        // pi-ai 1.3.0 的 simple 选项只接受 auto/none；强制调用按模型 API 使用完整选项。
+        const model = this.model;
+        if (hasApi(model, "openai-completions") || hasApi(model, "openai-responses")) {
+            return this.models.stream(model, context, { ...options, toolChoice: "required" });
+        }
+        if (hasApi(model, "anthropic-messages")) {
+            return this.models.stream(model, context, { ...options, toolChoice: "any", thinkingEnabled: false });
+        }
+        if (hasApi(model, "google-generative-ai")) {
+            return this.models.stream(model, context, { ...options, toolChoice: "any", thinking: { enabled: false } });
+        }
+        throw new LLMRequestModeMismatchError(`PiAiAdapter cannot require tool calls for API "${model.api}"`);
+    }
+
     private toResponse(request: LLMRequest, response: AssistantMessage): LLMResponse {
         const hasTools = request.tools !== undefined && request.tools.length > 0;
         if (response.stopReason === "error") {
@@ -244,10 +273,7 @@ export class PiAiAdapter implements LLMAdapter {
             .filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] >= 0));
 
         const textBlocks = response.content.flatMap(block => block.type === "text" ? [block.text] : []);
-        const thinkingBlocks = response.content.flatMap(block => block.type === "thinking" ? [block.thinking] : []);
-        const content = hasTools && thinkingBlocks.length > 0
-            ? `${thinkingBlocks.join("\n")}\n${textBlocks.join("\n")}`.trim()
-            : textBlocks.join("");
+        const content = textBlocks.join("");
 
         const toolCalls: LLMToolCall[] = response.content.flatMap(block => {
             if (block.type === "toolCall") {

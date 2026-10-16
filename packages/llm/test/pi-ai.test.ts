@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { once } from "node:events";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import type { AssistantMessage, Context, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { PiAiAdapter, PiAiProviderError, buildPiAiRequestOptions } from "../src/pi-ai";
 import { createLlmAdapter } from "../src/factory";
@@ -66,6 +67,43 @@ test("PiAiAdapter maps ordered text history and isolates thinking and unverified
         piUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     });
     assert.ok(!JSON.stringify(response).includes("private reasoning"));
+});
+
+test("pi-ai keeps thinking out of tool-request text and final responses in both entrypoints", async () => {
+    const cases: AssistantMessage["content"][] = [
+        [{ type: "thinking", thinking: "PRIVATE_THINKING" }, { type: "text", text: json }],
+        [{ type: "thinking", thinking: "PRIVATE_THINKING" },
+            { type: "toolCall", id: "call-preserved", name: "report", arguments: { result: "ok" } }],
+        [{ type: "thinking", thinking: "PRIVATE_THINKING" }],
+    ];
+    for (const blocks of cases) {
+        const instance = adapter();
+        const message = result({ content: blocks, stopReason: blocks.some(b => b.type === "toolCall") ? "toolUse" : "stop" });
+        const internals = instance as unknown as { models: { stream: () => ReturnType<typeof createAssistantMessageEventStream> } };
+        internals.models.stream = () => {
+            const stream = createAssistantMessageEventStream();
+            stream.push({ type: "thinking_delta", contentIndex: 0, delta: "PRIVATE_THINKING", partial: message });
+            for (const block of blocks) {
+                if (block.type === "text") stream.push({ type: "text_delta", contentIndex: 1, delta: block.text, partial: message });
+            }
+            stream.push({ type: "done", reason: message.stopReason as "stop" | "toolUse", message });
+            return stream;
+        };
+        const input: LLMRequest = { ...request, toolChoice: "required",
+            tools: [{ id: "report", description: "Report", parametersSchema: { type: "object" } }] };
+        const generated = await instance.generate(input);
+        const events = [];
+        for await (const event of instance.stream(input)) events.push(event);
+        const completed = events.find(e => e.kind === "completed");
+        assert.ok(completed?.kind === "completed");
+        assert.deepEqual(completed.response, generated);
+        assert.equal(generated.content, blocks.some(b => b.type === "text") ? json : "");
+        assert.ok(!JSON.stringify(generated).includes("PRIVATE_THINKING"));
+        assert.ok(events.some(e => e.kind === "reasoning_delta" && e.text === "PRIVATE_THINKING"));
+        if (blocks.some(b => b.type === "toolCall")) {
+            assert.deepEqual(generated.toolCalls, [{ callId: "call-preserved", toolId: "report", argumentsJson: '{"result":"ok"}' }]);
+        }
+    }
 });
 
 test("invalid request mode, system placement and output cap fail before dispatch", async () => {
@@ -255,6 +293,83 @@ test("real pi-ai SDK maps four wire protocols against local SSE servers", async 
     }
 });
 
+test("pi-ai serializes tool choice for generate and stream across provider protocols", async () => {
+    const captured: Record<string, any>[] = [];
+    const { opencodeGoProvider } = await import("@earendil-works/pi-ai/providers/opencode-go");
+    const goModels = opencodeGoProvider().getModels();
+    const goCases = [
+        ["openai-responses", responsesBody],
+        ["anthropic-messages", anthropicBody],
+        ["google-generative-ai", googleBody],
+    ].map(([api, body]) => {
+        const model = goModels.find(candidate => candidate.api === api);
+        assert.ok(model, `expected an opencode-go model using ${api}`);
+        return ["opencode-go", model.id, body] as const;
+    });
+    for (const [provider, model, body] of [
+        ["openai", "gpt-4.1-mini", responsesBody],
+        ["anthropic", "claude-sonnet-4-5", anthropicBody],
+        ["google", "gemini-2.5-flash", googleBody],
+        ["openai-compatible", "local-model", completionsBody()],
+        ["opencode-go", "longcat-2.5-preview-free", completionsBody()],
+        ["openrouter", "openai/gpt-4.1-mini", completionsBody()],
+        ["deepseek", "deepseek-flash", completionsBody()],
+        ...goCases,
+    ] as const) {
+        await withServer((req, res) => {
+            let data = "";
+            req.on("data", chunk => { data += chunk; });
+            req.on("end", () => {
+                captured.push({ body: JSON.parse(data), headers: req.headers });
+                res.writeHead(200, { "Content-Type": "text/event-stream" });
+                res.end(body);
+            });
+        }, async url => {
+            const realFetch = globalThis.fetch;
+            globalThis.fetch = async (input, init) => {
+                const req = new Request(input, init);
+                const original = new URL(req.url);
+                return realFetch(url + original.pathname + original.search, {
+                    method: req.method, headers: req.headers, body: await req.text(), signal: req.signal,
+                });
+            };
+            try {
+                const instance = adapter(provider, model, provider === "openai-compatible" ? `${url}/v1` : undefined);
+                for (const mode of ["generate", "stream"] as const) {
+                    for (const toolChoice of [undefined, "auto", "none", "required"] as const) {
+                        const input: LLMRequest = {
+                            ...request,
+                            sessionId: "goal-tool-choice",
+                            tools: [{ id: "report", description: "Report a result", parametersSchema: {
+                                type: "object", properties: { result: { type: "string" } }, required: ["result"],
+                            } }],
+                            ...(toolChoice === undefined ? {} : { toolChoice }),
+                        };
+                        if (mode === "generate") await instance.generate(input);
+                        else for await (const _event of instance.stream(input)) { /* Consume the real SDK stream. */ }
+                        const capturedRequest = captured.at(-1)!;
+                        const sent = capturedRequest.body;
+                        if (provider === "opencode-go") {
+                            assert.equal(capturedRequest.headers["x-opencode-session"], "goal-tool-choice");
+                            assert.equal(capturedRequest.headers["user-agent"], "lazygoal");
+                        }
+                        if (body === anthropicBody) {
+                            assert.equal(sent.tool_choice?.type, toolChoice === "required" ? "any" : toolChoice,
+                                `${provider}/${mode}/${toolChoice}`);
+                        } else if (body === googleBody) {
+                            const expected = toolChoice === "required" ? "ANY" : toolChoice?.toUpperCase();
+                            assert.equal(sent.toolConfig?.functionCallingConfig?.mode, expected,
+                                `${provider}/${mode}/${toolChoice}`);
+                        } else {
+                            assert.equal(sent.tool_choice, toolChoice, `${provider}/${mode}/${toolChoice}`);
+                        }
+                    }
+                }
+            } finally { globalThis.fetch = realFetch; }
+        });
+    }
+});
+
 test("opencode-go 注入 LazyGoal UA 与稳定会话头，且仅在提供会话身份时发送", async () => {
     const { opencodeGoProvider } = await import("@earendil-works/pi-ai/providers/opencode-go");
     const goModel = opencodeGoProvider().getModels().find((candidate) => candidate.api === "openai-completions");
@@ -352,7 +467,7 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
                 assert.equal(body.response_format, undefined);
                 assert.ok(body.tools.length > 0);
                 if (mode === "strict") assert.equal(body.parallel_tool_calls, false);
-                if (!reviewing && !isFeedback) assert.equal(working.responseShapeGuide !== undefined, mode === "prompt_only");
+                if (!reviewing && !isFeedback) assert.match(working.responseShapeGuide, /Call exactly one declared tool/);
                 let decision: unknown;
                 const taskApproved = body.messages.some(
                     (message: { readonly role: string; readonly content: string }) =>
@@ -387,16 +502,15 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
                         ? { kind: "tool_call", action: { actionId: "smoke-action-1", toolId: "smoke_evidence", input: {} }, memoryPatch: null }
                         : { kind: "complete", summary: "Smoke passed", completionEvidence: [{ criterionIndex: 0, evidenceSequences: [observation?.sequence ?? JSON.parse(nativeObservation.content).sourceSequence] }], memoryPatch: null, contextNotes: null };
                 }
-                const content = JSON.stringify({ result: decision });
-                if (mode === "strict") {
-                    res.setHeader("Content-Type", "application/json");
-                    const selected = decision as any;
+                const selected = decision as any;
                     const toolId = selected.kind === "task_proposal" ? "system_propose_task_plan" : selected.kind === "run_stage_update" ? "system_update_run_stage" : selected.kind === "tool_call" ? "smoke_evidence" : selected.kind === "tool_discovery" ? "system_find_tools" : selected.kind === "accept" ? "system_review_completion" : "system_complete_task";
                     const args = selected.kind === "tool_call" ? {} : selected.kind === "run_stage_update" ? { target: selected.target, acceptanceCriteria: selected.acceptanceCriteria } : selected.kind === "task_proposal" ? { task: selected.task, planRoute: selected.planRoute, approvalRequest: selected.approvalRequest, memoryPatch: null } : selected.kind === "tool_discovery" ? { query: selected.query } : selected.kind === "accept" ? { result: selected } : { summary: selected.summary, completionEvidence: selected.completionEvidence, memoryPatch: null };
+                if (mode === "strict") {
+                    res.setHeader("Content-Type", "application/json");
                     res.end(JSON.stringify({ id: "smoke-1", model: "local-model", choices: [{ index: 0, message: { role: "assistant", content: "", tool_calls: [{ id: `call-${phases.length}`, type: "function", function: { name: toolId, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] }));
                 } else {
                     res.setHeader("Content-Type", "text/event-stream");
-                    res.end(sse([{ id: "smoke-1", model: "local-model", choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: "stop" }] }]) + "data: [DONE]\n\n");
+                    res.end(sse([{ id: "smoke-1", model: "local-model", choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `call-${phases.length}`, type: "function", function: { name: toolId, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] }]) + "data: [DONE]\n\n");
                 }
             });
         }, async url => {

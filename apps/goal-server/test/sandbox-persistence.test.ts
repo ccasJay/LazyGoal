@@ -46,14 +46,10 @@ function createMockAdapter(): LLMAdapter {
     return {
         structuredOutputMode: "prompt_only",
         generate: async () => ({
-            content: JSON.stringify({
-                result: {
-                    kind: "wait",
-                    reason: "Wait for the persistence attempt to be inspected.",
-                    memoryPatch: null,
-                    contextNotes: null,
-                },
-            }),
+            content: "",
+            toolCalls: [{ callId: "persistence-wait", toolId: "system_wait_for_input", argumentsJson: JSON.stringify({
+                reason: "Wait for the persistence attempt to be inspected.", memoryPatch: null,
+            }) }],
             usage: { inputTokens: 10, outputTokens: 10 },
         }),
     };

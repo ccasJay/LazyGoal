@@ -1,3 +1,4 @@
+import { toolResponseFixture } from "./tool-response-fixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -115,9 +116,9 @@ class FakeAdapter implements LLMAdapter {
         this.structuredOutputMode = structuredOutputMode;
     }
 
-    async generate(request: LLMRequest): Promise<{ content: string }> {
+    async generate(request: LLMRequest): Promise<LLMResponse> {
         this.requests.push(request);
-        return { content: this.content };
+        return { ...toolResponseFixture(this.content), content: "Accompanying response text." };
     }
 }
 
@@ -147,7 +148,7 @@ class SequenceAdapter implements LLMAdapter {
             throw new Error("fake adapter responses exhausted");
         }
 
-        return { content };
+        return toolResponseFixture(content);
     }
 }
 
@@ -166,8 +167,7 @@ class StreamingAdapter implements LLMAdapter {
         yield { kind: "assistant_text_delta", text: "{\"result\":" };
         yield {
             kind: "completed",
-            response: {
-                content: JSON.stringify({
+            response: toolResponseFixture(JSON.stringify({
                     result: {
                         kind: "complete",
                         summary: "streamed",
@@ -175,8 +175,7 @@ class StreamingAdapter implements LLMAdapter {
                         memoryPatch: null,
                         contextNotes: null,
                     },
-                }),
-            },
+                })),
         };
     }
 }
@@ -239,7 +238,7 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     assert.match(systemContent, /Global Overview:/);
     assert.match(systemContent, /Profile System Prompt:\n你是一个执行代理。/);
     assert.match(systemContent, /Profile Instructions:\n1\. 检查当前上下文/);
-    assert.match(systemContent, /native Tool interface/);
+    assert.match(systemContent, /call exactly one declared Tool/);
     const dynamicContent = adapter.requests[0]?.messages.slice(3, -1).map(({ content }) => content).join("\n") ?? "";
     assert.match(
         dynamicContent,
@@ -471,8 +470,8 @@ test("协议错误转换为不含原始输出的 Decide RuntimeFeedback", async 
         (error: unknown) => {
             assert.ok(error instanceof ModelStageFeedbackError);
             assert.equal(error.feedback.stage, "decide");
-            assert.equal(error.feedback.origin, "response_parse");
-            assert.equal(error.feedback.issues[0]?.code, "invalid_json_syntax");
+            assert.equal(error.feedback.origin, "tool_input");
+            assert.equal(error.feedback.issues[0]?.code, "invalid_tool_arguments");
             assert.equal(JSON.stringify(error.feedback).includes("不是合法 JSON"), false);
             return true;
         },
@@ -791,7 +790,7 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
     const adapter1: LLMAdapter = {
         structuredOutputMode: "strict",
         async generate() {
-            return adapter1Promise;
+            return adapter1Promise.then(response => toolResponseFixture(response.content));
         },
     };
     const adapter2 = new FakeAdapter(JSON.stringify({
@@ -871,18 +870,15 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
 });
 
 
-for (const native of [false, true]) {
-    test(`读取参数错误通过${native ? "原生调用" : "正文 JSON"}保留字段级安全反馈`, async () => {
+for (const mode of ["strict", "prompt_only"] as const) {
+    test(`读取参数错误在 ${mode} 工具调用中保留字段级安全反馈`, async () => {
         const adapter: LLMAdapter = {
-            structuredOutputMode: "strict",
+            structuredOutputMode: mode,
             async generate() {
                 const input = { command: "PRIVATE_INPUT_VALUE", timeoutMs: null, sandboxAccess: null };
-                return native ? {
+                return {
                     content: "", toolCalls: [{ callId: "read-1", toolId: "read_file", argumentsJson: JSON.stringify(input) }],
-                } : { content: JSON.stringify({ result: {
-                    kind: "tool_call", action: { actionId: "read-1", toolId: "read_file", input },
-                    memoryPatch: "__lazygoal_null__",
-                } }) };
+                };
             },
         };
         await assert.rejects(createExecutor(adapter).execute({
@@ -894,7 +890,6 @@ for (const native of [false, true]) {
             assert.equal(error.feedback.origin, "tool_input");
             assert.ok(error.feedback.issues.some(issue => issue.code === "missing_field" && issue.path.at(-1) === "path" && /Supply/.test(issue.message)));
             assert.ok(error.feedback.issues.some(issue => issue.code === "extra_field" && issue.path.at(-1) === "command" && /Remove/.test(issue.message)));
-            if (!native) assert.ok(error.feedback.issues.some(issue => issue.path.join(".") === "result.memoryPatch"));
             assert.equal(JSON.stringify(error.feedback).includes("PRIVATE_INPUT_VALUE"), false);
             assert.ok(error.feedback.constraints?.some(text => /continue the original task/.test(text)));
             return true;
@@ -925,9 +920,7 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
             requests.push(request);
             const call = (toolId: string, args: unknown): LLMResponse => ({ content: "", toolCalls: [{ callId: `call-${requests.length}`, toolId, argumentsJson: JSON.stringify(args) }] });
             if (requests.length === 1) return call("bash", { command: "ls -la" });
-            if (requests.length === 2) return { content: JSON.stringify({ result: {
-                kind: "tool_call", action: { actionId: "invalid-read", toolId: "read_file", input: { command: "" } }, memoryPatch: "__lazygoal_null__",
-            } }) };
+            if (requests.length === 2) return call("read_file", { command: "" });
             if (requests.length === 3) {
                 const feedback = request.messages.find(message => message.content.includes('"source":"runtime_feedback"'));
                 assert.ok(feedback);
@@ -978,4 +971,44 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
     const events = await trajectoryStore.read({ goalId, runId: "run-repair-read" });
     assert.equal(events.filter(event => event.payload.type === "model_repair_feedback_recorded").length, 1);
     assert.equal(events.filter(event => event.payload.type === "tool_started").length, 2);
+});
+
+for (const mode of ["strict", "prompt_only"] as const) {
+    for (const [label, response, expectedCode] of [
+        ["text JSON", { content: '{"result":{"kind":"complete","summary":"done","completionEvidence":[],"memoryPatch":null}}' }, "missing_tool_call"],
+        ["trace-shaped text", { content: 'I need to read the workspace.\n{"result":{"kind":"tool_call","action":{"toolId":"read_file","input":{"path":"README.md"}}}}' }, "missing_tool_call"],
+        ["multiple calls", { content: "", toolCalls: [1, 2].map(i => ({ callId: `call-${i}`, toolId: "system_complete_task", argumentsJson: '{"summary":"done","completionEvidence":[]}' })) }, "multiple_tool_calls"],
+    ] as const) {
+        test(`${mode} Decide rejects ${label} with actionable call-count feedback`, async () => {
+            const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() { return response; } };
+            await assert.rejects(createExecutor(adapter).execute({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory }), (error: unknown) => {
+                assert.ok(error instanceof ModelStageFeedbackError);
+                assert.equal(error.feedback.origin, "output_contract");
+                assert.equal(error.feedback.issues[0]?.code, expectedCode);
+                assert.match(error.feedback.issues[0]!.message, expectedCode === "missing_tool_call" ? /Do not return a text JSON decision/ : /not multiple calls/);
+                return true;
+            });
+        });
+    }
+    test(`${mode} Decide ignores accompanying text and decodes only a declared call`, async () => {
+        const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+            return { content: 'not JSON or a decision', toolCalls: [{ callId: "trace-valid", toolId: "system_complete_task",
+                argumentsJson: '{"summary":"Declared result","completionEvidence":[],"memoryPatch":null}' }] };
+        } };
+        const result = await createExecutor(adapter).execute({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory });
+        assert.equal(result.kind, "complete");
+        assert.equal(result.kind === "complete" && result.summary, "Declared result");
+    });
+}
+
+test("invalid completion memory patch retains field feedback in the tool protocol", async () => {
+    const adapter: LLMAdapter = { structuredOutputMode: "prompt_only", async generate() {
+        return { content: "", toolCalls: [{ callId: "bad-patch", toolId: "system_complete_task",
+            argumentsJson: '{"summary":"done","completionEvidence":[],"memoryPatch":"__lazygoal_null__"}' }] };
+    } };
+    await assert.rejects(createExecutor(adapter).execute({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory }), (error: unknown) => {
+        assert.ok(error instanceof ModelStageFeedbackError);
+        assert.ok(error.feedback.issues.some(issue => issue.path.join(".") === "result.memoryPatch"));
+        return true;
+    });
 });

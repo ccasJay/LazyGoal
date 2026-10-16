@@ -17,7 +17,9 @@ export type { StructuredOutputMode } from "../../../config/src/index";
  * 实例构造时显式固定实际输出模式（`strict` 或 `prompt_only`），在实例生命周期内保持不可变；`two_stage`
  * 由 Runtime 工厂解析为同一模型的阶段 Adapter 对，不是单个请求的实际输出模式。
  * 实现必须保持对话消息顺序和角色语义；pi-ai 仅接受前置 system 消息并合并为 systemPrompt。
- * 返回正文、独立 reasoning 摘要及可选原生续接字段，不应在此解析 AgentDecision。仅将结构化识别的限流、临时服务、连接和超时故障
+ * 正文、公开 reasoning 摘要与工具调用分别返回，不把思考块拼进正文，也不在此解析 AgentDecision。
+ * required 工具调用策略须映射到对应供应商参数；调用数量和参数有效性由 Agent 校验，与原生历史回放能力无关。
+ * 仅将结构化识别的限流、临时服务、连接和超时故障
  * 映射为 Runtime 可识别的暂时请求故障；其他 SDK 异常原样拒绝 Promise。适配器不执行内部重试，
  * 由 Runtime 独立控制总调用次数和可中止退避。
  *

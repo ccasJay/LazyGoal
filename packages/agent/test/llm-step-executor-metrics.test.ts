@@ -1,3 +1,4 @@
+import { toolResponseFixture } from "./tool-response-fixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -65,7 +66,7 @@ function createGoalForMetrics(): Goal {
 
 function completedResponse(providerMetadata?: LLMResponse["providerMetadata"]): LLMResponse {
     return {
-        content: JSON.stringify({
+        ...toolResponseFixture(JSON.stringify({
             result: {
                 kind: "complete",
                 summary: "检查完成",
@@ -73,7 +74,7 @@ function completedResponse(providerMetadata?: LLMResponse["providerMetadata"]): 
                 memoryPatch: null,
                 contextNotes: null,
             },
-        }),
+        })),
         ...(providerMetadata === undefined ? {} : { providerMetadata }),
     };
 }
