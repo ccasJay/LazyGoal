@@ -34,6 +34,7 @@ import {
     type ProviderProfilePatch,
 } from "../../../packages/config/src/index";
 import type {
+    BrowserModelSourceRef,
     BrowserProviderProfile,
     BrowserProviderProfileInput,
     BrowserProviderSettingsError,
@@ -173,22 +174,58 @@ export async function runServerSession(
         const preferenceStore = new JsonFileModelPreferenceStore(root.workspaceHomeDirectory);
         const configuredSelection = root.defaultModelSelection;
         const configuredProvider = root.llmConfig?.provider;
-        const readDraftModel = async (signal?: AbortSignal): Promise<{
+        const providerSources = (): readonly BrowserModelSourceRef[] => {
+            const sources: BrowserModelSourceRef[] = root.providerProfiles.map((profile) => ({
+                profileId: profile.id,
+                kind: profile.kind,
+                label: profile.label,
+                active: configuredSelection.profileId === profile.id,
+            }));
+            if (root.llmConfig !== undefined && configuredSelection.profileId === undefined) {
+                sources.push({ kind: root.llmConfig.provider, label: root.llmConfig.provider, active: true });
+            }
+            return sources;
+        };
+        /** 解析目标来源：显式请求的受管档案，否则进程启动来源。 */
+        const resolveSource = (
+            requestedProfileId: string | undefined,
+        ): { readonly config: NonNullable<typeof root.llmConfig>; readonly profileId?: string } | undefined => {
+            if (requestedProfileId === undefined) {
+                return root.llmConfig === undefined
+                    ? undefined
+                    : {
+                        config: root.llmConfig,
+                        ...(configuredSelection.profileId === undefined ? {} : { profileId: configuredSelection.profileId }),
+                    };
+            }
+            try {
+                return {
+                    config: root.resolveProviderProfileConfig(requestedProfileId, configuredSelection.modelId),
+                    profileId: requestedProfileId,
+                };
+            } catch {
+                return undefined;
+            }
+        };
+        const readDraftModel = async (signal?: AbortSignal, requestedProfileId?: string): Promise<{
             readonly catalog: BrowserModelCatalog;
             readonly selection: GoalModelSelection | undefined;
         }> => {
-            if (root.llmConfig === undefined || configuredProvider === undefined) {
+            const preference = requestedProfileId === undefined ? await preferenceStore.get() : undefined;
+            // 偏好指向的档案不可用时回退启动来源，并由投影给出 provider_changed。
+            const target = resolveSource(requestedProfileId ?? preference?.profileId) ?? resolveSource(undefined);
+            if (target === undefined) {
                 throw new Error("Model catalog unavailable.");
             }
-            const preference = await preferenceStore.get();
             const models = await root.modelCatalog.list(
-                { ...root.llmConfig, model: configuredSelection.modelId },
+                { ...target.config, model: configuredSelection.modelId },
                 { signal, requireTokenCapacity: configuredSelection.inputEstimator.kind === "token-encoding" },
             );
             const { catalog, selected } = resolveBrowserDraftModelCatalog(
                 {
-                    provider: configuredProvider,
-                    ...(configuredSelection.profileId === undefined ? {} : { profileId: configuredSelection.profileId }),
+                    provider: target.config.provider,
+                    ...(target.profileId === undefined ? {} : { profileId: target.profileId }),
+                    sources: providerSources(),
                 },
                 configuredSelection.modelId,
                 preference,
@@ -197,8 +234,8 @@ export async function runServerSession(
             return {
                 catalog,
                 selection: selected === undefined ? undefined : {
-                    provider: configuredProvider,
-                    ...(configuredSelection.profileId === undefined ? {} : { profileId: configuredSelection.profileId }),
+                    provider: target.config.provider,
+                    ...(target.profileId === undefined ? {} : { profileId: target.profileId }),
                     modelId: selected.id,
                     structuredOutputMode: configuredSelection.structuredOutputMode,
                     ...(selected.contextWindowTokens === undefined ? {} : { contextWindowTokens: selected.contextWindowTokens }),
@@ -240,11 +277,12 @@ export async function runServerSession(
                     return false;
                 }
             },
-            resolveModelSelection: async (modelId, current) => {
+            resolveModelSelection: async (modelId, current, providerProfileId) => {
+                const targetProfileId = providerProfileId ?? current.profileId;
                 let config = root.llmConfig;
-                if (current.profileId !== undefined) {
+                if (targetProfileId !== undefined) {
                     try {
-                        config = root.resolveProviderProfileConfig(current.profileId, current.modelId);
+                        config = root.resolveProviderProfileConfig(targetProfileId, current.modelId);
                     } catch {
                         return undefined;
                     }
@@ -254,11 +292,11 @@ export async function runServerSession(
                     { ...config, model: current.modelId },
                     { requireTokenCapacity: current.inputEstimator.kind === "token-encoding" },
                 );
-                const model = models.find((entry) => entry.provider === current.provider && entry.id === modelId && entry.selectable);
+                const model = models.find((entry) => entry.provider === config.provider && entry.id === modelId && entry.selectable);
                 if (model === undefined) return undefined;
                 return {
-                    provider: model.provider,
-                    ...(current.profileId === undefined ? {} : { profileId: current.profileId }),
+                    provider: config.provider,
+                    ...(targetProfileId === undefined ? {} : { profileId: targetProfileId }),
                     modelId: model.id,
                     structuredOutputMode: current.structuredOutputMode,
                     ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens }),
@@ -390,16 +428,17 @@ export async function runServerSession(
                     }
                 },
             },
-            setModelPreference: async (modelId) => {
+            setModelPreference: async (modelId, providerProfileId) => {
                 if (root.abortController.signal.aborted) return { ok: false, error: "service_shutting_down" };
-                if (root.llmConfig === undefined) return { ok: false, error: "model_catalog_unavailable" };
+                const target = resolveSource(providerProfileId);
+                if (target === undefined) return { ok: false, error: "model_catalog_unavailable" };
                 let selectable = false;
                 try {
                     const models = await root.modelCatalog.list(
-                        { ...root.llmConfig, model: configuredSelection.modelId },
+                        { ...target.config, model: configuredSelection.modelId },
                         { requireTokenCapacity: configuredSelection.inputEstimator.kind === "token-encoding" },
                     );
-                    selectable = models.some((model) => model.provider === root.llmConfig?.provider && model.id === modelId && model.selectable);
+                    selectable = models.some((model) => model.provider === target.config.provider && model.id === modelId && model.selectable);
                 } catch {
                     if (root.abortController.signal.aborted) return { ok: false, error: "service_shutting_down" };
                     return { ok: false, error: "model_catalog_unavailable" };
@@ -409,7 +448,7 @@ export async function runServerSession(
                 try {
                     if (root.abortController.signal.aborted) return { ok: false, error: "service_shutting_down" };
                     await preferenceStore.set({
-                        ...(configuredSelection.profileId === undefined ? {} : { profileId: configuredSelection.profileId }),
+                        ...(target.profileId === undefined ? {} : { profileId: target.profileId }),
                         modelId,
                     });
                     return { ok: true, modelId };
@@ -417,10 +456,10 @@ export async function runServerSession(
                     return { ok: false, error: "model_preference_unavailable" };
                 }
             },
-            models: async (target, signal) => {
+            models: async (target, signal, providerProfileId) => {
                 if (target === undefined) {
                     try {
-                        return { ok: true, catalog: (await readDraftModel(signal)).catalog };
+                        return { ok: true, catalog: (await readDraftModel(signal, providerProfileId)).catalog };
                     } catch (error) {
                         if (!(error instanceof ModelCatalogError)) return { ok: false, error: "model_catalog_unavailable" };
                         if (error.kind === "authentication") return { ok: false, error: "model_catalog_authentication" };
@@ -431,22 +470,28 @@ export async function runServerSession(
                 }
                 let currentModelId = root.defaultModelSelection.modelId;
                 let requireTokenCapacity = root.defaultModelSelection.inputEstimator.kind === "token-encoding";
+                let requestedProfileId = providerProfileId;
                 if (target !== undefined) {
                     const goal = await root.workspaceGoalStore.restore(target.goalId);
                     if (goal === undefined) return { ok: false, error: "goal_not_found" };
                     if (goal.state.run.id !== target.runId) return { ok: false, error: "stale_run" };
                     currentModelId = goal.state.modelSelection.modelId;
                     requireTokenCapacity = goal.state.modelSelection.inputEstimator.kind === "token-encoding";
+                    requestedProfileId = providerProfileId ?? goal.state.modelSelection.profileId;
                 }
-                if (root.llmConfig === undefined) return { ok: false, error: "model_catalog_unavailable" };
+                const source = resolveSource(requestedProfileId);
+                if (source === undefined) return { ok: false, error: "model_catalog_unavailable" };
                 try {
                     const models = await root.modelCatalog.list(
-                        { ...root.llmConfig, model: currentModelId },
+                        { ...source.config, model: currentModelId },
                         { signal, requireTokenCapacity },
                     );
                     return {
                         ok: true,
-                        catalog: projectBrowserModelCatalog(root.llmConfig.provider, currentModelId, models),
+                        catalog: projectBrowserModelCatalog(source.config.provider, currentModelId, models, undefined, {
+                            ...(source.profileId === undefined ? {} : { profileId: source.profileId }),
+                            sources: providerSources(),
+                        }),
                     };
                 } catch (error) {
                     if (!(error instanceof ModelCatalogError)) return { ok: false, error: "model_catalog_unavailable" };

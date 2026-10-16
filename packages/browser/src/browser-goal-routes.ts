@@ -224,14 +224,14 @@ export interface BrowserGoalApiPort {
      * @param signal - 浏览器断开时取消在线目录请求。
      * @returns 白名单目录或稳定失败分类，不返回凭据或 Provider 原始响应。
      */
-    models(target?: { readonly goalId: string; readonly runId: string }, signal?: AbortSignal): Promise<BrowserModelCatalogReadResult>;
+    models(target?: { readonly goalId: string; readonly runId: string }, signal?: AbortSignal, providerProfileId?: string): Promise<BrowserModelCatalogReadResult>;
     /**
      * 验证并保存当前工作区新 Goal 的默认模型身份。
      *
      * @param modelId - 当前 Provider 中须可选择的模型 ID。
      * @returns 持久化成功或稳定失败；关闭期间拒绝写入，文件写入失败不得报告成功。
      */
-    setModelPreference(modelId: string): Promise<
+    setModelPreference(modelId: string, providerProfileId?: string): Promise<
         { readonly ok: true; readonly modelId: string }
         | { readonly ok: false; readonly error: "model_not_selectable" | "model_catalog_unavailable" | "model_preference_unavailable" | "service_shutting_down" }
     >;
@@ -291,11 +291,18 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
     const routes = new Hono();
 
     routes.get("/api/models", async (context) => {
-        if (new URL(context.req.url).searchParams.size !== 0) {
+        const query = new URL(context.req.url).searchParams;
+        const providerProfileIds = query.getAll("providerProfileId");
+        const providerProfileId = providerProfileIds[0];
+        if (
+            query.size > 1
+            || providerProfileIds.length > 1
+            || (providerProfileId !== undefined && !isWireId(providerProfileId, MAX_GOAL_ID_LENGTH))
+        ) {
             return context.json({ error: "invalid_model_catalog_request" }, 400);
         }
         try {
-            const result = await source.models(undefined, context.req.raw.signal);
+            const result = await source.models(undefined, context.req.raw.signal, providerProfileId);
             return result.ok
                 ? context.json(result.catalog)
                 : context.json({ error: result.error }, modelCatalogErrorStatus(result.error));
@@ -308,18 +315,22 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         const goalId = context.req.param("goalId");
         const query = new URL(context.req.url).searchParams;
         const runIds = query.getAll("runId");
+        const providerProfileIds = query.getAll("providerProfileId");
         const runId = runIds[0];
+        const providerProfileId = providerProfileIds[0];
         if (
             !isWireId(goalId, MAX_GOAL_ID_LENGTH)
-            || query.size !== 1
+            || query.size > 2
             || runIds.length !== 1
+            || providerProfileIds.length > 1
+            || (providerProfileId !== undefined && !isWireId(providerProfileId, MAX_GOAL_ID_LENGTH))
             || runId === undefined
             || !isWireId(runId, 256)
         ) {
             return context.json({ error: "invalid_model_catalog_request" }, 400);
         }
         try {
-            const result = await source.models({ goalId, runId }, context.req.raw.signal);
+            const result = await source.models({ goalId, runId }, context.req.raw.signal, providerProfileId);
             return result.ok
                 ? context.json(result.catalog)
                 : context.json({ error: result.error, refresh: result.error === "stale_run" }, modelCatalogErrorStatus(result.error));
@@ -337,11 +348,18 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         }
         const fields = value as Record<string, unknown>;
         const modelId = readWireText(fields.modelId, 256);
-        if (Object.keys(fields).length !== 1 || modelId === undefined) {
+        const providerProfileId = fields.providerProfileId === undefined
+            ? undefined
+            : readWireText(fields.providerProfileId, MAX_GOAL_ID_LENGTH);
+        if (
+            Object.keys(fields).some((key) => key !== "modelId" && key !== "providerProfileId")
+            || modelId === undefined
+            || ("providerProfileId" in fields && providerProfileId === undefined)
+        ) {
             return context.json({ error: "invalid_model_preference" }, 400);
         }
         try {
-            const result = await source.setModelPreference(modelId);
+            const result = await source.setModelPreference(modelId, providerProfileId);
             if (result.ok) return context.json(result);
             return context.json({ error: result.error }, result.error === "model_not_selectable" ? 409 : 503);
         } catch {
@@ -360,15 +378,20 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         }
         const fields = value as Record<string, unknown>;
         const modelId = readWireText(fields.modelId, 256);
+        const providerProfileId = fields.providerProfileId === undefined
+            ? undefined
+            : readWireText(fields.providerProfileId, MAX_GOAL_ID_LENGTH);
         if (
-            Object.keys(fields).length !== 2
+            Object.keys(fields).some((key) => key !== "runId" && key !== "modelId" && key !== "providerProfileId")
             || !isWireId(fields.runId, 256)
             || modelId === undefined
+            || ("providerProfileId" in fields && providerProfileId === undefined)
         ) return context.json({ error: "invalid_model_selection" }, 400);
         try {
             const result = await source.selectModel(goalId, {
                 runId: fields.runId,
                 modelId,
+                ...(providerProfileId === undefined ? {} : { providerProfileId }),
             });
             if (result.ok) return context.json(result);
             const status = result.error === "goal_not_found" ? 404

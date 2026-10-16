@@ -17,6 +17,7 @@ export {
     type BrowserModelCatalogReadResult,
     type BrowserModelOption,
     type BrowserModelSource,
+    type BrowserModelSourceRef,
 } from "./browser-model-catalog";
 export {
     BrowserGoalCommandService,

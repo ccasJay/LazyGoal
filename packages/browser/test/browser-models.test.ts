@@ -110,6 +110,36 @@ test("在线目录、离线兜底和鉴权故障保持不同分类", async () =>
     });
 });
 
+test("草稿目录按请求的受管档案取模型并回传来源维度", async () => {
+    const targets: unknown[] = [];
+    const catalogWithSources = {
+        ...catalog,
+        profileId: "profile-1",
+        sources: [
+            { profileId: "profile-1", kind: "openai", label: "OpenAI 主账号", active: true },
+            { profileId: "profile-2", kind: "google", label: "Google 备用", active: false },
+        ],
+    };
+    await withAuthenticatedRoutes(async (target, _signal, providerProfileId) => {
+        targets.push([target, providerProfileId]);
+        return { ok: true, catalog: catalogWithSources };
+    }, async (base, token) => {
+        const headers = { authorization: `Bearer ${token}` };
+        const tooLong = await fetch(`${base}/api/models?providerProfileId=${"a".repeat(200)}`, { headers });
+        assert.equal(tooLong.status, 400);
+        const duplicated = await fetch(`${base}/api/models?providerProfileId=profile-1&providerProfileId=profile-2`, { headers });
+        assert.equal(duplicated.status, 400);
+        const extra = await fetch(`${base}/api/models?providerProfileId=profile-1&unknown=1`, { headers });
+        assert.equal(extra.status, 400);
+        assert.deepEqual(targets, [], "非法来源查询不得触达端口");
+
+        const response = await fetch(`${base}/api/models?providerProfileId=profile-2`, { headers });
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), catalogWithSources);
+        assert.deepEqual(targets, [[undefined, "profile-2"]]);
+    });
+});
+
 test("Goal 模型目录重验 Run 身份并拒绝非法查询", async () => {
     const targets: Array<unknown> = [];
     await withAuthenticatedRoutes(async (target) => {

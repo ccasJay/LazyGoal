@@ -60,6 +60,7 @@ export {
 
 export {
     type BrowserModelSource,
+    type BrowserModelSourceRef,
     type BrowserModelOption,
     type BrowserModelCatalogNotice,
     type BrowserModelCatalogError,

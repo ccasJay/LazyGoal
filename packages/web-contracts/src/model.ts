@@ -80,6 +80,25 @@ export type BrowserModelCatalogError =
     | "model_catalog_unavailable";
 
 /**
+ * 可供选择的模型来源：受管 Provider 档案或 `config.toml` 回退。
+ *
+ * @example
+ * ```ts
+ * const source: BrowserModelSourceRef = { profileId: "6f1c...", kind: "openai", label: "OpenAI 主账号", active: true };
+ * ```
+ */
+export interface BrowserModelSourceRef {
+    /** 受管档案标识；`config.toml` 回退来源时省略。 */
+    readonly profileId?: string | undefined;
+    /** 供应商标识。 */
+    readonly kind: string;
+    /** 面向用户的来源名称。 */
+    readonly label: string;
+    /** 进程启动配置是否来自该来源。 */
+    readonly active: boolean;
+}
+
+/**
  * 完整模型目录投影。
  *
  * @example
@@ -94,6 +113,10 @@ export type BrowserModelCatalogError =
 export interface BrowserModelCatalog {
     /** 当前生效的 Provider 名称。 */
     readonly provider: string;
+    /** 当前目录对应的受管档案标识；回退来源时省略。 */
+    readonly profileId?: string | undefined;
+    /** 可选来源维度；仅有单一来源时省略。 */
+    readonly sources?: readonly BrowserModelSourceRef[] | undefined;
     /** 当前选中的模型标识。 */
     readonly currentModelId: string;
     /** 默认模型告警提示。 */

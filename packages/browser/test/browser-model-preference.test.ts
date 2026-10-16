@@ -17,6 +17,23 @@ test("新 Goal 优先使用同来源的可选记忆模型", () => {
     assert.equal(result.catalog.defaultModelNotice, undefined);
 });
 
+test("草稿目录投影携带档案标识与来源维度", () => {
+    const sources = [
+        { profileId: "profile-openai", kind: "openai", label: "主账号", active: true },
+        { profileId: "profile-google", kind: "google", label: "备用", active: false },
+    ] as const;
+    const result = resolveBrowserDraftModelCatalog(
+        { provider: "openai", profileId: "profile-openai", sources },
+        "configured",
+        { profileId: "profile-openai", modelId: "remembered" },
+        models,
+    );
+    assert.equal(result.selected?.id, "remembered");
+    assert.equal(result.catalog.profileId, "profile-openai");
+    assert.deepEqual(result.catalog.sources, sources);
+    assert.equal(result.catalog.defaultModelNotice, undefined);
+});
+
 test("来源改变或记忆模型不可用时展示原因并回到配置默认值", () => {
     for (const [preference, notice] of [
         [{ profileId: "profile-anthropic", modelId: "remembered" }, "provider_changed"],

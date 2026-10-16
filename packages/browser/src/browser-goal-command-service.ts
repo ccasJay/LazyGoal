@@ -250,7 +250,11 @@ export interface BrowserGoalCommandDependencies {
     /** 复用本机 GoalCoordinator；浏览器不能直接修改 Goal Snapshot。 */
     readonly coordinator: BrowserGoalCoordinator;
     /** 由本机模型目录验证 ID 并构造完整非敏感选择。 */
-    readonly resolveModelSelection?: (modelId: string, current: GoalModelSelection) => Promise<GoalModelSelection | undefined>;
+    readonly resolveModelSelection?: (
+        modelId: string,
+        current: GoalModelSelection,
+        providerProfileId?: string,
+    ) => Promise<GoalModelSelection | undefined>;
     /** 在安全等待点持久化已验证的模型选择。 */
     readonly modelSelectionCoordinator?: GoalModelSelectionCoordinator;
     /** 推进前按 Goal 快照重建当前进程模型绑定。 */
@@ -413,7 +417,11 @@ export class BrowserGoalCommandService {
             }
             let selection: GoalModelSelection | undefined;
             try {
-                selection = await this.dependencies.resolveModelSelection(command.modelId, goal.state.modelSelection);
+                selection = await this.dependencies.resolveModelSelection(
+                    command.modelId,
+                    goal.state.modelSelection,
+                    command.providerProfileId,
+                );
             } catch {
                 return { ok: false, error: "model_catalog_unavailable" };
             }

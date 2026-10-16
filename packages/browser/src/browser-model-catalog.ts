@@ -6,6 +6,7 @@ import type {
     BrowserModelCatalogReadResult,
     BrowserModelOption,
     BrowserModelSource,
+    BrowserModelSourceRef,
 } from "../../web-contracts/src/index";
 
 export type {
@@ -15,6 +16,7 @@ export type {
     BrowserModelCatalogReadResult,
     BrowserModelOption,
     BrowserModelSource,
+    BrowserModelSourceRef,
 };
 
 /**
@@ -31,9 +33,12 @@ export function projectBrowserModelCatalog(
     currentModelId: string,
     source: readonly BrowserModelSource[],
     defaultModelNotice?: BrowserModelCatalog["defaultModelNotice"],
+    dimension?: { readonly profileId?: string | undefined; readonly sources?: readonly BrowserModelSourceRef[] | undefined },
 ): BrowserModelCatalog {
     return {
         provider,
+        ...(dimension?.profileId === undefined ? {} : { profileId: dimension.profileId }),
+        ...(dimension?.sources === undefined ? {} : { sources: dimension.sources }),
         currentModelId,
         ...(defaultModelNotice === undefined ? {} : { defaultModelNotice }),
         models: source.filter((model) => model.provider === provider).map((model) => ({
@@ -67,7 +72,11 @@ export function projectBrowserModelCatalog(
  * @returns 页面目录和可用于创建的已验证模型。
  */
 export function resolveBrowserDraftModelCatalog(
-    context: { readonly provider: string; readonly profileId?: string | undefined },
+    context: {
+        readonly provider: string;
+        readonly profileId?: string | undefined;
+        readonly sources?: readonly BrowserModelSourceRef[] | undefined;
+    },
     configuredModelId: string,
     preference: ModelPreference | undefined,
     source: readonly BrowserModelSource[],
@@ -81,7 +90,10 @@ export function resolveBrowserDraftModelCatalog(
             : preferred === undefined ? "model_unavailable" as const : undefined;
     const selected = preferred ?? selectable(configuredModelId);
     return {
-        catalog: projectBrowserModelCatalog(context.provider, selected?.id ?? configuredModelId, source, notice),
+        catalog: projectBrowserModelCatalog(context.provider, selected?.id ?? configuredModelId, source, notice, {
+            ...(context.profileId === undefined ? {} : { profileId: context.profileId }),
+            ...(context.sources === undefined ? {} : { sources: context.sources }),
+        }),
         selected,
     };
 }

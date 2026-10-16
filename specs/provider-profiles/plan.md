@@ -25,7 +25,7 @@
   - 实施目标：先在 `packages/browser/test/browser-provider-settings.test.ts` 与 `packages/web-contracts/test/web-contracts.test.ts` 断言：列表/创建/更新只回掩码与 `hasApiKey`，任何响应正文不含明文凭据；更新省略密钥保留原值；删除激活 Profile 被拒、删除其它 Profile 返回引用提示字段；连接测试只触发在线模型列表并区分鉴权/权限/协议/不可用四类；新增路由在既有会话访问控制之后（未授权请求被拒）。再实现 DTO、校验函数与路由，并复用现有 `ModelCatalogError.kind` 映射。
   - 验证手段：`npx tsx --test packages/browser/test/browser-provider-settings.test.ts packages/browser/test/browser-models.test.ts packages/web-contracts/test/web-contracts.test.ts apps/goal-server/test/browser-session.integration.test.ts`；断言掩码、拒绝语义、错误分类与授权边界。
 
-- [ ] //TODO 5. 让模型目录与选择支持 Provider 维度
+- [x] //TODO 5. 让模型目录与选择支持 Provider 维度
   - 落实标准：[4.3](./spec.md#spec-req-4-3)、[5.3](./spec.md#spec-req-5-3)、[7.3](./spec.md#spec-req-7-3)
   - 实施目标：先在 `packages/browser/test/browser-models.test.ts`、`packages/browser/test/browser-model-selection.test.ts` 与 `packages/browser/test/browser-model-preference.test.ts` 断言：目录按 Profile 维度提供多 Provider 选项；草稿偏好不可用（Profile 缺失或模型不可选）时回退激活 Profile 及其默认模型并给出 notice；Goal 内选择在安全点写入 `{profileId, modelId}`。再扩展目录投影、命令服务与偏好写入路径。
   - 验证手段：`npx tsx --test packages/browser/test/browser-models.test.ts packages/browser/test/browser-model-selection.test.ts packages/browser/test/browser-model-preference.test.ts`；断言 Provider 维度、回退 notice 与偏好写入。
