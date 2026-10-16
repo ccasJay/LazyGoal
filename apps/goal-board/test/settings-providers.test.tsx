@@ -38,7 +38,7 @@ async function render(settings: any, extra: Record<string, unknown> = {}): Promi
   );
 }
 
-test("设置页列出掩码档案、激活标记与只读回退来源", async () => {
+test("设置页列出凭据状态、激活标记与只读配置来源", async () => {
   const html = await render({
     activeProfileId: "profile-active",
     profiles: [activeProfile, spareProfile],
@@ -46,21 +46,23 @@ test("设置页列出掩码档案、激活标记与只读回退来源", async ()
   });
 
   assert.match(html, /OpenAI 主账号/);
-  assert.match(html, /\*\*\*\*c123/);
+  assert.match(html, /Credential saved/);
   assert.match(html, /No credential saved/);
-  assert.match(html, /Configuration fallback \(read-only\)/);
-  assert.match(html, /google · gemini-2\.5-pro/);
+  assert.match(html, /From configuration/);
+  assert.match(html, /Read-only/);
+  assert.match(html, /Google · gemini-2\.5-pro/);
 
-  // 激活档案不可删除；归档行仍提供删除入口。
-  assert.match(html, /Active provider cannot be deleted/);
+  // 激活档案不可删除；其它档案仍提供删除入口。
+  assert.match(html, /Switch to another provider before deleting/);
   const activeRow = html.slice(html.indexOf("profile-active"), html.indexOf("profile-spare"));
   assert.match(activeRow, /disabled/);
 });
 
-test("设置页表单不回显明文凭据且编辑时以占位提示保留原值", async () => {
+test("设置页默认收起表单且不回显明文凭据", async () => {
   const html = await render({ profiles: [activeProfile] });
   assert.equal(html.includes("sk-"), false, "表单与列表不得出现明文凭据前缀");
-  assert.match(html, /type="password"/);
+  assert.equal(html.includes('type="password"'), false, "打开添加或编辑入口前不渲染密钥输入框");
+  assert.equal(html.includes('data-testid="settings-provider-form"'), false);
   assert.match(html, /Add provider/);
 });
 

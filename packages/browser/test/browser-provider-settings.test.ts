@@ -47,6 +47,7 @@ function unusedPort(overrides: Partial<BrowserProviderSettingsPort>): BrowserPro
         update: async () => ({ ok: false, error: "provider_profile_not_found" }),
         remove: async () => ({ ok: false, error: "provider_profile_not_found" }),
         activate: async () => ({ ok: false, error: "provider_profile_not_found" }),
+        fetchModels: async () => ({ ok: false, error: "model_catalog_unavailable" }),
         test: async () => ({ ok: false, error: "provider_profile_not_found" }),
         ...overrides,
     };

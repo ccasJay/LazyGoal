@@ -156,3 +156,6 @@ export {
     isMetricValues,
     isMetricsSnapshot,
 } from "./validation";
+
+export type { BrowserProviderModelQuery, BrowserProviderModels } from "./provider-settings";
+export { isProviderModels } from "./validation";

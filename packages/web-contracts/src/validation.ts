@@ -1001,3 +1001,15 @@ export function isResumeGoalCommand(value: unknown): value is BrowserResumeGoalC
         && Number.isSafeInteger(value.expectedCommittedThroughSequence)
         && value.expectedCommittedThroughSequence >= 0;
 }
+
+/**
+ * 校验在线模型列表响应，不接受凭据或任意供应商响应正文。
+ * @example
+ * ```ts
+ * if (isProviderModels(value)) console.log(value.models.length);
+ * ```
+ */
+export function isProviderModels(value: unknown): value is import("./provider-settings").BrowserProviderModels {
+    return isRecord(value) && value.ok === true && Array.isArray(value.models)
+        && value.models.every(model => isRecord(model) && isNonEmptyString(model.id) && typeof model.name === "string");
+}

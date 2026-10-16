@@ -193,3 +193,35 @@ export type BrowserProviderProfileTestError =
 export type BrowserProviderProfileTestResult =
     | { readonly ok: true; readonly modelCount: number }
     | { readonly ok: false; readonly error: BrowserProviderProfileTestError };
+
+/**
+ * 未保存表单的在线模型查询；省略密钥时仅允许复用指定档案的同类供应商凭据。
+ * @remarks 不保存输入，不改变激活来源，不要求先选择默认模型。
+ * @example
+ * ```ts
+ * const query: BrowserProviderModelQuery = { kind: "google", apiKey: "secret" };
+ * ```
+ */
+export interface BrowserProviderModelQuery {
+    /** 表单选择的供应商。 */
+    readonly kind: string;
+    /** 新输入的密钥；不出现在响应中。 */
+    readonly apiKey?: string;
+    /** 表单当前端点；省略表示使用供应商默认端点。 */
+    readonly baseURL?: string;
+    /** 编辑中的已保存档案；仅用于密钥留空时读取凭据。 */
+    readonly profileId?: string;
+}
+
+/**
+ * 在线查询的非敏感模型列表，不代表模型生成能力已经验证。
+ * @example
+ * ```ts
+ * const result: BrowserProviderModels = { ok: true, models: [{ id: "model-1", name: "Model 1" }] };
+ * ```
+ */
+export interface BrowserProviderModels {
+    readonly ok: true;
+    /** 仅本次端点实际返回的模型，不补静态回退目录。 */
+    readonly models: readonly { readonly id: string; readonly name: string }[];
+}

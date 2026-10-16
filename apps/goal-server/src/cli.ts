@@ -18,10 +18,14 @@ import {
     type BrowserModelCatalog,
     type BrowserSessionAccess,
 } from "../../../packages/browser/src/index";
+import { DefaultProviderModelFetcher } from "../../../packages/llm/src/provider-fetchers";
 import { ModelCatalogError } from "../../../packages/llm/src/model-catalog";
 import type { GoalModelSelection } from "../../../packages/runtime/src/index";
 import { JsonFileModelPreferenceStore } from "../../../packages/storage/src/index";
 import {
+    isSupportedLlmProvider,
+    supportsBaseUrl,
+    isAcceptableBaseUrl,
     maskProviderApiKey,
     ProviderProfileActiveDeletionError,
     ProviderProfileConflictError,
@@ -68,10 +72,10 @@ function toProfileDraft(input: BrowserProviderProfileInput): ProviderProfileDraf
         kind: input.kind,
         defaultModel: input.defaultModel,
         apiKey: input.apiKey ?? "",
-        ...(input.baseURL === undefined ? {} : { baseURL: input.baseURL }),
-        ...(input.contextWindowTokens === undefined ? {} : { contextWindowTokens: input.contextWindowTokens }),
-        ...(input.maxOutputTokens === undefined ? {} : { maxOutputTokens: input.maxOutputTokens }),
-        ...(input.structuredOutputMode === undefined ? {} : { structuredOutputMode: input.structuredOutputMode }),
+        ...(input.baseURL == null ? {} : { baseURL: input.baseURL }),
+        ...(input.contextWindowTokens == null ? {} : { contextWindowTokens: input.contextWindowTokens }),
+        ...(input.maxOutputTokens == null ? {} : { maxOutputTokens: input.maxOutputTokens }),
+        ...(input.structuredOutputMode == null ? {} : { structuredOutputMode: input.structuredOutputMode }),
     };
 }
 
@@ -342,6 +346,24 @@ export async function runServerSession(
             enterPlanMode: (goalId, command) => commandService.enterPlanMode(goalId, command),
             selectModel: (goalId, command) => commandService.selectModel(goalId, command),
             providerSettings: {
+                fetchModels: async (input, signal) => {
+                    if (!isSupportedLlmProvider(input.kind)
+                        || (input.baseURL !== undefined && (!supportsBaseUrl(input.kind) || !isAcceptableBaseUrl(input.baseURL)))
+                        || (input.kind === "openai-compatible" && input.baseURL === undefined)) {
+                        return { ok: false, error: "provider_profile_invalid" };
+                    }
+                    try {
+                        const saved = input.profileId === undefined ? undefined : await root.providerProfileStore.get(input.profileId);
+                        if (input.profileId !== undefined && saved === undefined) return { ok: false, error: "provider_profile_not_found" };
+                        const apiKey = input.apiKey ?? (saved?.kind === input.kind ? saved.apiKey : undefined);
+                        if (!apiKey) return { ok: false, error: "provider_profile_invalid" };
+                        const models = await new DefaultProviderModelFetcher().fetchModels({ provider: input.kind, apiKey, ...(input.baseURL === undefined ? {} : { baseURL: input.baseURL }) }, { signal });
+                        return { ok: true, models: models.map(model => ({ id: model.id, name: model.displayName ?? model.id })) };
+                    } catch (error) {
+                        const category = error instanceof ModelCatalogError ? error.kind : undefined;
+                        return { ok: false, error: category === "authentication" ? "model_catalog_authentication" : category === "permission" ? "model_catalog_permission" : category === "protocol" ? "model_catalog_protocol" : "model_catalog_unavailable" };
+                    }
+                },
                 read: async () => {
                     try {
                         const profiles = await root.providerProfileStore.list();

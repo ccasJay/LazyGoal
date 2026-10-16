@@ -66,3 +66,5 @@ PTC 子操作沿用普通 Action 的审批入口；待审视图额外展示父�
 `GET /api/providers` 返回掩码后的档案列表、激活标识与只读的 `config.toml` 回退来源；`POST /api/providers`、`PATCH`/`DELETE /api/providers/:providerProfileId` 与 `POST .../activate`、`POST .../test` 分别受理创建、更新、删除、激活与连接测试。响应类型中没有明文凭据字段，只投影 `hasApiKey` 与 `apiKeyMask`；更新省略 `apiKey` 表示保留原凭据；删除激活档案被拒绝，删除其它档案返回"可能被 Goal 引用"的显式提示。连接测试只触发在线模型列表拉取，不发起生成请求，并按鉴权、权限、协议、不可用分类。所有写请求与其它路由一样受同源检查、Bearer 令牌与 `Origin` 要求保护。
 
 模型目录投影新增来源维度：`BrowserModelCatalog` 可携带当前 `profileId` 与 `sources`（受管档案加回退来源，含 `active` 标记）；`GET /api/models` 与 `GET /api/goals/:goalId/models` 接受可选 `providerProfileId` 以读取非激活来源的目录。偏好写入与 Goal 模型选择命令同样接受可选 `providerProfileId`，使草稿默认与 Goal 内切换能够落到指定来源；Goal 内切换仍复用既有安全等待点与协调器提交边界。
+
+`POST /api/providers/models` 接受未保存的 Provider 连接参数，经字段白名单、长度及可选档案 ID 校验后调用只读模型查询端口；沿用同源 Origin 与 Bearer 授权，不保存输入。响应仅含模型 ID/名称或稳定错误分类，不包含凭据与供应商原始响应。

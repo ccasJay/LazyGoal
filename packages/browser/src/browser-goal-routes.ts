@@ -1,3 +1,4 @@
+import type { BrowserProviderModelQuery, BrowserProviderModels } from "../../web-contracts/src/index";
 import { Hono } from "hono";
 
 import type { BrowserGoalListItem, BrowserGoalSession } from "./browser-projection";
@@ -69,6 +70,7 @@ const PROVIDER_PROFILE_FIELD_NAMES: ReadonlySet<string> = new Set([
  *     update: async () => ({ ok: false, error: "provider_profile_not_found" }),
  *     remove: async () => ({ ok: false, error: "provider_profile_not_found" }),
  *     activate: async () => ({ ok: false, error: "provider_profile_not_found" }),
+ *     fetchModels: async () => ({ ok: false, error: "model_catalog_unavailable" }),
  *     test: async () => ({ ok: false, error: "provider_profile_not_found" }),
  * };
  * ```
@@ -76,6 +78,13 @@ const PROVIDER_PROFILE_FIELD_NAMES: ReadonlySet<string> = new Set([
 export interface BrowserProviderSettingsPort {
     /** @returns 掩码后的档案列表、激活标识与只读回退来源。 */
     read(): Promise<BrowserProviderSettingsReadResult>;
+    /**
+     * 拉取未保存连接的在线模型；不写入档案、偏好或凭据，不返回敏感响应。
+     * @param input - 经 wire 校验的表单连接参数。
+     * @param signal - 请求取消信号。
+     * @returns 在线列表或稳定失败分类。
+     */
+    fetchModels(input: BrowserProviderModelQuery, signal: AbortSignal): Promise<BrowserProviderModels | { readonly ok: false; readonly error: BrowserProviderProfileTestError | "provider_profile_invalid" }>;
     /** @param input - 已通过 wire 校验的档案输入。 */
     create(input: BrowserProviderProfileInput): Promise<BrowserProviderProfileWriteResult>;
     /** @param profileId - 目标档案；`input` 省略 `apiKey` 时保留原凭据。 */
@@ -736,6 +745,31 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
                 return context.json({ error: result.error }, providerSettingsErrorStatus(result.error));
             } catch {
                 return context.json({ error: "provider_profile_unavailable" }, 503);
+            }
+        });
+
+        routes.post("/api/providers/models", async (context) => {
+            const parsed = await readJsonBody(context.req.raw);
+            if (!parsed.ok) return context.json({ error: parsed.error }, parsed.status);
+            const value = parsed.value;
+            if (typeof value !== "object" || value === null || Array.isArray(value)) return context.json({ error: "invalid_provider_profile" }, 400);
+            const fields = value as Record<string, unknown>;
+            const kind = readWireText(fields.kind, MAX_PROVIDER_KIND_LENGTH);
+            const apiKey = fields.apiKey === undefined ? undefined : readWireText(fields.apiKey, MAX_PROVIDER_API_KEY_LENGTH);
+            const baseURL = fields.baseURL === undefined ? undefined : readWireText(fields.baseURL, MAX_PROVIDER_BASE_URL_LENGTH);
+            const profileId = fields.profileId === undefined ? undefined : readWireText(fields.profileId, MAX_GOAL_ID_LENGTH);
+            if (!kind || Object.keys(fields).some(key => !["kind", "apiKey", "baseURL", "profileId"].includes(key))
+                || (fields.apiKey !== undefined && apiKey === undefined)
+                || (fields.baseURL !== undefined && baseURL === undefined)
+                || (fields.profileId !== undefined && (profileId === undefined || !isWireId(profileId, MAX_GOAL_ID_LENGTH)))) {
+                return context.json({ error: "invalid_provider_profile" }, 400);
+            }
+            try {
+                const result = await providerSettings.fetchModels({ kind, ...(apiKey === undefined ? {} : { apiKey }), ...(baseURL === undefined ? {} : { baseURL }), ...(profileId === undefined ? {} : { profileId }) }, context.req.raw.signal);
+                if (result.ok) return context.json(result);
+                return context.json({ error: result.error }, result.error === "provider_profile_invalid" ? 400 : providerProfileTestStatus(result.error));
+            } catch {
+                return context.json({ error: "model_catalog_unavailable" }, 503);
             }
         });
 

@@ -1,9 +1,23 @@
-import type { LLMConfig } from "../../config/src/index.js";
+import type { LLMProvider } from "../../config/src/index.js";
 import {
     ModelCatalogError,
     type ProviderModelFetcher,
     type RawFetchedModel,
 } from "./model-catalog.js";
+
+/**
+ * 仅用于在线列表查询的连接参数，不要求模型标识或 Token 容量。
+ * @example
+ * ```ts
+ * const connection: ProviderModelConnection = { provider: "google", apiKey: "secret" };
+ * ```
+ */
+export interface ProviderModelConnection {
+    readonly provider: LLMProvider;
+    readonly apiKey: string;
+    /** 已由调用边界按供应商规则验证的端点。 */
+    readonly baseURL?: string;
+}
 
 /**
  * 七类 Provider 在线模型列表拉取器的默认实现。
@@ -41,8 +55,8 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
      * const rawList = await fetcher.fetchModels(config, { signal: AbortSignal.timeout(3000) });
      * ```
      */
-    public async fetchModels(
-        config: LLMConfig,
+    public async fetchModels<Connection extends ProviderModelConnection>(
+        config: Connection,
         options?: { readonly signal?: AbortSignal | undefined; readonly fetch?: typeof fetch | undefined },
     ): Promise<readonly RawFetchedModel[]> {
         const timeoutMs = this.defaultTimeoutMs;
@@ -137,8 +151,8 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
                 case "opencode-go":
                     return await this.fetchOpenCodeGo(config, executeRequest);
                 default: {
-                    const exhaustive: never = config;
-                    throw new ModelCatalogError("unsupported", `Unsupported provider: ${(exhaustive as LLMConfig).provider}`);
+                    const exhaustive: never = config.provider;
+                    throw new ModelCatalogError("unsupported", `Unsupported provider: ${exhaustive}`);
                 }
             }
         } finally {
@@ -148,7 +162,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchOpenAi(
-        config: LLMConfig,
+        config: ProviderModelConnection,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const rawBase = (config.provider === "openai" && config.baseURL) ? config.baseURL : "https://api.openai.com/v1";
@@ -161,7 +175,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchGoogle(
-        config: LLMConfig,
+        config: ProviderModelConnection,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const rawBase = (config.provider === "google" && config.baseURL) ? config.baseURL : "https://generativelanguage.googleapis.com/v1beta";
@@ -237,7 +251,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchAnthropic(
-        config: LLMConfig,
+        config: ProviderModelConnection,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const headers: Record<string, string> = {
@@ -289,7 +303,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchOpenRouter(
-        config: LLMConfig,
+        config: ProviderModelConnection,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const url = "https://openrouter.ai/api/v1/models";
@@ -350,7 +364,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchDeepSeek(
-        config: LLMConfig,
+        config: ProviderModelConnection,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const url = "https://api.deepseek.com/models";
@@ -361,7 +375,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchOpenCodeGo(
-        config: LLMConfig,
+        config: ProviderModelConnection,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const url = "https://opencode.ai/inference/go/v1/models";
@@ -372,7 +386,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchOpenAiCompatible(
-        config: LLMConfig,
+        config: ProviderModelConnection,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const baseURL = (config as { baseURL: string }).baseURL.replace(/\/$/, "");

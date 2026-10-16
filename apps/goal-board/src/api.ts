@@ -12,6 +12,9 @@ import {
   isModelInputDetail,
   isModelInputs,
   isModelPreferenceAccepted,
+  isProviderModels,
+  type BrowserProviderModelQuery,
+  type BrowserProviderModels,
   isProviderProfile,
   isProviderSettings,
   isProviderProfileWriteResult,
@@ -186,6 +189,12 @@ export const browserApi = {
 
   activateProvider(profileId: string, signal?: AbortSignal): Promise<BrowserProviderProfileActivationResult> {
     return requestJson(`/api/providers/${encodeURIComponent(profileId)}/activate`, isProviderProfileActivationResult, signal, { method: "POST" });
+  },
+
+  fetchProviderModels(input: BrowserProviderModelQuery, signal?: AbortSignal): Promise<BrowserProviderModels> {
+    return requestJson("/api/providers/models", isProviderModels, signal, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+    });
   },
 
   testProvider(profileId: string, signal?: AbortSignal): Promise<BrowserProviderProfileTestResult> {
