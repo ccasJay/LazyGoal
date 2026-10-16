@@ -1,11 +1,18 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { ReactNode } from "react";
 import { ArrowUp, ChevronDown, Folder } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { slashCommands } from "../types";
 
-export function AssistantMarkdown({ content }: { content: string }) {
+/**
+ * 助手回复的安全富文本渲染边界，props 为内容字符串以便浅比较跳过重复解析。
+ *
+ * @remarks
+ * 只呈现 GFM Markdown；外链新窗口打开、图片降级为链接。
+ * 组件被 `memo` 包裹：历史消息在 liveText 等局部状态更新时不会重新执行 markdown 解析。
+ */
+export const AssistantMarkdown = memo(function AssistantMarkdown({ content }: { content: string }) {
   return (
     <Markdown
       remarkPlugins={[remarkGfm]}
@@ -34,7 +41,7 @@ export function AssistantMarkdown({ content }: { content: string }) {
       {content}
     </Markdown>
   );
-}
+});
 
 export function InboxIcon() {
   return (

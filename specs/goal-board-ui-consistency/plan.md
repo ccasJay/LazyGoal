@@ -34,7 +34,7 @@
   - 实施目标：`useRunStream` 内以 rAF（无 rAF 环境退化为 setTimeout 16ms）缓冲 `assistant_text_delta`，每帧最多一次 `setLiveText` 提交，流结束时 flush 保证文本完整；`GoalSession` 跟随滚动 effect 改为按帧合并读写 scrollTop（scrollHeight 读 ≤1 次/帧），`follow` 语义与 jump 按钮不变。
   - 验证手段：新增 `apps/goal-board/test/live-text-batch.test.ts`（模拟高频 delta：断言最终文本逐字一致、两次提交间存在帧合并）+ `npm test --prefix apps/goal-board` 全绿。
 
-- [ ] //TODO 7. 消息渲染 memo 边界与活动投影记忆化
+- [x] //TODO 7. 消息渲染 memo 边界与活动投影记忆化
   - 落实标准：[4.2](./spec.md#spec-req-4-2), [4.4](./spec.md#spec-req-4-4)
   - 实施目标：`AssistantMarkdown` 包 `React.memo`（props 为 content 字符串）；单条消息组件 memo 化；GoalSession 内 `projectActivityGroups` 调用按 `(run, liveEvents, showTools)` `useMemo` 记忆化，liveText 变化不重投影；不引入包装 DOM。
   - 验证手段：新增 `apps/goal-board/test/activity-projection-memo.test.tsx`（渲染计数探针）+ `npm test --prefix apps/goal-board` 全绿 + e2e 几何不变。

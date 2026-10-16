@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   AlertCircle,
@@ -30,11 +30,42 @@ import { MessageComposer, AssistantMarkdown, CurrentModelControl } from "./Messa
 import { SessionMetricsBar } from "./SessionMetricsBar";
 import { PlanRouteList } from "./PlanRouteList";
 import { WorkspaceContext } from "./WorkspaceContext";
-import { projectActivityGroups } from "../activity-projector";
+import { projectActivityGroups, type ActivityGroup } from "../activity-projector";
+import { collectActivityProjections } from "../collect-activity-projections";
 import {
   formatRunStepsTitle,
   renderStageStatusLabel,
 } from "./run-stage-utils";
+
+/**
+ * 单条已保存会话消息的 memo 展示边界。
+ *
+ * @remarks
+ * 角色与内容字符串作为 props 以支持浅比较：liveText 等局部状态更新时，
+ * 未变化的历史消息不进入 `AssistantMarkdown` 的重新解析路径。
+ * 展示结构与原内联渲染一致，不引入额外 DOM 包裹层。
+ */
+const SessionMessage = memo(function SessionMessage({
+  role,
+  content,
+}: {
+  role: "user" | "assistant";
+  content: string;
+}) {
+  return (
+    <article className={`message ${role}`}>
+      <div className="message-heading">
+        <span className={`message-avatar ${role}`}>
+          {role === "user" ? "You" : <img src={brandMark} alt="" width={18} height={18} />}
+        </span>
+        <strong>{role === "user" ? "You" : "LazyGoal"}</strong>
+      </div>
+      <div className={`message-body ${role === "assistant" ? "markdown-body" : ""}`}>
+        {role === "assistant" ? <AssistantMarkdown content={content} /> : content}
+      </div>
+    </article>
+  );
+});
 
 export function GoalSession({
   activeGoal,
@@ -129,6 +160,18 @@ export function GoalSession({
       session.pendingAction?.status === "awaiting_approval" ||
       session.pendingAction?.status === "outcome_unknown");
 
+  /**
+   * 按 `(session, liveEvents)` 记忆化的 Run 活动组投影；
+   * liveText 增量不改变这两个引用，故不会重新执行 `projectActivityGroups` 投影。
+   */
+  const activityProjections = useMemo(
+    () =>
+      session === null
+        ? new Map<string, readonly ActivityGroup[]>()
+        : collectActivityProjections(session.runs, session.goalId, liveEvents),
+    [session, liveEvents],
+  );
+
   useEffect(() => {
     if (follow && timeline.current && followFrame.current === null) {
       // 以帧为刻度合并滚动跳变，避免每个流式增量都同步读写布局值。
@@ -143,24 +186,11 @@ export function GoalSession({
 
   function renderMessages(messages: readonly BrowserSessionMessage[]) {
     return messages.map((message, index) => (
-      <article
-        className={`message ${message.role}`}
+      <SessionMessage
         key={`${message.runId ?? "earlier"}:${index}:${message.role}`}
-      >
-        <div className="message-heading">
-          <span className={`message-avatar ${message.role}`}>
-            {message.role === "user" ? "You" : <img src={brandMark} alt="" width={18} height={18} />}
-          </span>
-          <strong>{message.role === "user" ? "You" : "LazyGoal"}</strong>
-        </div>
-        <div className={`message-body ${message.role === "assistant" ? "markdown-body" : ""}`}>
-          {message.role === "assistant" ? (
-            <AssistantMarkdown content={message.content} />
-          ) : (
-            message.content
-          )}
-        </div>
-      </article>
+        role={message.role}
+        content={message.content}
+      />
     ));
   }
 
@@ -425,11 +455,7 @@ export function GoalSession({
                         {renderMessages(runMessages.filter((message) => message.role === "user"))}
                         <PlanRouteList route={run.planRoute} />
                         {showTools && (() => {
-                          const groups = projectActivityGroups({
-                            goalId: session.goalId,
-                            run,
-                            liveEvents: run.current ? liveEvents : [],
-                          });
+                          const groups = activityProjections.get(run.runId) ?? [];
                           const stages = run.stages ?? [];
                           if (groups.length === 0 && stages.length === 0) return null;
 
