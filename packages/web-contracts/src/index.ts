@@ -135,7 +135,7 @@ export {
     isModelSelectionAccepted,
     isModelPreferenceAccepted,
     isProviderProfile,
-    isProviderSettingsReadResult,
+    isProviderSettings,
     isProviderProfileWriteResult,
     isProviderProfileDeleteResult,
     isProviderProfileActivationResult,

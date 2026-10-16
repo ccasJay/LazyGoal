@@ -534,30 +534,29 @@ export function isProviderProfile(value: unknown): value is BrowserProviderProfi
 }
 
 /**
- * 设置页读取结果守卫。
+ * 设置页读取守卫。
  *
  * @param value - 待检测值。
- * @returns 是否为读取成功响应或稳定错误响应。
+ * @returns 是否为掩码后的设置投影；含明文凭据字段时返回 false。
+ *
+ * @remarks
+ * 读取接口成功时直接返回设置投影本身，失败由非 2xx 状态加 `{ error }` 表达，
+ * 因此本守卫只接受裸投影，不接受任何信封外层。
  *
  * @example
  * ```ts
- * if (isProviderSettingsReadResult(res) && res.ok) console.log(res.settings.profiles.length);
+ * if (isProviderSettings(res)) console.log(res.profiles.length);
  * ```
  */
-export function isProviderSettingsReadResult(value: unknown): value is
-    | { readonly ok: true; readonly settings: BrowserProviderSettings }
-    | { readonly ok: false; readonly error: string } {
-    if (!isRecord(value) || typeof value.ok !== "boolean") return false;
-    if (!value.ok) return typeof value.error === "string";
-    const settings = value.settings;
-    return isRecord(settings)
-        && (settings.activeProfileId === undefined || typeof settings.activeProfileId === "string")
-        && Array.isArray(settings.profiles)
-        && settings.profiles.every((profile) => isProviderProfile(profile))
-        && (settings.fallback === undefined || (isRecord(settings.fallback)
-            && settings.fallback.source === "config"
-            && isNonEmptyString(settings.fallback.provider)
-            && isNonEmptyString(settings.fallback.model)));
+export function isProviderSettings(value: unknown): value is BrowserProviderSettings {
+    if (!isRecord(value)) return false;
+    return (value.activeProfileId === undefined || typeof value.activeProfileId === "string")
+        && Array.isArray(value.profiles)
+        && value.profiles.every((profile) => isProviderProfile(profile))
+        && (value.fallback === undefined || (isRecord(value.fallback)
+            && value.fallback.source === "config"
+            && isNonEmptyString(value.fallback.provider)
+            && isNonEmptyString(value.fallback.model)));
 }
 
 /**

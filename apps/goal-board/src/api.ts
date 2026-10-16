@@ -13,7 +13,7 @@ import {
   isModelInputs,
   isModelPreferenceAccepted,
   isProviderProfile,
-  isProviderSettingsReadResult,
+  isProviderSettings,
   isProviderProfileWriteResult,
   isProviderProfileDeleteResult,
   isProviderProfileActivationResult,
@@ -165,10 +165,7 @@ export const browserApi = {
   },
 
   listProviders(signal?: AbortSignal): Promise<BrowserProviderSettings> {
-    return requestJson("/api/providers", isProviderSettingsReadResult, signal).then((body) => {
-      if (!body.ok) throw new BrowserApiError(body.error, 503, false);
-      return body.settings;
-    });
+    return requestJson("/api/providers", isProviderSettings, signal);
   },
 
   createProvider(input: BrowserProviderProfileInput): Promise<BrowserProviderProfileWriteResult> {

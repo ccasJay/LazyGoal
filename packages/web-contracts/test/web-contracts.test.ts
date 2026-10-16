@@ -22,7 +22,7 @@ import {
     isModelPreferenceAccepted,
     isModelSelectionAccepted,
     isProviderProfile,
-    isProviderSettingsReadResult,
+    isProviderSettings,
     isProviderProfileWriteResult,
     isProviderProfileDeleteResult,
     isProviderProfileActivationResult,
@@ -352,20 +352,21 @@ test("Provider 档案守卫接受掩码投影并拒绝明文凭据字段", () =>
     assert.equal(isProviderProfile({ ...maskedProfile, structuredOutputMode: "prompt_only" }), true);
 });
 
-test("Provider 设置守卫校验来源维度、回退与错误分类", () => {
-    assert.equal(isProviderSettingsReadResult({
-        ok: true,
-        settings: {
-            activeProfileId: "profile-1",
-            profiles: [maskedProfile],
-            fallback: { source: "config", provider: "google", model: "gemini-2.5-pro" },
-        },
+test("Provider 设置守卫只接受裸投影并校验来源维度与回退", () => {
+    assert.equal(isProviderSettings({
+        activeProfileId: "profile-1",
+        profiles: [maskedProfile],
+        fallback: { source: "config", provider: "google", model: "gemini-2.5-pro" },
     }), true);
-    assert.equal(isProviderSettingsReadResult({ ok: true, settings: { profiles: [] } }), true);
-    assert.equal(isProviderSettingsReadResult({ ok: true, settings: { profiles: [{ ...maskedProfile, apiKey: "sk-raw" }] } }), false);
-    assert.equal(isProviderSettingsReadResult({ ok: true, settings: { profiles: [], fallback: { source: "env", provider: "openai", model: "gpt-4o" } } }), false);
-    assert.equal(isProviderSettingsReadResult({ ok: false, error: "provider_profile_unavailable" }), true);
-    assert.equal(isProviderSettingsReadResult({ ok: false }), false);
+    assert.equal(isProviderSettings({ profiles: [] }), true);
+    assert.equal(isProviderSettings({
+        profiles: [],
+        fallback: { source: "config", provider: "google", model: "gemini-3.5-flash-lite" },
+    }), true);
+    assert.equal(isProviderSettings({ profiles: [{ ...maskedProfile, apiKey: "sk-raw" }] }), false);
+    assert.equal(isProviderSettings({ profiles: [], fallback: { source: "env", provider: "openai", model: "gpt-4o" } }), false);
+    assert.equal(isProviderSettings({ error: "provider_profile_unavailable" }), false);
+    assert.equal(isProviderSettings({ ok: true, settings: { profiles: [] } }), false);
 });
 
 test("Provider 写入、删除、激活与测试守卫区分成功与失败形态", () => {
