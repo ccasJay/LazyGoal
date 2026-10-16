@@ -598,7 +598,7 @@ export function GoalSession({
                               <details className={`activity-group ${group.category} ${group.status}`} key={group.id}>
                                 <summary>
                                   <ActivityIcon size={13} aria-hidden="true" />
-                                  <span>{group.summary}</span>
+                                  <span title={group.summary}>{group.summary}</span>
                                   {group.status !== "completed" && (
                                     <span className={`step-status ${group.status}`}>
                                       {group.status === "running" ? "In progress" : group.status}

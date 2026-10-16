@@ -63,7 +63,7 @@ export function useGoalBoardApp() {
   };
 
   const { workspaceContext, workspaceContextError } = useWorkspaceContext({
-    enabled: sessionVisible,
+    enabled: true,
     sessionKey: sessionManager.session,
   });
 
@@ -252,6 +252,14 @@ export function useGoalBoardApp() {
   };
 
   return {
+    goals: goalsManager.goals,
+    workspaceContext,
+    selectGoal: (id: string) => {
+      modelSelectionManager.setModelPickerTarget(null);
+      sessionManager.selectGoal(id);
+      setSessionTab("Activity");
+      setGoalInfoOpen(false);
+    },
     sessionContextValue,
     runControlContextValue,
     sessionVisible,

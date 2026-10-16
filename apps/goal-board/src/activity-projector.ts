@@ -141,7 +141,14 @@ export function summarizeActivityGroup(category: ActivityGroupCategory, members:
   if (category === "single") return members[0]?.label ?? "Activity";
   const count = members.length;
   if (category === "explore") return `Explored ${count} ${count === 1 ? "item" : "items"}`;
-  if (category === "execute") return `Ran ${count} ${count === 1 ? "command" : "commands"}`;
+  if (category === "execute") {
+    if (count === 0) return "Ran 0 commands";
+    if (count === 1) return members[0]?.label ?? "Ran a command";
+    const previews = members.slice(0, 2)
+      .map((member) => member.label.replace(/^(?:Ran|Run)\s+/u, ""));
+    const remaining = count - previews.length;
+    return `Ran ${count} commands · ${previews.join(" · ")}${remaining > 0 ? ` · +${remaining} more` : ""}`;
+  }
   return `Edited ${count} ${count === 1 ? "file" : "files"}`;
 }
 
