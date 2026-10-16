@@ -95,7 +95,15 @@ import {
     type ModelInputEstimator,
     TrajectoryModelContextAssembler,
 } from "../../../packages/agent/src/index";
-import { LLMConfigurationError, readLLMConfig, type LLMConfig } from "../../../packages/config/src/index";
+import {
+    JsonFileProviderProfileStore,
+    LLMConfigurationError,
+    readLLMConfig,
+    toLlmConfig,
+    ProviderProfileResolutionError,
+    type LLMConfig,
+    type ProviderProfile,
+} from "../../../packages/config/src/index";
 import { loadRuntimeConfig } from "../../../packages/config/src/index";
 import {
     ensureSecureConfigFile,
@@ -247,6 +255,10 @@ export interface CompositionRootOptions {
         selection: GoalModelSelection,
         stage: "think" | "decide",
     ) => LLMAdapter;
+    /** 受管 Provider 档案存储；省略时使用 LazyGoal Home 下的默认文件存储。 */
+    readonly providerProfileStore?: JsonFileProviderProfileStore;
+    /** 显式注入的 Provider 档案集合；省略时从存储读取。 */
+    readonly providerProfiles?: readonly ProviderProfile[];
 }
 
 export interface CompositionRoot {
@@ -259,6 +271,15 @@ export interface CompositionRoot {
     readonly metricsDirectory: string;
     readonly contextSidecarsDirectory: string;
     readonly llmConfig?: LLMConfig;
+    /** 受管 Provider 档案存储，供 Settings 管理接口使用。 */
+    readonly providerProfileStore: JsonFileProviderProfileStore;
+    /** 当前生效的受管 Provider 档案集合。 */
+    readonly providerProfiles: readonly ProviderProfile[];
+    /**
+     * 解析指定档案与模型对应的连接配置。
+     * @throws ProviderProfileResolutionError 档案不在当前集合中时抛出。
+     */
+    readonly resolveProviderProfileConfig: (profileId: string, modelId: string) => LLMConfig;
     readonly conversationCharBudget: number;
     readonly contextCompactor: DropOldestContextCompactor;
     readonly modelInputEstimator: ModelInputEstimator;
@@ -321,11 +342,38 @@ export async function resolveWorkspaceRoot(
     return realpath(cwd);
 }
 
+/**
+ * 读取受管激活档案。
+ *
+ * @remarks
+ * 未设置激活标识时返回 `undefined`；标识存在但不在集合中时由 Store 读取阶段 fail-fast，不静默回退。
+ */
+async function readActiveProviderProfile(
+    store: JsonFileProviderProfileStore,
+    profiles: readonly ProviderProfile[],
+): Promise<ProviderProfile | undefined> {
+    const activeProfileId = await store.activeProfileId();
+    if (activeProfileId === undefined) return undefined;
+    return profiles.find((profile) => profile.id === activeProfileId);
+}
+
 export async function createCompositionRoot(
     options: CompositionRootOptions = {},
 ): Promise<CompositionRoot> {
     const env = options.env ?? process.env;
+    const homePaths = resolveLazyGoalHomePaths(env);
+    const providerProfileStore = options.providerProfileStore ?? new JsonFileProviderProfileStore(homePaths);
+    // 注入适配器时由调用方拥有模型构造，不读取真实 Home 的 Provider 档案，保持测试与外部组合的确定性。
+    const managesProviderProfiles = options.providerProfiles !== undefined || options.adapter === undefined;
+    const providerProfiles: readonly ProviderProfile[] = managesProviderProfiles
+        ? options.providerProfiles ?? await providerProfileStore.list()
+        : [];
+    const providerProfileById = new Map(providerProfiles.map((profile) => [profile.id, profile]));
+    const activeProviderProfile = managesProviderProfiles && options.providerProfiles === undefined
+        ? await readActiveProviderProfile(providerProfileStore, providerProfiles)
+        : undefined;
     let llmConfig: LLMConfig | undefined;
+    let bootConfigFromProfile = false;
     let adapter: LLMAdapter;
     let configuredStageAdapters: Readonly<LlmStageAdapters> | undefined;
     if (options.adapter !== undefined) {
@@ -341,20 +389,25 @@ export async function createCompositionRoot(
         try {
             llmConfig = readLLMConfig(env);
         } catch (error) {
-            const homePaths = resolveLazyGoalHomePaths(env);
-            const hasHomeConfig = existsSync(homePaths.configFile)
-                || existsSync(join(homePaths.profilesDir, "default.toml"));
-            if (hasHomeConfig) {
-                const runtimeConfig = await loadRuntimeConfig({ env, homePaths });
-                llmConfig = runtimeConfig.llm;
+            if (activeProviderProfile !== undefined) {
+                // 受管激活档案优先于 TOML 回退；环境变量仍是显式覆盖。
+                llmConfig = toLlmConfig(activeProviderProfile, { model: activeProviderProfile.defaultModel });
+                bootConfigFromProfile = true;
             } else {
-                if (error instanceof LLMConfigurationError) {
-                    throw new LLMConfigurationError(
-                        error.missing,
-                        `${error.message}。请在 ${homePaths.configFile} 配置，或通过环境变量传入；如需迁移，请手动复制到该 Home 文件。`,
-                    );
+                const hasHomeConfig = existsSync(homePaths.configFile)
+                    || existsSync(join(homePaths.profilesDir, "default.toml"));
+                if (hasHomeConfig) {
+                    const runtimeConfig = await loadRuntimeConfig({ env, homePaths });
+                    llmConfig = runtimeConfig.llm;
+                } else {
+                    if (error instanceof LLMConfigurationError) {
+                        throw new LLMConfigurationError(
+                            error.missing,
+                            `${error.message}。请在 ${homePaths.configFile} 配置，或通过环境变量传入；如需迁移，请手动复制到该 Home 文件。`,
+                        );
+                    }
+                    throw error;
                 }
-                throw error;
             }
         }
         configuredStageAdapters = createLlmStageAdapters(llmConfig);
@@ -365,7 +418,6 @@ export async function createCompositionRoot(
     const modelCapabilities = readModelCapabilities(env, configuredEstimator);
     const modelInputEstimator = modelCapabilities?.tokenEstimator ?? configuredEstimator;
     const workspaceRoot = await resolveWorkspaceRoot(options.cwd ?? process.cwd());
-    const homePaths = resolveLazyGoalHomePaths(env);
     const workspaceHomePaths = await resolveWorkspaceHomePaths(homePaths, workspaceRoot);
     const dataDirectory = options.dataDirectory !== undefined
         ? resolve(options.dataDirectory)
@@ -580,6 +632,7 @@ export async function createCompositionRoot(
     const toolPolicy = options.toolPolicy ?? createDefaultToolPolicy();
     const defaultModelSelection: GoalModelSelection = options.modelBinding?.current().selection ?? {
         provider: llmConfig?.provider ?? ((adapter as { readonly provider?: string }).provider as GoalModelSelection["provider"] | undefined) ?? "openai",
+        ...(bootConfigFromProfile && activeProviderProfile !== undefined ? { profileId: activeProviderProfile.id } : {}),
         modelId: llmConfig?.model ?? (adapter as { readonly modelId?: string }).modelId ?? "default-model",
         structuredOutputMode: llmConfig?.structuredOutputMode ?? adapter.structuredOutputMode ?? "prompt_only",
         ...(modelCapabilities === undefined ? {} : {
@@ -597,6 +650,11 @@ export async function createCompositionRoot(
                 : configuredStageAdapters?.thinkAdapter ?? adapter),
         decideAdapter: adapter,
     });
+    const resolveProviderProfileConfig = (profileId: string, modelId: string): LLMConfig => {
+        const profile = providerProfileById.get(profileId);
+        if (profile === undefined) throw new ProviderProfileResolutionError(profileId);
+        return toLlmConfig(profile, { model: modelId });
+    };
     const createStageAdaptersForSelection = (
         selection: GoalModelSelection,
     ): Readonly<LlmStageAdapters> => {
@@ -606,8 +664,11 @@ export async function createCompositionRoot(
                 decideAdapter: options.adapterFactory(selection, "decide"),
             });
         }
-        if (llmConfig !== undefined) {
-            return createLlmStageAdapters({ ...llmConfig, model: selection.modelId });
+        const selectionConfig = selection.profileId === undefined
+            ? llmConfig
+            : resolveProviderProfileConfig(selection.profileId, selection.modelId);
+        if (selectionConfig !== undefined) {
+            return createLlmStageAdapters({ ...selectionConfig, model: selection.modelId });
         }
         return Object.freeze({ thinkAdapter: adapter, decideAdapter: adapter });
     };
@@ -736,6 +797,9 @@ export async function createCompositionRoot(
         metricsDirectory,
         contextSidecarsDirectory,
         ...(llmConfig === undefined ? {} : { llmConfig }),
+        providerProfileStore,
+        providerProfiles,
+        resolveProviderProfileConfig,
         conversationCharBudget,
         contextCompactor,
         modelInputEstimator,

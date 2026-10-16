@@ -1,4 +1,4 @@
-import type { LLMProvider, StructuredOutputMode } from "./llm-config";
+import type { LLMConfig, LLMProvider, StructuredOutputMode } from "./llm-config";
 import {
     isAcceptableBaseUrl,
     isPositiveSafeInteger,
@@ -21,6 +21,22 @@ export class ProviderProfileValidationError extends Error {
     constructor(readonly fields: readonly string[], message: string) {
         super(message);
         this.name = "ProviderProfileValidationError";
+    }
+}
+
+/**
+ * 运行时无法解析目标 Provider 档案。
+ *
+ * @remarks
+ * 选择引用的档案已被删除或不属于当前档案集合时抛出；调用方必须据此阻断推进并要求重新选择，
+ * 不得回退到其它档案、其它供应商或进程启动配置。
+ */
+export class ProviderProfileResolutionError extends Error {
+    readonly code = "PROVIDER_PROFILE_UNRESOLVED";
+
+    constructor(readonly profileId: string) {
+        super(`无法解析 Provider 档案 "${profileId}"；请重新选择 Provider`);
+        this.name = "ProviderProfileResolutionError";
     }
 }
 
@@ -213,6 +229,57 @@ export function validateProviderProfileDraft(draft: ProviderProfileDraft): Valid
         ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
         ...(structuredOutputMode === undefined ? {} : { structuredOutputMode }),
     };
+}
+
+/**
+ * 把已校验的 Provider 档案解析为 `LLMConfig`。
+ *
+ * @remarks
+ * 输出模式优先取调用方覆盖值，其次取档案声明，最后回退 `prompt_only`；其余字段按档案的供应商分支投影，
+ * 端点与容量只在对应供应商允许或必需时出现。档案已通过校验，缺失必需字段时抛出解析错误而非静默补齐。
+ *
+ * @param profile - 已校验的 Provider 档案。
+ * @param options - 本次解析使用的模型与可选输出模式覆盖。
+ * @returns 可直接交给 `createLlmAdapter`/`createLlmStageAdapters` 的连接配置。
+ * @throws ProviderProfileValidationError 供应商分支缺少必需端点或容量时抛出。
+ * @example
+ * ```ts
+ * const config = toLlmConfig(profile, { model: "gpt-4o" });
+ * ```
+ */
+export function toLlmConfig(
+    profile: ProviderProfile,
+    options: { readonly model: string; readonly structuredOutputMode?: StructuredOutputMode | undefined },
+): LLMConfig {
+    const common = {
+        apiKey: profile.apiKey,
+        model: options.model,
+        structuredOutputMode: options.structuredOutputMode ?? profile.structuredOutputMode ?? "prompt_only",
+        ...(profile.maxOutputTokens === undefined ? {} : { maxOutputTokens: profile.maxOutputTokens }),
+    };
+    if (profile.kind === "openai" || profile.kind === "google") {
+        return {
+            ...common,
+            provider: profile.kind,
+            ...(profile.baseURL === undefined ? {} : { baseURL: profile.baseURL }),
+        };
+    }
+    if (profile.kind === "openai-compatible") {
+        if (profile.baseURL === undefined || profile.contextWindowTokens === undefined || profile.maxOutputTokens === undefined) {
+            throw new ProviderProfileValidationError(
+                ["base_url", "context_window_tokens", "max_output_tokens"],
+                `Provider 档案 "${profile.id}" 缺少 openai-compatible 必需的端点或容量`,
+            );
+        }
+        return {
+            ...common,
+            provider: "openai-compatible",
+            baseURL: profile.baseURL,
+            contextWindowTokens: profile.contextWindowTokens,
+            maxOutputTokens: profile.maxOutputTokens,
+        };
+    }
+    return { ...common, provider: profile.kind };
 }
 
 /**

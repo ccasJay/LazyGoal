@@ -392,6 +392,7 @@ function encodeMessage(message: GoalMessage): GoalSnapshotMessageV1 {
 function encodeModelSelection(selection: GoalModelSelection): GoalSnapshotModelSelectionV1 {
     return {
         provider: selection.provider,
+        ...(selection.profileId === undefined ? {} : { profileId: selection.profileId }),
         modelId: selection.modelId,
         ...(selection.structuredOutputMode !== undefined ? { structuredOutputMode: selection.structuredOutputMode } : {}),
         ...(selection.contextWindowTokens !== undefined ? { contextWindowTokens: selection.contextWindowTokens } : {}),
@@ -907,6 +908,7 @@ function decodePendingModelRepair(pending: GoalSnapshotPendingModelRepairV1): Pe
 function decodeModelSelection(selection: GoalSnapshotModelSelectionV1): GoalModelSelection {
     return {
         provider: selection.provider,
+        ...(selection.profileId === undefined ? {} : { profileId: selection.profileId }),
         modelId: selection.modelId,
         ...(selection.structuredOutputMode !== undefined ? { structuredOutputMode: selection.structuredOutputMode } : {}),
         ...(selection.contextWindowTokens !== undefined ? { contextWindowTokens: selection.contextWindowTokens } : {}),

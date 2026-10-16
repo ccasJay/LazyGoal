@@ -32,7 +32,9 @@ export {
 } from "./provider-rules";
 export {
     maskProviderApiKey,
+    ProviderProfileResolutionError,
     ProviderProfileValidationError,
+    toLlmConfig,
     validateProviderProfileDraft,
 } from "./provider-profile";
 export type {

@@ -9,14 +9,15 @@
   - 实施目标：先在 `packages/config/test/provider-profile-store.test.ts` 建立行为断言（0600/0700 权限、原子写、schema 版本与损坏内容 fail-fast、空 Store 不自动导入 `[llm]`、同 kind 多份并存、省略 `apiKey` 保留原值、校验失败不落盘）；再在 `packages/config` 内实现 `ProviderProfile` 实体与校验函数（复用现有 provider 白名单、strict 门禁、`baseURL` 允许集合与容量关系规则，不另建第二套），以及 `<home>/provider-profiles.json` 的版本化 Store（含激活标识，复用 `home.ts` 的安全目录/文件能力）。实体与 Store 均落在 `config` 以保持依赖矩阵不变（`config` 为叶子，`storage`/`browser`/`runtime` 均不得依赖它）。同步为新增公开接口补中文契约 TSDoc。
   - 验证手段：`npx tsx --test packages/config/test/provider-profile-store.test.ts packages/config/test/home.test.ts packages/config/test/llm-config.test.ts packages/config/test/config-loader.test.ts`；断言权限位、损坏与不支持版本的 fail-fast、空 Store 回退路径、同 kind 多份、凭据保留与校验拒绝。
 
-- [ ] //TODO 2. 让运行时按 Profile 解析凭据与端点并构造阶段适配器
-  - 落实标准：[4.1](./spec.md#spec-req-4-1)、[4.2](./spec.md#spec-req-4-2)、[6.3](./spec.md#spec-req-6-3)
+- [x] //TODO 2. 让运行时按 Profile 解析凭据与端点，并让 Goal 选择承载 profileId
+  - 落实标准：[4.1](./spec.md#spec-req-4-1)、[4.2](./spec.md#spec-req-4-2)、[5.1](./spec.md#spec-req-5-1)、[5.2](./spec.md#spec-req-5-2)、[6.3](./spec.md#spec-req-6-3)
   - 实施目标：先在 `apps/goal-server/test/composition-root-provider-profiles.test.ts` 断言：解析受管 Profile 后阶段适配器使用该 Profile 的凭据与端点；选择引用不可解析 Profile（已删除、kind 不匹配、校验失败）时显式失败且不回退其它 Profile/Provider/启动配置；无 `profileId` 时回退启动配置；Provider 专属注入（如 OpenCode Go 的自有 User-Agent 与会话头）在受管 Profile 路径下仍然生效。再在 Composition Root 引入 Profile 解析（`resolve(profileId) → LLMConfig`）并把阶段适配器构造改为按 `{profileId, modelId}`。
   - 验证手段：`npx tsx --test apps/goal-server/test/composition-root-provider-profiles.test.ts apps/goal-server/test/composition-root-model-switching.test.ts packages/llm/test/pi-ai.test.ts`；断言解析结果、不可解析时的失败语义与专属注入保留。
 
-- [ ] //TODO 3. 承载 Goal 级 `profileId`、偏好记录与跨 Provider 恢复语义
-  - 落实标准：[5.1](./spec.md#spec-req-5-1)、[5.2](./spec.md#spec-req-5-2)、[5.4](./spec.md#spec-req-5-4)、[5.5](./spec.md#spec-req-5-5)、[6.1](./spec.md#spec-req-6-1)、[6.2](./spec.md#spec-req-6-2)、[2.5](./spec.md#spec-req-2-5)
-  - 实施目标：先在 `packages/storage/test/goal-snapshot-current.test.ts` 与 `packages/runtime/test/goal-model-selection-coordinator.test.ts` 断言：`profileId` 随选择往返且严格 schema 继续拒绝任何凭据字段；不含 `profileId` 的既有 Goal 仍可解析；恢复时 `profileId` 不可解析必须阻断并提示重新选择；跨 Provider 切换只在安全点发生（completed/failed、waiting 且无 pendingAction 可切；cancelled 与运行中不可）。再扩展 `GoalModelSelection` 可选字段、Snapshot 编解码与 workspace 偏好记录 `{profileId, modelId}`，并确认切换不重建 `modelContextEpoch`、Token 预算按新选择容量重算。
+- [ ] //TODO 3. 承载 Provider 偏好记录与跨 Provider 恢复/切换语义
+  - 落实标准：[5.3](./spec.md#spec-req-5-3)、[5.4](./spec.md#spec-req-5-4)、[5.5](./spec.md#spec-req-5-5)、[6.1](./spec.md#spec-req-6-1)、[6.2](./spec.md#spec-req-6-2)、[2.5](./spec.md#spec-req-2-5)
+  - 实施目标：先在 `packages/storage/test/json-file-model-preference-store.test.ts`、`packages/runtime/test/goal-model-selection-coordinator.test.ts` 与 `packages/browser/test/browser-model-preference.test.ts` 断言：偏好记录为 `{profileId, modelId}` 且不可用时回退激活档案并给出 notice；恢复时 `profileId` 不可解析必须阻断并提示重新选择（复用 `model_restore_failed` 语义）；跨 Provider 切换只在安全点发生且不重建 `modelContextEpoch`。再实现偏好记录迁移、`cli.ts` 的恢复门禁放宽与安全点切换。
+  - 实施目标：先在 `packages/storage/test/goal-snapshot-current.test.ts` 与 `apps/goal-server/test/composition-root-provider-profiles.test.ts` 断言：`profileId` 随选择往返且严格 schema 继续拒绝任何凭据字段；不含 `profileId` 的既有 Goal 仍可解析；按档案解析凭据与端点；不可解析档案显式失败且不回退。已随本切片交付：`toLlmConfig` 映射、Composition Root 的档案解析与启动配置来源判定、`GoalModelSelection.profileId` 与 Snapshot 编解码、`ProviderProfileResolutionError`。
   - 验证手段：`npx tsx --test packages/runtime/test/goal-model-selection-coordinator.test.ts packages/storage/test/goal-snapshot-current.test.ts packages/storage/test/json-file-model-preference-store.test.ts packages/agent/test/llm-step-executor.test.ts`；断言往返、兼容、阻断与安全点边界。
 
 - [ ] //TODO 4. 交付 Settings 管理接口与掩码 DTO

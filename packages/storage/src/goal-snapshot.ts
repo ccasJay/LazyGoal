@@ -698,6 +698,7 @@ export type GoalSnapshotWorkflowV1 = {
 /** Snapshot 中持久化的模型选择状态。 */
 export interface GoalSnapshotModelSelectionV1 {
     readonly provider: string;
+    readonly profileId?: string | undefined;
     readonly modelId: string;
     readonly structuredOutputMode?: "strict" | "prompt_only" | "two_stage" | undefined;
     readonly contextWindowTokens?: number | undefined;
@@ -1222,6 +1223,7 @@ const ContextEpochSchema = z.object({
 
 const ModelSelectionSchema = z.object({
     provider: NonEmptyStringSchema,
+    profileId: NonEmptyStringSchema.optional(),
     modelId: NonEmptyStringSchema,
     structuredOutputMode: z.enum(["strict", "prompt_only", "two_stage"]).optional(),
     contextWindowTokens: z.number().int().positive().optional(),

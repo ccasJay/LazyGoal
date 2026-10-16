@@ -845,6 +845,8 @@ export interface ModelContextEpochState {
 export interface GoalModelSelection {
     /** 语言模型供应商标识（如 "openai", "google", "anthropic" 等）。 */
     readonly provider: string;
+    /** 受管 Provider 档案标识；省略时使用进程启动配置解析凭据与端点。 */
+    readonly profileId?: string | undefined;
     /** 模型唯一标识（如 "gpt-4o", "claude-sonnet-4-5"）。 */
     readonly modelId: string;
     /** 结构化输出模式：原生 strict 约束、prompt_only 提示词约束或 two_stage 双阶段推演。 */
@@ -1167,6 +1169,7 @@ export interface GoalCreationInput {
 function cloneModelSelection(selection: GoalModelSelection): GoalModelSelection {
     return {
         provider: selection.provider,
+        ...(selection.profileId === undefined ? {} : { profileId: selection.profileId }),
         modelId: selection.modelId,
         structuredOutputMode: selection.structuredOutputMode,
         ...(selection.contextWindowTokens !== undefined ? { contextWindowTokens: selection.contextWindowTokens } : {}),
