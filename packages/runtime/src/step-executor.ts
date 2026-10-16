@@ -36,7 +36,18 @@ export interface ThinkExchange {
     readonly output: string;
 }
 
-/** Decide 阶段返回的业务决策或独立 Think 控制结果。 */
+/**
+ * Decide 阶段返回的业务决策、独立 Think 控制结果或已接受的 Assistant 消息。
+ *
+ * @remarks
+ * `assistant_message` 是零调用且正文非空的合法结果：Runner 提交该文本作为 Goal 消息，
+ * 但不推进 Step、不构成完成语义，并按其"不推进类决策"计数继续执行。
+ *
+ * @example
+ * ```ts
+ * const result: DecideStageResult = { kind: "assistant_message", text: "我先说明判断。" };
+ * ```
+ */
 export type DecideStageResult =
     | {
         readonly kind: "decision";
@@ -46,6 +57,11 @@ export type DecideStageResult =
     | {
         readonly kind: "request_think";
         readonly goal: string;
+        readonly modelContextFrame?: ModelContextFrameForStage;
+      }
+    | {
+        readonly kind: "assistant_message";
+        readonly text: string;
         readonly modelContextFrame?: ModelContextFrameForStage;
       };
 

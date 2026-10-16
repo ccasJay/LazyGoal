@@ -2,7 +2,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 零调用正文合法化与分类：Agent 契约、分类枚举、pi-ai 适配器接受
+- [x] //TODO 1. 零调用正文合法化与分类：Agent 契约、分类枚举、pi-ai 适配器接受
   - 落实标准：[1.1](./spec.md#spec-req-1-1), [1.3](./spec.md#spec-req-1-3), [1.5](./spec.md#spec-req-1-5), [5.1](./spec.md#spec-req-5-1), [5.3](./spec.md#spec-req-5-3)
   - 实施目标：`LLMStepExecutor` 的 Decide 输出从"必须恰好一个 tool call"改为分级接受：零调用且正文非空 → 合法的 `assistant_message` 结果；仅 reasoning 或空内容 → `no_usable_result`；单调用保持现有解析、授权与执行路径不变。为该结果定义可区分的分类标识进入 `LLMResponseProtocolError` 之外的新通道（不再复用 `missing_tool_call`）。`PiAiAdapter.toResponse` 在携带工具集合、`stopReason` 合法且仅返回文本时不得再抛 `PiAiProviderError`。
   - 验证手段：`packages/agent/test/llm-step-executor.test.ts` 新增"零调用 + 非空正文被接受为 assistant_message 且不产生 Tool 副作用""仅 reasoning/空内容归为 no_usable_result""单调用路径行为不变"三组断言；`packages/llm/test/pi-ai-adapter.test.ts` 新增"工具集合 + 零调用 + stopReason=stop 不抛错"断言；Red 先行。

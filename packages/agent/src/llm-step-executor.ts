@@ -2,6 +2,11 @@ import { isModelAssistantMessage, sameNativeIdentity } from "../../model-contrac
 import type { ModelInputStore, ModelInputRecord } from "../../runtime/src/model-input";
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
+
+/** Decide 响应的形状分级结果：单调用进入既有决策路径，零调用且有正文归为 Assistant 消息。 */
+type DecideResponseOutcome =
+    | { readonly kind: "call"; readonly call: LLMToolCall }
+    | { readonly kind: "assistant_message"; readonly text: string };
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMStreamEvent } from "../../llm/src/core/types";
 import { readNormalizedUsage } from "../../llm/src/core/usage";
@@ -146,9 +151,11 @@ export class LLMStepExecutor implements StepExecutor {
     async execute(input: StepExecutionInput): Promise<AgentDecision> {
         try {
             const result = await this.executeDecideStage(input, false, input.thinkHistory ?? []);
-            if (result.kind !== "decision") {
-                throw new LLMResponseProtocolError("request_think is not available through execute()");
-            }
+        if (result.kind !== "decision") {
+            throw new LLMResponseProtocolError(result.kind === "request_think"
+                ? "request_think is not available through execute()"
+                : "An assistant message decision is not available through execute()");
+        }
             return result.decision;
         } catch (error) {
             throw toModelStageFeedback(error, input, "decide");
@@ -318,13 +325,22 @@ export class LLMStepExecutor implements StepExecutor {
             "decide",
             plan.modelContextFrame.sections.map(section => section.content),
         );
-        let toolCall: LLMToolCall;
+        let classified: DecideResponseOutcome;
         try {
-            toolCall = this.requireSingleToolCall(response);
+            classified = this.classifyDecideResponse(response);
         } catch (error) {
             await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "response_parse", callId);
             throw error;
         }
+
+        if (classified.kind === "assistant_message") {
+            return {
+                kind: "assistant_message",
+                text: classified.text,
+                modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) },
+            };
+        }
+        const toolCall = classified.call;
 
         if (adapter.nativeConversationIdentity !== undefined && (response.continuation === undefined
             || !sameNativeIdentity(response.continuation.identity, adapter.nativeConversationIdentity)
@@ -337,7 +353,7 @@ export class LLMStepExecutor implements StepExecutor {
         let output: DecideOutput;
         let rawArgs: unknown;
         try {
-            rawArgs = JSON.parse(toolCall.argumentsJson);
+            rawArgs = JSON.parse(toolCall!.argumentsJson);
         } catch (err) {
             const parseErr = new LLMResponseProtocolError(
                 `Failed to parse arguments JSON for tool call "${toolCall.toolId}": ${(err as Error).message}`,
@@ -427,6 +443,45 @@ export class LLMStepExecutor implements StepExecutor {
             });
         }
         return calls[0]!;
+    }
+
+    /**
+     * 对 Decide 响应做形状分级：单调用进入既有决策路径，多调用仍判协议错误，
+     * 零调用且正文非空归为合法 Assistant 消息，零调用且无可用正文归为无可用结果。
+     *
+     * @param response - Adapter 返回的原始响应。
+     * @returns 单调用返回唯一 call；零调用且有正文返回 Assistant 消息。
+     * @throws 多调用抛 `multiple_tool_calls`；零调用且无正文或仅推演义抛 `no_usable_result`。
+     * @remarks 结构化控制请求（完成审查等）不经过本分级，仍由 {@link requireSingleToolCall} 要求唯一结果。
+     * @example
+     * ```ts
+     * const outcome = executor.classifyDecideResponse(response);
+     * if (outcome.kind === "assistant_message") return { kind: "assistant_message", text: outcome.text };
+     * ```
+     */
+    private classifyDecideResponse(response: LLMResponse): DecideResponseOutcome {
+        const calls = response.toolCalls ?? [];
+        if (calls.length === 1) return { kind: "call", call: calls[0]! };
+        if (calls.length > 1) {
+            throw new LLMResponseProtocolError("Model response requires exactly one declared tool call", {
+                issues: [{
+                    code: "multiple_tool_calls",
+                    path: ["toolCalls"],
+                    message: "Return exactly one tool call, not multiple calls.",
+                }],
+            });
+        }
+        const text = response.content.trim();
+        if (text.length === 0) {
+            throw new LLMResponseProtocolError("Model response contains no usable decision", {
+                issues: [{
+                    code: "no_usable_result",
+                    path: ["toolCalls"],
+                    message: "Return one declared tool call, or a non-empty text answer.",
+                }],
+            });
+        }
+        return { kind: "assistant_message", text: response.content };
     }
 
     private async generateModelResponse(

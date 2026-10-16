@@ -975,17 +975,31 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
 
 for (const mode of ["strict", "prompt_only"] as const) {
     for (const [label, response, expectedCode] of [
-        ["text JSON", { content: '{"result":{"kind":"complete","summary":"done","completionEvidence":[],"memoryPatch":null}}' }, "missing_tool_call"],
-        ["trace-shaped text", { content: 'I need to read the workspace.\n{"result":{"kind":"tool_call","action":{"toolId":"read_file","input":{"path":"README.md"}}}}' }, "missing_tool_call"],
         ["multiple calls", { content: "", toolCalls: [1, 2].map(i => ({ callId: `call-${i}`, toolId: "system_complete_task", argumentsJson: '{"summary":"done","completionEvidence":[]}' })) }, "multiple_tool_calls"],
     ] as const) {
-        test(`${mode} Decide rejects ${label} with actionable call-count feedback`, async () => {
+        test(`${mode} Decide accepts text JSON and trace-shaped text as an assistant message`, async () => {
+        const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+            return { content: '{"result":{"kind":"complete","summary":"done","completionEvidence":[],"memoryPatch":null}}' };
+        } };
+        const jsonLike = await createExecutor(adapter).decide({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] });
+        assert.equal(jsonLike.kind, "assistant_message");
+        assert.equal(jsonLike.kind === "assistant_message" && jsonLike.text, '{"result":{"kind":"complete","summary":"done","completionEvidence":[],"memoryPatch":null}}');
+
+        const traceAdapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+            return { content: 'I need to read the workspace.\n{"result":{"kind":"tool_call","action":{"toolId":"read_file","input":{"path":"README.md"}}}}' };
+        } };
+        const traceShaped = await createExecutor(traceAdapter).decide({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] });
+        assert.equal(traceShaped.kind, "assistant_message");
+        assert.equal(traceShaped.kind === "assistant_message" && traceShaped.text.includes("I need to read the workspace."), true);
+    });
+
+    test(`${mode} Decide rejects ${"multiple calls"} with actionable call-count feedback`, async () => {
             const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() { return response; } };
             await assert.rejects(createExecutor(adapter).execute({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory }), (error: unknown) => {
                 assert.ok(error instanceof ModelStageFeedbackError);
                 assert.equal(error.feedback.origin, "output_contract");
                 assert.equal(error.feedback.issues[0]?.code, expectedCode);
-                assert.match(error.feedback.issues[0]!.message, expectedCode === "missing_tool_call" ? /Do not return a text JSON decision/ : /not multiple calls/);
+                assert.match(error.feedback.issues[0]!.message, /not multiple calls/);
                 return true;
             });
         });
@@ -1011,4 +1025,66 @@ test("invalid completion memory patch retains field feedback in the tool protoco
         assert.ok(error.feedback.issues.some(issue => issue.path.join(".") === "result.memoryPatch"));
         return true;
     });
+});
+
+for (const mode of ["strict", "prompt_only"] as const) {
+    test(`${mode} Decide accepts zero calls with non-empty text as an assistant message`, async () => {
+        const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+            return { content: "我已看完目录结构，先说明我的判断，再决定下一步。" };
+        } };
+        const result = await createExecutor(adapter).decide({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] });
+        assert.equal(result.kind, "assistant_message");
+        assert.equal(result.kind === "assistant_message" && result.text, "我已看完目录结构，先说明我的判断，再决定下一步。");
+    });
+
+    test(`${mode} Decide classifies empty or reasoning-only output as no usable result`, async () => {
+        const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+            return { content: "", reasoning: "only thinking, no answer" };
+        } };
+        await assert.rejects(createExecutor(adapter).decide({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] }), (error: unknown) => {
+            assert.ok(error instanceof ModelStageFeedbackError);
+            assert.equal(error.feedback.origin, "output_contract");
+            assert.equal(error.feedback.issues[0]?.code, "no_usable_result");
+            return true;
+        });
+    });
+}
+
+test("Runner 把零调用正文本提交为 Assistant 消息，不推进 Step 并在有界尝试后失败", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const executed: string[] = [];
+    const definitions: ToolDefinition[] = [
+        { id: "bash", description: "List files", isReadOnly: true, inputContract: contract.object({ command: contract.string() }) },
+    ];
+    const registry = new InMemoryToolRegistry(definitions.map(definition => createToolRegistration({
+        definition, replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute() { executed.push(definition.id); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+    })));
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(request) {
+            requests.push(request);
+            return { content: `我先说明判断，这是第 ${requests.length} 次只说话。` };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-assistant-text", intent: "Explain the workspace", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["bash"] } });
+    await store.save(created);
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-assistant-text" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.state.status, "failed");
+    assert.deepEqual(executed, [], "零调用正文不得触发工具执行");
+    assert.equal(result.state.stepCount, 0, "零调用正文不得推进 Step");
+    const messages = (await store.restore(goalId))!.state.messages;
+    const committed = messages.filter(message => message.role === "assistant" && message.content.startsWith("我先说明判断"));
+    assert.equal(committed.length, 3, "三次尝试的正文都应已提交");
+    const events = await trajectoryStore.read({ goalId, runId: "run-assistant-text" });
+    const feedback = events.filter(event => event.payload.type === "model_repair_feedback_recorded");
+    assert.equal(feedback.length, 3, "每次失败尝试都应记录一次反馈，用尽后终结");
+    assert.ok(feedback.every(event => event.payload.type === "model_repair_feedback_recorded"
+        && event.payload.feedback.code === "NO_USABLE_RESULT"));
 });

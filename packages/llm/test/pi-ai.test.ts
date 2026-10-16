@@ -545,3 +545,15 @@ test("pi-ai unified execution keeps local JSON and phase validation", async () =
         assert.equal(calls, 3, "invalid phase output is re-requested with correction feedback up to the bounded attempt limit");
     }
 });
+
+test("prompt_only 携带工具集合时接受零调用与非空正文", async () => {
+    const instance = adapter();
+    stub(instance, async () => result({ content: [{ type: "text", text: "我先解释现状，再决定下一步。" }], stopReason: "stop" }));
+    const generated = await instance.generate({
+        ...request,
+        tools: [{ id: "bash", description: "Run a command", parametersSchema: { type: "object", properties: {} } }],
+        toolChoice: "auto",
+    });
+    assert.equal(generated.content, "我先解释现状，再决定下一步。");
+    assert.equal(generated.toolCalls, undefined);
+});

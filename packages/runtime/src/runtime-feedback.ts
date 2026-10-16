@@ -79,6 +79,15 @@ export class ModelStageFeedbackError extends Error {
     readonly cause: unknown;
 
     /**
+     * 与本次反馈一同产生的零调用 Assistant 正文。
+     *
+     * @remarks
+     * 仅用于让 Runner 在提交修复反馈后把该正文补记为 Goal 消息；不进入模型可见反馈文本，
+     * 也不参与身份校验。省略时表示本次失败没有可保留的模型正文。
+     */
+    readonly assistantMessageText?: string | undefined;
+
+    /**
      * @param feedback - 已移除原始输出的模型修复反馈。
      * @param message - 仅供进程内诊断的简短错误标题。
      * @param cause - 原始异常；不能转发到模型可见消息。
@@ -87,9 +96,11 @@ export class ModelStageFeedbackError extends Error {
         readonly feedback: RuntimeFeedback,
         message: string,
         cause?: unknown,
+        assistantMessageText?: string,
     ) {
         super(message);
         this.name = "ModelStageFeedbackError";
+        this.assistantMessageText = assistantMessageText;
         this.cause = cause;
     }
 }

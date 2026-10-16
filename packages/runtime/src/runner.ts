@@ -199,10 +199,26 @@ const ALLOW_ALL_TOOL_POLICY: ToolPolicy = {
 class RunnerExecutionError extends Error {
     readonly code: ExecutionErrorCode;
 
-    constructor(code: ExecutionErrorCode, message: string, readonly issues?: readonly RuntimeFeedbackIssue[]) {
+    /**
+     * 抛出该错误时已经提交、但尚未被失败收尾采纳的 Goal。
+     *
+     * @remarks
+     * 失败收尾默认基于"进入本次阶段调用之前"的 Goal 提交检查点；若阶段调用中途已提交了
+     * 额外事实（例如零调用 Assistant 消息），必须用该字段指明应当被采纳的已提交 Goal，
+     * 否则那些事实会被旧快照覆盖。省略时沿用调用方的 Goal。
+     */
+    readonly committedGoal?: Goal | undefined;
+
+    constructor(
+        code: ExecutionErrorCode,
+        message: string,
+        readonly issues?: readonly RuntimeFeedbackIssue[],
+        committedGoal?: Goal,
+    ) {
         super(message.trim().length > 0 ? message : code);
         this.name = "RunnerExecutionError";
         this.code = code;
+        this.committedGoal = committedGoal;
     }
 }
 
@@ -2793,6 +2809,49 @@ class RunExecutor {
         return event.payload.feedback;
     }
 
+    /**
+     * 提交零调用且正文非空的 Assistant 消息。
+     *
+     * @remarks
+     * 该消息只作为 Goal 消息持久化：不推进 Step、不执行 Tool、不构成完成语义。
+     * 调用方在提交后按"不推进类决策"抛出反馈，让 Decide 在同 stage 的有界修复链内继续。
+     *
+     * @param goal - 当前已提交的 Goal。
+     * @param result - Executor 返回的 assistant_message 结果。
+     * @param executionUnitId - 当前执行单元标识；缺省时不写入事件归属。
+     * @param control - 共享取消控制；提交过程中止时抛出。
+     * @returns 含新消息的已提交 Goal。
+     * @throws 提交失败或取消时抛出。
+     * @example
+     * ```ts
+     * const committed = await runner.commitAssistantMessage(goal, result, "exec-1");
+     * ```
+     */
+    private async commitAssistantMessage(
+        goal: Goal,
+        result: Extract<DecideStageResult, { readonly kind: "assistant_message" }>,
+        executionUnitId: string | undefined,
+        control?: ExecutionControl,
+    ): Promise<Goal> {
+        const nextGoal: Goal = {
+            ...goal,
+            state: {
+                ...goal.state,
+                messages: [...goal.state.messages, {
+                    role: "assistant",
+                    assistant: { profileId: goal.definition.profile.id },
+                    content: result.text,
+                }],
+            },
+        };
+        const committed = await this.checkpointCommitter.commit(
+            nextGoal,
+            { facts: [], ...(control === undefined ? {} : { control }) },
+        );
+        this.publishCommittedEvents(committed);
+        return committed.goal;
+    }
+
     private async executeRepairableModelStage<T, U>(
         goal: Goal,
         input: StepExecutionInput,
@@ -2854,10 +2913,20 @@ class RunExecutor {
                 }
                 feedback = createRuntimeFeedback({ ...error.feedback, attempt: pending.attemptsStarted });
                 currentGoal = await this.appendRepairFeedback(currentGoal, pending, feedback, control);
+                if (error.assistantMessageText !== undefined) {
+                    currentGoal = await this.commitAssistantMessage(
+                        currentGoal,
+                        { kind: "assistant_message", text: error.assistantMessageText },
+                        pending.executionUnitId,
+                        control,
+                    );
+                }
                 if (pending.attemptsStarted >= 3) {
                     throw new RunnerExecutionError(
                         "INVALID_AGENT_DECISION",
                         "Model output correction exhausted after three " + stage + " attempts (" + feedback.code + ")",
+                        undefined,
+                        currentGoal,
                     );
                 }
             }
@@ -4106,6 +4175,24 @@ class RunExecutor {
                                         }
                                         return { stageResult: { ...result, goal: thinkGoal } };
                                     }
+                                    if (result.kind === "assistant_message") {
+                                        throw new ModelStageFeedbackError(createRuntimeFeedback({
+                                            goalId: activeGoal.id,
+                                            runId: activeGoal.state.run.id,
+                                            executionUnitId,
+                                            stepOrdinal: activeGoal.state.run.stepCount + 1,
+                                            stage: "decide",
+                                            origin: "output_contract",
+                                            code: "NO_USABLE_RESULT",
+                                            attempt: 1,
+                                            issues: [{
+                                                code: "no_usable_result",
+                                                path: ["toolCalls"],
+                                                message: "Return one declared tool call, or a non-empty text answer.",
+                                            }],
+                                            constraints: ["A text-only answer is accepted as an assistant message but does not advance the task. Continue the original task with one declared tool call."],
+                                        }), "A text-only answer does not advance the task.", undefined, result.text);
+                                    }
                                     const normalizedDecision = this.validateDecisionForStage(
                                         activeGoal,
                                         result.decision,
@@ -4256,6 +4343,10 @@ class RunExecutor {
                             break;
                         }
                 } catch (error) {
+                    // 阶段调用中途已提交的 Goal 必须优先于进入调用前的快照，否则已提交事实会被旧快照覆盖。
+                    if (error instanceof RunnerExecutionError && error.committedGoal !== undefined) {
+                        goal = error.committedGoal;
+                    }
                     if (isExecutionAbortedError(error)) {
                         throw error;
                     }
