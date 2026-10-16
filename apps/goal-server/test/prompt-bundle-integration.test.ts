@@ -68,10 +68,14 @@ function nativeFixtureMessage(content: string, id: string) {
         : kind === "ask_user" ? "ask_user"
         : kind === "task_proposal" ? "system_propose_task_plan"
         : kind === "tool_discovery" ? "system_find_tools"
+        : kind === "run_stage_update" ? "system_update_run_stage"
         : kind === "accept" ? "system_review_completion" : "system_complete_task";
     return { role: "assistant", content: "", tool_calls: [{ id, type: "function", function: {
         name,
-        arguments: JSON.stringify(kind === "tool_call" ? args.action.input : kind === "tool_discovery" ? { query: args.query } : kind === "accept" ? { result: { kind } } : args),
+        arguments: JSON.stringify(kind === "tool_call" ? args.action.input
+            : kind === "tool_discovery" ? { query: args.query }
+            : kind === "run_stage_update" ? { target: args.target, acceptanceCriteria: args.acceptanceCriteria }
+            : kind === "accept" ? { result: { kind } } : args),
     } }] };
 }
 
@@ -156,6 +160,13 @@ test("Composition Root carries Memory through task approval into Executing", { t
                 },
                 approvalRequest: "Approve the revised task contract?",
                 memoryPatch: null,
+            },
+        }),
+        JSON.stringify({
+            result: {
+                kind: "run_stage_update",
+                target: "Complete the proposed task",
+                acceptanceCriteria: ["The task outcome is verified"],
             },
         }),
         JSON.stringify({
@@ -353,8 +364,8 @@ test("Composition Root carries Memory through task approval into Executing", { t
         }
         assert.ok(completedGoal);
         assert.equal(completedGoal.state.run.status, "completed");
-        if (requests.length !== 7) {
-            throw new Error(`Expected 7 requests, got ${requests.length}`);
+        if (requests.length !== 8) {
+            throw new Error(`Expected 8 requests, got ${requests.length}`);
         }
         for (const request of requests.slice(0, -1)) {
             const content = systemContent(request);
@@ -368,7 +379,7 @@ test("Composition Root carries Memory through task approval into Executing", { t
             }
         }
 
-        const reviewControl = controlPayload(requests[6]!);
+        const reviewControl = controlPayload(requests[7]!);
         assert.equal(reviewControl.source, "runtime_completion_candidate");
         assert.equal(reviewControl.candidate.summary, "The current workflow completed");
 
