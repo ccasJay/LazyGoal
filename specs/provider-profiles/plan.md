@@ -4,7 +4,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 交付 Provider Profile 实体、Provider 规则校验与 Home 级 Store
+- [x] //TODO 1. 交付 Provider Profile 实体、Provider 规则校验与 Home 级 Store
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.4](./spec.md#spec-req-1-4)、[1.5](./spec.md#spec-req-1-5)、[2.2](./spec.md#spec-req-2-2)、[2.3](./spec.md#spec-req-2-3)、[2.4](./spec.md#spec-req-2-4)、[2.6](./spec.md#spec-req-2-6)
   - 实施目标：先在 `packages/config/test/provider-profile-store.test.ts` 建立行为断言（0600/0700 权限、原子写、schema 版本与损坏内容 fail-fast、空 Store 不自动导入 `[llm]`、同 kind 多份并存、省略 `apiKey` 保留原值、校验失败不落盘）；再在 `packages/config` 内实现 `ProviderProfile` 实体与校验函数（复用现有 provider 白名单、strict 门禁、`baseURL` 允许集合与容量关系规则，不另建第二套），以及 `<home>/provider-profiles.json` 的版本化 Store（含激活标识，复用 `home.ts` 的安全目录/文件能力）。实体与 Store 均落在 `config` 以保持依赖矩阵不变（`config` 为叶子，`storage`/`browser`/`runtime` 均不得依赖它）。同步为新增公开接口补中文契约 TSDoc。
   - 验证手段：`npx tsx --test packages/config/test/provider-profile-store.test.ts packages/config/test/home.test.ts packages/config/test/llm-config.test.ts packages/config/test/config-loader.test.ts`；断言权限位、损坏与不支持版本的 fail-fast、空 Store 回退路径、同 kind 多份、凭据保留与校验拒绝。

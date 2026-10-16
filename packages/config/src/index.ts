@@ -22,6 +22,35 @@ export type {
     LLMProvider,
     StructuredOutputMode,
 } from "./llm-config";
+export {
+    isAcceptableBaseUrl,
+    isPositiveSafeInteger,
+    isSupportedLlmProvider,
+    supportsBaseUrl,
+    supportsStrictOutput,
+    SUPPORTED_LLM_PROVIDERS,
+} from "./provider-rules";
+export {
+    maskProviderApiKey,
+    ProviderProfileValidationError,
+    validateProviderProfileDraft,
+} from "./provider-profile";
+export type {
+    ProviderProfile,
+    ProviderProfileDraft,
+    ValidatedProviderProfile,
+} from "./provider-profile";
+export {
+    JsonFileProviderProfileStore,
+    ProviderProfileActiveDeletionError,
+    ProviderProfileConflictError,
+    ProviderProfileNotFoundError,
+    ProviderProfileProtocolError,
+} from "./provider-profile-store";
+export type {
+    ProviderProfilePatch,
+    ProviderProfileSnapshot,
+} from "./provider-profile-store";
 
 export {
     TomlConfigurationError,
