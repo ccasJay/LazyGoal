@@ -93,6 +93,7 @@ function goalAtWaitPoint(goalId: string, waitPoint: WaitPoint): Goal {
                     ...run,
                     pendingInteraction: {
                         kind: "task_approval",
+                        planRouteCandidate: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                         requestId: "proposal-1",
                         proposal: { objective: "执行任务", completionCriteria: [{ text: "通过检查" }] },
                         approvalRequest: "请批准",

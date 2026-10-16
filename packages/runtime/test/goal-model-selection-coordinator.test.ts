@@ -115,6 +115,7 @@ test("GoalModelSelectionCoordinator: 三类安全等待点允许更新并保存�
                 status: "waiting",
                 pendingInteraction: {
                     kind: "task_approval",
+                    planRouteCandidate: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                     requestId: "proposal-1",
                     proposal: {
                         objective: "测试目标",

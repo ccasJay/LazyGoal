@@ -105,6 +105,7 @@ class WorkflowStepExecutor extends BaseTestStepExecutor {
         },
         {
             kind: "task_proposal",
+            planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
             task: {
                 objective: "Implement JSON session persistence",
                 completionCriteria: [],

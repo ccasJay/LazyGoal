@@ -124,6 +124,7 @@ test("Composition Root carries Memory through task approval into Executing", { t
         JSON.stringify({
             result: {
                 kind: "task_proposal",
+                planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                 task: {
                     objective: "Initial proposal",
                     completionCriteria: [],
@@ -148,6 +149,7 @@ test("Composition Root carries Memory through task approval into Executing", { t
         JSON.stringify({
             result: {
                 kind: "task_proposal",
+                planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                 task: {
                     objective: "Approved proposal",
                     completionCriteria: [],
@@ -493,6 +495,7 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
         JSON.stringify({
             result: {
                 kind: "task_proposal",
+                planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                 task: {
                     objective: "Invalid wire test",
                     completionCriteria: [],

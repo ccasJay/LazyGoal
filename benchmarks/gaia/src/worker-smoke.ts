@@ -51,6 +51,7 @@ export async function runGaiaWorkerSmoke(): Promise<void> {
                         content: JSON.stringify({
                             result: {
                                 kind: "task_proposal",
+                                planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                                 task: {
                                     objective: `Submit the answer for GAIA task ${task.taskId}`,
                                     completionCriteria: [{

@@ -61,6 +61,7 @@ export async function runTuaBenchWorkerSmoke(): Promise<void> {
                         content: JSON.stringify({
                             result: {
                                 kind: "task_proposal",
+                                planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                                 task: {
                                     objective: `解决终端任务：${task.name}`,
                                     completionCriteria: [{

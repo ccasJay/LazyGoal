@@ -309,6 +309,7 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
                 if (reviewing) decision = { kind: "accept" };
                 else if (!taskApproved) decision = {
                     kind: "task_proposal", task: { objective: "Verify smoke evidence", completionCriteria: [{ text: "Obtain the smoke observation", acceptance: null }] },
+                    planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                     approvalRequest: "Approve the smoke test?", memoryPatch: null,
                 };
                 else if (!body.tools.some((tool: any) => tool.function?.name === "smoke_evidence")) {
@@ -338,7 +339,7 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
                     res.setHeader("Content-Type", "application/json");
                     const selected = decision as any;
                     const toolId = selected.kind === "task_proposal" ? "system_propose_task_plan" : selected.kind === "run_stage_update" ? "system_update_run_stage" : selected.kind === "tool_call" ? "smoke_evidence" : selected.kind === "tool_discovery" ? "system_find_tools" : selected.kind === "accept" ? "system_review_completion" : "system_complete_task";
-                    const args = selected.kind === "tool_call" ? {} : selected.kind === "run_stage_update" ? { target: selected.target, acceptanceCriteria: selected.acceptanceCriteria } : selected.kind === "task_proposal" ? { task: selected.task, approvalRequest: selected.approvalRequest, memoryPatch: null } : selected.kind === "tool_discovery" ? { query: selected.query } : selected.kind === "accept" ? { result: selected } : { summary: selected.summary, completionEvidence: selected.completionEvidence, memoryPatch: null };
+                    const args = selected.kind === "tool_call" ? {} : selected.kind === "run_stage_update" ? { target: selected.target, acceptanceCriteria: selected.acceptanceCriteria } : selected.kind === "task_proposal" ? { task: selected.task, planRoute: selected.planRoute, approvalRequest: selected.approvalRequest, memoryPatch: null } : selected.kind === "tool_discovery" ? { query: selected.query } : selected.kind === "accept" ? { result: selected } : { summary: selected.summary, completionEvidence: selected.completionEvidence, memoryPatch: null };
                     res.end(JSON.stringify({ id: "smoke-1", model: "local-model", choices: [{ index: 0, message: { role: "assistant", content: "", tool_calls: [{ id: `call-${phases.length}`, type: "function", function: { name: toolId, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] }));
                 } else {
                     res.setHeader("Content-Type", "text/event-stream");

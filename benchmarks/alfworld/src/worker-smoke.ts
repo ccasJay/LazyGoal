@@ -53,6 +53,7 @@ export async function runAlfworldWorkerSmoke(): Promise<void> {
                 if (calls === 1) {
                     return { content: JSON.stringify({ result: {
                         kind: "task_proposal",
+                        planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                         task: {
                             objective: `Complete ALFWorld task ${task.taskId}`,
                             completionCriteria: [{

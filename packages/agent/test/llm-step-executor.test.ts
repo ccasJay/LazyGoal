@@ -485,6 +485,7 @@ test("LLMStepExecutor 收到非 executing 分支时生成输出契约 RuntimeFee
     const adapter = new FakeAdapter(JSON.stringify({
         result: {
             kind: "task_proposal",
+            planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
             task: { objective: "不属于 executing", completionCriteria: [] },
             approvalRequest: "请批准",
             memoryPatch: null,

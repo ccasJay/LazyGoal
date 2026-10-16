@@ -158,31 +158,45 @@ test("isLiveEvent validates activity identities without conflating trajectory ID
         activity: { kind: "activity_boundary", sourceEventId: "event-2", sourceCursor: 2, reason: "private_reasoning" },
     }), false);
 });
+
 test("isPendingInteraction validates ask_user and task_approval", () => {
     assert.equal(
         isPendingInteraction({
             kind: "task_approval",
+            planRoute: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }],
             requestId: "req-1",
             objective: "Do task",
             approvalRequest: "Approve?",
             completionCriteria: ["Criterion 1"],
-            planRoute: [{ target: "Implement", acceptanceCriteria: ["Checks pass"] }],
         }),
         true,
     );
     assert.equal(isPendingInteraction({
-        kind: "task_approval", requestId: "req-3", objective: "Do task", approvalRequest: "Approve?",
-        completionCriteria: [], planRoute: [],
+        kind: "task_approval",
+        requestId: "req-1",
+        objective: "Do task",
+        approvalRequest: "Approve?",
+        completionCriteria: [],
+        planRoute: [],
     }), false);
     assert.equal(isPendingInteraction({
-        kind: "task_approval", requestId: "req-4", objective: "Do task", approvalRequest: "Approve?",
-        completionCriteria: [], planRoute: [{ target: " ", acceptanceCriteria: ["criterion"] }],
+        kind: "task_approval",
+        requestId: "req-1",
+        objective: "Do task",
+        approvalRequest: "Approve?",
+        completionCriteria: [],
+        planRoute: [{ target: " ", acceptanceCriteria: ["criterion"] }],
     }), false);
     assert.equal(
         isPendingInteraction({
             kind: "ask_user",
             requestId: "req-2",
             mode: "plan",
+            routeRevision: {
+                approvalRequest: "Approve the added outcome?",
+                reason: "New evidence adds a deliverable outside the approved scope",
+                route: [{ target: "Write a report", acceptanceCriteria: ["The report is reviewed"] }],
+            },
             questions: [
                 {
                     id: "q-1",
@@ -195,22 +209,15 @@ test("isPendingInteraction validates ask_user and task_approval", () => {
         }),
         true,
     );
+    assert.equal(isPendingInteraction({
+        kind: "ask_user",
+        requestId: "req-3",
+        mode: "execution",
+        routeRevision: { approvalRequest: "Approve?", reason: "New evidence", route: [] },
+        questions: [],
+    }), false);
     assert.equal(isPendingInteraction({ kind: "unknown", requestId: "r" }), false);
     assert.equal(isPendingInteraction({ kind: "task_approval", requestId: "" }), false);
-});
-
-test("isPendingInteraction validates Plan route revision approval", () => {
-    const base = {
-        kind: "ask_user",
-        requestId: "route-revision",
-        mode: "execution",
-        questions: [{ id: "q-1", header: "Approve route", question: "Approve?", multiSelect: false, options: [{ id: "o-1", label: "Approve" }] }],
-    };
-    assert.equal(isPendingInteraction({
-        ...base,
-        routeRevision: { approvalRequest: "Approve the new deliverable?", reason: "New evidence", route: [{ target: "Report", acceptanceCriteria: ["Reviewed"] }] },
-    }), true);
-    assert.equal(isPendingInteraction({ ...base, routeRevision: { approvalRequest: "Approve?", reason: "New evidence", route: [] } }), false);
 });
 
 test("isMetricsSnapshot validates metrics", () => {

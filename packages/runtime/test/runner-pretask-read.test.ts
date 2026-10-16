@@ -154,6 +154,7 @@ test("无任务只读 Action: 使用普通生命周期计 Step，并在同一次
         },
         {
             kind: "task_proposal",
+            planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
             task: {
                 objective: "基于读取结果实现目标",
                 completionCriteria: [{ text: "读取完成" }],
@@ -253,6 +254,7 @@ test("无任务只读 Action: require_approval 使用普通 pendingAction 恢复
 
     stepExecutor.enqueue({
         kind: "task_proposal",
+        planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
         task: {
             objective: "基于读取结果执行目标",
             completionCriteria: [{ text: "读取已纳入任务上下文" }],
@@ -383,6 +385,7 @@ test("无任务只读 Action: 领域 failure 也通过普通 Observation 计 Ste
         },
         {
             kind: "task_proposal",
+            planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
             task: {
                 objective: "根据缺失文件制定补救计划",
                 completionCriteria: [{ text: "计划确认" }],
@@ -463,7 +466,7 @@ test("无任务只读 Action: 工具运行时异常停止为 TOOL_EXECUTION_ERRO
 
 });
 
-test("Plan 提案未批准时不按 isReadOnly 新增 Tool 门控，仍由 Tool Policy 决定", async () => {
+test("Plan 提案未批准时只读门先于 Tool Policy 拒绝写入", async () => {
     const store = new InMemoryGoalStore();
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor = new QueueStepExecutor();
@@ -521,6 +524,7 @@ test("Plan 提案未批准时不按 isReadOnly 新增 Tool 门控，仍由 Tool 
         },
         {
             kind: "task_proposal",
+            planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
             task: { objective: "继续完成请求", completionCriteria: [{ text: "文件已写入" }] },
             approvalRequest: "请批准后续任务",
         },
@@ -533,15 +537,16 @@ test("Plan 提案未批准时不按 isReadOnly 新增 Tool 门控，仍由 Tool 
         assert.equal(result.waitingFor, "task_approval");
     }
 
-    assert.equal(writeExecuted, true);
-    assert.equal(policyEvaluated, true);
+    assert.equal(writeExecuted, false);
+    assert.equal(policyEvaluated, false);
 
-    // 工具结果已提交，提案等待点随后持久化；模式本身不授予或撤销 Tool 权限。
+    // 未获批写入没有调用 Tool Policy 或产生副作用，Runtime 随后持久化路线提案等待。
     const latestGoal = await store.restore(goal.id);
     assert.ok(latestGoal !== undefined);
-    assert.equal(latestGoal.state.run.stepCount, 1);
+    assert.equal(latestGoal.state.run.stepCount, 0);
     assert.equal(latestGoal.state.run.pendingAction, undefined);
     assert.equal(latestGoal.state.run.pendingInteraction?.kind, "task_approval");
+    assert.equal(trajectoryStore.events.some((event) => event.eventType === "tool_started" || event.eventType === "tool_finished"), false);
 });
 
 test("普通 Run 直接调用已授权写工具并用当前 Run Observation 完成", async () => {
@@ -781,6 +786,7 @@ test("Runtime 按 Run 模式拒绝普通提案、普通 GoalPlan 更新与未批
 
     const proposal = await runDecision("goal-normal-proposal-rejected", "normal", {
         kind: "task_proposal",
+        planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
         task: { objective: "不应生成审批", completionCriteria: [] },
         approvalRequest: "请批准",
     });
@@ -856,6 +862,7 @@ test("YOLO 模式边界: 任务批准后 YOLO 自动放行写工具并计 Step�
     // 1. 任务提案
     stepExecutor.enqueue({
         kind: "task_proposal",
+        planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
         task: {
             objective: "YOLO 执行目标",
             completionCriteria: [{ text: "写文件" }],
@@ -1009,6 +1016,7 @@ test("普通只读 Action 重启恢复: 读取后的 Step 可恢复并继续推�
         },
         {
             kind: "task_proposal",
+            planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
             task: {
                 objective: "基于两次读取结果规划任务",
                 completionCriteria: [{ text: "两次读取完成" }],

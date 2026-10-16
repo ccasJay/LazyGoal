@@ -108,7 +108,6 @@ test("Plan task approval projection preserves the complete ordered route", async
     ]);
 });
 
-
 test("Plan Run session projection includes the authoritative complete route only when present", async () => {
     const initial = createTestGoal();
     const planRoute = createRunPlanRoute({
@@ -443,6 +442,7 @@ test("会话步骤只有来源顺序连续时才允许后续活动组拼接", as
     const separatedSession = await readBrowserGoalSession(initial.id, new TestGoalStore(initial), async () => ({ committed: separated, uncommittedTail: [] }));
     assert.equal(separatedSession?.runs[0]?.steps[1]?.activityBoundaryBefore, true);
 });
+
 test("会话保留完整的常规长答复，并标记超出消息上限的正文", async () => {
     const initial = createTestGoal();
     const report = "完整报告。".repeat(901);
