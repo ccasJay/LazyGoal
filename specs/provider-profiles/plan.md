@@ -20,7 +20,7 @@
   - 实施目标：先在 `packages/storage/test/goal-snapshot-current.test.ts` 与 `apps/goal-server/test/composition-root-provider-profiles.test.ts` 断言：`profileId` 随选择往返且严格 schema 继续拒绝任何凭据字段；不含 `profileId` 的既有 Goal 仍可解析；按档案解析凭据与端点；不可解析档案显式失败且不回退。已随本切片交付：`toLlmConfig` 映射、Composition Root 的档案解析与启动配置来源判定、`GoalModelSelection.profileId` 与 Snapshot 编解码、`ProviderProfileResolutionError`。
   - 验证手段：`npx tsx --test packages/runtime/test/goal-model-selection-coordinator.test.ts packages/storage/test/goal-snapshot-current.test.ts packages/storage/test/json-file-model-preference-store.test.ts packages/agent/test/llm-step-executor.test.ts`；断言往返、兼容、阻断与安全点边界。
 
-- [ ] //TODO 4. 交付 Settings 管理接口与掩码 DTO
+- [x] //TODO 4. 交付 Settings 管理接口与掩码 DTO
   - 落实标准：[2.1](./spec.md#spec-req-2-1)、[2.5](./spec.md#spec-req-2-5)、[3.1](./spec.md#spec-req-3-1)、[3.2](./spec.md#spec-req-3-2)、[3.3](./spec.md#spec-req-3-3)、[4.4](./spec.md#spec-req-4-4)、[7.4](./spec.md#spec-req-7-4)
   - 实施目标：先在 `packages/browser/test/browser-provider-settings.test.ts` 与 `packages/web-contracts/test/web-contracts.test.ts` 断言：列表/创建/更新只回掩码与 `hasApiKey`，任何响应正文不含明文凭据；更新省略密钥保留原值；删除激活 Profile 被拒、删除其它 Profile 返回引用提示字段；连接测试只触发在线模型列表并区分鉴权/权限/协议/不可用四类；新增路由在既有会话访问控制之后（未授权请求被拒）。再实现 DTO、校验函数与路由，并复用现有 `ModelCatalogError.kind` 映射。
   - 验证手段：`npx tsx --test packages/browser/test/browser-provider-settings.test.ts packages/browser/test/browser-models.test.ts packages/web-contracts/test/web-contracts.test.ts apps/goal-server/test/browser-session.integration.test.ts`；断言掩码、拒绝语义、错误分类与授权边界。

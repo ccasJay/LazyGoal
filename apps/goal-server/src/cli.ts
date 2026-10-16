@@ -22,10 +22,85 @@ import { ModelCatalogError } from "../../../packages/llm/src/model-catalog";
 import type { GoalModelSelection } from "../../../packages/runtime/src/index";
 import { JsonFileModelPreferenceStore } from "../../../packages/storage/src/index";
 import {
+    maskProviderApiKey,
+    ProviderProfileActiveDeletionError,
+    ProviderProfileConflictError,
+    ProviderProfileNotFoundError,
+    ProviderProfileProtocolError,
+    ProviderProfileValidationError,
+    toLlmConfig,
+    type ProviderProfile,
+    type ProviderProfileDraft,
+    type ProviderProfilePatch,
+} from "../../../packages/config/src/index";
+import type {
+    BrowserProviderProfile,
+    BrowserProviderProfileInput,
+    BrowserProviderSettingsError,
+} from "../../../packages/web-contracts/src/index";
+import {
     createCompositionRoot,
     type CompositionRoot,
     type CompositionRootOptions,
 } from "./composition-root";
+
+/** 把受管档案投影为不含明文凭据的 wire 形态。 */
+function toBrowserProviderProfile(profile: ProviderProfile): BrowserProviderProfile {
+    return {
+        id: profile.id,
+        label: profile.label,
+        kind: profile.kind,
+        defaultModel: profile.defaultModel,
+        ...(profile.baseURL === undefined ? {} : { baseURL: profile.baseURL }),
+        ...(profile.contextWindowTokens === undefined ? {} : { contextWindowTokens: profile.contextWindowTokens }),
+        ...(profile.maxOutputTokens === undefined ? {} : { maxOutputTokens: profile.maxOutputTokens }),
+        ...(profile.structuredOutputMode === undefined ? {} : { structuredOutputMode: profile.structuredOutputMode }),
+        hasApiKey: profile.apiKey.trim().length > 0,
+        apiKeyMask: maskProviderApiKey(profile.apiKey),
+    };
+}
+
+/** 把 wire 输入映射为创建草稿；缺省 `apiKey` 由校验层拒绝。 */
+function toProfileDraft(input: BrowserProviderProfileInput): ProviderProfileDraft {
+    return {
+        label: input.label,
+        kind: input.kind,
+        defaultModel: input.defaultModel,
+        apiKey: input.apiKey ?? "",
+        ...(input.baseURL === undefined ? {} : { baseURL: input.baseURL }),
+        ...(input.contextWindowTokens === undefined ? {} : { contextWindowTokens: input.contextWindowTokens }),
+        ...(input.maxOutputTokens === undefined ? {} : { maxOutputTokens: input.maxOutputTokens }),
+        ...(input.structuredOutputMode === undefined ? {} : { structuredOutputMode: input.structuredOutputMode }),
+    };
+}
+
+/** 把 wire 输入映射为部分更新；缺省 `apiKey` 保留原凭据，其余可选字段缺省表示清空。 */
+function toProfilePatch(input: BrowserProviderProfileInput): ProviderProfilePatch {
+    return {
+        label: input.label,
+        kind: input.kind,
+        defaultModel: input.defaultModel,
+        ...(input.apiKey === undefined ? {} : { apiKey: input.apiKey }),
+        baseURL: input.baseURL ?? undefined,
+        contextWindowTokens: input.contextWindowTokens ?? undefined,
+        maxOutputTokens: input.maxOutputTokens ?? undefined,
+        structuredOutputMode: input.structuredOutputMode ?? undefined,
+    };
+}
+
+/** 把档案存储错误映射为稳定的 wire 错误分类。 */
+function mapProviderSettingsError(
+    error: unknown,
+): { readonly error: BrowserProviderSettingsError; readonly fields?: readonly string[] } {
+    if (error instanceof ProviderProfileValidationError) {
+        return { error: "provider_profile_invalid", fields: error.fields };
+    }
+    if (error instanceof ProviderProfileNotFoundError) return { error: "provider_profile_not_found" };
+    if (error instanceof ProviderProfileConflictError) return { error: "provider_profile_conflict" };
+    if (error instanceof ProviderProfileActiveDeletionError) return { error: "provider_profile_active" };
+    if (error instanceof ProviderProfileProtocolError) return { error: "provider_profile_unavailable" };
+    return { error: "provider_profile_unavailable" };
+}
 
 export interface CliRunOptions extends CompositionRootOptions {
     readonly writeOutput?: (message: string) => void;
@@ -228,6 +303,93 @@ export async function runServerSession(
             resume: (goalId, command) => commandService.resume(goalId, command),
             enterPlanMode: (goalId, command) => commandService.enterPlanMode(goalId, command),
             selectModel: (goalId, command) => commandService.selectModel(goalId, command),
+            providerSettings: {
+                read: async () => {
+                    try {
+                        const profiles = await root.providerProfileStore.list();
+                        const activeProfileId = await root.providerProfileStore.activeProfileId();
+                        return {
+                            ok: true as const,
+                            settings: {
+                                ...(activeProfileId === undefined ? {} : { activeProfileId }),
+                                profiles: profiles.map(toBrowserProviderProfile),
+                                ...(root.llmConfig === undefined ? {} : {
+                                    fallback: {
+                                        source: "config" as const,
+                                        provider: root.llmConfig.provider,
+                                        model: root.llmConfig.model,
+                                    },
+                                }),
+                            },
+                        };
+                    } catch {
+                        return { ok: false as const, error: "provider_profile_unavailable" as const };
+                    }
+                },
+                create: async (input) => {
+                    try {
+                        const profile = await root.providerProfileStore.create(toProfileDraft(input));
+                        await root.refreshProviderProfiles();
+                        return { ok: true as const, profile: toBrowserProviderProfile(profile) };
+                    } catch (error) {
+                        return { ok: false as const, ...mapProviderSettingsError(error) };
+                    }
+                },
+                update: async (profileId, input) => {
+                    try {
+                        const profile = await root.providerProfileStore.update(profileId, toProfilePatch(input));
+                        await root.refreshProviderProfiles();
+                        return { ok: true as const, profile: toBrowserProviderProfile(profile) };
+                    } catch (error) {
+                        return { ok: false as const, ...mapProviderSettingsError(error) };
+                    }
+                },
+                remove: async (profileId) => {
+                    try {
+                        const profile = await root.providerProfileStore.delete(profileId);
+                        await root.refreshProviderProfiles();
+                        return {
+                            ok: true as const,
+                            profile: toBrowserProviderProfile(profile),
+                            mayBeReferencedByGoals: true,
+                        };
+                    } catch (error) {
+                        return { ok: false as const, error: mapProviderSettingsError(error).error };
+                    }
+                },
+                activate: async (profileId) => {
+                    try {
+                        await root.providerProfileStore.setActive(profileId);
+                        await root.refreshProviderProfiles();
+                        return { ok: true as const, activeProfileId: profileId };
+                    } catch (error) {
+                        return { ok: false as const, error: mapProviderSettingsError(error).error };
+                    }
+                },
+                test: async (profileId) => {
+                    let profile: ProviderProfile | undefined;
+                    try {
+                        profile = await root.providerProfileStore.get(profileId);
+                    } catch {
+                        return { ok: false as const, error: "model_catalog_unavailable" as const };
+                    }
+                    if (profile === undefined) {
+                        return { ok: false as const, error: "provider_profile_not_found" as const };
+                    }
+                    try {
+                        const models = await root.modelCatalog.list(toLlmConfig(profile, { model: profile.defaultModel }));
+                        return { ok: true as const, modelCount: models.length };
+                    } catch (error) {
+                        if (!(error instanceof ModelCatalogError)) {
+                            return { ok: false as const, error: "model_catalog_unavailable" as const };
+                        }
+                        if (error.kind === "authentication") return { ok: false as const, error: "model_catalog_authentication" as const };
+                        if (error.kind === "permission") return { ok: false as const, error: "model_catalog_permission" as const };
+                        if (error.kind === "protocol") return { ok: false as const, error: "model_catalog_protocol" as const };
+                        return { ok: false as const, error: "model_catalog_unavailable" as const };
+                    }
+                },
+            },
             setModelPreference: async (modelId) => {
                 if (root.abortController.signal.aborted) return { ok: false, error: "service_shutting_down" };
                 if (root.llmConfig === undefined) return { ok: false, error: "model_catalog_unavailable" };

@@ -68,6 +68,20 @@ export {
 } from "./model";
 
 export {
+    type BrowserProviderProfile,
+    type BrowserProviderFallback,
+    type BrowserProviderSettings,
+    type BrowserProviderSettingsError,
+    type BrowserProviderSettingsReadResult,
+    type BrowserProviderProfileInput,
+    type BrowserProviderProfileWriteResult,
+    type BrowserProviderProfileDeleteResult,
+    type BrowserProviderProfileActivationResult,
+    type BrowserProviderProfileTestError,
+    type BrowserProviderProfileTestResult,
+} from "./provider-settings";
+
+export {
     type BrowserModelInputMessageWire,
     type BrowserModelInputRecordWire,
     type BrowserModelInputSummary,

@@ -273,8 +273,10 @@ export interface CompositionRoot {
     readonly llmConfig?: LLMConfig;
     /** 受管 Provider 档案存储，供 Settings 管理接口使用。 */
     readonly providerProfileStore: JsonFileProviderProfileStore;
-    /** 当前生效的受管 Provider 档案集合。 */
+    /** 启动时读取的受管 Provider 档案快照；最新状态以 `providerProfileStore` 为准。 */
     readonly providerProfiles: readonly ProviderProfile[];
+    /** 受管档案变更后刷新运行时解析视图。 */
+    readonly refreshProviderProfiles: () => Promise<void>;
     /**
      * 解析指定档案与模型对应的连接配置。
      * @throws ProviderProfileResolutionError 档案不在当前集合中时抛出。
@@ -365,13 +367,25 @@ export async function createCompositionRoot(
     const providerProfileStore = options.providerProfileStore ?? new JsonFileProviderProfileStore(homePaths);
     // 注入适配器时由调用方拥有模型构造，不读取真实 Home 的 Provider 档案，保持测试与外部组合的确定性。
     const managesProviderProfiles = options.providerProfiles !== undefined || options.adapter === undefined;
-    const providerProfiles: readonly ProviderProfile[] = managesProviderProfiles
+    let providerProfiles: readonly ProviderProfile[] = managesProviderProfiles
         ? options.providerProfiles ?? await providerProfileStore.list()
         : [];
-    const providerProfileById = new Map(providerProfiles.map((profile) => [profile.id, profile]));
+    let providerProfileById = new Map(providerProfiles.map((profile) => [profile.id, profile]));
     const activeProviderProfile = managesProviderProfiles && options.providerProfiles === undefined
         ? await readActiveProviderProfile(providerProfileStore, providerProfiles)
         : undefined;
+    /**
+     * 受管档案变更后刷新运行时解析视图。
+     *
+     * @remarks
+     * 仅重建档案视图；已发布的模型绑定保持不变，后续解析使用刷新后的视图。
+     * 注入档案集合时由调用方拥有该集合，刷新为空操作。
+     */
+    const refreshProviderProfiles = async (): Promise<void> => {
+        if (!managesProviderProfiles || options.providerProfiles !== undefined) return;
+        providerProfiles = await providerProfileStore.list();
+        providerProfileById = new Map(providerProfiles.map((profile) => [profile.id, profile]));
+    };
     let llmConfig: LLMConfig | undefined;
     let bootConfigFromProfile = false;
     let adapter: LLMAdapter;
@@ -799,6 +813,7 @@ export async function createCompositionRoot(
         ...(llmConfig === undefined ? {} : { llmConfig }),
         providerProfileStore,
         providerProfiles,
+        refreshProviderProfiles,
         resolveProviderProfileConfig,
         conversationCharBudget,
         contextCompactor,
