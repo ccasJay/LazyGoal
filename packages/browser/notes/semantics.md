@@ -6,4 +6,6 @@
 | --- | --- | --- | --- |
 | BrowserSessionAccess | 短期授权和请求边界。 | [浏览器服务边界](../README.md) | [模块说明](./overview.md) |
 | BrowserGoalCommandService | Web 命令到协调器的适配。 | [浏览器服务边界](../README.md) | [模块说明](./overview.md) |
+| Task approval route projection | Plan Run 审批等待点中的完整候选阶段顺序与验收条件。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
+| Approved Plan route projection | 当前获批 Plan Run 的 Snapshot 权威完整路线及其 Runtime 状态；普通 Run 省略。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Safe live activity projection | 白名单公开的短期 SSE 活动和 ExecutionStream 来源身份；与 Trajectory 标识空间分离。 | [浏览器服务边界](../README.md) | [Browser Goal Stream](../src/browser-goal-stream.ts) |

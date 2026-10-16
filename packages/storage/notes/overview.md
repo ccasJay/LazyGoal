@@ -21,7 +21,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 | [JsonFileModelPreferenceStore](../src/json-file-model-preference-store.ts) | 在工作区私有目录严格解析并原子替换 Web 模型偏好身份；损坏文件不被覆盖 | 模型可选性判断、Goal Snapshot 或跨进程锁 |
 | [JsonFileTrajectoryStore](../src/json-file-trajectory-store.ts) | 将每个 Goal/Run 的事实事件（包括结构化 `model_context_frame`）追加到安全编码的 JSONL 文件，提供序列范围读取与 Snapshot 边界分类；对明确临时文件错误核对尾部后有界重试 | Snapshot 恢复、marker 推导边界、跨进程锁与 exactly-once |
 | [JsonFileDiagnosticTraceSink](../src/json-file-diagnostic-trace-sink.ts) | 将已脱敏、已限长的诊断记录追加到独立 JSONL 文件 | Domain Event、Snapshot 恢复、Trace 查询与重试 |
-| [JsonFileMetricsStore](../src/json-file-metrics-store.ts) | 将模型调用开始/结束事实、历史覆盖标记与已知写入缺口分别追加到 JSONL | Goal 恢复、token 估算、累计投影缓存和跨进程锁 |
+| [JsonFileMetricsStore](../src/json-file-metrics-store.ts) | 将模型调用开始/结束事实（含可选端到端请求耗时）、历史覆盖标记与已知写入缺口分别追加到 JSONL | Goal 恢复、token 估算、累计投影缓存和跨进程锁 |
 | [JsonFileContextRetrievalIndexStore](../src/context-retrieval-index-sidecar.ts) | 以安全编码路径保存、恢复、原子替换和删除 Retrieval Index Sidecar；严格校验倒排快照、来源摘要、版本与 64 项查询缓存 | 推导 committed boundary、读取 Workspace、修改 Goal 或 Trajectory |
 
 ## 生命周期与错误
@@ -52,7 +52,7 @@ Plan Run 的 `planRoute` 仅能出现在已有 `approvedTask` 的 Plan Run 上�
 追加上游已经脱敏、限长的 `TraceRecord`，不被 `GoalStore` 或 Trajectory 读取，也不参与
 恢复边界。
 
-`JsonFileMetricsStore` 按 Goal/Run 保存调用事实，并在 Goal 子目录保存覆盖状态和已知缺口。目录权限为 `0700`、文件权限为 `0600`；读取严格校验 JSONL、协议和身份，坏记录直接报错。指标事实不进入 Goal Snapshot，不作为恢复输入；`session-metrics` 每次查询都以当前 Snapshot 和这些事实重新计算投影。
+`JsonFileMetricsStore` 按 Goal/Run 保存调用事实，并在 Goal 子目录保存覆盖状态和已知缺口。目录权限为 `0700`、文件权限为 `0600`；读取严格校验 JSONL、协议和身份，坏记录直接报错。完成事实中的 `requestDurationMs` 是可选的有限正毫秒数；缺少该字段的既有事实仍可读取，但不具备端到端速率的耗时输入。指标事实不进入 Goal Snapshot，不作为恢复输入；`session-metrics` 每次查询都以当前 Snapshot 和这些事实重新计算投影。
 
 `JsonFileContextRetrievalIndexStore` 将索引缓存写入 `<directory>/<base64url(goalId)>/<base64url(runId)>/retrieval-v1.json`，保存前由严格 Codec 验证文档、倒排表、字段统计和查询结果，再以临时文件 + `fsync` + rename 原子替换；目录为 `0700`、文件为 `0600`。读取时缺失、JSON/Schema 损坏、Goal/Run 不一致、版本失配或 Sidecar 领先当前 boundary 返回 `undefined`。落后 Sidecar 可以先恢复为候选，由 Runtime 根据旧 committed 前缀摘要校验后增量更新；Sidecar 的查询缓存按 canonical query 的键保持 oldest → newest 的确定性顺序，删除或写入失败不会影响领域状态。
 

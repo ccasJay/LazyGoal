@@ -20,7 +20,7 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 | [WorkingMemorySession](../src/working-memory-session.ts) | 按 Snapshot 边界重建临时 Working Memory，校验 Patch/Evidence | 保存 Memory 内容到 Snapshot |
 | [TrajectoryCheckpointCommitter](../src/trajectory-checkpoint-committer.ts) | 统一事实、Patch、Snapshot 和提交 marker 的顺序 | 业务分支和模型调用 |
 | [GoalStore](../src/goal-store.ts) | 保存/恢复最新 Goal Snapshot | 历史查询和文件格式 |
-| [Model Call Metrics](../src/model-call-metrics.ts) | 模型调用开始/结束事实、用量覆盖标记及追加/读取 Port | Goal 恢复状态、指标汇总与诊断 Trace |
+| [Model Call Metrics](../src/model-call-metrics.ts) | 模型调用开始/结束事实、请求/解码计时、用量覆盖标记及追加/读取 Port | Goal 恢复状态、指标汇总与诊断 Trace |
 | [RunStage](../src/run-stage.ts) | Run 内部阶段声明、修订与流转纯规则、前序接受约束与审查拒绝记录 | 执行调度与模型调用 |
 | [RunPlan](../src/run-plan.ts) | Plan Run 完整路线的 Runtime 身份分配、顺序游标及阶段状态流转 | 模型复杂度判断与 I/O |
 | [Trajectory](../src/trajectory.ts) | 追加事实事件、提交 marker 和只读恢复查询 | 改写 Runtime State |
@@ -31,7 +31,7 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 
 ## 状态与推进
 
-Goal workflow 只有 `phase: "executing"`。Goal 是可持续恢复的会话聚合，保存完整 messages、独立 GoalPlan、可选的一次性 `nextRunMode` 和 `completedRuns`；Run 是一次执行边界，保存自己的 `mode`、可选 `approvedTask`、`status`、`stepCount`、最新 Step、等待点、Context Epoch、Trajectory 提交边界和 Working Memory revision。GoalPlan Todo 不绑定 Run；同一 Run 可依次更新多个 Todo，结束时未完成项保留原状态。
+Goal workflow 只有 `phase: "executing"`。Goal 是可持续恢复的会话聚合，保存完整 messages、独立 GoalPlan、可选的一次性 `nextRunMode` 和 `completedRuns`；Run 是一次执行边界，保存自己的 `mode`、可选 `approvedTask`、Plan Run 可选的 `planRoute`、`status`、`stepCount`、最新 Step、等待点、Context Epoch、Trajectory 提交边界和 Working Memory revision。`planRoute` 只在获批 Plan Run 上保存完整有序阶段、状态和恢复游标；普通 Run 与待审批 Run 不包含该状态。GoalPlan Todo 不绑定 Run；同一 Run 可依次更新多个 Todo，结束时未完成项保留原状态。
 
 无参数 `/plan` 通过 Coordinator 为尚未提交 `run_started` 的当前 Run 选择 Plan 模式；当前 Run 已完成或失败时，它将 Plan 作为下一 Run 的一次性选择持久化。新 Run 缺省使用普通模式并消费待用选择。模式只属于 Run，GoalPlan 可在任意模式下存在并继续读取。
 
@@ -61,7 +61,7 @@ Runner 将调度契约委派给 RunExecutor；RunExecutor 按当前 Run 模式�
 
 Runner 和 GoalCoordinator 可通过 [`@lazygoal/execution-stream`](../../execution-stream/notes/overview.md) 发布旁路事件。`step_started` 在 Executor 调用前发出，阶段事实与上下文 frame 在进入下一模型阶段前先提交，Tool 生命周期由 Runner 发出；事实提交成功后发出 Trajectory 事件和 `step_committed`。发布异常被隔离，不改变 Runtime 状态或提交顺序。实时事件不是恢复来源，恢复仍读取 Snapshot/Trajectory。
 
-模型调用指标使用独立 `MetricsStore` 与覆盖标记 Port：开始/结束事实不进入 Goal、Trajectory 或恢复状态。调用用量和计时由 Agent 在模型边界记录，查询投影由 `session-metrics` 根据最新 Goal Snapshot 与指标事实归约；指标写入失败不得改变 Goal 执行结果。
+模型调用指标使用独立 `MetricsStore` 与覆盖标记 Port：开始/结束事实不进入 Goal、Trajectory 或恢复状态。Agent 在实际适配器请求边界用单调时钟记录端到端请求耗时，并可另行记录流式首文本后的解码耗时；查询投影由 `session-metrics` 根据最新 Goal Snapshot 与指标事实归约。指标写入失败不得改变 Goal 执行结果。
 
 ## 恢复与持久化
 

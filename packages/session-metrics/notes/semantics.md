@@ -4,5 +4,5 @@
 
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
-| SessionMetricsSnapshot | 查询时计算的指标快照。 | [会话指标](../README.md) | [模块说明](./overview.md) |
+| SessionMetricsSnapshot | 查询时计算的指标快照；端到端输出速率是 Provider 确认输出 token 总量除以请求耗时总秒数。 | [会话指标](../README.md) | [模块说明](./overview.md) |
 | MetricsCoverage | 用量事实覆盖状态。 | [会话指标](../README.md) | [模块说明](./overview.md) |
