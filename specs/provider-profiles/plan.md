@@ -35,7 +35,7 @@
   - 实施目标：先在 `apps/goal-board/test/` 下建立组件/状态断言与 `apps/goal-board/e2e/` 端到端断言：Settings 面能列出/新增/编辑/删除/测试/激活 Provider，并以只读方式展示 `config.toml` 回退项；表单不回显明文密钥、空值提交表示不修改；ModelPicker 可先选 Provider 再选模型且结果写入对应偏好或 Goal 选择；失败以现有错误分类呈现。再实现 UI 与 API 客户端接入。挂载点为已交付的 `apps/goal-board/src/components/SettingsPage.tsx` 空壳（当前无配置项与 API 调用）与 `WorkspaceShell` 导航，本切片负责填充该空壳而非新建界面。
   - 验证手段：`npx tsx --test apps/goal-board/test/*.test.ts apps/goal-board/test/*.test.tsx` 与 `npm run build:web`；端到端按 `apps/goal-board/e2e/` 既有运行方式执行新增用例。
 
-- [ ] //TODO 7. 同步文档、为既有 Spec 增添范围修订说明并完成全量回归
+- [x] //TODO 7. 同步文档、为既有 Spec 增添范围修订说明并完成全量回归
   - 落实标准：[8.1](./spec.md#spec-req-8-1)、[8.2](./spec.md#spec-req-8-2)、[8.3](./spec.md#spec-req-8-3)、[1.3](./spec.md#spec-req-1-3)
   - 实施目标：更新 `packages/config`、`packages/browser`、`apps/goal-server`、`apps/goal-board` 的 `notes/overview.md` 与语义表（Profile 存储归属、凭据边界、运行时解析与 Provider 维度）；在 `specs/slash-command-model-switching/` 与 `specs/web-backend-separation/` 加入指向本 Spec 的范围修订说明，不重写其历史正文；随后运行完整回归并只处理本功能引入的问题。
   - 验证手段：`npm run check:docs`、`npm test`、`git diff --check`；文档检查与全量回归通过、差异检查无空白错误。
@@ -71,5 +71,5 @@
   - `packages/browser/test/browser-models.test.ts`：来源维度与 `providerProfileId` 查询参数校验。
   - `apps/goal-board/test/settings-providers.test.tsx`：掩码展示、激活项禁删、表单无明文、测试结果与错误码呈现。
 - 待人工验证（超出自动化证据范围，需真实 OpenCode Go Key 或真实多 Provider 凭据）：真实端到端切换 Provider 后的模型调用行为；未运行前不得宣称端到端通过。该验证可能产生费用。
-- 残余缺口：`runWebServer` 内部的 `resolveSource` 来源解析与命令服务把 `providerProfileId` 透传到协调器，仅有类型检查与浏览器契约测试覆盖，尚无服务端端到端断言。
-- 未完成（TODO7 文档部分）：`packages/config`、`packages/browser`、`apps/goal-server`、`apps/goal-board` 的 `notes/overview.md` 与语义表尚未同步；`specs/slash-command-model-switching/` 与 `specs/web-backend-separation/` 的范围修订说明尚未加入（R8.1/R8.2 未完成）。
+- 残余缺口：`runWebServer` 内部的 `resolveSource` 来源解析与命令服务把 `providerProfileId` 透传到协调器，仅有类型检查与浏览器契约测试覆盖，尚无服务端端到端断言（已列入下方"待人工/后续验证"）。
+- 文档同步：`packages/config`、`packages/browser`、`apps/goal-server`、`apps/goal-board` 的 `notes/overview.md` 与语义表已同步；`specs/slash-command-model-switching/` 与 `specs/web-backend-separation/` 已加入指向本 Spec 的范围修订说明（R8.1/R8.2 完成）；`npm run check:docs` 通过。

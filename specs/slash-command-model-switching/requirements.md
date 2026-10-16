@@ -108,3 +108,15 @@
 2. <a id="req-7-2"></a> 自动化测试必须覆盖各 Provider 在线映射、分页、目录补全、去重、兼容性过滤、取消和全部错误分类，且不得执行真实付费模型请求。
 3. <a id="req-7-3"></a> 自动化测试必须覆盖 ModelSelector 键盘交互、切换失败回滚、Preparation/Step 后续调用、Snapshot 重启恢复和凭据不进入 Snapshot、Trajectory、Trace 或 UI 错误。
 
+
+---
+
+## 范围修订（Provider 配置档案与运行时切换）
+
+`specs/provider-profiles/`（Provider 配置档案与运行时切换）取代本 Spec 中"仅当前 Provider"的范围声明：
+
+- 模型目录与模型选择现支持受管 Provider 档案维度（可选 `providerProfileId`）；
+- Goal 内可在既有安全等待点跨 Provider 切换，仍复用本文档定义的协调器与 Snapshot-first 语义；
+- 新增凭据经设置页写入本机 0600 档案文件，仍不得进入会话投影、Goal Snapshot 或 Diagnostic Trace。
+
+本文正文保留为历史设计记录，不再代表当前行为边界。

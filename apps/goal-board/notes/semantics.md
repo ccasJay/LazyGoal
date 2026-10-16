@@ -19,3 +19,5 @@
 | 会话渐进加载 | 超过阈值的长会话按完整 Run 边界从最近窗口渲染，顶部按钮按 Run 向上扩页并保持视口。 | [Goal Board](../README.md) | [session-window](../src/session-window.ts) |
 | 渲染错误边界 | 会话与轨迹视图的渲染异常被边界捕获，显示错误卡与重载入口，不整页白屏。 | [Goal Board](../README.md) | [SessionBoundary](../src/components/error-boundary.tsx) |
 | liveText 帧合并 | 打字机增量按帧合并后提交渲染，跟随滚动以帧节流，流结束不丢字。 | [Goal Board](../README.md) | [live-text-batch](../src/live-text-batch.ts) |
+| Provider 设置页 | 受管 Provider 档案的列表、掩码凭据、增删改、连接测试与激活；表单不回显明文密钥。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx) |
+| 来源两级选择 | 模型选择器先选 Provider 来源再选模型，结果写入对应偏好或 Goal 选择。 | [Goal Board](../README.md) | [ModelPicker](../src/components/ModelPicker.tsx) |

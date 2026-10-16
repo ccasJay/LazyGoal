@@ -9,3 +9,5 @@
 | Task approval route projection | Plan Run 审批等待点中的完整候选阶段顺序与验收条件。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Approved Plan route projection | 当前获批 Plan Run 的 Snapshot 权威完整路线及其 Runtime 状态；普通 Run 省略。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Safe live activity projection | 白名单公开的短期 SSE 活动和 ExecutionStream 来源身份；与 Trajectory 标识空间分离。 | [浏览器服务边界](../README.md) | [Browser Goal Stream](../src/browser-goal-stream.ts) |
+| Provider settings routes | 受管 Provider 档案的掩码读取与增删改、激活、连接测试接口；写请求需同源 `Origin` 与 Bearer 令牌。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
+| Model source dimension | 模型目录携带的受管档案与回退来源列表，以及按 `providerProfileId` 读取指定来源目录的能力。 | [浏览器服务边界](../README.md) | [Model Catalog Projection](../src/browser-model-catalog.ts) |

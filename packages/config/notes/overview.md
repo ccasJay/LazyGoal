@@ -20,3 +20,9 @@ Home 路径解析是纯操作，不创建目录或清单。启动入口显式创
 
 `config` 没有 LazyGoal 出站依赖；`llm` 单向依赖 `config`。依赖规则由
 [`scripts/check-dependencies.mjs`](../../../scripts/check-dependencies.mjs) 校验。
+
+## 受管 Provider 档案
+
+`<home>/provider-profiles.json` 保存用户通过设置页维护的多份 Provider 档案（kind、凭据、端点、容量与默认模型）及其激活标识，版本化为 `version: 1`，以 0600 权限、临时文件重命名原子替换，同一实例写入串行化。文件损坏、版本不受支持、档案校验失败或激活标识悬空时一律 fail-fast，不静默重建或丢弃已保存档案；文件不存在时返回空集合，且不会创建文件或从 `config.toml` 导入凭据。
+
+`provider-rules.ts` 是供应商白名单、strict 输出门禁、`baseURL` 允许集合与容量判定的单一来源，环境变量入口与档案校验共用它；`toLlmConfig` 是档案到 `LLMConfig` 的唯一映射。档案存在时它是受管配置的权威，`config.toml` 的 `[llm]` 退化为"未选择任何受管档案"时的回退。凭据只允许存在于该文件与进程内配置，不得进入 Goal、Trajectory 或 Diagnostic Trace。

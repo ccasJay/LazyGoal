@@ -60,3 +60,9 @@ PTC 子操作沿用普通 Action 的审批入口；待审视图额外展示父�
 `GET /api/models` 从工作区私有偏好和当前 Provider 目录解析草稿实际默认模型，必要时返回 Provider 改变或模型不可用的回退原因；读取故障返回错误，不清除偏好。`GET /api/goals/:goalId/models?runId=...` 先核对最新 Goal/Run，再返回该 Goal 自身保存的选择。Composition Root 使用现有模型目录服务获取在线结果或离线目录兜底。浏览器边界仅投影模型标识、展示名、容量、能力和可用性来源。鉴权、权限、协议及目录不可用故障返回稳定错误码，不传递凭据或 Provider 原始响应。
 `POST /api/project/model-preference` 验证当前 Provider 下的模型可选后保存工作区默认偏好。`POST /api/goals/:goalId/model-selection` 接收当前 Run 身份与模型 ID；浏览器命令服务在受理锁内核对安全等待状态或已完成、失败终态，服务端重新读取当前 Provider 目录并检查可选性，再由 Runtime 模型选择协调器保存完整非敏感选择。终态选择与下一 Run 消息共享浏览器受理锁；先保存的选择由下一 Run 继承，新 Run 已提交时旧 Run 请求被拒绝。Goal 选择提交后再写偏好，写入失败仅以 `defaultModelSaved: false` 报告，不回滚 Goal。旧 Run、Action 审批、忙碌与不可选模型不会改写快照或偏好。
 浏览器命令服务在恢复等待交互或提交后续 Run 前，从正式 Snapshot 读取目标 Goal 的模型选择并重建执行 Binding。创建和推进期间持有单 Goal 执行预约；无法匹配当前 Provider 或构建 Binding 失败时返回稳定错误且不调用 Runtime。进程重启或多个 Goal 交替使用时，每次推进均以对应 Snapshot 为准，不继承上一个 Goal 的进程全局 Binding。
+
+## 受管 Provider 设置
+
+`GET /api/providers` 返回掩码后的档案列表、激活标识与只读的 `config.toml` 回退来源；`POST /api/providers`、`PATCH`/`DELETE /api/providers/:providerProfileId` 与 `POST .../activate`、`POST .../test` 分别受理创建、更新、删除、激活与连接测试。响应类型中没有明文凭据字段，只投影 `hasApiKey` 与 `apiKeyMask`；更新省略 `apiKey` 表示保留原凭据；删除激活档案被拒绝，删除其它档案返回"可能被 Goal 引用"的显式提示。连接测试只触发在线模型列表拉取，不发起生成请求，并按鉴权、权限、协议、不可用分类。所有写请求与其它路由一样受同源检查、Bearer 令牌与 `Origin` 要求保护。
+
+模型目录投影新增来源维度：`BrowserModelCatalog` 可携带当前 `profileId` 与 `sources`（受管档案加回退来源，含 `active` 标记）；`GET /api/models` 与 `GET /api/goals/:goalId/models` 接受可选 `providerProfileId` 以读取非激活来源的目录。偏好写入与 Goal 模型选择命令同样接受可选 `providerProfileId`，使草稿默认与 Goal 内切换能够落到指定来源；Goal 内切换仍复用既有安全等待点与协调器提交边界。
