@@ -599,3 +599,44 @@ test("ProviderModelFetcher: createLlmModelCatalog() 默认集成 DefaultProvider
     assert.equal(result[0]?.id, "gpt-4o");
     assert.equal(result[0]?.availabilitySource, "live");
 });
+
+test("ProviderModelFetcher: opencode-go 官方端点、Bearer 认证与 id-only 解析", async () => {
+    let capturedUrl = "";
+    let capturedAuth = "";
+    const fakeFetch: typeof fetch = async (input, init) => {
+        capturedUrl = String(input);
+        capturedAuth = (init?.headers as Record<string, string>)?.["Authorization"] ?? "";
+        return new Response(
+            JSON.stringify({ data: [{ id: "kimi-k3" }, { id: "glm-5.3" }] }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+    };
+
+    const fetcher = new DefaultProviderModelFetcher();
+    const config: LLMConfig = {
+        provider: "opencode-go",
+        model: "kimi-k3",
+        apiKey: CANARY_API_KEY,
+        structuredOutputMode: "prompt_only",
+    };
+
+    const models = await fetcher.fetchModels(config, { fetch: fakeFetch });
+
+    assert.equal(capturedUrl, "https://opencode.ai/inference/go/v1/models");
+    assert.equal(capturedAuth, `Bearer ${CANARY_API_KEY}`);
+    assert.deepEqual(models.map((m) => m.id), ["kimi-k3", "glm-5.3"]);
+});
+
+test("ProviderModelFetcher: opencode-go 畸形响应映射为脱敏 protocol 错误", async () => {
+    const fakeFetch: typeof fetch = async () => new Response(JSON.stringify({ unexpected: true }), { status: 200 });
+    const fetcher = new DefaultProviderModelFetcher();
+    await assert.rejects(
+        fetcher.fetchModels(
+            { provider: "opencode-go", model: "kimi-k3", apiKey: CANARY_API_KEY, structuredOutputMode: "prompt_only" },
+            { fetch: fakeFetch },
+        ),
+        (error: unknown) => error instanceof ModelCatalogError
+            && error.kind === "protocol"
+            && !String(error.message).includes(CANARY_API_KEY),
+    );
+});

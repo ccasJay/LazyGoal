@@ -17,7 +17,7 @@
   - 实施目标：先扩展 `packages/llm/test/pi-ai.test.ts`，用本地假服务器断言 opencode-go 请求携带自有 `User-Agent`、且当传入 `sessionId` 时携带 `x-opencode-session` 等于该值、未传入时不得出现空头；再扩展 Agent 侧测试证明运行期以 `goal.id` 填充。实现上在 `core/types.ts` 的 `LLMRequest` 新增可选 `sessionId`，由 `llm-step-executor.ts` 的 providerRequest 注入 `goal.id`，`PiAiAdapter` 仅在 `opencode-go` 下把 `sessionId` 作为 pi-ai `options.sessionId` 传入并通过 `options.headers` 覆盖 `User-Agent`；其它供应商不注入、不改变请求头。会话身份不得写入 Snapshot/轨迹/Trace。
   - 验证手段：`npx tsx --test packages/llm/test/pi-ai.test.ts packages/agent/test/llm-step-executor-metrics.test.ts`；断言请求头、`sessionId` 来源与其它供应商不受影响。
 
-- [ ] //TODO 4. 提供 opencode-go 静态目录与在线模型发现，并抽出共享 id-only 解析
+- [x] //TODO 4. 提供 opencode-go 静态目录与在线模型发现，并抽出共享 id-only 解析
   - 落实标准：[4.1](./spec.md#spec-req-4-1)、[4.2](./spec.md#spec-req-4-2)、[4.3](./spec.md#spec-req-4-3)、[4.4](./spec.md#spec-req-4-4)、[1.2](./spec.md#spec-req-1-2)
   - 实施目标：先扩展 `packages/llm/test/provider-fetchers.test.ts` 覆盖 opencode-go 端点（`GET https://opencode.ai/inference/go/v1/models` + `Authorization: Bearer`）与错误分类，并新增解析一致性断言；再在 `provider-fetchers.ts` 抽出纯函数 `parseIdOnlyModelList(json, { provider, acceptModelsKey, allowStringItems })`，让 `openai`/`deepseek`/`openai-compatible`/`opencode-go` 共用，同时保留 Google/Anthropic/OpenRouter 各自分支。在 `model-catalog.ts` 的 `STATIC_FACTORIES` 注册 `opencodeGoProvider` 以启用静态补全，并扩展 `packages/llm/test/model-catalog.test.ts` 验证静态目录与在线合并结果、降级规则（鉴权/权限/协议/取消不降级）。
   - 验证手段：`npx tsx --test packages/llm/test/provider-fetchers.test.ts packages/llm/test/model-catalog.test.ts`；断言端点、共享解析等价、静态+在线合并与降级边界。

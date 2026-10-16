@@ -4,6 +4,7 @@ import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
+import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
 
 import type { LLMConfig, LLMProvider } from "../../config/src/index.js";
 import { DefaultProviderModelFetcher } from "./provider-fetchers.js";
@@ -177,6 +178,7 @@ const STATIC_FACTORIES = {
     anthropic: anthropicProvider,
     openrouter: openrouterProvider,
     deepseek: deepseekProvider,
+    "opencode-go": opencodeGoProvider,
 };
 
 function getStaticPiAiModels() {
