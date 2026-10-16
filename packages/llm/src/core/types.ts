@@ -80,6 +80,11 @@ export interface LLMRequest {
      * - `none`: 禁止模型调用工具。
      */
     readonly toolChoice?: "auto" | "required" | "none";
+    /**
+     * 稳定会话身份（如 Goal 的 id）。供应商会话感知能力据此获得跨调用一致的会话标识；
+     * 省略时适配器保持既有请求形态，不发送任何会话头。
+     */
+    readonly sessionId?: string;
 }
 
 /**

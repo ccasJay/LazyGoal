@@ -453,9 +453,11 @@ export class LLMStepExecutor implements StepExecutor {
             ...(input.executionUnitId === undefined ? {} : { executionUnitId: input.executionUnitId }),
             callId,
         };
-        const providerRequest = modelCapabilities === undefined
-            ? request
-            : { ...request, maxOutputTokens: modelCapabilities.maxOutputTokens };
+        const providerRequest = {
+            ...request,
+            sessionId: goal.id,
+            ...(modelCapabilities === undefined ? {} : { maxOutputTokens: modelCapabilities.maxOutputTokens }),
+        };
         await this.modelInputStore?.append({
             ...metricIdentity, stepIndex: goal.state.run.stepCount + 1, stage,
             occurredAt: new Date().toISOString(),

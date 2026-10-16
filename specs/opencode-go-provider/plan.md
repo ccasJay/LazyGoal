@@ -12,7 +12,7 @@
   - 实施目标：先扩展 `packages/config/test/llm-config.test.ts` 与 `packages/llm/test/two-stage-config.test.ts`，证明 `opencode-go` 在 `prompt_only` 下可构造、在 `strict` 下于副作用前快速失败、`two_stage` 解析为双 prompt_only（与既有 prompt_only 供应商一致）；再在 `LLMProvider` 与 `LLMConfig` 联合新增 `opencode-go`（落入 `anthropic`/`deepseek`/`openrouter` 分支，无 `baseURL`），更新 `readLLMConfig`、`toml-config.ts` 字段白名单与 `config-loader.ts` 校验分支；在 `factory.ts` 的 `decideModeForProvider` 与 `pi-ai.ts` 的 provider 工厂表注册 `opencodeGoProvider`（prompt_only 经 `PiAiAdapter`），并保持 `createReflectionLlmAdapter` 回落行为。同步更新受影响公开 TypeScript 契约的中文 TSDoc。
   - 验证手段：`npx tsx --test packages/config/test/llm-config.test.ts packages/config/test/toml-config.test.ts packages/llm/test/two-stage-config.test.ts packages/llm/test/pi-ai.test.ts`；断言模式校验错误、适配器构造与目录模型解析。
 
-- [ ] //TODO 3. 以 `LLMRequest.sessionId` 传递稳定会话身份，并仅对 opencode-go 覆盖 UA、透传会话头
+- [x] //TODO 3. 以 `LLMRequest.sessionId` 传递稳定会话身份，并仅对 opencode-go 覆盖 UA、透传会话头
   - 落实标准：[3.1](./spec.md#spec-req-3-1)、[3.2](./spec.md#spec-req-3-2)、[3.3](./spec.md#spec-req-3-3)、[3.4](./spec.md#spec-req-3-4)、[5.1](./spec.md#spec-req-5-1)、[5.2](./spec.md#spec-req-5-2)、[5.3](./spec.md#spec-req-5-3)
   - 实施目标：先扩展 `packages/llm/test/pi-ai.test.ts`，用本地假服务器断言 opencode-go 请求携带自有 `User-Agent`、且当传入 `sessionId` 时携带 `x-opencode-session` 等于该值、未传入时不得出现空头；再扩展 Agent 侧测试证明运行期以 `goal.id` 填充。实现上在 `core/types.ts` 的 `LLMRequest` 新增可选 `sessionId`，由 `llm-step-executor.ts` 的 providerRequest 注入 `goal.id`，`PiAiAdapter` 仅在 `opencode-go` 下把 `sessionId` 作为 pi-ai `options.sessionId` 传入并通过 `options.headers` 覆盖 `User-Agent`；其它供应商不注入、不改变请求头。会话身份不得写入 Snapshot/轨迹/Trace。
   - 验证手段：`npx tsx --test packages/llm/test/pi-ai.test.ts packages/agent/test/llm-step-executor-metrics.test.ts`；断言请求头、`sessionId` 来源与其它供应商不受影响。

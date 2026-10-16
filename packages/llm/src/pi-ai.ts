@@ -30,6 +30,35 @@ const factories = {
     "opencode-go": opencodeGoProvider,
 };
 
+/** LazyGoal 自有 User-Agent；缺失版本号时使用纯标识。 */
+const LAZYGOAL_USER_AGENT = "lazygoal";
+
+/**
+ * 构造 pi-ai 请求 options 中的供应商专属附加项。
+ *
+ * @remarks
+ * 仅 `opencode-go` 需要：始终注入 LazyGoal 自有 User-Agent 以替代 pi-ai 默认 UA；
+ * 提供会话身份时把它作为 pi-ai `sessionId` 传入，由 pi-ai 的 OpenCode 会话头包装据此发送 `x-opencode-session`。
+ * 其它供应商返回空对象，请求头与行为保持不变。
+ *
+ * @param input - 当前供应商与可选稳定会话身份（如 `goal.id`）。
+ * @returns 可直接合并进 pi-ai options 的附加字段；无附加项时为空对象。
+ * @example
+ * ```ts
+ * const extras = buildPiAiRequestOptions({ provider: "opencode-go", sessionId: goalId });
+ * ```
+ */
+export function buildPiAiRequestOptions(input: {
+    readonly provider: LLMConfig["provider"];
+    readonly sessionId?: string | undefined;
+}): { readonly sessionId?: string; readonly headers?: Record<string, string> } {
+    if (input.provider !== "opencode-go") return {};
+    return {
+        ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+        headers: { "User-Agent": LAZYGOAL_USER_AGENT },
+    };
+}
+
 /**
  * pi-ai 的单次文本生成边界，固定使用 prompt_only。
  *
@@ -104,6 +133,10 @@ export class PiAiAdapter implements LLMAdapter {
                 apiKey: this.config.apiKey,
                 ...(maxTokens === undefined ? {} : { maxTokens }),
                 ...(control?.signal === undefined ? {} : { signal: control.signal }),
+                ...buildPiAiRequestOptions({
+                    provider: this.config.provider,
+                    ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId }),
+                }),
             });
             throwIfAborted(control);
         } catch (error) {
@@ -142,6 +175,10 @@ export class PiAiAdapter implements LLMAdapter {
                 apiKey: this.config.apiKey,
                 ...(maxTokens === undefined ? {} : { maxTokens }),
                 ...(control?.signal === undefined ? {} : { signal: control.signal }),
+                ...buildPiAiRequestOptions({
+                    provider: this.config.provider,
+                    ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId }),
+                }),
             });
             for await (const event of stream as AsyncIterable<AssistantMessageEvent>) {
                 throwIfAborted(control);

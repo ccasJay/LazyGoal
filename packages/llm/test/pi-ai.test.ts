@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { once } from "node:events";
 import type { AssistantMessage, Context, SimpleStreamOptions } from "@earendil-works/pi-ai";
-import { PiAiAdapter, PiAiProviderError } from "../src/pi-ai";
+import { PiAiAdapter, PiAiProviderError, buildPiAiRequestOptions } from "../src/pi-ai";
 import { createLlmAdapter } from "../src/factory";
 import { readLLMConfig, LLMConfigurationError } from "../../config/src/index";
 import { LLMRequestModeMismatchError, type LLMRequest } from "../src/core/types";
@@ -250,7 +250,60 @@ test("real pi-ai SDK maps four wire protocols against local SSE servers", async 
             assert.equal(sent.path, "/v1/chat/completions");
             assert.equal(sent.body.max_tokens ?? sent.body.max_completion_tokens, 100);
         }
+        assert.equal(sent.headers["x-opencode-session"], undefined, provider);
+        assert.notEqual(sent.headers["user-agent"], "lazygoal", provider);
     }
+});
+
+test("opencode-go 注入 LazyGoal UA 与稳定会话头，且仅在提供会话身份时发送", async () => {
+    const { opencodeGoProvider } = await import("@earendil-works/pi-ai/providers/opencode-go");
+    const goModel = opencodeGoProvider().getModels().find((candidate) => candidate.api === "openai-completions");
+    assert.ok(goModel, "expected an openai-completions model in the opencode-go catalog");
+    const captured: IncomingMessage["headers"][] = [];
+    await withServer((req, res) => {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk: Buffer) => chunks.push(chunk));
+        req.on("end", () => {
+            captured.push(req.headers);
+            res.writeHead(200, { "Content-Type": "text/event-stream" });
+            res.end(completionsBody());
+        });
+    }, async url => {
+        const realFetch = globalThis.fetch;
+        // Only the transport URL is redirected; the fixed opencode-go endpoint still serializes the real protocol.
+        globalThis.fetch = async (input, init) => {
+            const req = new Request(input, init);
+            const original = new URL(req.url);
+            return realFetch(url + original.pathname + original.search, { method: req.method, headers: req.headers, body: await req.text(), signal: req.signal });
+        };
+        try {
+            const instance = new PiAiAdapter(readLLMConfig({
+                LLM_PROVIDER: "opencode-go", LLM_MODEL: goModel.id, LLM_API_KEY: "test-explicit-key",
+                LLM_STRUCTURED_OUTPUT_MODE: "prompt_only",
+            }));
+            const withSession = await instance.generate({ ...request, sessionId: "goal-123" });
+            assert.equal(withSession.content, json);
+            assert.equal(captured[0]?.["x-opencode-session"], "goal-123");
+            assert.equal(captured[0]?.["user-agent"], "lazygoal");
+
+            const withoutSession = await instance.generate({ ...request });
+            assert.equal(withoutSession.content, json);
+            assert.equal(captured[1]?.["x-opencode-session"], undefined);
+            assert.equal(captured[1]?.["user-agent"], "lazygoal");
+        } finally { globalThis.fetch = realFetch; }
+    });
+    assert.equal(captured.length, 2);
+});
+
+test("buildPiAiRequestOptions 只对 opencode-go 附加 UA 与会话身份", () => {
+    assert.deepEqual(buildPiAiRequestOptions({ provider: "anthropic", sessionId: "goal-1" }), {});
+    assert.deepEqual(buildPiAiRequestOptions({ provider: "openai", sessionId: "goal-1" }), {});
+    const withSession = buildPiAiRequestOptions({ provider: "opencode-go", sessionId: "goal-1" });
+    assert.equal(withSession.sessionId, "goal-1");
+    assert.equal(withSession.headers?.["User-Agent"], "lazygoal");
+    const withoutSession = buildPiAiRequestOptions({ provider: "opencode-go" });
+    assert.equal("sessionId" in withoutSession, false);
+    assert.equal(withoutSession.headers?.["User-Agent"], "lazygoal");
 });
 
 test("real pi-ai stream cancellation rejects partial text and closes transport", async () => {

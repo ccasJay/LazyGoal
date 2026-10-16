@@ -210,3 +210,17 @@ test("LLMStepExecutor records failed calls and isolates metric Store failures", 
     const decision = await executorFor(successfulAdapter, unavailableRecorder).execute(input());
     assert.equal(decision.kind, "complete");
 });
+
+test("LLMStepExecutor 以 goal id 作为请求会话身份传给适配器", async () => {
+    let captured: LLMRequest | undefined;
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(request: LLMRequest): Promise<LLMResponse> {
+            captured = request;
+            return completedResponse();
+        },
+    };
+    const decision = await executorFor(adapter, new CaptureMetricsStore()).execute(input());
+    assert.equal(decision.kind, "complete");
+    assert.equal(captured?.sessionId, "goal-metrics");
+});
