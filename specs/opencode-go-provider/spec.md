@@ -38,7 +38,7 @@ superseded_by: null
 
 1. <a id="spec-req-2-1"></a>当 `LLM_PROVIDER`（或 `[llm] provider`）为 `opencode-go` 且提供了模型与 API Key 时，系统应当经现有统一入口构造模型适配器，并能在 Goal 会话链路中成功发起一次生成。
 2. <a id="spec-req-2-2"></a>供应商标识必须为 `opencode-go`，与 pi-ai provider id 及官方 `opencode-go/<model-id>` 引用前缀一致；每个模型的调用协议必须由 pi-ai 目录决定（`anthropic-messages` / `openai-completions` / `openai-responses` / `google-generative-ai`），不推断协议。
-3. <a id="spec-req-2-3"></a>opencode-go 的输出模式必须固定为 `prompt_only`；当 `structured_output_mode` 被配置为 `strict` 或 `two_stage` 时，系统必须在产生 Store、Goal 或网络副作用之前快速失败，并给出明确错误。
+3. <a id="spec-req-2-3"></a>opencode-go 的输出模式必须固定为 `prompt_only`：`strict` 必须在产生 Store、Goal 或网络副作用之前快速失败并给出明确错误；`two_stage` 沿用既有 prompt_only 供应商规则（`readLLMConfig` 入口解析为 Think 与 Decide 双 prompt_only，TOML 配置入口按既有校验拒绝），与 `anthropic`/`deepseek`/`openrouter` 保持一致。
 4. <a id="spec-req-2-4"></a>当 OpenCode Go 请求失败时，系统应当沿用现有 pi-ai 适配器边界：仅把限流、临时服务、连接与超时故障映射为可识别的暂时失败，不执行内部重试。
 5. <a id="spec-req-2-5"></a>因为 opencode-go 是 prompt_only，其 Think 与 Decide 阶段均使用 prompt_only；Decide 的原生工具通道沿用现有 prompt_only 供应商语义。
 
@@ -113,7 +113,7 @@ llm.model-catalog.DefaultLlmModelCatalog
 - **D3. 会话头交由 pi-ai，UA 由 LazyGoal 覆盖**：pi-ai 1.3.0 的 `withOpenCodeSessionHeader` 在收到 `options.sessionId` 时会自动补 `x-opencode-session`（若调用方已显式提供该头则不重复）。因此 LazyGoal 仅需在 opencode-go 下传入 `sessionId` 并通过 `options.headers` 覆盖自有 User-Agent；其余供应商不传 `sessionId`、不注入 UA。
 - **D4. 会话身份经 `LLMRequest.sessionId` 传递**：adapter 按“模型选择”而非按 Goal 构造，同一服务器进程多 Goal 共享，故会话身份必须在请求级传入。Runtime 统一调用路径以 `goal.id` 填充，`PiAiAdapter` 仅在 opencode-go 下把它映射为 pi-ai `sessionId`。
 - **D5. 目录与发现复用现有组件**：`DefaultLlmModelCatalog` 用 `STATIC_FACTORIES` 补全静态元数据，`DefaultProviderModelFetcher` 负责在线发现。opencode-go 的 `/v1/models` 为 OpenAI 风格 `{data:[{id}]}` + `Authorization: Bearer`，故抽出共享的 id-only 解析并由四个同形分支复用；Google/Anthropic/OpenRouter 的端点与分页差异保留在各自分支。
-- **D6. 模式与接入面统一**：`decideModeForProvider` 对 opencode-go 返回 `prompt_only`，`createReflectionLlmAdapter` 亦回落到 `createLlmAdapter`，因此 TUI/Web、benchmarks 与 GEPA 反思 LM 无需分面改造即可获得该供应商；配置层要求其 `structured_output_mode` 为 `prompt_only`。
+- **D6. 模式与接入面统一**：`decideModeForProvider` 对 opencode-go 返回 `prompt_only`，`createReflectionLlmAdapter` 亦回落到 `createLlmAdapter`，因此 TUI/Web、benchmarks 与 GEPA 反思 LM 无需分面改造即可获得该供应商；`strict` 被拒绝，`two_stage` 按既有 prompt_only 供应商规则解析，两者均与 `anthropic`/`deepseek`/`openrouter` 保持一致。
 
 ## 曾考虑的备选方案
 
@@ -135,7 +135,7 @@ llm.model-catalog.DefaultLlmModelCatalog
 - **否定性保证**：
   - 任何 API Key、Authorization 头或会话身份不得写入 Goal Snapshot、Trajectory 或 Diagnostic Trace。
   - 仅 `opencode-go` 请求注入自有 UA 并传入 `sessionId`；其它供应商的请求头、UA 与协议行为不得改变。
-  - 不得在 strict/two_stage 被请求时静默降级为 prompt_only 并继续；必须在副作用前失败。
+  - 不得在 `strict` 被请求时静默降级为 prompt_only 并继续；必须在副作用前失败。`two_stage` 按既有 prompt_only 供应商规则解析，不视为降级。
   - 不得发送空的 `x-opencode-session`。
   - 鉴权、权限、协议或取消错误禁止触发目录降级；不得用静态目录掩盖凭据故障。
   - pi-ai 升级不得以牺牲既有供应商行为等价为代价换取 opencode-go 可用性。
