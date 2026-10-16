@@ -49,7 +49,7 @@
   - 实施目标：`useQueue` 新增 localStorage 镜像层（key `lazygoal.queue.<goalId>`），入队/暂停/继续/消费/删除时同步写删；读取经 JSON 结构守卫，非法即清空降级内存；存储异常不阻塞状态机；同步更新 `apps/goal-board/notes/overview.md` 与语义表（删除"刷新页面会丢失 Queue"限制，写入持久化语义与归属模块）。`RunControlContext` 对外契约不变。
   - 验证手段：新增 `apps/goal-board/test/queue-persistence.test.ts`（写读恢复、损坏数据清空、写失败降级、跨 Goal 隔离）+ `npm test --prefix apps/goal-board` 全绿 + e2e `runtime.test.mjs` 补刷新恢复场景断言。
 
-- [ ] //TODO 10. 长会话渐进加载窗口
+- [x] //TODO 10. 长会话渐进加载窗口
   - 落实标准：[8.1](./spec.md#spec-req-8-1), [8.2](./spec.md#spec-req-8-2), [8.3](./spec.md#spec-req-8-3), [8.4](./spec.md#spec-req-8-4)
   - 实施目标：GoalSession 新增窗口状态：首渲渲染最近 ≥1 个完整 Run（且消息数 ≥ 阈值 50 条时截窗口），顶部"See earlier messages"按钮按完整 Run 边界向上扩页并基本保持视口位置；`history-note` 提示未渲染历史规模；窗内消息时不显示控件。
   - 验证手段：新增 `apps/goal-board/test/session-window.test.tsx`（多 Run fixture：首渲窗口、扩页边界、全量收口）+ `npm test --prefix apps/goal-board` 全绿 + e2e board 用例（少于阈值行为不变）通过。

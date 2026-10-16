@@ -23,6 +23,7 @@ import type {
 import { GoalDetails, WaitingInteraction } from "../panels";
 import brandMark from "../assets/lazygoal/mark-on-light.svg?no-inline";
 import { Trajectory } from "../trajectory";
+import { resolveCurrentWindow, resolveExpandedWindow, resolveInitialWindow } from "../session-window";
 import { sessionStatus, sessionStatusTone } from "../types";
 import { useGoalSessionContext } from "../context/GoalSessionContext";
 import { useRunControlContext } from "../context/RunControlContext";
@@ -145,9 +146,47 @@ export function GoalSession({
   const currentRun = session?.runs.find((run) => run.current);
   const [draftNoticeDismissed, setDraftNoticeDismissed] = useState(false);
 
+  const projectionGoalKey = session?.goalId ?? null;
+  const [expandedRunCount, setExpandedRunCount] = useState<number | null>(null);
+  const [expandedGoalId, setExpandedGoalId] = useState<string | null>(null);
   useEffect(() => {
     setDraftNoticeDismissed(false);
   }, [draftModelCatalog?.defaultModelNotice]);
+
+  const initialWindow = useMemo(
+    () =>
+      session === null
+        ? null
+        : resolveInitialWindow(session.runs, session.messages),
+    [session],
+  );
+  // 切换 Goal 时重置扩页状态：新会话回到初始窗口。
+  useEffect(() => {
+    if (projectionGoalKey === expandedGoalId) return;
+    setExpandedRunCount(null);
+    setExpandedGoalId(projectionGoalKey);
+  }, [projectionGoalKey, expandedGoalId]);
+
+  const visibleRunCount =
+    session === null
+      ? 0
+      : Math.min(session.runs.length, expandedRunCount ?? initialWindow?.runCount ?? session.runs.length);
+  const pendingWindowData =
+    session === null
+      ? null
+      : resolveCurrentWindow(session.runs, session.messages, visibleRunCount);
+
+  const handleExpandWindow = () => {
+    if (session === null) return;
+    const before = timeline.current?.scrollHeight ?? 0;
+    setExpandedRunCount(resolveExpandedWindow(session.runs, session.messages, visibleRunCount).runCount);
+    // 扩页在顶部增内容：按高度差保持当前视口位置基本不动。
+    window.requestAnimationFrame(() => {
+      const timelineElement = timeline.current;
+      if (timelineElement === null) return;
+      timelineElement.scrollTop += timelineElement.scrollHeight - before;
+    });
+  };
 
   useEffect(() => () => {
     if (followFrame.current !== null) window.cancelAnimationFrame(followFrame.current);
@@ -434,6 +473,15 @@ export function GoalSession({
                   {session.historyTruncated && (
                     <div className="history-note">Some session content is omitted.</div>
                   )}
+                  {session !== null && pendingWindowData !== null && pendingWindowData.pendingMessages > 0 && (
+                    <button
+                      type="button"
+                      className="history-expand"
+                      onClick={handleExpandWindow}
+                    >
+                      See earlier messages · {pendingWindowData.omittedMessages} saved messages hidden in {pendingWindowData.pendingMessages} earlier run{pendingWindowData.pendingMessages === 1 ? "" : "s"}
+                    </button>
+                  )}
                   {session.messages.length === 0 && (
                     <div className="timeline-date">
                       <span />No saved messages<span />
@@ -446,7 +494,8 @@ export function GoalSession({
                         !session.runs.some((run) => run.runId === message.runId)
                     )
                   )}
-                  {session.runs.map((run, runIndex) => {
+                  {session.runs.slice(Math.max(0, session.runs.length - visibleRunCount)).map((run, runIndex, renderedRuns) => {
+                    const runNumberOffset = session.runs.length - renderedRuns.length + 1;
                     const runMessages = session.messages.filter(
                       (message) => message.runId === run.runId
                     );
@@ -605,7 +654,7 @@ export function GoalSession({
                             <details className="run-steps" open>
                               <summary className="run-steps-heading">
                                 <Layers size={13} aria-hidden="true" />
-                                <span>{formatRunStepsTitle(run, runIndex + 1)}</span>
+                                <span>{formatRunStepsTitle(run, runIndex + runNumberOffset)}</span>
                                 <ChevronDown className="activity-chevron" size={12} aria-hidden="true" />
                               </summary>
                               {groups.map(renderGroup)}

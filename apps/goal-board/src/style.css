@@ -193,6 +193,8 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .timeline { flex: 1; min-height: 0; overflow: auto; padding: 20px 23px 12px; scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
 .timeline > * { width: min(100%, var(--conversation-width)); margin-inline: auto; }
 .history-note { margin: 0 0 18px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); font-size: 10px; }
+.history-expand { display: block; margin: 0 0 18px; padding: 8px 10px; width: 100%; border: 1px dashed var(--line); border-radius: 5px; background: none; color: var(--accent-ink); font-size: var(--font-size-xs); text-align: center; }
+.history-expand:hover { background: var(--surface); }
 .timeline-date { display: flex; align-items: center; gap: 10px; margin: 0 0 24px; color: var(--subtle); font-size: var(--font-size-xs); }
 .timeline-date span { height: 1px; flex: 1; background: var(--surface); }
 .message { margin-bottom: 23px; }
