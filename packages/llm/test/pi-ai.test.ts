@@ -309,7 +309,7 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
                 if (reviewing) decision = { kind: "accept" };
                 else if (!taskApproved) decision = {
                     kind: "task_proposal", task: { objective: "Verify smoke evidence", completionCriteria: [{ text: "Obtain the smoke observation", acceptance: null }] },
-                    planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
+                    planRoute: { stages: [{ target: "Verify smoke evidence", acceptanceCriteria: ["Obtain the smoke observation"] }] },
                     approvalRequest: "Approve the smoke test?", memoryPatch: null,
                 };
                 else if (!body.tools.some((tool: any) => tool.function?.name === "smoke_evidence")) {
