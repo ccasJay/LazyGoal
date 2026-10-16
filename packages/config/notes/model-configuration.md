@@ -4,7 +4,7 @@
 
 常规 TOML/Profile、GEPA 双模型与运行配置由 [`@lazygoal/config`](overview.md) 加载；LLM 消费校验后的 `LLMConfig`，不拥有系统级配置文件解析。
 
-运行要求 Node ≥22.19.0。系统使用统一的 LazyGoal Home：`LAZYGOAL_HOME` 必须是绝对路径，缺失或空白时回退至 `$HOME/.lazygoal`；`XDG_CONFIG_HOME` 不参与解析。按“内置默认值 → `config.toml` → `profiles/<profile>.toml` → CLI 临时参数”四层单向合并加载运行时配置；同时兼容显式传入的进程环境变量。必填 `provider`、`model`、`api_key`；`structured_output_mode` 省略时默认为 `prompt_only`，也可显式设为 `strict` 或 `two_stage`；TOML 的 Anthropic、OpenRouter、DeepSeek 配置拒绝 `two_stage`，环境变量入口由 `readLLMConfig` 独立解析。Runtime 阶段绑定按 Think/Decide 角色确定实际 Adapter 输出模式。
+运行要求 Node ≥22.19.0。系统使用统一的 LazyGoal Home：`LAZYGOAL_HOME` 必须是绝对路径，缺失或空白时回退至 `$HOME/.lazygoal`；`XDG_CONFIG_HOME` 不参与解析。按“内置默认值 → `config.toml` → `profiles/<profile>.toml` → CLI 临时参数”四层单向合并加载运行时配置；同时兼容显式传入的进程环境变量。必填 `provider`、`model`、`api_key`；`structured_output_mode` 省略时默认为 `prompt_only`，也可显式设为 `strict` 或 `two_stage`；TOML 的 Anthropic、OpenRouter、DeepSeek、OpenCode Go 配置拒绝 `two_stage`，环境变量入口由 `readLLMConfig` 独立解析。Runtime 阶段绑定按 Think/Decide 角色确定实际 Adapter 输出模式。
 
 ```toml
 # ~/.lazygoal/config.toml

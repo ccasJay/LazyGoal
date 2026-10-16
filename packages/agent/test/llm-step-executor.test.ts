@@ -228,7 +228,7 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
         currentWorkingMemory,
         createCurrentContextAssembler(),
     );
-    assert.deepEqual(adapter.requests[0], expectedPlan.request);
+    assert.deepEqual(adapter.requests[0], { ...expectedPlan.request, sessionId: currentGoal.id });
     assert.deepEqual(
         adapter.requests[0]?.messages.slice(1, 3),
         currentGoal.state.messages.map(({ role, content }) => ({ role, content })),

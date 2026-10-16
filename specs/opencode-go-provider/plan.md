@@ -22,7 +22,7 @@
   - 实施目标：先扩展 `packages/llm/test/provider-fetchers.test.ts` 覆盖 opencode-go 端点（`GET https://opencode.ai/inference/go/v1/models` + `Authorization: Bearer`）与错误分类，并新增解析一致性断言；再在 `provider-fetchers.ts` 抽出纯函数 `parseIdOnlyModelList(json, { provider, acceptModelsKey, allowStringItems })`，让 `openai`/`deepseek`/`openai-compatible`/`opencode-go` 共用，同时保留 Google/Anthropic/OpenRouter 各自分支。在 `model-catalog.ts` 的 `STATIC_FACTORIES` 注册 `opencodeGoProvider` 以启用静态补全，并扩展 `packages/llm/test/model-catalog.test.ts` 验证静态目录与在线合并结果、降级规则（鉴权/权限/协议/取消不降级）。
   - 验证手段：`npx tsx --test packages/llm/test/provider-fetchers.test.ts packages/llm/test/model-catalog.test.ts`；断言端点、共享解析等价、静态+在线合并与降级边界。
 
-- [ ] //TODO 5. 同步模块文档并完成跨模块全量回归
+- [x] //TODO 5. 同步模块文档并完成跨模块全量回归
   - 落实标准：[6.1](./spec.md#spec-req-6-1)、[6.2](./spec.md#spec-req-6-2)、[1.3](./spec.md#spec-req-1-3)
   - 实施目标：更新 `packages/llm/notes/overview.md`（路由表新增 opencode-go 的 prompt_only 行为、端点与目录来源）、`packages/config/notes/overview.md` 与 `packages/config/notes/model-configuration.md`（新供应商配置项与模式限制），并按仓库约定更新语义表与受影响读者链接；说明 pi-ai 升级带来的目录/兼容性变化。随后运行完整回归并处理本功能引入的问题，不改写无关工作区变更。
   - 验证手段：`npm run check:docs`、`npm test`、`git diff --check`；文档检查与全量回归通过、差异检查无空白错误。
