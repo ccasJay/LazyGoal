@@ -19,7 +19,6 @@ import {
     CompletionEvidenceContract,
     ContextLookupFiltersContract,
     ContextLookupNeedContract,
-    ContextLookupOperationContract,
     ExecutingFailAgentDecisionContract,
     ExecutingWaitAgentDecisionContract,
     ExecutingWorkingMemoryPatchContract,
@@ -221,27 +220,39 @@ export const SystemFailGoalInputContract = contract.object({
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
-/** 历史上下文检索工具参数契约。 */
-export const SystemContextLookupInputContract = contract.object({
-    operation: contract.optional(ContextLookupOperationContract),
-    need: contract.optional(ContextLookupNeedContract),
-    question: contract.optional(contract.string()),
-    filters: contract.optional(ContextLookupFiltersContract),
-    query: contract.optional(contract.string()),
-    cursor: contract.optional(contract.string()),
-    limit: contract.optional(contract.integer({ minimum: 1, maximum: 50 })),
-    category: contract.optional(contract.string()),
-    sourceRef: contract.optional(contract.string()),
-    offset: contract.optional(contract.integer({ minimum: 0 })),
-});
+/** Context Lookup 各操作使用互斥字段的参数契约。 */
+const ContextLookupOperationInputContract = contract.discriminatedUnion("operation", [
+    contract.object({
+        operation: contract.literal("history_search"),
+        need: ContextLookupNeedContract,
+        question: contract.string(),
+        filters: contract.optional(ContextLookupFiltersContract),
+    }),
+    contract.object({
+        operation: contract.literal("directory_browse"),
+        cursor: contract.optional(contract.string()),
+        limit: contract.optional(contract.integer({ minimum: 1, maximum: 50 })),
+        category: contract.optional(contract.string()),
+    }),
+    contract.object({
+        operation: contract.literal("directory_search"),
+        query: contract.string(),
+        cursor: contract.optional(contract.string()),
+        limit: contract.optional(contract.integer({ minimum: 1, maximum: 50 })),
+        category: contract.optional(contract.string()),
+    }),
+    contract.object({
+        operation: contract.literal("source_expand"),
+        sourceRef: contract.string(),
+        offset: contract.optional(contract.integer({ minimum: 0 })),
+        limit: contract.optional(contract.integer({ minimum: 1 })),
+    }),
+]);
+type ContextLookupOperationInput = InferContract<typeof ContextLookupOperationInputContract>;
 
-/** Plan Run 获批后的完整路线修订输入契约。 */
-export const SystemUpdatePlanRouteInputContract = contract.object({
-    baseRevision: contract.integer({ minimum: 1 }),
-    reason: contract.string(),
-    route: RunPlanRouteCandidateContract,
-    approvalRequest: contract.optional(contract.string()),
-    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+/** 历史上下文检索工具参数契约；每次调用只能选择一种操作及其字段。 */
+export const SystemContextLookupInputContract = contract.object({
+    request: ContextLookupOperationInputContract,
 });
 
 /** 统一执行流提交任务提案工具参数契约。 */
@@ -291,6 +302,15 @@ export const SystemCompleteRunStageInputContract = contract.object({
     stageId: contract.string(),
     summary: contract.string(),
     evidenceSequences: contract.optional(contract.array(contract.integer({ minimum: 0 }))),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+});
+
+/** Plan Run 获批后的完整路线修订输入契约。 */
+export const SystemUpdatePlanRouteInputContract = contract.object({
+    baseRevision: contract.integer({ minimum: 1 }),
+    reason: contract.string(),
+    route: RunPlanRouteCandidateContract,
+    approvalRequest: contract.optional(contract.string()),
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
@@ -354,31 +374,11 @@ export const SystemFailGoalDeclaration: SystemToolDeclaration<AgentDecision> = b
 
 export const SystemContextLookupDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_context_lookup",
-    "Recover necessary historical execution, user decisions or rationale from trajectory or conversation records. Workspace files are not searched. No match does not prove a repository object is absent. Lookup events are not direct Fact or completion evidence. Use authorized file tools when requested repository contents are missing. Results do not establish current external state; use authorized tools for that. Filters are optional; omit sequenceRange unless targeting known event sequences.",
+    "Recover necessary historical execution, user decisions or rationale from trajectory or conversation records. Place exactly one operation object inside request: history_search requires need and question; directory_browse accepts cursor, limit and category; directory_search requires query and accepts cursor, limit and category; source_expand requires sourceRef and accepts offset and limit. Do not mix fields across operations. Workspace files are not searched. No match does not prove a repository object is absent. Lookup events are not direct Fact or completion evidence. Use authorized file tools when requested repository contents are missing. Results do not establish current external state; use authorized tools for that. Filters are optional; omit sequenceRange unless targeting known event sequences.",
     SystemContextLookupInputContract,
-    (args: {
-        operation?: any;
-        need?: any;
-        question?: string;
-        filters?: any;
-        query?: string;
-        cursor?: string;
-        limit?: number;
-        category?: string;
-        sourceRef?: string;
-        offset?: number;
-    }) => ({
+    (args: { request: ContextLookupOperationInput }) => ({
         kind: "context_lookup" as const,
-        ...(args.operation !== undefined ? { operation: args.operation } : {}),
-        ...(args.need !== undefined ? { need: args.need } : {}),
-        ...(args.question !== undefined ? { question: args.question } : {}),
-        ...(args.filters !== undefined ? { filters: args.filters } : {}),
-        ...(args.query !== undefined ? { query: args.query } : {}),
-        ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
-        ...(args.limit !== undefined ? { limit: args.limit } : {}),
-        ...(args.category !== undefined ? { category: args.category } : {}),
-        ...(args.sourceRef !== undefined ? { sourceRef: args.sourceRef } : {}),
-        ...(args.offset !== undefined ? { offset: args.offset } : {}),
+        ...args.request,
     }),
 );
 
@@ -445,7 +445,7 @@ export const SystemProposeTaskPlanDeclaration: SystemToolDeclaration<AgentDecisi
     "system_propose_task_plan",
     "After collecting missing information that materially affects scope, correctness or authorization, submit one approval proposal containing the task objective, verifiable completion criteria, and the complete ordered stage route. Use one stage for one coherent outcome; use multiple stages for independently verifiable deliverables, real dependencies, or distinct verification gates. Do not split by expected Step, Tool call, duration or token counts. Each route stage needs a target and acceptance criteria. Do not add routine confirmation questions. Task criterion acceptance is optional and should only reference authorized business tools; never use system functions as expectToolId.",
     SystemProposeTaskPlanInputContract,
-    (args: { task: any; approvalRequest: string; memoryPatch?: unknown }): AgentDecision => ({
+    (args: { task: any; planRoute: RunPlanRouteCandidate; approvalRequest: string; memoryPatch?: unknown }): AgentDecision => ({
         kind: "task_proposal",
         task: args.task,
         planRoute: args.planRoute,
@@ -656,7 +656,7 @@ export function createExecutingToolDeclarations(
  * 按 Run 模式与任务审批状态派生决策工具：
  * - 普通模式：暴露传入业务工具与普通完成、wait、fail、lookup、find_tools、ask_user；
  * - Plan 未批准：暴露传入业务工具与 ask_user、task_proposal、lookup、find_tools；
- * - Plan 已批准：暴露传入业务工具、路线修订、逐条件完成、wait、fail、lookup、find_tools、ask_user；
+ * - Plan 已批准：暴露传入业务工具与逐条件完成、wait、fail、lookup、find_tools、ask_user；
  * - 任一状态是否额外暴露 GoalPlan 更新工具，由 `goalPlanWritable` 单独决定。
  *
  * @param authorizedTools - 当前 Goal 授权的业务工具列表。

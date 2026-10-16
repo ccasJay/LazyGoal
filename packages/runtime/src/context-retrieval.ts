@@ -15,6 +15,10 @@ import type {
     GoalContextDirectoryEntry,
     GoalContextExpandedSource,
 } from "../../context-retrieval/src/index";
+import {
+    ContextLookupProtocolError as ContextRetrievalProtocolError,
+    normalizeContextLookupRequest as normalizeContextRetrievalRequest,
+} from "../../context-retrieval/src/context-protocol";
 import type {
     ContextLookupFilters,
     ContextLookupNeed,
@@ -266,8 +270,11 @@ export interface ContextLookupInvocation {
     readonly facts: readonly TrajectoryEventDraft[];
 }
 
-/** Context Lookup 输入协议错误码。 */
-export const CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE = "INVALID_CONTEXT_LOOKUP" as const;
+export {
+    CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE,
+    CONTEXT_LOOKUP_MAX_FILTER_ITEMS,
+    CONTEXT_LOOKUP_MAX_QUESTION_LENGTH,
+} from "../../context-retrieval/src/context-protocol";
 
 /** Context Lookup 查询链超过限制时的稳定错误码。 */
 export const CONTEXT_LOOKUP_CHAIN_LIMIT_CODE = "CONTEXT_LOOKUP_CHAIN_LIMIT" as const;
@@ -281,10 +288,6 @@ export const CONTEXT_LOOKUP_FAILED_CODE = "CONTEXT_LOOKUP_FAILED" as const;
 /** 检索端口返回不符合结果协议时的稳定结果错误码。 */
 export const CONTEXT_LOOKUP_INVALID_RESULT_CODE =
     "INVALID_CONTEXT_LOOKUP_RESULT" as const;
-
-/** Context Lookup 请求的固定资源上限。 */
-export const CONTEXT_LOOKUP_MAX_QUESTION_LENGTH = 1024;
-export const CONTEXT_LOOKUP_MAX_FILTER_ITEMS = 16;
 
 /** Context Lookup 结果的固定协议版本。 */
 export const CONTEXT_LOOKUP_RESULT_VERSION = "context-lookup-result-v1" as const;
@@ -310,16 +313,8 @@ export const CONTEXT_LOOKUP_MAX_ERROR_MESSAGE_LENGTH = 2_048;
 /** Context Lookup 结果 DTO 的 UTF-8 JSON 字节上限。 */
 export const CONTEXT_LOOKUP_MAX_RESULT_BYTES = 24 * 1024;
 
-/** Context Lookup 请求违反结构或资源限制时抛出的错误。 */
-export class ContextLookupProtocolError extends Error {
-    readonly code = CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE;
-
-    /** @param message - 不包含模型原文的稳定诊断信息。 */
-    constructor(message: string) {
-        super(`${CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE}: ${message}`);
-        this.name = "ContextLookupProtocolError";
-    }
-}
+/** Context Lookup 请求违反结构或资源限制时抛出的 Runtime 协议错误。 */
+export class ContextLookupProtocolError extends ContextRetrievalProtocolError {}
 
 /** 判断未知值是否为最小 Context Lookup 请求对象。 */
 export function isContextLookupRequest(
@@ -337,49 +332,30 @@ export function isContextLookupRequest(
  * 校验并规范化 Context Lookup 请求。
  *
  * @param value - Agent 或外部边界返回的未知值。
- * @returns 去重、排序且不与输入共享引用的请求。
- * @throws ContextLookupProtocolError 当字段、需求类别、问题长度或过滤器非法时。
+ * @returns 按操作分支校验并规范化、且不与输入共享引用的请求。
+ * @throws ContextLookupProtocolError 当操作、字段组合或操作参数违反协议时。
  * @example
  * ```ts
  * const request = normalizeContextLookupRequest({
  *     kind: "context_lookup",
- *     need: "historical_execution",
- *     question: "之前哪个 Action 修改了配置？",
+ *     operation: "directory_browse",
+ *     limit: 10,
  * });
  * ```
  */
 export function normalizeContextLookupRequest(
     value: unknown,
 ): ContextLookupRequest {
-    if (!isRecord(value) || value.kind !== "context_lookup") {
-        throw new ContextLookupProtocolError("kind must be context_lookup");
+    try {
+        return normalizeContextRetrievalRequest(value);
+    } catch (error) {
+        if (error instanceof ContextRetrievalProtocolError) {
+            throw new ContextLookupProtocolError(
+                error.message.replace(/^INVALID_CONTEXT_LOOKUP:\s*/, ""),
+            );
+        }
+        throw error;
     }
-    assertExactKeys(value, ["kind", "need", "question", "filters"]);
-    if (
-        value.need !== "conversation_history"
-        && value.need !== "historical_execution"
-        && value.need !== "decision_rationale"
-    ) {
-        throw new ContextLookupProtocolError("need is invalid");
-    }
-    if (
-        typeof value.question !== "string"
-        || value.question.trim().length === 0
-        || value.question.length > CONTEXT_LOOKUP_MAX_QUESTION_LENGTH
-    ) {
-        throw new ContextLookupProtocolError(
-            `question must be non-empty and at most ${CONTEXT_LOOKUP_MAX_QUESTION_LENGTH} characters`,
-        );
-    }
-
-    return {
-        kind: "context_lookup",
-        need: value.need,
-        question: value.question.trim(),
-        ...(value.filters === undefined
-            ? {}
-            : { filters: normalizeContextLookupFilters(value.filters) }),
-    };
 }
 
 /** 校验结果是否可以安全地写入 Trajectory 并提供给下一轮模型。 */
@@ -907,79 +883,6 @@ export function createContextLookupFacts(input: {
             };
 
     return Object.freeze([requested, outcome]);
-}
-
-function normalizeContextLookupFilters(value: unknown): ContextLookupFilters {
-    if (!isRecord(value)) {
-        throw new ContextLookupProtocolError("filters must be an object");
-    }
-    const allowed = new Set([
-        "eventTypes",
-        "toolIds",
-        "actionIds",
-        "stepIndexes",
-        "paths",
-        "errorCodes",
-        "objectIds",
-        "sequenceRange",
-    ]);
-    if (Object.keys(value).some((key) => !allowed.has(key))) {
-        throw new ContextLookupProtocolError("filters contains unknown fields");
-    }
-    const result: ContextLookupFilters = {
-        ...(value.eventTypes === undefined ? {} : { eventTypes: normalizeStringList(value.eventTypes, "eventTypes") }),
-        ...(value.toolIds === undefined ? {} : { toolIds: normalizeStringList(value.toolIds, "toolIds") }),
-        ...(value.actionIds === undefined ? {} : { actionIds: normalizeStringList(value.actionIds, "actionIds") }),
-        ...(value.stepIndexes === undefined ? {} : { stepIndexes: normalizeIntegerList(value.stepIndexes, "stepIndexes") }),
-        ...(value.paths === undefined ? {} : { paths: normalizeStringList(value.paths, "paths") }),
-        ...(value.errorCodes === undefined ? {} : { errorCodes: normalizeStringList(value.errorCodes, "errorCodes") }),
-        ...(value.objectIds === undefined ? {} : { objectIds: normalizeStringList(value.objectIds, "objectIds") }),
-        ...(value.sequenceRange === undefined ? {} : { sequenceRange: normalizeSequenceRange(value.sequenceRange) }),
-    };
-    return Object.keys(result).length === 0 ? {} : result;
-}
-
-function normalizeStringList(value: unknown, field: string): readonly string[] {
-    if (!Array.isArray(value) || value.length > CONTEXT_LOOKUP_MAX_FILTER_ITEMS) {
-        throw new ContextLookupProtocolError(
-            `${field} must contain at most ${CONTEXT_LOOKUP_MAX_FILTER_ITEMS} items`,
-        );
-    }
-    const normalized = value.map((item) => {
-        if (typeof item !== "string" || item.trim().length === 0) {
-            throw new ContextLookupProtocolError(`${field} must contain non-empty strings`);
-        }
-        return item.trim();
-    });
-    return uniqueSorted(normalized);
-}
-
-function normalizeIntegerList(value: unknown, field: string): readonly number[] {
-    if (!Array.isArray(value) || value.length > CONTEXT_LOOKUP_MAX_FILTER_ITEMS) {
-        throw new ContextLookupProtocolError(
-            `${field} must contain at most ${CONTEXT_LOOKUP_MAX_FILTER_ITEMS} items`,
-        );
-    }
-    const normalized = value.map((item) => {
-        if (!Number.isSafeInteger(item) || (item as number) < 0) {
-            throw new ContextLookupProtocolError(`${field} must contain non-negative integers`);
-        }
-        return item as number;
-    });
-    return [...new Set(normalized)].sort((left, right) => left - right);
-}
-
-function normalizeSequenceRange(value: unknown): { readonly from: number; readonly to: number } {
-    if (!isRecord(value)
-        || Object.keys(value).some((key) => key !== "from" && key !== "to")
-        || !Number.isSafeInteger(value.from)
-        || !Number.isSafeInteger(value.to)
-        || (value.from as number) < 0
-        || (value.to as number) < (value.from as number)
-    ) {
-        throw new ContextLookupProtocolError("sequenceRange must be a valid non-inverted range");
-    }
-    return { from: value.from as number, to: value.to as number };
 }
 
 function validateContextLookupMatch(
