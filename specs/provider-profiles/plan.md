@@ -58,7 +58,18 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 新鲜度：-
-- 验证时间：-
-- 验证摘要：尚未开始执行。
+- 状态：passed（自动化范围内）
+- 新鲜度：current
+- 验证时间：2026-10-16（CST）
+- 测试 Git 状态：分支 `codex/provider-profiles`，HEAD `ae032375`；工作区干净。
+- 全量回归：`npm test` 全部通过（类型检查、包内文档检查、依赖边界检查、GEPA adapter 测试、**1899 项 TS 测试**、33 项 scripts 测试，0 失败）。
+- 前端构建：`npm run build:web` 成功；`npx tsc --noEmit -p apps/goal-board/tsconfig.json` 通过。
+- 定向证据：
+  - `packages/config/test/provider-profile-store.test.ts`：0600/原子写/损坏与不支持版本 fail-fast/空 Store 不导入 TOML/同 kind 多份/省略凭据保留/校验落盘前失败/删除激活被拒/掩码。
+  - `apps/goal-server/test/composition-root-provider-profiles.test.ts`：激活档案作为启动配置、不可解析档案显式失败且不改绑定、快照往返保留 `profileId` 且不含明文凭据。
+  - `packages/browser/test/browser-provider-settings.test.ts`：未授权不触达端口、响应无明文与无 `apiKey` 字段、非法输入不触达端口、删除激活被拒并返回引用提示、测试分类映射。
+  - `packages/browser/test/browser-models.test.ts`：来源维度与 `providerProfileId` 查询参数校验。
+  - `apps/goal-board/test/settings-providers.test.tsx`：掩码展示、激活项禁删、表单无明文、测试结果与错误码呈现。
+- 待人工验证（超出自动化证据范围，需真实 OpenCode Go Key 或真实多 Provider 凭据）：真实端到端切换 Provider 后的模型调用行为；未运行前不得宣称端到端通过。该验证可能产生费用。
+- 残余缺口：`runWebServer` 内部的 `resolveSource` 来源解析与命令服务把 `providerProfileId` 透传到协调器，仅有类型检查与浏览器契约测试覆盖，尚无服务端端到端断言。
+- 未完成（TODO7 文档部分）：`packages/config`、`packages/browser`、`apps/goal-server`、`apps/goal-board` 的 `notes/overview.md` 与语义表尚未同步；`specs/slash-command-model-switching/` 与 `specs/web-backend-separation/` 的范围修订说明尚未加入（R8.1/R8.2 未完成）。
