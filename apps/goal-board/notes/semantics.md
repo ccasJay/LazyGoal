@@ -13,3 +13,7 @@
 | Live Activity | 当前 Run 的短期公开活动；按来源身份去重并通过 Action ID 对齐已提交步骤。 | [Goal Board](../README.md) | [useRunStream](../src/hooks/useRunStream.ts) |
 | GoalSessionContext | 隔离当前活动 Goal 会话快照、时间轴、指标与视图状态的局部上下文。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
 | RunControlContext | 隔离指令分发、客户端排队有限状态机与原子单飞防重锁的局部上下文。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
+| Queue 持久化 | 内存队列按 Goal 以独立 key 镜像到浏览器 `localStorage`，刷新后打开同一 Goal 自动恢复；损坏数据清空恢复，存储失败降级内存。 | [Goal Board](../README.md) | [queue-persistence](../src/queue-persistence.ts) |
+| 会话渐进加载 | 超过阈值的长会话按完整 Run 边界从最近窗口渲染，顶部按钮按 Run 向上扩页并保持视口。 | [Goal Board](../README.md) | [session-window](../src/session-window.ts) |
+| 渲染错误边界 | 会话与轨迹视图的渲染异常被边界捕获，显示错误卡与重载入口，不整页白屏。 | [Goal Board](../README.md) | [SessionBoundary](../src/components/error-boundary.tsx) |
+| liveText 帧合并 | 打字机增量按帧合并后提交渲染，跟随滚动以帧节流，流结束不丢字。 | [Goal Board](../README.md) | [live-text-batch](../src/live-text-batch.ts) |

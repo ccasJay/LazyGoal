@@ -58,7 +58,7 @@
   - 落实标准：[9.1](./spec.md#spec-req-9-1), [9.2](./spec.md#spec-req-9-2)
   - 实施目标：新增 class `ErrorBoundary`（React 内置 API，无第三方）：顶层包裹 `content` 会话区、Trajectory 视图内再包一层；捕获时在会话区域渲染错误摘要 + "Reload session"（复用 `sessionError` 重载入口），并将 error + 组件栈输出到 console.error；不改变现有清理副作用。
   - 验证手段：新增 `apps/goal-board/test/error-boundary.test.tsx`（注入抛错子组件：shell 可用、错误卡可见、console 记录）+ `npm test --prefix apps/goal-board` 全绿。
-- [ ] //TODO 12. 文档与模块说明同步（随交付收尾）
+- [x] //TODO 12. 文档与模块说明同步（随交付收尾）
   - 落实标准：[7.5](./spec.md#spec-req-7-5), [5.2](./spec.md#spec-req-5-2)
   - 实施目标：同步 `apps/goal-board/notes/overview.md`、`notes/semantics.md` 中受影响的职责/语义行（CSS 归属、Queue 持久化、渐进加载边界、错误边界），并修正 "main.tsx 收敛至 102 行" 的失实表述；运行 `npm run check:docs` 确认覆盖与链接。
   - 验证手段：`npm run check:docs` 通过。
