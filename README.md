@@ -2,6 +2,8 @@
 
 LazyGoal 是 Goal 驱动、可恢复的 Agent Runtime。使用 `node bin/lazygoal.cjs web` 启动本机服务；评测命令从 `node bin/lazygoal.cjs eval` 进入。依赖与常用脚本见 [package.json](./package.json)。
 
+确定性回归由 `npm test` 按 `packages/<pkg>/test/`、`apps/*/test/`、`benchmarks/**/test/` 与 `scripts/*.test.mjs` 发现测试；各单元以源码相对路径互相消费，不依赖项目构建产物，产物目录（`dist`/`lib`/`build`）不参与模块解析与依赖检查。
+
 当前实现的领域状态与恢复见 [Runtime](./packages/runtime/notes/overview.md)，服务装配见 [Goal Server](./apps/goal-server/notes/overview.md)。各单元的说明和语义表由自身维护：
 
 - [Goal Board](apps/goal-board/README.md)
@@ -20,7 +22,12 @@ LazyGoal 是 Goal 驱动、可恢复的 Agent Runtime。使用 `node bin/lazygoa
 - [执行控制](packages/execution-control/README.md)
 - [执行事件流](packages/execution-stream/README.md)
 - [HTTP 宿主](packages/http/README.md)
-- [模型适配](packages/llm/README.md)
+- [模型默认装配](packages/llm/README.md)
+- [LLM 核心契约](packages/llm-core/README.md)
+- [Gemini 适配](packages/llm-google/README.md)
+- [OpenAI 适配](packages/llm-openai/README.md)
+- [pi-ai 适配](packages/llm-pi-ai/README.md)
+- [模型目录](packages/model-catalog/README.md)
 - [模型协议契约](packages/model-contracts/README.md)
 - [授权判断](packages/permission/README.md)
 - [Goal Runtime](packages/runtime/README.md)

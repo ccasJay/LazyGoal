@@ -1,6 +1,22 @@
 import { readdir, readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
+/**
+ * 依赖与边界检查。
+ *
+ * 只扫描生产源码：各 package 的 `src/`、各 app 的 `src/` 与各 benchmark 的 `src/`；
+ * 包内单测与测试夹具不在范围内，由各自包自行约束。检查覆盖：
+ *   1. package / app / benchmark 允许的依赖方向；
+ *   2. llm-core 与 config 不得引用供应商 SDK（运行时或类型）；
+ *   3. 跨能力包消费必须经目标包的 `src/index.ts`，不得穿透内部路径；
+ *   4. 已迁移的旧 LLM 路径不得存在或被引用；
+ *   5. 相对引用不得落入项目构建产物目录。
+ *
+ * 模块引用提取覆盖普通/类型 import/export、侧效导入、import 类型表达式与字面量
+ * dynamic import（当前仓库的 TypeScript 7 不提供可用的编译器 API，因此按文本模式提取）。
+ */
 
 /**
  * 每个 package 允许的出站目标（from -> allowed target packages）。
@@ -64,6 +80,33 @@ const APPS = Object.keys(ALLOWED_APP_DEPENDENCIES);
 const BENCHMARKS = ["alfworld", "swebench", "gaia", "tua-bench", "context"];
 
 /**
+ * 生产源码禁止直接引用的供应商 SDK；llm-core 与 config 不得出现其运行时或类型引用。
+ */
+const VENDOR_SDK_MODULES = ["openai", "@google/genai", "@earendil-works/pi-ai"];
+
+/** 跨包消费必须经 `src/index.ts` 的能力包。 */
+const CAPABILITY_PACKAGES = ["llm-core", "llm-openai", "llm-google", "llm-pi-ai", "model-catalog"];
+
+/** 已迁移的旧 LLM 实现路径；不得存在，源码也不得再引用。 */
+const REMOVED_LLM_PATHS = [
+    "packages/llm/src/adapter.ts",
+    "packages/llm/src/factory.ts",
+    "packages/llm/src/gemini.ts",
+    "packages/llm/src/pi-ai.ts",
+    "packages/llm/src/openai-compatible.ts",
+    "packages/llm/src/model-catalog.ts",
+    "packages/llm/src/provider-fetchers.ts",
+    "packages/llm/src/smoke-test.ts",
+    "packages/llm/src/core",
+];
+
+/** 相对引用不得落入的项目构建产物目录名。 */
+const ARTIFACT_DIRECTORY_NAMES = ["dist", "lib", "build"];
+
+/** 必须在生产源码中保持无供应商 SDK 引用的包。 */
+const SDK_FREE_PACKAGES = new Set(["llm-core", "config"]);
+
+/**
  * 即使 package 出站边被允许、也禁止导入所列 package 的单个文件。
  *
  * 只有 Codec（goal-snapshot-codec.ts）与 Projector（model-inference-projector.ts）
@@ -109,17 +152,47 @@ function appNameOf(filePath) {
     return match === null ? null : match[1];
 }
 
-/** 提取文件文本中的相对 import specifier（不含 node 内置与外部依赖）。 */
-function extractRelativeImports(text) {
-    const imports = [];
+/**
+ * 提取文件文本中的模块引用说明符（每个说明符只报告一次）。
+ *
+ * 覆盖普通/类型 import/export（`from "..."`）、侧效导入（`import "..."`）、
+ * import 类型表达式与字面量 dynamic import（`import("...")`）。
+ */
+function extractModuleReferences(text) {
+    const specifiers = new Set();
+    for (const match of text.matchAll(/\bfrom\s*(['"])([^'"]+)\1/g)) specifiers.add(match[2]);
+    for (const match of text.matchAll(/\bimport\s*(['"])([^'"]+)\1/g)) specifiers.add(match[2]);
+    for (const match of text.matchAll(/\bimport\s*\(\s*(['"])([^'"]+)\1\s*\)/g)) specifiers.add(match[2]);
+    return [...specifiers];
+}
+
+/**
+ * 提取相对 `from "..."` 说明符，沿用既有 FILE_BOUNDARY_RULES 的原始检测范围，
+ * 不扩展其它 Spec 已批准约束的强制面。
+ */
+function extractRelativeFromSpecifiers(text) {
+    const specifiers = new Set();
     for (const match of text.matchAll(/\bfrom\s*(['"])([^'"]+)\1/g)) {
         const specifier = match[2];
-        if (specifier.startsWith("./") || specifier.startsWith("../")) {
-            imports.push(specifier);
-        }
+        if (specifier.startsWith("./") || specifier.startsWith("../")) specifiers.add(specifier);
     }
-    return imports;
+    return [...specifiers];
 }
+
+/** 判定外部说明符是否属于受管的供应商 SDK（含子路径）。 */
+function isVendorSdkSpecifier(specifier) {
+    return VENDOR_SDK_MODULES.some(
+        moduleName => specifier === moduleName || specifier.startsWith(`${moduleName}/`),
+    );
+}
+
+/** 去掉相对解析结果的文件扩展名，便于按模块基名比较。 */
+function stripExtension(relativePath) {
+    return relativePath.replace(/\.(d\.ts|ts|tsx|mjs|cjs|js)$/, "");
+}
+
+/** 已迁移旧 LLM 路径的基名集合（无扩展名）。 */
+const REMOVED_LLM_BASES = REMOVED_LLM_PATHS.map(removed => stripExtension(removed));
 
 /** 将相对 specifier 解析为 import 源文件相对 projectRoot 的 POSIX 路径。 */
 function relativeResolvedPath(projectRoot, fromFile, specifier) {
@@ -142,6 +215,41 @@ function targetAppOf(projectRoot, fromFile, specifier) {
     return appNameOf(
         path.resolve(path.dirname(fromFile), specifier),
     );
+}
+
+/**
+ * 对一次相对模块引用执行与来源类型无关的边界检查。
+ *
+ * @param projectRoot - 仓库根目录。
+ * @param file - 引用所在文件的绝对路径。
+ * @param relativePath - 引用文件的仓库相对 POSIX 路径。
+ * @param sourcePackage - 来源 package 名；app 与 benchmark 来源为 null。
+ * @param specifier - 相对模块说明符。
+ * @returns 命中的违规描述；无命中返回 null。
+ */
+function referenceBoundaryViolation(projectRoot, file, relativePath, sourcePackage, specifier) {
+    const resolved = relativeResolvedPath(projectRoot, file, specifier);
+    const normalized = stripExtension(resolved);
+
+    for (const removed of REMOVED_LLM_BASES) {
+        if (normalized === removed || normalized.startsWith(`${removed}/`)) {
+            return `禁止引用旧 LLM 路径：${relativePath} 引用 ${specifier}`;
+        }
+    }
+
+    if (resolved.split("/").some(segment => ARTIFACT_DIRECTORY_NAMES.includes(segment))) {
+        return `禁止引用项目构建产物：${relativePath} 引用 ${specifier}`;
+    }
+
+    const targetPackage = targetPackageOf(projectRoot, file, specifier);
+    if (targetPackage !== null
+        && CAPABILITY_PACKAGES.includes(targetPackage)
+        && targetPackage !== sourcePackage
+        && normalized !== `packages/${targetPackage}/src/index`) {
+        return `跨能力包入口穿透：${relativePath} 不得越过 packages/${targetPackage}/src/index.ts 消费（引用 ${specifier}）`;
+    }
+
+    return null;
 }
 
 /** 递归收集 packages 下 src 目录内的 .ts/.tsx 文件；缺失目录按空处理。 */
@@ -207,6 +315,11 @@ function benchmarkNameOf(filePath) {
     return match === null || !BENCHMARKS.includes(match[1]) ? null : match[1];
 }
 
+/** 判定说明符是否为相对模块引用。 */
+function isRelativeSpecifier(specifier) {
+    return specifier.startsWith("./") || specifier.startsWith("../");
+}
+
 /**
  * 分析源码依赖方向并返回违反边界的情况列表。
  *
@@ -217,6 +330,12 @@ export async function analyzeDependencies(projectRoot) {
     const files = await collectSourceFiles(projectRoot);
     const violations = [];
 
+    for (const removed of REMOVED_LLM_PATHS) {
+        if (existsSync(path.join(projectRoot, removed))) {
+            violations.push(`旧路径转发残留：${removed} 仍然存在`);
+        }
+    }
+
     for (const file of files) {
         const text = await readFile(file, "utf8");
         const sourcePackage = packageNameOf(file);
@@ -226,7 +345,21 @@ export async function analyzeDependencies(projectRoot) {
             continue;
         }
 
-        for (const specifier of extractRelativeImports(text)) {
+        for (const specifier of extractModuleReferences(text)) {
+            if (!isRelativeSpecifier(specifier)) {
+                if (SDK_FREE_PACKAGES.has(sourcePackage) && isVendorSdkSpecifier(specifier)) {
+                    violations.push(
+                        `供应商 SDK 泄漏：packages/${sourcePackage} 不得引用 ${specifier}（${relativePath}）`,
+                    );
+                }
+                continue;
+            }
+
+            const boundary = referenceBoundaryViolation(projectRoot, file, relativePath, sourcePackage, specifier);
+            if (boundary !== null) {
+                violations.push(boundary);
+            }
+
             const targetPackage = targetPackageOf(projectRoot, file, specifier);
             if (targetPackage === null || targetPackage === sourcePackage) {
                 continue;
@@ -247,7 +380,7 @@ export async function analyzeDependencies(projectRoot) {
             continue;
         }
 
-        for (const specifier of extractRelativeImports(text)) {
+        for (const specifier of extractRelativeFromSpecifiers(text)) {
             const targetPackage = targetPackageOf(projectRoot, file, specifier);
             if (targetPackage !== null && rule.forbidden.includes(targetPackage)) {
                 violations.push(
@@ -262,7 +395,13 @@ export async function analyzeDependencies(projectRoot) {
         if (sourceBenchmark === null) continue;
         const text = await readFile(file, "utf8");
         const relativePath = path.relative(projectRoot, file).split(path.sep).join("/");
-        for (const specifier of extractRelativeImports(text)) {
+        for (const specifier of extractModuleReferences(text)) {
+            if (isRelativeSpecifier(specifier)) {
+                const boundary = referenceBoundaryViolation(projectRoot, file, relativePath, null, specifier);
+                if (boundary !== null) {
+                    violations.push(boundary);
+                }
+            }
             const targetBenchmark = benchmarkNameOf(
                 path.resolve(path.dirname(file), specifier),
             );
@@ -278,7 +417,13 @@ export async function analyzeDependencies(projectRoot) {
         if (sourceApp === null || !ALLOWED_APP_DEPENDENCIES[sourceApp]) continue;
         const text = await readFile(file, "utf8");
         const relativePath = path.relative(projectRoot, file).split(path.sep).join("/");
-        for (const specifier of extractRelativeImports(text)) {
+        for (const specifier of extractModuleReferences(text)) {
+            if (isRelativeSpecifier(specifier)) {
+                const boundary = referenceBoundaryViolation(projectRoot, file, relativePath, null, specifier);
+                if (boundary !== null) {
+                    violations.push(boundary);
+                }
+            }
             const targetPackage = targetPackageOf(projectRoot, file, specifier);
             if (targetPackage !== null && !ALLOWED_APP_DEPENDENCIES[sourceApp].includes(targetPackage)) {
                 violations.push(
@@ -298,11 +443,11 @@ export async function analyzeDependencies(projectRoot) {
 }
 
 /**
- * 校验依赖方向，存在违规时抛错。
+ * 校验依赖方向、SDK 泄漏、跨能力包入口、旧路径与构建产物引用，存在违规时抛错。
  *
  * @param projectRoot - 仓库根目录。
  * @returns 扫描到的源文件数量。
- * @throws 存在任何 package 反向依赖或 DTO/Renderer 违规导入时抛出 Error。
+ * @throws 存在任何依赖方向、SDK 泄漏、入口穿透、旧路径或构建产物违规时抛出 Error。
  */
 export async function checkDependencies(projectRoot) {
     const violations = await analyzeDependencies(projectRoot);

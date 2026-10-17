@@ -9,7 +9,7 @@ import {
     checkDependencies,
 } from "./check-dependencies.mjs";
 
-const EXISTING_PACKAGES = ["runtime", "llm", "llm-core", "llm-google", "storage", "agent", "tools"];
+const EXISTING_PACKAGES = ["runtime", "llm-core", "llm-google", "storage", "agent", "tools"];
 
 async function fixtureProject(files) {
     const root = await mkdtemp(path.join(os.tmpdir(), "lazygoal-dependencies-"));
@@ -198,6 +198,55 @@ test("rejects outbound dependencies from model-catalog to generation adapters", 
 
     assert.deepEqual(await analyzeDependencies(root), [
         "禁止依赖方向：packages/model-catalog 不得导入 packages/llm-pi-ai（packages/model-catalog/src/index.ts 引用 ../../llm-pi-ai/src/index）",
+    ]);
+});
+
+test("rejects vendor SDK leakage from llm-core and config across reference forms", async () => {
+    const root = await fixtureProject({
+        "packages/llm-core/src/index.ts": 'import type OpenAI from "openai";\nexport type Client = import("@google/genai").GoogleGenAI;\n',
+        "packages/config/src/index.ts": 'import "@earendil-works/pi-ai";\n',
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "供应商 SDK 泄漏：packages/config 不得引用 @earendil-works/pi-ai（packages/config/src/index.ts）",
+        "供应商 SDK 泄漏：packages/llm-core 不得引用 @google/genai（packages/llm-core/src/index.ts）",
+        "供应商 SDK 泄漏：packages/llm-core 不得引用 openai（packages/llm-core/src/index.ts）",
+    ]);
+});
+
+test("allows capability entries and rejects cross-capability internal penetration", async () => {
+    const root = await fixtureProject({
+        "packages/llm-core/src/index.ts": "export const core = true;\n",
+        "packages/llm-openai/src/index.ts": 'export { core } from "../../llm-core/src/index";\n',
+        "packages/llm/src/index.ts": 'export { core } from "../../llm-core/src/types";\n',
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "跨能力包入口穿透：packages/llm/src/index.ts 不得越过 packages/llm-core/src/index.ts 消费（引用 ../../llm-core/src/types）",
+    ]);
+});
+
+test("rejects removed llm path references and leftover forwarding files", async () => {
+    const root = await fixtureProject({
+        "packages/llm-core/src/index.ts": "export const core = true;\n",
+        "packages/llm/src/index.ts": 'export { createLlmAdapter } from "./factory";\n',
+        "packages/llm/src/factory.ts": 'export { core } from "../../llm-core/src/index";\n',
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "旧路径转发残留：packages/llm/src/factory.ts 仍然存在",
+        "禁止引用旧 LLM 路径：packages/llm/src/index.ts 引用 ./factory",
+    ]);
+});
+
+test("rejects project artifact references including literal dynamic imports", async () => {
+    const root = await fixtureProject({
+        "packages/llm-core/src/index.ts": "export const core = true;\n",
+        "packages/llm-openai/src/index.ts": 'export const load = () => import("../../llm-core/dist/index.js");\n',
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止引用项目构建产物：packages/llm-openai/src/index.ts 引用 ../../llm-core/dist/index.js",
     ]);
 });
 

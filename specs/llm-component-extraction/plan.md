@@ -50,7 +50,7 @@
   - 实现：补齐所有当前消费者到 core、目标适配包、model-catalog 和 llm 工厂的入口引用，包括实际存在的旧 Agent 或已拆九包、Worker 与本地构建脚本。只调整模型依赖与装配段，保留当时已有的 Runtime 生命周期、进程接线及其它包规则；不为等候前三份 Spec 增加适配层。迁移必要的测试夹具与构建定位，更新所属读者文档。
   - 检查：`npx tsx --test apps/goal-server/test/composition-root-model-switching.test.ts benchmarks/test/headless-composition-root.test.ts benchmarks/test/llm-rpc.test.ts benchmarks/test/prompt-evaluation/*.test.ts benchmarks/context/test/*.test.ts`；`npm --prefix apps/goal-server test`；三处 TypeScript 检查。对有活跃引用的 Worker 执行现有本地打包/确定性消费入口，记录实际命令与观测，不启动容器题目、真实 Benchmark 或 GEPA。
 
-- [ ] //TODO 8. 以入口隔离、依赖门和源码验证约束五包边界
+- [x] //TODO 8. 以入口隔离、依赖门和源码验证约束五包边界
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)、[5.3](./spec.md#spec-req-5-3)、[5.4](./spec.md#spec-req-5-4)、[6.1](./spec.md#spec-req-6-1)、[6.2](./spec.md#spec-req-6-2)、[6.3](./spec.md#spec-req-6-3)、[6.4](./spec.md#spec-req-6-4)。
   - 先验证：扩展 `scripts/check-dependencies.test.mjs` 的合法/违规临时工程，覆盖 Spec 依赖矩阵、core SDK 泄漏、Config 反向边、跨包内部穿透、旧路径转发与项目产物引用，包括普通/类型 import/export、import 类型表达式、侧效及字面量 dynamic import。拟新增 `packages/llm/test/package-entry-isolation.test.ts`，为 core、Config、每个适配包和目录分别在新子进程记录或拦截模块解析/加载；入口导入与构造不发请求、不读隐式凭据、不注册信号/退出，core/Config 无 SDK，单个适配包不经 LazyGoal 源码加载其它适配包或默认门面。类型依赖另由静态检查验证，不以运行时探针代替。
   - 实现：复用现有检查入口及可用 TypeScript 解析能力增量约束所有承诺引用形式，生产入口与包内单测例外分别处理，不覆盖其它 Spec 规则。核对 manifest/锁文件中 SDK 的实际归属、版本和 Node 解析位置，目录与 pi-ai 包使用同一锁定版本；不引入发布配置。同步五包与 llm/config 的 README、overview、semantics，根导航和 AGENTS 布局，以及实际读者链接；明确测试发现与源码/产物界限。
@@ -93,8 +93,17 @@ git diff --check
 
 ### Latest Result
 
-- 状态：未执行。
-- 验证时间：未执行。
-- 测试提交与工作树指纹：未记录，尚未启动实现。
-- Spec / Plan 指纹：执行前记录。
-- 验证摘要：当前仅完成计划设计；TODO、独立消费、真实接入及 Feature Verification 均未执行。
+- 状态：已完成；TODO 1–8 全部勾选，Feature Verification passed。
+- 验证时间：2026-10-17 22:18–22:21 +0800。
+- 测试提交与工作树指纹：worktree `feature/llm-component-extraction` @ `59b2df67` + TODO 8 未提交变更；验证树指纹（`git diff HEAD` 与 `git status --porcelain` 合并 sha256）`42fdb388eb2dfc5946accd0fa061d9c020b2adf5c47d53e63a111f00e82c8299`。
+- Spec / Plan 指纹：执行前 spec.md sha256 `406be74a41f3dec2378b72c64bd8ebed40d74a95c54b6b3339d35226e864a92a`；plan.md 执行前 sha256 `637d1600d510009b6221a46ada86e00b46c662ecd1fde1561e6a96fc5548f900`。
+- 验证摘要：
+  - 类型检查：`npx tsc --noEmit`、`npx tsc --noEmit -p apps/goal-server/tsconfig.json`、`npx tsc --noEmit -p benchmarks/tsconfig.json` 全部通过。
+  - 依赖与文档门：`npm run check:dependencies` 通过（237 个源文件）；`npm run check:docs` 通过（35 个模块、131 份说明）；`node --test scripts/check-dependencies.test.mjs scripts/check-docs.test.mjs` 27/27，含 SDK 泄漏、跨能力包入口穿透、旧路径与构建产物引用的合法/违规正反工程。
+  - 确定性回归：`npm test` 全部阶段通过（类型检查、文档、依赖、GEPA adapter、全量 TS 测试、scripts 测试）；五包 + config + llm 聚焦套件 167/167。
+  - 消费者与评测：`npm --prefix apps/goal-server test` 21/21；模型切换、Headless、LLM RPC、反思与 Context 目标套件 120/120；swebench RPC 取消/迟到响应 5/5；worker 本地打包与 preflight 9/9（未启动容器题目或真实 Benchmark）。
+  - 入口隔离：`packages/llm/test/package-entry-isolation.test.ts` 6/6，core、config、三个适配包与目录分别在独立子进程导入并构造：零网络请求、零信号/退出注册、不读取 LazyGoal 配置键与跨供应商凭据、单包不加载其它适配包或默认门面；类型依赖由三处静态类型检查另行覆盖。
+  - 无产物副本：不含项目 dist/lib/build 的临时源码副本中通过 root tsc、五包套件 89/89、入口隔离 6/6、受影响消费者 8/8；新包测试被根回归发现（llm-core 2、llm-openai 1、llm-google 1、llm-pi-ai 1、model-catalog 2，共 7 个文件）。
+  - SDK 归属核对：manifest 与锁文件确认 openai `^7.4.0`→7.19.0（llm-openai）、@google/genai `^2.15.0`→2.21.0（llm-google）、pi-ai `1.3.0`（llm-pi-ai 与 model-catalog 同一锁定版本，各自解析到本包 node_modules）；llm-core 与 config 无供应商 SDK。
+  - 未运行：真实供应商付费 smoke（本轮不要求）；未启动容器题目、真实 Benchmark 或 GEPA 运行。
+  - 遗留观察：既有 FILE_BOUNDARY_RULES（其它 Spec 已批准约束）维持原相对 `from` 检测范围；`packages/agent/src/model-inference-view.ts` 的两处 import 类型表达式引用 runtime/context-retrieval 未在本轮处理，留作影响候选。
