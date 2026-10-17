@@ -10,7 +10,7 @@ import {
     type LLMToolCall,
     type StructuredOutputMode,
 } from "../../llm-core/src/index";
-import { extractOpenAIUsage } from "./core/usage";
+import { extractOpenAIUsage } from "./usage";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -55,6 +55,15 @@ export interface OpenAICompatibleConfig {
  * 若请求的结构化配置与 Adapter 固定模式不匹配，在发起网络请求前抛出 `LLMRequestModeMismatchError`。
  * 响应携带 `usage` 时将其归一化写入 `providerMetadata.usage`
  * （`{ inputTokens, outputTokens, cachedInputTokens? }`），缺失时该字段缺省。
+ *
+ * @example
+ * ```ts
+ * const adapter = new OpenAICompatible({
+ *     apiKey: "secret", baseURL: "https://api.openai.com/v1",
+ *     model: "gpt-4o", structuredOutputMode: "prompt_only",
+ * });
+ * const response = await adapter.generate({ messages: [{ role: "user", content: "你好" }] });
+ * ```
  */
 export class OpenAICompatible implements LLMAdapter {
     readonly structuredOutputMode: StructuredOutputMode;

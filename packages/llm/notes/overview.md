@@ -38,7 +38,7 @@ OpenCode Go 复用 pi-ai `1.3.0` 的 `opencode-go` provider：端点固定为官
 所有 Adapter 在请求前后检查取消信号并传入 SDK。取消统一为 `@lazygoal/execution-control` 的 `ExecutionAbortedError`；
 pi-ai 返回型失败转换为 `PiAiProviderError`；可识别的暂时 Provider/传输异常映射为 `@lazygoal/execution-control` 的 `TransientModelRequestFailure`，LLM 模块不依赖 `@lazygoal/runtime`。
 请求与模式不匹配时抛出 `LLMRequestModeMismatchError`。
-原生 Adapter 在无工具请求中将 strict 映射为 OpenAI `response_format.json_schema` 和 Gemini `responseSchema`；Decide 挂载工具时只使用函数参数 Schema，不同时发送顶层决策 Schema。
+原生 Adapter 在无工具请求中将 strict 映射为 OpenAI `response_format.json_schema` 和 Gemini `responseSchema`；Decide 挂载工具时只使用函数参数 Schema，不同时发送顶层决策 Schema。OpenAI 原生实现、续接身份与用量提取归 [llm-openai](../../llm-openai/notes/overview.md)；Gemini 的投影与用量提取仍在本包。
 Gemini strict 输出将决策判别联合打平为带 `nullable: true` 的全量 required 扁平对象，从语法机源头约束
 `action` 等关键字段生成；逆向投影剥离非目标分支字段并恢复空值与证据哨兵值，再交由 Wire Contract 校验。
 端点拒绝 Schema 或返回非法决策时明确失败，不自动降级。

@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
  * tool-core 提供通用工具抽象，仅依赖 contracts、execution-control、sandbox。
  * config 是应用配置与 Home 路径包，单向依赖 llm-core 的共享模型契约；
  * llm-core 承载供应商无关调用契约与共享模型配置，仅依赖 contracts、model-contracts 与 execution-control；
+ * llm-openai 承载 OpenAI/OpenAI-compatible 原生适配，只依赖 llm-core、model-contracts、execution-control 与 openai SDK；
  * runtime 依赖 contracts、model-contracts、execution-stream、sandbox、permission、context-retrieval、execution-control 和 tool-core；
  * llm 只依赖 llm-core、contracts、model-contracts、execution-stream 与 execution-control；
  * storage 依赖 runtime、contracts、model-contracts、permission、context-retrieval；
@@ -31,9 +32,10 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     "tool-core": ["contracts", "execution-control", "sandbox"],
     "working-memory": ["contracts", "model-contracts"],
     "llm-core": ["contracts", "model-contracts", "execution-control"],
+    "llm-openai": ["llm-core", "model-contracts", "execution-control"],
     config: ["llm-core"],
     runtime: ["contracts", "model-contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control", "tool-core", "working-memory"],
-    llm: ["llm-core", "contracts", "model-contracts", "execution-stream", "execution-control", "config"],
+    llm: ["llm-core", "llm-openai", "contracts", "model-contracts", "execution-stream", "execution-control", "config"],
     storage: ["runtime", "contracts", "model-contracts", "permission", "context-retrieval"],
     agent: ["runtime", "llm", "llm-core", "config", "contracts", "model-contracts", "execution-stream", "execution-control", "tool-core", "working-memory"],
     "session-metrics": ["runtime", "http", "web-contracts"],

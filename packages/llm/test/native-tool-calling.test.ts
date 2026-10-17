@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { OpenAICompatible } from "../src/openai-compatible";
+import { OpenAICompatible } from "../../llm-openai/src/index";
 import { Gemini } from "../src/gemini";
 import { PiAiAdapter } from "../src/pi-ai";
 import type { LLMRequest, LLMToolDefinition } from "../../llm-core/src/index";

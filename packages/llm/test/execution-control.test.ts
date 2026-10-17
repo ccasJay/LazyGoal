@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { ExecutionAbortedError } from "../../execution-control/src/index";
 import { Gemini } from "../src/gemini";
-import { OpenAICompatible } from "../src/openai-compatible";
+import { OpenAICompatible } from "../../llm-openai/src/index";
 
 const request = {
     messages: [{ role: "user" as const, content: "abort" }],

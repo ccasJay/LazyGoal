@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { loadRuntimeConfig, readLLMConfig } from "../../config/src/index";
 import { LLMConfigurationError } from "../../llm-core/src/index";
 import { createLlmAdapter, createLlmStageAdapters } from "../src/factory";
-import { OpenAICompatible } from "../src/openai-compatible";
+import { OpenAICompatible } from "../../llm-openai/src/index";
 import { Gemini } from "../src/gemini";
 import { PiAiAdapter } from "../src/pi-ai";
 

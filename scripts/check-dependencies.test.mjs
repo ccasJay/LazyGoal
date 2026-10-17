@@ -154,6 +154,18 @@ test("allows config to consume llm-core and rejects core SDK-style reverse edges
     assert.equal(await checkDependencies(root), 2);
 });
 
+test("allows llm-openai to consume llm-core and rejects application config edges", async () => {
+    const root = await fixtureProject({
+        "packages/llm-core/src/index.ts": "export const core = true;\n",
+        "packages/llm-openai/src/index.ts": 'export { core } from "../../llm-core/src/index";\nexport {} from "../../config/src/index";\n',
+        "packages/config/src/index.ts": "export {};\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/llm-openai 不得导入 packages/config（packages/llm-openai/src/index.ts 引用 ../../config/src/index）",
+    ]);
+});
+
 test("rejects outbound dependencies from working-memory to runtime", async () => {
     const root = await fixtureProject({
         "packages/working-memory/src/index.ts": 'export {} from "../../runtime/src/index";\n',

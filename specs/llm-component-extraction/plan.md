@@ -14,7 +14,7 @@
   - 实现：新建 `llm-core` 的私有 manifest、入口和所属说明，迁入 Spec 指定契约、配置类型/错误、通用用量读取和无 SDK 的故障分类。保持原生消息类型引用 model-contracts、取消/暂时故障身份引用 execution-control。供应商原始用量提取暂归各自现有适配实现，复用 core 的同一数值规则，随后随实现迁包。Config 仅保留读取/合并/校验，删除旧契约导出；同步迁移全部当前共享类型与用量消费者，包括实际 Agent 或已存在的 Agent 能力包，不建立 Agent/LLM 的转导出替代入口。删除已迁出的旧 core 文件和 adapter 类型门面，为公共契约补中文 TSDoc 与示例。
   - 检查：`npx tsx --test packages/llm-core/test/*.test.ts packages/config/test/*.test.ts packages/llm/test/*.test.ts`；`npx tsc --noEmit`；`npx tsc --noEmit -p apps/goal-server/tsconfig.json`；`npx tsc --noEmit -p benchmarks/tsconfig.json`。此时旧供应商实现仍须使用唯一 core 契约，不能为通过检查保留两套错误类或用量类型。
 
-- [ ] //TODO 2. 直接使用 OpenAI 适配包完成原生调用与结果回传
+- [x] //TODO 2. 直接使用 OpenAI 适配包完成原生调用与结果回传
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)、[2.2](./spec.md#spec-req-2-2)、[2.3](./spec.md#spec-req-2-3)、[3.2](./spec.md#spec-req-3-2)、[3.3](./spec.md#spec-req-3-3)、[3.4](./spec.md#spec-req-3-4)、[6.1](./spec.md#spec-req-6-1)、[6.4](./spec.md#spec-req-6-4)。
   - 先验证：将 `openai-compatible.test.ts` 迁入拟新增的 `packages/llm-openai/test/`，经包入口验证 strict/prompt_only、无工具与 Function Calling 两种请求、toolChoice、输出上限、模式错误零派发、用量缺省及 SDK 重试关闭。保留跨供应商 native-dialogue/native-tool-calling 测试中的 OpenAI 断言，覆盖 callId、reasoning_content、原生身份、续接回传及不匹配拒绝；取消前零请求、在途取消及返回后取消使用现有替身检查实际调用次数与错误身份。
   - 实现：迁移 `OpenAICompatible`、其参数契约及原始用量提取至 `llm-openai`，只从 core/model-contracts/execution-control 取得共享能力。将 OpenAI SDK 依赖按当前约束归入本包，同步当前工厂、Config 集成测试、对话测试和其它直接消费者，删除原实现文件；不增加 Provider、不改变 SDK 构造和消息映射。补所属文档及变更契约说明。

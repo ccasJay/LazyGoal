@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ExecutionAbortedError } from "../../execution-control/src/index";
-import { OpenAICompatible } from "../src/openai-compatible";
+import { OpenAICompatible } from "../src/index";
 import {
     LLMRequestModeMismatchError,
     type LLMRequest,
@@ -189,6 +189,50 @@ test("OpenAICompatible in prompt_only mode fails fast when structuredOutput is u
     );
 
     assert.equal(callCount, 0, "Network client must not be called when mode mismatches");
+});
+
+test("OpenAICompatible maps Function Calling definitions and toolChoice through the package entry", async () => {
+    const adapter = createAdapter("strict");
+    const captured: any[] = [];
+
+    (adapter as any).client = {
+        chat: {
+            completions: {
+                create: async (params: any) => {
+                    captured.push(params);
+                    return {
+                        id: "chatcmpl-tools",
+                        model: "test-model-name",
+                        created: 123456789,
+                        choices: [{ message: { content: "" }, finish_reason: "tool_calls" }],
+                    };
+                },
+            },
+        },
+    };
+
+    const tool = {
+        id: "read_file",
+        description: "Read",
+        parametersSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+    };
+    const request: LLMRequest = { messages: [{ role: "user", content: "read" }], tools: [tool] };
+    await adapter.generate(request);
+    await adapter.generate({ ...request, toolChoice: "auto" });
+    await adapter.generate({ ...request, toolChoice: "none" });
+
+    assert.deepEqual(captured[0].tools, [{
+        type: "function",
+        function: { name: "read_file", description: "Read", parameters: tool.parametersSchema, strict: true },
+    }]);
+    assert.equal(captured[0].tool_choice, "required");
+    assert.equal(captured[0].parallel_tool_calls, false);
+    assert.equal(captured[1].tool_choice, "auto");
+    assert.equal(captured[2].tool_choice, "none");
+    for (const params of captured) {
+        assert.equal(params.response_format, undefined, "Tool requests must not carry a top-level structured schema");
+        assert.equal(params.max_tokens, undefined);
+    }
 });
 
 test("OpenAICompatible propagates SDK error directly without retry or fallback to prompt_only", async () => {
