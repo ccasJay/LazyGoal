@@ -42,7 +42,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     runtime: ["contracts", "model-contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control", "tool-core", "working-memory"],
     llm: ["contracts", "model-contracts", "execution-stream", "execution-control", "config"],
     storage: ["runtime", "contracts", "model-contracts", "permission", "context-retrieval"],
-    agent: ["runtime", "llm", "config", "contracts", "model-contracts", "execution-stream", "execution-control", "tool-core", "working-memory", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request", "model-response"],
+    agent: ["runtime", "llm", "config", "contracts", "model-contracts", "execution-stream", "execution-control", "tool-core", "working-memory", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request", "model-response", "model-call", "model-execution"],
     "session-metrics": ["runtime", "http", "web-contracts"],
     tools: ["runtime", "contracts", "execution-stream", "sandbox", "execution-control", "tool-core"],
     browser: ["http", "runtime", "permission", "web-contracts", "execution-control"],

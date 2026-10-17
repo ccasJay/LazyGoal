@@ -41,7 +41,7 @@ packages/        Private `@lazygoal/*` workspaces
   working-memory/ Structured working memory domain contracts, patch validation, reduction, and lifecycle
   config/       LazyGoal Home/workspace paths, TOML/Profile parsing, and validated runtime configuration
   web-contracts/  Browser HTTP/SSE wire DTOs and boundary validation
-  agent/         Agent prompts, response schemas, and the unified LLM step executor
+  agent/         Default model executor assembly
   execution-stream/ Process-local Goal/Run events and bounded subscriptions
   http/          Reusable loopback HTTP service lifecycle and route mounting
   browser/       Local browser session access control and static page routes

@@ -75,8 +75,10 @@ import {
 } from "../../../packages/browser/src/index";
 import { createSessionMetricsRoutes, SessionMetricsService } from "../../../packages/session-metrics/src/index";
 import {
+    createAgentExecutor,
+} from "../../../packages/agent/src/index";
+import {
     createModelExecutionBinding,
-    LLMStepExecutor,
     MutableModelBinding,
     type ModelExecutionBinding,
 } from "../../../packages/model-execution/src/index";
@@ -713,7 +715,7 @@ export async function createCompositionRoot(
     };
     const runner = new Runner({
         store: checkpointStore,
-        executor: new LLMStepExecutor({
+        executor: await createAgentExecutor({
             bindingProvider: modelBinding,
             renderer,
             contextCompactor,

@@ -1,5 +1,5 @@
-# Agent 模型请求
+# Agent 默认装配
 
-从 Runtime 提供的上下文组装 Prompt、解析模型决策，并引导 Plan Run 规划完整阶段路线；不拥有 Goal 持久化。
+默认模型执行器工厂；请求、调用、解码与协调实现分别归各自拥有者。
 
 阅读 [模块说明](./notes/overview.md)、[语义表](./notes/semantics.md)。

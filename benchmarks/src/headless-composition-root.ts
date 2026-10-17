@@ -2,7 +2,7 @@ import type { ToolRegistry } from "../../packages/tool-core/src/index.js";
 import { isDeepStrictEqual } from "node:util";
 import { randomUUID } from "node:crypto";
 
-import { LLMStepExecutor } from "../../packages/model-execution/src/index.js";
+import { createAgentExecutor } from "../../packages/agent/src/index.js";
 import type { LLMAdapter } from "../../packages/llm/src/core/adapter.js";
 import type { LLMRequest, LLMResponse } from "../../packages/llm/src/core/types.js";
 import { readNormalizedUsage, type NormalizedUsage } from "../../packages/llm/src/core/usage.js";
@@ -611,7 +611,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
             });
             const runner = new Runner({
                 store: bindings.goalStore,
-                executor: new LLMStepExecutor({
+                executor: await createAgentExecutor({
                     adapter: usageRecorder,
                     renderer: this.dependencies.renderer,
                     contextCompactor: this.dependencies.contextCompactor,

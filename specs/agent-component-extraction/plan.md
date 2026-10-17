@@ -48,7 +48,7 @@
   - 实现：先提取单次调用与最小诊断入口，再迁移 `LLMStepExecutor`、Binding、阶段结果/frame/Action 身份组装和反馈转换到 `model-execution`；收窄调用上下文，保留记录顺序与来源，不把完整 Binding 交给调用或响应包。三个阶段组合已有请求/调用/解码入口，不新增重试、关闭或 Hook。原 Agent 只剩待收敛的装配入口；原执行器消费者先直接引用实际拥有者。TODO 1 对照测试与数据迁入 `packages/model-execution/test/component-extraction-baseline.test.ts`，保留基线内容及来源指纹。
   - 检查：`npx tsx --test packages/model-call/test/*.test.ts packages/model-execution/test/*.test.ts packages/runtime/test/think-decision-recovery.test.ts packages/runtime/test/run-stage-recovery.test.ts`；`npx tsc --noEmit`；`npm run check:dependencies`。检查借用依赖未被关闭，以及流失败、解码失败和取消仍保持原分类和可见性。
 
-- [ ] //TODO 7. 默认装配执行器并接入 Web 与 Headless 两类宿主
+- [x] //TODO 7. 默认装配执行器并接入 Web 与 Headless 两类宿主
   - 落实标准：[2.1](./spec.md#spec-req-2-1)、[2.2](./spec.md#spec-req-2-2)、[2.3](./spec.md#spec-req-2-3)、[2.4](./spec.md#spec-req-2-4)、[3.1](./spec.md#spec-req-3-1)、[3.2](./spec.md#spec-req-3-2)、[3.3](./spec.md#spec-req-3-3)、[4.1](./spec.md#spec-req-4-1)、[4.4](./spec.md#spec-req-4-4)。
   - 先验证：拟新增 `packages/agent/test/create-agent-executor.test.ts` 比较默认工厂与直接执行器的同依赖后果，覆盖显式 Renderer/Compactor 原样使用、默认资源错误、构造期零模型/工具调用和无信号/端口/退出副作用。扩展现有 goal-server 模型切换/浏览器集成、Headless 组合根测试，并增加拟新增 `benchmarks/test/agent-components-recovery.integration.test.ts`，以临时文件和计数替身验证等待、重建同一 Run、已提交 frame、终态显式后继 Run及拒绝路径。
   - 实现：`agent` 仅实现并导出 `createAgentExecutor` 与自身参数契约；默认 Renderer 和 Compactor 来自所属包，借用依赖不创建全局状态或关闭机制。goal-server 与 Headless 在实际装配入口异步接入工厂，其余能力直接引用所有者；保持模型安全点、权限、Runtime 提交和资源生命周期。若此前 Runtime Spec 已实施，仅调整当时装配文件的模型接线，不迁移 Benchmark Runtime 编排或改变另一 Spec。

@@ -12,7 +12,7 @@ LazyGoal 是 Goal 驱动、可恢复的 Agent Runtime。使用 `node bin/lazygoa
 - [SWE-bench 评测](benchmarks/swebench/README.md)
 - [TUA-Bench 评测](benchmarks/tua-bench/README.md)
 - [ACP 服务与客户端](packages/acp/README.md)
-- [Agent 模型请求](packages/agent/README.md)
+- [Agent 默认装配](packages/agent/README.md)
 - [浏览器服务边界](packages/browser/README.md)
 - [配置解析](packages/config/README.md)
 - [上下文预算](packages/context-budget/README.md)
