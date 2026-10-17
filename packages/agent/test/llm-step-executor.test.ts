@@ -1364,3 +1364,48 @@ test("Runner 拒绝重放已提交结果的 Action，并在有界尝试后终止
     assert.equal(repairs.length, 3, "重复提交必须被有界拒绝（三次尝试），而不是执行");
     assert.equal(result.state.status, "failed");
 });
+
+test("Runner 在批次执行中被取消时不再启动后续 Action", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const controller = new AbortController();
+    const executed: string[] = [];
+    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createToolRegistration({
+        definition: { id, description: id, isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
+        replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute({ input }) {
+            executed.push((input as { path: string }).path);
+            // 第一个 Action 执行期间取消：后续 Action 与后续模型调用都不得开始。
+            if (executed.length === 1) controller.abort();
+            return { kind: "success", output: { text: "ok" }, summary: "Observed" };
+        },
+    })));
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        async generate() {
+            return { content: "", toolCalls: [
+                { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                { callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+            ] };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-cancel", intent: "Read two files", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["read_a", "read_b"] } });
+    await store.save({
+        ...created,
+        state: { ...created.state, run: { ...created.state.run,
+            exposedToolIds: ["read_a", "read_b"],
+            currentStage: { stageId: "stage-1", revision: 1, status: "executing" as const, target: "Read two files", acceptanceCriteria: ["done"] } } },
+    });
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const outcome = await runner.run({ goalId, runId: "run-batch-cancel" }, {}, { signal: controller.signal })
+        .then(() => "returned", (error: unknown) => error);
+    assert.deepEqual(executed, ["a.md"], "取消后不得启动后续 Action");
+    assert.equal(outcome === "returned" || outcome instanceof Error, true);
+    // 取消不终止 Run：停在最后一次提交边界，保持可恢复（R6-1）。
+    const restored = (await store.restore(goalId))!;
+    assert.equal(restored.state.run.status, "running");
+    assert.equal(restored.state.run.pendingAction?.action.actionId, "call-a", "取消点仍是已暂存且未完成的 Action");
+    assert.deepEqual(restored.state.run.pendingActionBatch?.remaining.map(call => call.actionId), ["call-b"],
+        "未启动的 Action 必须保留在批次队列中，未被视为已完成");
+});

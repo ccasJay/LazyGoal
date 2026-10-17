@@ -24,7 +24,7 @@
   - 实施目标：Runner 对多调用批次按模型返回顺序逐个执行：每个 Action 执行前独立通过 Tool 可用性、输入 Contract、执行策略与授权检查；需要审批的 Action 单独进入审批，不互相放大授权；每个 Action 成功执行结果各计一次 Step，判断与审批等待不计步；每个 Action 的 Observation 独立归属；某 Action 需人工等待或遇不可纠正故障时停止执行后续 Action 并保存可恢复等待或明确失败，已执行结果不回滚、不改写、不隐藏；一个批次至多一个结构化控制请求且必须是最后一个，其后的调用不得执行。严禁并发与乱序重排。
   - 验证手段：`packages/runtime/test/` 新增"未通过判断的 Action 不执行且不放行""审批不扩大到同批其它 Action""中途等待时后续停止且已执行结果保留""控制请求必须是最后一个且其后的调用不执行""每个 Action 各计一次 Step""Observation 独立归属"断言；Red 先行。
 
-- [ ] //TODO 5. 批次执行中的恢复与取消
+- [x] //TODO 5. 批次执行中的恢复与取消
   - 落实标准：[4.3](./spec.md#spec-req-4-3), [6.1](./spec.md#spec-req-6-1)
   - 实施目标：在批次执行、继续生成、纠错或审批等待过程中中断并恢复时，依据已可靠提交的状态与尝试计数继续或明确失败；未提交的 Assistant 文本、模型决策与 Action 结果不得视为已生效；取消信号必须能打断批次中尚未开始的 Action，且不留下半提交状态。
   - 验证手段：`packages/runtime/test/` 新增"批次中断后从第一个未提交 Action 继续""取消后不执行后续 Action 且状态可恢复"断言；Red 先行。
@@ -74,5 +74,6 @@
   - `packages/agent/test/native-model-history.test.ts`：原生 Decide 的多调用成为有序批次。
   - `packages/storage/test/goal-snapshot-current.test.ts`：`pendingActionBatch` 往返保留身份、顺序与剩余项；`pendingModelRepair` 两级计数往返。
   - `apps/goal-server/test/prompt-bundle-integration.test.ts`：非法 wire 文本返回时仍不产生任何 Tool 副作用，终态原因对齐零调用正文语义。
-- 未覆盖（不在本轮证据范围）：R4-1/R4-2 的"批准不得把授权范围扩大到同批其它 Action"缺少直接断言；R4-3/R6-2 的"恢复后不重放"目前由"重复 actionId 被拒绝"间接覆盖，缺少独立的中断-恢复用例；TODO 5 的取消与恢复用例、TODO 6 的界面分类断言尚未编写。
+  - 取消语义：批次执行中被取消时不再启动后续 Action，Run 停在最后一次提交边界保持 `running` 可恢复，未启动的 Action 保留在批次队列中且未被视为已完成。
+- 未覆盖（不在本轮证据范围）：R4-1/R4-2 的"批准不得把授权范围扩大到同批其它 Action"缺少直接断言；R4-3/R6-2 的"恢复后不重放"由"重复 actionId 被拒绝"与"取消后队列保留"间接覆盖，缺少独立的"中断-恢复后从第一个未产生结果的 Action 继续"用例；TODO 6 的界面分类断言尚未编写。
 - 待人工验证：真实多调用批次的端到端体验（费用、延迟、UI 呈现）需人工确认，未运行前不得宣称端到端通过。
