@@ -83,6 +83,91 @@ const FILE_BOUNDARY_RULES = [
     },
 ];
 
+/**
+ * 按目录约束的组件边界：目录内生产代码不得反向依赖宿主实现，
+ * 不得直接请求进程退出或注册进程信号。
+ */
+const COMPONENT_BOUNDARIES = [
+    {
+        label: "Goal Server 运行时组件",
+        rootPrefix: "apps/goal-server/src/runtime/",
+        forbidProcessApi: true,
+        forbidden: [
+            { prefix: "apps/goal-server/src/cli.ts", reason: "宿主 CLI" },
+            { prefix: "apps/goal-server/src/composition-root.ts", reason: "HTTP 组合根" },
+            { prefix: "packages/browser/src/", reason: "Browser 传输实现" },
+            { prefix: "packages/http/src/", reason: "HTTP 宿主实现" },
+            { prefix: "packages/web-contracts/src/", reason: "Web wire DTO" },
+            { module: "node:http", reason: "Node HTTP 服务实现" },
+            { module: "node:https", reason: "Node HTTP 服务实现" },
+        ],
+    },
+    {
+        label: "执行装配组件",
+        file: "apps/goal-server/src/runtime/execution-composition.ts",
+        forbidProcessApi: false,
+        forbidden: [
+            { prefix: "packages/agent/src/", reason: "具体 Agent/LLM 实现" },
+            { prefix: "packages/llm/src/", reason: "具体 Agent/LLM 实现" },
+            { prefix: "packages/config/src/", reason: "应用配置解析" },
+            { prefix: "packages/storage/src/", reason: "具体文件存储" },
+            { prefix: "packages/tools/src/", reason: "默认工具准备" },
+        ],
+    },
+    {
+        label: "Runtime 实例生命周期",
+        rootPrefix: "packages/runtime/src/lifecycle/",
+        forbidProcessApi: true,
+        forbidden: [
+            { prefix: "apps/", reason: "应用与宿主实现" },
+            { prefix: "packages/agent/src/", reason: "具体 Agent/LLM 实现" },
+            { prefix: "packages/llm/src/", reason: "具体 Agent/LLM 实现" },
+            { prefix: "packages/storage/src/", reason: "具体文件存储" },
+            { prefix: "packages/config/src/", reason: "应用配置解析" },
+            { prefix: "packages/tools/src/", reason: "默认工具准备" },
+            { prefix: "packages/http/src/", reason: "HTTP 宿主实现" },
+            { prefix: "packages/browser/src/", reason: "Browser 传输实现" },
+            { prefix: "packages/session-metrics/src/", reason: "指标投影实现" },
+            { prefix: "packages/web-contracts/src/", reason: "Web wire DTO" },
+        ],
+    },
+];
+
+/**
+ * 组件调用入口：组件目录之外的生产代码只能通过入口访问，不能穿透内部文件。
+ *
+ * 目录内部引用与测试中的定向导入不受此规则限制。
+ */
+const COMPONENT_ENTRY_RULES = [
+    {
+        label: "Goal Server 运行时组件",
+        rootPrefix: "apps/goal-server/src/runtime/",
+        entryPath: "apps/goal-server/src/runtime/index.ts",
+    },
+    {
+        label: "Runtime 实例生命周期",
+        rootPrefix: "packages/runtime/src/lifecycle/",
+        entryPath: "packages/runtime/src/lifecycle/index.ts",
+    },
+];
+
+/** 组件源码与其消费型测试不得解析到项目内构建产物；第三方依赖自己的产物目录不在此限。 */
+const COMPONENT_ARTIFACT_TEST_ROOTS = [
+    "apps/goal-server/test/",
+    "packages/runtime/test/",
+];
+
+const PROJECT_ARTIFACT_SEGMENTS = ["dist", "lib", "build"];
+
+/** 组件生产代码不得直接请求进程退出或注册进程信号。 */
+const PROCESS_API_PATTERNS = [
+    { label: "process.exit(", regex: /\bprocess\.exit\s*\(/ },
+    {
+        label: "process 信号监听",
+        regex: /\bprocess\.(?:on|once|addListener)\s*\(\s*["'`](?:SIGINT|SIGTERM|SIGHUP|SIGQUIT|SIGUSR1|SIGUSR2)["'`]/,
+    },
+];
+
 function fail(message) {
     throw new Error(message);
 }
@@ -109,6 +194,26 @@ function extractRelativeImports(text) {
         }
     }
     return imports;
+}
+
+/**
+ * 提取组件边界检查覆盖的全部模块引用。
+ *
+ * @remarks
+ * 除 `from` 形式外还覆盖侧效导入、字面量动态导入与 `require` 字面量，
+ * 避免通过重新导出或动态引用绕过边界；结果按出现顺序去重。
+ */
+function extractModuleSpecifiers(text) {
+    const imports = new Set();
+    for (const match of text.matchAll(/\bfrom\s*(['"])([^'"]+)\1/g)) imports.add(match[2]);
+    for (const match of text.matchAll(/\bimport\s*(['"])([^'"]+)\1/g)) imports.add(match[2]);
+    for (const match of text.matchAll(/\bimport\s*\(\s*(['"])([^'"]+)\1\s*\)/g)) imports.add(match[2]);
+    for (const match of text.matchAll(/\brequire\s*\(\s*(['"])([^'"]+)\1\s*\)/g)) imports.add(match[2]);
+    return [...imports];
+}
+
+function isRelativeSpecifier(specifier) {
+    return specifier.startsWith("./") || specifier.startsWith("../");
 }
 
 /** 将相对 specifier 解析为 import 源文件相对 projectRoot 的 POSIX 路径。 */
@@ -197,6 +302,132 @@ function benchmarkNameOf(filePath) {
     return match === null || !BENCHMARKS.includes(match[1]) ? null : match[1];
 }
 
+/** 收集组件边界、入口规则与消费型测试涉及的文件。 */
+async function collectComponentBoundaryFiles(projectRoot) {
+    const files = [];
+    for (const root of [
+        path.join(projectRoot, "apps", "goal-server", "src"),
+        path.join(projectRoot, "apps", "goal-server", "test"),
+        path.join(projectRoot, "packages", "runtime", "src"),
+        path.join(projectRoot, "packages", "runtime", "test"),
+    ]) {
+        await walkSourceFiles(root, files);
+    }
+    return files.sort();
+}
+
+function toProjectRelativePath(projectRoot, absolutePath) {
+    return path.relative(projectRoot, absolutePath).split(path.sep).join("/");
+}
+
+function isInsideProject(relativePath) {
+    return relativePath !== "" && relativePath !== ".." && !relativePath.startsWith("../");
+}
+
+function matchesProjectPrefix(relativePath, prefix) {
+    const normalizedPath = normalizeModuleTarget(relativePath);
+    const normalizedPrefix = normalizeModuleTarget(prefix);
+    if (normalizedPath === normalizedPrefix) return true;
+    return normalizedPath.startsWith(normalizedPrefix.endsWith("/") ? normalizedPrefix : `${normalizedPrefix}/`);
+}
+
+/** TS 模块引用通常省略扩展名；比较前统一去掉单个文件扩展名。 */
+function normalizeModuleTarget(relativePath) {
+    return relativePath.replace(/\.(ts|tsx|js|mjs|cjs)$/, "");
+}
+
+function isTestFilePath(relativePath) {
+    return relativePath.includes("/test/") || relativePath.startsWith("test/");
+}
+
+function hasProjectArtifactSegment(relativePath) {
+    const segments = relativePath.split("/");
+    return PROJECT_ARTIFACT_SEGMENTS.some((segment) => segments.includes(segment));
+}
+
+function normalizeEntryPath(relativePath) {
+    return relativePath.replace(/\.tsx?$/, "").replace(/\/index$/, "");
+}
+
+/**
+ * 分析组件目录边界、调用入口与项目内构建产物使用。
+ *
+ * @param projectRoot - 仓库根目录。
+ * @returns 每条违规对应的稳定中文描述；无违规时返回空数组。
+ */
+async function analyzeComponentBoundaries(projectRoot) {
+    const violations = [];
+
+    for (const file of await collectComponentBoundaryFiles(projectRoot)) {
+        const relativePath = toProjectRelativePath(projectRoot, file);
+        const text = await readFile(file, "utf8");
+        const specifiers = extractModuleSpecifiers(text);
+        const boundaries = COMPONENT_BOUNDARIES.filter((candidate) =>
+            candidate.file !== undefined
+                ? candidate.file === relativePath
+                : relativePath.startsWith(candidate.rootPrefix));
+
+        for (const boundary of boundaries) {
+            for (const specifier of specifiers) {
+                const targetRelative = toProjectRelativePath(
+                    projectRoot,
+                    path.resolve(path.dirname(file), specifier),
+                );
+                for (const rule of boundary.forbidden) {
+                    const hit = rule.module !== undefined
+                        ? specifier === rule.module
+                        : isRelativeSpecifier(specifier)
+                            && isInsideProject(targetRelative)
+                            && matchesProjectPrefix(targetRelative, rule.prefix);
+                    if (hit) {
+                        violations.push(
+                            `组件边界违规：${boundary.label} 不得导入 ${rule.reason}（${relativePath} 引用 ${specifier}）`,
+                        );
+                    }
+                }
+            }
+
+            if (boundary.forbidProcessApi === true) {
+                for (const pattern of PROCESS_API_PATTERNS) {
+                    if (pattern.regex.test(text)) {
+                        violations.push(
+                            `组件边界违规：${boundary.label} 不得直接请求进程退出或注册进程信号（${relativePath} 包含 ${pattern.label}）`,
+                        );
+                    }
+                }
+            }
+        }
+
+        const isConsumingTest = COMPONENT_ARTIFACT_TEST_ROOTS.some((root) => relativePath.startsWith(root));
+
+        for (const specifier of specifiers) {
+            if (!isRelativeSpecifier(specifier)) continue;
+            const targetRelative = toProjectRelativePath(
+                projectRoot,
+                path.resolve(path.dirname(file), specifier),
+            );
+            if (!isInsideProject(targetRelative) || targetRelative.startsWith("node_modules/")) continue;
+
+            if ((boundaries.length > 0 || isConsumingTest) && hasProjectArtifactSegment(targetRelative)) {
+                violations.push(
+                    `构件导入违规：${relativePath} 不得导入项目内构建产物（引用 ${specifier}）`,
+                );
+            }
+
+            for (const entryRule of COMPONENT_ENTRY_RULES) {
+                if (relativePath.startsWith(entryRule.rootPrefix) || isTestFilePath(relativePath)) continue;
+                if (!matchesProjectPrefix(targetRelative, entryRule.rootPrefix)) continue;
+                if (normalizeEntryPath(targetRelative) === normalizeEntryPath(entryRule.entryPath)) continue;
+                violations.push(
+                    `组件入口违规：${relativePath} 必须通过 ${entryRule.entryPath} 访问${entryRule.label}（引用 ${specifier}）`,
+                );
+            }
+        }
+    }
+
+    return violations;
+}
+
 /**
  * 分析源码依赖方向并返回违反边界的情况列表。
  *
@@ -283,6 +514,8 @@ export async function analyzeDependencies(projectRoot) {
             }
         }
     }
+
+    violations.push(...await analyzeComponentBoundaries(projectRoot));
 
     return violations.sort();
 }

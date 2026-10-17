@@ -283,7 +283,7 @@ test("恢复 Goal 时，若快照 Provider 与当前环境不兼容，则阻止�
             saveNotifications: root.notifyingStore,
             profileId: "default",
             launcher: root.browserLauncher,
-            coordinator: root.coordinator,
+            coordinator: root.commands,
             restoreModelBinding: async (g) => {
                 if (g.state.modelSelection.provider !== root.defaultModelSelection.provider) return false;
                 try { root.alignModelBinding(g.state.modelSelection); return true; } catch { return false; }
@@ -380,7 +380,7 @@ test("浏览器推进交替恢复各 Goal 的模型绑定，不串用上一个 G
             saveNotifications: root.notifyingStore,
             profileId: "default",
             launcher: root.browserLauncher,
-            coordinator: root.coordinator,
+            coordinator: root.commands,
             restoreModelBinding: async (goal) => {
                 if (goal.state.modelSelection.provider !== root.defaultModelSelection.provider) return false;
                 try { root.alignModelBinding(goal.state.modelSelection); return true; } catch { return false; }
@@ -481,7 +481,7 @@ test("服务重启后首次 Web 推进从 Snapshot 恢复模型而不回退默�
             saveNotifications: restoredRoot.notifyingStore,
             profileId: "default",
             launcher: restoredRoot.browserLauncher,
-            coordinator: restoredRoot.coordinator,
+            coordinator: restoredRoot.commands,
             restoreModelBinding: async (goal) => {
                 if (goal.state.modelSelection.provider !== restoredRoot.defaultModelSelection.provider) return false;
                 try { restoredRoot.alignModelBinding(goal.state.modelSelection); return true; } catch { return false; }
