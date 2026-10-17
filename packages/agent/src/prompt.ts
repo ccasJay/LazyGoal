@@ -11,24 +11,22 @@ import type { ToolDiscoveryResult } from "../../runtime/src/tool-discovery";
 import type { ContextCompactor } from "../../context-budget/src/index";
 import {
     ConversationContextUnitAdapter,
+    ModelContextAssemblyError,
+    ModelInferenceProjector,
     flattenContextUnits,
-} from "./conversation-context-unit-adapter";
+    type TrajectoryModelContextAssembler,
+} from "../../model-context/src/index";
 import type {
     ModelConversationMessage,
     ModelInferenceView,
     PromptStage,
-} from "./model-inference-view";
-import { ModelInferenceProjector } from "./model-inference-projector";
+} from "../../model-view/src/index";
 import {
     planDynamicSectionUpdates,
     type DynamicSectionUpdatePlan,
 } from "./prompting/dynamic-section-diff";
 import type { PromptBundleRenderer } from "./prompting/types";
 import { renderRequest, renderWorkingContextMessage } from "./render";
-import {
-    ModelContextAssemblyError,
-    type TrajectoryModelContextAssembler,
-} from "./trajectory-model-context-assembler";
 import {
     TokenBudgetPlanner,
     type ModelCapabilities,
@@ -49,7 +47,7 @@ import {
     createModelOutputContractBundle,
 } from "../../model-contracts/src/index";
 
-export type { ModelInferenceView } from "./model-inference-view";
+export type { ModelInferenceView } from "../../model-view/src/index";
 export type { StructuredOutputMode } from "../../config/src/index";
 
 /**

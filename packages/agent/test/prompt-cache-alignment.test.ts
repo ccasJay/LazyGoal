@@ -16,7 +16,7 @@ import {
 } from "./current-fixtures";
 import {
     TrajectoryModelContextAssembler,
-} from "../src/index";
+} from "../../model-context/src/index";
 import {
     createModelContextBudgetPolicy,
     DropOldestContextCompactor,

@@ -1,4 +1,4 @@
-import { projectContextLookupResult } from "../src/context-lookup-projection";
+import { projectContextLookupResult } from "../../model-context/src/index";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type { NativeConversationIdentity } from "../../model-contracts/src/index";
 import type { RuntimeFeedback } from "../../runtime/src/runtime-feedback";
@@ -46,22 +46,24 @@ import type {
     ModelConversationMessage,
     ModelContextLookupResult,
     ModelInferenceView,
-} from "../src/model-inference-view";
+} from "../../model-view/src/index";
 
 const PATH_INPUT_CONTRACT = contract.object({ path: contract.string() });
 import type { PromptBundleRenderer } from "../src/prompting/types";
 import { buildStepRequest } from "../src/prompt";
 import {
     createDefaultPromptBundleRenderer,
-    TrajectoryModelContextAssembler,
 } from "../src/index";
+import {
+    TrajectoryModelContextAssembler,
+} from "../../model-context/src/index";
 import {
     createModelContextBudgetPolicy,
     DropOldestContextCompactor,
 } from "../../context-budget/src/index";
 import type { ContextCompactor } from "../../context-budget/src/index";
-import { ModelInferenceProjector } from "../src/model-inference-projector";
-import type { TrajectoryModelContextAssemblyInput } from "../src/trajectory-model-context-assembler";
+import { ModelInferenceProjector } from "../../model-context/src/index";
+import type { TrajectoryModelContextAssemblyInput } from "../../model-context/src/index";
 import { currentProtocols, currentWorkingMemory } from "./current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();

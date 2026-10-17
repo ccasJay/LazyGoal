@@ -12,7 +12,7 @@ import {
 } from "../../context-budget/src/index";
 import type {
     ModelInferenceView,
-} from "../src/index";
+} from "../../model-view/src/index";
 import type {
     AgentProfile,
     Goal,

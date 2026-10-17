@@ -11,9 +11,10 @@ import { createToolRegistration, InMemoryToolRegistry } from "../../tool-core/sr
 import { JsonFileGoalStore, JsonFileTrajectoryStore, InMemoryGoalStore } from "../../storage/src/index";
 import { collectNativeModelExchanges } from "../src/native-model-history";
 import { TrajectoryEventProjector } from "../src/trajectory-event-projector";
-import { createDefaultPromptBundleRenderer, createModelExecutionBinding, LLMStepExecutor, ModelInferenceProjector, TrajectoryModelContextAssembler } from "../src/index";
+import { ModelInferenceProjector, TrajectoryModelContextAssembler } from "../src/index";
+import { createDefaultPromptBundleRenderer, createModelExecutionBinding, LLMStepExecutor } from "../../agent/src/index";
 import { createDefaultModelContextBudgetPolicy, createModelContextBudgetPolicy, DropOldestContextCompactor } from "../../context-budget/src/index";
-import { buildStepRequest } from "../src/prompt";
+import { buildStepRequest } from "../../agent/src/prompt";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../llm/src/core/adapter";
 import { currentProtocols, currentWorkingMemory, createInMemoryTrajectoryStore } from "./current-fixtures";
 

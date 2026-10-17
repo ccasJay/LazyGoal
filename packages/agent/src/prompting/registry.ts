@@ -3,7 +3,7 @@ import type {
     ModelContextRetrievalProtocol,
     ModelMemoryProtocol,
     PromptStage,
-} from "../model-inference-view";
+} from "../../../model-view/src/index";
 import {
     isContextRetrievalProtocol,
     isModelContextProtocol,

@@ -5,7 +5,7 @@ import type {
     ModelWorkingContext,
     ModelContextLookupResult,
     ModelContextEpochView,
-} from "./model-inference-view";
+} from "../../model-view/src/index";
 import type { PromptBundleRenderer } from "./prompting/types";
 import type { DynamicSectionUpdateMessage } from "./prompting/dynamic-section-diff";
 

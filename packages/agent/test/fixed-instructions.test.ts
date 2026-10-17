@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { getEncoding } from "js-tiktoken";
 
 import { createDefaultPromptBundleRenderer } from "../src/prompting/default-bundles";
-import type { PromptContext, PromptStage } from "../src/model-inference-view";
+import type { PromptContext, PromptStage } from "../../model-view/src/index";
 
 const protocols = {
     memoryProtocol: { kind: "structured" as const, version: 1 as const },

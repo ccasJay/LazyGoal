@@ -9,7 +9,7 @@ import type {
 import {
     createDefaultModelContextBudgetPolicy,
 } from "../../context-budget/src/index";
-import { TrajectoryModelContextAssembler } from "../src/index";
+import { TrajectoryModelContextAssembler } from "../../model-context/src/index";
 
 export const currentProtocols = {
     memoryProtocol: { kind: "structured" as const, version: 1 as const },

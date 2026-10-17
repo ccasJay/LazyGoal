@@ -5,7 +5,7 @@
 
 ## 职责
 
-Agent 将 Runtime 提供的 Goal、Profile、授权 Tool、当前 Run 的 `exposedToolIds`、Working Memory 和已提交 Context Lookup 结果投影为模型请求。业务 Schema 只取授权目录与暴露 ID 的交集，并统一供 Prompt、Wire Contract、native declarations 和 PTC 子工具说明使用。Decide 可通过 `system_find_tools` 请求 Runtime 查询工具目录；匹配结果只作为下一次 Decide 的临时反馈，Think 不带发现分支或系统工具声明。主要入口是 [`LLMStepExecutor`](../src/llm-step-executor.ts)、[`model-inference-view.ts`](../src/model-inference-view.ts)、[`prompt.ts`](../src/prompt.ts) 和 [`render.ts`](../src/render.ts)。Decide 指引大量文件审阅先发现 `execute_program` 及其子工具；程序入口暴露后，Prompt 指引模型批量读取、过滤并返回简洁证据，简单或依赖逐项推理的操作可直接调用 Tool。PTC 内部调用事实不进入原生历史、Hot/Warm 或检索索引，只有已结算的父程序结果参与下一次模型请求。Agent 不保存 Goal，不执行 Tool，不生成 Runtime ID，也不决定审批结果。模型输入计量、预算分配、完整单元选择与确定性序列化归 [上下文预算](../../context-budget/README.md)；本包只按现有调用顺序消费其策略与裁剪结果。
+Agent 将 Runtime 提供的 Goal、Profile、授权 Tool、当前 Run 的 `exposedToolIds`、Working Memory 和已提交 Context Lookup 结果投影为模型请求。业务 Schema 只取授权目录与暴露 ID 的交集，并统一供 Prompt、Wire Contract、native declarations 和 PTC 子工具说明使用。Decide 可通过 `system_find_tools` 请求 Runtime 查询工具目录；匹配结果只作为下一次 Decide 的临时反馈，Think 不带发现分支或系统工具声明。主要入口是 [`LLMStepExecutor`](../src/llm-step-executor.ts)、[`prompt.ts`](../src/prompt.ts) 和 [`render.ts`](../src/render.ts)；Runtime→模型投影与已提交历史组装归 [模型上下文组装](../../model-context/README.md)，模型可见表示归 [模型视图](../../model-view/README.md)。Decide 指引大量文件审阅先发现 `execute_program` 及其子工具；程序入口暴露后，Prompt 指引模型批量读取、过滤并返回简洁证据，简单或依赖逐项推理的操作可直接调用 Tool。PTC 内部调用事实不进入原生历史、Hot/Warm 或检索索引，只有已结算的父程序结果参与下一次模型请求。Agent 不保存 Goal，不执行 Tool，不生成 Runtime ID，也不决定审批结果。模型输入计量、预算分配、完整单元选择与确定性序列化归 [上下文预算](../../context-budget/README.md)；本包只按现有调用顺序消费其策略与裁剪结果。
 
 ## Prompt Bundle
 
@@ -23,9 +23,9 @@ Run 模式、已批准任务、GoalPlan、授权工具和 Working Memory 不进�
 
 ## 单轮请求
 
-`ModelInferenceProjector` 从 Goal 生成深冻结的 `ModelInferenceView`，包括固定 Prompt 上下文、动态运行状态（含当前活动阶段 `currentStage` 目标、条件与审查反馈投影）、真实 Conversation、Working Memory、Context Epoch 和可选的已提交 Lookup Result。模型只能看到稳定 DTO，不能提交 Runtime 的 Goal/Run、Step、Epoch、Todo ID、Action ID 或内部计数。
+`ModelInferenceProjector`（[模型上下文组装](../../model-context/README.md)）从 Goal 生成深冻结的 `ModelInferenceView`，包括固定 Prompt 上下文、动态运行状态（含当前活动阶段 `currentStage` 目标、条件与审查反馈投影）、真实 Conversation、Working Memory、Context Epoch 和可选的已提交 Lookup Result。模型只能看到稳定 DTO，不能提交 Runtime 的 Goal/Run、Step、Epoch、Todo ID、Action ID 或内部计数。
 
-`buildStepRequest` 在单次调用内完成上下文组装、预算裁剪和 Prompt 渲染，并返回与请求绑定的 `ModelOutputContractBundle`。`TrajectoryModelContextAssembler` 按 Goal Snapshot 的 committed boundary、Goal/Run、当前 Decide/Think 阶段、Epoch、Conversation 起点和注册身份筛选 Section frame，并在同一次 Trajectory 读取中构造固定预算输入及 Hot/Warm 上下文。Planner 将每个当前 Section 的最新状态重建进无状态请求；变化只产生完整替换或失效更新，未变化 Section 沿用已提交的最新消息。Epoch 切换、历史裁剪或缺少有效基线时，当前投影会重新完整注入。
+`buildStepRequest` 在单次调用内完成上下文组装、预算裁剪和 Prompt 渲染，并返回与请求绑定的 `ModelOutputContractBundle`。`TrajectoryModelContextAssembler`（[模型上下文组装](../../model-context/README.md)）按 Goal Snapshot 的 committed boundary、Goal/Run、当前 Decide/Think 阶段、Epoch、Conversation 起点和注册身份筛选 Section frame，并在同一次 Trajectory 读取中构造固定预算输入及 Hot/Warm 上下文。Planner 将每个当前 Section 的最新状态重建进无状态请求；变化只产生完整替换或失效更新，未变化 Section 沿用已提交的最新消息。Epoch 切换、历史裁剪或缺少有效基线时，当前投影会重新完整注入。
 
 请求顺序为固定 system、保留的真实 Conversation、按注册顺序排列的动态 section、本轮 Working Context；Working Memory 单独作为动态 section 提供，不重复进入尾部控制消息。每次候选请求都把原生 Tool schema 和单调用指令纳入输入预算；Decide 挂载工具时不再携带顶层决策 Schema 或文本 JSON Shape Guide；裁剪 Conversation 后会重算动态更新并保留当前 checkpoint 控制消息，必需内容仍超限则在调用模型前失败。请求计划同时返回本次新增 Section frame 元数据，供 Runtime 提交路径持久化。Assembler 把带已批准 `action_staged` 的完整 Tool Action/Observation 执行单元投影到下一轮 Hot/Warm 上下文；未提交、缺少 staging 或不完整单元不可见。
 
@@ -67,9 +67,9 @@ Agent 不拥有 UI；当 Adapter 提供 `stream` 时，`LLMStepExecutor` 将模�
 
 OpenAI Chat Completions 与 Gemini 的 Decide 请求从 Snapshot 提交边界内重建原生调用交换。Agent 返回规范化响应，Runner 随接受的阶段 checkpoint 提交 `model_response_received`；诊断和输入日志不参与恢复。供应商调用 ID 与 Runtime Action ID 独立，工具 Observation、lookup 结果、已提交 Think 输出或系统决策接受确认按调用 ID 配对。审批等待和未结算调用不进入下一请求。
 
-同身份的近期交换按 Conversation 位置插入请求；调用、结果及签名以完整执行单元参与 Hot 预算，被替代的结果不再重复写入 Hot 文本或 previousStep。已纳入请求的原生工具交换消除 Hot 投影中重复的 `action_staged` 与 `tool_started` 动作参数，只保留必要操作身份与状态；原生路径的动态授权 Section 移除重复参数 Schema，仅保留授权身份、描述及 `execute_program` 等必要指导；`prompt_only` 模式保留完整解码 Schema。当前未结束 Step 的已结算 Think 交换也可见，输出只通过配对 tool result 发送。较旧单元由原始语义投影提取 Warm；切换 provider、端点、模型、协议或进入语义 Adapter 路径结束旧续接段。Think 请求保持纯文本，不携带原生调用历史。契约见 [model-conversation.ts](../../model-contracts/src/model-conversation.ts)，组装见 [native-model-history.ts](../src/native-model-history.ts)。
+同身份的近期交换按 Conversation 位置插入请求；调用、结果及签名以完整执行单元参与 Hot 预算，被替代的结果不再重复写入 Hot 文本或 previousStep。已纳入请求的原生工具交换消除 Hot 投影中重复的 `action_staged` 与 `tool_started` 动作参数，只保留必要操作身份与状态；原生路径的动态授权 Section 移除重复参数 Schema，仅保留授权身份、描述及 `execute_program` 等必要指导；`prompt_only` 模式保留完整解码 Schema。当前未结束 Step 的已结算 Think 交换也可见，输出只通过配对 tool result 发送。较旧单元由原始语义投影提取 Warm；切换 provider、端点、模型、协议或进入语义 Adapter 路径结束旧续接段。Think 请求保持纯文本，不携带原生调用历史。契约见 [model-conversation.ts](../../model-contracts/src/model-conversation.ts)，组装见 [native-model-history.ts](../../model-context/src/native-model-history.ts)。
 
-Context Lookup 的 found、not_found、lookup_error 模型投影统一标记 `sourceScope: goal_history` 与来源限制；普通上下文和原生工具结果共用该投影。语料不搜索仓库文件，未命中不证明文件或决策不存在。用户指定资料尚缺时通过授权文件工具读取，充分已有来源可复用。完成审查同样接收范围说明，并核对指定来源与实际交付物；通用示例不能替代要求的真实案例，是否附带 Memory Patch 不影响判断。
+Context Lookup 的 found、not_found、lookup_error 模型投影统一标记 `sourceScope: goal_history` 与来源限制；普通上下文和原生工具结果共用该投影。语料不搜索仓库文件，未命中不证明文件或决策不存在。用户指定资料尚缺时通过授权文件工具读取，充分已有来源可复用。完成审查同样接收范围说明，并核对指定来源与实际交付物；通用示例不能替代要求的真实案例，是否附带 Memory Patch 不影响判断。Lookup 与阶段导航投影归 [模型上下文组装](../../model-context/README.md)。
 
 来源选择与 Memory 修复的固定单步评测沿用 `npm run llm:decision-eval`，完成审查评测使用 `npm run llm:decision-eval -- --completion-review`。新来源场景使用实际文件 Tool Schema 和生产反馈消息注入，每项重复三次；缺失调用标记 incomplete，任何新场景失败不通过。报告只衡量固定单步／候选判断，不代表长期任务成功率。
 

@@ -1,6 +1,7 @@
+import type { ContextLookupFilters, ContextLookupOperation } from "../../model-contracts/src/index";
+import type { ContextLookupMatchedField } from "../../context-retrieval/src/index";
 import type { ModelContextBudgetPlan } from "../../context-budget/src/index";
-import type { ModelExecutionUnitProjection } from "./trajectory-event-projector";
-import type { WarmCompactEntry } from "./warm-reducer";
+import type { ModelExecutionUnitProjection, WarmCompactEntry } from "./model-history-view";
 
 
 /**
@@ -159,10 +160,10 @@ export type ModelStepRecord =
             | { readonly kind: "fail"; readonly error: string }
             | {
                 readonly kind: "context_lookup";
-                readonly operation?: import("../../model-contracts/src/index").ContextLookupOperation;
+                readonly operation?: ContextLookupOperation;
                 readonly need?: "conversation_history" | "historical_execution" | "decision_rationale";
                 readonly question?: string;
-                readonly filters?: import("../../runtime/src/context-retrieval").ContextLookupFilters;
+                readonly filters?: ContextLookupFilters;
                 readonly query?: string;
                 readonly cursor?: string;
                 readonly limit?: number;
@@ -362,7 +363,7 @@ export interface ModelContextLookupMatch {
     readonly runId: string;
     readonly firstSequence: number;
     readonly lastSequence: number;
-    readonly matchedFields: readonly import("../../runtime/src/context-retrieval").ContextLookupMatchedField[];
+    readonly matchedFields: readonly ContextLookupMatchedField[];
     readonly score: number;
     readonly preview: string;
     readonly truncated: boolean;

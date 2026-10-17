@@ -9,8 +9,8 @@ import { createEmptyWorkingMemory } from "../../working-memory/src/index";
 import {
     createDefaultPromptBundleProtocolValidator,
     createDefaultPromptBundleRenderer,
-    ModelInferenceProjector,
 } from "../src/index";
+import { ModelInferenceProjector } from "../../model-context/src/index";
 import { UnsupportedPromptBundleVersionError } from "../src/prompting/errors";
 
 const profile: AgentProfile = {

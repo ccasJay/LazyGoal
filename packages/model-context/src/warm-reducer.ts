@@ -1,55 +1,6 @@
 import type { ModelInputEstimator } from "../../context-budget/src/index";
 import { CharacterModelInputEstimator } from "../../context-budget/src/index";
-
-/** Warm Compact 支持的语义分区。 */
-export type WarmEntryKind =
-    | "decision"
-    | "finding"
-    | "failure"
-    | "blocker"
-    | "unresolved";
-
-/** Warm 条目的生命周期状态。 */
-export type WarmEntryStatus = "active" | "resolved" | "superseded";
-
-/**
- * 可进入 Warm 层的有损条目。
- *
- * @remarks
- * 条目只描述 committed Trajectory 的中期语义，不替代 Goal Task、Working Memory
- * 或 Runtime 控制状态。`sourceHash` 和 evidence sequence 使其可验证；淘汰条目后
- * 原始事实仍留在 Cold Trajectory。
- *
- * @example
- * ```ts
- * const entry: WarmCompactEntry = {
- *     id: "finding-tests-pass",
- *     kind: "finding",
- *     summary: "单元测试已通过",
- *     status: "active",
- *     lossy: true,
- *     evidenceSequences: [18],
- *     firstSequence: 18,
- *     lastSequence: 18,
- *     lastAccessedSequence: 18,
- *     reinforcementCount: 1,
- *     sourceHash: "sha256:...",
- * };
- * ```
- */
-export interface WarmCompactEntry {
-    readonly id: string;
-    readonly kind: WarmEntryKind;
-    readonly summary: string;
-    readonly status: WarmEntryStatus;
-    readonly lossy: true;
-    readonly evidenceSequences: readonly number[];
-    readonly firstSequence: number;
-    readonly lastSequence: number;
-    readonly lastAccessedSequence: number;
-    readonly reinforcementCount: number;
-    readonly sourceHash: string;
-}
+import type { WarmCompactEntry, WarmEntryKind, WarmEntryStatus } from "../../model-view/src/index";
 
 /**
  * 单个 Warm 分区的条目数和计量容量。

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { evaluate } from "../src/evaluator.js";
 import type { JudgeRecord } from "../src/judge.js";
 import type { TrajectoryEvent } from "../../../packages/runtime/src/index.js";
-import { buildGoalContextNavigation } from "../../../packages/agent/src/goal-context-navigation.js";
+import { buildGoalContextNavigation } from "../../../packages/model-context/src/index.js";
 import {
     buildGoalContextIndex,
     executeDirectoryBrowse,

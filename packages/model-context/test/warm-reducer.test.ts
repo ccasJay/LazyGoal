@@ -7,9 +7,11 @@ import {
     reinforceWarmEntry,
 } from "../src/index";
 import type {
-    WarmCompactEntry,
     WarmPartitionQuota,
 } from "../src/index";
+import type {
+    WarmCompactEntry,
+} from "../../model-view/src/index";
 
 const sizeBySummary = {
     unit: "character" as const,

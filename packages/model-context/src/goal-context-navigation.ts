@@ -7,7 +7,7 @@ import type {
     ModelGoalContextNavigationStageEntry,
     ModelGoalContextNavigationView,
     ModelRunStageView,
-} from "./model-inference-view";
+} from "../../model-view/src/index";
 import { compareCodeUnits } from "../../context-budget/src/index";
 
 /**

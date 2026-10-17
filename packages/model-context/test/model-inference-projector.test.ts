@@ -38,7 +38,7 @@ import type {
 import type { ToolDefinition } from "../../tool-core/src/index";
 import { currentProtocols, currentWorkingMemory } from "./current-fixtures";
 import { ModelInferenceProjector } from "../src/model-inference-projector";
-import type { PromptStage } from "../src/model-inference-view";
+import type { PromptStage } from "../../model-view/src/index";
 
 const intent = "完成示例任务";
 const task = {

@@ -1,5 +1,5 @@
 import type { ContextUnit, ContextUnitAdapter } from "../../context-budget/src/index";
-import type { ModelConversationMessage } from "./model-inference-view";
+import type { ModelConversationMessage } from "../../model-view/src/index";
 
 // TODO(trajectory-context-adapter): Trajectory 必须通过独立 Adapter 映射为同一 ContextUnit，Compactor 不得依赖 Trajectory 类型。
 

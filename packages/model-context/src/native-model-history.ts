@@ -1,7 +1,7 @@
 import { ModelContextSourceError } from "./trajectory-execution-unit-adapter";
 import { sameNativeIdentity, type NativeConversationIdentity, type ModelAssistantMessage } from "../../model-contracts/src/index";
 import type { TrajectoryEvent } from "../../runtime/src/trajectory";
-import type { NativeModelExchange } from "./trajectory-event-projector";
+import type { NativeModelExchange } from "../../model-view/src/index";
 import { TrajectoryEventProjector } from "./trajectory-event-projector";
 
 /**

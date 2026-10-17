@@ -15,8 +15,10 @@ import { InMemoryGoalStore } from "../../storage/src/index";
 import { InMemoryTrajectoryStore } from "../../runtime/test/current-fixtures";
 import {
     createDefaultPromptBundleRenderer, LLMStepExecutor,
-    TrajectoryModelContextAssembler,
 } from "../../agent/src/index";
+import {
+    TrajectoryModelContextAssembler,
+} from "../../model-context/src/index";
 import {
     createDefaultModelContextBudgetPolicy,
     DropOldestContextCompactor,

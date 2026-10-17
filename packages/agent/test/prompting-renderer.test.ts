@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { PromptContext } from "../src/model-inference-view";
+import type { PromptContext } from "../../model-view/src/index";
 import { PromptRenderError } from "../src/prompting/errors";
 import { createPromptBundleRenderer } from "../src/prompting/renderer";
 import type {

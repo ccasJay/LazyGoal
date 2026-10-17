@@ -30,11 +30,11 @@ import type {
     CompletionReviewInput,
 } from "../../runtime/src/step-executor";
 import type { ContextCompactor } from "../../context-budget/src/index";
-import type { ModelConversationMessage } from "./model-inference-view";
+import type { ModelConversationMessage } from "../../model-view/src/index";
 import { buildStepRequest } from "./prompt";
 import { LLMResponseProtocolError } from "./errors";
 import type { PromptBundleRenderer } from "./prompting/types";
-import type { TrajectoryModelContextAssembler } from "./trajectory-model-context-assembler";
+import type { TrajectoryModelContextAssembler } from "../../model-context/src/index";
 import type {
     DiagnosticTraceSink,
     ModelCallMetricsRecorder,

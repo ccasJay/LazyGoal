@@ -3,8 +3,8 @@ import { test } from "node:test";
 
 import { allocateImmutableEvent, type TrajectoryEvent, type TrajectoryEventPayload } from "../../runtime/src/index";
 import type { NativeConversationIdentity } from "../../model-contracts/src/index";
-import { collectNativeModelExchanges } from "../src/native-model-history";
-import { TrajectoryEventProjector } from "../src/trajectory-event-projector";
+import { collectNativeModelExchanges } from "../../model-context/src/index";
+import { TrajectoryEventProjector } from "../../model-context/src/index";
 
 test("native history pairs an interrupted unknown Tool result without asserting tool_finished", () => {
     const identity: NativeConversationIdentity = {

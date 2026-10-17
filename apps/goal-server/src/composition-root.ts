@@ -81,8 +81,8 @@ import {
     LLMStepExecutor,
     MutableModelBinding,
     type ModelExecutionBinding,
-    TrajectoryModelContextAssembler,
 } from "../../../packages/agent/src/index";
+import { TrajectoryModelContextAssembler } from "../../../packages/model-context/src/index";
 import {
     createDefaultModelContextBudgetPolicy,
     createModelContextBudgetPolicy,

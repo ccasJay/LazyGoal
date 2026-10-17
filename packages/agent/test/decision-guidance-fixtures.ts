@@ -1,5 +1,5 @@
 import { ReadFileTool } from "../../tools/src/read-file";
-import { projectContextLookupResult } from "../src/context-lookup-projection";
+import { projectContextLookupResult } from "../../model-context/src/index";
 import { createMemoryPatchFeedback, type RuntimeFeedback } from "../../runtime/src/runtime-feedback";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import { validateMemoryPatchEvidence, buildCommittedEvidenceIndex, EvidenceGateError } from "../../runtime/src/evidence-gate";
@@ -7,12 +7,12 @@ import { normalizeMemoryPatch } from "../../working-memory/src/index";
 import { contract } from "../../contracts/src/index";
 import type { AgentDecision } from "../../model-contracts/src/index";
 import { allocateImmutableEvent, type TrajectoryEventDraft } from "../../runtime/src/trajectory";
-import { TrajectoryEventProjector } from "../src/trajectory-event-projector";
+import { TrajectoryEventProjector } from "../../model-context/src/index";
 import type { Observation } from "../../runtime/src/domain";
 import { createGoal, type Goal } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../tool-core/src/index";
-import { ModelInferenceProjector } from "../src/model-inference-projector";
-import type { ModelInferenceView } from "../src/model-inference-view";
+import { ModelInferenceProjector } from "../../model-context/src/index";
+import type { ModelInferenceView } from "../../model-view/src/index";
 import { currentProtocols, currentWorkingMemory, currentContextEpoch } from "./current-fixtures";
 
 type Scenario = {

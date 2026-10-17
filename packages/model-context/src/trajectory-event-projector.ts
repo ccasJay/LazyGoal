@@ -1,10 +1,14 @@
-import type { ModelConversationMessage } from "../../model-contracts/src/index";
 import { createHash } from "node:crypto";
 
 import type {
     TrajectoryEvent,
 } from "../../runtime/src/index";
 import { freezeTrajectoryEvent } from "../../runtime/src/index";
+import type {
+    ModelExecutionUnitProjection,
+    ModelOutputProjection,
+    ModelTrajectoryEvent,
+} from "../../model-view/src/index";
 import type { ModelExecutionUnit } from "./trajectory-execution-unit-adapter";
 import { ModelContextSourceError } from "./trajectory-execution-unit-adapter";
 import { projectContextLookupResult } from "./context-lookup-projection";
@@ -37,69 +41,6 @@ export type TrajectoryArtifactResolver = (
     event: TrajectoryEvent,
     output: unknown,
 ) => TrajectoryArtifactReference | undefined;
-
-/** 未被截断的模型可见输出。 */
-export interface CompleteModelOutputProjection {
-    readonly truncated: false;
-    readonly value: unknown;
-    readonly sourceSequence: number;
-    readonly sourceSequenceRange: { readonly first: number; readonly last: number };
-    readonly contentHash: string;
-    readonly artifactAvailability: "available" | "unavailable";
-    readonly artifactReference?: string;
-}
-
-/** 被有界预览替代的模型可见输出。 */
-export interface PreviewedModelOutputProjection {
-    readonly truncated: true;
-    readonly preview: {
-        readonly prefix: string;
-        readonly suffix: string;
-    };
-    readonly serializedLength: number;
-    readonly sourceSequence: number;
-    readonly sourceSequenceRange: { readonly first: number; readonly last: number };
-    readonly contentHash: string;
-    readonly artifactAvailability: "available" | "unavailable";
-    readonly artifactReference?: string;
-}
-
-/** Tool 输出在模型上下文中的完整或预览投影。 */
-export type ModelOutputProjection =
-    | CompleteModelOutputProjection
-    | PreviewedModelOutputProjection;
-
-/**
- * 供模型使用的单个 Trajectory 事件 DTO。
- *
- * @remarks
- * 除 Tool Observation 的大型 `output` 外，其余字段保持事件事实语义；输出投影
- * 只在本轮模型上下文中存在，不写回原始事件。
- *
- * @example
- * ```ts
- * const event: ModelTrajectoryEvent = {
- *     eventId: "event-1",
- *     sequence: 12,
- *     eventType: "tool_finished",
- *     phase: "executing",
- *     executionUnitId: "unit-1",
- *     payload: { type: "tool_finished" },
- * };
- * ```
- */
-export interface ModelTrajectoryEvent {
-    readonly eventId: string;
-    readonly sequence: number;
-    readonly eventType: TrajectoryEvent["eventType"];
-    readonly phase: TrajectoryEvent["phase"];
-    readonly goalId: string;
-    readonly runId: string;
-    readonly executionUnitId?: string;
-    readonly actionId?: string;
-    readonly parentEventId?: string;
-    readonly payload: unknown;
-}
 
 /** 输出投影器构造配置。 */
 export interface TrajectoryEventProjectorOptions {
@@ -287,41 +228,6 @@ export class TrajectoryEventProjector {
             ...(artifactReference === undefined ? {} : { artifactReference }),
         });
     }
-}
-
-/**
- * 同一模型响应及其已提交结果的不可拆分消息交换。
- * @remarks Conversation 位置决定与真实用户消息的顺序；签名和调用参数随完整交换裁剪。
- * @example
- * ```ts
- * const exchange: NativeModelExchange = { conversationPosition: 1, responseSequence: 2, settledThroughSequence: 8, messages: [assistant, result] };
- * ```
- */
-export interface NativeModelExchange {
-    readonly conversationPosition: number;
-    readonly responseSequence: number;
-    readonly settledThroughSequence: number;
-    readonly messages: readonly ModelConversationMessage[];
-}
-
-/**
- * 可进入模型历史预算的执行单元投影。
- * @remarks nativeExchanges 包含完整调用与结果；选择器必须按整个单元裁剪，不修改原始签名。
- * @example
- * ```ts
- * const count = unit.nativeExchanges?.flatMap(exchange => exchange.messages).length ?? 0;
- * ```
- */
-export interface ModelExecutionUnitProjection {
-    /** 原生回放时替代同单元中的模型调用及结果文本，按整个单元进行预算裁剪。 */
-    readonly nativeExchanges?: readonly NativeModelExchange[];
-    readonly executionUnitId: string;
-    readonly goalId: string;
-    readonly runId: string;
-    readonly phase: "executing";
-    readonly firstSequence: number;
-    readonly lastSequence: number;
-    readonly events: readonly ModelTrajectoryEvent[];
 }
 
 function deepFreeze<T>(value: T, seen = new Set<object>()): T {

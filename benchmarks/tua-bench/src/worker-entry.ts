@@ -3,9 +3,9 @@ import {
     createPromptBundleRenderer,
     DEFAULT_PROMPT_BUNDLE_MANIFEST,
     type LLMAdapter,
-    type ModelConversationMessage,
     type PromptBundleRenderer,
 } from "../../../packages/agent/src/index.js";
+import type { ModelConversationMessage } from "../../../packages/model-view/src/index.js";
 import {
     DropOldestContextCompactor,
     type ContextCompactor,

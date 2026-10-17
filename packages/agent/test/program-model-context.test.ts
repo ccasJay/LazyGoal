@@ -6,9 +6,9 @@ import {
     type TrajectoryEvent,
     type TrajectoryEventDraft,
 } from "../../runtime/src/index";
-import { collectNativeModelExchanges } from "../src/native-model-history";
-import { TrajectoryEventProjector } from "../src/trajectory-event-projector";
-import { TrajectoryExecutionUnitAdapter } from "../src/trajectory-execution-unit-adapter";
+import { collectNativeModelExchanges } from "../../model-context/src/index";
+import { TrajectoryEventProjector } from "../../model-context/src/index";
+import { TrajectoryExecutionUnitAdapter } from "../../model-context/src/index";
 
 test("PTC internal results remain auditable but stay out of native and Hot/Warm model context", () => {
     const identity: NativeConversationIdentity = {

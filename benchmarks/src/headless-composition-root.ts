@@ -4,15 +4,15 @@ import { randomUUID } from "node:crypto";
 
 import {
     LLMStepExecutor,
-    TrajectoryModelContextAssembler,
     type LLMAdapter,
     type LLMRequest,
     type LLMResponse,
-    type ModelConversationMessage,
     type NormalizedUsage,
     type PromptBundleRenderer,
     readNormalizedUsage,
 } from "../../packages/agent/src/index.js";
+import { TrajectoryModelContextAssembler } from "../../packages/model-context/src/index.js";
+import type { ModelConversationMessage } from "../../packages/model-view/src/index.js";
 import {
     createDefaultModelContextBudgetPolicy,
     type ContextCompactor,

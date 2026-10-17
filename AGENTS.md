@@ -30,6 +30,8 @@ packages/        Private `@lazygoal/*` workspaces
   context-budget/ Model input metering, budget allocation, unit selection, and stable serialization
   execution-control/ Process-local cancellation primitives and transient model failure protocols
   model-contracts/ Model output contracts, wire projection, schema compilation, and conversation protocols
+  model-view/     Model-visible input and history result DTOs
+  model-context/  Runtime-to-model projection, committed history assembly, Hot/Warm composition
   working-memory/ Structured working memory domain contracts, patch validation, reduction, and lifecycle
   config/       LazyGoal Home/workspace paths, TOML/Profile parsing, and validated runtime configuration
   web-contracts/  Browser HTTP/SSE wire DTOs and boundary validation

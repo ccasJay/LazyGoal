@@ -5,7 +5,7 @@ import type {
     ModelDynamicContext,
     ModelInferenceView,
     PromptContext,
-} from "../src/model-inference-view";
+} from "../../model-view/src/index";
 import { renderWorkingContextMessage } from "../src/render";
 import {
     CURRENT_PROMPT_BUNDLE_VERSION,

@@ -18,7 +18,7 @@
   - 实现：迁移预算、ContextUnit、Compactor、通用 Selector 和 thought-budget 到 `context-budget`，拆出无模板依赖的确定性序列化；所有当前预算/序列化消费者直接引用新入口。迁移现有相关测试并创建最小私有 manifest，不新建算法或通用工具包。保存对照数据的来源及内容指纹，后续归入 TODO 6 的执行集成测试。
   - 检查：`npx tsx --test packages/context-budget/test/*.test.ts packages/agent/test/component-extraction-baseline.test.ts`；`npx tsc --noEmit`；`npm run check:dependencies`。已有失败先区分环境/原有问题与本次差异，不以重建基线修复。
 
-- [ ] //TODO 2. 独立消费模型表示并从已提交历史组装上下文
+- [x] //TODO 2. 独立消费模型表示并从已提交历史组装上下文
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.6](./spec.md#spec-req-1-6)、[3.2](./spec.md#spec-req-3-2)、[4.4](./spec.md#spec-req-4-4)、[5.1](./spec.md#spec-req-5-1)。
   - 先验证：迁移现有 View、Conversation、Trajectory、Warm、原生历史、导航和来源投影测试，增加拟新增 `packages/model-context/test/public-entry.test.ts`，仅注入当前状态、内存/文件历史 Port 与预算，核对 View、来源身份、Hot/Warm 和不变输入；未提交 tail、未结算交换、身份/阶段/Epoch 不匹配按原规则处理。拟新增 `packages/model-view/test/public-api.types.ts` 验证表示消费，字段值域与实现结果的兼容证据放在上下文包测试中，不让 View 包导入 Runtime。
   - 实现：将模型输入及历史结果 DTO 单一定义迁入 `model-view`，移除对 Runtime 及投影/Reducer 实现类型的反向引用；预算结果类型仍归预算包。将 Projector、来源适配、轨迹/原生历史、Hot/Warm 实现迁入 `model-context`，保留现有读取 Port 和提交来源筛选。同步全部消费引用，不放宽事件字段或复制领域协议；Hot/Warm 不继续拆包。

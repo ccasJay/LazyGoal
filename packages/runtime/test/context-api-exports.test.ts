@@ -2,14 +2,15 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as runtime from "../src/index";
 import * as agent from "../../agent/src/index";
+import * as modelContext from "../../model-context/src/index";
 import * as storage from "../../storage/src/index";
 import * as contextRetrieval from "../../context-retrieval/src/index";
 
 test("规范公共 API 保留且废弃别名/旧适配器已彻底移除", () => {
     // 规范接口存在
-    assert.ok(typeof agent.projectTrajectoryExecutionUnits === "function");
-    assert.ok(typeof agent.TrajectoryExecutionUnitAdapter === "function");
-    assert.ok(typeof agent.TrajectoryExecutionUnitProjectionAdapter === "function");
+    assert.ok(typeof modelContext.projectTrajectoryExecutionUnits === "function");
+    assert.ok(typeof modelContext.TrajectoryExecutionUnitAdapter === "function");
+    assert.ok(typeof modelContext.TrajectoryExecutionUnitProjectionAdapter === "function");
 
     // 检索核心接口移至独立包
     assert.ok(typeof contextRetrieval.buildContextLookupResultFromRanking === "function");

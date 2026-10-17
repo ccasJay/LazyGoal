@@ -41,14 +41,16 @@ import type { AgentProfile } from "../../runtime/src/agent-profile";
 import {
     DEFAULT_PROMPT_TEMPLATE_ASSETS,
     LLMStepExecutor,
-    ModelInferenceProjector,
     MutableModelBinding,
-    TrajectoryModelContextAssembler,
     createDefaultPromptBundleRenderer,
     createModelExecutionBinding,
     normalizeNewlines,
     planDynamicSectionUpdates,
 } from "../src/index";
+import {
+    ModelInferenceProjector,
+    TrajectoryModelContextAssembler,
+} from "../../model-context/src/index";
 import {
     CharacterModelInputEstimator,
     ContextSelector,

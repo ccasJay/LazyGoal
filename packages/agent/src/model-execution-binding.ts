@@ -13,7 +13,7 @@ import {
     type ModelContextBudgetPolicyInput,
     type ModelInputEstimator,
 } from "../../context-budget/src/index.js";
-import { TrajectoryModelContextAssembler } from "./trajectory-model-context-assembler.js";
+import { TrajectoryModelContextAssembler } from "../../model-context/src/index.js";
 
 /**
  * 单一代不可变模型执行绑定契约。

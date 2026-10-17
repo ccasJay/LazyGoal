@@ -26,7 +26,7 @@ import type {
     ModelDynamicContext,
     PromptContext,
     PromptStage,
-} from "./model-inference-view";
+} from "../../model-view/src/index";
 import { projectContextLookupResult } from "./context-lookup-projection";
 import { compareCodeUnits } from "../../context-budget/src/index";
 import { buildGoalContextNavigation } from "./goal-context-navigation";
@@ -304,7 +304,7 @@ export class ModelInferenceProjector {
 
 function projectContextEpoch(
     epoch: ModelContextEpochState,
-): import("./model-inference-view").ModelContextEpochView {
+): import("../../model-view/src/index").ModelContextEpochView {
     const state = epoch;
     if (
         state.version !== 1

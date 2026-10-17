@@ -1,4 +1,4 @@
-import { CONTEXT_LOOKUP_SOURCE_SCOPE } from "../src/context-lookup-projection";
+import { CONTEXT_LOOKUP_SOURCE_SCOPE } from "../../model-context/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -10,7 +10,7 @@ import type {
     ModelToolDefinition,
     ModelWorkingContext,
     ModelContextEpochView,
-} from "../src/model-inference-view";
+} from "../../model-view/src/index";
 import {
     renderRequest,
     renderWorkingContextMessage,

@@ -26,19 +26,19 @@ import {
 } from "./trajectory-execution-unit-adapter";
 import {
     TrajectoryEventProjector,
-    type ModelExecutionUnitProjection,
     type TrajectoryArtifactResolver,
 } from "./trajectory-event-projector";
 import type {
+    ModelExecutionUnitProjection,
     ModelInferenceView,
     ModelTrajectoryContext,
-} from "./model-inference-view";
+    WarmCompactEntry,
+    WarmEntryKind,
+} from "../../model-view/src/index";
 import { ModelInferenceProjector } from "./model-inference-projector";
 import {
     WarmReducer,
     WARM_ENTRY_KINDS,
-    type WarmCompactEntry,
-    type WarmEntryKind,
 } from "./warm-reducer";
 import { deterministicWarmEntryExtractor } from "./deterministic-warm";
 import { ModelContextHardOverflowError } from "../../context-budget/src/index";
@@ -592,7 +592,7 @@ function assertNonNegativeSafeInteger(value: number, field: string): void {
     }
 }
 
-function stripActionParameters(event: import("./trajectory-event-projector").ModelTrajectoryEvent): import("./trajectory-event-projector").ModelTrajectoryEvent {
+function stripActionParameters(event: import("../../model-view/src/index").ModelTrajectoryEvent): import("../../model-view/src/index").ModelTrajectoryEvent {
     if (event.eventType === "action_staged") {
         const payload = event.payload as {
             readonly type: "action_staged";

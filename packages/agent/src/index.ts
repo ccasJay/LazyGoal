@@ -11,76 +11,6 @@ export type {
 } from "./prompt";
 
 export {
-    ModelInferenceProjector,
-} from "./model-inference-projector";
-export {
-    CONTEXT_LOOKUP_FRESHNESS_WARNING,
-    CONTEXT_LOOKUP_SOURCE_SCOPE,
-    projectContextLookupResult,
-    projectLookupResult,
-} from "./context-lookup-projection";
-export {
-    MODEL_CONTEXT_ASSEMBLY_ERROR_CODE,
-    ModelContextAssemblyError,
-    TrajectoryModelContextAssembler,
-} from "./trajectory-model-context-assembler";
-export type {
-    TrajectoryModelContextAssemblerOptions,
-    TrajectoryModelContextAssemblyInput,
-    TrajectoryWarmEntryExtractionInput,
-    TrajectoryWarmEntryExtractor,
-} from "./trajectory-model-context-assembler";
-export {
-    ConversationContextUnitAdapter,
-    flattenContextUnits,
-} from "./conversation-context-unit-adapter";
-export {
-    HotWindowSelector,
-    ModelContextSourceError,
-    TrajectoryExecutionUnitAdapter,
-    TrajectoryExecutionUnitProjectionAdapter,
-    projectTrajectoryExecutionUnits,
-    MODEL_CONTEXT_SOURCE_ERROR_CODE,
-} from "./trajectory-execution-unit-adapter";
-export type {
-    HotWindowSelection,
-    HotWindowSelectionOptions,
-    ModelExecutionUnit,
-    TrajectoryExecutionUnitAdapterOptions,
-} from "./trajectory-execution-unit-adapter";
-export {
-    TrajectoryEventProjector,
-} from "./trajectory-event-projector";
-export type {
-    CompleteModelOutputProjection,
-    ModelExecutionUnitProjection,
-    ModelOutputProjection,
-    ModelTrajectoryEvent,
-    PreviewedModelOutputProjection,
-    TrajectoryArtifactReference,
-    TrajectoryArtifactResolver,
-    TrajectoryEventProjectorOptions,
-} from "./trajectory-event-projector";
-export {
-    WarmReducer,
-    createDefaultWarmPartitionQuotas,
-    reinforceWarmEntry,
-    DEFAULT_WARM_PARTITION_QUOTA,
-    WARM_ENTRY_KINDS,
-} from "./warm-reducer";
-export { DeterministicWarmEntryExtractor, deterministicWarmEntryExtractor } from "./deterministic-warm";
-export type {
-    WarmCompactEntry,
-    WarmEntryKind,
-    WarmEntryStatus,
-    WarmPartitionQuota,
-    WarmPartitionQuotas,
-    WarmReducerOptions,
-    WarmReductionResult,
-    WarmReinforcementReason,
-    WarmReinforcementInput,
-} from "./warm-reducer";
-export {
     createModelExecutionBinding,
     MutableModelBinding,
 } from "./model-execution-binding";
@@ -93,40 +23,6 @@ export {
     renderRequest,
     renderWorkingContextMessage,
 } from "./render";
-export type {
-    ModelConversationMessage,
-    ModelContextProtocol,
-    ModelContextRetrievalProtocol,
-    ModelMemoryProtocol,
-    ModelMemoryEntryBase,
-    ModelFact,
-    ModelHypothesis,
-    ModelBlocker,
-    ModelCompletionEvidence,
-    ModelContextLookupFreshness,
-    ModelContextLookupMatch,
-    ModelContextLookupResult,
-    VisibleConversationMessageMapEntry,
-    ModelContextControl,
-    ModelContextEpochView,
-    ModelWorkingMemory,
-    ModelInferenceView,
-    ModelDynamicContext,
-    ModelTrajectoryContext,
-    ModelPendingAction,
-    ModelProfileView,
-    ModelStepRecord,
-    ModelTask,
-    ModelGoalPlan,
-    ModelGoalPlanItem,
-    ModelToolCallAction,
-    ModelToolDefinition,
-    ModelWorkingContext,
-    StepDynamicPayload,
-    PromptContext,
-    PromptPhase,
-    PromptStage,
-} from "./model-inference-view";
 
 export {
     extractJsonPayload,
@@ -210,16 +106,3 @@ export type {
     AgentDecision,
 } from "../../runtime/src/domain";
 export type { ToolDefinition } from "../../tool-core/src/index";
-
-export {
-    buildGoalContextNavigation,
-} from "./goal-context-navigation";
-export type {
-    GoalContextNavigationBuildOptions,
-} from "./goal-context-navigation";
-export type {
-    ModelGoalContextNavigationCurrentStage,
-    ModelGoalContextNavigationStageEntry,
-    ModelGoalContextNavigationNoteEntry,
-    ModelGoalContextNavigationView,
-} from "./model-inference-view";

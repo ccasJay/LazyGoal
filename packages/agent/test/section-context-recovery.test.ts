@@ -23,7 +23,7 @@ import type {
 import {
     ModelInferenceProjector,
     TrajectoryModelContextAssembler,
-} from "../src/index";
+} from "../../model-context/src/index";
 import {
     CharacterModelInputEstimator,
     createModelCapabilities,
@@ -36,7 +36,7 @@ import {
 import { buildStepRequest } from "../src/prompt";
 import { createDefaultPromptBundleRenderer } from "../src/prompting/default-bundles";
 import type { DynamicSectionMessage } from "../src/prompting/dynamic-section-registry";
-import type { ModelConversationMessage } from "../src/model-inference-view";
+import type { ModelConversationMessage } from "../../model-view/src/index";
 import { currentProtocols } from "./current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();

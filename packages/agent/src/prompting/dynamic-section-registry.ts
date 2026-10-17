@@ -1,4 +1,4 @@
-import type { ModelInferenceView } from "../model-inference-view";
+import type { ModelInferenceView } from "../../../model-view/src/index";
 
 /** 动态 Prompt section 当前允许使用的消息角色。 */
 export type DynamicSectionRole = "user";

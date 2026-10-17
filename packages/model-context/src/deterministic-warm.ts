@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { TrajectoryWarmEntryExtractionInput } from "./trajectory-model-context-assembler";
-import type { WarmCompactEntry, WarmEntryKind } from "./warm-reducer";
+import type { WarmCompactEntry, WarmEntryKind } from "../../model-view/src/index";
 
 /** 基于已提交执行单元事实生成 Warm 候选的确定性提取器。 */
 export class DeterministicWarmEntryExtractor {

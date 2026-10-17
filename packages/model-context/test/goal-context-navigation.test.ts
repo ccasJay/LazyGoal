@@ -18,12 +18,12 @@ import {
     DropOldestContextCompactor,
     ModelContextHardOverflowError,
 } from "../../context-budget/src/index";
-import { buildStepRequest } from "../src/prompt";
-import { createDefaultPromptBundleRenderer } from "../src/prompting/default-bundles";
+import { buildStepRequest } from "../../agent/src/prompt";
+import { createDefaultPromptBundleRenderer } from "../../agent/src/prompting/default-bundles";
 import {
     createDefaultDynamicSectionRegistry,
     type DynamicSectionMessage,
-} from "../src/prompting/dynamic-section-registry";
+} from "../../agent/src/prompting/dynamic-section-registry";
 import { currentProtocols, createInMemoryTrajectoryStore, createCurrentContextAssembler } from "./current-fixtures";
 import {
     buildGoalContextNavigation,

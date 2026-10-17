@@ -6,7 +6,7 @@ import type {
     ModelContextLookupFreshness,
     ModelContextLookupMatch,
     ModelContextLookupResult,
-} from "./model-inference-view";
+} from "../../model-view/src/index";
 
 /** 各状态共享的历史语料范围与否定结论限制；不是证据。 */
 export const CONTEXT_LOOKUP_SOURCE_SCOPE = {

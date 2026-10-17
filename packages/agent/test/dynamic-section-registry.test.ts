@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { ModelInferenceView } from "../src/model-inference-view";
+import type { ModelInferenceView } from "../../model-view/src/index";
 import {
     DynamicSectionRegistry,
     createDefaultDynamicSectionRegistry,

@@ -5,7 +5,7 @@ import {
     ConversationContextUnitAdapter,
     flattenContextUnits,
 } from "../src/conversation-context-unit-adapter";
-import type { ModelConversationMessage } from "../src/model-inference-view";
+import type { ModelConversationMessage } from "../../model-view/src/index";
 
 const adapter = new ConversationContextUnitAdapter();
 
