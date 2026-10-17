@@ -1,6 +1,7 @@
 ---
-status: proposed
+status: delivered
 created_at: 2026-10-17
+delivered_at: 2026-10-17
 ---
 
 # Runtime 独立组件提炼与 SDK 化准备 Spec
@@ -69,7 +70,7 @@ Runtime、Agent、Storage、工具和执行流已有各自职责；保留这些�
 
 新增模块按当前角色聚合为独立目录，优先留在现有所有者内，不创建 SDK 包。以下名称描述本轮内部模块契约，不构成对外发布的稳定 API 承诺。
 
-| 组件或装配层 | 建议位置 | 输入与职责 | 边界 |
+| 组件或装配层 | 位置 | 输入与职责 | 边界 |
 | --- | --- | --- | --- |
 | 执行装配 `createExecutionComponents` | `apps/goal-server/src/runtime/execution-composition.ts` | 接收现有 StepExecutor、Profile Registry、Store、工具和可选 Port，组合检查点提交器、Runner、InlineScheduler、Coordinator 与 Launcher。 | 仅依赖注入的 Port 与现有领域/工具契约，不创建具体模型或文件存储，不拥有借用依赖的关闭权，不复制领域规则。 |
 | 实例生命周期 `RuntimeLifecycle` | `packages/runtime/src/lifecycle/`，从现有 shutdown 机制提取 | 协调实例信号、Checkpoint Gate、自有资源和已受理操作的结算，提供幂等有界关闭。 | 依赖 Runtime 内部存储边界及必要控制类型；不读取环境，不包含 Agent、Storage 实现、HTTP、ExitPort、进程信号或 process.exit。 |
@@ -119,7 +120,7 @@ packages/runtime/src/
 | Goal 状态、授权规则及持久化协议 | 现有 Runtime、Permission、Storage 等规则所有者的源码与测试 | 装配调用原入口，不复制规则或引入 SDK DTO。 |
 | 组件输入、结果、错误与资源所有权契约 | 对应组件公开类型与方法的 TSDoc | 目录入口导出，说明文档链接源码。 |
 | 当前组件职责、目录与依赖方向 | 所属 goal-server/Runtime 的 overview 与 semantics | 根导航和读取者链接所有者；内部目录不另建一套包级文档。 |
-| 本轮提议与验收 | 本 Spec；批准后的任务归 plan.md | 实现前不将拟议目录写成当前已支持能力。 |
+| 本轮交付与验收 | 本 Spec 与 plan.md 的 Latest Result | 组件名称、目录与当前职责以对应模块说明与源码为准。 |
 
 Snapshot、运行时对象和模型投影可以有不同表示，转换与校验仍由原所有者负责。源码、Prompt 模板及资源保留当前真源位置；不复制生成结果作为第二份可编辑来源。
 
@@ -172,7 +173,7 @@ HTTP 和浏览器连接不注册为 Runtime 自有资源。服务先停止新写
 
 低层验证直接构造执行装配和生命周期组件：提供内存或临时文件 Port、确定性 StepExecutor、Profile Registry 与最小工具，验证受理、推进、等待、故障和关闭，不创建整个应用。资源由测试中的明确所有者准备，组件不为无资源对象新增 close。
 
-以下为低层组件的拟定调用草图；依赖由测试或调用方准备，示例不承诺完整应用默认配置：
+以下为低层组件的调用草图；依赖由测试或调用方准备，示例不承诺完整应用默认配置：
 
 ```ts
 import { createExecutionComponents } from "./runtime/index";
@@ -228,4 +229,4 @@ const saved = await store.restore(request.goalId);
 - **资源契约与验收归属：** 生命周期的有界等待和错误传播不证明一个内部吞错的具体资源已真实释放；该实现仍须由其所有者修复。本轮不依赖进程 Spec 完成，但也不提前宣称其真实进程故障保证成立。新增说明与 2.2/2.3 的验收边界修订需重新批准，已有功能测试不因职责分开而删除或弱化。
 - **交付检查：** 实现阶段运行类型、依赖、文档、相关消费者回归及根确定性回归；增加边界检查的合法/违规样本并确认新增测试实际被发现，在无历史构建产物的源码树验证独立调用与替换。更新受影响模块的 overview、semantics 与公共契约 TSDoc。具体行为 TODO 与 Feature Verification 留待 Spec 批准后的 plan.md；独立组件完成不宣称完整 SDK 已交付。
 
-当前事实来源：[Runtime 说明](../../packages/runtime/notes/overview.md)、[运行时装配](../../apps/goal-server/src/runtime/composition.ts)、[无界面入口](../../apps/goal-server/src/runtime/index.ts)、[服务生命周期](../../apps/goal-server/src/cli.ts)、[实例生命周期](../../packages/runtime/src/lifecycle/runtime-lifecycle.ts)、[Browser 控制 Port](../../packages/browser/src/browser-goal-command-service.ts)、[执行流](../../packages/execution-stream/src/subscription.ts)、[依赖规则](../../scripts/check-dependencies.mjs)。本 Spec 为拟议变更，当前组件名称不表示源码已存在。
+当前事实来源：[Runtime 说明](../../packages/runtime/notes/overview.md)、[运行时装配](../../apps/goal-server/src/runtime/composition.ts)、[无界面入口](../../apps/goal-server/src/runtime/index.ts)、[服务生命周期](../../apps/goal-server/src/cli.ts)、[实例生命周期](../../packages/runtime/src/lifecycle/runtime-lifecycle.ts)、[Browser 控制 Port](../../packages/browser/src/browser-goal-command-service.ts)、[执行流](../../packages/execution-stream/src/subscription.ts)、[依赖规则](../../scripts/check-dependencies.mjs)。组件与目录已按本 Spec 交付，验收证据见 [plan.md 的 Latest Result](./plan.md#latest-result)。
