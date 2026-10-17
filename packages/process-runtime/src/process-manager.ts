@@ -798,8 +798,13 @@ export class ProcessManager implements ManagedResource {
         }
         const failures = [...this.settlementFailures];
         const primary = failures[0]!;
+        const details = failures
+            .slice(0, 3)
+            .map((failure) => `${failure.stage} ${failure.processId}: ${describeUnknown(failure.reason)}`)
+            .join("; ");
+        const suffix = failures.length > 3 ? `; +${failures.length - 3} more` : "";
         throw new ProcessSessionError(
-            `Process manager close completed with ${failures.length} unreported settlement failure(s)`,
+            `Process manager close completed with ${failures.length} unreported settlement failure(s): ${details}${suffix}`,
             {
                 stage: primary.stage,
                 goalId: primary.goalId,

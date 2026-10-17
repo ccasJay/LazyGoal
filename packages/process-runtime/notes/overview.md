@@ -6,7 +6,7 @@
 
 `@lazygoal/process-runtime` 拥有 `ProcessManager`：按注入的进程存储 Port 与本次 `hostInstanceId` 启动、观察、停止并清理本实例实际创建的子进程。它只依赖 [Goal Runtime](../../runtime/README.md) 的 `ProcessSessionStore`/记录类型与资源契约，以及 [沙箱执行](../../sandbox/README.md) 的受限 spawn 与进程组终止能力；不依赖 Agent、LLM、Tool、Storage 实现或应用，不解析环境配置，也不选择数据目录。
 
-管理器不构造 Goal、工具注册表或 HTTP 服务。`goalId` 是调用方提供的会话归属键，用于额度与读取隔离，不授予业务权限；沙箱策略、环境变量和权限仍由调用方（当前为 [内置工具](../../tools/README.md) 的进程工具）准备。管理器不扫描系统 PID、不重连或终止历史 PID，也不把会话记录当成 Goal 恢复或完成证据。
+管理器不构造 Goal、工具注册表或 HTTP 服务。`goalId` 是调用方提供的会话归属键，用于额度与读取隔离，不授予业务权限；沙箱策略、环境变量和权限仍由调用方（当前为 [内置工具](../../tools/README.md) 的进程工具）准备。goal-server 的无界面运行时装配把单个管理器注册为实例自有资源，由 [Runtime 生命周期](../../runtime/src/lifecycle/runtime-lifecycle.ts) 统一结算组合关闭并拥有实例期限；管理器不复制该关闭算法。管理器不扫描系统 PID、不重连或终止历史 PID，也不把会话记录当成 Goal 恢复或完成证据。
 
 ## 生命周期与结算
 

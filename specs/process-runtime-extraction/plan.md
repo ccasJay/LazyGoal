@@ -36,7 +36,7 @@
   - 实现：统一启动、句柄、输出与最终记录的结算结果；stop 不能以 stopped 字段或已发送信号报告成功，超时保留未确认状态。close/forceClose 复用同一所有者和清理工作，强制升级不被普通清理的存储等待阻塞；所有可继续的清理仍执行，移除吞错路径并保留类型化原因。清理自身计时与监听资源，不新增实例期限、Goal 状态、宿主退出或按 Goal 关闭接口。同步公开方法的失败、所有权及直接调用可能持续等待的契约。
   - 检查：`npx tsx --test packages/process-runtime/test/process-shutdown.test.ts packages/process-runtime/test/process-startup.test.ts packages/process-runtime/test/process-output.test.ts packages/tools/test/process-tools.test.ts`；以独立观测的进程退出、保存完成、错误与调用次数判定结果。不响应 Store 场景在观测后释放受控 Promise，外层有界性留给 TODO 5。
 
-- [ ] //TODO 5. 由真实生命周期和 goal-server 验证关闭、工具及重启行为
+- [x] //TODO 5. 由真实生命周期和 goal-server 验证关闭、工具及重启行为
   - 落实标准：[1.3](./spec.md#spec-req-1-3)、[4.5](./spec.md#spec-req-4-5)、[5.1](./spec.md#spec-req-5-1)、[5.2](./spec.md#spec-req-5-2)、[5.3](./spec.md#spec-req-5-3)、[5.4](./spec.md#spec-req-5-4)。
   - 先验证：扩展现有 `apps/goal-server/test/process-lifecycle.integration.test.ts`，将真实管理器交付给真实 RuntimeLifecycle；验证正常/强制期限、启动和写入阻塞、失败可见、迟到结果及借用资源。拟新增 `apps/goal-server/test/process-runtime-composition.integration.test.ts`，通过当时的应用装配入口及确定性模型依赖，验证默认工具使用同一管理器，正常关闭、装配失败和持久化故障均由同一路径清理；受控宿主关闭后继续输出成功标记。扩展工具/存储回归覆盖跨 Goal 拒绝、跨 Run 读取、原 Schema/失败映射/replayPolicy，以及新宿主对 starting/running 的只读 interrupted 投影且不重放、不操作旧 PID。
   - 实现：以前置生命周期组件及其验证证据可用为门槛，按当前实际位置调整进程装配与资源登记；若已有无界面 runtime 装配则在其中接入，否则只修改现有组合根进程段，不自行提炼 HTTP 或模型层。tools 仍拥有可信身份、输入验证、沙箱准备和结果映射；保留 manual 未知结果恢复及 Goal 删除/归档流程。只处理本包和消费者的接线，不修复或复制其它 Spec 的生命周期算法；发现前置违约时回到其所有者记录缺口，不降低本项验收。
