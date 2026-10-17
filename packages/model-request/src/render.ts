@@ -7,7 +7,7 @@ import type {
     ModelContextEpochView,
 } from "../../model-view/src/index";
 import type { PromptBundleRenderer } from "../../prompt-renderer/src/index";
-import type { DynamicSectionUpdateMessage } from "./prompting/dynamic-section-diff";
+import type { DynamicSectionUpdateMessage } from "./dynamic-section-diff";
 
 /**
  * 只依赖 View DTO 与注入 Renderer 的纯 Prompt 请求组装。

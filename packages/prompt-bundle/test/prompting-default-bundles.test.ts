@@ -6,7 +6,7 @@ import type {
     ModelInferenceView,
     PromptContext,
 } from "../../model-view/src/index";
-import { renderWorkingContextMessage } from "../../agent/src/render";
+import { renderWorkingContextMessage } from "../../model-request/src/index";
 import {
     CURRENT_PROMPT_BUNDLE_VERSION,
     DEFAULT_PROMPT_BUNDLE_MANIFEST,

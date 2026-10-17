@@ -30,7 +30,7 @@
   - 实现：拆开 Section 注册机制与具体定义，拆开 Manifest 结构匹配与默认 Runtime 协议适配；Nunjucks 和类型依赖迁至渲染包并按现有安装方式维护对应锁文件，不升级依赖。模板与默认工厂归 Bundle，Section Diff 暂留原请求调用链且改用渲染入口类型，直到 TODO 4 迁移。同步当前 Worker 的资产路径、内嵌键及构建引用，保持选择规则；不留旧模板副本或扩大支持协议。
   - 检查：`npx tsx --test packages/prompt-renderer/test/*.test.ts packages/prompt-bundle/test/*.test.ts apps/goal-server/test/prompt-bundle-integration.test.ts`；`npx tsc --noEmit`；`npx tsc --noEmit -p benchmarks/tsconfig.json`；`npm run check:dependencies`。Worker 真实打包与产物消费在 TODO 8 集中验证。
 
-- [ ] //TODO 4. 独立准备阶段请求与基于提交历史的 Section 更新计划
+- [x] //TODO 4. 独立准备阶段请求与基于提交历史的 Section 更新计划
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.4](./spec.md#spec-req-1-4)、[3.1](./spec.md#spec-req-3-1)、[3.2](./spec.md#spec-req-3-2)、[4.4](./spec.md#spec-req-4-4)、[5.1](./spec.md#spec-req-5-1)。
   - 先验证：迁移 Prompt、纯 render、Section Diff、缓存对齐及完成审查请求的现有断言到 `model-request`。拟新增 `packages/model-request/test/public-entry.test.ts`，不构造 Adapter/Binding 即获得 request、绑定契约及 frame；覆盖三阶段、strict/prompt_only、工具可见交集、原生历史去重、不可裁剪输入超限、Section 完整/替换/失效更新与恢复重建，和 TODO 1 对照一致。
   - 实现：迁移请求构造、消息组装、Section 更新算法及请求检查 helper，实际响应解析保留给 TODO 5。完成审查改收输出模式、预算和能力等必要值，原执行器在相同 Binding 上投影传参；请求包不依赖执行器或默认 Bundle，不另建 Schema、不读取恢复真源或提交 frame。同步调用方和测试，保留审查的原始用户要求、回复语境与证据来源规则。

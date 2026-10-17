@@ -37,7 +37,7 @@ import { buildStepRequest } from "../src/prompt";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import type { DynamicSectionMessage } from "../../prompt-renderer/src/index";
 import type { ModelConversationMessage } from "../../model-view/src/index";
-import { currentProtocols } from "./current-fixtures";
+import { currentProtocols } from "../../agent/test/current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const profile = {

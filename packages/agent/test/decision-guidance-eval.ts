@@ -15,8 +15,8 @@ import { DEFAULT_PROMPT_TEMPLATE_ASSETS, DEFAULT_PROMPT_BUNDLE_MANIFEST, createD
 import { createPromptBundleRenderer } from "../../prompt-renderer/src/index";
 import type { PromptBundleRenderer } from "../../prompt-renderer/src/index";
 import type { PromptContext } from "../../model-view/src/index";
-import { createStageMessages } from "../src/prompt";
-import { renderRequest } from "../src/render";
+import { createStageMessages } from "../../model-request/src/index";
+import { renderRequest } from "../../model-request/src/index";
 import { parseModelOutput } from "../src/model-output";
 import { decisionScenarios, decisionScenarioView, decisionScenarioTools, scoreDecision } from "./decision-guidance-fixtures";
 import { runCompletionReviewEvaluation } from "./completion-review-eval";

@@ -13,7 +13,7 @@ import {
     currentProtocols,
     currentWorkingMemory,
     createInMemoryTrajectoryStore,
-} from "./current-fixtures";
+} from "../../agent/test/current-fixtures";
 import {
     TrajectoryModelContextAssembler,
 } from "../../model-context/src/index";

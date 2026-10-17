@@ -15,7 +15,7 @@ import { ModelInferenceProjector, TrajectoryModelContextAssembler } from "../src
 import { createModelExecutionBinding, LLMStepExecutor } from "../../agent/src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { createDefaultModelContextBudgetPolicy, createModelContextBudgetPolicy, DropOldestContextCompactor } from "../../context-budget/src/index";
-import { buildStepRequest } from "../../agent/src/prompt";
+import { buildStepRequest } from "../../model-request/src/index";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../llm/src/core/adapter";
 import { currentProtocols, currentWorkingMemory, createInMemoryTrajectoryStore } from "./current-fixtures";
 

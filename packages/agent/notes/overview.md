@@ -5,7 +5,7 @@
 
 ## 职责
 
-Agent 将 Runtime 提供的 Goal、Profile、授权 Tool、当前 Run 的 `exposedToolIds`、Working Memory 和已提交 Context Lookup 结果投影为模型请求。业务 Schema 只取授权目录与暴露 ID 的交集，并统一供 Prompt、Wire Contract、native declarations 和 PTC 子工具说明使用。Decide 可通过 `system_find_tools` 请求 Runtime 查询工具目录；匹配结果只作为下一次 Decide 的临时反馈，Think 不带发现分支或系统工具声明。主要入口是 [`LLMStepExecutor`](../src/llm-step-executor.ts)、[`prompt.ts`](../src/prompt.ts) 和 [`render.ts`](../src/render.ts)；Runtime→模型投影与已提交历史组装归 [模型上下文组装](../../model-context/README.md)，模型可见表示归 [模型视图](../../model-view/README.md)。Decide 指引大量文件审阅先发现 `execute_program` 及其子工具；程序入口暴露后，Prompt 指引模型批量读取、过滤并返回简洁证据，简单或依赖逐项推理的操作可直接调用 Tool。PTC 内部调用事实不进入原生历史、Hot/Warm 或检索索引，只有已结算的父程序结果参与下一次模型请求。Agent 不保存 Goal，不执行 Tool，不生成 Runtime ID，也不决定审批结果。模型输入计量、预算分配、完整单元选择与确定性序列化归 [上下文预算](../../context-budget/README.md)；本包只按现有调用顺序消费其策略与裁剪结果。
+Agent 将 Runtime 提供的 Goal、Profile、授权 Tool、当前 Run 的 `exposedToolIds`、Working Memory 和已提交 Context Lookup 结果投影为模型请求。业务 Schema 只取授权目录与暴露 ID 的交集，并统一供 Prompt、Wire Contract、native declarations 和 PTC 子工具说明使用。Decide 可通过 `system_find_tools` 请求 Runtime 查询工具目录；匹配结果只作为下一次 Decide 的临时反馈，Think 不带发现分支或系统工具声明。主要入口是 [`LLMStepExecutor`](../src/llm-step-executor.ts)；阶段请求、消息组装与 Section 更新计划归 [模型请求准备](../../model-request/README.md)，Runtime→模型投影与已提交历史组装归 [模型上下文组装](../../model-context/README.md)，模型可见表示归 [模型视图](../../model-view/README.md)。Decide 指引大量文件审阅先发现 `execute_program` 及其子工具；程序入口暴露后，Prompt 指引模型批量读取、过滤并返回简洁证据，简单或依赖逐项推理的操作可直接调用 Tool。PTC 内部调用事实不进入原生历史、Hot/Warm 或检索索引，只有已结算的父程序结果参与下一次模型请求。Agent 不保存 Goal，不执行 Tool，不生成 Runtime ID，也不决定审批结果。模型输入计量、预算分配、完整单元选择与确定性序列化归 [上下文预算](../../context-budget/README.md)；本包只按现有调用顺序消费其策略与裁剪结果。
 
 ## Prompt Bundle
 
@@ -19,13 +19,13 @@ Bundle 固定匹配 `structured@1`、`trajectory-layered@1` 和 `bm25-lite@1`。
 
 Run 模式、已批准任务、GoalPlan、授权工具和 Working Memory 不进入固定 `PromptContext`。默认 Bundle 的 `DynamicSectionRegistry` 按稳定 ID、来源、角色和顺序投影这些 section，并使用 Bundle v1 注册的版本化模板渲染为 `user` 消息；[Prompt 渲染](../../prompt-renderer/README.md) 的注册机制通用遍历注册项，不按 section ID 分支。新增 section 只需增加注册定义和模板资产。
 
-纯函数 `planDynamicSectionUpdates` 接收当前渲染投影及已筛选的同阶段 frame，按注册身份校验并规范化 JSON 投影，折叠每个 section 的最新状态，只输出完整注入、整段替换或失效 tombstone，同时生成与实际消息对应的 frame 记录。它不改写 Conversation，也不负责读取历史或组装请求。
+纯函数 `planDynamicSectionUpdates`（[模型请求准备](../../model-request/README.md)）接收当前渲染投影及已筛选的同阶段 frame，按注册身份校验并规范化 JSON 投影，折叠每个 section 的最新状态，只输出完整注入、整段替换或失效 tombstone，同时生成与实际消息对应的 frame 记录。它不改写 Conversation，也不负责读取历史或组装请求。
 
 ## 单轮请求
 
 `ModelInferenceProjector`（[模型上下文组装](../../model-context/README.md)）从 Goal 生成深冻结的 `ModelInferenceView`，包括固定 Prompt 上下文、动态运行状态（含当前活动阶段 `currentStage` 目标、条件与审查反馈投影）、真实 Conversation、Working Memory、Context Epoch 和可选的已提交 Lookup Result。模型只能看到稳定 DTO，不能提交 Runtime 的 Goal/Run、Step、Epoch、Todo ID、Action ID 或内部计数。
 
-`buildStepRequest` 在单次调用内完成上下文组装、预算裁剪和 Prompt 渲染，并返回与请求绑定的 `ModelOutputContractBundle`。`TrajectoryModelContextAssembler`（[模型上下文组装](../../model-context/README.md)）按 Goal Snapshot 的 committed boundary、Goal/Run、当前 Decide/Think 阶段、Epoch、Conversation 起点和注册身份筛选 Section frame，并在同一次 Trajectory 读取中构造固定预算输入及 Hot/Warm 上下文。Planner 将每个当前 Section 的最新状态重建进无状态请求；变化只产生完整替换或失效更新，未变化 Section 沿用已提交的最新消息。Epoch 切换、历史裁剪或缺少有效基线时，当前投影会重新完整注入。
+`buildStepRequest`（[模型请求准备](../../model-request/README.md)）在单次调用内完成上下文组装、预算裁剪和 Prompt 渲染，并返回与请求绑定的 `ModelOutputContractBundle`。`TrajectoryModelContextAssembler`（[模型上下文组装](../../model-context/README.md)）按 Goal Snapshot 的 committed boundary、Goal/Run、当前 Decide/Think 阶段、Epoch、Conversation 起点和注册身份筛选 Section frame，并在同一次 Trajectory 读取中构造固定预算输入及 Hot/Warm 上下文。Planner 将每个当前 Section 的最新状态重建进无状态请求；变化只产生完整替换或失效更新，未变化 Section 沿用已提交的最新消息。Epoch 切换、历史裁剪或缺少有效基线时，当前投影会重新完整注入。
 
 请求顺序为固定 system、保留的真实 Conversation、按注册顺序排列的动态 section、本轮 Working Context；Working Memory 单独作为动态 section 提供，不重复进入尾部控制消息。每次候选请求都把原生 Tool schema 和单调用指令纳入输入预算；Decide 挂载工具时不再携带顶层决策 Schema 或文本 JSON Shape Guide；裁剪 Conversation 后会重算动态更新并保留当前 checkpoint 控制消息，必需内容仍超限则在调用模型前失败。请求计划同时返回本次新增 Section frame 元数据，供 Runtime 提交路径持久化。Assembler 把带已批准 `action_staged` 的完整 Tool Action/Observation 执行单元投影到下一轮 Hot/Warm 上下文；未提交、缺少 staging 或不完整单元不可见。
 
@@ -45,7 +45,7 @@ Contracts 根据当前 Run 的模式、任务批准状态和可见工具集合�
 
 ## 完成审查
 
-所有完成候选通过 Runtime 协议与引用校验后，由 [`reviewCompletion`](../src/llm-step-executor.ts) 使用当前 Decide Adapter 独立审查。专用 [Prompt 与请求构造器](../src/completion-review.ts) 提供当前请求和约束、获批条件、完整候选及 Runtime 解析的引用证据正文；只声明 `system_review_completion`，不执行工具或改写答案。`summary` 承载完整用户回复；Think、模型自述、目录和规模统计不能代替所需实现证据，已提供源码可直接使用，简单请求允许简短回答。
+所有完成候选通过 Runtime 协议与引用校验后，由 [`reviewCompletion`](../src/llm-step-executor.ts) 使用当前 Decide Adapter 独立审查。专用 [Prompt 与请求构造器](../../model-request/src/completion-review.ts) 提供当前请求和约束、获批条件、完整候选及 Runtime 解析的引用证据正文；只声明 `system_review_completion`，不执行工具或改写答案。`summary` 承载完整用户回复；Think、模型自述、目录和规模统计不能代替所需实现证据，已提供源码可直接使用，简单请求允许简短回答。
 
 审查使用既有模型预算。请求保留引用的已提交 Observation 与操作来源，避免把同一工具输出同时作为工具完成和 Observation 正文发送；必要输入仍超限时，在调用模型前以 `COMPLETION_REVIEW_INPUT_TOO_LARGE` 失败，不裁剪后放行。拒绝通过有界 `origin: completion_review` 反馈进入 Decide 纠错链；协议错误与拒绝合计最多三次 Decide 尝试。传输失败沿用请求重试。审查没有 Section frame 或独立恢复阶段；未提交审查恢复后可能重新调用并产生费用。
 

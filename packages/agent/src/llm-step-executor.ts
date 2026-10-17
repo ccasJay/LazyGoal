@@ -31,7 +31,7 @@ import type {
 } from "../../runtime/src/step-executor";
 import type { ContextCompactor } from "../../context-budget/src/index";
 import type { ModelConversationMessage } from "../../model-view/src/index";
-import { buildStepRequest } from "./prompt";
+import { buildStepRequest } from "../../model-request/src/index";
 import { LLMResponseProtocolError } from "./errors";
 import type { PromptBundleRenderer } from "../../prompt-renderer/src/index";
 import type { TrajectoryModelContextAssembler } from "../../model-context/src/index";
@@ -60,7 +60,7 @@ import { ContractValidationError } from "../../contracts/src/errors";
 import type { LLMResponse, LLMToolDefinition, LLMToolCall } from "../../llm/src/core/types";
 import type { ExecutionStreamEventDraft, ExecutionStreamPublisher } from "../../execution-stream/src/index";
 import { toModelStageFeedback } from "./stage-feedback";
-import { buildCompletionReviewRequest } from "./completion-review";
+import { buildCompletionReviewRequest } from "../../model-request/src/index";
 
 /**
  * 创建 {@link LLMStepExecutor} 所需的供应商无关依赖。
@@ -281,7 +281,10 @@ export class LLMStepExecutor implements StepExecutor {
     async reviewCompletion(input: CompletionReviewInput): Promise<CompletionReviewResult> {
         try {
             const binding = this.bindingProvider.current();
-            const { request } = buildCompletionReviewRequest(input, binding);
+            const { request } = buildCompletionReviewRequest(input, {
+                modelContextPolicy: binding.modelContextPolicy,
+                ...(binding.modelCapabilities === undefined ? {} : { modelCapabilities: binding.modelCapabilities }),
+            });
             const { executionStream: _stream, ...privateInput } = input;
             const { response } = await this.generateModelResponse(
                 binding.decideAdapter, request, privateInput, binding.modelCapabilities, "completion_review", [],

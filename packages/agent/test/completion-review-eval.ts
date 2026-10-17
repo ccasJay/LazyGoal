@@ -12,7 +12,7 @@ import { buildCommittedEvidenceIndex, validateFactEvidence } from "../../runtime
 import type { CompletionReviewInput } from "../../runtime/src/step-executor";
 import { currentProtocols } from "./current-fixtures";
 import { createHash } from "node:crypto";
-import { COMPLETION_REVIEW_PROMPT } from "../src/completion-review";
+import { COMPLETION_REVIEW_PROMPT } from "../../model-request/src/index";
 
 const source = "export const read = (cache, key) => cache.get(key);";
 export const completionReviewScenarios = [

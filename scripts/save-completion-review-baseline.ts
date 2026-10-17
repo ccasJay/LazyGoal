@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createGoal, allocateImmutableEvent } from "../packages/runtime/src/index.ts";
-import { buildCompletionReviewRequest } from "../packages/agent/src/completion-review.ts";
+import { buildCompletionReviewRequest } from "../packages/model-request/src/index.ts";
 import { createDefaultModelContextBudgetPolicy } from "../packages/context-budget/src/index.ts";
 import type { CompletionReviewInput } from "../packages/runtime/src/step-executor.ts";
 
@@ -84,7 +84,6 @@ function scenarioInput(scenario: typeof scenarios[number]): CompletionReviewInpu
 
 async function run() {
     const binding = {
-        decideAdapter: { structuredOutputMode: "strict" as const, async generate() { throw new Error("not called"); } },
         modelContextPolicy: createDefaultModelContextBudgetPolicy(),
     };
 

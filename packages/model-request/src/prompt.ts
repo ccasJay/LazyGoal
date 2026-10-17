@@ -24,7 +24,7 @@ import type {
 import {
     planDynamicSectionUpdates,
     type DynamicSectionUpdatePlan,
-} from "./prompting/dynamic-section-diff";
+} from "./dynamic-section-diff";
 import type { PromptBundleRenderer } from "../../prompt-renderer/src/index";
 import { renderRequest, renderWorkingContextMessage } from "./render";
 import {

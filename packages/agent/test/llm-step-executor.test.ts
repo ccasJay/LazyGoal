@@ -30,7 +30,7 @@ import {
 } from "../src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
-import { buildStepRequest } from "../src/prompt";
+import { buildStepRequest } from "../../model-request/src/index";
 import {
     createCurrentContextAssembler,
     createInMemoryTrajectoryStore,

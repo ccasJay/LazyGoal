@@ -13,6 +13,6 @@
 | Plan 提案前工具可见性 | 未获批 Plan Run 的请求只携带 Runtime 筛选出的显式只读工具。 | [Agent 模型请求](../README.md) | [Run 模式 Prompt](../../prompt-bundle/src/prompting/run-mode@1.njk) |
 | Plan 路线规划 | 仅 Plan Run 按交付结构提出完整路线；普通 Run 沿用直接执行决策。 | [Agent 模型请求](../README.md) | [Run 模式 Prompt](../../prompt-bundle/src/prompting/run-mode@1.njk) |
 | Plan 路线执行 | 获批 Plan Run 只读投影路线并按序推进；路线修订决策仅在获批 Plan Run 可见。 | [Agent 模型请求](../README.md) | [Run 模式 Prompt](../../prompt-bundle/src/prompting/run-mode@1.njk) |
-| 完成审查上下文 | 用户原文与回复语境、当前阶段和原始证据；来源位置保留，不默认重放完整会话。 | [Agent 模型请求](../README.md) | [审查输入](../src/completion-review.ts) |
+| 完成审查上下文 | 用户原文与回复语境、当前阶段和原始证据；来源位置保留，不默认重放完整会话。 | [模型请求准备](../../model-request/README.md) | [审查输入](../../model-request/src/completion-review.ts) |
 | 工具决策协议 | required 请求只解码唯一声明调用；正文 JSON 不替代工具结果，缺失与多调用进入纠错。 | [Agent 模型请求](../README.md) | [模块说明](./overview.md) |
 | Decide 响应形状分级 | 单调用、多调用批次、零调用正文、无可用结果四类及其解码与错误语义。 | [Agent](../README.md) | [LLMStepExecutor](../src/llm-step-executor.ts) |

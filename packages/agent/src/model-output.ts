@@ -1,4 +1,3 @@
-import type { LLMRequest } from "../../llm/src/core/types";
 import type { ContractValidationError } from "../../contracts/src/index";
 import type {
     AgentDecision,
@@ -172,32 +171,4 @@ export function parseAgentDecision(
     }) as unknown as ModelOutputContractBundle<AgentDecision>);
 
     return parseModelOutput(content, effectiveBundle);
-}
-
-/**
- * 判断最终控制消息是否要求模型仅返回 Context Epoch 检查点。
- *
- * @param request - LLM 请求对象（包含 messages 数组）。
- * @returns 是否需要 Context Epoch 检查点。
- *
- * @example
- * ```ts
- * const isCheckpoint = requestRequiresContextCheckpoint(request);
- * ```
- */
-export function requestRequiresContextCheckpoint(
-    request: Pick<LLMRequest, "messages">,
-): boolean {
-    const message = request.messages.at(-1);
-    if (message === undefined || message.role !== "user") return false;
-    try {
-        const payload = JSON.parse(message.content) as {
-            readonly contextEpoch?: {
-                readonly control?: { readonly status?: unknown };
-            };
-        };
-        return payload.contextEpoch?.control?.status === "checkpoint_required";
-    } catch {
-        return false;
-    }
 }

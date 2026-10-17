@@ -18,7 +18,7 @@ import {
     DropOldestContextCompactor,
     ModelContextHardOverflowError,
 } from "../../context-budget/src/index";
-import { buildStepRequest } from "../../agent/src/prompt";
+import { buildStepRequest } from "../../model-request/src/index";
 import {
     createDefaultPromptBundleRenderer,
     createDefaultDynamicSectionRegistry,

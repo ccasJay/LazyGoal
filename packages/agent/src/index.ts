@@ -2,15 +2,6 @@ export { LLMStepExecutor } from "./llm-step-executor";
 export type { LLMStepExecutorDependencies } from "./llm-step-executor";
 
 export {
-    buildStepRequest,
-} from "./prompt";
-export type {
-    ModelOutputRequestPlan,
-    StepPromptStageContext,
-    StructuredOutputMode,
-} from "./prompt";
-
-export {
     createModelExecutionBinding,
     MutableModelBinding,
 } from "./model-execution-binding";
@@ -19,17 +10,12 @@ export type {
     ModelExecutionBindingProvider,
     CreateModelExecutionBindingInput,
 } from "./model-execution-binding";
-export {
-    renderRequest,
-    renderWorkingContextMessage,
-} from "./render";
 
 export {
     extractJsonPayload,
     parseJson,
     parseModelOutput,
     parseAgentDecision,
-    requestRequiresContextCheckpoint,
 } from "./model-output";
 
 export {
@@ -41,16 +27,6 @@ export type {
     LLMResponseProtocolErrorDetails,
     LLMResponseProtocolIssue,
 } from "./errors";
-
-export {
-    DYNAMIC_SECTION_DIFF_ERROR_CODE,
-    DynamicSectionDiffError,
-    planDynamicSectionUpdates,
-} from "./prompting/dynamic-section-diff";
-export type {
-    DynamicSectionUpdateMessage,
-    DynamicSectionUpdatePlan,
-} from "./prompting/dynamic-section-diff";
 
 export type { LLMAdapter } from "../../llm/src/core/adapter";
 export type { NormalizedUsage } from "../../llm/src/core/usage";

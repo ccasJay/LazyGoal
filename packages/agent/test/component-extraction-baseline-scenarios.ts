@@ -42,8 +42,8 @@ import {
     LLMStepExecutor,
     MutableModelBinding,
     createModelExecutionBinding,
-    planDynamicSectionUpdates,
 } from "../src/index";
+import { planDynamicSectionUpdates } from "../../model-request/src/index";
 import {
     DEFAULT_PROMPT_TEMPLATE_ASSETS,
     createDefaultPromptBundleRenderer,
@@ -65,8 +65,8 @@ import {
     truncateThought,
 } from "../../context-budget/src/index";
 import type { DynamicSectionMessage } from "../../prompt-renderer/src/index";
-import { buildStepRequest } from "../src/prompt";
-import type { StepPromptStageContext } from "../src/prompt";
+import { buildStepRequest } from "../../model-request/src/index";
+import type { StepPromptStageContext } from "../../model-request/src/index";
 import { currentProtocols, currentWorkingMemory } from "./current-fixtures";
 
 const BASELINE_PROFILE: AgentProfile = {

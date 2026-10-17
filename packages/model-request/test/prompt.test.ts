@@ -62,7 +62,7 @@ import {
 import type { ContextCompactor } from "../../context-budget/src/index";
 import { ModelInferenceProjector } from "../../model-context/src/index";
 import type { TrajectoryModelContextAssemblyInput } from "../../model-context/src/index";
-import { currentProtocols, currentWorkingMemory } from "./current-fixtures";
+import { currentProtocols, currentWorkingMemory } from "../../agent/test/current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();
