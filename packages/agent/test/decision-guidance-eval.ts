@@ -17,7 +17,7 @@ import type { PromptBundleRenderer } from "../../prompt-renderer/src/index";
 import type { PromptContext } from "../../model-view/src/index";
 import { createStageMessages } from "../../model-request/src/index";
 import { renderRequest } from "../../model-request/src/index";
-import { parseModelOutput } from "../src/model-output";
+import { parseModelOutput } from "../../model-response/src/index";
 import { decisionScenarios, decisionScenarioView, decisionScenarioTools, scoreDecision } from "./decision-guidance-fixtures";
 import { runCompletionReviewEvaluation } from "./completion-review-eval";
 

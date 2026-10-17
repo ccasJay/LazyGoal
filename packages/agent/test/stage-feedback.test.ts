@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createGoal, ModelStageFeedbackError } from "../../runtime/src/index";
-import { LLMResponseProtocolError } from "../src/errors";
+import { LLMResponseProtocolError } from "../../model-response/src/index";
 import { toModelStageFeedback } from "../src/stage-feedback";
 import { currentProtocols } from "./current-fixtures";
 

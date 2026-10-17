@@ -11,23 +11,6 @@ export type {
     CreateModelExecutionBindingInput,
 } from "./model-execution-binding";
 
-export {
-    extractJsonPayload,
-    parseJson,
-    parseModelOutput,
-    parseAgentDecision,
-} from "./model-output";
-
-export {
-    LLM_RESPONSE_PROTOCOL_ERROR_CODE,
-    LLMResponseProtocolError,
-} from "./errors";
-export type {
-    FailedToolCallShape,
-    LLMResponseProtocolErrorDetails,
-    LLMResponseProtocolIssue,
-} from "./errors";
-
 export type { LLMAdapter } from "../../llm/src/core/adapter";
 export type { NormalizedUsage } from "../../llm/src/core/usage";
 export { readNormalizedUsage } from "../../llm/src/core/usage";

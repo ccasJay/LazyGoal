@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { scriptedEngineeringRole } from "../context-swebench-smoke.js";
 import { createModelOutputContractBundle } from "../../packages/model-contracts/src/index.js";
-import { parseModelOutput } from "../../packages/agent/src/model-output.js";
+import { parseModelOutput } from "../../packages/model-response/src/index.js";
 import { createSwebenchAcpToolSet } from "../swebench/src/worker-runtime.js";
 
 test("engineering fixture obeys stage native tool and discover-before-invoke contracts without a real model", async () => {

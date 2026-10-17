@@ -36,7 +36,7 @@
   - 实现：迁移请求构造、消息组装、Section 更新算法及请求检查 helper，实际响应解析保留给 TODO 5。完成审查改收输出模式、预算和能力等必要值，原执行器在相同 Binding 上投影传参；请求包不依赖执行器或默认 Bundle，不另建 Schema、不读取恢复真源或提交 frame。同步调用方和测试，保留审查的原始用户要求、回复语境与证据来源规则。
   - 检查：`npx tsx --test packages/model-request/test/*.test.ts packages/agent/test/component-extraction-baseline.test.ts packages/runtime/test/think-decision-recovery.test.ts`；`npx tsc --noEmit`；`npm run check:dependencies`。模型调用次数断言为零，历史读取仅由已注入的现有组装 Port 发生。
 
-- [ ] //TODO 5. 用同一请求契约独立解码文本和原生阶段响应
+- [x] //TODO 5. 用同一请求契约独立解码文本和原生阶段响应
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.7](./spec.md#spec-req-1-7)、[3.3](./spec.md#spec-req-3-3)、[4.4](./spec.md#spec-req-4-4)、[5.1](./spec.md#spec-req-5-1)。
   - 先验证：在 `model-response` 迁移文本解析断言，并将原执行器内的原生工具/Think/Decide/完成审查解码场景归入拟新增 `packages/model-response/test/stage-response.test.ts`。从公共入口仅提供最终响应与实际请求契约/声明，验证 fenced JSON、分支、调用数、原生身份/续接、非法参数、Think 空白/工具调用、完成审查接受/拒绝及现有错误码/字段形状；不注入 Goal、Store 或 Adapter。
   - 实现：把根协议错误和全部对应响应检查迁入 `model-response`，现有执行器调用唯一解码实现；不重建请求契约，不在响应包分配 Action ID、做授权或生成 RuntimeFeedback。请求检查 helper 由 TODO 4 所有者提供；更新旧诊断、反馈和当前消费者的错误类型引用，保持同一错误类身份。

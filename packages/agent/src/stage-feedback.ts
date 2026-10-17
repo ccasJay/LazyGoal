@@ -6,7 +6,7 @@ import {
     type RuntimeFeedbackStage,
 } from "../../runtime/src/runtime-feedback";
 import type { Goal } from "../../runtime/src/domain";
-import { LLMResponseProtocolError } from "./errors";
+import { LLMResponseProtocolError } from "../../model-response/src/index";
 
 /** 将 Agent 的结构化解析异常转换成不含响应正文的 Runtime 阶段反馈。 */
 export function toModelStageFeedback(
