@@ -119,6 +119,14 @@ test("isBrowserGoalSession validates complete and malformed sessions", () => {
     assert.equal(isBrowserGoalSession({ ...validSession, execution: { state: "active", committedThroughSequence: 5 } }), true);
     assert.equal(isBrowserGoalSession({ ...validSession, execution: { state: "bad", committedThroughSequence: 5 } }), false);
     assert.equal(isGoalSessionEnvelope({ goal: validSession }), true);
+    const withThink = (think: unknown) => ({ ...validSession, runs: [{ ...validSession.runs[0],
+        steps: [{ ...validSession.runs[0]!.steps[0], think }],
+    }] });
+    assert.equal(isBrowserGoalSession(withThink({ goal: "Compare paths" })), true);
+    assert.equal(isBrowserGoalSession(withThink({ goal: "Compare paths", output: "Use the saved checkpoint", truncated: true })), true);
+    for (const think of [null, { goal: 1 }, { goal: "Compare", output: {} }, { goal: "Compare", truncated: "yes" }]) {
+        assert.equal(isBrowserGoalSession(withThink(think)), false);
+    }
 
     assert.equal(isBrowserGoalSession({ ...validSession, currentRunMode: "other" }), false);
     assert.equal(isBrowserGoalSession({ ...validSession, runs: "not-array" }), false);

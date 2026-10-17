@@ -5,13 +5,13 @@ import type {
 } from "../../../packages/web-contracts/src/index";
 
 /** 活动组根据工具语义划分的展示类别。 */
-export type ActivityGroupCategory = "explore" | "execute" | "edit" | "single";
+export type ActivityGroupCategory = "explore" | "execute" | "edit" | "think" | "single";
 
 /** 单个活动成员在当前投影中的状态。 */
 export type ActivityMemberStatus = "running" | "completed" | "failed" | "rejected";
 
 /**
- * 活动组中的一个真实工具调用。
+ * 活动组中的一个真实工具调用或显式 Think 阶段。
  *
  * @remarks
  * `isCommitted` 表示调用身份有已提交 Trajectory 来源；实时信息只覆盖其当前状态，
@@ -30,7 +30,7 @@ export interface ActivityGroupMember {
   readonly id: string;
   /** 所属阶段；Run 级调用省略。 */
   readonly stageId?: string;
-  /** 经工具白名单归类的活动类别。 */
+  /** 经工具白名单归类的活动类别，或独立 Think 类别。 */
   readonly category: ActivityGroupCategory;
   /** 简短操作描述，不含原始工具输入或隐藏推理。 */
   readonly label: string;
@@ -138,6 +138,7 @@ export function projectActivityGroups(input: {
 
 /** 生成用于摘要行的类别数量文案。 */
 export function summarizeActivityGroup(category: ActivityGroupCategory, members: readonly ActivityGroupMember[]): string {
+  if (category === "think") return `Thinking · ${members[0]?.step?.think?.goal ?? "Analysis"}`;
   if (category === "single") return members[0]?.label ?? "Activity";
   const count = members.length;
   if (category === "explore") return `Explored ${count} ${count === 1 ? "item" : "items"}`;
@@ -172,7 +173,7 @@ interface MutableMember {
 }
 
 function durableMember(runId: string, step: BrowserSessionStep): MutableMember {
-  const category = categorizeTool(step.toolId);
+  const category = step.think === undefined ? categorizeTool(step.toolId) : "think";
   const status: ActivityMemberStatus = step.status === "completed" ? "completed"
     : step.status === "failed" ? "failed"
       : step.status === "rejected" ? "rejected" : "running";
@@ -181,7 +182,7 @@ function durableMember(runId: string, step: BrowserSessionStep): MutableMember {
     runId,
     ...(step.stageId === undefined ? {} : { stageId: step.stageId }),
     category,
-    label: labelForTool(step.toolId, step.inputSummary ?? step.bashExecution?.command, step.status),
+    label: step.think === undefined ? labelForTool(step.toolId, step.inputSummary ?? step.bashExecution?.command, step.status) : "Thinking",
     status,
     isCommitted: true,
     ...(step.actionId === undefined ? {} : { actionId: step.actionId }),

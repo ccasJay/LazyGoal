@@ -25,3 +25,6 @@ coverage/
 *.log
 .trae/rules/git-commit-message.md
 specs/**/.execution-progress.md
+
+# 本地 worktree 目录
+.worktrees/

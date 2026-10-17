@@ -12,3 +12,4 @@
 | Provider settings routes | 受管 Provider 档案的掩码读取与增删改、激活、连接测试接口；写请求需同源 `Origin` 与 Bearer 令牌。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
 | Model source dimension | 模型目录携带的受管档案与回退来源列表，以及按 `providerProfileId` 读取指定来源目录的能力。 | [浏览器服务边界](../README.md) | [Model Catalog Projection](../src/browser-model-catalog.ts) |
 | Provider model preview | 受同源授权保护的未保存连接查询，不写入档案。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
+| Think session projection | 从已提交请求与完成事实配对的独立 Think 展示成员，保留原 Step 序号与有界分析。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |

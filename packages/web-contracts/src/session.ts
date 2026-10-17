@@ -154,7 +154,8 @@ export interface BrowserBashExecutionDetail {
  * 会话单步执行的安全投影。
  *
  * @remarks
- * 汇总 Action 与 Observation 的已提交事实，不包含私有中间状态或原始 Prompt。
+ * 汇总 Action、Observation 和显式 Think 阶段的已提交事实，不包含供应商隐藏推理或原始 Prompt。
+ * Think 是同一 Runtime Step 内的展示成员，不增加 `stepCount`。
  *
  * @example
  * ```ts
@@ -183,7 +184,7 @@ export interface BrowserSessionStep {
     readonly sequence: number;
     /** Step 序号。 */
     readonly stepIndex: number;
-    /** 决策种类（如 "tool_call"）。 */
+    /** 决策或阶段控制种类（如 `tool_call`、`request_think`）。 */
     readonly decisionKind?: string;
     /** 工具标识。 */
     readonly toolId?: string;
@@ -195,6 +196,15 @@ export interface BrowserSessionStep {
     readonly status: "recorded" | "completed" | "failed" | "rejected";
     /** 工具观察结果摘要。 */
     readonly summary?: string;
+    /** 显式 Think 的目标及已提交输出；输出缺省表示尚无已提交完成事实。超长文本有界展示，完整正文从 Trajectory 详情读取。 */
+    readonly think?: {
+        /** 本次明确的思考目标；最多 4,000 字符。 */
+        readonly goal: string;
+        /** 已提交的显式分析正文；最多 64,000 字符，不包含供应商隐藏推理。 */
+        readonly output?: string;
+        /** 目标或正文被截断时为 true；完整事件仍可从 Trajectory 读取。 */
+        readonly truncated?: true;
+    };
     /** Bash 专有执行详情。 */
     readonly bashExecution?: BrowserBashExecutionDetail;
     /** 因数量超限是否省略 Bash 详情。 */

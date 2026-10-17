@@ -228,6 +228,10 @@ export function isBrowserRun(value: unknown): value is BrowserSessionRun {
             && Number.isSafeInteger(step.stepIndex)
             && ["recorded", "completed", "failed", "rejected"].includes(String(step.status))
             && (step.summary === undefined || typeof step.summary === "string")
+            && (step.think === undefined || isRecord(step.think)
+                && typeof step.think.goal === "string"
+                && (step.think.output === undefined || typeof step.think.output === "string")
+                && (step.think.truncated === undefined || step.think.truncated === true))
             && (step.stageId === undefined || isNonEmptyString(step.stageId))
             && (step.recoveryAttempts === undefined || Array.isArray(step.recoveryAttempts)
                 && step.recoveryAttempts.every((attempt) => typeof attempt === "string")))
