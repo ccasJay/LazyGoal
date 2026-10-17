@@ -31,6 +31,7 @@ import {
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import { transition } from "./transition";
+import { createRunPlanRoute, reviseRunPlanExecution } from "./run-plan";
 import {
     type DiagnosticTraceSink,
     type TrajectoryEventDraft,
@@ -1038,6 +1039,39 @@ export class GoalCoordinator {
                     request.action.answers,
                 );
 
+                const routeRevision = pendingInteraction.routeRevision;
+                const approvedRouteRevision = routeRevision !== undefined
+                    && request.action.answers.some((answer) => answer.questionId === "q-1"
+                        && answer.optionIds.length === 1
+                        && answer.optionIds[0] === routeRevision.approvalOptionId
+                        && answer.otherText === undefined);
+                let nextRunState = resolvedRun.state;
+                let revisedRouteEvent: TrajectoryEventDraft | undefined;
+                if (routeRevision !== undefined && approvedRouteRevision) {
+                    const currentRoute = goal.state.run.planRoute;
+                    if (currentRoute === undefined || currentRoute.revision !== routeRevision.baseRevision) {
+                        return this.invalidGoalInput("Pending route revision no longer matches the current Plan route");
+                    }
+                    const revised = reviseRunPlanExecution(
+                        currentRoute,
+                        routeRevision.candidate,
+                        routeRevision.reason,
+                        goal.state.run.currentStage,
+                    );
+                    nextRunState = {
+                        ...nextRunState,
+                        planRoute: revised.route,
+                        ...(revised.currentStage === undefined ? {} : { currentStage: revised.currentStage }),
+                    };
+                    revisedRouteEvent = {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        eventType: "run_plan_route_revised",
+                        payload: { type: "run_plan_route_revised", route: revised.route, reason: routeRevision.reason },
+                    };
+                }
+
                 const resumedGoal: Goal = {
                     ...goal,
                     state: {
@@ -1046,7 +1080,7 @@ export class GoalCoordinator {
                             ...goal.state.messages,
                             { role: "user", content: answerContent },
                         ],
-                        run: resolvedRun.state,
+                        run: nextRunState,
                     },
                 };
 
@@ -1070,6 +1104,10 @@ export class GoalCoordinator {
                         answers: request.action.answers,
                     },
                 }, control);
+
+                if (revisedRouteEvent !== undefined) {
+                    await this.appendTrajectory(revisedRouteEvent, control);
+                }
 
                 await this.saveCheckpoint(resumedGoal, control);
                 return this.advance(request.ref, control);
@@ -1103,13 +1141,15 @@ export class GoalCoordinator {
                         );
                     }
 
+                    const { currentStage: _currentStage, ...approvedRun } = resolvedRun.state;
                     const approvedGoal: Goal = {
                         ...epoch.goal,
                         state: {
                             ...epoch.goal.state,
                             run: {
-                                ...resolvedRun.state,
+                                ...approvedRun,
                                 approvedTask: cloneTask(proposal),
+                                planRoute: createRunPlanRoute(pendingInteraction.planRouteCandidate),
                             },
                         },
                     };

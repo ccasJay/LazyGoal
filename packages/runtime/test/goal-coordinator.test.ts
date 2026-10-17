@@ -236,6 +236,7 @@ function createTaskApprovalWaitingGoal(
                     kind: "task_approval",
                     requestId: "prop-1",
                     proposal,
+                    planRouteCandidate: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                     approvalRequest: "Approve the persistence task?",
                 },
             },
@@ -975,6 +976,7 @@ test("/plan 与 run_started 按 Snapshot 提交顺序线性化", async () => {
                 return goal.state.run.mode === "plan"
                     ? {
                         kind: "task_proposal",
+                        planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                         task: { objective: "完成本次请求", completionCriteria: [{ text: "请求已处理" }] },
                         approvalRequest: "请批准任务提案",
                     }
@@ -1163,6 +1165,7 @@ test("saves task proposal feedback without the current proposal before replannin
                     status: "waiting" as const,
                     pendingInteraction: {
                         kind: "task_approval" as const,
+                        planRouteCandidate: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                         requestId: "prop-2",
                         proposal: {
                             objective: "Implement encrypted persistence",

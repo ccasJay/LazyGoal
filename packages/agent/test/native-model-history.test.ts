@@ -155,17 +155,33 @@ test("assembler uses only committed exchanges, strips duplicate Hot payload, and
     assert.equal(JSON.stringify(warm).includes("thoughtSignature"), false);
 });
 
-test("native Decide rejects zero/multiple calls before dispatch", async () => {
-    for (const calls of [[], [message().toolCalls![0]!, message().toolCalls![0]!]]) {
-        const adapter: LLMAdapter = { structuredOutputMode: "strict", nativeConversationIdentity: identity, async generate() { return { content: "", toolCalls: calls }; } };
-        const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: compactor, trajectoryContextAssembler: new TrajectoryModelContextAssembler({ trajectoryStore: createInMemoryTrajectoryStore(), policy: createDefaultModelContextBudgetPolicy() }) });
-        const goal = initial();
-        await assert.rejects(executor.decide({ goal: { ...goal, state: { ...goal.state, run: { ...goal.state.run, status: "running" } } }, authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] }), (error: unknown) => {
-            assert.ok(error instanceof Error && error.cause instanceof Error);
-            assert.match(error.cause.message, /exactly one/);
-            return true;
-        });
-    }
+test("native Decide accepts multiple calls as an ordered batch", async () => {
+    const adapter: LLMAdapter = { structuredOutputMode: "strict", nativeConversationIdentity: identity, async generate() {
+        const call = message("read_file", { path: "README.md" }).toolCalls![0]!;
+        return { content: "", toolCalls: [call, { ...call, callId: "provider-call-2" }] };
+    } };
+    const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: compactor, trajectoryContextAssembler: new TrajectoryModelContextAssembler({ trajectoryStore: createInMemoryTrajectoryStore(), policy: createDefaultModelContextBudgetPolicy() }) });
+    const goal = initial();
+    const result = await executor.decide({
+        goal: { ...goal, state: { ...goal.state, run: { ...goal.state.run, status: "running" } } },
+        authorizedTools: [{ id: "read_file", description: "Read a file", isReadOnly: true,
+            inputContract: contract.object({ path: contract.string() }) }],
+        workingMemory: currentWorkingMemory,
+        thinkHistory: [],
+    });
+    assert.equal(result.kind, "batch");
+    assert.equal(result.kind === "batch" && result.decisions.length, 2);
+});
+
+test("native Decide classifies zero calls with empty content as no usable result", async () => {
+    const adapter: LLMAdapter = { structuredOutputMode: "strict", nativeConversationIdentity: identity, async generate() { return { content: "", toolCalls: [] }; } };
+    const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: compactor, trajectoryContextAssembler: new TrajectoryModelContextAssembler({ trajectoryStore: createInMemoryTrajectoryStore(), policy: createDefaultModelContextBudgetPolicy() }) });
+    const goal = initial();
+    await assert.rejects(executor.decide({ goal: { ...goal, state: { ...goal.state, run: { ...goal.state.run, status: "running" } } }, authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] }), (error: unknown) => {
+        assert.ok(error instanceof Error && error.cause instanceof Error);
+        assert.match(error.cause.message, /no usable decision/);
+        return true;
+    });
 });
 
 function nativeAdapter(generate: (request: LLMRequest) => Promise<LLMResponse>): LLMAdapter {

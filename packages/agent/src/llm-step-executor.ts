@@ -2,11 +2,18 @@ import { isModelAssistantMessage, sameNativeIdentity } from "../../model-contrac
 import type { ModelInputStore, ModelInputRecord } from "../../runtime/src/model-input";
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
+
+/** Decide 响应的形状分级结果：单调用进入既有决策路径，多调用成为顺序批次，零调用且有正文归为 Assistant 消息。 */
+type DecideResponseOutcome =
+    | { readonly kind: "call"; readonly call: LLMToolCall }
+    | { readonly kind: "batch"; readonly calls: readonly LLMToolCall[] }
+    | { readonly kind: "assistant_message"; readonly text: string };
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMStreamEvent } from "../../llm/src/core/types";
 import { readNormalizedUsage } from "../../llm/src/core/usage";
 import type {
     AgentDecision,
+    Goal,
 } from "../../runtime/src/domain";
 import type { DecideOutput } from "../../model-contracts/src/index";
 import {
@@ -25,9 +32,6 @@ import type {
 import type { ContextCompactor } from "./context-compactor";
 import type { ModelConversationMessage } from "./model-inference-view";
 import { buildStepRequest } from "./prompt";
-import {
-    parseModelOutput,
-} from "./model-output";
 import { LLMResponseProtocolError } from "./errors";
 import type { PromptBundleRenderer } from "./prompting/types";
 import type { TrajectoryModelContextAssembler } from "./trajectory-model-context-assembler";
@@ -53,11 +57,10 @@ import {
     type SystemToolDeclaration,
 } from "../../model-contracts/src/index";
 import { ContractValidationError } from "../../contracts/src/errors";
-import type { LLMResponse, LLMToolDefinition } from "../../llm/src/core/types";
+import type { LLMResponse, LLMToolDefinition, LLMToolCall } from "../../llm/src/core/types";
 import type { ExecutionStreamEventDraft, ExecutionStreamPublisher } from "../../execution-stream/src/index";
 import { toModelStageFeedback } from "./stage-feedback";
 import { buildCompletionReviewRequest } from "./completion-review";
-import { extractJsonPayload } from "./model-output";
 
 /**
  * 创建 {@link LLMStepExecutor} 所需的供应商无关依赖。
@@ -150,13 +153,100 @@ export class LLMStepExecutor implements StepExecutor {
     async execute(input: StepExecutionInput): Promise<AgentDecision> {
         try {
             const result = await this.executeDecideStage(input, false, input.thinkHistory ?? []);
-            if (result.kind !== "decision") {
-                throw new LLMResponseProtocolError("request_think is not available through execute()");
-            }
+        if (result.kind !== "decision") {
+            throw new LLMResponseProtocolError(result.kind === "request_think"
+                ? "request_think is not available through execute()"
+                : "An assistant message decision is not available through execute()");
+        }
             return result.decision;
         } catch (error) {
             throw toModelStageFeedback(error, input, "decide");
         }
+    }
+
+    /**
+     * 把一个声明的工具调用解码为 Decide 输出，并为其业务动作分配稳定身份。
+     *
+     * @param toolCall - 模型返回的单个调用。
+     * @param declarations - 本次请求暴露的声明集合。
+     * @param input - 当前 Step 输入，用于判定输入路径归属。
+     * @param goal - 当前 Goal，仅用于诊断记录。
+     * @param startedAt - 本次模型调用起始时间。
+     * @param callId - 本次模型调用标识。
+     * @param adapter - 当前 Decide 适配器，用于判定原生会话身份。
+     * @returns 解码后的决策；批量的每个调用各调用一次。
+     * @throws 参数不是合法 JSON 或不符合声明契约时抛协议错误。
+     * @example
+     * ```ts
+     * const output = await executor.decodeToolCallOutcome(call, declarations, input, goal, startedAt, callId, adapter);
+     * ```
+     */
+    private async decodeToolCallOutcome(
+        toolCall: LLMToolCall,
+        declarations: readonly SystemToolDeclaration<unknown>[],
+        input: StepExecutionInput,
+        goal: Goal,
+        startedAt: number,
+        callId: string,
+        adapter: LLMAdapter,
+    ): Promise<DecideOutput> {
+        let output: DecideOutput;
+        let rawArgs: unknown;
+        try {
+            rawArgs = JSON.parse(toolCall.argumentsJson);
+        } catch (err) {
+            const parseErr = new LLMResponseProtocolError(
+                `Failed to parse arguments JSON for tool call "${toolCall.toolId}": ${(err as Error).message}`,
+                {
+                    cause: err,
+                    issues: [{
+                        code: "invalid_tool_arguments",
+                        path: ["arguments"],
+                        message: "Tool arguments must contain valid JSON.",
+                    }],
+                },
+            );
+            await recordLlmError(this.traceSink, goal, parseErr, Date.now() - startedAt, "response_parse", callId);
+            throw parseErr;
+        }
+        const declaration = declarations.find(tool => tool.id === toolCall.toolId);
+        try {
+            output = decodePhaseToolCall(declarations, toolCall.toolId, rawArgs) as DecideOutput;
+        } catch (error) {
+            const validationErr = error instanceof ContractValidationError
+                ? new LLMResponseProtocolError(
+                    `Tool call "${toolCall.toolId}" validation failed: ${error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+                    {
+                        issues: error.issues.map(i => ({
+                            code: i.code,
+                            path: input.authorizedTools.some(tool => tool.id === toolCall.toolId)
+                                ? ["action", "input", ...i.path]
+                                : i.path,
+                            message: i.message,
+                        })),
+                        cause: error,
+                        ...(declaration === undefined || rawArgs === null || typeof rawArgs !== "object" || Array.isArray(rawArgs) ? {} : {
+                            toolCallShape: {
+                                toolId: declaration.id,
+                                providedFields: Object.keys(rawArgs),
+                                allowedFields: Object.keys(declaration.parametersSchema.properties ?? {}),
+                                requiredFields: (declaration.parametersSchema.required ?? []) as readonly string[],
+                            },
+                        }),
+                    },
+                )
+                : error;
+            await recordLlmError(this.traceSink, goal, validationErr, Date.now() - startedAt, "response_parse", callId);
+            throw validationErr;
+        }
+        if (output.kind === "tool_call") {
+            const actionId = adapter.nativeConversationIdentity !== undefined
+                ? `action-${randomUUID()}`
+                : toolCall.callId && toolCall.callId.trim().length > 0 && toolCall.callId !== toolCall.toolId
+                    ? toolCall.callId : output.action.actionId;
+            output = { ...output, action: { ...output.action, actionId } };
+        }
+        return output;
     }
 
     /**
@@ -181,7 +271,7 @@ export class LLMStepExecutor implements StepExecutor {
     /**
      * 使用当前 Decide 模型独立核查完成候选，不发布公开模型文本或调用参数。
      * @param input - Runtime 已校验的候选与完整提交事实。
-     * @returns 接受或具体缺口反馈；不改写候选、不提交状态。
+     * @returns 从唯一 system_review_completion 调用解码的接受或具体缺口反馈；不改写候选、不提交状态。
      * @throws 调用或预算失败原样抛出；协议错误交由 Decide 纠错链处理。
      * @example
      * ```ts
@@ -191,24 +281,17 @@ export class LLMStepExecutor implements StepExecutor {
     async reviewCompletion(input: CompletionReviewInput): Promise<CompletionReviewResult> {
         try {
             const binding = this.bindingProvider.current();
-            const { request, bundle } = buildCompletionReviewRequest(input, binding);
+            const { request } = buildCompletionReviewRequest(input, binding);
             const { executionStream: _stream, ...privateInput } = input;
             const { response } = await this.generateModelResponse(
                 binding.decideAdapter, request, privateInput, binding.modelCapabilities, "completion_review", [],
             );
-            const calls = response.toolCalls ?? [];
-            if (binding.decideAdapter.nativeConversationIdentity !== undefined && calls.length !== 1
-                || calls.length > 1) {
-                throw new LLMResponseProtocolError("Completion review requires exactly one result call");
+            const call = this.requireSingleToolCall(response);
+            if (call.toolId !== SystemCompletionReviewDeclaration.id) {
+                throw new LLMResponseProtocolError("Completion review returned an undeclared result call");
             }
-            if (calls.length === 1) {
-                if (calls[0]!.toolId !== SystemCompletionReviewDeclaration.id) {
-                    throw new LLMResponseProtocolError("Completion review returned an undeclared result call");
-                }
-                return decodePhaseToolCall([SystemCompletionReviewDeclaration], calls[0]!.toolId,
-                    JSON.parse(calls[0]!.argumentsJson));
-            }
-            return bundle.decode(JSON.parse(extractJsonPayload(response.content)));
+            return decodePhaseToolCall([SystemCompletionReviewDeclaration], call.toolId,
+                JSON.parse(call.argumentsJson));
         } catch (error) {
             const protocolError = error instanceof SyntaxError || error instanceof ContractValidationError
                 ? new LLMResponseProtocolError("Completion review response does not match its contract", { cause: error })
@@ -329,11 +412,33 @@ export class LLMStepExecutor implements StepExecutor {
             "decide",
             plan.modelContextFrame.sections.map(section => section.content),
         );
-        if (adapter.nativeConversationIdentity !== undefined && response.toolCalls?.length !== 1) {
-            const error = new LLMResponseProtocolError("Decide stage requires exactly one native tool call");
+        let classified: DecideResponseOutcome;
+        try {
+            classified = this.classifyDecideResponse(response);
+        } catch (error) {
             await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "response_parse", callId);
             throw error;
         }
+
+        if (classified.kind === "assistant_message") {
+            return {
+                kind: "assistant_message",
+                text: classified.text,
+                modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) },
+            };
+        }
+        if (classified.kind === "batch") {
+            const decisions: DecideOutput[] = [];
+            for (const call of classified.calls) {
+                decisions.push(await this.decodeToolCallOutcome(call, plan.toolDeclarations, input, goal, startedAt, callId, adapter));
+            }
+            return {
+                kind: "batch",
+                decisions,
+                modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) },
+            };
+        }
+        const toolCall = classified.call;
 
         if (adapter.nativeConversationIdentity !== undefined && (response.continuation === undefined
             || !sameNativeIdentity(response.continuation.identity, adapter.nativeConversationIdentity)
@@ -343,76 +448,7 @@ export class LLMStepExecutor implements StepExecutor {
             throw error;
         }
 
-        let output: DecideOutput;
-        if (response.toolCalls && response.toolCalls.length > 0) {
-            const toolCall = response.toolCalls[0]!;
-            let rawArgs: unknown;
-            try {
-                rawArgs = JSON.parse(toolCall.argumentsJson);
-            } catch (err) {
-                const parseErr = new LLMResponseProtocolError(
-                    `Failed to parse arguments JSON for tool call "${toolCall.toolId}": ${(err as Error).message}`,
-                    {
-                        cause: err,
-                        issues: [{
-                            code: "invalid_tool_arguments",
-                            path: ["arguments"],
-                            message: "Tool arguments must contain valid JSON.",
-                        }],
-                    },
-                );
-                await recordLlmError(this.traceSink, goal, parseErr, Date.now() - startedAt, "response_parse", callId);
-                throw parseErr;
-            }
-            const declaration = plan.toolDeclarations.find(tool => tool.id === toolCall.toolId);
-            try {
-                output = decodePhaseToolCall(
-                    plan.toolDeclarations as readonly SystemToolDeclaration<unknown>[],
-                    toolCall.toolId,
-                    rawArgs,
-                ) as DecideOutput;
-            } catch (error) {
-                const validationErr = error instanceof ContractValidationError
-                    ? new LLMResponseProtocolError(
-                        `Tool call "${toolCall.toolId}" validation failed: ${error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
-                        {
-                            issues: error.issues.map(i => ({
-                                code: i.code,
-                                path: input.authorizedTools.some(tool => tool.id === toolCall.toolId)
-                                    ? ["action", "input", ...i.path]
-                                    : i.path,
-                                message: i.message,
-                            })),
-                            cause: error,
-                            ...(declaration === undefined || rawArgs === null || typeof rawArgs !== "object" || Array.isArray(rawArgs) ? {} : {
-                                toolCallShape: {
-                                    toolId: declaration.id,
-                                    providedFields: Object.keys(rawArgs),
-                                    allowedFields: Object.keys(declaration.parametersSchema.properties ?? {}),
-                                    requiredFields: (declaration.parametersSchema.required ?? []) as readonly string[],
-                                },
-                            }),
-                        },
-                    )
-                    : error;
-                await recordLlmError(this.traceSink, goal, validationErr, Date.now() - startedAt, "response_parse", callId);
-                throw validationErr;
-            }
-            if (output.kind === "tool_call") {
-                const actionId = adapter.nativeConversationIdentity !== undefined
-                    ? `action-${randomUUID()}`
-                    : toolCall.callId && toolCall.callId.trim().length > 0 && toolCall.callId !== toolCall.toolId
-                        ? toolCall.callId : output.action.actionId;
-                output = { ...output, action: { ...output.action, actionId } };
-            }
-        } else {
-            try {
-                output = parseModelOutput(response.content, plan.bundle);
-            } catch (error) {
-                await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "response_parse", callId);
-                throw error;
-            }
-        }
+        let output = await this.decodeToolCallOutcome(toolCall!, plan.toolDeclarations, input, goal, startedAt, callId, adapter);
 
         if (output.kind === "request_think") {
             const goal = output.goal.trim();
@@ -435,6 +471,50 @@ export class LLMStepExecutor implements StepExecutor {
             : { kind: "decision", decision: output, modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) } };
     }
 
+    private requireSingleToolCall(response: LLMResponse) {
+        const calls = response.toolCalls ?? [];
+        if (calls.length !== 1) {
+            const code = calls.length === 0 ? "missing_tool_call" : "multiple_tool_calls";
+            throw new LLMResponseProtocolError("Model response requires exactly one declared tool call", {
+                issues: [{ code, path: ["toolCalls"], message: calls.length === 0
+                    ? "Call one declared tool; do not return a text JSON decision."
+                    : "Return exactly one tool call, not multiple calls." }],
+            });
+        }
+        return calls[0]!;
+    }
+
+    /**
+     * 对 Decide 响应做形状分级：单调用进入既有决策路径，多调用仍判协议错误，
+     * 零调用且正文非空归为合法 Assistant 消息，零调用且无可用正文归为无可用结果。
+     *
+     * @param response - Adapter 返回的原始响应。
+     * @returns 单调用返回唯一 call；零调用且有正文返回 Assistant 消息。
+     * @throws 多调用抛 `multiple_tool_calls`；零调用且无正文或仅推演义抛 `no_usable_result`。
+     * @remarks 结构化控制请求（完成审查等）不经过本分级，仍由 {@link requireSingleToolCall} 要求唯一结果。
+     * @example
+     * ```ts
+     * const outcome = executor.classifyDecideResponse(response);
+     * if (outcome.kind === "assistant_message") return { kind: "assistant_message", text: outcome.text };
+     * ```
+     */
+    private classifyDecideResponse(response: LLMResponse): DecideResponseOutcome {
+        const calls = response.toolCalls ?? [];
+        if (calls.length === 1) return { kind: "call", call: calls[0]! };
+        if (calls.length > 1) return { kind: "batch", calls };
+        const text = response.content.trim();
+        if (text.length === 0) {
+            throw new LLMResponseProtocolError("Model response contains no usable decision", {
+                issues: [{
+                    code: "no_usable_result",
+                    path: ["toolCalls"],
+                    message: "Return one declared tool call, or a non-empty text answer.",
+                }],
+            });
+        }
+        return { kind: "assistant_message", text: response.content };
+    }
+
     private async generateModelResponse(
         adapter: LLMAdapter,
         request: Parameters<LLMAdapter["generate"]>[0],
@@ -453,9 +533,11 @@ export class LLMStepExecutor implements StepExecutor {
             ...(input.executionUnitId === undefined ? {} : { executionUnitId: input.executionUnitId }),
             callId,
         };
-        const providerRequest = modelCapabilities === undefined
-            ? request
-            : { ...request, maxOutputTokens: modelCapabilities.maxOutputTokens };
+        const providerRequest = {
+            ...request,
+            sessionId: goal.id,
+            ...(modelCapabilities === undefined ? {} : { maxOutputTokens: modelCapabilities.maxOutputTokens }),
+        };
         await this.modelInputStore?.append({
             ...metricIdentity, stepIndex: goal.state.run.stepCount + 1, stage,
             occurredAt: new Date().toISOString(),
@@ -481,23 +563,36 @@ export class LLMStepExecutor implements StepExecutor {
         });
         let response: LLMResponse;
         let decodeDurationMs: number | undefined;
+        let requestStartedAt: number | undefined;
+        let requestDurationMs: number | undefined;
         try {
             if (adapter.stream === undefined) {
+                requestStartedAt = performance.now();
                 response = await adapter.generate(providerRequest, control);
+                const elapsedMs = performance.now() - requestStartedAt;
+                if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
                 this.publishFallbackModelEvents(input, response);
             } else {
+                requestStartedAt = performance.now();
                 const streamed = await this.consumeModelStream(adapter, providerRequest, input, control);
                 response = streamed.response;
                 decodeDurationMs = streamed.decodeDurationMs;
+                const elapsedMs = performance.now() - requestStartedAt;
+                if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
             }
             throwIfAborted(control);
         } catch (error) {
+            if (requestDurationMs === undefined && requestStartedAt !== undefined) {
+                const elapsedMs = performance.now() - requestStartedAt;
+                if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
+            }
             await this.appendModelMetric({
                 recordType: "call_finished",
                 ...metricIdentity,
                 occurredAt: new Date().toISOString(),
                 outcome: isExecutionAbortedError(error) || control?.signal?.aborted ? "cancelled" : "failed",
                 usage: { source: "unavailable" },
+                ...(requestDurationMs === undefined ? {} : { requestDurationMs }),
             });
             await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "adapter", callId);
             if (isExecutionAbortedError(error)) throw error;
@@ -511,6 +606,7 @@ export class LLMStepExecutor implements StepExecutor {
             occurredAt: new Date().toISOString(),
             outcome: "completed",
             usage: usage === undefined ? { source: "unavailable" } : { source: "provider_reported", ...usage },
+            ...(requestDurationMs === undefined ? {} : { requestDurationMs }),
             ...(decodeDurationMs === undefined ? {} : { decodeDurationMs }),
         });
         await recordLlmResponse(this.traceSink, goal, response, Date.now() - startedAt, callId);

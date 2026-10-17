@@ -22,6 +22,21 @@ export type {
     ReviseRunStageInput,
 } from "./run-stage";
 export {
+    acceptRunPlanStage,
+    activateRunPlanStage,
+    assertValidRunPlanRoute,
+    createRunPlanRoute,
+    reviseRunPlanRoute,
+    reviseRunPlanExecution,
+    updateRunPlanStage,
+    RunPlanTransitionError,
+} from "./run-plan";
+export type {
+    RunPlanRouteState,
+    RunPlanRouteCandidate,
+    RunPlanStageState,
+} from "./run-plan";
+export {
     validateAndReduceContextNotes,
 } from "./context-notes";
 export type {
@@ -136,6 +151,7 @@ export type {
     PendingProgram,
     PendingInteraction,
     PendingInteractionAskUser,
+    PendingPlanRouteRevisionApproval,
     PendingInteractionTaskApproval,
     PendingThink,
     PendingModelRepair,

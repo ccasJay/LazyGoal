@@ -3,11 +3,13 @@ import { test } from "node:test";
 
 import {
     createGoal,
+    createRunPlanRoute,
     type Goal,
     type GoalCatalog,
     type GoalCatalogEntry,
     type GoalStore,
     type TrajectoryEvent,
+    type TrajectoryEventDraft,
     type TrajectoryReadResult,
 } from "../../runtime/src/index";
 import { allocateImmutableEvent } from "../../runtime/src/index";
@@ -69,6 +71,134 @@ test("browser approval projection identifies the parent program and call number"
     }));
     assert.deepEqual(session?.pendingAction?.parentProgram, {
         actionId: "parent-action", callNumber: 3,
+    });
+});
+
+test("Plan task approval projection preserves the complete ordered route", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: {
+                ...initial.state.run,
+                mode: "plan",
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "task_approval",
+                    requestId: "proposal-1",
+                    proposal: { objective: "Implement the feature", completionCriteria: [{ text: "All checks pass" }] },
+                    planRouteCandidate: {
+                        stages: [
+                            { target: "Inspect existing behavior", acceptanceCriteria: ["Identify the current entry point"] },
+                            { target: "Implement the change", acceptanceCriteria: ["The feature behaves as requested", "Regression coverage passes"] },
+                        ],
+                    },
+                    approvalRequest: "Review the full plan",
+                },
+            },
+        },
+    };
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.deepEqual(session?.pendingInteraction?.kind === "task_approval" ? session.pendingInteraction.planRoute : undefined, [
+        { target: "Inspect existing behavior", acceptanceCriteria: ["Identify the current entry point"] },
+        { target: "Implement the change", acceptanceCriteria: ["The feature behaves as requested", "Regression coverage passes"] },
+    ]);
+});
+
+test("Plan Run session projection includes the authoritative complete route only when present", async () => {
+    const initial = createTestGoal();
+    const planRoute = createRunPlanRoute({
+        stages: [
+            { target: "Inspect existing behavior", acceptanceCriteria: ["Find the entry point"] },
+            { target: "Implement the change", acceptanceCriteria: ["Feature works", "Regression checks pass"] },
+        ],
+    });
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: {
+                ...initial.state.run,
+                mode: "plan",
+                approvedTask: { objective: "Implement the feature", completionCriteria: [{ text: "All checks pass" }] },
+                planRoute: { ...planRoute, revision: 2, revisionReason: "Evidence confirmed a separate verification gate" },
+            },
+        },
+    };
+    const planSession = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.deepEqual(planSession?.runs[0]?.planRoute, {
+        revision: 2,
+        revisionReason: "Evidence confirmed a separate verification gate",
+        nextStageIndex: 0,
+        stages: [
+            { stageId: "stage-1", revision: 1, status: "pending", target: "Inspect existing behavior", acceptanceCriteria: ["Find the entry point"] },
+            { stageId: "stage-2", revision: 1, status: "pending", target: "Implement the change", acceptanceCriteria: ["Feature works", "Regression checks pass"] },
+        ],
+    });
+
+    const normalSession = await readBrowserGoalSession(initial.id, new TestGoalStore(initial), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.equal(normalSession?.runs[0]?.planRoute, undefined);
+});
+
+test("Plan route revision approval projection includes reason and full candidate route", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: {
+                ...initial.state.run,
+                mode: "plan",
+                status: "waiting",
+                approvedTask: { objective: "Repair feature", completionCriteria: [{ text: "Feature works" }] },
+                planRoute: {
+                    revision: 1,
+                    nextStageIndex: 0,
+                    nextStageOrdinal: 2,
+                    stages: [{ stageId: "stage-1", revision: 1, status: "pending", target: "Repair", acceptanceCriteria: ["Behavior works"] }],
+                },
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "route-approval-1",
+                    mode: "execution",
+                    questions: [{
+                        id: "q-1",
+                        header: "Plan route revision",
+                        question: "Should this added outcome be approved?",
+                        options: [{ id: "o-1", label: "Approve" }, { id: "o-2", label: "Keep current route" }],
+                        multiSelect: false,
+                    }],
+                    routeRevision: {
+                        baseRevision: 1,
+                        candidate: { stages: [
+                            { target: "Repair", acceptanceCriteria: ["Behavior works"] },
+                            { target: "Write report", acceptanceCriteria: ["Report is reviewed"] },
+                        ] },
+                        reason: "New evidence adds a deliverable outside the approved scope",
+                        approvalRequest: "Approve this additional outcome?",
+                        approvalOptionId: "o-1",
+                    },
+                },
+            },
+        },
+    };
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.deepEqual(session?.pendingInteraction?.kind === "ask_user" ? session.pendingInteraction.routeRevision : undefined, {
+        approvalRequest: "Approve this additional outcome?",
+        reason: "New evidence adds a deliverable outside the approved scope",
+        route: [
+            { target: "Repair", acceptanceCriteria: ["Behavior works"] },
+            { target: "Write report", acceptanceCriteria: ["Report is reviewed"] },
+        ],
     });
 });
 
@@ -173,6 +303,65 @@ class TestGoalStore implements GoalStore {
     }
 }
 
+function thinkFact(sequence: number, requestId: string, output?: string): TrajectoryEvent {
+    const metadata = { goalId: "goal-real-1", runId: "run-real-1", phase: "executing" as const, executionUnitId: "unit-1", stepIndex: 1 };
+    const common = { requestId, stepOrdinal: 1, goal: `Analyze ${requestId}` };
+    return allocateImmutableEvent(output === undefined
+        ? { ...metadata, eventType: "think_requested", payload: { type: "think_requested", ...common } }
+        : { ...metadata, eventType: "think_completed", payload: { type: "think_completed", ...common, output } }, sequence);
+}
+
+test("session preserves multiple Think rounds before the action in the same Step", async () => {
+    const goal = createTestGoal();
+    const committed = [thinkFact(1, "think-1"), thinkFact(2, "think-1", "First analysis"),
+        thinkFact(3, "think-2"), thinkFact(4, "think-2", "Second analysis"),
+        ...[event(6, "decision_received"), event(7, "action_staged"), event(8, "observation_recorded")]];
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({ committed, uncommittedTail: [] }));
+    const steps = session!.runs[0]!.steps;
+    assert.equal(steps.length, 3);
+    assert.deepEqual(steps.map(step => step.sequence), [1, 3, 6]);
+    assert.deepEqual(steps.slice(0, 2).map(step => [step.stepIndex, step.status, step.think?.output, step.actionId]),
+        [[1, "completed", "First analysis", undefined], [1, "completed", "Second analysis", undefined]]);
+    assert.equal(steps[2]!.toolId, "read_file");
+    assert.equal(session!.runs[0]!.stepCount, goal.state.run.stepCount);
+});
+
+test("pending Think has stable identity, ignores uncommitted output, and survives a completion decision", async () => {
+    const goal = createTestGoal();
+    const request = thinkFact(1, "think-1");
+    const output = thinkFact(2, "think-1", "Observed analysis");
+    const pending = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({ committed: [request], uncommittedTail: [output] }));
+    assert.equal(pending!.runs[0]!.steps.length, 1);
+    assert.equal(pending!.runs[0]!.steps[0]!.status, "recorded");
+    assert.equal(pending!.runs[0]!.steps[0]!.think?.output, undefined);
+    const complete = allocateImmutableEvent({ goalId: goal.id, runId: goal.state.run.id, phase: "executing", executionUnitId: "unit-1", stepIndex: 1,
+        eventType: "decision_received", payload: { type: "decision_received", decision: { kind: "complete", summary: "Done", evidenceSequences: [] } } }, 3);
+    const saved = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({ committed: [request, output, complete], uncommittedTail: [] }));
+    assert.equal(saved!.runs[0]!.steps.length, 1);
+    assert.equal(saved!.runs[0]!.steps[0]!.sourceEventId, pending!.runs[0]!.steps[0]!.sourceEventId);
+    assert.equal(saved!.runs[0]!.steps[0]!.think?.output, "Observed analysis");
+});
+
+test("Think session output is bounded with an explicit truncation flag", async () => {
+    const goal = createTestGoal();
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [thinkFact(1, "think-1"), thinkFact(2, "think-1", "x".repeat(64_001))], uncommittedTail: [],
+    }));
+    assert.equal(session!.runs[0]!.steps[0]!.think?.truncated, true);
+    assert.ok(session!.runs[0]!.steps[0]!.think!.output!.length < 64_010);
+});
+
+test("a stopped Run does not leave its unfinished Think in progress", async () => {
+    const goal = createTestGoal();
+    const failed = allocateImmutableEvent({ goalId: goal.id, runId: goal.state.run.id, phase: "executing",
+        eventType: "run_failed", payload: { type: "run_failed", code: "MODEL_ERROR", message: "Model failed" } }, 2);
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [thinkFact(1, "think-1"), failed], uncommittedTail: [],
+    }));
+    assert.equal(session!.runs[0]!.steps[0]!.status, "failed");
+    assert.equal(session!.runs[0]!.steps[0]!.think?.output, undefined);
+});
+
 class TestGoalCatalog implements GoalCatalog {
     constructor(private readonly entries: readonly GoalCatalogEntry[]) {}
 
@@ -258,6 +447,8 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
     assert.deepEqual(session.runs[0]?.steps[0], {
         runId: "run-real-1",
         executionUnitId: "unit-1",
+        sourceEventId: committed[0]!.eventId,
+        actionId: "action-1",
         sequence: 1,
         stepIndex: 1,
         decisionKind: "tool_call",
@@ -274,6 +465,41 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
     assert.equal(serialized.includes("PRIVATE_RAW_TOOL_OUTPUT"), false);
     assert.equal(serialized.includes("private-profile-id"), false);
     assert.equal(serialized.includes("systemPrompt"), false);
+});
+
+test("会话步骤只有来源顺序连续时才允许后续活动组拼接", async () => {
+    const initial = createTestGoal();
+    const createCall = (firstSequence: number, unit: string, actionId: string): TrajectoryEvent[] => {
+        const decision: TrajectoryEventDraft = {
+            goalId: initial.id, runId: initial.state.run.id, phase: "executing", executionUnitId: unit, stepIndex: firstSequence,
+            eventType: "decision_received",
+            payload: { type: "decision_received", decision: { kind: "tool_call", action: { actionId, toolId: "read_file", input: { path: `${actionId}.ts` } } } },
+        };
+        const started: TrajectoryEventDraft = {
+            goalId: initial.id, runId: initial.state.run.id, phase: "executing", executionUnitId: unit, stepIndex: firstSequence,
+            eventType: "tool_started", actionId,
+            payload: { type: "tool_started", actionId, toolId: "read_file", input: { path: `${actionId}.ts` } },
+        };
+        const observed: TrajectoryEventDraft = {
+            goalId: initial.id, runId: initial.state.run.id, phase: "executing", executionUnitId: unit, stepIndex: firstSequence,
+            eventType: "observation_recorded", actionId,
+            payload: { type: "observation_recorded", actionId, observation: { kind: "success", output: "content", summary: "Read file" } },
+        };
+        return [decision, started, observed].map((draft, offset) => allocateImmutableEvent(draft, firstSequence + offset));
+    };
+
+    const adjacent = [...createCall(1, "unit-1", "action-1"), ...createCall(4, "unit-2", "action-2")];
+    const adjacentSession = await readBrowserGoalSession(initial.id, new TestGoalStore(initial), async () => ({ committed: adjacent, uncommittedTail: [] }));
+    assert.equal(adjacentSession?.runs[0]?.steps[1]?.activityBoundaryBefore, undefined);
+    assert.equal(adjacentSession?.runs[0]?.steps[0]?.sourceEventId, adjacent[0]?.eventId);
+
+    const boundary: TrajectoryEventDraft = {
+        goalId: initial.id, runId: initial.state.run.id, phase: "executing", executionUnitId: "assistant-unit",
+        eventType: "decision_received", payload: { type: "decision_received", decision: { kind: "complete", summary: "A visible reply", completionEvidence: [] } },
+    };
+    const separated = [...createCall(1, "unit-1", "action-1"), allocateImmutableEvent(boundary, 4), ...createCall(5, "unit-2", "action-2")];
+    const separatedSession = await readBrowserGoalSession(initial.id, new TestGoalStore(initial), async () => ({ committed: separated, uncommittedTail: [] }));
+    assert.equal(separatedSession?.runs[0]?.steps[1]?.activityBoundaryBefore, true);
 });
 
 test("会话保留完整的常规长答复，并标记超出消息上限的正文", async () => {

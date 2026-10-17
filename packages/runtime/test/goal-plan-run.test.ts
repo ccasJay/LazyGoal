@@ -249,6 +249,7 @@ test("首次成功 GoalPlan Patch 才创建计划，并作为非终态 Step 持�
             {
                 kind: "task_proposal",
                 task: { objective: "执行当前计划请求", completionCriteria: [{ text: "请求已完成" }] },
+                planRoute: { stages: [{ target: "完成请求", acceptanceCriteria: ["请求已完成"] }] },
                 approvalRequest: "请批准执行目标",
             },
         ]),
@@ -262,6 +263,11 @@ test("首次成功 GoalPlan Patch 才创建计划，并作为非终态 Step 持�
     const saved = await store.restore(initial.id);
     assert.equal(saved?.state.run.mode, "plan");
     assert.equal(saved?.state.run.pendingInteraction?.kind, "task_approval");
+    if (saved?.state.run.pendingInteraction?.kind === "task_approval") {
+        assert.deepEqual(saved.state.run.pendingInteraction.planRouteCandidate, {
+            stages: [{ target: "完成请求", acceptanceCriteria: ["请求已完成"] }],
+        });
+    }
     assert.deepEqual(saved?.state.goalPlan, {
         revision: 1,
         items: [{ id: "todo-1-1", content: "先建立清单", position: 0, status: "pending" }],

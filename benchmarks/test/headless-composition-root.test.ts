@@ -1,3 +1,4 @@
+import { toolResponseFixture } from "../../packages/agent/test/tool-response-fixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -113,20 +114,20 @@ function createDependencies<TTask, TOutcome>(
             structuredOutputMode: "strict" as const,
             generate: async (request) => {
                 modelCalls += 1;
-                if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
+                if (request.tools?.[0]?.id === "system_review_completion") return { ...toolResponseFixture(JSON.stringify({ result: { kind: "accept" } })) };
                 if (modelCalls === 1) {
                     return {
-                        content: JSON.stringify({
+                        ...toolResponseFixture(JSON.stringify({
                             result: {
                                 kind: "tool_discovery",
                                 query: discoverEvidenceTool ? "benchmark evidence" : "no relevant tool",
                             },
-                        }),
+                        })),
                     };
                 }
                 if (!discoverEvidenceTool && modelCalls === 2) {
                     return {
-                        content: JSON.stringify({
+                        ...toolResponseFixture(JSON.stringify({
                             result: {
                                 kind: "complete",
                                 summary: "done",
@@ -134,12 +135,12 @@ function createDependencies<TTask, TOutcome>(
                                 memoryPatch: null,
                                 contextNotes: null,
                             },
-                        }),
+                        })),
                     };
                 }
                 if (modelCalls === 2) {
                     return {
-                        content: JSON.stringify({
+                        ...toolResponseFixture(JSON.stringify({
                             result: {
                                 kind: "run_stage_update",
                                 stageId: null,
@@ -150,12 +151,12 @@ function createDependencies<TTask, TOutcome>(
                                 memoryPatch: null,
                                 contextNotes: null,
                             },
-                        }),
+                        })),
                     };
                 }
                 if (modelCalls === 3) {
                     return {
-                        content: JSON.stringify({
+                        ...toolResponseFixture(JSON.stringify({
                             result: {
                                 kind: "tool_call",
                                 action: {
@@ -165,11 +166,11 @@ function createDependencies<TTask, TOutcome>(
                                 },
                                 memoryPatch: null,
                             },
-                        }),
+                        })),
                     };
                 }
                 return {
-                    content: JSON.stringify({
+                    ...toolResponseFixture(JSON.stringify({
                         result: {
                             kind: "complete",
                             summary: "done",
@@ -177,7 +178,7 @@ function createDependencies<TTask, TOutcome>(
                             memoryPatch: null,
                             contextNotes: null,
                         },
-                    }),
+                    })),
                 };
             },
         },
@@ -332,17 +333,17 @@ test("aggregates normalized usage across model calls and counts missing usage ca
     let modelCalls = 0;
     dependencies.llmAdapter.generate = async (request) => {
         modelCalls += 1;
-        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }), providerMetadata: { usage: { inputTokens: 30, outputTokens: 2 } } };
+        if (request.tools?.[0]?.id === "system_review_completion") return { ...toolResponseFixture(JSON.stringify({ result: { kind: "accept" } })), providerMetadata: { usage: { inputTokens: 30, outputTokens: 2 } } };
         if (modelCalls === 1) {
             return {
-                content: JSON.stringify({
+                ...toolResponseFixture(JSON.stringify({
                     result: { kind: "tool_discovery", query: "benchmark evidence" },
-                }),
+                })),
             };
         }
         if (modelCalls === 2) {
             return {
-                content: JSON.stringify({
+                ...toolResponseFixture(JSON.stringify({
                     result: {
                         kind: "run_stage_update",
                         stageId: null,
@@ -353,23 +354,23 @@ test("aggregates normalized usage across model calls and counts missing usage ca
                         memoryPatch: null,
                         contextNotes: null,
                     },
-                }),
+                })),
             };
         }
         if (modelCalls === 3) {
             return {
-                content: JSON.stringify({
+                ...toolResponseFixture(JSON.stringify({
                     result: {
                         kind: "tool_call",
                         action: { actionId: "benchmark-evidence-1", toolId: "benchmark_evidence", input: {} },
                         memoryPatch: null,
                     },
-                }),
+                })),
             };
         }
         if (modelCalls === 4) {
             return {
-                content: JSON.stringify({
+                ...toolResponseFixture(JSON.stringify({
                     result: {
                         kind: "tool_call",
                         action: {
@@ -379,7 +380,7 @@ test("aggregates normalized usage across model calls and counts missing usage ca
                         },
                         memoryPatch: null,
                     },
-                }),
+                })),
                 providerMetadata: {
                     usage: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 10 },
                 },
@@ -387,7 +388,7 @@ test("aggregates normalized usage across model calls and counts missing usage ca
         }
         if (modelCalls === 5) {
             return {
-                content: JSON.stringify({
+                ...toolResponseFixture(JSON.stringify({
                     result: {
                         kind: "complete",
                         summary: "done",
@@ -395,7 +396,7 @@ test("aggregates normalized usage across model calls and counts missing usage ca
                         memoryPatch: null,
                         contextNotes: null,
                     },
-                }),
+                })),
                 providerMetadata: {
                     usage: { inputTokens: 50, outputTokens: 5 },
                 },
@@ -855,17 +856,17 @@ test("passes structured benchmark criteria as context without making them Runtim
     let modelCalls = 0;
     dependencies.llmAdapter.generate = async (request) => {
         modelCalls += 1;
-        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }), providerMetadata: { usage: { inputTokens: 30, outputTokens: 2 } } };
+        if (request.tools?.[0]?.id === "system_review_completion") return { ...toolResponseFixture(JSON.stringify({ result: { kind: "accept" } })), providerMetadata: { usage: { inputTokens: 30, outputTokens: 2 } } };
         if (modelCalls === 1) {
             return {
-                content: JSON.stringify({
+                ...toolResponseFixture(JSON.stringify({
                     result: { kind: "tool_discovery", query: "benchmark evidence" },
-                }),
+                })),
             };
         }
         if (modelCalls === 2) {
             return {
-                content: JSON.stringify({
+                ...toolResponseFixture(JSON.stringify({
                     result: {
                         kind: "run_stage_update",
                         stageId: null,
@@ -876,23 +877,23 @@ test("passes structured benchmark criteria as context without making them Runtim
                         memoryPatch: null,
                         contextNotes: null,
                     },
-                }),
+                })),
             };
         }
         if (modelCalls === 3) {
             return {
-                content: JSON.stringify({
+                ...toolResponseFixture(JSON.stringify({
                     result: {
                         kind: "tool_call",
                         action: { actionId: "benchmark-evidence-1", toolId: "benchmark_evidence", input: {} },
                         memoryPatch: null,
                     },
-                }),
+                })),
             };
         }
         const obsSeq = latestObservationSequence(trajectoryStore);
         return {
-            content: JSON.stringify({
+            ...toolResponseFixture(JSON.stringify({
                 result: {
                     kind: "complete",
                     summary: "done",
@@ -900,7 +901,7 @@ test("passes structured benchmark criteria as context without making them Runtim
                     memoryPatch: null,
                     contextNotes: null,
                 },
-            }),
+            })),
         };
     };
 
@@ -992,9 +993,10 @@ test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing
                 : calls === 3
                     ? { kind: "tool_call", action: { actionId: "pi-evidence", toolId: "benchmark_evidence", input: {} }, memoryPatch: null }
                     : calls === 4 ? { kind: "complete", summary: "done", evidenceSequences: [latestObservationSequence(trajectoryStore)], memoryPatch: null, contextNotes: null } : { kind: "accept" };
+        const call = toolResponseFixture(JSON.stringify({ result })).toolCalls![0]!;
         res.setHeader("Content-Type", "text/event-stream");
         res.end(`data: ${JSON.stringify({
-            id: "pi-usage", model: "local-model", choices: [{ index: 0, delta: { role: "assistant", content: JSON.stringify({ result }) }, finish_reason: "stop" }],
+            id: "pi-usage", model: "local-model", choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: call.callId, type: "function", function: { name: call.toolId, arguments: call.argumentsJson } }] }, finish_reason: "tool_calls" }],
             usage: { prompt_tokens: 100, completion_tokens: 20 },
         })}\n\ndata: [DONE]\n\n`);
     });
@@ -1029,7 +1031,7 @@ test("persistent sessions keep a Goal across continue and close exactly once", a
             close: async () => { closed += 1; },
         }),
     }, new InMemoryTrajectoryStore());
-    dependencies.llmAdapter.generate = async () => ({ content: JSON.stringify({ result: { kind: "fail", error: "Expected stage failure", memoryPatch: null, contextNotes: null } }) });
+    dependencies.llmAdapter.generate = async () => ({ ...toolResponseFixture(JSON.stringify({ result: { kind: "fail", error: "Expected stage failure", memoryPatch: null, contextNotes: null } })) });
     let nextRun = 0;
     const session = await new HeadlessCompositionRoot({ ...dependencies, runIdGenerator: () => `session-run-${++nextRun}` }).openSession({ id: "session" });
     try {
@@ -1062,7 +1064,7 @@ test("a rebuilt file-backed session resumes waiting in the same Run and records 
     }, new InMemoryTrajectoryStore());
     let fileRun = 0;
     const fileDependencies = { ...dependencies, persistence, runIdGenerator: () => `file-run-${++fileRun}` };
-    dependencies.llmAdapter.generate = async () => ({ content: JSON.stringify({ result: { kind: "wait", reason: "Provide retry count", memoryPatch: null, contextNotes: null } }) });
+    dependencies.llmAdapter.generate = async () => ({ ...toolResponseFixture(JSON.stringify({ result: { kind: "wait", reason: "Provide retry count", memoryPatch: null, contextNotes: null } })) });
     try {
         const first = await new HeadlessCompositionRoot(fileDependencies).openSession({ id: "waiting" });
         const waiting = await first.launch();
@@ -1073,7 +1075,7 @@ test("a rebuilt file-backed session resumes waiting in the same Run and records 
         const before = await bindings.modelInputStore!.read(ref.goalId, ref.runId);
         assert.equal(before.length, 1);
         assert.ok(before[0]!.messages.length > 0);
-        dependencies.llmAdapter.generate = async () => ({ content: JSON.stringify({ result: { kind: "fail", error: "Expected end of probe", memoryPatch: null, contextNotes: null } }) });
+        dependencies.llmAdapter.generate = async () => ({ ...toolResponseFixture(JSON.stringify({ result: { kind: "fail", error: "Expected end of probe", memoryPatch: null, contextNotes: null } })) });
         let latestRef = ref;
         const rebuilt = await new HeadlessCompositionRoot(fileDependencies).openSession({ id: "waiting" }, { restoreRef: ref });
         try {

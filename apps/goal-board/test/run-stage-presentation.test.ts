@@ -8,6 +8,7 @@ import type {
 import {
   formatRunStepsTitle,
   groupStepsByStage,
+  renderPlanRouteStatusLabel,
   renderStageStatusLabel,
 } from "../src/components/run-stage-utils";
 
@@ -126,6 +127,12 @@ test("阶段接受不改变 Run 生命周期状态标签", () => {
 
   assert.equal(run.status, "running", "中间阶段 accepted 不得使 run 标签变为 completed");
   assert.equal(run.stages?.[0]?.status, "accepted");
+});
+
+test("Plan Run 路线状态映射覆盖待执行、执行中和已接受阶段", () => {
+  assert.equal(renderPlanRouteStatusLabel("pending"), "Pending");
+  assert.equal(renderPlanRouteStatusLabel("executing"), "In progress");
+  assert.equal(renderPlanRouteStatusLabel("accepted"), "Accepted");
 });
 
 test("formatRunStepsTitle 正确格式化当前 Run 与历史 Run 标题并提取首动作摘要", () => {

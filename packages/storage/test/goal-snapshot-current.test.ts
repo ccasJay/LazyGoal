@@ -431,6 +431,8 @@ test("当前 Snapshot 往返保存 pendingModelRepair，并验证其 Step 与身
         stage: "decide" as const,
         inputBoundary: ("sha256:" + "b".repeat(64)) as any,
         attemptsStarted: 2,
+        continuationsStarted: 1,
+        latestFailureClass: "non_advancing" as const,
         latestAttemptEventId: "event-repair-attempt-2",
         latestFeedbackEventId: "event-repair-feedback-1",
     };
@@ -579,4 +581,36 @@ test("current Snapshot preserves exposed tool IDs and requires the Run field", (
     const duplicate = structuredClone(encoded) as any;
     duplicate.state.run.exposedToolIds.push("read_file");
     assert.throws(() => goalSnapshotCodec.decode(duplicate), assertProtocolError);
+});
+
+test("当前 Snapshot 往返保存多调用批次的顺序、身份与进度", () => {
+    const goal = createCurrentGoal();
+    const started = transition(goal.state.run, { kind: "start" });
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+
+    const pendingAction = {
+        action: { actionId: "call-a", toolId: "read_a", input: { path: "a.md" } },
+        status: "approved" as const,
+    };
+    const pendingActionBatch = {
+        batchId: "batch-1",
+        remaining: [
+            { actionId: "call-b", toolId: "read_b", input: { path: "b.md" } },
+            { actionId: "call-c", toolId: "read_c", input: { path: "c.md" } },
+        ],
+    };
+    const snapshot = goalSnapshotCodec.encode({
+        ...goal,
+        state: {
+            ...goal.state,
+            run: { ...started.state, pendingAction, pendingActionBatch },
+        },
+    });
+
+    const decoded = goalSnapshotCodec.decode(snapshot).state.run;
+    assert.deepEqual(decoded.pendingActionBatch, pendingActionBatch, "必须保留批次身份、顺序与剩余项");
+    assert.deepEqual(decoded.pendingActionBatch?.remaining.map(call => call.actionId), ["call-b", "call-c"],
+        "恢复顺序必须与模型返回顺序一致");
+    assert.deepEqual(decoded.pendingAction?.action, pendingAction.action);
 });

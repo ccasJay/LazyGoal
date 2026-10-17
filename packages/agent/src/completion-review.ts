@@ -21,7 +21,7 @@ When currentStage is provided:
 - If an earlier stage verification is cited, but the relevant artifact was modified afterwards without re-verification, the outdated test does not prove the final version correct; reject.
 Identify the requested source and actual deliverable before judging the candidate. If the user requests a real case from repository documents or project memory files, require supplied contents that support the chosen case; a plausible generic or hypothetical example does not substitute for that case. This applies whether or not the candidate includes a memoryPatch. When the user explicitly requests a generic example, do not invent a repository-reading obligation.
 A historical Context Lookup searches this Goal's conversation and trajectory, not repository files. No match does not prove an object or decision is absent from the repository. A source reference establishes only what its contents support, not a broader absence claim. A documented design is not proof that the design was implemented. Use sufficient source already supplied without demanding another read.
-Reject when a necessary deliverable, approved criterion or supporting fact is missing. Name the concrete gap and correction in concise feedback so Decide can investigate, retrieve context, rewrite the answer or report a real blocker. Do not invent facts, expand the task, demand unrelated investigation, or disclose a private reasoning transcript. Use only system_review_completion to return accept or reject. If a text response is required, follow the supplied result schema.`;
+Reject when a necessary deliverable, approved criterion or supporting fact is missing. Name the concrete gap and correction in concise feedback so Decide can investigate, retrieve context, rewrite the answer or report a real blocker. Do not invent facts, expand the task, demand unrelated investigation, or disclose a private reasoning transcript. Call system_review_completion exactly once to return accept or reject using its parameter schema. Do not return a text JSON decision.`;
 
 /**
  * 对提交证据去重并过滤内部控制事实，保留必要操作、来源身份和结果状态。
@@ -99,7 +99,7 @@ export function buildCompletionReviewRequest(input: CompletionReviewInput, bindi
 
     const request: LLMRequest = {
         messages: [
-            { role: "system", content: COMPLETION_REVIEW_PROMPT + (binding.decideAdapter.structuredOutputMode === "prompt_only" ? `\n${bundle.shapeGuide}` : "") },
+            { role: "system", content: COMPLETION_REVIEW_PROMPT },
             { role: "user", content: JSON.stringify({
                 source: "runtime_completion_candidate",
                 originalIntent: input.goal.definition.intent,
@@ -118,8 +118,6 @@ export function buildCompletionReviewRequest(input: CompletionReviewInput, bindi
         ],
         tools: [{ id: SystemCompletionReviewDeclaration.id, description: SystemCompletionReviewDeclaration.description, parametersSchema: SystemCompletionReviewDeclaration.parametersSchema }],
         toolChoice: "required",
-        ...(binding.decideAdapter.structuredOutputMode === "strict"
-            ? { structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } } : {}),
     };
     const overflow = binding.modelCapabilities === undefined
         ? binding.modelContextPolicy.plan({ fixedInput: request }).softOverflow

@@ -1,3 +1,4 @@
+import { toolResponseFixture } from "../../agent/test/tool-response-fixture";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -26,14 +27,14 @@ class BlockingReportedUsageAdapter implements LLMAdapter {
     private readonly response = deferred<LLMResponse>();
 
     async generate(request: LLMRequest): Promise<LLMResponse> {
-        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }), providerMetadata: { usage: { inputTokens: 40, outputTokens: 3, cachedInputTokens: 0 } } };
+        if (request.tools?.[0]?.id === "system_review_completion") return { ...toolResponseFixture(JSON.stringify({ result: { kind: "accept" } })), providerMetadata: { usage: { inputTokens: 40, outputTokens: 3, cachedInputTokens: 0 } } };
         this.entered.resolve();
         return this.response.promise;
     }
 
     finish(): void {
         this.response.resolve({
-            content: JSON.stringify({
+            ...toolResponseFixture(JSON.stringify({
                 result: {
                     kind: "complete",
                     summary: "完成",
@@ -41,7 +42,7 @@ class BlockingReportedUsageAdapter implements LLMAdapter {
                     memoryPatch: null,
                     contextNotes: null,
                 },
-            }),
+            })),
             providerMetadata: {
                 usage: { inputTokens: 120, outputTokens: 24, cachedInputTokens: 5 },
             },

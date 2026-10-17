@@ -21,6 +21,12 @@ import {
     isModelInputs,
     isModelPreferenceAccepted,
     isModelSelectionAccepted,
+    isProviderProfile,
+    isProviderSettings,
+    isProviderProfileWriteResult,
+    isProviderProfileDeleteResult,
+    isProviderProfileActivationResult,
+    isProviderProfileTestResult,
     isOkResponse,
     isPendingAction,
     isPendingInteraction,
@@ -113,16 +119,65 @@ test("isBrowserGoalSession validates complete and malformed sessions", () => {
     assert.equal(isBrowserGoalSession({ ...validSession, execution: { state: "active", committedThroughSequence: 5 } }), true);
     assert.equal(isBrowserGoalSession({ ...validSession, execution: { state: "bad", committedThroughSequence: 5 } }), false);
     assert.equal(isGoalSessionEnvelope({ goal: validSession }), true);
+    const withThink = (think: unknown) => ({ ...validSession, runs: [{ ...validSession.runs[0],
+        steps: [{ ...validSession.runs[0]!.steps[0], think }],
+    }] });
+    assert.equal(isBrowserGoalSession(withThink({ goal: "Compare paths" })), true);
+    assert.equal(isBrowserGoalSession(withThink({ goal: "Compare paths", output: "Use the saved checkpoint", truncated: true })), true);
+    for (const think of [null, { goal: 1 }, { goal: "Compare", output: {} }, { goal: "Compare", truncated: "yes" }]) {
+        assert.equal(isBrowserGoalSession(withThink(think)), false);
+    }
 
     assert.equal(isBrowserGoalSession({ ...validSession, currentRunMode: "other" }), false);
     assert.equal(isBrowserGoalSession({ ...validSession, runs: "not-array" }), false);
     assert.equal(isGoalSessionEnvelope({ goal: null }), false);
 });
 
+test("isBrowserRun validates complete Plan Run route states", () => {
+    const route = {
+        revision: 2,
+        revisionReason: "Evidence confirmed another verification gate",
+        nextStageIndex: 1,
+        stages: [
+            { stageId: "stage-1", revision: 1, status: "accepted", target: "Inspect", acceptanceCriteria: ["Entry found"], acceptedSequence: 12 },
+            { stageId: "stage-2", revision: 2, status: "executing", target: "Implement", acceptanceCriteria: ["Checks pass"] },
+        ],
+    };
+    assert.equal(isBrowserRun({ runId: "run-1", status: "running", stepCount: 2, steps: [], current: true, planRoute: route }), true);
+    assert.equal(isBrowserRun({ runId: "run-1", status: "running", stepCount: 2, steps: [], current: true, planRoute: { ...route, nextStageIndex: 8 } }), false);
+    assert.equal(isBrowserRun({ runId: "run-1", status: "running", stepCount: 2, steps: [], current: true, planRoute: { ...route, stages: [{ ...route.stages[0], status: "pending" }, route.stages[1]] } }), false);
+});
+
+test("isLiveEvent validates activity identities without conflating trajectory IDs", () => {
+    const activity = {
+        type: "activity",
+        goalId: "goal-1",
+        runId: "run-1",
+        activity: {
+            kind: "tool_started",
+            sourceEventId: "event-1",
+            sourceCursor: 1,
+            actionId: "action-1",
+            executionUnitId: "unit-1",
+            toolId: "read_file",
+            inputSummary: "src/index.ts",
+        },
+    };
+    assert.equal(isLiveEvent(activity), true);
+    assert.equal(isLiveEvent({ ...activity, activity: { ...activity.activity, sourceCursor: 0 } }), false);
+    assert.equal(isLiveEvent({ ...activity, activity: { ...activity.activity, actionId: "" } }), false);
+    assert.equal(isLiveEvent({ ...activity, activity: { ...activity.activity, inputSummary: "x".repeat(241) } }), false);
+    assert.equal(isLiveEvent({
+        type: "activity", goalId: "goal-1", runId: "run-1",
+        activity: { kind: "activity_boundary", sourceEventId: "event-2", sourceCursor: 2, reason: "private_reasoning" },
+    }), false);
+});
+
 test("isPendingInteraction validates ask_user and task_approval", () => {
     assert.equal(
         isPendingInteraction({
             kind: "task_approval",
+            planRoute: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }],
             requestId: "req-1",
             objective: "Do task",
             approvalRequest: "Approve?",
@@ -130,11 +185,32 @@ test("isPendingInteraction validates ask_user and task_approval", () => {
         }),
         true,
     );
+    assert.equal(isPendingInteraction({
+        kind: "task_approval",
+        requestId: "req-1",
+        objective: "Do task",
+        approvalRequest: "Approve?",
+        completionCriteria: [],
+        planRoute: [],
+    }), false);
+    assert.equal(isPendingInteraction({
+        kind: "task_approval",
+        requestId: "req-1",
+        objective: "Do task",
+        approvalRequest: "Approve?",
+        completionCriteria: [],
+        planRoute: [{ target: " ", acceptanceCriteria: ["criterion"] }],
+    }), false);
     assert.equal(
         isPendingInteraction({
             kind: "ask_user",
             requestId: "req-2",
             mode: "plan",
+            routeRevision: {
+                approvalRequest: "Approve the added outcome?",
+                reason: "New evidence adds a deliverable outside the approved scope",
+                route: [{ target: "Write a report", acceptanceCriteria: ["The report is reviewed"] }],
+            },
             questions: [
                 {
                     id: "q-1",
@@ -147,6 +223,13 @@ test("isPendingInteraction validates ask_user and task_approval", () => {
         }),
         true,
     );
+    assert.equal(isPendingInteraction({
+        kind: "ask_user",
+        requestId: "req-3",
+        mode: "execution",
+        routeRevision: { approvalRequest: "Approve?", reason: "New evidence", route: [] },
+        questions: [],
+    }), false);
     assert.equal(isPendingInteraction({ kind: "unknown", requestId: "r" }), false);
     assert.equal(isPendingInteraction({ kind: "task_approval", requestId: "" }), false);
 });
@@ -257,4 +340,57 @@ test("isResumeGoalCommand validates valid and invalid resume commands", () => {
     assert.equal(isResumeGoalCommand({ runId: "run-1", expectedCommittedThroughSequence: -1 }), false);
     assert.equal(isResumeGoalCommand({ runId: "run-1", expectedCommittedThroughSequence: 1.5 }), false);
     assert.equal(isResumeGoalCommand({ runId: "run-1" }), false);
+});
+
+const maskedProfile = {
+    id: "profile-1",
+    label: "OpenAI 主账号",
+    kind: "openai",
+    defaultModel: "gpt-4o",
+    hasApiKey: true,
+    apiKeyMask: "****c123",
+};
+
+test("Provider 档案守卫接受掩码投影并拒绝明文凭据字段", () => {
+    assert.equal(isProviderProfile(maskedProfile), true);
+    assert.equal(isProviderProfile({ ...maskedProfile, apiKey: "sk-raw" }), false);
+    assert.equal(isProviderProfile({ ...maskedProfile, id: "" }), false);
+    assert.equal(isProviderProfile({ ...maskedProfile, hasApiKey: "yes" }), false);
+    assert.equal(isProviderProfile({ ...maskedProfile, structuredOutputMode: "nope" }), false);
+    assert.equal(isProviderProfile({ ...maskedProfile, structuredOutputMode: "prompt_only" }), true);
+});
+
+test("Provider 设置守卫只接受裸投影并校验来源维度与回退", () => {
+    assert.equal(isProviderSettings({
+        activeProfileId: "profile-1",
+        profiles: [maskedProfile],
+        fallback: { source: "config", provider: "google", model: "gemini-2.5-pro" },
+    }), true);
+    assert.equal(isProviderSettings({ profiles: [] }), true);
+    assert.equal(isProviderSettings({
+        profiles: [],
+        fallback: { source: "config", provider: "google", model: "gemini-3.5-flash-lite" },
+    }), true);
+    assert.equal(isProviderSettings({ profiles: [{ ...maskedProfile, apiKey: "sk-raw" }] }), false);
+    assert.equal(isProviderSettings({ profiles: [], fallback: { source: "env", provider: "openai", model: "gpt-4o" } }), false);
+    assert.equal(isProviderSettings({ error: "provider_profile_unavailable" }), false);
+    assert.equal(isProviderSettings({ ok: true, settings: { profiles: [] } }), false);
+});
+
+test("Provider 写入、删除、激活与测试守卫区分成功与失败形态", () => {
+    assert.equal(isProviderProfileWriteResult({ ok: true, profile: maskedProfile }), true);
+    assert.equal(isProviderProfileWriteResult({ ok: false, error: "provider_profile_invalid", fields: ["base_url"] }), true);
+    assert.equal(isProviderProfileWriteResult({ ok: false, error: "provider_profile_invalid", fields: [1] }), false);
+    assert.equal(isProviderProfileWriteResult({ ok: true, profile: { ...maskedProfile, apiKey: "sk-raw" } }), false);
+
+    assert.equal(isProviderProfileDeleteResult({ ok: true, profile: maskedProfile, mayBeReferencedByGoals: true }), true);
+    assert.equal(isProviderProfileDeleteResult({ ok: true, profile: maskedProfile }), false);
+    assert.equal(isProviderProfileDeleteResult({ ok: false, error: "provider_profile_active" }), true);
+
+    assert.equal(isProviderProfileActivationResult({ ok: true, activeProfileId: "profile-1" }), true);
+    assert.equal(isProviderProfileActivationResult({ ok: true }), false);
+
+    assert.equal(isProviderProfileTestResult({ ok: true, modelCount: 29 }), true);
+    assert.equal(isProviderProfileTestResult({ ok: true, modelCount: -1 }), false);
+    assert.equal(isProviderProfileTestResult({ ok: false, error: "model_catalog_authentication" }), true);
 });

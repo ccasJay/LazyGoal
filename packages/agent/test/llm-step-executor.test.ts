@@ -1,3 +1,4 @@
+import { toolResponseFixture } from "./tool-response-fixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -115,9 +116,9 @@ class FakeAdapter implements LLMAdapter {
         this.structuredOutputMode = structuredOutputMode;
     }
 
-    async generate(request: LLMRequest): Promise<{ content: string }> {
+    async generate(request: LLMRequest): Promise<LLMResponse> {
         this.requests.push(request);
-        return { content: this.content };
+        return { ...toolResponseFixture(this.content), content: "Accompanying response text." };
     }
 }
 
@@ -147,7 +148,7 @@ class SequenceAdapter implements LLMAdapter {
             throw new Error("fake adapter responses exhausted");
         }
 
-        return { content };
+        return toolResponseFixture(content);
     }
 }
 
@@ -166,8 +167,7 @@ class StreamingAdapter implements LLMAdapter {
         yield { kind: "assistant_text_delta", text: "{\"result\":" };
         yield {
             kind: "completed",
-            response: {
-                content: JSON.stringify({
+            response: toolResponseFixture(JSON.stringify({
                     result: {
                         kind: "complete",
                         summary: "streamed",
@@ -175,8 +175,7 @@ class StreamingAdapter implements LLMAdapter {
                         memoryPatch: null,
                         contextNotes: null,
                     },
-                }),
-            },
+                })),
         };
     }
 }
@@ -228,7 +227,7 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
         currentWorkingMemory,
         createCurrentContextAssembler(),
     );
-    assert.deepEqual(adapter.requests[0], expectedPlan.request);
+    assert.deepEqual(adapter.requests[0], { ...expectedPlan.request, sessionId: currentGoal.id });
     assert.deepEqual(
         adapter.requests[0]?.messages.slice(1, 3),
         currentGoal.state.messages.map(({ role, content }) => ({ role, content })),
@@ -239,7 +238,7 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     assert.match(systemContent, /Global Overview:/);
     assert.match(systemContent, /Profile System Prompt:\n你是一个执行代理。/);
     assert.match(systemContent, /Profile Instructions:\n1\. 检查当前上下文/);
-    assert.match(systemContent, /native Tool interface/);
+    assert.match(systemContent, /call exactly one declared Tool/);
     const dynamicContent = adapter.requests[0]?.messages.slice(3, -1).map(({ content }) => content).join("\n") ?? "";
     assert.match(
         dynamicContent,
@@ -471,8 +470,8 @@ test("协议错误转换为不含原始输出的 Decide RuntimeFeedback", async 
         (error: unknown) => {
             assert.ok(error instanceof ModelStageFeedbackError);
             assert.equal(error.feedback.stage, "decide");
-            assert.equal(error.feedback.origin, "response_parse");
-            assert.equal(error.feedback.issues[0]?.code, "invalid_json_syntax");
+            assert.equal(error.feedback.origin, "tool_input");
+            assert.equal(error.feedback.issues[0]?.code, "invalid_tool_arguments");
             assert.equal(JSON.stringify(error.feedback).includes("不是合法 JSON"), false);
             return true;
         },
@@ -485,6 +484,7 @@ test("LLMStepExecutor 收到非 executing 分支时生成输出契约 RuntimeFee
     const adapter = new FakeAdapter(JSON.stringify({
         result: {
             kind: "task_proposal",
+            planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
             task: { objective: "不属于 executing", completionCriteria: [] },
             approvalRequest: "请批准",
             memoryPatch: null,
@@ -790,7 +790,7 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
     const adapter1: LLMAdapter = {
         structuredOutputMode: "strict",
         async generate() {
-            return adapter1Promise;
+            return adapter1Promise.then(response => toolResponseFixture(response.content));
         },
     };
     const adapter2 = new FakeAdapter(JSON.stringify({
@@ -870,18 +870,15 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
 });
 
 
-for (const native of [false, true]) {
-    test(`读取参数错误通过${native ? "原生调用" : "正文 JSON"}保留字段级安全反馈`, async () => {
+for (const mode of ["strict", "prompt_only"] as const) {
+    test(`读取参数错误在 ${mode} 工具调用中保留字段级安全反馈`, async () => {
         const adapter: LLMAdapter = {
-            structuredOutputMode: "strict",
+            structuredOutputMode: mode,
             async generate() {
                 const input = { command: "PRIVATE_INPUT_VALUE", timeoutMs: null, sandboxAccess: null };
-                return native ? {
+                return {
                     content: "", toolCalls: [{ callId: "read-1", toolId: "read_file", argumentsJson: JSON.stringify(input) }],
-                } : { content: JSON.stringify({ result: {
-                    kind: "tool_call", action: { actionId: "read-1", toolId: "read_file", input },
-                    memoryPatch: "__lazygoal_null__",
-                } }) };
+                };
             },
         };
         await assert.rejects(createExecutor(adapter).execute({
@@ -893,7 +890,6 @@ for (const native of [false, true]) {
             assert.equal(error.feedback.origin, "tool_input");
             assert.ok(error.feedback.issues.some(issue => issue.code === "missing_field" && issue.path.at(-1) === "path" && /Supply/.test(issue.message)));
             assert.ok(error.feedback.issues.some(issue => issue.code === "extra_field" && issue.path.at(-1) === "command" && /Remove/.test(issue.message)));
-            if (!native) assert.ok(error.feedback.issues.some(issue => issue.path.join(".") === "result.memoryPatch"));
             assert.equal(JSON.stringify(error.feedback).includes("PRIVATE_INPUT_VALUE"), false);
             assert.ok(error.feedback.constraints?.some(text => /continue the original task/.test(text)));
             return true;
@@ -924,9 +920,7 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
             requests.push(request);
             const call = (toolId: string, args: unknown): LLMResponse => ({ content: "", toolCalls: [{ callId: `call-${requests.length}`, toolId, argumentsJson: JSON.stringify(args) }] });
             if (requests.length === 1) return call("bash", { command: "ls -la" });
-            if (requests.length === 2) return { content: JSON.stringify({ result: {
-                kind: "tool_call", action: { actionId: "invalid-read", toolId: "read_file", input: { command: "" } }, memoryPatch: "__lazygoal_null__",
-            } }) };
+            if (requests.length === 2) return call("read_file", { command: "" });
             if (requests.length === 3) {
                 const feedback = request.messages.find(message => message.content.includes('"source":"runtime_feedback"'));
                 assert.ok(feedback);
@@ -977,4 +971,487 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
     const events = await trajectoryStore.read({ goalId, runId: "run-repair-read" });
     assert.equal(events.filter(event => event.payload.type === "model_repair_feedback_recorded").length, 1);
     assert.equal(events.filter(event => event.payload.type === "tool_started").length, 2);
+});
+
+for (const mode of ["strict", "prompt_only"] as const) {
+    test(`${mode} Decide accepts text JSON and trace-shaped text as an assistant message`, async () => {
+        const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+            return { content: '{"result":{"kind":"complete","summary":"done","completionEvidence":[],"memoryPatch":null}}' };
+        } };
+        const jsonLike = await createExecutor(adapter).decide({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] });
+        assert.equal(jsonLike.kind, "assistant_message");
+        assert.equal(jsonLike.kind === "assistant_message" && jsonLike.text, '{"result":{"kind":"complete","summary":"done","completionEvidence":[],"memoryPatch":null}}');
+
+        const traceAdapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+            return { content: 'I need to read the workspace.\n{"result":{"kind":"tool_call","action":{"toolId":"read_file","input":{"path":"README.md"}}}}' };
+        } };
+        const traceShaped = await createExecutor(traceAdapter).decide({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] });
+        assert.equal(traceShaped.kind, "assistant_message");
+        assert.equal(traceShaped.kind === "assistant_message" && traceShaped.text.includes("I need to read the workspace."), true);
+    });
+
+    test(`${mode} Decide accepts multiple calls as an ordered batch preserving callId order`, async () => {
+        const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+            return { content: "", toolCalls: [1, 2, 3].map(i => ({ callId: `call-${i}`, toolId: "read_file",
+                argumentsJson: JSON.stringify({ path: `file-${i}.md` }) })) };
+        } };
+        const result = await createExecutor(adapter).decide({
+            goal: createTestGoal("run-batch-order", { ...profile, toolIds: ["read_file"] }),
+            workingMemory: currentWorkingMemory,
+            thinkHistory: [],
+            authorizedTools: [{ id: "read_file", description: "Read a file", isReadOnly: true,
+                inputContract: contract.object({ path: contract.string() }) }],
+        });
+        assert.equal(result.kind, "batch");
+        assert.equal(result.kind === "batch" && result.decisions.length, 3);
+        assert.deepEqual(
+            result.kind === "batch" ? result.decisions.map(decision => decision.kind === "tool_call" ? decision.action.input : undefined) : [],
+            [{ path: "file-1.md" }, { path: "file-2.md" }, { path: "file-3.md" }],
+        );
+    });
+
+    test(`${mode} Decide ignores accompanying text and decodes only a declared call`, async () => {
+        const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+            return { content: 'not JSON or a decision', toolCalls: [{ callId: "trace-valid", toolId: "system_complete_task",
+                argumentsJson: '{"summary":"Declared result","completionEvidence":[],"memoryPatch":null}' }] };
+        } };
+        const result = await createExecutor(adapter).execute({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory });
+        assert.equal(result.kind, "complete");
+        assert.equal(result.kind === "complete" && result.summary, "Declared result");
+    });
+}
+
+test("invalid completion memory patch retains field feedback in the tool protocol", async () => {
+    const adapter: LLMAdapter = { structuredOutputMode: "prompt_only", async generate() {
+        return { content: "", toolCalls: [{ callId: "bad-patch", toolId: "system_complete_task",
+            argumentsJson: '{"summary":"done","completionEvidence":[],"memoryPatch":"__lazygoal_null__"}' }] };
+    } };
+    await assert.rejects(createExecutor(adapter).execute({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory }), (error: unknown) => {
+        assert.ok(error instanceof ModelStageFeedbackError);
+        assert.ok(error.feedback.issues.some(issue => issue.path.join(".") === "result.memoryPatch"));
+        return true;
+    });
+});
+
+for (const mode of ["strict", "prompt_only"] as const) {
+    test(`${mode} Decide accepts zero calls with non-empty text as an assistant message`, async () => {
+        const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+            return { content: "我已看完目录结构，先说明我的判断，再决定下一步。" };
+        } };
+        const result = await createExecutor(adapter).decide({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] });
+        assert.equal(result.kind, "assistant_message");
+        assert.equal(result.kind === "assistant_message" && result.text, "我已看完目录结构，先说明我的判断，再决定下一步。");
+    });
+
+    test(`${mode} Decide classifies empty or reasoning-only output as no usable result`, async () => {
+        const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+            return { content: "", reasoning: "only thinking, no answer" };
+        } };
+        await assert.rejects(createExecutor(adapter).decide({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] }), (error: unknown) => {
+            assert.ok(error instanceof ModelStageFeedbackError);
+            assert.equal(error.feedback.origin, "output_contract");
+            assert.equal(error.feedback.issues[0]?.code, "no_usable_result");
+            return true;
+        });
+    });
+}
+
+test("Runner 把零调用正文本提交为 Assistant 消息，不推进 Step 并在有界尝试后失败", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const executed: string[] = [];
+    const definitions: ToolDefinition[] = [
+        { id: "bash", description: "List files", isReadOnly: true, inputContract: contract.object({ command: contract.string() }) },
+    ];
+    const registry = new InMemoryToolRegistry(definitions.map(definition => createToolRegistration({
+        definition, replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute() { executed.push(definition.id); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+    })));
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(request) {
+            requests.push(request);
+            return { content: `我先说明判断，这是第 ${requests.length} 次只说话。` };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-assistant-text", intent: "Explain the workspace", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["bash"] } });
+    await store.save(created);
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-assistant-text" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.state.status, "failed");
+    assert.deepEqual(executed, [], "零调用正文不得触发工具执行");
+    assert.equal(result.state.stepCount, 0, "零调用正文不得推进 Step");
+    const messages = (await store.restore(goalId))!.state.messages;
+    const committed = messages.filter(message => message.role === "assistant" && message.content.startsWith("我先说明判断"));
+    assert.equal(committed.length, 3, "三次尝试的正文都应已提交");
+    const events = await trajectoryStore.read({ goalId, runId: "run-assistant-text" });
+    const feedback = events.filter(event => event.payload.type === "model_repair_feedback_recorded");
+    assert.equal(feedback.length, 3, "每次失败尝试都应记录一次反馈，用尽后终结");
+    assert.ok(feedback.every(event => event.payload.type === "model_repair_feedback_recorded"
+        && event.payload.feedback.code === "NO_USABLE_RESULT"));
+});
+
+test("Runner 的不推进预算与协议纠错预算互不占用", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const registry = new InMemoryToolRegistry([createToolRegistration({
+        definition: { id: "read_file", description: "Read a file", isReadOnly: true,
+            inputContract: contract.object({ path: contract.string() }) },
+        replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute() { return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+    })]);
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        async generate(request) {
+            requests.push(request);
+            // 2 次零调用正文本 + 2 次 Tool 输入纠错 + 1 次零调用正文本：共享预算会在第 4 次前终止，
+            // 独立预算下两类各自 3 次，因此可以走到第 5 次。
+            if (requests.length === 1 || requests.length === 2 || requests.length === 5) {
+                return { content: `第 ${requests.length} 次只说话。` };
+            }
+            return { content: "", toolCalls: [{ callId: `call-${requests.length}`, toolId: "read_file",
+                argumentsJson: JSON.stringify({ command: "ls" }) }] };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-independent-budget", intent: "Explain the workspace", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["read_file"] } });
+    await store.save(created);
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-independent-budget" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(requests.length, 5, "两类预算独立时第 5 次调用仍可发生");
+    assert.equal(result.state.status, "failed");
+    const events = await trajectoryStore.read({ goalId, runId: "run-independent-budget" });
+    const codes = events.filter(event => event.payload.type === "model_repair_feedback_recorded")
+        .map(event => event.payload.type === "model_repair_feedback_recorded" ? event.payload.feedback.code : "");
+    assert.deepEqual(codes, ["NO_USABLE_RESULT", "NO_USABLE_RESULT", "INVALID_LLM_RESPONSE", "INVALID_LLM_RESPONSE", "NO_USABLE_RESULT"]);
+});
+
+test("Runner 在有效 request_think 后重新开始不推进计数", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const registry = new InMemoryToolRegistry([createToolRegistration({
+        definition: { id: "read_file", description: "Read a file", isReadOnly: true,
+            inputContract: contract.object({ path: contract.string() }) },
+        replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute() { return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+    })]);
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        async generate(request) {
+            requests.push(request);
+            // 2 次零调用正文本 → 1 次 request_think → 再 2 次零调用正文本。
+            if (requests.length === 3) {
+                return { content: "", toolCalls: [{ callId: "think-1", toolId: "system_request_think",
+                    argumentsJson: JSON.stringify({ goal: "比较两种修复方案" }) }] };
+            }
+            return { content: `第 ${requests.length} 次只说话。` };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-think-reset", intent: "Explain the workspace", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["read_file"] } });
+    await store.save(created);
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-think-reset" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(requests.length >= 4, true, "request_think 后必须还能继续 Decide");
+    const events = await trajectoryStore.read({ goalId, runId: "run-think-reset" });
+    assert.equal(events.filter(event => event.payload.type === "think_requested").length, 1);
+});
+
+test("Runner 按模型返回顺序执行多调用批次，各计一次 Step 且 Observation 独立归属", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const executed: string[] = [];
+    const registry = new InMemoryToolRegistry(["a.md", "b.md", "c.md"].map(name => createToolRegistration({
+        definition: { id: `read_${name[0]}`, description: `Read ${name}`, isReadOnly: true,
+            inputContract: contract.object({ path: contract.string() }) },
+        replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute({ input }) {
+            executed.push((input as { path: string }).path);
+            return { kind: "success", output: { text: `content of ${(input as { path: string }).path}` }, summary: "Observed" };
+        },
+    })));
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        async generate(request) {
+            requests.push(request);
+            if (requests.length === 1) {
+                return { content: "", toolCalls: [
+                    { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                    { callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+                    { callId: "call-c", toolId: "read_c", argumentsJson: '{"path":"c.md"}' },
+                ] };
+            }
+            return { content: "已完成全部读取。" };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-order", intent: "Read three files", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["read_a", "read_b", "read_c"] } });
+    await store.save({
+        ...created,
+        state: {
+            ...created.state,
+            run: {
+                ...created.state.run,
+                exposedToolIds: ["read_a", "read_b", "read_c"],
+                currentStage: {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing" as const,
+                    target: "Read three files",
+                    acceptanceCriteria: ["All three files read"],
+                },
+            },
+        },
+    });
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-batch-order" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    // 本用例只验证批次执行；桩在批次后只返回文本，因此按不推进类预算终态失败（该行为由 TODO1/TODO2 用例覆盖）。
+    assert.equal(result.state.status, "failed");
+    assert.deepEqual(executed, ["a.md", "b.md", "c.md"], "必须按模型返回顺序执行");
+    assert.equal(result.state.stepCount, 3, "每个 Action 的成功结果各计一次 Step");
+    const events = await trajectoryStore.read({ goalId, runId: "run-batch-order" });
+    const observations = events.filter(event => event.payload.type === "observation_recorded");
+    assert.equal(observations.length, 3);
+    assert.deepEqual(
+        observations.map(event => event.payload.type === "observation_recorded"
+            && event.payload.observation.kind === "success"
+            ? (event.payload.observation.output as { text: string }).text : ""),
+        ["content of a.md", "content of b.md", "content of c.md"],
+        "每个 Action 的 Observation 必须独立归属",
+    );
+});
+
+test("Runner 顺序执行两调用批次后回到模型并正常终止", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const executed: string[] = [];
+    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createToolRegistration({
+        definition: { id, description: id, isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
+        replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute({ input }) { executed.push((input as { path: string }).path); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+    })));
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        async generate() {
+            requests.push({ messages: [] });
+            // 只在对第一次请求返回批次，之后返回普通文本，验证批次结束后不再自增循环。
+            return requests.length === 1
+                ? { content: "", toolCalls: [
+                    { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                    { callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+                ] }
+                : { content: "批次已完成。" };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-two", intent: "Read two files", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["read_a", "read_b"] } });
+    await store.save({
+        ...created,
+        state: { ...created.state, run: { ...created.state.run,
+            exposedToolIds: ["read_a", "read_b"],
+            currentStage: { stageId: "stage-1", revision: 1, status: "executing" as const, target: "Read two files", acceptanceCriteria: ["done"] } } },
+    });
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-batch-two" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.deepEqual(executed, ["a.md", "b.md"]);
+    assert.equal(result.state.stepCount, 2);
+});
+
+test("Runner 在批次中途需要审批时停止后续执行并保留已执行结果与剩余队列", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const executed: string[] = [];
+    const definitions: ToolDefinition[] = [
+        { id: "read_a", description: "Read a", isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
+        { id: "write_b", description: "Write b", isReadOnly: false,
+            inputContract: contract.object({ path: contract.string() }) },
+        { id: "read_c", description: "Read c", isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
+    ];
+    const registry = new InMemoryToolRegistry(definitions.map(definition => createToolRegistration({
+        definition, replayPolicy: "safe", validate: () => ({ ok: true }),
+        ...(definition.id === "write_b" ? { evaluatePolicy: () => "require_approval" as const } : {}),
+        async execute({ input }) { executed.push((input as { path: string }).path); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+    })));
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        async generate() {
+            requests.push({ messages: [] });
+            // 仅第一次请求返回批次；后续返回文本，避免用恒定桩制造无限批次。
+            return requests.length === 1
+                ? { content: "", toolCalls: [
+                    { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                    { callId: "call-b", toolId: "write_b", argumentsJson: '{"path":"b.md"}' },
+                    { callId: "call-c", toolId: "read_c", argumentsJson: '{"path":"c.md"}' },
+                ] }
+                : { content: "等待审批。" };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-approval", intent: "Read and write", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["read_a", "write_b", "read_c"] } });
+    await store.save({
+        ...created,
+        state: { ...created.state, run: { ...created.state.run,
+            exposedToolIds: ["read_a", "write_b", "read_c"],
+            currentStage: { stageId: "stage-1", revision: 1, status: "executing" as const, target: "Read and write", acceptanceCriteria: ["done"] } } },
+    });
+    const runner = new Runner({
+        store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry,
+        toolPolicy: { evaluate: ({ action }) => action.toolId === "write_b" ? "require_approval" : "allow" },
+    });
+    const result = await runner.run({ goalId, runId: "run-batch-approval" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    const restored = (await store.restore(goalId))!;
+    assert.equal(result.state.status, "waiting", JSON.stringify({ status: result.state.status, executed, pending: restored.state.run.pendingAction?.action.actionId }));
+    assert.deepEqual(executed, ["a.md"], "等待前只执行第一个 Action，后续不得执行");
+    assert.equal(restored.state.run.pendingAction?.action.actionId, "call-b");
+    assert.deepEqual(restored.state.run.pendingActionBatch?.remaining.map(call => call.actionId), ["call-c"], "未执行的后续 Action 必须保留在批次队列中");
+});
+
+test("Runner 拒绝重放已提交结果的 Action，并在有界尝试后终止", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const executed: string[] = [];
+    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createToolRegistration({
+        definition: { id, description: id, isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
+        replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute({ input }) { executed.push(`${id}:${(input as { path: string }).path}`); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+    })));
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        async generate() {
+            requests.push({ messages: [] });
+            // 恒定返回同一批次：第一批执行后再次提交相同 actionId 必须被拒绝，而不是重放。
+            return { content: "", toolCalls: [
+                { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                { callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+            ] };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-replay", intent: "Read twice", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["read_a", "read_b"] } });
+    await store.save({
+        ...created,
+        state: { ...created.state, run: { ...created.state.run,
+            exposedToolIds: ["read_a", "read_b"],
+            currentStage: { stageId: "stage-1", revision: 1, status: "executing" as const, target: "Read twice", acceptanceCriteria: ["done"] } } },
+    });
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-batch-replay" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.deepEqual(executed, ["read_a:a.md", "read_b:b.md"], "每次 Action 只允许执行一次，不得重放");
+    const events = await trajectoryStore.read({ goalId, runId: "run-batch-replay" });
+    const repairs = events.filter(event => event.payload.type === "model_repair_feedback_recorded");
+    assert.equal(repairs.length, 3, "重复提交必须被有界拒绝（三次尝试），而不是执行");
+    assert.equal(result.state.status, "failed");
+});
+
+test("Runner 在批次执行中被取消时不再启动后续 Action", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const controller = new AbortController();
+    const executed: string[] = [];
+    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createToolRegistration({
+        definition: { id, description: id, isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
+        replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute({ input }) {
+            executed.push((input as { path: string }).path);
+            // 第一个 Action 执行期间取消：后续 Action 与后续模型调用都不得开始。
+            if (executed.length === 1) controller.abort();
+            return { kind: "success", output: { text: "ok" }, summary: "Observed" };
+        },
+    })));
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        async generate() {
+            return { content: "", toolCalls: [
+                { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                { callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+            ] };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-cancel", intent: "Read two files", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["read_a", "read_b"] } });
+    await store.save({
+        ...created,
+        state: { ...created.state, run: { ...created.state.run,
+            exposedToolIds: ["read_a", "read_b"],
+            currentStage: { stageId: "stage-1", revision: 1, status: "executing" as const, target: "Read two files", acceptanceCriteria: ["done"] } } },
+    });
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const outcome = await runner.run({ goalId, runId: "run-batch-cancel" }, {}, { signal: controller.signal })
+        .then(() => "returned", (error: unknown) => error);
+    assert.deepEqual(executed, ["a.md"], "取消后不得启动后续 Action");
+    assert.equal(outcome === "returned" || outcome instanceof Error, true);
+    // 取消不终止 Run：停在最后一次提交边界，保持可恢复（R6-1）。
+    const restored = (await store.restore(goalId))!;
+    assert.equal(restored.state.run.status, "running");
+    assert.equal(restored.state.run.pendingAction?.action.actionId, "call-a", "取消点仍是已暂存且未完成的 Action");
+    assert.deepEqual(restored.state.run.pendingActionBatch?.remaining.map(call => call.actionId), ["call-b"],
+        "未启动的 Action 必须保留在批次队列中，未被视为已完成");
+});
+
+test("Trajectory 记录多调用批次事实，可与单调用、零调用区分", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createToolRegistration({
+        definition: { id, description: id, isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
+        replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute() { return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+    })));
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        async generate() {
+            requests.push({ messages: [] });
+            return requests.length === 1
+                ? { content: "", toolCalls: [
+                    { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                    { callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+                ] }
+                : { content: "只有文本，没有工具调用。" };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-event", intent: "Read two files", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["read_a", "read_b"] } });
+    await store.save({
+        ...created,
+        state: { ...created.state, run: { ...created.state.run,
+            exposedToolIds: ["read_a", "read_b"],
+            currentStage: { stageId: "stage-1", revision: 1, status: "executing" as const, target: "Read two files", acceptanceCriteria: ["done"] } } },
+    });
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-batch-event" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    const events = await trajectoryStore.read({ goalId, runId: "run-batch-event" });
+    const batches = events.filter(event => event.payload.type === "decide_batch_accepted");
+    assert.equal(batches.length, 1, "一次多调用模型响应必须记录一次批次事实");
+    const payload = batches[0]!.payload;
+    assert.equal(payload.type === "decide_batch_accepted" && payload.callIds.join(","), "call-a,call-b", "批次事实必须保留模型返回顺序");
+    assert.equal(payload.type === "decide_batch_accepted" && payload.remainingCount, 1);
+    // 三类事实可区分：批次事实、零调用正文的 Assistant 消息、单调用不产生批次事实。
+    assert.equal(events.filter(event => event.eventType === "action_staged").length, 2);
+    const messages = (await store.restore(goalId))!.state.messages;
+    assert.equal(messages.some(message => message.role === "assistant" && message.content.includes("只有文本")), true,
+        "零调用正文必须作为 Assistant 消息可见");
 });

@@ -44,6 +44,7 @@ const ModelCallMetricRecordSchema = z.discriminatedUnion("recordType", [
             }).strict(),
             z.object({ source: z.literal("unavailable") }).strict(),
         ]),
+        requestDurationMs: z.number().positive().finite().optional(),
         decodeDurationMs: z.number().positive().finite().optional(),
     }).strict(),
 ]);

@@ -52,14 +52,14 @@ export function isContextLookupRequest(
  * 校验并规范化 Context Lookup 请求。
  *
  * @param value - Agent 或外部边界返回的未知值。
- * @returns 去重、排序且不与输入共享引用的请求。
- * @throws ContextLookupProtocolError 当字段、需求类别、问题长度或过滤器非法时。
+ * @returns 按操作分支校验并规范化、且不与输入共享引用的请求。
+ * @throws ContextLookupProtocolError 当操作、字段组合或操作参数违反协议时。
  * @example
  * ```ts
  * const request = normalizeContextLookupRequest({
  *     kind: "context_lookup",
- *     need: "historical_execution",
- *     question: "之前哪个 Action 修改了配置？",
+ *     operation: "directory_browse",
+ *     limit: 10,
  * });
  * ```
  */

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   BrowserGoalSession,
   BrowserModelCatalog,
@@ -36,6 +36,8 @@ export function useModelSelection({
   const [currentModelCatalog, setCurrentModelCatalog] = useState<BrowserModelCatalog | null>(null);
   const [modelCatalogRefreshKey, setModelCatalogRefreshKey] = useState(0);
   const [modelPreferenceRetry, setModelPreferenceRetry] = useState<string | null>(null);
+  /** 与偏好重试配对的来源标识；Goal 切换成功但默认偏好写入失败时保留。 */
+  const preferenceProfileRetry = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (session === null) {
@@ -80,7 +82,7 @@ export function useModelSelection({
         const generation = draftGeneration.current;
         draftLoadVersion.current += 1;
         try {
-          await browserApi.setModelPreference(modelId);
+          await browserApi.setModelPreference(modelId, catalog.profileId);
         } catch (error) {
           if (generation === draftGeneration.current && draftModelId === null)
             void loadDraftDefault(generation);
@@ -93,7 +95,12 @@ export function useModelSelection({
         return;
       }
       try {
-        const result = await browserApi.selectModel(target.goalId, { runId: target.runId, modelId });
+        const result = await browserApi.selectModel(target.goalId, {
+          runId: target.runId,
+          modelId,
+          ...(catalog.profileId === undefined ? {} : { providerProfileId: catalog.profileId }),
+        });
+        preferenceProfileRetry.current = catalog.profileId;
         setModelPreferenceRetry(result.defaultModelSaved ? null : modelId);
         onSetCommandError(
           result.defaultModelSaved ? null : "Model switched, but the new Goal default was not saved."
@@ -128,7 +135,7 @@ export function useModelSelection({
     const modelId = modelPreferenceRetry;
     if (modelId === null) return;
     try {
-      await browserApi.setModelPreference(modelId);
+      await browserApi.setModelPreference(modelId, preferenceProfileRetry.current);
       setModelPreferenceRetry(null);
       onSetCommandError(null);
     } catch (error) {

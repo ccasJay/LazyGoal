@@ -113,6 +113,7 @@ test("parseModelOutput 成功解析各类请求的合法结果并还原 optional
     const proposalRaw = `\`\`\`json\n${JSON.stringify({
         result: {
             kind: "task_proposal",
+            planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
             task: {
                 objective: "完成模块实现",
                 completionCriteria: [{ text: "所有测试通过", acceptance: null }],
@@ -124,6 +125,7 @@ test("parseModelOutput 成功解析各类请求的合法结果并还原 optional
     const proposalResult = parseModelOutput(proposalRaw, unapprovedBundle);
     assert.deepEqual(proposalResult, {
         kind: "task_proposal",
+        planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
         task: {
             objective: "完成模块实现",
             completionCriteria: [{ text: "所有测试通过" }],

@@ -154,7 +154,8 @@ export interface BrowserBashExecutionDetail {
  * 会话单步执行的安全投影。
  *
  * @remarks
- * 汇总 Action 与 Observation 的已提交事实，不包含私有中间状态或原始 Prompt。
+ * 汇总 Action、Observation 和显式 Think 阶段的已提交事实，不包含供应商隐藏推理或原始 Prompt。
+ * Think 是同一 Runtime Step 内的展示成员，不增加 `stepCount`。
  *
  * @example
  * ```ts
@@ -173,11 +174,17 @@ export interface BrowserSessionStep {
     readonly runId: string;
     /** 执行单元标识。 */
     readonly executionUnitId: string;
+    /** 已提交事实中的稳定来源事件 ID，用于活动投影与 Trajectory 定位。 */
+    readonly sourceEventId?: string;
+    /** 已提交工具调用的稳定 Action 身份；多调用执行单元省略。 */
+    readonly actionId?: string;
+    /** 已验证的来源边界；`true` 表示此 Step 必须与前一活动组断开。 */
+    readonly activityBoundaryBefore?: true;
     /** 轨迹序列号。 */
     readonly sequence: number;
     /** Step 序号。 */
     readonly stepIndex: number;
-    /** 决策种类（如 "tool_call"）。 */
+    /** 决策或阶段控制种类（如 `tool_call`、`request_think`）。 */
     readonly decisionKind?: string;
     /** 工具标识。 */
     readonly toolId?: string;
@@ -189,6 +196,15 @@ export interface BrowserSessionStep {
     readonly status: "recorded" | "completed" | "failed" | "rejected";
     /** 工具观察结果摘要。 */
     readonly summary?: string;
+    /** 显式 Think 的目标及已提交输出；输出缺省表示尚无已提交完成事实。超长文本有界展示，完整正文从 Trajectory 详情读取。 */
+    readonly think?: {
+        /** 本次明确的思考目标；最多 4,000 字符。 */
+        readonly goal: string;
+        /** 已提交的显式分析正文；最多 64,000 字符，不包含供应商隐藏推理。 */
+        readonly output?: string;
+        /** 目标或正文被截断时为 true；完整事件仍可从 Trajectory 读取。 */
+        readonly truncated?: true;
+    };
     /** Bash 专有执行详情。 */
     readonly bashExecution?: BrowserBashExecutionDetail;
     /** 因数量超限是否省略 Bash 详情。 */
@@ -270,6 +286,56 @@ export interface BrowserRunStageGroup {
 }
 
 /**
+ * Plan Run 会话中的一条已批准路线。
+ *
+ * @remarks
+ * 表示 Runtime Snapshot 中的权威路线和当前游标，不包含普通 Run 的 RunStage，也不把模型候选伪装成已批准路线。
+ *
+ * @example
+ * ```ts
+ * const route: BrowserPlanRoute = {
+ *     revision: 1, nextStageIndex: 0,
+ *     stages: [{ stageId: "stage-1", revision: 1, status: "pending", target: "调查", acceptanceCriteria: ["定位入口"] }],
+ * };
+ * ```
+ */
+export interface BrowserPlanRoute {
+    /** 当前完整路线修订号。 */
+    readonly revision: number;
+    /** 最近一次路线修订理由；初始路线省略。 */
+    readonly revisionReason?: string;
+    /** 唯一可激活阶段的零基位置；等于阶段数表示路线全部接受。 */
+    readonly nextStageIndex: number;
+    /** Runtime 分配的完整有序阶段状态。 */
+    readonly stages: readonly BrowserPlanRouteStageState[];
+}
+
+/**
+ * 已批准 Plan Run 中带 Runtime 身份的阶段状态。
+ *
+ * @example
+ * ```ts
+ * const stage: BrowserPlanRouteStageState = {
+ *     stageId: "stage-1", revision: 1, status: "pending", target: "调查", acceptanceCriteria: ["定位入口"],
+ * };
+ * ```
+ */
+export interface BrowserPlanRouteStageState {
+    /** Runtime 分配且在路线修订间稳定的阶段身份。 */
+    readonly stageId: string;
+    /** 当前阶段定义修订号。 */
+    readonly revision: number;
+    /** 路线阶段状态。 */
+    readonly status: "pending" | "executing" | "accepted";
+    /** 阶段目标。 */
+    readonly target: string;
+    /** 阶段验收条件。 */
+    readonly acceptanceCriteria: readonly string[];
+    /** 阶段接受事实的 Trajectory 序号。 */
+    readonly acceptedSequence?: number;
+}
+
+/**
  * 会话中单个 Run 的历史投影。
  *
  * @remarks
@@ -299,6 +365,8 @@ export interface BrowserSessionRun {
     readonly current: boolean;
     /** 该 Run 划分的阶段分组列表；若未包含阶段操作则为空或省略。 */
     readonly stages?: readonly BrowserRunStageGroup[];
+    /** 当前 Run 为已获批 Plan Run 时的完整 Runtime 权威路线；普通 Run 省略。 */
+    readonly planRoute?: BrowserPlanRoute;
     /** 终态原因详情。 */
     readonly terminalDetail?: {
         readonly code?: string;
@@ -375,6 +443,23 @@ export interface BrowserAskUserAnswer {
 }
 
 /**
+ * Plan Run 任务提案中的一个有序阶段。
+ *
+ * @example
+ * ```ts
+ * const stage: BrowserPlanRouteStage = {
+ *     target: "调查入口", acceptanceCriteria: ["定位现有实现"],
+ * };
+ * ```
+ */
+export interface BrowserPlanRouteStage {
+    /** 阶段目标。 */
+    readonly target: string;
+    /** 阶段验收条件。 */
+    readonly acceptanceCriteria: readonly string[];
+}
+
+/**
  * 当前等待人工交互的请求视图。
  *
  * @remarks
@@ -388,6 +473,7 @@ export interface BrowserAskUserAnswer {
  *     objective: "完成重构",
  *     approvalRequest: "是否批准执行？",
  *     completionCriteria: ["测试全部通过"],
+ *     planRoute: [{ target: "调查", acceptanceCriteria: ["定位入口"] }],
  * };
  * ```
  */
@@ -397,6 +483,11 @@ export type BrowserPendingInteraction =
         readonly requestId: string;
         readonly mode: "plan" | "execution";
         readonly questions: readonly BrowserAskUserQuestion[];
+        readonly routeRevision?: {
+            readonly approvalRequest: string;
+            readonly reason: string;
+            readonly route: readonly BrowserPlanRouteStage[];
+        };
     }
     | {
         readonly kind: "task_approval";
@@ -404,6 +495,8 @@ export type BrowserPendingInteraction =
         readonly objective: string;
         readonly approvalRequest: string;
         readonly completionCriteria: readonly string[];
+        /** Plan Run 一次审批覆盖的完整有序候选路线。 */
+        readonly planRoute: readonly BrowserPlanRouteStage[];
     };
 
 /**

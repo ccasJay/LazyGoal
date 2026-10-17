@@ -107,6 +107,7 @@ test("Snapshot round-trip: 处于 task_approval 等待批准的 Goal 能够完�
     };
     const approvalInteraction: PendingInteractionTaskApproval = {
         kind: "task_approval",
+        planRouteCandidate: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
         requestId: "proposal-1",
         proposal: taskProposal,
         approvalRequest: "请确认任务目标与完成条件",
@@ -137,6 +138,14 @@ test("Snapshot round-trip: 处于 task_approval 等待批准的 Goal 能够完�
         GoalSnapshotProtocolError,
     );
 
+    const missingRoute = structuredClone(encoded);
+    const pendingWithoutRoute = missingRoute.state.run.pendingInteraction;
+    assert.equal(pendingWithoutRoute?.kind, "task_approval");
+    if (pendingWithoutRoute?.kind === "task_approval") {
+        Reflect.deleteProperty(pendingWithoutRoute, "planRouteCandidate");
+    }
+    assert.throws(() => goalSnapshotCodec.decode(missingRoute), GoalSnapshotProtocolError);
+
     const decoded = goalSnapshotCodec.decode(encoded);
 
     assert.deepEqual(decoded, waitingGoal);
@@ -146,6 +155,7 @@ test("Snapshot round-trip: 处于 task_approval 等待批准的 Goal 能够完�
         assert.equal(decoded.state.run.pendingInteraction.approvalRequest, "请确认任务目标与完成条件");
         assert.equal(decoded.state.run.pendingInteraction.proposal.objective, "重构持久化层");
         assert.equal(decoded.state.run.pendingInteraction.proposal.completionCriteria.length, 2);
+        assert.deepEqual(decoded.state.run.pendingInteraction.planRouteCandidate, approvalInteraction.planRouteCandidate);
     }
 });
 
@@ -177,6 +187,7 @@ test("快照不变量: pendingAction 与 pendingInteraction 互斥拒绝", () =>
                 },
                 pendingInteraction: {
                     kind: "task_approval",
+                    planRouteCandidate: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                     requestId: "proposal-2",
                     proposal: taskProposal,
                     approvalRequest: "请批准",
@@ -206,6 +217,7 @@ test("快照不变量: pendingInteraction 必须处于 waiting 状态", () => {
                 status: "running",
                 pendingInteraction: {
                     kind: "task_approval",
+                    planRouteCandidate: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                     requestId: "proposal-3",
                     proposal: { objective: "目标", completionCriteria: [{ text: "条件" }] },
                     approvalRequest: "请批准",
@@ -237,6 +249,7 @@ test("快照不变量: terminal 或 created 状态不得含有 pendingInteractio
                 status: "created",
                 pendingInteraction: {
                     kind: "task_approval",
+                    planRouteCandidate: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                     requestId: "proposal-4",
                     proposal: task,
                     approvalRequest: "请批准",
@@ -263,6 +276,7 @@ test("快照不变量: terminal 或 created 状态不得含有 pendingInteractio
                 },
                 pendingInteraction: {
                     kind: "task_approval",
+                    planRouteCandidate: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                     requestId: "proposal-5",
                     proposal: task,
                     approvalRequest: "请批准",

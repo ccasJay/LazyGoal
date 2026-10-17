@@ -167,6 +167,12 @@ function createExecutingGoal(options: {
                     : { pendingAction: options.pendingAction }),
 
                 mode: "plan", approvedTask: task,
+                planRoute: {
+                    revision: 1,
+                    nextStageIndex: 0,
+                    nextStageOrdinal: 2,
+                    stages: [{ stageId: "stage-1", revision: 1, status: "pending", target: "已批准路线阶段", acceptanceCriteria: ["阶段验收条件"] }],
+                },
             },
         },
     };
@@ -301,12 +307,28 @@ test("Projector 在各 Run 模式投影已提交 GoalPlan，且不混入 Working
                     status: "in_progress",
                 }],
             },
-            run: { ...goal.state.run, status: "running", mode: "plan" },
+            run: {
+                ...goal.state.run,
+                status: "running",
+                mode: "plan",
+                approvedTask: task,
+                planRoute: {
+                    revision: 1,
+                    nextStageIndex: 0,
+                    nextStageOrdinal: 2,
+                    stages: [{ stageId: "stage-1", revision: 1, status: "pending", target: "已批准路线阶段", acceptanceCriteria: ["阶段验收条件"] }],
+                },
+            },
         },
     };
 
     const view = project(planGoal, [], currentWorkingMemory);
     assert.equal(view.dynamicContext.goalPlanWritable, true);
+    assert.deepEqual(view.dynamicContext.planRoute, {
+        revision: 1,
+        nextStageIndex: 0,
+        stages: [{ stageId: "stage-1", revision: 1, status: "pending", target: "已批准路线阶段", acceptanceCriteria: ["阶段验收条件"] }],
+    });
     assert.deepEqual(view.dynamicContext.goalPlan, {
         revision: 2,
         items: [{

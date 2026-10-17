@@ -69,12 +69,12 @@ test("Web goal session presents run stages, revisions, rejection feedback, and c
     const stageGroupsCount = await value(socket, "document.querySelectorAll('.run-stage-group').length");
     assert.equal(stageGroupsCount, 2);
 
-    // 3. 验证 Stage 1: Accepted 状态与结果摘要，中间接受不显示 Run completed
+    // 3. 验证 Stage 1: Accepted 状态，不展示阶段结果摘要或 Run completed
     const stage1Target = await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelector('.stage-target').textContent");
     assert.equal(stage1Target, "Alpha Setup");
     const stage1Status = await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelector('.stage-status').textContent");
     assert.equal(stage1Status, "Accepted");
-    assert.match(await value(socket, "document.querySelectorAll('.run-stage-group')[0].innerText"), /Alpha completed successfully/);
+    assert.doesNotMatch(await value(socket, "document.querySelectorAll('.run-stage-group')[0].innerText"), /Alpha completed successfully/);
     assert.doesNotMatch(await value(socket, "document.querySelector('.session').innerText"), /Run completed/);
 
     // 4. 验证 Stage 2: 修订版本、In progress 状态与审查拒绝反馈
@@ -88,10 +88,64 @@ test("Web goal session presents run stages, revisions, rejection feedback, and c
     assert.match(await value(socket, "document.querySelectorAll('.run-stage-group')[1].innerText"), /Missing error handling/);
 
     // 5. 验证所属 Steps 存在且可展开
-    const stage1StepsCount = await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelectorAll('.tool-event').length");
+    const stage1StepsCount = await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelectorAll('.activity-group').length");
     assert.equal(stage1StepsCount, 1);
-    const stage2StepsCount = await value(socket, "document.querySelectorAll('.run-stage-group')[1].querySelectorAll('.tool-event').length");
+    assert.match(await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelector('.activity-group > summary').innerText"), /Edited 2 files/);
+    assert.equal(await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelectorAll('.activity-member').length"), 2);
+    const stage2StepsCount = await value(socket, "document.querySelectorAll('.run-stage-group')[1].querySelectorAll('.activity-group').length");
     assert.equal(stage2StepsCount, 1);
+
+    // 6. 样式呈现断言：类名存在但 CSS 缺失时在此回归（spec-req-1-3）
+    const headingStyle = JSON.parse(await value(socket, `JSON.stringify((() => {
+      const style = getComputedStyle(document.querySelector('.run-stage-heading'));
+      return { display: style.display, alignItems: style.alignItems, minHeight: style.minHeight };
+    })())`));
+    assert.equal(headingStyle.display, "flex");
+    assert.equal(headingStyle.alignItems, "center");
+
+    const containerDisplay = await value(socket, "getComputedStyle(document.querySelector('.run-stages-container')).display");
+    assert.match(containerDisplay, /grid/);
+
+    const containerMargin = await value(socket, "getComputedStyle(document.querySelector('.run-stages-container')).marginLeft");
+    assert.notEqual(String(containerMargin), "0px");
+
+    const levelStepsDisplay = await value(socket, "getComputedStyle(document.querySelector('.run-level-steps')).display");
+    assert.equal(levelStepsDisplay, "block");
+
+    const contentBorder = await value(socket, "getComputedStyle(document.querySelector('.stage-content')).borderLeftWidth");
+    assert.equal(contentBorder, "1px");
+
+    const feedbackBackground = await value(socket, "getComputedStyle(document.querySelector('.stage-rejection-feedback')).backgroundColor");
+    assert.ok(
+      feedbackBackground && feedbackBackground !== "rgba(0, 0, 0, 0)",
+      `stage rejection feedback must draw the warning surface, got ${feedbackBackground}`,
+    );
+
+    await waitForExpression(socket, "document.querySelectorAll('.activity-group.think').length === 2");
+    await value(socket, "document.querySelectorAll('.activity-group.think').forEach(group => { group.open = true; })");
+    assert.match(await value(socket, "document.querySelector('.activity-group.think').innerText"), /Compare recovery paths/);
+    assert.match(await value(socket, "document.querySelector('.activity-group.think strong').textContent"), /Thinking/);
+    assert.match(await value(socket, "document.querySelector('.activity-group.think [aria-label=\"Think analysis\"] strong').textContent"), /Use the committed checkpoint/);
+    assert.match(await value(socket, "document.querySelectorAll('.activity-group.think')[1].innerText"), /Waiting for the saved Think output/);
+    assert.match(await value(socket, "document.querySelectorAll('.activity-group.think')[1].querySelector('summary').innerText"), /In progress/);
+    mock.completeThink();
+    await waitForExpression(socket, "document.querySelectorAll('.activity-group.think')[1].classList.contains('completed')");
+    assert.equal(await value(socket, "document.querySelectorAll('.activity-group.think').length"), 2);
+    await value(socket, "document.querySelectorAll('.activity-group.think')[1].open = true");
+    assert.match(await value(socket, "document.querySelectorAll('.activity-group.think')[1].innerText"), /Remaining uncertainty is resolved/);
+
+    await navigate(socket, "about:blank");
+    await navigate(socket, `${webUrl}/?session=desktop#${token}`);
+    await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
+    await value(socket, "document.querySelector('.goal-card').click()");
+    await waitForExpression(socket, "document.querySelectorAll('.activity-group.think').length === 2");
+    await value(socket, "document.querySelector('.activity-group.think').open = true");
+    await value(socket, "document.querySelector('.activity-group.think .trajectory-link button').click()");
+    await waitForExpression(socket, "document.querySelector('.ct-badge.thinking') !== null");
+    await value(socket, "document.querySelector('#trajectory-event-6').click()");
+    await waitForExpression(socket, "document.querySelector('.tr-detail-body [aria-label=\"Think analysis\"]') !== null");
+    assert.match(await value(socket, "document.querySelector('.tr-detail-body').innerText"), /Compare recovery paths/);
+    assert.match(await value(socket, "document.querySelector('.tr-detail-body strong').textContent"), /Use the committed checkpoint/);
   } finally {
     if (socket) socket.close();
     if (chrome) {
@@ -101,11 +155,13 @@ test("Web goal session presents run stages, revisions, rejection feedback, and c
     webServer.kill("SIGTERM");
     await Promise.race([once(webServer, "close"), delay(3000).then(() => webServer.kill("SIGKILL"))]);
     mock.server.close();
+    mock.server.closeAllConnections();
     await rm(profile, { recursive: true, force: true });
   }
 });
 
 function createStageMockApi() {
+  const streams = new Set();
   const session = {
     goalId: "goal-stage-1",
     intent: "Exercise run stage presentation and review feedback",
@@ -116,7 +172,7 @@ function createStageMockApi() {
     runs: [{
       runId: "run-1",
       status: "running",
-      stepCount: 3,
+      stepCount: 4,
       current: true,
       stages: [
         {
@@ -147,6 +203,16 @@ function createStageMockApi() {
       ],
       steps: [
         {
+          runId: "run-1", executionUnitId: "think-unit", sourceEventId: "think-request",
+          sequence: 5, stepIndex: 4, decisionKind: "request_think", status: "completed",
+          think: { goal: "Compare recovery paths", output: "**Use the committed checkpoint**\n\nThe saved observation supports this choice." },
+        },
+        {
+          runId: "run-1", executionUnitId: "pending-think-unit", sourceEventId: "pending-think-request",
+          sequence: 7, stepIndex: 4, decisionKind: "request_think", status: "recorded",
+          think: { goal: "Check remaining uncertainty" },
+        },
+        {
           runId: "run-1",
           executionUnitId: "unit-0",
           sequence: 1,
@@ -159,6 +225,8 @@ function createStageMockApi() {
         {
           runId: "run-1",
           executionUnitId: "unit-1",
+          sourceEventId: "trajectory-edit-1",
+          actionId: "action-edit-1",
           sequence: 2,
           stepIndex: 2,
           stageId: "stage-alpha",
@@ -170,8 +238,23 @@ function createStageMockApi() {
         {
           runId: "run-1",
           executionUnitId: "unit-2",
+          sourceEventId: "trajectory-edit-2",
+          actionId: "action-edit-2",
           sequence: 3,
           stepIndex: 3,
+          stageId: "stage-alpha",
+          toolId: "write_file",
+          inputSummary: "src/index.test.ts",
+          status: "completed",
+          summary: "Wrote test file",
+        },
+        {
+          runId: "run-1",
+          executionUnitId: "unit-3",
+          sourceEventId: "trajectory-bash-1",
+          actionId: "action-bash-1",
+          sequence: 4,
+          stepIndex: 4,
           stageId: "stage-beta",
           toolId: "bash",
           inputSummary: "npm test",
@@ -187,6 +270,24 @@ function createStageMockApi() {
     if (request.headers.authorization !== `Bearer ${token}`) {
       response.writeHead(401, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: "unauthorized" }));
+      return;
+    }
+    const trajectoryRun = { runId: "run-1", status: "running", current: true, committedThroughSequence: 7 };
+    const thinkEntry = { eventId: "think-output", sequence: 6, occurredAt: "2026-10-13T09:00:01.000Z", eventType: "think_completed", category: "decision", executionUnitId: "think-unit", stepIndex: 4, title: "think_completed", preview: "Use the committed checkpoint", previewTruncated: false };
+    if (request.url?.startsWith("/api/goals/goal-stage-1/trajectory/runs?")) {
+      json(response, { runs: [trajectoryRun], nextOffset: null });
+      return;
+    }
+    if (request.url?.startsWith("/api/goals/goal-stage-1/trajectory/events/6?")) {
+      json(response, { goalId: session.goalId, runId: "run-1", event: { ...thinkEntry, eventSchemaVersion: 1, goalId: session.goalId, runId: "run-1", phase: "executing", payload: { type: "think_completed", requestId: "think-1", stepOrdinal: 4, ...session.runs[0].steps[0].think } }, toolDurationMs: null, observationConfirmed: false });
+      return;
+    }
+    if (request.url?.startsWith("/api/goals/goal-stage-1/trajectory?")) {
+      json(response, { goalId: session.goalId, run: trajectoryRun, entries: [thinkEntry], total: 1, committedCount: 1, previousCursor: null, nextCursor: null, locatedSequence: null });
+      return;
+    }
+    if (request.url?.startsWith("/api/goals/goal-stage-1/model-inputs?")) {
+      json(response, { calls: [], total: 0, nextOffset: null });
       return;
     }
     if (request.url === "/api/project/permission-mode" && request.method === "GET") {
@@ -222,13 +323,20 @@ function createStageMockApi() {
         connection: "keep-alive",
       });
       response.write("event: ping\ndata: {}\n\n");
+      streams.add(response);
+      response.on("close", () => streams.delete(response));
       return;
     }
     response.writeHead(404, { "content-type": "application/json" });
     response.end(JSON.stringify({ error: "not_found" }));
   });
 
-  return { server };
+  return { server, completeThink() {
+    const pending = session.runs[0].steps[1];
+    pending.status = "completed";
+    pending.think.output = "Remaining uncertainty is resolved.";
+    for (const stream of streams) stream.write(`data: ${JSON.stringify({ type: "snapshot_changed", goalId: session.goalId, runId: "run-1" })}\n\n`);
+  } };
 }
 
 function json(response, value) {

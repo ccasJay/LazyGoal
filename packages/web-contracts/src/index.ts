@@ -14,6 +14,9 @@ export {
     type BrowserAskUserQuestion,
     type BrowserAskUserAnswer,
     type BrowserPendingInteraction,
+    type BrowserPlanRouteStage,
+    type BrowserPlanRoute,
+    type BrowserPlanRouteStageState,
     type BrowserGoalPlanItem,
     type BrowserGoalPlan,
     type BrowserToolGrantExtraFile,
@@ -57,12 +60,27 @@ export {
 
 export {
     type BrowserModelSource,
+    type BrowserModelSourceRef,
     type BrowserModelOption,
     type BrowserModelCatalogNotice,
     type BrowserModelCatalogError,
     type BrowserModelCatalog,
     type BrowserModelCatalogReadResult,
 } from "./model";
+
+export {
+    type BrowserProviderProfile,
+    type BrowserProviderFallback,
+    type BrowserProviderSettings,
+    type BrowserProviderSettingsError,
+    type BrowserProviderSettingsReadResult,
+    type BrowserProviderProfileInput,
+    type BrowserProviderProfileWriteResult,
+    type BrowserProviderProfileDeleteResult,
+    type BrowserProviderProfileActivationResult,
+    type BrowserProviderProfileTestError,
+    type BrowserProviderProfileTestResult,
+} from "./provider-settings";
 
 export {
     type BrowserModelInputMessageWire,
@@ -116,6 +134,12 @@ export {
     isModelCatalog,
     isModelSelectionAccepted,
     isModelPreferenceAccepted,
+    isProviderProfile,
+    isProviderSettings,
+    isProviderProfileWriteResult,
+    isProviderProfileDeleteResult,
+    isProviderProfileActivationResult,
+    isProviderProfileTestResult,
     isActionDetailsResult,
     isToolGrantResult,
     isPermissionModeResult,
@@ -132,3 +156,6 @@ export {
     isMetricValues,
     isMetricsSnapshot,
 } from "./validation";
+
+export type { BrowserProviderModelQuery, BrowserProviderModels } from "./provider-settings";
+export { isProviderModels } from "./validation";

@@ -14,16 +14,19 @@ import {
     type RequestThink,
     type AskUserAgentDecision,
     type CompletionEvidence,
+    type RunPlanRouteCandidate,
+    type RunPlanRouteUpdateAgentDecision,
     CompletionEvidenceContract,
     ContextLookupFiltersContract,
     ContextLookupNeedContract,
-    ContextLookupOperationContract,
     ExecutingFailAgentDecisionContract,
     ExecutingWaitAgentDecisionContract,
     ExecutingWorkingMemoryPatchContract,
     GoalPlanPatchOperationContract,
     type GoalPlanPatchOperation,
     GoalTaskContract,
+    RunPlanRouteCandidateContract,
+    RunPlanRouteUpdateAgentDecisionContract,
     AskUserQuestionInputContract,
 } from "./canonical";
 import { ModelOutputContractDefinitionError } from "./errors";
@@ -217,23 +220,45 @@ export const SystemFailGoalInputContract = contract.object({
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
-/** 历史上下文检索工具参数契约。 */
+/** Context Lookup 各操作使用互斥字段的参数契约。 */
+const ContextLookupOperationInputContract = contract.discriminatedUnion("operation", [
+    contract.object({
+        operation: contract.literal("history_search"),
+        need: ContextLookupNeedContract,
+        question: contract.string(),
+        filters: contract.optional(ContextLookupFiltersContract),
+    }),
+    contract.object({
+        operation: contract.literal("directory_browse"),
+        cursor: contract.optional(contract.string()),
+        limit: contract.optional(contract.integer({ minimum: 1, maximum: 50 })),
+        category: contract.optional(contract.string()),
+    }),
+    contract.object({
+        operation: contract.literal("directory_search"),
+        query: contract.string(),
+        cursor: contract.optional(contract.string()),
+        limit: contract.optional(contract.integer({ minimum: 1, maximum: 50 })),
+        category: contract.optional(contract.string()),
+    }),
+    contract.object({
+        operation: contract.literal("source_expand"),
+        sourceRef: contract.string(),
+        offset: contract.optional(contract.integer({ minimum: 0 })),
+        limit: contract.optional(contract.integer({ minimum: 1 })),
+    }),
+]);
+type ContextLookupOperationInput = InferContract<typeof ContextLookupOperationInputContract>;
+
+/** 历史上下文检索工具参数契约；每次调用只能选择一种操作及其字段。 */
 export const SystemContextLookupInputContract = contract.object({
-    operation: contract.optional(ContextLookupOperationContract),
-    need: contract.optional(ContextLookupNeedContract),
-    question: contract.optional(contract.string()),
-    filters: contract.optional(ContextLookupFiltersContract),
-    query: contract.optional(contract.string()),
-    cursor: contract.optional(contract.string()),
-    limit: contract.optional(contract.integer({ minimum: 1, maximum: 50 })),
-    category: contract.optional(contract.string()),
-    sourceRef: contract.optional(contract.string()),
-    offset: contract.optional(contract.integer({ minimum: 0 })),
+    request: ContextLookupOperationInputContract,
 });
 
 /** 统一执行流提交任务提案工具参数契约。 */
 export const SystemProposeTaskPlanInputContract = contract.object({
     task: GoalTaskContract,
+    planRoute: RunPlanRouteCandidateContract,
     approvalRequest: contract.string(),
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
@@ -277,6 +302,15 @@ export const SystemCompleteRunStageInputContract = contract.object({
     stageId: contract.string(),
     summary: contract.string(),
     evidenceSequences: contract.optional(contract.array(contract.integer({ minimum: 0 }))),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+});
+
+/** Plan Run 获批后的完整路线修订输入契约。 */
+export const SystemUpdatePlanRouteInputContract = contract.object({
+    baseRevision: contract.integer({ minimum: 1 }),
+    reason: contract.string(),
+    route: RunPlanRouteCandidateContract,
+    approvalRequest: contract.optional(contract.string()),
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
@@ -340,31 +374,11 @@ export const SystemFailGoalDeclaration: SystemToolDeclaration<AgentDecision> = b
 
 export const SystemContextLookupDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_context_lookup",
-    "Recover necessary historical execution, user decisions or rationale from trajectory or conversation records. Workspace files are not searched. No match does not prove a repository object is absent. Lookup events are not direct Fact or completion evidence. Use authorized file tools when requested repository contents are missing. Results do not establish current external state; use authorized tools for that. Filters are optional; omit sequenceRange unless targeting known event sequences.",
+    "Recover necessary historical execution, user decisions or rationale from trajectory or conversation records. Place exactly one operation object inside request: history_search requires need and question; directory_browse accepts cursor, limit and category; directory_search requires query and accepts cursor, limit and category; source_expand requires sourceRef and accepts offset and limit. Do not mix fields across operations. Workspace files are not searched. No match does not prove a repository object is absent. Lookup events are not direct Fact or completion evidence. Use authorized file tools when requested repository contents are missing. Results do not establish current external state; use authorized tools for that. Filters are optional; omit sequenceRange unless targeting known event sequences.",
     SystemContextLookupInputContract,
-    (args: {
-        operation?: any;
-        need?: any;
-        question?: string;
-        filters?: any;
-        query?: string;
-        cursor?: string;
-        limit?: number;
-        category?: string;
-        sourceRef?: string;
-        offset?: number;
-    }) => ({
+    (args: { request: ContextLookupOperationInput }) => ({
         kind: "context_lookup" as const,
-        ...(args.operation !== undefined ? { operation: args.operation } : {}),
-        ...(args.need !== undefined ? { need: args.need } : {}),
-        ...(args.question !== undefined ? { question: args.question } : {}),
-        ...(args.filters !== undefined ? { filters: args.filters } : {}),
-        ...(args.query !== undefined ? { query: args.query } : {}),
-        ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
-        ...(args.limit !== undefined ? { limit: args.limit } : {}),
-        ...(args.category !== undefined ? { category: args.category } : {}),
-        ...(args.sourceRef !== undefined ? { sourceRef: args.sourceRef } : {}),
-        ...(args.offset !== undefined ? { offset: args.offset } : {}),
+        ...args.request,
     }),
 );
 
@@ -429,12 +443,49 @@ export const SystemAskUserDeclaration: AskUserTool = buildDeclaration(
 
 export const SystemProposeTaskPlanDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_propose_task_plan",
-    "Before task approval, propose the goal task objective and verifiable completion criteria for user approval once its scope is clear; do not add routine confirmation questions. Note: acceptance is optional; only specify acceptance for criteria verifiable by an authorized execution tool (e.g. bash, read_file). NEVER use system functions (like system_complete_task) as expectToolId. For analysis or summary criteria, omit acceptance.",
+    "After collecting missing information that materially affects scope, correctness or authorization, submit one approval proposal containing the task objective, verifiable completion criteria, and the complete ordered stage route. Use one stage for one coherent outcome; use multiple stages for independently verifiable deliverables, real dependencies, or distinct verification gates. Do not split by expected Step, Tool call, duration or token counts. Each route stage needs a target and acceptance criteria. Do not add routine confirmation questions. Task criterion acceptance is optional and should only reference authorized business tools; never use system functions as expectToolId.",
     SystemProposeTaskPlanInputContract,
-    (args: { task: any; approvalRequest: string; memoryPatch?: unknown }): AgentDecision => ({
+    (args: { task: any; planRoute: RunPlanRouteCandidate; approvalRequest: string; memoryPatch?: unknown }): AgentDecision => ({
         kind: "task_proposal",
         task: args.task,
+        planRoute: args.planRoute,
         approvalRequest: args.approvalRequest,
+        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
+    }),
+);
+
+/**
+ * 获批 Plan Run 的完整路线修订工具。
+ *
+ * @remarks
+ * Runtime 会校验 revision、保留已接受阶段并分配新增阶段身份；提供 approvalRequest 时，
+ * 修订在用户确认前只以待处理交互保存，不会改变当前路线或执行状态。
+ *
+ * @example
+ * ```ts
+ * const decision = SystemUpdatePlanRouteDeclaration.decode({
+ *   baseRevision: 1,
+ *   reason: "新证据表明可以复用现有验证步骤",
+ *   route: { stages: [{ target: "修复", acceptanceCriteria: ["回归通过"] }] },
+ * });
+ * ```
+ */
+export const SystemUpdatePlanRouteDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
+    "system_update_plan_route",
+    "After new evidence changes the approved route, submit the complete revised route and a concrete reason. Preserve accepted stages exactly. Omit approvalRequest only when the revision stays within the approved task scope and promised outcomes. Include approvalRequest when it expands scope or changes promised outcomes; Runtime will pause for a user decision before applying it.",
+    SystemUpdatePlanRouteInputContract,
+    (args: {
+        baseRevision: number;
+        reason: string;
+        route: RunPlanRouteCandidate;
+        approvalRequest?: string;
+        memoryPatch?: unknown;
+    }): RunPlanRouteUpdateAgentDecision => ({
+        kind: "run_plan_route_update",
+        baseRevision: args.baseRevision,
+        reason: args.reason,
+        route: args.route,
+        ...(args.approvalRequest !== undefined ? { approvalRequest: args.approvalRequest } : {}),
         ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
     }),
 );
@@ -681,6 +732,7 @@ export function createUnifiedToolDeclarations(
 
     return [
         ...createExecutingToolDeclarations(authorizedTools),
+        SystemUpdatePlanRouteDeclaration,
         ...(goalPlanWritable ? [SystemUpdateGoalPlanDeclaration] : []),
         ...thinkDeclaration,
     ];

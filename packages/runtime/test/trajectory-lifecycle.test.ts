@@ -378,6 +378,7 @@ test("Coordinator records waiting facts before the committed Snapshot when Run p
                                 payload: {
                                     type: "run_waiting",
                                     reason: "ask_user",
+                                    requestId: "ask-test",
                                 },
                             },
                         ],

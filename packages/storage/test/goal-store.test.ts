@@ -400,6 +400,7 @@ test("GoalSnapshotCodec restores the complete Runtime State for every phase", ()
                 status: "waiting",
                 pendingInteraction: {
                     kind: "task_approval",
+                    planRouteCandidate: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                     requestId: "proposal-1",
                     proposal: {
                         objective: "准备后的任务",

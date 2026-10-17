@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { BrowserTrajectoryEntry, BrowserTrajectoryPage } from "../../../packages/web-contracts/src/index";
-import { EMPTY_TRAJECTORY_PAGE_WINDOW, receiveTrajectoryPage, viewedThrough } from "../src/trajectory-page-window";
+import { EMPTY_TRAJECTORY_PAGE_WINDOW, receiveTrajectoryPage, trajectoryPagesAreAdjacent, viewedThrough } from "../src/trajectory-page-window";
 
 function page(first: number, last: number, total = 350): BrowserTrajectoryPage {
   const entries: BrowserTrajectoryEntry[] = Array.from({ length: last - first + 1 }, (_, index) => ({
@@ -45,4 +45,18 @@ test("starting at Latest keeps absolute position when loading earlier pages", ()
   window = receiveTrajectoryPage(window, page(1, 50), "prepend");
   assert.equal(window.pages.length, 3);
   assert.equal(viewedThrough(window), 50);
+});
+
+test("page adjacency is verified from Run identity, cursor links, contiguous sequences and commit boundary", () => {
+  const first = page(1, 50, 100);
+  const second = page(51, 100, 100);
+  assert.equal(trajectoryPagesAreAdjacent(first, second), true);
+  assert.equal(trajectoryPagesAreAdjacent(first, page(52, 100, 100)), false);
+  assert.equal(trajectoryPagesAreAdjacent(first, { ...second, goalId: "other-goal" }), false);
+  assert.equal(trajectoryPagesAreAdjacent(first, { ...second, run: { ...second.run, runId: "other-run" } }), false);
+  assert.equal(trajectoryPagesAreAdjacent(first, { ...second, committedCount: 99 }), false);
+  assert.equal(trajectoryPagesAreAdjacent(first, { ...second, previousCursor: 52 }), false);
+
+  const window = receiveTrajectoryPage(receiveTrajectoryPage(EMPTY_TRAJECTORY_PAGE_WINDOW, first, "replace"), page(52, 100, 100), "append");
+  assert.deepEqual(window.verifiedAdjacentPages, [false]);
 });

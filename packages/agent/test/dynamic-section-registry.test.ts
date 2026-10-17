@@ -46,6 +46,28 @@ test("默认注册表稳定输出五个首版 section 的身份、来源、角�
         { sectionId: "authorized_tools", source: "Runtime.authorizedTools", role: "user", order: 40 },
         { sectionId: "working_memory", source: "WorkingMemory", role: "user", order: 50 },
     ]);
+    const runMode = first.find((section) => section.sectionId === "run_mode");
+    assert.ok(runMode);
+    assert.equal(Object.hasOwn(runMode.projection as object, "planRoute"), false);
+});
+
+test("Plan Run projection includes the complete route when Runtime provides it", () => {
+    const registry = createDefaultDynamicSectionRegistry();
+    const planView: ModelInferenceView = {
+        ...view,
+        dynamicContext: {
+            ...view.dynamicContext,
+            runMode: "plan",
+            planRoute: {
+                revision: 1,
+                nextStageIndex: 0,
+                stages: [{ stageId: "stage-1", revision: 1, status: "pending", target: "Inspect", acceptanceCriteria: ["Inspect completed"] }],
+            },
+        },
+    };
+    const runMode = registry.project(planView).find((section) => section.sectionId === "run_mode");
+    assert.ok(runMode);
+    assert.deepEqual((runMode.projection as { planRoute?: unknown }).planRoute, planView.dynamicContext.planRoute);
 });
 
 test("注册第六个 section 只需增加定义，通用注册表会按顺序投影", () => {

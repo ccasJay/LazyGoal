@@ -1,3 +1,4 @@
+import { toolResponseFixture } from "../../agent/test/tool-response-fixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -67,11 +68,12 @@ class ScriptedAdapter implements LLMAdapter {
 
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.requests.push(request);
-        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
+        if (request.tools?.[0]?.id === "system_review_completion") return toolResponseFixture(JSON.stringify({ result: { kind: "accept" } }));
         const index = this.requests.length - 1;
         const reply = this.replies[index];
         if (reply === undefined) throw new Error("scripted adapter responses exhausted");
-        return { content: typeof reply === "function" ? reply(request, index) : reply };
+        const content = typeof reply === "function" ? reply(request, index) : reply;
+        return request.toolChoice === "required" ? toolResponseFixture(content) : { content };
     }
 }
 
@@ -263,14 +265,14 @@ test("strict 多轮 Think 与 prompt-only 直接 Decide 都携带当前分层状
         const firstDecide = decideAdapter.requests[0]!;
         const workingContext = JSON.parse(firstDecide.messages.at(-1)!.content) as Record<string, unknown>;
         if (scenario.provider === "openai") {
-            assert.ok(firstDecide.structuredOutput !== undefined);
-            assert.equal("responseShapeGuide" in workingContext, false);
+            assert.equal(firstDecide.structuredOutput, undefined);
+            assert.match(String(workingContext.responseShapeGuide), /Call exactly one declared tool/);
             assert.equal(decideAdapter.requests[1]?.messages.some((message) =>
                 message.role === "assistant" && message.content === thought,
             ), true);
         } else {
             assert.equal(firstDecide.structuredOutput, undefined);
-            assert.match(String(workingContext.responseShapeGuide), /Respond with a JSON object/);
+            assert.match(String(workingContext.responseShapeGuide), /Call exactly one declared tool/);
         }
 
         if (scenario.expectsThink) {
@@ -315,6 +317,7 @@ test("未批准 Plan 保留先提案 Prompt，已有工具审批规则仍允许�
         }),
         response({
             kind: "task_proposal",
+            planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
             task: {
                 objective: "使用已读取的文件继续验证",
                 completionCriteria: [{ text: "提案等待用户批准", acceptance: null }],
@@ -339,8 +342,8 @@ test("未批准 Plan 保留先提案 Prompt，已有工具审批规则仍允许�
 
     const initialRequest = decideAdapter.requests[0]!;
     const prompt = requestText(initialRequest);
-    assert.match(prompt, /Plan Run without an approved task: first submit a task proposal/);
-    assert.match(prompt, /Do not call a business Tool before proposing/);
+    assert.match(prompt, /Plan Run without an approved task: you may investigate only with business Tools explicitly marked `isReadOnly: true`/);
+    assert.match(prompt, /Do not call a mutating or unclassified Tool before task approval/);
     assert.match(prompt, /inspect_file/);
     assert.ok(initialRequest.tools?.length);
 

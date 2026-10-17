@@ -1,3 +1,5 @@
+import { recordLlmResponse } from "../src/llm-diagnostic-trace";
+import { toolResponseFixture } from "./tool-response-fixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -73,7 +75,9 @@ class ResponseAdapter implements LLMAdapter {
     constructor(private readonly response: LLMResponse) {}
 
     async generate(_request: LLMRequest): Promise<LLMResponse> {
-        return this.response;
+        return this.response.toolCalls === undefined
+            ? { ...this.response, ...toolResponseFixture(this.response.content) }
+            : this.response;
     }
 }
 
@@ -344,4 +348,16 @@ test("malformed JSON and undeclared tools do not produce a declared shape", asyn
             return true;
         });
     }
+});
+
+test("diagnostic metadata does not duplicate tool calls or persist the reasoning channel", async () => {
+    const traceSink = new CaptureTraceSink();
+    await recordLlmResponse(traceSink, createGoalForPhase(), {
+        content: "answer", reasoning: "PRIVATE_REASONING",
+        toolCalls: [{ callId: "call-trace", toolId: "system_complete_task", argumentsJson: '{"summary":"done","completionEvidence":[]}' }],
+    }, 1, "trace-call");
+    const record = traceSink.records[0] as { payload: { providerMetadata?: unknown; toolCalls: unknown[] } };
+    assert.equal(record.payload.providerMetadata, undefined);
+    assert.equal(record.payload.toolCalls.length, 1);
+    assert.ok(!JSON.stringify(record).includes("PRIVATE_REASONING"));
 });

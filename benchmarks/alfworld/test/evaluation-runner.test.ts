@@ -1,3 +1,4 @@
+import { toolResponseFixture } from "../../../packages/agent/test/tool-response-fixture";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { test } from "node:test";
@@ -326,13 +327,13 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
             adapter: {
                 structuredOutputMode: "strict" as const,
                 generate: async (request) => {
-        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
+        if (request.tools?.[0]?.id === "system_review_completion") return { ...toolResponseFixture(JSON.stringify({ result: { kind: "accept" } })) };
                     const next = responses.shift();
                     if (next === undefined) throw new Error("fake LLM responses exhausted");
                     const output = typeof next === "object" && next !== null && "kind" in next && next.kind === "complete"
                         ? { ...next, evidenceSequences: [latestObservationSequence(request)] }
                         : next;
-                    return { content: decision(output) };
+                    return { ...toolResponseFixture(decision(output)) };
                 },
             },
             renderer: {
@@ -422,12 +423,12 @@ test("ALFWorld model completion without an environment win remains evaluator-own
             adapter: {
                 structuredOutputMode: "strict" as const,
                 generate: async (request) => {
-        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
+        if (request.tools?.[0]?.id === "system_review_completion") return { ...toolResponseFixture(JSON.stringify({ result: { kind: "accept" } })) };
                     const next = responses[responseIndex++ % responses.length];
                     const output = typeof next === "object" && next !== null && "kind" in next && next.kind === "complete"
                         ? { ...next, evidenceSequences: [latestObservationSequence(request)] }
                         : next;
-                    return { content: decision(output) };
+                    return { ...toolResponseFixture(decision(output)) };
                 },
             },
             renderer: {
@@ -487,11 +488,11 @@ test("ALFWorld sidecar errors remain infrastructure failures", async () => {
                     return async () => {
                         const callIndex = calls++;
                         if (callIndex === 0) {
-                            return { content: decision({ kind: "tool_discovery", query: "alfworld reset" }) };
+                            return { ...toolResponseFixture(decision({ kind: "tool_discovery", query: "alfworld reset" })) };
                         }
                         if (callIndex === 1) {
                             return {
-                                content: decision({
+                                ...toolResponseFixture(decision({
                                     kind: "run_stage_update",
                                     stageId: null,
                                     baseRevision: null,
@@ -500,10 +501,10 @@ test("ALFWorld sidecar errors remain infrastructure failures", async () => {
                                     acceptanceCriteria: ["Reset completed"],
                                     memoryPatch: null,
                                     contextNotes: null,
-                                }),
+                                })),
                             };
                         }
-                        return { content: decision({ kind: "tool_call", action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} } }) };
+                        return { ...toolResponseFixture(decision({ kind: "tool_call", action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} } })) };
                     };
                 })(),
             },
@@ -558,14 +559,14 @@ test("ALFWorld max-step and model-fail termination keep report failure semantics
                     return async () => {
                         calls += 1;
                         return {
-                            content: decision(calls === 1
+                            ...toolResponseFixture(decision(calls === 1
                                 ? { kind: "tool_discovery", query: "alfworld reset" }
                                 : calls === 2
                                 ? {
                                     kind: "tool_call",
                                     action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
                                 }
-                                : { kind: "fail", error: "model failed" }),
+                                : { kind: "fail", error: "model failed" })),
                         };
                     };
                 })(),
@@ -591,7 +592,7 @@ test("ALFWorld max-step and model-fail termination keep report failure semantics
             profile,
             adapter: {
                 structuredOutputMode: "strict" as const,
-                generate: async () => ({ content: decision({ kind: "fail", error: "model failed" }) }),
+                generate: async () => ({ ...toolResponseFixture(decision({ kind: "fail", error: "model failed" })) }),
             },
             renderer: {
                 render: () => "system",

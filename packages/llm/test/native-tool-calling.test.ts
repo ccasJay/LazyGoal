@@ -272,7 +272,7 @@ test("Gemini 纯 functionCall 响应提取工具调用，content 为空字符串
     assert.ok(response.toolCalls[0]!.callId.startsWith("call_"));
 });
 
-test("PiAiAdapter 原生挂载 tools 并提取 thinking 与 toolCall blocks", async () => {
+test("PiAiAdapter 原生挂载 tools、隔离 thinking 并提取 toolCall blocks", async () => {
     const adapter = new PiAiAdapter({
         provider: "openai-compatible",
         model: "mock-model",
@@ -316,7 +316,8 @@ test("PiAiAdapter 原生挂载 tools 并提取 thinking 与 toolCall blocks", as
     assert.equal(capturedContext.tools.length, 1);
     assert.equal(capturedContext.tools[0].name, "system_complete_task");
 
-    assert.equal(response.content, "PiAi 思考推演流");
+    assert.equal(response.content, "");
+    assert.ok(!JSON.stringify(response).includes("PiAi 思考推演流"));
     assert.ok(response.toolCalls);
     assert.equal(response.toolCalls.length, 1);
     assert.equal(response.toolCalls![0]!.callId, "pi_call_1");

@@ -105,11 +105,17 @@ class WorkflowStepExecutor extends BaseTestStepExecutor {
         },
         {
             kind: "task_proposal",
+            planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
             task: {
                 objective: "Implement JSON session persistence",
                 completionCriteria: [],
             },
             approvalRequest: "Approve this implementation task?",
+        },
+        {
+            kind: "run_stage_update",
+            target: "Complete the proposed task",
+            acceptanceCriteria: ["The task outcome is verified"],
         },
         {
             kind: "wait",
@@ -248,7 +254,7 @@ test("runs the complete ask_user, ordinary read, task approval, blocked resume, 
     assert.equal(blocked.kind, "waiting");
     assert.equal(blocked.phase, "executing");
     assert.equal(blocked.waitingFor, "blocked");
-    assert.equal(blocked.goal.state.run.stepCount, 2);
+    assert.equal(blocked.goal.state.run.stepCount, 3);
     assert.deepEqual(blocked.goal.state.run.approvedTask, {
         objective: "Implement JSON session persistence",
         completionCriteria: [],
@@ -263,5 +269,9 @@ test("runs the complete ask_user, ordinary read, task approval, blocked resume, 
     assert.equal(completed.kind, "terminal");
     assert.equal(completed.phase, "executing");
     assert.equal(completed.goal.state.run.status, "completed");
-    assert.equal(completed.goal.state.run.stepCount, 3);
+    assert.equal(completed.goal.state.run.stepCount, 4);
+    const route = completed.goal.state.run.planRoute;
+    assert.ok(route !== undefined);
+    assert.equal(route.nextStageIndex, route.stages.length);
+    assert.equal(route.stages[0]?.status, "accepted");
 });

@@ -139,6 +139,14 @@ test("Run mode section keeps its exact tool list aligned with the active output 
             goalPlanWritable: runMode === "plan",
             authorizedTools: [],
             ...(taskPresent ? { task: { objective: "Test", completionCriteria: [{ text: "Verified" }] } } : {}),
+            ...(taskPresent ? { planRoute: {
+                revision: 2,
+                nextStageIndex: 1,
+                stages: [
+                    { stageId: "stage-1", revision: 1, status: "accepted", target: "Inspect", acceptanceCriteria: ["Inspect completed"] },
+                    { stageId: "stage-2", revision: 1, status: "pending", target: "Implement", acceptanceCriteria: ["Behavior verified"] },
+                ],
+            } } : {}),
         };
         const target = view(dynamicContext);
         const messages = renderer.renderDynamicSections(target);
@@ -157,9 +165,19 @@ test("Run mode section keeps its exact tool list aligned with the active output 
         } else if (taskPresent) {
             assert.match(sectionText("approved_task", messages), /system_propose_task_plan is prohibited/);
             assert.match(text, /completionEvidence/);
+            assert.match(text, /Approved Plan route \(revision 2, next stage index 1\)/);
+            assert.match(text, /1\. ACCEPTED — Inspect/);
+            assert.match(text, /2\. PENDING — Implement/);
+            assert.match(text, /declare only the next pending stage/i);
+            assert.match(text, /Do not complete the Run until every route stage is accepted/);
+            assert.match(text, /system_update_plan_route/);
         } else {
-            assert.match(text, /first submit a task proposal/);
-            assert.match(text, /This ordering is a Prompt instruction/);
+            assert.match(text, /one stage when the request has one coherent outcome/);
+            assert.match(text, /multiple ordered stages when it has independently verifiable deliverables/);
+            assert.match(text, /Do not split stages by expected Step, Tool call or token counts/);
+            assert.match(text, /task proposal must include the complete ordered route/);
+            assert.match(text, /Ask the user with `ask_user` first when missing information materially affects scope, correctness or authorization/);
+            assert.equal(text.includes("system_update_plan_route"), false);
             assert.match(text, /Do not call `system_complete_task`/);
             assert.match(text, /before the task is approved\.\n\nCurrent Goal intent:/);
         }

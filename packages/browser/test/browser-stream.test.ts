@@ -132,6 +132,8 @@ test("实时流按 Goal/Run 隔离，白名单裁剪载荷并将提交变化转�
             kind: "assistant_text_delta",
             text: "x".repeat(2_000),
             truncated: true,
+            sourceEventId: "event-4",
+            sourceCursor: 4,
         },
     });
 
@@ -168,6 +170,115 @@ test("实时流按 Goal/Run 隔离，白名单裁剪载荷并将提交变化转�
         runId: goal.state.run.id,
     });
     assert.equal((await nextEvent(iterator)).done, true);
+});
+
+test("实时工具活动携带独立来源身份并仅投影白名单输入摘要", async () => {
+    const goal = goalFor("goal-stream-tools");
+    const store = new NotifyingMemoryStore();
+    await store.save(goal);
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const streams = new BrowserGoalStreamService({ store, saveNotifications: store, publisher });
+    const opened = await streams.open(goal.id, goal.state.run.id);
+    assert.equal(opened.ok, true);
+    if (!opened.ok) return;
+    const iterator = opened.feed.events[Symbol.asyncIterator]();
+    await nextEvent(iterator);
+
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        executionUnitId: "unit-1",
+        actionId: "action-1",
+        kind: "tool_started",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: { toolId: "read_file", input: { path: "src/example.ts", secret: "never expose" } },
+    });
+    const started = (await nextEvent(iterator)).value;
+    assert.deepEqual(started, {
+        type: "activity",
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        activity: {
+            kind: "tool_started",
+            sourceEventId: "event-1",
+            sourceCursor: 1,
+            actionId: "action-1",
+            executionUnitId: "unit-1",
+            toolId: "read_file",
+            inputSummary: "src/example.ts",
+        },
+    });
+    assert.equal(JSON.stringify(started).includes("never expose"), false);
+
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        actionId: "action-1",
+        kind: "tool_attempt_failed",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: { attempt: 1, reason: "retryable error" },
+    });
+    assert.deepEqual((await nextEvent(iterator)).value, {
+        type: "activity", goalId: goal.id, runId: goal.state.run.id,
+        activity: { kind: "tool_attempt_failed", sourceEventId: "event-2", sourceCursor: 2, actionId: "action-1", attempt: 1, reason: "retryable error" },
+    });
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        actionId: "action-1",
+        kind: "tool_finished",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: { toolId: "read_file", observation: { kind: "success", output: "secret content", summary: "Read file" } },
+    });
+    assert.deepEqual((await nextEvent(iterator)).value, {
+        type: "activity", goalId: goal.id, runId: goal.state.run.id,
+        activity: { kind: "tool_finished", sourceEventId: "event-3", sourceCursor: 3, actionId: "action-1", toolId: "read_file", outcome: "success", summary: "Read file" },
+    });
+    opened.feed.close();
+});
+
+test("实时公开回复、等待、阶段、终态、失败与未知活动映射为分组边界", async () => {
+    const goal = goalFor("goal-stream-boundaries");
+    const store = new NotifyingMemoryStore();
+    await store.save(goal);
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const streams = new BrowserGoalStreamService({ store, saveNotifications: store, publisher });
+    const opened = await streams.open(goal.id, goal.state.run.id);
+    assert.equal(opened.ok, true);
+    if (!opened.ok) return;
+    const iterator = opened.feed.events[Symbol.asyncIterator]();
+    await nextEvent(iterator);
+
+    const cases = [
+        ["decision_received", "assistant_reply", { decision: { kind: "complete" } }],
+        ["run_waiting", "user_wait", {}],
+        ["run_stage_declared", "stage_change", {}],
+        ["run_completed", "terminal", {}],
+        ["execution_error", "failure", {}],
+        ["future_public_event", "unknown", {}],
+    ] as const;
+    for (const [index, [kind, reason, payload]] of cases.entries()) {
+        publisher.publish({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            kind,
+            visibility: "public",
+            durability: "trajectory",
+            delivery: "control",
+            payload,
+        });
+        assert.deepEqual((await nextEvent(iterator)).value, {
+            type: "activity", goalId: goal.id, runId: goal.state.run.id,
+            activity: { kind: "activity_boundary", sourceEventId: `event-${index + 1}`, sourceCursor: index + 1, reason },
+        });
+    }
+    opened.feed.close();
 });
 
 test("过期 Run 与缺失 Goal 无法打开实时流，队列缺口要求刷新", async () => {

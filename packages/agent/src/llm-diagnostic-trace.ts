@@ -187,7 +187,7 @@ function readProviderMetadata(response: unknown): unknown {
     }
 
     const metadata = Object.fromEntries(
-        Object.entries(response).filter(([key]) => key !== "content"),
+        Object.entries(response).filter(([key]) => !["content", "reasoning", "toolCalls", "continuation"].includes(key)),
     );
 
     return Object.keys(metadata).length === 0 ? undefined : metadata;

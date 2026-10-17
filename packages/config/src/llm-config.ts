@@ -1,3 +1,11 @@
+import {
+    isAcceptableBaseUrl,
+    isPositiveSafeInteger,
+    isSupportedLlmProvider,
+    supportsBaseUrl,
+    supportsStrictOutput,
+} from "./provider-rules";
+
 /**
  * 模型请求支持的输出结构模式。
  *
@@ -12,7 +20,7 @@
 export type StructuredOutputMode = "strict" | "prompt_only" | "two_stage";
 
 /** 本期开放的供应商；兼容端点使用独立标识，不推断协议。 */
-export type LLMProvider = "openai" | "google" | "anthropic" | "openrouter" | "deepseek" | "openai-compatible";
+export type LLMProvider = "openai" | "google" | "anthropic" | "openrouter" | "deepseek" | "openai-compatible" | "opencode-go";
 
 type CommonConfig = {
     readonly apiKey: string;
@@ -38,7 +46,7 @@ type CommonConfig = {
  */
 export type LLMConfig = CommonConfig & (
     | { readonly provider: "openai" | "google"; readonly baseURL?: string }
-    | { readonly provider: "anthropic" | "openrouter" | "deepseek" }
+    | { readonly provider: "anthropic" | "openrouter" | "deepseek" | "opencode-go" }
     | { readonly provider: "openai-compatible"; readonly baseURL: string; readonly contextWindowTokens: number; readonly maxOutputTokens: number }
 );
 
@@ -70,7 +78,7 @@ export function readLLMConfig(env: Readonly<Record<string, string | undefined>>)
     const missing = required.filter(name => !value(name));
     if (missing.length) throw new LLMConfigurationError(missing);
     const provider = value("LLM_PROVIDER");
-    if (!["openai", "google", "anthropic", "openrouter", "deepseek", "openai-compatible"].includes(provider)) {
+    if (!isSupportedLlmProvider(provider)) {
         throw new LLMConfigurationError([], `Unsupported LLM_PROVIDER "${provider}"`);
     }
     const rawMode = value("LLM_STRUCTURED_OUTPUT_MODE");
@@ -79,28 +87,24 @@ export function readLLMConfig(env: Readonly<Record<string, string | undefined>>)
         if (rawMode !== "strict" && rawMode !== "prompt_only" && rawMode !== "two_stage") {
             throw new LLMConfigurationError([], `Invalid LLM_STRUCTURED_OUTPUT_MODE "${rawMode}": must be either "strict", "prompt_only", or "two_stage"`);
         }
-        if (rawMode === "strict" && !["openai", "google", "openai-compatible"].includes(provider)) {
+        if (rawMode === "strict" && !supportsStrictOutput(provider)) {
             throw new LLMConfigurationError([], `Provider "${provider}" does not support ${rawMode} output; select prompt_only`);
         }
         mode = rawMode as StructuredOutputMode;
     }
     const baseURL = value("LLM_BASE_URL");
     if (baseURL) {
-        if (provider !== "openai" && provider !== "google" && provider !== "openai-compatible") {
+        if (!supportsBaseUrl(provider)) {
             throw new LLMConfigurationError([], `LLM_BASE_URL is not supported for provider "${provider}"`);
         }
-        let url: URL;
-        try { url = new URL(baseURL); } catch {
-            throw new LLMConfigurationError([], "LLM_BASE_URL must be an HTTP(S) URL");
-        }
-        if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+        if (!isAcceptableBaseUrl(baseURL)) {
             throw new LLMConfigurationError([], "LLM_BASE_URL must be an HTTP(S) URL without credentials, query or fragment");
         }
     }
     const positive = (name: string): number => {
         const raw = value(name);
         const n = Number(raw);
-        if (!/^\d+$/.test(raw) || !Number.isSafeInteger(n) || n <= 0) {
+        if (!/^\d+$/.test(raw) || !isPositiveSafeInteger(n)) {
             throw new LLMConfigurationError([], `${name} must be a positive safe integer`);
         }
         return n;
@@ -118,5 +122,5 @@ export function readLLMConfig(env: Readonly<Record<string, string | undefined>>)
         return { ...common, provider, baseURL, contextWindowTokens, maxOutputTokens: maxOutputTokens! };
     }
     if (provider === "openai" || provider === "google") return { ...common, provider, ...(baseURL ? { baseURL } : {}) };
-    return { ...common, provider: provider as "anthropic" | "openrouter" | "deepseek" };
+    return { ...common, provider: provider as "anthropic" | "openrouter" | "deepseek" | "opencode-go" };
 }

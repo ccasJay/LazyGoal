@@ -39,7 +39,7 @@ interface RunProjection {
     readonly cachedInputTokens: number;
     readonly cacheInputTokens: number;
     readonly throughputOutputTokens: number;
-    readonly decodeDurationMs: number;
+    readonly requestDurationMs: number;
 }
 
 /**
@@ -199,13 +199,13 @@ export class SessionMetricsService implements ModelCallMetricsRecorder {
             ? null
             : safeRatio(cachedInputTokens, cacheInputTokens);
         const throughputOutputTokens = sumOptional(projections.map((projection) => projection.throughputOutputTokens));
-        const decodeDurationMs = sumFinite(projections.map((projection) => projection.decodeDurationMs));
-        const throughputAggregateValid = throughputOutputTokens !== undefined && decodeDurationMs !== undefined;
+        const requestDurationMs = sumFinite(projections.map((projection) => projection.requestDurationMs));
+        const throughputAggregateValid = throughputOutputTokens !== undefined && requestDurationMs !== undefined;
         const throughputMeasuredCalls = throughputAggregateValid ? throughputCandidates : 0;
         const throughputExcludedCalls = throughputAggregateValid ? totalCalls - throughputCandidates : totalCalls;
         const tokensPerSecond = !throughputAggregateValid || throughputCandidates === 0
             ? null
-            : safeRatio(throughputOutputTokens, decodeDurationMs / 1000);
+            : safeRatio(throughputOutputTokens, requestDurationMs / 1000);
         const latestContextUsage = projections.at(-1)?.latestContextUsage;
         const contextWindowTokens = goal.state.modelSelection.contextWindowTokens;
         const contextRemainingPercent = latestContextUsage !== null && latestContextUsage !== undefined
@@ -412,10 +412,14 @@ function projectRunMetrics(
     let inputTokens = 0;
     let outputTokens = 0;
     const cacheValues: { readonly inputTokens: number; readonly cachedInputTokens: number }[] = [];
-    const throughputValues: { readonly outputTokens: number; readonly decodeDurationMs: number }[] = [];
+    const throughputValues: { readonly outputTokens: number; readonly requestDurationMs: number }[] = [];
     const callCount = calls.size;
+    let throughputCallCount = 0;
     for (const [callId, call] of calls) {
         const finished = call.finished?.record;
+        const unfinishedActiveCall = finished === undefined
+            && activeCallIds.has(callKey(goalId, runId, callId));
+        if (!unfinishedActiveCall) throughputCallCount += 1;
         if (finished?.outcome === "completed" && finished.usage.source === "provider_reported") {
             reportedCalls += 1;
             inputTokens = sumSafe([inputTokens, finished.usage.inputTokens], `inputTokens for ${callId}`);
@@ -430,8 +434,12 @@ function projectRunMetrics(
             ) {
                 cacheValues.push({ inputTokens: usage.inputTokens, cachedInputTokens: usage.cachedInputTokens });
             }
-            if (finished.decodeDurationMs !== undefined && finished.decodeDurationMs > 0) {
-                throughputValues.push({ outputTokens: usage.outputTokens, decodeDurationMs: finished.decodeDurationMs });
+            if (
+                finished.requestDurationMs !== undefined
+                && Number.isFinite(finished.requestDurationMs)
+                && finished.requestDurationMs > 0
+            ) {
+                throughputValues.push({ outputTokens: usage.outputTokens, requestDurationMs: finished.requestDurationMs });
             }
         } else {
             if (!activeCallIds.has(callKey(goalId, runId, callId))) missingCalls += 1;
@@ -445,12 +453,12 @@ function projectRunMetrics(
         ? null
         : safeRatio(summedCachedInputs, summedCacheInputs);
     const summedThroughputOutputs = sumOptional(throughputValues.map(({ outputTokens }) => outputTokens));
-    const summedDurations = sumFinite(throughputValues.map(({ decodeDurationMs: duration }) => duration));
-    const throughputAggregateValid = summedThroughputOutputs !== undefined && summedDurations !== undefined;
+    const summedRequestDurations = sumFinite(throughputValues.map(({ requestDurationMs }) => requestDurationMs));
+    const throughputAggregateValid = summedThroughputOutputs !== undefined && summedRequestDurations !== undefined;
     const throughputMeasuredCalls = throughputAggregateValid ? throughputValues.length : 0;
     const tokensPerSecond = !throughputAggregateValid || throughputMeasuredCalls === 0
         ? null
-        : safeRatio(summedThroughputOutputs, summedDurations / 1000);
+        : safeRatio(summedThroughputOutputs, summedRequestDurations / 1000);
     const latestCall = [...calls.values()].at(-1);
     const latestFinished = latestCall?.finished?.record;
     const latestContextUsage = latestCall?.started?.record.modelId !== undefined
@@ -476,14 +484,14 @@ function projectRunMetrics(
             cacheExcludedCalls: callCount - cacheMeasuredCalls,
             cacheHitRate,
             throughputMeasuredCalls,
-            throughputExcludedCalls: callCount - throughputMeasuredCalls,
+            throughputExcludedCalls: throughputCallCount - throughputMeasuredCalls,
             tokensPerSecond,
         }),
         latestContextUsage,
         cacheInputTokens: cacheAggregateValid ? summedCacheInputs : 0,
         cachedInputTokens: cacheAggregateValid ? summedCachedInputs : 0,
         throughputOutputTokens: throughputAggregateValid ? summedThroughputOutputs : 0,
-        decodeDurationMs: throughputAggregateValid ? summedDurations : 0,
+        requestDurationMs: throughputAggregateValid ? summedRequestDurations : 0,
     });
 }
 

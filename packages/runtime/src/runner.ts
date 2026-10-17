@@ -4,6 +4,7 @@ import { ProgramSandboxAbortedError, programWorkerHash, runProgramSandbox } from
 
 import type {
     AgentDecision,
+    PendingActionBatch,
     ExecutionErrorCode,
     Goal,
     GoalState,
@@ -130,6 +131,13 @@ import {
     type RunStageState,
 } from "./run-stage";
 import {
+    acceptRunPlanStage,
+    reviseRunPlanExecution,
+    reviseRunPlanRoute,
+    updateRunPlanStage,
+    RunPlanTransitionError,
+} from "./run-plan";
+import {
     createEmptyGoalPlan,
     reduceGoalPlan,
 } from "./goal-plan";
@@ -192,10 +200,26 @@ const ALLOW_ALL_TOOL_POLICY: ToolPolicy = {
 class RunnerExecutionError extends Error {
     readonly code: ExecutionErrorCode;
 
-    constructor(code: ExecutionErrorCode, message: string, readonly issues?: readonly RuntimeFeedbackIssue[]) {
+    /**
+     * 抛出该错误时已经提交、但尚未被失败收尾采纳的 Goal。
+     *
+     * @remarks
+     * 失败收尾默认基于"进入本次阶段调用之前"的 Goal 提交检查点；若阶段调用中途已提交了
+     * 额外事实（例如零调用 Assistant 消息），必须用该字段指明应当被采纳的已提交 Goal，
+     * 否则那些事实会被旧快照覆盖。省略时沿用调用方的 Goal。
+     */
+    readonly committedGoal?: Goal | undefined;
+
+    constructor(
+        code: ExecutionErrorCode,
+        message: string,
+        readonly issues?: readonly RuntimeFeedbackIssue[],
+        committedGoal?: Goal,
+    ) {
         super(message.trim().length > 0 ? message : code);
         this.name = "RunnerExecutionError";
         this.code = code;
+        this.committedGoal = committedGoal;
     }
 }
 
@@ -457,6 +481,10 @@ function invalidAgentDecision(message: string): never {
     throw new RunnerExecutionError("INVALID_AGENT_DECISION", message);
 }
 
+function isNonAdvancingFeedback(feedback: RuntimeFeedback): boolean {
+    return feedback.code === "NO_USABLE_RESULT";
+}
+
 function createRunnerFeedbackError(
     error: unknown,
     goal: Goal,
@@ -572,6 +600,10 @@ interface PreparedToolAction {
     stream?(control?: ExecutionControl, plan?: SandboxExecutionPlan): AsyncIterable<ToolStreamEvent>;
 }
 
+function isPlanRunAwaitingTaskApproval(goal: Goal): boolean {
+    return goal.state.run.mode === "plan" && goal.state.run.approvedTask === undefined;
+}
+
 function prepareToolAction(
     goal: Goal,
     action: Extract<AgentDecision, { readonly kind: "tool_call" }>['action'],
@@ -619,6 +651,14 @@ function prepareToolAction(
         throw new RunnerExecutionError(
             "TOOL_NOT_FOUND",
             `Authorized Tool "${action.toolId}" is not registered`,
+        );
+    }
+
+    if (isPlanRunAwaitingTaskApproval(goal)
+        && registration.definition.isReadOnly !== true) {
+        throw new RunnerExecutionError(
+            "TOOL_NOT_AUTHORIZED",
+            `Tool "${action.toolId}" is not explicitly read-only before the Plan task is approved`,
         );
     }
 
@@ -1963,7 +2003,15 @@ class RunExecutor {
 
         if (decision.kind === "run_stage_update") {
             try {
-                if (decision.stageId === undefined) {
+                if (goal.state.run.planRoute !== undefined) {
+                    updateRunPlanStage(goal.state.run.planRoute, {
+                        target: decision.target,
+                        acceptanceCriteria: decision.acceptanceCriteria,
+                        ...(decision.stageId !== undefined ? { stageId: decision.stageId } : {}),
+                        ...(decision.baseRevision !== undefined ? { baseRevision: decision.baseRevision } : {}),
+                        ...(decision.reason !== undefined ? { reason: decision.reason } : {}),
+                    });
+                } else if (decision.stageId === undefined) {
                     const previousStage = goal.state.run.currentStage;
                     const stageOrdinal = previousStage !== undefined
                         ? parseInt(previousStage.stageId.replace("stage-", ""), 10) + 1
@@ -1992,7 +2040,7 @@ class RunExecutor {
                     });
                 }
             } catch (error) {
-                if (error instanceof RunStageTransitionError) {
+                if (error instanceof RunStageTransitionError || error instanceof RunPlanTransitionError) {
                     throw new ModelStageFeedbackError(createRuntimeFeedback({
                         goalId: goal.id,
                         runId: goal.state.run.id,
@@ -2008,6 +2056,47 @@ class RunExecutor {
                             message: error.message,
                         }],
                         constraints: ["Provide valid stage parameters or match the current active stage revision."],
+                    }), error.message);
+                }
+                throw error;
+            }
+            return {
+                decision,
+                ...(acceptedContextNotes !== undefined ? { acceptedContextNotes } : {}),
+            };
+        }
+
+        if (decision.kind === "run_plan_route_update") {
+            try {
+                const route = goal.state.run.planRoute;
+                if (goal.state.run.mode !== "plan"
+                    || goal.state.run.approvedTask === undefined
+                    || route === undefined) {
+                    throw new RunPlanTransitionError("完整路线修订仅允许用于已批准的 Plan Run");
+                }
+                if (decision.baseRevision !== route.revision) {
+                    throw new RunPlanTransitionError("路线修订 baseRevision 与当前路线不匹配");
+                }
+                reviseRunPlanRoute(route, decision.route, decision.reason);
+            } catch (error) {
+                if (error instanceof RunPlanTransitionError) {
+                    throw new ModelStageFeedbackError(createRuntimeFeedback({
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        executionUnitId,
+                        stepOrdinal: goal.state.run.stepCount + 1,
+                        stage: "decide",
+                        origin: "decision_semantics",
+                        code: "INVALID_AGENT_DECISION",
+                        attempt: 1,
+                        issues: [{
+                            code: "INVALID_AGENT_DECISION",
+                            path: ["result", "route"],
+                            message: error.message,
+                        }],
+                        constraints: [
+                            "Use the current route revision, provide a concrete reason, and preserve every accepted stage exactly.",
+                        ],
                     }), error.message);
                 }
                 throw error;
@@ -2061,6 +2150,32 @@ class RunExecutor {
             };
         }
 
+        if (decision.kind === "complete" && goal.state.run.planRoute !== undefined) {
+            const route = goal.state.run.planRoute;
+            const allStagesAccepted = route.nextStageIndex === route.stages.length;
+            const completingFinalActiveStage = route.nextStageIndex === route.stages.length - 1
+                && goal.state.run.currentStage?.status === "executing"
+                && goal.state.run.currentStage.stageId === route.stages[route.nextStageIndex]?.stageId;
+            if (!allStagesAccepted && !completingFinalActiveStage) {
+                throw new ModelStageFeedbackError(createRuntimeFeedback({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    executionUnitId,
+                    stepOrdinal: goal.state.run.stepCount + 1,
+                    stage: "decide",
+                    origin: "decision_semantics",
+                    code: "INVALID_AGENT_DECISION",
+                    attempt: 1,
+                    issues: [{
+                        code: "INVALID_AGENT_DECISION",
+                        path: ["result"],
+                        message: "The approved Plan route still has an incomplete stage.",
+                    }],
+                    constraints: ["Complete each approved route stage in order before completing the Run."],
+                }), "Approved Plan route is incomplete");
+            }
+        }
+
         if (decision.kind !== "tool_call") {
             return {
                 decision,
@@ -2069,7 +2184,7 @@ class RunExecutor {
         }
 
         const isSystemTool = decision.action.toolId.startsWith("system_");
-        const isPlanModePreApproval = goal.state.run.mode === "plan" && goal.state.run.approvedTask === undefined;
+        const isPlanModePreApproval = isPlanRunAwaitingTaskApproval(goal);
         if (!isSystemTool && !isPlanModePreApproval) {
             if (goal.state.run.currentStage === undefined || goal.state.run.currentStage.status !== "executing") {
                 throw new ModelStageFeedbackError(createRuntimeFeedback({
@@ -2162,6 +2277,13 @@ class RunExecutor {
     ): void {
         const run = goal.state.run;
         const task = goal.state.run.approvedTask;
+        if (decision.kind === "run_plan_route_update"
+            && (run.mode !== "plan" || task === undefined || run.planRoute === undefined)) {
+            throw new RunnerExecutionError(
+                "INVALID_AGENT_DECISION",
+                "run_plan_route_update is only allowed for an approved Plan route",
+            );
+        }
         if (decision.kind === "task_proposal" && (run.mode !== "plan" || task !== undefined)) {
             throw new RunnerExecutionError(
                 "INVALID_AGENT_DECISION",
@@ -2563,9 +2685,14 @@ class RunExecutor {
         )) {
             throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Pending model repair identity does not match the current stage");
         }
-        const attempt = (previous?.attemptsStarted ?? 0) + 1;
-        if (attempt > 3) {
-            throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Model output correction exhausted after three calls");
+        const isContinuation = previous?.latestFailureClass === "non_advancing";
+        const attempt = isContinuation ? (previous?.attemptsStarted ?? 0) : (previous?.attemptsStarted ?? 0) + 1;
+        const continuationAttempt = isContinuation ? (previous?.continuationsStarted ?? 0) + 1 : (previous?.continuationsStarted ?? 0);
+        if (attempt > 3 || continuationAttempt > 3) {
+            throw new RunnerExecutionError("INVALID_AGENT_DECISION",
+                isContinuation
+                    ? "Model output continuation exhausted after three calls"
+                    : "Model output correction exhausted after three calls");
         }
         if (this.trajectoryStore === undefined) {
             throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Model output correction requires a Trajectory store");
@@ -2597,6 +2724,8 @@ class RunExecutor {
             stage,
             inputBoundary,
             attemptsStarted: attempt,
+            ...(continuationAttempt === 0 ? {} : { continuationsStarted: continuationAttempt }),
+            ...(previous?.latestFailureClass === undefined ? {} : { latestFailureClass: previous.latestFailureClass }),
             latestAttemptEventId: event.eventId,
             ...(previous?.latestFeedbackEventId === undefined
                 ? {}
@@ -2630,7 +2759,7 @@ class RunExecutor {
             payload: {
                 type: "model_repair_feedback_recorded",
                 stage: pending.stage,
-                attempt: pending.attemptsStarted,
+                attempt: feedback.attempt,
                 feedback,
             },
         };
@@ -2641,6 +2770,7 @@ class RunExecutor {
         const nextPending: PendingModelRepair = {
             ...pending,
             latestFeedbackEventId: event.eventId,
+            latestFailureClass: isNonAdvancingFeedback(feedback) ? "non_advancing" : "protocol",
         };
         const nextGoal = this.withRun(goal, {
             ...goal.state.run,
@@ -2690,6 +2820,80 @@ class RunExecutor {
         }
         throwIfAborted(control);
         return event.payload.feedback;
+    }
+
+    /**
+     * 计算暂存队首后应写入的批次指针。
+     *
+     * @param goal - 暂存前的 Goal，用于读取当前队列。
+     * @param batch - 本次 Decide 新建的批次剩余项；来自队列时省略。
+     * @param consumedFromBatch - 队首是否取自既有队列。
+     * @returns 应合并进 run 状态的批次补丁；队列为空时显式清空。
+     * @remarks
+     * 指针与 `pendingAction` 在同一次提交写入，避免"Action 已暂存但队列未推进"导致恢复后重放。
+     * @example
+     * ```ts
+     * Object.assign(stagedRun, runner.pendingBatchPatch(goal, undefined, true));
+     * ```
+     */
+    private pendingBatchPatch(
+        goal: Goal,
+        batch: PendingActionBatch | undefined,
+        consumedFromBatch: boolean,
+    ): { readonly pendingActionBatch?: PendingActionBatch | undefined } {
+        const current = goal.state.run.pendingActionBatch;
+        const next = batch !== undefined
+            ? batch.remaining
+            : consumedFromBatch && current !== undefined
+                ? current.remaining.slice(1)
+                : undefined;
+        if (next === undefined) return {};
+        if (next.length === 0) return { pendingActionBatch: undefined };
+        const batchId = current?.batchId ?? batch?.batchId ?? "batch";
+        return { pendingActionBatch: { batchId, remaining: next } };
+    }
+
+    /**
+     * 提交零调用且正文非空的 Assistant 消息。
+     *
+     * @remarks
+     * 该消息只作为 Goal 消息持久化：不推进 Step、不执行 Tool、不构成完成语义。
+     * 调用方在提交后按"不推进类决策"抛出反馈，让 Decide 在同 stage 的有界修复链内继续。
+     *
+     * @param goal - 当前已提交的 Goal。
+     * @param result - Executor 返回的 assistant_message 结果。
+     * @param executionUnitId - 当前执行单元标识；缺省时不写入事件归属。
+     * @param control - 共享取消控制；提交过程中止时抛出。
+     * @returns 含新消息的已提交 Goal。
+     * @throws 提交失败或取消时抛出。
+     * @example
+     * ```ts
+     * const committed = await runner.commitAssistantMessage(goal, result, "exec-1");
+     * ```
+     */
+    private async commitAssistantMessage(
+        goal: Goal,
+        result: Extract<DecideStageResult, { readonly kind: "assistant_message" }>,
+        executionUnitId: string | undefined,
+        control?: ExecutionControl,
+    ): Promise<Goal> {
+        const nextGoal: Goal = {
+            ...goal,
+            state: {
+                ...goal.state,
+                messages: [...goal.state.messages, {
+                    role: "assistant",
+                    assistant: { profileId: goal.definition.profile.id },
+                    content: result.text,
+                }],
+            },
+        };
+        const committed = await this.checkpointCommitter.commit(
+            nextGoal,
+            { facts: [], ...(control === undefined ? {} : { control }) },
+        );
+        this.publishCommittedEvents(committed);
+        return committed.goal;
     }
 
     private async executeRepairableModelStage<T, U>(
@@ -2751,12 +2955,33 @@ class RunExecutor {
                     || error.feedback.executionUnitId !== input.executionUnitId) {
                     throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Model repair feedback identity does not match the current stage");
                 }
-                feedback = createRuntimeFeedback({ ...error.feedback, attempt: pending.attemptsStarted });
+                const isContinuationFailure = isNonAdvancingFeedback(error.feedback);
+                feedback = createRuntimeFeedback({
+                    ...error.feedback,
+                    attempt: isContinuationFailure
+                        ? (pending.continuationsStarted ?? 0) + 1
+                        : pending.attemptsStarted,
+                });
                 currentGoal = await this.appendRepairFeedback(currentGoal, pending, feedback, control);
-                if (pending.attemptsStarted >= 3) {
+                if (error.assistantMessageText !== undefined) {
+                    currentGoal = await this.commitAssistantMessage(
+                        currentGoal,
+                        { kind: "assistant_message", text: error.assistantMessageText },
+                        pending.executionUnitId,
+                        control,
+                    );
+                }
+                const startedBudget = isContinuationFailure
+                    ? (pending.continuationsStarted ?? 0) + 1
+                    : pending.attemptsStarted;
+                if (startedBudget >= 3) {
                     throw new RunnerExecutionError(
                         "INVALID_AGENT_DECISION",
-                        "Model output correction exhausted after three " + stage + " attempts (" + feedback.code + ")",
+                        isContinuationFailure
+                            ? "Model output continuation exhausted after three " + stage + " attempts (" + feedback.code + ")"
+                            : "Model output correction exhausted after three " + stage + " attempts (" + feedback.code + ")",
+                        undefined,
+                        currentGoal,
                     );
                 }
             }
@@ -3347,7 +3572,9 @@ class RunExecutor {
                 this.toolRegistry,
             );
             throwIfAborted(control);
-            return definitions;
+            return isPlanRunAwaitingTaskApproval(goal)
+                ? definitions.filter((definition) => definition.isReadOnly === true)
+                : definitions;
         } catch (error) {
             if (isExecutionAbortedError(error)) {
                 throw error;
@@ -3887,6 +4114,10 @@ class RunExecutor {
                 let normalized: NormalizedExecution;
                 let stepInput!: StepExecutionInput;
                 let pendingThinkRequestCommitted = false;
+                /** 本次 Decide 新建的批次剩余项；来自队列时为 undefined。 */
+                let decidedBatch: PendingActionBatch | undefined;
+                /** 队首是否取自既有队列。 */
+                let consumedFromBatch = false;
                 try {
                     throwIfAborted(control);
                     const tools = this.getAuthorizedToolDefinitions(goal, control);
@@ -3973,13 +4204,25 @@ class RunExecutor {
                                 "decide",
                                 decideBoundary,
                                 undefined,
-                                (activeGoal, runtimeFeedback) => this.executor.decide({
-                                    ...stepInput,
-                                    goal: activeGoal,
-                                    thinkHistory,
-                                    ...(runtimeFeedback === undefined ? {} : { runtimeFeedback }),
-                                }),
-                                async (activeGoal, result) => {
+                                (activeGoal, runtimeFeedback) => {
+                                    const queued = activeGoal.state.run.pendingAction === undefined
+                                        ? activeGoal.state.run.pendingActionBatch?.remaining[0]
+                                        : undefined;
+                                    if (queued !== undefined) {
+                                        // 批次顺序执行：队列中尚未暂存的决策直接作为本次 Decide 结果，不重新请求模型。
+                                        const fromQueue: DecideStageResult = { kind: "decision", decision: { kind: "tool_call", action: queued } };
+                                        return Promise.resolve({ result: fromQueue, fromBatch: true });
+                                    }
+                                    return this.executor.decide({
+                                        ...stepInput,
+                                        goal: activeGoal,
+                                        thinkHistory,
+                                        ...(runtimeFeedback === undefined ? {} : { runtimeFeedback }),
+                                    }).then(result => ({ result }));
+                                },
+                                async (activeGoal, operationResult: { readonly result: DecideStageResult; readonly fromBatch?: boolean }) => {
+                                    const result = operationResult.result;
+                                    const fromBatch = operationResult.fromBatch === true;
                                     if (result.modelContextFrame !== undefined
                                         && result.modelContextFrame.stage !== "decide") {
                                         throw createRunnerFeedbackError(
@@ -4003,13 +4246,65 @@ class RunExecutor {
                                         }
                                         return { stageResult: { ...result, goal: thinkGoal } };
                                     }
+                                    if (result.kind === "assistant_message") {
+                                        throw new ModelStageFeedbackError(createRuntimeFeedback({
+                                            goalId: activeGoal.id,
+                                            runId: activeGoal.state.run.id,
+                                            executionUnitId,
+                                            stepOrdinal: activeGoal.state.run.stepCount + 1,
+                                            stage: "decide",
+                                            origin: "output_contract",
+                                            code: "NO_USABLE_RESULT",
+                                            attempt: 1,
+                                            issues: [{
+                                                code: "no_usable_result",
+                                                path: ["toolCalls"],
+                                                message: "Return one declared tool call, or a non-empty text answer.",
+                                            }],
+                                            constraints: ["A text-only answer is accepted as an assistant message but does not advance the task. Continue the original task with one declared tool call."],
+                                        }), "A text-only answer does not advance the task.", undefined, result.text);
+                                    }
+                                    const queue = result.kind === "batch" ? result.decisions.slice(1) : [];
+                                    if (result.kind === "batch" && result.decisions.some(decision => decision.kind !== "tool_call")) {
+                                        // 批次与控制请求混排的顺序语义尚未定义（R1-6）；响亮拒绝，不静默丢弃或重排。
+                                        throw createRunnerFeedbackError(
+                                            new RunnerExecutionError(
+                                                "INVALID_AGENT_DECISION",
+                                                "A Decide batch that mixes control requests with tool calls is not supported",
+                                            ),
+                                            activeGoal,
+                                            executionUnitId,
+                                            "decide",
+                                            "output_contract",
+                                        );
+                                    }
+                                    const businessQueue = queue.flatMap(decision => decision.kind === "tool_call" ? [decision.action] : []);
                                     const normalizedDecision = this.validateDecisionForStage(
                                         activeGoal,
-                                        result.decision,
+                                        result.kind === "batch" ? result.decisions[0]! : result.decision,
                                         executionUnitId,
                                         control,
                                         session,
                                     );
+                                    if (normalizedDecision.decision.kind === "tool_call" && session !== undefined) {
+                                        // 已提交结果的 Action 不得重放：同一 actionId 只能暂存一次。
+                                        const actionId = normalizedDecision.decision.action.actionId;
+                                        const alreadyStaged = [...session.evidenceIndex.events.values()].some(event =>
+                                            event.eventType === "action_staged" && event.actionId === actionId);
+                                        if (alreadyStaged) {
+                                            throw createRunnerFeedbackError(
+                                                new RunnerExecutionError(
+                                                    "INVALID_AGENT_DECISION",
+                                                    `Action ${actionId} already produced a committed result and must not be replayed`,
+                                                ),
+                                                activeGoal,
+                                                executionUnitId,
+                                                "decide",
+                                                "output_contract",
+                                                ["Continue with a new Action that has not been committed yet."],
+                                            );
+                                        }
+                                    }
                                     this.validateEvidenceForStage(
                                         activeGoal,
                                         normalizedDecision.decision,
@@ -4046,6 +4341,7 @@ class RunExecutor {
                                     return {
                                         stageResult: {
                                             ...result,
+                                            kind: "decision" as const,
                                             decision: normalizedDecision.decision,
                                         },
                                         ...(normalizedDecision.preparedToolAction === undefined
@@ -4054,12 +4350,36 @@ class RunExecutor {
                                         ...(normalizedDecision.acceptedContextNotes === undefined
                                             ? {}
                                             : { acceptedContextNotes: normalizedDecision.acceptedContextNotes }),
+                                        ...(queue.length === 0 || normalizedDecision.decision.kind !== "tool_call"
+                                            ? {}
+                                            : { pendingBatch: { batchId: randomUUID(), remaining: businessQueue } }),
+                                        ...(fromBatch ? { batchConsumed: true } : {}),
                                     };
                                 },
                                 control,
                             );
                             goal = decided.goal;
                             const stageResult = decided.result.stageResult;
+                            decidedBatch = "pendingBatch" in decided.result ? decided.result.pendingBatch : undefined;
+                            consumedFromBatch = "batchConsumed" in decided.result && decided.result.batchConsumed === true;
+                            if (decidedBatch !== undefined && "decision" in stageResult) {
+                                // 记录一次模型响应产生的多调用批次，供 Trajectory/界面与单调用、零调用、无可用结果区分。
+                                await this.appendTrajectory({
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "executing",
+                                    executionUnitId,
+                                    eventType: "decide_batch_accepted",
+                                    payload: {
+                                        type: "decide_batch_accepted",
+                                        batchId: decidedBatch.batchId,
+                                        callIds: [stageResult.decision.kind === "tool_call"
+                                            ? stageResult.decision.action.actionId : "",
+                                            ...decidedBatch.remaining.map(action => action.actionId)].filter(id => id.length > 0),
+                                        remainingCount: decidedBatch.remaining.length,
+                                    },
+                                }, control);
+                            }
 
                             if (stageResult.kind === "request_think") {
                                 const requestId = randomUUID();
@@ -4153,6 +4473,10 @@ class RunExecutor {
                             break;
                         }
                 } catch (error) {
+                    // 阶段调用中途已提交的 Goal 必须优先于进入调用前的快照，否则已提交事实会被旧快照覆盖。
+                    if (error instanceof RunnerExecutionError && error.committedGoal !== undefined) {
+                        goal = error.committedGoal;
+                    }
                     if (isExecutionAbortedError(error)) {
                         throw error;
                     }
@@ -4464,12 +4788,139 @@ class RunExecutor {
                         payload: {
                             type: "run_waiting",
                             reason: "ask_user",
+                            requestId: normalizedReq.requestId,
                         },
                     };
 
                     goal = await this.commitDecision(
                         nextGoal,
                         [decisionFact, ...contextNoteDrafts, waitingFact],
+                        acceptedPatch,
+                        control,
+                    );
+                    contextLookupResult = undefined;
+                    contextLookupChainCount = 0;
+                    continue;
+                }
+
+                if (normalized.decision.kind === "run_plan_route_update") {
+                    const decision = normalized.decision;
+                    const currentRoute = goal.state.run.planRoute;
+                    if (currentRoute === undefined) {
+                        return this.stopWithExecutionError(
+                            goal,
+                            new RunnerExecutionError("INVALID_AGENT_DECISION", "Approved Plan route is unavailable"),
+                            control,
+                        );
+                    }
+                    if (decision.approvalRequest !== undefined) {
+                        const normalizedAsk = normalizeAskUserRequest({
+                            questions: [{
+                                header: "Plan route revision",
+                                question: decision.approvalRequest,
+                                options: [
+                                    { label: "Approve revised route" },
+                                    { label: "Keep current route" },
+                                ],
+                                multiSelect: false,
+                            }],
+                        });
+                        const pendingInteraction: PendingInteractionAskUser = {
+                            kind: "ask_user",
+                            requestId: normalizedAsk.requestId,
+                            mode: "execution",
+                            questions: normalizedAsk.questions,
+                            routeRevision: {
+                                baseRevision: decision.baseRevision,
+                                candidate: decision.route,
+                                reason: decision.reason,
+                                approvalRequest: decision.approvalRequest,
+                                approvalOptionId: normalizedAsk.questions[0]!.options[0]!.id,
+                            },
+                        };
+                        const nextRun = this.applyTransition(goal.state.run, {
+                            kind: "stage_interaction",
+                            interaction: pendingInteraction,
+                        });
+                        const nextGoal = this.appendAssistantContent(
+                            this.withRun(goal, nextRun),
+                            this.formatAskUserQuestions(normalizedAsk.questions),
+                        );
+                        goal = await this.commitDecision(
+                            nextGoal,
+                            [
+                                {
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "executing",
+                                    executionUnitId,
+                                    eventType: "decision_received",
+                                    payload: {
+                                        type: "decision_received",
+                                        decision,
+                                        ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
+                                    },
+                                },
+                                {
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "executing",
+                                    executionUnitId,
+                                    eventType: "run_waiting",
+                                    payload: {
+                                        type: "run_waiting",
+                                        reason: "ask_user",
+                                        requestId: normalizedAsk.requestId,
+                                    },
+                                },
+                            ],
+                            acceptedPatch,
+                            control,
+                        );
+                        contextLookupResult = undefined;
+                        contextLookupChainCount = 0;
+                        continue;
+                    }
+
+                    const revised = reviseRunPlanExecution(
+                        currentRoute,
+                        decision.route,
+                        decision.reason,
+                        goal.state.run.currentStage,
+                    );
+                    const nextGoal = this.withRun(goal, {
+                        ...goal.state.run,
+                        planRoute: revised.route,
+                        ...(revised.currentStage === undefined ? {} : { currentStage: revised.currentStage }),
+                    });
+                    goal = await this.commitDecision(
+                        nextGoal,
+                        [
+                            {
+                                goalId: goal.id,
+                                runId: goal.state.run.id,
+                                phase: "executing",
+                                executionUnitId,
+                                eventType: "decision_received",
+                                payload: {
+                                    type: "decision_received",
+                                    decision,
+                                    ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
+                                },
+                            },
+                            {
+                                goalId: goal.id,
+                                runId: goal.state.run.id,
+                                phase: "executing",
+                                executionUnitId,
+                                eventType: "run_plan_route_revised",
+                                payload: {
+                                    type: "run_plan_route_revised",
+                                    route: revised.route,
+                                    reason: decision.reason,
+                                },
+                            },
+                        ],
                         acceptedPatch,
                         control,
                     );
@@ -4495,6 +4946,7 @@ class RunExecutor {
                         kind: "task_approval",
                         requestId,
                         proposal: normalized.decision.task,
+                        planRouteCandidate: normalized.decision.planRoute,
                         approvalRequest: normalized.decision.approvalRequest,
                     };
 
@@ -4605,6 +5057,7 @@ class RunExecutor {
                                 ...(authorization.approvalKind === undefined
                                     ? {} : { approvalKind: authorization.approvalKind }),
                             });
+                            Object.assign(stagedRun, this.pendingBatchPatch(goal, decidedBatch, consumedFromBatch));
                             goal = await this.commitDecision(this.withRun(goal, stagedRun), [{
                                 goalId: goal.id,
                                 runId: goal.state.run.id,
@@ -4648,6 +5101,7 @@ class RunExecutor {
                             ...(approvalKind === undefined ? {} : { approvalKind }),
                             ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
                         });
+                        Object.assign(stagedRun, this.pendingBatchPatch(goal, decidedBatch, consumedFromBatch));
                         const stagedGoal = this.withRun(goal, stagedRun);
 
                         goal = await this.commitDecision(
@@ -4681,6 +5135,7 @@ class RunExecutor {
                         status: "approved",
                         ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
                     });
+                    Object.assign(stagedRun, this.pendingBatchPatch(goal, decidedBatch, consumedFromBatch));
                     const stagedGoal = this.withRun(goal, stagedRun);
 
                     // Durable intent must exist before the Tool can produce an effect.
@@ -4732,6 +5187,15 @@ class RunExecutor {
 
                 if (normalized.decision.kind === "run_stage_update") {
                     const stageDecision = normalized.decision;
+                    const nextPlanRoute = goal.state.run.planRoute === undefined
+                        ? undefined
+                        : updateRunPlanStage(goal.state.run.planRoute, {
+                            target: stageDecision.target,
+                            acceptanceCriteria: stageDecision.acceptanceCriteria,
+                            ...(stageDecision.stageId !== undefined ? { stageId: stageDecision.stageId } : {}),
+                            ...(stageDecision.baseRevision !== undefined ? { baseRevision: stageDecision.baseRevision } : {}),
+                            ...(stageDecision.reason !== undefined ? { reason: stageDecision.reason } : {}),
+                        });
                     let nextStage: RunStageState;
                     if (stageDecision.stageId === undefined) {
                         const previousStage = goal.state.run.currentStage;
@@ -4759,11 +5223,14 @@ class RunExecutor {
                         );
                     }
 
-                    const nextRun = this.applyTransition(goal.state.run, {
+                    const transitionedRun = this.applyTransition(goal.state.run, {
                         kind: "stage_update",
                         stage: nextStage,
                         decision: normalized.decision,
                     });
+                    const nextRun = nextPlanRoute === undefined
+                        ? transitionedRun
+                        : { ...transitionedRun, planRoute: nextPlanRoute };
                     const nextGoal = this.withRun(goal, nextRun);
 
                     goal = await this.commitDecision(
@@ -4799,6 +5266,22 @@ class RunExecutor {
                                     ...(stageDecision.reason !== undefined ? { reason: stageDecision.reason } : {}),
                                 },
                             },
+                            ...(nextPlanRoute !== undefined
+                                && goal.state.run.planRoute !== undefined
+                                && nextPlanRoute.revision !== goal.state.run.planRoute.revision
+                                ? [{
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "executing" as const,
+                                    executionUnitId,
+                                    eventType: "run_plan_route_revised" as const,
+                                    payload: {
+                                        type: "run_plan_route_revised" as const,
+                                        route: nextPlanRoute,
+                                        reason: stageDecision.reason!,
+                                    },
+                                }]
+                                : []),
                             ...contextNoteDrafts,
                         ],
                         acceptedPatch,
@@ -5018,11 +5501,17 @@ class RunExecutor {
 
                     const acceptedSequence = goal.state.run.committedThroughSequence + 2;
                     const acceptedStage = acceptCurrentRunStage(goal.state.run.currentStage, acceptedSequence);
-                    const nextRun = this.applyTransition(goal.state.run, {
+                    const nextPlanRoute = goal.state.run.planRoute === undefined
+                        ? undefined
+                        : acceptRunPlanStage(goal.state.run.planRoute, acceptedStage.stageId, acceptedSequence);
+                    const transitionedRun = this.applyTransition(goal.state.run, {
                         kind: "stage_settle",
                         stage: acceptedStage,
                         decision: stageDecision,
                     });
+                    const nextRun = nextPlanRoute === undefined
+                        ? transitionedRun
+                        : { ...transitionedRun, planRoute: nextPlanRoute };
                     const nextGoal = this.withRun(goal, nextRun);
                     goal = await this.commitDecision(
                         nextGoal,
@@ -5066,6 +5555,7 @@ class RunExecutor {
                 }
 
                 let acceptedStage: RunStageState | undefined;
+                let acceptedPlanRoute = goal.state.run.planRoute;
                 if (normalized.decision.kind === "complete" && goal.state.run.currentStage !== undefined) {
                     const candidate = normalized.decision;
                     const sequences = new Set("evidenceSequences" in candidate && candidate.evidenceSequences !== undefined
@@ -5157,6 +5647,9 @@ class RunExecutor {
                     if (goal.state.run.currentStage.status === "executing") {
                         const acceptedSequence = goal.state.run.committedThroughSequence + 2;
                         acceptedStage = acceptCurrentRunStage(goal.state.run.currentStage, acceptedSequence);
+                        if (acceptedPlanRoute !== undefined) {
+                            acceptedPlanRoute = acceptRunPlanStage(acceptedPlanRoute, acceptedStage.stageId, acceptedSequence);
+                        }
                     }
                 }
 
@@ -5177,11 +5670,14 @@ class RunExecutor {
                 if (goal.state.run.interruption?.status === "repairing") {
                     return this.cancelInterruptedRun(goal, control);
                 }
-                const nextRun = this.applyTransition(goal.state.run, {
+                const transitionedRun = this.applyTransition(goal.state.run, {
                     kind: "decision",
                     decision: normalized.decision,
                     ...(acceptedStage !== undefined ? { stage: acceptedStage } : {}),
                 });
+                const nextRun = acceptedPlanRoute === undefined
+                    ? transitionedRun
+                    : { ...transitionedRun, planRoute: acceptedPlanRoute };
                 let nextGoal = this.appendDecisionMessage(
                     this.withRun(goal, nextRun),
                     normalized.decision,
@@ -5928,6 +6424,7 @@ class RunExecutor {
                 | { readonly kind: "goal_plan_update" }
                 | { readonly kind: "run_stage_update" }
                 | { readonly kind: "run_stage_complete" }
+                | { readonly kind: "run_plan_route_update" }
         >,
     ): Goal {
         const content = decision.kind === "complete"

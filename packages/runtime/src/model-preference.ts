@@ -1,16 +1,18 @@
 /**
- * 当前工作区最近一次由用户明确选择的模型。
+ * 当前工作区最近一次由用户明确选择的模型来源。
  *
  * @remarks
- * 仅记录身份；模型能力及可选状态须在使用时重新查询当前 Provider 目录。
+ * 仅记录身份；模型能力及可选状态须在使用时重新查询对应 Provider 目录。
+ * `profileId` 指向受管 Provider 档案；未使用受管档案（例如仅 `config.toml` 回退）时省略。
  *
  * @example
  * ```ts
- * const preference: ModelPreference = { provider: "openai", modelId: "gpt-4o" };
+ * const preference: ModelPreference = { profileId: "6f1c...", modelId: "gpt-4o" };
  * ```
  */
 export interface ModelPreference {
-    readonly provider: string;
+    /** 受管 Provider 档案标识；未使用受管档案时省略。 */
+    readonly profileId?: string;
     readonly modelId: string;
 }
 
@@ -24,12 +26,12 @@ export interface ModelPreference {
  * @example
  * ```ts
  * const preference = await store.get();
- * await store.set({ provider: "openai", modelId: "gpt-4o" });
+ * await store.set({ profileId: "6f1c...", modelId: "gpt-4o" });
  * ```
  */
 export interface ModelPreferenceStore {
     /** @returns 已保存的身份；首次使用时返回 undefined。文件损坏或读取失败时拒绝。 */
     get(): Promise<ModelPreference | undefined>;
-    /** @param preference - 当前 Provider 下已验证可选的模型身份；写入失败时拒绝。 */
+    /** @param preference - 当前 Provider 来源下已验证可选的模型身份；写入失败时拒绝。 */
     set(preference: ModelPreference): Promise<void>;
 }

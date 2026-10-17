@@ -151,6 +151,8 @@ export interface BrowserModelSelectionCommand {
     readonly runId: string;
     /** 选中的模型标识。 */
     readonly modelId: string;
+    /** 目标受管 Provider 档案；省略表示保持当前来源。 */
+    readonly providerProfileId?: string | undefined;
 }
 
 /**
@@ -202,6 +204,8 @@ export type BrowserModelSelectionResult =
 export interface BrowserModelPreferenceCommand {
     /** 目标模型标识。 */
     readonly modelId: string;
+    /** 目标受管 Provider 档案；省略表示当前来源。 */
+    readonly providerProfileId?: string | undefined;
 }
 
 /**

@@ -1,3 +1,4 @@
+import { toolResponseFixture } from "./tool-response-fixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -65,7 +66,7 @@ function createGoalForMetrics(): Goal {
 
 function completedResponse(providerMetadata?: LLMResponse["providerMetadata"]): LLMResponse {
     return {
-        content: JSON.stringify({
+        ...toolResponseFixture(JSON.stringify({
             result: {
                 kind: "complete",
                 summary: "检查完成",
@@ -73,7 +74,7 @@ function completedResponse(providerMetadata?: LLMResponse["providerMetadata"]): 
                 memoryPatch: null,
                 contextNotes: null,
             },
-        }),
+        })),
         ...(providerMetadata === undefined ? {} : { providerMetadata }),
     };
 }
@@ -105,7 +106,7 @@ function input(): Parameters<LLMStepExecutor["execute"]>[0] {
     };
 }
 
-test("LLMStepExecutor records provider usage and first-text-to-completion duration", async () => {
+test("LLMStepExecutor records provider usage, request duration, and first-text-to-completion duration", async () => {
     const metricsStore = new CaptureMetricsStore();
     const adapter: LLMAdapter = {
         structuredOutputMode: "strict",
@@ -114,6 +115,7 @@ test("LLMStepExecutor records provider usage and first-text-to-completion durati
         },
         async *stream(): AsyncIterable<LLMStreamEvent> {
             yield { kind: "started" };
+            await new Promise((resolve) => setTimeout(resolve, 15));
             yield { kind: "assistant_text_delta", text: "{" };
             await new Promise((resolve) => setTimeout(resolve, 2));
             yield { kind: "assistant_text_delta", text: "}" };
@@ -147,7 +149,10 @@ test("LLMStepExecutor records provider usage and first-text-to-completion durati
         outputTokens: 18,
         cachedInputTokens: 45,
     });
+    assert.ok(Number.isFinite(finished.requestDurationMs));
+    assert.ok((finished.requestDurationMs ?? 0) > 0);
     assert.ok((finished.decodeDurationMs ?? 0) > 0);
+    assert.ok((finished.requestDurationMs ?? 0) > (finished.decodeDurationMs ?? 0));
 });
 
 test("LLMStepExecutor leaves pi-ai diagnostic usage unavailable and omits non-stream speed", async () => {
@@ -168,6 +173,8 @@ test("LLMStepExecutor leaves pi-ai diagnostic usage unavailable and omits non-st
     const finished = metricsStore.records.find((record) => record.recordType === "call_finished");
     assert.ok(finished && finished.recordType === "call_finished");
     assert.deepEqual(finished.usage, { source: "unavailable" });
+    assert.ok(Number.isFinite(finished.requestDurationMs));
+    assert.ok((finished.requestDurationMs ?? 0) > 0);
     assert.equal(finished.decodeDurationMs, undefined);
 });
 
@@ -186,6 +193,8 @@ test("LLMStepExecutor records failed calls and isolates metric Store failures", 
     const failed = failedCallRecords.records.find((record) => record.recordType === "call_finished");
     assert.ok(failed && failed.recordType === "call_finished");
     assert.equal(failed.outcome, "failed");
+    assert.ok(Number.isFinite(failed.requestDurationMs));
+    assert.ok((failed.requestDurationMs ?? 0) > 0);
     assert.deepEqual(failed.usage, { source: "unavailable" });
 
     const unavailableRecorder: ModelCallMetricsRecorder = {
@@ -201,4 +210,18 @@ test("LLMStepExecutor records failed calls and isolates metric Store failures", 
     };
     const decision = await executorFor(successfulAdapter, unavailableRecorder).execute(input());
     assert.equal(decision.kind, "complete");
+});
+
+test("LLMStepExecutor 以 goal id 作为请求会话身份传给适配器", async () => {
+    let captured: LLMRequest | undefined;
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(request: LLMRequest): Promise<LLMResponse> {
+            captured = request;
+            return completedResponse();
+        },
+    };
+    const decision = await executorFor(adapter, new CaptureMetricsStore()).execute(input());
+    assert.equal(decision.kind, "complete");
+    assert.equal(captured?.sessionId, "goal-metrics");
 });

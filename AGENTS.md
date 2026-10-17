@@ -101,6 +101,7 @@ When performing a task, load and follow the matching skill under `.agents/skills
 * Documentation work, including writing, moving, reviewing, and auditing → `lg-doc-standards`
 * Prose work, including Markdown, TSDoc, code comments, test comments, prompts, diagnostics, and Web/CLI copy → `lg-prose-standard`
 * Domain concepts, state transitions, invariants, and cross-context contracts → `lg-domain-development`
+* SDK 提炼、可嵌入运行时契约与共享装配 → [lg-sdk-extraction](.agents/skills/lg-sdk-extraction/SKILL.md)
 * Simplification audits, including dead code, duplicate state or lifecycle logic, over-design, and dependency replacement → `lg-find-simplifications`
 * Benchmark integration, sandboxed worker packaging, evaluation runners, and troubleshooting → `lg-benchmark-integration`
 * 指定 GitHub PR 的代码评审与证据化问题报告 → `lg-code-review`

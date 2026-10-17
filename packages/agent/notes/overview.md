@@ -27,19 +27,21 @@ Run 模式、已批准任务、GoalPlan、授权工具和 Working Memory 不进�
 
 `buildStepRequest` 在单次调用内完成上下文组装、预算裁剪和 Prompt 渲染，并返回与请求绑定的 `ModelOutputContractBundle`。`TrajectoryModelContextAssembler` 按 Goal Snapshot 的 committed boundary、Goal/Run、当前 Decide/Think 阶段、Epoch、Conversation 起点和注册身份筛选 Section frame，并在同一次 Trajectory 读取中构造固定预算输入及 Hot/Warm 上下文。Planner 将每个当前 Section 的最新状态重建进无状态请求；变化只产生完整替换或失效更新，未变化 Section 沿用已提交的最新消息。Epoch 切换、历史裁剪或缺少有效基线时，当前投影会重新完整注入。
 
-请求顺序为固定 system、保留的真实 Conversation、按注册顺序排列的动态 section、本轮 Working Context；Working Memory 单独作为动态 section 提供，不重复进入尾部控制消息。每次候选请求都把原生 Tool schema 和当前结构化输出约束（strict JSON schema 或 prompt_only Shape Guide）纳入输入预算；裁剪 Conversation 后会重算动态更新并保留当前 checkpoint 控制消息，必需内容仍超限则在调用模型前失败。请求计划同时返回本次新增 Section frame 元数据，供 Runtime 提交路径持久化。Assembler 把带已批准 `action_staged` 的完整 Tool Action/Observation 执行单元投影到下一轮 Hot/Warm 上下文；未提交、缺少 staging 或不完整单元不可见。
+请求顺序为固定 system、保留的真实 Conversation、按注册顺序排列的动态 section、本轮 Working Context；Working Memory 单独作为动态 section 提供，不重复进入尾部控制消息。每次候选请求都把原生 Tool schema 和单调用指令纳入输入预算；Decide 挂载工具时不再携带顶层决策 Schema 或文本 JSON Shape Guide；裁剪 Conversation 后会重算动态更新并保留当前 checkpoint 控制消息，必需内容仍超限则在调用模型前失败。请求计划同时返回本次新增 Section frame 元数据，供 Runtime 提交路径持久化。Assembler 把带已批准 `action_staged` 的完整 Tool Action/Observation 执行单元投影到下一轮 Hot/Warm 上下文；未提交、缺少 staging 或不完整单元不可见。
 
 `ModelExecutionBinding` 将同一 provider/model 的 prompt_only Think Adapter 与供应商适配的 Decide Adapter 作为一个 generation 原子发布；OpenAI、Google、OpenAI-compatible 的 Decide 使用原生 strict，Anthropic、OpenRouter、DeepSeek 使用 prompt_only。当前 `LLMStepExecutor.execute` 是一次 Decide 调用，只通过该阶段 Adapter 发送请求，并用该请求绑定的 Wire Contract 在本地验证响应。执行开始后绑定 generation 固定，不会中途切换 Adapter。
 
 ## Think 与 Decide 阶段
 
-Decide 按阶段专用 Adapter 执行：支持原生严格输出的供应商在业务决策约束上使用 strict，其余供应商依赖 Shape Guide 和同一本地契约校验。Decide 的 `request_think { goal }` 只请求 Runtime 调用 Think，不是 AgentDecision，也不属于业务工具授权。Think 使用同一模型的 `prompt_only` Adapter，不附带结构化 Schema 或工具声明；Runtime 提供明确目标和本 Step 已提交的 Think 目标/输出。Think 文本作为 assistant 消息交给后续 Decide，不进入 Goal Conversation。
+Decide 按阶段专用 Adapter 执行；挂载工具并设置 `toolChoice: required` 时，所有供应商都必须返回恰好一个声明调用。Agent 仅解码调用参数，零个或多个调用进入现有三次纠错链，不从正文 JSON 回退解析，也不静默接受第一个调用。附带正文不参与决策解码；`nativeConversationIdentity` 只控制原生历史回放及续接校验。Decide 的 `request_think { goal }` 只请求 Runtime 调用 Think，不是 AgentDecision，也不属于业务工具授权。Think 使用同一模型的 `prompt_only` Adapter，不附带结构化 Schema 或工具声明；Runtime 提供明确目标和本 Step 已提交的 Think 目标/输出。Think 文本作为 assistant 消息交给后续 Decide，不进入 Goal Conversation。
 
 每次成功 Decide/Think 调用都返回本请求的 `modelContextFrame`。Runner 在下一阶段继续前提交阶段事实、frame 和 Snapshot；未提交 frame 不会成为后续请求的 diff 基线。Agent 只负责组装请求和解析结果，不拥有阶段循环或持久化。
 
 ## 当前决策门控
 
-Contracts 根据当前 Run 的模式、任务批准状态和可见工具集合生成决策声明：普通 Run 可直接提交完成候选，Plan Run 必须先批准任务才可完成。Plan Mode 额外暴露 `system_update_goal_plan`。Schema 可见性不授予执行权；Runtime 仍执行 Profile、Registry、Policy、审批和沙箱校验。
+Contracts 根据当前 Run 的模式、任务批准状态和可见工具集合生成决策声明：普通 Run 可直接提交完成候选，Plan Run 必须先批准任务才可完成。任务未批准时，Runtime 只传入明确声明 `isReadOnly: true` 的工具，固定 Prompt 说明此边界；Plan Mode 额外暴露 `system_update_goal_plan`。Plan Prompt 要求先收集影响范围、正确性或授权的关键信息，再按独立交付结果、真实依赖和验收关口形成单阶段或多阶段完整路线，并随单个任务提案提交；普通 Run 不要求全路线。Schema 可见性不授予执行权；Runtime 仍在调用入口校验只读门、Profile、Registry、Policy、审批和沙箱规则。
+
+获批 Plan Run 的动态上下文包含 Runtime 权威路线和游标。Prompt 要求按序声明下一阶段、保留已接受结果，并在需要改动完整路线时调用 `system_update_plan_route`；普通 Run 不投影路线，也不暴露该声明。
 
 ## 完成审查
 
@@ -71,4 +73,15 @@ Context Lookup 的 found、not_found、lookup_error 模型投影统一标记 `so
 
 来源选择与 Memory 修复的固定单步评测沿用 `npm run llm:decision-eval`，完成审查评测使用 `npm run llm:decision-eval -- --completion-review`。新来源场景使用实际文件 Tool Schema 和生产反馈消息注入，每项重复三次；缺失调用标记 incomplete，任何新场景失败不通过。报告只衡量固定单步／候选判断，不代表长期任务成功率。
 
-完成审查按用户原文、当前阶段、完整候选和引用的已提交证据组装输入，不默认重放完整会话。保守保留历史用户要求；当前 Run 用户回复紧邻的 Assistant 消息用于问答、批准及沿用结果的语境，记录原始消息位置。其他历史答复通过显式 Context Lookup 来源提供。必要原文或证据仍超预算时在调用前失败，不截断后放行。
+完成审查按用户原文、当前阶段、完整候选和引用的已提交证据组装输入，不默认重放完整会话。仅允许一次 `system_review_completion` 调用，不发送顶层决策 Schema 或文本 JSON 输出指导；调用数量错误区分缺失与多调用并给出纠错要求。保守保留历史用户要求；当前 Run 用户回复紧邻的 Assistant 消息用于问答、批准及沿用结果的语境，记录原始消息位置。其他历史答复通过显式 Context Lookup 来源提供。必要原文或证据仍超预算时在调用前失败，不截断后放行。
+
+## Decide 响应形状的分级接受
+
+`LLMStepExecutor` 不再要求"恰好一个工具调用"。`classifyDecideResponse` 把一次 Decide 响应分为四类：
+
+- **单调用**：进入既有解析、授权与执行流程，行为不变。
+- **多调用**：按模型返回顺序解码为有序决策数组（`DecideStageResult.kind === "batch"`），交由 Runner 逐个暂存与执行；Executor 不执行、不排序、不去重。批次中混入控制请求（`complete`/`wait`/`fail` 等）时按不可判定协议错误拒绝，因为"控制请求必须最后执行"的顺序语义尚未定义。
+- **零调用 + 非空正文**：接受为合法 Assistant 消息（`assistant_message`），不推进 Step、不构成完成语义；由 Runner 提交为 Goal 消息并按不推进类预算继续。
+- **零调用且无可用正文**（空内容或仅 reasoning）：抛 `no_usable_result` 反馈，不是 `missing_tool_call`。
+
+每个调用的参数解码（JSON 解析、契约校验、动作身份分配）由 `decodeToolCallOutcome` 统一承担，单调用与批次复用同一错误语义。完成审查等结构化控制请求不经过该分级，仍要求唯一结果。

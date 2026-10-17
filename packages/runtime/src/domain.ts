@@ -12,6 +12,7 @@ import type {
     FactStability,
     FactValue,
     GoalTask,
+    RunPlanRouteCandidate,
     HypothesisCreate,
     HypothesisUpdate,
     MemoryPatchOperation,
@@ -36,6 +37,7 @@ import type {
     PreviousStageResultRef,
 } from "./run-stage";
 import type { RuntimeContextNote } from "./context-notes";
+import type { RunPlanRouteState } from "./run-plan";
 
 import {
     isMemoryProtocol,
@@ -61,6 +63,7 @@ export type {
     CompletionExpectOutcome,
     CompletionCriterion,
     GoalTask,
+    RunPlanRouteCandidate,
     AskUserQuestion,
     AskUserAnswer,
     ToolObservation,
@@ -125,7 +128,26 @@ export interface PendingModelRepair {
     readonly executionUnitId: string;
     readonly stage: "decide" | "think";
     readonly inputBoundary: `sha256:${string}`;
+    /**
+     * 已开始的协议类纠错调用数。
+     *
+     * @remarks 只统计契约、Tool 选择、Tool 输入与证据类失败；不推进类失败使用独立计数，
+     * 两类预算互不占用，各自含首次最多三次。
+     */
     readonly attemptsStarted: number;
+    /**
+     * 已开始的不推进类调用数。
+     *
+     * @remarks 统计零调用正文与无可用结果（`NO_USABLE_RESULT`）。与 `attemptsStarted` 相互独立；
+     * 有效 `request_think` 结束当前链时两者一并归零。省略等同 0。
+     */
+    readonly continuationsStarted?: number | undefined;
+    /**
+     * 最近一次失败的类别，决定下一次调用计入哪个预算。
+     *
+     * @remarks 省略表示尚未发生失败，下一次调用计入协议类预算。
+     */
+    readonly latestFailureClass?: "non_advancing" | "protocol" | undefined;
     readonly latestAttemptEventId: string;
     readonly latestFeedbackEventId?: string;
     readonly thinkRequestId?: string;
@@ -419,13 +441,41 @@ export interface PendingInteractionAskUser {
     readonly requestId: string;
     readonly mode: "plan" | "execution";
     readonly questions: readonly AskUserQuestion[];
+    /** 路线扩展审批请求；只有明确选择批准选项才会应用候选路线。 */
+    readonly routeRevision?: PendingPlanRouteRevisionApproval;
+}
+
+/**
+ * 等待用户决定是否批准的获批 Plan 路线修订。
+ *
+ * @remarks
+ * 候选路线和理由与 AskUser 请求一起进入 Snapshot；Runtime 在用户批准前不更改路线，
+ * 选择 ID 与已规范化的单选项绑定，Other 文本不构成批准。
+ *
+ * @example
+ * ```ts
+ * const approval: PendingPlanRouteRevisionApproval = {
+ *     baseRevision: 1,
+ *     candidate: { stages: [{ target: "新增验收", acceptanceCriteria: ["审查报告"] }] },
+ *     reason: "新发现的要求扩大了交付范围",
+ *     approvalRequest: "是否批准扩展后的路线？",
+ *     approvalOptionId: "o-1",
+ * };
+ * ```
+ */
+export interface PendingPlanRouteRevisionApproval {
+    readonly baseRevision: number;
+    readonly candidate: RunPlanRouteCandidate;
+    readonly reason: string;
+    readonly approvalRequest: string;
+    readonly approvalOptionId: string;
 }
 
 /**
  * 等待用户审查并批准任务提案的挂起状态。
  *
  * @remarks
- * 包含当前 Run 的稳定请求 ID、Agent 提出的任务目标、验收标准与审批提示。
+ * 包含当前 Run 的稳定请求 ID、Agent 提出的任务目标、验收标准、完整阶段路线与审批提示。
  * 用户恢复交互时必须回传相同 request ID；反馈或批准后该 ID 立即失效。
  *
  * @example
@@ -434,6 +484,7 @@ export interface PendingInteractionAskUser {
  *     kind: "task_approval",
  *     requestId: "proposal-1",
  *     proposal: task,
+ *     planRouteCandidate: { stages: [{ target: "调查", acceptanceCriteria: ["定位入口"] }] },
  *     approvalRequest: "请确认任务目标",
  * };
  * ```
@@ -442,6 +493,8 @@ export interface PendingInteractionTaskApproval {
     readonly kind: "task_approval";
     readonly requestId: string;
     readonly proposal: GoalTask;
+    /** 待用户批准的完整有序路线；仅 Plan Run 任务提案包含此交互。 */
+    readonly planRouteCandidate: RunPlanRouteCandidate;
     readonly approvalRequest: string;
 }
 
@@ -580,6 +633,27 @@ export interface PendingAction {
 }
 
 /**
+ * 一次 Decide 返回的多调用批次中尚未暂存的部分。
+ *
+ * @remarks
+ * `pendingAction` 是当前队首，本结构保存其后按模型返回顺序排列、尚未产生结果的决策。
+ * 每暂存一个 Action 就把队首推进到 `remaining[0]`，因此队列本身就是"已提交进度指针"；
+ * 恢复时从 `pendingAction` 继续即满足"从第一个尚未提交结果的 Action 继续"。
+ * 队首解码为控制请求（`complete`/`wait`/`fail` 等）时，执行后必须清空整个队列。
+ *
+ * @example
+ * ```ts
+ * const batch: PendingActionBatch = { batchId: "batch-1", remaining: [] };
+ * ```
+ */
+export interface PendingActionBatch {
+    /** 批次稳定标识；用于把同一次模型响应的多个决策关联起来。 */
+    readonly batchId: string;
+    /** 尚未暂存的后续业务 Action，按模型返回顺序排列；至少一条。 */
+    readonly remaining: readonly ToolCallAction[];
+}
+
+/**
  * 最近一次已完成 Step 的有界记录。
  *
  * @remarks
@@ -651,6 +725,8 @@ export interface RunState {
     readonly mode: RunMode;
     /** Plan Run 经用户批准后固定的任务范围；普通 Run 与待审批 Run 省略。 */
     readonly approvedTask?: GoalTask;
+    /** Plan Run 获批的完整阶段路线及其恢复游标；普通 Run 与待审批 Run 省略。 */
+    readonly planRoute?: RunPlanRouteState;
     readonly status: RunStatus;
     readonly stepCount: number;
     /** 当前 Run 已向模型暴露完整 Schema 的工具 ID；只由 Runtime 更新并持久化。 */
@@ -673,6 +749,8 @@ export interface RunState {
     readonly currentStage?: RunStageState;
     readonly lastStep?: StepRecord;
     readonly pendingAction?: PendingAction;
+    /** 多调用批次中尚未暂存的后续决策；与 `pendingAction` 共同构成恢复点。 */
+    readonly pendingActionBatch?: PendingActionBatch;
     /** 当前由 Runtime 持有的程序父 Action；内部调用结算前不得增加 Step。 */
     readonly pendingProgram?: PendingProgram;
     readonly pendingInteraction?: PendingInteraction;
@@ -809,6 +887,8 @@ export interface ModelContextEpochState {
 export interface GoalModelSelection {
     /** 语言模型供应商标识（如 "openai", "google", "anthropic" 等）。 */
     readonly provider: string;
+    /** 受管 Provider 档案标识；省略时使用进程启动配置解析凭据与端点。 */
+    readonly profileId?: string | undefined;
     /** 模型唯一标识（如 "gpt-4o", "claude-sonnet-4-5"）。 */
     readonly modelId: string;
     /** 结构化输出模式：原生 strict 约束、prompt_only 提示词约束或 two_stage 双阶段推演。 */
@@ -1131,6 +1211,7 @@ export interface GoalCreationInput {
 function cloneModelSelection(selection: GoalModelSelection): GoalModelSelection {
     return {
         provider: selection.provider,
+        ...(selection.profileId === undefined ? {} : { profileId: selection.profileId }),
         modelId: selection.modelId,
         structuredOutputMode: selection.structuredOutputMode,
         ...(selection.contextWindowTokens !== undefined ? { contextWindowTokens: selection.contextWindowTokens } : {}),

@@ -204,6 +204,25 @@ function AskUserForm({
         <CircleHelp size={15} />
         <strong>Your answer is needed</strong>
       </div>
+      {interaction.routeRevision && (
+        <>
+          <p>{interaction.routeRevision.approvalRequest}</p>
+          <p><strong>Reason:</strong> {interaction.routeRevision.reason}</p>
+          <div className="proposed-route" aria-label="Proposed route revision">
+            <h5>Proposed stages</h5>
+            <ol>
+              {interaction.routeRevision.route.map((stage, index) => (
+                <li key={`${index}-${stage.target}`}>
+                  <strong>{stage.target}</strong>
+                  <ul>{stage.acceptanceCriteria.map((criterion, criterionIndex) => (
+                    <li key={`${index}-${criterionIndex}`}>{criterion}</li>
+                  ))}</ul>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </>
+      )}
       <form onSubmit={(event) => {
         event.preventDefault();
         if (!canSubmit) return;
@@ -326,6 +345,19 @@ function TaskApprovalForm({
           {interaction.completionCriteria.map((criterion, index) => <li key={index}>{criterion}</li>)}
         </ul>
       )}
+      <div className="proposed-route" aria-label="Proposed stages">
+        <h5>Proposed stages</h5>
+        <ol>
+          {interaction.planRoute.map((stage, index) => (
+            <li key={index}>
+              <strong>{stage.target}</strong>
+              <ul>{stage.acceptanceCriteria.map((criterion, criterionIndex) => (
+                <li key={criterionIndex}>{criterion}</li>
+              ))}</ul>
+            </li>
+          ))}
+        </ol>
+      </div>
       <button
         className="approval-primary"
         disabled={busy}

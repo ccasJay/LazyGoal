@@ -219,6 +219,7 @@ export function createDefaultDynamicSectionRegistry(): DynamicSectionRegistry {
                 intent: view.workingContext.intent,
                 mode: view.dynamicContext.runMode,
                 taskApproved: view.dynamicContext.task !== undefined,
+                ...(view.dynamicContext.planRoute === undefined ? {} : { planRoute: view.dynamicContext.planRoute }),
                 goalPlanWritable: view.dynamicContext.goalPlanWritable,
                 checkpointRequired: view.contextEpoch.control.status === "checkpoint_required",
                 allowedSystemTools: getAllowedSystemToolIds(view),
@@ -301,6 +302,7 @@ function getAllowedSystemToolIds(view: ModelInferenceView): readonly string[] {
         "system_find_tools",
         "system_update_run_stage",
         "system_complete_run_stage",
+        ...(runMode === "plan" && task !== undefined ? ["system_update_plan_route"] : []),
         ...(goalPlanWritable ? ["system_update_goal_plan"] : []),
     ];
 }

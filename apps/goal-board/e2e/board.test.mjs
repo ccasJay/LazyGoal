@@ -56,8 +56,31 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelector('button.primary')?.disabled"), true);
     assert.equal(mock.authorizedRequests(), 0, "preview without a fragment token makes no API requests");
 
+    for (const width of [1280, 761, 760, 390, 320]) {
+      await cdp(socket, "Emulation.setDeviceMetricsOverride", {
+        width, height: 900, deviceScaleFactor: 1, mobile: width <= 760,
+      });
+      const assetName = width <= 760 ? "mark-on-light" : "logo-on-light";
+      await waitForExpression(socket, `(() => { const image = document.querySelector('.brand-logo img'); return image?.complete && image.naturalWidth > 0 && image.currentSrc.includes('${assetName}'); })()`);
+      const brand = await value(socket, `(() => {
+        const button = document.querySelector('button[aria-label="Open Board"]');
+        const image = button.querySelector('img');
+        const bounds = image.getBoundingClientRect();
+        return { width: bounds.width, height: bounds.height, alt: image.alt, text: button.textContent.trim(), fits: bounds.left >= 0 && bounds.right <= innerWidth };
+      })()`);
+      assert.equal(brand.width, width <= 760 ? 28 : 124);
+      assert.equal(brand.height, width <= 760 ? 28 : 30);
+      assert.equal(brand.alt, "LazyGoal");
+      assert.equal(brand.text, "");
+      assert.equal(brand.fits, true);
+    }
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+
     await navigate(socket, `${webUrl}/?session=desktop#${token}`);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
+    await waitForExpression(socket, "document.querySelector('.goal-card .card-metrics')?.innerText.includes('call unreported')");
+    assert.match(await value(socket, "document.querySelector('.goal-card .card-metrics').innerText"), /Output rate/);
+    assert.doesNotMatch(await value(socket, "document.querySelector('.goal-card .card-metrics').innerText"), /Generation/);
     assert.equal(await value(socket, "document.querySelector('.sidebar, .view-switch, .filter') === null"), true);
     assert.match(await value(socket, "document.body.innerText"), /Collect approved notes from the current workspace/);
     assert.doesNotMatch(await value(socket, "document.body.innerText"), /Sample goal|Project selector|Workspace settings/);
@@ -70,29 +93,48 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.match(await value(socket, "document.querySelector('.session').innerText"), /Live response/);
     assert.match(await value(socket, "document.querySelector('.session').innerText"), /Not saved yet/);
     assert.doesNotMatch(await value(socket, "document.querySelector('.session').innerText"), /Run completed/);
+    await waitForExpression(socket, "[...document.querySelectorAll('.activity-group')].some(group => group.querySelector('.step-status.running')?.textContent === 'In progress')");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.activity-group')].find(group => group.querySelector('.step-status.running'))?.querySelector('summary').click()", returnByValue: true });
+    assert.match(await value(socket, "[...document.querySelectorAll('.activity-group')].find(group => group.querySelector('.step-status.running')).innerText"), /Temporary activity · Not saved yet/);
     mock.advanceReviewActivity();
     await waitForExpression(socket, "document.querySelector('.transient-message h1')?.textContent === 'Reviewing result…'");
+    assert.equal(await value(socket, "document.querySelectorAll('.activity-group').length"), 4);
+    assert.match(await value(socket, "[...document.querySelectorAll('.activity-group')].find(group => group.textContent.includes('Temporary activity'))?.textContent ?? ''"), /Temporary activity · Not saved yet/);
     assert.doesNotMatch(await value(socket, "document.querySelector('.transient-message').innerText"), /Checking saved notes/);
     mock.commitWaitingActivity();
+    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which source should I use?')");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Open Board\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.goal-card') !== null && document.querySelector('.session') === null");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which source should I use?')");
     const conversationBounds = await value(socket, "(() => { const timeline = document.querySelector('.run-timeline').getBoundingClientRect(); const composer = document.querySelector('.composer-area .approval').getBoundingClientRect(); return { timelineWidth: timeline.width, composerWidth: composer.width, centerGap: Math.abs((timeline.left + timeline.right - composer.left - composer.right) / 2) }; })()");
     assert.ok(conversationBounds.timelineWidth <= 800 && conversationBounds.composerWidth <= 800);
     assert.ok(conversationBounds.centerGap < 16);
-    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.tool-activity-label')].map(label => label.textContent)"), ["Searched for approved notes", "Read README.md", "Ran npm test"]);
-    assert.equal(await value(socket, "document.querySelector('.tool-event .step-status.completed') === null"), true);
+    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.activity-member-heading .tool-activity-label')].map(label => label.textContent)"), ["Searched for approved notes", "Read README.md", "Ran npm test"]);
+    assert.equal(await value(socket, "document.querySelector('.activity-member .step-status.completed') === null"), true);
     assert.equal(await value(socket, "document.querySelector('.step-status.failed')?.textContent"), "failed");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.run-steps-heading').click()", returnByValue: true });
-    assert.equal(await value(socket, "document.querySelector('.tool-event').checkVisibility()"), false);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.run-steps-heading').click(); [...document.querySelectorAll('.tool-event > summary')].find(row => row.textContent.includes('Ran npm test')).click()", returnByValue: true });
-    assert.match(await value(socket, "document.querySelector('.tool-event[open]').innerText"), /npm test|Exit code|Test failed/);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.tool-event[open] > summary').click()", returnByValue: true });
+    assert.equal(await value(socket, "document.querySelector('.activity-group').checkVisibility()"), false);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.run-steps-heading').click(); [...document.querySelectorAll('.activity-group')].find(group => group.querySelector('.tool-activity-label')?.textContent.includes('Ran npm test')).querySelector('summary').click()", returnByValue: true });
+    assert.match(await value(socket, "[...document.querySelectorAll('.activity-group[open]')].find(group => group.querySelector('.tool-activity-label')?.textContent.includes('Ran npm test')).innerText"), /npm test|Exit code|Test failed/);
     assert.equal(await value(socket, "document.querySelector('.session-header') === null"), true);
     assert.equal(await value(socket, "document.querySelector('.task-state').textContent"), "Awaiting your response");
     await waitForExpression(socket, "document.querySelector('.session-metrics') !== null");
+    assert.match(await value(socket, "document.querySelector('.session-metrics').innerText"), /Output rate/);
     assert.equal(await value(socket, "document.querySelector('.context-ring').style.background.includes('conic-gradient')"), false);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.session-metrics').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.metrics-dialog[open]') !== null");
-    assert.match(await value(socket, "document.querySelector('.metrics-dialog').innerText"), /Missing values are not counted as zero/);
+    const metricDetails = await value(socket, "document.querySelector('.metrics-dialog').innerText");
+    assert.match(metricDetails, /Output rate/);
+    assert.doesNotMatch(metricDetails, /Generation/);
+    assert.match(metricDetails, /end-to-end provider request rate/i);
+    assert.match(metricDetails, /includes provider wait and response transfer/i);
+    assert.match(metricDetails, /not provider-internal decode speed/i);
+    assert.match(metricDetails, /Missing values are not counted as zero/);
+    mock.publishOutputRate();
+    await waitForExpression(socket, "document.querySelector('.metrics-dialog')?.innerText.includes('25 tok/s')");
+    assert.match(await value(socket, "document.querySelector('.metrics-dialog').innerText"), /1 measured · 1 excluded calls/);
+    assert.match(await value(socket, "document.querySelector('.session-metrics').innerText"), /Output rate 25 tok\/s/);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close metrics\"]').click()", returnByValue: true });
 
     assert.equal(await value(socket, "document.querySelector('.topbar .goal-info-toggle') !== null"), true);
@@ -254,7 +296,9 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelector('.message.assistant .markdown-table-scroll td')?.textContent"), "Source");
     assert.equal(await value(socket, "document.querySelector('.message.assistant li strong')?.textContent"), "Verified");
     assert.equal(await value(socket, "document.querySelector('.message.assistant pre code')?.textContent.trim()"), "run-1");
-    assert.equal(await value(socket, "document.querySelector('.message.assistant script, .message.assistant img') === null"), true);
+    assert.equal(await value(socket, "document.querySelector('.message.assistant script, .message.assistant .message-body img') === null"), true);
+    await waitForExpression(socket, "document.querySelector('.message.assistant .message-avatar img')?.naturalWidth > 0");
+    assert.match(await value(socket, "document.querySelector('.message.assistant .message-avatar img').currentSrc"), /mark-on-light/);
     assert.equal(mock.lastInteraction.scope, "goal");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.textContent === 'Trajectory').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('Retry inputs')");
@@ -573,6 +617,13 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
 function createMockApi() {
   let session = waitingSession();
   let currentListItem = listItem("waiting");
+  let metricsStreamResponse;
+  let currentMetrics = {
+    goalId: "goal-1", roundCount: 1, stepCount: 3, reportedCalls: 1, missingCalls: 1,
+    inputTokens: 1200, outputTokens: 80, coverage: "partial", cacheMeasuredCalls: 0,
+    cacheExcludedCalls: 2, cacheHitRate: null, throughputMeasuredCalls: 0,
+    throughputExcludedCalls: 1, tokensPerSecond: null, contextRemainingPercent: null, runs: [],
+  };
   let liveTransitionSent = false;
   let activityResponse;
   let lastInteraction;
@@ -625,7 +676,17 @@ function createMockApi() {
       return;
     }
     if (request.url === "/goals/goal-1/metrics" && request.method === "GET") {
-      json(response, { goalId: "goal-1", roundCount: 1, stepCount: 3, reportedCalls: 1, missingCalls: 1, inputTokens: 1200, outputTokens: 80, coverage: "partial", cacheMeasuredCalls: 0, cacheExcludedCalls: 2, cacheHitRate: null, throughputMeasuredCalls: 0, throughputExcludedCalls: 2, tokensPerSecond: null, contextRemainingPercent: null, runs: [] });
+      json(response, currentMetrics);
+      return;
+    }
+    if (request.url === "/goals/goal-1/metrics/stream" && request.method === "GET") {
+      response.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      });
+      metricsStreamResponse = response;
+      response.write(`event: snapshot\ndata: ${JSON.stringify(currentMetrics)}\n\n`);
       return;
     }
     if (request.url?.startsWith("/api/goals/goal-1/model-inputs?")) {
@@ -771,7 +832,11 @@ function createMockApi() {
           goalId: "goal-1",
           runId: "run-1",
           type: "activity",
-          activity: { kind: "assistant_text_delta", text: "# Checking saved notes…\n", truncated: false },
+          activity: { kind: "assistant_text_delta", text: "# Checking saved notes…\n", truncated: false, sourceEventId: "live-event-1", sourceCursor: 1 },
+        })}\n\n`);
+        response.write(`data: ${JSON.stringify({
+          goalId: "goal-1", runId: "run-1", type: "activity",
+          activity: { kind: "tool_started", sourceEventId: "live-event-2", sourceCursor: 2, actionId: "live-action-1", executionUnitId: "live-unit-1", toolId: "read_file", inputSummary: "README.md" },
         })}\n\n`);
 
       }
@@ -809,10 +874,20 @@ function createMockApi() {
   });
   return {
     server,
+    publishOutputRate() {
+      assert.ok(metricsStreamResponse && !metricsStreamResponse.destroyed);
+      currentMetrics = {
+        ...currentMetrics,
+        throughputMeasuredCalls: 1,
+        tokensPerSecond: 25,
+      };
+      metricsStreamResponse.write(`event: snapshot\ndata: ${JSON.stringify(currentMetrics)}\n\n`);
+    },
     advanceReviewActivity() {
       assert.ok(activityResponse && !activityResponse.destroyed);
       activityResponse.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "model_started" } })}\n\n`);
-      activityResponse.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "assistant_text_delta", text: "# Reviewing result…\n", truncated: false } })}\n\n`);
+      activityResponse.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "tool_finished", sourceEventId: "live-event-3", sourceCursor: 3, actionId: "live-action-1", toolId: "read_file", outcome: "success", summary: "Read README" } })}\n\n`);
+      activityResponse.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "assistant_text_delta", text: "# Reviewing result…\n", truncated: false, sourceEventId: "live-event-4", sourceCursor: 4 } })}\n\n`);
     },
     commitWaitingActivity() {
       assert.ok(activityResponse && !activityResponse.destroyed);

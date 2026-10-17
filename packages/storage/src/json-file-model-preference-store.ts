@@ -6,7 +6,7 @@ import type { ModelPreference, ModelPreferenceStore } from "../../runtime/src/mo
 
 const ModelPreferenceRecordSchema = z.object({
     version: z.literal(1),
-    provider: z.string().min(1),
+    profileId: z.string().min(1).optional(),
     modelId: z.string().min(1),
 }).strict();
 
@@ -72,6 +72,9 @@ export class JsonFileModelPreferenceStore implements ModelPreferenceStore {
         }
         const result = ModelPreferenceRecordSchema.safeParse(parsed);
         if (!result.success) throw new Error("Model preference file has an invalid or unsupported version.");
-        return { provider: result.data.provider, modelId: result.data.modelId };
+        return {
+            ...(result.data.profileId === undefined ? {} : { profileId: result.data.profileId }),
+            modelId: result.data.modelId,
+        };
     }
 }

@@ -55,8 +55,15 @@ export function useGoalBoardApp() {
   const activeGoal = goalsManager.goals.find((goal) => goal.goalId === sessionManager.selectedGoalId);
   const sessionVisible = activeGoal !== undefined || sessionManager.draftSessionOpen;
 
+  const handleDeleteGoal = async (goal: BrowserGoalListItem) => {
+    await goalsManager.deleteGoal(goal, () => {
+      if (sessionManager.selectedGoalId === goal.goalId) sessionManager.setSelectedGoalId(null);
+    });
+    queueManager.clearQueue(goal.goalId);
+  };
+
   const { workspaceContext, workspaceContextError } = useWorkspaceContext({
-    enabled: sessionVisible,
+    enabled: true,
     sessionKey: sessionManager.session,
   });
 
@@ -166,11 +173,7 @@ export function useGoalBoardApp() {
         commandsManager.setCommandError(null);
       }}
       onChangeArchive={goalsManager.changeArchive}
-      onDeleteGoal={async (goal) => {
-        await goalsManager.deleteGoal(goal, () => {
-          if (sessionManager.selectedGoalId === goal.goalId) sessionManager.setSelectedGoalId(null);
-        });
-      }}
+      onDeleteGoal={handleDeleteGoal}
       manageBusyId={goalsManager.manageBusyId}
       manageError={goalsManager.manageError}
       onClearManageError={() => goalsManager.refreshGoals()}
@@ -203,6 +206,7 @@ export function useGoalBoardApp() {
     revokingGrantId: permissionsManager.revokingGrantId,
     liveText: streamManager.liveText,
     liveActivity: streamManager.liveActivity,
+    liveEvents: streamManager.liveEvents,
     streamConnected: streamManager.streamConnected,
     metricsByGoal: goalsManager.metricsByGoal,
     currentModelCatalog: modelSelectionManager.currentModelCatalog,
@@ -248,6 +252,14 @@ export function useGoalBoardApp() {
   };
 
   return {
+    goals: goalsManager.goals,
+    workspaceContext,
+    selectGoal: (id: string) => {
+      modelSelectionManager.setModelPickerTarget(null);
+      sessionManager.selectGoal(id);
+      setSessionTab("Activity");
+      setGoalInfoOpen(false);
+    },
     sessionContextValue,
     runControlContextValue,
     sessionVisible,
@@ -264,11 +276,7 @@ export function useGoalBoardApp() {
     goalBoardElement,
     renderPermissionControl,
     revokeToolGrant,
-    onDeleteGoal: async (goal: BrowserGoalListItem) => {
-      await goalsManager.deleteGoal(goal, () => {
-        if (sessionManager.selectedGoalId === goal.goalId) sessionManager.setSelectedGoalId(null);
-      });
-    },
+    onDeleteGoal: handleDeleteGoal,
     modelPickerTarget: modelSelectionManager.modelPickerTarget,
     draftModelId: sessionManager.draftModelId,
     setModelPickerTarget: modelSelectionManager.setModelPickerTarget,

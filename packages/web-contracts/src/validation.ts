@@ -22,6 +22,12 @@ import type {
     BrowserGoalSteerResult,
     BrowserGoalInterruptResult,
     SessionMetricsSnapshot,
+    BrowserProviderProfile,
+    BrowserProviderSettings,
+    BrowserProviderProfileWriteResult,
+    BrowserProviderProfileDeleteResult,
+    BrowserProviderProfileActivationResult,
+    BrowserProviderProfileTestResult,
 } from "./index";
 
 /**
@@ -215,10 +221,17 @@ export function isBrowserRun(value: unknown): value is BrowserSessionRun {
         && Array.isArray(value.steps)
         && value.steps.every((step) => isRecord(step)
             && isNonEmptyString(step.executionUnitId)
+            && (step.sourceEventId === undefined || isNonEmptyString(step.sourceEventId))
+            && (step.actionId === undefined || isNonEmptyString(step.actionId))
+            && (step.activityBoundaryBefore === undefined || step.activityBoundaryBefore === true)
             && Number.isSafeInteger(step.sequence)
             && Number.isSafeInteger(step.stepIndex)
             && ["recorded", "completed", "failed", "rejected"].includes(String(step.status))
             && (step.summary === undefined || typeof step.summary === "string")
+            && (step.think === undefined || isRecord(step.think)
+                && typeof step.think.goal === "string"
+                && (step.think.output === undefined || typeof step.think.output === "string")
+                && (step.think.truncated === undefined || step.think.truncated === true))
             && (step.stageId === undefined || isNonEmptyString(step.stageId))
             && (step.recoveryAttempts === undefined || Array.isArray(step.recoveryAttempts)
                 && step.recoveryAttempts.every((attempt) => typeof attempt === "string")))
@@ -233,7 +246,43 @@ export function isBrowserRun(value: unknown): value is BrowserSessionRun {
                 && Array.isArray(stage.acceptanceCriteria)
                 && ["in_progress", "review_pending", "accepted"].includes(String(stage.status))
                 && Array.isArray(stage.steps)))
+        && (value.planRoute === undefined || isBrowserPlanRoute(value.planRoute))
         && typeof value.current === "boolean";
+}
+
+function isBrowserPlanRoute(value: unknown): boolean {
+    if (!isRecord(value)
+        || !Number.isSafeInteger(value.revision)
+        || Number(value.revision) < 1
+        || (value.revisionReason !== undefined && !isNonEmptyString(value.revisionReason))
+        || (Number(value.revision) > 1 && !isNonEmptyString(value.revisionReason))
+        || !Number.isSafeInteger(value.nextStageIndex)
+        || !Array.isArray(value.stages)
+        || value.stages.length === 0
+        || Number(value.nextStageIndex) < 0
+        || Number(value.nextStageIndex) > value.stages.length) return false;
+
+    const ids = new Set<string>();
+    return value.stages.every((stage, index) => {
+        if (!isRecord(stage)
+            || !isNonEmptyString(stage.stageId)
+            || ids.has(stage.stageId)
+            || !Number.isSafeInteger(stage.revision)
+            || Number(stage.revision) < 1
+            || !["pending", "executing", "accepted"].includes(String(stage.status))
+            || !isNonEmptyString(stage.target)
+            || !Array.isArray(stage.acceptanceCriteria)
+            || stage.acceptanceCriteria.length === 0
+            || !stage.acceptanceCriteria.every(isNonEmptyString)
+            || (stage.acceptedSequence !== undefined && (!Number.isSafeInteger(stage.acceptedSequence) || Number(stage.acceptedSequence) < 0))) return false;
+        ids.add(stage.stageId);
+        const cursor = Number(value.nextStageIndex);
+        const expectedStatus = index < cursor ? "accepted"
+            : index === cursor && stage.status === "executing" ? "executing"
+                : "pending";
+        return stage.status === expectedStatus
+            && ((stage.status === "accepted") === (stage.acceptedSequence !== undefined));
+    });
 }
 
 /**
@@ -275,10 +324,29 @@ export function isPendingInteraction(value: unknown): value is BrowserPendingInt
         return typeof value.objective === "string"
             && typeof value.approvalRequest === "string"
             && Array.isArray(value.completionCriteria)
-            && value.completionCriteria.every((item) => typeof item === "string");
+            && value.completionCriteria.every((item) => typeof item === "string")
+            && Array.isArray(value.planRoute)
+            && value.planRoute.length > 0
+            && value.planRoute.every((stage) => isRecord(stage)
+                && isNonEmptyString(stage.target)
+                && Array.isArray(stage.acceptanceCriteria)
+                && stage.acceptanceCriteria.length > 0
+                && stage.acceptanceCriteria.every(isNonEmptyString));
     }
+    const validRouteRevision = value.routeRevision === undefined
+        || (isRecord(value.routeRevision)
+            && isNonEmptyString(value.routeRevision.approvalRequest)
+            && isNonEmptyString(value.routeRevision.reason)
+            && Array.isArray(value.routeRevision.route)
+            && value.routeRevision.route.length > 0
+            && value.routeRevision.route.every((stage) => isRecord(stage)
+                && isNonEmptyString(stage.target)
+                && Array.isArray(stage.acceptanceCriteria)
+                && stage.acceptanceCriteria.length > 0
+                && stage.acceptanceCriteria.every(isNonEmptyString)));
     return value.kind === "ask_user"
         && (value.mode === "plan" || value.mode === "execution")
+        && validRouteRevision
         && Array.isArray(value.questions)
         && value.questions.every((question) => isRecord(question)
             && isNonEmptyString(question.id)
@@ -443,6 +511,130 @@ export function isModelPreferenceAccepted(value: unknown): value is { readonly o
 }
 
 /**
+ * 受管 Provider 档案投影守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为掩码投影；含明文凭据字段时返回 false。
+ *
+ * @example
+ * ```ts
+ * if (isProviderProfile(p)) console.log(p.apiKeyMask);
+ * ```
+ */
+export function isProviderProfile(value: unknown): value is BrowserProviderProfile {
+    if (!isRecord(value)) return false;
+    if ("apiKey" in value) return false;
+    return isNonEmptyString(value.id)
+        && isNonEmptyString(value.label)
+        && isNonEmptyString(value.kind)
+        && isNonEmptyString(value.defaultModel)
+        && typeof value.hasApiKey === "boolean"
+        && typeof value.apiKeyMask === "string"
+        && (value.baseURL === undefined || typeof value.baseURL === "string")
+        && (value.contextWindowTokens === undefined || typeof value.contextWindowTokens === "number")
+        && (value.maxOutputTokens === undefined || typeof value.maxOutputTokens === "number")
+        && (value.structuredOutputMode === undefined || value.structuredOutputMode === "strict"
+            || value.structuredOutputMode === "prompt_only" || value.structuredOutputMode === "two_stage");
+}
+
+/**
+ * 设置页读取守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为掩码后的设置投影；含明文凭据字段时返回 false。
+ *
+ * @remarks
+ * 读取接口成功时直接返回设置投影本身，失败由非 2xx 状态加 `{ error }` 表达，
+ * 因此本守卫只接受裸投影，不接受任何信封外层。
+ *
+ * @example
+ * ```ts
+ * if (isProviderSettings(res)) console.log(res.profiles.length);
+ * ```
+ */
+export function isProviderSettings(value: unknown): value is BrowserProviderSettings {
+    if (!isRecord(value)) return false;
+    return (value.activeProfileId === undefined || typeof value.activeProfileId === "string")
+        && Array.isArray(value.profiles)
+        && value.profiles.every((profile) => isProviderProfile(profile))
+        && (value.fallback === undefined || (isRecord(value.fallback)
+            && value.fallback.source === "config"
+            && isNonEmptyString(value.fallback.provider)
+            && isNonEmptyString(value.fallback.model)));
+}
+
+/**
+ * 档案写入结果守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为创建/更新成功响应或稳定错误响应。
+ *
+ * @example
+ * ```ts
+ * if (isProviderProfileWriteResult(res) && res.ok) console.log(res.profile.id);
+ * ```
+ */
+export function isProviderProfileWriteResult(value: unknown): value is BrowserProviderProfileWriteResult {
+    if (!isRecord(value) || typeof value.ok !== "boolean") return false;
+    if (!value.ok) {
+        return typeof value.error === "string" && (value.fields === undefined
+            || (Array.isArray(value.fields) && value.fields.every((field) => typeof field === "string")));
+    }
+    return isProviderProfile(value.profile);
+}
+
+/**
+ * 档案删除结果守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为删除成功响应或稳定错误响应。
+ *
+ * @example
+ * ```ts
+ * if (isProviderProfileDeleteResult(res) && res.ok) console.log(res.mayBeReferencedByGoals);
+ * ```
+ */
+export function isProviderProfileDeleteResult(value: unknown): value is BrowserProviderProfileDeleteResult {
+    if (!isRecord(value) || typeof value.ok !== "boolean") return false;
+    if (!value.ok) return typeof value.error === "string";
+    return isProviderProfile(value.profile) && typeof value.mayBeReferencedByGoals === "boolean";
+}
+
+/**
+ * 档案激活结果守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为激活成功响应或稳定错误响应。
+ *
+ * @example
+ * ```ts
+ * if (isProviderProfileActivationResult(res) && res.ok) console.log(res.activeProfileId);
+ * ```
+ */
+export function isProviderProfileActivationResult(value: unknown): value is BrowserProviderProfileActivationResult {
+    if (!isRecord(value) || typeof value.ok !== "boolean") return false;
+    if (!value.ok) return typeof value.error === "string";
+    return isNonEmptyString(value.activeProfileId);
+}
+
+/**
+ * 连接测试结果守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为测试成功响应或稳定错误响应。
+ *
+ * @example
+ * ```ts
+ * if (isProviderProfileTestResult(res) && res.ok) console.log(res.modelCount);
+ * ```
+ */
+export function isProviderProfileTestResult(value: unknown): value is BrowserProviderProfileTestResult {
+    if (!isRecord(value) || typeof value.ok !== "boolean") return false;
+    if (!value.ok) return typeof value.error === "string";
+    return typeof value.modelCount === "number" && Number.isFinite(value.modelCount) && value.modelCount >= 0;
+}
+
+/**
  * Action 完整输入结果守卫。
  *
  * @param value - 待检测值。
@@ -553,10 +745,51 @@ export function isLiveEvent(value: unknown): value is BrowserGoalLiveEvent {
     if (value.type !== "activity" || !isRecord(value.activity)) return false;
     const activity = value.activity;
     if (activity.kind === "assistant_text_delta") {
-        return typeof activity.text === "string" && typeof activity.truncated === "boolean";
+        return typeof activity.text === "string" && activity.text.length <= 2_000 && typeof activity.truncated === "boolean"
+            && isNonEmptyString(activity.sourceEventId)
+            && activity.sourceEventId.length <= 200
+            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0;
     }
-    return ["model_started", "model_completed", "step_started", "tool_started", "tool_finished"]
-        .includes(String(activity.kind));
+    if (["model_started", "model_completed", "step_started"].includes(String(activity.kind))) return true;
+    if (activity.kind === "tool_started") {
+        return isNonEmptyString(activity.sourceEventId)
+            && activity.sourceEventId.length <= 200
+            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
+            && isNonEmptyString(activity.actionId)
+            && activity.actionId.length <= 200
+            && isNonEmptyString(activity.executionUnitId)
+            && activity.executionUnitId.length <= 200
+            && isNonEmptyString(activity.toolId)
+            && activity.toolId.length <= 128
+            && (activity.inputSummary === undefined || (typeof activity.inputSummary === "string" && activity.inputSummary.length <= 240));
+    }
+    if (activity.kind === "tool_finished") {
+        return isNonEmptyString(activity.sourceEventId)
+            && activity.sourceEventId.length <= 200
+            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
+            && isNonEmptyString(activity.actionId)
+            && activity.actionId.length <= 200
+            && isNonEmptyString(activity.toolId)
+            && activity.toolId.length <= 128
+            && ["success", "failure"].includes(String(activity.outcome))
+            && (activity.summary === undefined || (typeof activity.summary === "string" && activity.summary.length <= 500));
+    }
+    if (activity.kind === "tool_attempt_started" || activity.kind === "tool_attempt_failed") {
+        return isNonEmptyString(activity.sourceEventId)
+            && activity.sourceEventId.length <= 200
+            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
+            && isNonEmptyString(activity.actionId)
+            && activity.actionId.length <= 200
+            && Number.isSafeInteger(activity.attempt) && Number(activity.attempt) > 0
+            && (activity.kind !== "tool_attempt_failed" || (typeof activity.reason === "string" && activity.reason.length <= 160));
+    }
+    if (activity.kind === "activity_boundary") {
+        return isNonEmptyString(activity.sourceEventId)
+            && activity.sourceEventId.length <= 200
+            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
+            && ["assistant_reply", "user_wait", "stage_change", "terminal", "failure", "unknown"].includes(String(activity.reason));
+    }
+    return false;
 }
 
 function nullableSequence(value: unknown): boolean {
@@ -771,4 +1004,16 @@ export function isResumeGoalCommand(value: unknown): value is BrowserResumeGoalC
         && typeof value.expectedCommittedThroughSequence === "number"
         && Number.isSafeInteger(value.expectedCommittedThroughSequence)
         && value.expectedCommittedThroughSequence >= 0;
+}
+
+/**
+ * 校验在线模型列表响应，不接受凭据或任意供应商响应正文。
+ * @example
+ * ```ts
+ * if (isProviderModels(value)) console.log(value.models.length);
+ * ```
+ */
+export function isProviderModels(value: unknown): value is import("./provider-settings").BrowserProviderModels {
+    return isRecord(value) && value.ok === true && Array.isArray(value.models)
+        && value.models.every(model => isRecord(model) && isNonEmptyString(model.id) && typeof model.name === "string");
 }

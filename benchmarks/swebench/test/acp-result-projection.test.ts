@@ -1,3 +1,4 @@
+import { toolResponseFixture } from "../../../packages/agent/test/tool-response-fixture";
 import { runLazyGoalAcpClient, serveLazyGoalAcpAgent, AcpRequestError } from "../../../packages/acp/src/index.js";
 import type { AnyMessage } from "@agentclientprotocol/sdk";
 import { readSwebenchAcpFailure, parseSwebenchAcpMeta, toSwebenchAcpFailure } from "../src/acp-result-projection.js";
@@ -215,12 +216,12 @@ function completionAdapter(): LLMAdapter {
     return {
         structuredOutputMode: "strict",
         generate: async (request) => {
-            if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
+            if (request.tools?.[0]?.id === "system_review_completion") return { ...toolResponseFixture(JSON.stringify({ result: { kind: "accept" } })) };
             calls += 1;
-            if (calls === 1) return { content: JSON.stringify({ result: { kind: "tool_discovery", query: "write file" } }) };
+            if (calls === 1) return { ...toolResponseFixture(JSON.stringify({ result: { kind: "tool_discovery", query: "write file" } })) };
             if (calls === 2) {
                 return {
-                    content: JSON.stringify({
+                    ...toolResponseFixture(JSON.stringify({
                         result: {
                             kind: "run_stage_update",
                             stageId: null,
@@ -231,10 +232,10 @@ function completionAdapter(): LLMAdapter {
                             memoryPatch: null,
                             contextNotes: null,
                         },
-                    }),
+                    })),
                 };
             }
-            if (calls === 3) return { content: JSON.stringify({ result: toolDecision("write-1") }) };
+            if (calls === 3) return { ...toolResponseFixture(JSON.stringify({ result: toolDecision("write-1") })) };
             const context = JSON.parse(request.messages.at(-1)?.content ?? "{}") as {
                 trajectoryContext?: { hot?: readonly { events?: readonly { eventType?: string; sequence?: number }[] }[] };
             };
@@ -242,7 +243,7 @@ function completionAdapter(): LLMAdapter {
                 ?.flatMap((unit) => unit.events ?? [])
                 .filter((event) => event.eventType === "tool_finished")
                 .at(-1)?.sequence;
-            return { content: JSON.stringify({ result: { kind: "complete", summary: "done", evidenceSequences: [sequence], memoryPatch: null, contextNotes: null } }) };
+            return { ...toolResponseFixture(JSON.stringify({ result: { kind: "complete", summary: "done", evidenceSequences: [sequence], memoryPatch: null, contextNotes: null } })) };
         },
     };
 }
@@ -252,9 +253,9 @@ function oneToolAdapter(): LLMAdapter {
         structuredOutputMode: "strict",
         generate: async () => {
             return {
-                content: JSON.stringify({
+                ...toolResponseFixture(JSON.stringify({
                     result: { kind: "tool_discovery", query: "write file" },
-                }),
+                })),
             };
         },
     };
@@ -288,7 +289,7 @@ test("real Headless protocol failure retains state and usage across ACP serializ
             },
             contextCompactor: { compact: async units => units },
             llmAdapter: { structuredOutputMode: "strict", generate: async () => ({
-                content: JSON.stringify({ result: { kind: "tool_call", summary: "Task completed with verified evidence.", memoryPatch: null } }),
+                ...toolResponseFixture(JSON.stringify({ result: { kind: "tool_call", summary: "Task completed with verified evidence.", memoryPatch: null } })),
                 providerMetadata: { usage: { inputTokens: 37, outputTokens: 11 } },
             }) },
         }),

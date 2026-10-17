@@ -68,8 +68,9 @@ export interface ToolDefinition<C extends ToolInputContract = ToolInputContract>
      *
      * @remarks
      * `true` 表示实现者声明该工具不会修改工作区、配置或外部可变状态。此分类不授予
-     * Profile 权限，也不会按任务审批状态门控工具调用；Profile、Tool Policy 与 Action
-     * 审批仍决定调用能否执行。
+     * Profile 权限。Plan Run 的任务尚未获批时，Runtime 仅向模型暴露并允许执行明确标记为
+     * `true` 的业务工具；普通 Run 与已批准 Plan Run 仍由 Profile、Tool Policy、Action 审批
+     * 和沙箱规则决定调用能否执行。缺失声明按非只读处理。
      */
     readonly isReadOnly: boolean;
 }

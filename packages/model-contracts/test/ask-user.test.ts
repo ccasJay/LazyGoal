@@ -88,6 +88,7 @@ test("AskUserAgentDecisionContract 限制 1 至 3 个问题并拒绝非法数量
 test("TaskProposalAgentDecisionContract 正确解析合法任务提案并要求必须包含 objective 与 completionCriteria", () => {
     const validProposal = {
         kind: "task_proposal",
+        planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
         task: {
             objective: "重构并统一执行流程",
             completionCriteria: [{ text: "所有测试通过" }],

@@ -1,0 +1,410 @@
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+
+import { MoreHorizontal, Plus, X } from "lucide-react";
+
+import { browserApi, BrowserApiError } from "../api";
+import type {
+  BrowserProviderModelQuery,
+  BrowserProviderModels,
+  BrowserProviderProfile,
+  BrowserProviderProfileInput,
+  BrowserProviderProfileTestResult,
+  BrowserProviderSettings,
+} from "../../../../packages/web-contracts/src/index";
+
+const EMPTY_FORM = {
+  label: "",
+  kind: "openai",
+  defaultModel: "",
+  apiKey: "",
+  baseURL: "",
+  contextWindowTokens: "",
+  maxOutputTokens: "",
+  structuredOutputMode: "",
+} as const;
+
+type FormState = {
+  label: string;
+  kind: string;
+  defaultModel: string;
+  apiKey: string;
+  baseURL: string;
+  contextWindowTokens: string;
+  maxOutputTokens: string;
+  structuredOutputMode: string;
+};
+
+function toInput(form: FormState, editing: boolean): BrowserProviderProfileInput {
+  const optionalNumber = (text: string): number | null | undefined => {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return editing ? null : undefined;
+    const value = Number(trimmed);
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+  };
+  return {
+    label: form.label.trim(),
+    kind: form.kind,
+    defaultModel: form.defaultModel.trim(),
+    // 编辑时空值表示保留原凭据；创建时由服务端校验拒绝缺失凭据。
+    ...(form.apiKey.trim().length === 0 ? {} : { apiKey: form.apiKey.trim() }),
+    baseURL: form.baseURL.trim().length === 0 ? (editing ? null : undefined) : form.baseURL.trim(),
+    contextWindowTokens: optionalNumber(form.contextWindowTokens),
+    maxOutputTokens: optionalNumber(form.maxOutputTokens),
+    structuredOutputMode: form.structuredOutputMode.trim().length === 0
+      ? (editing ? null : undefined)
+      : (form.structuredOutputMode as BrowserProviderProfileInput["structuredOutputMode"]),
+  };
+}
+
+function describeError(error: unknown): string {
+  if (error instanceof BrowserApiError) return error.code;
+  return "provider_profile_unavailable";
+}
+
+const PROVIDERS = [
+  ["openai", "OpenAI"], ["google", "Google"], ["anthropic", "Anthropic"],
+  ["openrouter", "OpenRouter"], ["deepseek", "DeepSeek"], ["opencode-go", "OpenCode Go"],
+] as const;
+const CONFIG_PROVIDER_LABEL = "CPA";
+const providerName = (kind: string) => PROVIDERS.find(([id]) => id === kind)?.[1] ?? (kind === "openai-compatible" ? "Custom API" : kind);
+type WriteResult = void | Promise<boolean | void>;
+
+/**
+ * 受管 Provider 设置的展示层。
+ *
+ * @remarks
+ * 纯展示组件：只接收已投影的设置与回调，便于渲染测试。表单从不回显明文凭据；
+ * 编辑时留空表示保留原凭据。创建和更新回调返回 true 后关闭编辑器；失败保留草稿。
+ *
+ * @example
+ * ```tsx
+ * <ProviderSettingsSection settings={{ profiles: [] }} onCreate={async () => true} />
+ * ```
+ */
+export function ProviderSettingsSection(props: {
+  readonly settings: BrowserProviderSettings;
+  readonly busy?: boolean;
+  readonly notice?: string | undefined;
+  readonly error?: string | undefined;
+  readonly testResults?: Readonly<Record<string, BrowserProviderProfileTestResult>>;
+  /** 只读查询当前表单的在线模型；不保存输入，支持取消。 */
+  readonly onFetchModels?: (input: BrowserProviderModelQuery, signal: AbortSignal) => Promise<BrowserProviderModels>;
+  readonly onCreate?: (input: BrowserProviderProfileInput) => WriteResult;
+  readonly onUpdate?: (profileId: string, input: BrowserProviderProfileInput) => WriteResult;
+  readonly onDelete?: (profileId: string) => void;
+  readonly onActivate?: (profileId: string) => void;
+  readonly onTest?: (profileId: string) => void;
+}) {
+  const modelInputId = useId();
+  const [form, setForm] = useState<FormState>({ ...EMPTY_FORM });
+  const [editor, setEditor] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [models, setModels] = useState<BrowserProviderModels["models"] | null>(null);
+  const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [manualModelEntry, setManualModelEntry] = useState(false);
+  const modelRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => modelRequest.current?.abort(), []);
+  const cancelFetch = () => {
+    modelRequest.current?.abort();
+    modelRequest.current = null;
+    setFetching(false);
+    setModels(null);
+    setFetchError(null);
+    setManualModelEntry(false);
+  };
+  const editing = editor !== null && editor !== "create";
+  const custom = form.kind === "openai-compatible";
+  const update = (patch: Partial<FormState>) => {
+    if (patch.kind !== undefined || patch.apiKey !== undefined || patch.baseURL !== undefined) cancelFetch();
+    setForm(current => ({ ...current, ...patch }));
+  };
+  const fetchModels = async () => {
+    if (!props.onFetchModels || fetching) return;
+    cancelFetch();
+    const controller = new AbortController();
+    modelRequest.current = controller;
+    setFetching(true);
+    try {
+      const result = await props.onFetchModels({
+        kind: form.kind,
+        ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
+        ...(form.baseURL.trim() ? { baseURL: form.baseURL.trim() } : {}),
+        ...(editing && editor !== null ? { profileId: editor } : {}),
+      }, controller.signal);
+      if (!controller.signal.aborted && modelRequest.current === controller) {
+        setModels([...new Map(result.models.map(model => [model.id, model])).values()].sort((a, b) => a.id.localeCompare(b.id)));
+      }
+    } catch (error) {
+      if (!controller.signal.aborted && modelRequest.current === controller) setFetchError(describeError(error));
+    } finally {
+      if (modelRequest.current === controller) { modelRequest.current = null; setFetching(false); }
+    }
+  };
+  const closeEditor = () => {
+    cancelFetch();
+    if (dialogRef.current?.open) dialogRef.current.close();
+    setEditor(null);
+    setForm({ ...EMPTY_FORM });
+  };
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog === null) return;
+    if (editor !== null) {
+      if (!dialog.open) dialog.showModal();
+      formRef.current?.querySelector<HTMLInputElement>("input")?.focus();
+    } else if (dialog.open) {
+      dialog.close();
+    }
+  }, [editor]);
+
+  const startEdit = (profile: BrowserProviderProfile) => {
+    cancelFetch();
+    setDeleting(null);
+    setEditor(profile.id);
+    setForm({
+      label: profile.label, kind: profile.kind, defaultModel: profile.defaultModel, apiKey: "",
+      baseURL: profile.baseURL ?? "",
+      contextWindowTokens: profile.contextWindowTokens === undefined ? "" : String(profile.contextWindowTokens),
+      maxOutputTokens: profile.maxOutputTokens === undefined ? "" : String(profile.maxOutputTokens),
+      structuredOutputMode: profile.structuredOutputMode ?? "",
+    });
+  };
+
+  const editorForm = (
+    <form ref={formRef} className="settings-provider-form" data-testid="settings-provider-form"
+      aria-label={editing ? "Edit provider" : "Add provider"}
+      onSubmit={async event => {
+        event.preventDefault();
+        if (props.busy || fetching) return;
+        const input = toInput(form, editing);
+        const saved = editing && editor !== null
+          ? await props.onUpdate?.(editor, input) : await props.onCreate?.(input);
+        if (saved === true) closeEditor();
+      }}>
+      <fieldset disabled={props.busy}>
+        <div className="settings-editor-heading">
+          <h3 id={`${modelInputId}-dialog-title`}>{editing ? "Edit provider" : "Add provider"}</h3>
+          <button type="button" className="icon" aria-label="Close provider editor" onClick={closeEditor}><X size={16} /></button>
+        </div>
+        {!editing && <div className="settings-add-modes" role="group" aria-label="Provider type">
+          <button type="button" aria-pressed={!custom} onClick={() => update({ kind: "openai", baseURL: "" })}>Built-in provider</button>
+          <button type="button" aria-pressed={custom} onClick={() => update({ kind: "openai-compatible" })}>Custom API</button>
+        </div>}
+        {!editing && <p className="settings-form-hint">{custom ? "Connect an OpenAI-compatible endpoint or a self-hosted model." : "Use a supported provider with your own API key."}</p>}
+        <label>Name<input value={form.label} onChange={event => update({ label: event.target.value })} placeholder="e.g. Personal account" required /></label>
+        {!custom && <label>Provider<select value={form.kind} onChange={event => update({ kind: event.target.value })}>
+          {PROVIDERS.map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}
+        </select></label>}
+        {custom && <label>API URL<input type="url" value={form.baseURL} placeholder="https://gateway.example/v1" onChange={event => update({ baseURL: event.target.value })} required /></label>}
+        <label>API key<input type="password" autoComplete="new-password" value={form.apiKey} placeholder={editing ? "Leave blank to keep the saved key" : "Enter your API key"} required={!editing} onChange={event => update({ apiKey: event.target.value })} /></label>
+        <div className="settings-model-field">
+          <div className="settings-model-label">
+            <label htmlFor={modelInputId}>Default model</label>
+            <button type="button" className="settings-fetch-models" disabled={fetching || !props.onFetchModels || (!editing && !form.apiKey.trim()) || (custom && !form.baseURL.trim())} onClick={() => void fetchModels()}>{fetching ? "Fetching…" : "Fetch models"}</button>
+          </div>
+          {models !== null && models.length > 0 && !manualModelEntry ? <select id={modelInputId} value={form.defaultModel} onChange={event => update({ defaultModel: event.target.value })} required>
+            {!form.defaultModel && <option value="" disabled>Select a model ({models.length} available)</option>}
+            {form.defaultModel && !models.some(model => model.id === form.defaultModel) && <option value={form.defaultModel}>Current model · {form.defaultModel}</option>}
+            {models.map(model => <option key={model.id} value={model.id}>{model.name === model.id ? model.id : `${model.name} (${model.id})`}</option>)}
+          </select> : <input id={modelInputId} value={form.defaultModel} placeholder="Model ID" onChange={event => update({ defaultModel: event.target.value })} required />}
+          {models !== null && models.length > 0 && <button type="button" className="settings-manual-model" onClick={() => setManualModelEntry(value => !value)}>{manualModelEntry ? "Choose a fetched model" : "Enter model ID manually"}</button>}
+        </div>
+        <div className="settings-model-results" aria-live="polite" aria-busy={fetching}>
+          {fetchError && <p className="settings-test-error" role="alert">Could not fetch models ({fetchError}). Check the provider, API key and URL.</p>}
+          {models !== null && models.length === 0 && <p>No models returned. You can enter a model ID manually.</p>}
+        </div>
+        <details className="settings-advanced" key={editor}>
+          <summary>Advanced</summary>
+          <div className="settings-capacities">
+            <label>Context window tokens<input type="number" min="1" step="1" value={form.contextWindowTokens} onChange={event => update({ contextWindowTokens: event.target.value })} /></label>
+            <label>Max output tokens<input type="number" min="1" step="1" value={form.maxOutputTokens} onChange={event => update({ maxOutputTokens: event.target.value })} /></label>
+          </div>
+          <label>Structured output mode<select value={form.structuredOutputMode} onChange={event => update({ structuredOutputMode: event.target.value })}>
+            <option value="">Provider default</option><option value="prompt_only">Prompt only</option><option value="strict">Strict</option><option value="two_stage">Two stage</option>
+          </select></label>
+        </details>
+        <div className="settings-provider-form-actions">
+          <button type="button" className="secondary" onClick={closeEditor}>Cancel</button>
+          <button type="submit" className="primary" disabled={fetching}>{props.busy ? "Saving…" : editing ? "Save changes" : "Add provider"}</button>
+        </div>
+      </fieldset>
+    </form>
+  );
+
+  return (
+    <section className="settings-page" aria-labelledby="settings-page-title">
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Settings">
+          <p>Settings</p>
+          <div role="tablist" aria-label="Settings sections">
+            <button type="button" id={`${modelInputId}-providers-tab`} role="tab" aria-selected="true" aria-controls={`${modelInputId}-providers-panel`}>Providers</button>
+          </div>
+        </nav>
+        <div className="settings-page-inner" id={`${modelInputId}-providers-panel`} role="tabpanel" aria-labelledby={`${modelInputId}-providers-tab`}>
+        <header className="settings-page-heading"><h2 id="settings-page-title">Providers</h2><p>Manage your model connections.</p></header>
+        {props.error !== undefined && <p className="settings-notice settings-error" role="alert">{props.error}</p>}
+        {props.notice !== undefined && <p className="settings-notice" role="status">{props.notice}</p>}
+        <ul className="settings-providers" data-testid="settings-providers">
+          {props.settings.fallback !== undefined && !props.settings.profiles.some(profile =>
+            profile.label === CONFIG_PROVIDER_LABEL
+            && profile.kind === props.settings.fallback?.provider
+            && profile.defaultModel === props.settings.fallback?.model
+          ) && <li className="settings-config-row" data-testid="settings-fallback">
+            <div className="settings-provider-row">
+              <div className="settings-provider-identity"><strong>{CONFIG_PROVIDER_LABEL}</strong><p>{providerName(props.settings.fallback.provider)} · {props.settings.fallback.model}</p></div>
+              <span className="settings-source">From configuration<span>Read-only</span></span>
+            </div>
+          </li>}
+          {props.settings.profiles.map(profile => {
+            const active = props.settings.activeProfileId === profile.id;
+            const result = props.testResults?.[profile.id];
+            return <li key={profile.id} className="settings-provider-card" data-testid={`settings-provider-${profile.id}`}>
+              <div className="settings-provider-row">
+                <div className="settings-provider-identity">
+                  <div className="settings-provider-heading"><strong>{profile.label}</strong>
+                    <span className={`settings-key-dot ${profile.hasApiKey ? "is-saved" : "is-missing"}`} role="img" aria-label={profile.hasApiKey ? "Credential saved" : "No credential saved"} title={profile.hasApiKey ? "Credential saved" : "No credential saved"} />
+                    {profile.kind === "openai-compatible" && <span className="settings-custom">Custom</span>}
+                  </div>
+                  <p>{providerName(profile.kind)} · {profile.defaultModel}</p>
+                </div>
+                <div className="settings-provider-actions">
+                  {active && <span className="settings-active">Active</span>}
+                  <button type="button" className="secondary" aria-haspopup="dialog" aria-label={`Edit ${profile.label}`} disabled={props.busy} onClick={() => startEdit(profile)}>Edit</button>
+                  <details className="settings-provider-menu" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; }} onKeyDown={event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}>
+                    <summary aria-label={`More options for ${profile.label}`}><MoreHorizontal size={18} /></summary>
+                    <div className="settings-provider-menu-items">
+                      <button type="button" disabled={props.busy} onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); props.onTest?.(profile.id); }}>Check model catalog</button>
+                      <button type="button" disabled={props.busy || active} onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); props.onActivate?.(profile.id); }}>Set active</button>
+                      <button type="button" className="settings-delete" disabled={props.busy || active} title={active ? "Switch to another provider before deleting" : undefined} onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); setDeleting(profile.id); }}>Delete</button>
+                    </div>
+                  </details>
+                </div>
+              </div>
+              {result && <p className={`settings-provider-test ${result.ok ? "" : "settings-test-error"}`} role="status">{result.ok ? `Model catalog available · ${result.modelCount} models` : `Model catalog check failed: ${result.error}`}</p>}
+              {deleting === profile.id && <div className="settings-delete-confirm" role="group" aria-label={`Delete ${profile.label}`}>
+                <p>Delete this provider? Goals using it will need another provider on resume.</p>
+                <div><button type="button" className="secondary" disabled={props.busy} onClick={() => setDeleting(null)}>Cancel</button><button type="button" className="secondary settings-delete" disabled={props.busy} onClick={() => { setDeleting(null); props.onDelete?.(profile.id); }}>Delete provider</button></div>
+              </div>}
+            </li>;
+          })}
+        </ul>
+        <button type="button" className="settings-add-provider" disabled={props.busy} onClick={() => { cancelFetch(); setDeleting(null); setForm({ ...EMPTY_FORM }); setEditor("create"); }}><Plus size={16} />Add provider</button>
+        </div>
+      </div>
+      <dialog ref={dialogRef} className="settings-provider-dialog"
+        aria-labelledby={`${modelInputId}-dialog-title`}
+        onCancel={event => { event.preventDefault(); closeEditor(); }}
+        onClick={event => { if (event.target === event.currentTarget) closeEditor(); }}>
+        {editor !== null && editorForm}
+      </dialog>
+    </section>
+  );
+}
+
+/**
+ * 设置页容器：读取受管 Provider 设置并转发增删改与连接测试。
+ *
+ * @remarks
+ * 依赖 `browserApi` 的本机会话令牌；失败以稳定错误码就地展示，不伪造成功。
+ *
+ * @example
+ * ```tsx
+ * <SettingsPage />
+ * ```
+ */
+export function SettingsPage() {
+  const [settings, setSettings] = useState<BrowserProviderSettings | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | undefined>(undefined);
+  const [error, setError] = useState<string | undefined>(undefined);
+  const [testResults, setTestResults] = useState<Record<string, BrowserProviderProfileTestResult>>({});
+
+  const reload = useCallback(async () => {
+    try {
+      const next = await browserApi.listProviders();
+      setSettings(next);
+      setError(undefined);
+    } catch (cause) {
+      setError(describeError(cause));
+    }
+  }, []);
+
+  useEffect(() => { void reload(); }, [reload]);
+
+  const run = useCallback(async (
+    action: () => Promise<void>,
+    successNotice: string,
+    goalNotice?: string,
+  ) => {
+    setBusy(true);
+    try {
+      await action();
+      setError(undefined);
+      setNotice(goalNotice ?? successNotice);
+      await reload();
+      return true;
+    } catch (cause) {
+      setNotice(undefined);
+      setError(describeError(cause));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, [reload]);
+
+  const handlers = useMemo(() => ({
+    onCreate: (input: BrowserProviderProfileInput) => {
+      return run(async () => { await browserApi.createProvider(input); }, "Provider added.");
+    },
+    onUpdate: (profileId: string, input: BrowserProviderProfileInput) => {
+      return run(async () => {
+        await browserApi.updateProvider(profileId, input);
+        setTestResults(current => { const next = { ...current }; delete next[profileId]; return next; });
+      }, "Provider updated.");
+    },
+    onDelete: (profileId: string) => {
+      void run(
+        async () => { await browserApi.deleteProvider(profileId); },
+        "Provider deleted.",
+        "Provider deleted. Existing goals that used it will ask you to choose again on resume.",
+      );
+    },
+    onActivate: (profileId: string) => {
+      void run(async () => { await browserApi.activateProvider(profileId); }, "Active provider updated.");
+    },
+    onTest: (profileId: string) => {
+      void run(async () => {
+        const result = await browserApi.testProvider(profileId);
+        setTestResults((current) => ({ ...current, [profileId]: result }));
+      }, "Model catalog checked.");
+    },
+  }), [run]);
+
+  if (settings === undefined) {
+    return (
+      <section className="settings-page" aria-labelledby="settings-page-title">
+        <div className="settings-page-inner">
+          <header className="settings-page-heading">
+            <h2 id="settings-page-title">Providers</h2>
+            <p>{error ?? "Loading providers…"}</p>
+          </header>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <ProviderSettingsSection
+      settings={settings}
+      busy={busy}
+      notice={notice}
+      error={error}
+      testResults={testResults}
+      onFetchModels={(input, signal) => browserApi.fetchProviderModels(input, signal)}
+      {...handlers}
+    />
+  );
+}

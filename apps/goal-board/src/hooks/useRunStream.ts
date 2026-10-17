@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { BrowserGoalSession } from "../../../../packages/web-contracts/src/index";
+import type { BrowserGoalActivityEvent, BrowserGoalLiveEvent, BrowserGoalSession } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
+import { createTextBatcher } from "../live-text-batch";
 
 export function useRunStream({
   selectedGoalId,
@@ -15,8 +16,20 @@ export function useRunStream({
 }) {
   const [liveText, setLiveText] = useState("");
   const [liveActivity, setLiveActivity] = useState<string | null>(null);
+  const [liveEvents, setLiveEvents] = useState<BrowserGoalLiveEvent[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
   const onRefreshRef = useRef(onRefresh);
+
+  /**
+   * 打字机增量的按帧合并缓冲；`setLiveText` 引用稳定，缓冲可在首次渲染时一次性创建。
+   */
+  const textBatcherRef = useRef<ReturnType<typeof createTextBatcher> | null>(null);
+  if (textBatcherRef.current === null) {
+    textBatcherRef.current = createTextBatcher((delta) => {
+      setLiveText((current) => (current + delta).slice(-8_000));
+    });
+  }
+  const textBatcher = textBatcherRef.current;
 
   useEffect(() => {
     onRefreshRef.current = onRefresh;
@@ -26,6 +39,7 @@ export function useRunStream({
     if (selectedGoalId === null) {
       setLiveText("");
       setLiveActivity(null);
+      setLiveEvents([]);
       setStreamConnected(false);
     }
   }, [selectedGoalId]);
@@ -40,6 +54,7 @@ export function useRunStream({
 
     const controller = new AbortController();
     let active = true;
+    setLiveEvents([]);
     setStreamConnected(false);
 
     const refreshLatest = async () => {
@@ -70,17 +85,41 @@ export function useRunStream({
             if (!active) return;
             setStreamConnected(true);
             if (event.type === "snapshot_changed" || event.type === "refresh_required") {
+              setLiveEvents([]);
+              if (event.type === "refresh_required") {
+                setLiveActivity("Waiting for the saved result");
+              }
               await refreshLatest();
               continue;
             }
+            const retainedActivity: BrowserGoalActivityEvent | undefined = event.activity.kind === "assistant_text_delta"
+              ? {
+                  kind: "activity_boundary",
+                  sourceEventId: event.activity.sourceEventId,
+                  sourceCursor: event.activity.sourceCursor,
+                  reason: "assistant_reply",
+                }
+              : event.activity.kind === "tool_started"
+                || event.activity.kind === "tool_finished"
+                || event.activity.kind === "tool_attempt_started"
+                || event.activity.kind === "tool_attempt_failed"
+                || event.activity.kind === "activity_boundary"
+                ? event.activity
+                : undefined;
+            if (retainedActivity !== undefined) {
+              setLiveEvents((current) => [
+                ...current,
+                { ...event, activity: retainedActivity },
+              ].slice(-256));
+            }
             switch (event.activity.kind) {
               case "assistant_text_delta": {
-                const text = event.activity.text;
+                textBatcher.push(event.activity.text);
                 setLiveActivity("A response is being generated");
-                setLiveText((current) => (current + text).slice(-8_000));
                 break;
               }
               case "model_started":
+                textBatcher.clear();
                 setLiveText("");
                 setLiveActivity("Runtime is working on this Goal");
                 break;
@@ -88,6 +127,7 @@ export function useRunStream({
                 setLiveActivity("Waiting for the saved result");
                 break;
               case "step_started":
+                textBatcher.clear();
                 setLiveText("");
                 setLiveActivity("A new execution step has started");
                 break;
@@ -107,7 +147,11 @@ export function useRunStream({
         } catch {
           if (!active || controller.signal.aborted) return;
           setStreamConnected(false);
-          await refreshLatest();
+          try {
+            await refreshLatest();
+          } catch {
+            // Snapshot read failures must not stop stream reconnection.
+          }
           await delay();
         }
       }
@@ -117,6 +161,7 @@ export function useRunStream({
     return () => {
       active = false;
       controller.abort();
+      textBatcher.dispose();
     };
   }, [selectedGoalId, session?.currentRunId, session?.goalId, sessionLoading]);
 
@@ -125,6 +170,7 @@ export function useRunStream({
     setLiveText,
     liveActivity,
     setLiveActivity,
+    liveEvents,
     streamConnected,
   };
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   AlertCircle,
@@ -7,7 +7,11 @@ import {
   ChevronDown,
   ChevronRight,
   CircleHelp,
+  Brain,
+  FilePenLine,
   Layers,
+  Search,
+  Terminal,
   X,
   Zap,
 } from "lucide-react";
@@ -15,23 +19,57 @@ import type {
   BrowserGoalListItem,
   BrowserSessionMessage,
   BrowserSessionRun,
-  BrowserSessionStep,
   BrowserToolGrantSummary,
 } from "../../../../packages/web-contracts/src/index";
 import { GoalDetails, WaitingInteraction } from "../panels";
+import brandMark from "../assets/lazygoal/mark-on-light.svg?no-inline";
 import { Trajectory } from "../trajectory";
+import { resolveCurrentWindow, resolveExpandedWindow, resolveInitialWindow } from "../session-window";
 import { sessionStatus, sessionStatusTone } from "../types";
 import { useGoalSessionContext } from "../context/GoalSessionContext";
 import { useRunControlContext } from "../context/RunControlContext";
-import { MessageComposer, AssistantMarkdown, CurrentModelControl } from "./MessageComposer";
+import { MessageComposer, CurrentModelControl } from "./MessageComposer";
+import { AssistantMarkdown } from "./AssistantMarkdown";
 import { SessionMetricsBar } from "./SessionMetricsBar";
+import { PlanRouteList } from "./PlanRouteList";
 import { WorkspaceContext } from "./WorkspaceContext";
-import { stepActivity } from "./step-activity";
+import { SessionBoundary } from "./error-boundary";
+import { projectActivityGroups, type ActivityGroup } from "../activity-projector";
+import { collectActivityProjections } from "../collect-activity-projections";
 import {
   formatRunStepsTitle,
-  groupStepsByStage,
   renderStageStatusLabel,
 } from "./run-stage-utils";
+
+/**
+ * 单条已保存会话消息的 memo 展示边界。
+ *
+ * @remarks
+ * 角色与内容字符串作为 props 以支持浅比较：liveText 等局部状态更新时，
+ * 未变化的历史消息不进入 `AssistantMarkdown` 的重新解析路径。
+ * 展示结构与原内联渲染一致，不引入额外 DOM 包裹层。
+ */
+const SessionMessage = memo(function SessionMessage({
+  role,
+  content,
+}: {
+  role: "user" | "assistant";
+  content: string;
+}) {
+  return (
+    <article className={`message ${role}`}>
+      <div className="message-heading">
+        <span className={`message-avatar ${role}`}>
+          {role === "user" ? "You" : <img src={brandMark} alt="" width={20} height={20} />}
+        </span>
+        <strong>{role === "user" ? "You" : "LazyGoal"}</strong>
+      </div>
+      <div className={`message-body ${role === "assistant" ? "markdown-body" : ""}`}>
+        {role === "assistant" ? <AssistantMarkdown content={content} /> : content}
+      </div>
+    </article>
+  );
+});
 
 export function GoalSession({
   activeGoal,
@@ -70,6 +108,7 @@ export function GoalSession({
     revokingGrantId,
     liveText,
     liveActivity,
+    liveEvents,
     streamConnected,
     metricsByGoal,
     currentModelName,
@@ -106,12 +145,55 @@ export function GoalSession({
   } = useRunControlContext();
 
   const timeline = useRef<HTMLDivElement>(null);
+  const followFrame = useRef<number | null>(null);
   const currentRun = session?.runs.find((run) => run.current);
   const [draftNoticeDismissed, setDraftNoticeDismissed] = useState(false);
 
+  const projectionGoalKey = session?.goalId ?? null;
+  const [expandedRunCount, setExpandedRunCount] = useState<number | null>(null);
+  const [expandedGoalId, setExpandedGoalId] = useState<string | null>(null);
   useEffect(() => {
     setDraftNoticeDismissed(false);
   }, [draftModelCatalog?.defaultModelNotice]);
+
+  const initialWindow = useMemo(
+    () =>
+      session === null
+        ? null
+        : resolveInitialWindow(session.runs, session.messages),
+    [session],
+  );
+  // 切换 Goal 时重置扩页状态：新会话回到初始窗口。
+  useEffect(() => {
+    if (projectionGoalKey === expandedGoalId) return;
+    setExpandedRunCount(null);
+    setExpandedGoalId(projectionGoalKey);
+  }, [projectionGoalKey, expandedGoalId]);
+
+  const visibleRunCount =
+    session === null
+      ? 0
+      : Math.min(session.runs.length, expandedRunCount ?? initialWindow?.runCount ?? session.runs.length);
+  const pendingWindowData =
+    session === null
+      ? null
+      : resolveCurrentWindow(session.runs, session.messages, visibleRunCount);
+
+  const handleExpandWindow = () => {
+    if (session === null) return;
+    const before = timeline.current?.scrollHeight ?? 0;
+    setExpandedRunCount(resolveExpandedWindow(session.runs, session.messages, visibleRunCount).runCount);
+    // 扩页在顶部增内容：按高度差保持当前视口位置基本不动。
+    window.requestAnimationFrame(() => {
+      const timelineElement = timeline.current;
+      if (timelineElement === null) return;
+      timelineElement.scrollTop += timelineElement.scrollHeight - before;
+    });
+  };
+
+  useEffect(() => () => {
+    if (followFrame.current !== null) window.cancelAnimationFrame(followFrame.current);
+  }, []);
 
   const isWaitingApprovalOrInput =
     session !== null &&
@@ -120,32 +202,37 @@ export function GoalSession({
       session.pendingAction?.status === "awaiting_approval" ||
       session.pendingAction?.status === "outcome_unknown");
 
+  /**
+   * 按 `(session, liveEvents)` 记忆化的 Run 活动组投影；
+   * liveText 增量不改变这两个引用，故不会重新执行 `projectActivityGroups` 投影。
+   */
+  const activityProjections = useMemo(
+    () =>
+      session === null
+        ? new Map<string, readonly ActivityGroup[]>()
+        : collectActivityProjections(session.runs, session.goalId, liveEvents),
+    [session, liveEvents],
+  );
+
   useEffect(() => {
-    if (follow && timeline.current) {
-      timeline.current.scrollTop = timeline.current.scrollHeight;
+    if (follow && timeline.current && followFrame.current === null) {
+      // 以帧为刻度合并滚动跳变，避免每个流式增量都同步读写布局值。
+      followFrame.current = window.requestAnimationFrame(() => {
+        followFrame.current = null;
+        if (follow && timeline.current) {
+          timeline.current.scrollTop = timeline.current.scrollHeight;
+        }
+      });
     }
   }, [session?.messages, currentRun?.steps, liveText, follow]);
 
   function renderMessages(messages: readonly BrowserSessionMessage[]) {
     return messages.map((message, index) => (
-      <article
-        className={`message ${message.role}`}
+      <SessionMessage
         key={`${message.runId ?? "earlier"}:${index}:${message.role}`}
-      >
-        <div className="message-heading">
-          <span className={`message-avatar ${message.role}`}>
-            {message.role === "user" ? "You" : <Zap size={12} />}
-          </span>
-          <strong>{message.role === "user" ? "You" : "LazyGoal"}</strong>
-        </div>
-        <div className={`message-body ${message.role === "assistant" ? "markdown-body" : ""}`}>
-          {message.role === "assistant" ? (
-            <AssistantMarkdown content={message.content} />
-          ) : (
-            message.content
-          )}
-        </div>
-      </article>
+        role={message.role}
+        content={message.content}
+      />
     ));
   }
 
@@ -323,11 +410,13 @@ export function GoalSession({
           {sessionTab === "Board" ? (
             boardContent
           ) : sessionTab === "Trajectory" ? (
-            <Trajectory
-              key={`${session.goalId}:${trajectoryTarget?.nonce ?? "browse"}`}
-              session={session}
-              target={trajectoryTarget}
-            />
+            <SessionBoundary label="Trajectory view" onReload={() => void refreshSelectedSession()}>
+              <Trajectory
+                key={`${session.goalId}:${trajectoryTarget?.nonce ?? "browse"}`}
+                session={session}
+                target={trajectoryTarget}
+              />
+            </SessionBoundary>
           ) : sessionTab === "Plan" ? (
             <GoalDetails
               session={session}
@@ -353,6 +442,7 @@ export function GoalSession({
                 </label>
                 <span>{session.messages.length} saved messages</span>
               </div>
+              <SessionBoundary label="Activity view" onReload={() => void refreshSelectedSession()}>
               <div className="timeline-region">
                 {isWaitingApprovalOrInput && !follow && (
                   <button
@@ -389,6 +479,15 @@ export function GoalSession({
                   {session.historyTruncated && (
                     <div className="history-note">Some session content is omitted.</div>
                   )}
+                  {session !== null && pendingWindowData !== null && pendingWindowData.pendingMessages > 0 && (
+                    <button
+                      type="button"
+                      className="history-expand"
+                      onClick={handleExpandWindow}
+                    >
+                      See earlier messages · {pendingWindowData.omittedMessages} saved messages hidden in {pendingWindowData.pendingMessages} earlier run{pendingWindowData.pendingMessages === 1 ? "" : "s"}
+                    </button>
+                  )}
                   {session.messages.length === 0 && (
                     <div className="timeline-date">
                       <span />No saved messages<span />
@@ -401,80 +500,86 @@ export function GoalSession({
                         !session.runs.some((run) => run.runId === message.runId)
                     )
                   )}
-                  {session.runs.map((run, runIndex) => {
+                  {session.runs.slice(Math.max(0, session.runs.length - visibleRunCount)).map((run, runIndex, renderedRuns) => {
+                    const runNumberOffset = session.runs.length - renderedRuns.length + 1;
                     const runMessages = session.messages.filter(
                       (message) => message.runId === run.runId
                     );
                     return (
                       <div className="run-timeline" key={run.runId}>
                         {renderMessages(runMessages.filter((message) => message.role === "user"))}
-                        {showTools && run.steps.length > 0 && (() => {
-                          const renderStepItem = (step: BrowserSessionStep) => {
-                            const activity = stepActivity(step);
-                            const ActivityIcon = activity.icon;
+                        <PlanRouteList route={run.planRoute} />
+                        {showTools && (() => {
+                          const groups = activityProjections.get(run.runId) ?? [];
+                          const stages = run.stages ?? [];
+                          if (groups.length === 0 && stages.length === 0) return null;
+
+                          const renderMember = (member: ReturnType<typeof projectActivityGroups>[number]["members"][number]) => {
+                            const step = member.step;
                             return (
-                              <details className="tool-event" key={step.executionUnitId}>
-                                <summary>
-                                  <ActivityIcon size={13} aria-hidden="true" />
-                                  <span className="tool-activity-label" title={activity.label}>
-                                    {activity.label}
-                                  </span>
-                                  {step.status !== "completed" && (
-                                    <span className={`step-status ${step.status}`}>
-                                      {step.status === "recorded"
-                                        ? "Attempt recorded"
-                                        : step.status}
+                              <article className="activity-member" key={member.id}>
+                                <div className="activity-member-heading">
+                                  <strong className="tool-activity-label">{member.label}</strong>
+                                  {member.status !== "completed" && (
+                                    <span className={`step-status ${member.status}`}>
+                                      {member.status === "running" ? "In progress" : member.status}
                                     </span>
                                   )}
-                                  <ChevronRight className="tool-chevron" size={12} aria-hidden="true" />
-                                </summary>
-                                <div className="tool-event-detail">
-                                  {step.recoveryAttempts?.map((attempt, index) => (
-                                    <div
-                                      className="step-recovery"
-                                      key={`${step.executionUnitId}:recovery:${index}`}
-                                    >
-                                      {attempt}
+                                  {!member.isCommitted && <small>Temporary activity · Not saved yet</small>}
+                                  {member.hasLiveUpdate && <small>Live update · Not saved yet</small>}
+                                </div>
+                                {member.inputSummary && (
+                                  <div className="activity-member-input">{member.inputSummary}</div>
+                                )}
+                                {member.attempts.map((attempt, index) => (
+                                  <div className="step-recovery" key={`${member.id}:attempt:${index}`}>
+                                    {attempt}
+                                  </div>
+                                ))}
+                                {step?.think && <section className="markdown-body" aria-label="Think analysis">
+                                  <h4>Think goal</h4>
+                                  <p>{step.think.goal}</p>
+                                  <h4>Analysis</h4>
+                                  {step.think.output !== undefined
+                                    ? <AssistantMarkdown content={step.think.output} />
+                                    : <p>{member.status === "failed" ? "Thinking stopped before an output was saved." : "Waiting for the saved Think output."}</p>}
+                                  {step.think.truncated && <p>Some Think content is omitted. View the complete event in trajectory.</p>}
+                                </section>}
+                                {step?.bashExecution && (
+                                  <div className="tool-execution">
+                                    <div className="tool-execution-field">
+                                      <span>Command</span>
+                                      <pre>{step.bashExecution.command}</pre>
                                     </div>
-                                  ))}
-                                  {step.bashExecution && (
-                                    <div className="tool-execution">
+                                    {step.bashExecution.exitCode !== undefined && (
                                       <div className="tool-execution-field">
-                                        <span>Command</span>
-                                        <pre>{step.bashExecution.command}</pre>
+                                        <span>Exit code</span>
+                                        <pre>{step.bashExecution.exitCode}</pre>
                                       </div>
-                                      {step.bashExecution.exitCode !== undefined && (
-                                        <div className="tool-execution-field">
-                                          <span>Exit code</span>
-                                          <pre>{step.bashExecution.exitCode}</pre>
-                                        </div>
-                                      )}
-                                      {step.bashExecution.stdout !== undefined && (
-                                        <div className="tool-execution-field">
-                                          <span>stdout</span>
-                                          <pre>{step.bashExecution.stdout || "(empty)"}</pre>
-                                        </div>
-                                      )}
-                                      {step.bashExecution.stderr !== undefined && (
-                                        <div className="tool-execution-field">
-                                          <span>stderr</span>
-                                          <pre>{step.bashExecution.stderr || "(empty)"}</pre>
-                                        </div>
-                                      )}
-                                      {step.bashExecution.failure !== undefined && (
-                                        <div className="tool-execution-field">
-                                          <span>Result</span>
-                                          <pre>{step.bashExecution.failure}</pre>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                  {step.bashExecutionOmitted && (
-                                    <pre>Execution details omitted by the session size limit.</pre>
-                                  )}
-                                  {!step.bashExecution &&
-                                    !step.bashExecutionOmitted &&
-                                    step.summary && <pre>{step.summary}</pre>}
+                                    )}
+                                    {step.bashExecution.stdout !== undefined && (
+                                      <div className="tool-execution-field">
+                                        <span>stdout</span>
+                                        <pre>{step.bashExecution.stdout || "(empty)"}</pre>
+                                      </div>
+                                    )}
+                                    {step.bashExecution.stderr !== undefined && (
+                                      <div className="tool-execution-field">
+                                        <span>stderr</span>
+                                        <pre>{step.bashExecution.stderr || "(empty)"}</pre>
+                                      </div>
+                                    )}
+                                    {step.bashExecution.failure !== undefined && (
+                                      <div className="tool-execution-field">
+                                        <span>Result</span>
+                                        <pre>{step.bashExecution.failure}</pre>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {step?.bashExecutionOmitted && <pre>Execution details omitted by the session size limit.</pre>}
+                                {!step?.bashExecution && !step?.bashExecutionOmitted && member.summary && <pre>{member.summary}</pre>}
+                                {step && (
                                   <footer className="trajectory-link">
                                     <button
                                       aria-label={`View Step ${step.stepIndex} in trajectory`}
@@ -491,23 +596,45 @@ export function GoalSession({
                                       <ChevronRight size={12} />
                                     </button>
                                   </footer>
-                                </div>
+                                )}
+                              </article>
+                            );
+                          };
+
+                          const renderGroup = (group: ReturnType<typeof projectActivityGroups>[number]) => {
+                            const ActivityIcon = group.category === "execute" ? Terminal
+                              : group.category === "edit" ? FilePenLine
+                                : group.category === "explore" ? Search : group.category === "think" ? Brain : Zap;
+                            return (
+                              <details className={`activity-group ${group.category} ${group.status}`} key={group.id}>
+                                <summary>
+                                  <ActivityIcon size={13} aria-hidden="true" />
+                                  <span title={group.summary}>{group.summary}</span>
+                                  {group.status !== "completed" && (
+                                    <span className={`step-status ${group.status}`}>
+                                      {group.status === "running" ? "In progress" : group.status}
+                                    </span>
+                                  )}
+                                  <ChevronRight className="tool-chevron" size={12} aria-hidden="true" />
+                                </summary>
+                                <div className="activity-group-members">{group.members.map(renderMember)}</div>
                               </details>
                             );
                           };
 
-                          if (run.stages && run.stages.length > 0) {
-                            const { runLevelSteps, stages } = groupStepsByStage(run.steps, run.stages);
+                          if (stages.length > 0) {
+                            const stageIds = new Set(stages.map((stage) => stage.stageId));
+                            const runLevelGroups = groups.filter((group) => group.stageId === undefined || !stageIds.has(group.stageId));
                             return (
                               <div className="run-stages-container">
-                                {runLevelSteps.length > 0 && (
+                                {runLevelGroups.length > 0 && (
                                   <details className="run-steps run-level-steps" open>
                                     <summary className="run-steps-heading">
                                       <Layers size={13} aria-hidden="true" />
                                       <span>Run-level activity</span>
                                       <ChevronDown className="activity-chevron" size={12} aria-hidden="true" />
                                     </summary>
-                                    {runLevelSteps.map(renderStepItem)}
+                                    {runLevelGroups.map(renderGroup)}
                                   </details>
                                 )}
                                 {stages.map((stage) => (
@@ -518,27 +645,18 @@ export function GoalSession({
                                       <span className={`stage-status ${stage.status}`}>
                                         {renderStageStatusLabel(stage.status)}
                                       </span>
-                                      {stage.revision > 1 && (
-                                        <span className="stage-revision">Rev {stage.revision}</span>
-                                      )}
+                                      {stage.revision > 1 && <span className="stage-revision">Rev {stage.revision}</span>}
                                       <ChevronDown className="activity-chevron" size={12} aria-hidden="true" />
                                     </summary>
                                     <div className="stage-content">
-                                      {stage.resultSummary && (
-                                        <div className="stage-result-summary">
-                                          <strong>Result:</strong> {stage.resultSummary}
-                                        </div>
-                                      )}
                                       {stage.latestReviewRejection && (
                                         <div className="stage-rejection-feedback" role="alert">
                                           <strong>Review feedback:</strong>
-                                          {stage.latestReviewRejection.issues.map((issue, idx) => (
-                                            <p key={idx}>{issue}</p>
-                                          ))}
+                                          {stage.latestReviewRejection.issues.map((issue, idx) => <p key={idx}>{issue}</p>)}
                                         </div>
                                       )}
                                       <div className="stage-steps">
-                                        {stage.steps.map(renderStepItem)}
+                                        {groups.filter((group) => group.stageId === stage.stageId).map(renderGroup)}
                                       </div>
                                     </div>
                                   </details>
@@ -551,10 +669,10 @@ export function GoalSession({
                             <details className="run-steps" open>
                               <summary className="run-steps-heading">
                                 <Layers size={13} aria-hidden="true" />
-                                <span>{formatRunStepsTitle(run, runIndex + 1)}</span>
+                                <span>{formatRunStepsTitle(run, runIndex + runNumberOffset)}</span>
                                 <ChevronDown className="activity-chevron" size={12} aria-hidden="true" />
                               </summary>
-                              {run.steps.map(renderStepItem)}
+                              {groups.map(renderGroup)}
                             </details>
                           );
                         })()}
@@ -565,7 +683,7 @@ export function GoalSession({
                           >
                             <div className="message-heading">
                               <span className="message-avatar assistant">
-                                <Zap size={12} />
+                                <img src={brandMark} alt="" width={20} height={20} />
                               </span>
                               <strong>Live response</strong>
                               <small>Not saved yet</small>
@@ -631,6 +749,7 @@ export function GoalSession({
                   </button>
                 )}
               </div>
+              </SessionBoundary>
             </>
           )}
 

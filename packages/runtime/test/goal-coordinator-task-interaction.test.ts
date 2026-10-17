@@ -92,6 +92,14 @@ class GoalPlanCompletionExecutor extends BaseTestStepExecutor {
     }
 
     async execute({ goal }: StepExecutionInput): Promise<AgentDecision> {
+        const nextPlanStage = goal.state.run.planRoute?.stages[goal.state.run.planRoute.nextStageIndex];
+        if (goal.state.run.currentStage === undefined && nextPlanStage?.status === "pending") {
+            return {
+                kind: "run_stage_update",
+                target: nextPlanStage.target,
+                acceptanceCriteria: [...nextPlanStage.acceptanceCriteria],
+            };
+        }
         this.index += 1;
         if (this.index === 1) {
             return {
@@ -243,6 +251,7 @@ test("取消 AskUser 询问后保留当前 Run 并继续执行", async () => {
         }],
     }, {
         kind: "task_proposal",
+        planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
         task: {
             objective: "继续当前任务",
             completionCriteria: [{ text: "完成后续工作" }],
@@ -345,6 +354,7 @@ test("ask_user 恢复: 校验 requestId 与 answers，合法提交后追加用�
     // 3. 准备下一轮模型的决策：返回 task_proposal
     stepExecutor.enqueue({
         kind: "task_proposal",
+        planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
         task: {
             objective: "使用 PostgreSQL 构建系统",
             completionCriteria: [{ text: "数据库连接正常" }],
@@ -376,7 +386,7 @@ test("ask_user 恢复: 校验 requestId 与 answers，合法提交后追加用�
     assert.ok(userMsg);
 });
 
-test("Plan 提案前可按既有授权执行写工具，再持久化提案等待", async () => {
+test("Plan 提案前拒绝写工具，再持久化完整路线提案等待", async () => {
     const { store, trajectoryStore, stepExecutor, coordinator, goal, ref } = createCoordinatorTestRig();
     await store.save(goal);
 
@@ -391,6 +401,7 @@ test("Plan 提案前可按既有授权执行写工具，再持久化提案等待
         },
         {
             kind: "task_proposal",
+            planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
             task: { objective: "继续处理请求", completionCriteria: [{ text: "写入完成" }] },
             approvalRequest: "请批准继续执行",
         },
@@ -403,7 +414,10 @@ test("Plan 提案前可按既有授权执行写工具，再持久化提案等待
     assert.equal(result.goal.state.run.pendingAction, undefined);
     assert.equal(result.goal.state.run.pendingInteraction?.kind, "task_approval");
     const events = await trajectoryStore.read(ref);
-    assert.ok(events.some((event) => event.eventType === "tool_finished"));
+    assert.equal(events.some((event) => event.eventType === "tool_started" || event.eventType === "tool_finished"), false);
+    assert.equal(result.goal.state.run.pendingInteraction?.kind === "task_approval"
+        ? result.goal.state.run.pendingInteraction.planRouteCandidate.stages.length
+        : 0, 1);
     const proposalRequestId = result.goal.state.run.pendingInteraction?.kind === "task_approval"
         ? result.goal.state.run.pendingInteraction.requestId
         : undefined;
@@ -421,6 +435,7 @@ test("任务提案反馈: feedback_task 使旧提案失效，追加反馈消息�
 
     stepExecutor.enqueue({
         kind: "task_proposal",
+        planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
         task: {
             objective: "初步方案",
             completionCriteria: [{ text: "初步条件" }],
@@ -441,6 +456,7 @@ test("任务提案反馈: feedback_task 使旧提案失效，追加反馈消息�
     // 下一轮模型根据反馈重新给出提案
     stepExecutor.enqueue({
         kind: "task_proposal",
+        planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
         task: {
             objective: "调整后的优化方案",
             completionCriteria: [{ text: "优化条件" }],
@@ -500,6 +516,7 @@ test("任务提案批准: approve_task 固定任务并推进 ContextEpoch，后�
 
     stepExecutor.enqueue({
         kind: "task_proposal",
+        planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
         task: {
             objective: "最终方案",
             completionCriteria: [],
@@ -552,6 +569,11 @@ test("任务提案批准: approve_task 固定任务并推进 ContextEpoch，后�
     // 批准后模型执行只读查询，随后完成
     stepExecutor.enqueue(
         {
+            kind: "run_stage_update",
+            target: "Complete the proposed task",
+            acceptanceCriteria: ["The task outcome is verified"],
+        },
+        {
             kind: "tool_call",
             action: {
                 actionId: "act-read-1",
@@ -584,8 +606,8 @@ test("任务提案批准: approve_task 固定任务并推进 ContextEpoch，后�
     assert.equal(approveResult.goal.state.run.id, ref.runId);
     // pendingInteraction 已被清除
     assert.equal(approveResult.goal.state.run.pendingInteraction, undefined);
-    // 批准后执行了一步工具调用与一次完成决策，stepCount 增加了 2
-    assert.equal(approveResult.goal.state.run.stepCount, 2);
+    // 批准后声明阶段、执行工具并完成 Run，stepCount 增加了 3。
+    assert.equal(approveResult.goal.state.run.stepCount, 3);
     assert.equal(approveResult.goal.state.run.status, "completed");
     const approvedEvent = (await trajectoryStore.read(ref)).find((event) => event.payload.type === "task_approved");
     assert.equal(
@@ -604,6 +626,7 @@ test("跨重启恢复 Plan 选择、任务审批与 GoalPlan Run 执行", async 
     assert.equal(selected.goal.state.goalPlan, undefined);
     stepExecutor.enqueue({
         kind: "task_proposal",
+        planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
         task: { objective: "恢复后继续的计划任务", completionCriteria: [] },
         approvalRequest: "请批准计划任务",
     });
@@ -653,7 +676,7 @@ test("跨重启恢复 Plan 选择、任务审批与 GoalPlan Run 执行", async 
     assert.equal(resumed.goal.state.run.approvedTask?.objective, "恢复后继续的计划任务");
     assert.equal(resumed.goal.state.run.pendingInteraction, undefined);
     assert.equal(resumed.goal.state.run.status, "completed");
-    assert.equal(resumed.goal.state.run.stepCount, 4);
+    assert.equal(resumed.goal.state.run.stepCount, 5);
     assert.deepEqual(resumed.goal.state.goalPlan?.items, [{
         id: "todo-1-1",
         content: "完成当前 Run 的计划项",

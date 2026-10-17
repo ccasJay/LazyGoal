@@ -117,6 +117,30 @@ export const GoalTaskContract = contract.object({
 /** Goal 任务公开类型。 */
 export type GoalTask = InferContract<typeof GoalTaskContract>;
 
+/**
+ * Plan Run 阶段路线的模型候选契约。
+ *
+ * @remarks
+ * 候选只携带有序阶段目标与验收条件，不含阶段身份、状态或恢复游标；这些事实由 Runtime
+ * 在任务提案批准后分配和持久化。路线至少包含一个阶段。
+ *
+ * @example
+ * ```ts
+ * const route: RunPlanRouteCandidate = {
+ *     stages: [{ target: "调查入口", acceptanceCriteria: ["定位现有实现"] }],
+ * };
+ * ```
+ */
+export const RunPlanRouteCandidateContract = contract.object({
+    stages: contract.array(contract.object({
+        target: contract.string(),
+        acceptanceCriteria: contract.array(contract.string(), { minItems: 1 }),
+    }), { minItems: 1 }),
+});
+
+/** Plan Run 的有序阶段路线候选；不包含 Runtime 状态。 */
+export type RunPlanRouteCandidate = InferContract<typeof RunPlanRouteCandidateContract>;
+
 /** GoalPlan Todo 的生命周期状态契约。 */
 export const GoalPlanStatusContract = contract.enum([
     "pending",
@@ -997,6 +1021,7 @@ export type AskUserAgentDecision = InferContract<typeof AskUserAgentDecisionCont
  * const proposal: TaskProposalAgentDecision = {
  *     kind: "task_proposal",
  *     task: { objective: "修复问题", completionCriteria: [{ text: "测试通过" }] },
+ *     planRoute: { stages: [{ target: "实现修复", acceptanceCriteria: ["测试通过"] }] },
  *     approvalRequest: "请批准任务计划",
  * };
  * ```
@@ -1004,10 +1029,39 @@ export type AskUserAgentDecision = InferContract<typeof AskUserAgentDecisionCont
 export const TaskProposalAgentDecisionContract = contract.object({
     kind: contract.literal("task_proposal"),
     task: GoalTaskContract,
+    planRoute: RunPlanRouteCandidateContract,
     approvalRequest: contract.string(),
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 export type TaskProposalAgentDecision = InferContract<typeof TaskProposalAgentDecisionContract>;
+
+/**
+ * 获批 Plan Run 完整路线修订决策契约。
+ *
+ * @remarks
+ * Agent 必须给出证据理由和完整路线。仅当变更超出已批准范围或改变结果承诺时提供
+ * `approvalRequest`；Runtime 会暂停并把候选路线交给用户确认，缺省时由 Runtime 在检查点中应用。
+ * 阶段身份、状态和游标始终由 Runtime 管理。
+ *
+ * @example
+ * ```ts
+ * const update: RunPlanRouteUpdateAgentDecision = {
+ *     kind: "run_plan_route_update",
+ *     baseRevision: 1,
+ *     reason: "调查发现该验证关口已由现有 CI 覆盖",
+ *     route: { stages: [{ target: "实现修复", acceptanceCriteria: ["回归通过"] }] },
+ * };
+ * ```
+ */
+export const RunPlanRouteUpdateAgentDecisionContract = contract.object({
+    kind: contract.literal("run_plan_route_update"),
+    baseRevision: contract.integer({ minimum: 1 }),
+    reason: contract.string(),
+    route: RunPlanRouteCandidateContract,
+    approvalRequest: contract.optional(contract.string()),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+});
+export type RunPlanRouteUpdateAgentDecision = InferContract<typeof RunPlanRouteUpdateAgentDecisionContract>;
 
 /**
  * 规范化后的 AskUser 问题选项。
@@ -1283,6 +1337,7 @@ export const PlanModeExecutingDecisionContract = contract.discriminatedUnion("ki
     GoalPlanUpdateAgentDecisionContract,
     RunStageUpdateAgentDecisionContract,
     RunStageCompleteAgentDecisionContract,
+    RunPlanRouteUpdateAgentDecisionContract,
 ]);
 
 /** Plan Mode Executing 决策公开类型。 */
@@ -1314,6 +1369,7 @@ export const AgentDecisionContract = contract.union([
     GoalPlanUpdateAgentDecisionContract,
     RunStageUpdateAgentDecisionContract,
     RunStageCompleteAgentDecisionContract,
+    RunPlanRouteUpdateAgentDecisionContract,
 ]);
 
 /** Agent 决策公开类型。 */
@@ -1665,6 +1721,42 @@ export function validateModelOutputSemantics(
                             );
                         });
                     }
+                }
+                if (isRecord(value.planRoute) && Array.isArray(value.planRoute.stages)) {
+                    value.planRoute.stages.forEach((stage, index) => {
+                        if (!isRecord(stage)) return;
+                        const stagePath = [...basePath, "planRoute", "stages", index];
+                        checkNonBlank(stage.target, [...stagePath, "target"], issues, "stage target");
+                        if (Array.isArray(stage.acceptanceCriteria)) {
+                            stage.acceptanceCriteria.forEach((criterion, criterionIndex) => {
+                                checkNonBlank(
+                                    criterion,
+                                    [...stagePath, "acceptanceCriteria", criterionIndex],
+                                    issues,
+                                    "stage acceptance criterion",
+                                );
+                            });
+                        }
+                    });
+                }
+                break;
+            }
+            case "run_plan_route_update": {
+                checkNonBlank(value.reason, [...basePath, "reason"], issues, "route revision reason");
+                if (value.approvalRequest !== undefined) {
+                    checkNonBlank(value.approvalRequest, [...basePath, "approvalRequest"], issues, "approvalRequest");
+                }
+                if (isRecord(value.route) && Array.isArray(value.route.stages)) {
+                    value.route.stages.forEach((stage, index) => {
+                        if (!isRecord(stage)) return;
+                        const stagePath = [...basePath, "route", "stages", index];
+                        checkNonBlank(stage.target, [...stagePath, "target"], issues, "stage target");
+                        if (Array.isArray(stage.acceptanceCriteria)) {
+                            stage.acceptanceCriteria.forEach((criterion, criterionIndex) => {
+                                checkNonBlank(criterion, [...stagePath, "acceptanceCriteria", criterionIndex], issues, "stage acceptance criterion");
+                            });
+                        }
+                    });
                 }
                 break;
             }

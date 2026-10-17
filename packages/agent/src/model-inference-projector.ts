@@ -38,8 +38,8 @@ import { buildGoalContextNavigation } from "./goal-context-navigation";
  * 只有本模块同时感知 Runtime 领域类型与 View DTO，并负责逐字段复制，保证
  * 两个 View 之间不共享可变对象。它不修改 Goal、不写入消息历史，也不序列化
  * Snapshot；固定 PromptContext 与动态运行状态分开投影，Storage schemaVersion
- * 与瞬时执行资源不会进入模型 View。业务工具列表保持 Profile 授权结果，不按审批
- * 状态或 `isReadOnly` 分类过滤。
+ * 与瞬时执行资源不会进入模型 View。业务工具列表按调用方传入的当前可用工具逐项投影；
+ * 工具授权、模式过滤和 `isReadOnly` 门控由 Runtime 负责。
  *
  * @example
  * ```ts
@@ -141,6 +141,23 @@ export class ModelInferenceProjector {
                                     }),
                             }),
                         ),
+                    },
+                }),
+            ...(goal.state.run.planRoute === undefined
+                ? {}
+                : {
+                    planRoute: {
+                        revision: goal.state.run.planRoute.revision,
+                        ...(goal.state.run.planRoute.revisionReason === undefined
+                            ? {} : { revisionReason: goal.state.run.planRoute.revisionReason }),
+                        nextStageIndex: goal.state.run.planRoute.nextStageIndex,
+                        stages: goal.state.run.planRoute.stages.map((stage) => ({
+                            stageId: stage.stageId,
+                            revision: stage.revision,
+                            status: stage.status,
+                            target: stage.target,
+                            acceptanceCriteria: [...stage.acceptanceCriteria],
+                        })),
                     },
                 }),
             ...(projectedGoalPlan === undefined ? {} : { goalPlan: projectedGoalPlan }),

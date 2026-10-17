@@ -1,3 +1,4 @@
+import type { BrowserProviderModelQuery, BrowserProviderModels } from "../../web-contracts/src/index";
 import { Hono } from "hono";
 
 import type { BrowserGoalListItem, BrowserGoalSession } from "./browser-projection";
@@ -26,6 +27,18 @@ import type {
     BrowserResumeGoalResult,
 } from "./browser-goal-command-service";
 import type {
+    BrowserProviderProfileInput,
+    BrowserProviderProfileTestError,
+    BrowserProviderSettingsError,
+} from "../../web-contracts/src/index";
+import type {
+    BrowserProviderProfileActivationResult,
+    BrowserProviderProfileDeleteResult,
+    BrowserProviderProfileTestResult,
+    BrowserProviderProfileWriteResult,
+    BrowserProviderSettingsReadResult,
+} from "../../web-contracts/src/index";
+import type {
     BrowserGoalLiveFeed,
     BrowserGoalStreamOpenResult,
 } from "./browser-goal-stream";
@@ -33,6 +46,56 @@ import type {
 const MAX_COMMAND_BODY_BYTES = 16 * 1024;
 const MAX_GOAL_ID_LENGTH = 128;
 const MAX_COMMAND_TEXT_LENGTH = 4_000;
+const MAX_PROVIDER_LABEL_LENGTH = 200;
+const MAX_PROVIDER_KIND_LENGTH = 64;
+const MAX_PROVIDER_API_KEY_LENGTH = 4_096;
+const MAX_PROVIDER_BASE_URL_LENGTH = 2_048;
+const PROVIDER_PROFILE_FIELD_NAMES: ReadonlySet<string> = new Set([
+    "label", "kind", "defaultModel", "apiKey", "baseURL",
+    "contextWindowTokens", "maxOutputTokens", "structuredOutputMode",
+]);
+
+/**
+ * 受管 Provider 档案管理端口。
+ *
+ * @remarks
+ * 实现方负责凭据持久化、掩码投影与连接测试；路由只做 wire 校验与错误分类。
+ * 任何响应都不得包含明文凭据。
+ *
+ * @example
+ * ```ts
+ * const port: BrowserProviderSettingsPort = {
+ *     read: async () => ({ ok: true, settings: { profiles: [] } }),
+ *     create: async () => ({ ok: false, error: "provider_profile_unavailable" }),
+ *     update: async () => ({ ok: false, error: "provider_profile_not_found" }),
+ *     remove: async () => ({ ok: false, error: "provider_profile_not_found" }),
+ *     activate: async () => ({ ok: false, error: "provider_profile_not_found" }),
+ *     fetchModels: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+ *     test: async () => ({ ok: false, error: "provider_profile_not_found" }),
+ * };
+ * ```
+ */
+export interface BrowserProviderSettingsPort {
+    /** @returns 掩码后的档案列表、激活标识与只读回退来源。 */
+    read(): Promise<BrowserProviderSettingsReadResult>;
+    /**
+     * 拉取未保存连接的在线模型；不写入档案、偏好或凭据，不返回敏感响应。
+     * @param input - 经 wire 校验的表单连接参数。
+     * @param signal - 请求取消信号。
+     * @returns 在线列表或稳定失败分类。
+     */
+    fetchModels(input: BrowserProviderModelQuery, signal: AbortSignal): Promise<BrowserProviderModels | { readonly ok: false; readonly error: BrowserProviderProfileTestError | "provider_profile_invalid" }>;
+    /** @param input - 已通过 wire 校验的档案输入。 */
+    create(input: BrowserProviderProfileInput): Promise<BrowserProviderProfileWriteResult>;
+    /** @param profileId - 目标档案；`input` 省略 `apiKey` 时保留原凭据。 */
+    update(profileId: string, input: BrowserProviderProfileInput): Promise<BrowserProviderProfileWriteResult>;
+    /** @returns 被删档案与"可能被 Goal 引用"提示；激活档案必须拒绝删除。 */
+    remove(profileId: string): Promise<BrowserProviderProfileDeleteResult>;
+    /** @returns 新的激活标识。 */
+    activate(profileId: string): Promise<BrowserProviderProfileActivationResult>;
+    /** @returns 在线模型数量；只做列表拉取，不发起生成请求。 */
+    test(profileId: string): Promise<BrowserProviderProfileTestResult>;
+}
 
 /**
  * 浏览器 Goal API 使用的白名单数据边界。
@@ -66,6 +129,12 @@ export interface BrowserGoalApiPort {
      * @throws Catalog 损坏或读取失败时拒绝。
      */
     list(): Promise<readonly BrowserGoalListItem[]>;
+    /**
+     * 受管 Provider 档案管理；省略时不挂载设置路由。
+     *
+     * @remarks 挂载后由调用方保证路由位于本机会话访问控制之后。
+     */
+    readonly providerSettings?: BrowserProviderSettingsPort;
     /**
      * 设置终态 Goal 的归档状态；不改变 Snapshot 或 Run 历史。
      * @param goalId - 正式工作区 Goal 身份。
@@ -164,14 +233,14 @@ export interface BrowserGoalApiPort {
      * @param signal - 浏览器断开时取消在线目录请求。
      * @returns 白名单目录或稳定失败分类，不返回凭据或 Provider 原始响应。
      */
-    models(target?: { readonly goalId: string; readonly runId: string }, signal?: AbortSignal): Promise<BrowserModelCatalogReadResult>;
+    models(target?: { readonly goalId: string; readonly runId: string }, signal?: AbortSignal, providerProfileId?: string): Promise<BrowserModelCatalogReadResult>;
     /**
      * 验证并保存当前工作区新 Goal 的默认模型身份。
      *
      * @param modelId - 当前 Provider 中须可选择的模型 ID。
      * @returns 持久化成功或稳定失败；关闭期间拒绝写入，文件写入失败不得报告成功。
      */
-    setModelPreference(modelId: string): Promise<
+    setModelPreference(modelId: string, providerProfileId?: string): Promise<
         { readonly ok: true; readonly modelId: string }
         | { readonly ok: false; readonly error: "model_not_selectable" | "model_catalog_unavailable" | "model_preference_unavailable" | "service_shutting_down" }
     >;
@@ -231,11 +300,18 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
     const routes = new Hono();
 
     routes.get("/api/models", async (context) => {
-        if (new URL(context.req.url).searchParams.size !== 0) {
+        const query = new URL(context.req.url).searchParams;
+        const providerProfileIds = query.getAll("providerProfileId");
+        const providerProfileId = providerProfileIds[0];
+        if (
+            query.size > 1
+            || providerProfileIds.length > 1
+            || (providerProfileId !== undefined && !isWireId(providerProfileId, MAX_GOAL_ID_LENGTH))
+        ) {
             return context.json({ error: "invalid_model_catalog_request" }, 400);
         }
         try {
-            const result = await source.models(undefined, context.req.raw.signal);
+            const result = await source.models(undefined, context.req.raw.signal, providerProfileId);
             return result.ok
                 ? context.json(result.catalog)
                 : context.json({ error: result.error }, modelCatalogErrorStatus(result.error));
@@ -248,18 +324,22 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         const goalId = context.req.param("goalId");
         const query = new URL(context.req.url).searchParams;
         const runIds = query.getAll("runId");
+        const providerProfileIds = query.getAll("providerProfileId");
         const runId = runIds[0];
+        const providerProfileId = providerProfileIds[0];
         if (
             !isWireId(goalId, MAX_GOAL_ID_LENGTH)
-            || query.size !== 1
+            || query.size > 2
             || runIds.length !== 1
+            || providerProfileIds.length > 1
+            || (providerProfileId !== undefined && !isWireId(providerProfileId, MAX_GOAL_ID_LENGTH))
             || runId === undefined
             || !isWireId(runId, 256)
         ) {
             return context.json({ error: "invalid_model_catalog_request" }, 400);
         }
         try {
-            const result = await source.models({ goalId, runId }, context.req.raw.signal);
+            const result = await source.models({ goalId, runId }, context.req.raw.signal, providerProfileId);
             return result.ok
                 ? context.json(result.catalog)
                 : context.json({ error: result.error, refresh: result.error === "stale_run" }, modelCatalogErrorStatus(result.error));
@@ -277,11 +357,18 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         }
         const fields = value as Record<string, unknown>;
         const modelId = readWireText(fields.modelId, 256);
-        if (Object.keys(fields).length !== 1 || modelId === undefined) {
+        const providerProfileId = fields.providerProfileId === undefined
+            ? undefined
+            : readWireText(fields.providerProfileId, MAX_GOAL_ID_LENGTH);
+        if (
+            Object.keys(fields).some((key) => key !== "modelId" && key !== "providerProfileId")
+            || modelId === undefined
+            || ("providerProfileId" in fields && providerProfileId === undefined)
+        ) {
             return context.json({ error: "invalid_model_preference" }, 400);
         }
         try {
-            const result = await source.setModelPreference(modelId);
+            const result = await source.setModelPreference(modelId, providerProfileId);
             if (result.ok) return context.json(result);
             return context.json({ error: result.error }, result.error === "model_not_selectable" ? 409 : 503);
         } catch {
@@ -300,15 +387,20 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         }
         const fields = value as Record<string, unknown>;
         const modelId = readWireText(fields.modelId, 256);
+        const providerProfileId = fields.providerProfileId === undefined
+            ? undefined
+            : readWireText(fields.providerProfileId, MAX_GOAL_ID_LENGTH);
         if (
-            Object.keys(fields).length !== 2
+            Object.keys(fields).some((key) => key !== "runId" && key !== "modelId" && key !== "providerProfileId")
             || !isWireId(fields.runId, 256)
             || modelId === undefined
+            || ("providerProfileId" in fields && providerProfileId === undefined)
         ) return context.json({ error: "invalid_model_selection" }, 400);
         try {
             const result = await source.selectModel(goalId, {
                 runId: fields.runId,
                 modelId,
+                ...(providerProfileId === undefined ? {} : { providerProfileId }),
             });
             if (result.ok) return context.json(result);
             const status = result.error === "goal_not_found" ? 404
@@ -644,7 +736,189 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         return createEventStreamResponse(opened.feed);
     });
 
+    const providerSettings = source.providerSettings;
+    if (providerSettings !== undefined) {
+        routes.get("/api/providers", async (context) => {
+            try {
+                const result = await providerSettings.read();
+                if (result.ok) return context.json(result.settings);
+                return context.json({ error: result.error }, providerSettingsErrorStatus(result.error));
+            } catch {
+                return context.json({ error: "provider_profile_unavailable" }, 503);
+            }
+        });
+
+        routes.post("/api/providers/models", async (context) => {
+            const parsed = await readJsonBody(context.req.raw);
+            if (!parsed.ok) return context.json({ error: parsed.error }, parsed.status);
+            const value = parsed.value;
+            if (typeof value !== "object" || value === null || Array.isArray(value)) return context.json({ error: "invalid_provider_profile" }, 400);
+            const fields = value as Record<string, unknown>;
+            const kind = readWireText(fields.kind, MAX_PROVIDER_KIND_LENGTH);
+            const apiKey = fields.apiKey === undefined ? undefined : readWireText(fields.apiKey, MAX_PROVIDER_API_KEY_LENGTH);
+            const baseURL = fields.baseURL === undefined ? undefined : readWireText(fields.baseURL, MAX_PROVIDER_BASE_URL_LENGTH);
+            const profileId = fields.profileId === undefined ? undefined : readWireText(fields.profileId, MAX_GOAL_ID_LENGTH);
+            if (!kind || Object.keys(fields).some(key => !["kind", "apiKey", "baseURL", "profileId"].includes(key))
+                || (fields.apiKey !== undefined && apiKey === undefined)
+                || (fields.baseURL !== undefined && baseURL === undefined)
+                || (fields.profileId !== undefined && (profileId === undefined || !isWireId(profileId, MAX_GOAL_ID_LENGTH)))) {
+                return context.json({ error: "invalid_provider_profile" }, 400);
+            }
+            try {
+                const result = await providerSettings.fetchModels({ kind, ...(apiKey === undefined ? {} : { apiKey }), ...(baseURL === undefined ? {} : { baseURL }), ...(profileId === undefined ? {} : { profileId }) }, context.req.raw.signal);
+                if (result.ok) return context.json(result);
+                return context.json({ error: result.error }, result.error === "provider_profile_invalid" ? 400 : providerProfileTestStatus(result.error));
+            } catch {
+                return context.json({ error: "model_catalog_unavailable" }, 503);
+            }
+        });
+
+        routes.post("/api/providers", async (context) => {
+            const parsed = await parseProviderProfileInput(context.req.raw);
+            if (!parsed.ok) return context.json({ error: "invalid_provider_profile" }, 400);
+            try {
+                const result = await providerSettings.create(parsed.input);
+                if (result.ok) return context.json(result, 201);
+                return context.json(
+                    { error: result.error, ...(result.fields === undefined ? {} : { fields: result.fields }) },
+                    providerSettingsErrorStatus(result.error),
+                );
+            } catch {
+                return context.json({ error: "provider_profile_unavailable" }, 503);
+            }
+        });
+
+        routes.patch("/api/providers/:providerProfileId", async (context) => {
+            const profileId = context.req.param("providerProfileId");
+            if (!isWireId(profileId, MAX_GOAL_ID_LENGTH)) {
+                return context.json({ error: "invalid_provider_profile" }, 400);
+            }
+            const parsed = await parseProviderProfileInput(context.req.raw);
+            if (!parsed.ok) return context.json({ error: "invalid_provider_profile" }, 400);
+            try {
+                const result = await providerSettings.update(profileId, parsed.input);
+                if (result.ok) return context.json(result);
+                return context.json(
+                    { error: result.error, ...(result.fields === undefined ? {} : { fields: result.fields }) },
+                    providerSettingsErrorStatus(result.error),
+                );
+            } catch {
+                return context.json({ error: "provider_profile_unavailable" }, 503);
+            }
+        });
+
+        routes.delete("/api/providers/:providerProfileId", async (context) => {
+            const profileId = context.req.param("providerProfileId");
+            if (!isWireId(profileId, MAX_GOAL_ID_LENGTH)) {
+                return context.json({ error: "invalid_provider_profile" }, 400);
+            }
+            try {
+                const result = await providerSettings.remove(profileId);
+                if (result.ok) return context.json(result);
+                return context.json({ error: result.error }, providerSettingsErrorStatus(result.error));
+            } catch {
+                return context.json({ error: "provider_profile_unavailable" }, 503);
+            }
+        });
+
+        routes.post("/api/providers/:providerProfileId/activate", async (context) => {
+            const profileId = context.req.param("providerProfileId");
+            if (!isWireId(profileId, MAX_GOAL_ID_LENGTH)) {
+                return context.json({ error: "invalid_provider_profile" }, 400);
+            }
+            try {
+                const result = await providerSettings.activate(profileId);
+                if (result.ok) return context.json(result);
+                return context.json({ error: result.error }, providerSettingsErrorStatus(result.error));
+            } catch {
+                return context.json({ error: "provider_profile_unavailable" }, 503);
+            }
+        });
+
+        routes.post("/api/providers/:providerProfileId/test", async (context) => {
+            const profileId = context.req.param("providerProfileId");
+            if (!isWireId(profileId, MAX_GOAL_ID_LENGTH)) {
+                return context.json({ error: "invalid_provider_profile" }, 400);
+            }
+            try {
+                const result = await providerSettings.test(profileId);
+                if (result.ok) return context.json(result);
+                return context.json({ error: result.error }, providerProfileTestStatus(result.error));
+            } catch {
+                return context.json({ error: "model_catalog_unavailable" }, 503);
+            }
+        });
+    }
+
     return routes;
+}
+
+function providerSettingsErrorStatus(error: BrowserProviderSettingsError): 400 | 404 | 409 | 503 {
+    if (error === "provider_profile_not_found") return 404;
+    if (error === "provider_profile_invalid") return 400;
+    if (error === "provider_profile_conflict" || error === "provider_profile_active") return 409;
+    return 503;
+}
+
+function providerProfileTestStatus(error: BrowserProviderProfileTestError): 404 | 502 | 503 {
+    if (error === "provider_profile_not_found") return 404;
+    if (error === "model_catalog_unavailable") return 503;
+    return 502;
+}
+
+/**
+ * 解析创建/更新档案的 wire 输入。
+ *
+ * @remarks
+ * 只接受白名单字段；`label`、`kind`、`defaultModel` 必填。
+ * 其余可选字段省略或为 `null` 时归一为缺省：`apiKey` 缺省表示保留原凭据，其余表示清空。
+ */
+async function parseProviderProfileInput(
+    request: Request,
+): Promise<{ readonly ok: true; readonly input: BrowserProviderProfileInput } | { readonly ok: false }> {
+    const parsedBody = await readJsonBody(request);
+    if (!parsedBody.ok) return { ok: false };
+    const value = parsedBody.value;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return { ok: false };
+    const fields = value as Record<string, unknown>;
+    if (Object.keys(fields).some((key) => !PROVIDER_PROFILE_FIELD_NAMES.has(key))) return { ok: false };
+
+    const label = readWireText(fields.label, MAX_PROVIDER_LABEL_LENGTH);
+    const kind = readWireText(fields.kind, MAX_PROVIDER_KIND_LENGTH);
+    const defaultModel = readWireText(fields.defaultModel, 256);
+    if (label === undefined || kind === undefined || defaultModel === undefined) return { ok: false };
+
+    const absent = (input: unknown): boolean => input === undefined || input === null;
+    if (!absent(fields.apiKey) && readWireText(fields.apiKey, MAX_PROVIDER_API_KEY_LENGTH) === undefined) return { ok: false };
+    if (!absent(fields.baseURL) && readWireText(fields.baseURL, MAX_PROVIDER_BASE_URL_LENGTH) === undefined) return { ok: false };
+    const apiKey = absent(fields.apiKey) ? undefined : readWireText(fields.apiKey, MAX_PROVIDER_API_KEY_LENGTH);
+    const baseURL = absent(fields.baseURL) ? undefined : readWireText(fields.baseURL, MAX_PROVIDER_BASE_URL_LENGTH);
+
+    const mode = absent(fields.structuredOutputMode) ? undefined : readWireText(fields.structuredOutputMode, 32);
+    if (mode !== undefined && mode !== "strict" && mode !== "prompt_only" && mode !== "two_stage") return { ok: false };
+
+    const readPositive = (input: unknown): number | undefined => {
+        if (absent(input)) return undefined;
+        return typeof input === "number" && Number.isSafeInteger(input) && input > 0 ? input : undefined;
+    };
+    if (!absent(fields.contextWindowTokens) && readPositive(fields.contextWindowTokens) === undefined) return { ok: false };
+    if (!absent(fields.maxOutputTokens) && readPositive(fields.maxOutputTokens) === undefined) return { ok: false };
+    const contextWindowTokens = readPositive(fields.contextWindowTokens);
+    const maxOutputTokens = readPositive(fields.maxOutputTokens);
+
+    return {
+        ok: true,
+        input: {
+            label,
+            kind,
+            defaultModel,
+            ...(apiKey === undefined ? {} : { apiKey }),
+            ...(baseURL === undefined ? {} : { baseURL }),
+            ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
+            ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+            ...(mode === undefined ? {} : { structuredOutputMode: mode }),
+        },
+    };
 }
 
 function modelCatalogErrorStatus(error: Exclude<BrowserModelCatalogReadResult, { readonly ok: true }>["error"]): 404 | 409 | 502 | 503 {

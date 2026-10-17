@@ -212,6 +212,14 @@ export type GoalSnapshotStructuredDecisionResultV1 =
         readonly summary: string;
         readonly evidenceSequences?: readonly number[] | undefined;
         readonly memoryPatch?: GoalSnapshotMemoryPatchV1 | undefined;
+    }
+    | {
+        readonly kind: "run_plan_route_update";
+        readonly baseRevision: number;
+        readonly reason: string;
+        readonly route: GoalSnapshotPlanRouteCandidateV1;
+        readonly approvalRequest?: string | undefined;
+        readonly memoryPatch?: GoalSnapshotMemoryPatchV1 | undefined;
     };
 
 /** Snapshot 中最近一次完成 Step 的 Decision 结果。 */
@@ -282,9 +290,20 @@ export interface GoalSnapshotPendingModelRepairV1 {
     readonly stage: "decide" | "think";
     readonly inputBoundary: string;
     readonly attemptsStarted: number;
+    /** 不推进类调用数；与 `attemptsStarted` 独立计数。 */
+    readonly continuationsStarted?: number;
+    /** 最近一次失败的类别；决定下一次调用计入哪个预算。 */
+    readonly latestFailureClass?: "non_advancing" | "protocol";
     readonly latestAttemptEventId: string;
     readonly latestFeedbackEventId?: string;
     readonly thinkRequestId?: string;
+}
+
+/** Snapshot 中一次 Decide 返回的多调用批次里尚未暂存的决策。 */
+export interface GoalSnapshotPendingActionBatchV1 {
+    readonly batchId: string;
+    /** 按模型返回顺序排列、尚未暂存的业务 Action；至少一条。 */
+    readonly remaining: readonly GoalSnapshotToolCallActionV1[];
 }
 
 /** Snapshot 中的未完成 Action。 */
@@ -382,6 +401,47 @@ export interface GoalSnapshotRunStageV1 {
 }
 
 /**
+ * Snapshot 中单个 Plan Run 路线阶段。
+ *
+ * @example
+ * ```ts
+ * const stage: GoalSnapshotPlanRouteStageV1 = {
+ *     stageId: "stage-1", revision: 1, status: "pending",
+ *     target: "调查入口", acceptanceCriteria: ["定位实现"],
+ * };
+ * ```
+ */
+export interface GoalSnapshotPlanRouteStageV1 {
+    readonly stageId: string;
+    readonly revision: number;
+    readonly status: "pending" | "executing" | "accepted";
+    readonly target: string;
+    readonly acceptanceCriteria: readonly string[];
+    readonly acceptedSequence?: number | undefined;
+}
+
+/**
+ * Snapshot 中已批准 Plan Run 的完整阶段路线与恢复游标。
+ *
+ * @remarks 普通 Run 和尚未批准任务提案的 Plan Run 不包含该状态。
+ *
+ * @example
+ * ```ts
+ * const route: GoalSnapshotPlanRouteV1 = {
+ *     revision: 1, nextStageIndex: 0, nextStageOrdinal: 2,
+ *     stages: [{ stageId: "stage-1", revision: 1, status: "pending", target: "调查", acceptanceCriteria: ["定位入口"] }],
+ * };
+ * ```
+ */
+export interface GoalSnapshotPlanRouteV1 {
+    readonly revision: number;
+    readonly revisionReason?: string;
+    readonly nextStageIndex: number;
+    readonly nextStageOrdinal: number;
+    readonly stages: readonly GoalSnapshotPlanRouteStageV1[];
+}
+
+/**
  * Snapshot 中的 Run 状态。
  *
  * @remarks
@@ -418,8 +478,12 @@ export interface GoalSnapshotRunStateV1 {
     readonly memoryRevision?: GoalSnapshotMemoryRevisionV1 | undefined;
     /** Snapshot 中当前活动或最新已接受的 Run 内部阶段。 */
     readonly currentStage?: GoalSnapshotRunStageV1 | undefined;
+    /** 已批准 Plan Run 的完整路线；普通 Run 和待审批 Run 省略。 */
+    readonly planRoute?: GoalSnapshotPlanRouteV1 | undefined;
     readonly lastStep?: GoalSnapshotStepRecordV1 | undefined;
     readonly pendingAction?: GoalSnapshotPendingActionV1 | undefined;
+    /** 多调用批次中尚未暂存的后续决策；与 `pendingAction` 共同构成恢复点。 */
+    readonly pendingActionBatch?: GoalSnapshotPendingActionBatchV1 | undefined;
     readonly pendingProgram?: GoalSnapshotPendingProgramV1 | undefined;
     readonly pendingInteraction?: GoalSnapshotPendingInteractionV1 | undefined;
     readonly pendingThink?: GoalSnapshotPendingThinkV1 | undefined;
@@ -571,6 +635,16 @@ export interface GoalSnapshotPendingInteractionAskUserV1 {
     readonly requestId: string;
     readonly mode: "plan" | "execution";
     readonly questions: readonly GoalSnapshotAskUserQuestionV1[];
+    readonly routeRevision?: GoalSnapshotPendingPlanRouteRevisionApprovalV1;
+}
+
+/** Snapshot 中等待确认的完整路线修订及绑定的批准选项。 */
+export interface GoalSnapshotPendingPlanRouteRevisionApprovalV1 {
+    readonly baseRevision: number;
+    readonly candidate: GoalSnapshotPlanRouteCandidateV1;
+    readonly reason: string;
+    readonly approvalRequest: string;
+    readonly approvalOptionId: string;
 }
 
 /**
@@ -582,6 +656,7 @@ export interface GoalSnapshotPendingInteractionAskUserV1 {
  *     kind: "task_approval",
  *     requestId: "proposal-1",
  *     proposal: { objective: "重构模块", completionCriteria: [] },
+ *     planRouteCandidate: { stages: [{ target: "调查", acceptanceCriteria: ["定位入口"] }] },
  *     approvalRequest: "请确认任务目标",
  * };
  * ```
@@ -590,7 +665,37 @@ export interface GoalSnapshotPendingInteractionTaskApprovalV1 {
     readonly kind: "task_approval";
     readonly requestId: string;
     readonly proposal: GoalSnapshotTaskV1;
+    readonly planRouteCandidate: GoalSnapshotPlanRouteCandidateV1;
     readonly approvalRequest: string;
+}
+
+/**
+ * Snapshot 中待审批路线的单个候选阶段。
+ *
+ * @example
+ * ```ts
+ * const stage: GoalSnapshotPlanRouteCandidateStageV1 = {
+ *     target: "调查入口", acceptanceCriteria: ["定位现有实现"],
+ * };
+ * ```
+ */
+export interface GoalSnapshotPlanRouteCandidateStageV1 {
+    readonly target: string;
+    readonly acceptanceCriteria: readonly string[];
+}
+
+/**
+ * Snapshot 中任务审批交互携带的完整候选路线；获批后 Runtime 才分配阶段身份。
+ *
+ * @example
+ * ```ts
+ * const route: GoalSnapshotPlanRouteCandidateV1 = {
+ *     stages: [{ target: "调查入口", acceptanceCriteria: ["定位现有实现"] }],
+ * };
+ * ```
+ */
+export interface GoalSnapshotPlanRouteCandidateV1 {
+    readonly stages: readonly GoalSnapshotPlanRouteCandidateStageV1[];
 }
 
 /** Snapshot 中的挂起用户交互联合类型。 */
@@ -606,6 +711,7 @@ export type GoalSnapshotWorkflowV1 = {
 /** Snapshot 中持久化的模型选择状态。 */
 export interface GoalSnapshotModelSelectionV1 {
     readonly provider: string;
+    readonly profileId?: string | undefined;
     readonly modelId: string;
     readonly structuredOutputMode?: "strict" | "prompt_only" | "two_stage" | undefined;
     readonly contextWindowTokens?: number | undefined;
@@ -893,6 +999,19 @@ const StructuredDecisionResultSchema = z.union([
         evidenceSequences: z.array(z.number().int().nonnegative()).optional(),
         memoryPatch: MemoryPatchSchema.optional(),
     }).strict(),
+    z.object({
+        kind: z.literal("run_plan_route_update"),
+        baseRevision: z.number().int().positive(),
+        reason: NonEmptyStringSchema,
+        route: z.object({
+            stages: z.array(z.object({
+                target: NonEmptyStringSchema,
+                acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
+            }).strict()).min(1),
+        }).strict(),
+        approvalRequest: NonEmptyStringSchema.optional(),
+        memoryPatch: MemoryPatchSchema.optional(),
+    }).strict(),
 ]);
 
 const StepRecordSchema = z.discriminatedUnion("kind", [
@@ -963,6 +1082,11 @@ const PendingThinkSchema = z.object({
     latestThinkEventId: NonEmptyStringSchema,
 }).strict();
 
+const PendingActionBatchSchema = z.object({
+    batchId: NonEmptyStringSchema,
+    remaining: z.array(ToolCallActionSchema).min(1),
+}).strict();
+
 const PendingModelRepairSchema = z.object({
     goalId: NonEmptyStringSchema,
     runId: NonEmptyStringSchema,
@@ -971,6 +1095,8 @@ const PendingModelRepairSchema = z.object({
     stage: z.enum(["decide", "think"]),
     inputBoundary: z.string().regex(/^sha256:[a-f0-9]{64}$/),
     attemptsStarted: z.number().int().min(0).max(3),
+    continuationsStarted: z.number().int().min(0).max(3).optional(),
+    latestFailureClass: z.enum(["non_advancing", "protocol"]).optional(),
     latestAttemptEventId: NonEmptyStringSchema,
     latestFeedbackEventId: NonEmptyStringSchema.optional(),
     thinkRequestId: NonEmptyStringSchema.optional(),
@@ -1034,12 +1160,30 @@ const PendingInteractionAskUserSchema = z.object({
     requestId: NonEmptyStringSchema,
     mode: z.enum(["plan", "execution"]),
     questions: z.array(AskUserQuestionSchema).min(1).max(3),
+    routeRevision: z.object({
+        baseRevision: z.number().int().positive(),
+        candidate: z.object({
+            stages: z.array(z.object({
+                target: NonEmptyStringSchema,
+                acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
+            }).strict()).min(1),
+        }).strict(),
+        reason: NonEmptyStringSchema,
+        approvalRequest: NonEmptyStringSchema,
+        approvalOptionId: NonEmptyStringSchema,
+    }).strict().optional(),
 }).strict();
 
 const PendingInteractionTaskApprovalSchema = z.object({
     kind: z.literal("task_approval"),
     requestId: NonEmptyStringSchema,
     proposal: GoalSnapshotTaskSchema,
+    planRouteCandidate: z.object({
+        stages: z.array(z.object({
+            target: NonEmptyStringSchema,
+            acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
+        }).strict()).min(1),
+    }).strict(),
     approvalRequest: NonEmptyStringSchema,
 }).strict();
 
@@ -1069,6 +1213,23 @@ const RunStageSchema = z.object({
     acceptedSequence: z.number().int().nonnegative().optional(),
 }).strict();
 
+const PlanRouteStageSchema = z.object({
+    stageId: NonEmptyStringSchema,
+    revision: z.number().int().positive(),
+    status: z.enum(["pending", "executing", "accepted"]),
+    target: NonEmptyStringSchema,
+    acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
+    acceptedSequence: z.number().int().nonnegative().optional(),
+}).strict();
+
+const PlanRouteSchema = z.object({
+    revision: z.number().int().positive(),
+    revisionReason: NonEmptyStringSchema.optional(),
+    nextStageIndex: z.number().int().nonnegative(),
+    nextStageOrdinal: z.number().int().positive(),
+    stages: z.array(PlanRouteStageSchema).min(1),
+}).strict();
+
 const WorkflowSchema = z.object({
     phase: z.literal("executing"),
 }).strict();
@@ -1082,6 +1243,7 @@ const ContextEpochSchema = z.object({
 
 const ModelSelectionSchema = z.object({
     provider: NonEmptyStringSchema,
+    profileId: NonEmptyStringSchema.optional(),
     modelId: NonEmptyStringSchema,
     structuredOutputMode: z.enum(["strict", "prompt_only", "two_stage"]).optional(),
     contextWindowTokens: z.number().int().positive().optional(),
@@ -1183,8 +1345,10 @@ const GoalSnapshotV1BaseSchema = z.object({
                 sequence: z.number().int().positive(),
             }).strict().optional(),
             currentStage: RunStageSchema.optional(),
+            planRoute: PlanRouteSchema.optional(),
             lastStep: StepRecordSchema.optional(),
             pendingAction: PendingActionSchema.optional(),
+            pendingActionBatch: PendingActionBatchSchema.optional(),
             pendingProgram: PendingProgramSchema.optional(),
             pendingInteraction: PendingInteractionSchema.optional(),
             pendingThink: PendingThinkSchema.optional(),
@@ -1216,6 +1380,64 @@ function validateSnapshotInvariants(
     const pendingTaskApproval = run.pendingInteraction?.kind === "task_approval";
     if (run.mode === "normal" && run.approvedTask !== undefined) {
         addInvariantIssue(context, "normal Run cannot contain an approved task", ["state", "run", "approvedTask"]);
+    }
+    if (run.mode === "normal" && run.planRoute !== undefined) {
+        addInvariantIssue(context, "normal Run cannot contain a full Plan route", ["state", "run", "planRoute"]);
+    }
+    if (run.planRoute !== undefined) {
+        const route = run.planRoute;
+        if (run.approvedTask === undefined) {
+            addInvariantIssue(context, "Plan route requires an approved task", ["state", "run", "planRoute"]);
+        }
+        if (route.nextStageIndex > route.stages.length) {
+            addInvariantIssue(context, "Plan route cursor exceeds its stage count", ["state", "run", "planRoute", "nextStageIndex"]);
+        }
+        const stageIds = new Set<string>();
+        let maximumOrdinal = 0;
+        for (const [index, stage] of route.stages.entries()) {
+            if (stageIds.has(stage.stageId)) {
+                addInvariantIssue(context, "Plan route stage IDs must be unique", ["state", "run", "planRoute", "stages", index, "stageId"]);
+            }
+            stageIds.add(stage.stageId);
+            const ordinal = /^stage-(\d+)$/.exec(stage.stageId)?.[1];
+            if (ordinal !== undefined) maximumOrdinal = Math.max(maximumOrdinal, Number(ordinal));
+            const expectedStatus = index < route.nextStageIndex
+                ? "accepted"
+                : index === route.nextStageIndex && stage.status === "executing"
+                    ? "executing"
+                    : "pending";
+            if (stage.status !== expectedStatus) {
+                addInvariantIssue(context, "Plan route stage status does not match its order and cursor", ["state", "run", "planRoute", "stages", index, "status"]);
+            }
+            if ((stage.status === "accepted") !== (stage.acceptedSequence !== undefined)) {
+                addInvariantIssue(context, "Only accepted Plan route stages may contain acceptedSequence", ["state", "run", "planRoute", "stages", index, "acceptedSequence"]);
+            }
+            if (stage.acceptedSequence !== undefined && stage.acceptedSequence > run.committedThroughSequence) {
+                addInvariantIssue(context, "Plan route acceptedSequence exceeds the committed Snapshot boundary", ["state", "run", "planRoute", "stages", index, "acceptedSequence"]);
+            }
+        }
+        if (route.nextStageOrdinal <= maximumOrdinal) {
+            addInvariantIssue(context, "Plan route nextStageOrdinal must exceed assigned stage ordinals", ["state", "run", "planRoute", "nextStageOrdinal"]);
+        }
+        if (route.revision > 1 && route.revisionReason === undefined) {
+            addInvariantIssue(context, "Revised Plan route requires its persisted reason", ["state", "run", "planRoute", "revisionReason"]);
+        }
+        if (run.currentStage !== undefined) {
+            const routeStageIndex = run.currentStage.status === "executing"
+                ? route.nextStageIndex
+                : route.nextStageIndex - 1;
+            const routeStage = route.stages[routeStageIndex];
+            if (routeStage === undefined
+                || routeStage.stageId !== run.currentStage.stageId
+                || routeStage.revision !== run.currentStage.revision
+                || routeStage.status !== run.currentStage.status
+                || routeStage.target !== run.currentStage.target
+                || routeStage.acceptanceCriteria.length !== run.currentStage.acceptanceCriteria.length
+                || routeStage.acceptanceCriteria.some((criterion, index) => criterion !== run.currentStage?.acceptanceCriteria[index])
+                || (routeStage.status === "accepted" && routeStage.acceptedSequence !== run.currentStage.acceptedSequence)) {
+                addInvariantIssue(context, "Current RunStage must match the active or latest accepted Plan route stage", ["state", "run", "currentStage"]);
+            }
+        }
     }
     if (pendingTaskApproval && run.mode !== "plan") {
         addInvariantIssue(context, "task approval requires a Plan Run", ["state", "run", "pendingInteraction"]);
@@ -1310,6 +1532,21 @@ function validateSnapshotInvariants(
     const pendingThink = run.pendingThink;
     const pendingModelRepair = run.pendingModelRepair;
     const interruption = run.interruption;
+
+    if (pendingInteraction?.kind === "ask_user" && pendingInteraction.routeRevision !== undefined) {
+        const approval = pendingInteraction.routeRevision;
+        const approvalQuestion = pendingInteraction.questions[0];
+        if (run.mode !== "plan"
+            || run.approvedTask === undefined
+            || run.planRoute === undefined
+            || approval.baseRevision !== run.planRoute.revision
+            || pendingInteraction.questions.length !== 1
+            || approvalQuestion === undefined
+            || approvalQuestion.multiSelect
+            || !approvalQuestion.options.some((option) => option.id === approval.approvalOptionId)) {
+            addInvariantIssue(context, "route revision approval must bind one current Plan route and its explicit approval option", ["state", "run", "pendingInteraction", "routeRevision"]);
+        }
+    }
 
     if (interruption !== undefined) {
         if (interruption.status === "finished" && run.status !== "cancelled") {
@@ -1464,6 +1701,7 @@ function validateSnapshotInvariants(
                 || result?.kind === "goal_plan_update"
                 || result?.kind === "run_stage_update"
                 || result?.kind === "run_stage_complete"
+                || result?.kind === "run_plan_route_update"
                 || (result?.kind === "complete" && run.currentStage?.status === "executing"
                     && run.currentStage.latestReviewRejection !== undefined);
             const maxSteps = goal.definition.executionPolicy.maxSteps;
@@ -1482,6 +1720,7 @@ function validateSnapshotInvariants(
         && result?.kind !== "goal_plan_update"
         && result?.kind !== "run_stage_update"
         && result?.kind !== "run_stage_complete"
+        && result?.kind !== "run_plan_route_update"
         && !(result?.kind === "complete" && run.currentStage?.status === "executing"
             && run.currentStage.latestReviewRejection !== undefined)
     ) {

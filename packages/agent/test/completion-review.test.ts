@@ -44,7 +44,7 @@ for (const mode of ["strict", "prompt_only"] as const) {
         const adapter: LLMAdapter = { structuredOutputMode: mode, async generate(request) {
             assert.deepEqual(request.tools?.map(tool => tool.id), ["system_review_completion"]);
             assert.equal(request.toolChoice, "required");
-            assert.equal(request.structuredOutput !== undefined, mode === "strict");
+            assert.equal(request.structuredOutput, undefined);
             const content = JSON.parse(request.messages[1]!.content);
             assert.deepEqual(content.candidate, reviewInput.candidate);
             assert.deepEqual(content.committedEvidence, []);
@@ -83,7 +83,7 @@ for (const [name, response] of Object.entries({
 
 test("required review input overflow is rejected before any model call", async () => {
     let calls = 0;
-    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate() { calls++; return { content: '{"result":{"kind":"accept"}}' }; } };
+    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate() { calls++; return { content: "", toolCalls: [{ callId: "review", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' }] }; } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
     const review = input();
     const large = { ...review, goal: { ...review.goal, state: { ...review.goal.state, messages: [{ role: "user" as const, content: "source".repeat(40_000) }] } } };
@@ -163,7 +163,7 @@ test("review receives the actual source request and scoped lookup without an opt
         assert.equal(content.historicalLookup.sourceScope, "goal_history");
         assert.match(content.historicalLookup.limitations, /not searched/);
         assert.deepEqual(content.committedEvidence, []);
-        return { content: '{"result":{"kind":"reject","feedback":"Read the requested repository files and identify a documented real decision."}}' };
+        return { content: "", toolCalls: [{ callId: "review", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"reject","feedback":"Read the requested repository files and identify a documented real decision."}}' }] };
     } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
     const reviewed = await executor.reviewCompletion({ ...fixture, goal, candidate, contextLookupResult: { status: "not_found", lookupId: "query", reason: "no_context_match" } });
@@ -299,9 +299,31 @@ test("review omits unrelated assistant history while retaining original user con
         assert.equal(content.originalIntent, fixture.goal.definition.intent);
         assert.deepEqual(content.profile, fixture.goal.definition.profile);
         assert.deepEqual(content.candidate, fixture.candidate);
-        return { content: '{"result":{"kind":"accept"}}' };
+        return { content: "", toolCalls: [{ callId: "review", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' }] };
     } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
     await executor.reviewCompletion({ ...fixture, goal: { ...fixture.goal, state: { ...fixture.goal.state, messages } } });
     assert.equal(called, true);
 });
+
+for (const mode of ["strict", "prompt_only"] as const) {
+    for (const [response, code] of [
+        [{ content: '{"result":{"kind":"accept"}}' }, "missing_tool_call"],
+        [{ content: "", toolCalls: [1, 2].map(i => ({ callId: String(i), toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' })) }, "multiple_tool_calls"],
+    ] as const) {
+        test(`${mode} review reports ${code} without parsing text decisions`, async () => {
+            const adapter: LLMAdapter = { structuredOutputMode: mode, async generate(request) {
+                assert.equal(request.structuredOutput, undefined);
+                assert.doesNotMatch(request.messages[0]!.content, /Respond with a JSON object/);
+                assert.match(request.messages[0]!.content, /Call system_review_completion exactly once/);
+                return response;
+            } };
+            const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
+            await assert.rejects(executor.reviewCompletion(input()), (error: unknown) => {
+                assert.ok(error instanceof ModelStageFeedbackError);
+                assert.equal(error.feedback.issues[0]?.code, code);
+                return true;
+            });
+        });
+    }
+}

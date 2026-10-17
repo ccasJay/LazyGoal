@@ -60,7 +60,7 @@ export function toModelStageFeedback(
 }
 
 function classifyOrigin(codes: readonly string[], stage: RuntimeFeedbackStage): RuntimeFeedbackOrigin {
-    if (stage === "think") return "output_contract";
+    if (stage === "think" || codes.some(code => code === "missing_tool_call" || code === "multiple_tool_calls")) return "output_contract";
     if (codes.some((code) => code.includes("tool") || code.includes("argument"))) return "tool_input";
     if (codes.some((code) => code.includes("evidence"))) return "completion_evidence";
     if (codes.some((code) => code.includes("invalid_json"))
@@ -79,6 +79,8 @@ function classifyOrigin(codes: readonly string[], stage: RuntimeFeedbackStage): 
 
 function safeIssueMessage(code: string): string {
     switch (code) {
+        case "missing_tool_call": return "Call exactly one declared tool using its parameter schema. Do not return a text JSON decision.";
+        case "multiple_tool_calls": return "Return exactly one declared tool call, not multiple calls.";
         case "missing_field": return "Supply this required field using the current schema.";
         case "extra_field": return "Remove this field; the current schema does not allow it.";
         case "invalid_type": return "Use the type required by the current schema at this path.";

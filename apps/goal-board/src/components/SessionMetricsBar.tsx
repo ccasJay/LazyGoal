@@ -33,7 +33,7 @@ export function SessionMetricsBar({ state }: { state?: MetricsState }) {
           <span
             title={`${metrics.throughputMeasuredCalls} measured calls; ${metrics.throughputExcludedCalls} excluded calls`}
           >
-            {metricSpeed(metrics.tokensPerSecond)} tok/s
+            Output rate {metricSpeed(metrics.tokensPerSecond)} tok/s
           </span>
         </span>
         <span className="session-metric">
@@ -57,8 +57,8 @@ export function SessionMetricsBar({ state }: { state?: MetricsState }) {
             style={{
               background:
                 metrics.contextRemainingPercent == null
-                  ? "#59606d"
-                  : `conic-gradient(var(--blue) ${metrics.contextRemainingPercent * 100}%, #59606d 0)`,
+                  ? "var(--control-border)"
+                  : `conic-gradient(var(--accent-ink) ${metrics.contextRemainingPercent * 100}%, var(--control-border) 0)`,
             }}
             aria-hidden="true"
           />
@@ -91,11 +91,14 @@ export function SessionMetricsBar({ state }: { state?: MetricsState }) {
             <dd>
               {metricNumber(metrics.inputTokens)} / {metricNumber(metrics.outputTokens)}
             </dd>
-            <dt>Generation</dt>
+            <dt>Output rate</dt>
             <dd>
               {metricSpeed(metrics.tokensPerSecond)} tok/s{" "}
               <small>
                 {metrics.throughputMeasuredCalls} measured · {metrics.throughputExcludedCalls} excluded calls
+              </small>
+              <small>
+                Application-observed end-to-end provider request rate. Includes provider wait and response transfer; not provider-internal decode speed.
               </small>
             </dd>
             <dt>Cache hit</dt>

@@ -18,6 +18,8 @@ import type {
 } from "./domain";
 import type { RuntimeFeedback } from "./runtime-feedback";
 import type { GoalPlanPatchOperation } from "./goal-plan";
+import { assertValidRunPlanRoute } from "./run-plan";
+import type { RunPlanRouteState } from "./run-plan";
 import type {
     ContextLookupRequest,
     ContextLookupResult,
@@ -172,6 +174,12 @@ export type TrajectoryEventPayload =
         readonly type: "decision_received";
         readonly decision: AgentDecision;
         readonly thought?: string;
+    }
+    | {
+        readonly type: "decide_batch_accepted";
+        readonly batchId: string;
+        readonly callIds: readonly string[];
+        readonly remainingCount: number;
     }
     | {
         readonly type: "think_requested";
@@ -376,6 +384,11 @@ export type TrajectoryEventPayload =
         readonly revision: number;
         readonly summary?: string | undefined;
         readonly evidenceSequences?: readonly number[] | undefined;
+    }
+    | {
+        readonly type: "run_plan_route_revised";
+        readonly route: RunPlanRouteState;
+        readonly reason: string;
     }
     | {
         readonly type: "context_note_declared";
@@ -807,6 +820,7 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "task_approved",
     "task_feedback_received",
     "decision_received",
+    "decide_batch_accepted",
     "think_requested",
     "think_completed",
     "model_repair_attempt_started",
@@ -842,6 +856,7 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "run_stage_declared",
     "run_stage_rejected",
     "run_stage_accepted",
+    "run_plan_route_revised",
     "context_note_declared",
     "execution_error",
     "state_committed",
@@ -1257,10 +1272,10 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             throw new TrajectoryProtocolError("run_waiting contains unknown fields");
         }
         assertNonEmptyString(payload.reason, "run_waiting.reason");
-        if (payload.reason === "task_approval") {
+        if (payload.reason === "task_approval" || payload.reason === "ask_user") {
             assertNonEmptyString(payload.requestId, "run_waiting.requestId");
         } else if (payload.requestId !== undefined) {
-            throw new TrajectoryProtocolError("run_waiting.requestId is only valid for task_approval");
+            throw new TrajectoryProtocolError("run_waiting.requestId is only valid for ask_user or task_approval");
         }
     }
     if (eventType === "steer_input_received") {
@@ -1381,6 +1396,30 @@ function assertPayload(payload: unknown, eventType: unknown): void {
                     throw new TrajectoryProtocolError("run_stage_accepted.evidenceSequences items must be non-negative integers");
                 }
             }
+        }
+    }
+    if (eventType === "run_plan_route_revised") {
+        if (Object.keys(payload).some((key) => !["type", "route", "reason"].includes(key))) {
+            throw new TrajectoryProtocolError("run_plan_route_revised contains unknown fields");
+        }
+        assertNonEmptyString(payload.reason, "run_plan_route_revised.reason");
+        if (!isRecord(payload.route)
+            || Object.keys(payload.route).some((key) => !["revision", "revisionReason", "nextStageIndex", "nextStageOrdinal", "stages"].includes(key))
+            || !Number.isSafeInteger(payload.route.revision)
+            || (payload.route.revision as number) < 2
+            || payload.route.revisionReason !== payload.reason
+            || !Number.isSafeInteger(payload.route.nextStageIndex)
+            || !Number.isSafeInteger(payload.route.nextStageOrdinal)
+            || !Array.isArray(payload.route.stages)
+            || payload.route.stages.length === 0) {
+            throw new TrajectoryProtocolError("run_plan_route_revised route is invalid");
+        }
+        try {
+            assertValidRunPlanRoute(payload.route as unknown as RunPlanRouteState);
+        } catch (error) {
+            throw new TrajectoryProtocolError(
+                `run_plan_route_revised route is invalid: ${error instanceof Error ? error.message : String(error)}`,
+            );
         }
     }
     if (eventType === "context_note_declared") {
@@ -1637,6 +1676,7 @@ export function classifyTrajectoryEvent(
         case "context_epoch_advanced":
             return "decision";
         case "decision_received":
+        case "decide_batch_accepted":
         case "think_requested":
         case "think_completed":
         case "model_repair_attempt_started":
@@ -1651,6 +1691,7 @@ export function classifyTrajectoryEvent(
         case "run_stage_declared":
         case "run_stage_rejected":
         case "run_stage_accepted":
+        case "run_plan_route_revised":
         case "context_note_declared":
             return "decision";
         case "memory_patch_accepted":

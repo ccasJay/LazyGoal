@@ -21,6 +21,21 @@ function asJsonValue(value: unknown): JsonValue {
     return value as JsonValue;
 }
 
+/** 等待夹具在安装信号处理后公布 PGID，避免把进程启动耗时计入取消耗时。 */
+async function waitForProcessGroupId(path: string): Promise<number> {
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+        try {
+            const content = (await readFile(path, "utf8")).trim();
+            if (content.length > 0) return Number(content);
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+        assert.ok(Date.now() < deadline, "Bash fixture did not publish its PGID within 5 seconds");
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    }
+}
+
 /**
  * 轮询断言受管进程组已无存活成员。
  *
@@ -412,80 +427,88 @@ test("BashTool 中止运行中的命令并传播 ExecutionAbortedError", async (
     }
 });
 
-test("BashTool 中止长命令时及时抛出且整组清理", async () => {
+test("BashTool 中止长命令时及时抛出且整组清理", async (context) => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-"));
 
     try {
         const pgidFile = join(workspaceRoot, "pgid");
         const controller = new AbortController();
         const tool = new BashTool(workspaceRoot);
-        const abortDelayMs = 50;
-        const startedAt = Date.now();
         // 中止前已产生的输出不进入任何 Observation:中止路径以
         // ExecutionAbortedError 拒绝,而不是返回失败 Observation。
         const execution = tool.execute(
             {
                 actionId: "action-abort-group",
                 input: {
-                    command: `echo $$ > "${pgidFile}"; echo started; sleep 30`,
+                    command: `sleep 0.1; echo $$ > "${pgidFile}"; echo started; sleep 30`,
                 },
             },
             { signal: controller.signal },
         );
 
-        setTimeout(() => controller.abort(), abortDelayMs);
-
-        await assert.rejects(
+        context.after(async () => {
+            controller.abort();
+            await execution.catch(() => {});
+        });
+        const rejected = assert.rejects(
             execution,
             (error: unknown) => error instanceof ExecutionAbortedError,
         );
+        const pgid = await waitForProcessGroupId(pgidFile);
+        const startedAt = Date.now();
+        controller.abort();
+        await rejected;
         const elapsed = Date.now() - startedAt;
 
         assert.ok(
-            elapsed <= abortDelayMs + 3_000,
+            elapsed <= 3_000,
             `elapsed ${elapsed}ms > bound`,
         );
 
-        await assertProcessGroupGone(Number(await readFile(pgidFile, "utf8")));
+        await assertProcessGroupGone(pgid);
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
     }
 });
 
-test("BashTool 中止忽略 SIGTERM 的命令在宽限后强制终止", async () => {
+test("BashTool 中止忽略 SIGTERM 的命令在宽限后强制终止", async (context) => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-"));
 
     try {
         const pgidFile = join(workspaceRoot, "pgid");
         const controller = new AbortController();
         const tool = new BashTool(workspaceRoot);
-        const abortDelayMs = 50;
-        const startedAt = Date.now();
         // exec 前设置的 SIG_IGN 跨 exec 生效,中止的 SIGTERM 无法终止该
         // 进程,只能等宽限后的 SIGKILL。
         const execution = tool.execute(
             {
                 actionId: "action-abort-term-ignored",
                 input: {
-                    command: `echo $$ > "${pgidFile}"; trap "" TERM; exec sleep 30`,
+                    command: `sleep 0.1; trap "" TERM; echo $$ > "${pgidFile}"; exec sleep 30`,
                 },
             },
             { signal: controller.signal },
         );
 
-        setTimeout(() => controller.abort(), abortDelayMs);
-
-        await assert.rejects(
+        context.after(async () => {
+            controller.abort();
+            await execution.catch(() => {});
+        });
+        const rejected = assert.rejects(
             execution,
             (error: unknown) => error instanceof ExecutionAbortedError,
         );
+        const pgid = await waitForProcessGroupId(pgidFile);
+        const startedAt = Date.now();
+        controller.abort();
+        await rejected;
         const elapsed = Date.now() - startedAt;
 
         // 与超时共用同一双阶段状态机:忽略 SIGTERM 的中止最迟在宽限后完成。
-        assert.ok(elapsed >= abortDelayMs + 2_000, `elapsed ${elapsed}ms < grace`);
-        assert.ok(elapsed <= abortDelayMs + 3_000, `elapsed ${elapsed}ms > bound`);
+        assert.ok(elapsed >= 2_000, `elapsed ${elapsed}ms < grace`);
+        assert.ok(elapsed <= 3_000, `elapsed ${elapsed}ms > bound`);
 
-        await assertProcessGroupGone(Number(await readFile(pgidFile, "utf8")));
+        await assertProcessGroupGone(pgid);
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
     }

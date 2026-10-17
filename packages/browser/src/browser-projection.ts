@@ -27,6 +27,8 @@ import type {
     BrowserSessionStep,
     BrowserRunStageGroup,
     BrowserRunStageStatus,
+    BrowserPlanRoute,
+    BrowserPlanRouteStage,
 } from "../../web-contracts/src/index";
 
 export type {
@@ -41,6 +43,8 @@ export type {
     BrowserSessionStep,
     BrowserRunStageGroup,
     BrowserRunStageStatus,
+    BrowserPlanRoute,
+    BrowserPlanRouteStage,
 };
 
 const MAX_TEXT_LENGTH = 4_000;
@@ -149,6 +153,7 @@ export async function readBrowserGoalSession(
     const currentSteps = projectBrowserSteps(currentRun.id, currentResult.committed, bashDetailsBudget);
     if (currentSteps.length > MAX_STEPS_PER_RUN) historyTruncated = true;
     const currentStages = projectBrowserRunStages(currentResult.committed, currentSteps);
+    const currentPlanRoute = currentRun.planRoute === undefined ? undefined : projectBrowserPlanRoute(currentRun.planRoute);
     projectedRuns.push({
         runId: currentRun.id,
         status: currentRun.status,
@@ -156,6 +161,7 @@ export async function readBrowserGoalSession(
         steps: currentSteps.slice(-MAX_STEPS_PER_RUN),
         current: true,
         ...(currentStages === undefined ? {} : { stages: currentStages }),
+        ...(currentPlanRoute === undefined ? {} : { planRoute: currentPlanRoute }),
         ...projectRunTerminalDetail(currentResult.committed, currentRun.status, currentRun.stopReason),
     });
 
@@ -231,6 +237,22 @@ export async function readBrowserGoalSession(
         ...(pendingInteraction === undefined ? {} : { pendingInteraction }),
         ...(pendingAction === undefined ? {} : { pendingAction }),
         historyTruncated,
+    };
+}
+
+function projectBrowserPlanRoute(route: NonNullable<Goal["state"]["run"]["planRoute"]>): BrowserPlanRoute {
+    return {
+        revision: route.revision,
+        ...(route.revisionReason === undefined ? {} : { revisionReason: boundedText(route.revisionReason, 1_000) }),
+        nextStageIndex: route.nextStageIndex,
+        stages: route.stages.map((stage) => ({
+            stageId: stage.stageId,
+            revision: stage.revision,
+            status: stage.status,
+            target: boundedText(stage.target, 1_000),
+            acceptanceCriteria: stage.acceptanceCriteria.map((criterion) => boundedText(criterion, 500)),
+            ...(stage.acceptedSequence === undefined ? {} : { acceptedSequence: stage.acceptedSequence }),
+        })),
     };
 }
 
@@ -311,9 +333,12 @@ function projectBrowserSteps(
     }
 
     const groups = new Map<string, TrajectoryEvent[]>();
+    const thinkUnits = new Set(committedEvents.filter((event) => event.eventType === "think_requested")
+        .map((event) => event.executionUnitId));
     for (const event of committedEvents) {
         if (event.programId !== undefined) continue;
         if (event.executionUnitId === undefined) continue;
+        if (event.eventType === "think_requested" || event.eventType === "think_completed") continue;
         const actionId = trajectoryActionId(event)
             ?? actionByExecutionUnit.get(event.executionUnitId)
             ?? undefined;
@@ -324,9 +349,38 @@ function projectBrowserSteps(
     }
 
     const steps: BrowserSessionStep[] = [];
+    const sourceRangeByEventId = new Map<string, { readonly first: number; readonly last: number }>();
+    for (const request of sortedCommitted) {
+        if (request.eventType !== "think_requested" || request.executionUnitId === undefined) continue;
+        const completed = sortedCommitted.find((event) => event.eventType === "think_completed"
+            && event.payload.requestId === request.payload.requestId
+            && event.executionUnitId === request.executionUnitId);
+        const output = completed?.eventType === "think_completed" ? completed.payload.output : undefined;
+        const stopped = sortedCommitted.some((event) => event.sequence > request.sequence
+            && ["run_failed", "run_cancelled"].includes(event.eventType));
+        const source = completed ?? request;
+        steps.push({
+            runId, executionUnitId: request.executionUnitId,
+            sourceEventId: request.eventId, sequence: request.sequence,
+            stepIndex: request.payload.stepOrdinal,
+            decisionKind: "request_think",
+            status: output !== undefined ? "completed" : stopped ? "failed" : "recorded",
+            ...(unitStageMap.has(request.executionUnitId) ? { stageId: unitStageMap.get(request.executionUnitId)! } : {}),
+            think: {
+                goal: boundedText(request.payload.goal, MAX_TEXT_LENGTH),
+                ...(output === undefined ? {} : { output: boundedText(output, MAX_MESSAGE_LENGTH) }),
+                ...(request.payload.goal.length > MAX_TEXT_LENGTH || (output?.length ?? 0) > MAX_MESSAGE_LENGTH
+                    ? { truncated: true as const } : {}),
+            },
+        });
+        sourceRangeByEventId.set(request.eventId, { first: request.sequence, last: source.sequence });
+    }
     for (const events of groups.values()) {
         events.sort((left, right) => left.sequence - right.sequence);
-        const first = events[0];
+        const first = thinkUnits.has(events[0]?.executionUnitId)
+            ? events.find((event) => event.eventType === "decision_received" || event.eventType === "action_staged"
+                || event.eventType === "tool_started" || event.eventType === "observation_recorded")
+            : events[0];
         if (first === undefined) continue;
 
         const executionUnitId = first.executionUnitId;
@@ -420,6 +474,9 @@ function projectBrowserSteps(
             executionUnitId,
             sequence: first.sequence,
             stepIndex: first.stepIndex ?? steps.length + 1,
+            sourceEventId: first.eventId,
+            ...(actionByExecutionUnit.get(executionUnitId) === undefined || actionByExecutionUnit.get(executionUnitId) === null
+                ? {} : { actionId: actionByExecutionUnit.get(executionUnitId)! }),
             ...(stageId === undefined ? {} : { stageId }),
             ...(decisionKind === undefined ? {} : { decisionKind }),
             ...(toolId === undefined ? {} : { toolId }),
@@ -431,8 +488,79 @@ function projectBrowserSteps(
             ...(bashExecutionOmitted === undefined ? {} : { bashExecutionOmitted }),
             ...(recoveryAttempts.length === 0 ? {} : { recoveryAttempts }),
         });
+        sourceRangeByEventId.set(first.eventId, {
+            first: first.sequence,
+            last: events.at(-1)?.sequence ?? first.sequence,
+        });
     }
-    return steps.sort((left, right) => left.sequence - right.sequence);
+    const orderedSteps = steps.sort((left, right) => left.sequence - right.sequence);
+    let previousRange: { readonly last: number; readonly stageId?: string } | undefined;
+    return orderedSteps.map((step) => {
+        const range = step.sourceEventId === undefined ? undefined : sourceRangeByEventId.get(step.sourceEventId);
+        const hasBoundaryInStep = range !== undefined && sortedCommitted.some((event) =>
+            event.sequence >= range.first && event.sequence <= range.last && isActivityBoundaryEvent(event));
+        const boundaryBefore = previousRange !== undefined
+            && (hasBoundaryInStep || previousRange.stageId !== step.stageId
+                || range === undefined || !hasVerifiedActivityBridge(previousRange.last, range.first, sortedCommitted));
+        if (range !== undefined) previousRange = { last: range.last, ...(step.stageId === undefined ? {} : { stageId: step.stageId }) };
+        return boundaryBefore ? { ...step, activityBoundaryBefore: true as const } : step;
+    });
+}
+
+function hasVerifiedActivityBridge(previousSequence: number, nextSequence: number, events: readonly TrajectoryEvent[]): boolean {
+    if (nextSequence <= previousSequence) return false;
+    let expectedSequence = previousSequence + 1;
+    for (const event of events) {
+        if (event.sequence <= previousSequence || event.sequence >= nextSequence) continue;
+        if (event.sequence !== expectedSequence || isActivityBoundaryEvent(event) || !isTransparentActivityBridge(event)) return false;
+        expectedSequence += 1;
+    }
+    return expectedSequence === nextSequence;
+}
+
+function isActivityBoundaryEvent(event: TrajectoryEvent): boolean {
+    const payload = event.payload;
+    if (payload.type === "decision_received") return payload.decision.kind !== "tool_call";
+    return payload.type === "run_waiting"
+        || payload.type === "ask_user_answered"
+        || payload.type === "ask_user_cancelled"
+        || payload.type === "task_approved"
+        || payload.type === "task_feedback_received"
+        || payload.type === "run_stage_declared"
+        || payload.type === "run_stage_accepted"
+        || payload.type === "run_stage_rejected"
+        || payload.type === "run_plan_route_revised"
+        || payload.type === "run_completed"
+        || payload.type === "run_failed"
+        || payload.type === "run_cancelled"
+        || payload.type === "execution_error"
+        || payload.type === "action_rejected";
+}
+
+function isTransparentActivityBridge(event: TrajectoryEvent): boolean {
+    const type = event.payload.type;
+    if (type === "decision_received") return event.payload.decision.kind === "tool_call";
+    return type === "action_staged"
+        || type === "action_approved"
+        || type === "action_recovered"
+        || type === "tool_started"
+        || type === "tool_attempt_started"
+        || type === "tool_attempt_failed"
+        || type === "tool_finished"
+        || type === "observation_recorded"
+        || type === "state_committed"
+        || type === "model_context_frame"
+        || type === "model_response_received"
+        || type === "model_repair_attempt_started"
+        || type === "model_repair_feedback_recorded"
+        || type === "model_request_retry_recorded"
+        || type === "think_requested"
+        || type === "think_completed"
+        || type === "context_lookup_requested"
+        || type === "context_lookup_completed"
+        || type === "context_lookup_not_found"
+        || type === "context_lookup_failed"
+        || type === "memory_patch_accepted";
 }
 
 interface MutableStageGroup {
@@ -591,6 +719,16 @@ function projectPendingInteraction(
             kind: "ask_user",
             requestId: pending.requestId,
             mode: pending.mode,
+            ...(pending.routeRevision === undefined ? {} : {
+                routeRevision: {
+                    approvalRequest: boundedText(pending.routeRevision.approvalRequest, 1_000),
+                    reason: boundedText(pending.routeRevision.reason, 1_000),
+                    route: pending.routeRevision.candidate.stages.map((stage): BrowserPlanRouteStage => ({
+                        target: boundedText(stage.target, 1_000),
+                        acceptanceCriteria: stage.acceptanceCriteria.map((criterion) => boundedText(criterion, 500)),
+                    })),
+                },
+            }),
             questions: pending.questions.map((question) => ({
                 id: question.id,
                 header: boundedText(question.header, 500),
@@ -614,6 +752,10 @@ function projectPendingInteraction(
         completionCriteria: pending.proposal.completionCriteria
             .slice(0, 32)
             .map((criterion) => boundedText(criterion.text, 1_000)),
+        planRoute: pending.planRouteCandidate.stages.map((stage): BrowserPlanRouteStage => ({
+            target: boundedText(stage.target, 1_000),
+            acceptanceCriteria: stage.acceptanceCriteria.map((criterion) => boundedText(criterion, 500)),
+        })),
     };
 }
 

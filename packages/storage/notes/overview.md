@@ -13,7 +13,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 | --- | --- | --- |
 | [AgentProfileFile](../src/agent-profile-file.ts) | Profile 文件 DTO（`schemaVersion: 1`）、严格 Schema 与 `AgentProfileConfigurationError` | 读取文件系统、构造 Runtime Profile |
 | [JsonFileAgentProfileStore](../src/json-file-agent-profile-store.ts) | 实现 Runtime `AgentProfileStore` Port，读取单个 `<profileId>.json` | 扫描其它 Profile、读取 Tool 实例、校验 Tool 注册 |
-| [GoalSnapshotV1 协议](../src/goal-snapshot.ts) | 当前唯一 Snapshot DTO、严格字段与跨字段不变量校验；保存当前 Prompt/Memory/Model Context/Retrieval 组合、模型选择状态（`modelSelection`）、完整消息、`mode`、GoalPlan、`completedRuns`、Run/todo 关系、Run 的唯一 `exposedToolIds`、Context Epoch、内部阶段（`currentStage`）与待执行 Action 的授权引用 | 文件系统 I/O、构造 Runtime Goal、迁移历史 Snapshot |
+| [GoalSnapshotV1 协议](../src/goal-snapshot.ts) | 当前唯一 Snapshot DTO、严格字段与跨字段不变量校验；保存当前 Prompt/Memory/Model Context/Retrieval 组合、模型选择状态（`modelSelection`）、完整消息、`mode`、GoalPlan、`completedRuns`、Run/todo 关系、Run 的唯一 `exposedToolIds`、Context Epoch、内部阶段（`currentStage`）、获批 Plan Run 路线（`planRoute`）与待执行 Action 的授权引用 | 文件系统 I/O、构造 Runtime Goal、迁移历史 Snapshot |
 | [GoalSnapshotCodec](../src/goal-snapshot-codec.ts) | Runtime Goal↔v1 Snapshot 的 encode/decode 深复制转换；只接受当前 v1，不迁移或回写历史版本 | 文件系统 I/O、读写 Store |
 | [InMemoryGoalStore](../src/goal-store.ts) | 实现 Runtime `GoalStore` Port：save 经 Codec encode、restore 经 decode | 跨实例或跨进程恢复 |
 | [JsonFileGoalStore](../src/goal-store.ts) | 实现 `GoalStore` 与 `GoalCatalog`：base64url 文件名、临时文件 + rename 原子替换、明确临时故障核对后有界重试、目录扫描摘要 | 跨进程锁、乐观锁、租约或版本冲突检测 |
@@ -21,7 +21,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 | [JsonFileModelPreferenceStore](../src/json-file-model-preference-store.ts) | 在工作区私有目录严格解析并原子替换 Web 模型偏好身份；损坏文件不被覆盖 | 模型可选性判断、Goal Snapshot 或跨进程锁 |
 | [JsonFileTrajectoryStore](../src/json-file-trajectory-store.ts) | 将每个 Goal/Run 的事实事件（包括结构化 `model_context_frame`）追加到安全编码的 JSONL 文件，提供序列范围读取与 Snapshot 边界分类；对明确临时文件错误核对尾部后有界重试 | Snapshot 恢复、marker 推导边界、跨进程锁与 exactly-once |
 | [JsonFileDiagnosticTraceSink](../src/json-file-diagnostic-trace-sink.ts) | 将已脱敏、已限长的诊断记录追加到独立 JSONL 文件 | Domain Event、Snapshot 恢复、Trace 查询与重试 |
-| [JsonFileMetricsStore](../src/json-file-metrics-store.ts) | 将模型调用开始/结束事实、历史覆盖标记与已知写入缺口分别追加到 JSONL | Goal 恢复、token 估算、累计投影缓存和跨进程锁 |
+| [JsonFileMetricsStore](../src/json-file-metrics-store.ts) | 将模型调用开始/结束事实（含可选端到端请求耗时）、历史覆盖标记与已知写入缺口分别追加到 JSONL | Goal 恢复、token 估算、累计投影缓存和跨进程锁 |
 | [JsonFileContextRetrievalIndexStore](../src/context-retrieval-index-sidecar.ts) | 以安全编码路径保存、恢复、原子替换和删除 Retrieval Index Sidecar；严格校验倒排快照、来源摘要、版本与 64 项查询缓存 | 推导 committed boundary、读取 Workspace、修改 Goal 或 Trajectory |
 
 ## 生命周期与错误
@@ -29,6 +29,13 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 每次 Profile `load` 只访问 `<directory>/<profileId>.json`：文件缺失返回 `undefined`；不安全 ID、读取失败、非法 JSON、Schema 不匹配或文件内 ID 不一致抛出 `AgentProfileConfigurationError`（稳定错误码 `INVALID_AGENT_PROFILE`）。
 
 Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按严格 v1 Schema 校验（拒绝多余字段、非法 StepRecord，缺失或非法的 `modelSelection`，以及非法的 Trajectory/Memory/Model Context/Retrieval 组合）再深复制 encode；`restore`/decode 只接受当前 v1。Schema 同时保证 normal Goal 没有 GoalPlan、Plan Mode 必须有 GoalPlan、Todo ID/position/status 与 `Run.todoId` 一致、历史 Run 的消息区间有序且不包含当前 Run。历史 Snapshot、未知版本、缺失 `modelSelection` 的旧开发快照和不完整的当前恢复状态统一在 Codec 边界抛出 `INVALID_GOAL_SNAPSHOT`，不会自动迁移、保存或回写。
+
+Plan Run 的 `planRoute` 仅能出现在已有 `approvedTask` 的 Plan Run 上。Schema 校验路线非空、阶段身份唯一、顺序状态与恢复游标一致、已接受阶段有提交序列，且序列不超过 Snapshot 的 `committedThroughSequence`；修订后的路线还必须保存非空理由。普通 Run 和待审批 Run 不能保存完整路线。Codec 对路线及修订理由做深复制往返，旧开发快照不迁移。
+
+待审批 Plan Run 的 `task_approval` 交互必须包含非空阶段和验收条件组成的 `planRouteCandidate`。Snapshot 对候选做严格字段和非空约束校验，Codec 深复制往返；该字段不含 Runtime 身份或执行状态，批准后候选随等待交互清除并由 Runtime 创建正式路线。不迁移缺失字段的旧开发快照。
+
+路线扩展等待保存在 `pendingInteraction.routeRevision`，包括基于的路线 revision、完整候选、修订理由和唯一批准选项。只有选择该批准项才应用修订；用户选择保留当前路线时，Snapshot 中的路线不变。路线修订事实进入 Trajectory，Snapshot 游标决定恢复时可见的修订边界。
+
 
 当前 Snapshot 同时校验 `pendingProgram` 与运行中父 Action、子 `pendingAction` 的身份及调用位置；Codec 原位保存恢复指针和已用结果字节数。PTC 子事实的 `programId/callIndex` 随 Trajectory 严格解析，结果仍以 Snapshot 的提交边界为准。`program_time_reserved` 是例外：它在同一 JSONL 中单独同步到磁盘，恢复时无论 Snapshot 是否纳入该事件都要计入预算，防止崩溃重置额度。Storage 不推断工具是否已经产生外部副作用。
 
@@ -45,7 +52,7 @@ Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按严格 
 追加上游已经脱敏、限长的 `TraceRecord`，不被 `GoalStore` 或 Trajectory 读取，也不参与
 恢复边界。
 
-`JsonFileMetricsStore` 按 Goal/Run 保存调用事实，并在 Goal 子目录保存覆盖状态和已知缺口。目录权限为 `0700`、文件权限为 `0600`；读取严格校验 JSONL、协议和身份，坏记录直接报错。指标事实不进入 Goal Snapshot，不作为恢复输入；`session-metrics` 每次查询都以当前 Snapshot 和这些事实重新计算投影。
+`JsonFileMetricsStore` 按 Goal/Run 保存调用事实，并在 Goal 子目录保存覆盖状态和已知缺口。目录权限为 `0700`、文件权限为 `0600`；读取严格校验 JSONL、协议和身份，坏记录直接报错。完成事实中的 `requestDurationMs` 是可选的有限正毫秒数；缺少该字段的既有事实仍可读取，但不具备端到端速率的耗时输入。指标事实不进入 Goal Snapshot，不作为恢复输入；`session-metrics` 每次查询都以当前 Snapshot 和这些事实重新计算投影。
 
 `JsonFileContextRetrievalIndexStore` 将索引缓存写入 `<directory>/<base64url(goalId)>/<base64url(runId)>/retrieval-v1.json`，保存前由严格 Codec 验证文档、倒排表、字段统计和查询结果，再以临时文件 + `fsync` + rename 原子替换；目录为 `0700`、文件为 `0600`。读取时缺失、JSON/Schema 损坏、Goal/Run 不一致、版本失配或 Sidecar 领先当前 boundary 返回 `undefined`。落后 Sidecar 可以先恢复为候选，由 Runtime 根据旧 committed 前缀摘要校验后增量更新；Sidecar 的查询缓存按 canonical query 的键保持 oldest → newest 的确定性顺序，删除或写入失败不会影响领域状态。
 
@@ -60,3 +67,7 @@ Runtime 执行协议按 Goal 冻结的唯一 `structured@1 + trajectory-layered@
 该日志不参与 Snapshot、Trajectory 或上下文基线恢复。正式 CLI 组合根配置写入端口，写入失败会阻止当前 Adapter 调用；诊断 Trace 只保留完整输入的调用引用。崩溃可能留下未引用正文；不提供多进程共同写入或 exactly-once 保证，当前读取遍历完整 Run。
 
 原生续接的权威来源是已提交 Trajectory 中的 `model_response_received`，由 Runtime 当前协议校验后持久化；Gemini 签名作为不透明字符串原样保存，不单独建立模型会话存储。完整输入查看日志保留原生消息字段，重启读取验证消息形状与正文哈希，但不据此恢复 Goal。
+
+## 批次进度与两级修复计数
+
+Run 快照新增 `pendingActionBatch`（`batchId` + 按模型返回顺序排列的剩余业务 Action），与 `pendingAction` 共同构成批次恢复点；编码与解码两侧都覆盖该字段。`pendingModelRepair` 新增 `continuationsStarted`（不推进类计数，上限 3）与 `latestFailureClass`（`non_advancing` / `protocol`），与既有 `attemptsStarted` 一起决定下一次调用计入哪个预算。

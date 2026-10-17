@@ -1,4 +1,4 @@
-import type { LLMConfig } from "../../config/src/index.js";
+import type { LLMProvider } from "../../config/src/index.js";
 import {
     ModelCatalogError,
     type ProviderModelFetcher,
@@ -6,10 +6,24 @@ import {
 } from "./model-catalog.js";
 
 /**
- * 六类 Provider 在线模型列表拉取器的默认实现。
+ * 仅用于在线列表查询的连接参数，不要求模型标识或 Token 容量。
+ * @example
+ * ```ts
+ * const connection: ProviderModelConnection = { provider: "google", apiKey: "secret" };
+ * ```
+ */
+export interface ProviderModelConnection {
+    readonly provider: LLMProvider;
+    readonly apiKey: string;
+    /** 已由调用边界按供应商规则验证的端点。 */
+    readonly baseURL?: string;
+}
+
+/**
+ * 七类 Provider 在线模型列表拉取器的默认实现。
  *
  * @remarks
- * 支持 OpenAI、Google、Anthropic、OpenRouter、DeepSeek 和 openai-compatible。
+ * 支持 OpenAI、Google、Anthropic、OpenRouter、DeepSeek、openai-compatible 和 opencode-go。
  * 负责各 Provider 的端点 URL 适配、认证头拼装、Google/Anthropic 分页遍历、
  * 共享超时（默认 5000ms）与外部取消控制，并将网络、HTTP 状态与协议异常分类映射为脱敏的 `ModelCatalogError`。
  *
@@ -41,8 +55,8 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
      * const rawList = await fetcher.fetchModels(config, { signal: AbortSignal.timeout(3000) });
      * ```
      */
-    public async fetchModels(
-        config: LLMConfig,
+    public async fetchModels<Connection extends ProviderModelConnection>(
+        config: Connection,
         options?: { readonly signal?: AbortSignal | undefined; readonly fetch?: typeof fetch | undefined },
     ): Promise<readonly RawFetchedModel[]> {
         const timeoutMs = this.defaultTimeoutMs;
@@ -134,9 +148,11 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
                     return await this.fetchDeepSeek(config, executeRequest);
                 case "openai-compatible":
                     return await this.fetchOpenAiCompatible(config, executeRequest);
+                case "opencode-go":
+                    return await this.fetchOpenCodeGo(config, executeRequest);
                 default: {
-                    const exhaustive: never = config;
-                    throw new ModelCatalogError("unsupported", `Unsupported provider: ${(exhaustive as LLMConfig).provider}`);
+                    const exhaustive: never = config.provider;
+                    throw new ModelCatalogError("unsupported", `Unsupported provider: ${exhaustive}`);
                 }
             }
         } finally {
@@ -146,7 +162,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchOpenAi(
-        config: LLMConfig,
+        config: ProviderModelConnection,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const rawBase = (config.provider === "openai" && config.baseURL) ? config.baseURL : "https://api.openai.com/v1";
@@ -155,23 +171,11 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
         const headers: Record<string, string> = {
             Authorization: `Bearer ${config.apiKey}`,
         };
-        const json = await executeRequest(url, headers);
-        if (!json || typeof json !== "object" || !Array.isArray((json as { data?: unknown }).data)) {
-            throw new ModelCatalogError("protocol", 'Provider "openai" returned malformed models response.');
-        }
-        const data = (json as { data: readonly unknown[] }).data;
-        const models: RawFetchedModel[] = [];
-        for (const item of data) {
-            if (!item || typeof item !== "object" || typeof (item as { id?: unknown }).id !== "string" || !(item as { id: string }).id.trim()) {
-                throw new ModelCatalogError("protocol", 'Provider "openai" returned malformed model item.');
-            }
-            models.push({ id: (item as { id: string }).id.trim() });
-        }
-        return models;
+        return this.parseIdOnlyModelList(await executeRequest(url, headers), { provider: "openai" });
     }
 
     private async fetchGoogle(
-        config: LLMConfig,
+        config: ProviderModelConnection,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const rawBase = (config.provider === "google" && config.baseURL) ? config.baseURL : "https://generativelanguage.googleapis.com/v1beta";
@@ -247,7 +251,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchAnthropic(
-        config: LLMConfig,
+        config: ProviderModelConnection,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const headers: Record<string, string> = {
@@ -299,7 +303,7 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchOpenRouter(
-        config: LLMConfig,
+        config: ProviderModelConnection,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const url = "https://openrouter.ai/api/v1/models";
@@ -360,30 +364,29 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
     }
 
     private async fetchDeepSeek(
-        config: LLMConfig,
+        config: ProviderModelConnection,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const url = "https://api.deepseek.com/models";
         const headers: Record<string, string> = {
             Authorization: `Bearer ${config.apiKey}`,
         };
-        const json = await executeRequest(url, headers);
-        if (!json || typeof json !== "object" || !Array.isArray((json as { data?: unknown }).data)) {
-            throw new ModelCatalogError("protocol", 'Provider "deepseek" returned malformed models response.');
-        }
-        const data = (json as { data: readonly unknown[] }).data;
-        const models: RawFetchedModel[] = [];
-        for (const item of data) {
-            if (!item || typeof item !== "object" || typeof (item as { id?: unknown }).id !== "string" || !(item as { id: string }).id.trim()) {
-                throw new ModelCatalogError("protocol", 'Provider "deepseek" returned malformed model item.');
-            }
-            models.push({ id: (item as { id: string }).id.trim() });
-        }
-        return models;
+        return this.parseIdOnlyModelList(await executeRequest(url, headers), { provider: "deepseek" });
+    }
+
+    private async fetchOpenCodeGo(
+        config: ProviderModelConnection,
+        executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
+    ): Promise<readonly RawFetchedModel[]> {
+        const url = "https://opencode.ai/inference/go/v1/models";
+        const headers: Record<string, string> = {
+            Authorization: `Bearer ${config.apiKey}`,
+        };
+        return this.parseIdOnlyModelList(await executeRequest(url, headers), { provider: "opencode-go" });
     }
 
     private async fetchOpenAiCompatible(
-        config: LLMConfig,
+        config: ProviderModelConnection,
         executeRequest: (url: string, headers: Record<string, string>) => Promise<unknown>,
     ): Promise<readonly RawFetchedModel[]> {
         const baseURL = (config as { baseURL: string }).baseURL.replace(/\/$/, "");
@@ -392,27 +395,47 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
         if (config.apiKey && config.apiKey.trim()) {
             headers["Authorization"] = `Bearer ${config.apiKey.trim()}`;
         }
-        const json = await executeRequest(url, headers);
-        if (!json || typeof json !== "object") {
-            throw new ModelCatalogError("protocol", 'Provider "openai-compatible" returned malformed models response.');
-        }
-        const rawList = Array.isArray((json as { data?: unknown }).data)
-            ? (json as { data: readonly unknown[] }).data
-            : Array.isArray((json as { models?: unknown }).models)
-            ? (json as { models: readonly unknown[] }).models
-            : null;
-        if (!rawList) {
-            throw new ModelCatalogError("protocol", 'Provider "openai-compatible" returned malformed models response.');
+        return this.parseIdOnlyModelList(await executeRequest(url, headers), {
+            provider: "openai-compatible",
+            acceptModelsKey: true,
+            allowStringItems: true,
+        });
+    }
+
+    /**
+     * 解析 OpenAI 风格的 id-only 模型列表。
+     *
+     * @remarks
+     * 供 `openai`、`deepseek`、`openai-compatible` 与 `opencode-go` 四个同形端点共用；
+     * 仅负责校验形状、提取并 trim `id`，并按 Provider 名称抛出脱敏的 `protocol` 错误。
+     * @param json - 已反序列化的响应体。
+     * @param options - Provider 名称与形状开关：`acceptModelsKey` 允许顶层 `models` 数组，
+     *   `allowStringItems` 允许数组元素本身为字符串。Google/Anthropic/OpenRouter 的形状与分页不同，不适用此解析。
+     * @returns 已提取 id 的原始模型列表。
+     * @throws ModelCatalogError 响应或元素形状不合法时抛出 `protocol` 错误。
+     */
+    private parseIdOnlyModelList(
+        json: unknown,
+        options: { readonly provider: string; readonly acceptModelsKey?: boolean | undefined; readonly allowStringItems?: boolean | undefined },
+    ): readonly RawFetchedModel[] {
+        const record = json !== null && typeof json === "object" ? json as { data?: unknown; models?: unknown } : undefined;
+        const rawList = Array.isArray(record?.data)
+            ? record.data
+            : options.acceptModelsKey === true && Array.isArray(record?.models)
+                ? record.models
+                : null;
+        if (rawList === null) {
+            throw new ModelCatalogError("protocol", `Provider "${options.provider}" returned malformed models response.`);
         }
         const models: RawFetchedModel[] = [];
         for (const item of rawList) {
-            const id = typeof item === "string"
+            const id = options.allowStringItems === true && typeof item === "string"
                 ? item.trim()
-                : (item && typeof item === "object" && typeof (item as { id?: unknown }).id === "string")
-                ? (item as { id: string }).id.trim()
-                : "";
+                : item !== null && typeof item === "object" && typeof (item as { id?: unknown }).id === "string"
+                    ? (item as { id: string }).id.trim()
+                    : "";
             if (!id) {
-                throw new ModelCatalogError("protocol", 'Provider "openai-compatible" returned malformed model item.');
+                throw new ModelCatalogError("protocol", `Provider "${options.provider}" returned malformed model item.`);
             }
             models.push({ id });
         }

@@ -6,6 +6,7 @@ export {
 export {
     createBrowserGoalRoutes,
     type BrowserGoalApiPort,
+    type BrowserProviderSettingsPort,
 } from "./browser-goal-routes";
 export { createBrowserWorkspaceRoutes, type BrowserWorkspaceContext } from "./browser-workspace";
 export {
@@ -16,6 +17,7 @@ export {
     type BrowserModelCatalogReadResult,
     type BrowserModelOption,
     type BrowserModelSource,
+    type BrowserModelSourceRef,
 } from "./browser-model-catalog";
 export {
     BrowserGoalCommandService,

@@ -20,8 +20,9 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 | [WorkingMemorySession](../src/working-memory-session.ts) | 按 Snapshot 边界重建临时 Working Memory，校验 Patch/Evidence | 保存 Memory 内容到 Snapshot |
 | [TrajectoryCheckpointCommitter](../src/trajectory-checkpoint-committer.ts) | 统一事实、Patch、Snapshot 和提交 marker 的顺序 | 业务分支和模型调用 |
 | [GoalStore](../src/goal-store.ts) | 保存/恢复最新 Goal Snapshot | 历史查询和文件格式 |
-| [Model Call Metrics](../src/model-call-metrics.ts) | 模型调用开始/结束事实、用量覆盖标记及追加/读取 Port | Goal 恢复状态、指标汇总与诊断 Trace |
+| [Model Call Metrics](../src/model-call-metrics.ts) | 模型调用开始/结束事实、请求/解码计时、用量覆盖标记及追加/读取 Port | Goal 恢复状态、指标汇总与诊断 Trace |
 | [RunStage](../src/run-stage.ts) | Run 内部阶段声明、修订与流转纯规则、前序接受约束与审查拒绝记录 | 执行调度与模型调用 |
+| [RunPlan](../src/run-plan.ts) | Plan Run 完整路线的 Runtime 身份分配、顺序游标及阶段状态流转 | 模型复杂度判断与 I/O |
 | [Trajectory](../src/trajectory.ts) | 追加事实事件、提交 marker 和只读恢复查询 | 改写 Runtime State |
 | [Tool Core](../../tool-core/src/index.ts) | 通用 Tool 接口、输入 Contract 准备、Registry 与暂时故障分类 | Goal/Run 状态与授权策略 |
 | [Tool contracts](../src/tool.ts) | Tool Policy 边界、授权过滤与运行时上下文绑定 | 具体 Tool 业务逻辑与通用输入准备 |
@@ -30,7 +31,7 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 
 ## 状态与推进
 
-Goal workflow 只有 `phase: "executing"`。Goal 是可持续恢复的会话聚合，保存完整 messages、独立 GoalPlan、可选的一次性 `nextRunMode` 和 `completedRuns`；Run 是一次执行边界，保存自己的 `mode`、可选 `approvedTask`、`status`、`stepCount`、最新 Step、等待点、Context Epoch、Trajectory 提交边界和 Working Memory revision。GoalPlan Todo 不绑定 Run；同一 Run 可依次更新多个 Todo，结束时未完成项保留原状态。
+Goal workflow 只有 `phase: "executing"`。Goal 是可持续恢复的会话聚合，保存完整 messages、独立 GoalPlan、可选的一次性 `nextRunMode` 和 `completedRuns`；Run 是一次执行边界，保存自己的 `mode`、可选 `approvedTask`、Plan Run 可选的 `planRoute`、`status`、`stepCount`、最新 Step、等待点、Context Epoch、Trajectory 提交边界和 Working Memory revision。`planRoute` 只在获批 Plan Run 上保存完整有序阶段、状态和恢复游标；普通 Run 与待审批 Run 不包含该状态。GoalPlan Todo 不绑定 Run；同一 Run 可依次更新多个 Todo，结束时未完成项保留原状态。
 
 无参数 `/plan` 通过 Coordinator 为尚未提交 `run_started` 的当前 Run 选择 Plan 模式；当前 Run 已完成或失败时，它将 Plan 作为下一 Run 的一次性选择持久化。新 Run 缺省使用普通模式并消费待用选择。模式只属于 Run，GoalPlan 可在任意模式下存在并继续读取。
 
@@ -43,7 +44,7 @@ waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表�
 Runner 将调度契约委派给 RunExecutor；RunExecutor 按当前 Run 模式和获批任务推进：
 
 - 普通 Run 直接以当前用户请求为目标，不等待任务提案；完成声明按当前 Run 已提交的 Tool/Observation Evidence 校验。
-- Plan Run 未批准时，Prompt 要求先提交 `task_proposal`，但 Runtime 不以 `isReadOnly` 或未批准状态增加业务 Tool 门控；现有 Profile、Tool Policy 和 Action 审批仍决定 Tool 权限。该 Run 在获批前不能完成。
+- Plan Run 未批准时，Runtime 只向模型暴露 `isReadOnly === true` 的业务工具，并在 Action 准备入口拒绝其他工具；提案等待前可继续只读调查。该 Run 在获批前不能完成。
 - 提案进入持久化的 `task_approval` 等待点后停止模型和 Tool 调用；反馈使旧提案失效并重新请求，批准后将任务保存在当前 Run 的 `approvedTask`。
 - 获批 Plan Run 可调用已授权业务 Tool，并按获批任务的完成条件校验证据。GoalPlan 写入由 Run 模式能力授权；计划状态本身不授予业务 Tool 权限。
 - 各模式中的 Tool 调用统一沿用 Tool Registry、Action ID、Policy、Trajectory 和 Observation 提交路径。
@@ -60,15 +61,17 @@ Runner 将调度契约委派给 RunExecutor；RunExecutor 按当前 Run 模式�
 
 Runner 和 GoalCoordinator 可通过 [`@lazygoal/execution-stream`](../../execution-stream/notes/overview.md) 发布旁路事件。`step_started` 在 Executor 调用前发出，阶段事实与上下文 frame 在进入下一模型阶段前先提交，Tool 生命周期由 Runner 发出；事实提交成功后发出 Trajectory 事件和 `step_committed`。发布异常被隔离，不改变 Runtime 状态或提交顺序。实时事件不是恢复来源，恢复仍读取 Snapshot/Trajectory。
 
-模型调用指标使用独立 `MetricsStore` 与覆盖标记 Port：开始/结束事实不进入 Goal、Trajectory 或恢复状态。调用用量和计时由 Agent 在模型边界记录，查询投影由 `session-metrics` 根据最新 Goal Snapshot 与指标事实归约；指标写入失败不得改变 Goal 执行结果。
+模型调用指标使用独立 `MetricsStore` 与覆盖标记 Port：开始/结束事实不进入 Goal、Trajectory 或恢复状态。Agent 在实际适配器请求边界用单调时钟记录端到端请求耗时，并可另行记录流式首文本后的解码耗时；查询投影由 `session-metrics` 根据最新 Goal Snapshot 与指标事实归约。指标写入失败不得改变 Goal 执行结果。
 
 ## 恢复与持久化
 
 Runner 的恢复读取委派给无写入能力的 RunRecoveryReader。它不缓存第二份 Goal，也不触发调度；RunExecutor 消费经过身份校验的最新快照和 Snapshot 边界内轨迹事实，仍是唯一推进活动状态的一方。Trajectory 是恢复事实源，Snapshot 的 `committedThroughSequence` 是当前 Run 的可见边界，`memoryRevision` 是 accepted Memory Patch 链头。模型成功响应后可随共享提交器保存 `model_context_frame`，记录请求阶段、Epoch、Conversation 插入位置，以及实际发送的 Section 文本和对应结构化投影；该 frame 不写入 Goal Conversation，也不替代其他 Trajectory 事实。恢复查询只接受 Snapshot 边界内、Goal/Run/阶段/Epoch/Conversation 起点匹配且 Section 身份仍与当前注册表一致的 frame；未知或身份不匹配的 Section 不能成为比较基线。每个 `(goalId, runId)` 有独立的 Trajectory 序号；跨 Run 历史查询必须携带完整 Run 身份。`completedRuns` 记录已归档 completed、failed 或 cancelled Run 的终态、消息区间和提交边界；浏览器消息创建后继 Run 时，还会把稳定 message ID、正文和 next Run ID 一并保存为重试收据。该收据不改变当前 Run 的 Evidence 所有权。`WorkingMemorySession` 只沿可达 revision 链重放已提交 Patch，并拒绝跨 Goal/Run、断链、循环、越界或不匹配的事实。
 
-`pendingInteraction` 保存问卷或任务提案的完整请求、模式和关联 ID；获批任务保存在当前 Run，恢复时必须验证 Goal、Run、request ID 与等待状态一致。`pendingAction` 按 Tool 的 replay policy 分为安全重放或 `outcome_unknown` 人工确认，并在 Action 获批后记录授权期限与可选 Grant ID。`safe` Tool 只有显式抛出 `TransientToolExecutionFailure` 才会在同一 Action 内自动重试；每次调用前先提交 `attemptsStarted` 和 Trajectory 事实，最多三次且不增加 Step。普通异常按稳定错误失败，`retryable` Observation 仍作为已知业务结果提交，不单独触发重放。`manual` Tool 异常将该 Action 保存为 `outcome_unknown` 并进入等待，后续只能由用户对原 Action 作出单次恢复选择。Goal/workspace Grant 先以来源 `(goalId, runId, actionId)` 写为 pending，再提交批准事实和 Snapshot，之后才激活并调度；若激活中断，`advance` 必须核验快照身份、授权范围和重新派生的操作匹配器后再恢复激活。pending Grant 从不放行新 Action；撤销立即影响后续查询。`pendingThink` 保存当前未完成 Step 的 Think 输出恢复指针；`pendingModelRepair` 保存 Decide/Think 阶段输入边界、已开始尝试次数及最新尝试和反馈事件身份。模型阶段纠错先追加 Trajectory 事实再提交 Snapshot，恢复只读取已提交反馈，并校验 Goal、Run、执行单元、Step、阶段和输入摘要；Think 恢复还校验原请求目标。每条阶段纠错链最多尝试三次（含首次），Decide 完成候选的协议失败和审查拒绝共用此计数，崩溃中的已记次数不会重复使用。未提交输出不进入恢复历史，身份或输入失配会 fail-closed。有效决策提交时清除相应阶段恢复指针。审查拒绝复用已提交反馈恢复，未完成审查不保存候选接受状态，恢复后需再次审查。当前开发期协议不迁移旧字段；Storage 对旧阶段和旧事件显式拒绝。
+`pendingInteraction` 保存问卷或任务提案的完整请求、模式和关联 ID；Plan Run 的任务提案还保存待审完整路线候选。获批任务和权威路线保存在当前 Run，恢复时必须验证 Goal、Run、request ID 与等待状态一致，审批前候选不会被误读为已执行路线。`pendingAction` 按 Tool 的 replay policy 分为安全重放或 `outcome_unknown` 人工确认，并在 Action 获批后记录授权期限与可选 Grant ID。`safe` Tool 只有显式抛出 `TransientToolExecutionFailure` 才会在同一 Action 内自动重试；每次调用前先提交 `attemptsStarted` 和 Trajectory 事实，最多三次且不增加 Step。普通异常按稳定错误失败，`retryable` Observation 仍作为已知业务结果提交，不单独触发重放。`manual` Tool 异常将该 Action 保存为 `outcome_unknown` 并进入等待，后续只能由用户对原 Action 作出单次恢复选择。Goal/workspace Grant 先以来源 `(goalId, runId, actionId)` 写为 pending，再提交批准事实和 Snapshot，之后才激活并调度；若激活中断，`advance` 必须核验快照身份、授权范围和重新派生的操作匹配器后再恢复激活。pending Grant 从不放行新 Action；撤销立即影响后续查询。`pendingThink` 保存当前未完成 Step 的 Think 输出恢复指针；`pendingModelRepair` 保存 Decide/Think 阶段输入边界、已开始尝试次数及最新尝试和反馈事件身份。模型阶段纠错先追加 Trajectory 事实再提交 Snapshot，恢复只读取已提交反馈，并校验 Goal、Run、执行单元、Step、阶段和输入摘要；Think 恢复还校验原请求目标。每条阶段纠错链最多尝试三次（含首次），Decide 完成候选的协议失败和审查拒绝共用此计数，崩溃中的已记次数不会重复使用。未提交输出不进入恢复历史，身份或输入失配会 fail-closed。有效决策提交时清除相应阶段恢复指针。审查拒绝复用已提交反馈恢复，未完成审查不保存候选接受状态，恢复后需再次审查。当前开发期协议不迁移旧字段；Storage 对旧阶段和旧事件显式拒绝。
 
 `pendingProgram` 保存父 Action、代码和 worker 身份、固定计算输入、已提交子调用位置与结果字节数。子调用事实以 `programId/callIndex` 标记并留在 Trajectory 审计账本；原生模型历史、Hot/Warm 与检索索引跳过这些内部事实。每秒活动预算在 worker 运行前追加并同步持久化 `program_time_reserved`，恢复时连未提交 tail 中的预留也计入 120 秒总额；审批和关闭期间不继续预留。审批或宿主关闭后重新运行同一代码，只重放 Snapshot 边界内匹配的结果；未提交的写入结果不得视为完成，已经开始而结果未知的非只读调用必须人工确认，即使该 Tool 声明 safe。取消或资源失败遇到未结算写入时先保存 `pendingStop`，处理未知结果后再结算原停止原因。程序本身不提供外部副作用的 exactly-once 保证。
+
+获批 Plan Run 通过路线游标控制逐阶段执行：模型只能声明下一个待执行阶段，阶段接受先同步更新路线状态再继续 Run；非最终阶段接受不结束 Run。路线修订保留仍然有效的已接受结果；同范围修订在检查点提交，扩大范围时先持久化等待用户决定的候选，批准后再修订和继续原 Run。恢复从 Snapshot 中已提交的路线及阶段事实继续，不再次批准任务或重放已接受阶段的副作用。
 
 ## 关键错误边界
 
@@ -88,7 +91,7 @@ Runtime 当前只保存每个 Goal 的最新完整 Snapshot，不提供历史快
 ## 跨模块不变量
 
 - Goal workflow 只有 `executing`；Run 持有 `mode` 和可选 `approvedTask`，GoalPlan 独立于当前模式。
-- 普通 Run 不产生任务审批等待；Plan Prompt 的提案顺序不是 Tool 硬门控，未批准前的业务 Tool 仍由既有 Profile、Tool Policy 和 Action 审批控制。
+- 普通 Run 不产生任务审批等待，也不套用 Plan 只读门；Plan Run 获批前的业务 Tool 仅限明确声明只读的工具，Action 仍经过 Profile、Tool Policy、审批和沙箱检查。
 - Runtime 独占状态转换、持久化、Tool 授权和 Evidence 校验；Agent 不保存 Goal，也不决定 Runtime ID、Step、Epoch 或审批状态。
 - `goalId` 定位 Session，`runId` 标识执行实例；恢复时二者必须同时匹配。
 - 模型调用指标是独立的投影事实；查询时从 Goal 快照、JSONL 调用记录和覆盖标记重新计算，不成为 Runtime 恢复输入。
@@ -109,3 +112,11 @@ Memory proposal 在模型候选边界以 `memory_patch` 来源提供字段级反
 所有携带模型 `memoryPatch` 的 Decide 候选在动作、等待、Epoch 转换和完成审查之前先做原子校验与无 I/O 试归约。试归约身份被丢弃，最终条目按阶段检查点之后的实际提交序号生成；提交器只调用 Runner 提供的纯归约回调，不裁决领域规则。语义阶段审查拒绝（`run_stage_rejected`）作为正常 Step 结算并跨正常 Step 推进，不占用 Decide 参数格式纠错预算；非法参数、证据门禁与格式异常仍在原 Decide 三次预算内纠错。中间阶段接受保持 Run running，最终 complete 接受原子提交阶段与 Run 完成；恢复、配置、存储与生命周期失败不转换为模型修复。
 
 阶段业务工具执行前必须存在 executing 阶段。最终交付审查拒绝可以重新打开已接受阶段：保持阶段身份和历史接受事实，清除当前接受指针并提交拒绝缺口，在同一 Run 的新 Step 修正。此时 Snapshot 允许保存带拒绝缺口的 complete 候选作为最近 Step，但不将 Run 标记完成。
+
+## 批次顺序执行与失败预算
+
+Decide 返回值可以是 `decision`、`request_think`、`assistant_message` 或 `batch`。Runner 对 `batch` 的处理：队首走既有单决策校验与暂存路径，其余按模型返回顺序写入 `Run.pendingActionBatch.remaining`（仅业务 Action）。队首结果提交后，Runner 直接把队列中下一条作为本次 Decide 结果继续，不重新请求模型，因此多个 Action 在一次模型往返内按顺序执行。
+
+**恢复点** = `pendingAction`（队首）+ `pendingActionBatch.remaining`（其余）。指针与该 Action 在同一次提交写入，避免"Action 已暂存但队列未推进"导致恢复后重放。已产生 `action_staged` 的 `actionId` 再次出现时按不可重放拒绝并要求模型改用新 Action。
+
+失败预算分两类、各自含首次最多三次、互不占用：`attemptsStarted` 覆盖契约、Tool 选择、Tool 输入与证据类失败；`continuationsStarted` 覆盖零调用正文与无可用结果。`latestFailureClass` 决定下一次调用计入哪个预算，有效 `request_think` 结束当前链时两者一并归零。零调用正文在提交为 Goal 消息后按不推进类预算继续；预算用尽时保留每次原因与该次正文并明确失败。

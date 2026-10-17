@@ -4,6 +4,7 @@ import test from "node:test";
 import type { LLMConfig } from "../../config/src/index.js";
 import {
     createLlmModelCatalog,
+    DefaultLlmModelCatalog,
     determineSelectability,
     ModelCatalogError,
     sortModelDescriptors,
@@ -283,4 +284,60 @@ test("ModelCatalog: 不允许降级故障（authentication, permission, protocol
             },
         );
     }
+});
+
+const opencodeGoConfig: LLMConfig = {
+    provider: "opencode-go",
+    model: "kimi-k3",
+    apiKey: "oc-secret-key-12345",
+    structuredOutputMode: "prompt_only",
+};
+
+test("ModelCatalog: opencode-go 在线结果用静态目录补全元数据", async () => {
+    const fakeFetcher: ProviderModelFetcher = {
+        async fetchModels() {
+            return [
+                { id: "kimi-k3" },
+                { id: "glm-5.3", displayName: "GLM-5.3 (Live)" },
+            ];
+        },
+    };
+
+    const catalog = createLlmModelCatalog(fakeFetcher);
+    const result = await catalog.list(opencodeGoConfig);
+
+    assert.deepEqual(result.map((m) => m.id), ["kimi-k3", "glm-5.3"]);
+    const kimi = result.find((m) => m.id === "kimi-k3")!;
+    assert.equal(kimi.availabilitySource, "live");
+    assert.equal(kimi.metadataSource, "catalog");
+    assert.ok(kimi.contextWindowTokens !== undefined && kimi.contextWindowTokens > 0);
+    assert.equal(kimi.selectable, true);
+
+    const glm = result.find((m) => m.id === "glm-5.3")!;
+    assert.equal(glm.displayName, "GLM-5.3 (Live)");
+    assert.equal(glm.metadataSource, "mixed");
+});
+
+test("ModelCatalog: opencode-go 无在线拉取时回退静态目录", async () => {
+    const catalog = new DefaultLlmModelCatalog();
+    const result = await catalog.list(opencodeGoConfig);
+
+    assert.ok(result.length > 0);
+    assert.ok(result.some((m) => m.id === "kimi-k3"));
+    assert.equal(result.every((m) => m.availabilitySource === "catalog"), true);
+    assert.equal(result.every((m) => m.metadataSource === "catalog"), true);
+});
+
+test("ModelCatalog: opencode-go 鉴权失败禁止降级到静态目录", async () => {
+    const rejectingFetcher: ProviderModelFetcher = {
+        async fetchModels() {
+            throw new ModelCatalogError("authentication", "Provider \"opencode-go\" authentication failed.", 401);
+        },
+    };
+
+    const catalog = createLlmModelCatalog(rejectingFetcher);
+    await assert.rejects(
+        async () => { await catalog.list(opencodeGoConfig); },
+        (err: unknown) => err instanceof ModelCatalogError && err.kind === "authentication",
+    );
 });

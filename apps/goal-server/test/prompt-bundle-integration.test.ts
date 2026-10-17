@@ -68,10 +68,14 @@ function nativeFixtureMessage(content: string, id: string) {
         : kind === "ask_user" ? "ask_user"
         : kind === "task_proposal" ? "system_propose_task_plan"
         : kind === "tool_discovery" ? "system_find_tools"
+        : kind === "run_stage_update" ? "system_update_run_stage"
         : kind === "accept" ? "system_review_completion" : "system_complete_task";
     return { role: "assistant", content: "", tool_calls: [{ id, type: "function", function: {
         name,
-        arguments: JSON.stringify(kind === "tool_call" ? args.action.input : kind === "tool_discovery" ? { query: args.query } : kind === "accept" ? { result: { kind } } : args),
+        arguments: JSON.stringify(kind === "tool_call" ? args.action.input
+            : kind === "tool_discovery" ? { query: args.query }
+            : kind === "run_stage_update" ? { target: args.target, acceptanceCriteria: args.acceptanceCriteria }
+            : kind === "accept" ? { result: { kind } } : args),
     } }] };
 }
 
@@ -124,6 +128,7 @@ test("Composition Root carries Memory through task approval into Executing", { t
         JSON.stringify({
             result: {
                 kind: "task_proposal",
+                planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                 task: {
                     objective: "Initial proposal",
                     completionCriteria: [],
@@ -148,12 +153,20 @@ test("Composition Root carries Memory through task approval into Executing", { t
         JSON.stringify({
             result: {
                 kind: "task_proposal",
+                planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                 task: {
                     objective: "Approved proposal",
                     completionCriteria: [],
                 },
                 approvalRequest: "Approve the revised task contract?",
                 memoryPatch: null,
+            },
+        }),
+        JSON.stringify({
+            result: {
+                kind: "run_stage_update",
+                target: "Complete the proposed task",
+                acceptanceCriteria: ["The task outcome is verified"],
             },
         }),
         JSON.stringify({
@@ -351,8 +364,8 @@ test("Composition Root carries Memory through task approval into Executing", { t
         }
         assert.ok(completedGoal);
         assert.equal(completedGoal.state.run.status, "completed");
-        if (requests.length !== 7) {
-            throw new Error(`Expected 7 requests, got ${requests.length}`);
+        if (requests.length !== 8) {
+            throw new Error(`Expected 8 requests, got ${requests.length}`);
         }
         for (const request of requests.slice(0, -1)) {
             const content = systemContent(request);
@@ -366,7 +379,7 @@ test("Composition Root carries Memory through task approval into Executing", { t
             }
         }
 
-        const reviewControl = controlPayload(requests[6]!);
+        const reviewControl = controlPayload(requests[7]!);
         assert.equal(reviewControl.source, "runtime_completion_candidate");
         assert.equal(reviewControl.candidate.summary, "The current workflow completed");
 
@@ -493,6 +506,7 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
         JSON.stringify({
             result: {
                 kind: "task_proposal",
+                planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                 task: {
                     objective: "Invalid wire test",
                     completionCriteria: [],
@@ -605,7 +619,9 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
         assert.equal(failedGoal.state.run.stopReason?.kind, "execution_error");
         if (failedGoal.state.run.stopReason?.kind === "execution_error") {
             assert.equal(failedGoal.state.run.stopReason.code, "INVALID_AGENT_DECISION");
-            assert.match(failedGoal.state.run.stopReason.message, /INVALID_LLM_RESPONSE/);
+            // 旧格式裸 tool_call 以文本返回：按零调用正文接受为 Assistant 消息，不推进任务，
+            // 三次不推进预算用尽后明确失败，仍不产生任何 Tool 副作用。
+            assert.match(failedGoal.state.run.stopReason.message, /NO_USABLE_RESULT/);
         }
 
         const trajectory = await root.readTrajectory({

@@ -420,9 +420,12 @@ function renderFinalRequest<Result = AgentDecision>(
             renderer.renderDynamicSections(targetView),
             baselineFrames,
         );
-        const shapeGuide = stage === "decide" && structuredOutputMode === "prompt_only" && nativeIdentity === undefined
-            ? bundle.shapeGuide
-            : undefined;
+        const requiresToolCall = stage === "decide" && currentToolDeclarations.length > 0;
+        const shapeGuide = requiresToolCall
+            ? "Call exactly one declared tool using arguments matching its schema. Do not return a text JSON decision or an enclosing result object."
+            : stage === "decide" && structuredOutputMode === "prompt_only" && nativeIdentity === undefined
+                ? bundle.shapeGuide
+                : undefined;
         const request = renderRequest(
             targetView,
             renderer,
@@ -432,7 +435,7 @@ function renderFinalRequest<Result = AgentDecision>(
         );
         return {
             ...request,
-            ...(stage === "decide" && currentToolDeclarations.length > 0
+            ...(requiresToolCall
                 ? {
                     tools: currentToolDeclarations.map((declaration) => ({
                         id: declaration.id,
@@ -442,7 +445,7 @@ function renderFinalRequest<Result = AgentDecision>(
                     toolChoice: "required" as const,
                 }
                 : {}),
-            ...(stage === "decide" && structuredOutputMode === "strict" && nativeIdentity === undefined
+            ...(stage === "decide" && !requiresToolCall && structuredOutputMode === "strict" && nativeIdentity === undefined
                 ? {
                     structuredOutput: {
                         name: bundle.name,

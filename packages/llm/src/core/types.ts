@@ -68,7 +68,8 @@ export interface LLMRequest {
     /** 供应商生成阶段允许的最大输出 Token；配置模型能力时由 Executor 传递。 */
     readonly maxOutputTokens?: number;
     /**
-     * strict 模式下必须传递的原生结构化输出配置；prompt_only 模式下必须完全省略。
+     * 无工具的 strict 请求必须传递原生结构化输出配置；工具请求由参数 Schema 约束，省略此字段。
+     * prompt_only 请求必须完全省略。
      */
     readonly structuredOutput?: LLMStructuredOutput;
     /** 原生 Function Calling 挂载的工具定义集合。 */
@@ -80,6 +81,11 @@ export interface LLMRequest {
      * - `none`: 禁止模型调用工具。
      */
     readonly toolChoice?: "auto" | "required" | "none";
+    /**
+     * 稳定会话身份（如 Goal 的 id）。供应商会话感知能力据此获得跨调用一致的会话标识；
+     * 省略时适配器保持既有请求形态，不发送任何会话头。
+     */
+    readonly sessionId?: string;
 }
 
 /**
@@ -106,7 +112,8 @@ export class LLMRequestModeMismatchError extends Error {
  * 供应商无关的模型响应。
  *
  * @remarks
- * `content` 是 Agent 协议解析所使用的原始文本；可选的
+ * `content` 只包含模型正文，不得拼入 thinking；工具调用通过 `toolCalls` 独立返回。
+ * Agent 对 required 工具请求只解码调用参数，不把正文当作替代决策。可选的
  * `providerMetadata` 只供 Diagnostic Trace 使用，不进入 Domain Event、Goal
  * Snapshot 或模型上下文。调用方应避免把凭据放入 metadata。
  * 原生 OpenAI/Gemini Adapter 在响应携带用量时把归一化 token 计数写入
@@ -126,7 +133,7 @@ export class LLMRequestModeMismatchError extends Error {
  * ```
  */
 export interface LLMResponse extends Omit<ModelAssistantMessage, "role"> {
-    /** 正文文本；原生 Adapter 的 reasoning 摘要通过独立字段返回。 */
+    /** 正文文本，不包含思考块；原生 Adapter 的公开 reasoning 摘要通过独立字段返回。 */
     readonly content: string;
     /** 供应商实际公开的 reasoning 摘要，不进入正文解析。 */
     readonly reasoning?: string;
