@@ -1,5 +1,9 @@
 # Implementation Plan
 
+> [!CAUTION]
+> 负面护栏：本设计为未实施且已废弃的草案（Abandoned Draft），已被独立的 `@lazygoal/working-memory` 领域包架构取代。严禁将未落地的 v1 叙事性/旧生命周期设计作为当前实现的参考依据。
+
+
 - [ ] //TODO 1. 重构 Working Memory 领域协议与 Runtime 准入核心
 
   - 替换 Fact、Hypothesis、PlanItem、Blocker 与 model/canonical Patch 类型

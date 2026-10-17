@@ -55,7 +55,7 @@ ActionPanel 的 `approveLock`/`rejectLock` 与 PreparationScreen 的 `submitLock
 
 ### 决策 7：架构文档同步（req-5）
 
-`tui.md`：删除/修正 `UiScreen` 面与命令面描述，职责表中 Ctrl+C 回调归属改为 `TuiApp`；[cli.tsx](../../packages/tui/src/cli.tsx) 的 `runCli` TSDoc 删除「由后续 Shutdown TODO 接管」的过期表述。
+`tui.md`：删除/修正 `UiScreen` 面与命令面描述，职责表中 Ctrl+C 回调归属改为 `TuiApp`；[cli.tsx](../../../packages/tui/src/cli.tsx) 的 `runCli` TSDoc 删除「由后续 Shutdown TODO 接管」的过期表述。
 
 ## Components and Interfaces
 

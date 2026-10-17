@@ -29,7 +29,7 @@ TUI 模式由宿主运行唯一的 Runtime，容器 Worker 仅提供工具执行
 
 ## Overview
 
-现有 [ACP Client](../../packages/acp/src/client.ts)提供会话生命周期，现有 [Worker](../../benchmarks/gaia/src/worker-entry.ts)在容器内装配 Headless Runtime。TUI 路径新增工具服务入口，把 Runtime 留在宿主；旧入口继续支持无头评测。以下新增接口均为本 Spec 的实施目标。
+现有 [ACP Client](../../../packages/acp/src/client.ts)提供会话生命周期，现有 [Worker](../../../benchmarks/gaia/src/worker-entry.ts)在容器内装配 Headless Runtime。TUI 路径新增工具服务入口，把 Runtime 留在宿主；旧入口继续支持无头评测。以下新增接口均为本 Spec 的实施目标。
 
 ## Architecture
 

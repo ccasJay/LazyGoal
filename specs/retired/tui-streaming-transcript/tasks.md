@@ -1,5 +1,9 @@
 # Implementation Plan
 
+> [!CAUTION]
+> 负面护栏：终端 TUI 流式 Transcript 交互代码已随 `packages/tui` 整体移除。所有用户交互与执行消息流统一由 Web 前端（`@lazygoal/goal-board`）与 HTTP/SSE 守护进程（`@lazygoal/goal-server`）承载，严禁重新引入终端动态渲染与 scrollback 提交机制。
+
+
 - [x] //TODO 1. 实现 Transcript 协议、Markdown collector 与调度器
 
   - 实现目标：新增 `StreamingTranscriptController`、协议事件、快照、稳定 block collector、40ms 自适应 commit tick、同步 flush 与生命周期清理；补充公共中文 TSDoc。

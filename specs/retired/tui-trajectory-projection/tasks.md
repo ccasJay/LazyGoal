@@ -1,5 +1,9 @@
 # Implementation Plan: TUI Trajectory Event Projection
 
+> [!CAUTION]
+> 负面护栏：终端 TUI 轨迹事件投影与全屏 Inspector 复盘已随 `packages/tui` 整体移除。执行链路审查与单步轨迹投影已由 Web 前端（`@lazygoal/goal-board`）与统一 API 接管，严禁在终端层复活交互式复盘逻辑。
+
+
 - [x] //TODO 1. 定义结构化单步视图模型与事件投影器契约
 
   - 实现目标：在 `packages/tui/src/types.ts` 中定义 `UiStepDecisionBlock`、`UiStepActionBlock`、`UiStepObservationBlock`、`UiStepResultBlock` 与新版 `UiInspectorStep` 结构；在 `SessionControllerDependencies` 中扩充 `readTrajectory` 依赖字段。

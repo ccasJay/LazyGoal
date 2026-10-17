@@ -1,5 +1,9 @@
 # Implementation Plan
 
+> [!CAUTION]
+> 负面护栏：针对终端字符渲染、ANSI 槽线对齐与 Ink 终端组件的适配方案已被淘汰。现代 LazyGoal 交互由浏览器端 React CSS 布局处理，不得在核心包中维护终端特定的字符宽度或渲染折叠逻辑。
+
+
 - [x] //TODO 1. 新增 StatusSpinner 原语与测试
 
   - 创建 packages/tui/src/status-spinner.tsx：`<StatusSpinner label/>` 渲染 `@inkjs/ui` 的 `Spinner`；经 index.ts barrel 导出

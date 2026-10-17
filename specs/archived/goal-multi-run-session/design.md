@@ -27,7 +27,7 @@ Goal 继续作为唯一的可恢复会话聚合，Runtime 在其上增加持久�
 
 ## Overview
 
-当前 [GoalState](../../packages/runtime/src/domain.ts) 只保存最新 Run，[GoalCoordinator](../../packages/runtime/src/goal-coordinator.ts) 在终态返回后不提供新 Run 入口，[SessionScreen](../../packages/tui/src/session-screen.tsx) 也会在 terminal 面板停止输入。本设计在这些边界增加会话历史、Plan Mode 和显式继续入口，不把 `transition` 改造成跨 Run 状态机。
+当前 [GoalState](../../../packages/runtime/src/domain.ts) 只保存最新 Run，[GoalCoordinator](../../../packages/runtime/src/goal-coordinator.ts) 在终态返回后不提供新 Run 入口，[SessionScreen](../../../packages/tui/src/session-screen.tsx) 也会在 terminal 面板停止输入。本设计在这些边界增加会话历史、Plan Mode 和显式继续入口，不把 `transition` 改造成跨 Run 状态机。
 
 ```text
 用户输入
@@ -56,7 +56,7 @@ Goal 继续作为唯一的可恢复会话聚合，Runtime 在其上增加持久�
 
 `GoalState` 增加 `mode: "normal" | "plan"`。`normal` 下不创建 `goalPlan` 字段，也不向模型工具包、TUI ViewModel 或 Snapshot 派生出 GoalPlan。`plan` 下必须存在 GoalPlan；当前版本不提供退出命令，因此模式一旦进入只会随 Goal 持续恢复。
 
-`/plan` 在 [slash-command](../../packages/slash-command/src) 中只负责校验无参数并返回 `{ kind: "enter_plan_mode" }`。在已有 Goal 中，Controller 将 Effect 转成 `GoalCoordinator.enterPlanMode(ref)`；Coordinator 拒绝 `running` 或存在实际模型/Tool 调用的 Run，在 `created`、`waiting` 或终态安全边界保存模式和空计划。尚无 Goal 时，Controller 只保存一次性的 `pendingLaunchMode`，下一次创建 Goal 时由 Launcher 在首个 Snapshot 中写入 `mode: "plan"`，不会把 `/plan` 当作 intent。
+`/plan` 在 [slash-command](../../../packages/slash-command/src) 中只负责校验无参数并返回 `{ kind: "enter_plan_mode" }`。在已有 Goal 中，Controller 将 Effect 转成 `GoalCoordinator.enterPlanMode(ref)`；Coordinator 拒绝 `running` 或存在实际模型/Tool 调用的 Run，在 `created`、`waiting` 或终态安全边界保存模式和空计划。尚无 Goal 时，Controller 只保存一次性的 `pendingLaunchMode`，下一次创建 Goal 时由 Launcher 在首个 Snapshot 中写入 `mode: "plan"`，不会把 `/plan` 当作 intent。
 
 Plan Mode 的状态归 Runtime 所有。Agent 输出、TUI 本地状态或普通消息都不能直接改变 `mode`；重复 `/plan` 是幂等操作，不增加 plan revision。该决策覆盖需求 1.1–1.4、7.1。
 
@@ -116,7 +116,7 @@ Coordinator 实例内按 `goalId` 建立短时串行闸门，防止两个 comple
 
 ### Trajectory 序号按 Run 独立
 
-保持 [trajectory.ts](../../packages/runtime/src/trajectory.ts) 的既有不变量：每个 `(goalId, runId)` 独立分配 `sequence`，新 Run 从 0 开始；`committedThroughSequence` 继续表示当前 Run 的 Snapshot 边界。跨 Run 查询和 TUI 去重使用 `(goalId, runId, sequence, eventId)`，不得只使用局部 sequence。
+保持 [trajectory.ts](../../../packages/runtime/src/trajectory.ts) 的既有不变量：每个 `(goalId, runId)` 独立分配 `sequence`，新 Run 从 0 开始；`committedThroughSequence` 继续表示当前 Run 的 Snapshot 边界。跨 Run 查询和 TUI 去重使用 `(goalId, runId, sequence, eventId)`，不得只使用局部 sequence。
 
 新增的 `run_created`、`plan_mode_entered`、`goal_plan_updated` 事件只记录已发生事实；Goal Snapshot 仍是当前计划和 Run 状态的权威来源。历史读取先依据 `completedRuns` 与当前 Run 的边界筛选，再交给现有 projector，不能扫描任意轨迹文件。该决策覆盖需求 2.2、6.3、7.3。
 

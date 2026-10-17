@@ -1,5 +1,9 @@
 # Implementation Plan
 
+> [!CAUTION]
+> 负面护栏：`packages/tui` 中的会话控制器与提交闸门设计已被淘汰。服务端并发控制与状态提交已统一由 `@lazygoal/goal-server` 的 Composition Root 及 HTTP 路由管理，不得在终端层重新实现客户端提交闸门。
+
+
 - [x] //TODO 1. 删除 `fatal` 屏幕与 `openGoalSelect` 命令面
 
   - 修改 `types.ts`、`app.tsx`、`session-controller.ts`、`index.ts`，按设计决策 1 移除对应变体、分支与导出

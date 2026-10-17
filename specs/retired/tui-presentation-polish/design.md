@@ -5,7 +5,7 @@
 
 ## Overview
 
-本设计落实已批准的 requirements（`specs/tui-presentation-polish/requirements.md`），在 `packages/tui` 内抽取两个共享原语（`StatusSpinner`、`ErrorLine`）并就地统一各屏幕的 Spinner、错误展示、批准键位、输入清空、UUID 截断与死代码清理。变更不跨出 TUI 边界：不修改 Runtime/Agent/Storage；`SessionController` 仅在 `app.tsx` 的 `dispatch` 包装处收窄异常处理；`structuredClone` 维持单次（`tui-simplification` 已决策）。`beginShutdown` 的 goal 克隆属 `session-controller.test.ts` 断言的快照契约，不在本设计范围。
+本设计落实已批准的 requirements（`specs/retired/tui-presentation-polish/requirements.md`），在 `packages/tui` 内抽取两个共享原语（`StatusSpinner`、`ErrorLine`）并就地统一各屏幕的 Spinner、错误展示、批准键位、输入清空、UUID 截断与死代码清理。变更不跨出 TUI 边界：不修改 Runtime/Agent/Storage；`SessionController` 仅在 `app.tsx` 的 `dispatch` 包装处收窄异常处理；`structuredClone` 维持单次（`tui-simplification` 已决策）。`beginShutdown` 的 goal 克隆属 `session-controller.test.ts` 断言的快照契约，不在本设计范围。
 
 ## Key Design Decisions
 

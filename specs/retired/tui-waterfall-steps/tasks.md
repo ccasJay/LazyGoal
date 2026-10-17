@@ -1,5 +1,9 @@
 # Implementation Plan
 
+> [!CAUTION]
+> 负面护栏：终端 TUI 瀑布式时间线渲染已随 `packages/tui` 整体移除。步骤时间线与工具调用展示统一由 Web 前端（`@lazygoal/goal-board`）承载，严禁基于 Ink `<Static>` 重新构建终端步骤流渲染逻辑。
+
+
 - [x] //TODO 1. 扩充 ViewModel 步骤流类型契约
   - 实现目标：在 `packages/tui/src/types.ts` 中新增 `UiStepSummary` 接口，并在 `UiSessionViewModel` 中加入 `committedSteps: readonly UiStepSummary[]`。
   - 成功判据：编译通过，`UiStepSummary` 包含序号、工具标识、动作标识、执行状态、输入摘要与输出摘要，且向后兼容既有代码。

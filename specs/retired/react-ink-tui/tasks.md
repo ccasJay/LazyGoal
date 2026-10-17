@@ -1,5 +1,9 @@
 # 实现计划
 
+> [!CAUTION]
+> 负面护栏：LazyGoal 已完全移除 React Ink 终端交互架构（`packages/tui`），全面采用独立的后台守护进程（`@lazygoal/goal-server`）与基于浏览器的交互看板（`@lazygoal/goal-board`）。严禁在当前项目中重新引入终端 UI 运行时或单进程直接绑定 TUI 的耦合设计。
+
+
 - [x] //TODO 1. 建立跨 Runtime、LLM 与 Tool 的可中止执行协议
 
   - 新增带中文契约级 TSDoc 的 `ExecutionControl`、`ExecutionAbortedError` 与中止检查，并沿 Launcher、Coordinator、Scheduler、Runner、Executor、Adapter 和 Tool 调用链传递根 `AbortSignal`
