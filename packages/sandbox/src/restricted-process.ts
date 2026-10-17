@@ -150,6 +150,8 @@ export function sendSignalToProcessGroup(child: ChildProcess | number, signal: N
  *
  * @remarks
  * 优先向整组发送 SIGTERM，如果在 `graceMs` 毫秒内进程未退出，自动升级发送 SIGKILL。
+ * 宽限到期时的升级是尽力而为：该信号由库内定时器发送，发送失败（例如进程组已被回收或
+ * PID 被复用）不会向宿主抛出未捕获异常，调用方必须以子进程退出事件确认实际终止。
  * 若提供 `onSettled` 回调或返回的 Promise，当进程已退出时清除宽限定时器。
  *
  * @param child - 目标 ChildProcess 实例。
@@ -171,7 +173,11 @@ export function killProcessGroup(
 
     let timer: NodeJS.Timeout | undefined = setTimeout(() => {
         timer = undefined;
-        sendSignalToProcessGroup(child, "SIGKILL");
+        try {
+            sendSignalToProcessGroup(child, "SIGKILL");
+        } catch {
+            // 升级信号由定时器发送，无法向调用方返回；实际退出由子进程退出事件确认
+        }
     }, graceMs);
 
     return {

@@ -18,7 +18,7 @@
   - 实现：迁入 ProcessManager 与额度常量，创建最小包入口，移除 tools 的旧文件及转导出；搜索并迁移全部当前源码、测试和所属模块说明的引用，goal-server 只调整当时装配位置中的进程接线。沿用私有包与直接源码消费方式，登记必要依赖门条目使当前消费者可检查，不新增发布/构建机制。补齐公开契约中文 TSDoc、示例和新包 README、overview、semantics，按职责更新 Tools/宿主链接；历史 Spec/Memory 不批量改写，相关记忆的权威路径变化仅记录为维护候选。竞态与失败语义在后续任务落实，不将正常路径通过表述为完整关闭保证。
   - 检查：`npx tsx --test packages/process-runtime/test/process-manager.test.ts packages/tools/test/process-tools.test.ts packages/storage/test/process-session-store.test.ts apps/goal-server/test/process-lifecycle.integration.test.ts`；`npx tsc --noEmit`；`npx tsc --noEmit -p apps/goal-server/tsconfig.json`；`npm run check:dependencies`；搜索确认旧导入和管理器重复定义已移除。
 
-- [ ] //TODO 2. 结算并发启动、额度与启动关闭竞态
+- [x] //TODO 2. 结算并发启动、额度与启动关闭竞态
   - 落实标准：[2.1](./spec.md#spec-req-2-1)、[2.2](./spec.md#spec-req-2-2)、[2.3](./spec.md#spec-req-2-3)、[2.4](./spec.md#spec-req-2-4)、[5.4](./spec.md#spec-req-5-4)。
   - 先验证：在拟新增 `packages/process-runtime/test/process-startup.test.ts` 中控制 list/初始保存/running 保存的完成顺序，覆盖每 Goal 4、宿主 16 和历史 32 的临界并发；已落盘会话与未落盘预留不重复计数，拒绝不排队或 spawn。覆盖初始保存失败、spawn/异步 error、快速退出、running 写入失败及关闭插入每个异步边界；关闭后不产生新的命令标记，已有句柄仍能被清理，迟到 running 不覆盖终态，初始错误不被 failed 记录写入错误覆盖。
   - 实现：在首次异步操作前预留启动并纳入统一结算，按真实失败/退出释放额度；在后续异步边界检查 closing。初始记录先于 spawn；取得句柄即安装事件与输出处理，再进行异步 running 写入。以同一会话所有者协调状态写入，资源登记只保留管理器一项；注册失败时不能继续启动，已接收启动不因尚未进入活跃集合而逃逸。建立必要的组件错误分类与原因保留，具体输出和停止结算在 TODO 3/4 完成。
