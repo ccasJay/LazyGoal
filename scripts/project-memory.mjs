@@ -30,6 +30,12 @@ const REQUIRED_SECTIONS = [
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const SOURCE_PATTERN = /^- (S\d+): `([^`]+)`$/;
 const DECISION_PATTERN = /^- (D\d+) — /;
+const ALLOWED_SPEC_PREFIXES = [
+    "specs/",
+    "specs/archived/",
+    "specs/retired/",
+];
+const IGNORED_SPEC_DIRS = new Set(["archived", "retired"]);
 const INDEX_HEADER = [
     "# Project Memory Index",
     "",
@@ -222,7 +228,8 @@ async function validateCapsule(projectRoot, capsulePath, text) {
     if (!ALLOWED_STATUSES.has(fields.status)) {
         fail(`${relativePath}: 非法 status ${fields.status}`);
     }
-    if (fields.source_spec !== `specs/${fields.feature}/`) {
+    const expectedSourceSpecs = ALLOWED_SPEC_PREFIXES.map((prefix) => `${prefix}${fields.feature}/`);
+    if (!expectedSourceSpecs.includes(fields.source_spec)) {
         fail(`${relativePath}: source_spec 必须与 feature 一致并以 / 结尾`);
     }
     if (!DATE_PATTERN.test(fields.distilled_at) || !DATE_PATTERN.test(fields.reviewed_at)) {
@@ -232,9 +239,10 @@ async function validateCapsule(projectRoot, capsulePath, text) {
         fail(`${relativePath}: reviewed_at 不能早于 distilled_at`);
     }
     const hasSpecDoc = await isRegularFile(path.join(projectRoot, fields.source_spec, "spec.md"))
-        || await isRegularFile(path.join(projectRoot, fields.source_spec, "requirements.md"));
+        || await isRegularFile(path.join(projectRoot, fields.source_spec, "requirements.md"))
+        || await isRegularFile(path.join(projectRoot, fields.source_spec, "plan.md"));
     if (!hasSpecDoc) {
-        fail(`${relativePath}: source_spec 缺少 spec.md 或 requirements.md`);
+        fail(`${relativePath}: source_spec 缺少 spec.md、requirements.md 或 plan.md`);
     }
     for (const authority of fields.authorities) {
         assertRelativeProjectPath(authority, "authorities", relativePath);
@@ -344,16 +352,16 @@ async function coverageWarnings(projectRoot, capsules) {
     const known = new Set(capsules.map(({ fields }) => fields.feature));
     const warnings = [];
     for (const entry of await readdir(specsRoot, { withFileTypes: true })) {
-        if (!entry.isDirectory() || known.has(entry.name)) {
+        if (!entry.isDirectory() || IGNORED_SPEC_DIRS.has(entry.name) || known.has(entry.name)) {
             continue;
         }
         const specRoot = path.join(specsRoot, entry.name);
         const hasLegacy = (await Promise.all(["requirements.md", "design.md", "tasks.md"].map((name) => isRegularFile(path.join(specRoot, name))))).every(Boolean);
-        const hasV2 = await isRegularFile(path.join(specRoot, "spec.md")) && await isRegularFile(path.join(specRoot, "plan.md"));
-        if (!hasLegacy && !hasV2) {
+        const hasPlan = await isRegularFile(path.join(specRoot, "plan.md"));
+        if (!hasLegacy && !hasPlan) {
             continue;
         }
-        const taskPath = hasV2 ? path.join(specRoot, "plan.md") : path.join(specRoot, "tasks.md");
+        const taskPath = hasPlan ? path.join(specRoot, "plan.md") : path.join(specRoot, "tasks.md");
         const tasks = await readFile(taskPath, "utf8");
         const checkboxes = [...tasks.matchAll(/^\s*- \[([ xX])\] /gm)];
         if (checkboxes.length > 0 && checkboxes.every((match) => match[1].toLowerCase() === "x")) {

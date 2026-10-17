@@ -3,7 +3,7 @@ feature: two-stage-decision-pipeline
 status: superseded
 status_reason: "已由原生双通道工具调用架构 (native-tool-calling-architecture) 统一为单步 1 RTT 原生 Function Calling 取代"
 summary: "同模型双阶段决策流水线，单步内串行 Think 与 Decide 解决思维链与严格 Schema 冲突（已由 native-tool-calling-architecture 取代）"
-source_spec: specs/two-stage-decision-pipeline/
+source_spec: specs/archived/two-stage-decision-pipeline/
 distilled_at: 2026-09-21
 reviewed_at: 2026-10-10
 tags: [agent, decision-pipeline, two-stage, thinking, cot, superseded]
@@ -33,9 +33,9 @@ superseded_by: [project-memory/features/native-tool-calling-architecture.md]
 
 ## Sources
 
-- S1: `specs/two-stage-decision-pipeline/requirements.md`
-- S2: `specs/two-stage-decision-pipeline/design.md`
-- S3: `specs/two-stage-decision-pipeline/tasks.md`
+- S1: `specs/archived/two-stage-decision-pipeline/requirements.md`
+- S2: `specs/archived/two-stage-decision-pipeline/design.md`
+- S3: `specs/archived/two-stage-decision-pipeline/tasks.md`
 - S4: `packages/agent/notes/overview.md`
 - S5: `README.md`
 - S6: `packages/runtime/src/trajectory.ts`
