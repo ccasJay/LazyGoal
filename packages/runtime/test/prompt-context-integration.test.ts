@@ -9,7 +9,7 @@ import {
     createModelExecutionBinding,
     LLMStepExecutor,
     MutableModelBinding,
-} from "../../agent/src/index";
+} from "../../model-execution/src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import {

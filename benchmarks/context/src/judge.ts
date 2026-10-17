@@ -1,4 +1,5 @@
-import type { LLMAdapter, LLMRequest } from "../../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
+import type { LLMRequest } from "../../../packages/llm/src/core/types.js";
 import { readNormalizedUsage } from "../../../packages/llm/src/core/usage.js";
 import type { NormalizedUsage } from "../../../packages/llm/src/core/usage.js";
 import { record } from "./scenario.js";

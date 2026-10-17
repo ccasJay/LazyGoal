@@ -1,4 +1,4 @@
-import { toolResponseFixture } from "./tool-response-fixture";
+import { toolResponseFixture } from "../../agent/test/tool-response-fixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -12,14 +12,14 @@ import {
 import type { Goal, GoalMessage } from "../../runtime/src/domain";
 import {
     LLMStepExecutor,
-} from "../src/index";
+} from "../../model-execution/src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import {
     createCurrentContextAssembler,
     currentProtocols,
     currentWorkingMemory,
-} from "./current-fixtures";
+} from "../../agent/test/current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();

@@ -1,4 +1,4 @@
-import { toolResponseFixture } from "./tool-response-fixture";
+import { toolResponseFixture } from "../../agent/test/tool-response-fixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -36,7 +36,7 @@ import {
     createInMemoryTrajectoryStore,
     currentProtocols,
     currentWorkingMemory,
-} from "./current-fixtures";
+} from "../../agent/test/current-fixtures";
 
 const EMPTY_INPUT_CONTRACT = contract.object({});
 

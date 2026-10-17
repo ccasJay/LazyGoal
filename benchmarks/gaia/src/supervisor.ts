@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import type { LLMAdapter } from "../../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
 import {
     AttemptRecorder,
     type BenchmarkAttemptRecord,

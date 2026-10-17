@@ -1,26 +1,8 @@
-export { LLMStepExecutor } from "./llm-step-executor";
-export type { LLMStepExecutorDependencies } from "./llm-step-executor";
-
-export {
-    createModelExecutionBinding,
-    MutableModelBinding,
-} from "./model-execution-binding";
-export type {
-    ModelExecutionBinding,
-    ModelExecutionBindingProvider,
-    CreateModelExecutionBindingInput,
-} from "./model-execution-binding";
-
-export type { LLMAdapter } from "../../llm/src/core/adapter";
-export type { NormalizedUsage } from "../../llm/src/core/usage";
-export { readNormalizedUsage } from "../../llm/src/core/usage";
-export type {
-    LLMMessage,
-    LLMRequest,
-    LLMResponse,
-    LLMStreamEvent,
-} from "../../llm/src/core/types";
-export type {
-    AgentDecision,
-} from "../../runtime/src/domain";
-export type { ToolDefinition } from "../../tool-core/src/index";
+/**
+ * Agent 默认装配入口（待收敛）。
+ *
+ * @remarks
+ * 模型请求、调用、响应解码与执行协调已分别归各自的组件包；本入口将只提供
+ * 默认执行器装配函数，不作为能力转导出入口。
+ */
+export {};

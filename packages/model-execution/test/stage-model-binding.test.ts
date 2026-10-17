@@ -1,4 +1,4 @@
-import { toolResponseFixture } from "./tool-response-fixture";
+import { toolResponseFixture } from "../../agent/test/tool-response-fixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -15,7 +15,7 @@ import {
 } from "../src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
-import { createInMemoryTrajectoryStore, currentProtocols } from "./current-fixtures";
+import { createInMemoryTrajectoryStore, currentProtocols } from "../../agent/test/current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const profile = {

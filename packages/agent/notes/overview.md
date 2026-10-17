@@ -5,7 +5,7 @@
 
 ## 职责
 
-Agent 将 Runtime 提供的 Goal、Profile、授权 Tool、当前 Run 的 `exposedToolIds`、Working Memory 和已提交 Context Lookup 结果投影为模型请求。业务 Schema 只取授权目录与暴露 ID 的交集，并统一供 Prompt、Wire Contract、native declarations 和 PTC 子工具说明使用。Decide 可通过 `system_find_tools` 请求 Runtime 查询工具目录；匹配结果只作为下一次 Decide 的临时反馈，Think 不带发现分支或系统工具声明。主要入口是 [`LLMStepExecutor`](../src/llm-step-executor.ts)；阶段请求、消息组装与 Section 更新计划归 [模型请求准备](../../model-request/README.md)，Runtime→模型投影与已提交历史组装归 [模型上下文组装](../../model-context/README.md)，模型可见表示归 [模型视图](../../model-view/README.md)。Decide 指引大量文件审阅先发现 `execute_program` 及其子工具；程序入口暴露后，Prompt 指引模型批量读取、过滤并返回简洁证据，简单或依赖逐项推理的操作可直接调用 Tool。PTC 内部调用事实不进入原生历史、Hot/Warm 或检索索引，只有已结算的父程序结果参与下一次模型请求。Agent 不保存 Goal，不执行 Tool，不生成 Runtime ID，也不决定审批结果。模型输入计量、预算分配、完整单元选择与确定性序列化归 [上下文预算](../../context-budget/README.md)；本包只按现有调用顺序消费其策略与裁剪结果。
+Agent 将 Runtime 提供的 Goal、Profile、授权 Tool、当前 Run 的 `exposedToolIds`、Working Memory 和已提交 Context Lookup 结果投影为模型请求。业务 Schema 只取授权目录与暴露 ID 的交集，并统一供 Prompt、Wire Contract、native declarations 和 PTC 子工具说明使用。Decide 可通过 `system_find_tools` 请求 Runtime 查询工具目录；匹配结果只作为下一次 Decide 的临时反馈，Think 不带发现分支或系统工具声明。主要执行入口是 [`LLMStepExecutor`](../../model-execution/README.md)，单次模型调用与记录归 [模型调用](../../model-call/README.md)；阶段请求、消息组装与 Section 更新计划归 [模型请求准备](../../model-request/README.md)，Runtime→模型投影与已提交历史组装归 [模型上下文组装](../../model-context/README.md)，模型可见表示归 [模型视图](../../model-view/README.md)。Decide 指引大量文件审阅先发现 `execute_program` 及其子工具；程序入口暴露后，Prompt 指引模型批量读取、过滤并返回简洁证据，简单或依赖逐项推理的操作可直接调用 Tool。PTC 内部调用事实不进入原生历史、Hot/Warm 或检索索引，只有已结算的父程序结果参与下一次模型请求。Agent 不保存 Goal，不执行 Tool，不生成 Runtime ID，也不决定审批结果。模型输入计量、预算分配、完整单元选择与确定性序列化归 [上下文预算](../../context-budget/README.md)；本包只按现有调用顺序消费其策略与裁剪结果。
 
 ## Prompt Bundle
 
@@ -45,7 +45,7 @@ Contracts 根据当前 Run 的模式、任务批准状态和可见工具集合�
 
 ## 完成审查
 
-所有完成候选通过 Runtime 协议与引用校验后，由 [`reviewCompletion`](../src/llm-step-executor.ts) 使用当前 Decide Adapter 独立审查。专用 [Prompt 与请求构造器](../../model-request/src/completion-review.ts) 提供当前请求和约束、获批条件、完整候选及 Runtime 解析的引用证据正文；只声明 `system_review_completion`，不执行工具或改写答案。`summary` 承载完整用户回复；Think、模型自述、目录和规模统计不能代替所需实现证据，已提供源码可直接使用，简单请求允许简短回答。
+所有完成候选通过 Runtime 协议与引用校验后，由 [`reviewCompletion`](../../model-execution/src/llm-step-executor.ts) 使用当前 Decide Adapter 独立审查。专用 [Prompt 与请求构造器](../../model-request/src/completion-review.ts) 提供当前请求和约束、获批条件、完整候选及 Runtime 解析的引用证据正文；只声明 `system_review_completion`，不执行工具或改写答案。`summary` 承载完整用户回复；Think、模型自述、目录和规模统计不能代替所需实现证据，已提供源码可直接使用，简单请求允许简短回答。
 
 审查使用既有模型预算。请求保留引用的已提交 Observation 与操作来源，避免把同一工具输出同时作为工具完成和 Observation 正文发送；必要输入仍超限时，在调用模型前以 `COMPLETION_REVIEW_INPUT_TOO_LARGE` 失败，不裁剪后放行。拒绝通过有界 `origin: completion_review` 反馈进入 Decide 纠错链；协议错误与拒绝合计最多三次 Decide 尝试。传输失败沿用请求重试。审查没有 Section frame 或独立恢复阶段；未提交审查恢复后可能重新调用并产生费用。
 

@@ -2,14 +2,10 @@ import type { ToolRegistry } from "../../packages/tool-core/src/index.js";
 import { isDeepStrictEqual } from "node:util";
 import { randomUUID } from "node:crypto";
 
-import {
-    LLMStepExecutor,
-    type LLMAdapter,
-    type LLMRequest,
-    type LLMResponse,
-    type NormalizedUsage,
-    readNormalizedUsage,
-} from "../../packages/agent/src/index.js";
+import { LLMStepExecutor } from "../../packages/model-execution/src/index.js";
+import type { LLMAdapter } from "../../packages/llm/src/core/adapter.js";
+import type { LLMRequest, LLMResponse } from "../../packages/llm/src/core/types.js";
+import { readNormalizedUsage, type NormalizedUsage } from "../../packages/llm/src/core/usage.js";
 import type { PromptBundleRenderer } from "../../packages/prompt-renderer/src/index.js";
 import { TrajectoryModelContextAssembler } from "../../packages/model-context/src/index.js";
 import type { ModelConversationMessage } from "../../packages/model-view/src/index.js";

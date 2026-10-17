@@ -25,6 +25,8 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     "prompt-bundle": ["prompt-renderer", "model-view", "runtime", "working-memory"],
     "model-request": ["context-budget", "model-view", "model-context", "prompt-renderer", "llm", "runtime", "config", "model-contracts", "tool-core", "working-memory"],
     "model-response": ["llm", "contracts", "model-contracts"],
+    "model-call": ["llm", "runtime", "model-response", "execution-control", "execution-stream"],
+    "model-execution": ["context-budget", "model-view", "model-context", "prompt-renderer", "model-request", "model-response", "model-call", "llm", "runtime", "model-contracts", "execution-control"],
     "model-contracts": ["contracts"],
     "execution-stream": [],
     "execution-control": [],
@@ -52,7 +54,7 @@ const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);
 /** 每个 app 允许的出站目标 package。 */
 const ALLOWED_APP_DEPENDENCIES = {
     "goal-board": ["web-contracts", "slash-command"],
-    "goal-server": ["runtime", "storage", "agent", "llm", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts", "tool-core", "working-memory", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request"],
+    "goal-server": ["runtime", "storage", "agent", "llm", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts", "tool-core", "working-memory", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request", "model-response", "model-call", "model-execution"],
 };
 
 const APPS = Object.keys(ALLOWED_APP_DEPENDENCIES);

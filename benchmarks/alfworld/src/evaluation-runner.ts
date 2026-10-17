@@ -1,8 +1,6 @@
 import { join } from "node:path";
 
-import type {
-    LLMAdapter,
-} from "../../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
 import type { ModelConversationMessage } from "../../../packages/model-view/src/index.js";
 import { createDefaultPromptBundleProtocolValidator } from "../../../packages/prompt-bundle/src/index.js";
 import type { PromptBundleRenderer } from "../../../packages/prompt-renderer/src/index.js";

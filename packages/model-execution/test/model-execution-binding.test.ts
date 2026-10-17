@@ -12,7 +12,7 @@ import {
     ModelCapabilitiesError,
     CharacterModelInputEstimator,
 } from "../../context-budget/src/index.js";
-import { createInMemoryTrajectoryStore } from "./current-fixtures.js";
+import { createInMemoryTrajectoryStore } from "../../agent/test/current-fixtures.js";
 
 class FakeAdapter implements LLMAdapter {
     readonly structuredOutputMode = "strict" as const;

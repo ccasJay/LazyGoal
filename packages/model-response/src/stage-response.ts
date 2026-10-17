@@ -250,6 +250,12 @@ export function decodeCompletionReviewResponse(response: LLMResponse): Completio
     if (call.toolId !== SystemCompletionReviewDeclaration.id) {
         throw new LLMResponseProtocolError("Completion review returned an undeclared result call");
     }
-    return decodePhaseToolCall([SystemCompletionReviewDeclaration], call.toolId,
-        JSON.parse(call.argumentsJson));
+    try {
+        return decodePhaseToolCall([SystemCompletionReviewDeclaration], call.toolId,
+            JSON.parse(call.argumentsJson));
+    } catch (error) {
+        throw error instanceof SyntaxError || error instanceof ContractValidationError
+            ? new LLMResponseProtocolError("Completion review response does not match its contract", { cause: error })
+            : error;
+    }
 }

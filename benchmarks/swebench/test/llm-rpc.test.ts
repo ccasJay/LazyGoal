@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
+import type { LLMRequest, LLMResponse } from "../../../packages/llm/src/core/types.js";
 import { ExecutionAbortedError } from "../../../packages/execution-control/src/index.js";
 import {
     LlmRpcError,

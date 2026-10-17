@@ -4,11 +4,11 @@
 
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
-| LLMStepExecutor | 单步模型请求与决策执行器。 | [Agent 模型请求](../README.md) | [模块说明](./overview.md) |
+| LLMStepExecutor | 单步模型请求与决策执行器。 | [模型执行协调](../../model-execution/README.md) | [执行器](../../model-execution/src/llm-step-executor.ts) |
 | Prompt Bundle | 模型请求的版本化提示组合。 | [Prompt Bundle](../../prompt-bundle/README.md) | [默认装配](../../prompt-bundle/src/default-bundles.ts) |
 | 历史来源范围 | 所有 lookup 结果说明 Goal 历史语料不包含仓库文件搜索。 | [模型上下文组装](../../model-context/README.md) | [Lookup 投影](../../model-context/src/context-lookup-projection.ts) |
-| 模型诊断关联 | 用 callId 关联有界请求契约、原始响应与校验问题，不参与恢复。 | [Agent 模型请求](../README.md) | [诊断记录](../src/llm-diagnostic-trace.ts) |
-| 调用形状反馈 | 有界字段摘要指导重生成，不携带参数值或改变接受条件。 | [Agent 模型请求](../README.md) | [反馈转换](../src/stage-feedback.ts) |
+| 模型诊断关联 | 用 callId 关联有界请求契约、原始响应与校验问题，不参与恢复。 | [模型调用](../../model-call/README.md) | [诊断记录](../../model-call/src/llm-diagnostic-trace.ts) |
+| 调用形状反馈 | 有界字段摘要指导重生成，不携带参数值或改变接受条件。 | [模型执行协调](../../model-execution/README.md) | [反馈转换](../../model-execution/src/stage-feedback.ts) |
 | ModelRunStageView | 模型可见的当前活动 Run 阶段只读投影。 | [模型视图](../../model-view/README.md) | [视图定义](../../model-view/src/model-inference-view.ts) |
 | Plan 提案前工具可见性 | 未获批 Plan Run 的请求只携带 Runtime 筛选出的显式只读工具。 | [Agent 模型请求](../README.md) | [Run 模式 Prompt](../../prompt-bundle/src/prompting/run-mode@1.njk) |
 | Plan 路线规划 | 仅 Plan Run 按交付结构提出完整路线；普通 Run 沿用直接执行决策。 | [Agent 模型请求](../README.md) | [Run 模式 Prompt](../../prompt-bundle/src/prompting/run-mode@1.njk) |

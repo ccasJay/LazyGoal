@@ -34,6 +34,8 @@ packages/        Private `@lazygoal/*` workspaces
   model-context/  Runtime-to-model projection, committed history assembly, Hot/Warm composition
   model-request/  Stage request construction, message assembly, and section update plans
   model-response/ Text and native stage response decoding, identity checks, and protocol errors
+  model-call/     Single model call execution, input recording, metrics, and stream collection
+  model-execution/ Stage coordination, model execution binding, and stage feedback conversion
   prompt-renderer/ In-memory template compilation, deterministic rendering, and section registry mechanism
   prompt-bundle/  Current prompt template source of truth, default manifest, and default renderer assembly
   working-memory/ Structured working memory domain contracts, patch validation, reduction, and lifecycle

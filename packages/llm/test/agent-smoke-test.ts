@@ -15,7 +15,7 @@ import { InMemoryGoalStore } from "../../storage/src/index";
 import { InMemoryTrajectoryStore } from "../../runtime/test/current-fixtures";
 import {
     LLMStepExecutor,
-} from "../../agent/src/index";
+} from "../../model-execution/src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import {
     TrajectoryModelContextAssembler,

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { createGoal, ModelStageFeedbackError } from "../../runtime/src/index";
 import { LLMResponseProtocolError } from "../../model-response/src/index";
 import { toModelStageFeedback } from "../src/stage-feedback";
-import { currentProtocols } from "./current-fixtures";
+import { currentProtocols } from "../../agent/test/current-fixtures";
 
 const goal = createGoal({ ...currentProtocols, id: "feedback", runId: "run-1", intent: "Inspect repository", promptBundleVersion: 1,
     profile: { id: "test", systemPrompt: "Inspect sources", instructions: [], toolIds: [] } });

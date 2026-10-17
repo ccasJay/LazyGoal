@@ -1,6 +1,5 @@
 import type {
     DiagnosticTraceSink,
-    Goal,
     JsonValue,
     TraceRecord,
 } from "../../runtime/src/index";
@@ -19,6 +18,24 @@ const REDACTED = "[REDACTED]";
 const TRUNCATED = "[TRUNCATED]";
 const SENSITIVE_KEY_PATTERN = /api[-_]?key|authorization|cookie|password|secret|token/i;
 
+/**
+ * 诊断 Trace 的 Goal/Run 归属身份。
+ *
+ * @remarks
+ * 记录只依赖稳定标识，不读取 Goal 状态或 Snapshot。
+ *
+ * @example
+ * ```ts
+ * const identity: LlmTraceIdentity = { goalId: "goal-1", runId: "run-1" };
+ * ```
+ */
+export interface LlmTraceIdentity {
+    /** 当前 Goal 的稳定标识。 */
+    readonly goalId: string;
+    /** 当前 Run 的稳定标识。 */
+    readonly runId: string;
+}
+
 /** Agent LLM 诊断事件的稳定内部类型。 */
 type LlmTraceKind =
     | "model_tool_schema"
@@ -31,7 +48,7 @@ type LlmTraceKind =
  * 将 LLM 诊断写入独立 Trace 通道；Trace 不可用时静默隔离失败。
  *
  * @param sink - 可选的诊断 Sink。
- * @param goal - 当前 Goal，用于建立 Trace 归属。
+ * @param identity - 建立 Trace 归属的 Goal/Run 标识。
  * @param kind - 请求、响应或异常类型。
  * @param payload - 尚未写入的诊断字段。
  * @returns Trace 写入完成；Sink 缺失或失败时同样 resolve。
@@ -41,15 +58,15 @@ type LlmTraceKind =
  */
 export async function recordLlmDiagnosticTrace(input: {
     readonly sink: DiagnosticTraceSink | undefined;
-    readonly goal: Goal;
+    readonly identity: LlmTraceIdentity;
     readonly kind: LlmTraceKind;
     readonly payload: unknown;
 }): Promise<void> {
     if (input.sink === undefined) return;
 
     const record = allocateDiagnosticTraceRecord({
-        goalId: input.goal.id,
-        runId: input.goal.state.run.id,
+        goalId: input.identity.goalId,
+        runId: input.identity.runId,
         kind: input.kind,
         payload: boundJsonValue(input.payload),
     });
@@ -69,14 +86,14 @@ export async function recordLlmDiagnosticTrace(input: {
  */
 export async function recordLlmRequest(
     sink: DiagnosticTraceSink | undefined,
-    goal: Goal,
+    identity: LlmTraceIdentity,
     request: LLMRequest,
     modelInputCallId?: string,
     callId?: string,
 ): Promise<void> {
     await recordLlmDiagnosticTrace({
         sink,
-        goal,
+        identity,
         kind: "model_request",
         payload: {
             ...(callId === undefined ? {} : { callId }),
@@ -87,7 +104,7 @@ export async function recordLlmRequest(
         },
     });
     for (const tool of request.tools ?? []) {
-        await recordLlmDiagnosticTrace({ sink, goal, kind: "model_tool_schema",
+        await recordLlmDiagnosticTrace({ sink, identity, kind: "model_tool_schema",
             payload: { ...(callId === undefined ? {} : { callId }), toolId: tool.id, parametersSchema: tool.parametersSchema } });
     }
 }
@@ -95,7 +112,7 @@ export async function recordLlmRequest(
 /** 记录 Adapter 返回的有界响应、工具原始参数和 metadata；callId 与请求及校验错误关联。 */
 export function recordLlmResponse(
     sink: DiagnosticTraceSink | undefined,
-    goal: Goal,
+    identity: LlmTraceIdentity,
     response: LLMResponse,
     durationMs: number,
     callId?: string,
@@ -104,7 +121,7 @@ export function recordLlmResponse(
 
     return recordLlmDiagnosticTrace({
         sink,
-        goal,
+        identity,
         kind: "model_response",
         payload: {
             ...(callId === undefined ? {} : { callId }),
@@ -121,7 +138,7 @@ export function recordLlmResponse(
 /** 记录适配器或响应解析异常及结构化校验问题；callId 关联原始响应，不改变错误传播。 */
 export function recordLlmError(
     sink: DiagnosticTraceSink | undefined,
-    goal: Goal,
+    identity: LlmTraceIdentity,
     error: unknown,
     durationMs: number,
     stage: "adapter" | "response_parse",
@@ -146,7 +163,7 @@ export function recordLlmError(
 
     return recordLlmDiagnosticTrace({
         sink,
-        goal,
+        identity,
         kind: "model_error",
         payload: { ...(callId === undefined ? {} : { callId }), stage, durationMs, error: details },
     });

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { executePairedGroups } from "./paired-runner.js";
 import { summarizeGroups } from "./report.js";
 import { randomUUID } from "node:crypto";
-import type { LLMAdapter } from "../../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
 import { readNormalizedUsage } from "../../../packages/llm/src/core/usage.js";
 import type { NormalizedUsage } from "../../../packages/llm/src/core/usage.js";
 import { JsonFileGoalStore } from "../../../packages/storage/src/index.js";

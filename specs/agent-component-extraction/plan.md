@@ -42,7 +42,7 @@
   - 实现：把根协议错误和全部对应响应检查迁入 `model-response`，现有执行器调用唯一解码实现；不重建请求契约，不在响应包分配 Action ID、做授权或生成 RuntimeFeedback。请求检查 helper 由 TODO 4 所有者提供；更新旧诊断、反馈和当前消费者的错误类型引用，保持同一错误类身份。
   - 检查：`npx tsx --test packages/model-response/test/*.test.ts packages/agent/test/native-step-executor.test.ts packages/agent/test/stage-feedback.test.ts packages/runtime/test/model-output-runtime-boundary.test.ts`；`npx tsc --noEmit`；`npm run check:dependencies`。TODO 6 迁移执行器测试前，原测试文件继续验证接入后果。
 
-- [ ] //TODO 6. 独立执行单次模型调用并保持阶段 Binding、记录与解码一致
+- [x] //TODO 6. 独立执行单次模型调用并保持阶段 Binding、记录与解码一致
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.8](./spec.md#spec-req-1-8)、[3.2](./spec.md#spec-req-3-2)、[3.3](./spec.md#spec-req-3-3)、[3.4](./spec.md#spec-req-3-4)、[4.4](./spec.md#spec-req-4-4)、[5.1](./spec.md#spec-req-5-1)。
   - 先验证：将流、取消、输入记录、指标和诊断测试归 `model-call`，增加拟新增 `packages/model-call/test/public-entry.test.ts`，只注入确定性 Adapter、请求和必要上下文，覆盖输入失败零调用、调用前后取消、无/重复 completed、generate/stream、来源/时长、best effort 故障及私有审查投递。将 Binding、阶段、反馈与跨组件历史测试归 `model-execution`，验证调用中换代仍固定原 Binding、解码错误复用同一 callId 且不新增 Adapter 调用或错误地重记指标。
   - 实现：先提取单次调用与最小诊断入口，再迁移 `LLMStepExecutor`、Binding、阶段结果/frame/Action 身份组装和反馈转换到 `model-execution`；收窄调用上下文，保留记录顺序与来源，不把完整 Binding 交给调用或响应包。三个阶段组合已有请求/调用/解码入口，不新增重试、关闭或 Hook。原 Agent 只剩待收敛的装配入口；原执行器消费者先直接引用实际拥有者。TODO 1 对照测试与数据迁入 `packages/model-execution/test/component-extraction-baseline.test.ts`，保留基线内容及来源指纹。

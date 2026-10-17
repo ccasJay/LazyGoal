@@ -79,7 +79,7 @@ import {
     LLMStepExecutor,
     MutableModelBinding,
     type ModelExecutionBinding,
-} from "../../../packages/agent/src/index";
+} from "../../../packages/model-execution/src/index";
 import { TrajectoryModelContextAssembler } from "../../../packages/model-context/src/index";
 import {
     createDefaultPromptBundleRenderer,

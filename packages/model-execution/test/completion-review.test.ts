@@ -12,7 +12,7 @@ import { LLMStepExecutor } from "../src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import type { CompletionReviewInput } from "../../runtime/src/step-executor";
-import { currentProtocols } from "./current-fixtures";
+import { currentProtocols } from "../../agent/test/current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();
 function input(): CompletionReviewInput {

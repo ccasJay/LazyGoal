@@ -24,7 +24,7 @@ import {
     createCurrentContextAssembler,
     currentProtocols,
     currentWorkingMemory,
-} from "./current-fixtures";
+} from "../../agent/test/current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();

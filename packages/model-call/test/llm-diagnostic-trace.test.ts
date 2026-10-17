@@ -1,5 +1,5 @@
 import { recordLlmResponse } from "../src/llm-diagnostic-trace";
-import { toolResponseFixture } from "./tool-response-fixture";
+import { toolResponseFixture } from "../../agent/test/tool-response-fixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -13,14 +13,14 @@ import type {
 import { createGoal, ModelStageFeedbackError } from "../../runtime/src/index";
 import {
     LLMStepExecutor,
-} from "../src/index";
+} from "../../model-execution/src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import {
     createCurrentContextAssembler,
     currentProtocols,
     currentWorkingMemory,
-} from "./current-fixtures";
+} from "../../agent/test/current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();
@@ -352,7 +352,8 @@ test("malformed JSON and undeclared tools do not produce a declared shape", asyn
 
 test("diagnostic metadata does not duplicate tool calls or persist the reasoning channel", async () => {
     const traceSink = new CaptureTraceSink();
-    await recordLlmResponse(traceSink, createGoalForPhase(), {
+    const goal = createGoalForPhase();
+    await recordLlmResponse(traceSink, { goalId: goal.id, runId: goal.state.run.id }, {
         content: "answer", reasoning: "PRIVATE_REASONING",
         toolCalls: [{ callId: "call-trace", toolId: "system_complete_task", argumentsJson: '{"summary":"done","completionEvidence":[]}' }],
     }, 1, "trace-call");

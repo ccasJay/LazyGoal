@@ -67,7 +67,7 @@ import {
 import type { DynamicSectionMessage } from "../../prompt-renderer/src/index";
 import { buildStepRequest } from "../../model-request/src/index";
 import type { StepPromptStageContext } from "../../model-request/src/index";
-import { currentProtocols, currentWorkingMemory } from "./current-fixtures";
+import { currentProtocols, currentWorkingMemory } from "../../agent/test/current-fixtures";
 
 const BASELINE_PROFILE: AgentProfile = {
     id: "baseline-profile",
