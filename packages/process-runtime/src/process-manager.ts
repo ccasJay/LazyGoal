@@ -11,9 +11,10 @@ import type {
 } from "../../runtime/src/index";
 import {
     killProcessGroup,
+    sendSignalToProcessGroup,
     spawnRestrictedCommand,
 } from "../../sandbox/src/index";
-import { ProcessSessionError, type ProcessFailureStage } from "./errors";
+import { ProcessSessionError, type ProcessFailureStage, type ProcessSessionFailure } from "./errors";
 
 /** 单个 Goal 允许的最大并发运行进程数。 */
 export const PROCESS_MAX_RUNNING_PER_GOAL = 4;
@@ -67,6 +68,8 @@ interface ManagedSession {
     readonly quiescentResolvers: Array<() => void>;
     /** 首个已知结算失败；保留最早故障，不被后续清理故障覆盖。 */
     firstFailure: { readonly stage: ProcessFailureStage; readonly error: unknown } | undefined;
+    /** 已向调用方报告的失败；避免同一失败在关闭时重复报告。 */
+    reportedFailure: { readonly stage: ProcessFailureStage; readonly error: unknown } | undefined;
 }
 
 /**
@@ -103,6 +106,8 @@ export class ProcessManager implements ManagedResource {
     private readonly knownSessions = new Map<string, Set<string>>();
     /** 各 Goal 已获历史名额但尚未落盘的受理数。 */
     private readonly reservedHistory = new Map<string, number>();
+    /** 会话结算中未向调用方报告的已知失败；关闭时统一报告，不能静默丢失。 */
+    private readonly settlementFailures: ProcessSessionFailure[] = [];
     private closing = false;
     private closeOperation: Promise<void> | undefined;
 
@@ -193,6 +198,8 @@ export class ProcessManager implements ManagedResource {
             await this.admitSession(session);
             await this.spawnSession(session);
         } catch (error) {
+            // 启动失败已通过本次抛出报告；同一失败不在关闭时重复上报
+            session.reportedFailure = session.firstFailure;
             if (session.child === undefined) {
                 this.releaseSession(session);
             }
@@ -244,14 +251,16 @@ export class ProcessManager implements ManagedResource {
      *
      * @remarks
      * 仅对本实例实际持有的句柄发送进程组信号；无活跃句柄的历史记录按现有读取语义返回，
-     * 不据此重新获得 OS 控制权。`force` 跳过宽限直接升级终止。已进入终态结算的会话不会被
-     * 重新写成 `stopped`。
+     * 不据此重新获得 OS 控制权。`force` 跳过宽限直接升级终止。只有确认句柄实际退出、
+     * 终态记录与已接收输出均结算且无已知失败时才返回成功；已写 `stopped` 记录或已发送
+     * 信号都不是退出证明，等待窗口到期仍未确认时抛出类型化失败并保留未确认状态。
      *
      * @param goalId - 会话归属的 Goal 标识。
      * @param processId - 目标进程标识。
      * @param options - 可选的强制终止选项。
-     * @returns 最新持久化的会话记录。
-     * @throws ProcessSessionError 记录不存在时抛出；持久化读写失败记录为结算失败。
+     * @returns 结算后的最新会话记录；该会话必须实际退出且结算完成。
+     * @throws ProcessSessionError 记录不存在、未确认退出/结算或读写失败时抛出；失败可能
+     * 发生在信号已发出之后，不能由失败返回推断进程未被终止。
      */
     async stopProcess(
         goalId: string,
@@ -271,32 +280,38 @@ export class ProcessManager implements ManagedResource {
         }
 
         if (session === undefined || session.child === undefined) {
-            // 已经结算或属于外部历史记录
+            // 无当前句柄：历史记录不授予杀进程权，也不重新写终态
             return current;
         }
 
-        session.stopRequested = true;
-        const stoppedRecord: ProcessSessionRecord = {
-            ...current,
-            status: "stopped",
-        };
-        if (session.phase !== "terminal") {
-            try {
-                await this.enqueueWrite(session, async () => {
-                    if (session.phase === "terminal") {
-                        return;
-                    }
-                    await this.store.saveSession(stoppedRecord);
-                });
-            } catch (error) {
-                this.recordFailure(session, "persistence", error);
-            }
+        this.requestHandleTermination(session, options?.force ?? false);
+        const settled = await this.awaitSettlement(session, PROCESS_STOP_WAIT_MS);
+        if (!settled) {
+            throw new ProcessSessionError(
+                `Stop of process ${processId} did not confirm settlement within ${PROCESS_STOP_WAIT_MS}ms`,
+                {
+                    stage: "stop",
+                    goalId,
+                    processId,
+                    unconfirmed: session.phase === "terminal" ? "settlement" : "exit",
+                },
+            );
         }
 
-        this.requestHandleTermination(session, options?.force ?? false);
-        await this.awaitSettlement(session, PROCESS_STOP_WAIT_MS);
+        const failure = this.takeSettlementFailure(goalId, processId);
+        if (failure !== undefined) {
+            throw new ProcessSessionError(
+                `Process ${processId} stopped but settlement failed: ${describeUnknown(failure.reason)}`,
+                {
+                    stage: failure.stage,
+                    goalId,
+                    processId,
+                    cause: failure.reason,
+                },
+            );
+        }
 
-        return (await this.store.getSession(goalId, processId)) ?? stoppedRecord;
+        return (await this.store.getSession(goalId, processId)) ?? current;
     }
 
     /**
@@ -306,10 +321,14 @@ export class ProcessManager implements ManagedResource {
      * 首次调用同步停止受理；已受理未创建进程的启动会在后续异步边界被拒绝，已创建句柄由本次
      * 清理终止，已接收输出与终态记录未结算前不会完成。重复调用复用同一清理过程。管理器不关闭
      * 借用的 Store、注册表或其它资源；实例关闭期限和结果汇总由宿主生命周期所有者负责。
+     *
+     * @returns 所有自有会话实际退出且写入结算完成后完成。
+     * @throws ProcessSessionError 存在未报告的结算失败时抛出，携带各失败会话的阶段、身份与
+     * 原因；此时不报告关闭成功，外层生命周期应保留失败信息继续强制处理。
      */
     async close(): Promise<void> {
         if (this.closeOperation === undefined) {
-            this.closeOperation = this.performClose(false);
+            this.closeOperation = this.performClose(false).then(() => this.assertCleanClose());
         }
         return this.closeOperation;
     }
@@ -318,12 +337,14 @@ export class ProcessManager implements ManagedResource {
      * 停止新启动受理，并对仍拥有的进程组升级强制终止。
      *
      * @remarks
-     * 可在正常关闭等待期间或直接调用；不等待 Store 写入完成才发送终止信号，也不关闭借用资源
-     * 或自行退出宿主进程。重复调用升级终止仍拥有的句柄并复用同一清理过程。
+     * 可在正常关闭等待期间或直接调用；发送终止信号不等待 Store 写入完成，也不关闭借用资源
+     * 或自行退出宿主进程。重复调用升级终止仍拥有的句柄并复用同一清理过程与失败报告。
+     *
+     * @throws ProcessSessionError 与 `close` 相同的未报告结算失败；强制升级不吞掉这些错误。
      */
     async forceClose(): Promise<void> {
         if (this.closeOperation === undefined) {
-            this.closeOperation = this.performClose(true);
+            this.closeOperation = this.performClose(true).then(() => this.assertCleanClose());
             return this.closeOperation;
         }
 
@@ -408,6 +429,7 @@ export class ProcessManager implements ManagedResource {
             pendingOutputWrites: 0,
             quiescentResolvers: [],
             firstFailure: undefined,
+            reportedFailure: undefined,
         };
         this.sessions.set(session.key, session);
         return session;
@@ -692,12 +714,22 @@ export class ProcessManager implements ManagedResource {
         if (child === undefined) {
             return;
         }
+        // 已退出的句柄不再发送信号：PID 可能已被复用，迟到信号不得指向新进程
+        if (child.exitCode !== null || child.signalCode !== null) {
+            session.stopRequested = true;
+            return;
+        }
 
         session.stopRequested = true;
         session.cancelGrace?.();
         session.cancelGrace = undefined;
         try {
-            const { cancelGrace } = killProcessGroup(child, force ? { graceMs: 0 } : undefined);
+            if (force) {
+                // 强制升级直接发 SIGKILL，不保留可迟到的 0ms 宽限定时器
+                sendSignalToProcessGroup(child, "SIGKILL");
+                return;
+            }
+            const { cancelGrace } = killProcessGroup(child);
             session.cancelGrace = cancelGrace;
         } catch (error) {
             this.recordFailure(session, "stop", error);
@@ -732,7 +764,50 @@ export class ProcessManager implements ManagedResource {
     private releaseSession(session: ManagedSession): void {
         this.sessions.delete(session.key);
         this.releaseHistoryReservation(session);
+
+        const failure = session.firstFailure;
+        if (failure !== undefined && failure !== session.reportedFailure) {
+            session.reportedFailure = failure;
+            this.settlementFailures.push({
+                goalId: session.goalId,
+                processId: session.processId,
+                stage: failure.stage,
+                reason: failure.error,
+                unconfirmed: undefined,
+            });
+        }
         session.resolveDone();
+    }
+
+    /** 取出并移除指定会话的未报告失败；用于已向调用方报告的停止结果。 */
+    private takeSettlementFailure(goalId: string, processId: string): ProcessSessionFailure | undefined {
+        const index = this.settlementFailures.findIndex(
+            (failure) => failure.goalId === goalId && failure.processId === processId,
+        );
+        if (index < 0) {
+            return undefined;
+        }
+        const [failure] = this.settlementFailures.splice(index, 1);
+        return failure;
+    }
+
+    /** 关闭只能在所有自有会话结算且无未报告失败时报告成功。 */
+    private assertCleanClose(): void {
+        if (this.settlementFailures.length === 0) {
+            return;
+        }
+        const failures = [...this.settlementFailures];
+        const primary = failures[0]!;
+        throw new ProcessSessionError(
+            `Process manager close completed with ${failures.length} unreported settlement failure(s)`,
+            {
+                stage: primary.stage,
+                goalId: primary.goalId,
+                processId: primary.processId,
+                cause: primary.reason,
+                failures,
+            },
+        );
     }
 
     private recordFailure(session: ManagedSession, stage: ProcessFailureStage, error: unknown): void {
@@ -787,4 +862,9 @@ export class ProcessManager implements ManagedResource {
         }
         this.knownSessions.set(goalId, known);
     }
+}
+
+/** 将未知失败原因转换为诊断文本，不附加命令、环境或输出正文。 */
+function describeUnknown(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }

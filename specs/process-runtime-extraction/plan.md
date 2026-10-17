@@ -30,7 +30,7 @@
   - 实现：每通道串行追加，跟踪写入与终态结算，保留已知失败且继续其它清理；不能通过清空句柄丢弃未完成写入。统一事件失败的接收路径，补齐等待者的结束与清理，复用 Store 协议和工具读取映射。移除因缺少结算证据而使用的测试固定延迟，改由实际完成信号确认，不降低原断言。
   - 检查：`npx tsx --test packages/process-runtime/test/process-output.test.ts packages/process-runtime/test/process-startup.test.ts packages/tools/test/process-tools.test.ts packages/storage/test/process-session-store.test.ts`；核对通道字节顺序、追加/终态任务结算与失败阶段，进程退出本身不能充当持久化成功证据。
 
-- [ ] //TODO 4. 如实停止与关闭进程，允许强制升级且不丢失错误
+- [x] //TODO 4. 如实停止与关闭进程，允许强制升级且不丢失错误
   - 落实标准：[4.1](./spec.md#spec-req-4-1)、[4.2](./spec.md#spec-req-4-2)、[4.3](./spec.md#spec-req-4-3)、[4.4](./spec.md#spec-req-4-4)、[5.4](./spec.md#spec-req-5-4)。
   - 先验证：在拟新增 `packages/process-runtime/test/process-shutdown.test.ts` 中，验证 stop 确认本实例句柄退出和最终记录，重复停止不重复终态；现有等待窗口到期但无法确认退出时失败，历史记录不授予杀进程权。覆盖 close 同步拒绝启动、重复调用共享清理结果、启动/日志/终态写入 pending、写入失败仍清理其它进程；close 等待时或直接 forceClose 均能终止受控进程组，不先等待 Store。核对错误分类/身份/阶段/原因、无重复终态或泄漏监听/定时器，以及借用依赖和其它管理器进程保持原所有权。
   - 实现：统一启动、句柄、输出与最终记录的结算结果；stop 不能以 stopped 字段或已发送信号报告成功，超时保留未确认状态。close/forceClose 复用同一所有者和清理工作，强制升级不被普通清理的存储等待阻塞；所有可继续的清理仍执行，移除吞错路径并保留类型化原因。清理自身计时与监听资源，不新增实例期限、Goal 状态、宿主退出或按 Goal 关闭接口。同步公开方法的失败、所有权及直接调用可能持续等待的契约。

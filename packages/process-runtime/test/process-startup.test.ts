@@ -29,6 +29,15 @@ class Deferred {
  * 可控进程存储：在 listSessions / 指定状态的保存之间插入等待点或故障，用于确定性地覆盖异步竞态。
  */
 class ControlledProcessSessionStore implements ProcessSessionStore {
+    private static readonly instances: ControlledProcessSessionStore[] = [];
+
+    /** 释放全部实例的等待点，保证断言失败时清理路径不会挂起。 */
+    static releaseAllHolds(): void {
+        for (const instance of ControlledProcessSessionStore.instances) {
+            instance.releaseAllHolds();
+        }
+    }
+
     private readonly sessions = new Map<string, ProcessSessionRecord>();
     private readonly outputs = new Map<string, Buffer>();
     private readonly saveHolds: Array<{ readonly status: ProcessSessionStatus; readonly deferred: Deferred; released: boolean }> = [];
@@ -38,6 +47,10 @@ class ControlledProcessSessionStore implements ProcessSessionStore {
     readonly saveCalls: ProcessSessionStatus[] = [];
     readonly saveStarted: ProcessSessionStatus[] = [];
     listCalls = 0;
+
+    constructor() {
+        ControlledProcessSessionStore.instances.push(this);
+    }
 
     private sessionKey(goalId: string, processId: string): string {
         return `${goalId}:${processId}`;
@@ -80,6 +93,19 @@ class ControlledProcessSessionStore implements ProcessSessionStore {
 
     failNextSave(status: ProcessSessionStatus, message: string): void {
         this.saveFailures.push({ status, error: new Error(message) });
+    }
+
+    /** 释放全部未结算的等待点，保证断言失败时清理路径不会挂起。 */
+    releaseAllHolds(): void {
+        for (const hold of this.saveHolds) {
+            if (!hold.released) {
+                hold.released = true;
+                hold.deferred.resolve();
+            }
+        }
+        const listHold = this.listHold;
+        this.listHold = undefined;
+        listHold?.resolve();
     }
 
     async saveSession(session: ProcessSessionRecord): Promise<void> {
@@ -238,6 +264,7 @@ test("并发受理按每 Goal 4 个额度预留，超出同步拒绝且不创建
         await manager.close();
         assert.equal(manager.getTotalRunningCount(), 0);
     } finally {
+        ControlledProcessSessionStore.releaseAllHolds();
         await manager.forceClose().catch(() => undefined);
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
@@ -272,6 +299,7 @@ test("并发受理跨 Goal 共享宿主 16 个额度，超出租用同步拒绝"
         await manager.close();
         assert.equal(manager.getTotalRunningCount(), 0);
     } finally {
+        ControlledProcessSessionStore.releaseAllHolds();
         await manager.forceClose().catch(() => undefined);
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
@@ -315,6 +343,7 @@ test("每 Goal 32 项历史上限在并发预留下不超发", async () => {
         assert.equal(manager.getTotalRunningCount(), 0);
         assert.equal(store.records("goal-history").length, 32);
     } finally {
+        ControlledProcessSessionStore.releaseAllHolds();
         await manager.forceClose().catch(() => undefined);
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
@@ -350,6 +379,7 @@ test("已落盘会话不被未落盘预留重复计数", async () => {
         await manager.close();
         assert.equal(manager.getTotalRunningCount(), 0);
     } finally {
+        ControlledProcessSessionStore.releaseAllHolds();
         await manager.forceClose().catch(() => undefined);
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
@@ -376,6 +406,7 @@ test("初始记录保存失败时拒绝启动且不创建进程", async () => {
         assert.equal(manager.getTotalRunningCount(), 0);
         assert.equal(store.records("goal-initial").length, 0);
     } finally {
+        ControlledProcessSessionStore.releaseAllHolds();
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
 });
@@ -430,6 +461,7 @@ test("创建进程失败时保存 failed 记录并保留原始故障与清理故
         assert.equal(closing.records("goal-closing")[0]?.status, "starting");
         assert.equal(await markerExists(join(tmpDir, "closing.marker")), false);
     } finally {
+        ControlledProcessSessionStore.releaseAllHolds();
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
 });
@@ -470,6 +502,7 @@ test("快速退出与迟到的 running 写入不会覆盖终态记录", async ()
         assert.equal(started.processId, record?.processId);
         await waitFor(() => manager.getTotalRunningCount() === 0 ? true : undefined, "额度释放");
     } finally {
+        ControlledProcessSessionStore.releaseAllHolds();
         await manager.forceClose().catch(() => undefined);
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
@@ -511,6 +544,7 @@ test("running 记录保存失败时仍终止已创建进程并如实报告", asy
         assert.equal(record?.exitCode, null);
         await waitFor(() => manager.getTotalRunningCount() === 0 ? true : undefined, "额度释放");
     } finally {
+        ControlledProcessSessionStore.releaseAllHolds();
         await manager.forceClose().catch(() => undefined);
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
@@ -537,6 +571,7 @@ test("关闭插入未完成启动：列表与保存阶段均拒绝且不创建�
         assert.equal(store.records("goal-close-list").length, 0);
         assert.equal(manager.getTotalRunningCount(), 0);
     } finally {
+        ControlledProcessSessionStore.releaseAllHolds();
         await manager.forceClose().catch(() => undefined);
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
@@ -565,6 +600,7 @@ test("关闭插入未完成启动：列表与保存阶段均拒绝且不创建�
         assert.equal(saveStore.records("goal-close-save")[0]?.status, "failed");
         assert.equal(saveManager.getTotalRunningCount(), 0);
     } finally {
+        ControlledProcessSessionStore.releaseAllHolds();
         await saveManager.forceClose().catch(() => undefined);
         await rm(saveDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
@@ -608,6 +644,7 @@ test("关闭插入 running 保存：已创建进程被纳入同一次清理并�
         );
         assert.equal(await markerExists(join(tmpDir, "late.marker")), false);
     } finally {
+        ControlledProcessSessionStore.releaseAllHolds();
         await manager.forceClose().catch(() => undefined);
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
@@ -639,6 +676,7 @@ test("注册表已关闭时装配或启动失败不留下无人管理进程", as
         await assertNoMarker(marker);
         assert.equal(manager.getTotalRunningCount(), 0);
     } finally {
+        ControlledProcessSessionStore.releaseAllHolds();
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
 });

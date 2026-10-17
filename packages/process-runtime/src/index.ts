@@ -9,4 +9,6 @@ export {
     PROCESS_SESSION_ERROR_CODE,
     type ProcessFailureStage,
     type ProcessSessionErrorOptions,
+    type ProcessSessionFailure,
+    type ProcessUnconfirmedKind,
 } from "./errors";

@@ -12,7 +12,7 @@ import type {
     ProcessSessionRecord,
     ProcessSessionStore,
 } from "../../runtime/src/index";
-import { ProcessManager } from "../src/index";
+import { ProcessManager, ProcessSessionError } from "../src/index";
 
 class Deferred {
     private resolveFn!: () => void;
@@ -29,12 +29,25 @@ class Deferred {
  * 可控输出存储：按通道记录追加调用顺序，并可注入等待点与失败，用于验证写入结算语义。
  */
 class OutputSessionStore implements ProcessSessionStore {
+    private static readonly instances: OutputSessionStore[] = [];
+
+    /** 释放全部实例的等待点，保证断言失败时清理路径不会挂起。 */
+    static releaseAllHolds(): void {
+        for (const instance of OutputSessionStore.instances) {
+            instance.releaseAllHolds();
+        }
+    }
+
     private readonly sessions = new Map<string, ProcessSessionRecord>();
     private readonly outputs = new Map<string, Buffer>();
     private readonly holds: Array<{ readonly channel: ProcessOutputChannel; readonly deferred: Deferred; released: boolean }> = [];
     private readonly failures: Array<{ readonly channel: ProcessOutputChannel; readonly error: Error }> = [];
 
     readonly appendStarted: Array<{ readonly channel: ProcessOutputChannel; readonly text: string }> = [];
+
+    constructor() {
+        OutputSessionStore.instances.push(this);
+    }
 
     private sessionKey(goalId: string, processId: string): string {
         return `${goalId}:${processId}`;
@@ -59,6 +72,16 @@ class OutputSessionStore implements ProcessSessionStore {
 
     failNextAppend(channel: ProcessOutputChannel, message: string): void {
         this.failures.push({ channel, error: new Error(message) });
+    }
+
+    /** 释放全部未结算的等待点，保证断言失败时清理路径不会挂起。 */
+    releaseAllHolds(): void {
+        for (const hold of this.holds) {
+            if (!hold.released) {
+                hold.released = true;
+                hold.deferred.resolve();
+            }
+        }
     }
 
     startedTexts(channel: ProcessOutputChannel): readonly string[] {
@@ -196,18 +219,15 @@ test("每通道按接收顺序串行追加，前序写入未结算时不越过",
         store.holdNextAppend("stdout");
         const started = await manager.startProcess({
             goalId: "goal-order",
-            command: "node -e 'process.stdout.write(\"out-a\\n\"); process.stdout.write(\"out-b\\n\"); setTimeout(() => {}, 15000);'",
+            command: "node -e 'process.stdout.write(\"out-a\\n\"); process.stdout.write(\"out-b\\n\");'",
             cwd: tmpDir,
         });
 
+        // 进程退出意味着两段输出都已交付管理器，此时仍只有首个分片开始结算
         await waitFor(
-            () => store.startedTexts("stdout").length >= 1 ? true : undefined,
-            "首个 stdout 追加开始",
+            () => store.records("goal-order")[0]?.status === "exited" ? true : undefined,
+            "进程退出",
         );
-        await nextTick();
-        await nextTick();
-
-        // 首个追加仍被挂起时，第二个 stdout 分片不得越过该通道的前序写入
         assert.deepEqual(store.startedTexts("stdout"), ["out-a\n"]);
 
         store.releaseNextAppend("stdout");
@@ -217,6 +237,7 @@ test("每通道按接收顺序串行追加，前序写入未结算时不越过",
         );
         assert.deepEqual(store.startedTexts("stdout"), ["out-a\n", "out-b\n"]);
     } finally {
+        OutputSessionStore.releaseAllHolds();
         await manager.forceClose().catch(() => undefined);
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
@@ -234,6 +255,11 @@ test("stdout 与 stderr 各自独立结算，互不阻塞", async () => {
             cwd: tmpDir,
         });
 
+        // 两个通道的分片都已到达并各自开始结算
+        await waitFor(
+            () => store.startedTexts("stderr").length >= 1 ? true : undefined,
+            "stderr 追加开始",
+        );
         await waitFor(
             () => store.text("goal-channels", started.processId, "stdout") === "only-out\n" ? true : undefined,
             "stdout 独立结算",
@@ -247,6 +273,7 @@ test("stdout 与 stderr 各自独立结算，互不阻塞", async () => {
             "stderr 结算",
         );
     } finally {
+        OutputSessionStore.releaseAllHolds();
         await manager.forceClose().catch(() => undefined);
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
@@ -288,6 +315,7 @@ test("等待者只在写入结算后唤醒，超时唤醒不改变进程状态",
         const record = await store.getSession("goal-wait", started.processId);
         assert.equal(record?.status, "running");
     } finally {
+        OutputSessionStore.releaseAllHolds();
         await manager.forceClose().catch(() => undefined);
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
@@ -321,6 +349,7 @@ test("进程退出与关闭都会唤醒等待者", async () => {
         await waitPromise;
         assert.equal(manager.getTotalRunningCount(), 0);
     } finally {
+        OutputSessionStore.releaseAllHolds();
         await manager.forceClose().catch(() => undefined);
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
@@ -359,6 +388,7 @@ test("进程退出后关闭仍等待已接收写入结算", async () => {
         assert.equal(store.text("goal-settle-exit", started.processId, "stdout"), "settle-me\n");
         assert.equal(manager.getTotalRunningCount(), 0);
     } finally {
+        OutputSessionStore.releaseAllHolds();
         await manager.forceClose().catch(() => undefined);
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
@@ -393,6 +423,7 @@ test("关闭等待在途输出写入，不提前报告成功", async () => {
         assert.equal(store.text("goal-close-write", started.processId, "stdout"), "before-close\n");
         assert.equal(manager.getTotalRunningCount(), 0);
     } finally {
+        OutputSessionStore.releaseAllHolds();
         await manager.forceClose().catch(() => undefined);
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
@@ -422,9 +453,21 @@ test("追加失败不丢弃后续写入或终态结算，也不产生未处理�
         // 失败分片被丢弃，但后续写入与终态记录仍然结算
         assert.equal(store.text("goal-append-fail", started.processId, "stdout"), "kept-line\n");
         assert.equal((await store.getSession("goal-append-fail", started.processId))?.status, "exited");
-        // 关闭流程不因已知写入失败而卡住
-        await manager.close();
+
+        // 已知写入失败通过类型化错误报告，不被关闭吞掉
+        await assert.rejects(manager.close(), (error: unknown) => {
+            assert.equal(error instanceof ProcessSessionError, true);
+            const failure = error as ProcessSessionError;
+            assert.equal(failure.stage, "output");
+            assert.equal(failure.failures.length, 1);
+            assert.equal(failure.failures[0]?.processId, started.processId);
+            assert.match(String(failure.failures[0]?.reason), /append failed/);
+            return true;
+        });
+        // 重复关闭复用同一失败报告，不重复写入或重复结算
+        await assert.rejects(manager.close(), /unreported settlement failure/);
     } finally {
+        OutputSessionStore.releaseAllHolds();
         await manager.forceClose().catch(() => undefined);
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
@@ -459,6 +502,7 @@ test("文件 Store 上按通道游标读取且不合并通道", async () => {
 
         await manager.close();
     } finally {
+        OutputSessionStore.releaseAllHolds();
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
 });
