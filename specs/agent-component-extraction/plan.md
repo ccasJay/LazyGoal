@@ -113,9 +113,40 @@ git diff --check
 
 ### Latest Result
 
-- 状态：未执行。
-- 验证时间：未执行。
-- 测试提交与相关未提交改动：尚无实现或行为测试结果；运行时记录候选提交、相关未提交文件与差异/内容指纹。
-- 验收契约：当前对话批准的完整 spec.md；运行时记录对应内容指纹。
-- 验证摘要：尚未实施或执行 Feature Verification；本计划的文档校验不代表上述行为通过。
-- 未解决项：九个 TODO 及全部功能验收待执行；当前无新增需用户裁决的范围问题。
+- 状态：passed（Spec 验收与综合检查通过；`apps/goal-board` e2e 两项在本机 Chrome 155 下既有失败，已在基线 31de8539 复现，不属于本次回归，记为环境阻塞）。
+- 验证时间：2026-10-17。
+- 测试提交：分支 `feature/agent-component-extraction`，实现终态提交 `25924142`（TODO 1—9 依次为 `fb732d53`、`511bb691`、`e4f1a55f`、`2f3eb25a`、`e015f94c`、`0283fbc2`、`f92a1dc0`、`cf1c7525`、`25924142`）；本结果更新仅为 plan.md 文档改动。
+- 验收契约：当前对话批准的完整 spec.md（sha256 前 16 位 `2c8e1a971cd58a59`）；根 `tsconfig.json` 指纹 `7bdc3342f1b6cb34`。
+- 验证摘要（逐项检查入口与观察结果）：
+  - 九包独立消费：`node --test scripts/check-dependencies.test.mjs` 18 pass（含方向正反例、入口穿透、类型位置动态导入、产物导入、Agent 入口面 fixture）；`packages/context-budget` 35、`packages/model-context` 94、`packages/prompt-renderer+prompt-bundle+goal-server prompt-bundle 集成` 40、`packages/model-request` 67、`packages/model-response` 27、`packages/model-call+model-execution` 110、`packages/agent` 49（含 create-agent-executor 与恢复集成）全部通过；`packages/model-view` 以 `test/public-api.types.ts` 由根类型检查发现。
+  - 预算与模型表示：TODO 1 命令 35 pass（基线对照迁至 `packages/model-execution/test/component-extraction-baseline.test.ts`，按计划允许的等价迁移；基线内容与来源指纹未改，仍与拆包前一致）。
+  - 已提交历史组装：`packages/model-context` + runtime 帧/请求集成 94 pass（含原生历史、Section 恢复、未提交 tail 排除）。
+  - 渲染与默认内容分离：prompt-renderer/prompt-bundle 及 goal-server 集成 40 pass（内存渲染无默认 Bundle、模板正文指纹随 TODO 1 基线覆盖）。
+  - 请求与 Section 更新计划：model-request + 基线 + Think 恢复 67 pass（零模型调用；Section 完整注入/替换/失效与重建）。
+  - 响应单独解码：model-response + 原生阶段/反馈/runtime 边界 27 pass（错误码、路径、形状保持）。
+  - 单次调用与记录失败：model-call + model-execution + 两条 Runtime 恢复 110 pass（输入失败零调用、取消、流缺失/重复 completed、指标/诊断隔离）。
+  - 同代 Binding 与私有审查：model-execution 的 binding/审查/流测试及 Runtime 阶段恢复通过；审查不公开文本且不新增模型调用。
+  - 默认装配与替换：`packages/agent/test/create-agent-executor.test.ts` 通过与直接执行器的同依赖对照；构造期零模型/工具调用、无进程信号副作用。
+  - 真实宿主与恢复：goal-server 模型切换/浏览器集成与 Headless 组合根/恢复集成 49 pass；`npm --prefix apps/goal-server test` 21 pass。
+  - Worker 模板及产物：`benchmarks/test/agent-components-worker.integration.test.ts` 以生产 Builder 实际打包五个 Worker 入口（内嵌模板正文、资产清单、缓存命中）并以本机 Node + 确定性 RPC 运行共享 Worker 产物（等待→恢复→完成，脱离源码模板目录）；TODO 8 指定检查 19 pass；benchmarks 全量 311 pass。
+  - 全部消费者与有限导出：`packages/agent/src/index.ts` 只导出 `createAgentExecutor` 与 `AgentExecutorOptions`（入口规则与 fixture 强制）；全仓库检索无 `packages/agent/src/*` 能力路径的源码/脚本引用（历史 Spec、Memory 与测试基线保持原状）。
+  - 依赖与类型引用门：`npm run check:dependencies` 通过，扫描 245 个源文件；覆盖 import/export、类型导入、`import("...")`、side-effect 与字面量动态导入。
+  - 发现与源码独立性：`npm test` 实际发现 356 个 `.ts/.tsx` 与 5 个 `.mjs` 测试文件，1987 + 40 项全部通过；临时源码副本（省略 `dist/lib/build`，503 个包源码文件，依赖以已安装 node_modules 解析）根类型检查通过且九包/入口测试 343 pass。
+  - 文档与唯一事实归属：`npm run check:docs` 39 个模块、143 份当前说明通过；九包 README/notes 与根导航/仓库布局指向现有所有者。
+- 综合检查与观察结果：
+  - `npx tsc --noEmit`、`npx tsc --noEmit -p apps/goal-server/tsconfig.json`、`npx tsc --noEmit -p benchmarks/tsconfig.json`：全部通过（0 error）。
+  - `npm run check:dependencies`：245 源文件通过；`npm run check:docs`：39 模块通过。
+  - `npm test`：类型检查、文档、依赖门、GEPA adapter 无外部依赖测试与全部确定性测试通过（356 ts/tsx + 5 mjs，1987 + 40 pass）。
+  - `npm --prefix apps/goal-server test`：21 pass。
+  - `npm run build:web`：通过（vite 构建成功，产物写入 `apps/goal-board/dist`，仅 chunk 体积警告）。
+  - `node --test --test-concurrency=1 apps/goal-board/e2e/*.test.mjs`：4 项中 2 项通过、2 项失败（`board.test.mjs` 等待 `button.primary` 前断言 `undefined === true`；`runtime.test.mjs` 等待页面文本超时）。已在基线提交 31de8539 的独立临时 worktree 复现同类失败（同机 Chrome 155），确认为环境/既有失败而非本次改动；未据此修改验收要求或测试。
+  - `git diff --check`：通过。
+- 未解决项：仅上述 `apps/goal-board` e2e 两项环境阻塞（无 Spec 验收影响）；实现与验证期间未运行付费模型、真实 Benchmark、评分任务或 GEPA 优化，未操作 `~/.lazygoal` 用户数据。
+
+## Learning Candidates
+
+- **测试资产随包迁移时保留“来源指纹”**：对照/基线 fixture 与断言分离后，即使生产文件整体搬迁，`deepEqual` 重算即可证明语义等价；迁移路径要用等价命令显式记录，避免旧路径命令静默空跑（glob 命中 0 文件仍退出 0 的场景需警惕）。
+- **prompt_only Worker 的模型替身必须返回声明工具调用**：零调用文本 JSON 会进入 `assistant_message` 纠错链并耗尽重试；确定性适配器应以 `toolResponseFixtures` 生成工具调用，而不是裸 `{content}`。
+- **本机复制 Node 二进制不可执行**：macOS 的 `process.execPath` 依赖同目录 `libnode.dylib`，仅为打包身份注入的副本无法用于产物运行；本地"产物以本机 Node 运行"应直接使用 `process.execPath`，容器镜像身份仍由 Builder 注入点表达。
+- **依赖门新增规则时要预留既有 fixture 的合规头部**：入口面规则一旦生效，历史上"让所有包导入 contracts"的通用 fixture 需要为受约束包（如 agent）提供合规入口，否则新规则会在无关测试中以误导性方式失败。
+- **跨 Worktree 复现既有失败**：对与环境强耦合的 UI/e2e 检查，用基线提交的临时 worktree 复现可快速区分"本次回归"与"机器既有失败"，并在验证记录中保留对照证据。
