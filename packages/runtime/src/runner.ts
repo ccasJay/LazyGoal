@@ -4341,6 +4341,7 @@ class RunExecutor {
                                     return {
                                         stageResult: {
                                             ...result,
+                                            kind: "decision" as const,
                                             decision: normalizedDecision.decision,
                                         },
                                         ...(normalizedDecision.preparedToolAction === undefined
@@ -4361,6 +4362,24 @@ class RunExecutor {
                             const stageResult = decided.result.stageResult;
                             decidedBatch = "pendingBatch" in decided.result ? decided.result.pendingBatch : undefined;
                             consumedFromBatch = "batchConsumed" in decided.result && decided.result.batchConsumed === true;
+                            if (decidedBatch !== undefined && "decision" in stageResult) {
+                                // 记录一次模型响应产生的多调用批次，供 Trajectory/界面与单调用、零调用、无可用结果区分。
+                                await this.appendTrajectory({
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "executing",
+                                    executionUnitId,
+                                    eventType: "decide_batch_accepted",
+                                    payload: {
+                                        type: "decide_batch_accepted",
+                                        batchId: decidedBatch.batchId,
+                                        callIds: [stageResult.decision.kind === "tool_call"
+                                            ? stageResult.decision.action.actionId : "",
+                                            ...decidedBatch.remaining.map(action => action.actionId)].filter(id => id.length > 0),
+                                        remainingCount: decidedBatch.remaining.length,
+                                    },
+                                }, control);
+                            }
 
                             if (stageResult.kind === "request_think") {
                                 const requestId = randomUUID();

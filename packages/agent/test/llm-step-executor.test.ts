@@ -1409,3 +1409,49 @@ test("Runner 在批次执行中被取消时不再启动后续 Action", async () 
     assert.deepEqual(restored.state.run.pendingActionBatch?.remaining.map(call => call.actionId), ["call-b"],
         "未启动的 Action 必须保留在批次队列中，未被视为已完成");
 });
+
+test("Trajectory 记录多调用批次事实，可与单调用、零调用区分", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createToolRegistration({
+        definition: { id, description: id, isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
+        replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute() { return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+    })));
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        async generate() {
+            requests.push({ messages: [] });
+            return requests.length === 1
+                ? { content: "", toolCalls: [
+                    { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                    { callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+                ] }
+                : { content: "只有文本，没有工具调用。" };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-event", intent: "Read two files", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["read_a", "read_b"] } });
+    await store.save({
+        ...created,
+        state: { ...created.state, run: { ...created.state.run,
+            exposedToolIds: ["read_a", "read_b"],
+            currentStage: { stageId: "stage-1", revision: 1, status: "executing" as const, target: "Read two files", acceptanceCriteria: ["done"] } } },
+    });
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-batch-event" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    const events = await trajectoryStore.read({ goalId, runId: "run-batch-event" });
+    const batches = events.filter(event => event.payload.type === "decide_batch_accepted");
+    assert.equal(batches.length, 1, "一次多调用模型响应必须记录一次批次事实");
+    const payload = batches[0]!.payload;
+    assert.equal(payload.type === "decide_batch_accepted" && payload.callIds.join(","), "call-a,call-b", "批次事实必须保留模型返回顺序");
+    assert.equal(payload.type === "decide_batch_accepted" && payload.remainingCount, 1);
+    // 三类事实可区分：批次事实、零调用正文的 Assistant 消息、单调用不产生批次事实。
+    assert.equal(events.filter(event => event.eventType === "action_staged").length, 2);
+    const messages = (await store.restore(goalId))!.state.messages;
+    assert.equal(messages.some(message => message.role === "assistant" && message.content.includes("只有文本")), true,
+        "零调用正文必须作为 Assistant 消息可见");
+});

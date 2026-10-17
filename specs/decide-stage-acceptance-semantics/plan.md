@@ -29,7 +29,7 @@
   - 实施目标：在批次执行、继续生成、纠错或审批等待过程中中断并恢复时，依据已可靠提交的状态与尝试计数继续或明确失败；未提交的 Assistant 文本、模型决策与 Action 结果不得视为已生效；取消信号必须能打断批次中尚未开始的 Action，且不留下半提交状态。
   - 验证手段：`packages/runtime/test/` 新增"批次中断后从第一个未提交 Action 继续""取消后不执行后续 Action 且状态可恢复"断言；Red 先行。
 
-- [ ] //TODO 6. 诊断与界面可区分的执行事实
+- [x] //TODO 6. 诊断与界面可区分的执行事实
   - 落实标准：[5.2](./spec.md#spec-req-5-2), [5.4](./spec.md#spec-req-5-4)
   - 实施目标：多调用不再报 `INVALID_LLM_RESPONSE` 的 `multiple_tool_calls` 协议错误，改为"多调用批次"事件；Trajectory、Diagnostic Trace、浏览器与 TUI 必须能区分"已接受的 Assistant 文本消息""多调用批次""无可用结果重试"三类事实；错误码、反馈与诊断文本可定位且不含明文凭据或 Provider 原始响应。
   - 验证手段：`packages/runtime/test/`、浏览器契约测试与 TUI 投影测试新增分类断言；`npm run check:docs` 通过；Red 先行。
@@ -75,5 +75,6 @@
   - `packages/storage/test/goal-snapshot-current.test.ts`：`pendingActionBatch` 往返保留身份、顺序与剩余项；`pendingModelRepair` 两级计数往返。
   - `apps/goal-server/test/prompt-bundle-integration.test.ts`：非法 wire 文本返回时仍不产生任何 Tool 副作用，终态原因对齐零调用正文语义。
   - 取消语义：批次执行中被取消时不再启动后续 Action，Run 停在最后一次提交边界保持 `running` 可恢复，未启动的 Action 保留在批次队列中且未被视为已完成。
-- 未覆盖（不在本轮证据范围）：R4-1/R4-2 的"批准不得把授权范围扩大到同批其它 Action"缺少直接断言；R4-3/R6-2 的"恢复后不重放"由"重复 actionId 被拒绝"与"取消后队列保留"间接覆盖，缺少独立的"中断-恢复后从第一个未产生结果的 Action 继续"用例；TODO 6 的界面分类断言尚未编写。
+  - 分类与可区分性：新增 `decide_batch_accepted` 轨迹事实（含 `batchId`、按模型返回顺序的 `callIds`、`remainingCount`），一次多调用响应只记录一次；零调用正文作为 Assistant 消息可见；单调用不产生批次事实。
+- 未覆盖（不在本轮证据范围）：R4-1/R4-2 的"批准不得把授权范围扩大到同批其它 Action"缺少直接断言；R4-3/R6-2 的"恢复后不重放"由"重复 actionId 被拒绝"与"取消后队列保留"间接覆盖，缺少独立的"中断-恢复后从第一个未产生结果的 Action 继续"用例；浏览器与 TUI 的批次分组呈现尚未实现（本 Spec 只保证事实可区分）。
 - 待人工验证：真实多调用批次的端到端体验（费用、延迟、UI 呈现）需人工确认，未运行前不得宣称端到端通过。

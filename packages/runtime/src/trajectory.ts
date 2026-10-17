@@ -176,6 +176,12 @@ export type TrajectoryEventPayload =
         readonly thought?: string;
     }
     | {
+        readonly type: "decide_batch_accepted";
+        readonly batchId: string;
+        readonly callIds: readonly string[];
+        readonly remainingCount: number;
+    }
+    | {
         readonly type: "think_requested";
         readonly requestId: string;
         readonly stepOrdinal: number;
@@ -814,6 +820,7 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "task_approved",
     "task_feedback_received",
     "decision_received",
+    "decide_batch_accepted",
     "think_requested",
     "think_completed",
     "model_repair_attempt_started",
@@ -1669,6 +1676,7 @@ export function classifyTrajectoryEvent(
         case "context_epoch_advanced":
             return "decision";
         case "decision_received":
+        case "decide_batch_accepted":
         case "think_requested":
         case "think_completed":
         case "model_repair_attempt_started":
