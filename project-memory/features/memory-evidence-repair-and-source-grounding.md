@@ -4,9 +4,9 @@ status: active
 summary: "在 Decide 阶段修复非法 Memory Patch，限定历史检索来源，并核对完成答复的真实依据"
 source_spec: specs/memory-evidence-repair-and-source-grounding/
 distilled_at: 2026-10-11
-reviewed_at: 2026-10-11
+reviewed_at: 2026-10-17
 tags: [memory-patch, evidence, model-repair, goal-history, completion-review, evaluation]
-authorities: [packages/runtime/src/runner.ts, packages/runtime/src/runtime-feedback.ts, packages/runtime/src/evidence-gate.ts, packages/runtime/src/trajectory-checkpoint-committer.ts, packages/agent/src/context-lookup-projection.ts, packages/agent/src/completion-review.ts, packages/runtime/test/working-memory-runner.test.ts, packages/agent/test/completion-review-eval.ts]
+authorities: [packages/runtime/src/runner.ts, packages/runtime/src/runtime-feedback.ts, packages/runtime/src/evidence-gate.ts, packages/runtime/src/trajectory-checkpoint-committer.ts, packages/model-context/src/context-lookup-projection.ts, packages/model-request/src/completion-review.ts, packages/runtime/test/working-memory-runner.test.ts, packages/agent/test/completion-review-eval.ts]
 ---
 
 # Memory Evidence Repair and Source Grounding
@@ -42,9 +42,9 @@ authorities: [packages/runtime/src/runner.ts, packages/runtime/src/runtime-feedb
 - S5: `packages/runtime/src/evidence-gate.ts`
 - S6: `packages/working-memory/src/core.ts`
 - S7: `packages/runtime/src/trajectory-checkpoint-committer.ts`
-- S8: `packages/agent/src/context-lookup-projection.ts`
-- S9: `packages/agent/src/completion-review.ts`
+- S8: `packages/model-context/src/context-lookup-projection.ts`
+- S9: `packages/model-request/src/completion-review.ts`
 - S10: `packages/agent/test/decision-guidance-eval.ts`
 - S11: `packages/agent/test/completion-review-eval.ts`
 - S12: `packages/runtime/test/working-memory-runner.test.ts`
-- S13: `packages/agent/test/context-lookup-projection.test.ts`
+- S13: `packages/model-context/test/context-lookup-projection.test.ts`

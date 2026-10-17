@@ -4,9 +4,9 @@ status: active
 summary: "移除无消费者的上下文压缩适配器与 Warm Sidecar，统一为严格协议驱动的执行单元上下文流水线"
 source_spec: specs/context-pipeline-simplification/
 distilled_at: 2026-09-03
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-17
 tags: [context-pipeline, trajectory, warm-context, dead-code-removal, pruning]
-authorities: [packages/agent/notes/overview.md, packages/runtime/notes/overview.md, packages/agent/src/trajectory-model-context-assembler.ts, packages/runtime/src/goal-coordinator.ts]
+authorities: [packages/agent/notes/overview.md, packages/runtime/notes/overview.md, packages/model-context/src/trajectory-model-context-assembler.ts, packages/runtime/src/goal-coordinator.ts]
 ---
 
 # Context Pipeline Simplification
@@ -37,7 +37,7 @@ authorities: [packages/agent/notes/overview.md, packages/runtime/notes/overview.
 
 - S1: `specs/context-pipeline-simplification/requirements.md`
 - S2: `specs/context-pipeline-simplification/design.md`
-- S3: `packages/agent/src/trajectory-model-context-assembler.ts`
+- S3: `packages/model-context/src/trajectory-model-context-assembler.ts`
 - S4: `packages/runtime/src/goal-coordinator.ts`
 - S5: `packages/runtime/test/context-retrieval-protocol.test.ts`
-- S6: `packages/agent/test/trajectory-model-context-assembler.test.ts`
+- S6: `packages/model-context/test/trajectory-model-context-assembler.test.ts`

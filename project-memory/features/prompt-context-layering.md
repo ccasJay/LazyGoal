@@ -4,9 +4,9 @@ status: active
 summary: "分离阶段固定指令与动态上下文，并按模型可见历史恢复增量 section 更新"
 source_spec: specs/prompt-context-layering/
 distilled_at: 2026-10-01
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-17
 tags: [prompt, context, dynamic-sections, recovery, token-budget, think-decide]
-authorities: [packages/agent/notes/overview.md, packages/agent/src/step-prompt/agent-decision@1.njk, packages/agent/src/llm-step-executor.ts, packages/runtime/src/trajectory.ts, packages/runtime/src/trajectory-checkpoint-committer.ts]
+authorities: [packages/agent/notes/overview.md, packages/prompt-bundle/src/step-prompt/agent-decision@1.njk, packages/model-execution/src/llm-step-executor.ts, packages/runtime/src/trajectory.ts, packages/runtime/src/trajectory-checkpoint-committer.ts]
 ---
 
 # Prompt Context Layering
@@ -39,5 +39,5 @@ authorities: [packages/agent/notes/overview.md, packages/agent/src/step-prompt/a
 - S2: `specs/prompt-context-layering/design.md`
 - S3: `specs/prompt-context-layering/tasks.md`
 - S4: `packages/agent/notes/overview.md`
-- S5: `packages/agent/src/step-prompt/agent-decision@1.njk`
+- S5: `packages/prompt-bundle/src/step-prompt/agent-decision@1.njk`
 - S6: `packages/runtime/src/trajectory.ts`

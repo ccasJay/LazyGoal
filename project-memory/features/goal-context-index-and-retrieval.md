@@ -4,9 +4,9 @@ status: active
 summary: "在同一 Goal 内构建跨 Run 阶段目录与重要信息索引，提供有界模型导航与直接来源展开"
 source_spec: specs/goal-context-index-and-retrieval/
 distilled_at: 2026-10-13
-reviewed_at: 2026-10-13
+reviewed_at: 2026-10-17
 tags: [goal-context, run-stage, index, retrieval, navigation, context-lookup, sidecar, recovery]
-authorities: [packages/context-retrieval/src/goal-context-index.ts, packages/storage/src/goal-context-index-store.ts, packages/agent/src/goal-context-navigation.ts, packages/agent/src/prompting/dynamic-section-registry.ts, packages/runtime/src/domain.ts, packages/runtime/src/runner.ts, packages/model-contracts/src/model-output/system-tools.ts]
+authorities: [packages/context-retrieval/src/goal-context-index.ts, packages/storage/src/goal-context-index-store.ts, packages/model-context/src/goal-context-navigation.ts, packages/prompt-renderer/src/dynamic-section-registry.ts, packages/runtime/src/domain.ts, packages/runtime/src/runner.ts, packages/model-contracts/src/model-output/system-tools.ts]
 ---
 
 # Goal Context Index and Retrieval
@@ -44,11 +44,11 @@ authorities: [packages/context-retrieval/src/goal-context-index.ts, packages/sto
 - S5: `packages/runtime/src/domain.ts`
 - S6: `packages/runtime/src/runner.ts`
 - S7: `packages/model-contracts/src/model-output/system-tools.ts`
-- S8: `packages/agent/src/goal-context-navigation.ts`
-- S9: `packages/agent/src/prompting/dynamic-section-registry.ts`
+- S8: `packages/model-context/src/goal-context-navigation.ts`
+- S9: `packages/prompt-renderer/src/dynamic-section-registry.ts`
 - S10: `packages/context-retrieval/test/goal-context-index.test.ts`
 - S11: `packages/runtime/test/context-notes.test.ts`
 - S12: `packages/context-retrieval/test/goal-context-query.test.ts`
-- S13: `packages/agent/test/goal-context-navigation.test.ts`
+- S13: `packages/model-context/test/goal-context-navigation.test.ts`
 - S14: `benchmarks/context/test/goal-context-quality.test.ts`
 - S15: `benchmarks/context/src/goal-index-smoke.ts`

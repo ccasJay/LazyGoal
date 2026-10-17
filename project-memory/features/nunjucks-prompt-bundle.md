@@ -4,9 +4,9 @@ status: active
 summary: "版本化 Prompt Bundle 组合、确定性 Nunjucks 渲染与不可变 PromptContext 边界"
 source_spec: specs/nunjucks-prompt-bundle/
 distilled_at: 2026-08-23
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-17
 tags: [prompt-bundle, nunjucks, rendering, prompt-context, snapshot-v5, deterministic]
-authorities: [packages/agent/notes/overview.md, packages/runtime/notes/overview.md, packages/storage/notes/overview.md, packages/agent/src/prompting/default-bundles.ts, packages/agent/src/prompting/renderer.ts, packages/agent/src/model-inference-projector.ts, packages/storage/src/goal-snapshot.ts]
+authorities: [packages/agent/notes/overview.md, packages/runtime/notes/overview.md, packages/storage/notes/overview.md, packages/prompt-bundle/src/default-bundles.ts, packages/prompt-renderer/src/renderer.ts, packages/model-context/src/model-inference-projector.ts, packages/storage/src/goal-snapshot.ts]
 ---
 
 # Nunjucks Prompt Bundle
@@ -19,7 +19,7 @@ authorities: [packages/agent/notes/overview.md, packages/runtime/notes/overview.
 
 - D1 — Prompt Bundle 是显式版本化 Manifest（声明模板 ID、Phase 映射与 section 顺序），而非集中存放所有 Prompt 文本的目录；模板按业务所有权就近存放，稳定模板 ID 含组件版本（如 `global-overview@1`），被受支持 Bundle 引用的模板视为不可变。 [S1, S2, S5]
 - D2 — system prompt 由确定性 fragment pipeline 组成：固定按 Global Overview → Profile → Phase Protocol → Authorized Tools 顺序渲染，fragment 去尾换行后以 `\n\n` 连接且无结尾换行；三个 Phase 共享 Global Overview 与 Profile，仅按 Phase 选择协议。 [S1, S2, S4]
-- D3 — Prompt Bundle 当前版本归 Agent、由 Composition Root 注入 Runtime：Agent 导出 `CURRENT_PROMPT_BUNDLE_VERSION`，TUI 注入 `LauncherDependencies.promptBundleVersion`，`GoalDefinition` 只存通用正整数版本，Runtime/Storage 不判断版本是否受支持。 [S2, S5, S7]
+- D3 — Prompt Bundle 当前版本归 `prompt-bundle`、由 Composition Root 注入 Runtime：该包导出 `CURRENT_PROMPT_BUNDLE_VERSION`，TUI 注入 `LauncherDependencies.promptBundleVersion`，`GoalDefinition` 只存通用正整数版本，Runtime/Storage 不判断版本是否受支持。 [S2, S5, S7]
 - D4 — Snapshot 协议从 v4 一次性升级到 v5：`GoalDefinition.globalSystemPromptVersion` 更名 `promptBundleVersion`（正整数），decode 拒绝 v1–v4 且不迁移；v5 只校验该字段为正整数，后续新增 Bundle 版本不再改变 Snapshot Schema。 [S2, S7, S8, S11]
 - D5 — `PromptContext` 是 `ModelInferenceView` 内的独立深冻结 DTO（`promptBundleVersion`/`phase`/`profile`/`authorizedTools`）；Projector 逐字段深复制并递归冻结，按 Tool ID 代码单元排序且拒绝重复，不投影 goalId/runId/时间/随机数/环境/瞬时授权。 [S1, S2, S6, S10]
 - D6 — 使用显式封闭 Nunjucks `Environment`（`autoescape:false`、`throwOnUndefined:true`、`trimBlocks`/`lstripBlocks`），唯一自定义 Filter 是同步 `stableJson`；模板在工厂返回前 eager compile，渲染期不读文件系统，仅接受已注册 ID 的内存 Loader。 [S2, S3, S4]
@@ -42,15 +42,15 @@ authorities: [packages/agent/notes/overview.md, packages/runtime/notes/overview.
 
 - S1: `specs/nunjucks-prompt-bundle/requirements.md`
 - S2: `specs/nunjucks-prompt-bundle/design.md`
-- S3: `packages/agent/src/prompting/registry.ts`
-- S4: `packages/agent/src/prompting/renderer.ts`
-- S5: `packages/agent/src/prompting/default-bundles.ts`
-- S6: `packages/agent/src/model-inference-projector.ts`
+- S3: `packages/prompt-renderer/src/registry.ts`
+- S4: `packages/prompt-renderer/src/renderer.ts`
+- S5: `packages/prompt-bundle/src/default-bundles.ts`
+- S6: `packages/model-context/src/model-inference-projector.ts`
 - S7: `packages/runtime/src/domain.ts`
 - S8: `packages/storage/src/goal-snapshot.ts`
-- S9: `packages/agent/test/prompting-renderer.test.ts`
-- S10: `packages/agent/test/model-inference-projector.test.ts`
+- S9: `packages/prompt-renderer/test/prompting-renderer.test.ts`
+- S10: `packages/model-context/test/model-inference-projector.test.ts`
 - S11: `packages/storage/test/goal-store.test.ts`
 - S12: `specs/model-context-pruning/design.md`
-- S13: `packages/agent/src/prompt.ts`
-- S14: `packages/agent/test/prompt.test.ts`
+- S13: `packages/model-request/src/prompt.ts`
+- S14: `packages/model-request/test/prompt.test.ts`

@@ -4,9 +4,9 @@ status: active
 summary: "在同一 Run 内支持模型自主组织阶段、按阶段审查与修订、上下文去重与折叠展示"
 source_spec: specs/run-stage-review-and-context-projection/
 distilled_at: 2026-10-15
-reviewed_at: 2026-10-15
+reviewed_at: 2026-10-17
 tags: [run-stage, review, stage-revision, context-projection, deduplication, goal-board, recovery]
-authorities: [packages/runtime/notes/overview.md, packages/agent/notes/overview.md, packages/runtime/src/run-stage.ts, packages/runtime/src/runner.ts, packages/model-contracts/src/model-output/system-tools.ts, packages/agent/src/completion-review.ts, packages/storage/src/goal-snapshot-codec.ts, packages/browser/src/browser-projection.ts, packages/runtime/test/run-stage-execution.test.ts, packages/runtime/test/run-stage-review.test.ts, packages/runtime/test/run-stage-recovery.test.ts, packages/storage/test/run-stage-snapshot.test.ts, packages/agent/test/completion-review.test.ts, apps/goal-board/test/run-stage-presentation.test.ts]
+authorities: [packages/runtime/notes/overview.md, packages/agent/notes/overview.md, packages/runtime/src/run-stage.ts, packages/runtime/src/runner.ts, packages/model-contracts/src/model-output/system-tools.ts, packages/model-request/src/completion-review.ts, packages/storage/src/goal-snapshot-codec.ts, packages/browser/src/browser-projection.ts, packages/runtime/test/run-stage-execution.test.ts, packages/runtime/test/run-stage-review.test.ts, packages/runtime/test/run-stage-recovery.test.ts, packages/storage/test/run-stage-snapshot.test.ts, packages/model-execution/test/completion-review.test.ts, apps/goal-board/test/run-stage-presentation.test.ts]
 ---
 
 # Run Stage Review and Context Projection
@@ -42,14 +42,14 @@ authorities: [packages/runtime/notes/overview.md, packages/agent/notes/overview.
 - S2: `specs/run-stage-review-and-context-projection/plan.md`
 - S3: `packages/runtime/src/run-stage.ts`
 - S4: `packages/runtime/src/runner.ts`
-- S5: `packages/agent/src/completion-review.ts`
+- S5: `packages/model-request/src/completion-review.ts`
 - S6: `packages/storage/src/goal-snapshot-codec.ts`
 - S7: `packages/browser/src/browser-projection.ts`
 - S8: `packages/model-contracts/src/model-output/system-tools.ts`
-- S9: `packages/agent/src/trajectory-model-context-assembler.ts`
+- S9: `packages/model-context/src/trajectory-model-context-assembler.ts`
 - S10: `packages/runtime/test/run-stage-execution.test.ts`
 - S11: `packages/runtime/test/run-stage-review.test.ts`
 - S12: `packages/runtime/test/run-stage-recovery.test.ts`
 - S13: `packages/storage/test/run-stage-snapshot.test.ts`
-- S14: `packages/agent/test/completion-review.test.ts`
+- S14: `packages/model-execution/test/completion-review.test.ts`
 - S15: `apps/goal-board/test/run-stage-presentation.test.ts`

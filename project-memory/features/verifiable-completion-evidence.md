@@ -4,7 +4,7 @@ status: active
 summary: "通过当前 Run 的已提交证据校验任务完成，并区分 Benchmark 运行时上下文与环境评分"
 source_spec: specs/verifiable-completion-evidence/
 distilled_at: 2026-09-07
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-17
 tags: [runtime, runner, contracts, evidence-gate, completion-criterion, verifiable-completion, benchmarks]
 authorities: [packages/runtime/notes/overview.md, benchmarks/notes/overview.md, packages/model-contracts/src/model-output/canonical.ts, packages/runtime/src/evidence-gate.ts, packages/runtime/src/runner.ts, packages/storage/src/goal-snapshot-codec.ts, benchmarks/src/headless-composition-root.ts]
 ---
@@ -46,7 +46,7 @@ authorities: [packages/runtime/notes/overview.md, benchmarks/notes/overview.md, 
 - S6: `packages/runtime/src/runner.ts`
 - S7: `benchmarks/src/headless-composition-root.ts`
 - S8: `benchmarks/notes/overview.md`
-- S9: `packages/agent/src/model-inference-view.ts`
+- S9: `packages/model-view/src/model-inference-view.ts`
 - S10: `packages/runtime/test/runner.test.ts`
 - S11: `packages/storage/test/goal-store.test.ts`
 - S12: `benchmarks/test/headless-composition-root.test.ts`

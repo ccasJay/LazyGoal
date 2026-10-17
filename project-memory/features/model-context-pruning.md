@@ -4,9 +4,9 @@ status: active
 summary: "按完整执行单元和字符预算裁剪单轮模型 Conversation，同时保留完整 Goal 历史"
 source_spec: specs/model-context-pruning/
 distilled_at: 2026-08-23
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-17
 tags: [context-pruning, context-unit, conversation, compactor, agent, recovery]
-authorities: [packages/agent/notes/overview.md, packages/agent/src/context-unit.ts, packages/agent/src/conversation-context-unit-adapter.ts, packages/agent/src/context-compactor.ts, packages/agent/src/prompt.ts, apps/goal-server/src/composition-root.ts]
+authorities: [packages/agent/notes/overview.md, packages/context-budget/src/context-unit.ts, packages/model-context/src/conversation-context-unit-adapter.ts, packages/context-budget/src/context-compactor.ts, packages/model-request/src/prompt.ts, apps/goal-server/src/composition-root.ts]
 ---
 
 # Model Context Pruning
@@ -45,15 +45,15 @@ authorities: [packages/agent/notes/overview.md, packages/agent/src/context-unit.
 
 - S1: `specs/model-context-pruning/requirements.md`
 - S2: `specs/model-context-pruning/design.md`
-- S3: `packages/agent/src/context-unit.ts`
-- S4: `packages/agent/src/conversation-context-unit-adapter.ts`
-- S5: `packages/agent/src/context-compactor.ts`
-- S6: `packages/agent/src/prompt.ts`
+- S3: `packages/context-budget/src/context-unit.ts`
+- S4: `packages/model-context/src/conversation-context-unit-adapter.ts`
+- S5: `packages/context-budget/src/context-compactor.ts`
+- S6: `packages/model-request/src/prompt.ts`
 - S7: `apps/goal-server/src/composition-root.ts`
-- S8: `packages/agent/test/conversation-context-unit-adapter.test.ts`
-- S9: `packages/agent/test/context-compactor.test.ts`
-- S10: `packages/agent/test/prompt.test.ts`
-- S11: `packages/agent/test/execution-control.test.ts`
-- S12: `packages/agent/test/model-context-budget.test.ts`
-- S13: `packages/agent/test/prompt.test.ts`
+- S8: `packages/model-context/test/conversation-context-unit-adapter.test.ts`
+- S9: `packages/context-budget/test/context-compactor.test.ts`
+- S10: `packages/model-request/test/prompt.test.ts`
+- S11: `packages/model-execution/test/execution-control.test.ts`
+- S12: `packages/context-budget/test/model-context-budget.test.ts`
+- S13: `packages/model-request/test/prompt.test.ts`
 - S14: `packages/storage/src/goal-snapshot-codec.ts`

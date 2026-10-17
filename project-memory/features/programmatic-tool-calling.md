@@ -4,9 +4,9 @@ status: active
 summary: "通过专用 Tool 在受限 Node.js 沙箱中编排获授权业务工具，并以可恢复的父 Step 返回显式结果"
 source_spec: specs/programmatic-tool-calling/
 distilled_at: 2026-10-03
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-17
 tags: [ptc, programmatic-tool-calling, runtime, sandbox, recovery, approval, tool-calling]
-authorities: [packages/runtime/notes/overview.md, packages/sandbox/notes/overview.md, packages/agent/src/prompting/authorized-tools@1.njk, packages/runtime/src/runner.ts, packages/sandbox/src/program-sandbox.ts, packages/sandbox/src/macos-seatbelt.ts, packages/storage/src/goal-snapshot.ts]
+authorities: [packages/runtime/notes/overview.md, packages/sandbox/notes/overview.md, packages/prompt-bundle/src/prompting/authorized-tools@1.njk, packages/runtime/src/runner.ts, packages/sandbox/src/program-sandbox.ts, packages/sandbox/src/macos-seatbelt.ts, packages/storage/src/goal-snapshot.ts]
 ---
 
 # Programmatic Tool Calling

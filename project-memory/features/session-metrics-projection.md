@@ -4,9 +4,9 @@ status: active
 summary: "从持久化模型调用事实与 Goal Snapshot 投影逐 Run 和全会话指标，提供可信用量、效率、覆盖状态及本机只读订阅"
 source_spec: specs/session-metrics-projection/
 distilled_at: 2026-09-30
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-17
 tags: [session-metrics, model-usage, cache-hit, throughput, run, http, coverage]
-authorities: [packages/session-metrics/notes/overview.md, packages/http/notes/overview.md, packages/runtime/src/model-call-metrics.ts, packages/agent/src/llm-step-executor.ts, packages/storage/src/json-file-metrics-store.ts, packages/session-metrics/src/session-metrics-service.ts, packages/session-metrics/src/session-metrics-http.ts, packages/http/src/http-service.ts, apps/goal-server/src/composition-root.ts]
+authorities: [packages/session-metrics/notes/overview.md, packages/http/notes/overview.md, packages/runtime/src/model-call-metrics.ts, packages/model-execution/src/llm-step-executor.ts, packages/storage/src/json-file-metrics-store.ts, packages/session-metrics/src/session-metrics-service.ts, packages/session-metrics/src/session-metrics-http.ts, packages/http/src/http-service.ts, apps/goal-server/src/composition-root.ts]
 ---
 
 # Session Metrics Projection
@@ -42,7 +42,7 @@ authorities: [packages/session-metrics/notes/overview.md, packages/http/notes/ov
 - S3: `specs/session-metrics-projection/tasks.md`
 - S4: `packages/session-metrics/notes/overview.md`
 - S5: `packages/runtime/src/model-call-metrics.ts`
-- S6: `packages/agent/src/llm-step-executor.ts`
+- S6: `packages/model-execution/src/llm-step-executor.ts`
 - S7: `packages/storage/src/json-file-metrics-store.ts`
 - S8: `packages/session-metrics/src/session-metrics-service.ts`
 - S9: `packages/http/src/http-service.ts`
