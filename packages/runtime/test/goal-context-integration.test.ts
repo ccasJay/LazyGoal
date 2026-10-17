@@ -15,7 +15,7 @@ import {
     type GoalSourceEnvelope,
 } from "../../context-retrieval/src/index";
 import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
-import { buildGoalContextNavigation } from "../../agent/src/goal-context-navigation";
+import { buildGoalContextNavigation } from "../../model-context/src/index";
 
 function createInitialGoal(id: string): Goal {
     const created = createGoal({

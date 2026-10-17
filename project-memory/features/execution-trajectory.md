@@ -4,9 +4,9 @@ status: active
 summary: "Runtime 事实轨迹、Snapshot 提交边界与诊断 Trace 分流"
 source_spec: specs/execution-trajectory/
 distilled_at: 2026-08-26
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-17
 tags: [trajectory, domain-events, snapshot-boundary, diagnostic-trace, recovery, audit]
-authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overview.md, packages/agent/notes/overview.md, apps/goal-server/notes/overview.md, packages/runtime/src/trajectory.ts, packages/runtime/src/runner.ts, packages/runtime/src/goal-coordinator.ts, packages/storage/src/goal-snapshot-codec.ts, packages/storage/src/json-file-trajectory-store.ts, packages/agent/src/llm-diagnostic-trace.ts, apps/goal-server/src/composition-root.ts]
+authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overview.md, packages/agent/notes/overview.md, apps/goal-server/notes/overview.md, packages/runtime/src/trajectory.ts, packages/runtime/src/runner.ts, packages/runtime/src/goal-coordinator.ts, packages/storage/src/goal-snapshot-codec.ts, packages/storage/src/json-file-trajectory-store.ts, packages/model-call/src/llm-diagnostic-trace.ts, apps/goal-server/src/composition-root.ts]
 ---
 
 # Execution Trajectory
@@ -51,7 +51,7 @@ authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overvie
 - S6: `packages/runtime/src/runner.ts`
 - S7: `packages/storage/src/goal-snapshot-codec.ts`
 - S8: `packages/storage/src/json-file-trajectory-store.ts`
-- S9: `packages/agent/src/llm-diagnostic-trace.ts`
+- S9: `packages/model-call/src/llm-diagnostic-trace.ts`
 - S10: `apps/goal-server/src/composition-root.ts`
 - S11: `packages/runtime/test/trajectory-lifecycle.test.ts`
 - S12: `packages/runtime/test/trajectory-failure.test.ts`

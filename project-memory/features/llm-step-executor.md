@@ -4,9 +4,9 @@ status: active
 summary: "单次模型决策、严格 AgentDecision 协议与 ToolDefinition 输入边界"
 source_spec: specs/llm-step-executor/
 distilled_at: 2026-08-16
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-17
 tags: [agent, llm, agent-decision, tool-definition]
-authorities: [packages/agent/notes/overview.md, packages/agent/src/llm-step-executor.ts]
+authorities: [packages/agent/notes/overview.md, packages/model-execution/src/llm-step-executor.ts]
 ---
 
 # LLM Step Executor
@@ -38,9 +38,9 @@ authorities: [packages/agent/notes/overview.md, packages/agent/src/llm-step-exec
 
 - S1: `specs/llm-step-executor/requirements.md`
 - S2: `specs/llm-step-executor/design.md`
-- S3: `packages/agent/src/llm-step-executor.ts`
-- S4: `packages/agent/src/model-output.ts`
-- S5: `packages/agent/test/llm-step-executor.test.ts`
-- S6: `packages/agent/test/model-output.test.ts`
-- S7: `packages/agent/test/prompt.test.ts`
-- S8: `packages/agent/src/stage-feedback.ts`
+- S3: `packages/model-execution/src/llm-step-executor.ts`
+- S4: `packages/model-response/src/model-output.ts`
+- S5: `packages/model-execution/test/llm-step-executor.test.ts`
+- S6: `packages/model-response/test/model-output.test.ts`
+- S7: `packages/model-request/test/prompt.test.ts`
+- S8: `packages/model-execution/src/stage-feedback.ts`

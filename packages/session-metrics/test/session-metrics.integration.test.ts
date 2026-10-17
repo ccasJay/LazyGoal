@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import type { LLMAdapter } from "../../llm/src/core/adapter";
-import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
+import type { LLMAdapter } from "../../llm-core/src/index";
+import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import { createCompositionRoot } from "../../../apps/goal-server/src/composition-root";
 
 function deferred<T>() {
@@ -60,6 +60,11 @@ test("组合根显式启动 HTTP 后可查询运行指标、接收更新并在�
         systemPrompt: "Complete the requested task.",
         instructions: [],
         toolIds: [],
+    };
+    const closeRoot = async (root: Awaited<ReturnType<typeof createCompositionRoot>>): Promise<void> => {
+        // HTTP 是应用自有资源：实例注册表关闭不包含它，需由宿主显式清理。
+        await root.httpService.close().catch(() => undefined);
+        await root.resources.closeAll().catch(() => undefined);
     };
     let firstRoot: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
     let secondRoot: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
@@ -132,7 +137,7 @@ test("组合根显式启动 HTTP 后可查询运行指标、接收更新并在�
         assert.equal(persistedSnapshot.roundCount, 1);
         assert.equal(persistedSnapshot.cacheHitRate, 5 / 160);
 
-        await firstRoot.resources.closeAll();
+        await closeRoot(firstRoot);
         firstRoot = undefined;
 
         secondRoot = await createCompositionRoot({
@@ -156,10 +161,10 @@ test("组合根显式启动 HTTP 后可查询运行指标、接收更新并在�
         adapter.finish();
         await execution?.catch(() => undefined);
         if (firstRoot !== undefined) {
-            await firstRoot.resources.closeAll();
+            await closeRoot(firstRoot);
         }
         if (secondRoot !== undefined) {
-            await secondRoot.resources.closeAll();
+            await closeRoot(secondRoot);
         }
         await rm(workspace, { recursive: true, force: true });
     }

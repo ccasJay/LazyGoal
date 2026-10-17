@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { JsonFileGoalStore } from "../../../packages/storage/src/index.js";
-import { readNormalizedUsage } from "../../../packages/agent/src/index.js";
+import { readNormalizedUsage } from "../../../packages/llm-core/src/index.js";
 import { isRecord } from "./manifest.js";
 
 /**

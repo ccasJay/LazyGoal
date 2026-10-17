@@ -4,9 +4,9 @@ status: active
 summary: "Runtime/Storage/LLM 三视图分层、Codec/Projector 转换边界与 Legacy 删除"
 source_spec: specs/three-view-architecture/
 distilled_at: 2026-08-19
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-17
 tags: [three-view, codec, projector, dependency-boundary, storage, agent, legacy-removal]
-authorities: [README.md, packages/runtime/notes/overview.md, packages/storage/notes/overview.md, packages/agent/notes/overview.md, packages/storage/src/goal-snapshot-codec.ts, packages/agent/src/model-inference-projector.ts, scripts/check-dependencies.mjs]
+authorities: [README.md, packages/runtime/notes/overview.md, packages/storage/notes/overview.md, packages/agent/notes/overview.md, packages/storage/src/goal-snapshot-codec.ts, packages/model-context/src/model-inference-projector.ts, scripts/check-dependencies.mjs]
 supersedes: [project-memory/features/goal-session-persistence.md]
 ---
 
@@ -44,7 +44,7 @@ supersedes: [project-memory/features/goal-session-persistence.md]
 - S1: `specs/three-view-architecture/requirements.md`
 - S2: `specs/three-view-architecture/design.md`
 - S3: `packages/storage/src/goal-snapshot-codec.ts`
-- S4: `packages/agent/src/model-inference-projector.ts`
+- S4: `packages/model-context/src/model-inference-projector.ts`
 - S5: `packages/runtime/src/runner.ts`
 - S6: `scripts/check-dependencies.mjs`
 - S7: `packages/storage/test/action-observation-recovery.test.ts`
@@ -52,5 +52,5 @@ supersedes: [project-memory/features/goal-session-persistence.md]
 - S9: `packages/storage/src/goal-snapshot.ts`
 - S10: `packages/storage/test/goal-store.test.ts`
 - S11: `specs/model-context-pruning/design.md`
-- S12: `packages/agent/src/prompt.ts`
-- S13: `packages/agent/test/prompt.test.ts`
+- S12: `packages/model-request/src/prompt.ts`
+- S13: `packages/model-request/test/prompt.test.ts`

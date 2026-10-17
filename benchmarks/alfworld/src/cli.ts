@@ -4,12 +4,10 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { randomUUID } from "node:crypto";
 
-import {
-    createDefaultPromptBundleRenderer,
-    DropOldestContextCompactor,
-} from "../../../packages/agent/src/index.js";
+import { createDefaultPromptBundleRenderer } from "../../../packages/prompt-bundle/src/index.js";
+import { DropOldestContextCompactor } from "../../../packages/context-budget/src/index.js";
 import { readLLMConfig } from "../../../packages/config/src/index.js";
-import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
+import { createLlmAdapter } from "../../../packages/llm/src/index.js";
 import {
     EvaluationRunner,
 } from "./evaluation-runner.js";

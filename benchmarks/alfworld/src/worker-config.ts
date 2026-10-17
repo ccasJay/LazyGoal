@@ -5,10 +5,10 @@ export const ALFWORLD_ACP_WORKER_ENTRYPOINT = "benchmarks/alfworld/src/worker.ts
  * ALFWorld Worker 使用的 Prompt 模板；路径会由共享 WorkerBuilder 嵌入 bundle。
  */
 export const ALFWORLD_ACP_WORKER_PROMPT_ASSETS = Object.freeze([
-    "packages/agent/src/global-system-prompt/global-overview@1.njk",
-    "packages/agent/src/prompting/profile@1.njk",
-    "packages/agent/src/step-prompt/agent-decision@1.njk",
-    "packages/agent/src/prompting/authorized-tools@1.njk",
+    "packages/prompt-bundle/src/global-system-prompt/global-overview@1.njk",
+    "packages/prompt-bundle/src/prompting/profile@1.njk",
+    "packages/prompt-bundle/src/step-prompt/agent-decision@1.njk",
+    "packages/prompt-bundle/src/prompting/authorized-tools@1.njk",
 ] as const);
 
 /** Prompt 资产与默认 Bundle 的固定模板 ID 映射。 */

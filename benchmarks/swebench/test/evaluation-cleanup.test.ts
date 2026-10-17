@@ -9,7 +9,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import type { LLMAdapter } from "../../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import { SwebenchContainer, type SwebenchTask } from "../src/container.js";
 import type { WorkerPreflightResult } from "../src/worker-preflight.js";
 import { runSwebenchSupervisor } from "../src/supervisor.js";

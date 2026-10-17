@@ -1,8 +1,9 @@
 import { isModelConversationMessage } from "../../packages/model-contracts/src/index.js";
-import type { LLMAdapter, LLMRequest, LLMResponse } from "../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../packages/llm-core/src/index.js";
+import type { LLMRequest, LLMResponse } from "../../packages/llm-core/src/index.js";
 import type { ExecutionControl } from "../../packages/execution-control/src/index.js";
 import { ExecutionAbortedError, throwIfAborted } from "../../packages/execution-control/src/index.js";
-import type { StructuredOutputMode } from "../../packages/config/src/index.js";
+import type { StructuredOutputMode } from "../../packages/llm-core/src/index.js";
 import type { MuxChannelStream } from "./multiplex.js";
 
 /** Worker 与宿主之间传输的结构化 LLM RPC 消息。 */

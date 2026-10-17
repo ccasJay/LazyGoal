@@ -18,6 +18,7 @@ import {
     createToolRegistration,
     InMemoryToolRegistry,
 } from "../../tool-core/src/index";
+import { ProcessManager } from "../../process-runtime/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { JsonFileProcessSessionStore } from "../../storage/src/index";
 import {
@@ -28,7 +29,6 @@ import {
     GIT_WORKTREE_ADD_TOOL_ID,
     GitWorktreeRemoveTool,
     GIT_WORKTREE_REMOVE_TOOL_ID,
-    ProcessManager,
     ProcessReadTool,
     ProcessStartTool,
     type ProcessReadOutput,

@@ -14,12 +14,18 @@ import {
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { InMemoryTrajectoryStore } from "../../runtime/test/current-fixtures";
 import {
-    createDefaultPromptBundleRenderer, createDefaultModelContextBudgetPolicy,
-    DropOldestContextCompactor, LLMStepExecutor,
+    LLMStepExecutor,
+} from "../../model-execution/src/index";
+import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
+import {
     TrajectoryModelContextAssembler,
-} from "../../agent/src/index";
+} from "../../model-context/src/index";
+import {
+    createDefaultModelContextBudgetPolicy,
+    DropOldestContextCompactor,
+} from "../../context-budget/src/index";
 import { readLLMConfig } from "../../config/src/index";
-import { createLlmAdapter } from "../src/factory";
+import { createLlmAdapter } from "../src/index";
 
 /**
  * 用显式模型配置验证统一执行、任务审批及工具执行链；仅使用内存存储。

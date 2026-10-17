@@ -3,7 +3,7 @@ feature: tui-simplification
 status: obsolete
 status_reason: "LazyGoal 退出终端 TUI 产品形态，TUI 内部状态与提交闸门已随 packages/tui 整体移除。"
 summary: "TUI 状态面收窄、流程去重与统一提交闸门（已退役为负面护栏）"
-source_spec: specs/tui-simplification/
+source_spec: specs/retired/tui-simplification/
 distilled_at: 2026-08-25
 reviewed_at: 2026-10-10
 tags: [tui, simplification, submit-gate, controller, lifecycle, obsolete]
@@ -36,7 +36,7 @@ authorities: [apps/goal-server/notes/overview.md]
 
 ## Sources
 
-- S1: `specs/tui-simplification/requirements.md`
-- S2: `specs/tui-simplification/design.md`
+- S1: `specs/retired/tui-simplification/requirements.md`
+- S2: `specs/retired/tui-simplification/design.md`
 - S3: `specs/web-backend-separation/requirements.md`
 - S4: `apps/goal-server/notes/overview.md`

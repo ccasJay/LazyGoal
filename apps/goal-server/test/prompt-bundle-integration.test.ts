@@ -264,7 +264,7 @@ test("Composition Root carries Memory through task approval into Executing", { t
             saveNotifications: root.notifyingStore,
             profileId: "default",
             launcher: root.browserLauncher,
-            coordinator: root.coordinator,
+            coordinator: root.commands,
             defaultModelSelection: root.defaultModelSelection,
             restoreModelBinding: async (g) => {
                 if (root === undefined || g.state.modelSelection.provider !== root.defaultModelSelection.provider) return false;
@@ -578,7 +578,7 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
             saveNotifications: root.notifyingStore,
             profileId: "default",
             launcher: root.browserLauncher,
-            coordinator: root.coordinator,
+            coordinator: root.commands,
             defaultModelSelection: root.defaultModelSelection,
             restoreModelBinding: async (g) => {
                 if (root === undefined || g.state.modelSelection.provider !== root.defaultModelSelection.provider) return false;

@@ -10,7 +10,7 @@ import { createExecuteProgramRegistration, EXECUTE_PROGRAM_TOOL_ID } from "./exe
 import { FindFilesTool, FIND_FILES_TOOL_ID } from "./find-files";
 import { GrepTool, GREP_TOOL_ID } from "./grep";
 import { ListDirectoryTool, LIST_DIRECTORY_TOOL_ID } from "./list-directory";
-import { ProcessManager } from "./process-manager";
+import { ProcessManager } from "../../process-runtime/src/index";
 import {
     ProcessReadTool,
     PROCESS_READ_TOOL_ID,

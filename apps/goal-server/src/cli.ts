@@ -18,9 +18,12 @@ import {
     type BrowserModelCatalog,
     type BrowserSessionAccess,
 } from "../../../packages/browser/src/index";
-import { DefaultProviderModelFetcher } from "../../../packages/llm/src/provider-fetchers";
-import { ModelCatalogError } from "../../../packages/llm/src/model-catalog";
-import type { GoalModelSelection } from "../../../packages/runtime/src/index";
+import { DefaultProviderModelFetcher } from "../../../packages/model-catalog/src/index";
+import { ModelCatalogError } from "../../../packages/model-catalog/src/index";
+import {
+    RuntimeLifecycleUnavailableError,
+    type GoalModelSelection,
+} from "../../../packages/runtime/src/index";
 import { JsonFileModelPreferenceStore } from "../../../packages/storage/src/index";
 import {
     isSupportedLlmProvider,
@@ -151,11 +154,7 @@ export async function runServerSession(
         if (shutdownPromise !== undefined) {
             return shutdownPromise;
         }
-        root.checkpointStore.freeze();
-        root.abortController.abort();
-        shutdownPromise = (async () => {
-            await root.shutdownCoordinator.shutdown();
-        })();
+        shutdownPromise = root.shutdownCoordinator.shutdown();
         return shutdownPromise;
     };
 
@@ -252,7 +251,7 @@ export async function runServerSession(
             store: root.workspaceGoalStore,
             saveNotifications: root.notifyingStore,
             launcher: root.browserLauncher,
-            coordinator: root.coordinator,
+            coordinator: root.commands,
             modelSelectionCoordinator: root.goalModelSelectionCoordinator,
             defaultModelSelection: root.defaultModelSelection,
             resolveDefaultModelSelection: async () => (await readDraftModel()).selection,
@@ -388,40 +387,48 @@ export async function runServerSession(
                 },
                 create: async (input) => {
                     try {
-                        const profile = await root.providerProfileStore.create(toProfileDraft(input));
-                        await root.refreshProviderProfiles();
-                        return { ok: true as const, profile: toBrowserProviderProfile(profile) };
+                        return await root.runTrackedOperation("provider_profile_create", async () => {
+                            const profile = await root.providerProfileStore.create(toProfileDraft(input));
+                            await root.refreshProviderProfiles();
+                            return { ok: true as const, profile: toBrowserProviderProfile(profile) };
+                        });
                     } catch (error) {
                         return { ok: false as const, ...mapProviderSettingsError(error) };
                     }
                 },
                 update: async (profileId, input) => {
                     try {
-                        const profile = await root.providerProfileStore.update(profileId, toProfilePatch(input));
-                        await root.refreshProviderProfiles();
-                        return { ok: true as const, profile: toBrowserProviderProfile(profile) };
+                        return await root.runTrackedOperation("provider_profile_update", async () => {
+                            const profile = await root.providerProfileStore.update(profileId, toProfilePatch(input));
+                            await root.refreshProviderProfiles();
+                            return { ok: true as const, profile: toBrowserProviderProfile(profile) };
+                        });
                     } catch (error) {
                         return { ok: false as const, ...mapProviderSettingsError(error) };
                     }
                 },
                 remove: async (profileId) => {
                     try {
-                        const profile = await root.providerProfileStore.delete(profileId);
-                        await root.refreshProviderProfiles();
-                        return {
-                            ok: true as const,
-                            profile: toBrowserProviderProfile(profile),
-                            mayBeReferencedByGoals: true,
-                        };
+                        return await root.runTrackedOperation("provider_profile_remove", async () => {
+                            const profile = await root.providerProfileStore.delete(profileId);
+                            await root.refreshProviderProfiles();
+                            return {
+                                ok: true as const,
+                                profile: toBrowserProviderProfile(profile),
+                                mayBeReferencedByGoals: true,
+                            };
+                        });
                     } catch (error) {
                         return { ok: false as const, error: mapProviderSettingsError(error).error };
                     }
                 },
                 activate: async (profileId) => {
                     try {
-                        await root.providerProfileStore.setActive(profileId);
-                        await root.refreshProviderProfiles();
-                        return { ok: true as const, activeProfileId: profileId };
+                        return await root.runTrackedOperation("provider_profile_activate", async () => {
+                            await root.providerProfileStore.setActive(profileId);
+                            await root.refreshProviderProfiles();
+                            return { ok: true as const, activeProfileId: profileId };
+                        });
                     } catch (error) {
                         return { ok: false as const, error: mapProviderSettingsError(error).error };
                     }
@@ -452,31 +459,48 @@ export async function runServerSession(
             },
             setModelPreference: async (modelId, providerProfileId) => {
                 if (root.abortController.signal.aborted) return { ok: false, error: "service_shutting_down" };
-                const target = resolveSource(providerProfileId);
-                if (target === undefined) return { ok: false, error: "model_catalog_unavailable" };
-                let selectable = false;
-                try {
-                    const models = await root.modelCatalog.list(
-                        { ...target.config, model: configuredSelection.modelId },
-                        { requireTokenCapacity: configuredSelection.inputEstimator.kind === "token-encoding" },
-                    );
-                    selectable = models.some((model) => model.provider === target.config.provider && model.id === modelId && model.selectable);
-                } catch {
+                return root.runTrackedOperation("model_preference", async (): Promise<
+                    | { readonly ok: true; readonly modelId: string }
+                    | {
+                        readonly ok: false;
+                        readonly error:
+                            | "model_catalog_unavailable"
+                            | "model_not_selectable"
+                            | "model_preference_unavailable"
+                            | "service_shutting_down";
+                    }
+                > => {
+                    const target = resolveSource(providerProfileId);
+                    if (target === undefined) return { ok: false, error: "model_catalog_unavailable" };
+                    let selectable = false;
+                    try {
+                        const models = await root.modelCatalog.list(
+                            { ...target.config, model: configuredSelection.modelId },
+                            { requireTokenCapacity: configuredSelection.inputEstimator.kind === "token-encoding" },
+                        );
+                        selectable = models.some((model) => model.provider === target.config.provider && model.id === modelId && model.selectable);
+                    } catch {
+                        if (root.abortController.signal.aborted) return { ok: false, error: "service_shutting_down" };
+                        return { ok: false, error: "model_catalog_unavailable" };
+                    }
                     if (root.abortController.signal.aborted) return { ok: false, error: "service_shutting_down" };
-                    return { ok: false, error: "model_catalog_unavailable" };
-                }
-                if (root.abortController.signal.aborted) return { ok: false, error: "service_shutting_down" };
-                if (!selectable) return { ok: false, error: "model_not_selectable" };
-                try {
-                    if (root.abortController.signal.aborted) return { ok: false, error: "service_shutting_down" };
-                    await preferenceStore.set({
-                        ...(target.profileId === undefined ? {} : { profileId: target.profileId }),
-                        modelId,
-                    });
-                    return { ok: true, modelId };
-                } catch {
-                    return { ok: false, error: "model_preference_unavailable" };
-                }
+                    if (!selectable) return { ok: false, error: "model_not_selectable" };
+                    try {
+                        if (root.abortController.signal.aborted) return { ok: false, error: "service_shutting_down" };
+                        await preferenceStore.set({
+                            ...(target.profileId === undefined ? {} : { profileId: target.profileId }),
+                            modelId,
+                        });
+                        return { ok: true, modelId };
+                    } catch {
+                        return { ok: false, error: "model_preference_unavailable" };
+                    }
+                }).catch((error: unknown) => {
+                    if (error instanceof RuntimeLifecycleUnavailableError) {
+                        return { ok: false as const, error: "service_shutting_down" as const };
+                    }
+                    throw error;
+                });
             },
             models: async (target, signal, providerProfileId) => {
                 if (target === undefined) {
@@ -537,14 +561,21 @@ export async function runServerSession(
         access.bindOrigin(address.origin);
         writeOutput(access.createLaunchUrl(address.origin));
         await shutdownSignal;
-        await shutdownPromise;
+        try {
+            await shutdownPromise;
+        } catch (error: unknown) {
+            process.stderr.write(`Runtime shutdown incomplete: ${error instanceof Error ? error.message : String(error)}\n`);
+        }
         return 130;
     } finally {
         process.off("SIGINT", onSigint);
         if (shutdownPromise === undefined) {
-            root.checkpointStore.freeze();
-            root.abortController.abort();
-            await root.resources.closeAll();
+            await root.httpService.close().catch((error: unknown) => {
+                process.stderr.write(`HTTP shutdown incomplete: ${error instanceof Error ? error.message : String(error)}\n`);
+            });
+            await root.lifecycle.close().catch((error: unknown) => {
+                process.stderr.write(`Runtime shutdown incomplete: ${error instanceof Error ? error.message : String(error)}\n`);
+            });
         }
     }
 }

@@ -1,0 +1,465 @@
+import {
+    type Goal,
+    type ModelContextEpochState,
+    type StepRecord,
+} from "../../runtime/src/domain";
+import type { ToolDefinition } from "../../tool-core/src/index";
+import type { WorkingMemory } from "../../working-memory/src/index";
+import { canUpdateGoalPlan } from "../../runtime/src/run-mode-capabilities";
+import { compileJsonSchema } from "../../contracts/src/index";
+import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
+import type {
+    ModelConversationMessage,
+    ModelInferenceView,
+    ModelWorkingMemory,
+    ModelPendingAction,
+    ModelProfileView,
+    ModelStepRecord,
+    ModelToolDefinition,
+    ModelWorkingContext,
+    ModelMemoryProtocol,
+    ModelContextProtocol,
+    ModelContextRetrievalProtocol,
+    ModelTrajectoryContext,
+    ModelContextLookupResult,
+    ModelGoalPlan,
+    ModelDynamicContext,
+    PromptContext,
+    PromptStage,
+} from "../../model-view/src/index";
+import { projectContextLookupResult } from "./context-lookup-projection";
+import { compareCodeUnits } from "../../context-budget/src/index";
+import { buildGoalContextNavigation } from "./goal-context-navigation";
+
+/**
+ * 从 Runtime State 派生 LLM Input View 的单向投影边界。
+ *
+ * @remarks
+ * 只有本模块同时感知 Runtime 领域类型与 View DTO，并负责逐字段复制，保证
+ * 两个 View 之间不共享可变对象。它不修改 Goal、不写入消息历史，也不序列化
+ * Snapshot；固定 PromptContext 与动态运行状态分开投影，Storage schemaVersion
+ * 与瞬时执行资源不会进入模型 View。业务工具列表按调用方传入的当前可用工具逐项投影；
+ * 工具授权、模式过滤和 `isReadOnly` 门控由 Runtime 负责。
+ *
+ * @example
+ * ```ts
+ * const view = new ModelInferenceProjector().project(goal, tools, workingMemory);
+ * ```
+ */
+export class ModelInferenceProjector {
+    /**
+     * 将 Goal 完整投影为单轮推理所需的不可变输入视图。
+     *
+     * @param goal - 当前处于 running executing 的完整 Goal。
+     * @param tools - Profile 授权且由 Runtime 解析出的 Tool 描述列表。
+     * @param workingMemory - 当前 Goal 的即时 Working Memory。
+     * @param trajectoryContext - 可选的分层历史轨迹上下文。
+     * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果。
+     * @param stage - 当前推理职责；省略时投影 Decide 阶段。
+     * @param omitToolInputSchema - 原生路径下是否省略授权 Section 中的 Tool inputSchema 以消除重复 Schema。
+     * @returns 与当前状态对应的全新 ModelInferenceView。
+     * @throws Goal 当前状态不允许调用模型时抛出 Error。
+     */
+    project(
+        goal: Goal,
+        tools: readonly ToolDefinition[] = [],
+        workingMemory?: WorkingMemory,
+        trajectoryContext?: ModelTrajectoryContext,
+        contextLookupResult?: ContextLookupResult,
+        stage: PromptStage = "decide",
+        omitToolInputSchema = false,
+    ): ModelInferenceView {
+        const memoryProtocol = goal.definition.memoryProtocol;
+        const modelContextProtocol = goal.definition.modelContextProtocol;
+        const contextRetrievalProtocol = goal.definition.contextRetrievalProtocol;
+
+        if (workingMemory === undefined) {
+            throw new Error(
+                "Structured Memory protocol requires a WorkingMemory projection",
+            );
+        }
+        const projectedWorkingMemory = deepFreeze(projectWorkingMemory(workingMemory));
+
+        if (
+            trajectoryContext !== undefined
+            && trajectoryContext.measuredAs !== "token"
+            && trajectoryContext.measuredAs !== "character"
+        ) {
+            throw new Error("Trajectory Context measurement unit is invalid");
+        }
+
+        const projectedContextLookupResult = contextLookupResult === undefined
+            ? undefined
+            : projectContextLookupResult(contextLookupResult);
+
+        const workingContext = this.projectWorkingContext(goal);
+
+        const projectedGoalPlan = goal.state.goalPlan !== undefined
+            ? projectGoalPlan(goal.state.goalPlan)
+            : undefined;
+
+        const prompt: PromptContext = deepFreeze({
+            promptBundleVersion: goal.definition.promptBundleVersion,
+            phase: "executing",
+            stage,
+            profile: projectProfile(goal),
+            memoryProtocol: projectMemoryProtocol(memoryProtocol),
+            modelContextProtocol: projectModelContextProtocol(modelContextProtocol),
+            contextRetrievalProtocol: projectContextRetrievalProtocol(contextRetrievalProtocol),
+        });
+        const conversationMessages = projectConversation(goal);
+        const historicalStages = goal.state.historicalStages;
+        const notes = goal.state.notes;
+        const projectedNavigation = buildGoalContextNavigation({
+            currentStage: goal.state.run.currentStage,
+            currentRunId: goal.state.run.id,
+            historicalStages,
+            notes,
+            currentMessages: conversationMessages,
+            currentRequestText: goal.state.messages?.at(-1)?.content,
+        });
+
+        const dynamicContext: ModelDynamicContext = deepFreeze({
+            runMode: goal.state.run.mode,
+            goalPlanWritable: canUpdateGoalPlan(goal.state.run.mode),
+            authorizedTools: projectTools(tools, omitToolInputSchema),
+            ...(goal.state.run.approvedTask === undefined
+                ? {}
+                : {
+                    task: {
+                        objective: goal.state.run.approvedTask.objective,
+                        completionCriteria: goal.state.run.approvedTask.completionCriteria.map(
+                            (criterion) => ({
+                                text: criterion.text,
+                                ...(criterion.acceptance === undefined
+                                    ? {}
+                                    : {
+                                        acceptance: {
+                                            expectToolId: criterion.acceptance.expectToolId,
+                                            expectOutcome: criterion.acceptance.expectOutcome,
+                                        },
+                                    }),
+                            }),
+                        ),
+                    },
+                }),
+            ...(goal.state.run.planRoute === undefined
+                ? {}
+                : {
+                    planRoute: {
+                        revision: goal.state.run.planRoute.revision,
+                        ...(goal.state.run.planRoute.revisionReason === undefined
+                            ? {} : { revisionReason: goal.state.run.planRoute.revisionReason }),
+                        nextStageIndex: goal.state.run.planRoute.nextStageIndex,
+                        stages: goal.state.run.planRoute.stages.map((stage) => ({
+                            stageId: stage.stageId,
+                            revision: stage.revision,
+                            status: stage.status,
+                            target: stage.target,
+                            acceptanceCriteria: [...stage.acceptanceCriteria],
+                        })),
+                    },
+                }),
+            ...(projectedGoalPlan === undefined ? {} : { goalPlan: projectedGoalPlan }),
+            ...(projectedNavigation !== undefined ? { goalContextNavigation: projectedNavigation } : {}),
+        });
+
+        return {
+            prompt,
+            dynamicContext,
+            conversation: projectConversation(goal),
+            workingContext,
+            workingMemory: projectedWorkingMemory,
+            ...(trajectoryContext === undefined
+                ? {}
+                : { trajectoryContext: deepFreeze(structuredClone(trajectoryContext)) }),
+            ...(projectedContextLookupResult === undefined
+                ? {}
+                : { contextLookupResult: projectedContextLookupResult }),
+            contextEpoch: projectContextEpoch(goal.state.run.contextEpoch),
+        };
+    }
+
+    /**
+     * 将已经完成 Conversation 裁剪的基础 View 与本轮分层上下文合并。
+     *
+     * @remarks
+     * 该方法供 Context Assembler 在异步读取 Trajectory 后调用，避免在读取完成前
+     * 伪造一个不完整的 `trajectory-layered@1` View。输入 View 和上下文都会被复制
+     * 并深冻结，原始 Goal、Working Memory 与 Trajectory 不会被修改。
+     *
+     * @param view - 已由 {@link project} 产生且完成 Conversation 裁剪的基础 View。
+     * @param trajectoryContext - 当前调用选择出的 Hot/Warm 与预算报告。
+     * @returns 带分层上下文的新 View。
+     * @throws 当 View 不是 `trajectory-layered@1` 时抛出 Error。
+     * @example
+     * ```ts
+     * const assembled = projector.withTrajectoryContext(baseView, context);
+     * ```
+     */
+    withTrajectoryContext(
+        view: ModelInferenceView,
+        trajectoryContext: ModelTrajectoryContext,
+    ): ModelInferenceView {
+        if (view.prompt.modelContextProtocol.kind !== "trajectory-layered") {
+            throw new Error(
+                "Trajectory Context projection requires trajectory-layered model context",
+            );
+        }
+
+        const pressureReached = trajectoryContext.budget.fixedInput.count
+            >= Math.floor((trajectoryContext.budget.modelInputBudget - trajectoryContext.budget.responseReserve) * 0.85);
+        const suppressPressure = view.contextEpoch.epochNumber > 0
+            && view.contextEpoch.conversationStartIndex
+                >= Math.max(0, view.conversation.length - 2);
+        const contextEpochStatus = suppressPressure
+            ? "active" as const
+            : pressureReached
+                ? "checkpoint_required" as const
+                : "active" as const;
+
+        return deepFreeze({
+            ...structuredClone(view),
+            trajectoryContext: structuredClone(trajectoryContext),
+            contextEpoch: {
+                ...structuredClone(view.contextEpoch),
+                control: {
+                    status: contextEpochStatus,
+                    ...(contextEpochStatus === "checkpoint_required"
+                        ? { reason: "input_threshold" as const }
+                        : {}),
+                },
+            },
+        });
+    }
+
+    /**
+     * 将 Runtime Lookup Result 投影为带历史时效边界的模型 DTO。
+     *
+     * @param result - 当前调用级的 Context Lookup Result。
+     * @returns 不共享输入、可安全交给模型渲染的结果投影。
+     * @throws ContextLookupProtocolError 当 Result 不符合有界协议时。
+     * @example
+     * ```ts
+     * const modelResult = projector.projectContextLookupResult(result);
+     * ```
+     */
+    projectContextLookupResult(
+        result: ContextLookupResult,
+    ): ModelContextLookupResult {
+        return projectContextLookupResult(result);
+    }
+
+    /** @param goal - 见 {@link project}。 */
+    projectWorkingContext(goal: Goal): ModelWorkingContext {
+        const workflow = goal.state.workflow;
+
+        if (workflow.phase !== "executing") {
+            throw new Error("Goal must be in executing phase");
+        }
+
+        if (goal.state.run.status !== "running") {
+            throw new Error("Step request requires a running executing Goal");
+        }
+
+        const maxSteps = goal.definition.executionPolicy.maxSteps;
+
+        return {
+            phase: "executing",
+            intent: goal.definition.intent,
+            execution: {
+                stepCount: goal.state.run.stepCount,
+                ...(maxSteps > 0 ? { maxSteps } : {}),
+                ...(goal.state.run.lastStep === undefined
+                    ? {}
+                    : { previousStep: projectStepRecord(goal.state.run.lastStep) }),
+                ...(goal.state.run.pendingAction === undefined
+                    ? {}
+                    : {
+                        pendingAction: projectPendingAction(
+                            goal.state.run.pendingAction,
+                        ),
+                    }),
+                ...(goal.state.run.currentStage === undefined
+                    ? {}
+                    : {
+                        currentStage: {
+                            stageId: goal.state.run.currentStage.stageId,
+                            revision: goal.state.run.currentStage.revision,
+                            status: goal.state.run.currentStage.status,
+                            target: goal.state.run.currentStage.target,
+                            acceptanceCriteria: goal.state.run.currentStage.acceptanceCriteria,
+                            ...(goal.state.run.currentStage.previousStageResultRef !== undefined
+                                ? { previousStageResultRef: goal.state.run.currentStage.previousStageResultRef }
+                                : {}),
+                            ...(goal.state.run.currentStage.latestReviewRejection !== undefined
+                                ? { latestReviewRejection: goal.state.run.currentStage.latestReviewRejection }
+                                : {}),
+                        },
+                    }),
+            },
+        };
+    }
+}
+
+function projectContextEpoch(
+    epoch: ModelContextEpochState,
+): import("../../model-view/src/index").ModelContextEpochView {
+    const state = epoch;
+    if (
+        state.version !== 1
+        || !Number.isSafeInteger(state.number)
+        || state.number < 0
+        || !Number.isSafeInteger(state.conversationStartIndex)
+        || state.conversationStartIndex < 0
+        || !Number.isSafeInteger(state.openedAtSequence)
+        || state.openedAtSequence < 0
+    ) {
+        throw new Error("Invalid Model Context Epoch state");
+    }
+    return deepFreeze({
+        protocolVersion: 1 as const,
+        epochNumber: state.number,
+        conversationStartIndex: state.conversationStartIndex,
+        openedAtSequence: state.openedAtSequence,
+        control: {
+            status: "active" as const,
+        },
+    });
+}
+
+function projectProfile(goal: Goal): ModelProfileView {
+    const profile = goal.definition.profile;
+
+    return {
+        id: profile.id,
+        ...(profile.name === undefined ? {} : { name: profile.name }),
+        ...(profile.description === undefined
+            ? {}
+            : { description: profile.description }),
+        systemPrompt: profile.systemPrompt,
+        instructions: [...profile.instructions],
+    };
+}
+
+function projectConversation(
+    goal: Goal,
+): readonly ModelConversationMessage[] {
+    return goal.state.messages.map((message, sourceMessageIndex) => message.role === "user"
+        ? { role: "user", content: message.content, sourceMessageIndex }
+        : {
+            role: "assistant",
+            assistant: { profileId: message.assistant.profileId },
+            content: message.content,
+            sourceMessageIndex,
+        });
+}
+
+function projectTools(
+    tools: readonly ToolDefinition[],
+    omitInputSchema = false,
+): readonly ModelToolDefinition[] {
+    const seen = new Set<string>();
+    const projected: ModelToolDefinition[] = tools.map((tool) => {
+        if (seen.has(tool.id)) {
+            throw new Error(`重复的 Tool ID：${tool.id}`);
+        }
+
+        seen.add(tool.id);
+
+        if (omitInputSchema) {
+            return {
+                id: tool.id,
+                description: tool.description,
+            };
+        }
+
+        const { $schema: _schema, ...inputSchema } = compileJsonSchema(
+            tool.inputContract,
+        );
+
+        return {
+            id: tool.id,
+            description: tool.description,
+            inputSchema,
+        };
+    });
+
+    projected.sort((a, b) => compareCodeUnits(a.id, b.id));
+
+    return projected;
+}
+
+function projectGoalPlan(
+    plan: Goal["state"]["goalPlan"],
+): ModelGoalPlan {
+    if (plan === undefined) {
+        throw new Error("Plan Mode requires a GoalPlan projection");
+    }
+
+    return {
+        revision: plan.revision,
+        items: plan.items.map((item) => ({
+            id: item.id,
+            content: item.content,
+            position: item.position,
+            status: item.status,
+        })),
+    };
+}
+
+/**
+ * 递归冻结对象与数组，使 PromptContext 在运行时不可变。
+ *
+ * @remarks
+ * 只作用于从 Runtime 投影出的 DTO，不修改原始 Goal。冻结后任何修改尝试在严格
+ * 模式下都会抛出，从而保证 Renderer 只读取 PromptContext、不改变模型输入。
+ */
+function deepFreeze<T>(value: T): T {
+    if (value !== null && typeof value === "object") {
+        Object.freeze(value);
+
+        for (const key of Object.keys(value)) {
+            deepFreeze((value as Record<string, unknown>)[key]);
+        }
+    }
+
+    return value;
+}
+
+function projectStepRecord(step: StepRecord): ModelStepRecord {
+    return structuredClone(step);
+}
+
+function projectPendingAction(
+    pendingAction: NonNullable<Goal["state"]["run"]["pendingAction"]>,
+): ModelPendingAction {
+    return structuredClone(pendingAction);
+}
+
+function projectMemoryProtocol(
+    protocol: ModelMemoryProtocol,
+): ModelMemoryProtocol {
+    return {
+        kind: protocol.kind,
+        version: protocol.version,
+    };
+}
+
+function projectModelContextProtocol(
+    protocol: ModelContextProtocol,
+): ModelContextProtocol {
+    return { kind: protocol.kind, version: protocol.version };
+}
+
+function projectContextRetrievalProtocol(
+    protocol: ModelContextRetrievalProtocol,
+): ModelContextRetrievalProtocol {
+    return { kind: protocol.kind, version: protocol.version };
+}
+
+function projectWorkingMemory(
+    memory: WorkingMemory,
+): ModelWorkingMemory {
+    return structuredClone(memory);
+}

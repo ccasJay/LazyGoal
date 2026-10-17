@@ -3,7 +3,7 @@ import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { contract } from "../../../packages/contracts/src/index";
-import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm/src/core/adapter";
+import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import {
     createToolRegistration,
     InMemoryToolRegistry,
@@ -202,7 +202,7 @@ const commands = new BrowserGoalCommandService({
     store: root.workspaceGoalStore,
     saveNotifications: root.notifyingStore,
     launcher: root.browserLauncher,
-    coordinator: root.coordinator,
+    coordinator: root.commands,
     defaultModelSelection: root.defaultModelSelection,
     resolveModelSelection: async (modelId) => modelId === root.defaultModelSelection.modelId || modelId === "model-b"
         ? { ...root.defaultModelSelection, modelId } : undefined,
@@ -287,8 +287,8 @@ async function close(): Promise<void> {
     closing = true;
     await root.httpService.close();
     root.abortController.abort();
-    root.controller.dispose();
-    await root.resources.closeAll();
+    await root.lifecycle.close().catch(() => undefined);
+    await root.resources.closeAll().catch(() => undefined);
 }
 process.once("SIGTERM", () => {
     void close().then(() => process.exit(0), () => process.exit(1));

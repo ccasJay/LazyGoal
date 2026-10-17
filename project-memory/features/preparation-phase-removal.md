@@ -4,9 +4,9 @@ status: active
 summary: "统一 executing 生命周期、Run 级任务审批、普通读取 Step 与可恢复交互"
 source_spec: specs/preparation-phase-removal/
 distilled_at: 2026-09-18
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-17
 tags: [lifecycle, interaction, ask-user, task-approval, ordinary-step, action-observation, evidence, persistence, tui]
-authorities: [packages/runtime/notes/overview.md, packages/agent/notes/overview.md, apps/goal-server/notes/overview.md, packages/runtime/src/domain.ts, packages/runtime/src/runner.ts, packages/runtime/src/run-mode-capabilities.ts, packages/agent/src/trajectory-execution-unit-adapter.ts, packages/agent/src/step-prompt/agent-decision@1.njk, packages/model-contracts/src/model-output/factory.ts, packages/storage/src/goal-snapshot-codec.ts, apps/goal-server/src/composition-root.ts]
+authorities: [packages/runtime/notes/overview.md, packages/agent/notes/overview.md, apps/goal-server/notes/overview.md, packages/runtime/src/domain.ts, packages/runtime/src/runner.ts, packages/runtime/src/run-mode-capabilities.ts, packages/model-context/src/trajectory-execution-unit-adapter.ts, packages/prompt-bundle/src/step-prompt/agent-decision@1.njk, packages/model-contracts/src/model-output/factory.ts, packages/storage/src/goal-snapshot-codec.ts, apps/goal-server/src/composition-root.ts]
 supersedes: [project-memory/features/goal-preparation-workflow.md, project-memory/features/preparation-runtime-flow.md]
 ---
 

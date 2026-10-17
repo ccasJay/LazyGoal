@@ -10,10 +10,10 @@ export const SWE_TOOLS_WORKER_ENTRYPOINT = "benchmarks/swebench/src/tools-worker
  * Worker 内置 Prompt 模板的仓库相对路径；这些文件会被 WorkerBuilder 嵌入产物。
  */
 export const SWE_ACP_WORKER_PROMPT_ASSETS = Object.freeze([
-    "packages/agent/src/global-system-prompt/global-overview@1.njk",
-    "packages/agent/src/prompting/profile@1.njk",
-    "packages/agent/src/step-prompt/agent-decision@1.njk",
-    "packages/agent/src/prompting/authorized-tools@1.njk",
+    "packages/prompt-bundle/src/global-system-prompt/global-overview@1.njk",
+    "packages/prompt-bundle/src/prompting/profile@1.njk",
+    "packages/prompt-bundle/src/step-prompt/agent-decision@1.njk",
+    "packages/prompt-bundle/src/prompting/authorized-tools@1.njk",
 ] as const);
 
 /** Prompt 资产路径到默认 Bundle 模板 ID 的固定映射。 */

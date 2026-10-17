@@ -20,6 +20,8 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 | [WorkingMemorySession](../src/working-memory-session.ts) | 按 Snapshot 边界重建临时 Working Memory，校验 Patch/Evidence | 保存 Memory 内容到 Snapshot |
 | [TrajectoryCheckpointCommitter](../src/trajectory-checkpoint-committer.ts) | 统一事实、Patch、Snapshot 和提交 marker 的顺序 | 业务分支和模型调用 |
 | [GoalStore](../src/goal-store.ts) | 保存/恢复最新 Goal Snapshot | 历史查询和文件格式 |
+| [RuntimeLifecycle](../src/lifecycle/runtime-lifecycle.ts) | 实例关闭：冻结 Checkpoint Gate、中止实例控制器，并按期限结算已受理操作与自有资源 | Agent/Storage 实现、HTTP、进程信号与宿主退出 |
+| [ManagedResourceRegistry](../src/lifecycle/managed-resources.ts) | 实例自有资源的注册、正常/强制关闭与失败原因保留 | 具体资源的内部句柄和退出算法 |
 | [Model Call Metrics](../src/model-call-metrics.ts) | 模型调用开始/结束事实、请求/解码计时、用量覆盖标记及追加/读取 Port | Goal 恢复状态、指标汇总与诊断 Trace |
 | [RunStage](../src/run-stage.ts) | Run 内部阶段声明、修订与流转纯规则、前序接受约束与审查拒绝记录 | 执行调度与模型调用 |
 | [RunPlan](../src/run-plan.ts) | Plan Run 完整路线的 Runtime 身份分配、顺序游标及阶段状态流转 | 模型复杂度判断与 I/O |
@@ -62,6 +64,16 @@ Runner 将调度契约委派给 RunExecutor；RunExecutor 按当前 Run 模式�
 Runner 和 GoalCoordinator 可通过 [`@lazygoal/execution-stream`](../../execution-stream/notes/overview.md) 发布旁路事件。`step_started` 在 Executor 调用前发出，阶段事实与上下文 frame 在进入下一模型阶段前先提交，Tool 生命周期由 Runner 发出；事实提交成功后发出 Trajectory 事件和 `step_committed`。发布异常被隔离，不改变 Runtime 状态或提交顺序。实时事件不是恢复来源，恢复仍读取 Snapshot/Trajectory。
 
 模型调用指标使用独立 `MetricsStore` 与覆盖标记 Port：开始/结束事实不进入 Goal、Trajectory 或恢复状态。Agent 在实际适配器请求边界用单调时钟记录端到端请求耗时，并可另行记录流式首文本后的解码耗时；查询投影由 `session-metrics` 根据最新 Goal Snapshot 与指标事实归约。指标写入失败不得改变 Goal 执行结果。
+
+## 实例生命周期与资源所有权
+
+[RuntimeLifecycle](../src/lifecycle/runtime-lifecycle.ts) 的状态为 `open`、`closing` 与 `closed`。首次 `close()` 同步进入 `closing`：拒绝新的 `beginOperation` 受理、冻结 Checkpoint Gate、中止明确交付的实例控制器，然后依次执行正常和强制清理，请求 [ManagedResourceRegistry](../src/lifecycle/managed-resources.ts) 结算资源，并等待已受理操作与已进入保存边界的写入。两个阶段各以 `gracePeriodMs` 为上限，默认各 2 秒。
+
+只有已受理操作、写入与自有资源全部确认结算时 `close()` 才报告成功并进入 `closed`；超时、资源拒绝或未确认结算抛出 `RuntimeLifecycleIncompleteError`，按 `operations`、`writes`、`resources` 类别携带原因，状态保持 `closing` 且重复 `close()` 返回同一失败结果。关闭不创建用户 Interrupt、失败或取消终态，不改写 Goal 快照，也不代表未结算副作用已回滚。
+
+`ManagedResource.close()` 成功返回表示该实现拥有的资源与必要写入已结算，拒绝表示清理失败且原因保留在注册表，未完成表示尚未确认活动停止。正常阶段失败或未完成的资源在强制阶段升级处理；强制成功可替代正常阶段的失败记录并移除资源，强制拒绝或未完成则保留身份与原因，状态不可重新受理。资源注销同样丢弃其失败记录，因此空注册表一定表示全部确认结算。
+
+Gate、控制器与注册表由资源所有者创建并交付实例；宿主借出的 Adapter、Policy、Store 与宿主信号不在交付范围内。`ExitPort`、`ProcessExitPort`、进程信号与退出码属于 `goal-server` 宿主适配层，Runtime 不导入它们。`scripts/check-dependencies.mjs` 强制 `src/lifecycle/` 不依赖应用、模型或具体存储实现，也不直接请求进程退出或注册进程信号；目录之外的源码只能通过 `lifecycle/index.ts` 入口访问。
 
 ## 恢复与持久化
 
@@ -106,6 +118,7 @@ Runtime 当前只保存每个 Goal 的最新完整 Snapshot，不提供历史快
 - Working Memory 只从已提交 Trajectory 重建；原始事实账本不被 Compact 覆盖。
 - Prompt Bundle 与三个当前协议由 Composition Root 一起冻结；未知版本、旧 Snapshot 和交叉协议组合 fail-closed。
 - `contracts` 保持零出站依赖；依赖方向由 `npm run check:dependencies` 校验。
+- 实例关闭只结算交付给 Runtime 的 Gate、控制器与注册资源；宿主进程退出、信号与借出对象由应用负责，关闭不产生 Goal 终态。
 
 Memory proposal 在模型候选边界以 `memory_patch` 来源提供字段级反馈；证据诊断区分重复、缺失、越界与事件类别，持久化仍使用既有阶段反馈事件。诊断不携带模型事实值或文件正文。
 

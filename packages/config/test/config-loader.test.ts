@@ -3,8 +3,8 @@ import { test } from "node:test";
 import { join } from "node:path";
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { loadRuntimeConfig, loadReflectionRuntimeConfig, loadGepaModelConfigs, resolveLazyGoalHomePaths, TomlConfigurationError } from "../src/index";
-import { LLMConfigurationError } from "../src/index";
+import { loadRuntimeConfig, loadReflectionRuntimeConfig, loadGepaModelConfigs, resolveLazyGoalHomePaths, TomlConfigurationError, readLLMConfig } from "../src/index";
+import { LLMConfigurationError } from "../../llm-core/src/index";
 
 test("loadRuntimeConfig 遵循四层覆盖优先级", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "lazygoal-loader-test-"));
@@ -293,6 +293,121 @@ api_key = "sk-reflection-key"
         assert.equal(configs.working.model, "gpt-4o");
         assert.equal(configs.working.apiKey, "sk-default-key");
         assert.equal(configs.reflection.model, "deepseek-chat");
+    } finally {
+        await rm(tempDir, { recursive: true, force: true });
+    }
+});
+
+test("环境、TOML/Profile、CLI 覆盖与 GEPA 双模型错误使用同一配置错误身份", async () => {
+    // 环境解析：缺失必填项
+    assert.throws(() => readLLMConfig({}), (error: unknown) => {
+        assert.ok(error instanceof LLMConfigurationError);
+        assert.equal(error.name, "LLMConfigurationError");
+        assert.equal(error.code, "INVALID_LLM_CONFIG");
+        assert.deepEqual(error.missing, ["LLM_PROVIDER", "LLM_MODEL", "LLM_API_KEY"]);
+        return true;
+    });
+
+    const tempDir = await mkdtemp(join(tmpdir(), "lazygoal-loader-identity-"));
+    try {
+        const homePaths = resolveLazyGoalHomePaths({ LAZYGOAL_HOME: tempDir });
+        await mkdir(homePaths.homeDirectory, { recursive: true });
+
+        // TOML：没有任何 [llm] 段时使用同一构造器与 missing 语义
+        await assert.rejects(() => loadRuntimeConfig({ homePaths }), (error: unknown) => {
+            assert.ok(error instanceof LLMConfigurationError);
+            assert.equal(error.name, "LLMConfigurationError");
+            assert.equal(error.code, "INVALID_LLM_CONFIG");
+            assert.deepEqual(error.missing, ["provider", "model", "api_key"]);
+            return true;
+        });
+
+        // CLI 覆盖：补齐必填项后成功；非法覆盖值仍抛同一错误
+        const config = await loadRuntimeConfig({
+            homePaths,
+            cliArgs: { provider: "openai", model: "gpt-4o", apiKey: "sk-cli" },
+        });
+        assert.equal(config.llm.apiKey, "sk-cli");
+        await assert.rejects(
+            () => loadRuntimeConfig({
+                homePaths,
+                cliArgs: { provider: "openai", model: "gpt-4o", apiKey: "sk-cli", structuredOutputMode: "auto" },
+            }),
+            (error: unknown) => {
+                assert.ok(error instanceof LLMConfigurationError);
+                assert.equal(error.code, "INVALID_LLM_CONFIG");
+                assert.equal(error.missing.length, 0);
+                assert.match(error.message, /无效的 structured_output_mode/);
+                return true;
+            },
+        );
+
+        // GEPA 双模型：Reflection Profile 缺少凭据时使用同一错误构造器
+        await writeFile(homePaths.configFile, `
+[gepa]
+reflection_profile = "reflection"
+`);
+        await mkdir(homePaths.profilesDir, { recursive: true });
+        await writeFile(join(homePaths.profilesDir, "default.toml"), `
+[llm]
+provider = "openai"
+model = "gpt-4o"
+api_key = "sk-working"
+`);
+        await writeFile(join(homePaths.profilesDir, "reflection.toml"), `
+[llm]
+provider = "deepseek"
+model = "deepseek-chat"
+`);
+        await assert.rejects(() => loadGepaModelConfigs({ homePaths }), (error: unknown) => {
+            assert.ok(error instanceof LLMConfigurationError);
+            assert.equal(error.name, "LLMConfigurationError");
+            assert.equal(error.code, "INVALID_LLM_CONFIG");
+            assert.deepEqual(error.missing, ["api_key"]);
+            return true;
+        });
+    } finally {
+        await rm(tempDir, { recursive: true, force: true });
+    }
+});
+
+test("two_stage 的环境与 TOML 既有差异保持：环境接受、TOML 对非原生供应商拒绝", async () => {
+    const envConfig = readLLMConfig({
+        LLM_PROVIDER: "anthropic",
+        LLM_MODEL: "claude-sonnet-4-5",
+        LLM_API_KEY: "sk-test",
+        LLM_STRUCTURED_OUTPUT_MODE: "two_stage",
+    });
+    assert.equal(envConfig.structuredOutputMode, "two_stage");
+
+    const tempDir = await mkdtemp(join(tmpdir(), "lazygoal-loader-two-stage-"));
+    try {
+        const homePaths = resolveLazyGoalHomePaths({ LAZYGOAL_HOME: tempDir });
+        await mkdir(homePaths.homeDirectory, { recursive: true });
+        await writeFile(homePaths.configFile, `
+[llm]
+provider = "anthropic"
+model = "claude-sonnet-4-5"
+api_key = "sk-test"
+structured_output_mode = "two_stage"
+`);
+        await assert.rejects(() => loadRuntimeConfig({ homePaths }), (error: unknown) => {
+            assert.ok(error instanceof LLMConfigurationError);
+            assert.equal(error.code, "INVALID_LLM_CONFIG");
+            assert.equal(error.missing.length, 0);
+            assert.match(error.message, /不支持 two_stage 模式/);
+            return true;
+        });
+
+        // 同一配置省略模式后成功，证明拒绝来自模式而非其它字段
+        await writeFile(homePaths.configFile, `
+[llm]
+provider = "anthropic"
+model = "claude-sonnet-4-5"
+api_key = "sk-test"
+`);
+        const config = await loadRuntimeConfig({ homePaths });
+        assert.equal(config.llm.structuredOutputMode, "prompt_only");
     } finally {
         await rm(tempDir, { recursive: true, force: true });
     }

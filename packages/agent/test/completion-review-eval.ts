@@ -2,15 +2,17 @@ import { mkdir, writeFile, appendFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createGoal, allocateImmutableEvent, type ModelCallMetricRecord, type ModelInputRecord } from "../../runtime/src/index";
 import { readLLMConfig } from "../../config/src/index";
-import { createLlmAdapter } from "../../llm/src/factory";
-import { LLMStepExecutor, createDefaultPromptBundleRenderer, DropOldestContextCompactor } from "../src/index";
+import { createLlmAdapter } from "../../llm/src/index";
+import { LLMStepExecutor } from "../../model-execution/src/index";
+import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
+import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import { safeParse } from "../../contracts/src/index";
 import { AgentDecisionContract, type CompletionReviewResult } from "../../model-contracts/src/index";
 import { buildCommittedEvidenceIndex, validateFactEvidence } from "../../runtime/src/evidence-gate";
 import type { CompletionReviewInput } from "../../runtime/src/step-executor";
 import { currentProtocols } from "./current-fixtures";
 import { createHash } from "node:crypto";
-import { COMPLETION_REVIEW_PROMPT } from "../src/completion-review";
+import { COMPLETION_REVIEW_PROMPT } from "../../model-request/src/index";
 
 const source = "export const read = (cache, key) => cache.get(key);";
 export const completionReviewScenarios = [

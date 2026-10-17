@@ -4,9 +4,9 @@ status: active
 summary: "为工作区任务提供有界文件、补丁、网页、长进程与本地 Git 工具，并沿用 Runtime 授权和恢复边界"
 source_spec: specs/tool-suite-expansion/
 distilled_at: 2026-10-04
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-17
 tags: [tools, filesystem, patch, web, process, git, sandbox, recovery]
-authorities: [packages/runtime/notes/overview.md, packages/sandbox/notes/overview.md, packages/tools/src/default-tools.ts, packages/tools/src/apply-patch.ts, packages/tools/src/process-manager.ts, packages/storage/src/json-file-process-session-store.ts, packages/tools/src/internal/git-sandbox-access.ts, packages/sandbox/src/git-runner.ts]
+authorities: [packages/runtime/notes/overview.md, packages/sandbox/notes/overview.md, packages/tools/src/default-tools.ts, packages/tools/src/apply-patch.ts, packages/process-runtime/src/process-manager.ts, packages/storage/src/json-file-process-session-store.ts, packages/tools/src/internal/git-sandbox-access.ts, packages/sandbox/src/git-runner.ts]
 ---
 
 # Tool Suite Expansion
@@ -55,7 +55,7 @@ authorities: [packages/runtime/notes/overview.md, packages/sandbox/notes/overvie
 - S13: `packages/tools/src/web-search.ts`
 - S14: `packages/tools/src/web-fetch.ts`
 - S15: `packages/runtime/test/web-tool-permission.test.ts`
-- S16: `packages/tools/src/process-manager.ts`
+- S16: `packages/process-runtime/src/process-manager.ts`
 - S17: `packages/storage/src/json-file-process-session-store.ts`
 - S18: `apps/goal-server/test/process-lifecycle.integration.test.ts`
 - S19: `packages/tools/src/internal/git-sandbox-access.ts`

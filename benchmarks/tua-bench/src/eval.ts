@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { LLMAdapter } from "../../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import { AttemptRecorder, type BenchmarkAttemptRecord } from "../../src/attempt-recorder.js";
 import { IsolatedEnvironment } from "../../src/isolated-environment.js";
 import type { WorkerArtifact } from "../../src/worker-builder.js";
@@ -155,12 +155,15 @@ export async function runTuaBenchEvaluation(
             const goalId = randomUUID();
             const runId = randomUUID();
             const recorder = new AttemptRecorder<TuaBenchDomainResult>({
-                outputDirectory: taskOutputDir,
-                benchmarkId: "tua-bench",
+                rootDirectory: taskOutputDir,
+            });
+            const identity = {
+                benchmarkId: "tua-bench" as const,
                 taskId: task.taskId,
                 goalId,
                 runId,
-            });
+                attempt: 1,
+            };
 
             const spec = new TuaBenchEnvironmentSpec({
                 task,
@@ -186,7 +189,8 @@ export async function runTuaBenchEvaluation(
                     verifierError: envResult.errors.map((e) => e.message).join("; ") || "Execution error",
                 };
 
-                record = await recorder.commit({
+                record = {
+                    ...identity,
                     status: envResult.status,
                     durationMs,
                     usage: null,
@@ -197,10 +201,11 @@ export async function runTuaBenchEvaluation(
                     })),
                     artifactLocator: null,
                     domainResult,
-                });
+                };
             } catch (error) {
                 const durationMs = Date.now() - startMs;
-                record = await recorder.commit({
+                record = {
+                    ...identity,
                     status: "failed",
                     durationMs,
                     usage: null,
@@ -216,8 +221,9 @@ export async function runTuaBenchEvaluation(
                         verifierOutput: null,
                         verifierError: error instanceof Error ? error.message : String(error),
                     },
-                });
+                };
             }
+            await recorder.commit(record);
         }
 
         attempts.push(record);

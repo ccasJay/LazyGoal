@@ -3,15 +3,15 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { contract } from "../../contracts/src/index";
-import type { LLMAdapter } from "../../llm/src/core/adapter";
-import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
+import type { LLMAdapter } from "../../llm-core/src/index";
+import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import {
-    createDefaultPromptBundleRenderer,
     createModelExecutionBinding,
-    DropOldestContextCompactor,
     LLMStepExecutor,
     MutableModelBinding,
-} from "../../agent/src/index";
+} from "../../model-execution/src/index";
+import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
+import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import {
     createEmptyGoalPlan,
     createGoal,

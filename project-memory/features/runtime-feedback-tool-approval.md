@@ -4,9 +4,9 @@ status: active
 summary: "将有限授权、可安全重试与模型纠错反馈纳入可恢复 Runtime 阶段流程"
 source_spec: specs/runtime-feedback-tool-approval/
 distilled_at: 2026-10-01
-reviewed_at: 2026-10-11
+reviewed_at: 2026-10-17
 tags: [runtime-feedback, model-repair, retry, tool-approval, recovery, authorization]
-authorities: [packages/agent/notes/overview.md, packages/runtime/src/runner.ts, packages/runtime/src/runtime-feedback.ts, packages/agent/src/stage-feedback.ts, packages/runtime/test/runner.test.ts, packages/runtime/test/think-decision-recovery.test.ts]
+authorities: [packages/agent/notes/overview.md, packages/runtime/src/runner.ts, packages/runtime/src/runtime-feedback.ts, packages/model-execution/src/stage-feedback.ts, packages/runtime/test/runner.test.ts, packages/runtime/test/think-decision-recovery.test.ts]
 ---
 
 # Runtime Feedback and Tool Approval
@@ -40,7 +40,7 @@ authorities: [packages/agent/notes/overview.md, packages/runtime/src/runner.ts, 
 - S2: `specs/runtime-feedback-tool-approval/design.md`
 - S3: `specs/runtime-feedback-tool-approval/tasks.md`
 - S4: `packages/runtime/src/runner.ts`
-- S5: `packages/agent/src/stage-feedback.ts`
+- S5: `packages/model-execution/src/stage-feedback.ts`
 - S6: `packages/runtime/src/runtime-feedback.ts`
 - S7: `packages/runtime/test/think-decision-recovery.test.ts`
 - S8: `specs/memory-evidence-repair-and-source-grounding/spec.md`

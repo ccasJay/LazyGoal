@@ -4,9 +4,9 @@ status: active
 summary: "模型 Token 用量归一化提取、Diagnostic Trace 落盘与按任务评测报告独立聚合，确立缺失用量的显式计数语义"
 source_spec: specs/model-usage-recording/
 distilled_at: 2026-09-21
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-17
 tags: [llm, usage, token, diagnostic-trace, benchmarks, reporting]
-authorities: [benchmarks/notes/overview.md, packages/llm/notes/overview.md, packages/llm/src/core/types.ts, benchmarks/src/headless-composition-root.ts, packages/agent/src/llm-diagnostic-trace.ts]
+authorities: [benchmarks/notes/overview.md, packages/llm/notes/overview.md, packages/llm-core/src/types.ts, benchmarks/src/headless-composition-root.ts, packages/model-call/src/llm-diagnostic-trace.ts]
 ---
 
 # Model Usage Recording
@@ -39,6 +39,6 @@ authorities: [benchmarks/notes/overview.md, packages/llm/notes/overview.md, pack
 - S3: `specs/model-usage-recording/tasks.md`
 - S4: `benchmarks/notes/overview.md`
 - S5: `packages/llm/notes/overview.md`
-- S6: `packages/llm/src/core/types.ts`
+- S6: `packages/llm-core/src/types.ts`
 - S7: `benchmarks/src/headless-composition-root.ts`
-- S8: `packages/agent/src/llm-diagnostic-trace.ts`
+- S8: `packages/model-call/src/llm-diagnostic-trace.ts`

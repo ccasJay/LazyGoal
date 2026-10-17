@@ -4,9 +4,9 @@ status: active
 summary: "基于 Contract AST 统一构建模型输出 Wire 契约、Shape Guide 与共用 Schema，消除 Zod 依赖并支持固定结构化输出模式"
 source_spec: specs/model-output-contracts/
 distilled_at: 2026-09-05
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-17
 tags: [agent, contracts, model-output, structured-output, request-plan, wire-envelope, llm-adapter]
-authorities: [packages/agent/notes/overview.md, packages/llm/notes/overview.md, packages/model-contracts/src/model-output/wire.ts, packages/model-contracts/src/model-output/factory.ts, packages/agent/src/model-output.ts, packages/agent/src/prompt.ts, packages/llm/src/core/adapter.ts, packages/llm/src/openai-compatible.ts, packages/llm/src/gemini.ts, apps/goal-server/src/composition-root.ts, benchmarks/alfworld/src/cli.ts]
+authorities: [packages/agent/notes/overview.md, packages/llm/notes/overview.md, packages/model-contracts/src/model-output/wire.ts, packages/model-contracts/src/model-output/factory.ts, packages/model-response/src/model-output.ts, packages/model-request/src/prompt.ts, packages/llm-core/src/adapter.ts, packages/llm-openai/src/openai-compatible.ts, packages/llm-google/src/gemini.ts, apps/goal-server/src/composition-root.ts, benchmarks/alfworld/src/cli.ts]
 ---
 
 # Model Output Contracts
@@ -27,7 +27,7 @@ authorities: [packages/agent/notes/overview.md, packages/llm/notes/overview.md, 
 
 ## Guardrails
 
-- Agent 模块严禁引入 Zod 生产依赖。 [S1, S2, S4]
+- 模型请求、响应、渲染与执行协调等模型管道生产代码严禁引入 Zod 依赖。 [S1, S2, S4]
 - 解码失败必须抛出带有 issue path 的 `LLMResponseProtocolError`（`INVALID_LLM_RESPONSE`），严禁自动重试、自动修复或静默降级模式。 [S1, S4, S9, S13]
 - LLM Adapter 严禁在 SDK 报错时回退到非结构化模式请求。 [S1, S6, S7]
 
@@ -42,12 +42,12 @@ authorities: [packages/agent/notes/overview.md, packages/llm/notes/overview.md, 
 - S1: `specs/model-output-contracts/requirements.md`
 - S2: `specs/model-output-contracts/design.md`
 - S3: `packages/model-contracts/src/model-output/wire.ts`
-- S4: `packages/agent/src/model-output.ts`
-- S5: `packages/agent/src/prompt.ts`
-- S6: `packages/llm/src/openai-compatible.ts`
-- S7: `packages/llm/src/gemini.ts`
+- S4: `packages/model-response/src/model-output.ts`
+- S5: `packages/model-request/src/prompt.ts`
+- S6: `packages/llm-openai/src/openai-compatible.ts`
+- S7: `packages/llm-google/src/gemini.ts`
 - S8: `apps/goal-server/src/composition-root.ts`
-- S9: `packages/agent/test/model-output.test.ts`
+- S9: `packages/model-response/test/model-output.test.ts`
 - S10: `apps/goal-server/test/prompt-bundle-integration.test.ts`
 - S11: `specs/preparation-phase-removal/design.md`
 - S12: `packages/model-contracts/test/model-output-wire.test.ts`

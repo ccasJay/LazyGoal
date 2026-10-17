@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 
-import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
 import {
     ALFWORLD_PROMPT_EVALUATION_SIDECAR_PATH,

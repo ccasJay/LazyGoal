@@ -4,7 +4,7 @@ import { parseArgs } from "node:util";
 import { randomUUID } from "node:crypto";
 
 import { readLLMConfig } from "../../../packages/config/src/index.js";
-import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
+import { createLlmAdapter } from "../../../packages/llm/src/index.js";
 import { buildBenchmarkWorker } from "../../src/worker-builder.js";
 import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
 import { loadGaiaManifest } from "./manifest.js";
@@ -73,7 +73,7 @@ export interface GaiaCliDependencies {
     /** 自定义隔离容器驱动。 */
     readonly container?: import("../../src/isolated-environment.js").IsolatedContainer;
     /** 自定义 LLM 适配器。 */
-    readonly adapter?: import("../../../packages/agent/src/index.js").LLMAdapter;
+    readonly adapter?: import("../../../packages/llm-core/src/index.js").LLMAdapter;
     /** 自定义 Worker 产物。 */
     readonly workerArtifact?: import("../../src/worker-builder.js").WorkerArtifact;
 }

@@ -1,0 +1,877 @@
+import type { ContextLookupFilters, ContextLookupOperation } from "../../model-contracts/src/index";
+import type { ContextLookupMatchedField } from "../../context-retrieval/src/index";
+import type { ModelContextBudgetPlan } from "../../context-budget/src/index";
+import type { ModelExecutionUnitProjection, WarmCompactEntry } from "./model-history-view";
+
+
+/**
+ * ModelInferenceView 的独立 DTO 契约。
+ *
+ * @remarks
+ * 本文件只声明发送给模型推理的投影类型与协议文本，不导入 Runtime 的任何
+ * 领域类型（Profile、Goal、Step、Pending Action 或 ToolDefinition）。这样模型
+ * 输入视图可以独立演进，且不会被 Runtime 聚合类型或嵌套执行状态类型所引用。
+ * 从 Runtime State 到本视图的单向转换由独立的 Projector 完成。
+ */
+
+/** 已冻结 Profile 的模型可读投影。 */
+export interface ModelProfileView {
+    readonly id: string;
+    readonly name?: string;
+    readonly description?: string;
+    readonly systemPrompt: string;
+    readonly instructions: readonly string[];
+}
+
+/** 一次模型轮次会消费的真实会话消息投影。 */
+export type ModelConversationMessage =
+    | {
+        readonly role: "user";
+        readonly content: string;
+        /** 对应 Goal.state.messages 的稳定原始索引。 */
+        readonly sourceMessageIndex: number;
+    }
+    | {
+        readonly role: "assistant";
+        readonly assistant: { readonly profileId: string };
+        readonly content: string;
+        /** 对应 Goal.state.messages 的稳定原始索引。 */
+        readonly sourceMessageIndex: number;
+    };
+
+/** 模型可见的单条完成条件投影。 */
+export interface ModelCompletionCriterion {
+    readonly text: string;
+    readonly acceptance?: {
+        readonly expectToolId: string;
+        readonly expectOutcome: "success" | "failure";
+    };
+}
+
+/** 模型可见的稳定任务定义投影。 */
+export interface ModelTask {
+    readonly objective: string;
+    readonly completionCriteria: readonly ModelCompletionCriterion[];
+}
+
+/**
+ * Plan Run 中模型可见的完整有序阶段路线。
+ *
+ * @remarks
+ * ID、状态、revision 和游标均由 Runtime 分配；模型只能按获批路线声明/修订当前阶段，
+ * 不得跳过待执行阶段或自行标记阶段已接受。
+ *
+ * @example
+ * ```ts
+ * const route: ModelPlanRoute = {
+ *   revision: 1, nextStageIndex: 0,
+ *   stages: [{ stageId: "stage-1", revision: 1, status: "pending", target: "调查", acceptanceCriteria: ["定位入口"] }],
+ * };
+ * ```
+ */
+export interface ModelPlanRoute {
+    readonly revision: number;
+    readonly revisionReason?: string | undefined;
+    readonly nextStageIndex: number;
+    readonly stages: readonly {
+        readonly stageId: string;
+        readonly revision: number;
+        readonly status: "pending" | "executing" | "accepted";
+        readonly target: string;
+        readonly acceptanceCriteria: readonly string[];
+    }[];
+}
+
+/**
+ * 模型可见的单个 GoalPlan Todo 投影。
+ *
+ * @example
+ * ```ts
+ * const item: ModelGoalPlanItem = {
+ *     id: "todo-1",
+ *     content: "检查实现",
+ *     position: 0,
+ *     status: "pending",
+ * };
+ * ```
+ */
+export interface ModelGoalPlanItem {
+    /** Runtime 分配的稳定 Todo ID；模型只能引用该 ID，不能创建伪造 ID。 */
+    readonly id: string;
+    /** 用户可见的 Todo 内容。 */
+    readonly content: string;
+    /** Runtime 规范化后的显示顺序。 */
+    readonly position: number;
+    /** Todo 当前生命周期状态。 */
+    readonly status: "pending" | "in_progress" | "completed" | "cancelled";
+}
+
+/**
+ * GoalPlan 的只读模型投影，可在任何 Run 模式中查看。
+ *
+ * @remarks
+ * 此对象可供模型查看已提交计划；只有当前模式暴露获授权更新 Tool 时，才可用它
+ * 构造带 `baseRevision` 的 Patch。GoalPlan 状态仍由 Runtime reducer 原子提交，
+ * Working Memory 的 `plan` 不会混入此对象。
+ *
+ * @example
+ * ```ts
+ * const plan: ModelGoalPlan = {
+ *     revision: 1,
+ *     items: [{ id: "todo-1", content: "检查实现", position: 0, status: "pending" }],
+ * };
+ * ```
+ */
+export interface ModelGoalPlan {
+    /** 模型提交 Patch 时必须回传的当前 revision。 */
+    readonly revision: number;
+    /** 按 position 排序的完整 Todo 列表。 */
+    readonly items: readonly ModelGoalPlanItem[];
+}
+
+/** 模型可见的单个 Tool Action 投影。 */
+export interface ModelToolCallAction {
+    readonly actionId: string;
+    readonly toolId: string;
+    readonly input: unknown;
+}
+
+/** 模型可见的 Recent Step 投影。 */
+export type ModelStepRecord =
+    | {
+        readonly kind: "action";
+        readonly action: ModelToolCallAction;
+        readonly observation: unknown;
+    }
+    | {
+        readonly kind: "decision";
+        readonly result:
+            | {
+                readonly kind: "complete";
+                readonly summary: string;
+                readonly evidenceSequences: readonly number[];
+            }
+            | {
+                readonly kind: "complete";
+                readonly summary: string;
+                readonly completionEvidence: readonly ModelCompletionEvidence[];
+            }
+            | { readonly kind: "wait"; readonly reason: string }
+            | { readonly kind: "fail"; readonly error: string }
+            | {
+                readonly kind: "context_lookup";
+                readonly operation?: ContextLookupOperation;
+                readonly need?: "conversation_history" | "historical_execution" | "decision_rationale";
+                readonly question?: string;
+                readonly filters?: ContextLookupFilters;
+                readonly query?: string;
+                readonly cursor?: string;
+                readonly limit?: number;
+                readonly category?: string;
+                readonly sourceRef?: string;
+                readonly offset?: number;
+            }
+            | { readonly kind: "tool_discovery"; readonly query: string }
+            | {
+                readonly kind: "goal_plan_update";
+                readonly baseRevision: number;
+                readonly operations: readonly (
+                    | { readonly type: "add"; readonly content: string; readonly position?: number }
+                    | {
+                        readonly type: "update";
+                        readonly id: string;
+                        readonly content?: string;
+                        readonly status?: "pending" | "in_progress" | "completed" | "cancelled";
+                        readonly evidenceSequences?: readonly number[];
+                    }
+                    | { readonly type: "reorder"; readonly id: string; readonly position: number }
+                    | { readonly type: "cancel"; readonly id: string }
+                )[];
+            }
+            | {
+                readonly kind: "run_stage_update";
+                readonly stageId?: string | undefined;
+                readonly baseRevision?: number | undefined;
+                readonly reason?: string | undefined;
+                readonly target: string;
+                readonly acceptanceCriteria: readonly string[];
+            }
+            | {
+                readonly kind: "run_stage_complete";
+                readonly stageId: string;
+                readonly summary: string;
+                readonly evidenceSequences?: readonly number[] | undefined;
+            }
+            | {
+                readonly kind: "run_plan_route_update";
+                readonly baseRevision: number;
+                readonly reason: string;
+                readonly route: { readonly stages: readonly { readonly target: string; readonly acceptanceCriteria: readonly string[] }[] };
+                readonly approvalRequest?: string | undefined;
+            };
+    };
+
+/** 模型可见的待执行 Action 投影。 */
+export interface ModelPendingAction {
+    readonly action: ModelToolCallAction;
+    readonly status: "approved" | "awaiting_approval" | "outcome_unknown";
+}
+
+/**
+ * 已授权且经 Registry 解析出的 Tool 描述投影。
+ *
+ * @remarks
+ * 在原生工具调用路径中，由于请求工具声明已携带完整的参数 Schema，动态授权 Section 移除重复
+ * 参数 Schema，仅保留授权身份和描述；而在 prompt_only 模式下保留完整的解码契约。
+ *
+ * @example
+ * ```ts
+ * const tool: ModelToolDefinition = { id: "read_file", description: "Read file" };
+ * ```
+ */
+export interface ModelToolDefinition {
+    readonly id: string;
+    readonly description: string;
+    /** 参数 Schema；原生路径下省略以避免重复声明，prompt_only 模式下保留。 */
+    readonly inputSchema?: unknown;
+}
+
+/** Prompt Bundle 渲染时的 Runtime 业务阶段（当前统一为 executing）。 */
+export type PromptPhase = "executing";
+
+/** 一次模型请求承担的推理职责。 */
+export type PromptStage = "decide" | "think";
+
+/** Agent 可消费的冻结 Memory 协议标识。 */
+export type ModelMemoryProtocol = { readonly kind: "structured"; readonly version: 1 };
+
+/** Agent 可消费的冻结模型上下文协议标识。 */
+export type ModelContextProtocol = {
+    readonly kind: "trajectory-layered";
+    readonly version: 1;
+};
+
+/** Agent 可消费的冻结 Cold Trajectory 检索协议标识。 */
+export type ModelContextRetrievalProtocol = { readonly kind: "bm25-lite"; readonly version: 1 };
+
+/** 模型可见的 Memory 条目公共元数据。 */
+export interface ModelMemoryEntryBase {
+    readonly id: string;
+    readonly originPhase: string;
+    readonly originSequence: number;
+    readonly scope: "goal" | "phase";
+    readonly updatedAtSequence: number;
+}
+
+/** 模型输入边界允许的递归 JSON 值。 */
+export type ModelJsonValue =
+    | null
+    | boolean
+    | number
+    | string
+    | readonly ModelJsonValue[]
+    | { readonly [key: string]: ModelJsonValue };
+
+/** 模型可见的实体化 Fact 投影。 */
+export interface ModelFact extends ModelMemoryEntryBase {
+    readonly kind: "fact";
+    readonly subject: string;
+    readonly predicate: string;
+    readonly value: ModelJsonValue;
+    readonly stability: "stable" | "last_observed";
+    readonly evidenceSequences: readonly number[];
+    readonly reinforcementCount: number;
+    readonly lastEvidenceSequence: number;
+    readonly source: "model" | "tool_projector" | "runtime";
+}
+
+/** 模型可见的 Hypothesis 投影。 */
+export interface ModelHypothesis extends ModelMemoryEntryBase {
+    readonly kind: "hypothesis";
+    readonly statement: string;
+    readonly status: "active" | "resolved" | "superseded";
+}
+
+/** 模型可见的阻塞条目投影。 */
+export interface ModelBlocker extends ModelMemoryEntryBase {
+    readonly kind: "blocker";
+    readonly description: string;
+    readonly status: "active" | "resolved" | "superseded";
+}
+
+/**
+ * Structured 协议的 Working Memory 模型视图。
+ *
+ * @remarks
+ * 这是 Runtime WorkingMemory 的只读投影，不包含 checkpoint、pending Action、
+ * Step 计数、Run 状态或原始 Tool 输出。只有 active 条目通常会被模型当作当前
+ * 上下文使用，历史状态仍保留其生命周期字段供解释变更。
+ *
+ * @example
+ * ```ts
+ * const memory: ModelWorkingMemory = {
+ *   protocolVersion: 1,
+ *   derivedThroughSequence: 12,
+ *   facts: [],
+ *   hypotheses: [],
+ *   blockers: [],
+ * };
+ * ```
+ */
+export interface ModelWorkingMemory {
+    readonly protocolVersion: 1;
+    readonly derivedThroughSequence: number;
+    readonly revision?: { readonly eventId: string; readonly sequence: number };
+    readonly facts: readonly ModelFact[];
+    readonly hypotheses: readonly ModelHypothesis[];
+    readonly blockers: readonly ModelBlocker[];
+}
+
+/** Structured complete Decision 使用的模型视图。 */
+export interface ModelCompletionEvidence {
+    readonly criterionIndex: number;
+    readonly evidenceSequences: readonly number[];
+}
+
+/**
+ * 模型可见的历史 Context Lookup 命中；它保留原始来源但不代表当前状态。
+ *
+ * @remarks
+ * `sourceEventIds` 只用于回查原始 committed Trajectory；该 DTO 本身不是
+ * Fact/Completion Evidence，也不能证明当前 Workspace 内容仍然相同。
+ *
+ * @example
+ * ```ts
+ * const match: ModelContextLookupMatch = {
+ *   documentId: "doc-1",
+ *   goalId: "goal-1",
+ *   runId: "run-1",
+ *   firstSequence: 3,
+ *   lastSequence: 4,
+ *   matchedFields: ["path"],
+ *   score: 2,
+ *   preview: "src/index.ts",
+ *   truncated: false,
+ *   historical: true,
+ *   sourceEventIds: ["event-3"],
+ * };
+ * ```
+ */
+export interface ModelContextLookupMatch {
+    readonly documentId: string;
+    readonly goalId: string;
+    readonly runId: string;
+    readonly firstSequence: number;
+    readonly lastSequence: number;
+    readonly matchedFields: readonly ContextLookupMatchedField[];
+    readonly score: number;
+    readonly preview: string;
+    readonly truncated: boolean;
+    readonly adjacent?: boolean;
+    readonly historical: true;
+    readonly sourceEventIds: readonly string[];
+    readonly source?:
+        | {
+            readonly kind: "trajectory";
+            readonly firstSequence: number;
+            readonly lastSequence: number;
+            readonly sourceEventIds: readonly string[];
+        }
+        | {
+            readonly kind: "conversation";
+            readonly messageIndex: number;
+            readonly role: "user" | "assistant";
+            readonly contentHash: string;
+        };
+}
+
+/**
+ * 提醒模型历史结果可能描述已变化的 Workspace/Environment。
+ *
+ * @example
+ * ```ts
+ * const freshness: ModelContextLookupFreshness = {
+ *   kind: "historical",
+ *   committedThroughSequence: 4,
+ *   warning: "需要重新观察当前状态",
+ * };
+ * ```
+ */
+export interface ModelContextLookupFreshness {
+    readonly kind: "historical";
+    readonly committedThroughSequence: number;
+    readonly warning: string;
+}
+
+/**
+ * Context Lookup Result 的模型投影。
+ *
+ * @remarks
+ * 各状态携带 sourceScope 与 limitations，明确当前 Goal 历史不搜索仓库文件；
+ * 未命中不能证明对象不存在。found 保留原来源边界与时效提示；模型不能把 Lookup 事件或预览文本本身
+ * 当作完成证据，若当前状态可能变化，仍须通过授权 Tool 重新观察。
+ *
+ * @example
+ * ```ts
+ * const result: ModelContextLookupResult = {
+ *   status: "not_found",
+ *   lookupId: "lookup-1",
+ *   sourceScope: "goal_history",
+ *   limitations: "Workspace files were not searched.",
+ * };
+ * ```
+ */
+/**
+ * 模型可见的 Goal 阶段与重要信息目录条目投影。
+ */
+export interface ModelGoalContextDirectoryEntry {
+    readonly sourceRef: string;
+    readonly category: "stage" | "decision" | "user_emphasis";
+    readonly runId: string;
+    readonly stageId?: string;
+    readonly title: string;
+    readonly status: string;
+    readonly summary?: string;
+    readonly sourceDescription: string;
+    readonly supersedesNoteId?: string;
+}
+export type GoalContextDirectoryEntry = ModelGoalContextDirectoryEntry;
+
+/**
+ * 模型可见的来源详情展开结果投影。
+ *
+ * @remarks
+ * 与运行时展开源 `GoalContextExpandedSource` 字段对齐，支持分页偏移和截断状态。
+ *
+ * @example
+ * ```ts
+ * const expanded: ModelGoalContextExpandedSource = {
+ *     sourceRef: "stage:stage-1",
+ *     kind: "stage",
+ *     title: "阶段标题",
+ *     content: "阶段内容",
+ *     totalLength: 100,
+ * };
+ * ```
+ */
+export interface ModelGoalContextExpandedSource {
+    readonly sourceRef: string;
+    readonly kind: "stage" | "note" | "message" | "event";
+    readonly runId?: string | undefined;
+    readonly title?: string | undefined;
+    readonly content: string;
+    readonly status?: string | undefined;
+    readonly truncated?: boolean | undefined;
+    readonly totalLength?: number | undefined;
+    readonly isTruncated?: boolean | undefined;
+    readonly offset?: number | undefined;
+    readonly length?: number | undefined;
+    readonly nextOffset?: number | undefined;
+    readonly metadata?: Readonly<Record<string, unknown>> | undefined;
+}
+export type GoalContextExpandedSource = ModelGoalContextExpandedSource;
+
+export type ModelContextLookupResult = {
+    readonly sourceScope: "goal_history";
+    readonly goal_history?: true;
+    readonly limitations: string;
+} & (
+    | {
+        readonly status: "found";
+        readonly lookupId: string;
+        readonly committedThroughSequence: number;
+        readonly queryHash?: string;
+        readonly indexVersion?: string;
+        readonly matches: readonly ModelContextLookupMatch[];
+        readonly sourceRunBoundaries?: readonly { readonly runId: string; readonly committedThroughSequence: number }[];
+        readonly truncated: boolean;
+        readonly freshness: ModelContextLookupFreshness;
+        readonly operation?: string;
+        readonly directoryEntries?: readonly ModelGoalContextDirectoryEntry[];
+        readonly expandedSource?: ModelGoalContextExpandedSource;
+        readonly nextCursor?: string;
+        readonly hasMore?: boolean;
+    }
+    | {
+        readonly status: "not_found";
+        readonly lookupId: string;
+        readonly committedThroughSequence?: number;
+        readonly reason?: string;
+        readonly operation?: string;
+    }
+    | {
+        readonly status: "lookup_error";
+        readonly lookupId: string;
+        readonly code: string;
+        readonly message: string;
+        readonly committedThroughSequence?: number;
+        readonly operation?: string;
+    });
+
+/**
+ * 一次 Prompt 渲染所需的、从 Runtime State 单向投影出的不可变上下文。
+ *
+ * @remarks
+ * 该 DTO 只包含构建固定 system prompt 所需的数据：Goal 冻结的 Prompt Bundle
+ * 版本、Runtime 业务阶段、Think/Decide 推理阶段、冻结 Profile 与协议版本。它不包含
+ * Run 状态、goalId、runId、
+ * 当前时间、随机数、进程环境、Snapshot 元数据或瞬时授权，也不包含真实会话消息
+ * （会话由 `ModelInferenceView.conversation` 独立承载）。Renderer 只读取本对象，
+ * 不得修改它或任何 Runtime 领域状态。
+ *
+ * @example
+ * ```ts
+ * const bundleVersion = promptContext.promptBundleVersion;
+ * ```
+ */
+export interface PromptContext {
+    /** Goal 创建时冻结的当前 Prompt Bundle 版本。 */
+    readonly promptBundleVersion: 1;
+    /** 当前 Runtime 业务阶段；当前模板覆盖 executing。 */
+    readonly phase: PromptPhase;
+    /** 决定 Think 或 Decide 固定说明的推理阶段。 */
+    readonly stage: PromptStage;
+    /** 冻结 Profile 的模型可读投影。 */
+    readonly profile: ModelProfileView;
+    /** Goal 冻结的 Memory 协议。 */
+    readonly memoryProtocol: ModelMemoryProtocol;
+    /** Goal 冻结的模型上下文协议。 */
+    readonly modelContextProtocol: ModelContextProtocol;
+    /** Goal 冻结的 Cold Trajectory 检索协议。 */
+    readonly contextRetrievalProtocol: ModelContextRetrievalProtocol;
+}
+
+/**
+ * 一次模型推理所需、但不属于固定 system 前缀的动态运行状态。
+ *
+ * @remarks
+ * 这些字段由动态 section 按身份、来源和消息角色投影；不得传给固定 Prompt Bundle
+ * Renderer。Section 更新与本轮 Working Context 分开组装。
+ *
+ * @example
+ * ```ts
+ * const context: ModelDynamicContext = {
+ *     runMode: "normal",
+ *     goalPlanWritable: false,
+ *     authorizedTools: [],
+ * };
+ * ```
+ */
+export interface ModelDynamicContext {
+    /** 当前 Run 的提案、完成与 GoalPlan 权限模式。 */
+    readonly runMode: "normal" | "plan";
+    /** 当前 Run 是否暴露 GoalPlan 更新能力。 */
+    readonly goalPlanWritable: boolean;
+    /** 按 Tool ID 稳定升序排列、由 Runtime 授权的业务工具。 */
+    readonly authorizedTools: readonly ModelToolDefinition[];
+    /** 已批准任务；不存在时省略。 */
+    readonly task?: ModelTask;
+    /** 已批准 Plan Run 的完整阶段路线；未批准或普通 Run 时省略。 */
+    readonly planRoute?: ModelPlanRoute;
+    /** 已提交 GoalPlan；不存在时省略。 */
+    readonly goalPlan?: ModelGoalPlan;
+    /** 目标工作导航视图；不存在时省略。 */
+    readonly goalContextNavigation?: ModelGoalContextNavigationView;
+}
+
+/**
+ * 目标工作导航中的当前阶段信息。
+ *
+ * @remarks
+ * 包含当前阶段的稳定身份、修订版本、目标、验收条件、最新审查拒绝反馈缺口与前序结果引用。
+ *
+ * @example
+ * ```ts
+ * const currentStage: ModelGoalContextNavigationCurrentStage = {
+ *     stageId: "stage-1",
+ *     revision: 1,
+ *     status: "executing",
+ *     target: "重构网络层",
+ *     acceptanceCriteria: ["测试通过"],
+ * };
+ * ```
+ */
+export interface ModelGoalContextNavigationCurrentStage {
+    readonly stageId: string;
+    readonly revision: number;
+    readonly status: "executing" | "accepted";
+    readonly target: string;
+    readonly acceptanceCriteria: readonly string[];
+    readonly previousStageResultRef?: { readonly stageId: string; readonly sequence: number } | undefined;
+    readonly latestReviewRejection?: { readonly feedback: string; readonly rejectedAtSequence?: number } | undefined;
+}
+
+/**
+ * 目标工作导航中的历史阶段条目。
+ *
+ * @remarks
+ * 只读展示历史阶段的目标、状态、摘要与来源引用，不内联完整轨迹。
+ *
+ * @example
+ * ```ts
+ * const entry: ModelGoalContextNavigationStageEntry = {
+ *     stageId: "stage-0",
+ *     runId: "run-0",
+ *     revision: 1,
+ *     target: "环境初始化",
+ *     status: "accepted",
+ *     summary: "已完成初始化",
+ * };
+ * ```
+ */
+export interface ModelGoalContextNavigationStageEntry {
+    readonly stageId: string;
+    readonly runId: string;
+    readonly revision: number;
+    readonly target: string;
+    readonly status: "executing" | "accepted" | "rejected";
+    readonly summary?: string | undefined;
+    readonly sourceRef?: string | undefined;
+}
+
+/**
+ * 目标工作导航中的重要信息与决策条目。
+ *
+ * @remarks
+ * 包含决策或用户强调，暴露可引用身份而不复制完整长正文。
+ *
+ * @example
+ * ```ts
+ * const entry: ModelGoalContextNavigationNoteEntry = {
+ *     noteId: "note-1",
+ *     category: "decision",
+ *     content: "选用 SQLite",
+ *     sourceRef: "src-1",
+ * };
+ * ```
+ */
+export interface ModelGoalContextNavigationNoteEntry {
+    readonly noteId: string;
+    readonly category: "decision" | "user_emphasis";
+    readonly content: string;
+    readonly sourceRef: string;
+    readonly supersedesNoteId?: string | undefined;
+}
+
+/**
+ * 目标工作导航视图。
+ *
+ * @remarks
+ * 由动态 section `goal_context_navigation` 消费，为模型每轮提供当前阶段、
+ * 缺口、相关历史和决策导航；支持预算内裁剪并提供省略标记与继续查询入口。
+ *
+ * @example
+ * ```ts
+ * const nav: ModelGoalContextNavigationView = {
+ *     currentStage: {
+ *         stageId: "stage-1",
+ *         revision: 1,
+ *         status: "executing",
+ *         target: "目标",
+ *         acceptanceCriteria: ["标准"],
+ *     },
+ * };
+ * ```
+ */
+export interface ModelGoalContextNavigationView {
+    readonly currentStage?: ModelGoalContextNavigationCurrentStage | undefined;
+    readonly historicalStages?: readonly ModelGoalContextNavigationStageEntry[] | undefined;
+    readonly notes?: readonly ModelGoalContextNavigationNoteEntry[] | undefined;
+    readonly omittedCount?: number | undefined;
+    readonly hasMore?: boolean | undefined;
+}
+
+/**
+ * 统一执行阶段的 Working Context 投影。
+ *
+ * @remarks
+ * 仅包含 Goal intent 和有界执行记忆（Step 预算、最近 Step 与 pending Action）；
+ * Run 模式和已批准任务由独立动态 section 提供。
+ */
+/**
+ * 模型可见的当前 Run 内部阶段投影。
+ *
+ * @remarks
+ * 包含当前阶段的稳定身份、修订版本、目标、完成条件、前序结果引用与最新审查拒绝反馈。
+ *
+ * @example
+ * ```ts
+ * const stage: ModelRunStageView = {
+ *     stageId: "stage-1",
+ *     revision: 1,
+ *     status: "executing",
+ *     target: "梳理模块职责",
+ *     acceptanceCriteria: ["列出所有导出符号"],
+ * };
+ * ```
+ */
+export interface ModelRunStageView {
+    readonly stageId: string;
+    readonly revision: number;
+    readonly status: "executing" | "accepted";
+    readonly target: string;
+    readonly acceptanceCriteria: readonly string[];
+    readonly previousStageResultRef?: { readonly stageId: string; readonly sequence: number } | undefined;
+    readonly latestReviewRejection?: { readonly feedback: string; readonly rejectedAtSequence?: number } | undefined;
+}
+
+export interface ModelWorkingContext {
+    readonly phase: "executing";
+    readonly intent: string;
+    readonly execution: {
+        readonly stepCount: number;
+        readonly maxSteps?: number;
+        readonly previousStep?: ModelStepRecord;
+        readonly pendingAction?: ModelPendingAction;
+        readonly currentStage?: ModelRunStageView;
+    };
+}
+
+/**
+ * Executing 阶段向模型发送的纯动态 Step 增量负载。
+ *
+ * @remarks
+ * 仅包含推动单步推进所需的本轮输入（执行步数、上一轮观察反馈、热轨迹、Lookup
+ * 结果与检查点状态），不包含由独立动态 section 提供的 Working Memory、静态意图、
+ * 任务契约或只读上下文预算，确保尾部控制消息体积最小化。
+ *
+ * @example
+ * ```ts
+ * const payload: StepDynamicPayload = {
+ *     phase: "executing",
+ *     execution: { stepCount: 1 },
+ * };
+ * ```
+ */
+export interface StepDynamicPayload {
+    readonly phase: "executing";
+    readonly execution: {
+        readonly stepCount: number;
+        readonly maxSteps?: number;
+        readonly previousStep?: ModelStepRecord;
+        readonly pendingAction?: ModelPendingAction;
+        readonly currentStage?: ModelRunStageView;
+    };
+    readonly trajectoryContext?: {
+        readonly hot: readonly ModelExecutionUnitProjection[];
+        readonly warm?: readonly WarmCompactEntry[];
+    };
+    readonly contextLookupResult?: ModelContextLookupResult;
+    readonly checkpointRequired?: true;
+    readonly checkpointReason?: "conversation_pruned" | "input_threshold";
+}
+
+/**
+ * 分层模型上下文的本轮不可变投影。
+ *
+ * @remarks
+ * `hot` 只包含 committed Trajectory 中完整且连续的执行单元，`warm` 是可丢弃的
+ * 有损语义条目；两者都不承载 Task、pending Action 或 Run 控制状态，这些字段
+ * 继续由 `workingContext` 和 `workingMemory` 的权威投影提供。`budget` 是本轮
+ * 固定输入、响应预留及历史分层配额的报告。该 DTO 只存在于一次模型调用中，
+ * 不写回 Goal、Snapshot、Working Memory 或 Trajectory。
+ *
+ * @example
+ * ```ts
+ * const context: ModelTrajectoryContext = {
+ *     measuredAs: "character",
+ *     softOverflow: false,
+ *     hot: [],
+ *     warm: [],
+ *     budget,
+ * };
+ * ```
+ */
+export interface ModelTrajectoryContext {
+    /** 本轮 Hot/Warm 使用的统一计量单位。 */
+    readonly measuredAs: "token" | "character";
+    /** 固定输入已达到历史预算边界时的软超限标记。 */
+    readonly softOverflow: boolean;
+    /** 从最新完整执行单元开始选择的连续 Hot 后缀。 */
+    readonly hot: readonly ModelExecutionUnitProjection[];
+    /** 按语义分区归约后保留的有损 Warm 条目。 */
+    readonly warm: readonly WarmCompactEntry[];
+    /** 本轮固定输入与 Hot/Warm 配额报告。 */
+    readonly budget: ModelContextBudgetPlan;
+}
+
+/** 模型可见的 Context Epoch 控制状态。 */
+export interface ModelContextControl {
+    /** 当前 Epoch 是否需要模型先提交检查点。 */
+    readonly status: "active" | "checkpoint_required";
+    /** 触发检查点的稳定原因。 */
+    readonly reason?: "conversation_pruned" | "input_threshold";
+}
+
+/** `trajectory-layered@1` 的单轮 Epoch 投影。 */
+export interface ModelContextEpochView {
+    readonly protocolVersion: 1;
+    readonly epochNumber: number;
+    readonly conversationStartIndex: number;
+    readonly openedAtSequence: number;
+    readonly control: ModelContextControl;
+}
+
+/**
+ * 最终模型可见 Conversation 位置到 Goal 原始消息位置的映射项。
+ *
+ * @remarks
+ * `visibleIndex` 只在本轮最终请求的真实 Conversation 中有效，不包含 system 或
+ * Working Context 控制消息；`sourceMessageIndex` 始终指向 Goal 的原始消息数组。
+ * 该映射不包含正文。
+ *
+ * @example
+ * ```ts
+ * const mapping: VisibleConversationMessageMapEntry = {
+ *     visibleIndex: 0,
+ *     sourceMessageIndex: 3,
+ * };
+ * ```
+ */
+export interface VisibleConversationMessageMapEntry {
+    /** 最终请求中真实 Conversation 的可见数组索引。 */
+    readonly visibleIndex: number;
+    /** 对应 Goal.state.messages 的原始数组索引。 */
+    readonly sourceMessageIndex: number;
+}
+
+/**
+ * 一次模型推理的完整输入投影。
+ *
+ * @remarks
+ * 该对象由 Runtime State 单向派生，只含构建 Prompt 所需的数据：深冻结的固定
+ * `PromptContext`、独立动态状态、真实会话和阶段化 Working Context。它不包含 Storage
+ * schemaVersion、迁移标记或瞬时执行资源。`PromptContext` 只承载 Prompt Bundle
+ * 版本、业务阶段、推理阶段、冻结 Profile 与协议版本；Run 状态和授权工具由动态 section 消费。
+ * 真实会话与 Working Context 独立承载，不得进入模板环境；Conversation 每条消息
+ * 保留其 Goal 原始索引但不把索引写入正文；分层协议额外通过 `trajectoryContext`
+ * 承载本轮 Hot/Warm 与预算报告。Renderer 对未知 Prompt Bundle 版本直接失败，
+ * 不回退到最新版。
+ *
+ * @example
+ * ```ts
+ * const projector = new ModelInferenceProjector();
+ * const view = projector.project(goal, tools, workingMemory);
+ * ```
+ */
+export interface ModelInferenceView {
+    /** 本轮固定 Prompt 渲染所需的不可变上下文（含冻结版本、Phase 与 Profile）。 */
+    readonly prompt: PromptContext;
+    /** 当前状态的动态投影源；只可由动态 section 消费。 */
+    readonly dynamicContext: ModelDynamicContext;
+    /** 保留原始 Goal message index 的真实会话投影。 */
+    readonly conversation: readonly ModelConversationMessage[];
+    readonly workingContext: ModelWorkingContext;
+    /** structured@1 的即时 Memory 投影。 */
+    readonly workingMemory: ModelWorkingMemory;
+    /** trajectory-layered@1 的即时 Hot/Warm 投影。 */
+    readonly trajectoryContext?: ModelTrajectoryContext;
+    /**
+     * 上一轮已提交的历史 Lookup 结果；仅属于当前模型调用，不写入 Goal、
+     * Snapshot 或 Working Memory。结果带 committed boundary，不能替代当前
+     * Workspace/Environment 的授权 Tool Observation。
+     */
+    readonly contextLookupResult?: ModelContextLookupResult;
+    /** `trajectory-layered@1` 的当前 Epoch 控制投影。 */
+    readonly contextEpoch: ModelContextEpochView;
+}

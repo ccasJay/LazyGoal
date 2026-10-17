@@ -89,20 +89,26 @@ export {
     CheckpointGateGoalStore,
 } from "./checkpoint-gate";
 export {
+    DEFAULT_LIFECYCLE_GRACE_PERIOD_MS,
     MANAGED_RESOURCE_REGISTRY_CLOSED_CODE,
     ManagedResourceRegistryClosedError,
     ManagedResourceRegistry,
-    ProcessExitPort,
-    SHUTDOWN_EXIT_CODE,
-    SHUTDOWN_GRACE_PERIOD_MS,
-    ShutdownCoordinator,
-} from "./shutdown";
+    RUNTIME_LIFECYCLE_INCOMPLETE_CODE,
+    RUNTIME_LIFECYCLE_UNAVAILABLE_CODE,
+    RuntimeLifecycle,
+    RuntimeLifecycleIncompleteError,
+    RuntimeLifecycleUnavailableError,
+} from "./lifecycle";
 export type {
-    ExitPort,
+    LifecycleClock,
     ManagedResource,
-    ShutdownClock,
-    ShutdownCoordinatorDependencies,
-} from "./shutdown";
+    ManagedResourceCloseFailure,
+    ManagedResourceClosePhase,
+    RuntimeLifecycleDependencies,
+    RuntimeLifecycleIncompleteCategory,
+    RuntimeLifecycleIncompleteReason,
+    RuntimeLifecycleState,
+} from "./lifecycle";
 export type {
     AssistantMessage,
     AgentDecision,
@@ -297,6 +303,7 @@ export type {
     TrajectoryCheckpointCommitRequest,
     TrajectoryCheckpointCommitResult,
     TrajectoryCheckpointCommitterDependencies,
+    TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
 export { Runner, type InterruptRunResult, type SteerInputResult } from "./runner";
 export { RunRecoveryReader, type RunRecoveryReaderDependencies } from "./run-recovery-reader";

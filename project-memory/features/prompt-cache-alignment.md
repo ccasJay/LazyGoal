@@ -4,9 +4,9 @@ status: active
 summary: "实现 Goal-stable → Epoch-stable → Step-dynamic 三层请求拓扑以最大化大模型前缀缓存命中"
 source_spec: specs/prompt-cache-alignment/
 distilled_at: 2026-09-03
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-17
 tags: [prompt-cache, kv-cache, prompt-topology, token-budget, stateless-render]
-authorities: [packages/agent/notes/overview.md, packages/agent/src/model-inference-view.ts, packages/agent/src/render.ts, packages/agent/src/step-prompt/agent-decision@1.njk]
+authorities: [packages/agent/notes/overview.md, packages/model-view/src/model-inference-view.ts, packages/model-request/src/render.ts, packages/prompt-bundle/src/step-prompt/agent-decision@1.njk]
 ---
 
 # Prompt Cache Alignment
@@ -38,8 +38,8 @@ authorities: [packages/agent/notes/overview.md, packages/agent/src/model-inferen
 
 - S1: `specs/prompt-cache-alignment/requirements.md`
 - S2: `specs/prompt-cache-alignment/design.md`
-- S3: `packages/agent/src/model-inference-view.ts`
-- S4: `packages/agent/src/render.ts`
-- S5: `packages/agent/src/step-prompt/agent-decision@1.njk`
-- S6: `packages/agent/test/prompt-cache-alignment.test.ts`
+- S3: `packages/model-view/src/model-inference-view.ts`
+- S4: `packages/model-request/src/render.ts`
+- S5: `packages/prompt-bundle/src/step-prompt/agent-decision@1.njk`
+- S6: `packages/model-request/test/prompt-cache-alignment.test.ts`
 

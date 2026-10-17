@@ -7,7 +7,7 @@ import { captureScenario, buildContextWorker, runPairedCase, type ModelRole } fr
 import { freezeCandidate, reviewCandidate } from "./context/src/corpus.js";
 import { parseScenario } from "./context/src/scenario.js";
 import { readSourceEvidence } from "./context/src/source-evidence.js";
-import type { LLMAdapter } from "../packages/agent/src/index.js";
+import type { LLMAdapter } from "../packages/llm-core/src/index.js";
 
 /**
  * 显式脚本 Adapter，验证真实 Runtime/工具/恢复，不调用任何模型。

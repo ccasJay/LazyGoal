@@ -3,12 +3,11 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
-import type { LLMRequest } from "../../../packages/llm/src/core/types.js";
-import { createLlmAdapter, createReflectionLlmAdapter } from "../../../packages/llm/src/factory.js";
+import type { LLMAdapter, LLMRequest } from "../../../packages/llm-core/src/index.js";
+import { createLlmAdapter, createReflectionLlmAdapter } from "../../../packages/llm/src/index.js";
 import { loadReflectionRuntimeConfig } from "../../../packages/config/src/index.js";
 import { resolveLazyGoalHomePaths } from "../../../packages/config/src/index.js";
-import { readNormalizedUsage } from "../../../packages/llm/src/core/usage.js";
+import { readNormalizedUsage } from "../../../packages/llm-core/src/index.js";
 
 /** 反思响应文本的最大字符数，避免模型回显撑爆机器协议。 */
 export const GEPA_REFLECTION_OUTPUT_MAX_CHARS = 256 * 1024;

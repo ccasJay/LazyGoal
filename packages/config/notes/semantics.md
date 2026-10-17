@@ -8,3 +8,4 @@
 | Profile | 运行配置的命名覆盖层。 | [配置解析](../README.md) | [模块说明](./overview.md) |
 | Provider 档案 | 用户维护的多份 Provider 连接配置（含凭据）与其激活标识；Home 级持久化，凭据不进入 Goal、Trajectory 或 Trace。 | [配置解析](../README.md) | [Provider Profile Store](../src/provider-profile-store.ts) |
 | Provider 规则 | 供应商白名单、strict 门禁、`baseURL` 允许集合与容量判定的单一来源。 | [配置解析](../README.md) | [Provider Rules](../src/provider-rules.ts) |
+| LLMConfig 与配置错误 | 共享模型连接契约与唯一配置错误构造器；本包只负责读取、合并与校验。 | [LLM 核心契约](../../llm-core/README.md) | [配置契约](../../llm-core/notes/overview.md) |
