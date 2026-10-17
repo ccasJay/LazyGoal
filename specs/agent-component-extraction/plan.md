@@ -60,7 +60,7 @@
   - 实现：补齐 TODO 3 后所有当前资产/导入/命令路径，维护脚本和付费评测命令只修接线，不运行真实模型或基准。检查实际 TypeScript include，补齐当前遗漏的 TUA 源码/测试覆盖，不另造构建配置。沿用既有 Worker 子集和摘要机制；本地打包测试通过现有注入点使用测试运行时标识，产物以本机 Node 验证，不宣称核验了固定 Linux 镜像或真实任务环境。测试基线和历史 Spec/Memory 不全局改写。
   - 检查：`npx tsx --test benchmarks/test/agent-components-worker.integration.test.ts benchmarks/swebench/test/worker-builder.test.ts benchmarks/swebench/test/worker-runtime.test.ts benchmarks/alfworld/test/worker-runtime.test.ts benchmarks/gaia/test/tools-worker.test.ts benchmarks/tua-bench/test/worker-entry.test.ts benchmarks/context/test/worker-protocol.test.ts`；`npx tsc --noEmit -p benchmarks/tsconfig.json`。记录实际 bundle、入口、摘要和产物运行结果；源码路径变化允许构建摘要变化，模板正文不变。
 
-- [ ] //TODO 9. 强制包依赖与入口约束并验证源码发现和文档归属
+- [x] //TODO 9. 强制包依赖与入口约束并验证源码发现和文档归属
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[2.3](./spec.md#spec-req-2-3)、[4.3](./spec.md#spec-req-4-3)、[5.1](./spec.md#spec-req-5-1)、[5.2](./spec.md#spec-req-5-2)、[5.3](./spec.md#spec-req-5-3)、[5.4](./spec.md#spec-req-5-4)。
   - 先验证：扩展 `scripts/check-dependencies.test.mjs` 的临时工程正反例，覆盖 Spec 的九包方向、类型泄漏、入口穿透与项目产物引用；检查 import/export、type import、import 类型表达式、side-effect 和字面量 dynamic import，以及路径归一化。合法包内引用、公共入口、第三方产物允许；跨包集成测试不能使用单元测试例外。验证默认 Agent 导出面只含装配，所有当前消费者不依赖已删除路径。
   - 实现：在现有依赖门中完成定向包/文件/入口/源码规则及相应测试扫描，迁移原 View/Renderer 规则，复用现有 TypeScript 工具而非新建框架。核对九包 manifest、测试发现、TypeScript include、Nunjucks 依赖归属、锁文件和当前文档导航；补齐各 TODO 的遗漏并更新根布局。按下方源码副本方法证明无旧产物仍可独立消费，保留历史材料身份。
