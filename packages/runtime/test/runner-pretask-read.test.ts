@@ -817,11 +817,11 @@ test("YOLO 模式边界: 任务批准后 YOLO 自动放行写工具并计 Step�
     const store = new InMemoryGoalStore();
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor = new QueueStepExecutor();
-    let writeExecuted = false;
+    let writeExecutions = 0;
 
     const writeTool = createMockTool(WRITE_FILE_DEFINITION, {
         async execute(input) {
-            writeExecuted = true;
+            writeExecutions += 1;
             return { kind: "success", output: input, summary: "wrote file" };
         },
     });
@@ -879,8 +879,13 @@ test("YOLO 模式边界: 任务批准后 YOLO 自动放行写工具并计 Step�
     const proposalRequestId = pendingProposal.requestId;
 
     // 2. 用户批准任务
-    // 模型在此后执行：首先写文件（YOLO 自动放行），然后发起 ask_user 提问
+    // 获批后声明路线阶段，写文件（YOLO 自动放行），然后发起 ask_user 提问
     stepExecutor.enqueue(
+        {
+            kind: "run_stage_update",
+            target: "Complete the proposed task",
+            acceptanceCriteria: ["The task outcome is verified"],
+        },
         {
             kind: "tool_call",
             action: {
@@ -911,7 +916,7 @@ test("YOLO 模式边界: 任务批准后 YOLO 自动放行写工具并计 Step�
     });
 
     // 验证写工具在 YOLO 下已被执行且已累加 Step
-    assert.equal(writeExecuted, true);
+    assert.equal(writeExecutions, 1);
 
     // 验证 YOLO 绝不自动放行 ask_user：系统必须停在 ask_user 等待
     assert.equal(afterApproveResult.ok, true);
@@ -920,10 +925,10 @@ test("YOLO 模式边界: 任务批准后 YOLO 自动放行写工具并计 Step�
         assert.equal(afterApproveResult.waitingFor, "ask_user");
     }
 
-    // 验证 stepCount 增加到 1
+    // 阶段声明和写工具各提交一个 Step
     const latestGoal = await store.restore(goal.id);
     assert.ok(latestGoal !== undefined);
-    assert.equal(latestGoal.state.run.stepCount, 1);
+    assert.equal(latestGoal.state.run.stepCount, 2);
     assert.equal(latestGoal.state.run.pendingInteraction?.kind, "ask_user");
 });
 
