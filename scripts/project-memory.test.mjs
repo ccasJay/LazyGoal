@@ -123,3 +123,84 @@ test("reports completed Specs without writing Capsules", async () => {
     ]);
     assert.equal(renderIndex(inspection.capsules), inspection.index);
 });
+
+test("accepts archived and retired source_spec prefixes and renders index", async () => {
+    for (const prefix of ["specs/archived/", "specs/retired/"]) {
+        const root = await fixtureProject();
+        const specDir = path.join(root, prefix, "sample");
+        await mkdir(specDir, { recursive: true });
+        await writeFile(path.join(specDir, "spec.md"), "# Spec\n");
+        const capsuleText = capsule({
+            source_spec: `${prefix}sample/`,
+        }).replace(
+            "- S1: `specs/sample/requirements.md#req-1-1`",
+            `- S1: \`${prefix}sample/spec.md\``,
+        );
+        await writeValidCapsule(root, capsuleText);
+        const inspection = await inspectProject(root);
+        assert.equal(inspection.capsules.length, 1);
+        assert.match(inspection.index, new RegExp(`\\[${prefix}sample/\\]\\(\\.\\./${prefix}sample/\\)`));
+    }
+});
+
+test("rejects invalid source_spec prefixes or format", async () => {
+    const root = await fixtureProject();
+    await writeValidCapsule(root, capsule({ source_spec: "specs/sample" }));
+    await assert.rejects(() => inspectProject(root), /source_spec 必须与 feature 一致并以 \/ 结尾/);
+
+    const root2 = await fixtureProject();
+    await writeValidCapsule(root2, capsule({ source_spec: "specs/invalid/sample/" }));
+    await assert.rejects(() => inspectProject(root2), /source_spec 必须与 feature 一致并以 \/ 结尾/);
+
+    const root3 = await fixtureProject();
+    await writeValidCapsule(root3, capsule({ source_spec: "specs/archived/other/" }));
+    await assert.rejects(() => inspectProject(root3), /source_spec 必须与 feature 一致并以 \/ 结尾/);
+});
+
+test("scans completed Fast Plan specs in coverageWarnings", async () => {
+    const root = await fixtureProject();
+    await writeValidCapsule(root);
+    await mkdir(path.join(root, "specs", "fast-done"));
+    await writeFile(path.join(root, "specs", "fast-done", "plan.md"), "- [x] //TODO 1 done\n- [X] //TODO 2 done\n");
+
+    await mkdir(path.join(root, "specs", "fast-pending"));
+    await writeFile(path.join(root, "specs", "fast-pending", "plan.md"), "- [x] //TODO 1 done\n- [ ] //TODO 2 pending\n");
+
+    const inspection = await inspectProject(root);
+    assert.deepEqual(inspection.warnings, [
+        "specs/fast-done/ 的 checkbox 已全部完成但尚无 Capsule；需要单独证据核验和明确 distillation 授权",
+    ]);
+});
+
+test("excludes archived and retired directories from coverageWarnings", async () => {
+    const root = await fixtureProject();
+    await writeValidCapsule(root);
+    await mkdir(path.join(root, "specs", "archived"), { recursive: true });
+    await writeFile(path.join(root, "specs", "archived", "plan.md"), "- [x] //TODO 1 done\n");
+    await mkdir(path.join(root, "specs", "retired"), { recursive: true });
+    await writeFile(path.join(root, "specs", "retired", "plan.md"), "- [x] //TODO 1 done\n");
+
+    const inspection = await inspectProject(root);
+    assert.deepEqual(inspection.warnings, []);
+});
+
+test("accepts capsule with only plan.md in source_spec", async () => {
+    const root = await fixtureProject();
+    await mkdir(path.join(root, "specs", "sample-fast"));
+    await writeFile(path.join(root, "specs", "sample-fast", "plan.md"), "- [x] //TODO 1 done\n");
+    const capsuleText = capsule({
+        feature: "sample-fast",
+        source_spec: "specs/sample-fast/",
+    }).replace(
+        "- S1: `specs/sample/requirements.md#req-1-1`",
+        "- S1: `specs/sample-fast/plan.md`",
+    ).replace(
+        "- S2: `specs/sample/design.md`",
+        "- S2: `specs/sample-fast/plan.md`",
+    );
+    await writeFile(path.join(root, "project-memory", "features", "sample-fast.md"), capsuleText);
+    const inspection = await inspectProject(root);
+    assert.equal(inspection.capsules.some((c) => c.fields.feature === "sample-fast"), true);
+});
+
+
