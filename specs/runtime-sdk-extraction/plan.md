@@ -33,7 +33,7 @@
   - 实现：将现有默认依赖装配移入 `runtime/composition.ts`，复用 TODO 1/2，同一 Gate、根信号与受理边界贯穿实例调用。区分自建与借用资源，跟踪实际受理操作及其失败；对既有模型、查询和管理能力只暴露消费者所需 Port，不建立通用 SDK 操作组。移动时保留当时已有的模型与进程接线，不为等待其它拆包增加兼容路径或重写 ProcessManager。同步配置、数据目录、资源所有权及事件契约说明。
   - 检查：`npx tsx --test apps/goal-server/test/runtime-composition.integration.test.ts apps/goal-server/test/execution-composition.test.ts apps/goal-server/test/sandbox-persistence.test.ts apps/goal-server/test/prompt-bundle-integration.test.ts`；`npx tsc --noEmit -p apps/goal-server/tsconfig.json`。故障注入只使用临时数据和受控替身，不以真实 Provider 或用户 Goal 验证。
 
-- [ ] //TODO 4. goal-server 消费独立组件，保留 Web 控制、查询和服务退出行为
+- [x] //TODO 4. goal-server 消费独立组件，保留 Web 控制、查询和服务退出行为
   - 落实标准：[3.3](./spec.md#spec-req-3-3)、[3.4](./spec.md#spec-req-3-4)、[4.1](./spec.md#spec-req-4-1)、[4.2](./spec.md#spec-req-4-2)、[4.3](./spec.md#spec-req-4-3)。
   - 先验证：扩展现有 `browser-session.integration.test.ts`、`composition-root-model-switching.test.ts` 和 `process-lifecycle.integration.test.ts`，经真实 HTTP 服务验证受理后断连/SSE 关闭不取消执行，审批/恢复、稳定身份重试、busy/旧 Run 拒绝、模型绑定恢复与保存失败保持；补齐权限模式、授权撤销、归档/终态删除及历史/指标读取的实际服务路径。验证 SIGINT 及普通退出均释放应用资源，运行时关闭失败时 HTTP 仍被尝试关闭，SIGINT 退出码仍为 130。
   - 实现：外层 composition-root 只消费 runtime 目录入口并装配 HTTP、路由和 Browser Port，CLI 负责信号与退出。HTTP/浏览器资源归应用，执行实例资源归生命周期；移除重复 Runner/Coordinator、关闭算法及不再需要的内部对象依赖，不增加兼容壳。更新原调用方与测试接线，保持 wire 契约与断言强度；同步 goal-server overview、semantics 及受影响布局导航。

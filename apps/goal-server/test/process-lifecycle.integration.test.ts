@@ -23,6 +23,7 @@ import {
     SHUTDOWN_EXIT_CODE,
     type ExitPort,
 } from "../src/process-exit";
+import { createCompositionRoot } from "../src/composition-root";
 
 class RecordingExitPort implements ExitPort {
     readonly codes: number[] = [];
@@ -175,6 +176,51 @@ test("宿主关闭结算实例后请求退出码 130，宿主进程继续运行"
 
     // 退出请求由可注入 ExitPort 记录：宿主进程继续运行并完成剩余断言。
     await new Promise((resolve) => setImmediate(resolve));
+});
+
+test("宿主关闭并发清理应用资源：实例关闭失败仍关闭 HTTP 并请求退出码 130", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lg-host-shutdown-"));
+    const exitPort = new RecordingExitPort();
+    const adapter = {
+        structuredOutputMode: "strict" as const,
+        async generate(): Promise<never> {
+            throw new Error("model must not be called");
+        },
+    };
+    const root = await createCompositionRoot({
+        cwd: workspace,
+        dataDirectory: join(workspace, "data"),
+        env: { LAZYGOAL_HOME: join(workspace, "home") },
+        profile: { id: "host-shutdown", systemPrompt: "unused", instructions: [], toolIds: [] },
+        adapter,
+        exitPort,
+    });
+    try {
+        const address = await root.httpService.start(0);
+        const refusing = {
+            close(): Promise<void> {
+                return Promise.reject(new Error("resource refused to release"));
+            },
+            forceClose(): Promise<void> {
+                return Promise.reject(new Error("resource refused forced release"));
+            },
+        };
+        root.resources.register(refusing);
+
+        const first = root.shutdownCoordinator.shutdown();
+        const second = root.shutdownCoordinator.shutdown();
+        assert.strictEqual(first, second);
+        await assert.rejects(first, RuntimeLifecycleIncompleteError);
+
+        assert.equal(root.lifecycle.state, "closing");
+        assert.deepEqual(exitPort.codes, [SHUTDOWN_EXIT_CODE]);
+        // 应用自有 HTTP 资源在实例关闭失败后仍被清理。
+        await assert.rejects(fetch(`${address.origin}/goals/unknown/metrics`));
+    } finally {
+        await root.httpService.close().catch(() => undefined);
+        await root.lifecycle.close().catch(() => undefined);
+        await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
 });
 
 test("实例关闭不完整时仍请求宿主退出并保留类型化原因", async () => {

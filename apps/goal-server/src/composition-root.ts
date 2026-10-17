@@ -13,10 +13,10 @@ import {
     createRuntimeComposition,
     type RuntimeComposition,
     type RuntimeCompositionOptions,
-} from "./runtime/composition";
+} from "./runtime";
 
-export { createDefaultToolPolicy, resolveWorkspaceRoot } from "./runtime/composition";
-export type { RuntimeComposition, RuntimeCompositionOptions } from "./runtime/composition";
+export { createDefaultToolPolicy, resolveWorkspaceRoot } from "./runtime";
+export type { RuntimeComposition, RuntimeCompositionOptions } from "./runtime";
 
 export interface CompositionRootOptions extends RuntimeCompositionOptions {
     /** 宿主 HTTP 中间件（含浏览器访问控制）；关闭准入由本层追加。 */
@@ -73,7 +73,6 @@ export async function createCompositionRoot(
         };
     const httpService = createHttpService({ middleware: httpMiddleware });
     httpService.mount("/", createSessionMetricsRoutes(runtime.sessionMetricsService));
-    runtime.resources.register({ close: () => httpService.close() });
 
     return {
         ...runtime,
@@ -81,6 +80,9 @@ export async function createCompositionRoot(
         shutdownCoordinator: new HostShutdownCoordinator({
             lifecycle: runtime.lifecycle,
             exitPort: options.exitPort ?? new ProcessExitPort(),
+            closeAppResources: async () => {
+                await httpService.close();
+            },
         }),
     };
 }
