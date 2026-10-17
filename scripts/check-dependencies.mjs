@@ -12,13 +12,28 @@ import { pathToFileURL } from "node:url";
  * runtime 依赖 contracts、model-contracts、execution-stream、sandbox、permission、context-retrieval、execution-control 和 tool-core；
  * llm 只依赖 contracts、model-contracts、execution-stream 与 execution-control；
  * storage 依赖 runtime、contracts、model-contracts、permission、context-retrieval；
- * agent 复用 runtime、llm、contracts、model-contracts、execution-stream、execution-control、tool-core；
+ * agent 只装配能力包，自身不保存请求、调用、解码或执行实现；
+ * 九个能力包按 Spec 的依赖方向逐包收紧，Roundtrip 依赖由各自的允许列表拒绝；
  * session-metrics 通过 Runtime 端口读取 Goal 与调用指标；browser 读取 Runtime 契约并依赖通用 HTTP 宿主；
  * http 不依赖 LazyGoal 包；process-runtime 只依赖 runtime 与 sandbox；
  * goal-server 是服务组合根，可导入所需后端实现。
+ *
+ * 除方向检查外，本脚本还强制：
+ * - 九个能力包跨包消费必须经 `src/index.ts`（入口穿透）；组件目录另有入口规则；
+ * - 源码不得导入项目 `dist/lib/build` 派生产物；
+ * - `packages/agent` 公共入口只转发默认装配。
  */
 const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
+    "context-budget": [],
+    "model-view": ["context-budget", "model-contracts", "context-retrieval"],
+    "model-context": ["context-budget", "model-view", "runtime", "contracts", "model-contracts", "tool-core", "working-memory", "context-retrieval", "execution-control"],
+    "prompt-renderer": ["model-view", "context-budget"],
+    "prompt-bundle": ["prompt-renderer", "model-view", "runtime", "working-memory"],
+    "model-request": ["context-budget", "model-view", "model-context", "prompt-renderer", "llm", "runtime", "config", "model-contracts", "tool-core", "working-memory"],
+    "model-response": ["llm", "contracts", "model-contracts"],
+    "model-call": ["llm", "runtime", "model-response", "execution-control", "execution-stream"],
+    "model-execution": ["context-budget", "model-view", "model-context", "prompt-renderer", "model-request", "model-response", "model-call", "llm", "runtime", "model-contracts", "execution-control"],
     "model-contracts": ["contracts"],
     "execution-stream": [],
     "execution-control": [],
@@ -34,7 +49,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     runtime: ["contracts", "model-contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control", "tool-core", "working-memory"],
     llm: ["contracts", "model-contracts", "execution-stream", "execution-control", "config"],
     storage: ["runtime", "contracts", "model-contracts", "permission", "context-retrieval"],
-    agent: ["runtime", "llm", "config", "contracts", "model-contracts", "execution-stream", "execution-control", "tool-core", "working-memory"],
+    agent: ["runtime", "llm", "config", "contracts", "model-contracts", "execution-stream", "execution-control", "tool-core", "working-memory", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request", "model-response", "model-call", "model-execution"],
     "session-metrics": ["runtime", "http", "web-contracts"],
     tools: ["runtime", "contracts", "execution-stream", "sandbox", "execution-control", "tool-core", "process-runtime"],
     "process-runtime": ["runtime", "sandbox"],
@@ -44,10 +59,26 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
 
 const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);
 
+/** 本 Spec 拆出的九个能力包；跨包消费必须经过它们的公共入口。 */
+const COMPONENT_PACKAGES = [
+    "context-budget",
+    "model-view",
+    "model-context",
+    "prompt-renderer",
+    "prompt-bundle",
+    "model-request",
+    "model-response",
+    "model-call",
+    "model-execution",
+];
+
+/** Agent 公共入口只允许转发默认装配实现。 */
+const AGENT_ENTRY_EXPORT_SOURCES = ["./create-agent-executor"];
+
 /** 每个 app 允许的出站目标 package。 */
 const ALLOWED_APP_DEPENDENCIES = {
     "goal-board": ["web-contracts", "slash-command"],
-    "goal-server": ["runtime", "storage", "agent", "llm", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts", "tool-core", "working-memory", "process-runtime"],
+    "goal-server": ["runtime", "storage", "agent", "llm", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts", "tool-core", "working-memory", "process-runtime", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request", "model-response", "model-call", "model-execution"],
 };
 
 const APPS = Object.keys(ALLOWED_APP_DEPENDENCIES);
@@ -64,14 +95,19 @@ const BENCHMARKS = ["alfworld", "swebench", "gaia", "tua-bench", "context"];
  */
 const FILE_BOUNDARY_RULES = [
     {
-        relativePath: "packages/agent/src/model-inference-view.ts",
-        forbidden: ["runtime"],
+        relativePath: "packages/model-view/src/model-inference-view.ts",
+        forbidden: ["runtime", "model-context"],
         label: "ModelInferenceView DTO",
     },
     {
-        relativePath: "packages/agent/src/render.ts",
+        relativePath: "packages/model-view/src/model-history-view.ts",
+        forbidden: ["runtime", "model-context"],
+        label: "模型历史结果 DTO",
+    },
+    {
+        relativePath: "packages/model-request/src/render.ts",
         forbidden: ["runtime"],
-        label: "Prompt Renderer",
+        label: "Prompt 请求渲染器",
     },
     {
         relativePath: "packages/storage/src/goal-snapshot.ts",
@@ -211,21 +247,27 @@ function appNameOf(filePath) {
 }
 
 /**
- * 提取文件文本中的相对 import specifier（不含 node 内置与外部依赖）。
+ * 提取文件文本中的相对 import/export 引用（不含 node 内置与外部依赖）。
  *
  * @remarks
- * DTO/Renderer 文件边界规则沿用 `from` 形式的既有覆盖；跨包依赖方向与
- * 组件规则使用 {@link extractModuleSpecifiers} 覆盖侧效与动态引用形式。
+ * 覆盖 `from`、侧效导入与字面量动态导入形式并按出现去重；DTO/Renderer
+ * 文件边界规则与跨包依赖方向使用同一覆盖，避免通过重新导出或类型位置引用绕过边界。
  */
-function extractFromSpecifiers(text) {
+function extractRelativeImports(text) {
     const imports = [];
-    for (const match of text.matchAll(/\bfrom\s*(['"])([^'"]+)\1/g)) {
-        const specifier = match[2];
-        if (specifier.startsWith("./") || specifier.startsWith("../")) {
-            imports.push(specifier);
+    for (const pattern of [
+        /\bfrom\s*(['"])([^'"]+)\1/g,
+        /\bimport\s*(['"])([^'"]+)\1/g,
+        /\bimport\s*\(\s*(['"])([^'"]+)\1\s*\)/g,
+    ]) {
+        for (const match of text.matchAll(pattern)) {
+            const specifier = match[2];
+            if (specifier.startsWith("./") || specifier.startsWith("../")) {
+                imports.push(specifier);
+            }
         }
     }
-    return imports;
+    return [...new Set(imports)];
 }
 
 /**
@@ -269,6 +311,40 @@ function targetAppOf(projectRoot, fromFile, specifier) {
     return appNameOf(
         path.resolve(path.dirname(fromFile), specifier),
     );
+}
+
+/** 组件包必须经 `src/index.ts` 消费；返回被穿透的相对路径，合法时返回 undefined。 */
+function componentEntryPenetration(projectRoot, fromFile, specifier) {
+    const resolved = path.resolve(path.dirname(fromFile), specifier);
+    const targetPackage = packageNameOf(resolved);
+    if (targetPackage === null || !COMPONENT_PACKAGES.includes(targetPackage)) return undefined;
+    if (packageNameOf(fromFile) === targetPackage) return undefined;
+
+    const relative = path.posix.join(
+        "",
+        path.relative(projectRoot, resolved).split(path.sep).join("/"),
+    );
+    const allowed = new Set([
+        `packages/${targetPackage}/src/index`,
+        `packages/${targetPackage}/src/index.ts`,
+        `packages/${targetPackage}/src/index.tsx`,
+        `packages/${targetPackage}/src/index.js`,
+    ]);
+    return allowed.has(relative) ? undefined : relative;
+}
+
+/** 源码不得导入项目 `dist/lib/build` 派生产物；返回命中的相对路径。 */
+function projectArtifactImport(projectRoot, fromFile, specifier) {
+    const resolved = path.resolve(path.dirname(fromFile), specifier);
+    const relative = path.posix.join(
+        "",
+        path.relative(projectRoot, resolved).split(path.sep).join("/"),
+    );
+    const segments = relative.split("/");
+    if (!["packages", "apps", "benchmarks"].includes(segments[0])) return undefined;
+    return segments.some((segment) => PROJECT_ARTIFACT_SEGMENTS.includes(segment))
+        ? relative
+        : undefined;
 }
 
 /** 递归收集 packages 下 src 目录内的 .ts/.tsx 文件；缺失目录按空处理。 */
@@ -503,6 +579,31 @@ async function analyzeEntryBoundaries(projectRoot) {
 }
 
 /**
+ * 约束 packages/agent 公共入口只转发默认装配实现。
+ *
+ * @param projectRoot - 仓库根目录。
+ * @returns 每条违规对应的稳定中文描述；入口缺失时按无违规处理。
+ */
+async function analyzeAgentEntryBoundary(projectRoot) {
+    const violations = [];
+    const agentEntryPath = path.join(projectRoot, "packages", "agent", "src", "index.ts");
+    try {
+        const agentEntry = await readFile(agentEntryPath, "utf8");
+        for (const match of agentEntry.matchAll(/\bfrom\s*(['"])([^'"]+)\1/g)) {
+            const specifier = match[2];
+            if (specifier.startsWith(".") && !AGENT_ENTRY_EXPORT_SOURCES.includes(specifier)) {
+                violations.push(
+                    `入口约束：packages/agent 公共入口只能转发默认装配（packages/agent/src/index.ts 引用 ${specifier}）`,
+                );
+            }
+        }
+    } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+    }
+    return violations;
+}
+
+/**
  * 分析源码依赖方向并返回违反边界的情况列表。
  *
  * @param projectRoot - 仓库根目录。
@@ -523,13 +624,24 @@ export async function analyzeDependencies(projectRoot) {
 
         for (const specifier of extractModuleSpecifiers(text)) {
             const targetPackage = targetPackageOf(projectRoot, file, specifier);
-            if (targetPackage === null || targetPackage === sourcePackage) {
-                continue;
-            }
-
-            if (!ALLOWED_PACKAGE_DEPENDENCIES[sourcePackage].includes(targetPackage)) {
+            if (targetPackage !== null && targetPackage !== sourcePackage
+                && !ALLOWED_PACKAGE_DEPENDENCIES[sourcePackage].includes(targetPackage)) {
                 violations.push(
                     `禁止依赖方向：packages/${sourcePackage} 不得导入 packages/${targetPackage}（${relativePath} 引用 ${specifier}）`,
+                );
+            }
+
+            const penetration = componentEntryPenetration(projectRoot, file, specifier);
+            if (penetration !== undefined) {
+                violations.push(
+                    `入口穿透：packages/${sourcePackage} 必须经 packages/<目标>/src/index.ts 使用组件能力（${relativePath} 引用 ${specifier}）`,
+                );
+            }
+
+            const artifact = projectArtifactImport(projectRoot, file, specifier);
+            if (artifact !== undefined) {
+                violations.push(
+                    `禁止导入项目产物：${relativePath} 引用 ${specifier}（${artifact}）`,
                 );
             }
         }
@@ -542,7 +654,7 @@ export async function analyzeDependencies(projectRoot) {
             continue;
         }
 
-        for (const specifier of extractFromSpecifiers(text)) {
+        for (const specifier of extractRelativeImports(text)) {
             const targetPackage = targetPackageOf(projectRoot, file, specifier);
             if (targetPackage !== null && rule.forbidden.includes(targetPackage)) {
                 violations.push(
@@ -561,10 +673,25 @@ export async function analyzeDependencies(projectRoot) {
             const targetBenchmark = benchmarkNameOf(
                 path.resolve(path.dirname(file), specifier),
             );
-            if (targetBenchmark === null || targetBenchmark === sourceBenchmark) continue;
-            violations.push(
-                `禁止 benchmark 交叉依赖：benchmarks/${sourceBenchmark} 不得导入 benchmarks/${targetBenchmark}（${relativePath} 引用 ${specifier}）`,
-            );
+            if (targetBenchmark !== null && targetBenchmark !== sourceBenchmark) {
+                violations.push(
+                    `禁止 benchmark 交叉依赖：benchmarks/${sourceBenchmark} 不得导入 benchmarks/${targetBenchmark}（${relativePath} 引用 ${specifier}）`,
+                );
+            }
+
+            const penetration = componentEntryPenetration(projectRoot, file, specifier);
+            if (penetration !== undefined) {
+                violations.push(
+                    `入口穿透：benchmarks/${sourceBenchmark} 必须经 packages/<目标>/src/index.ts 使用组件能力（${relativePath} 引用 ${specifier}）`,
+                );
+            }
+
+            const artifact = projectArtifactImport(projectRoot, file, specifier);
+            if (artifact !== undefined) {
+                violations.push(
+                    `禁止导入项目产物：${relativePath} 引用 ${specifier}（${artifact}）`,
+                );
+            }
         }
     }
 
@@ -586,11 +713,26 @@ export async function analyzeDependencies(projectRoot) {
                     `禁止应用交叉依赖：apps/${sourceApp} 不得导入 apps/${targetApp}（${relativePath} 引用 ${specifier}）`,
                 );
             }
+
+            const penetration = componentEntryPenetration(projectRoot, file, specifier);
+            if (penetration !== undefined) {
+                violations.push(
+                    `入口穿透：apps/${sourceApp} 必须经 packages/<目标>/src/index.ts 使用组件能力（${relativePath} 引用 ${specifier}）`,
+                );
+            }
+
+            const artifact = projectArtifactImport(projectRoot, file, specifier);
+            if (artifact !== undefined) {
+                violations.push(
+                    `禁止导入项目产物：${relativePath} 引用 ${specifier}（${artifact}）`,
+                );
+            }
         }
     }
 
     violations.push(...await analyzeComponentBoundaries(projectRoot));
     violations.push(...await analyzeEntryBoundaries(projectRoot));
+    violations.push(...await analyzeAgentEntryBoundary(projectRoot));
 
     return violations.sort();
 }

@@ -26,6 +26,8 @@
     "swebench/test/**/*.ts",
     "gaia/src/**/*.ts",
     "gaia/test/**/*.ts",
+    "tua-bench/src/**/*.ts",
+    "tua-bench/test/**/*.ts",
     "context/src/**/*.ts",
     "context/test/**/*.ts"
   ]

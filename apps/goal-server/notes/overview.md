@@ -28,7 +28,7 @@ flowchart LR
     G --> Q[Scheduler]
     Q --> R[Runtime: Runner]
     R --> S
-    R --> E[Agent: LLMStepExecutor]
+    R --> E[Agent: createAgentExecutor]
     E --> V[ModelInferenceView → Prompt Renderer]
     V --> A[LLM Adapter]
     A --> M[模型供应商]

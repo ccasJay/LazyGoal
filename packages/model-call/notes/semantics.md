@@ -1,0 +1,12 @@
+# 模型调用语义表
+
+本表只概括本模块负责的概念；字段及错误契约以模块说明引用的源码为准。
+
+| 概念 | 简明含义 | 归属模块 | 权威说明 |
+| --- | --- | --- | --- |
+| callModel | 一次 Adapter 调用、记录与流收集的完整生命周期。 | [模型调用](../README.md) | [调用实现](../src/model-call.ts) |
+| ModelCallContext | 收窄后的调用身份、会话与来源上下文。 | [模型调用](../README.md) | [调用实现](../src/model-call.ts) |
+| 调用输入记录 | Adapter 调用前保存最终消息正文与来源。 | [模型调用](../README.md) | [调用实现](../src/model-call.ts) |
+| 调用指标 | call_started/call_finished 事实与 best effort 隔离。 | [模型调用](../README.md) | [调用实现](../src/model-call.ts) |
+| 流收集 | 唯一 completed 响应与可见性事件映射。 | [模型调用](../README.md) | [调用实现](../src/model-call.ts) |
+| 调用诊断 | 有界脱敏的请求、响应与错误 Trace。 | [模型调用](../README.md) | [诊断实现](../src/llm-diagnostic-trace.ts) |

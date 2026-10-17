@@ -29,6 +29,9 @@ test("allows existing packages to depend on contracts", async () => {
         files[`packages/${packageName}/src/index.ts`] =
             'export { contract } from "../../contracts/src/index";\n';
     }
+    // Agent 公共入口只转发默认装配；该约束由入口规则单独验证。
+    files["packages/agent/src/index.ts"] =
+        'export { createAgentExecutor } from "./create-agent-executor";\n';
 
     const root = await fixtureProject(files);
 
@@ -463,5 +466,117 @@ test("进程会话运行时源码与其消费型测试拒绝项目内构建产�
     assert.deepEqual(componentViolations(await analyzeDependencies(root)).sort(), [
         "构件导入违规：packages/process-runtime/src/leak.ts 不得导入项目内构建产物（引用 ../../process-runtime/dist/index）",
         "构件导入违规：packages/process-runtime/test/process-manager.test.ts 不得导入项目内构建产物（引用 ../dist/index）",
+    ]);
+});
+
+test("detects side-effect imports and literal dynamic imports of forbidden directions", async () => {
+    const root = await fixtureProject({
+        "packages/context-budget/src/index.ts":
+            'import "../../model-view/src/index";\nconst loaded = import("../../model-view/src/index");\nvoid loaded;\n',
+        "packages/model-view/src/index.ts": "export {};\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/context-budget 不得导入 packages/model-view（packages/context-budget/src/index.ts 引用 ../../model-view/src/index）",
+    ]);
+});
+
+test("detects type-position import expressions leaking runtime into view DTOs", async () => {
+    const root = await fixtureProject({
+        "packages/model-view/src/model-inference-view.ts":
+            'export type Leak = import("../../runtime/src/index").Goal;\n',
+        "packages/model-view/src/other.ts": 'export type Local = import("./model-inference-view").Leak;\n',
+        "packages/runtime/src/index.ts": "export type Goal = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/model-view 不得导入 packages/runtime（packages/model-view/src/model-inference-view.ts 引用 ../../runtime/src/index）",
+        "边界违规：ModelInferenceView DTO 不得导入 packages/runtime（packages/model-view/src/model-inference-view.ts 引用 ../../runtime/src/index）",
+    ]);
+});
+
+test("requires component packages to be consumed through public entries", async () => {
+    const root = await fixtureProject({
+        "packages/model-view/src/index.ts": "export const view = true;\n",
+        "packages/model-view/src/internal.ts": "export const hidden = true;\n",
+        "packages/model-view/src/other.ts": 'export { hidden } from "./internal";\n',
+        "packages/prompt-renderer/src/index.ts":
+            'export { view } from "../../model-view/src/index";\n',
+        "packages/prompt-renderer/src/penetrating.ts":
+            'export { hidden } from "../../model-view/src/internal";\n',
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "入口穿透：packages/prompt-renderer 必须经 packages/<目标>/src/index.ts 使用组件能力（packages/prompt-renderer/src/penetrating.ts 引用 ../../model-view/src/internal）",
+    ]);
+});
+
+test("detects cross-package internal penetration from apps and benchmarks", async () => {
+    const root = await fixtureProject({
+        "packages/model-call/src/index.ts": "export const call = true;\n",
+        "packages/model-call/src/internal.ts": "export const hidden = true;\n",
+        "apps/goal-server/src/composition-root.ts":
+            'export { hidden } from "../../../packages/model-call/src/internal";\n',
+        "benchmarks/alfworld/src/worker.ts":
+            'export { hidden } from "../../../packages/model-call/src/internal";\n',
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "入口穿透：apps/goal-server 必须经 packages/<目标>/src/index.ts 使用组件能力（apps/goal-server/src/composition-root.ts 引用 ../../../packages/model-call/src/internal）",
+        "入口穿透：benchmarks/alfworld 必须经 packages/<目标>/src/index.ts 使用组件能力（benchmarks/alfworld/src/worker.ts 引用 ../../../packages/model-call/src/internal）",
+    ]);
+});
+
+test("rejects project artifact imports from package, app and benchmark sources", async () => {
+    const root = await fixtureProject({
+        "packages/runtime/src/index.ts":
+            'export { a } from "../../agent/dist/index.js";\n',
+        "apps/goal-server/src/composition-root.ts":
+            'export { v } from "../../../packages/model-view/dist/index.js";\n',
+        "benchmarks/alfworld/src/worker.ts":
+            'export { p } from "../../../packages/prompt-bundle/build/index.js";\n',
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止导入项目产物：apps/goal-server/src/composition-root.ts 引用 ../../../packages/model-view/dist/index.js（packages/model-view/dist/index.js）",
+        "禁止导入项目产物：benchmarks/alfworld/src/worker.ts 引用 ../../../packages/prompt-bundle/build/index.js（packages/prompt-bundle/build/index.js）",
+        "禁止导入项目产物：packages/runtime/src/index.ts 引用 ../../agent/dist/index.js（packages/agent/dist/index.js）",
+    ]);
+});
+
+test("rejects roundtrip dependencies between component packages", async () => {
+    const root = await fixtureProject({
+        "packages/model-view/src/index.ts":
+            'export {} from "../../model-context/src/index";\n',
+        "packages/model-context/src/index.ts":
+            'export {} from "../../model-view/src/index";\n',
+        "packages/prompt-bundle/src/index.ts":
+            'export {} from "../../model-request/src/index";\n',
+        "packages/model-request/src/index.ts":
+            'export {} from "../../prompt-renderer/src/index";\n',
+        "packages/model-response/src/index.ts":
+            'export {} from "../../runtime/src/index";\n',
+        "packages/model-call/src/index.ts":
+            'export {} from "../../model-request/src/index";\n',
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/model-call 不得导入 packages/model-request（packages/model-call/src/index.ts 引用 ../../model-request/src/index）",
+        "禁止依赖方向：packages/model-response 不得导入 packages/runtime（packages/model-response/src/index.ts 引用 ../../runtime/src/index）",
+        "禁止依赖方向：packages/model-view 不得导入 packages/model-context（packages/model-view/src/index.ts 引用 ../../model-context/src/index）",
+        "禁止依赖方向：packages/prompt-bundle 不得导入 packages/model-request（packages/prompt-bundle/src/index.ts 引用 ../../model-request/src/index）",
+    ]);
+});
+
+test("constrains the agent public entry to the default assembly", async () => {
+    const root = await fixtureProject({
+        "packages/agent/src/create-agent-executor.ts": "export const createAgentExecutor = true;\n",
+        "packages/agent/src/old-executor.ts": "export const old = true;\n",
+        "packages/agent/src/index.ts":
+            'export { createAgentExecutor } from "./create-agent-executor";\nexport type { AgentExecutorOptions } from "./create-agent-executor";\nexport { old } from "./old-executor";\n',
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "入口约束：packages/agent 公共入口只能转发默认装配（packages/agent/src/index.ts 引用 ./old-executor）",
     ]);
 });

@@ -9,7 +9,7 @@ import type {
     AcpSessionUpdate,
 } from "../../packages/acp/src/index.js";
 import { runLazyGoalAcpClient } from "../../packages/acp/src/index.js";
-import type { LLMAdapter } from "../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../packages/llm/src/core/adapter.js";
 import {
     createAcpMuxStream,
     MultiplexedConnection,

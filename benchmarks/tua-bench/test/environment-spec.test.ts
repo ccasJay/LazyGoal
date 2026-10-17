@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 import type { EnvironmentHandle, ProcessOptions, ProcessResult } from "../../src/index.js";
+import type { WorkerArtifact } from "../../src/worker-builder.js";
 import { TuaBenchEnvironmentSpec } from "../src/environment-spec.js";
 import type { TuaBenchTaskDefinition } from "../src/types.js";
 
@@ -70,7 +71,7 @@ describe("TuaBenchEnvironmentSpec", () => {
                 workerPath: "/tmp/worker.mjs",
                 nodePath: "/tmp/node",
                 manifestPath: "/tmp/manifest.json",
-            },
+            } as WorkerArtifact,
         });
         const config = spec.getWorkerEntryConfig(baseTask);
         assert.equal(config.cwd, "/home/agent");

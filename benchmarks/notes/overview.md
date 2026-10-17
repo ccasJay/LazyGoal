@@ -67,7 +67,7 @@ ALFWorld Reset 与 Step 专用 Tool 使用不可变 Input Contract 声明其输�
 Goal Snapshot 和 JSONL Trajectory，并可启用独立 Diagnostic Trace；Snapshot 的
 `committedThroughSequence` 是恢复边界，未提交 tail 只供审计，不会自动 replay。
 Root 为每个 Goal 固定冻结 Prompt Bundle v1、`structured@1`、`trajectory-layered@1` 和
-`bm25-lite@1`，并把同一 `TrajectoryModelContextAssembler` 注入 `LLMStepExecutor`；
+`bm25-lite@1`，并通过 [Agent 默认装配](../../packages/agent/README.md) 的 `createAgentExecutor` 注入同一 `TrajectoryModelContextAssembler`；
 模型上下文因此从当前 Trajectory Snapshot 组装。文件持久化适配器同时装配完整 ModelInputStore 与 committed history 检索索引，
 Root 将同一 Lookup Port 注入 Runner 与 Coordinator。内存适配器可按需要提供这些诊断与检索端口。
 任务描述符 `BenchmarkTaskDescriptor.objective` 与 `completionCriteria` 会作为初始用户消息中的执行上下文提供给 Agent；criteria 支持纯文本与携带验收声明的结构化条件，不转换为 `Run.approvedTask`，也不成为 Runtime 完成门槛。Runtime 的 `complete` 仍须按当前 Run 已提交 Observation Evidence 校验；Benchmark 的最终成功由环境评分决定，模型完成声明不能覆盖环境结果。基础设施重试追加新的 Attempt，不覆盖原始记录。

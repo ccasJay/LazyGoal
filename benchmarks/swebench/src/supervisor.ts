@@ -1,7 +1,7 @@
 import { swebenchWorkerArgs } from "./worker-config.js";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import type { LLMAdapter } from "../../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
 import {
     runLazyGoalAcpClient,
     type AcpSessionUpdate,

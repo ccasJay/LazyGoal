@@ -49,16 +49,12 @@ import {
     JsonFileProcessSessionStore,
 } from "../../../../packages/storage/src/index";
 import { SessionMetricsService } from "../../../../packages/session-metrics/src/index";
+import { createAgentExecutor } from "../../../../packages/agent/src/index";
 import {
     createDefaultModelContextBudgetPolicy,
-    createDefaultPromptBundleRenderer,
-    createDefaultPromptBundleProtocolValidator,
-    createModelExecutionBinding,
     createModelContextBudgetPolicy,
     DEFAULT_LLM_CONVERSATION_CHAR_BUDGET,
     DropOldestContextCompactor,
-    LLMStepExecutor,
-    MutableModelBinding,
     resolveModelInputEstimator,
     createModelCapabilities,
     ModelCapabilitiesError,
@@ -66,10 +62,18 @@ import {
     type ModelCapabilities,
     type ModelContextBudgetPolicy,
     type ModelContextBudgetPolicyInput,
-    type ModelExecutionBinding,
     type ModelInputEstimator,
-    TrajectoryModelContextAssembler,
-} from "../../../../packages/agent/src/index";
+} from "../../../../packages/context-budget/src/index";
+import { TrajectoryModelContextAssembler } from "../../../../packages/model-context/src/index";
+import {
+    createModelExecutionBinding,
+    MutableModelBinding,
+    type ModelExecutionBinding,
+} from "../../../../packages/model-execution/src/index";
+import {
+    createDefaultPromptBundleRenderer,
+    createDefaultPromptBundleProtocolValidator,
+} from "../../../../packages/prompt-bundle/src/index";
 import {
     JsonFileProviderProfileStore,
     LLMConfigurationError,
@@ -688,7 +692,7 @@ async function assembleRuntimeComposition(
     const runIdGenerator = options.runIdGenerator ?? randomUUID;
     const executionComponents = createExecutionComponents({
         store: checkpointStore,
-        executor: new LLMStepExecutor({
+        executor: await createAgentExecutor({
             bindingProvider: modelBinding,
             renderer,
             contextCompactor,

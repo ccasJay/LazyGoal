@@ -1,0 +1,183 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import {
+    PromptBundleConfigurationError,
+    UnsupportedPromptBundleVersionError,
+} from "../src/index";
+import { PromptBundleRegistry } from "../src/index";
+import type {
+    PromptBundleManifest,
+    PromptBundleSection,
+    PromptTemplateDefinition,
+} from "../src/index";
+
+const templates: readonly PromptTemplateDefinition[] = [
+    { id: "global-overview@1", source: "global v1" },
+    { id: "profile@1", source: "profile v1" },
+    { id: "agent-decision@1", source: "decision v1" },
+    { id: "agent-think@1", source: "think v1" },
+    { id: "authorized-tools@1", source: "tools v1" },
+];
+
+const globalSection: PromptBundleSection = {
+    slot: "global_overview",
+    templateId: "global-overview@1",
+};
+const profileSection: PromptBundleSection = {
+    slot: "profile",
+    templateId: "profile@1",
+};
+const phaseSection: PromptBundleSection = {
+    slot: "phase_protocol",
+    templates: {
+        decide: "agent-decision@1",
+        think: "agent-think@1",
+    },
+};
+const manifestV1: PromptBundleManifest = {
+    version: 1,
+    memoryProtocol: { kind: "structured", version: 1 },
+    modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+    contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+    sections: [globalSection, profileSection, phaseSection],
+};
+
+const currentProtocols = {
+    memoryProtocol: { kind: "structured" as const, version: 1 as const },
+    modelContextProtocol: { kind: "trajectory-layered" as const, version: 1 as const },
+    contextRetrievalProtocol: { kind: "bm25-lite" as const, version: 1 as const },
+};
+
+function getCurrentManifest(registry: PromptBundleRegistry, version: number) {
+    return registry.getManifest(
+        version,
+        currentProtocols.memoryProtocol,
+        currentProtocols.modelContextProtocol,
+        currentProtocols.contextRetrievalProtocol,
+    );
+}
+
+test("Registry 构造期对模板注册顺序置换不敏感", () => {
+    const reversed = [...templates].reverse();
+    const registry = new PromptBundleRegistry({ templates: reversed, bundles: [manifestV1] });
+
+    assert.deepEqual(registry.supportedVersions(), [1]);
+    assert.equal(registry.getTemplateSource("global-overview@1"), "global v1");
+    assert.equal(getCurrentManifest(registry, 1).sections.length, 3);
+});
+
+test("Registry 拒绝重复的模板 ID", () => {
+    assert.throws(
+        () => new PromptBundleRegistry({
+            templates: [...templates, { id: "profile@1", source: "dup" }],
+            bundles: [manifestV1],
+        }),
+        PromptBundleConfigurationError,
+    );
+});
+
+test("Registry 拒绝重复的 Bundle 版本", () => {
+    assert.throws(
+        () => new PromptBundleRegistry({ templates, bundles: [manifestV1, manifestV1] }),
+        PromptBundleConfigurationError,
+    );
+});
+
+test("Registry 拒绝非正整数的 Bundle 版本", () => {
+    const invalid = { ...manifestV1, version: 0 } as unknown as PromptBundleManifest;
+    assert.throws(
+        () => new PromptBundleRegistry({ templates, bundles: [invalid] }),
+        PromptBundleConfigurationError,
+    );
+});
+
+test("Registry 拒绝引用未注册模板的 Manifest", () => {
+    const invalid: PromptBundleManifest = {
+        ...manifestV1,
+        sections: [
+            { slot: "global_overview", templateId: "missing@1" },
+            profileSection,
+            phaseSection,
+        ],
+    };
+    assert.throws(
+        () => new PromptBundleRegistry({ templates, bundles: [invalid] }),
+        PromptBundleConfigurationError,
+    );
+});
+
+test("Registry 拒绝缺少推理阶段映射的 Manifest", () => {
+    const incomplete: PromptBundleSection = {
+        slot: "phase_protocol",
+        templates: {},
+    } as unknown as PromptBundleSection;
+    const invalid: PromptBundleManifest = {
+        ...manifestV1,
+        sections: [globalSection, profileSection, incomplete],
+    };
+    assert.throws(
+        () => new PromptBundleRegistry({ templates, bundles: [invalid] }),
+        PromptBundleConfigurationError,
+    );
+});
+
+test("Registry 拒绝 section 顺序错误的 Manifest", () => {
+    const invalid: PromptBundleManifest = {
+        ...manifestV1,
+        sections: [profileSection, globalSection, phaseSection],
+    };
+    assert.throws(
+        () => new PromptBundleRegistry({ templates, bundles: [invalid] }),
+        PromptBundleConfigurationError,
+    );
+});
+
+test("Registry 拒绝 section 数量不足的 Manifest", () => {
+    const invalid: PromptBundleManifest = {
+        ...manifestV1,
+        sections: [globalSection, profileSection],
+    };
+    assert.throws(
+        () => new PromptBundleRegistry({ templates, bundles: [invalid] }),
+        PromptBundleConfigurationError,
+    );
+});
+
+test("Registry 对未知版本抛出 UnsupportedPromptBundleVersionError 且不回退", () => {
+    const registry = new PromptBundleRegistry({ templates, bundles: [manifestV1] });
+
+    assert.throws(
+        () => getCurrentManifest(registry, 99),
+        (error: unknown) => {
+            assert.ok(error instanceof UnsupportedPromptBundleVersionError);
+            assert.equal((error as UnsupportedPromptBundleVersionError).bundleVersion, 99);
+            assert.deepEqual(
+                (error as UnsupportedPromptBundleVersionError).supportedVersions,
+                [1],
+            );
+            return true;
+        },
+    );
+});
+
+test("Registry 只允许已注册模板被查询，可信模板边界由注册表唯一决定", () => {
+    const registry = new PromptBundleRegistry({ templates, bundles: [manifestV1] });
+
+    assert.throws(
+        () => registry.getTemplateSource("unregistered@1"),
+        PromptBundleConfigurationError,
+    );
+});
+
+test("Registry 拒绝非当前 v1 的 Bundle", () => {
+    const historical = {
+        ...manifestV1,
+        version: 2,
+    } as unknown as PromptBundleManifest;
+
+    assert.throws(
+        () => new PromptBundleRegistry({ templates, bundles: [historical] }),
+        PromptBundleConfigurationError,
+    );
+});

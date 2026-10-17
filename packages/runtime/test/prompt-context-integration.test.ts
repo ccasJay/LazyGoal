@@ -6,12 +6,12 @@ import { contract } from "../../contracts/src/index";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
 import {
-    createDefaultPromptBundleRenderer,
     createModelExecutionBinding,
-    DropOldestContextCompactor,
     LLMStepExecutor,
     MutableModelBinding,
-} from "../../agent/src/index";
+} from "../../model-execution/src/index";
+import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
+import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import {
     createEmptyGoalPlan,
     createGoal,

@@ -27,12 +27,21 @@ prompt-evaluation/ External prompt optimization integrations
   gepa/            Official GEPA adapter for LazyGoal Prompt Evaluation
 packages/        Private `@lazygoal/*` workspaces
   contracts/      Contract AST builders and static type inference core
+  context-budget/ Model input metering, budget allocation, unit selection, and stable serialization
   execution-control/ Process-local cancellation primitives and transient model failure protocols
   model-contracts/ Model output contracts, wire projection, schema compilation, and conversation protocols
+  model-view/     Model-visible input and history result DTOs
+  model-context/  Runtime-to-model projection, committed history assembly, Hot/Warm composition
+  model-request/  Stage request construction, message assembly, and section update plans
+  model-response/ Text and native stage response decoding, identity checks, and protocol errors
+  model-call/     Single model call execution, input recording, metrics, and stream collection
+  model-execution/ Stage coordination, model execution binding, and stage feedback conversion
+  prompt-renderer/ In-memory template compilation, deterministic rendering, and section registry mechanism
+  prompt-bundle/  Current prompt template source of truth, default manifest, and default renderer assembly
   working-memory/ Structured working memory domain contracts, patch validation, reduction, and lifecycle
   config/       LazyGoal Home/workspace paths, TOML/Profile parsing, and validated runtime configuration
   web-contracts/  Browser HTTP/SSE wire DTOs and boundary validation
-  agent/         Agent prompts, response schemas, and the unified LLM step executor
+  agent/         Default model executor assembly
   execution-stream/ Process-local Goal/Run events and bounded subscriptions
   http/          Reusable loopback HTTP service lifecycle and route mounting
   browser/       Local browser session access control and static page routes

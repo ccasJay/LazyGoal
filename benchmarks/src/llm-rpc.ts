@@ -1,5 +1,6 @@
 import { isModelConversationMessage } from "../../packages/model-contracts/src/index.js";
-import type { LLMAdapter, LLMRequest, LLMResponse } from "../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../packages/llm/src/core/adapter.js";
+import type { LLMRequest, LLMResponse } from "../../packages/llm/src/core/types.js";
 import type { ExecutionControl } from "../../packages/execution-control/src/index.js";
 import { ExecutionAbortedError, throwIfAborted } from "../../packages/execution-control/src/index.js";
 import type { StructuredOutputMode } from "../../packages/config/src/index.js";

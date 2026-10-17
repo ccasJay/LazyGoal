@@ -34,7 +34,8 @@ describe("TuaBenchBenchmarkAdapter", () => {
     it("createEpisode 成功装配包含 bash_exec 的 ToolRegistry", async () => {
         const adapter = new TuaBenchBenchmarkAdapter({ workdir: "/workspace/agent" });
         const episode = await adapter.createEpisode(sampleTask, {
-            runId: "run-1",
+            workspaceRoot: "/workspace/agent",
+            profile: { id: "tua-adapter-test", systemPrompt: "test", instructions: [], toolIds: [] },
             signal: new AbortController().signal,
         });
 

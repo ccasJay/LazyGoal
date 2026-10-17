@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import type { LLMAdapter } from "../../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
 import { buildBenchmarkWorker } from "../../src/worker-builder.js";
 import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
 import { IsolatedEnvironment } from "../../src/isolated-environment.js";

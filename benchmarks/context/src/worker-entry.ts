@@ -6,7 +6,12 @@ import { runScriptedWorker } from "../../src/scripted-worker.js";
 export { CONTEXT_PROMPT_ASSETS, createEmbeddedPromptRenderer } from "../../src/scripted-worker.js";
 /** 原生 Context 场景的单工具 Worker，生命周期由共享 Worker 实现。 */
 export async function runContextWorker(): Promise<void> {
-    await runScriptedWorker({ toolIds: ["context_shell"], createRegistry(workspaceRoot) {
+    // 只在本地产物验证时通过环境变量覆盖状态根；容器内保持默认路径。
+    const stateRoot = process.env["LAZYGOAL_CONTEXT_STATE_ROOT"];
+    await runScriptedWorker({
+        toolIds: ["context_shell"],
+        ...(stateRoot === undefined ? {} : { stateRoot }),
+        createRegistry(workspaceRoot) {
     const shell: Tool = {
         definition: { id: "context_shell", description: "Read and modify project files, inspect configuration, and execute shell commands and tests in the isolated project.", discoveryAliases: ["file", "files", "read file", "write file", "shell", "bash", "terminal"], isReadOnly: false, inputContract: contract.object({ command: contract.string() }) },
         replayPolicy: "manual",

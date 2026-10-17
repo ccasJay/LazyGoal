@@ -8,8 +8,8 @@ import type {
 } from "../../runtime/src/trajectory";
 import {
     createDefaultModelContextBudgetPolicy,
-    TrajectoryModelContextAssembler,
-} from "../src/index";
+} from "../../context-budget/src/index";
+import { TrajectoryModelContextAssembler } from "../../model-context/src/index";
 
 export const currentProtocols = {
     memoryProtocol: { kind: "structured" as const, version: 1 as const },

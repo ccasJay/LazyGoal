@@ -2,19 +2,17 @@ import type { ToolRegistry } from "../../packages/tool-core/src/index.js";
 import { isDeepStrictEqual } from "node:util";
 import { randomUUID } from "node:crypto";
 
+import { createAgentExecutor } from "../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../packages/llm/src/core/adapter.js";
+import type { LLMRequest, LLMResponse } from "../../packages/llm/src/core/types.js";
+import { readNormalizedUsage, type NormalizedUsage } from "../../packages/llm/src/core/usage.js";
+import type { PromptBundleRenderer } from "../../packages/prompt-renderer/src/index.js";
+import { TrajectoryModelContextAssembler } from "../../packages/model-context/src/index.js";
+import type { ModelConversationMessage } from "../../packages/model-view/src/index.js";
 import {
     createDefaultModelContextBudgetPolicy,
-    LLMStepExecutor,
-    TrajectoryModelContextAssembler,
     type ContextCompactor,
-    type LLMAdapter,
-    type LLMRequest,
-    type LLMResponse,
-    type ModelConversationMessage,
-    type NormalizedUsage,
-    type PromptBundleRenderer,
-    readNormalizedUsage,
-} from "../../packages/agent/src/index.js";
+} from "../../packages/context-budget/src/index.js";
 import {
     isExecutionAbortedError,
     throwIfAborted,
@@ -613,7 +611,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
             });
             const runner = new Runner({
                 store: bindings.goalStore,
-                executor: new LLMStepExecutor({
+                executor: await createAgentExecutor({
                     adapter: usageRecorder,
                     renderer: this.dependencies.renderer,
                     contextCompactor: this.dependencies.contextCompactor,

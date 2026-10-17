@@ -14,10 +14,16 @@ import {
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { InMemoryTrajectoryStore } from "../../runtime/test/current-fixtures";
 import {
-    createDefaultPromptBundleRenderer, createDefaultModelContextBudgetPolicy,
-    DropOldestContextCompactor, LLMStepExecutor,
+    LLMStepExecutor,
+} from "../../model-execution/src/index";
+import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
+import {
     TrajectoryModelContextAssembler,
-} from "../../agent/src/index";
+} from "../../model-context/src/index";
+import {
+    createDefaultModelContextBudgetPolicy,
+    DropOldestContextCompactor,
+} from "../../context-budget/src/index";
 import { readLLMConfig } from "../../config/src/index";
 import { createLlmAdapter } from "../src/factory";
 

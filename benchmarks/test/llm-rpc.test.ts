@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { RpcLlmAdapter, createLlmRpcServer } from "../src/llm-rpc.js";
 import { MultiplexedConnection } from "../src/multiplex.js";
-import type { LLMAdapter } from "../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../packages/llm/src/core/adapter.js";
 test("RPC preserves native calls without JSON response schema and still rejects missing strict format", async () => {
     const hostToWorker = new TransformStream<Uint8Array>();
     const workerToHost = new TransformStream<Uint8Array>();
