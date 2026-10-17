@@ -16,9 +16,11 @@ import {
 } from "./current-fixtures";
 import {
     TrajectoryModelContextAssembler,
+} from "../src/index";
+import {
     createModelContextBudgetPolicy,
     DropOldestContextCompactor,
-} from "../src/index";
+} from "../../context-budget/src/index";
 
 const policy = createModelContextBudgetPolicy({ modelInputBudget: 100_000 });
 const contextCompactor = new DropOldestContextCompactor();

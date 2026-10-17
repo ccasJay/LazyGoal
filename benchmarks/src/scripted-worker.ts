@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Readable, Writable } from "node:stream";
-import { createPromptBundleRenderer, createDefaultDynamicSectionRegistry, DEFAULT_PROMPT_BUNDLE_MANIFEST, DropOldestContextCompactor, type LLMAdapter } from "../../packages/agent/src/index.js";
+import { createPromptBundleRenderer, createDefaultDynamicSectionRegistry, DEFAULT_PROMPT_BUNDLE_MANIFEST, type LLMAdapter } from "../../packages/agent/src/index.js";
+import { DropOldestContextCompactor } from "../../packages/context-budget/src/index.js";
 import { serveLazyGoalAcpAgent } from "../../packages/acp/src/index.js";
 import type { ToolRegistry } from "../../packages/tool-core/src/index.js";
 import type { AgentProfile } from "../../packages/runtime/src/index.js";

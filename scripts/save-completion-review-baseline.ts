@@ -3,7 +3,7 @@ import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createGoal, allocateImmutableEvent } from "../packages/runtime/src/index.ts";
 import { buildCompletionReviewRequest } from "../packages/agent/src/completion-review.ts";
-import { createDefaultModelContextBudgetPolicy } from "../packages/agent/src/index.ts";
+import { createDefaultModelContextBudgetPolicy } from "../packages/context-budget/src/index.ts";
 import type { CompletionReviewInput } from "../packages/runtime/src/step-executor.ts";
 
 const currentProtocols = {

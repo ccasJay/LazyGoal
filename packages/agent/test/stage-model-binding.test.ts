@@ -10,11 +10,11 @@ import type { Goal } from "../../runtime/src/domain";
 import { createEmptyWorkingMemory } from "../../working-memory/src/index";
 import {
     createDefaultPromptBundleRenderer,
-    DropOldestContextCompactor,
     LLMStepExecutor,
     createModelExecutionBinding,
     MutableModelBinding,
 } from "../src/index";
+import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import { createInMemoryTrajectoryStore, currentProtocols } from "./current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();

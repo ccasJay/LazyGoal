@@ -7,9 +7,11 @@ import type { GoalModelSelection } from "../../runtime/src/domain.js";
 import {
     createModelExecutionBinding,
     MutableModelBinding,
+} from "../src/index.js";
+import {
     ModelCapabilitiesError,
     CharacterModelInputEstimator,
-} from "../src/index.js";
+} from "../../context-budget/src/index.js";
 import { createInMemoryTrajectoryStore } from "./current-fixtures.js";
 
 class FakeAdapter implements LLMAdapter {

@@ -10,11 +10,11 @@ import type { Goal, GoalTask } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../tool-core/src/index";
 import {
     createDefaultPromptBundleRenderer,
-    DropOldestContextCompactor,
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     LLMResponseProtocolError,
     LLMStepExecutor,
 } from "../src/index";
+import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import {
     createCurrentContextAssembler,
     currentProtocols,

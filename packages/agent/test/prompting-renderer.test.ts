@@ -4,7 +4,6 @@ import { test } from "node:test";
 import type { PromptContext } from "../src/model-inference-view";
 import { PromptRenderError } from "../src/prompting/errors";
 import { createPromptBundleRenderer } from "../src/prompting/renderer";
-import { stableJson } from "../src/prompting/environment";
 import type {
     PromptBundleManifest,
     PromptTemplateDefinition,
@@ -98,16 +97,6 @@ test("Profile 与 ToolDefinition 中的 Nunjucks 语法只作为数据插入，�
 
     assert.ok(output.includes("{{ not_defined_var }}"));
     assert.ok(output.includes("{% if true %}x{% endif %}"));
-});
-
-test("stableJson 按代码单元顺序稳定输出对象键，空数组固定为 []", () => {
-    const output = stableJson({ zebra: 1, apple: 2, mango: [3, 1, 2] });
-
-    assert.ok(output.includes('"apple": 2'));
-    assert.ok(output.includes('"zebra": 1'));
-    assert.ok(output.indexOf('"apple"') < output.indexOf('"zebra"'));
-
-    assert.equal(stableJson([]), "[]");
 });
 
 test("模板源码 CRLF 统一为 LF，且输出无结尾换行", () => {

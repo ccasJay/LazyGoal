@@ -28,7 +28,7 @@ import type {
     PromptStage,
 } from "./model-inference-view";
 import { projectContextLookupResult } from "./context-lookup-projection";
-import { compareCodeUnits } from "./prompting/environment";
+import { compareCodeUnits } from "../../context-budget/src/index";
 import { buildGoalContextNavigation } from "./goal-context-navigation";
 
 /**

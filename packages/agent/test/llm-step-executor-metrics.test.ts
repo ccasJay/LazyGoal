@@ -12,9 +12,9 @@ import {
 import type { Goal, GoalMessage } from "../../runtime/src/domain";
 import {
     createDefaultPromptBundleRenderer,
-    DropOldestContextCompactor,
     LLMStepExecutor,
 } from "../src/index";
+import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import {
     createCurrentContextAssembler,
     currentProtocols,

@@ -4,7 +4,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createDefaultPromptBundleRenderer, DropOldestContextCompactor } from "../../../packages/agent/src/index.js";
+import { createDefaultPromptBundleRenderer } from "../../../packages/agent/src/index.js";
+import { DropOldestContextCompactor } from "../../../packages/context-budget/src/index.js";
 import { HeadlessCompositionRoot } from "../../src/headless-composition-root.js";
 import { JsonFileBenchmarkPersistenceAdapter } from "../../src/file-persistence-adapter.js";
 import { parseScenario } from "../src/scenario.js";

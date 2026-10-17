@@ -5,7 +5,7 @@ import { test } from "node:test";
 import {
     TrajectoryEventProjector,
 } from "../src/index";
-import { stableJson } from "../src/prompting/environment";
+import { stableJson } from "../../context-budget/src/index";
 import type {
     TrajectoryEvent,
     TrajectoryEventDraft,

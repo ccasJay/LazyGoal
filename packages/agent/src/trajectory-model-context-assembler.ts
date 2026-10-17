@@ -16,7 +16,7 @@ import { selectCommittedModelContextFrames } from "../../runtime/src/index";
 import type {
     ModelContextBudgetPolicy,
     ModelInputEstimator,
-} from "./model-context-budget";
+} from "../../context-budget/src/index";
 import {
     HotWindowSelector,
     ModelContextSourceError,
@@ -41,7 +41,7 @@ import {
     type WarmEntryKind,
 } from "./warm-reducer";
 import { deterministicWarmEntryExtractor } from "./deterministic-warm";
-import { ModelContextHardOverflowError } from "./context-selector";
+import { ModelContextHardOverflowError } from "../../context-budget/src/index";
 
 /** 分层上下文组装缺少权威来源或协议不一致时使用的稳定错误代码。 */
 export const MODEL_CONTEXT_ASSEMBLY_ERROR_CODE = "MODEL_CONTEXT_ASSEMBLY_ERROR" as const;

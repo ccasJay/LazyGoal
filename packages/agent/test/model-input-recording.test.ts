@@ -4,7 +4,8 @@ import { createGoal } from "../../runtime/src/index";
 import type { TraceRecord } from "../../runtime/src/index";
 import type { ModelInputRecord } from "../../runtime/src/model-input";
 import type { LLMRequest } from "../../llm/src/core/types";
-import { createDefaultPromptBundleRenderer, DropOldestContextCompactor, LLMStepExecutor } from "../src/index";
+import { createDefaultPromptBundleRenderer, LLMStepExecutor } from "../src/index";
+import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import { createCurrentContextAssembler, currentProtocols, currentWorkingMemory } from "./current-fixtures";
 
 test("model input is saved before failed Adapter calls and shares call identity with successful Think frames", async () => {

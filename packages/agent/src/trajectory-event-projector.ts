@@ -8,7 +8,7 @@ import { freezeTrajectoryEvent } from "../../runtime/src/index";
 import type { ModelExecutionUnit } from "./trajectory-execution-unit-adapter";
 import { ModelContextSourceError } from "./trajectory-execution-unit-adapter";
 import { projectContextLookupResult } from "./context-lookup-projection";
-import { stableJson } from "./prompting/environment";
+import { stableJson } from "../../context-budget/src/index";
 
 /** 可选的、由上游事件携带或解析出的 Artifact 引用。 */
 export interface TrajectoryArtifactReference {

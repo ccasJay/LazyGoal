@@ -13,9 +13,9 @@ import type {
 import { createGoal, ModelStageFeedbackError } from "../../runtime/src/index";
 import {
     createDefaultPromptBundleRenderer,
-    DropOldestContextCompactor,
     LLMStepExecutor,
 } from "../src/index";
+import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import {
     createCurrentContextAssembler,
     currentProtocols,

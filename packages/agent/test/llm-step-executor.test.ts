@@ -25,11 +25,11 @@ import type {
 } from "../../runtime/src/domain";
 import {
     createDefaultPromptBundleRenderer,
-    DropOldestContextCompactor,
     LLMStepExecutor,
     createModelExecutionBinding,
     MutableModelBinding,
 } from "../src/index";
+import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import { buildStepRequest } from "../src/prompt";
 import {
     createCurrentContextAssembler,

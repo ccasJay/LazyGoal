@@ -29,7 +29,7 @@ import type {
     ThinkStageResult,
     CompletionReviewInput,
 } from "../../runtime/src/step-executor";
-import type { ContextCompactor } from "./context-compactor";
+import type { ContextCompactor } from "../../context-budget/src/index";
 import type { ModelConversationMessage } from "./model-inference-view";
 import { buildStepRequest } from "./prompt";
 import { LLMResponseProtocolError } from "./errors";
@@ -39,7 +39,7 @@ import type {
     DiagnosticTraceSink,
     ModelCallMetricsRecorder,
 } from "../../runtime/src/index";
-import { createDefaultModelContextBudgetPolicy, type ModelCapabilities } from "./model-context-budget";
+import { createDefaultModelContextBudgetPolicy, type ModelCapabilities } from "../../context-budget/src/index";
 import {
     MutableModelBinding,
     type ModelExecutionBinding,

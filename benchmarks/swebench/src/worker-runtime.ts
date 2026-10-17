@@ -1,4 +1,5 @@
-import type { ContextCompactor, LLMAdapter, ModelConversationMessage, PromptBundleRenderer } from "../../../packages/agent/src/index.js";
+import type { LLMAdapter, ModelConversationMessage, PromptBundleRenderer } from "../../../packages/agent/src/index.js";
+import type { ContextCompactor } from "../../../packages/context-budget/src/index.js";
 import type {
     AcpPromptContent,
     AcpPromptResult,

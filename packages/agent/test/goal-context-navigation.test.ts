@@ -7,15 +7,17 @@ import type { Goal, RunStageState } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../tool-core/src/index";
 import { createEmptyWorkingMemory } from "../../working-memory/src/index";
 import {
+    ModelInferenceProjector,
+    TrajectoryModelContextAssembler,
+} from "../src/index";
+import {
     CharacterModelInputEstimator,
     createModelCapabilities,
     createModelContextBudgetPolicy,
     createTokenModelInputEstimator,
     DropOldestContextCompactor,
     ModelContextHardOverflowError,
-    ModelInferenceProjector,
-    TrajectoryModelContextAssembler,
-} from "../src/index";
+} from "../../context-budget/src/index";
 import { buildStepRequest } from "../src/prompt";
 import { createDefaultPromptBundleRenderer } from "../src/prompting/default-bundles";
 import {

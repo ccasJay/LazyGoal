@@ -3,10 +3,8 @@ import { isDeepStrictEqual } from "node:util";
 import { randomUUID } from "node:crypto";
 
 import {
-    createDefaultModelContextBudgetPolicy,
     LLMStepExecutor,
     TrajectoryModelContextAssembler,
-    type ContextCompactor,
     type LLMAdapter,
     type LLMRequest,
     type LLMResponse,
@@ -15,6 +13,10 @@ import {
     type PromptBundleRenderer,
     readNormalizedUsage,
 } from "../../packages/agent/src/index.js";
+import {
+    createDefaultModelContextBudgetPolicy,
+    type ContextCompactor,
+} from "../../packages/context-budget/src/index.js";
 import {
     isExecutionAbortedError,
     throwIfAborted,

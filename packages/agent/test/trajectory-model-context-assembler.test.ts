@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-    createModelContextBudgetPolicy,
-    ModelContextHardOverflowError,
     ModelContextSourceError,
     ModelInferenceProjector,
     TrajectoryModelContextAssembler,
 } from "../src/index";
+import {
+    createModelContextBudgetPolicy,
+    ModelContextHardOverflowError,
+} from "../../context-budget/src/index";
 import type {
     ModelInferenceView,
 } from "../src/index";

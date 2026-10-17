@@ -75,15 +75,19 @@ import {
 } from "../../../packages/browser/src/index";
 import { createSessionMetricsRoutes, SessionMetricsService } from "../../../packages/session-metrics/src/index";
 import {
-    createDefaultModelContextBudgetPolicy,
     createDefaultPromptBundleRenderer,
     createDefaultPromptBundleProtocolValidator,
     createModelExecutionBinding,
+    LLMStepExecutor,
+    MutableModelBinding,
+    type ModelExecutionBinding,
+    TrajectoryModelContextAssembler,
+} from "../../../packages/agent/src/index";
+import {
+    createDefaultModelContextBudgetPolicy,
     createModelContextBudgetPolicy,
     DEFAULT_LLM_CONVERSATION_CHAR_BUDGET,
     DropOldestContextCompactor,
-    LLMStepExecutor,
-    MutableModelBinding,
     resolveModelInputEstimator,
     createModelCapabilities,
     ModelCapabilitiesError,
@@ -91,10 +95,8 @@ import {
     type ModelCapabilities,
     type ModelContextBudgetPolicy,
     type ModelContextBudgetPolicyInput,
-    type ModelExecutionBinding,
     type ModelInputEstimator,
-    TrajectoryModelContextAssembler,
-} from "../../../packages/agent/src/index";
+} from "../../../packages/context-budget/src/index";
 import {
     JsonFileProviderProfileStore,
     LLMConfigurationError,

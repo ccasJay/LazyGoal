@@ -2,12 +2,14 @@ import { Readable, Writable } from "node:stream";
 import {
     createPromptBundleRenderer,
     DEFAULT_PROMPT_BUNDLE_MANIFEST,
-    DropOldestContextCompactor,
-    type ContextCompactor,
     type LLMAdapter,
     type ModelConversationMessage,
     type PromptBundleRenderer,
 } from "../../../packages/agent/src/index.js";
+import {
+    DropOldestContextCompactor,
+    type ContextCompactor,
+} from "../../../packages/context-budget/src/index.js";
 import {
     serveLazyGoalAcpAgent,
     type AcpPromptResult,

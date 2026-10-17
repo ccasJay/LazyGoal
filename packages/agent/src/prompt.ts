@@ -8,7 +8,7 @@ import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type { RuntimeFeedback } from "../../runtime/src/runtime-feedback";
 import type { ToolDefinition } from "../../tool-core/src/index";
 import type { ToolDiscoveryResult } from "../../runtime/src/tool-discovery";
-import type { ContextCompactor } from "./context-compactor";
+import type { ContextCompactor } from "../../context-budget/src/index";
 import {
     ConversationContextUnitAdapter,
     flattenContextUnits,
@@ -32,8 +32,8 @@ import {
 import {
     TokenBudgetPlanner,
     type ModelCapabilities,
-} from "./model-context-budget";
-import { ModelContextHardOverflowError } from "./context-selector";
+} from "../../context-budget/src/index";
+import { ModelContextHardOverflowError } from "../../context-budget/src/index";
 
 import type {
     AgentDecision,

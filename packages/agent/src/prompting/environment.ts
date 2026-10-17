@@ -1,6 +1,8 @@
 import { Environment } from "nunjucks";
 import type { ILoader } from "nunjucks";
 
+import { stableJson } from "../../../context-budget/src/index";
+
 /**
  * 把 CRLF/CR 统一转为 LF。
  *
@@ -13,71 +15,6 @@ import type { ILoader } from "nunjucks";
  */
 export function normalizeNewlines(text: string): string {
     return text.replace(/\r\n?/g, "\n");
-}
-
-/**
- * 按稳定代码单元顺序比较两个字符串。
- *
- * @remarks
- * 不使用受 locale 影响的 `localeCompare`，也不按 UTF-16 符号语言排序，
- * 而是逐字符比较 code unit 数值，保证跨环境结果一致。用于 `stableJson` 的键排序
- * 与 Authorized Tools 的 Tool ID 排序。
- */
-export function compareCodeUnits(a: string, b: string): number {
-    const length = Math.min(a.length, b.length);
-
-    for (let i = 0; i < length; i += 1) {
-        const left = a.charCodeAt(i);
-        const right = b.charCodeAt(i);
-
-        if (left !== right) {
-            return left - right;
-        }
-    }
-
-    return a.length - b.length;
-}
-
-/**
- * 递归把对象键按代码单元顺序排序；数组保持原顺序。
- *
- * @remarks
- * 仅重排对象键，不改变数组元素顺序，也不改变任何标量值。
- */
-function sortKeysDeep(value: unknown): unknown {
-    if (Array.isArray(value)) {
-        return value.map(sortKeysDeep);
-    }
-
-    if (value !== null && typeof value === "object") {
-        const record = value as Record<string, unknown>;
-        const sorted: Record<string, unknown> = {};
-
-        for (const key of Object.keys(record).sort(compareCodeUnits)) {
-            sorted[key] = sortKeysDeep(record[key]);
-        }
-
-        return sorted;
-    }
-
-    return value;
-}
-
-/**
- * 同步 `stableJson` Nunjucks Filter。
- *
- * @remarks
- * 对象键按稳定代码单元顺序递归排序、数组保持原顺序，再用两空格缩进序列化，
- * 使相同数据始终产生相同 JSON 文本。空数组固定输出 `[]`。该 Filter 是 Prompt
- * 环境唯一允许的自定义 Filter，且必须是同步的。
- *
- * @param value - 需要序列化的运行时数据（如 ToolDefinition 或 inputSchema）。
- * @returns 两空格缩进、键序稳定的 JSON 字符串。
- */
-export function stableJson(value: unknown): string {
-    const serialized = JSON.stringify(sortKeysDeep(value), null, 2);
-
-    return serialized === undefined ? "null" : serialized;
 }
 
 /**

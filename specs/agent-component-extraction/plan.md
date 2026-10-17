@@ -12,7 +12,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 保存现有行为对照并独立消费预算与裁剪策略
+- [x] //TODO 1. 保存现有行为对照并独立消费预算与裁剪策略
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.5](./spec.md#spec-req-1-5)、[3.1](./spec.md#spec-req-3-1)、[4.4](./spec.md#spec-req-4-4)、[5.1](./spec.md#spec-req-5-1)。
   - 先验证：基于现有 Prompt、原生历史、Section 和阶段 fixture，在首次改生产源码前建立拟新增 `packages/agent/test/component-extraction-baseline.test.ts` 及明确的对照数据，记录消息/工具声明/契约、预算/frame、模板正文和关键调用后果。只规范化非确定时间、随机身份且保持配对；基线生成与测试断言分开，回归不自动覆盖基线。同时用 `context-budget` 入口验证字符/Token 计量、完整连续单元选择、最新单元软超限保留、硬超限、取消、不修改输入，以及稳定序列化。
   - 实现：迁移预算、ContextUnit、Compactor、通用 Selector 和 thought-budget 到 `context-budget`，拆出无模板依赖的确定性序列化；所有当前预算/序列化消费者直接引用新入口。迁移现有相关测试并创建最小私有 manifest，不新建算法或通用工具包。保存对照数据的来源及内容指纹，后续归入 TODO 6 的执行集成测试。

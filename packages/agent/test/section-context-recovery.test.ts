@@ -21,16 +21,18 @@ import type {
     TrajectoryStore,
 } from "../../runtime/src/index";
 import {
+    ModelInferenceProjector,
+    TrajectoryModelContextAssembler,
+} from "../src/index";
+import {
     CharacterModelInputEstimator,
     createModelCapabilities,
     createModelContextBudgetPolicy,
     createTokenModelInputEstimator,
     DropOldestContextCompactor,
     ModelContextHardOverflowError,
-    ModelInferenceProjector,
-    TrajectoryModelContextAssembler,
-} from "../src/index";
-import type { ModelCapabilities } from "../src/model-context-budget";
+    type ModelCapabilities,
+} from "../../context-budget/src/index";
 import { buildStepRequest } from "../src/prompt";
 import { createDefaultPromptBundleRenderer } from "../src/prompting/default-bundles";
 import type { DynamicSectionMessage } from "../src/prompting/dynamic-section-registry";

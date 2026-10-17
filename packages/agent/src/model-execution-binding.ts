@@ -12,7 +12,7 @@ import {
     type ModelContextBudgetPolicy,
     type ModelContextBudgetPolicyInput,
     type ModelInputEstimator,
-} from "./model-context-budget.js";
+} from "../../context-budget/src/index.js";
 import { TrajectoryModelContextAssembler } from "./trajectory-model-context-assembler.js";
 
 /**

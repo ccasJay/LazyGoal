@@ -4,9 +4,9 @@ import type {
 import {
     freezeTrajectoryEvent,
 } from "../../runtime/src/index";
-import type { ModelInputEstimator } from "./model-context-budget";
-import { CharacterModelInputEstimator } from "./model-context-budget";
-import { stableJson } from "./prompting/environment";
+import type { ModelInputEstimator } from "../../context-budget/src/index";
+import { CharacterModelInputEstimator } from "../../context-budget/src/index";
+import { stableJson } from "../../context-budget/src/index";
 
 /** 分层模型上下文在 Trajectory 来源非法时使用的稳定错误代码。 */
 export const MODEL_CONTEXT_SOURCE_ERROR_CODE = "MODEL_CONTEXT_SOURCE_ERROR" as const;

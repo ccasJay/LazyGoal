@@ -8,7 +8,7 @@ import type {
     ModelGoalContextNavigationView,
     ModelRunStageView,
 } from "./model-inference-view";
-import { compareCodeUnits } from "./prompting/environment";
+import { compareCodeUnits } from "../../context-budget/src/index";
 
 /**
  * 导航视图支持的历史阶段输入形态。

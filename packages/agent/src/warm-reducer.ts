@@ -1,5 +1,5 @@
-import type { ModelInputEstimator } from "./model-context-budget";
-import { CharacterModelInputEstimator } from "./model-context-budget";
+import type { ModelInputEstimator } from "../../context-budget/src/index";
+import { CharacterModelInputEstimator } from "../../context-budget/src/index";
 
 /** Warm Compact 支持的语义分区。 */
 export type WarmEntryKind =

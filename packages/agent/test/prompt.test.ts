@@ -49,15 +49,17 @@ import type {
 } from "../src/model-inference-view";
 
 const PATH_INPUT_CONTRACT = contract.object({ path: contract.string() });
-import type { ContextCompactor } from "../src/context-compactor";
 import type { PromptBundleRenderer } from "../src/prompting/types";
 import { buildStepRequest } from "../src/prompt";
 import {
     createDefaultPromptBundleRenderer,
-    createModelContextBudgetPolicy,
-    DropOldestContextCompactor,
     TrajectoryModelContextAssembler,
 } from "../src/index";
+import {
+    createModelContextBudgetPolicy,
+    DropOldestContextCompactor,
+} from "../../context-budget/src/index";
+import type { ContextCompactor } from "../../context-budget/src/index";
 import { ModelInferenceProjector } from "../src/model-inference-projector";
 import type { TrajectoryModelContextAssemblyInput } from "../src/trajectory-model-context-assembler";
 import { currentProtocols, currentWorkingMemory } from "./current-fixtures";

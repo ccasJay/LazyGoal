@@ -1,4 +1,4 @@
-import { stableJson } from "./prompting/environment";
+import { stableJson } from "./stable-json";
 
 /** 模型输入预算使用的计量单位。 */
 export type ModelInputMeasurementUnit = "token" | "character";

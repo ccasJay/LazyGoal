@@ -8,10 +8,10 @@ import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
 import {
     createDefaultPromptBundleRenderer,
     createModelExecutionBinding,
-    DropOldestContextCompactor,
     LLMStepExecutor,
     MutableModelBinding,
 } from "../../agent/src/index";
+import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import {
     createEmptyGoalPlan,
     createGoal,

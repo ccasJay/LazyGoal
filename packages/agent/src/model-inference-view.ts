@@ -1,4 +1,4 @@
-import type { ModelContextBudgetPlan } from "./model-context-budget";
+import type { ModelContextBudgetPlan } from "../../context-budget/src/index";
 import type { ModelExecutionUnitProjection } from "./trajectory-event-projector";
 import type { WarmCompactEntry } from "./warm-reducer";
 

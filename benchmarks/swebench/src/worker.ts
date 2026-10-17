@@ -3,8 +3,8 @@ import {
     createPromptBundleRenderer,
     DEFAULT_PROMPT_BUNDLE_MANIFEST,
     type PromptBundleRenderer,
-    DropOldestContextCompactor,
 } from "../../../packages/agent/src/index.js";
+import { DropOldestContextCompactor } from "../../../packages/context-budget/src/index.js";
 import {
     serveLazyGoalAcpAgent,
     type AcpSession,

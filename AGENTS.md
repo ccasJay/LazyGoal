@@ -27,6 +27,7 @@ prompt-evaluation/ External prompt optimization integrations
   gepa/            Official GEPA adapter for LazyGoal Prompt Evaluation
 packages/        Private `@lazygoal/*` workspaces
   contracts/      Contract AST builders and static type inference core
+  context-budget/ Model input metering, budget allocation, unit selection, and stable serialization
   execution-control/ Process-local cancellation primitives and transient model failure protocols
   model-contracts/ Model output contracts, wire projection, schema compilation, and conversation protocols
   working-memory/ Structured working memory domain contracts, patch validation, reduction, and lifecycle

@@ -11,16 +11,15 @@ import type {
     AgentProfile,
     Goal,
 } from "../../runtime/src/index";
-import type { ContextCompactor } from "../src/context-compactor";
-import type { ContextUnit } from "../src/context-unit";
+import type { ContextCompactor, ContextUnit } from "../../context-budget/src/index";
 import type { ModelConversationMessage } from "../src/model-inference-view";
 import type { ModelInferenceView } from "../src/model-inference-view";
 import type { TrajectoryModelContextAssembler } from "../src/trajectory-model-context-assembler";
 import {
     createDefaultPromptBundleRenderer,
-    DropOldestContextCompactor,
     LLMStepExecutor,
 } from "../src/index";
+import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import {
     createCurrentContextAssembler,
     currentProtocols,
