@@ -4,7 +4,7 @@ import { parseArgs } from "node:util";
 import { randomUUID } from "node:crypto";
 
 import { readLLMConfig } from "../../../packages/config/src/index.js";
-import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
+import { createLlmAdapter } from "../../../packages/llm/src/index.js";
 import { buildBenchmarkWorker } from "../../src/worker-builder.js";
 import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
 import { loadGaiaManifest } from "./manifest.js";

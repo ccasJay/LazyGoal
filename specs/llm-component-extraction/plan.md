@@ -38,7 +38,7 @@
   - 实现：迁入目录及 Fetcher 实现、描述与错误契约，通过包内契约文件消除实现循环；仅依赖 core 和实际所需的同版本 pi-ai 静态目录 SDK。同步 goal-server 装配、CLI、模型切换及其它目录消费者，删除旧位置；不增加缓存、后台刷新或模型 Binding 所有权，补所属文档和 Config/LLM 读者链接。
   - 检查：`npx tsx --test packages/model-catalog/test/*.test.ts apps/goal-server/test/composition-root-model-switching.test.ts`；`npx tsc --noEmit`；`npx tsc --noEmit -p apps/goal-server/tsconfig.json`。所有在线场景使用受控 fetch；核对本包不通过生成适配器取得目录或发出生成请求。
 
-- [ ] //TODO 6. 经默认工厂入口装配现有模型并清理旧调用路径
+- [x] //TODO 6. 经默认工厂入口装配现有模型并清理旧调用路径
   - 落实标准：[1.2](./spec.md#spec-req-1-2)、[1.4](./spec.md#spec-req-1-4)、[2.1](./spec.md#spec-req-2-1)、[5.1](./spec.md#spec-req-5-1)、[5.3](./spec.md#spec-req-5-3)、[5.4](./spec.md#spec-req-5-4)、[6.1](./spec.md#spec-req-6-1)、[6.4](./spec.md#spec-req-6-4)。
   - 先验证：拟新增 `packages/llm/test/default-adapters.test.ts`，从 `src/index.ts` 检查三个工厂对现有供应商/模式的实际类型、固定模式、端点、模型和容量拒绝；相同输入与直接构造路径比较请求/结果。扩展现有 `two-stage-config.test.ts` 和 Config 集成测试，保留 Think/Decide 与 Reflection 的选择差异，并验证构造零网络调用和统一配置错误身份。检查入口只公开三个工厂及自有阶段结果类型，旧 factory/adapter/core/目录路径不再存在或被消费。
   - 实现：将默认装配收进拟新增 `llm/src/default-adapters.ts` 并建立唯一公共入口，删除旧 `factory.ts`，迁移所有工厂调用者；llm 只依赖 core 和三个适配包，不直接依赖 config、model-catalog 或生成 SDK。将 src 下 smoke 可执行入口移入 `test/`，保持现有两条付费 smoke npm 命令的显式语义，更新直接运行路径和宿主依赖归属。同步测试、脚本与当前文档，不批量重写历史 Spec/Memory，不新增路径兼容文件。

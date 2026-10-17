@@ -1,5 +1,5 @@
-# 模型适配
+# 模型默认装配
 
-供应商通信、统一消息和增量流；Prompt 校验和运行状态分别归 Agent 与 Runtime。
+按已校验配置选择默认 Adapter 与 Think/Decide 阶段对。
 
 阅读 [模块说明](./notes/overview.md)、[语义表](./notes/semantics.md)。

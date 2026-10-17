@@ -116,7 +116,7 @@ import {
     resolveLazyGoalHomePaths,
     resolveWorkspaceHomePaths,
 } from "../../../packages/config/src/index";
-import { createLlmStageAdapters, type LlmStageAdapters } from "../../../packages/llm/src/factory";
+import { createLlmStageAdapters, type LlmStageAdapters } from "../../../packages/llm/src/index";
 import {
     createLlmModelCatalog,
     ModelCatalogError,

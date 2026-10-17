@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 import { resolve, dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { loadRuntimeConfig } from "../../../packages/config/src/index.js";
-import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
+import { createLlmAdapter } from "../../../packages/llm/src/index.js";
 import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
 import { record, textValue, parseScenario } from "./scenario.js";
 import { identity } from "./artifacts.js";

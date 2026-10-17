@@ -966,7 +966,7 @@ test("fails before creating episode when task descriptor requires an unauthorize
 test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing", async () => {
     const { createServer } = await import("node:http");
     const { once } = await import("node:events");
-    const { createLlmAdapter } = await import("../../packages/llm/src/factory.js");
+    const { createLlmAdapter } = await import("../../packages/llm/src/index.js");
     const { readLLMConfig } = await import("../../packages/config/src/index.js");
     const trajectoryStore = new InMemoryTrajectoryStore();
     const dependencies = createDependencies({

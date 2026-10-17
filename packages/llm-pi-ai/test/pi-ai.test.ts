@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import type { AssistantMessage, Context, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { PiAiAdapter, PiAiProviderError, buildPiAiRequestOptions } from "../src/index";
-import { createLlmAdapter } from "../../llm/src/factory";
+import { createLlmAdapter } from "../../llm/src/index";
 import { readLLMConfig } from "../../config/src/index";
 import {
     LLMConfigurationError,

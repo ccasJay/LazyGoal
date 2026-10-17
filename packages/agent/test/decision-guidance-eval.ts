@@ -11,7 +11,7 @@ import type { LLMResponse } from "../../llm-core/src/index";
 import type { StructuredOutputMode } from "../../llm-core/src/index";
 import { readLLMConfig } from "../../config/src/index";
 import { LLMConfigurationError } from "../../llm-core/src/index";
-import { createLlmAdapter } from "../../llm/src/factory";
+import { createLlmAdapter } from "../../llm/src/index";
 import { DEFAULT_PROMPT_TEMPLATE_ASSETS, DEFAULT_PROMPT_BUNDLE_MANIFEST } from "../src/prompting/default-bundles";
 import { createPromptBundleRenderer } from "../src/prompting/renderer";
 import type { PromptBundleRenderer, PromptContext } from "../src/prompting/types";

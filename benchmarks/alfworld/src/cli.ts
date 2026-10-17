@@ -9,7 +9,7 @@ import {
     DropOldestContextCompactor,
 } from "../../../packages/agent/src/index.js";
 import { readLLMConfig } from "../../../packages/config/src/index.js";
-import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
+import { createLlmAdapter } from "../../../packages/llm/src/index.js";
 import {
     EvaluationRunner,
 } from "./evaluation-runner.js";

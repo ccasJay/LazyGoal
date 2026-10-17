@@ -1,18 +1,13 @@
-# 模型适配
+# 模型默认装配
 
-供应商通信、统一消息和增量流；Prompt 校验和运行状态分别归 Agent 与 Runtime。本文描述当前实现、使用边界与限制。
-
+本模块按已校验的共享配置选择默认 Adapter。供应商实现、pi-ai 适配与模型目录分别归各自的能力包；本模块只保留选择策略、阶段装配和显式付费 smoke 入口。
 
 ## 职责与调用
 
-LLM 模块负责供应商通信。`LLMAdapter.generate` 接收有序文本或原生工具消息，返回正文、
-独立 reasoning 摘要、工具调用、续接字段及诊断 metadata；可选的 `stream` 将 Provider 增量归一化为供应商无关事件，由 Agent
-适配到 `@lazygoal/execution-stream`；Agent 负责 Prompt、JSON 结构和语义校验，Runtime 负责工具、状态与恢复。
-调用与响应契约及共享连接配置归 [llm-core](../../llm-core/notes/overview.md)；本包实现具体供应商并保持默认装配。
-CLI、ALFWorld 和 smoke 的 Home/workspace 路径、TOML/Profile 配置解析、常规运行配置加载及 GEPA 双模型加载均来自 `@lazygoal/config`。模型解析在创建 Goal、Store 或 sidecar 前完成，具体实现见
-[配置架构](../../config/notes/overview.md) 与
-[工厂](../src/factory.ts)。
-Adapter 构造时固定输出模式，不自动降级或切换 provider。
+- [createLlmAdapter](../src/default-adapters.ts)：`prompt_only` 使用 [llm-pi-ai](../../llm-pi-ai/notes/overview.md)；原生 `strict` 使用当前 [llm-openai](../../llm-openai/notes/overview.md) 与 [llm-google](../../llm-google/notes/overview.md) 实现；`two_stage` 按供应商选择对应 Decide 模式，不支持的显式 `strict` 仍拒绝。
+- [createLlmStageAdapters](../src/default-adapters.ts)：同一选择构造不可变的 Think/Decide 对；Think 固定 `prompt_only`，Decide 对原生供应商固定 `strict`，其余固定 `prompt_only`。
+- [createReflectionLlmAdapter](../src/default-adapters.ts)：OpenAI/OpenAI-compatible/Google 优先当前原生实现，其余复用现有默认适配，不引入新供应商或网络目录校验。
+- 三个工厂构造时不发网络请求、不读取环境凭据、不创建存储。共享 `LLMConfig`、调用契约与配置错误归 [llm-core](../../llm-core/notes/overview.md)；配置读取与校验归 [Config](../../config/notes/overview.md)。
 
 | Provider | `prompt_only` | `strict` |
 | --- | --- | --- |
@@ -21,62 +16,12 @@ Adapter 构造时固定输出模式，不自动降级或切换 provider。
 | `anthropic`、`openrouter`、`deepseek`、`opencode-go` | pi-ai 对应 provider | 配置错误 |
 | `openai-compatible` | pi-ai Chat Completions | 原生 OpenAI-compatible |
 
-Runtime 使用 `createLlmStageAdapters` 为同一 selection 绑定 Think/Decide Adapter 对：Think 固定
-`prompt_only`；Decide 在 OpenAI、Google、OpenAI-compatible 上固定 `strict`，在 Anthropic、
-OpenRouter、DeepSeek、OpenCode Go 上固定 `prompt_only`。环境变量入口可构造 `two_stage`；TOML 入口会拒绝 Anthropic、OpenRouter、DeepSeek、OpenCode Go 的 `two_stage`；它表示
-Runtime 阶段绑定策略，不要求两个 Adapter 使用相同的结构化输出模式。显式单阶段 `strict` 在不支持
-原生 strict 的 Provider 上仍是配置错误。
+`two_stage` 表示 Runtime 在 Think/Decide 阶段间绑定输出模式，不要求两个 Adapter 使用相同模式；环境变量入口与 TOML 入口对部分供应商的既有接受差异由 [Config](../../config/notes/model-configuration.md) 说明。阶段对的实际类型差异由 [default-adapters 测试](../test/default-adapters.test.ts) 与 [阶段配置测试](../test/two-stage-config.test.ts) 对照。
 
-[PiAiAdapter](../../llm-pi-ai/notes/overview.md) 使用锁定版本的目录，并将 SDK 的 text/thinking/tool-call 增量转换为统一流事件；`generate()` 仍只返回完整响应。
-前置 system 消息按顺序合并，user/assistant 顺序不变；中途 system 消息被拒绝。
-工具选择映射以模型 API 为准：`auto/none` 经 pi-ai simple 入口传递；`required` 经完整 API 入口映射为 OpenAI 的 `required` 或 Anthropic/Gemini 的 `any`。`generate` 与 `stream` 使用相同映射，省略时保留 SDK 默认行为。
-正文只取 text 块，工具调用独立返回；thinking 只走受限实时事件，不进入最终正文、持久化历史或诊断正文。
-无工具请求拒绝意外调用；工具请求接受正常结束或工具调用结束，拒绝截断、错误及其它非完成状态。
-空文本仍交给 Agent 拒绝；不在 Adapter 修复 JSON。Adapter 只将限流、暂时性 5xx、连接和超时映射为类型化暂时故障，其他错误保持失败；OpenAI 与 Gemini SDK 内部重试已关闭，避免与 Runtime 调用上限叠加。
-OpenCode Go 复用 pi-ai `1.3.0` 的 `opencode-go` provider：端点固定为官方 `https://opencode.ai/inference/go`；请求始终携带 LazyGoal 自有 User-Agent，并在 Agent 传入 `LLMRequest.sessionId`（运行期取 `goal.id`）时由 pi-ai 发送 `x-opencode-session`。该 UA 与会话头仅作用于 OpenCode Go，其它供应商请求不变。
+## 依赖与入口
 
-所有 Adapter 在请求前后检查取消信号并传入 SDK。取消统一为 `@lazygoal/execution-control` 的 `ExecutionAbortedError`；
-pi-ai 返回型失败转换为 `PiAiProviderError`；可识别的暂时 Provider/传输异常映射为 `@lazygoal/execution-control` 的 `TransientModelRequestFailure`，LLM 模块不依赖 `@lazygoal/runtime`。
-请求与模式不匹配时抛出 `LLMRequestModeMismatchError`。
-原生 Adapter 在无工具请求中将 strict 映射为 OpenAI `response_format.json_schema` 和 Gemini `responseSchema`；Decide 挂载工具时只使用函数参数 Schema，不同时发送顶层决策 Schema。OpenAI 与 Gemini 的原生实现、投影、续接身份与用量提取分别归 [llm-openai](../../llm-openai/notes/overview.md) 与 [llm-google](../../llm-google/notes/overview.md)；pi-ai 适配归 [llm-pi-ai](../../llm-pi-ai/notes/overview.md)；本包保留模型目录与默认装配。
-Gemini strict 输出将决策判别联合打平为带 `nullable: true` 的全量 required 扁平对象，从语法机源头约束
-`action` 等关键字段生成；逆向投影剥离非目标分支字段并恢复空值与证据哨兵值，再交由 Wire Contract 校验。
-端点拒绝 Schema 或返回非法决策时明确失败，不自动降级。
-strict 仍需经过同一套本地校验。公开调用契约见 [llm-core](../../llm-core/notes/overview.md)。
+`llm` 只依赖 `llm-core`、`llm-openai`、`llm-google` 与 `llm-pi-ai`；不直接依赖 `config`、`model-catalog` 或生成 SDK。公共入口 [src/index.ts](../src/index.ts) 只导出三个默认工厂与自有 `LlmStageAdapters` 类型；旧 factory/core/adapter 与目录路径不再存在或被消费，无兼容转发。模型目录查询与模型切换由 [model-catalog](../../model-catalog/notes/overview.md) 与宿主装配负责，默认工厂不自动发起在线发现。
 
-[LlmModelCatalog](../../model-catalog/notes/overview.md)（现归 `@lazygoal/model-catalog`）负责当前 Provider 的模型发现与能力补全，默认组合 [DefaultProviderModelFetcher](../../model-catalog/src/provider-fetchers.ts) 进行在线发现：
-- 适配 OpenAI、Google、Anthropic、OpenRouter、DeepSeek、`openai-compatible` 与 OpenCode Go 的官方/配置端点与专属鉴权头；
-- Google (`pageToken`) 与 Anthropic (`has_more` / `last_id`) 支持安全完整分页，拒绝不递进或循环 cursor；
-- 共享 5000ms 超时与外部取消，并以 pi-ai 静态目录补充上下文容量、展示名与视觉能力；
-- 模型容量可缺省：字符预算模式允许选择缺少上下文容量或输出上限的模型；Token 预算模式仅允许同时具备两项容量的模型，且输出上限须小于上下文容量；
-- 网络故障、超时或端点不支持 (404/405/501) 允许静态目录或配置兜底；鉴权 (401)、权限 (403) 与协议非法错误坚决拒绝且不静默降级；
-- 所有异常与日志严格脱敏，不复制任何 API Key、Authorization 头或敏感响应正文。
+## Smoke 入口与限制
 
-## 配置归属
-
-系统配置与 GEPA 双模型规则见 [Config 的模型配置](../../config/notes/model-configuration.md)。
-
-## 诊断与限制
-
-原生 Adapter 的真实上报计数写入 `providerMetadata.usage`，缺失时省略。
-pi-ai 不能证明计数是否真实上报，故只写非权威 `piUsage` 数值，始终省略 `usage`；
-benchmark 将这些调用计入 `missingCalls`。Trace 对 metadata 脱敏限长；metadata 不进入
-Goal Snapshot、Domain Event 或模型上下文。不保存认证头或完整 SDK 响应。原生响应正文、公开 reasoning 摘要和必要续接字段单独随接受的阶段事实保存到 Trajectory，不属于诊断 metadata。
-
-原生 OpenAI Chat Completions 与 Gemini 支持 assistant 工具调用和配对结果回传。Adapter 身份绑定 provider、端点、模型与协议；正文与公开 reasoning 摘要分离，Gemini 原始 Parts 和不透明签名按顺序保存。OpenAI 回传明确返回的 `reasoning_content` 扩展字段，不把摘要当作正文。OpenAI 禁止并行调用，Agent 在动作解码前要求 Decide 恰好一个调用、Think 无调用。
-
-当前仅支持文本、函数工具与显式 API Key；不支持 Responses reasoning items、其他多模态 Part、OAuth、云身份或 reasoning 强度配置。pi-ai 保持既有语义历史，不接收原生 Adapter 的续接载荷。自定义兼容服务的 pi-ai 路径须支持流式 Chat Completions。
-
-GEPA 的 `start` 与 `resume` 属于显式付费操作：控制面在调用模型或 benchmark 前要求
-`--yes`，上层 smoke 还必须向操作者显示 Working/Reflection 模型、预算和目标 Profile
-副作用。默认回归使用 fake Working CLI、fake Reflection LM 和临时目录；真实双模型路径
-仅由显式 smoke 触发。
-
-`npm run llm:agent-smoke` 读取 `.env` 和进程环境，真实执行统一任务提案、任务批准、
-一次无副作用的 `smoke_evidence` 工具调用及完成，并验证 Observation 证据。
-只使用内存存储；SIGINT 取消调用并返回 130。该命令会产生费用，不属于自动化回归。
-成功、失败或取消输出包含 provider、model 和 mode；凭据缺失时不代表已验证。
-
-`npm run llm:native-dialogue-smoke` 使用显式 OpenAI/OpenAI-compatible/Google 环境配置，产生两次真实模型请求，验证首轮工具结果能原生回传到第二轮。工具只返回固定证据，不修改工作区。该付费 smoke 不进入自动回归；未运行或缺少凭据时不得报告供应商端到端验证通过。
-
-`DefaultProviderModelFetcher`（归 [model-catalog](../../model-catalog/notes/overview.md)）的连接参数 `ProviderModelConnection` 仅要求供应商、密钥与适用端点，允许在选定模型前查询在线列表；不需要构造生成模型与容量配置。直接使用该 Fetcher 不补静态回退目录，其取消、超时和脱敏错误语义保持一致。
+[agent-smoke-test.ts](../test/agent-smoke-test.ts) 与 [native-dialogue-smoke.ts](../test/native-dialogue-smoke.ts) 是显式付费 smoke 入口，读取 `.env` 与进程环境，不属于自动回归；`npm run llm:agent-smoke` 与 `npm run llm:native-dialogue-smoke` 保持既有语义，凭据缺失、失败或取消时不得报告供应商端到端验证通过。本模块不拥有 Provider 特定请求映射、流聚合或目录缓存。

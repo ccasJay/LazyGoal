@@ -1,4 +1,4 @@
-import { createLlmAdapter } from "./factory";
+import { createLlmAdapter } from "../src/index";
 import { readLLMConfig } from "../../config/src/index";
 import "dotenv/config";
 
