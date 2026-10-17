@@ -3,7 +3,7 @@ import { resolve, dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
-import type { LLMAdapter } from "../../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import { WORKER_NODE_IMAGE } from "../../src/worker-builder.js";
 import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
 import { buildContextWorker, captureScenario, runPairedCase, type ModelRole } from "./runner.js";

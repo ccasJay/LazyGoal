@@ -6,7 +6,7 @@ import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
 
-import type { LLMConfig, LLMProvider } from "../../config/src/index.js";
+import type { LLMConfig, LLMProvider } from "../../llm-core/src/index.js";
 import { DefaultProviderModelFetcher } from "./provider-fetchers.js";
 
 /**

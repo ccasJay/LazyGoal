@@ -8,9 +8,9 @@ type DecideResponseOutcome =
     | { readonly kind: "call"; readonly call: LLMToolCall }
     | { readonly kind: "batch"; readonly calls: readonly LLMToolCall[] }
     | { readonly kind: "assistant_message"; readonly text: string };
-import type { LLMAdapter } from "../../llm/src/core/adapter";
-import type { LLMStreamEvent } from "../../llm/src/core/types";
-import { readNormalizedUsage } from "../../llm/src/core/usage";
+import type { LLMAdapter } from "../../llm-core/src/index";
+import type { LLMStreamEvent } from "../../llm-core/src/index";
+import { readNormalizedUsage } from "../../llm-core/src/index";
 import type {
     AgentDecision,
     Goal,
@@ -57,7 +57,7 @@ import {
     type SystemToolDeclaration,
 } from "../../model-contracts/src/index";
 import { ContractValidationError } from "../../contracts/src/errors";
-import type { LLMResponse, LLMToolDefinition, LLMToolCall } from "../../llm/src/core/types";
+import type { LLMResponse, LLMToolDefinition, LLMToolCall } from "../../llm-core/src/index";
 import type { ExecutionStreamEventDraft, ExecutionStreamPublisher } from "../../execution-stream/src/index";
 import { toModelStageFeedback } from "./stage-feedback";
 import { buildCompletionReviewRequest } from "./completion-review";

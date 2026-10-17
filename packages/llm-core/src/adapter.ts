@@ -1,14 +1,11 @@
-import type { NativeConversationIdentity } from "../../../model-contracts/src/index";
+import type { NativeConversationIdentity } from "../../model-contracts/src/index";
 import type {
     LLMRequest,
     LLMResponse,
     LLMStreamEvent,
 } from "./types";
-import type { StructuredOutputMode } from "../../../config/src/index";
-import type { ExecutionControl } from "../../../execution-control/src/index";
-
-export type { LLMRequest, LLMResponse, LLMStreamEvent };
-export type { StructuredOutputMode } from "../../../config/src/index";
+import type { StructuredOutputMode } from "./llm-config";
+import type { ExecutionControl } from "../../execution-control/src/index";
 
 /**
  * Agent 与具体 LLM 供应商之间的最小适配边界。

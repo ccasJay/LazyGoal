@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { LLMAdapter } from "../../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import { WORKER_NODE_IMAGE } from "../../src/worker-builder.js";
 import { captureScenario, buildContextWorker, runPairedCase } from "./runner.js";
 import { freezeCandidate, reviewCandidate } from "./corpus.js";

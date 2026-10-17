@@ -1,4 +1,4 @@
-import type { LLMProvider } from "../../config/src/index.js";
+import type { LLMProvider } from "../../llm-core/src/index.js";
 import {
     ModelCatalogError,
     type ProviderModelFetcher,

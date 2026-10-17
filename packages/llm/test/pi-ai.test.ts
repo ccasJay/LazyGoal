@@ -6,9 +6,13 @@ import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/e
 import type { AssistantMessage, Context, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { PiAiAdapter, PiAiProviderError, buildPiAiRequestOptions } from "../src/pi-ai";
 import { createLlmAdapter } from "../src/factory";
-import { readLLMConfig, LLMConfigurationError } from "../../config/src/index";
-import { LLMRequestModeMismatchError, type LLMRequest } from "../src/core/types";
-import { readNormalizedUsage } from "../src/core/usage";
+import { readLLMConfig } from "../../config/src/index";
+import {
+    LLMConfigurationError,
+    LLMRequestModeMismatchError,
+    readNormalizedUsage,
+    type LLMRequest,
+} from "../../llm-core/src/index";
 import { ExecutionAbortedError } from "../../execution-control/src/index";
 
 const json = '{"answer":"ok"}';

@@ -1,4 +1,4 @@
-import type { LLMRequest } from "../../llm/src/core/types";
+import type { LLMRequest } from "../../llm-core/src/index";
 import type { ContractValidationError } from "../../contracts/src/index";
 import type {
     AgentDecision,

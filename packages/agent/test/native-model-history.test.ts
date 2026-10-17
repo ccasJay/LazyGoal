@@ -13,7 +13,7 @@ import { collectNativeModelExchanges } from "../src/native-model-history";
 import { TrajectoryEventProjector } from "../src/trajectory-event-projector";
 import { createDefaultPromptBundleRenderer, createDefaultModelContextBudgetPolicy, createModelContextBudgetPolicy, createModelExecutionBinding, DropOldestContextCompactor, LLMStepExecutor, ModelInferenceProjector, TrajectoryModelContextAssembler } from "../src/index";
 import { buildStepRequest } from "../src/prompt";
-import type { LLMAdapter, LLMRequest, LLMResponse } from "../../llm/src/core/adapter";
+import type { LLMAdapter, LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import { currentProtocols, currentWorkingMemory, createInMemoryTrajectoryStore } from "./current-fixtures";
 
 const identity: NativeConversationIdentity = { provider: "google", endpoint: "https://generativelanguage.googleapis.com/v1beta", model: "test", protocol: "gemini-content" };

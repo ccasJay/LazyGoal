@@ -2,10 +2,10 @@ import { join } from "node:path";
 
 import type {
     ContextCompactor,
-    LLMAdapter,
     ModelConversationMessage,
     PromptBundleRenderer,
 } from "../../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import { createDefaultPromptBundleProtocolValidator } from "../../../packages/agent/src/index.js";
 import {
     ExecutionAbortedError,

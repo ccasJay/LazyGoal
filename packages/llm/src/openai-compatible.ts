@@ -1,14 +1,15 @@
 import { sameNativeIdentity, type NativeConversationIdentity } from "../../model-contracts/src/index";
 import OpenAI from "openai";
-import type { LLMAdapter } from "./core/adapter";
 import {
     LLMRequestModeMismatchError,
+    classifyTransientModelFailure,
+    type LLMAdapter,
     type LLMMessage,
     type LLMRequest,
     type LLMResponse,
     type LLMToolCall,
-} from "./core/types";
-import type { StructuredOutputMode } from "../../config/src/index";
+    type StructuredOutputMode,
+} from "../../llm-core/src/index";
 import { extractOpenAIUsage } from "./core/usage";
 import {
     ExecutionAbortedError,
@@ -16,7 +17,6 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../execution-control/src/index";
-import { classifyTransientModelFailure } from "./core/model-request-failure";
 
 /**
  * 原生 OpenAI Chat Completions 兼容服务的显式连接配置。

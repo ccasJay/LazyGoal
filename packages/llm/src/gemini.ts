@@ -12,15 +12,16 @@ import {
 } from "@google/genai";
 
 import type { JsonSchema202012 } from "../../contracts/src/index";
-import type { LLMAdapter } from "./core/adapter";
 import {
     LLMRequestModeMismatchError,
+    classifyTransientModelFailure,
+    type LLMAdapter,
     type LLMMessage,
     type LLMRequest,
     type LLMResponse,
     type LLMToolCall,
-} from "./core/types";
-import type { StructuredOutputMode } from "../../config/src/index";
+    type StructuredOutputMode,
+} from "../../llm-core/src/index";
 import { extractGeminiUsage } from "./core/usage";
 import {
     ExecutionAbortedError,
@@ -28,7 +29,6 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../execution-control/src/index";
-import { classifyTransientModelFailure } from "./core/model-request-failure";
 
 type GeminiInput = Pick<
     GenerateContentParameters,

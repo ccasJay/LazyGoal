@@ -172,7 +172,7 @@ export interface SwebenchCliDependencies {
     /** 自定义隔离容器驱动。 */
     readonly container?: import("../../src/isolated-environment.js").IsolatedContainer;
     /** 自定义 LLM 适配器。 */
-    readonly adapter?: import("../../../packages/agent/src/index.js").LLMAdapter;
+    readonly adapter?: import("../../../packages/llm-core/src/index.js").LLMAdapter;
     /** 自定义 Worker 产物。 */
     readonly workerArtifact?: import("../../src/worker-builder.js").WorkerArtifact;
     /** 是否跳过 preflight 检测。 */

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readLLMConfig, LLMConfigurationError } from "../src/index";
+import { readLLMConfig } from "../src/index";
+import { LLMConfigurationError } from "../../llm-core/src/index";
 import { createLlmAdapter, createReflectionLlmAdapter } from "../../llm/src/factory";
 import { OpenAICompatible } from "../../llm/src/openai-compatible";
 import { Gemini } from "../../llm/src/gemini";

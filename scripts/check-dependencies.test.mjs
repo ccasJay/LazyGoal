@@ -9,7 +9,7 @@ import {
     checkDependencies,
 } from "./check-dependencies.mjs";
 
-const EXISTING_PACKAGES = ["runtime", "llm", "storage", "agent", "tools"];
+const EXISTING_PACKAGES = ["runtime", "llm", "llm-core", "storage", "agent", "tools"];
 
 async function fixtureProject(files) {
     const root = await mkdtemp(path.join(os.tmpdir(), "lazygoal-dependencies-"));
@@ -131,6 +131,27 @@ test("rejects outbound dependencies from llm to runtime", async () => {
     assert.deepEqual(await analyzeDependencies(root), [
         "禁止依赖方向：packages/llm 不得导入 packages/runtime（packages/llm/src/index.ts 引用 ../../runtime/src/index）",
     ]);
+});
+
+test("rejects outbound dependencies from llm-core to config", async () => {
+    const root = await fixtureProject({
+        "packages/llm-core/src/index.ts": 'export {} from "../../config/src/index";\n',
+        "packages/config/src/index.ts": "export {};\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/llm-core 不得导入 packages/config（packages/llm-core/src/index.ts 引用 ../../config/src/index）",
+    ]);
+});
+
+test("allows config to consume llm-core and rejects core SDK-style reverse edges", async () => {
+    const root = await fixtureProject({
+        "packages/llm-core/src/index.ts": 'export const contracts = true;\n',
+        "packages/config/src/index.ts": 'export { contracts } from "../../llm-core/src/index";\n',
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), []);
+    assert.equal(await checkDependencies(root), 2);
 });
 
 test("rejects outbound dependencies from working-memory to runtime", async () => {

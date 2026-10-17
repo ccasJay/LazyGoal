@@ -8,7 +8,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 经独立 core 消费模型契约、配置错误与归一化用量
+- [x] //TODO 1. 经独立 core 消费模型契约、配置错误与归一化用量
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[3.3](./spec.md#spec-req-3-3)、[3.5](./spec.md#spec-req-3-5)、[5.1](./spec.md#spec-req-5-1)、[6.1](./spec.md#spec-req-6-1)、[6.4](./spec.md#spec-req-6-4)。
   - 先验证：拟新增 `packages/llm-core/test/core-consumption.test.ts`，经公共入口实现确定性 Adapter，检查请求/响应/流类型可消费、正常与缺失用量、共享错误身份和既有故障分类。迁移现有 `model-request-failure.test.ts`，扩展 Config 测试，比较环境、TOML/Profile、CLI 覆盖、GEPA 双模型配置及错误的 code/name/missing；环境和 TOML 对 two_stage 的既有差异分别断言。类型与模块依赖检查必须识别 core 无供应商 SDK、config 单向依赖 core。
   - 实现：新建 `llm-core` 的私有 manifest、入口和所属说明，迁入 Spec 指定契约、配置类型/错误、通用用量读取和无 SDK 的故障分类。保持原生消息类型引用 model-contracts、取消/暂时故障身份引用 execution-control。供应商原始用量提取暂归各自现有适配实现，复用 core 的同一数值规则，随后随实现迁包。Config 仅保留读取/合并/校验，删除旧契约导出；同步迁移全部当前共享类型与用量消费者，包括实际 Agent 或已存在的 Agent 能力包，不建立 Agent/LLM 的转导出替代入口。删除已迁出的旧 core 文件和 adapter 类型门面，为公共契约补中文 TSDoc 与示例。

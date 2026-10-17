@@ -1,4 +1,4 @@
-import type { LLMProvider } from "./llm-config";
+import type { LLMProvider } from "../../llm-core/src/index";
 
 /**
  * 受支持的供应商标识集合。

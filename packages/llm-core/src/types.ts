@@ -1,13 +1,11 @@
-import type { JsonSchema202012, JsonValue } from "../../../contracts/src/index";
+import type { JsonSchema202012, JsonValue } from "../../contracts/src/index";
 
 import type {
     ModelAssistantMessage,
     ModelConversationMessage,
     ModelToolCall,
     ModelContinuation,
-    NativeConversationIdentity,
-} from "../../../model-contracts/src/index";
-export type { NativeConversationIdentity };
+} from "../../model-contracts/src/index";
 
 /** 统一模型消息角色，包含原生工具结果。 */
 export type LLMRole = ModelConversationMessage["role"];
@@ -62,7 +60,17 @@ export interface LLMToolDefinition {
 /** 模型原生函数调用；与 Runtime Action 身份独立。 */
 export type LLMToolCall = ModelToolCall;
 
-/** 一次 LLM 生成请求；消息顺序必须按原样传递给 Adapter。 */
+/**
+ * 一次 LLM 生成请求；消息顺序必须按原样传递给 Adapter。
+ *
+ * @example
+ * ```ts
+ * const request: LLMRequest = {
+ *     messages: [{ role: "user", content: "总结这次运行" }],
+ *     maxOutputTokens: 1024,
+ * };
+ * ```
+ */
 export interface LLMRequest {
     readonly messages: readonly LLMMessage[];
     /** 供应商生成阶段允许的最大输出 Token；配置模型能力时由 Executor 传递。 */

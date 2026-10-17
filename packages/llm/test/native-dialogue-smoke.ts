@@ -2,7 +2,7 @@ import "dotenv/config";
 import { pathToFileURL } from "node:url";
 import { readLLMConfig } from "../../config/src/index";
 import { createLlmAdapter } from "../src/factory";
-import type { LLMMessage } from "../src/core/types";
+import type { LLMMessage } from "../../llm-core/src/index";
 import type { ExecutionControl } from "../../execution-control/src/index";
 
 /**

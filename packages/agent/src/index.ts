@@ -7,7 +7,6 @@ export {
 export type {
     ModelOutputRequestPlan,
     StepPromptStageContext,
-    StructuredOutputMode,
 } from "./prompt";
 
 export {
@@ -257,15 +256,6 @@ export type {
     PromptTemplateDefinition,
 } from "./prompting/types";
 
-export type { LLMAdapter } from "../../llm/src/core/adapter";
-export type { NormalizedUsage } from "../../llm/src/core/usage";
-export { readNormalizedUsage } from "../../llm/src/core/usage";
-export type {
-    LLMMessage,
-    LLMRequest,
-    LLMResponse,
-    LLMStreamEvent,
-} from "../../llm/src/core/types";
 export type {
     AgentDecision,
 } from "../../runtime/src/domain";

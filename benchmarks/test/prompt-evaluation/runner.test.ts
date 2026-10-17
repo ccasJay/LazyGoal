@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
 import type { PromptEvaluationRequestV1 } from "../../src/prompt-evaluation/protocol.js";
 import {

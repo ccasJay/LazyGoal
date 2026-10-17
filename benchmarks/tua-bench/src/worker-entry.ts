@@ -4,10 +4,10 @@ import {
     DEFAULT_PROMPT_BUNDLE_MANIFEST,
     DropOldestContextCompactor,
     type ContextCompactor,
-    type LLMAdapter,
     type ModelConversationMessage,
     type PromptBundleRenderer,
 } from "../../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import {
     serveLazyGoalAcpAgent,
     type AcpPromptResult,

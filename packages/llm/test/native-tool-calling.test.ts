@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { OpenAICompatible } from "../src/openai-compatible";
 import { Gemini } from "../src/gemini";
 import { PiAiAdapter } from "../src/pi-ai";
-import type { LLMRequest, LLMToolDefinition } from "../src/core/types";
+import type { LLMRequest, LLMToolDefinition } from "../../llm-core/src/index";
 
 const mockToolDefinition: LLMToolDefinition = {
     id: "system_complete_task",

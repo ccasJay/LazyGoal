@@ -5,7 +5,7 @@ import {
 } from "../../model-contracts/src/index";
 import { CompletionReviewInputBudgetError, type CompletionReviewInput } from "../../runtime/src/step-executor";
 import type { TrajectoryEvent } from "../../runtime/src/index";
-import type { LLMRequest } from "../../llm/src/core/types";
+import type { LLMRequest } from "../../llm-core/src/index";
 import { projectContextLookupResult } from "./context-lookup-projection";
 import type { ModelExecutionBinding } from "./model-execution-binding";
 import { TokenBudgetPlanner } from "./model-context-budget";

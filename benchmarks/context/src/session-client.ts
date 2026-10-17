@@ -1,4 +1,4 @@
-import type { LLMAdapter } from "../../../packages/agent/src/index.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import { client, methods, PROTOCOL_VERSION, type ContentBlock } from "@agentclientprotocol/sdk";
 import type { AcpStream } from "../../../packages/acp/src/index.js";
 import { record, textValue, type ContextScenario } from "./scenario.js";

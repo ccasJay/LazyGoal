@@ -1,4 +1,4 @@
-import { TransientModelRequestFailure } from "../../../execution-control/src/index";
+import { TransientModelRequestFailure } from "../../execution-control/src/index";
 
 const CONNECTION_CODES = new Set([
     "ECONNRESET", "ETIMEDOUT", "ECONNREFUSED", "EAI_AGAIN", "ENETUNREACH",
@@ -11,7 +11,11 @@ const CONNECTION_CODES = new Set([
  *
  * @remarks
  * 只读取结构化 HTTP 状态、错误代码和底层传输代码；鉴权、请求、协议及未知异常
- * 原样返回，避免基于任意错误文案误触发重放。
+ * 原样返回，避免基于任意错误文案误触发重放。分类结果的身份与匹配行为沿用
+ * `@lazygoal/execution-control` 的既有类型，不做二次包装。
+ *
+ * @param error - 供应商 SDK 或传输层抛出的原始异常。
+ * @returns 可识别的暂时故障；无法结构化识别时返回 `undefined`。
  *
  * @example
  * ```ts

@@ -1,6 +1,6 @@
-import type { LLMAdapter, LLMRequest } from "../../../packages/agent/src/index.js";
-import { readNormalizedUsage } from "../../../packages/llm/src/core/usage.js";
-import type { NormalizedUsage } from "../../../packages/llm/src/core/usage.js";
+import type { LLMAdapter, LLMRequest } from "../../../packages/llm-core/src/index.js";
+import { readNormalizedUsage } from "../../../packages/llm-core/src/index.js";
+import type { NormalizedUsage } from "../../../packages/llm-core/src/index.js";
 import { record } from "./scenario.js";
 /**
  * 独立 Judge 的原始调用与可核查评分。

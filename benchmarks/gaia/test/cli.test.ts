@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/agent/src/index.js";
+import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index.js";
 import type {
     IsolatedEnvironment,
     IsolatedEnvironmentRunOptions,

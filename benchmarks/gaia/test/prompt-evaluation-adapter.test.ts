@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
 import { readBenchmarkAttempt } from "../../src/attempt-recorder.js";
 import type { IsolatedEnvironment } from "../../src/isolated-environment.js";

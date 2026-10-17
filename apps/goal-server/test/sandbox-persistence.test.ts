@@ -15,7 +15,7 @@ import {
     InMemoryToolRegistry,
 } from "../../../packages/tool-core/src/index";
 import { ReadFileTool, READ_FILE_TOOL_ID } from "../../../packages/tools/src/index";
-import type { LLMAdapter } from "../../../packages/llm/src/core/adapter";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index";
 
 async function computeDirectoryFingerprint(dir: string): Promise<string> {
     const hash = createHash("sha256");

@@ -1,5 +1,4 @@
-import type { LLMAdapter } from "./core/adapter";
-import { LLMConfigurationError, type LLMConfig } from "../../config/src/index";
+import { LLMConfigurationError, type LLMAdapter, type LLMConfig } from "../../llm-core/src/index";
 import { Gemini } from "./gemini";
 import { OpenAICompatible } from "./openai-compatible";
 import { PiAiAdapter } from "./pi-ai";

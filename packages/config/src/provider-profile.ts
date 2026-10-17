@@ -1,4 +1,4 @@
-import type { LLMConfig, LLMProvider, StructuredOutputMode } from "./llm-config";
+import type { LLMConfig, LLMProvider, StructuredOutputMode } from "../../llm-core/src/index";
 import {
     isAcceptableBaseUrl,
     isPositiveSafeInteger,

@@ -9,7 +9,7 @@ import { Gemini } from "../src/gemini";
 import {
     LLMRequestModeMismatchError,
     type LLMRequest,
-} from "../src/core/types";
+} from "../../llm-core/src/index";
 
 const dummySchema = {
     type: "object" as const,

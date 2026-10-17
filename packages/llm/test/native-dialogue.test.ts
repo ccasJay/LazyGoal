@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { OpenAICompatible } from "../src/openai-compatible";
 import { Gemini } from "../src/gemini";
-import type { LLMRequest, LLMResponse } from "../src/core/types";
+import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
 
 const tools = [{ id: "read_file", description: "Read", parametersSchema: { type: "object", properties: {}, required: [], additionalProperties: false } }];
 const firstRequest: LLMRequest = { messages: [{ role: "user", content: "Read" }], tools, toolChoice: "required", structuredOutput: { name: "unused", schema: { type: "object" } } };

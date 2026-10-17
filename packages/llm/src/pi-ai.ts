@@ -6,11 +6,18 @@ import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
-import type { LLMAdapter } from "./core/adapter";
-import { LLMRequestModeMismatchError, type LLMRequest, type LLMResponse, type LLMStreamEvent, type LLMToolCall } from "./core/types";
-import { LLMConfigurationError, type LLMConfig } from "../../config/src/index";
+import {
+    LLMConfigurationError,
+    LLMRequestModeMismatchError,
+    classifyTransientModelFailure,
+    type LLMAdapter,
+    type LLMConfig,
+    type LLMRequest,
+    type LLMResponse,
+    type LLMStreamEvent,
+    type LLMToolCall,
+} from "../../llm-core/src/index";
 import { ExecutionAbortedError, throwIfAborted, type ExecutionControl } from "../../execution-control/src/index";
-import { classifyTransientModelFailure } from "./core/model-request-failure";
 
 /** pi-ai 返回的失败状态；不包含部分输出、凭据或 SDK 响应对象。 */
 export class PiAiProviderError extends Error {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { TransientModelRequestFailure } from "../../execution-control/src/index";
-import { classifyTransientModelFailure } from "../src/core/model-request-failure";
+import { classifyTransientModelFailure } from "../src/index";
 
 test("classifies retryable status and parses Retry-After", () => {
     const failure = classifyTransientModelFailure({

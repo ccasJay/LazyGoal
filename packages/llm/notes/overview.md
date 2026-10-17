@@ -8,6 +8,7 @@
 LLM 模块负责供应商通信。`LLMAdapter.generate` 接收有序文本或原生工具消息，返回正文、
 独立 reasoning 摘要、工具调用、续接字段及诊断 metadata；可选的 `stream` 将 Provider 增量归一化为供应商无关事件，由 Agent
 适配到 `@lazygoal/execution-stream`；Agent 负责 Prompt、JSON 结构和语义校验，Runtime 负责工具、状态与恢复。
+调用与响应契约及共享连接配置归 [llm-core](../../llm-core/notes/overview.md)；本包实现具体供应商并保持默认装配。
 CLI、ALFWorld 和 smoke 的 Home/workspace 路径、TOML/Profile 配置解析、常规运行配置加载及 GEPA 双模型加载均来自 `@lazygoal/config`。模型解析在创建 Goal、Store 或 sidecar 前完成，具体实现见
 [配置架构](../../config/notes/overview.md) 与
 [工厂](../src/factory.ts)。
@@ -41,7 +42,7 @@ pi-ai 返回型失败转换为 `PiAiProviderError`；可识别的暂时 Provider
 Gemini strict 输出将决策判别联合打平为带 `nullable: true` 的全量 required 扁平对象，从语法机源头约束
 `action` 等关键字段生成；逆向投影剥离非目标分支字段并恢复空值与证据哨兵值，再交由 Wire Contract 校验。
 端点拒绝 Schema 或返回非法决策时明确失败，不自动降级。
-strict 仍需经过同一套本地校验。公开契约见 [adapter.ts](../src/core/adapter.ts)。
+strict 仍需经过同一套本地校验。公开调用契约见 [llm-core](../../llm-core/notes/overview.md)。
 
 [LlmModelCatalog](../src/model-catalog.ts) 负责当前 Provider 的模型发现与能力补全，默认组合 [DefaultProviderModelFetcher](../src/provider-fetchers.ts) 进行在线发现：
 - 适配 OpenAI、Google、Anthropic、OpenRouter、DeepSeek、`openai-compatible` 与 OpenCode Go 的官方/配置端点与专属鉴权头；

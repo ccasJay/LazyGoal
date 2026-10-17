@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { LLMConfig } from "../../config/src/index.js";
+import type { LLMConfig } from "../../llm-core/src/index.js";
 import {
     createLlmModelCatalog,
     DefaultLlmModelCatalog,

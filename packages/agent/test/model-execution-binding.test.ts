@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { LLMAdapter } from "../../llm/src/core/adapter.js";
-import type { LLMRequest, LLMResponse } from "../../llm/src/core/types.js";
+import type { LLMAdapter } from "../../llm-core/src/index.js";
+import type { LLMRequest, LLMResponse } from "../../llm-core/src/index.js";
 import type { GoalModelSelection } from "../../runtime/src/domain.js";
 import {
     createModelExecutionBinding,
