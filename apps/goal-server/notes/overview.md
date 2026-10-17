@@ -79,6 +79,11 @@ Home 与数据目录上装配模型、存储、工具与上下文默认实现，
 `composition-root.ts` 是无界面装配之上的 HTTP 宿主：创建 HTTP 服务、挂载指标路由与
 浏览器访问控制、追加关闭准入中间件，并构造宿主退出协调器。
 
+恢复接线沿用既有 RecoveryReader、Coordinator、Tool replay policy 与模型绑定规则：
+重建实例后 `restore` 只读不推进，`resume` 必须匹配 Goal、Run、requestId 与 actionId；
+结果未知的 `manual` Tool 只进入等待，不被包装层重试；终态后由显式 `continue` 归档旧
+Run 并创建后继 Run。包装层不引入迁移、后继 Run 自动调度或第二套状态真相。
+
 `scripts/check-dependencies.mjs` 以现有依赖门强制这些目录的边界：`src/runtime/` 不得
 反向导入宿主 CLI、组合根、Browser/HTTP/Web wire 或 Node HTTP 服务实现，也不得直接
 请求进程退出或注册进程信号；`execution-composition.ts` 只能引用现有 Runtime、工具与

@@ -45,7 +45,7 @@
   - 实现：在现有依赖检查中增加 Spec 的定向目录与入口约束，识别所需模块引用和直接进程 API；可复用已安装 TypeScript 解析能力，不另建架构框架。将本次组件及消费型测试纳入相应扫描，增量保留原有及其它 Spec 已加入的包间/DTO 规则与确定性错误；证明新目录源码和测试被实际发现，不为既有包层级重写 CI。所属说明只记录约束含义，源码规则持有实际判定。
   - 检查：`node --test scripts/check-dependencies.test.mjs`；`npm run check:dependencies`；`npm run check:docs`。执行时核对新组件测试在根回归输出中被运行，并记录无旧产物验证，不能仅以命令退出码证明没有漏扫。
 
-- [ ] //TODO 6. 从文件快照重建实例并恢复同一 Run，验证未知副作用与显式后继 Run
+- [x] //TODO 6. 从文件快照重建实例并恢复同一 Run，验证未知副作用与显式后继 Run
   - 落实标准：[2.4](./spec.md#spec-req-2-4)、[3.1](./spec.md#spec-req-3-1)、[3.2](./spec.md#spec-req-3-2)、[5.4](./spec.md#spec-req-5-4)。
   - 先验证：在拟新增 `apps/goal-server/test/runtime-recovery.integration.test.ts` 中，经 runtime 目录入口跑“launch → 问答/审批等待 → close → 重建 → restore → resume”，核对同一 goalId/runId、匹配交互身份、累计 stepCount、已提交轨迹与工具实际调用次数。另覆盖终态后 continue 归档旧 Run 并创建新 Run，错 Run/requestId/actionId、损坏 Snapshot、缺失工具拒绝，以及关闭后的结果未知工具不被包装层盲重试；关闭超时的旧实例不能被当作安全重建依据。
   - 实现：补齐实际装配路径的恢复接线及对应测试，沿用原 RecoveryReader、Coordinator、Tool replay policy 和模型绑定规则，不增加迁移、后继 Run 自动调度或第二套状态真相。资源与作用域断言使用临时文件存储和可计数的执行/工具替身，复用有效既有夹具；更新 owning overview 的恢复说明及 Spec 中事实来源链接，使其指向最终唯一实现。
