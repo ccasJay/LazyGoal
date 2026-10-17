@@ -190,6 +190,17 @@ test("rejects outbound dependencies from llm-pi-ai to config and model-catalog",
     ]);
 });
 
+test("rejects outbound dependencies from model-catalog to generation adapters", async () => {
+    const root = await fixtureProject({
+        "packages/model-catalog/src/index.ts": 'export {} from "../../llm-pi-ai/src/index";\n',
+        "packages/llm-pi-ai/src/index.ts": "export {};\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/model-catalog 不得导入 packages/llm-pi-ai（packages/model-catalog/src/index.ts 引用 ../../llm-pi-ai/src/index）",
+    ]);
+});
+
 test("rejects outbound dependencies from working-memory to runtime", async () => {
     const root = await fixtureProject({
         "packages/working-memory/src/index.ts": 'export {} from "../../runtime/src/index";\n',

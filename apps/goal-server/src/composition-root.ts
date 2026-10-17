@@ -122,7 +122,7 @@ import {
     ModelCatalogError,
     type LlmModelCatalog,
     type LlmModelDescriptor,
-} from "../../../packages/llm/src/model-catalog";
+} from "../../../packages/model-catalog/src/index";
 import {
     DEFAULT_TOOL_IDS,
     createDefaultToolRegistrations,

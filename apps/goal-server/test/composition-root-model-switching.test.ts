@@ -8,7 +8,7 @@ import { test } from "node:test";
 import type { LLMAdapter } from "../../../packages/llm-core/src/index";
 import type { LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import { BrowserGoalCommandService } from "../../../packages/browser/src/index";
-import type { LlmModelCatalog, LlmModelDescriptor } from "../../../packages/llm/src/model-catalog";
+import type { LlmModelCatalog, LlmModelDescriptor } from "../../../packages/model-catalog/src/index";
 import {
     createGoal,
     type GoalModelSelection,

@@ -3,7 +3,7 @@ import {
     ModelCatalogError,
     type ProviderModelFetcher,
     type RawFetchedModel,
-} from "./model-catalog.js";
+} from "./contracts.js";
 
 /**
  * 仅用于在线列表查询的连接参数，不要求模型标识或 Token 容量。

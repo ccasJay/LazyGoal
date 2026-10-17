@@ -35,7 +35,7 @@ Google 在两种输出模式下均将其视为完整 API 前缀（含所需版�
 与 `LLM_MAX_OUTPUT_TOKENS`，输出上限须小于上下文窗口；不声明 reasoning 能力或估算费用。
 CLI 使用这些容量启用既有 token 预算时，还需 `LLM_TOKENIZER_ENCODING`（`cl100k_base`
 或 `o200k_base`，按模型选择；不能将不匹配的 tokenizer 当作供应商精确计数）。
-目录不自动改变上下文裁剪或 tokenizer；配置的输出上限不得超过所选目录模型上限。
+模型目录（[model-catalog](../../model-catalog/notes/overview.md)）不自动改变上下文裁剪或 tokenizer；配置的输出上限不得超过所选目录模型上限。
 请求显式上限优先于 Adapter 配置；两者都缺省时沿用 SDK 行为。
 
 ### GEPA 双模型边界

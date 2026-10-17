@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { LLMConfig } from "../../llm-core/src/index.js";
-import { createLlmModelCatalog, ModelCatalogError } from "../src/model-catalog.js";
-import { DefaultProviderModelFetcher } from "../src/provider-fetchers.js";
+import { createLlmModelCatalog, DefaultProviderModelFetcher, ModelCatalogError } from "../src/index.js";
 
 const CANARY_API_KEY = "canary-secret-token-xyz987";
 

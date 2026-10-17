@@ -13,6 +13,7 @@ import { pathToFileURL } from "node:url";
  * llm-openai 承载 OpenAI/OpenAI-compatible 原生适配，只依赖 llm-core、model-contracts、execution-control 与 openai SDK；
  * llm-google 承载 Gemini 原生适配与 strict Schema 投影，只依赖 llm-core、contracts、model-contracts、execution-control 与 @google/genai SDK；
  * llm-pi-ai 承载 pi-ai 多供应商 prompt_only 适配与增量流转换，只依赖 llm-core、execution-control 与锁定版本 pi-ai SDK；
+ * model-catalog 承载目录查询、在线发现与可选择性判断，只依赖 llm-core 与锁定版本 pi-ai 静态目录 SDK；
  * runtime 依赖 contracts、model-contracts、execution-stream、sandbox、permission、context-retrieval、execution-control 和 tool-core；
  * llm 只依赖 llm-core、contracts、model-contracts、execution-stream 与 execution-control；
  * storage 依赖 runtime、contracts、model-contracts、permission、context-retrieval；
@@ -37,6 +38,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     "llm-openai": ["llm-core", "model-contracts", "execution-control"],
     "llm-google": ["llm-core", "contracts", "model-contracts", "execution-control"],
     "llm-pi-ai": ["llm-core", "execution-control"],
+    "model-catalog": ["llm-core"],
     config: ["llm-core"],
     runtime: ["contracts", "model-contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control", "tool-core", "working-memory"],
     llm: ["llm-core", "llm-openai", "llm-google", "llm-pi-ai", "contracts", "model-contracts", "execution-stream", "execution-control", "config"],
@@ -53,7 +55,7 @@ const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);
 /** 每个 app 允许的出站目标 package。 */
 const ALLOWED_APP_DEPENDENCIES = {
     "goal-board": ["web-contracts", "slash-command"],
-    "goal-server": ["runtime", "storage", "agent", "llm", "llm-core", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts", "tool-core", "working-memory"],
+    "goal-server": ["runtime", "storage", "agent", "llm", "llm-core", "model-catalog", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts", "tool-core", "working-memory"],
 };
 
 const APPS = Object.keys(ALLOWED_APP_DEPENDENCIES);

@@ -32,7 +32,7 @@
   - 实现：迁移 `PiAiAdapter` 与 `PiAiProviderError`，保持现有 Provider 工厂集合和锁定 SDK；仅依赖 core 与 execution-control，不为静态目录反向依赖 model-catalog，也不创建共享可变模型注册表。迁移当前工厂及其它直接引用，删除原文件，补所属契约与说明。
   - 检查：`npx tsx --test packages/llm-pi-ai/test/*.test.ts packages/llm/test/native-tool-calling.test.ts packages/llm/test/two-stage-config.test.ts packages/config/test/llm-config.test.ts`；`npx tsc --noEmit`。使用既有受控 SDK/流替身，禁止真实 Provider 调用；不能为原生 Adapter 顺带增加 stream 接口。
 
-- [ ] //TODO 5. 独立查询模型目录并保持选择与故障边界
+- [x] //TODO 5. 独立查询模型目录并保持选择与故障边界
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)、[4.1](./spec.md#spec-req-4-1)、[4.2](./spec.md#spec-req-4-2)、[4.3](./spec.md#spec-req-4-3)、[4.4](./spec.md#spec-req-4-4)、[6.1](./spec.md#spec-req-6-1)、[6.4](./spec.md#spec-req-6-4)。
   - 先验证：将 `model-catalog.test.ts` 和 `provider-fetchers.test.ts` 迁入拟新增的 `packages/model-catalog/test/`，从入口注入 Fetcher/fetch，逐一覆盖六类 Provider 的端点、鉴权、多页结果、循环游标、共享期限、外部取消与脱敏错误。比较默认工厂在线查询和直接构造无 Fetcher 的离线路径，以及去重、排序、能力/来源补全、字符/Token/strict 可选择性；分别保留自定义兼容模型在线与配置兜底分支。鉴权/权限/协议/取消均不得兜底，允许兜底的错误保持原范围。
   - 实现：迁入目录及 Fetcher 实现、描述与错误契约，通过包内契约文件消除实现循环；仅依赖 core 和实际所需的同版本 pi-ai 静态目录 SDK。同步 goal-server 装配、CLI、模型切换及其它目录消费者，删除旧位置；不增加缓存、后台刷新或模型 Binding 所有权，补所属文档和 Config/LLM 读者链接。

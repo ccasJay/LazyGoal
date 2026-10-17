@@ -44,7 +44,7 @@ Gemini strict 输出将决策判别联合打平为带 `nullable: true` 的全量
 端点拒绝 Schema 或返回非法决策时明确失败，不自动降级。
 strict 仍需经过同一套本地校验。公开调用契约见 [llm-core](../../llm-core/notes/overview.md)。
 
-[LlmModelCatalog](../src/model-catalog.ts) 负责当前 Provider 的模型发现与能力补全，默认组合 [DefaultProviderModelFetcher](../src/provider-fetchers.ts) 进行在线发现：
+[LlmModelCatalog](../../model-catalog/notes/overview.md)（现归 `@lazygoal/model-catalog`）负责当前 Provider 的模型发现与能力补全，默认组合 [DefaultProviderModelFetcher](../../model-catalog/src/provider-fetchers.ts) 进行在线发现：
 - 适配 OpenAI、Google、Anthropic、OpenRouter、DeepSeek、`openai-compatible` 与 OpenCode Go 的官方/配置端点与专属鉴权头；
 - Google (`pageToken`) 与 Anthropic (`has_more` / `last_id`) 支持安全完整分页，拒绝不递进或循环 cursor；
 - 共享 5000ms 超时与外部取消，并以 pi-ai 静态目录补充上下文容量、展示名与视觉能力；
@@ -79,4 +79,4 @@ GEPA 的 `start` 与 `resume` 属于显式付费操作：控制面在调用模�
 
 `npm run llm:native-dialogue-smoke` 使用显式 OpenAI/OpenAI-compatible/Google 环境配置，产生两次真实模型请求，验证首轮工具结果能原生回传到第二轮。工具只返回固定证据，不修改工作区。该付费 smoke 不进入自动回归；未运行或缺少凭据时不得报告供应商端到端验证通过。
 
-`DefaultProviderModelFetcher` 的连接参数 `ProviderModelConnection` 仅要求供应商、密钥与适用端点，允许在选定模型前查询在线列表；不需要构造生成模型与容量配置。直接使用该 Fetcher 不补静态回退目录，其取消、超时和脱敏错误语义保持一致。
+`DefaultProviderModelFetcher`（归 [model-catalog](../../model-catalog/notes/overview.md)）的连接参数 `ProviderModelConnection` 仅要求供应商、密钥与适用端点，允许在选定模型前查询在线列表；不需要构造生成模型与容量配置。直接使用该 Fetcher 不补静态回退目录，其取消、超时和脱敏错误语义保持一致。

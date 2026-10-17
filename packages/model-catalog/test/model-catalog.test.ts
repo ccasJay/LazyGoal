@@ -11,7 +11,7 @@ import {
     type LlmModelDescriptor,
     type ProviderModelFetcher,
     type RawFetchedModel,
-} from "../src/model-catalog.js";
+} from "../src/index.js";
 
 const baseOpenAIConfig: LLMConfig = {
     provider: "openai",
