@@ -216,15 +216,23 @@ test("每通道按接收顺序串行追加，前序写入未结算时不越过",
     const tmpDir = await mkdtemp(join(tmpdir(), "lg-proc-output-"));
     const store = new OutputSessionStore();
     const manager = new ProcessManager({ store, hostInstanceId: "host-output" });
+    const gatePath = join(tmpDir, "release-second-write");
     try {
         store.holdNextAppend("stdout");
         const started = await manager.startProcess({
             goalId: "goal-order",
-            command: "node -e 'process.stdout.write(\"out-a\\n\"); process.stdout.write(\"out-b\\n\");'",
+            command: `node -e 'const fs = require("node:fs"); process.stdout.write("out-a\\n"); const wait = setInterval(() => { if (fs.existsSync(${JSON.stringify(gatePath)})) { clearInterval(wait); process.stdout.write("out-b\\n"); } }, 20);'`,
             cwd: tmpDir,
         });
 
-        // 进程退出意味着两段输出都已交付管理器，此时仍只有首个分片开始结算
+        // 第一段输出已交付且其追加已开始，再放行第二段独立写入
+        await waitFor(
+            () => store.startedTexts("stdout").length >= 1 ? true : undefined,
+            "首个 stdout 追加开始",
+        );
+        writeFileSync(gatePath, "release");
+
+        // 进程退出意味着第二段输出已交付管理器；此时仍只有首个分片开始结算
         await waitFor(
             () => store.records("goal-order")[0]?.status === "exited" ? true : undefined,
             "进程退出",
