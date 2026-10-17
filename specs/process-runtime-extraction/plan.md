@@ -42,7 +42,7 @@
   - 实现：以前置生命周期组件及其验证证据可用为门槛，按当前实际位置调整进程装配与资源登记；若已有无界面 runtime 装配则在其中接入，否则只修改现有组合根进程段，不自行提炼 HTTP 或模型层。tools 仍拥有可信身份、输入验证、沙箱准备和结果映射；保留 manual 未知结果恢复及 Goal 删除/归档流程。只处理本包和消费者的接线，不修复或复制其它 Spec 的生命周期算法；发现前置违约时回到其所有者记录缺口，不降低本项验收。
   - 检查：`npx tsx --test apps/goal-server/test/process-lifecycle.integration.test.ts apps/goal-server/test/process-runtime-composition.integration.test.ts packages/tools/test/process-tools.test.ts packages/storage/test/process-session-store.test.ts packages/runtime/test/permission-grant-recovery.test.ts packages/storage/test/action-observation-recovery.test.ts`；`npm --prefix apps/goal-server test`；`npx tsc --noEmit -p apps/goal-server/tsconfig.json`。组合证据记录真实子进程、写入与外层期限结果；前置未落实不得打勾或报告 Feature Verification passed。
 
-- [ ] //TODO 6. 用机器约束包边界，并确认源码、测试与文档实际被发现
+- [x] //TODO 6. 用机器约束包边界，并确认源码、测试与文档实际被发现
   - 落实标准：[6.1](./spec.md#spec-req-6-1)、[6.2](./spec.md#spec-req-6-2)、[6.3](./spec.md#spec-req-6-3)。
   - 先验证：扩展 `scripts/check-dependencies.test.mjs` 的正反样本，覆盖普通/类型 import/export、import 类型表达式、侧效与字面量 dynamic import；非法依赖 tools/Agent/应用/Storage 实现、Runtime 反向依赖、跨包内部穿透、宿主退出/信号监听及项目产物导入均定位失败。合法 Runtime/Sandbox 依赖、Node 子进程 API、向自有进程组发信号和包内单测不误禁。核对新测试由根回归实际发现，并从无项目旧产物的源码副本经公开入口独立调用和替换 Store。
   - 实现：在既有检查器中补齐本包依赖、入口及引用形式检查，复用已有解析能力和其它 Spec 已加入的规则，不另建架构框架或扩大白名单掩盖违规。检查 tsconfig、回归发现、文档和 CI 对扁平新包的覆盖，只有存在缺口才作最小修正。补齐公共 TSDoc/示例及新包说明，更新根导航/AGENTS 布局和受影响所有者的 overview/semantics；存储与沙箱契约链接原所有者，不复制为本包协议。
