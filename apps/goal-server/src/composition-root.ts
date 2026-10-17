@@ -11,8 +11,7 @@ import {
 import {
     CheckpointGateGoalStore,
     ManagedResourceRegistry,
-    ProcessExitPort,
-    ShutdownCoordinator,
+    RuntimeLifecycle,
     GoalCoordinator,
     DefaultGoalModelSelectionCoordinator,
     InlineScheduler,
@@ -26,7 +25,6 @@ import {
     type GoalStore,
     type GoalModelSelection,
     type GoalModelSelectionCoordinator,
-    type ExitPort,
     type GoalProtocolValidator,
     type TrajectoryReadQuery,
     type TrajectoryReadResult,
@@ -141,6 +139,11 @@ import {
     type ExecutionStreamPublisher,
 } from "../../../packages/execution-stream/src/index";
 import { NotifyingGoalStore } from "./notifying-goal-store";
+import {
+    HostShutdownCoordinator,
+    ProcessExitPort,
+    type ExitPort,
+} from "./process-exit";
 
 const DEFAULT_PROFILE_ID = "default";
 
@@ -326,7 +329,8 @@ export interface CompositionRoot {
     readonly checkpointStore: CheckpointGateGoalStore;
     readonly resources: ManagedResourceRegistry;
     readonly abortController: AbortController;
-    readonly shutdownCoordinator: ShutdownCoordinator;
+    readonly lifecycle: RuntimeLifecycle;
+    readonly shutdownCoordinator: HostShutdownCoordinator;
     readonly coordinator: GoalCoordinator;
     readonly launcher: {
         launch: (request: Parameters<typeof launch>[0], control?: Parameters<typeof launch>[2]) => ReturnType<typeof launch>;
@@ -621,12 +625,15 @@ export async function createCompositionRoot(
     const httpService = createHttpService({ middleware: httpMiddleware });
     httpService.mount("/", createSessionMetricsRoutes(sessionMetricsService));
     const checkpointStore = new CheckpointGateGoalStore(notifyingStore);
-    const shutdownCoordinator = new ShutdownCoordinator({
+    const lifecycle = new RuntimeLifecycle({
         checkpointStore,
         resources,
         abortController,
+        ...(options.gracePeriodMs === undefined ? {} : { gracePeriodMs: options.gracePeriodMs }),
+    });
+    const shutdownCoordinator = new HostShutdownCoordinator({
+        lifecycle,
         exitPort: options.exitPort ?? new ProcessExitPort(),
-        gracePeriodMs: options.gracePeriodMs ?? 2000,
     });
     const protocolValidator = createDefaultPromptBundleProtocolValidator();
     const workingMemoryLimits: WorkingMemoryLimits = DEFAULT_WORKING_MEMORY_LIMITS;
@@ -871,6 +878,7 @@ export async function createCompositionRoot(
         checkpointStore,
         resources,
         abortController,
+        lifecycle,
         shutdownCoordinator,
         coordinator,
         modelCatalog,

@@ -151,11 +151,7 @@ export async function runServerSession(
         if (shutdownPromise !== undefined) {
             return shutdownPromise;
         }
-        root.checkpointStore.freeze();
-        root.abortController.abort();
-        shutdownPromise = (async () => {
-            await root.shutdownCoordinator.shutdown();
-        })();
+        shutdownPromise = root.shutdownCoordinator.shutdown();
         return shutdownPromise;
     };
 
@@ -537,14 +533,18 @@ export async function runServerSession(
         access.bindOrigin(address.origin);
         writeOutput(access.createLaunchUrl(address.origin));
         await shutdownSignal;
-        await shutdownPromise;
+        try {
+            await shutdownPromise;
+        } catch (error: unknown) {
+            process.stderr.write(`Runtime shutdown incomplete: ${error instanceof Error ? error.message : String(error)}\n`);
+        }
         return 130;
     } finally {
         process.off("SIGINT", onSigint);
         if (shutdownPromise === undefined) {
-            root.checkpointStore.freeze();
-            root.abortController.abort();
-            await root.resources.closeAll();
+            await root.lifecycle.close().catch((error: unknown) => {
+                process.stderr.write(`Runtime shutdown incomplete: ${error instanceof Error ? error.message : String(error)}\n`);
+            });
         }
     }
 }
