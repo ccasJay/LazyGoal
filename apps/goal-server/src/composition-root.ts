@@ -134,12 +134,12 @@ import {
     READ_FILE_TOOL_ID,
     ReadFileTool,
     WriteFileTool,
-    ProcessManager,
 } from "../../../packages/tools/src/index";
 import {
     InMemoryExecutionStreamPublisher,
     type ExecutionStreamPublisher,
 } from "../../../packages/execution-stream/src/index";
+import { ProcessManager } from "../../../packages/process-runtime/src/index";
 import { NotifyingGoalStore } from "./notifying-goal-store";
 
 const DEFAULT_PROFILE_ID = "default";

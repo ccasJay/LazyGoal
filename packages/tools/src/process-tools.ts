@@ -30,7 +30,7 @@ import {
 import {
     SANDBOX_ACCESS_CONTRACT,
 } from "./bash";
-import type { ProcessManager } from "./process-manager";
+import type { ProcessManager } from "../../process-runtime/src/index";
 import type { ProcessSessionStore } from "../../runtime/src/index";
 
 /** `ProcessStartTool` 在 Profile 中使用的稳定标识。 */

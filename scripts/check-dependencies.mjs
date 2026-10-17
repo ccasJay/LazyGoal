@@ -14,7 +14,8 @@ import { pathToFileURL } from "node:url";
  * storage 依赖 runtime、contracts、model-contracts、permission、context-retrieval；
  * agent 复用 runtime、llm、contracts、model-contracts、execution-stream、execution-control、tool-core；
  * session-metrics 通过 Runtime 端口读取 Goal 与调用指标；browser 读取 Runtime 契约并依赖通用 HTTP 宿主；
- * http 不依赖 LazyGoal 包；goal-server 是服务组合根，可导入所需后端实现。
+ * http 不依赖 LazyGoal 包；process-runtime 只依赖 runtime 与 sandbox；
+ * goal-server 是服务组合根，可导入所需后端实现。
  */
 const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
@@ -35,7 +36,8 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     storage: ["runtime", "contracts", "model-contracts", "permission", "context-retrieval"],
     agent: ["runtime", "llm", "config", "contracts", "model-contracts", "execution-stream", "execution-control", "tool-core", "working-memory"],
     "session-metrics": ["runtime", "http", "web-contracts"],
-    tools: ["runtime", "contracts", "execution-stream", "sandbox", "execution-control", "tool-core"],
+    tools: ["runtime", "contracts", "execution-stream", "sandbox", "execution-control", "tool-core", "process-runtime"],
+    "process-runtime": ["runtime", "sandbox"],
     browser: ["http", "runtime", "permission", "web-contracts", "execution-control"],
     "web-contracts": [],
 };
@@ -45,7 +47,7 @@ const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);
 /** 每个 app 允许的出站目标 package。 */
 const ALLOWED_APP_DEPENDENCIES = {
     "goal-board": ["web-contracts", "slash-command"],
-    "goal-server": ["runtime", "storage", "agent", "llm", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts", "tool-core", "working-memory"],
+    "goal-server": ["runtime", "storage", "agent", "llm", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts", "tool-core", "working-memory", "process-runtime"],
 };
 
 const APPS = Object.keys(ALLOWED_APP_DEPENDENCIES);

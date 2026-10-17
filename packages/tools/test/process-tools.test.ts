@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { JsonFileProcessSessionStore } from "../../storage/src/index";
+import { ProcessManager } from "../../process-runtime/src/index";
 import {
-    ProcessManager,
     ProcessReadTool,
     ProcessStartTool,
     ProcessStopTool,

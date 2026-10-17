@@ -11,8 +11,8 @@ import {
     type ShutdownClock,
 } from "../../../packages/runtime/src/index";
 import { JsonFileProcessSessionStore } from "../../../packages/storage/src/index";
+import { ProcessManager } from "../../../packages/process-runtime/src/index";
 import {
-    ProcessManager,
     ProcessStartTool,
     ProcessReadTool,
 } from "../../../packages/tools/src/index";

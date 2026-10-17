@@ -12,7 +12,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 通过独立包入口管理进程，并迁移现有消费者
+- [x] //TODO 1. 通过独立包入口管理进程，并迁移现有消费者
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[6.1](./spec.md#spec-req-6-1)、[6.3](./spec.md#spec-req-6-3)。
   - 先验证：在拟新增 `packages/process-runtime/test/process-manager.test.ts` 中，经 `src/index.ts` 注入内存/临时文件 Store，直接启动输出探针、等待/读取输出、停止并关闭；核对进程身份、真实退出、记录及宿主继续运行。构造不 spawn 或读取配置，不需要 Agent、ToolRegistry 或 HTTP，借用资源不被关闭。迁移已有管理器场景，保留 tools 的真实工具生命周期回归。
   - 实现：迁入 ProcessManager 与额度常量，创建最小包入口，移除 tools 的旧文件及转导出；搜索并迁移全部当前源码、测试和所属模块说明的引用，goal-server 只调整当时装配位置中的进程接线。沿用私有包与直接源码消费方式，登记必要依赖门条目使当前消费者可检查，不新增发布/构建机制。补齐公开契约中文 TSDoc、示例和新包 README、overview、semantics，按职责更新 Tools/宿主链接；历史 Spec/Memory 不批量改写，相关记忆的权威路径变化仅记录为维护候选。竞态与失败语义在后续任务落实，不将正常路径通过表述为完整关闭保证。
