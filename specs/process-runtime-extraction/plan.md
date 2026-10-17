@@ -86,7 +86,7 @@ git diff --check
 
 - 状态：passed。6/6 TODO 已实现、勾选并逐条提交；Runtime 前置已核验并合入；Feature Verification 的 Planned Checks 与综合检查全部实际执行并通过。
 - 验证时间：2026-10-17（本地时区）。
-- 测试提交与相关未提交改动：最终被测提交 `507c30e3`（本轮完成提交序列）：`394de656`（合并 Runtime 前置）→ `8c2a8c7b`（输出顺序测试竞态修正）→ `06f75eaf`（TODO 5 组合关闭接入与验证）→ `507c30e3`（TODO 6 依赖门与边界）。TODO 1–4 提交 `4d75fa11` → `4e83bcca` → `276c8d89` → `16861447`（修正 `7c97bf98`）；合并前 Feature Verification 记录见 git 历史。工作区在最终记录写入前无未提交源码改动。
+- 测试提交与相关未提交改动：最终被测实现提交 `507c30e3`（本轮完成提交序列）：`394de656`（合并 Runtime 前置）→ `8c2a8c7b`（输出顺序测试竞态修正）→ `06f75eaf`（TODO 5 组合关闭接入与验证）→ `507c30e3`（TODO 6 依赖门与边界）。TODO 1–4 提交 `4d75fa11` → `4e83bcca` → `276c8d89` → `16861447`（修正 `7c97bf98`）；合并前 Feature Verification 记录见 git 历史。其后的 `abd0f044` 为本记录、`986205d7` 为 spec delivered 状态，均不含行为改动；工作区在最终记录写入前无未提交源码改动。
 - 验收契约：`spec.md` 与 `plan.md` 基线提交 `c4a96fbd`，TODO 文本未改写；Feature Verification passed 后 `spec.md` 置为 `delivered`（见交付提交）。
 - 组合验证所用生命周期组件版本：`feature/runtime-sdk-extraction` HEAD `f47ad128`（其 plan 6/6 TODO 勾选、Latest Result passed、spec `status: delivered`）；合并提交 `394de656`。组合验证据此记录为“Runtime 分支提交 `f47ad128` 合入后的工作树”。
 - 合并与冲突解决：`git merge feature/runtime-sdk-extraction` 产生两处冲突，均按“增量保留双方接线与规则”解决——`apps/goal-server/src/composition-root.ts` 取 Runtime 的无界面装配薄封装（进程接线随装配迁至 `apps/goal-server/src/runtime/composition.ts`，并在此把 `ProcessManager` 导入改为 `packages/process-runtime`，保留双方提取结构，无第二份实现）；`apps/goal-server/test/process-lifecycle.integration.test.ts` 合并双方导入（保留 Runtime 的 `InMemoryGoalStore`/`RuntimeLifecycle` 与进程包的 `ProcessManager`）。`scripts/check-dependencies.mjs` 自动合并同时保留 Runtime 生命周期规则与本包条目。
