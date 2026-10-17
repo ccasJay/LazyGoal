@@ -6,7 +6,7 @@ source_spec: specs/native-tool-calling-architecture/
 distilled_at: 2026-09-21
 reviewed_at: 2026-10-17
 tags: [agent, llm, tool-calling, dual-channel, 1-rtt, system-tools, function-calling]
-authorities: [packages/llm/notes/overview.md, packages/agent/notes/overview.md, packages/contracts/notes/overview.md, packages/llm/src/core/types.ts, packages/model-contracts/src/model-output/system-tools.ts, packages/model-execution/src/llm-step-executor.ts, packages/runtime/src/tool-discovery.ts, packages/runtime/src/runner.ts, packages/model-context/src/model-inference-projector.ts]
+authorities: [packages/llm/notes/overview.md, packages/agent/notes/overview.md, packages/contracts/notes/overview.md, packages/llm-core/src/types.ts, packages/model-contracts/src/model-output/system-tools.ts, packages/model-execution/src/llm-step-executor.ts, packages/runtime/src/tool-discovery.ts, packages/runtime/src/runner.ts, packages/model-context/src/model-inference-projector.ts]
 supersedes: [project-memory/features/two-stage-decision-pipeline.md]
 ---
 
@@ -41,7 +41,7 @@ supersedes: [project-memory/features/two-stage-decision-pipeline.md]
 - S3: `specs/native-tool-calling-architecture/tasks.md`
 - S4: `packages/llm/notes/overview.md`
 - S5: `packages/agent/notes/overview.md`
-- S6: `packages/llm/src/core/types.ts`
+- S6: `packages/llm-core/src/types.ts`
 - S7: `packages/model-contracts/src/model-output/system-tools.ts`
 - S8: `packages/model-execution/src/llm-step-executor.ts`
 - S9: `specs/on-demand-tool-schemas/requirements.md`

@@ -4,9 +4,9 @@ status: active
 summary: "Google Gemini strict 输出适配层：强语法约束 Nullable Required、单值枚举消除与逆向清洗闭环"
 source_spec: specs/gemini-strict-adapter/
 distilled_at: 2026-09-10
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-17
 tags: [llm, gemini, google, strict-mode, json-schema, nullable-required, projection, error-handling]
-authorities: [packages/llm/notes/overview.md, packages/llm/src/gemini.ts, packages/llm/test/gemini.test.ts]
+authorities: [packages/llm/notes/overview.md, packages/llm-google/src/gemini.ts, packages/llm-google/test/gemini.test.ts]
 ---
 
 # Gemini Strict Adapter
@@ -37,6 +37,6 @@ authorities: [packages/llm/notes/overview.md, packages/llm/src/gemini.ts, packag
 
 - S1: `specs/gemini-strict-adapter/requirements.md`
 - S2: `specs/gemini-strict-adapter/design.md`
-- S3: `packages/llm/src/gemini.ts`
-- S4: `packages/llm/test/gemini.test.ts`
+- S3: `packages/llm-google/src/gemini.ts`
+- S4: `packages/llm-google/test/gemini.test.ts`
 - S5: `packages/llm/notes/overview.md`

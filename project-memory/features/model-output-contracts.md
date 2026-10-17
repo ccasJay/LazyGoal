@@ -6,7 +6,7 @@ source_spec: specs/model-output-contracts/
 distilled_at: 2026-09-05
 reviewed_at: 2026-10-17
 tags: [agent, contracts, model-output, structured-output, request-plan, wire-envelope, llm-adapter]
-authorities: [packages/agent/notes/overview.md, packages/llm/notes/overview.md, packages/model-contracts/src/model-output/wire.ts, packages/model-contracts/src/model-output/factory.ts, packages/model-response/src/model-output.ts, packages/model-request/src/prompt.ts, packages/llm/src/core/adapter.ts, packages/llm/src/openai-compatible.ts, packages/llm/src/gemini.ts, apps/goal-server/src/composition-root.ts, benchmarks/alfworld/src/cli.ts]
+authorities: [packages/agent/notes/overview.md, packages/llm/notes/overview.md, packages/model-contracts/src/model-output/wire.ts, packages/model-contracts/src/model-output/factory.ts, packages/model-response/src/model-output.ts, packages/model-request/src/prompt.ts, packages/llm-core/src/adapter.ts, packages/llm-openai/src/openai-compatible.ts, packages/llm-google/src/gemini.ts, apps/goal-server/src/composition-root.ts, benchmarks/alfworld/src/cli.ts]
 ---
 
 # Model Output Contracts
@@ -44,8 +44,8 @@ authorities: [packages/agent/notes/overview.md, packages/llm/notes/overview.md, 
 - S3: `packages/model-contracts/src/model-output/wire.ts`
 - S4: `packages/model-response/src/model-output.ts`
 - S5: `packages/model-request/src/prompt.ts`
-- S6: `packages/llm/src/openai-compatible.ts`
-- S7: `packages/llm/src/gemini.ts`
+- S6: `packages/llm-openai/src/openai-compatible.ts`
+- S7: `packages/llm-google/src/gemini.ts`
 - S8: `apps/goal-server/src/composition-root.ts`
 - S9: `packages/model-response/test/model-output.test.ts`
 - S10: `apps/goal-server/test/prompt-bundle-integration.test.ts`
