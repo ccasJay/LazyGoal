@@ -12,9 +12,11 @@
   - 实施目标：Runner 对 `assistant_message` 与 `no_usable_result` 采用独立的有界计数（与 `request_think` 循环、临时故障重试、Tool 输入纠错的预算相互独立，含首次最多三次模型调用）；该计数用尽时以稳定原因明确失败，保留每次失败原因与该次 Assistant 文本并可在界面查看。继续执行只能由 Runner 决定，模型文本不得使 Goal 进入 completed；纠错与继续重试期间不得重复增加 `stepCount`；有效 `request_think` 结束当前链后计数重新开始。
   - 验证手段：`packages/runtime/test/runner-*.test.ts` 新增"零调用文本三次后 INVALID_AGENT_DECISION 且保留每次文本""零调用文本不产生 completed""stepCount 不因继续重试增加""request_think 后计数重新开始"断言；Red 先行。
 
-- [ ] //TODO 3. 多调用批次的持久化模型与恢复指针
+- [ ] //TODO 3. 多调用批次的持久化模型与恢复指针（**与 TODO 4 合并为一次交付**）
   - 落实标准：[4.3](./spec.md#spec-req-4-3), [4.6](./spec.md#spec-req-4-6), [6.2](./spec.md#spec-req-6-2)
-  - 实施目标：Run 状态引入多调用批次维度：批次身份、模型返回顺序、每个调用保留模型返回的 `callId`、已提交进度指针；Snapshot 编解码携带该维度且不回放已提交结果的 Action。恢复指针携带分类、计数与批次进度；身份或阶段输入不匹配时失败，不用旧反馈污染新 Step。
+  - 合并理由：本 TODO 引入的批次状态没有任何生产者——`classifyDecideResponse` 仍拒多调用，Runner 永远看不到 N>1，
+    单独提交将得到无当前需求支撑的死状态。因此批次持久化模型必须与 TODO4 的"多调用暴露 + 逐个推进"同批落地。
+  - 实施目标：Run 状态引入批次维度：批次身份、模型返回顺序、每个调用保留模型返回的 `callId`、已提交进度指针；Snapshot 编解码携带该维度且不回放已提交结果的 Action。恢复指针携带分类、计数与批次进度；身份或阶段输入不匹配时失败，不用旧反馈污染新 Step。
   - 验证手段：`packages/runtime/test/` 与 `packages/storage/test/` 新增"批次快照往返保留顺序、callId 与进度""身份/阶段不匹配时恢复失败""已提交 Action 不重放"断言；Red 先行。
 
 - [ ] //TODO 4. 多调用批次的判断、执行与 Observation 归属
