@@ -128,7 +128,26 @@ export interface PendingModelRepair {
     readonly executionUnitId: string;
     readonly stage: "decide" | "think";
     readonly inputBoundary: `sha256:${string}`;
+    /**
+     * 已开始的协议类纠错调用数。
+     *
+     * @remarks 只统计契约、Tool 选择、Tool 输入与证据类失败；不推进类失败使用独立计数，
+     * 两类预算互不占用，各自含首次最多三次。
+     */
     readonly attemptsStarted: number;
+    /**
+     * 已开始的不推进类调用数。
+     *
+     * @remarks 统计零调用正文与无可用结果（`NO_USABLE_RESULT`）。与 `attemptsStarted` 相互独立；
+     * 有效 `request_think` 结束当前链时两者一并归零。省略等同 0。
+     */
+    readonly continuationsStarted?: number | undefined;
+    /**
+     * 最近一次失败的类别，决定下一次调用计入哪个预算。
+     *
+     * @remarks 省略表示尚未发生失败，下一次调用计入协议类预算。
+     */
+    readonly latestFailureClass?: "non_advancing" | "protocol" | undefined;
     readonly latestAttemptEventId: string;
     readonly latestFeedbackEventId?: string;
     readonly thinkRequestId?: string;

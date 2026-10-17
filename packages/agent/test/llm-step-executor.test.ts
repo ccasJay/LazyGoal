@@ -1088,3 +1088,75 @@ test("Runner 把零调用正文本提交为 Assistant 消息，不推进 Step �
     assert.ok(feedback.every(event => event.payload.type === "model_repair_feedback_recorded"
         && event.payload.feedback.code === "NO_USABLE_RESULT"));
 });
+
+test("Runner 的不推进预算与协议纠错预算互不占用", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const registry = new InMemoryToolRegistry([createToolRegistration({
+        definition: { id: "read_file", description: "Read a file", isReadOnly: true,
+            inputContract: contract.object({ path: contract.string() }) },
+        replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute() { return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+    })]);
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        async generate(request) {
+            requests.push(request);
+            // 2 次零调用正文本 + 2 次 Tool 输入纠错 + 1 次零调用正文本：共享预算会在第 4 次前终止，
+            // 独立预算下两类各自 3 次，因此可以走到第 5 次。
+            if (requests.length === 1 || requests.length === 2 || requests.length === 5) {
+                return { content: `第 ${requests.length} 次只说话。` };
+            }
+            return { content: "", toolCalls: [{ callId: `call-${requests.length}`, toolId: "read_file",
+                argumentsJson: JSON.stringify({ command: "ls" }) }] };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-independent-budget", intent: "Explain the workspace", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["read_file"] } });
+    await store.save(created);
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-independent-budget" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(requests.length, 5, "两类预算独立时第 5 次调用仍可发生");
+    assert.equal(result.state.status, "failed");
+    const events = await trajectoryStore.read({ goalId, runId: "run-independent-budget" });
+    const codes = events.filter(event => event.payload.type === "model_repair_feedback_recorded")
+        .map(event => event.payload.type === "model_repair_feedback_recorded" ? event.payload.feedback.code : "");
+    assert.deepEqual(codes, ["NO_USABLE_RESULT", "NO_USABLE_RESULT", "INVALID_LLM_RESPONSE", "INVALID_LLM_RESPONSE", "NO_USABLE_RESULT"]);
+});
+
+test("Runner 在有效 request_think 后重新开始不推进计数", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const registry = new InMemoryToolRegistry([createToolRegistration({
+        definition: { id: "read_file", description: "Read a file", isReadOnly: true,
+            inputContract: contract.object({ path: contract.string() }) },
+        replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute() { return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+    })]);
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        async generate(request) {
+            requests.push(request);
+            // 2 次零调用正文本 → 1 次 request_think → 再 2 次零调用正文本。
+            if (requests.length === 3) {
+                return { content: "", toolCalls: [{ callId: "think-1", toolId: "system_request_think",
+                    argumentsJson: JSON.stringify({ goal: "比较两种修复方案" }) }] };
+            }
+            return { content: `第 ${requests.length} 次只说话。` };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-think-reset", intent: "Explain the workspace", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["read_file"] } });
+    await store.save(created);
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-think-reset" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(requests.length >= 4, true, "request_think 后必须还能继续 Decide");
+    const events = await trajectoryStore.read({ goalId, runId: "run-think-reset" });
+    assert.equal(events.filter(event => event.payload.type === "think_requested").length, 1);
+});

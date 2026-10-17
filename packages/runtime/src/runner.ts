@@ -480,6 +480,10 @@ function invalidAgentDecision(message: string): never {
     throw new RunnerExecutionError("INVALID_AGENT_DECISION", message);
 }
 
+function isNonAdvancingFeedback(feedback: RuntimeFeedback): boolean {
+    return feedback.code === "NO_USABLE_RESULT";
+}
+
 function createRunnerFeedbackError(
     error: unknown,
     goal: Goal,
@@ -2680,9 +2684,14 @@ class RunExecutor {
         )) {
             throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Pending model repair identity does not match the current stage");
         }
-        const attempt = (previous?.attemptsStarted ?? 0) + 1;
-        if (attempt > 3) {
-            throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Model output correction exhausted after three calls");
+        const isContinuation = previous?.latestFailureClass === "non_advancing";
+        const attempt = isContinuation ? (previous?.attemptsStarted ?? 0) : (previous?.attemptsStarted ?? 0) + 1;
+        const continuationAttempt = isContinuation ? (previous?.continuationsStarted ?? 0) + 1 : (previous?.continuationsStarted ?? 0);
+        if (attempt > 3 || continuationAttempt > 3) {
+            throw new RunnerExecutionError("INVALID_AGENT_DECISION",
+                isContinuation
+                    ? "Model output continuation exhausted after three calls"
+                    : "Model output correction exhausted after three calls");
         }
         if (this.trajectoryStore === undefined) {
             throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Model output correction requires a Trajectory store");
@@ -2714,6 +2723,8 @@ class RunExecutor {
             stage,
             inputBoundary,
             attemptsStarted: attempt,
+            ...(continuationAttempt === 0 ? {} : { continuationsStarted: continuationAttempt }),
+            ...(previous?.latestFailureClass === undefined ? {} : { latestFailureClass: previous.latestFailureClass }),
             latestAttemptEventId: event.eventId,
             ...(previous?.latestFeedbackEventId === undefined
                 ? {}
@@ -2747,7 +2758,7 @@ class RunExecutor {
             payload: {
                 type: "model_repair_feedback_recorded",
                 stage: pending.stage,
-                attempt: pending.attemptsStarted,
+                attempt: feedback.attempt,
                 feedback,
             },
         };
@@ -2758,6 +2769,7 @@ class RunExecutor {
         const nextPending: PendingModelRepair = {
             ...pending,
             latestFeedbackEventId: event.eventId,
+            latestFailureClass: isNonAdvancingFeedback(feedback) ? "non_advancing" : "protocol",
         };
         const nextGoal = this.withRun(goal, {
             ...goal.state.run,
@@ -2911,7 +2923,13 @@ class RunExecutor {
                     || error.feedback.executionUnitId !== input.executionUnitId) {
                     throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Model repair feedback identity does not match the current stage");
                 }
-                feedback = createRuntimeFeedback({ ...error.feedback, attempt: pending.attemptsStarted });
+                const isContinuationFailure = isNonAdvancingFeedback(error.feedback);
+                feedback = createRuntimeFeedback({
+                    ...error.feedback,
+                    attempt: isContinuationFailure
+                        ? (pending.continuationsStarted ?? 0) + 1
+                        : pending.attemptsStarted,
+                });
                 currentGoal = await this.appendRepairFeedback(currentGoal, pending, feedback, control);
                 if (error.assistantMessageText !== undefined) {
                     currentGoal = await this.commitAssistantMessage(
@@ -2921,10 +2939,15 @@ class RunExecutor {
                         control,
                     );
                 }
-                if (pending.attemptsStarted >= 3) {
+                const startedBudget = isContinuationFailure
+                    ? (pending.continuationsStarted ?? 0) + 1
+                    : pending.attemptsStarted;
+                if (startedBudget >= 3) {
                     throw new RunnerExecutionError(
                         "INVALID_AGENT_DECISION",
-                        "Model output correction exhausted after three " + stage + " attempts (" + feedback.code + ")",
+                        isContinuationFailure
+                            ? "Model output continuation exhausted after three " + stage + " attempts (" + feedback.code + ")"
+                            : "Model output correction exhausted after three " + stage + " attempts (" + feedback.code + ")",
                         undefined,
                         currentGoal,
                     );

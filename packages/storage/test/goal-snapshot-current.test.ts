@@ -431,6 +431,8 @@ test("当前 Snapshot 往返保存 pendingModelRepair，并验证其 Step 与身
         stage: "decide" as const,
         inputBoundary: ("sha256:" + "b".repeat(64)) as any,
         attemptsStarted: 2,
+        continuationsStarted: 1,
+        latestFailureClass: "non_advancing" as const,
         latestAttemptEventId: "event-repair-attempt-2",
         latestFeedbackEventId: "event-repair-feedback-1",
     };

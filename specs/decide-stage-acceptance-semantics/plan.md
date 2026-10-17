@@ -7,7 +7,7 @@
   - 实施目标：`LLMStepExecutor` 的 Decide 输出从"必须恰好一个 tool call"改为分级接受：零调用且正文非空 → 合法的 `assistant_message` 结果；仅 reasoning 或空内容 → `no_usable_result`；单调用保持现有解析、授权与执行路径不变。为该结果定义可区分的分类标识进入 `LLMResponseProtocolError` 之外的新通道（不再复用 `missing_tool_call`）。`PiAiAdapter.toResponse` 在携带工具集合、`stopReason` 合法且仅返回文本时不得再抛 `PiAiProviderError`。
   - 验证手段：`packages/agent/test/llm-step-executor.test.ts` 新增"零调用 + 非空正文被接受为 assistant_message 且不产生 Tool 副作用""仅 reasoning/空内容归为 no_usable_result""单调用路径行为不变"三组断言；`packages/llm/test/pi-ai-adapter.test.ts` 新增"工具集合 + 零调用 + stopReason=stop 不抛错"断言；Red 先行。
 
-- [ ] //TODO 2. Runner 有界继续生成、越界禁止与计数归属
+- [x] //TODO 2. Runner 有界继续生成、越界禁止与计数归属
   - 落实标准：[1.2](./spec.md#spec-req-1-2), [2.1](./spec.md#spec-req-2-1), [2.2](./spec.md#spec-req-2-2), [2.3](./spec.md#spec-req-2-3), [2.4](./spec.md#spec-req-2-4), [3.1](./spec.md#spec-req-3-1), [3.2](./spec.md#spec-req-3-2), [3.3](./spec.md#spec-req-3-3)
   - 实施目标：Runner 对 `assistant_message` 与 `no_usable_result` 采用独立的有界计数（与 `request_think` 循环、临时故障重试、Tool 输入纠错的预算相互独立，含首次最多三次模型调用）；该计数用尽时以稳定原因明确失败，保留每次失败原因与该次 Assistant 文本并可在界面查看。继续执行只能由 Runner 决定，模型文本不得使 Goal 进入 completed；纠错与继续重试期间不得重复增加 `stepCount`；有效 `request_think` 结束当前链后计数重新开始。
   - 验证手段：`packages/runtime/test/runner-*.test.ts` 新增"零调用文本三次后 INVALID_AGENT_DECISION 且保留每次文本""零调用文本不产生 completed""stepCount 不因继续重试增加""request_think 后计数重新开始"断言；Red 先行。

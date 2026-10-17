@@ -290,6 +290,10 @@ export interface GoalSnapshotPendingModelRepairV1 {
     readonly stage: "decide" | "think";
     readonly inputBoundary: string;
     readonly attemptsStarted: number;
+    /** 不推进类调用数；与 `attemptsStarted` 独立计数。 */
+    readonly continuationsStarted?: number;
+    /** 最近一次失败的类别；决定下一次调用计入哪个预算。 */
+    readonly latestFailureClass?: "non_advancing" | "protocol";
     readonly latestAttemptEventId: string;
     readonly latestFeedbackEventId?: string;
     readonly thinkRequestId?: string;
@@ -1077,6 +1081,8 @@ const PendingModelRepairSchema = z.object({
     stage: z.enum(["decide", "think"]),
     inputBoundary: z.string().regex(/^sha256:[a-f0-9]{64}$/),
     attemptsStarted: z.number().int().min(0).max(3),
+    continuationsStarted: z.number().int().min(0).max(3).optional(),
+    latestFailureClass: z.enum(["non_advancing", "protocol"]).optional(),
     latestAttemptEventId: NonEmptyStringSchema,
     latestFeedbackEventId: NonEmptyStringSchema.optional(),
     thinkRequestId: NonEmptyStringSchema.optional(),
