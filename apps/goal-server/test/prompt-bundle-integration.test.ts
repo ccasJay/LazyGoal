@@ -619,7 +619,9 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
         assert.equal(failedGoal.state.run.stopReason?.kind, "execution_error");
         if (failedGoal.state.run.stopReason?.kind === "execution_error") {
             assert.equal(failedGoal.state.run.stopReason.code, "INVALID_AGENT_DECISION");
-            assert.match(failedGoal.state.run.stopReason.message, /INVALID_LLM_RESPONSE/);
+            // 旧格式裸 tool_call 以文本返回：按零调用正文接受为 Assistant 消息，不推进任务，
+            // 三次不推进预算用尽后明确失败，仍不产生任何 Tool 副作用。
+            assert.match(failedGoal.state.run.stopReason.message, /NO_USABLE_RESULT/);
         }
 
         const trajectory = await root.readTrajectory({
