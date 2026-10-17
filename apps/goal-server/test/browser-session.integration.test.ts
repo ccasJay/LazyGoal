@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm/src/core/adapter";
+import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import { createGoal } from "../../../packages/runtime/src/index";
 import { createBrowserSessionAccess } from "../../../packages/browser/src/index";
 import { JsonFileModelPreferenceStore } from "../../../packages/storage/src/index";

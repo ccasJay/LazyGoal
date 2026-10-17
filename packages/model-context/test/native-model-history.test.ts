@@ -16,7 +16,7 @@ import { createModelExecutionBinding, LLMStepExecutor } from "../../model-execut
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { createDefaultModelContextBudgetPolicy, createModelContextBudgetPolicy, DropOldestContextCompactor } from "../../context-budget/src/index";
 import { buildStepRequest } from "../../model-request/src/index";
-import type { LLMAdapter, LLMRequest, LLMResponse } from "../../llm/src/core/adapter";
+import type { LLMAdapter, LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import { currentProtocols, currentWorkingMemory, createInMemoryTrajectoryStore } from "./current-fixtures";
 
 const identity: NativeConversationIdentity = { provider: "google", endpoint: "https://generativelanguage.googleapis.com/v1beta", model: "test", protocol: "gemini-content" };

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { createGoal } from "../../runtime/src/index";
 import type { TraceRecord } from "../../runtime/src/index";
 import type { ModelInputRecord } from "../../runtime/src/model-input";
-import type { LLMRequest } from "../../llm/src/core/types";
+import type { LLMRequest } from "../../llm-core/src/index";
 import { LLMStepExecutor } from "../../model-execution/src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";

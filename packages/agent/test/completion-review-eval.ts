@@ -2,7 +2,7 @@ import { mkdir, writeFile, appendFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createGoal, allocateImmutableEvent, type ModelCallMetricRecord, type ModelInputRecord } from "../../runtime/src/index";
 import { readLLMConfig } from "../../config/src/index";
-import { createLlmAdapter } from "../../llm/src/factory";
+import { createLlmAdapter } from "../../llm/src/index";
 import { LLMStepExecutor } from "../../model-execution/src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";

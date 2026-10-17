@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readLLMConfig, LLMConfigurationError } from "../src/index";
-import { createLlmAdapter, createReflectionLlmAdapter } from "../../llm/src/factory";
-import { OpenAICompatible } from "../../llm/src/openai-compatible";
-import { Gemini } from "../../llm/src/gemini";
-import { PiAiAdapter } from "../../llm/src/pi-ai";
+import { readLLMConfig } from "../src/index";
+import { LLMConfigurationError } from "../../llm-core/src/index";
+import { createLlmAdapter, createReflectionLlmAdapter } from "../../llm/src/index";
+import { OpenAICompatible } from "../../llm-openai/src/index";
+import { Gemini } from "../../llm-google/src/index";
+import { PiAiAdapter } from "../../llm-pi-ai/src/index";
 
 const base = {
     LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4.1-mini",

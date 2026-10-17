@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { Readable, Writable } from "node:stream";
-import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import { DEFAULT_PROMPT_BUNDLE_MANIFEST } from "../../../packages/prompt-bundle/src/index.js";
 import { createPromptBundleRenderer, type PromptBundleRenderer } from "../../../packages/prompt-renderer/src/index.js";
 import type { ModelConversationMessage } from "../../../packages/model-view/src/index.js";

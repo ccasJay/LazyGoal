@@ -2,7 +2,7 @@ import { isModelAssistantMessage, sameNativeIdentity } from "../../model-contrac
 import type { ModelInputStore, ModelInputRecord } from "../../runtime/src/model-input";
 import { randomUUID } from "node:crypto";
 
-import type { LLMAdapter } from "../../llm/src/core/adapter";
+import type { LLMAdapter } from "../../llm-core/src/index";
 import type {
     AgentDecision,
     Goal,
@@ -49,7 +49,7 @@ import {
     normalizeRequestThinkGoal,
     type DecideResponseOutcome,
 } from "../../model-response/src/index";
-import type { LLMRequest, LLMResponse, LLMToolDefinition, LLMToolCall } from "../../llm/src/core/types";
+import type { LLMRequest, LLMResponse, LLMToolDefinition, LLMToolCall } from "../../llm-core/src/index";
 import { toModelStageFeedback } from "./stage-feedback";
 
 /**

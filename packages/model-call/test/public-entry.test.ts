@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { LLMAdapter } from "../../llm/src/core/adapter";
-import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm/src/core/types";
+import type { LLMAdapter } from "../../llm-core/src/index";
+import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
 import type { ModelInputRecord } from "../../runtime/src/model-input";
 import type {
     ExecutionStreamEventDraft,

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import type { AcpClientResult, AcpSessionUpdate } from "../../../packages/acp/src/index.js";
 import {
     IsolatedEnvironment,

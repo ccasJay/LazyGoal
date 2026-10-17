@@ -45,7 +45,12 @@ packages/        Private `@lazygoal/*` workspaces
   execution-stream/ Process-local Goal/Run events and bounded subscriptions
   http/          Reusable loopback HTTP service lifecycle and route mounting
   browser/       Local browser session access control and static page routes
-  llm/           LLM contracts, native strict adapters, and pi-ai multi-provider integration
+  llm-core/       Provider-agnostic LLM call contracts, shared model configuration, normalized usage, and transient failure classification
+  llm-openai/     Native OpenAI/OpenAI-compatible Chat Completions adapter
+  llm-google/     Native Gemini generation, strict schema projection, and native parts replay
+  llm-pi-ai/      pi-ai multi-provider prompt_only adapter and incremental stream mapping
+  model-catalog/  Model discovery, capability completion, sorting, and selectability
+  llm/           Default LLM adapter assembly: three factories and Think/Decide stage pairs
   runtime/       Goal domain, persistence ports, scheduling, execution loop, and shutdown control
   session-metrics/ Session and Run metric projections, persistence reads, and HTTP routes
   storage/       Persistence DTOs, schemas, codecs, errors, and JSON stores for Runtime ports

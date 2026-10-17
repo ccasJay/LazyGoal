@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import { buildSwebenchWorker } from "../../src/worker-builder.js";
 import { parseSwebenchTasks, SwebenchContainer } from "./container.js";
 import { BRIDGE_PATH } from "./evaluation.js";

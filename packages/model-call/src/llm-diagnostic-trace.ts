@@ -6,7 +6,7 @@ import type {
 import {
     allocateDiagnosticTraceRecord,
 } from "../../runtime/src/index";
-import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
+import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import { LLMResponseProtocolError } from "../../model-response/src/index";
 import { TransientModelRequestFailure } from "../../execution-control/src/index";
 

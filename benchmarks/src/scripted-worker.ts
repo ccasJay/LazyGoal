@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Readable, Writable } from "node:stream";
-import { type LLMAdapter } from "../../packages/llm/src/core/adapter.js";
+import { type LLMAdapter } from "../../packages/llm-core/src/index.js";
 import { createDefaultDynamicSectionRegistry, DEFAULT_PROMPT_BUNDLE_MANIFEST } from "../../packages/prompt-bundle/src/index.js";
 import { createPromptBundleRenderer } from "../../packages/prompt-renderer/src/index.js";
 import { DropOldestContextCompactor } from "../../packages/context-budget/src/index.js";

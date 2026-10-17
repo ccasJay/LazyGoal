@@ -76,13 +76,15 @@ import {
 } from "../../../../packages/prompt-bundle/src/index";
 import {
     JsonFileProviderProfileStore,
-    LLMConfigurationError,
     readLLMConfig,
     toLlmConfig,
     ProviderProfileResolutionError,
-    type LLMConfig,
     type ProviderProfile,
 } from "../../../../packages/config/src/index";
+import {
+    LLMConfigurationError,
+    type LLMConfig,
+} from "../../../../packages/llm-core/src/index";
 import { loadRuntimeConfig } from "../../../../packages/config/src/index";
 import {
     ensureSecureConfigFile,
@@ -92,12 +94,12 @@ import {
     resolveLazyGoalHomePaths,
     resolveWorkspaceHomePaths,
 } from "../../../../packages/config/src/index";
-import { createLlmStageAdapters, type LlmStageAdapters } from "../../../../packages/llm/src/factory";
-import type { LLMAdapter } from "../../../../packages/llm/src/core/adapter";
+import { createLlmStageAdapters, type LlmStageAdapters } from "../../../../packages/llm/src/index";
+import type { LLMAdapter } from "../../../../packages/llm-core/src/index";
 import {
     createLlmModelCatalog,
     type LlmModelCatalog,
-} from "../../../../packages/llm/src/model-catalog";
+} from "../../../../packages/model-catalog/src/index";
 import {
     DEFAULT_TOOL_IDS,
     createDefaultToolRegistrations,

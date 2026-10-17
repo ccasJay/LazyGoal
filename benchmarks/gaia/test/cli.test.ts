@@ -4,8 +4,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
-import type { LLMRequest, LLMResponse } from "../../../packages/llm/src/core/types.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
+import type { LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index.js";
 import type {
     IsolatedEnvironment,
     IsolatedEnvironmentRunOptions,

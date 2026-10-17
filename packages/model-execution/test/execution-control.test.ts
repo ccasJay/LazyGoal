@@ -2,8 +2,8 @@ import { ExecutionAbortedError } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { LLMAdapter } from "../../llm/src/core/adapter";
-import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
+import type { LLMAdapter } from "../../llm-core/src/index";
+import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import {
     createGoal,
     } from "../../runtime/src/index";

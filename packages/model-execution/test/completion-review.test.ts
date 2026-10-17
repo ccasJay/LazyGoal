@@ -6,8 +6,8 @@ import {
 import { allocateImmutableEvent, CompletionReviewInputBudgetError, createGoal, ModelStageFeedbackError,
     type ModelInputRecord, type ModelCallMetricRecord, type TrajectoryEvent } from "../../runtime/src/index";
 import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/index";
-import type { LLMAdapter } from "../../llm/src/core/adapter";
-import type { LLMResponse, LLMStreamEvent } from "../../llm/src/core/types";
+import type { LLMAdapter } from "../../llm-core/src/index";
+import type { LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
 import { LLMStepExecutor } from "../src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";

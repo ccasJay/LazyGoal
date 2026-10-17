@@ -11,7 +11,7 @@ import {
     type GepaConfig,
     TomlConfigurationError,
 } from "./toml-config";
-import { LLMConfigurationError, type LLMConfig, type LLMProvider, type StructuredOutputMode } from "./llm-config";
+import { LLMConfigurationError, type LLMConfig, type LLMProvider, type StructuredOutputMode } from "../../llm-core/src/index";
 
 /**
  * CLI 命令行传入的临时参数字典。

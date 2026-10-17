@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { LLMConfigurationError, readLLMConfig } from "../../config/src/index";
-import { loadRuntimeConfig } from "../../config/src/index";
-import { createLlmAdapter, createLlmStageAdapters } from "../src/factory";
-import { OpenAICompatible } from "../src/openai-compatible";
-import { Gemini } from "../src/gemini";
-import { PiAiAdapter } from "../src/pi-ai";
+import { loadRuntimeConfig, readLLMConfig } from "../../config/src/index";
+import { LLMConfigurationError } from "../../llm-core/src/index";
+import { createLlmAdapter, createLlmStageAdapters } from "../src/index";
+import { OpenAICompatible } from "../../llm-openai/src/index";
+import { Gemini } from "../../llm-google/src/index";
+import { PiAiAdapter } from "../../llm-pi-ai/src/index";
 
 test("readLLMConfig 支持解析 two_stage 模式并兼容 strict 与 prompt_only", () => {
     const base = {

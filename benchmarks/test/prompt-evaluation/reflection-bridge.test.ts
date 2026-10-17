@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
-import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm/src/core/adapter.js";
+import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index.js";
 import {
     runGepaReflectCli,
     parseAndValidateReflectRequest,

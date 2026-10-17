@@ -25,7 +25,7 @@ import {
     DropOldestContextCompactor,
 } from "../../context-budget/src/index";
 import { readLLMConfig } from "../../config/src/index";
-import { createLlmAdapter } from "../src/factory";
+import { createLlmAdapter } from "../src/index";
 
 /**
  * 用显式模型配置验证统一执行、任务审批及工具执行链；仅使用内存存储。

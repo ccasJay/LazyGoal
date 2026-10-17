@@ -1,0 +1,12 @@
+{
+  "name": "@lazygoal/llm-google",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@google/genai": "^2.15.0"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

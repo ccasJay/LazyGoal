@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
-import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import { applyGrades, gradeSwebenchEvaluation, runSwebenchEvaluation, preflightSwebench, type SwebenchEvaluationOptions } from "../src/evaluation.js";
 import { SWEBENCH_VERSION, type SwebenchManifest } from "../src/manifest.js";
 import type { ProcessRunner } from "../../src/process.js";

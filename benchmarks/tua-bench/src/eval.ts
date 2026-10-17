@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import { AttemptRecorder, type BenchmarkAttemptRecord } from "../../src/attempt-recorder.js";
 import { IsolatedEnvironment } from "../../src/isolated-environment.js";
 import type { WorkerArtifact } from "../../src/worker-builder.js";

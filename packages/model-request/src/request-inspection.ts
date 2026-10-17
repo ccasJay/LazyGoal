@@ -1,4 +1,4 @@
-import type { LLMRequest } from "../../llm/src/core/types";
+import type { LLMRequest } from "../../llm-core/src/index";
 
 /**
  * 判断最终控制消息是否要求模型仅返回 Context Epoch 检查点。

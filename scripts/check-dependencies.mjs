@@ -1,6 +1,23 @@
 import { readdir, readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
+/**
+ * 依赖与边界检查。
+ *
+ * 只扫描生产源码：各 package 的 `src/`、各 app 的 `src/` 与各 benchmark 的 `src/`；
+ * 包内单测与测试夹具不在范围（组件消费型测试按既有规则单独纳入）。检查覆盖：
+ *   1. package / app / benchmark 允许的依赖方向与 benchmark 隔离；
+ *   2. llm-core 与 config 不得引用供应商 SDK（运行时或类型）；
+ *   3. 跨能力包与组件目录消费必须经目标包的 `src/index.ts`，不得穿透内部路径；
+ *   4. 已迁移的旧 LLM 路径不得存在或被引用；
+ *   5. 相对引用不得落入项目构建产物目录（第三方依赖自身产物不在此限）；
+ *   6. 组件目录不得反向依赖宿主实现或注册进程信号（既有 Spec 规则）。
+ *
+ * 模块引用提取覆盖普通/类型 import/export、侧效导入、import 类型表达式、字面量
+ * dynamic import 与字面量 require（当前仓库的 TypeScript 7 不提供可用的编译器 API，因此按文本模式提取）。
+ */
 
 /**
  * 每个 package 允许的出站目标（from -> allowed target packages）。
@@ -8,9 +25,14 @@ import { pathToFileURL } from "node:url";
  * contracts、execution-stream 与 execution-control 是无出站依赖的基础包；其它 package 可以单向依赖它们。
  * model-contracts 承载模型输出与对话协议，仅单向依赖 contracts。
  * tool-core 提供通用工具抽象，仅依赖 contracts、execution-control、sandbox。
- * config 是无 LazyGoal 出站依赖的应用配置与 Home 路径包；
+ * config 是应用配置与 Home 路径包，单向依赖 llm-core 的共享模型契约；
+ * llm-core 承载供应商无关调用契约与共享模型配置，仅依赖 contracts、model-contracts 与 execution-control；
+ * llm-openai 承载 OpenAI/OpenAI-compatible 原生适配，只依赖 llm-core、model-contracts、execution-control 与 openai SDK；
+ * llm-google 承载 Gemini 原生适配与 strict Schema 投影，只依赖 llm-core、contracts、model-contracts、execution-control 与 @google/genai SDK；
+ * llm-pi-ai 承载 pi-ai 多供应商 prompt_only 适配与增量流转换，只依赖 llm-core、execution-control 与锁定版本 pi-ai SDK；
+ * model-catalog 承载目录查询、在线发现与可选择性判断，只依赖 llm-core 与锁定版本 pi-ai 静态目录 SDK；
  * runtime 依赖 contracts、model-contracts、execution-stream、sandbox、permission、context-retrieval、execution-control 和 tool-core；
- * llm 只依赖 contracts、model-contracts、execution-stream 与 execution-control；
+ * llm 只依赖 llm-core、llm-openai、llm-google 与 llm-pi-ai 提供三个默认工厂，不直接依赖 config、model-catalog 或生成 SDK；
  * storage 依赖 runtime、contracts、model-contracts、permission、context-retrieval；
  * agent 只装配能力包，自身不保存请求、调用、解码或执行实现；
  * 九个能力包按 Spec 的依赖方向逐包收紧，Roundtrip 依赖由各自的允许列表拒绝；
@@ -30,10 +52,10 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     "model-context": ["context-budget", "model-view", "runtime", "contracts", "model-contracts", "tool-core", "working-memory", "context-retrieval", "execution-control"],
     "prompt-renderer": ["model-view", "context-budget"],
     "prompt-bundle": ["prompt-renderer", "model-view", "runtime", "working-memory"],
-    "model-request": ["context-budget", "model-view", "model-context", "prompt-renderer", "llm", "runtime", "config", "model-contracts", "tool-core", "working-memory"],
-    "model-response": ["llm", "contracts", "model-contracts"],
-    "model-call": ["llm", "runtime", "model-response", "execution-control", "execution-stream"],
-    "model-execution": ["context-budget", "model-view", "model-context", "prompt-renderer", "model-request", "model-response", "model-call", "llm", "runtime", "model-contracts", "execution-control"],
+    "model-request": ["context-budget", "model-view", "model-context", "prompt-renderer", "llm-core", "runtime", "config", "model-contracts", "tool-core", "working-memory"],
+    "model-response": ["llm-core", "contracts", "model-contracts"],
+    "model-call": ["llm-core", "runtime", "model-response", "execution-control", "execution-stream"],
+    "model-execution": ["context-budget", "model-view", "model-context", "prompt-renderer", "model-request", "model-response", "model-call", "llm-core", "runtime", "model-contracts", "execution-control"],
     "model-contracts": ["contracts"],
     "execution-stream": [],
     "execution-control": [],
@@ -45,9 +67,14 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     permission: ["contracts", "sandbox"],
     "tool-core": ["contracts", "execution-control", "sandbox"],
     "working-memory": ["contracts", "model-contracts"],
-    config: [],
+    "llm-core": ["contracts", "model-contracts", "execution-control"],
+    "llm-openai": ["llm-core", "model-contracts", "execution-control"],
+    "llm-google": ["llm-core", "contracts", "model-contracts", "execution-control"],
+    "llm-pi-ai": ["llm-core", "execution-control"],
+    "model-catalog": ["llm-core"],
+    config: ["llm-core"],
     runtime: ["contracts", "model-contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control", "tool-core", "working-memory"],
-    llm: ["contracts", "model-contracts", "execution-stream", "execution-control", "config"],
+    llm: ["llm-core", "llm-openai", "llm-google", "llm-pi-ai"],
     storage: ["runtime", "contracts", "model-contracts", "permission", "context-retrieval"],
     agent: ["runtime", "llm", "config", "contracts", "model-contracts", "execution-stream", "execution-control", "tool-core", "working-memory", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request", "model-response", "model-call", "model-execution"],
     "session-metrics": ["runtime", "http", "web-contracts"],
@@ -78,13 +105,37 @@ const AGENT_ENTRY_EXPORT_SOURCES = ["./create-agent-executor"];
 /** 每个 app 允许的出站目标 package。 */
 const ALLOWED_APP_DEPENDENCIES = {
     "goal-board": ["web-contracts", "slash-command"],
-    "goal-server": ["runtime", "storage", "agent", "llm", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts", "tool-core", "working-memory", "process-runtime", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request", "model-response", "model-call", "model-execution"],
+    "goal-server": ["runtime", "storage", "agent", "llm", "llm-core", "model-catalog", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts", "tool-core", "working-memory", "process-runtime", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request", "model-response", "model-call", "model-execution"],
 };
 
 const APPS = Object.keys(ALLOWED_APP_DEPENDENCIES);
 
 /** Benchmark 目录之间只允许通过 `benchmarks/src/` 共享层通信。 */
 const BENCHMARKS = ["alfworld", "swebench", "gaia", "tua-bench", "context"];
+
+/**
+ * 生产源码禁止直接引用的供应商 SDK；llm-core 与 config 不得出现其运行时或类型引用。
+ */
+const VENDOR_SDK_MODULES = ["openai", "@google/genai", "@earendil-works/pi-ai"];
+
+/** 跨包消费必须经 `src/index.ts` 的能力包。 */
+const CAPABILITY_PACKAGES = ["llm-core", "llm-openai", "llm-google", "llm-pi-ai", "model-catalog"];
+
+/** 已迁移的旧 LLM 实现路径；不得存在，源码也不得再引用。 */
+const REMOVED_LLM_PATHS = [
+    "packages/llm/src/adapter.ts",
+    "packages/llm/src/factory.ts",
+    "packages/llm/src/gemini.ts",
+    "packages/llm/src/pi-ai.ts",
+    "packages/llm/src/openai-compatible.ts",
+    "packages/llm/src/model-catalog.ts",
+    "packages/llm/src/provider-fetchers.ts",
+    "packages/llm/src/smoke-test.ts",
+    "packages/llm/src/core",
+];
+
+/** 必须在生产源码中保持无供应商 SDK 引用的包。 */
+const SDK_FREE_PACKAGES = new Set(["llm-core", "config"]);
 
 /**
  * 即使 package 出站边被允许、也禁止导入所列 package 的单个文件。
@@ -286,9 +337,25 @@ function extractModuleSpecifiers(text) {
     return [...imports];
 }
 
+/** 判定说明符是否为相对模块引用。 */
 function isRelativeSpecifier(specifier) {
     return specifier.startsWith("./") || specifier.startsWith("../");
 }
+
+/** 判定外部说明符是否属于受管的供应商 SDK（含子路径）。 */
+function isVendorSdkSpecifier(specifier) {
+    return VENDOR_SDK_MODULES.some(
+        moduleName => specifier === moduleName || specifier.startsWith(`${moduleName}/`),
+    );
+}
+
+/** 去掉相对解析结果的文件扩展名，便于按模块基名比较。 */
+function stripExtension(relativePath) {
+    return relativePath.replace(/\.(d\.ts|ts|tsx|mjs|cjs|js)$/, "");
+}
+
+/** 已迁移旧 LLM 路径的基名集合（无扩展名）。 */
+const REMOVED_LLM_BASES = REMOVED_LLM_PATHS.map(removed => stripExtension(removed));
 
 /** 将相对 specifier 解析为 import 源文件相对 projectRoot 的 POSIX 路径。 */
 function relativeResolvedPath(projectRoot, fromFile, specifier) {
@@ -345,6 +412,37 @@ function projectArtifactImport(projectRoot, fromFile, specifier) {
     return segments.some((segment) => PROJECT_ARTIFACT_SEGMENTS.includes(segment))
         ? relative
         : undefined;
+}
+
+/**
+ * 对一次相对模块引用执行旧 LLM 路径与跨能力包入口穿透检查。
+ *
+ * @param projectRoot - 仓库根目录。
+ * @param file - 引用所在文件的绝对路径。
+ * @param relativePath - 引用文件的仓库相对 POSIX 路径。
+ * @param sourcePackage - 来源 package 名；app 与 benchmark 来源为 null。
+ * @param specifier - 相对模块说明符。
+ * @returns 命中的违规描述；无命中返回 null。
+ */
+function referenceBoundaryViolation(projectRoot, file, relativePath, sourcePackage, specifier) {
+    const resolved = relativeResolvedPath(projectRoot, file, specifier);
+    const normalized = stripExtension(resolved);
+
+    for (const removed of REMOVED_LLM_BASES) {
+        if (normalized === removed || normalized.startsWith(`${removed}/`)) {
+            return `禁止引用旧 LLM 路径：${relativePath} 引用 ${specifier}`;
+        }
+    }
+
+    const targetPackage = targetPackageOf(projectRoot, file, specifier);
+    if (targetPackage !== null
+        && CAPABILITY_PACKAGES.includes(targetPackage)
+        && targetPackage !== sourcePackage
+        && normalized !== `packages/${targetPackage}/src/index`) {
+        return `跨能力包入口穿透：${relativePath} 不得越过 packages/${targetPackage}/src/index.ts 消费（引用 ${specifier}）`;
+    }
+
+    return null;
 }
 
 /** 递归收集 packages 下 src 目录内的 .ts/.tsx 文件；缺失目录按空处理。 */
@@ -613,6 +711,12 @@ export async function analyzeDependencies(projectRoot) {
     const files = await collectSourceFiles(projectRoot);
     const violations = [];
 
+    for (const removed of REMOVED_LLM_PATHS) {
+        if (existsSync(path.join(projectRoot, removed))) {
+            violations.push(`旧路径转发残留：${removed} 仍然存在`);
+        }
+    }
+
     for (const file of files) {
         const text = await readFile(file, "utf8");
         const sourcePackage = packageNameOf(file);
@@ -623,6 +727,20 @@ export async function analyzeDependencies(projectRoot) {
         }
 
         for (const specifier of extractModuleSpecifiers(text)) {
+            if (!isRelativeSpecifier(specifier)) {
+                if (SDK_FREE_PACKAGES.has(sourcePackage) && isVendorSdkSpecifier(specifier)) {
+                    violations.push(
+                        `供应商 SDK 泄漏：packages/${sourcePackage} 不得引用 ${specifier}（${relativePath}）`,
+                    );
+                }
+                continue;
+            }
+
+            const boundary = referenceBoundaryViolation(projectRoot, file, relativePath, sourcePackage, specifier);
+            if (boundary !== null) {
+                violations.push(boundary);
+            }
+
             const targetPackage = targetPackageOf(projectRoot, file, specifier);
             if (targetPackage !== null && targetPackage !== sourcePackage
                 && !ALLOWED_PACKAGE_DEPENDENCIES[sourcePackage].includes(targetPackage)) {
@@ -670,6 +788,12 @@ export async function analyzeDependencies(projectRoot) {
         const text = await readFile(file, "utf8");
         const relativePath = path.relative(projectRoot, file).split(path.sep).join("/");
         for (const specifier of extractModuleSpecifiers(text)) {
+            if (isRelativeSpecifier(specifier)) {
+                const boundary = referenceBoundaryViolation(projectRoot, file, relativePath, null, specifier);
+                if (boundary !== null) {
+                    violations.push(boundary);
+                }
+            }
             const targetBenchmark = benchmarkNameOf(
                 path.resolve(path.dirname(file), specifier),
             );
@@ -701,6 +825,12 @@ export async function analyzeDependencies(projectRoot) {
         const text = await readFile(file, "utf8");
         const relativePath = path.relative(projectRoot, file).split(path.sep).join("/");
         for (const specifier of extractModuleSpecifiers(text)) {
+            if (isRelativeSpecifier(specifier)) {
+                const boundary = referenceBoundaryViolation(projectRoot, file, relativePath, null, specifier);
+                if (boundary !== null) {
+                    violations.push(boundary);
+                }
+            }
             const targetPackage = targetPackageOf(projectRoot, file, specifier);
             if (targetPackage !== null && !ALLOWED_APP_DEPENDENCIES[sourceApp].includes(targetPackage)) {
                 violations.push(
@@ -738,11 +868,11 @@ export async function analyzeDependencies(projectRoot) {
 }
 
 /**
- * 校验依赖方向，存在违规时抛错。
+ * 校验依赖方向、SDK 泄漏、跨能力包入口、旧路径与构建产物引用，存在违规时抛错。
  *
  * @param projectRoot - 仓库根目录。
  * @returns 扫描到的源文件数量。
- * @throws 存在任何 package 反向依赖或 DTO/Renderer 违规导入时抛出 Error。
+ * @throws 存在任何依赖方向、SDK 泄漏、入口穿透、旧路径或构建产物违规时抛出 Error。
  */
 export async function checkDependencies(projectRoot) {
     const violations = await analyzeDependencies(projectRoot);

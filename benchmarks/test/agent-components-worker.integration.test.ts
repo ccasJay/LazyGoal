@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { test } from "node:test";
 
-import type { LLMAdapter } from "../../packages/llm/src/core/adapter.js";
+import type { LLMAdapter } from "../../packages/llm-core/src/index.js";
 import { toolResponseFixture } from "../../packages/agent/test/tool-response-fixture.js";
 import {
     WORKER_NODE_IMAGE,

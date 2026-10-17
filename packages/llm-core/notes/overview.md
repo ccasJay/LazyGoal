@@ -1,0 +1,14 @@
+# LLM 核心契约
+
+本包承载 Agent、供应商适配包与配置之间的共享模型调用契约，不执行供应商通信，也不读取环境或配置来源。
+
+## 职责
+
+- [LLMAdapter](../src/adapter.ts) 定义供应商无关的最小调用边界：[LLMRequest / LLMResponse / LLMStreamEvent](../src/types.ts) 分离正文、公开 reasoning、工具调用与续接字段；实例构造时固定 `strict` 或 `prompt_only`，`two_stage` 由装配层解析为阶段 Adapter 对。
+- [LLMConfig / LLMConfigurationError](../src/llm-config.ts) 提供无 I/O 的共享连接配置与唯一配置错误构造器。环境、TOML/Profile 的读取、合并与校验仍在 [Config](../../config/notes/overview.md)；解析、默认工厂与 pi-ai 引用同一错误类。
+- [NormalizedUsage / toSafeTokenCount / readNormalizedUsage](../src/usage.ts) 定义归一化 token 用量形态与数字守卫；供应商原始字段提取归各供应商适配包，缺失或非法计数整体缺省，不以 0 或估算值代替。
+- [classifyTransientModelFailure](../src/model-request-failure.ts) 只做结构化识别（限流、暂时性 5xx、连接与超时），结果身份来自 [execution-control](../../execution-control/notes/overview.md)；鉴权、配额、协议与未知错误原样返回。
+
+## 依赖方向与限制
+
+本包只依赖 `contracts`、`model-contracts` 与 `execution-control`；不包含供应商 SDK、不读环境、不建网络连接、不拥有 Runtime 状态、重试次数或模型目录。原生消息与 continuation 引用 `model-contracts`，JSON/Schema 类型引用 `contracts`，不在本包复制对话或决策协议。公共契约见 [src/index.ts](../src/index.ts)。

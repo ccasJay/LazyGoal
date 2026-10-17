@@ -1,4 +1,9 @@
 import {
+    LLMConfigurationError,
+    type LLMConfig,
+    type StructuredOutputMode,
+} from "../../llm-core/src/index";
+import {
     isAcceptableBaseUrl,
     isPositiveSafeInteger,
     isSupportedLlmProvider,
@@ -7,62 +12,9 @@ import {
 } from "./provider-rules";
 
 /**
- * 模型请求支持的输出结构模式。
- *
- * @remarks
- * `two_stage` 表示 Runtime 在 Think/Decide 阶段间绑定输出模式；Adapter 实例实际接收 `strict` 或 `prompt_only`。
- *
- * @example
- * ```ts
- * const mode: StructuredOutputMode = "two_stage";
- * ```
- */
-export type StructuredOutputMode = "strict" | "prompt_only" | "two_stage";
-
-/** 本期开放的供应商；兼容端点使用独立标识，不推断协议。 */
-export type LLMProvider = "openai" | "google" | "anthropic" | "openrouter" | "deepseek" | "openai-compatible" | "opencode-go";
-
-type CommonConfig = {
-    readonly apiKey: string;
-    readonly model: string;
-    readonly structuredOutputMode: StructuredOutputMode;
-    readonly maxOutputTokens?: number;
-};
-
-/**
- * 已校验的供应商连接配置；凭据由调用方提供，不查询其它凭据源。
- *
- * @remarks
- * 自定义模型必须声明容量；目录模型只允许覆盖输出上限。
- * OpenAI 与 Google 可覆盖端点；Google baseURL 是包含所需版本路径的完整 API 前缀。
- * 配置不写入 Goal 或 Diagnostic Trace。
- * @example
- * ```ts
- * const config: LLMConfig = {
- *     provider: "anthropic", model: "claude-sonnet-4-5",
- *     apiKey: "secret", structuredOutputMode: "prompt_only",
- * };
- * ```
- */
-export type LLMConfig = CommonConfig & (
-    | { readonly provider: "openai" | "google"; readonly baseURL?: string }
-    | { readonly provider: "anthropic" | "openrouter" | "deepseek" | "opencode-go" }
-    | { readonly provider: "openai-compatible"; readonly baseURL: string; readonly contextWindowTokens: number; readonly maxOutputTokens: number }
-);
-
-/** 模型配置错误，在创建 Goal、Store 或发起请求前报告。 */
-export class LLMConfigurationError extends Error {
-    readonly code = "INVALID_LLM_CONFIG";
-    constructor(readonly missing: readonly string[], message?: string) {
-        super(message ?? `Missing required environment variable(s): ${missing.join(", ")}`);
-        this.name = "LLMConfigurationError";
-    }
-}
-
-/**
  * 仅从显式环境对象读取供应商配置，不修改环境或解析其它凭据源。
  * @param env - CLI、benchmark 或调用方选定的环境。
- * @returns 可交给 createLlmAdapter 的配置；模型目录检查由工厂完成。
+ * @returns 共享的 LLMConfig；模型目录检查由模型工厂完成。
  * @throws LLMConfigurationError 必填值、模式、端点或容量非法。
  * @example
  * ```ts
@@ -110,7 +62,7 @@ export function readLLMConfig(env: Readonly<Record<string, string | undefined>>)
         return n;
     };
     const maxOutputTokens = value("LLM_MAX_OUTPUT_TOKENS") ? positive("LLM_MAX_OUTPUT_TOKENS") : undefined;
-    const common: CommonConfig = {
+    const common = {
         apiKey: value("LLM_API_KEY"), model: value("LLM_MODEL"), structuredOutputMode: mode,
         ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
     };

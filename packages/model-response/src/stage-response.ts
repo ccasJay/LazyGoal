@@ -19,7 +19,7 @@ import {
     type SystemToolDeclaration,
 } from "../../model-contracts/src/index";
 import { ContractValidationError } from "../../contracts/src/errors";
-import type { LLMResponse, LLMToolCall } from "../../llm/src/core/types";
+import type { LLMResponse, LLMToolCall } from "../../llm-core/src/index";
 import { LLMResponseProtocolError } from "./errors";
 
 /** Decide 响应的形状分级结果：单调用进入既有决策路径，多调用成为顺序批次，零调用且有正文归为 Assistant 消息。 */

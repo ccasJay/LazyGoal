@@ -6,7 +6,7 @@ import {
     createUnifiedToolDeclarations,
     SystemCompletionReviewDeclaration,
 } from "../../model-contracts/src/index";
-import type { LLMResponse } from "../../llm/src/core/types";
+import type { LLMResponse } from "../../llm-core/src/index";
 import {
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     LLMResponseProtocolError,

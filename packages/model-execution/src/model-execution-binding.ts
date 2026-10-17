@@ -1,4 +1,4 @@
-import type { LLMAdapter } from "../../llm/src/core/adapter.js";
+import type { LLMAdapter } from "../../llm-core/src/index.js";
 import type { GoalModelSelection } from "../../runtime/src/domain.js";
 import type { TrajectoryStore } from "../../runtime/src/index.js";
 import {

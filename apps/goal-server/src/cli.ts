@@ -18,8 +18,8 @@ import {
     type BrowserModelCatalog,
     type BrowserSessionAccess,
 } from "../../../packages/browser/src/index";
-import { DefaultProviderModelFetcher } from "../../../packages/llm/src/provider-fetchers";
-import { ModelCatalogError } from "../../../packages/llm/src/model-catalog";
+import { DefaultProviderModelFetcher } from "../../../packages/model-catalog/src/index";
+import { ModelCatalogError } from "../../../packages/model-catalog/src/index";
 import {
     RuntimeLifecycleUnavailableError,
     type GoalModelSelection,

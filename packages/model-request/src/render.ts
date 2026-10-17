@@ -1,4 +1,4 @@
-import type { LLMMessage, LLMRequest } from "../../llm/src/core/types";
+import type { LLMMessage, LLMRequest } from "../../llm-core/src/index";
 import type {
     ModelInferenceView,
     ModelTrajectoryContext,

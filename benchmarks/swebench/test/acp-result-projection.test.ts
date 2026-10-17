@@ -7,7 +7,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import type { AcpSessionInput, AcpSessionUpdate } from "../../../packages/acp/src/index.js";
 import { InMemoryTrajectoryStore } from "../../../packages/runtime/test/current-fixtures.js";
 import type { TrajectoryEventDraft } from "../../../packages/runtime/src/index.js";

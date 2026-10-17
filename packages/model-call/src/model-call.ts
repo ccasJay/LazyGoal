@@ -11,9 +11,9 @@
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 
-import type { LLMAdapter } from "../../llm/src/core/adapter";
-import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm/src/core/types";
-import { readNormalizedUsage } from "../../llm/src/core/usage";
+import type { LLMAdapter } from "../../llm-core/src/index";
+import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
+import { readNormalizedUsage } from "../../llm-core/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,

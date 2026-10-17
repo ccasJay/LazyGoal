@@ -1,4 +1,4 @@
-import type { LLMResponse } from "../../llm/src/core/types";
+import type { LLMResponse } from "../../llm-core/src/index";
 
 /**
  * 将测试中既有的决策 fixture 编码为模型工具调用，不参与生产解码。

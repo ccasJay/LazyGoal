@@ -3,8 +3,8 @@ import { test } from "node:test";
 
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal } from "../../runtime/src/domain";
-import type { LLMAdapter } from "../../llm/src/core/adapter";
-import type { LLMRequest } from "../../llm/src/core/types";
+import type { LLMAdapter } from "../../llm-core/src/index";
+import type { LLMRequest } from "../../llm-core/src/index";
 import type { ModelInputRecord } from "../../runtime/src/model-input";
 import {
     DropOldestContextCompactor,

@@ -1,6 +1,6 @@
 import type { NativeConversationIdentity } from "../../model-contracts/src/index";
-import type { LLMMessage, LLMRequest } from "../../llm/src/core/types";
-import type { StructuredOutputMode } from "../../config/src/index";
+import type { LLMMessage, LLMRequest } from "../../llm-core/src/index";
+import type { StructuredOutputMode } from "../../llm-core/src/index";
 import type { Goal } from "../../runtime/src/domain";
 import type { WorkingMemory } from "../../working-memory/src/index";
 import type { ModelContextFramePayload } from "../../runtime/src/index";
@@ -48,7 +48,6 @@ import {
 } from "../../model-contracts/src/index";
 
 export type { ModelInferenceView } from "../../model-view/src/index";
-export type { StructuredOutputMode } from "../../config/src/index";
 
 /**
  * 构造 Decide/Think 请求时使用的阶段输入。

@@ -17,8 +17,8 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { contract } from "../../contracts/src/index";
-import type { LLMAdapter } from "../../llm/src/core/adapter";
-import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
+import type { LLMAdapter } from "../../llm-core/src/index";
+import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import type { NativeConversationIdentity } from "../../model-contracts/src/index";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal, GoalMessage } from "../../runtime/src/domain";

@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import type { LLMAdapter } from "../../../packages/llm/src/core/adapter";
-import type { LLMRequest, LLMResponse } from "../../../packages/llm/src/core/types";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index";
+import type { LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import { ManagedResourceRegistry, type AgentProfile } from "../../../packages/runtime/src/index";
 import {
     JsonFileProcessSessionStore,

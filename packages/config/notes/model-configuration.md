@@ -2,7 +2,7 @@
 
 ## 模型配置与入口
 
-常规 TOML/Profile、GEPA 双模型与运行配置由 [`@lazygoal/config`](overview.md) 加载；LLM 消费校验后的 `LLMConfig`，不拥有系统级配置文件解析。
+常规 TOML/Profile、GEPA 双模型与运行配置由 [`@lazygoal/config`](overview.md) 加载；共享 `LLMConfig` 契约与配置错误由 [`@lazygoal/llm-core`](../../llm-core/notes/overview.md) 拥有，LLM 消费校验后的结果，不拥有系统级配置文件解析。
 
 运行要求 Node ≥22.19.0。系统使用统一的 LazyGoal Home：`LAZYGOAL_HOME` 必须是绝对路径，缺失或空白时回退至 `$HOME/.lazygoal`；`XDG_CONFIG_HOME` 不参与解析。按“内置默认值 → `config.toml` → `profiles/<profile>.toml` → CLI 临时参数”四层单向合并加载运行时配置；同时兼容显式传入的进程环境变量。必填 `provider`、`model`、`api_key`；`structured_output_mode` 省略时默认为 `prompt_only`，也可显式设为 `strict` 或 `two_stage`；TOML 的 Anthropic、OpenRouter、DeepSeek、OpenCode Go 配置拒绝 `two_stage`，环境变量入口由 `readLLMConfig` 独立解析。Runtime 阶段绑定按 Think/Decide 角色确定实际 Adapter 输出模式。
 
@@ -35,7 +35,7 @@ Google 在两种输出模式下均将其视为完整 API 前缀（含所需版�
 与 `LLM_MAX_OUTPUT_TOKENS`，输出上限须小于上下文窗口；不声明 reasoning 能力或估算费用。
 CLI 使用这些容量启用既有 token 预算时，还需 `LLM_TOKENIZER_ENCODING`（`cl100k_base`
 或 `o200k_base`，按模型选择；不能将不匹配的 tokenizer 当作供应商精确计数）。
-目录不自动改变上下文裁剪或 tokenizer；配置的输出上限不得超过所选目录模型上限。
+模型目录（[model-catalog](../../model-catalog/notes/overview.md)）不自动改变上下文裁剪或 tokenizer；配置的输出上限不得超过所选目录模型上限。
 请求显式上限优先于 Adapter 配置；两者都缺省时沿用 SDK 行为。
 
 ### GEPA 双模型边界
