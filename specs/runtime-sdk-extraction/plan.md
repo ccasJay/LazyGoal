@@ -21,7 +21,7 @@
   - 实现：从 shutdown 提取 `lifecycle/index.ts`、关闭核心与资源管理实现，保留原 Checkpoint Gate；维护受理操作、资源拒绝/未完成信息与强制升级资格，不新增 Goal 业务状态。同步 ManagedResource 的成功、失败及未完成语义，不通过注销丢弃已观察到的清理错误。将 ExitPort、ProcessExitPort 和退出协调移到 goal-server，最小调整现有组合根使当前服务继续可用；退出适配调用唯一关闭核心，删除迁移后的旧实现与陈旧导出。保留 `shutdown.test.ts` 的 Gate/资源断言，将进程退出断言归入应用测试，并同步 Runtime 契约与说明。
   - 检查：`npx tsx --test packages/runtime/test/runtime-lifecycle.test.ts packages/runtime/test/shutdown.test.ts apps/goal-server/test/process-lifecycle.integration.test.ts`；`npx tsc --noEmit`；`npx tsc --noEmit -p apps/goal-server/tsconfig.json`。应用自有 HTTP 资源与实例资源的最终分离在 TODO 4 完成。
 
-- [ ] //TODO 2. 通过组件入口注入现有 Port，独立组合并推进 Goal
+- [x] //TODO 2. 通过组件入口注入现有 Port，独立组合并推进 Goal
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[3.1](./spec.md#spec-req-3-1)、[5.1](./spec.md#spec-req-5-1)、[5.4](./spec.md#spec-req-5-4)。
   - 先验证：在拟新增 `apps/goal-server/test/execution-composition.test.ts` 中从 `src/runtime/index.ts` 消费组件，仅注入确定性 StepExecutor、Profile Registry、工具和 Store。验证 launch 到等待/终态、只读恢复不推进、continue 创建新 Run、各执行对象共享同一 Store/Trajectory/提交边界，以及初始保存失败不调用执行器或工具；替换执行器、Store 和工具不改组件源码，输入依赖仍归调用方拥有。
   - 实现：新增 `runtime/execution-composition.ts` 与最小目录入口，组合既有 Launcher、Runner、InlineScheduler、Coordinator 和共享提交器，返回所需 commands Port；复用已有类型和业务结果。此层不解析环境或准备具体模型、文件存储和默认工具；不返回内部执行对象或增加插件配置。为新契约补中文 TSDoc 与最小示例，并在 goal-server 说明中记录该组件职责。

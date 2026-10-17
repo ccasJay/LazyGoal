@@ -303,6 +303,7 @@ export type {
     TrajectoryCheckpointCommitRequest,
     TrajectoryCheckpointCommitResult,
     TrajectoryCheckpointCommitterDependencies,
+    TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
 export { Runner, type InterruptRunResult, type SteerInputResult } from "./runner";
 export { RunRecoveryReader, type RunRecoveryReaderDependencies } from "./run-recovery-reader";

@@ -60,6 +60,15 @@ flowchart LR
 
 实时事件通过独立的 `execution-stream` Core 旁路发送：它只分配 Goal/Run 内 cursor、执行可见性过滤、增量合并和慢订阅者关闭，不拥有 Goal 状态转换、Trajectory 写入、Provider/Tool 调用或 UI 渲染。Runtime 负责把生命周期和提交边界映射成领域事件；Agent/LLM 负责把模型流归一化后发布；Tool 可选地发布输出分片；Web 服务把事件适配为同源 SSE，前端维护瞬时活动视图，恢复仍以 Snapshot/Trajectory 为准。
 
+## 执行装配组件
+
+`src/runtime/` 提供按职责组织的执行装配：`execution-composition.ts` 接收调用方准备
+的 StepExecutor、Profile Registry、Store、工具与可选 Port，内部组合 Launcher、
+Runner、InlineScheduler、共享 `TrajectoryCheckpointCommitter` 与 GoalCoordinator，
+并只暴露调用方需要的执行与控制命令；目录入口 `src/runtime/index.ts` 不重新导出内部
+执行对象。该层不解析配置、不创建模型供应商或默认文件存储、不启动 HTTP、不注册
+进程信号，也不接管注入依赖的所有权；生命周期接线由组合根完成。
+
 ## 宿主退出与实例关闭
 
 Composition Root 构造 `RuntimeLifecycle` 并把实例 Gate、`ManagedResourceRegistry`、实例 AbortController 交付给它；HTTP 关闭后写请求的拒绝继续读取实例控制器信号，不为关闭另建状态。`HostShutdownCoordinator`（[进程退出适配](../src/process-exit.ts)）幂等地调用 `lifecycle.close()`，无论关闭是否完整都经 `ExitPort` 请求退出码 130；`ProcessExitPort` 是本应用直接调用 `process.exit` 的唯一实现。CLI 的 SIGINT 与普通退出路径共用该协调器，关闭不完整时记录 `RuntimeLifecycleIncompleteError` 的原因后仍返回 130。
