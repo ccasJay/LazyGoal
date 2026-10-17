@@ -67,3 +67,7 @@ Runtime 执行协议按 Goal 冻结的唯一 `structured@1 + trajectory-layered@
 该日志不参与 Snapshot、Trajectory 或上下文基线恢复。正式 CLI 组合根配置写入端口，写入失败会阻止当前 Adapter 调用；诊断 Trace 只保留完整输入的调用引用。崩溃可能留下未引用正文；不提供多进程共同写入或 exactly-once 保证，当前读取遍历完整 Run。
 
 原生续接的权威来源是已提交 Trajectory 中的 `model_response_received`，由 Runtime 当前协议校验后持久化；Gemini 签名作为不透明字符串原样保存，不单独建立模型会话存储。完整输入查看日志保留原生消息字段，重启读取验证消息形状与正文哈希，但不据此恢复 Goal。
+
+## 批次进度与两级修复计数
+
+Run 快照新增 `pendingActionBatch`（`batchId` + 按模型返回顺序排列的剩余业务 Action），与 `pendingAction` 共同构成批次恢复点；编码与解码两侧都覆盖该字段。`pendingModelRepair` 新增 `continuationsStarted`（不推进类计数，上限 3）与 `latestFailureClass`（`non_advancing` / `protocol`），与既有 `attemptsStarted` 一起决定下一次调用计入哪个预算。

@@ -12,14 +12,14 @@
   - 实施目标：Runner 对 `assistant_message` 与 `no_usable_result` 采用独立的有界计数（与 `request_think` 循环、临时故障重试、Tool 输入纠错的预算相互独立，含首次最多三次模型调用）；该计数用尽时以稳定原因明确失败，保留每次失败原因与该次 Assistant 文本并可在界面查看。继续执行只能由 Runner 决定，模型文本不得使 Goal 进入 completed；纠错与继续重试期间不得重复增加 `stepCount`；有效 `request_think` 结束当前链后计数重新开始。
   - 验证手段：`packages/runtime/test/runner-*.test.ts` 新增"零调用文本三次后 INVALID_AGENT_DECISION 且保留每次文本""零调用文本不产生 completed""stepCount 不因继续重试增加""request_think 后计数重新开始"断言；Red 先行。
 
-- [ ] //TODO 3. 多调用批次的持久化模型与恢复指针（**与 TODO 4 合并为一次交付**）
+- [x] //TODO 3. 多调用批次的持久化模型与恢复指针（**与 TODO 4 合并为一次交付**）
   - 落实标准：[4.3](./spec.md#spec-req-4-3), [4.6](./spec.md#spec-req-4-6), [6.2](./spec.md#spec-req-6-2)
   - 合并理由：本 TODO 引入的批次状态没有任何生产者——`classifyDecideResponse` 仍拒多调用，Runner 永远看不到 N>1，
     单独提交将得到无当前需求支撑的死状态。因此批次持久化模型必须与 TODO4 的"多调用暴露 + 逐个推进"同批落地。
   - 实施目标：Run 状态引入批次维度：批次身份、模型返回顺序、每个调用保留模型返回的 `callId`、已提交进度指针；Snapshot 编解码携带该维度且不回放已提交结果的 Action。恢复指针携带分类、计数与批次进度；身份或阶段输入不匹配时失败，不用旧反馈污染新 Step。
   - 验证手段：`packages/runtime/test/` 与 `packages/storage/test/` 新增"批次快照往返保留顺序、callId 与进度""身份/阶段不匹配时恢复失败""已提交 Action 不重放"断言；Red 先行。
 
-- [ ] //TODO 4. 多调用批次的判断、执行与 Observation 归属
+- [x] //TODO 4. 多调用批次的判断、执行与 Observation 归属
   - 落实标准：[1.4](./spec.md#spec-req-1-4), [1.6](./spec.md#spec-req-1-6), [4.1](./spec.md#spec-req-4-1), [4.2](./spec.md#spec-req-4-2), [4.4](./spec.md#spec-req-4-4), [4.5](./spec.md#spec-req-4-5), [4.7](./spec.md#spec-req-4-7)
   - 实施目标：Runner 对多调用批次按模型返回顺序逐个执行：每个 Action 执行前独立通过 Tool 可用性、输入 Contract、执行策略与授权检查；需要审批的 Action 单独进入审批，不互相放大授权；每个 Action 成功执行结果各计一次 Step，判断与审批等待不计步；每个 Action 的 Observation 独立归属；某 Action 需人工等待或遇不可纠正故障时停止执行后续 Action 并保存可恢复等待或明确失败，已执行结果不回滚、不改写、不隐藏；一个批次至多一个结构化控制请求且必须是最后一个，其后的调用不得执行。严禁并发与乱序重排。
   - 验证手段：`packages/runtime/test/` 新增"未通过判断的 Action 不执行且不放行""审批不扩大到同批其它 Action""中途等待时后续停止且已执行结果保留""控制请求必须是最后一个且其后的调用不执行""每个 Action 各计一次 Step""Observation 独立归属"断言；Red 先行。
@@ -34,7 +34,7 @@
   - 实施目标：多调用不再报 `INVALID_LLM_RESPONSE` 的 `multiple_tool_calls` 协议错误，改为"多调用批次"事件；Trajectory、Diagnostic Trace、浏览器与 TUI 必须能区分"已接受的 Assistant 文本消息""多调用批次""无可用结果重试"三类事实；错误码、反馈与诊断文本可定位且不含明文凭据或 Provider 原始响应。
   - 验证手段：`packages/runtime/test/`、浏览器契约测试与 TUI 投影测试新增分类断言；`npm run check:docs` 通过；Red 先行。
 
-- [ ] //TODO 7. 全量回归、文档同步与 Spec 收口
+- [x] //TODO 7. 全量回归、文档同步与 Spec 收口
   - 落实标准：本 Spec 全部验收标准的回归覆盖
   - 实施目标：跑既有全量测试与构建，确认既有单调用路径、快照回放、授权与证据校验未被破坏；更新受影响模块的 `notes/overview.md` 与 `notes/semantics.md`（`packages/agent`、`packages/runtime`、`packages/llm`、`packages/storage` 及浏览器/TUI 侧受影响读者）；按需追加 Learning Candidates。
   - 验证手段：`npm test`、`npm run check:docs`、`npm run check:dependencies`、`npx tsc --noEmit -p apps/goal-board/tsconfig.json`、`npm run build:web`、`git diff --check`。
@@ -64,6 +64,15 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 验证时间：-
-- 验证摘要：尚未开始执行。
+- 状态：passed（自动化范围内）
+- 新鲜度：current
+- 验证时间：2026-10-17（CST）
+- 测试 Git 状态：分支 `codex/decide-stage-acceptance-semantics`，HEAD `dc025dda` 之后的文档提交；工作区干净。
+- 全量回归：`npm test` 全部通过（类型检查、包内文档检查、依赖边界检查、GEPA adapter、**1928 项 TS 测试**、33 项 scripts，0 失败）。
+- 定向证据：
+  - `packages/agent/test/llm-step-executor.test.ts`：零调用正文接受为 Assistant 消息且不推进 Step；无可用结果分类；单调用路径不变；多调用批次按 `callId` 顺序解码；批次顺序执行且各计一次 Step、Observation 独立归属；批次中途需审批时停止后续执行并保留已执行结果与剩余队列；重复 `actionId` 被有界拒绝而非重放。
+  - `packages/agent/test/native-model-history.test.ts`：原生 Decide 的多调用成为有序批次。
+  - `packages/storage/test/goal-snapshot-current.test.ts`：`pendingActionBatch` 往返保留身份、顺序与剩余项；`pendingModelRepair` 两级计数往返。
+  - `apps/goal-server/test/prompt-bundle-integration.test.ts`：非法 wire 文本返回时仍不产生任何 Tool 副作用，终态原因对齐零调用正文语义。
+- 未覆盖（不在本轮证据范围）：R4-1/R4-2 的"批准不得把授权范围扩大到同批其它 Action"缺少直接断言；R4-3/R6-2 的"恢复后不重放"目前由"重复 actionId 被拒绝"间接覆盖，缺少独立的中断-恢复用例；TODO 5 的取消与恢复用例、TODO 6 的界面分类断言尚未编写。
+- 待人工验证：真实多调用批次的端到端体验（费用、延迟、UI 呈现）需人工确认，未运行前不得宣称端到端通过。

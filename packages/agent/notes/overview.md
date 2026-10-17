@@ -74,3 +74,14 @@ Context Lookup 的 found、not_found、lookup_error 模型投影统一标记 `so
 来源选择与 Memory 修复的固定单步评测沿用 `npm run llm:decision-eval`，完成审查评测使用 `npm run llm:decision-eval -- --completion-review`。新来源场景使用实际文件 Tool Schema 和生产反馈消息注入，每项重复三次；缺失调用标记 incomplete，任何新场景失败不通过。报告只衡量固定单步／候选判断，不代表长期任务成功率。
 
 完成审查按用户原文、当前阶段、完整候选和引用的已提交证据组装输入，不默认重放完整会话。仅允许一次 `system_review_completion` 调用，不发送顶层决策 Schema 或文本 JSON 输出指导；调用数量错误区分缺失与多调用并给出纠错要求。保守保留历史用户要求；当前 Run 用户回复紧邻的 Assistant 消息用于问答、批准及沿用结果的语境，记录原始消息位置。其他历史答复通过显式 Context Lookup 来源提供。必要原文或证据仍超预算时在调用前失败，不截断后放行。
+
+## Decide 响应形状的分级接受
+
+`LLMStepExecutor` 不再要求"恰好一个工具调用"。`classifyDecideResponse` 把一次 Decide 响应分为四类：
+
+- **单调用**：进入既有解析、授权与执行流程，行为不变。
+- **多调用**：按模型返回顺序解码为有序决策数组（`DecideStageResult.kind === "batch"`），交由 Runner 逐个暂存与执行；Executor 不执行、不排序、不去重。批次中混入控制请求（`complete`/`wait`/`fail` 等）时按不可判定协议错误拒绝，因为"控制请求必须最后执行"的顺序语义尚未定义。
+- **零调用 + 非空正文**：接受为合法 Assistant 消息（`assistant_message`），不推进 Step、不构成完成语义；由 Runner 提交为 Goal 消息并按不推进类预算继续。
+- **零调用且无可用正文**（空内容或仅 reasoning）：抛 `no_usable_result` 反馈，不是 `missing_tool_call`。
+
+每个调用的参数解码（JSON 解析、契约校验、动作身份分配）由 `decodeToolCallOutcome` 统一承担，单调用与批次复用同一错误语义。完成审查等结构化控制请求不经过该分级，仍要求唯一结果。

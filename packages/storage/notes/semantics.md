@@ -9,3 +9,4 @@
 | 模型调用指标 JSONL | 保存用量、可选请求耗时及覆盖缺口；不参与 Goal 恢复。 | [持久化实现](../README.md) | [指标 Store](../src/json-file-metrics-store.ts) |
 | 阶段快照 | Goal Snapshot 中 Run 内部活动阶段或最新已接受阶段的可恢复状态。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
 | Plan Run 路线快照 | 获批 Plan Run 的完整有序阶段、修订理由与游标；按 Snapshot 提交边界恢复。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
+| 批次进度指针 | 多调用批次中尚未暂存的业务 Action 及其顺序，与队首共同决定恢复位置。 | [Storage](../README.md) | [Goal Snapshot 协议](../src/goal-snapshot.ts) |

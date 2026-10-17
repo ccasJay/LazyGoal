@@ -12,3 +12,6 @@
 | Memory proposal 纠错 | 模型记忆提议在副作用前校验，拒绝进入同一 Decide 预算。 | [Goal Runtime](../README.md) | [阶段反馈](../src/runtime-feedback.ts) |
 | Run 阶段 | Run 内模型自主组织的阶段说明与完成条件；业务执行需活动阶段，最终审查拒绝后可重新打开已接受阶段。 | [Goal Runtime](../README.md) | [阶段规则](../src/run-stage.ts) |
 | Plan Run 路线 | 仅已批准 Plan Run 持有的完整有序阶段、状态、修订理由和 Runtime 恢复游标；范围内修订保留已接受结果。 | [Goal Runtime](../README.md) | [路线规则](../src/run-plan.ts) |
+| 批次顺序执行 | 一次 Decide 返回的多个业务 Action 按模型返回顺序逐个暂存与执行。 | [Runtime](../README.md) | [Runner](../src/runner.ts) |
+| 批次恢复点 | `pendingAction` 与 `pendingActionBatch` 共同构成"从第一个未产生结果的 Action 继续"的指针。 | [Runtime](../README.md) | [Goal 领域模型](../src/domain.ts) |
+| 不推进类预算 | 零调用正文与无可用结果的独立有界计数，与协议类纠错预算互不占用。 | [Runtime](../README.md) | [Runner](../src/runner.ts) |

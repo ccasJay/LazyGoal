@@ -112,3 +112,11 @@ Memory proposal 在模型候选边界以 `memory_patch` 来源提供字段级反
 所有携带模型 `memoryPatch` 的 Decide 候选在动作、等待、Epoch 转换和完成审查之前先做原子校验与无 I/O 试归约。试归约身份被丢弃，最终条目按阶段检查点之后的实际提交序号生成；提交器只调用 Runner 提供的纯归约回调，不裁决领域规则。语义阶段审查拒绝（`run_stage_rejected`）作为正常 Step 结算并跨正常 Step 推进，不占用 Decide 参数格式纠错预算；非法参数、证据门禁与格式异常仍在原 Decide 三次预算内纠错。中间阶段接受保持 Run running，最终 complete 接受原子提交阶段与 Run 完成；恢复、配置、存储与生命周期失败不转换为模型修复。
 
 阶段业务工具执行前必须存在 executing 阶段。最终交付审查拒绝可以重新打开已接受阶段：保持阶段身份和历史接受事实，清除当前接受指针并提交拒绝缺口，在同一 Run 的新 Step 修正。此时 Snapshot 允许保存带拒绝缺口的 complete 候选作为最近 Step，但不将 Run 标记完成。
+
+## 批次顺序执行与失败预算
+
+Decide 返回值可以是 `decision`、`request_think`、`assistant_message` 或 `batch`。Runner 对 `batch` 的处理：队首走既有单决策校验与暂存路径，其余按模型返回顺序写入 `Run.pendingActionBatch.remaining`（仅业务 Action）。队首结果提交后，Runner 直接把队列中下一条作为本次 Decide 结果继续，不重新请求模型，因此多个 Action 在一次模型往返内按顺序执行。
+
+**恢复点** = `pendingAction`（队首）+ `pendingActionBatch.remaining`（其余）。指针与该 Action 在同一次提交写入，避免"Action 已暂存但队列未推进"导致恢复后重放。已产生 `action_staged` 的 `actionId` 再次出现时按不可重放拒绝并要求模型改用新 Action。
+
+失败预算分两类、各自含首次最多三次、互不占用：`attemptsStarted` 覆盖契约、Tool 选择、Tool 输入与证据类失败；`continuationsStarted` 覆盖零调用正文与无可用结果。`latestFailureClass` 决定下一次调用计入哪个预算，有效 `request_think` 结束当前链时两者一并归零。零调用正文在提交为 Goal 消息后按不推进类预算继续；预算用尽时保留每次原因与该次正文并明确失败。
