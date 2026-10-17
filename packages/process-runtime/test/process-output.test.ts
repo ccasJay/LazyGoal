@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -433,13 +434,25 @@ test("追加失败不丢弃后续写入或终态结算，也不产生未处理�
     const tmpDir = await mkdtemp(join(tmpdir(), "lg-proc-output-"));
     const store = new OutputSessionStore();
     const manager = new ProcessManager({ store, hostInstanceId: "host-output" });
+    const gatePath = join(tmpDir, "release-second-write");
     try {
         store.failNextAppend("stdout", "append failed");
         const started = await manager.startProcess({
             goalId: "goal-append-fail",
-            command: "node -e 'process.stdout.write(\"lost-line\\n\"); process.stdout.write(\"kept-line\\n\");'",
+            command: `node -e 'const fs = require("node:fs"); process.stdout.write("lost-line\\n"); const wait = setInterval(() => { if (fs.existsSync(${JSON.stringify(gatePath)})) { clearInterval(wait); process.stdout.write("kept-line\\n"); } }, 20);'`,
             cwd: tmpDir,
         });
+
+        // 第一段输出已交付且其追加已开始（随后失败），再放行第二段独立写入
+        await waitFor(
+            () => store.startedTexts("stdout").length >= 1 ? true : undefined,
+            "首个追加开始",
+        );
+        writeFileSync(gatePath, "release");
+        await waitFor(
+            () => store.startedTexts("stdout").length >= 2 ? true : undefined,
+            "第二个追加开始",
+        );
 
         await waitFor(
             () => store.records("goal-append-fail")[0]?.status === "exited" ? true : undefined,
@@ -451,6 +464,7 @@ test("追加失败不丢弃后续写入或终态结算，也不产生未处理�
         );
 
         // 失败分片被丢弃，但后续写入与终态记录仍然结算
+        assert.deepEqual(store.startedTexts("stdout"), ["lost-line\n", "kept-line\n"]);
         assert.equal(store.text("goal-append-fail", started.processId, "stdout"), "kept-line\n");
         assert.equal((await store.getSession("goal-append-fail", started.processId))?.status, "exited");
 
