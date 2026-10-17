@@ -54,7 +54,7 @@
   - 实现：`agent` 仅实现并导出 `createAgentExecutor` 与自身参数契约；默认 Renderer 和 Compactor 来自所属包，借用依赖不创建全局状态或关闭机制。goal-server 与 Headless 在实际装配入口异步接入工厂，其余能力直接引用所有者；保持模型安全点、权限、Runtime 提交和资源生命周期。若此前 Runtime Spec 已实施，仅调整当时装配文件的模型接线，不迁移 Benchmark Runtime 编排或改变另一 Spec。
   - 检查：`npx tsx --test packages/agent/test/*.test.ts benchmarks/test/headless-composition-root.test.ts benchmarks/test/agent-components-recovery.integration.test.ts apps/goal-server/test/composition-root-model-switching.test.ts apps/goal-server/test/browser-session.integration.test.ts`；`npx tsc --noEmit -p apps/goal-server/tsconfig.json`；`npx tsc --noEmit -p benchmarks/tsconfig.json`。核对同一执行链和调用计数，未提交 tail 不成为恢复基线。
 
-- [ ] //TODO 8. 从当前源码打包 Worker 并迁移全部命令和模板消费者
+- [x] //TODO 8. 从当前源码打包 Worker 并迁移全部命令和模板消费者
   - 落实标准：[3.1](./spec.md#spec-req-3-1)、[4.2](./spec.md#spec-req-4-2)、[4.3](./spec.md#spec-req-4-3)、[5.1](./spec.md#spec-req-5-1)。
   - 先验证：扩展现有 WorkerBuilder、ALFWorld/SWE-bench Worker runtime、GAIA/TUA/context 入口测试，增加拟新增 `benchmarks/test/agent-components-worker.integration.test.ts`。使用生产 Builder 与各现有 Worker 入口实际打包，核对所需模板 ID/正文、内嵌键、构建身份与缓存失效；以本机 Node 和确定性 RPC 在至少一条共享 Worker 会话运行新装配，确认脱离源码模板目录仍能取得模型请求并到达等待/结果。入口编译或文本包含断言不能替代产物运行证据。
   - 实现：补齐 TODO 3 后所有当前资产/导入/命令路径，维护脚本和付费评测命令只修接线，不运行真实模型或基准。检查实际 TypeScript include，补齐当前遗漏的 TUA 源码/测试覆盖，不另造构建配置。沿用既有 Worker 子集和摘要机制；本地打包测试通过现有注入点使用测试运行时标识，产物以本机 Node 验证，不宣称核验了固定 Linux 镜像或真实任务环境。测试基线和历史 Spec/Memory 不全局改写。

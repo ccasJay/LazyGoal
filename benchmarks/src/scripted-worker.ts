@@ -50,6 +50,12 @@ export interface ScriptedWorkerOptions {
     createRegistry(workspaceRoot: string): ToolRegistry;
     /** 工程 Worker 的容器内工具权限；原生场景沿用默认策略。 */
     readonly allowTools?: boolean;
+    /**
+     * Worker 内持久化根目录；省略时使用容器路径 `/workspace/state`。
+     *
+     * @remarks 只用于本地产物验证等受控宿主；容器内不设置该值。
+     */
+    readonly stateRoot?: string;
 }
 /**
  * 共用的脚本会话 Worker；只驱动现有 Runtime 入口，不解释题目或评分。
@@ -87,7 +93,7 @@ export async function runScriptedWorker(options: ScriptedWorkerOptions): Promise
                 let session: HeadlessSession<null> | undefined;
                 const root = (prompt: string) => new HeadlessCompositionRoot({
                     benchmarkId: "context", workspaceRoot: input.cwd, profile, ...(options.allowTools ? { toolPolicy: { evaluate: () => "allow" as const } } : {}), llmAdapter: adapter, renderer, contextCompactor: new DropOldestContextCompactor(),
-                    persistence: new JsonFileBenchmarkPersistenceAdapter<{ prompt: string }>({ rootDirectory: "/workspace/state", namespaceFor: () => "session", enableTrace: true }),
+                    persistence: new JsonFileBenchmarkPersistenceAdapter<{ prompt: string }>({ rootDirectory: options.stateRoot ?? "/workspace/state", namespaceFor: () => "session", enableTrace: true }),
                     adapter: {
                         describeTask: task => ({ intent: task.prompt, objective: "Follow the current user request.", completionCriteria: ["Follow the current user request."], maxSteps: meta.maxSteps as number }),
                         createEpisode: async () => ({ registry: options.createRegistry(input.cwd), readOutcome: () => null, close: async () => undefined }),

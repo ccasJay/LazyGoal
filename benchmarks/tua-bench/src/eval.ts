@@ -155,12 +155,15 @@ export async function runTuaBenchEvaluation(
             const goalId = randomUUID();
             const runId = randomUUID();
             const recorder = new AttemptRecorder<TuaBenchDomainResult>({
-                outputDirectory: taskOutputDir,
-                benchmarkId: "tua-bench",
+                rootDirectory: taskOutputDir,
+            });
+            const identity = {
+                benchmarkId: "tua-bench" as const,
                 taskId: task.taskId,
                 goalId,
                 runId,
-            });
+                attempt: 1,
+            };
 
             const spec = new TuaBenchEnvironmentSpec({
                 task,
@@ -186,7 +189,8 @@ export async function runTuaBenchEvaluation(
                     verifierError: envResult.errors.map((e) => e.message).join("; ") || "Execution error",
                 };
 
-                record = await recorder.commit({
+                record = {
+                    ...identity,
                     status: envResult.status,
                     durationMs,
                     usage: null,
@@ -197,10 +201,11 @@ export async function runTuaBenchEvaluation(
                     })),
                     artifactLocator: null,
                     domainResult,
-                });
+                };
             } catch (error) {
                 const durationMs = Date.now() - startMs;
-                record = await recorder.commit({
+                record = {
+                    ...identity,
                     status: "failed",
                     durationMs,
                     usage: null,
@@ -216,8 +221,9 @@ export async function runTuaBenchEvaluation(
                         verifierOutput: null,
                         verifierError: error instanceof Error ? error.message : String(error),
                     },
-                });
+                };
             }
+            await recorder.commit(record);
         }
 
         attempts.push(record);
