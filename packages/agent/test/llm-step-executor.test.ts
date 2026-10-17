@@ -1324,3 +1324,43 @@ test("Runner 在批次中途需要审批时停止后续执行并保留已执行�
     assert.equal(restored.state.run.pendingAction?.action.actionId, "call-b");
     assert.deepEqual(restored.state.run.pendingActionBatch?.remaining.map(call => call.actionId), ["call-c"], "未执行的后续 Action 必须保留在批次队列中");
 });
+
+test("Runner 拒绝重放已提交结果的 Action，并在有界尝试后终止", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const executed: string[] = [];
+    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createToolRegistration({
+        definition: { id, description: id, isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
+        replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute({ input }) { executed.push(`${id}:${(input as { path: string }).path}`); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+    })));
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        async generate() {
+            requests.push({ messages: [] });
+            // 恒定返回同一批次：第一批执行后再次提交相同 actionId 必须被拒绝，而不是重放。
+            return { content: "", toolCalls: [
+                { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                { callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+            ] };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-replay", intent: "Read twice", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["read_a", "read_b"] } });
+    await store.save({
+        ...created,
+        state: { ...created.state, run: { ...created.state.run,
+            exposedToolIds: ["read_a", "read_b"],
+            currentStage: { stageId: "stage-1", revision: 1, status: "executing" as const, target: "Read twice", acceptanceCriteria: ["done"] } } },
+    });
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-batch-replay" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.deepEqual(executed, ["read_a:a.md", "read_b:b.md"], "每次 Action 只允许执行一次，不得重放");
+    const events = await trajectoryStore.read({ goalId, runId: "run-batch-replay" });
+    const repairs = events.filter(event => event.payload.type === "model_repair_feedback_recorded");
+    assert.equal(repairs.length, 3, "重复提交必须被有界拒绝（三次尝试），而不是执行");
+    assert.equal(result.state.status, "failed");
+});

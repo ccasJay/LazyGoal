@@ -4286,6 +4286,25 @@ class RunExecutor {
                                         control,
                                         session,
                                     );
+                                    if (normalizedDecision.decision.kind === "tool_call" && session !== undefined) {
+                                        // 已提交结果的 Action 不得重放：同一 actionId 只能暂存一次。
+                                        const actionId = normalizedDecision.decision.action.actionId;
+                                        const alreadyStaged = [...session.evidenceIndex.events.values()].some(event =>
+                                            event.eventType === "action_staged" && event.actionId === actionId);
+                                        if (alreadyStaged) {
+                                            throw createRunnerFeedbackError(
+                                                new RunnerExecutionError(
+                                                    "INVALID_AGENT_DECISION",
+                                                    `Action ${actionId} already produced a committed result and must not be replayed`,
+                                                ),
+                                                activeGoal,
+                                                executionUnitId,
+                                                "decide",
+                                                "output_contract",
+                                                ["Continue with a new Action that has not been committed yet."],
+                                            );
+                                        }
+                                    }
                                     this.validateEvidenceForStage(
                                         activeGoal,
                                         normalizedDecision.decision,
