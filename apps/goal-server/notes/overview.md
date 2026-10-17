@@ -67,7 +67,17 @@ flowchart LR
 Runner、InlineScheduler、共享 `TrajectoryCheckpointCommitter` 与 GoalCoordinator，
 并只暴露调用方需要的执行与控制命令；目录入口 `src/runtime/index.ts` 不重新导出内部
 执行对象。该层不解析配置、不创建模型供应商或默认文件存储、不启动 HTTP、不注册
-进程信号，也不接管注入依赖的所有权；生命周期接线由组合根完成。
+进程信号，也不接管注入依赖的所有权。
+
+`composition.ts` 提供 `createRuntimeComposition`：在调用方提供的工作区、LazyGoal
+Home 与数据目录上装配模型、存储、工具与上下文默认实现，组合执行装配组件与
+`RuntimeLifecycle`，并使用同一 Checkpoint Gate、实例控制器与受理边界。它返回执行与
+控制命令、只读恢复与查询 Port、`manageGoal`、模型选择协调器以及生命周期与资源集合，
+不创建 HTTP 服务、不注册进程信号；`runTrackedOperation` 供宿主把已受理的写操作纳入
+同一关闭结算边界。借用依赖不被接管，装配失败时只结算本层自有的受管资源并保留初始故障。
+
+`composition-root.ts` 是无界面装配之上的 HTTP 宿主：创建 HTTP 服务、挂载指标路由与
+浏览器访问控制、追加关闭准入中间件，并构造宿主退出协调器。
 
 ## 宿主退出与实例关闭
 

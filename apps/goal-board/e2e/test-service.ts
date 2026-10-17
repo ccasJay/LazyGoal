@@ -202,7 +202,7 @@ const commands = new BrowserGoalCommandService({
     store: root.workspaceGoalStore,
     saveNotifications: root.notifyingStore,
     launcher: root.browserLauncher,
-    coordinator: root.coordinator,
+    coordinator: root.commands,
     defaultModelSelection: root.defaultModelSelection,
     resolveModelSelection: async (modelId) => modelId === root.defaultModelSelection.modelId || modelId === "model-b"
         ? { ...root.defaultModelSelection, modelId } : undefined,

@@ -27,7 +27,7 @@
   - 实现：新增 `runtime/execution-composition.ts` 与最小目录入口，组合既有 Launcher、Runner、InlineScheduler、Coordinator 和共享提交器，返回所需 commands Port；复用已有类型和业务结果。此层不解析环境或准备具体模型、文件存储和默认工具；不返回内部执行对象或增加插件配置。为新契约补中文 TSDoc 与最小示例，并在 goal-server 说明中记录该组件职责。
   - 检查：`npx tsx --test apps/goal-server/test/execution-composition.test.ts packages/runtime/test/launcher.test.ts packages/runtime/test/goal-coordinator.test.ts packages/runtime/test/trajectory-checkpoint-committer.test.ts`；检查导入图和测试调用不经过 CLI、HTTP 或原组合根，生命周期接线在 TODO 3 完成。
 
-- [ ] //TODO 3. 无需 HTTP 构造应用运行时，并统一操作受理与自有资源管理
+- [x] //TODO 3. 无需 HTTP 构造应用运行时，并统一操作受理与自有资源管理
   - 落实标准：[1.4](./spec.md#spec-req-1-4)、[2.1](./spec.md#spec-req-2-1)、[2.2](./spec.md#spec-req-2-2)、[2.3](./spec.md#spec-req-2-3)、[3.3](./spec.md#spec-req-3-3)、[3.4](./spec.md#spec-req-3-4)、[4.1](./spec.md#spec-req-4-1)、[5.1](./spec.md#spec-req-5-1)。
   - 先验证：在拟新增 `apps/goal-server/test/runtime-composition.integration.test.ts` 中用临时 Home/工作区和确定性 Adapter，经目录入口构造、运行与关闭。验证不创建 HTTP、不注册进程信号或退出；配置路径和优先级保持；冲突推进明确拒绝而 Steer、Interrupt 和读取可用。覆盖成功保存后通知、订阅解除/故障不取消执行、构造中途失败清理自有资源并保留初始故障，以及在途权限、模型、归档和删除操作参与关闭结算。
   - 实现：将现有默认依赖装配移入 `runtime/composition.ts`，复用 TODO 1/2，同一 Gate、根信号与受理边界贯穿实例调用。区分自建与借用资源，跟踪实际受理操作及其失败；对既有模型、查询和管理能力只暴露消费者所需 Port，不建立通用 SDK 操作组。移动时保留当时已有的模型与进程接线，不为等待其它拆包增加兼容路径或重写 ProcessManager。同步配置、数据目录、资源所有权及事件契约说明。

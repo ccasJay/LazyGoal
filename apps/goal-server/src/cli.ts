@@ -248,7 +248,7 @@ export async function runServerSession(
             store: root.workspaceGoalStore,
             saveNotifications: root.notifyingStore,
             launcher: root.browserLauncher,
-            coordinator: root.coordinator,
+            coordinator: root.commands,
             modelSelectionCoordinator: root.goalModelSelectionCoordinator,
             defaultModelSelection: root.defaultModelSelection,
             resolveDefaultModelSelection: async () => (await readDraftModel()).selection,
