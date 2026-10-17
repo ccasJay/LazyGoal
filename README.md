@@ -26,6 +26,8 @@ LazyGoal 是 Goal 驱动、可恢复的 Agent Runtime。使用 `node bin/lazygoa
 - [模型协议契约](packages/model-contracts/README.md)
 - [模型视图](packages/model-view/README.md)
 - [授权判断](packages/permission/README.md)
+- [Prompt 渲染](packages/prompt-renderer/README.md)
+- [Prompt Bundle](packages/prompt-bundle/README.md)
 - [Goal Runtime](packages/runtime/README.md)
 - [沙箱执行](packages/sandbox/README.md)
 - [会话指标](packages/session-metrics/README.md)

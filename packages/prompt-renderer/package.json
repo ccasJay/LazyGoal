@@ -1,0 +1,12 @@
+{
+  "name": "@lazygoal/prompt-renderer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "nunjucks": "^3.2.4"
+  },
+  "devDependencies": {
+    "@types/nunjucks": "^3.2.6"
+  }
+}

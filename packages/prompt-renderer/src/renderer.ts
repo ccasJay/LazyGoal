@@ -1,6 +1,6 @@
 import type { Environment } from "nunjucks";
 
-import type { ModelInferenceView, PromptContext, PromptStage } from "../../../model-view/src/index";
+import type { ModelInferenceView, PromptContext, PromptStage } from "../../model-view/src/index";
 import {
     createPromptEnvironment,
     normalizeNewlines,

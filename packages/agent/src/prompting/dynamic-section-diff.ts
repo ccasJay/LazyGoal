@@ -6,7 +6,7 @@ import type {
 import type {
     DynamicSectionIdentity,
     DynamicSectionMessage,
-} from "./dynamic-section-registry";
+} from "../../../prompt-renderer/src/index";
 
 /** 动态 Section 投影或历史基线无法可靠比较时的稳定错误码。 */
 export const DYNAMIC_SECTION_DIFF_ERROR_CODE = "DYNAMIC_SECTION_DIFF_INVALID" as const;

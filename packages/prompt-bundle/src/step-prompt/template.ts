@@ -1,4 +1,4 @@
-import type { PromptTemplateAsset } from "../prompting/types";
+import type { PromptTemplateAsset } from "../../../prompt-renderer/src/index";
 
 /**
  * `executing` 阶段的 AgentDecision 协议模板资产。

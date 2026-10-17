@@ -33,7 +33,7 @@ import type { ContextCompactor } from "../../context-budget/src/index";
 import type { ModelConversationMessage } from "../../model-view/src/index";
 import { buildStepRequest } from "./prompt";
 import { LLMResponseProtocolError } from "./errors";
-import type { PromptBundleRenderer } from "./prompting/types";
+import type { PromptBundleRenderer } from "../../prompt-renderer/src/index";
 import type { TrajectoryModelContextAssembler } from "../../model-context/src/index";
 import type {
     DiagnosticTraceSink,

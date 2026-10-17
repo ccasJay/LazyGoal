@@ -2,7 +2,7 @@ import { CONTEXT_LOOKUP_SOURCE_SCOPE } from "../../model-context/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createDefaultPromptBundleRenderer } from "../src/prompting/default-bundles";
+import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import type {
     ModelInferenceView,
     ModelContextLookupResult,

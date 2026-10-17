@@ -11,9 +11,9 @@ import {
 } from "../../runtime/src/index";
 import type { Goal, GoalMessage } from "../../runtime/src/domain";
 import {
-    createDefaultPromptBundleRenderer,
     LLMStepExecutor,
 } from "../src/index";
+import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import {
     createCurrentContextAssembler,

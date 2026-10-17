@@ -39,14 +39,16 @@ import type { ToolDefinition } from "../../tool-core/src/index";
 import { createEmptyWorkingMemory } from "../../working-memory/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import {
-    DEFAULT_PROMPT_TEMPLATE_ASSETS,
     LLMStepExecutor,
     MutableModelBinding,
-    createDefaultPromptBundleRenderer,
     createModelExecutionBinding,
-    normalizeNewlines,
     planDynamicSectionUpdates,
 } from "../src/index";
+import {
+    DEFAULT_PROMPT_TEMPLATE_ASSETS,
+    createDefaultPromptBundleRenderer,
+} from "../../prompt-bundle/src/index";
+import { normalizeNewlines } from "../../prompt-renderer/src/index";
 import {
     ModelInferenceProjector,
     TrajectoryModelContextAssembler,
@@ -62,7 +64,7 @@ import {
     stableJson,
     truncateThought,
 } from "../../context-budget/src/index";
-import type { DynamicSectionMessage } from "../src/prompting/dynamic-section-registry";
+import type { DynamicSectionMessage } from "../../prompt-renderer/src/index";
 import { buildStepRequest } from "../src/prompt";
 import type { StepPromptStageContext } from "../src/prompt";
 import { currentProtocols, currentWorkingMemory } from "./current-fixtures";

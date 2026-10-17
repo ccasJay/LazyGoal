@@ -3,12 +3,7 @@ import type {
     ModelContextRetrievalProtocol,
     ModelMemoryProtocol,
     PromptStage,
-} from "../../../model-view/src/index";
-import {
-    isContextRetrievalProtocol,
-    isModelContextProtocol,
-} from "../../../runtime/src/domain";
-import { isMemoryProtocol } from "../../../working-memory/src/index";
+} from "../../model-view/src/index";
 import {
     PromptBundleConfigurationError,
     UnsupportedPromptBundleVersionError,
@@ -79,28 +74,6 @@ function validateManifest(
     if (manifest.version !== 1) {
         throw new PromptBundleConfigurationError(
             `${label} 不是当前唯一支持的 Prompt Bundle v1`,
-        );
-    }
-
-    if (!isMemoryProtocol(manifest.memoryProtocol)) {
-        throw new PromptBundleConfigurationError(
-            `${label} 的 Memory 协议无效`,
-        );
-    }
-
-    if (
-        !isModelContextProtocol(manifest.modelContextProtocol)
-    ) {
-        throw new PromptBundleConfigurationError(
-            `${label} 的模型上下文协议无效`,
-        );
-    }
-
-    if (
-        !isContextRetrievalProtocol(manifest.contextRetrievalProtocol)
-    ) {
-        throw new PromptBundleConfigurationError(
-            `${label} 的 Context Retrieval 协议无效`,
         );
     }
 

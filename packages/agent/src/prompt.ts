@@ -25,7 +25,7 @@ import {
     planDynamicSectionUpdates,
     type DynamicSectionUpdatePlan,
 } from "./prompting/dynamic-section-diff";
-import type { PromptBundleRenderer } from "./prompting/types";
+import type { PromptBundleRenderer } from "../../prompt-renderer/src/index";
 import { renderRequest, renderWorkingContextMessage } from "./render";
 import {
     TokenBudgetPlanner,

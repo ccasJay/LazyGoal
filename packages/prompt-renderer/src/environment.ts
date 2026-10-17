@@ -1,7 +1,7 @@
 import { Environment } from "nunjucks";
 import type { ILoader } from "nunjucks";
 
-import { stableJson } from "../../../context-budget/src/index";
+import { stableJson } from "../../context-budget/src/index";
 
 /**
  * 把 CRLF/CR 统一转为 LF。

@@ -4,13 +4,13 @@ import { test } from "node:test";
 import {
     PromptBundleConfigurationError,
     UnsupportedPromptBundleVersionError,
-} from "../src/prompting/errors";
-import { PromptBundleRegistry } from "../src/prompting/registry";
+} from "../src/index";
+import { PromptBundleRegistry } from "../src/index";
 import type {
     PromptBundleManifest,
     PromptBundleSection,
     PromptTemplateDefinition,
-} from "../src/prompting/types";
+} from "../src/index";
 
 const templates: readonly PromptTemplateDefinition[] = [
     { id: "global-overview@1", source: "global v1" },

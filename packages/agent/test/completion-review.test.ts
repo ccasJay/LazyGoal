@@ -8,7 +8,8 @@ import { allocateImmutableEvent, CompletionReviewInputBudgetError, createGoal, M
 import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/index";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMResponse, LLMStreamEvent } from "../../llm/src/core/types";
-import { LLMStepExecutor, createDefaultPromptBundleRenderer } from "../src/index";
+import { LLMStepExecutor } from "../src/index";
+import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import type { CompletionReviewInput } from "../../runtime/src/step-executor";
 import { currentProtocols } from "./current-fixtures";

@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ModelInferenceView } from "../../model-view/src/index";
-import {
-    DynamicSectionRegistry,
-    createDefaultDynamicSectionRegistry,
-} from "../src/prompting/dynamic-section-registry";
+import { createDefaultDynamicSectionRegistry } from "../src/index";
 
 const view: ModelInferenceView = {
     prompt: {
@@ -70,50 +67,15 @@ test("Plan Run projection includes the complete route when Runtime provides it",
     assert.deepEqual((runMode.projection as { planRoute?: unknown }).planRoute, planView.dynamicContext.planRoute);
 });
 
-test("注册第六个 section 只需增加定义，通用注册表会按顺序投影", () => {
-    const registry = new DynamicSectionRegistry([
-        {
-            id: "future_section",
-            order: 60,
-            source: "FutureState.value",
-            role: "user",
-            templateId: "future-section@1",
-            project: (input) => ({ intent: input.workingContext.intent }),
-        },
-        {
-            id: "earlier_section",
-            order: 5,
-            source: "FutureState.earlier",
-            role: "user",
-            templateId: "earlier-section@1",
-            project: () => ({ enabled: true }),
-        },
+test("默认注册表身份与当前 Manifest 模板引用保持一致", () => {
+    const registry = createDefaultDynamicSectionRegistry();
+
+    assert.deepEqual(registry.templateIds(), [
+        "run-mode@1",
+        "approved-task@1",
+        "goal-plan@1",
+        "authorized-tools@1",
+        "working-memory@1",
+        "goal-context-navigation@1",
     ]);
-
-    assert.deepEqual(registry.templateIds(), ["earlier-section@1", "future-section@1"]);
-    assert.deepEqual(registry.project(view).map((section) => section.sectionId), [
-        "earlier_section",
-        "future_section",
-    ]);
-    assert.deepEqual(registry.project(view)[1]?.projection, { intent: "完成目标" });
-});
-
-test("注册表拒绝重复身份、顺序及非 user 角色", () => {
-    const definition = {
-        id: "section_one",
-        order: 10,
-        source: "Source.one",
-        role: "user" as const,
-        templateId: "section-one@1",
-        project: () => ({ value: 1 }),
-    };
-
-    assert.throws(() => new DynamicSectionRegistry([definition, definition]), /Duplicate dynamic section ID/);
-    assert.throws(() => new DynamicSectionRegistry([
-        definition,
-        { ...definition, id: "section_two", templateId: "section-two@1" },
-    ]), /Duplicate dynamic section order/);
-    assert.throws(() => new DynamicSectionRegistry([
-        { ...definition, role: "system" as never },
-    ]), /Unsupported role/);
 });

@@ -6,7 +6,7 @@ import type {
     ModelContextLookupResult,
     ModelContextEpochView,
 } from "../../model-view/src/index";
-import type { PromptBundleRenderer } from "./prompting/types";
+import type { PromptBundleRenderer } from "../../prompt-renderer/src/index";
 import type { DynamicSectionUpdateMessage } from "./prompting/dynamic-section-diff";
 
 /**

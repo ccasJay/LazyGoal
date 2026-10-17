@@ -1,27 +1,25 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { GLOBAL_OVERVIEW_TEMPLATE_V1 } from "../global-system-prompt/template";
-import { AGENT_DECISION_TEMPLATE_V1 } from "../step-prompt/template";
-import { AGENT_THINK_TEMPLATE_V1 } from "../step-prompt/think-template";
-import { normalizeNewlines } from "./environment";
-import { createPromptBundleRenderer } from "./renderer";
+import { GLOBAL_OVERVIEW_TEMPLATE_V1 } from "./global-system-prompt/template";
+import { AGENT_DECISION_TEMPLATE_V1 } from "./step-prompt/template";
+import { AGENT_THINK_TEMPLATE_V1 } from "./step-prompt/think-template";
 import {
-    createDefaultDynamicSectionRegistry,
-} from "./dynamic-section-registry";
+    createPromptBundleRenderer,
+    normalizeNewlines,
+    type PromptBundleManifest,
+    type PromptBundleRenderer,
+    type PromptTemplateAsset,
+    type PromptTemplateDefinition,
+} from "../../prompt-renderer/src/index";
+import { createDefaultDynamicSectionRegistry } from "./default-dynamic-sections";
 import {
     GoalProtocolError,
     isContextRetrievalProtocol,
     isModelContextProtocol,
     type GoalProtocolValidator,
-} from "../../../runtime/src/domain";
-import { isMemoryProtocol } from "../../../working-memory/src/index";
-import type {
-    PromptBundleManifest,
-    PromptBundleRenderer,
-    PromptTemplateAsset,
-    PromptTemplateDefinition,
-} from "./types";
+} from "../../runtime/src/domain";
+import { isMemoryProtocol } from "../../working-memory/src/index";
 
 /** 当前 Agent 生效的唯一 Prompt Bundle 版本。 */
 export const CURRENT_PROMPT_BUNDLE_VERSION = 1 as const;
@@ -29,21 +27,21 @@ export const CURRENT_PROMPT_BUNDLE_VERSION = 1 as const;
 /** 通用的 Profile 展示模板资产。 */
 const PROFILE_TEMPLATE: PromptTemplateAsset = {
     id: "profile@1",
-    sourceUrl: new URL("./profile@1.njk", import.meta.url),
+    sourceUrl: new URL("./prompting/profile@1.njk", import.meta.url),
 };
 
 /** 通用的 Authorized Tools 展示模板资产。 */
 const AUTHORIZED_TOOLS_TEMPLATE: PromptTemplateAsset = {
     id: "authorized-tools@1",
-    sourceUrl: new URL("./authorized-tools@1.njk", import.meta.url),
+    sourceUrl: new URL("./prompting/authorized-tools@1.njk", import.meta.url),
 };
 
 const DYNAMIC_SECTION_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
-    { id: "run-mode@1", sourceUrl: new URL("./run-mode@1.njk", import.meta.url) },
-    { id: "approved-task@1", sourceUrl: new URL("./approved-task@1.njk", import.meta.url) },
-    { id: "goal-plan@1", sourceUrl: new URL("./goal-plan@1.njk", import.meta.url) },
-    { id: "working-memory@1", sourceUrl: new URL("./working-memory@1.njk", import.meta.url) },
-    { id: "goal-context-navigation@1", sourceUrl: new URL("./goal-context-navigation@1.njk", import.meta.url) },
+    { id: "run-mode@1", sourceUrl: new URL("./prompting/run-mode@1.njk", import.meta.url) },
+    { id: "approved-task@1", sourceUrl: new URL("./prompting/approved-task@1.njk", import.meta.url) },
+    { id: "goal-plan@1", sourceUrl: new URL("./prompting/goal-plan@1.njk", import.meta.url) },
+    { id: "working-memory@1", sourceUrl: new URL("./prompting/working-memory@1.njk", import.meta.url) },
+    { id: "goal-context-navigation@1", sourceUrl: new URL("./prompting/goal-context-navigation@1.njk", import.meta.url) },
 ];
 
 /** 默认 Renderer 使用的当前模板资产。 */
@@ -142,6 +140,14 @@ async function loadAsset(
  * ```
  */
 export async function createDefaultPromptBundleRenderer(): Promise<PromptBundleRenderer> {
+    // 默认装配只接受唯一当前组合；任何额外版本或协议都由默认支持检查拒绝。
+    createDefaultPromptBundleProtocolValidator().validate({
+        promptBundleVersion: PROMPT_BUNDLE_V1_MANIFEST.version,
+        memoryProtocol: PROMPT_BUNDLE_V1_MANIFEST.memoryProtocol,
+        modelContextProtocol: PROMPT_BUNDLE_V1_MANIFEST.modelContextProtocol,
+        contextRetrievalProtocol: PROMPT_BUNDLE_V1_MANIFEST.contextRetrievalProtocol,
+    });
+
     const templates = await Promise.all(
         DEFAULT_PROMPT_TEMPLATE_ASSETS.map(loadAsset),
     );

@@ -6,7 +6,7 @@ import type {
     PromptContext,
     PromptPhase,
     PromptStage,
-} from "../../../model-view/src/index";
+} from "../../model-view/src/index";
 import type {
     DynamicSectionIdentity,
     DynamicSectionMessage,

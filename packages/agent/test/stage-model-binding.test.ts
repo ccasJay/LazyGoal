@@ -9,11 +9,11 @@ import { createGoal } from "../../runtime/src/domain";
 import type { Goal } from "../../runtime/src/domain";
 import { createEmptyWorkingMemory } from "../../working-memory/src/index";
 import {
-    createDefaultPromptBundleRenderer,
     LLMStepExecutor,
     createModelExecutionBinding,
     MutableModelBinding,
 } from "../src/index";
+import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import { createInMemoryTrajectoryStore, currentProtocols } from "./current-fixtures";
 

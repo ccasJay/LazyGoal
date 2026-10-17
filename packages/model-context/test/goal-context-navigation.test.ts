@@ -19,11 +19,11 @@ import {
     ModelContextHardOverflowError,
 } from "../../context-budget/src/index";
 import { buildStepRequest } from "../../agent/src/prompt";
-import { createDefaultPromptBundleRenderer } from "../../agent/src/prompting/default-bundles";
 import {
+    createDefaultPromptBundleRenderer,
     createDefaultDynamicSectionRegistry,
-    type DynamicSectionMessage,
-} from "../../agent/src/prompting/dynamic-section-registry";
+} from "../../prompt-bundle/src/index";
+import type { DynamicSectionMessage } from "../../prompt-renderer/src/index";
 import { currentProtocols, createInMemoryTrajectoryStore, createCurrentContextAssembler } from "./current-fixtures";
 import {
     buildGoalContextNavigation,

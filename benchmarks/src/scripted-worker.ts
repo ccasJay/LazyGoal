@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Readable, Writable } from "node:stream";
-import { createPromptBundleRenderer, createDefaultDynamicSectionRegistry, DEFAULT_PROMPT_BUNDLE_MANIFEST, type LLMAdapter } from "../../packages/agent/src/index.js";
+import { type LLMAdapter } from "../../packages/agent/src/index.js";
+import { createDefaultDynamicSectionRegistry, DEFAULT_PROMPT_BUNDLE_MANIFEST } from "../../packages/prompt-bundle/src/index.js";
+import { createPromptBundleRenderer } from "../../packages/prompt-renderer/src/index.js";
 import { DropOldestContextCompactor } from "../../packages/context-budget/src/index.js";
 import { serveLazyGoalAcpAgent } from "../../packages/acp/src/index.js";
 import type { ToolRegistry } from "../../packages/tool-core/src/index.js";
@@ -12,16 +14,16 @@ import { RpcLlmAdapter } from "./llm-rpc.js";
 import { parseWorkerOperation, record, textValue } from "./scripted-operation.js";
 
 export const CONTEXT_PROMPT_ASSETS = [
-    "packages/agent/src/step-prompt/agent-decision@1.njk",
-    "packages/agent/src/step-prompt/agent-think@1.njk",
-    "packages/agent/src/global-system-prompt/global-overview@1.njk",
-    "packages/agent/src/prompting/profile@1.njk",
-    "packages/agent/src/prompting/authorized-tools@1.njk",
-    "packages/agent/src/prompting/run-mode@1.njk",
-    "packages/agent/src/prompting/approved-task@1.njk",
-    "packages/agent/src/prompting/goal-plan@1.njk",
-    "packages/agent/src/prompting/working-memory@1.njk",
-    "packages/agent/src/prompting/goal-context-navigation@1.njk",
+    "packages/prompt-bundle/src/step-prompt/agent-decision@1.njk",
+    "packages/prompt-bundle/src/step-prompt/agent-think@1.njk",
+    "packages/prompt-bundle/src/global-system-prompt/global-overview@1.njk",
+    "packages/prompt-bundle/src/prompting/profile@1.njk",
+    "packages/prompt-bundle/src/prompting/authorized-tools@1.njk",
+    "packages/prompt-bundle/src/prompting/run-mode@1.njk",
+    "packages/prompt-bundle/src/prompting/approved-task@1.njk",
+    "packages/prompt-bundle/src/prompting/goal-plan@1.njk",
+    "packages/prompt-bundle/src/prompting/working-memory@1.njk",
+    "packages/prompt-bundle/src/prompting/goal-context-navigation@1.njk",
 ];
 /** 使用实际构建内嵌模板，不从题目目录读取 Prompt。 */
 export function createEmbeddedPromptRenderer() {

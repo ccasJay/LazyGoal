@@ -12,7 +12,8 @@ import { JsonFileGoalStore, JsonFileTrajectoryStore, InMemoryGoalStore } from ".
 import { collectNativeModelExchanges } from "../src/native-model-history";
 import { TrajectoryEventProjector } from "../src/trajectory-event-projector";
 import { ModelInferenceProjector, TrajectoryModelContextAssembler } from "../src/index";
-import { createDefaultPromptBundleRenderer, createModelExecutionBinding, LLMStepExecutor } from "../../agent/src/index";
+import { createModelExecutionBinding, LLMStepExecutor } from "../../agent/src/index";
+import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { createDefaultModelContextBudgetPolicy, createModelContextBudgetPolicy, DropOldestContextCompactor } from "../../context-budget/src/index";
 import { buildStepRequest } from "../../agent/src/prompt";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../llm/src/core/adapter";

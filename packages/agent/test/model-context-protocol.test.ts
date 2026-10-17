@@ -9,9 +9,9 @@ import { createEmptyWorkingMemory } from "../../working-memory/src/index";
 import {
     createDefaultPromptBundleProtocolValidator,
     createDefaultPromptBundleRenderer,
-} from "../src/index";
+} from "../../prompt-bundle/src/index";
 import { ModelInferenceProjector } from "../../model-context/src/index";
-import { UnsupportedPromptBundleVersionError } from "../src/prompting/errors";
+import { UnsupportedPromptBundleVersionError } from "../../prompt-renderer/src/index";
 
 const profile: AgentProfile = {
     id: "model-context-profile",

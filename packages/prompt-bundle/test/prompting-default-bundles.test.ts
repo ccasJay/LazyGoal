@@ -6,7 +6,7 @@ import type {
     ModelInferenceView,
     PromptContext,
 } from "../../model-view/src/index";
-import { renderWorkingContextMessage } from "../src/render";
+import { renderWorkingContextMessage } from "../../agent/src/render";
 import {
     CURRENT_PROMPT_BUNDLE_VERSION,
     DEFAULT_PROMPT_BUNDLE_MANIFEST,
@@ -14,7 +14,7 @@ import {
     PROMPT_BUNDLE_V1_MANIFEST,
     createDefaultPromptBundleProtocolValidator,
     createDefaultPromptBundleRenderer,
-} from "../src/prompting/default-bundles";
+} from "../src/index";
 
 const currentProtocols = {
     memoryProtocol: { kind: "structured" as const, version: 1 as const },

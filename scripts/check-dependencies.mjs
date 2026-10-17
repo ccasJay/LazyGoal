@@ -21,6 +21,8 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     "context-budget": [],
     "model-view": ["context-budget", "model-contracts", "context-retrieval"],
     "model-context": ["context-budget", "model-view", "runtime", "contracts", "model-contracts", "tool-core", "working-memory", "context-retrieval", "execution-control"],
+    "prompt-renderer": ["model-view", "context-budget"],
+    "prompt-bundle": ["prompt-renderer", "model-view", "runtime", "working-memory"],
     "model-contracts": ["contracts"],
     "execution-stream": [],
     "execution-control": [],
@@ -36,7 +38,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     runtime: ["contracts", "model-contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control", "tool-core", "working-memory"],
     llm: ["contracts", "model-contracts", "execution-stream", "execution-control", "config"],
     storage: ["runtime", "contracts", "model-contracts", "permission", "context-retrieval"],
-    agent: ["runtime", "llm", "config", "contracts", "model-contracts", "execution-stream", "execution-control", "tool-core", "working-memory", "context-budget", "model-view", "model-context"],
+    agent: ["runtime", "llm", "config", "contracts", "model-contracts", "execution-stream", "execution-control", "tool-core", "working-memory", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle"],
     "session-metrics": ["runtime", "http", "web-contracts"],
     tools: ["runtime", "contracts", "execution-stream", "sandbox", "execution-control", "tool-core"],
     browser: ["http", "runtime", "permission", "web-contracts", "execution-control"],
@@ -48,7 +50,7 @@ const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);
 /** 每个 app 允许的出站目标 package。 */
 const ALLOWED_APP_DEPENDENCIES = {
     "goal-board": ["web-contracts", "slash-command"],
-    "goal-server": ["runtime", "storage", "agent", "llm", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts", "tool-core", "working-memory", "context-budget", "model-view", "model-context"],
+    "goal-server": ["runtime", "storage", "agent", "llm", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts", "tool-core", "working-memory", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle"],
 };
 
 const APPS = Object.keys(ALLOWED_APP_DEPENDENCIES);

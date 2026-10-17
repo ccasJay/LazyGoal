@@ -8,9 +8,9 @@ import {
     type LLMRequest,
     type LLMResponse,
     type NormalizedUsage,
-    type PromptBundleRenderer,
     readNormalizedUsage,
 } from "../../packages/agent/src/index.js";
+import type { PromptBundleRenderer } from "../../packages/prompt-renderer/src/index.js";
 import { TrajectoryModelContextAssembler } from "../../packages/model-context/src/index.js";
 import type { ModelConversationMessage } from "../../packages/model-view/src/index.js";
 import {

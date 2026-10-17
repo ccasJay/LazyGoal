@@ -1,4 +1,4 @@
-import type { PromptTemplateAsset } from "../prompting/types";
+import type { PromptTemplateAsset } from "../../../prompt-renderer/src/index";
 
 /**
  * 当前 Global Overview 模板资产。

@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { PromptContext } from "../../model-view/src/index";
-import { PromptRenderError } from "../src/prompting/errors";
-import { createPromptBundleRenderer } from "../src/prompting/renderer";
+import { PromptRenderError } from "../src/index";
+import { createPromptBundleRenderer } from "../src/index";
 import type {
     PromptBundleManifest,
     PromptTemplateDefinition,
-} from "../src/prompting/types";
+} from "../src/index";
 
 const templates: readonly PromptTemplateDefinition[] = [
     { id: "global-overview@1", source: "GLOBAL-OVERVIEW" },

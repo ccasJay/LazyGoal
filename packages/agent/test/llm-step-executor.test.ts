@@ -24,11 +24,11 @@ import type {
     GoalTask,
 } from "../../runtime/src/domain";
 import {
-    createDefaultPromptBundleRenderer,
     LLMStepExecutor,
     createModelExecutionBinding,
     MutableModelBinding,
 } from "../src/index";
+import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import { buildStepRequest } from "../src/prompt";
 import {

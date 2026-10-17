@@ -32,6 +32,8 @@ packages/        Private `@lazygoal/*` workspaces
   model-contracts/ Model output contracts, wire projection, schema compilation, and conversation protocols
   model-view/     Model-visible input and history result DTOs
   model-context/  Runtime-to-model projection, committed history assembly, Hot/Warm composition
+  prompt-renderer/ In-memory template compilation, deterministic rendering, and section registry mechanism
+  prompt-bundle/  Current prompt template source of truth, default manifest, and default renderer assembly
   working-memory/ Structured working memory domain contracts, patch validation, reduction, and lifecycle
   config/       LazyGoal Home/workspace paths, TOML/Profile parsing, and validated runtime configuration
   web-contracts/  Browser HTTP/SSE wire DTOs and boundary validation

@@ -24,7 +24,7 @@
   - 实现：将模型输入及历史结果 DTO 单一定义迁入 `model-view`，移除对 Runtime 及投影/Reducer 实现类型的反向引用；预算结果类型仍归预算包。将 Projector、来源适配、轨迹/原生历史、Hot/Warm 实现迁入 `model-context`，保留现有读取 Port 和提交来源筛选。同步全部消费引用，不放宽事件字段或复制领域协议；Hot/Warm 不继续拆包。
   - 检查：`npx tsx --test packages/model-context/test/*.test.ts packages/runtime/test/model-context-frame.test.ts packages/runtime/test/prompt-context-integration.test.ts`；`npx tsc --noEmit`；`npm run check:dependencies`。类型测试由根 TypeScript 检查发现，纯 DTO 不补无行为的运行时测试。
 
-- [ ] //TODO 3. 分别消费内存渲染机制与当前默认 Prompt 内容
+- [x] //TODO 3. 分别消费内存渲染机制与当前默认 Prompt 内容
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.3](./spec.md#spec-req-1-3)、[1.9](./spec.md#spec-req-1-9)、[3.1](./spec.md#spec-req-3-1)、[4.2](./spec.md#spec-req-4-2)、[4.4](./spec.md#spec-req-4-4)、[5.1](./spec.md#spec-req-5-1)。
   - 先验证：将现有 Renderer/Loader/Registry 测试归 `prompt-renderer`，内存模板从公共入口渲染，覆盖 eager compile、引用/顺序/阶段错误、数据不二次执行、LF 与错误脱敏。默认内容、固定指令与具体 Section 测试归 `prompt-bundle`；核对模板 ID/正文、Manifest、协议拒绝和任意 cwd 下的显式资源加载。新增内存渲染无需默认 Bundle 的消费断言，保留原固定文本与 tokenizer 计量断言。
   - 实现：拆开 Section 注册机制与具体定义，拆开 Manifest 结构匹配与默认 Runtime 协议适配；Nunjucks 和类型依赖迁至渲染包并按现有安装方式维护对应锁文件，不升级依赖。模板与默认工厂归 Bundle，Section Diff 暂留原请求调用链且改用渲染入口类型，直到 TODO 4 迁移。同步当前 Worker 的资产路径、内嵌键及构建引用，保持选择规则；不留旧模板副本或扩大支持协议。

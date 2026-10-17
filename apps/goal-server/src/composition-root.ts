@@ -75,14 +75,16 @@ import {
 } from "../../../packages/browser/src/index";
 import { createSessionMetricsRoutes, SessionMetricsService } from "../../../packages/session-metrics/src/index";
 import {
-    createDefaultPromptBundleRenderer,
-    createDefaultPromptBundleProtocolValidator,
     createModelExecutionBinding,
     LLMStepExecutor,
     MutableModelBinding,
     type ModelExecutionBinding,
 } from "../../../packages/agent/src/index";
 import { TrajectoryModelContextAssembler } from "../../../packages/model-context/src/index";
+import {
+    createDefaultPromptBundleRenderer,
+    createDefaultPromptBundleProtocolValidator,
+} from "../../../packages/prompt-bundle/src/index";
 import {
     createDefaultModelContextBudgetPolicy,
     createModelContextBudgetPolicy,

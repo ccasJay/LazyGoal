@@ -1,10 +1,9 @@
 import { Readable, Writable } from "node:stream";
 import {
-    createPromptBundleRenderer,
-    DEFAULT_PROMPT_BUNDLE_MANIFEST,
     type LLMAdapter,
-    type PromptBundleRenderer,
 } from "../../../packages/agent/src/index.js";
+import { DEFAULT_PROMPT_BUNDLE_MANIFEST } from "../../../packages/prompt-bundle/src/index.js";
+import { createPromptBundleRenderer, type PromptBundleRenderer } from "../../../packages/prompt-renderer/src/index.js";
 import type { ModelConversationMessage } from "../../../packages/model-view/src/index.js";
 import {
     DropOldestContextCompactor,
@@ -241,10 +240,10 @@ function sameStrings(left: readonly string[], right: readonly string[]): boolean
 
 /** TUA-Bench Worker 内置 Prompt 模板相对路径。 */
 export const TUA_BENCH_ACP_WORKER_PROMPT_ASSETS = Object.freeze([
-    "packages/agent/src/global-system-prompt/global-overview@1.njk",
-    "packages/agent/src/prompting/profile@1.njk",
-    "packages/agent/src/step-prompt/agent-decision@1.njk",
-    "packages/agent/src/prompting/authorized-tools@1.njk",
+    "packages/prompt-bundle/src/global-system-prompt/global-overview@1.njk",
+    "packages/prompt-bundle/src/prompting/profile@1.njk",
+    "packages/prompt-bundle/src/step-prompt/agent-decision@1.njk",
+    "packages/prompt-bundle/src/prompting/authorized-tools@1.njk",
 ] as const);
 
 /** TUA-Bench Worker Prompt 资产 ID 映射。 */

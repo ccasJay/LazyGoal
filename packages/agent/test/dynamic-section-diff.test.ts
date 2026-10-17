@@ -3,13 +3,13 @@ import { test } from "node:test";
 
 import {
     DynamicSectionDiffError,
-    DynamicSectionRegistry,
     planDynamicSectionUpdates,
 } from "../src/index";
-import type {
-    DynamicSectionMessage,
-    DynamicSectionIdentity,
-} from "../src/index";
+import {
+    DynamicSectionRegistry,
+    type DynamicSectionMessage,
+    type DynamicSectionIdentity,
+} from "../../prompt-renderer/src/index";
 import type {
     ModelContextFramePayload,
     ModelContextSectionUpdate,

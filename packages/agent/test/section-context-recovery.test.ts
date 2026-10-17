@@ -34,8 +34,8 @@ import {
     type ModelCapabilities,
 } from "../../context-budget/src/index";
 import { buildStepRequest } from "../src/prompt";
-import { createDefaultPromptBundleRenderer } from "../src/prompting/default-bundles";
-import type { DynamicSectionMessage } from "../src/prompting/dynamic-section-registry";
+import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
+import type { DynamicSectionMessage } from "../../prompt-renderer/src/index";
 import type { ModelConversationMessage } from "../../model-view/src/index";
 import { currentProtocols } from "./current-fixtures";
 

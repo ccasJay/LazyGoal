@@ -49,11 +49,9 @@ import type {
 } from "../../model-view/src/index";
 
 const PATH_INPUT_CONTRACT = contract.object({ path: contract.string() });
-import type { PromptBundleRenderer } from "../src/prompting/types";
+import type { PromptBundleRenderer } from "../../prompt-renderer/src/index";
 import { buildStepRequest } from "../src/prompt";
-import {
-    createDefaultPromptBundleRenderer,
-} from "../src/index";
+import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import {
     TrajectoryModelContextAssembler,
 } from "../../model-context/src/index";

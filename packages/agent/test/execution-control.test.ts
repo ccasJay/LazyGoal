@@ -16,9 +16,9 @@ import type { ModelConversationMessage } from "../../model-view/src/index";
 import type { ModelInferenceView } from "../../model-view/src/index";
 import type { TrajectoryModelContextAssembler } from "../../model-context/src/index";
 import {
-    createDefaultPromptBundleRenderer,
     LLMStepExecutor,
 } from "../src/index";
+import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import {
     createCurrentContextAssembler,
