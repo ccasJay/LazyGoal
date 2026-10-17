@@ -3,7 +3,7 @@ feature: tui-presentation-polish
 status: obsolete
 status_reason: "LazyGoal 退出终端 TUI 产品形态，终端渲染打磨与 ANSI 样式代码已完全废弃，展示逻辑迁移至 Web goal-board。"
 summary: "TUI 进度、错误、输入和响应式终端展示的一致性约定（已退役为负面护栏）"
-source_spec: specs/tui-presentation-polish/
+source_spec: specs/retired/tui-presentation-polish/
 distilled_at: 2026-08-25
 reviewed_at: 2026-10-10
 tags: [tui, presentation, spinner, error, input, rendering, terminal-width, obsolete]
@@ -38,7 +38,7 @@ authorities: [apps/goal-board/notes/overview.md, apps/goal-server/notes/overview
 
 ## Sources
 
-- S1: `specs/tui-presentation-polish/requirements.md`
-- S2: `specs/tui-presentation-polish/design.md`
+- S1: `specs/retired/tui-presentation-polish/requirements.md`
+- S2: `specs/retired/tui-presentation-polish/design.md`
 - S3: `specs/web-backend-separation/requirements.md`
 - S4: `apps/goal-board/notes/overview.md`
