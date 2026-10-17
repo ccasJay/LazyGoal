@@ -1,8 +1,7 @@
 ---
-status: proposed
+status: delivered
 created_at: 2026-10-17
-supersedes: []
-superseded_by: null
+delivered_at: 2026-10-17
 ---
 
 # LLM 能力拆包与默认装配收敛 Spec
