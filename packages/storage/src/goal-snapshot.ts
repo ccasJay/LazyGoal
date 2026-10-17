@@ -1593,10 +1593,6 @@ function validateSnapshotInvariants(
         }
     }
 
-    if (run.pendingActionBatch !== undefined && run.pendingAction === undefined) {
-        addInvariantIssue(context, "pendingActionBatch requires its current pending Action", ["state", "run", "pendingActionBatch"]);
-    }
-
     if (pendingThink !== undefined) {
         if (pendingThink.goalId !== goal.id || pendingThink.runId !== run.id) {
             addInvariantIssue(

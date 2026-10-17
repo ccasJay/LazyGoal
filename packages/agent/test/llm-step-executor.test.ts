@@ -1166,3 +1166,70 @@ test("Runner 在有效 request_think 后重新开始不推进计数", async () =
     const events = await trajectoryStore.read({ goalId, runId: "run-think-reset" });
     assert.equal(events.filter(event => event.payload.type === "think_requested").length, 1);
 });
+
+test("Runner 按模型返回顺序执行多调用批次，各计一次 Step 且 Observation 独立归属", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const executed: string[] = [];
+    const registry = new InMemoryToolRegistry(["a.md", "b.md", "c.md"].map(name => createToolRegistration({
+        definition: { id: `read_${name[0]}`, description: `Read ${name}`, isReadOnly: true,
+            inputContract: contract.object({ path: contract.string() }) },
+        replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute({ input }) {
+            executed.push((input as { path: string }).path);
+            return { kind: "success", output: { text: `content of ${(input as { path: string }).path}` }, summary: "Observed" };
+        },
+    })));
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        async generate(request) {
+            requests.push(request);
+            if (requests.length === 1) {
+                return { content: "", toolCalls: [
+                    { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                    { callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+                    { callId: "call-c", toolId: "read_c", argumentsJson: '{"path":"c.md"}' },
+                ] };
+            }
+            return { content: "已完成全部读取。" };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-order", intent: "Read three files", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["read_a", "read_b", "read_c"] } });
+    await store.save({
+        ...created,
+        state: {
+            ...created.state,
+            run: {
+                ...created.state.run,
+                exposedToolIds: ["read_a", "read_b", "read_c"],
+                currentStage: {
+                    stageId: "stage-1",
+                    revision: 1,
+                    status: "executing" as const,
+                    target: "Read three files",
+                    acceptanceCriteria: ["All three files read"],
+                },
+            },
+        },
+    });
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-batch-order" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    // 本用例只验证批次执行；桩在批次后只返回文本，因此按不推进类预算终态失败（该行为由 TODO1/TODO2 用例覆盖）。
+    assert.equal(result.state.status, "failed");
+    assert.deepEqual(executed, ["a.md", "b.md", "c.md"], "必须按模型返回顺序执行");
+    assert.equal(result.state.stepCount, 3, "每个 Action 的成功结果各计一次 Step");
+    const events = await trajectoryStore.read({ goalId, runId: "run-batch-order" });
+    const observations = events.filter(event => event.payload.type === "observation_recorded");
+    assert.equal(observations.length, 3);
+    assert.deepEqual(
+        observations.map(event => event.payload.type === "observation_recorded"
+            && event.payload.observation.kind === "success"
+            ? (event.payload.observation.output as { text: string }).text : ""),
+        ["content of a.md", "content of b.md", "content of c.md"],
+        "每个 Action 的 Observation 必须独立归属",
+    );
+});
