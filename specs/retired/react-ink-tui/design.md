@@ -1,5 +1,8 @@
 # React Ink TUI 设计
 
+> [!CAUTION]
+> 负面护栏：LazyGoal 已完全移除 React Ink 终端交互架构（`packages/tui`），全面采用独立的后台守护进程（`@lazygoal/goal-server`）与基于浏览器的交互看板（`@lazygoal/goal-board`）。严禁在当前项目中重新引入终端 UI 运行时或单进程直接绑定 TUI 的耦合设计。
+
 ## Overview
 
 本功能新增一个项目级 `lazygoal` 可执行入口和 `packages/tui` 包，以单进程分层 Controller 驱动现有 `launch`、`GoalCoordinator`、`Runner` 与 `JsonFileGoalStore`。CLI 只负责解析三种入口和装配依赖；Controller 串行化用户命令并向 React Ink 暴露不可变 ViewModel；组件只渲染状态和提交语义化命令。该边界覆盖需求 1–5、7，并以统一的执行中止信号和快照写入闸门满足需求 6。

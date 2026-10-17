@@ -1,5 +1,8 @@
 # Architecture & Design: TUI Trajectory Event Projection
 
+> [!CAUTION]
+> 负面护栏：终端 TUI 轨迹事件投影与全屏 Inspector 复盘已随 `packages/tui` 整体移除。执行链路审查与单步轨迹投影已由 Web 前端（`@lazygoal/goal-board`）与统一 API 接管，严禁在终端层复活交互式复盘逻辑。
+
 ## Context & Objectives
 
 在现行实现中，TUI Inspector 是通过 `sliceTrajectorySteps` 遍历 `Goal.state.messages`，按 `role: "assistant"` 简单划分步骤。这种做法能够展示对话流，但在复盘实际 Runtime 执行时存在显著局限：

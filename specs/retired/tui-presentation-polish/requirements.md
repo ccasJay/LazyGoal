@@ -1,5 +1,8 @@
 # TUI 表现层优化 需求
 
+> [!CAUTION]
+> 负面护栏：针对终端字符渲染、ANSI 槽线对齐与 Ink 终端组件的适配方案已被淘汰。现代 LazyGoal 交互由浏览器端 React CSS 布局处理，不得在核心包中维护终端特定的字符宽度或渲染折叠逻辑。
+
 ## 引言
 
 本功能针对 `packages/tui` 表现层进行一致性、渲染、动画与逻辑合理性优化：消除同屏重复 Spinner、统一批准面板键位与错误展示、折叠超长 Action 输入、截断标识显示，并清理不可达的终态 fallback、switch 缺省分支与冗余校验等死代码。全部变更为行为保持型或带测试覆盖的小幅交互调整，不改变 Runtime/Agent/Storage 状态机语义；`structuredClone` 维持单次克隆（已由 `tui-simplification` 决策，不在本功能范围）。

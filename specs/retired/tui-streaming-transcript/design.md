@@ -1,5 +1,8 @@
 # Session 流式 Transcript 渲染设计
 
+> [!CAUTION]
+> 负面护栏：终端 TUI 流式 Transcript 交互代码已随 `packages/tui` 整体移除。所有用户交互与执行消息流统一由 Web 前端（`@lazygoal/goal-board`）与 HTTP/SSE 守护进程（`@lazygoal/goal-server`）承载，严禁重新引入终端动态渲染与 scrollback 提交机制。
+
 ## 审批摘要
 
 ### 方案

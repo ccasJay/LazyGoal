@@ -2,7 +2,7 @@
 feature: goal-preparation-workflow
 status: superseded
 summary: "Preparation 阶段所有权、真实消息与显式批准边界"
-source_spec: specs/goal-preparation-workflow/
+source_spec: specs/archived/goal-preparation-workflow/
 distilled_at: 2026-08-16
 reviewed_at: 2026-10-10
 status_reason: "Preparation 生命周期已由 preparation-phase-removal 统一收敛到 executing 交互；原有协调与批准边界仅作为历史决策保留。"
@@ -38,8 +38,8 @@ authorities: [packages/runtime/notes/overview.md, packages/runtime/src/goal-coor
 
 ## Sources
 
-- S1: `specs/goal-preparation-workflow/requirements.md`
-- S2: `specs/goal-preparation-workflow/design.md`
+- S1: `specs/archived/goal-preparation-workflow/requirements.md`
+- S2: `specs/archived/goal-preparation-workflow/design.md`
 - S3: `packages/runtime/src/goal-coordinator.ts`
 - S4: `packages/runtime/test/goal-coordinator.test.ts`
 - S5: `packages/agent/src/prompt.ts`

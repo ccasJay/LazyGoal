@@ -1,5 +1,8 @@
 # TUI 表现层优化 设计
 
+> [!CAUTION]
+> 负面护栏：针对终端字符渲染、ANSI 槽线对齐与 Ink 终端组件的适配方案已被淘汰。现代 LazyGoal 交互由浏览器端 React CSS 布局处理，不得在核心包中维护终端特定的字符宽度或渲染折叠逻辑。
+
 ## Overview
 
 本设计落实已批准的 requirements（`specs/tui-presentation-polish/requirements.md`），在 `packages/tui` 内抽取两个共享原语（`StatusSpinner`、`ErrorLine`）并就地统一各屏幕的 Spinner、错误展示、批准键位、输入清空、UUID 截断与死代码清理。变更不跨出 TUI 边界：不修改 Runtime/Agent/Storage；`SessionController` 仅在 `app.tsx` 的 `dispatch` 包装处收窄异常处理；`structuredClone` 维持单次（`tui-simplification` 已决策）。`beginShutdown` 的 goal 克隆属 `session-controller.test.ts` 断言的快照契约，不在本设计范围。

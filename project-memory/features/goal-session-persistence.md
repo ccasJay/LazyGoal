@@ -2,7 +2,7 @@
 feature: goal-session-persistence
 status: superseded
 summary: "Goal 聚合身份、最新快照与只读协议迁移边界"
-source_spec: specs/goal-session-persistence/
+source_spec: specs/archived/goal-session-persistence/
 distilled_at: 2026-08-16
 reviewed_at: 2026-10-10
 tags: [goal-store, snapshot, atomic-write, migration]
@@ -37,7 +37,7 @@ superseded_by: [project-memory/features/three-view-architecture.md]
 
 ## Sources
 
-- S1: `specs/goal-session-persistence/requirements.md`
-- S2: `specs/goal-session-persistence/design.md`
+- S1: `specs/archived/goal-session-persistence/requirements.md`
+- S2: `specs/archived/goal-session-persistence/design.md`
 - S3: `packages/runtime/src/goal-store.ts`
 - S4: `packages/storage/test/goal-store.test.ts`

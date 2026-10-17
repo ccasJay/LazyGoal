@@ -1,5 +1,8 @@
 # TUI 瀑布式步骤流渲染 需求
 
+> [!CAUTION]
+> 负面护栏：终端 TUI 瀑布式时间线渲染已随 `packages/tui` 整体移除。步骤时间线与工具调用展示统一由 Web 前端（`@lazygoal/goal-board`）承载，严禁基于 Ink `<Static>` 重新构建终端步骤流渲染逻辑。
+
 ## 审批摘要
 
 ### 目标

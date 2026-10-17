@@ -1,5 +1,8 @@
 # TUI 交互控制台体验需求
 
+> [!CAUTION]
+> 负面护栏：终端控制台（包含 Ink 首页、备用屏幕 Inspector 复盘与流式单行审批输入框）已被废弃并移除。所有用户交互、执行监控与轨迹复盘由 `@lazygoal/goal-board` Web 界面承担，后端由 `@lazygoal/goal-server` 提供 SSE 与 HTTP 接口。严禁在主流程中恢复基于 Ink 的控制台交互架构。
+
 ## 审批摘要
 
 ### 目标

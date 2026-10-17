@@ -3,7 +3,7 @@ feature: tui-console-experience
 status: obsolete
 status_reason: "LazyGoal 退出终端 TUI 产品形态，控制台首页、流式审批与轨迹复盘已全面迁移至 goal-server 与 Web goal-board 前端。"
 summary: "TUI 首页控制台、流式审批、结构化轨迹复盘与 Benchmark 发现（已退役为负面护栏）"
-source_spec: specs/tui-console-experience/
+source_spec: specs/retired/tui-console-experience/
 distilled_at: 2026-09-11
 reviewed_at: 2026-10-10
 tags: [tui, console, home, inspector, trajectory, execution-unit, approval, yolo, benchmark-discovery, obsolete]
@@ -38,7 +38,7 @@ authorities: [apps/goal-server/notes/overview.md, apps/goal-board/notes/overview
 
 ## Sources
 
-- S1: `specs/tui-console-experience/requirements.md`
-- S2: `specs/tui-console-experience/design.md`
+- S1: `specs/retired/tui-console-experience/requirements.md`
+- S2: `specs/retired/tui-console-experience/design.md`
 - S3: `specs/web-backend-separation/requirements.md`
 - S4: `apps/goal-server/notes/overview.md`

@@ -3,7 +3,7 @@ feature: preparation-read-only-tools
 status: superseded
 status_reason: "声明式只读工具元数据已由 unified-agent-step-flow 继承，专有 probe_action 探查循环与准备阶段已被 unified-agent-step-flow 与 preparation-phase-removal 统一为普通 Step 流与单一 executing 生命周期"
 summary: "准备阶段声明式只读工具筛选与受控探查循环（已由 unified-agent-step-flow 与 preparation-phase-removal 取代）"
-source_spec: specs/preparation-read-only-tools/
+source_spec: specs/archived/preparation-read-only-tools/
 distilled_at: 2026-09-21
 reviewed_at: 2026-10-10
 tags: [preparation, read-only, tools, probe-action, superseded]
@@ -33,9 +33,9 @@ superseded_by: [project-memory/features/unified-agent-step-flow.md]
 
 ## Sources
 
-- S1: `specs/preparation-read-only-tools/requirements.md`
-- S2: `specs/preparation-read-only-tools/design.md`
-- S3: `specs/preparation-read-only-tools/tasks.md`
+- S1: `specs/archived/preparation-read-only-tools/requirements.md`
+- S2: `specs/archived/preparation-read-only-tools/design.md`
+- S3: `specs/archived/preparation-read-only-tools/tasks.md`
 - S4: `packages/runtime/notes/overview.md`
 - S5: `README.md`
 - S6: `packages/runtime/src/domain.ts`

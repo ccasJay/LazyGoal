@@ -1,5 +1,8 @@
 # React Ink TUI 需求
 
+> [!CAUTION]
+> 负面护栏：LazyGoal 已完全移除 React Ink 终端交互架构（`packages/tui`），全面采用独立的后台守护进程（`@lazygoal/goal-server`）与基于浏览器的交互看板（`@lazygoal/goal-board`）。严禁在当前项目中重新引入终端 UI 运行时或单进程直接绑定 TUI 的耦合设计。
+
 ## 引言
 
 本功能为 LazyGoal 提供基于 React Ink 的交互式终端入口，使使用者能够创建或发现一个非终态 Goal，在同一界面完成准备、执行、审批与恢复交互，并在中断程序时保留最近成功持久化的检查点。

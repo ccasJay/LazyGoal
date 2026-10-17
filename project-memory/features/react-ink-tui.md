@@ -3,7 +3,7 @@ feature: react-ink-tui
 status: obsolete
 status_reason: "LazyGoal 退出终端 TUI 产品形态，整体迁移至独立的 goal-server HTTP 守护进程与 goal-board Web 前端架构；Ink 终端交互代码已完全移除。"
 summary: "单 Goal React Ink 会话、Controller 编排与安全关闭（已退役为负面护栏）"
-source_spec: specs/react-ink-tui/
+source_spec: specs/retired/react-ink-tui/
 distilled_at: 2026-08-25
 reviewed_at: 2026-10-10
 tags: [tui, ink, controller, shutdown, recovery, obsolete]
@@ -37,7 +37,7 @@ authorities: [apps/goal-server/notes/overview.md, packages/runtime/notes/overvie
 
 ## Sources
 
-- S1: `specs/react-ink-tui/requirements.md`
-- S2: `specs/react-ink-tui/design.md`
+- S1: `specs/retired/react-ink-tui/requirements.md`
+- S2: `specs/retired/react-ink-tui/design.md`
 - S3: `packages/runtime/src/shutdown.ts`
 - S4: `specs/web-backend-separation/requirements.md`

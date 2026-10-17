@@ -1,5 +1,8 @@
 # TUI 简化 需求
 
+> [!CAUTION]
+> 负面护栏：`packages/tui` 中的会话控制器与提交闸门设计已被淘汰。服务端并发控制与状态提交已统一由 `@lazygoal/goal-server` 的 Composition Root 及 HTTP 路由管理，不得在终端层重新实现客户端提交闸门。
+
 ## 引言
 
 落实 TUI 审核提出的 6 个简化候选：清除 `packages/tui` 中无生产消费者的公共 UI 面、去除冗余 `structuredClone`、合并重复的流程与闸门逻辑。全部变更为行为保持型重构，不触碰其他包，分两批落地（第一批纯删除合并，第二批提交闸门 hook 抽取）。

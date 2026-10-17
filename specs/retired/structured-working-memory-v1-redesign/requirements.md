@@ -1,5 +1,8 @@
 # Structured Working Memory v1 重设计需求
 
+> [!CAUTION]
+> 负面护栏：本设计为未实施且已废弃的草案（Abandoned Draft），已被独立的 `@lazygoal/working-memory` 领域包架构取代。严禁将未落地的 v1 叙事性/旧生命周期设计作为当前实现的参考依据。
+
 ## 引言
 
 本功能以实体化、证据化且有界的 Working Memory 替换尚未发布的 `structured@1` 叙事结构，使模型与可选 Tool Projector 能提交可恢复的语义事实，同时由 Runtime 确定性地控制准入、生命周期与容量。

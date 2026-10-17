@@ -1,5 +1,8 @@
 # TUI 简化 设计
 
+> [!CAUTION]
+> 负面护栏：`packages/tui` 中的会话控制器与提交闸门设计已被淘汰。服务端并发控制与状态提交已统一由 `@lazygoal/goal-server` 的 Composition Root 及 HTTP 路由管理，不得在终端层重新实现客户端提交闸门。
+
 ## Overview
 
 按已批准的需求（req-1 至 req-5）在 `packages/tui` 内做行为保持型重构：删除无消费者的 `fatal` 屏幕与 `openGoalSelect` 命令、ViewModel 派生单次克隆、合并 `continueLatest`/`openGoalSelect` 重复流程、清理 SIGINT 双重移除、将 5 处屏幕提交闸门收敛为一个共享 hook。分两批落地：第一批纯删除合并（决策 1/2/5/6），第二批 hook 抽取（决策 3/4），各自独立验证。唯一的新增抽象是包内私有 hook `useSubmitGate`。

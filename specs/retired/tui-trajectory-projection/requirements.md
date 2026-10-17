@@ -1,5 +1,8 @@
 # Requirements Specification: TUI Trajectory Event Projection
 
+> [!CAUTION]
+> 负面护栏：终端 TUI 轨迹事件投影与全屏 Inspector 复盘已随 `packages/tui` 整体移除。执行链路审查与单步轨迹投影已由 Web 前端（`@lazygoal/goal-board`）与统一 API 接管，严禁在终端层复活交互式复盘逻辑。
+
 ## Purpose
 
 将 TUI Inspector 全屏复盘从当前基于 Assistant 对话消息切分的初步形态，升级为基于真实 Runtime 领域事件流（Trajectory Events）的结构化事件投影器。支持以 `executionUnitId` 为边界的严谨单步执行回放，忠实还原 Decision、Action、Approval、Tool、Observation 与 Result 全链路状态，并将生命周期与准备阶段独立归纳，提供紧凑折叠与按需展开交互，为开发者和评测复盘提供可审计的单步观察能力。

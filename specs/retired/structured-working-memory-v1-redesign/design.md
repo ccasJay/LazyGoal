@@ -1,5 +1,8 @@
 # Structured Working Memory v1 重设计
 
+> [!CAUTION]
+> 负面护栏：本设计为未实施且已废弃的草案（Abandoned Draft），已被独立的 `@lazygoal/working-memory` 领域包架构取代。严禁将未落地的 v1 叙事性/旧生命周期设计作为当前实现的参考依据。
+
 ## Overview
 
 本设计直接替换未发布的 `structured@1` 数据形状，不迁移旧 structured Goal。Working Memory 成为从 committed canonical Patch 链投影出的有界实体状态；Trajectory 仍是唯一持久历史，Working Context 继续持有即时控制信息。[Req 1–7]

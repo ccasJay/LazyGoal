@@ -2,7 +2,7 @@
 feature: goal-multi-run-session
 status: superseded
 summary: "为 Goal 引入持久化 Plan Mode、稳定 Todo 计划与多 Run 会话生命周期，通过 Coordinator 续写分流与原子证据提交保障跨 Run 安全隔离"
-source_spec: specs/goal-multi-run-session/
+source_spec: specs/archived/goal-multi-run-session/
 distilled_at: 2026-09-19
 reviewed_at: 2026-10-10
 tags: [runtime, coordinator, goal-plan, multi-run, session, slash-command, tui, storage]
@@ -42,9 +42,9 @@ superseded_by: [project-memory/features/mode-driven-task-proposal.md]
 
 ## Sources
 
-- S1: `specs/goal-multi-run-session/requirements.md`
-- S2: `specs/goal-multi-run-session/design.md`
-- S3: `specs/goal-multi-run-session/tasks.md`
+- S1: `specs/archived/goal-multi-run-session/requirements.md`
+- S2: `specs/archived/goal-multi-run-session/design.md`
+- S3: `specs/archived/goal-multi-run-session/tasks.md`
 - S4: `packages/runtime/src/goal-plan.ts`
 - S5: `packages/runtime/src/goal-coordinator.ts`
 - S6: `packages/runtime/src/runner.ts`
