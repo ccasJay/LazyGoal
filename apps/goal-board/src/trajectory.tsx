@@ -32,6 +32,8 @@ const detailSummary = (event: BrowserTrajectoryDetail["event"]) => event.eventTy
 const detailTitle = (event: BrowserTrajectoryDetail["event"]) => event.eventType === "model_repair_attempt_started"
   ? event.payload.attempt === 1 ? "Model request" : "Output retry"
   : event.eventType === "model_repair_feedback_recorded" ? "Output rejected"
+  : event.eventType === "think_requested" ? "Think requested"
+  : event.eventType === "think_completed" ? "Think completed"
   : event.eventType === "execution_error" ? "Execution stopped" : event.eventType;
 const inspectionTitle = (entry: BrowserTrajectoryEntry | undefined, detail: BrowserTrajectoryDetail | null) =>
   entry?.eventType === "tool_started" ? entry.title.replace(/^tool_started: /, "") : detail ? detailTitle(detail.event) : entry?.title ?? "Event details";

@@ -24,6 +24,23 @@ function event(
   return { type: "activity", goalId, runId, activity };
 }
 
+test("Think rounds remain separate from tools and retain committed analysis after reload", () => {
+  const steps = [
+    step({ executionUnitId: "u1", sequence: 1, actionId: "a1", toolId: "read_file", sourceEventId: "e1" }),
+    step({ executionUnitId: "u2", sequence: 4, toolId: undefined, decisionKind: "request_think", sourceEventId: "e4", think: { goal: "Compare evidence", output: "Use the observed result." } }),
+    step({ executionUnitId: "u2", sequence: 7, toolId: undefined, decisionKind: "request_think", sourceEventId: "e7", think: { goal: "Check uncertainty", output: "A fresh observation is needed." } }),
+    step({ executionUnitId: "u2", sequence: 10, actionId: "a2", toolId: "read_file", sourceEventId: "e10" }),
+  ];
+  const groups = projectActivityGroups({ goalId: "goal-1", run: run(steps), liveEvents: [] });
+  assert.deepEqual(groups.map((group) => group.category), ["explore", "think", "think", "explore"]);
+  assert.equal(groups[1]?.summary, "Thinking · Compare evidence");
+  assert.equal(groups[1]?.members[0]?.step?.think?.output, "Use the observed result.");
+  assert.equal(groups[1]?.members[0]?.actionId, undefined);
+  const pending = projectActivityGroups({ goalId: "goal-1", run: run([step({ ...steps[1]!, status: "recorded", think: { goal: "Compare evidence" } })]), liveEvents: [] });
+  assert.equal(pending[0]?.status, "running");
+  assert.equal(pending[0]?.id, groups[1]?.id);
+});
+
 test("committed actions merge only when category, stage and verified adjacency match", () => {
   const groups = projectActivityGroups({
     goalId: "goal-1",

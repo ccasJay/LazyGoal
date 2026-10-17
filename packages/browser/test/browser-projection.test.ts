@@ -303,6 +303,65 @@ class TestGoalStore implements GoalStore {
     }
 }
 
+function thinkFact(sequence: number, requestId: string, output?: string): TrajectoryEvent {
+    const metadata = { goalId: "goal-real-1", runId: "run-real-1", phase: "executing" as const, executionUnitId: "unit-1", stepIndex: 1 };
+    const common = { requestId, stepOrdinal: 1, goal: `Analyze ${requestId}` };
+    return allocateImmutableEvent(output === undefined
+        ? { ...metadata, eventType: "think_requested", payload: { type: "think_requested", ...common } }
+        : { ...metadata, eventType: "think_completed", payload: { type: "think_completed", ...common, output } }, sequence);
+}
+
+test("session preserves multiple Think rounds before the action in the same Step", async () => {
+    const goal = createTestGoal();
+    const committed = [thinkFact(1, "think-1"), thinkFact(2, "think-1", "First analysis"),
+        thinkFact(3, "think-2"), thinkFact(4, "think-2", "Second analysis"),
+        ...[event(6, "decision_received"), event(7, "action_staged"), event(8, "observation_recorded")]];
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({ committed, uncommittedTail: [] }));
+    const steps = session!.runs[0]!.steps;
+    assert.equal(steps.length, 3);
+    assert.deepEqual(steps.map(step => step.sequence), [1, 3, 6]);
+    assert.deepEqual(steps.slice(0, 2).map(step => [step.stepIndex, step.status, step.think?.output, step.actionId]),
+        [[1, "completed", "First analysis", undefined], [1, "completed", "Second analysis", undefined]]);
+    assert.equal(steps[2]!.toolId, "read_file");
+    assert.equal(session!.runs[0]!.stepCount, goal.state.run.stepCount);
+});
+
+test("pending Think has stable identity, ignores uncommitted output, and survives a completion decision", async () => {
+    const goal = createTestGoal();
+    const request = thinkFact(1, "think-1");
+    const output = thinkFact(2, "think-1", "Observed analysis");
+    const pending = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({ committed: [request], uncommittedTail: [output] }));
+    assert.equal(pending!.runs[0]!.steps.length, 1);
+    assert.equal(pending!.runs[0]!.steps[0]!.status, "recorded");
+    assert.equal(pending!.runs[0]!.steps[0]!.think?.output, undefined);
+    const complete = allocateImmutableEvent({ goalId: goal.id, runId: goal.state.run.id, phase: "executing", executionUnitId: "unit-1", stepIndex: 1,
+        eventType: "decision_received", payload: { type: "decision_received", decision: { kind: "complete", summary: "Done", evidenceSequences: [] } } }, 3);
+    const saved = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({ committed: [request, output, complete], uncommittedTail: [] }));
+    assert.equal(saved!.runs[0]!.steps.length, 1);
+    assert.equal(saved!.runs[0]!.steps[0]!.sourceEventId, pending!.runs[0]!.steps[0]!.sourceEventId);
+    assert.equal(saved!.runs[0]!.steps[0]!.think?.output, "Observed analysis");
+});
+
+test("Think session output is bounded with an explicit truncation flag", async () => {
+    const goal = createTestGoal();
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [thinkFact(1, "think-1"), thinkFact(2, "think-1", "x".repeat(64_001))], uncommittedTail: [],
+    }));
+    assert.equal(session!.runs[0]!.steps[0]!.think?.truncated, true);
+    assert.ok(session!.runs[0]!.steps[0]!.think!.output!.length < 64_010);
+});
+
+test("a stopped Run does not leave its unfinished Think in progress", async () => {
+    const goal = createTestGoal();
+    const failed = allocateImmutableEvent({ goalId: goal.id, runId: goal.state.run.id, phase: "executing",
+        eventType: "run_failed", payload: { type: "run_failed", code: "MODEL_ERROR", message: "Model failed" } }, 2);
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [thinkFact(1, "think-1"), failed], uncommittedTail: [],
+    }));
+    assert.equal(session!.runs[0]!.steps[0]!.status, "failed");
+    assert.equal(session!.runs[0]!.steps[0]!.think?.output, undefined);
+});
+
 class TestGoalCatalog implements GoalCatalog {
     constructor(private readonly entries: readonly GoalCatalogEntry[]) {}
 

@@ -4,9 +4,18 @@ import type {
   BrowserModelRepairFeedbackRecordedPayload,
   BrowserExecutionErrorPayload,
 } from "../../../packages/web-contracts/src/index";
+import { AssistantMarkdown } from "./components/AssistantMarkdown";
 
 export function EventSummary({ event }: { event: BrowserTrajectoryDetail["event"] }) {
   const payload = event.payload;
+  if (payload.type === "think_requested" || payload.type === "think_completed") {
+    return <section className="markdown-body" aria-label="Think analysis">
+      <h4>Think goal</h4><p>{String(payload.goal)}</p>
+      {payload.type === "think_completed"
+        ? <><h4>Analysis</h4><AssistantMarkdown content={String(payload.output)} /></>
+        : <p>Think requested. The output is recorded in a separate completion event.</p>}
+    </section>;
+  }
   if (payload.type === "model_repair_feedback_recorded") {
     const feedbackPayload = payload as BrowserModelRepairFeedbackRecordedPayload;
     return <section className="tr-feedback-summary" aria-label="Output validation issues">

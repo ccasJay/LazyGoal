@@ -5,6 +5,21 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { BrowserTrajectoryDetail } from "../../../packages/browser/src/index";
 import { EventSummary } from "../src/trajectory-event-summary";
 
+test("Think details show the explicit goal and complete Markdown analysis without Raw", () => {
+  const output = "**Compare approaches**\n\n" + "Evidence remains visible. ".repeat(100) + "FINAL ANALYSIS";
+  const event = { payload: { type: "think_completed", goal: "Choose a recovery path", output } } as BrowserTrajectoryDetail["event"];
+  const html = renderToStaticMarkup(<EventSummary event={event} />);
+  assert.match(html, /Think goal/);
+  assert.match(html, /Choose a recovery path/);
+  assert.match(html, /<strong>Compare approaches<\/strong>/);
+  assert.match(html, /FINAL ANALYSIS/);
+  assert.doesNotMatch(html, /Recorded payload/);
+  const pending = renderToStaticMarkup(<EventSummary event={{ payload: { type: "think_requested", goal: "Inspect first" } } as BrowserTrajectoryDetail["event"]} />);
+  assert.match(pending, /Inspect first/);
+  assert.match(pending, /separate completion event/);
+  assert.doesNotMatch(pending, /<h4>Analysis/);
+});
+
 test("rejected output shows every field correction while keeping event metadata in Raw", () => {
   const event = {
     payload: {

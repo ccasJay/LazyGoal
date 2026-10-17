@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleHelp,
+  Brain,
   FilePenLine,
   Layers,
   Search,
@@ -26,7 +27,8 @@ import { Trajectory } from "../trajectory";
 import { sessionStatus, sessionStatusTone } from "../types";
 import { useGoalSessionContext } from "../context/GoalSessionContext";
 import { useRunControlContext } from "../context/RunControlContext";
-import { MessageComposer, AssistantMarkdown, CurrentModelControl } from "./MessageComposer";
+import { MessageComposer, CurrentModelControl } from "./MessageComposer";
+import { AssistantMarkdown } from "./AssistantMarkdown";
 import { SessionMetricsBar } from "./SessionMetricsBar";
 import { PlanRouteList } from "./PlanRouteList";
 import { WorkspaceContext } from "./WorkspaceContext";
@@ -138,7 +140,7 @@ export function GoalSession({
       >
         <div className="message-heading">
           <span className={`message-avatar ${message.role}`}>
-            {message.role === "user" ? "You" : <img src={brandMark} alt="" width={18} height={18} />}
+            {message.role === "user" ? "You" : <img src={brandMark} alt="" width={20} height={20} />}
           </span>
           <strong>{message.role === "user" ? "You" : "LazyGoal"}</strong>
         </div>
@@ -444,6 +446,15 @@ export function GoalSession({
                                     {attempt}
                                   </div>
                                 ))}
+                                {step?.think && <section className="markdown-body" aria-label="Think analysis">
+                                  <h4>Think goal</h4>
+                                  <p>{step.think.goal}</p>
+                                  <h4>Analysis</h4>
+                                  {step.think.output !== undefined
+                                    ? <AssistantMarkdown content={step.think.output} />
+                                    : <p>{member.status === "failed" ? "Thinking stopped before an output was saved." : "Waiting for the saved Think output."}</p>}
+                                  {step.think.truncated && <p>Some Think content is omitted. View the complete event in trajectory.</p>}
+                                </section>}
                                 {step?.bashExecution && (
                                   <div className="tool-execution">
                                     <div className="tool-execution-field">
@@ -503,12 +514,12 @@ export function GoalSession({
                           const renderGroup = (group: ReturnType<typeof projectActivityGroups>[number]) => {
                             const ActivityIcon = group.category === "execute" ? Terminal
                               : group.category === "edit" ? FilePenLine
-                                : group.category === "explore" ? Search : Zap;
+                                : group.category === "explore" ? Search : group.category === "think" ? Brain : Zap;
                             return (
                               <details className={`activity-group ${group.category} ${group.status}`} key={group.id}>
                                 <summary>
                                   <ActivityIcon size={13} aria-hidden="true" />
-                                  <span>{group.summary}</span>
+                                  <span title={group.summary}>{group.summary}</span>
                                   {group.status !== "completed" && (
                                     <span className={`step-status ${group.status}`}>
                                       {group.status === "running" ? "In progress" : group.status}
@@ -582,7 +593,7 @@ export function GoalSession({
                           >
                             <div className="message-heading">
                               <span className="message-avatar assistant">
-                                <img src={brandMark} alt="" width={18} height={18} />
+                                <img src={brandMark} alt="" width={20} height={20} />
                               </span>
                               <strong>Live response</strong>
                               <small>Not saved yet</small>

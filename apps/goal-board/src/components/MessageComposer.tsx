@@ -1,40 +1,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { ArrowUp, ChevronDown, Folder } from "lucide-react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { slashCommands } from "../types";
-
-export function AssistantMarkdown({ content }: { content: string }) {
-  return (
-    <Markdown
-      remarkPlugins={[remarkGfm]}
-      skipHtml
-      components={{
-        table: ({ children }) => (
-          <div className="markdown-table-scroll">
-            <table>{children}</table>
-          </div>
-        ),
-        a: ({ href, children }) => (
-          <a href={href} target="_blank" rel="noopener noreferrer">
-            {children}
-          </a>
-        ),
-        img: ({ src, alt }) =>
-          src ? (
-            <a href={src} target="_blank" rel="noopener noreferrer">
-              {alt || "Image"}
-            </a>
-          ) : (
-            <span>{alt || "Image"}</span>
-          ),
-      }}
-    >
-      {content}
-    </Markdown>
-  );
-}
 
 export function InboxIcon() {
   return (

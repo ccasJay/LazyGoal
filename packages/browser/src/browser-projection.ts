@@ -333,9 +333,12 @@ function projectBrowserSteps(
     }
 
     const groups = new Map<string, TrajectoryEvent[]>();
+    const thinkUnits = new Set(committedEvents.filter((event) => event.eventType === "think_requested")
+        .map((event) => event.executionUnitId));
     for (const event of committedEvents) {
         if (event.programId !== undefined) continue;
         if (event.executionUnitId === undefined) continue;
+        if (event.eventType === "think_requested" || event.eventType === "think_completed") continue;
         const actionId = trajectoryActionId(event)
             ?? actionByExecutionUnit.get(event.executionUnitId)
             ?? undefined;
@@ -347,9 +350,37 @@ function projectBrowserSteps(
 
     const steps: BrowserSessionStep[] = [];
     const sourceRangeByEventId = new Map<string, { readonly first: number; readonly last: number }>();
+    for (const request of sortedCommitted) {
+        if (request.eventType !== "think_requested" || request.executionUnitId === undefined) continue;
+        const completed = sortedCommitted.find((event) => event.eventType === "think_completed"
+            && event.payload.requestId === request.payload.requestId
+            && event.executionUnitId === request.executionUnitId);
+        const output = completed?.eventType === "think_completed" ? completed.payload.output : undefined;
+        const stopped = sortedCommitted.some((event) => event.sequence > request.sequence
+            && ["run_failed", "run_cancelled"].includes(event.eventType));
+        const source = completed ?? request;
+        steps.push({
+            runId, executionUnitId: request.executionUnitId,
+            sourceEventId: request.eventId, sequence: request.sequence,
+            stepIndex: request.payload.stepOrdinal,
+            decisionKind: "request_think",
+            status: output !== undefined ? "completed" : stopped ? "failed" : "recorded",
+            ...(unitStageMap.has(request.executionUnitId) ? { stageId: unitStageMap.get(request.executionUnitId)! } : {}),
+            think: {
+                goal: boundedText(request.payload.goal, MAX_TEXT_LENGTH),
+                ...(output === undefined ? {} : { output: boundedText(output, MAX_MESSAGE_LENGTH) }),
+                ...(request.payload.goal.length > MAX_TEXT_LENGTH || (output?.length ?? 0) > MAX_MESSAGE_LENGTH
+                    ? { truncated: true as const } : {}),
+            },
+        });
+        sourceRangeByEventId.set(request.eventId, { first: request.sequence, last: source.sequence });
+    }
     for (const events of groups.values()) {
         events.sort((left, right) => left.sequence - right.sequence);
-        const first = events[0];
+        const first = thinkUnits.has(events[0]?.executionUnitId)
+            ? events.find((event) => event.eventType === "decision_received" || event.eventType === "action_staged"
+                || event.eventType === "tool_started" || event.eventType === "observation_recorded")
+            : events[0];
         if (first === undefined) continue;
 
         const executionUnitId = first.executionUnitId;

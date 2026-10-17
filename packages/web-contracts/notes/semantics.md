@@ -10,3 +10,4 @@
 | BrowserGoalActivityEvent | 白名单公开的短期 SSE 活动及其来源身份；不持久化。 | [Web 传输契约](../README.md) | [Event DTO](../src/events.ts) |
 | SessionMetricsSnapshot | 会话指标响应 DTO；`tokensPerSecond` 的端到端计时语义归属指标投影模块。 | [Web 传输契约](../README.md) | [指标 DTO](../src/metrics.ts) |
 | BrowserCreateGoalCommand | 创建 Goal 的 Web 命令。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
+| BrowserSessionStep.think | 显式 Think 的有界目标、可选已提交输出及截断标记；不计为新增 Runtime Step。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |

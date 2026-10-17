@@ -173,6 +173,7 @@ function summary(event: TrajectoryEvent, events: readonly TrajectoryEvent[]): Br
     if (event.eventType === "context_epoch_closed") preview = "Context epoch closed";
     if (event.eventType === "memory_patch_accepted") preview = "Working memory updated";
     if (event.eventType === "think_completed") preview = event.payload.output;
+    if (event.eventType === "think_requested") preview = event.payload.goal;
     const finished = event.eventType === "tool_started" ? events.find(candidate => candidate.eventType === "tool_finished" && actionOf(candidate) === actionOf(event)) : undefined;
     const inputPreview = event.eventType === "tool_started" ? JSON.stringify(event.payload.input) : undefined;
     const observation = finished?.eventType === "tool_finished" ? finished.payload.observation : event.eventType === "tool_finished" ? event.payload.observation : undefined;
