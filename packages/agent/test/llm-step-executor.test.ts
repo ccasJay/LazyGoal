@@ -1233,3 +1233,94 @@ test("Runner 按模型返回顺序执行多调用批次，各计一次 Step 且 
         "每个 Action 的 Observation 必须独立归属",
     );
 });
+
+test("Runner 顺序执行两调用批次后回到模型并正常终止", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const executed: string[] = [];
+    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createToolRegistration({
+        definition: { id, description: id, isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
+        replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute({ input }) { executed.push((input as { path: string }).path); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+    })));
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        async generate() {
+            requests.push({ messages: [] });
+            // 只在对第一次请求返回批次，之后返回普通文本，验证批次结束后不再自增循环。
+            return requests.length === 1
+                ? { content: "", toolCalls: [
+                    { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                    { callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+                ] }
+                : { content: "批次已完成。" };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-two", intent: "Read two files", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["read_a", "read_b"] } });
+    await store.save({
+        ...created,
+        state: { ...created.state, run: { ...created.state.run,
+            exposedToolIds: ["read_a", "read_b"],
+            currentStage: { stageId: "stage-1", revision: 1, status: "executing" as const, target: "Read two files", acceptanceCriteria: ["done"] } } },
+    });
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-batch-two" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.deepEqual(executed, ["a.md", "b.md"]);
+    assert.equal(result.state.stepCount, 2);
+});
+
+test("Runner 在批次中途需要审批时停止后续执行并保留已执行结果与剩余队列", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const executed: string[] = [];
+    const definitions: ToolDefinition[] = [
+        { id: "read_a", description: "Read a", isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
+        { id: "write_b", description: "Write b", isReadOnly: false,
+            inputContract: contract.object({ path: contract.string() }) },
+        { id: "read_c", description: "Read c", isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
+    ];
+    const registry = new InMemoryToolRegistry(definitions.map(definition => createToolRegistration({
+        definition, replayPolicy: "safe", validate: () => ({ ok: true }),
+        ...(definition.id === "write_b" ? { evaluatePolicy: () => "require_approval" as const } : {}),
+        async execute({ input }) { executed.push((input as { path: string }).path); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+    })));
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        async generate() {
+            requests.push({ messages: [] });
+            // 仅第一次请求返回批次；后续返回文本，避免用恒定桩制造无限批次。
+            return requests.length === 1
+                ? { content: "", toolCalls: [
+                    { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                    { callId: "call-b", toolId: "write_b", argumentsJson: '{"path":"b.md"}' },
+                    { callId: "call-c", toolId: "read_c", argumentsJson: '{"path":"c.md"}' },
+                ] }
+                : { content: "等待审批。" };
+        },
+    };
+    const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-approval", intent: "Read and write", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: ["read_a", "write_b", "read_c"] } });
+    await store.save({
+        ...created,
+        state: { ...created.state, run: { ...created.state.run,
+            exposedToolIds: ["read_a", "write_b", "read_c"],
+            currentStage: { stageId: "stage-1", revision: 1, status: "executing" as const, target: "Read and write", acceptanceCriteria: ["done"] } } },
+    });
+    const runner = new Runner({
+        store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry,
+        toolPolicy: { evaluate: ({ action }) => action.toolId === "write_b" ? "require_approval" : "allow" },
+    });
+    const result = await runner.run({ goalId, runId: "run-batch-approval" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    const restored = (await store.restore(goalId))!;
+    assert.equal(result.state.status, "waiting", JSON.stringify({ status: result.state.status, executed, pending: restored.state.run.pendingAction?.action.actionId }));
+    assert.deepEqual(executed, ["a.md"], "等待前只执行第一个 Action，后续不得执行");
+    assert.equal(restored.state.run.pendingAction?.action.actionId, "call-b");
+    assert.deepEqual(restored.state.run.pendingActionBatch?.remaining.map(call => call.actionId), ["call-c"], "未执行的后续 Action 必须保留在批次队列中");
+});
