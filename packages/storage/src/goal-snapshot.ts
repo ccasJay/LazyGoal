@@ -299,6 +299,13 @@ export interface GoalSnapshotPendingModelRepairV1 {
     readonly thinkRequestId?: string;
 }
 
+/** Snapshot 中一次 Decide 返回的多调用批次里尚未暂存的决策。 */
+export interface GoalSnapshotPendingActionBatchV1 {
+    readonly batchId: string;
+    /** 按模型返回顺序排列、尚未暂存的业务 Action；至少一条。 */
+    readonly remaining: readonly GoalSnapshotToolCallActionV1[];
+}
+
 /** Snapshot 中的未完成 Action。 */
 export interface GoalSnapshotPendingActionV1 {
     readonly action: GoalSnapshotToolCallActionV1;
@@ -475,6 +482,8 @@ export interface GoalSnapshotRunStateV1 {
     readonly planRoute?: GoalSnapshotPlanRouteV1 | undefined;
     readonly lastStep?: GoalSnapshotStepRecordV1 | undefined;
     readonly pendingAction?: GoalSnapshotPendingActionV1 | undefined;
+    /** 多调用批次中尚未暂存的后续决策；与 `pendingAction` 共同构成恢复点。 */
+    readonly pendingActionBatch?: GoalSnapshotPendingActionBatchV1 | undefined;
     readonly pendingProgram?: GoalSnapshotPendingProgramV1 | undefined;
     readonly pendingInteraction?: GoalSnapshotPendingInteractionV1 | undefined;
     readonly pendingThink?: GoalSnapshotPendingThinkV1 | undefined;
@@ -1073,6 +1082,11 @@ const PendingThinkSchema = z.object({
     latestThinkEventId: NonEmptyStringSchema,
 }).strict();
 
+const PendingActionBatchSchema = z.object({
+    batchId: NonEmptyStringSchema,
+    remaining: z.array(ToolCallActionSchema).min(1),
+}).strict();
+
 const PendingModelRepairSchema = z.object({
     goalId: NonEmptyStringSchema,
     runId: NonEmptyStringSchema,
@@ -1334,6 +1348,7 @@ const GoalSnapshotV1BaseSchema = z.object({
             planRoute: PlanRouteSchema.optional(),
             lastStep: StepRecordSchema.optional(),
             pendingAction: PendingActionSchema.optional(),
+            pendingActionBatch: PendingActionBatchSchema.optional(),
             pendingProgram: PendingProgramSchema.optional(),
             pendingInteraction: PendingInteractionSchema.optional(),
             pendingThink: PendingThinkSchema.optional(),
@@ -1576,6 +1591,10 @@ function validateSnapshotInvariants(
         if (pendingModelRepair.stage === "think" && pendingModelRepair.thinkRequestId === undefined) {
             addInvariantIssue(context, "Think repair must reference its committed Think request", ["state", "run", "pendingModelRepair", "thinkRequestId"]);
         }
+    }
+
+    if (run.pendingActionBatch !== undefined && run.pendingAction === undefined) {
+        addInvariantIssue(context, "pendingActionBatch requires its current pending Action", ["state", "run", "pendingActionBatch"]);
     }
 
     if (pendingThink !== undefined) {

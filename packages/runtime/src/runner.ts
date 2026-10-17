@@ -4,6 +4,7 @@ import { ProgramSandboxAbortedError, programWorkerHash, runProgramSandbox } from
 
 import type {
     AgentDecision,
+    PendingActionBatch,
     ExecutionErrorCode,
     Goal,
     GoalState,
@@ -2822,6 +2823,37 @@ class RunExecutor {
     }
 
     /**
+     * 计算暂存队首后应写入的批次指针。
+     *
+     * @param goal - 暂存前的 Goal，用于读取当前队列。
+     * @param batch - 本次 Decide 新建的批次剩余项；来自队列时省略。
+     * @param consumedFromBatch - 队首是否取自既有队列。
+     * @returns 应合并进 run 状态的批次补丁；队列为空时显式清空。
+     * @remarks
+     * 指针与 `pendingAction` 在同一次提交写入，避免"Action 已暂存但队列未推进"导致恢复后重放。
+     * @example
+     * ```ts
+     * Object.assign(stagedRun, runner.pendingBatchPatch(goal, undefined, true));
+     * ```
+     */
+    private pendingBatchPatch(
+        goal: Goal,
+        batch: PendingActionBatch | undefined,
+        consumedFromBatch: boolean,
+    ): { readonly pendingActionBatch?: PendingActionBatch | undefined } {
+        const current = goal.state.run.pendingActionBatch;
+        const next = batch !== undefined
+            ? batch.remaining
+            : consumedFromBatch && current !== undefined
+                ? current.remaining.slice(1)
+                : undefined;
+        if (next === undefined) return {};
+        if (next.length === 0) return { pendingActionBatch: undefined };
+        const batchId = current?.batchId ?? batch?.batchId ?? "batch";
+        return { pendingActionBatch: { batchId, remaining: next } };
+    }
+
+    /**
      * 提交零调用且正文非空的 Assistant 消息。
      *
      * @remarks
@@ -4082,6 +4114,10 @@ class RunExecutor {
                 let normalized: NormalizedExecution;
                 let stepInput!: StepExecutionInput;
                 let pendingThinkRequestCommitted = false;
+                /** 本次 Decide 新建的批次剩余项；来自队列时为 undefined。 */
+                let decidedBatch: PendingActionBatch | undefined;
+                /** 队首是否取自既有队列。 */
+                let consumedFromBatch = false;
                 try {
                     throwIfAborted(control);
                     const tools = this.getAuthorizedToolDefinitions(goal, control);
@@ -4168,13 +4204,25 @@ class RunExecutor {
                                 "decide",
                                 decideBoundary,
                                 undefined,
-                                (activeGoal, runtimeFeedback) => this.executor.decide({
-                                    ...stepInput,
-                                    goal: activeGoal,
-                                    thinkHistory,
-                                    ...(runtimeFeedback === undefined ? {} : { runtimeFeedback }),
-                                }),
-                                async (activeGoal, result) => {
+                                (activeGoal, runtimeFeedback) => {
+                                    const queued = activeGoal.state.run.pendingAction === undefined
+                                        ? activeGoal.state.run.pendingActionBatch?.remaining[0]
+                                        : undefined;
+                                    if (queued !== undefined) {
+                                        // 批次顺序执行：队列中尚未暂存的决策直接作为本次 Decide 结果，不重新请求模型。
+                                        const fromQueue: DecideStageResult = { kind: "decision", decision: { kind: "tool_call", action: queued } };
+                                        return Promise.resolve({ result: fromQueue, fromBatch: true });
+                                    }
+                                    return this.executor.decide({
+                                        ...stepInput,
+                                        goal: activeGoal,
+                                        thinkHistory,
+                                        ...(runtimeFeedback === undefined ? {} : { runtimeFeedback }),
+                                    }).then(result => ({ result }));
+                                },
+                                async (activeGoal, operationResult: { readonly result: DecideStageResult; readonly fromBatch?: boolean }) => {
+                                    const result = operationResult.result;
+                                    const fromBatch = operationResult.fromBatch === true;
                                     if (result.modelContextFrame !== undefined
                                         && result.modelContextFrame.stage !== "decide") {
                                         throw createRunnerFeedbackError(
@@ -4216,9 +4264,24 @@ class RunExecutor {
                                             constraints: ["A text-only answer is accepted as an assistant message but does not advance the task. Continue the original task with one declared tool call."],
                                         }), "A text-only answer does not advance the task.", undefined, result.text);
                                     }
+                                    const queue = result.kind === "batch" ? result.decisions.slice(1) : [];
+                                    if (result.kind === "batch" && result.decisions.some(decision => decision.kind !== "tool_call")) {
+                                        // 批次与控制请求混排的顺序语义尚未定义（R1-6）；响亮拒绝，不静默丢弃或重排。
+                                        throw createRunnerFeedbackError(
+                                            new RunnerExecutionError(
+                                                "INVALID_AGENT_DECISION",
+                                                "A Decide batch that mixes control requests with tool calls is not supported",
+                                            ),
+                                            activeGoal,
+                                            executionUnitId,
+                                            "decide",
+                                            "output_contract",
+                                        );
+                                    }
+                                    const businessQueue = queue.flatMap(decision => decision.kind === "tool_call" ? [decision.action] : []);
                                     const normalizedDecision = this.validateDecisionForStage(
                                         activeGoal,
-                                        result.decision,
+                                        result.kind === "batch" ? result.decisions[0]! : result.decision,
                                         executionUnitId,
                                         control,
                                         session,
@@ -4267,12 +4330,18 @@ class RunExecutor {
                                         ...(normalizedDecision.acceptedContextNotes === undefined
                                             ? {}
                                             : { acceptedContextNotes: normalizedDecision.acceptedContextNotes }),
+                                        ...(queue.length === 0 || normalizedDecision.decision.kind !== "tool_call"
+                                            ? {}
+                                            : { pendingBatch: { batchId: randomUUID(), remaining: businessQueue } }),
+                                        ...(fromBatch ? { batchConsumed: true } : {}),
                                     };
                                 },
                                 control,
                             );
                             goal = decided.goal;
                             const stageResult = decided.result.stageResult;
+                            decidedBatch = "pendingBatch" in decided.result ? decided.result.pendingBatch : undefined;
+                            consumedFromBatch = "batchConsumed" in decided.result && decided.result.batchConsumed === true;
 
                             if (stageResult.kind === "request_think") {
                                 const requestId = randomUUID();
@@ -4950,6 +5019,7 @@ class RunExecutor {
                                 ...(authorization.approvalKind === undefined
                                     ? {} : { approvalKind: authorization.approvalKind }),
                             });
+                            Object.assign(stagedRun, this.pendingBatchPatch(goal, decidedBatch, consumedFromBatch));
                             goal = await this.commitDecision(this.withRun(goal, stagedRun), [{
                                 goalId: goal.id,
                                 runId: goal.state.run.id,
@@ -4993,6 +5063,7 @@ class RunExecutor {
                             ...(approvalKind === undefined ? {} : { approvalKind }),
                             ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
                         });
+                        Object.assign(stagedRun, this.pendingBatchPatch(goal, decidedBatch, consumedFromBatch));
                         const stagedGoal = this.withRun(goal, stagedRun);
 
                         goal = await this.commitDecision(
@@ -5026,6 +5097,7 @@ class RunExecutor {
                         status: "approved",
                         ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
                     });
+                    Object.assign(stagedRun, this.pendingBatchPatch(goal, decidedBatch, consumedFromBatch));
                     const stagedGoal = this.withRun(goal, stagedRun);
 
                     // Durable intent must exist before the Tool can produce an effect.

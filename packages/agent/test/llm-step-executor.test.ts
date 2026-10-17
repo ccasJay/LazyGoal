@@ -974,10 +974,7 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
 });
 
 for (const mode of ["strict", "prompt_only"] as const) {
-    for (const [label, response, expectedCode] of [
-        ["multiple calls", { content: "", toolCalls: [1, 2].map(i => ({ callId: `call-${i}`, toolId: "system_complete_task", argumentsJson: '{"summary":"done","completionEvidence":[]}' })) }, "multiple_tool_calls"],
-    ] as const) {
-        test(`${mode} Decide accepts text JSON and trace-shaped text as an assistant message`, async () => {
+    test(`${mode} Decide accepts text JSON and trace-shaped text as an assistant message`, async () => {
         const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
             return { content: '{"result":{"kind":"complete","summary":"done","completionEvidence":[],"memoryPatch":null}}' };
         } };
@@ -993,17 +990,26 @@ for (const mode of ["strict", "prompt_only"] as const) {
         assert.equal(traceShaped.kind === "assistant_message" && traceShaped.text.includes("I need to read the workspace."), true);
     });
 
-    test(`${mode} Decide rejects ${"multiple calls"} with actionable call-count feedback`, async () => {
-            const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() { return response; } };
-            await assert.rejects(createExecutor(adapter).execute({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory }), (error: unknown) => {
-                assert.ok(error instanceof ModelStageFeedbackError);
-                assert.equal(error.feedback.origin, "output_contract");
-                assert.equal(error.feedback.issues[0]?.code, expectedCode);
-                assert.match(error.feedback.issues[0]!.message, /not multiple calls/);
-                return true;
-            });
+    test(`${mode} Decide accepts multiple calls as an ordered batch preserving callId order`, async () => {
+        const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+            return { content: "", toolCalls: [1, 2, 3].map(i => ({ callId: `call-${i}`, toolId: "read_file",
+                argumentsJson: JSON.stringify({ path: `file-${i}.md` }) })) };
+        } };
+        const result = await createExecutor(adapter).decide({
+            goal: createTestGoal("run-batch-order", { ...profile, toolIds: ["read_file"] }),
+            workingMemory: currentWorkingMemory,
+            thinkHistory: [],
+            authorizedTools: [{ id: "read_file", description: "Read a file", isReadOnly: true,
+                inputContract: contract.object({ path: contract.string() }) }],
         });
-    }
+        assert.equal(result.kind, "batch");
+        assert.equal(result.kind === "batch" && result.decisions.length, 3);
+        assert.deepEqual(
+            result.kind === "batch" ? result.decisions.map(decision => decision.kind === "tool_call" ? decision.action.input : undefined) : [],
+            [{ path: "file-1.md" }, { path: "file-2.md" }, { path: "file-3.md" }],
+        );
+    });
+
     test(`${mode} Decide ignores accompanying text and decodes only a declared call`, async () => {
         const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
             return { content: 'not JSON or a decision', toolCalls: [{ callId: "trace-valid", toolId: "system_complete_task",

@@ -633,6 +633,27 @@ export interface PendingAction {
 }
 
 /**
+ * 一次 Decide 返回的多调用批次中尚未暂存的部分。
+ *
+ * @remarks
+ * `pendingAction` 是当前队首，本结构保存其后按模型返回顺序排列、尚未产生结果的决策。
+ * 每暂存一个 Action 就把队首推进到 `remaining[0]`，因此队列本身就是"已提交进度指针"；
+ * 恢复时从 `pendingAction` 继续即满足"从第一个尚未提交结果的 Action 继续"。
+ * 队首解码为控制请求（`complete`/`wait`/`fail` 等）时，执行后必须清空整个队列。
+ *
+ * @example
+ * ```ts
+ * const batch: PendingActionBatch = { batchId: "batch-1", remaining: [] };
+ * ```
+ */
+export interface PendingActionBatch {
+    /** 批次稳定标识；用于把同一次模型响应的多个决策关联起来。 */
+    readonly batchId: string;
+    /** 尚未暂存的后续业务 Action，按模型返回顺序排列；至少一条。 */
+    readonly remaining: readonly ToolCallAction[];
+}
+
+/**
  * 最近一次已完成 Step 的有界记录。
  *
  * @remarks
@@ -728,6 +749,8 @@ export interface RunState {
     readonly currentStage?: RunStageState;
     readonly lastStep?: StepRecord;
     readonly pendingAction?: PendingAction;
+    /** 多调用批次中尚未暂存的后续决策；与 `pendingAction` 共同构成恢复点。 */
+    readonly pendingActionBatch?: PendingActionBatch;
     /** 当前由 Runtime 持有的程序父 Action；内部调用结算前不得增加 Step。 */
     readonly pendingProgram?: PendingProgram;
     readonly pendingInteraction?: PendingInteraction;

@@ -572,6 +572,12 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                                 : { effectiveSandboxScope: structuredClone(run.pendingAction.effectiveSandboxScope) }),
                         },
                     }),
+                ...(run.pendingActionBatch === undefined
+                    ? {}
+                    : { pendingActionBatch: {
+                        batchId: run.pendingActionBatch.batchId,
+                        remaining: run.pendingActionBatch.remaining.map(action => encodeAction(action)),
+                    } }),
                 ...(run.pendingProgram === undefined
                     ? {}
                     : { pendingProgram: {
@@ -1028,6 +1034,12 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
                 ...(run.pendingAction === undefined
                     ? {}
                     : { pendingAction: decodePendingAction(run.pendingAction) }),
+                ...(run.pendingActionBatch === undefined
+                    ? {}
+                    : { pendingActionBatch: {
+                        batchId: run.pendingActionBatch.batchId,
+                        remaining: run.pendingActionBatch.remaining.map(action => decodeAction(action)),
+                    } }),
                 ...(run.pendingProgram === undefined
                     ? {}
                     : { pendingProgram: decodePendingProgram(run.pendingProgram) }),

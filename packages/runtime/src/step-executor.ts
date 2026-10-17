@@ -1,10 +1,12 @@
 import type {
     CompletionReviewResult,
+    DecideOutput,
     ModelAssistantMessage,
 } from "../../model-contracts/src/index";
 import type {
     AgentDecision,
     Goal,
+    PendingActionBatch,
 } from "./domain";
 import type { WorkingMemory } from "../../working-memory/src/index";
 import type { ContextLookupResult } from "./context-retrieval";
@@ -62,6 +64,12 @@ export type DecideStageResult =
     | {
         readonly kind: "assistant_message";
         readonly text: string;
+        readonly modelContextFrame?: ModelContextFrameForStage;
+      }
+    | {
+        readonly kind: "batch";
+        /** 一次 Decide 返回的多个决策，按模型返回顺序排列；首个即队首。 */
+        readonly decisions: readonly DecideOutput[];
         readonly modelContextFrame?: ModelContextFrameForStage;
       };
 
