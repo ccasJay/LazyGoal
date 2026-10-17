@@ -41,6 +41,7 @@ packages/        Private `@lazygoal/*` workspaces
   session-metrics/ Session and Run metric projections, persistence reads, and HTTP routes
   storage/       Persistence DTOs, schemas, codecs, errors, and JSON stores for Runtime ports
   sandbox/       Workspace path boundaries, canonical capability contracts, and macOS Seatbelt isolation
+  process-runtime/ Host-owned long-process sessions: admission, quotas, output settlement, stop, and owned-handle shutdown
   tool-core/     Tool definition, input validation closure, execution registry, and retryable failures
   tools/         Agent tools such as filesystem, shell, and workspace utilities
 README.md       Project entry and navigation; each module owns README and notes/

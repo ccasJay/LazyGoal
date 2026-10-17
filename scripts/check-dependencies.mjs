@@ -14,7 +14,8 @@ import { pathToFileURL } from "node:url";
  * storage 依赖 runtime、contracts、model-contracts、permission、context-retrieval；
  * agent 复用 runtime、llm、contracts、model-contracts、execution-stream、execution-control、tool-core；
  * session-metrics 通过 Runtime 端口读取 Goal 与调用指标；browser 读取 Runtime 契约并依赖通用 HTTP 宿主；
- * http 不依赖 LazyGoal 包；goal-server 是服务组合根，可导入所需后端实现。
+ * http 不依赖 LazyGoal 包；process-runtime 只依赖 runtime 与 sandbox；
+ * goal-server 是服务组合根，可导入所需后端实现。
  */
 const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
@@ -35,7 +36,8 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     storage: ["runtime", "contracts", "model-contracts", "permission", "context-retrieval"],
     agent: ["runtime", "llm", "config", "contracts", "model-contracts", "execution-stream", "execution-control", "tool-core", "working-memory"],
     "session-metrics": ["runtime", "http", "web-contracts"],
-    tools: ["runtime", "contracts", "execution-stream", "sandbox", "execution-control", "tool-core"],
+    tools: ["runtime", "contracts", "execution-stream", "sandbox", "execution-control", "tool-core", "process-runtime"],
+    "process-runtime": ["runtime", "sandbox"],
     browser: ["http", "runtime", "permission", "web-contracts", "execution-control"],
     "web-contracts": [],
 };
@@ -45,7 +47,7 @@ const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);
 /** 每个 app 允许的出站目标 package。 */
 const ALLOWED_APP_DEPENDENCIES = {
     "goal-board": ["web-contracts", "slash-command"],
-    "goal-server": ["runtime", "storage", "agent", "llm", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts", "tool-core", "working-memory"],
+    "goal-server": ["runtime", "storage", "agent", "llm", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts", "tool-core", "working-memory", "process-runtime"],
 };
 
 const APPS = Object.keys(ALLOWED_APP_DEPENDENCIES);
@@ -131,6 +133,24 @@ const COMPONENT_BOUNDARIES = [
             { prefix: "packages/web-contracts/src/", reason: "Web wire DTO" },
         ],
     },
+    {
+        label: "进程会话运行时",
+        rootPrefix: "packages/process-runtime/src/",
+        forbidProcessApi: true,
+        forbidden: [
+            { prefix: "apps/", reason: "应用与宿主实现" },
+            { prefix: "packages/tools/src/", reason: "工具协议与授权" },
+            { prefix: "packages/tool-core/src/", reason: "工具注册实现" },
+            { prefix: "packages/agent/src/", reason: "具体 Agent/LLM 实现" },
+            { prefix: "packages/llm/src/", reason: "具体 Agent/LLM 实现" },
+            { prefix: "packages/storage/src/", reason: "具体文件存储" },
+            { prefix: "packages/config/src/", reason: "环境配置解析" },
+            { prefix: "packages/http/src/", reason: "HTTP 宿主实现" },
+            { prefix: "packages/browser/src/", reason: "Browser 传输实现" },
+            { prefix: "packages/session-metrics/src/", reason: "指标投影实现" },
+            { prefix: "packages/web-contracts/src/", reason: "Web wire DTO" },
+        ],
+    },
 ];
 
 /**
@@ -149,12 +169,18 @@ const COMPONENT_ENTRY_RULES = [
         rootPrefix: "packages/runtime/src/lifecycle/",
         entryPath: "packages/runtime/src/lifecycle/index.ts",
     },
+    {
+        label: "进程会话运行时",
+        rootPrefix: "packages/process-runtime/src/",
+        entryPath: "packages/process-runtime/src/index.ts",
+    },
 ];
 
 /** 组件源码与其消费型测试不得解析到项目内构建产物；第三方依赖自己的产物目录不在此限。 */
 const COMPONENT_ARTIFACT_TEST_ROOTS = [
     "apps/goal-server/test/",
     "packages/runtime/test/",
+    "packages/process-runtime/test/",
 ];
 
 const PROJECT_ARTIFACT_SEGMENTS = ["dist", "lib", "build"];
@@ -184,8 +210,14 @@ function appNameOf(filePath) {
     return match === null ? null : match[1];
 }
 
-/** 提取文件文本中的相对 import specifier（不含 node 内置与外部依赖）。 */
-function extractRelativeImports(text) {
+/**
+ * 提取文件文本中的相对 import specifier（不含 node 内置与外部依赖）。
+ *
+ * @remarks
+ * DTO/Renderer 文件边界规则沿用 `from` 形式的既有覆盖；跨包依赖方向与
+ * 组件规则使用 {@link extractModuleSpecifiers} 覆盖侧效与动态引用形式。
+ */
+function extractFromSpecifiers(text) {
     const imports = [];
     for (const match of text.matchAll(/\bfrom\s*(['"])([^'"]+)\1/g)) {
         const specifier = match[2];
@@ -310,10 +342,23 @@ async function collectComponentBoundaryFiles(projectRoot) {
         path.join(projectRoot, "apps", "goal-server", "test"),
         path.join(projectRoot, "packages", "runtime", "src"),
         path.join(projectRoot, "packages", "runtime", "test"),
+        path.join(projectRoot, "packages", "process-runtime", "src"),
+        path.join(projectRoot, "packages", "process-runtime", "test"),
     ]) {
         await walkSourceFiles(root, files);
     }
     return files.sort();
+}
+
+/** 收集入口规则扫描的全部生产源文件与消费型测试；跨包消费者同样受入口约束。 */
+async function collectEntryScanFiles(projectRoot) {
+    const files = [];
+    files.push(...await collectSourceFiles(projectRoot));
+    files.push(...await collectAppSourceFiles(projectRoot));
+    for (const root of COMPONENT_ARTIFACT_TEST_ROOTS) {
+        await walkSourceFiles(path.join(projectRoot, root), files);
+    }
+    return [...new Set(files)].sort();
 }
 
 function toProjectRelativePath(projectRoot, absolutePath) {
@@ -413,6 +458,35 @@ async function analyzeComponentBoundaries(projectRoot) {
                     `构件导入违规：${relativePath} 不得导入项目内构建产物（引用 ${specifier}）`,
                 );
             }
+        }
+    }
+
+    return violations;
+}
+
+/**
+ * 分析组件调用入口：组件目录之外的生产代码只能通过入口访问，不能穿透内部文件。
+ *
+ * @remarks
+ * 扫描全部 packages/apps 源文件与消费型测试，避免跨包消费者绕过入口规则；
+ * 目录内部引用与测试中的定向导入不受限制。
+ *
+ * @param projectRoot - 仓库根目录。
+ * @returns 每条违规对应的稳定中文描述；无违规时返回空数组。
+ */
+async function analyzeEntryBoundaries(projectRoot) {
+    const violations = [];
+
+    for (const file of await collectEntryScanFiles(projectRoot)) {
+        const relativePath = toProjectRelativePath(projectRoot, file);
+        const text = await readFile(file, "utf8");
+        for (const specifier of extractModuleSpecifiers(text)) {
+            if (!isRelativeSpecifier(specifier)) continue;
+            const targetRelative = toProjectRelativePath(
+                projectRoot,
+                path.resolve(path.dirname(file), specifier),
+            );
+            if (!isInsideProject(targetRelative) || targetRelative.startsWith("node_modules/")) continue;
 
             for (const entryRule of COMPONENT_ENTRY_RULES) {
                 if (relativePath.startsWith(entryRule.rootPrefix) || isTestFilePath(relativePath)) continue;
@@ -447,7 +521,7 @@ export async function analyzeDependencies(projectRoot) {
             continue;
         }
 
-        for (const specifier of extractRelativeImports(text)) {
+        for (const specifier of extractModuleSpecifiers(text)) {
             const targetPackage = targetPackageOf(projectRoot, file, specifier);
             if (targetPackage === null || targetPackage === sourcePackage) {
                 continue;
@@ -468,7 +542,7 @@ export async function analyzeDependencies(projectRoot) {
             continue;
         }
 
-        for (const specifier of extractRelativeImports(text)) {
+        for (const specifier of extractFromSpecifiers(text)) {
             const targetPackage = targetPackageOf(projectRoot, file, specifier);
             if (targetPackage !== null && rule.forbidden.includes(targetPackage)) {
                 violations.push(
@@ -483,7 +557,7 @@ export async function analyzeDependencies(projectRoot) {
         if (sourceBenchmark === null) continue;
         const text = await readFile(file, "utf8");
         const relativePath = path.relative(projectRoot, file).split(path.sep).join("/");
-        for (const specifier of extractRelativeImports(text)) {
+        for (const specifier of extractModuleSpecifiers(text)) {
             const targetBenchmark = benchmarkNameOf(
                 path.resolve(path.dirname(file), specifier),
             );
@@ -499,7 +573,7 @@ export async function analyzeDependencies(projectRoot) {
         if (sourceApp === null || !ALLOWED_APP_DEPENDENCIES[sourceApp]) continue;
         const text = await readFile(file, "utf8");
         const relativePath = path.relative(projectRoot, file).split(path.sep).join("/");
-        for (const specifier of extractRelativeImports(text)) {
+        for (const specifier of extractModuleSpecifiers(text)) {
             const targetPackage = targetPackageOf(projectRoot, file, specifier);
             if (targetPackage !== null && !ALLOWED_APP_DEPENDENCIES[sourceApp].includes(targetPackage)) {
                 violations.push(
@@ -516,6 +590,7 @@ export async function analyzeDependencies(projectRoot) {
     }
 
     violations.push(...await analyzeComponentBoundaries(projectRoot));
+    violations.push(...await analyzeEntryBoundaries(projectRoot));
 
     return violations.sort();
 }

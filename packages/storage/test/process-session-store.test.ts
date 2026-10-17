@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -61,18 +61,44 @@ test("JsonFileProcessSessionStore 跨宿主实例重启将非终态记录投影�
             startedAt: new Date().toISOString(),
         };
         await host1Store.saveSession(session);
+        await host1Store.saveSession({
+            goalId: "goal-1",
+            processId: "proc-starting",
+            command: "sleep 100",
+            status: "starting",
+            hostInstanceId: "host-1",
+            startedAt: new Date().toISOString(),
+        });
+        await host1Store.appendOutput("goal-1", "proc-running", "stdout", "before-restart\n");
 
-        // 新宿主实例读取
+        const sessionPath = join(
+            tmpDir,
+            "processes",
+            Buffer.from("goal-1", "utf8").toString("base64url"),
+            Buffer.from("proc-running", "utf8").toString("base64url"),
+            "session.json",
+        );
+        const before = await readFile(sessionPath, "utf8");
+
+        // 新宿主实例读取：starting 与 running 均为只读 interrupted 投影
         const host2Store = new JsonFileProcessSessionStore(tmpDir, "host-2");
         const restored = await host2Store.getSession("goal-1", "proc-running");
         assert.ok(restored);
         assert.equal(restored.status, "interrupted");
         assert.match(restored.error ?? "", /interrupted by host restart/);
 
-        // listSessions 同样投影
         const list = await host2Store.listSessions("goal-1");
-        assert.equal(list.length, 1);
-        assert.equal(list[0]?.status, "interrupted");
+        assert.equal(list.length, 2);
+        assert.deepEqual(
+            [...list].map((record) => [record.processId, record.status]).sort(),
+            [["proc-running", "interrupted"], ["proc-starting", "interrupted"]],
+        );
+
+        // 读取投影不重写记录、不重放命令：磁盘字节保持原样，日志仍可按游标读取
+        assert.equal(await readFile(sessionPath, "utf8"), before);
+        const output = await host2Store.readOutput("goal-1", "proc-running", "stdout", 0);
+        assert.equal(output.text, "before-restart\n");
+        assert.equal(output.nextCursor, Buffer.byteLength("before-restart\n"));
     } finally {
         await rm(tmpDir, { recursive: true, force: true });
     }

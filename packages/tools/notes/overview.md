@@ -1,6 +1,6 @@
 # 内置工具
 
-本包实现文件、Shell、搜索和编辑等可供 Agent 调用的工具。[公开入口](../src/index.ts) 导出具体实现及其 Input Contract；通用注册和单次校验边界由 [Tool Core](../../tool-core/README.md) 拥有。
+本包实现文件、Shell、搜索和编辑等可供 Agent 调用的工具。[公开入口](../src/index.ts) 导出具体实现及其 Input Contract；通用注册和单次校验边界由 [Tool Core](../../tool-core/README.md) 拥有。进程工具（`process_start`/`process_read`/`process_stop`）同样属于本包，但它们调用 [进程会话运行时](../../process-runtime/README.md) 的共享管理器；会话归属、额度与自有句柄结算不由工具实现决定。
 
 ## 执行边界
 

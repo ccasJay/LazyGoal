@@ -107,8 +107,8 @@ import {
     READ_FILE_TOOL_ID,
     ReadFileTool,
     WriteFileTool,
-    ProcessManager,
 } from "../../../../packages/tools/src/index";
+import { ProcessManager } from "../../../../packages/process-runtime/src/index";
 import {
     InMemoryExecutionStreamPublisher,
     type ExecutionStreamPublisher,

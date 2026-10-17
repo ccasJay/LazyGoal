@@ -328,3 +328,140 @@ test("组件与其消费型测试拒绝项目内构建产物，第三方依赖�
         "构件导入违规：apps/goal-server/test/runtime-composition.integration.test.ts 不得导入项目内构建产物（引用 ../dist/composition-root）",
     ]);
 });
+
+test("进程会话运行时允许 Runtime/Sandbox 依赖与自有进程 API，消费者经入口调用", async () => {
+    const root = await fixtureProject({
+        "packages/process-runtime/src/index.ts":
+            'export { ProcessManager } from "./process-manager";\n',
+        "packages/process-runtime/src/process-manager.ts": [
+            'import type { ManagedResource, ManagedResourceRegistry, ProcessSessionStore } from "../../runtime/src/index";',
+            'import { killProcessGroup, sendSignalToProcessGroup, spawnRestrictedCommand } from "../../sandbox/src/index";',
+            'import type { ChildProcess } from "node:child_process";',
+            'import { EventEmitter } from "node:events";',
+            "export const wiring = [spawnRestrictedCommand, killProcessGroup, sendSignalToProcessGroup, EventEmitter];",
+        ].join("\n"),
+        "packages/process-runtime/src/./errors.ts": "export class ProcessSessionError extends Error {}\n",
+        "packages/process-runtime/test/process-manager.test.ts":
+            'import { ProcessManager } from "../src/process-manager";\nimport { ProcessSessionError } from "../src/errors";\nvoid ProcessManager;\nvoid ProcessSessionError;\n',
+        "packages/tools/src/process-tools.ts":
+            'import type { ProcessManager } from "../../process-runtime/src/index";\nvoid (null as unknown as ProcessManager);\n',
+        "packages/runtime/src/index.ts": "export const ProcessSessionStore = true;\n",
+        "packages/sandbox/src/index.ts":
+            "export const spawnRestrictedCommand = true;\nexport const killProcessGroup = true;\nexport const sendSignalToProcessGroup = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), []);
+});
+
+test("进程会话运行时不得依赖工具、Agent、存储、应用与配置实现（含侧效与动态导入）", async () => {
+    const root = await fixtureProject({
+        "packages/process-runtime/src/leak.ts": [
+            'import { ProcessStartTool } from "../../tools/src/index";',
+            'import type { LLMStepExecutor } from "../../agent/src/index";',
+            'import "../../storage/src/index";',
+            'export async function loadApp() { return import("../../../apps/goal-server/src/runtime/index"); }',
+            'export const required = require("../../config/src/index");',
+            "export const wiring = [ProcessStartTool, required];",
+        ].join("\n"),
+        "packages/tools/src/index.ts": "export const ProcessStartTool = true;\n",
+        "packages/agent/src/index.ts": "export const LLMStepExecutor = true;\n",
+        "packages/storage/src/index.ts": "export const JsonFileGoalStore = true;\n",
+        "packages/config/src/index.ts": "export const loadRuntimeConfig = true;\n",
+        "packages/runtime/src/index.ts": "export {};\n",
+        "packages/sandbox/src/index.ts": "export {};\n",
+        "apps/goal-server/src/runtime/index.ts": "export {};\n",
+    });
+
+    assert.deepEqual(componentViolations(await analyzeDependencies(root)).sort(), [
+        "组件边界违规：进程会话运行时 不得导入 具体 Agent/LLM 实现（packages/process-runtime/src/leak.ts 引用 ../../agent/src/index）",
+        "组件边界违规：进程会话运行时 不得导入 具体文件存储（packages/process-runtime/src/leak.ts 引用 ../../storage/src/index）",
+        "组件边界违规：进程会话运行时 不得导入 工具协议与授权（packages/process-runtime/src/leak.ts 引用 ../../tools/src/index）",
+        "组件边界违规：进程会话运行时 不得导入 应用与宿主实现（packages/process-runtime/src/leak.ts 引用 ../../../apps/goal-server/src/runtime/index）",
+        "组件边界违规：进程会话运行时 不得导入 环境配置解析（packages/process-runtime/src/leak.ts 引用 ../../config/src/index）",
+    ]);
+});
+
+test("进程会话运行时不得请求宿主退出或注册进程信号，发送自有进程组信号不误禁", async () => {
+    const root = await fixtureProject({
+        "packages/process-runtime/src/exit.ts":
+            'export function stop() { process.exit(1); }\nprocess.once("SIGTERM", () => {});\n',
+        "packages/process-runtime/src/group-signal.ts":
+            'import { sendSignalToProcessGroup } from "../../sandbox/src/index";\nexport function stop(child) { sendSignalToProcessGroup(child, "SIGKILL"); }\n',
+        "packages/runtime/src/index.ts": "export {};\n",
+        "packages/sandbox/src/index.ts": "export const sendSignalToProcessGroup = true;\n",
+    });
+
+    assert.deepEqual(componentViolations(await analyzeDependencies(root)), [
+        "组件边界违规：进程会话运行时 不得直接请求进程退出或注册进程信号（packages/process-runtime/src/exit.ts 包含 process 信号监听）",
+        "组件边界违规：进程会话运行时 不得直接请求进程退出或注册进程信号（packages/process-runtime/src/exit.ts 包含 process.exit(）",
+    ]);
+});
+
+test("Runtime 反向依赖进程会话运行时在所有引用形式上定位失败", async () => {
+    const root = await fixtureProject({
+        "packages/runtime/src/leak.ts": [
+            'import { ProcessManager } from "../../process-runtime/src/index";',
+            'export {} from "../../process-runtime/src/errors";',
+            'import type { ProcessSessionFailure } from "../../process-runtime/src/process-manager";',
+            'import "../../process-runtime/src/./errors";',
+            'export async function load() { return import("../../process-runtime/src/../src/errors"); }',
+            'export const required = require("../../process-runtime/src/./process-manager");',
+            "void ProcessManager;\nvoid required;",
+        ].join("\n"),
+        "packages/process-runtime/src/index.ts": "export const ProcessManager = true;\n",
+        "packages/process-runtime/src/errors.ts": "export const ProcessSessionFailure = true;\n",
+        "packages/process-runtime/src/process-manager.ts": "export const ProcessManager = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/runtime 不得导入 packages/process-runtime（packages/runtime/src/leak.ts 引用 ../../process-runtime/src/../src/errors）",
+        "禁止依赖方向：packages/runtime 不得导入 packages/process-runtime（packages/runtime/src/leak.ts 引用 ../../process-runtime/src/./errors）",
+        "禁止依赖方向：packages/runtime 不得导入 packages/process-runtime（packages/runtime/src/leak.ts 引用 ../../process-runtime/src/./process-manager）",
+        "禁止依赖方向：packages/runtime 不得导入 packages/process-runtime（packages/runtime/src/leak.ts 引用 ../../process-runtime/src/errors）",
+        "禁止依赖方向：packages/runtime 不得导入 packages/process-runtime（packages/runtime/src/leak.ts 引用 ../../process-runtime/src/index）",
+        "禁止依赖方向：packages/runtime 不得导入 packages/process-runtime（packages/runtime/src/leak.ts 引用 ../../process-runtime/src/process-manager）",
+        "组件入口违规：packages/runtime/src/leak.ts 必须通过 packages/process-runtime/src/index.ts 访问进程会话运行时（引用 ../../process-runtime/src/../src/errors）",
+        "组件入口违规：packages/runtime/src/leak.ts 必须通过 packages/process-runtime/src/index.ts 访问进程会话运行时（引用 ../../process-runtime/src/./errors）",
+        "组件入口违规：packages/runtime/src/leak.ts 必须通过 packages/process-runtime/src/index.ts 访问进程会话运行时（引用 ../../process-runtime/src/./process-manager）",
+        "组件入口违规：packages/runtime/src/leak.ts 必须通过 packages/process-runtime/src/index.ts 访问进程会话运行时（引用 ../../process-runtime/src/errors）",
+        "组件入口违规：packages/runtime/src/leak.ts 必须通过 packages/process-runtime/src/index.ts 访问进程会话运行时（引用 ../../process-runtime/src/process-manager）",
+    ]);
+});
+
+test("进程会话运行时的消费者必须通过入口，测试与内部引用不误报", async () => {
+    const root = await fixtureProject({
+        "packages/process-runtime/src/index.ts":
+            'export { ProcessManager } from "./process-manager";\n',
+        "packages/process-runtime/src/process-manager.ts": "export const ProcessManager = true;\n",
+        "packages/process-runtime/src/internal-state.ts":
+            'import { ProcessManager } from "./process-manager";\nexport const state = ProcessManager;\n',
+        "packages/process-runtime/test/process-manager.test.ts":
+            'import { ProcessManager } from "../src/process-manager";\nvoid ProcessManager;\n',
+        "packages/tools/src/process-tools.ts":
+            'import type { ProcessManager } from "../../process-runtime/src/process-manager";\nvoid (null as unknown as ProcessManager);\n',
+        "apps/goal-server/src/runtime/composition.ts":
+            'import { ProcessManager } from "../../../../packages/process-runtime/src/errors";\nexport const wiring = ProcessManager;\n',
+        "packages/runtime/src/index.ts": "export {};\n",
+        "packages/sandbox/src/index.ts": "export {};\n",
+    });
+
+    assert.deepEqual(componentViolations(await analyzeDependencies(root)).sort(), [
+        "组件入口违规：apps/goal-server/src/runtime/composition.ts 必须通过 packages/process-runtime/src/index.ts 访问进程会话运行时（引用 ../../../../packages/process-runtime/src/errors）",
+        "组件入口违规：packages/tools/src/process-tools.ts 必须通过 packages/process-runtime/src/index.ts 访问进程会话运行时（引用 ../../process-runtime/src/process-manager）",
+    ]);
+});
+
+test("进程会话运行时源码与其消费型测试拒绝项目内构建产物", async () => {
+    const root = await fixtureProject({
+        "packages/process-runtime/src/leak.ts":
+            'import { helper } from "../../process-runtime/dist/index";\nexport const wiring = helper;\n',
+        "packages/process-runtime/test/process-manager.test.ts":
+            'import { ProcessManager } from "../dist/index";\nvoid ProcessManager;\n',
+        "packages/process-runtime/src/index.ts": "export {};\n",
+    });
+
+    assert.deepEqual(componentViolations(await analyzeDependencies(root)).sort(), [
+        "构件导入违规：packages/process-runtime/src/leak.ts 不得导入项目内构建产物（引用 ../../process-runtime/dist/index）",
+        "构件导入违规：packages/process-runtime/test/process-manager.test.ts 不得导入项目内构建产物（引用 ../dist/index）",
+    ]);
+});
