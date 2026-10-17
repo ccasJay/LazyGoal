@@ -84,24 +84,39 @@ git diff --check
 
 ### Latest Result
 
-- 状态：blocked（TODO 1–4 已完成、提交并各自通过检查；TODO 5、TODO 6 与 Feature Verification 未执行，原因见“阻塞证据”）。
+- 状态：passed。6/6 TODO 已实现、勾选并逐条提交；Runtime 前置已核验并合入；Feature Verification 的 Planned Checks 与综合检查全部实际执行并通过。
 - 验证时间：2026-10-17（本地时区）。
-- 测试提交与相关未提交改动：被测提交 `7c97bf98`；实现提交序列 `4d75fa11`（TODO 1）→ `4e83bcca`（TODO 2）→ `276c8d89`（TODO 3）→ `16861447`（TODO 4）→ `7c97bf98`（测试竞态修正）。工作区在该记录写入前无未提交源码改动。
-- 验收契约：`spec.md` 与 `plan.md` 基线提交 `c4a96fbd`；`spec.md` frontmatter 仍为 `status: proposed`（未交付），TODO 文本未改写。
-- 前置生命周期组件证据：未取得。2026-10-17 读取 `/Users/sawyerlau/Project/LazyGoal/.worktrees/runtime-sdk-extraction/specs/runtime-sdk-extraction/plan.md`：TODO 4、5、6 仍为 `- [ ]`，`### Latest Result` 状态为“未执行”。RuntimeLifecycle/资源注册表关闭契约尚不可用，组合关闭按计划不得以旧注册表或替身替代。
+- 测试提交与相关未提交改动：最终被测提交 `507c30e3`（本轮完成提交序列）：`394de656`（合并 Runtime 前置）→ `8c2a8c7b`（输出顺序测试竞态修正）→ `06f75eaf`（TODO 5 组合关闭接入与验证）→ `507c30e3`（TODO 6 依赖门与边界）。TODO 1–4 提交 `4d75fa11` → `4e83bcca` → `276c8d89` → `16861447`（修正 `7c97bf98`）；合并前 Feature Verification 记录见 git 历史。工作区在最终记录写入前无未提交源码改动。
+- 验收契约：`spec.md` 与 `plan.md` 基线提交 `c4a96fbd`，TODO 文本未改写；Feature Verification passed 后 `spec.md` 置为 `delivered`（见交付提交）。
+- 组合验证所用生命周期组件版本：`feature/runtime-sdk-extraction` HEAD `f47ad128`（其 plan 6/6 TODO 勾选、Latest Result passed、spec `status: delivered`）；合并提交 `394de656`。组合验证据此记录为“Runtime 分支提交 `f47ad128` 合入后的工作树”。
+- 合并与冲突解决：`git merge feature/runtime-sdk-extraction` 产生两处冲突，均按“增量保留双方接线与规则”解决——`apps/goal-server/src/composition-root.ts` 取 Runtime 的无界面装配薄封装（进程接线随装配迁至 `apps/goal-server/src/runtime/composition.ts`，并在此把 `ProcessManager` 导入改为 `packages/process-runtime`，保留双方提取结构，无第二份实现）；`apps/goal-server/test/process-lifecycle.integration.test.ts` 合并双方导入（保留 Runtime 的 `InMemoryGoalStore`/`RuntimeLifecycle` 与进程包的 `ProcessManager`）。`scripts/check-dependencies.mjs` 自动合并同时保留 Runtime 生命周期规则与本包条目。
 
-已执行命令与观察结果（均为本 worktree 实际运行）：
+Planned Checks 实际命令与观察（均在合并后重跑）：
 
-- `npx tsx --test packages/process-runtime/test/process-shutdown.test.ts packages/process-runtime/test/process-startup.test.ts packages/process-runtime/test/process-output.test.ts packages/process-runtime/test/process-manager.test.ts packages/tools/test/process-tools.test.ts packages/storage/test/process-session-store.test.ts apps/goal-server/test/process-lifecycle.integration.test.ts packages/runtime/test/git-sandbox-authorization.test.ts`：43 项全部通过（TODO 2–4 期间连续重跑，逐次记录）。
-- `npx tsc --noEmit`、`npx tsc --noEmit -p apps/goal-server/tsconfig.json`：通过。
-- `npm run check:dependencies`：通过（231 个源文件）；`npm run check:docs`：通过（31 个模块，119 份当前说明）。
-- `npm test`：通过（类型、文档、依赖、GEPA adapter、347 个 TS/TSX 测试文件共 1968 项、33 项 scripts 测试全部通过）。
-- 红绿证据：TODO 1–4 均在实现前以新测试观察到对应失败（TODO 2 全 10 项、TODO 3 顺序与“退出后仍等待写入”2 项、TODO 4 关闭窗口与未确认场景），再实现并通过；失败输出保留在执行日志。
+- 独立入口与唯一实现 / 工具契约 / 并发额度 / 启动竞态 / 输出与等待 / 停止结果 / 清理所有权（标准 1.1–1.3、2.1–2.4、3.1–3.3、4.1–4.4、5.1、5.4、6.1）：
+  - `npx tsx --test packages/process-runtime/test/*.test.ts packages/tools/test/process-tools.test.ts apps/goal-server/test/process-lifecycle.integration.test.ts`：40 pass / 0 fail（合并后）。
+  - 静态核对：`packages/tools` 无旧 `process-manager` 文件或转导出；`class ProcessManager` 与额度常量仅 `packages/process-runtime/src/process-manager.ts` 一处定义；公开入口仅导出管理器、额度常量与类型化错误。
+  - 工具回归新增覆盖：稳定 ID/`replayPolicy`/只读标记、跨 Run 读取同一 Goal、跨 Goal 拒绝、停止结算失败映射 `PROCESS_STOP_FAILED`。
+  - 存储回归新增覆盖：`starting`/`running` 新宿主只读 `interrupted` 投影、投影不改写磁盘字节、日志仍按游标读取（无重放）。
+- 真实生命周期与宿主接入 / 重启行为（标准 4.5、5.1–5.4）：
+  - `npx tsx --test apps/goal-server/test/process-lifecycle.integration.test.ts apps/goal-server/test/process-runtime-composition.integration.test.ts packages/tools/test/process-tools.test.ts packages/storage/test/process-session-store.test.ts packages/runtime/test/permission-grant-recovery.test.ts packages/storage/test/action-observation-recovery.test.ts`：28 pass / 0 fail。
+  - `npm --prefix apps/goal-server test`：45 pass / 0 fail；`npx tsc --noEmit -p apps/goal-server/tsconfig.json`：通过。
+  - 组合证据：真实 `RuntimeLifecycle` 正常期限为 0（完成即取消宽限定时器）、写入阻塞时正常/强制两个期限到期并报告 `resources` 未结算、释放后迟到写入被结算且状态保持 `closing`；管理器结算失败原因（含 `terminal record write failed`）经注册表进入生命周期类型化报告；借用注册表/Store 未被关闭；关闭插入未完成启动时不产生进程标记；goal-server 无界面装配与宿主关闭路径均由同一管理器结算，宿主关闭后继续输出成功标记。
+- 依赖、源码与发现（标准 6.2、6.3）：
+  - `node --test scripts/check-dependencies.test.mjs`：25 pass / 0 fail（新增进程包正反样本：Runtime/Sandbox 合法依赖与自有进程组信号不误禁；工具/Agent/Storage/应用/配置非法依赖含侧效、动态与 `require` 形式；Runtime 反向依赖 6 种引用形式；跨包入口穿透在 `packages/tools` 与其他消费者均定位失败；项目产物导入拒绝）。
+  - 入口规则由“仅组件目录”扩展为“全部 packages/apps 生产源文件 + 消费型测试”，跨包消费者穿透不再绕过；`FILE_BOUNDARY_RULES` 保持既有 `from` 覆盖（见未解决项）。
+  - 根回归实际发现：`npm test` 输出中运行到 `packages/process-runtime/test/*` 与 `apps/goal-server/test/process-runtime-composition.integration.test.ts` 的全部用例（如 `ok 111`、`ok 114`、`ok 1184`、`ok 1193`、`ok 1196`）。
+  - 派生源码副本验证：将当前工作树复制到临时目录并省略 `dist/lib/build` 等派生产物（依赖以符号链接保留），在副本内运行 TODO 1–4 入口命令：50 pass / 0 fail；副本内新包源码与测试文件齐全。
+- 完成任务后的综合检查：
+  - `npx tsc --noEmit`：通过；`npx tsc --noEmit -p apps/goal-server/tsconfig.json`：通过。
+  - `npm run check:dependencies`：通过（233 个源文件）；`npm run check:docs`：通过（31 个模块，119 份当前说明）。
+  - `npm test`：通过（类型、文档、依赖、GEPA adapter、352 个 TS/TSX 测试文件共 2000 项、47 项 scripts 测试，全部通过）。
+  - `git diff --check`：通过。
 
 未解决项与风险：
 
-- TODO 5、TODO 6 与完整 Feature Verification 未开始；恢复条件：Runtime 前置组件（RuntimeLifecycle 与资源注册表关闭契约）完成并有其 Feature Verification 证据，或由编排恢复同一会话继续。
-- 消费型既有测试 `packages/runtime/test/git-sandbox-authorization.test.ts`（本分支仅改导入路径）在 8 文件并发负载下曾失败一次：其 1000ms `waitMs` 窗口内未取得 Seatbelt 拒绝的 stderr；单文件连续 3 次通过。属既有时间敏感性，未在本轮改动。
+- 跨所有者发现（不在本 Spec 范围，未修改）：启用更强引用提取后，`packages/agent/src/model-inference-view.ts` 存在内联 `import("../../runtime/src/context-retrieval")` 类型表达式引用 Runtime（第 165、365 行）。该 DTO 规则仍按原 `from` 覆盖执行，未在本轮扩大或白名单；`ContextLookupMatchedField` 的权威归属需由该 DTO/Runtime 的所有者决定迁移或本地结构类型化。
+- 消费型既有测试 `packages/runtime/test/git-sandbox-authorization.test.ts`（本分支仅改导入路径）在 8 文件并发负载下曾失败一次：其 1000ms `waitMs` 窗口内未取得 Seatbelt 拒绝的 stderr；单文件连续 3 次通过、全量根回归通过。属既有时间敏感性，未在本轮改动。
 - 维护候选：`project-memory/features/tool-suite-expansion.md` 的权威路径仍指向 `packages/tools/src/process-manager.ts`；按计划未改写历史 Memory，留待 memory 维护流程更新。
 - 环境说明：worktree 依赖按仓库实际方式在各包目录分别安装（`npm ci`，含 `benchmarks/`），否则 GEPA/基准相关回归会因缺少嵌套依赖失败。
 
@@ -112,3 +127,6 @@ git diff --check
 - 异步探针误用：`() => markerExists(path) ? true : undefined` 对 async 函数永远为真，会让等待瞬间返回并产生随机结果；等待谓词必须 `await` 结果。
 - 输出分片不可假设：同一命令的连续 `stdout.write` 可能合并为单个 data 事件；依赖分片数量或边界断言必须用受控信号（如文件闸门）分阶段触发，而非固定次数或固定延迟。
 - 多文件并发回归的负载敏感性：独立运行通过不能证明并发下稳定；窗口型既有断言（如 1 秒 `waitMs`）在 8 文件并发下更易抖动，测试入口命令与并发度应作为证据的一部分记录。
+- 提取分支合并的接线恢复：当并行 Spec 把装配整体迁走时，冲突文件中取“新结构”会连同旧位置的消费者接线一起丢弃；必须在新的实际装配位置重新建立同一导入/登记（本案 `ProcessManager` 迁入 `apps/goal-server/src/runtime/composition.ts`），并用装配级测试证明“同一管理器”而非仅靠类型检查通过。
+- 检查器能力升级与越界发现：把引用提取从 `from` 扩展为覆盖内联 `import()` 类型表达式、侧效与动态形式，会暴露其它所有者既存的违规。按本 Spec 所需范围（跨包方向与组件规则）启用强提取，并把越界发现记录给所有者，比扩大白名单或顺带跨所有者修改更可控。
+- 合并后证据时效：合并改变被测状态后必须重跑受影响检查；本次重跑即暴露了输出分片合并导致的测试竞态，说明“合并后全量重跑”本身就是有效门。
