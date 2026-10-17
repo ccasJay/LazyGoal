@@ -24,7 +24,7 @@
   - 实现：在首次异步操作前预留启动并纳入统一结算，按真实失败/退出释放额度；在后续异步边界检查 closing。初始记录先于 spawn；取得句柄即安装事件与输出处理，再进行异步 running 写入。以同一会话所有者协调状态写入，资源登记只保留管理器一项；注册失败时不能继续启动，已接收启动不因尚未进入活跃集合而逃逸。建立必要的组件错误分类与原因保留，具体输出和停止结算在 TODO 3/4 完成。
   - 检查：`npx tsx --test packages/process-runtime/test/process-startup.test.ts packages/process-runtime/test/process-manager.test.ts packages/tools/test/process-tools.test.ts`；核对接收/拒绝数、记录数、命令执行标记和独立清理结果，而非仅观察调用返回。
 
-- [ ] //TODO 3. 保持输出顺序并等待日志与终态写入结算
+- [x] //TODO 3. 保持输出顺序并等待日志与终态写入结算
   - 落实标准：[2.3](./spec.md#spec-req-2-3)、[3.1](./spec.md#spec-req-3-1)、[3.2](./spec.md#spec-req-3-2)、[3.3](./spec.md#spec-req-3-3)。
   - 先验证：在拟新增 `packages/process-runtime/test/process-output.test.ts` 中，以分段 stdout/stderr 和可控 append/终态保存验证每通道顺序、退出后仍等待已接收写入、追加失败可辨识及无未处理拒绝。分别通过输出结算、进程退出、关闭与等待超时唤醒 waitForOutput，核对监听器/定时器释放及后续读取以 Store 为准。复用文件 Store 的轮转与绝对游标/gap 断言，保留工具输出截断和等待上限。
   - 实现：每通道串行追加，跟踪写入与终态结算，保留已知失败且继续其它清理；不能通过清空句柄丢弃未完成写入。统一事件失败的接收路径，补齐等待者的结束与清理，复用 Store 协议和工具读取映射。移除因缺少结算证据而使用的测试固定延迟，改由实际完成信号确认，不降低原断言。

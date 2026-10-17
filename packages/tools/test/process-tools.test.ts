@@ -82,10 +82,8 @@ test("ProcessManager 与 process_start/read/stop 全生命周期与多通道隔�
             assert.equal(out.status, "stopped");
         }
 
-        // 等待完全收敛关闭
+        // 等待完全收敛关闭：close 结算全部已接收输出与终态写入
         await manager.close();
-        // 允许后台持久化 IO 完成收尾
-        await new Promise((r) => setTimeout(r, 100));
     } finally {
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }

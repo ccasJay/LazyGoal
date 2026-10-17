@@ -59,6 +59,12 @@ interface ManagedSession {
     child: ChildProcess | undefined;
     cancelGrace: (() => void) | undefined;
     stopRequested: boolean;
+    /** 每通道串行追加链；保证同一通道按接收顺序结算。 */
+    readonly outputChains: Map<"stdout" | "stderr", Promise<void>>;
+    /** 尚未结算的已接收输出追加数。 */
+    pendingOutputWrites: number;
+    /** 待结算写入清零时唤醒的等待者。 */
+    readonly quiescentResolvers: Array<() => void>;
     /** 首个已知结算失败；保留最早故障，不被后续清理故障覆盖。 */
     firstFailure: { readonly stage: ProcessFailureStage; readonly error: unknown } | undefined;
 }
@@ -298,8 +304,8 @@ export class ProcessManager implements ManagedResource {
      *
      * @remarks
      * 首次调用同步停止受理；已受理未创建进程的启动会在后续异步边界被拒绝，已创建句柄由本次
-     * 清理终止。重复调用复用同一清理过程。管理器不关闭借用的 Store、注册表或其它资源；实例
-     * 关闭期限和结果汇总由宿主生命周期所有者负责。
+     * 清理终止，已接收输出与终态记录未结算前不会完成。重复调用复用同一清理过程。管理器不关闭
+     * 借用的 Store、注册表或其它资源；实例关闭期限和结果汇总由宿主生命周期所有者负责。
      */
     async close(): Promise<void> {
         if (this.closeOperation === undefined) {
@@ -398,6 +404,9 @@ export class ProcessManager implements ManagedResource {
             child: undefined,
             cancelGrace: undefined,
             stopRequested: false,
+            outputChains: new Map(),
+            pendingOutputWrites: 0,
+            quiescentResolvers: [],
             firstFailure: undefined,
         };
         this.sessions.set(session.key, session);
@@ -547,27 +556,62 @@ export class ProcessManager implements ManagedResource {
 
         child.stdout?.setEncoding("utf8");
         child.stdout?.on("data", (chunk: string) => {
-            void this.appendOutput(session, "stdout", chunk);
+            this.appendOutput(session, "stdout", chunk);
         });
         child.stderr?.setEncoding("utf8");
         child.stderr?.on("data", (chunk: string) => {
-            void this.appendOutput(session, "stderr", chunk);
+            this.appendOutput(session, "stderr", chunk);
         });
     }
 
-    /** 追加输出；失败进入结算错误而不是被丢弃，等待者仍会被唤醒。 */
-    private async appendOutput(
+    /**
+     * 按通道串行追加已接收输出，并登记为待结算写入。
+     *
+     * @remarks
+     * 同一通道的分片必须按接收顺序结算；不同通道互不阻塞。追加失败记录为可辨识的结算失败，
+     * 不等同于日志写入成功，也不阻止其它写入与终态结算。等待者的唤醒发生在本次追加结果
+     * （成功或失败）确定之后。
+     */
+    private appendOutput(
         session: ManagedSession,
         channel: "stdout" | "stderr",
         chunk: string,
-    ): Promise<void> {
-        try {
-            await this.store.appendOutput(session.goalId, session.processId, channel, chunk);
-        } catch (error) {
-            this.recordFailure(session, "output", error);
-        } finally {
-            session.outputEmitter.emit("output", channel, chunk);
+    ): void {
+        const previous = session.outputChains.get(channel) ?? Promise.resolve();
+        const write = previous
+            .then(async () => {
+                try {
+                    await this.store.appendOutput(session.goalId, session.processId, channel, chunk);
+                } catch (error) {
+                    this.recordFailure(session, "output", error);
+                } finally {
+                    session.outputEmitter.emit("output", channel, chunk);
+                }
+            })
+            .catch((error: unknown) => {
+                this.recordFailure(session, "output", error);
+            });
+        session.outputChains.set(channel, write);
+        session.pendingOutputWrites += 1;
+        void write.finally(() => {
+            session.pendingOutputWrites -= 1;
+            if (session.pendingOutputWrites === 0) {
+                const resolvers = session.quiescentResolvers.splice(0);
+                for (const resolve of resolvers) {
+                    resolve();
+                }
+            }
+        });
+    }
+
+    /** 等待已接收输出写入全部结算；调用方据此决定能否报告关闭成功。 */
+    private awaitOutputWritesQuiescent(session: ManagedSession): Promise<void> {
+        if (session.pendingOutputWrites === 0) {
+            return Promise.resolve();
         }
+        return new Promise((resolve) => {
+            session.quiescentResolvers.push(resolve);
+        });
     }
 
     /** 终态结算：以同一所有者写入唯一终态记录并释放额度。 */
@@ -605,9 +649,11 @@ export class ProcessManager implements ManagedResource {
             }));
         } catch (error) {
             this.recordFailure(session, "settlement", error);
-        } finally {
-            this.releaseSession(session);
         }
+
+        // 退出后的已接收输出仍属于本管理器；写入未结算前不释放会话
+        await this.awaitOutputWritesQuiescent(session);
+        this.releaseSession(session);
     }
 
     /** 尽力保存失败记录；返回清理步骤自身的故障（没有则返回 undefined）。 */
