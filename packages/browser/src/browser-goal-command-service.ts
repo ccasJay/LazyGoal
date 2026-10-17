@@ -267,7 +267,7 @@ export interface BrowserGoalCommandDependencies {
     readonly saveModelPreference?: (selection: GoalModelSelection) => Promise<void>;
     /** 本机 Composition Root 已验证并加载的 Profile ID。 */
     readonly profileId: string;
-    /** 与本机 ShutdownCoordinator 共享的可选信号；中止后拒绝尚未开始的写命令。 */
+    /** 与宿主关闭共享的可选信号；中止后拒绝尚未开始的写命令。 */
     readonly control?: ExecutionControl;
 }
 

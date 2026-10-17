@@ -5,26 +5,50 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import {
+    CheckpointGateGoalStore,
     ManagedResourceRegistry,
-    ShutdownCoordinator,
-    type ExitPort,
-    type ShutdownClock,
+    RuntimeLifecycle,
+    RuntimeLifecycleIncompleteError,
+    type LifecycleClock,
+    type ManagedResource,
 } from "../../../packages/runtime/src/index";
-import { JsonFileProcessSessionStore } from "../../../packages/storage/src/index";
+import { InMemoryGoalStore, JsonFileProcessSessionStore } from "../../../packages/storage/src/index";
 import { ProcessManager } from "../../../packages/process-runtime/src/index";
 import {
     ProcessStartTool,
     ProcessReadTool,
 } from "../../../packages/tools/src/index";
+import {
+    HostShutdownCoordinator,
+    SHUTDOWN_EXIT_CODE,
+    type ExitPort,
+} from "../src/process-exit";
+import { createCompositionRoot } from "../src/composition-root";
 
-class FakeExitPort implements ExitPort {
-    readonly calls: number[] = [];
+class RecordingExitPort implements ExitPort {
+    readonly codes: number[] = [];
+
     exit(code: number): void {
-        this.calls.push(code);
+        this.codes.push(code);
     }
 }
 
-class FakeShutdownClock implements ShutdownClock {
+class RejectingResource implements ManagedResource {
+    closeCalls = 0;
+    forceCloseCalls = 0;
+
+    close(): Promise<void> {
+        this.closeCalls += 1;
+        return Promise.reject(new Error("resource refused to release"));
+    }
+
+    forceClose(): Promise<void> {
+        this.forceCloseCalls += 1;
+        return Promise.reject(new Error("resource refused forced release"));
+    }
+}
+
+class FakeShutdownClock implements LifecycleClock {
     private currentTime = 1000;
     readonly scheduled: Array<{ readonly dueTime: number; readonly callback: () => void }> = [];
 
@@ -126,4 +150,101 @@ test("Goal 删除入口级联清理其进程目录与日志", async () => {
     } finally {
         await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
+});
+
+test("宿主关闭结算实例后请求退出码 130，宿主进程继续运行", async () => {
+    const gate = new CheckpointGateGoalStore(new InMemoryGoalStore());
+    const resources = new ManagedResourceRegistry();
+    const exitPort = new RecordingExitPort();
+    const lifecycle = new RuntimeLifecycle({
+        checkpointStore: gate,
+        resources,
+        abortController: new AbortController(),
+        clock: new FakeShutdownClock(),
+    });
+    const coordinator = new HostShutdownCoordinator({ lifecycle, exitPort });
+
+    const first = coordinator.shutdown();
+    const second = coordinator.shutdown();
+    assert.strictEqual(first, second);
+    await first;
+
+    assert.equal(coordinator.isShuttingDown, true);
+    assert.equal(lifecycle.state, "closed");
+    assert.equal(gate.isFrozen, true);
+    assert.deepEqual(exitPort.codes, [SHUTDOWN_EXIT_CODE]);
+
+    // 退出请求由可注入 ExitPort 记录：宿主进程继续运行并完成剩余断言。
+    await new Promise((resolve) => setImmediate(resolve));
+});
+
+test("宿主关闭并发清理应用资源：实例关闭失败仍关闭 HTTP 并请求退出码 130", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lg-host-shutdown-"));
+    const exitPort = new RecordingExitPort();
+    const adapter = {
+        structuredOutputMode: "strict" as const,
+        async generate(): Promise<never> {
+            throw new Error("model must not be called");
+        },
+    };
+    const root = await createCompositionRoot({
+        cwd: workspace,
+        dataDirectory: join(workspace, "data"),
+        env: { LAZYGOAL_HOME: join(workspace, "home") },
+        profile: { id: "host-shutdown", systemPrompt: "unused", instructions: [], toolIds: [] },
+        adapter,
+        exitPort,
+    });
+    try {
+        const address = await root.httpService.start(0);
+        const refusing = {
+            close(): Promise<void> {
+                return Promise.reject(new Error("resource refused to release"));
+            },
+            forceClose(): Promise<void> {
+                return Promise.reject(new Error("resource refused forced release"));
+            },
+        };
+        root.resources.register(refusing);
+
+        const first = root.shutdownCoordinator.shutdown();
+        const second = root.shutdownCoordinator.shutdown();
+        assert.strictEqual(first, second);
+        await assert.rejects(first, RuntimeLifecycleIncompleteError);
+
+        assert.equal(root.lifecycle.state, "closing");
+        assert.deepEqual(exitPort.codes, [SHUTDOWN_EXIT_CODE]);
+        // 应用自有 HTTP 资源在实例关闭失败后仍被清理。
+        await assert.rejects(fetch(`${address.origin}/goals/unknown/metrics`));
+    } finally {
+        await root.httpService.close().catch(() => undefined);
+        await root.lifecycle.close().catch(() => undefined);
+        await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+});
+
+test("实例关闭不完整时仍请求宿主退出并保留类型化原因", async () => {
+    const gate = new CheckpointGateGoalStore(new InMemoryGoalStore());
+    const resources = new ManagedResourceRegistry();
+    const resource = new RejectingResource();
+    resources.register(resource);
+    const exitPort = new RecordingExitPort();
+    const lifecycle = new RuntimeLifecycle({
+        checkpointStore: gate,
+        resources,
+        abortController: new AbortController(),
+        clock: new FakeShutdownClock(),
+    });
+    const coordinator = new HostShutdownCoordinator({ lifecycle, exitPort });
+
+    await assert.rejects(coordinator.shutdown(), (error: unknown) => {
+        assert.ok(error instanceof RuntimeLifecycleIncompleteError);
+        assert.ok(error.reasons.some((reason) => reason.category === "resources"));
+        return true;
+    });
+
+    assert.equal(resource.closeCalls, 1);
+    assert.equal(resource.forceCloseCalls, 1);
+    assert.equal(lifecycle.state, "closing");
+    assert.deepEqual(exitPort.codes, [SHUTDOWN_EXIT_CODE]);
 });
