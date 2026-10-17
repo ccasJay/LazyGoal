@@ -93,9 +93,47 @@ git diff --check
 
 ### Latest Result
 
-- 状态：未执行。
-- 验证时间：未执行。
-- 测试提交与相关未提交改动：尚无实现测试状态；待运行时记录提交及涉及文件的差异或内容指纹。
-- 验收契约：当前 spec.md 的解耦修订已批准；本 Plan 已对齐，待完整计划审阅。实际测试时记录对应内容指纹。
-- 验证摘要：尚未开始实现或功能验证；本计划的文档检查不代表上述行为通过。
-- 未解决项：上述实现、确定性测试与组合验收均待执行；当前没有新增需用户裁决的范围问题。
+- 状态：passed。6/6 TODO 已实现、勾选并逐条提交；Feature Verification 的必需检查全部实际执行；两项存量环境失败与两项基线 e2e 失败已在基线提交复现并如实记录（见未解决项），非本功能引入。
+- 验证时间：2026-10-17（CST）。
+- 被测提交：`c87a9155`（TODO 1–6 提交序列 `d9686249` → `db0e2bcf` → `ab0856a1` → `ea85d964` → `a4171bef` → `c87a9155`）；另有验证期修复提交（见下）。验收契约指纹（验证开始时）：`spec.md` sha256 `bc7f2fdfcfa2765b4b9d66e4310101ce20eb670079189d9b31908098bbfb2f52`，`plan.md` sha256 `ccd68446546c183f8f7dd79da68bcd13e4531f9447a13b1733678ac3c9022399`。
+- 验证摘要（实际命令与观察）：
+  - TODO 入口命令（worktree 内，均实际运行）：
+    - TODO 1 `npx tsx --test packages/runtime/test/runtime-lifecycle.test.ts packages/runtime/test/shutdown.test.ts apps/goal-server/test/process-lifecycle.integration.test.ts`：14 pass / 0 fail（含受控子进程探针）。
+    - TODO 2 `npx tsx --test apps/goal-server/test/execution-composition.test.ts packages/runtime/test/launcher.test.ts packages/runtime/test/goal-coordinator.test.ts packages/runtime/test/trajectory-checkpoint-committer.test.ts`：47 pass / 0 fail。
+    - TODO 3 `npx tsx --test apps/goal-server/test/runtime-composition.integration.test.ts apps/goal-server/test/execution-composition.test.ts apps/goal-server/test/sandbox-persistence.test.ts apps/goal-server/test/prompt-bundle-integration.test.ts`：10 pass / 0 fail。
+    - TODO 4 `npm --prefix apps/goal-server test`：32 pass / 0 fail。
+    - TODO 5 `node --test scripts/check-dependencies.test.mjs`：19 pass / 0 fail；`npm run check:dependencies`：231 个源文件通过；`npm run check:docs`：30 模块 116 说明通过。
+    - TODO 6 `npx tsx --test apps/goal-server/test/runtime-recovery.integration.test.ts packages/runtime/test/goal-multi-run-recovery.test.ts packages/runtime/test/permission-grant-recovery.test.ts packages/runtime/test/run-interrupt.test.ts packages/runtime/test/run-steer.test.ts`：17 pass / 0 fail。
+  - Feature Verification 场景证据：
+    - 独立执行链与一致提交 / 结果与后继 Run：execution-composition 测试核对同一 Store/Trajectory 提交边界（`committedThroughSequence` 等于已提交事实最大序号）、continue 创建 run-2 并归档 run-1。
+    - 装配失败与资源归属：runtime-composition 故障场景断言原始 `AgentProfileConfigurationError`、注入注册表清空、借用控制器未 abort、借用 Registry 仍可用。
+    - 活动关闭与在途写入 / 有界强制与失败后果 / 资源契约与强制升级：runtime-lifecycle 测试覆盖同一 close Promise、进入边界的保存结算、正常/强制两个期限、资源拒绝与未结算身份保留、迟到拒绝被消费、close 失败保持 `closing` 并拒绝重新受理；子进程探针 `post-close:closed:1` 与 `host-alive` 证明宿主继续运行。
+    - 等待后重建与身份匹配：runtime-recovery 覆盖 launch→等待→close→重建→restore→resume 同一 Run、错 Run/requestId/actionId 拒绝、损坏 Snapshot fail-closed、缺失工具拒绝、manual 工具未知结果不被盲重试、关闭超时旧实例保持 `closing`。
+    - 冲突推进与控制通道：browser-session 实测 409 `goal_busy`、409 `stale_run`、同命令稳定身份重试 `existing: true`，权限模式读写与授权撤销路径可调用。
+    - 事件不控制执行：SSE 打开后客户端中断与读取请求中途断连后执行仍到达等待点；`packages/runtime/test/execution-stream-runtime.test.ts` 与 `packages/execution-stream/test/execution-stream.test.ts` 9 pass。
+    - 单一无界面装配与真实接入 / Web 行为与宿主退出：runtime-composition 断言无 `httpService`、无进程信号；browser-session 与 process-lifecycle 断言 SIGINT 退出码 130、实例关闭失败仍关闭 HTTP。
+    - 目录入口和机器边界 / 源码与发现范围：依赖检查新增合法与违规样本各覆盖 import/export、侧效导入、字面量动态导入、路径归一化、项目产物拒绝与第三方产物允许；根回归输出包含全部新组件测试。
+    - 依赖替换与所有权：execution-composition 用文件 Store + 第二执行器继续同一等待点；runtime-composition 替换权限存储；runtime-recovery 使用文件 Store/轨迹计数替身。
+  - 完成任务后的综合检查：
+    - `npx tsc --noEmit`：通过（无输出）。
+    - `npx tsc --noEmit -p apps/goal-server/tsconfig.json`：通过（无输出）。
+    - `npm run check:dependencies`：通过（231 个源文件）。
+    - `npm run check:docs`：通过（30 模块 116 说明）。
+    - `npm test`：1958 项中 1956 pass / 2 fail；失败为 `packages/llm/test/pi-ai.test.ts` 的两项 opencode-go 用例（`packages/llm` 本分支无改动；基线 `31de8539` 相同依赖环境下同样 2 fail，声明 `@earendil-works/pi-ai` 1.3.0 与已安装 0.85.1 不一致）。
+    - `npm run build:web`：成功。
+    - `node --test --test-concurrency=1 apps/goal-board/e2e/*.test.mjs`：2 pass / 2 fail（`board.test.mjs` 与 `runtime.test.mjs`）；在基线 `31de8539` 源码副本（`git archive`，同依赖链接）上同样 2 pass / 2 fail，失败点为页面静态断言 `.primary`，与本次改动无关。
+    - `git diff --check`：通过（空输出）。
+  - 无历史构建产物验证：`git archive HEAD` 复制源码副本（不含 `dist`/`build`/`lib` 产物），链接已安装依赖后运行 TODO 1/2/3/6 入口命令，分别为 15/47/10/17 pass、0 fail。
+  - 验证期修复：根回归暴露两处依赖“实例注册表关闭 HTTP”的旧接线（`packages/session-metrics/test/session-metrics.integration.test.ts`、`apps/goal-board/e2e/test-service.ts`）；已改为由应用显式关闭自有 HTTP 资源并修正过期成员引用，修复后两项检查通过。
+- 未解决项：
+  - `pi-ai.test.ts` 两项失败与 `goal-board` e2e 两项失败均为基线/环境存量问题，基线提交复现证据如上；本功能未修改对应源码或 UI。
+  - Spec 2.4 明确不保证关闭超时后立即重用同一持久化位置；测试只断言旧实例保持 `closing`、拒绝新执行，不声称未知副作用已回滚。
+  - 真实进程退出、输出写入结算等组合保证仍由 Process Spec 以真实进程验收；本轮仅以受控资源配置验证资源契约。
+  - 浏览器整体验收中的两项 e2e 断言维持基线状态，修复归属 UI 变更而非本 Spec 范围。
+
+## Learning Candidates
+
+- 将 HTTP 等宿主资源移出实例资源注册表后，所有依赖“`resources.closeAll()` 顺带关闭 HTTP”的测试与工具服务都必须同步改为显式应用清理；这类接线遗漏只在整仓回归（而非包级测试）中暴露。
+- `ManagedResourceRegistry` 的强制阶段不应等待 `waitForIdle()`：已拒绝的资源永远不会结算，会让关闭无谓耗满期限或挂起；强制阶段只等待强制操作本身，未结算身份交由 `pendingResources`/`failures` 报告。
+- 组件入口与目录边界检查在比较路径前必须归一化扩展名（TS 引用通常省略扩展名），否则文件级禁止规则会静默失效；检查器必须同时具备违规样本，合法样本通过不能证明禁止规则生效。
+- 以“入口命令在无历史产物的源码副本中可运行”作为独立性证据，可同时排除旧构建产物与主仓 node_modules 的偶然解析。

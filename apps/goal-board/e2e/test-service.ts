@@ -287,8 +287,8 @@ async function close(): Promise<void> {
     closing = true;
     await root.httpService.close();
     root.abortController.abort();
-    root.controller.dispose();
-    await root.resources.closeAll();
+    await root.lifecycle.close().catch(() => undefined);
+    await root.resources.closeAll().catch(() => undefined);
 }
 process.once("SIGTERM", () => {
     void close().then(() => process.exit(0), () => process.exit(1));
