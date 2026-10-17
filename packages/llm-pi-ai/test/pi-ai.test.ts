@@ -4,8 +4,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { once } from "node:events";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import type { AssistantMessage, Context, SimpleStreamOptions } from "@earendil-works/pi-ai";
-import { PiAiAdapter, PiAiProviderError, buildPiAiRequestOptions } from "../src/pi-ai";
-import { createLlmAdapter } from "../src/factory";
+import { PiAiAdapter, PiAiProviderError, buildPiAiRequestOptions } from "../src/index";
+import { createLlmAdapter } from "../../llm/src/factory";
 import { readLLMConfig } from "../../config/src/index";
 import {
     LLMConfigurationError,
@@ -454,7 +454,7 @@ test("real SDK rejects length termination and stream errors", async () => {
 });
 
 test("agent smoke exercises unified task approval, one tool and completion in both modes", async () => {
-    const { runAgentSmoke } = await import("./agent-smoke-test");
+    const { runAgentSmoke } = await import("../../llm/test/agent-smoke-test");
     for (const mode of ["strict", "prompt_only"] as const) {
         const phases: string[] = [];
         await withServer((req, res) => {
@@ -531,7 +531,7 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
 });
 
 test("pi-ai unified execution keeps local JSON and phase validation", async () => {
-    const { runAgentSmoke } = await import("./agent-smoke-test");
+    const { runAgentSmoke } = await import("../../llm/test/agent-smoke-test");
     for (const content of ["", "not JSON", JSON.stringify({ result: { kind: "complete", summary: "wrong phase", completionEvidence: [], memoryPatch: null } })]) {
         let calls = 0;
         await withServer((req, res) => {

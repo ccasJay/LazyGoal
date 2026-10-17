@@ -177,6 +177,19 @@ test("rejects outbound dependencies from llm-google to config", async () => {
     ]);
 });
 
+test("rejects outbound dependencies from llm-pi-ai to config and model-catalog", async () => {
+    const root = await fixtureProject({
+        "packages/llm-pi-ai/src/index.ts": 'export {} from "../../config/src/index";\nexport {} from "../../model-catalog/src/index";\n',
+        "packages/config/src/index.ts": "export {};\n",
+        "packages/model-catalog/src/index.ts": "export {};\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/llm-pi-ai 不得导入 packages/config（packages/llm-pi-ai/src/index.ts 引用 ../../config/src/index）",
+        "禁止依赖方向：packages/llm-pi-ai 不得导入 packages/model-catalog（packages/llm-pi-ai/src/index.ts 引用 ../../model-catalog/src/index）",
+    ]);
+});
+
 test("rejects outbound dependencies from working-memory to runtime", async () => {
     const root = await fixtureProject({
         "packages/working-memory/src/index.ts": 'export {} from "../../runtime/src/index";\n',

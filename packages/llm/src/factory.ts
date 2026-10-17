@@ -1,7 +1,7 @@
 import { LLMConfigurationError, type LLMAdapter, type LLMConfig } from "../../llm-core/src/index";
 import { Gemini } from "../../llm-google/src/index";
 import { OpenAICompatible } from "../../llm-openai/src/index";
-import { PiAiAdapter } from "./pi-ai";
+import { PiAiAdapter } from "../../llm-pi-ai/src/index";
 
 /**
  * 同一供应商与模型下供 Runtime 两阶段执行使用的 Adapter 对。

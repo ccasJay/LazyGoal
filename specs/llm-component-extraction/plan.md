@@ -26,7 +26,7 @@
   - 实现：迁入 `Gemini`、参数契约、Schema 转换/逆向投影和原始用量提取，Google SDK 依赖归本包并保留当前版本约束。修改工厂及直接消费者，删除原文件；不将 Provider 特定逻辑搬入 core 或 Agent 解码包，不收窄既有模式、不增加输出修复。同步文档及契约。
   - 检查：`npx tsx --test packages/llm-google/test/*.test.ts packages/llm/test/native-dialogue.test.ts packages/llm/test/native-tool-calling.test.ts packages/llm/test/execution-control.test.ts packages/config/test/llm-config.test.ts`；`npx tsc --noEmit`。对照迁移前相同样本的发送 Schema、规范化响应和拒绝后果，不修改基线解释差异。
 
-- [ ] //TODO 4. 直接使用 pi-ai 适配包保持增量流与失败语义
+- [x] //TODO 4. 直接使用 pi-ai 适配包保持增量流与失败语义
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)、[2.2](./spec.md#spec-req-2-2)、[2.4](./spec.md#spec-req-2-4)、[3.1](./spec.md#spec-req-3-1)、[3.2](./spec.md#spec-req-3-2)、[3.3](./spec.md#spec-req-3-3)、[3.4](./spec.md#spec-req-3-4)、[6.1](./spec.md#spec-req-6-1)、[6.4](./spec.md#spec-req-6-4)。
   - 先验证：将 `pi-ai.test.ts` 迁入拟新增的 `packages/llm-pi-ai/test/`，经入口检查离线构造、模型与容量拒绝、前置 system 合并、角色顺序、中途 system 拒绝，以及当前 SDK 文本/thinking/tool-call 增量到统一事件的转换。比较 generate 聚合与 stream 的既有完成结果，保留截断、错误、异常结束、未知异常和取消样本；piUsage 始终不取得正式 usage 身份，配置失败使用 core 同一错误构造器。
   - 实现：迁移 `PiAiAdapter` 与 `PiAiProviderError`，保持现有 Provider 工厂集合和锁定 SDK；仅依赖 core 与 execution-control，不为静态目录反向依赖 model-catalog，也不创建共享可变模型注册表。迁移当前工厂及其它直接引用，删除原文件，补所属契约与说明。

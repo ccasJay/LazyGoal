@@ -5,7 +5,7 @@ import { LLMConfigurationError } from "../../llm-core/src/index";
 import { createLlmAdapter, createReflectionLlmAdapter } from "../../llm/src/factory";
 import { OpenAICompatible } from "../../llm-openai/src/index";
 import { Gemini } from "../../llm-google/src/index";
-import { PiAiAdapter } from "../../llm/src/pi-ai";
+import { PiAiAdapter } from "../../llm-pi-ai/src/index";
 
 const base = {
     LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4.1-mini",
