@@ -154,3 +154,177 @@ test("rejects outbound dependencies from model-contracts to working-memory", asy
         "禁止依赖方向：packages/model-contracts 不得导入 packages/working-memory（packages/model-contracts/src/index.ts 引用 ../../working-memory/src/index）",
     ]);
 });
+
+/** 只保留本次组件边界规则产生的违规，便于与既有包间规则分别断言。 */
+function componentViolations(violations) {
+    return violations.filter((violation) => violation.startsWith("组件") || violation.startsWith("构件"));
+}
+
+test("组件目录内部引用与入口调用通过，测试可定向导入内部实现", async () => {
+    const root = await fixtureProject({
+        "apps/goal-server/src/runtime/index.ts":
+            'export { createRuntimeComposition } from "./composition";\nexport { createExecutionComponents } from "./execution-composition";\n',
+        "apps/goal-server/src/runtime/composition.ts":
+            'import { createExecutionComponents } from "./execution-composition";\nexport const createRuntimeComposition = createExecutionComponents;\n',
+        "apps/goal-server/src/runtime/execution-composition.ts":
+            'import { GoalCoordinator } from "../../../../packages/runtime/src/index";\nexport const createExecutionComponents = GoalCoordinator;\n',
+        "apps/goal-server/src/composition-root.ts":
+            'export { createRuntimeComposition } from "./runtime";\n',
+        "apps/goal-server/test/runtime-composition.test.ts":
+            'import { createRuntimeComposition } from "../src/runtime/index";\nimport { createExecutionComponents } from "../src/runtime/execution-composition";\nvoid createRuntimeComposition;\nvoid createExecutionComponents;\n',
+        "packages/runtime/src/lifecycle/index.ts":
+            'export { RuntimeLifecycle } from "./runtime-lifecycle";\n',
+        "packages/runtime/src/lifecycle/runtime-lifecycle.ts":
+            'import type { CheckpointGateGoalStore } from "../checkpoint-gate";\nexport const RuntimeLifecycle = true as unknown as CheckpointGateGoalStore;\n',
+        "packages/runtime/src/index.ts":
+            'export { RuntimeLifecycle } from "./lifecycle";\n',
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), []);
+});
+
+test("运行时组件不得反向依赖宿主 CLI、组合根、Browser/HTTP/Web wire 与 Node HTTP", async () => {
+    const root = await fixtureProject({
+        "apps/goal-server/src/runtime/composition.ts": [
+            'import { runCli } from "../cli";',
+            'import { createCompositionRoot } from "../composition-root";',
+            'import { BrowserGoalCommandService } from "../../../../packages/browser/src/index";',
+            'import { createHttpService } from "../../../../packages/http/src/index";',
+            'import { BrowserGoalSession } from "../../../../packages/web-contracts/src/index";',
+            'import { createServer } from "node:http";',
+            "export const wiring = [runCli, createCompositionRoot, BrowserGoalCommandService, createHttpService, BrowserGoalSession, createServer];",
+        ].join("\n"),
+        "apps/goal-server/src/cli.ts": "export const runCli = true;\n",
+        "apps/goal-server/src/composition-root.ts": "export const createCompositionRoot = true;\n",
+        "packages/browser/src/index.ts": "export const BrowserGoalCommandService = true;\n",
+        "packages/http/src/index.ts": "export const createHttpService = true;\n",
+        "packages/web-contracts/src/index.ts": "export const BrowserGoalSession = true;\n",
+    });
+
+    assert.deepEqual(componentViolations(await analyzeDependencies(root)), [
+        "组件边界违规：Goal Server 运行时组件 不得导入 Browser 传输实现（apps/goal-server/src/runtime/composition.ts 引用 ../../../../packages/browser/src/index）",
+        "组件边界违规：Goal Server 运行时组件 不得导入 HTTP 宿主实现（apps/goal-server/src/runtime/composition.ts 引用 ../../../../packages/http/src/index）",
+        "组件边界违规：Goal Server 运行时组件 不得导入 HTTP 组合根（apps/goal-server/src/runtime/composition.ts 引用 ../composition-root）",
+        "组件边界违规：Goal Server 运行时组件 不得导入 Node HTTP 服务实现（apps/goal-server/src/runtime/composition.ts 引用 node:http）",
+        "组件边界违规：Goal Server 运行时组件 不得导入 Web wire DTO（apps/goal-server/src/runtime/composition.ts 引用 ../../../../packages/web-contracts/src/index）",
+        "组件边界违规：Goal Server 运行时组件 不得导入 宿主 CLI（apps/goal-server/src/runtime/composition.ts 引用 ../cli）",
+    ]);
+});
+
+test("执行装配组件不得引用具体 Agent、配置、存储与默认工具实现", async () => {
+    const root = await fixtureProject({
+        "apps/goal-server/src/runtime/execution-composition.ts": [
+            'import { LLMStepExecutor } from "../../../../packages/agent/src/index";',
+            'import { readLLMConfig } from "../../../../packages/config/src/index";',
+            'import { JsonFileGoalStore } from "../../../../packages/storage/src/index";',
+            'import { ProcessManager } from "../../../../packages/tools/src/index";',
+            "export const wiring = [LLMStepExecutor, readLLMConfig, JsonFileGoalStore, ProcessManager];",
+        ].join("\n"),
+        "packages/agent/src/index.ts": "export const LLMStepExecutor = true;\n",
+        "packages/config/src/index.ts": "export const readLLMConfig = true;\n",
+        "packages/storage/src/index.ts": "export const JsonFileGoalStore = true;\n",
+        "packages/tools/src/index.ts": "export const ProcessManager = true;\n",
+    });
+
+    assert.deepEqual(componentViolations(await analyzeDependencies(root)), [
+        "组件边界违规：执行装配组件 不得导入 具体 Agent/LLM 实现（apps/goal-server/src/runtime/execution-composition.ts 引用 ../../../../packages/agent/src/index）",
+        "组件边界违规：执行装配组件 不得导入 具体文件存储（apps/goal-server/src/runtime/execution-composition.ts 引用 ../../../../packages/storage/src/index）",
+        "组件边界违规：执行装配组件 不得导入 应用配置解析（apps/goal-server/src/runtime/execution-composition.ts 引用 ../../../../packages/config/src/index）",
+        "组件边界违规：执行装配组件 不得导入 默认工具准备（apps/goal-server/src/runtime/execution-composition.ts 引用 ../../../../packages/tools/src/index）",
+    ]);
+});
+
+test("实例生命周期不得依赖应用、模型或具体存储实现", async () => {
+    const root = await fixtureProject({
+        "packages/runtime/src/lifecycle/runtime-lifecycle.ts": [
+            'import { createCompositionRoot } from "../../../../apps/goal-server/src/composition-root";',
+            'import { LLMStepExecutor } from "../../../agent/src/index";',
+            'import { JsonFileGoalStore } from "../../../storage/src/index";',
+            "export const wiring = [createCompositionRoot, LLMStepExecutor, JsonFileGoalStore];",
+        ].join("\n"),
+        "apps/goal-server/src/composition-root.ts": "export const createCompositionRoot = true;\n",
+        "packages/agent/src/index.ts": "export const LLMStepExecutor = true;\n",
+        "packages/storage/src/index.ts": "export const JsonFileGoalStore = true;\n",
+    });
+
+    assert.deepEqual(componentViolations(await analyzeDependencies(root)).sort(), [
+        "组件边界违规：Runtime 实例生命周期 不得导入 具体 Agent/LLM 实现（packages/runtime/src/lifecycle/runtime-lifecycle.ts 引用 ../../../agent/src/index）",
+        "组件边界违规：Runtime 实例生命周期 不得导入 具体文件存储（packages/runtime/src/lifecycle/runtime-lifecycle.ts 引用 ../../../storage/src/index）",
+        "组件边界违规：Runtime 实例生命周期 不得导入 应用与宿主实现（packages/runtime/src/lifecycle/runtime-lifecycle.ts 引用 ../../../../apps/goal-server/src/composition-root）",
+    ]);
+});
+
+test("组件不得直接请求进程退出或注册进程信号", async () => {
+    const root = await fixtureProject({
+        "apps/goal-server/src/runtime/composition.ts":
+            'export function stop() { process.exit(1); }\nprocess.on("SIGINT", () => {});\n',
+        "packages/runtime/src/lifecycle/runtime-lifecycle.ts":
+            "export function stop() { process.exit(0); }\n",
+    });
+
+    assert.deepEqual(componentViolations(await analyzeDependencies(root)), [
+        "组件边界违规：Goal Server 运行时组件 不得直接请求进程退出或注册进程信号（apps/goal-server/src/runtime/composition.ts 包含 process 信号监听）",
+        "组件边界违规：Goal Server 运行时组件 不得直接请求进程退出或注册进程信号（apps/goal-server/src/runtime/composition.ts 包含 process.exit(）",
+        "组件边界违规：Runtime 实例生命周期 不得直接请求进程退出或注册进程信号（packages/runtime/src/lifecycle/runtime-lifecycle.ts 包含 process.exit(）",
+    ]);
+});
+
+test("组件入口规则覆盖重新导出、侧效导入与字面量动态导入，并允许目录内部引用", async () => {
+    const root = await fixtureProject({
+        "apps/goal-server/src/runtime/index.ts": "export {};\n",
+        "apps/goal-server/src/runtime/composition.ts": "export const createRuntimeComposition = true;\n",
+        "apps/goal-server/src/runtime/execution-composition.ts": "export const createExecutionComponents = true;\n",
+        "apps/goal-server/src/composition-root.ts": [
+            'export { createRuntimeComposition } from "./runtime/composition";',
+            'import { createExecutionComponents } from "./runtime/execution-composition";',
+            "void createExecutionComponents;",
+        ].join("\n"),
+        "apps/goal-server/src/runtime-bridge.ts":
+            'export async function load() { return import("./runtime/composition"); }\n',
+        "packages/runtime/src/lifecycle/index.ts": "export {};\n",
+        "packages/runtime/src/lifecycle/runtime-lifecycle.ts": "export const RuntimeLifecycle = true;\n",
+        "packages/runtime/src/index.ts":
+            'export { RuntimeLifecycle } from "./lifecycle/runtime-lifecycle";\n',
+    });
+
+    assert.deepEqual(componentViolations(await analyzeDependencies(root)).sort(), [
+        "组件入口违规：apps/goal-server/src/composition-root.ts 必须通过 apps/goal-server/src/runtime/index.ts 访问Goal Server 运行时组件（引用 ./runtime/composition）",
+        "组件入口违规：apps/goal-server/src/composition-root.ts 必须通过 apps/goal-server/src/runtime/index.ts 访问Goal Server 运行时组件（引用 ./runtime/execution-composition）",
+        "组件入口违规：apps/goal-server/src/runtime-bridge.ts 必须通过 apps/goal-server/src/runtime/index.ts 访问Goal Server 运行时组件（引用 ./runtime/composition）",
+        "组件入口违规：packages/runtime/src/index.ts 必须通过 packages/runtime/src/lifecycle/index.ts 访问Runtime 实例生命周期（引用 ./lifecycle/runtime-lifecycle）",
+    ]);
+});
+
+test("组件边界与入口规则在路径归一化后判断", async () => {
+    const root = await fixtureProject({
+        "apps/goal-server/src/runtime/composition.ts":
+            'import { runCli } from ".././cli";\nimport { createCompositionRoot } from "./../composition-root";\nexport const wiring = [runCli, createCompositionRoot];\n',
+        "apps/goal-server/src/cli.ts": "export const runCli = true;\n",
+        "apps/goal-server/src/composition-root.ts": "export const createCompositionRoot = true;\n",
+        "apps/goal-server/src/consumer.ts":
+            'import { createRuntimeComposition } from "./runtime/../runtime/composition";\nvoid createRuntimeComposition;\n',
+    });
+
+    assert.deepEqual(componentViolations(await analyzeDependencies(root)).sort(), [
+        "组件入口违规：apps/goal-server/src/consumer.ts 必须通过 apps/goal-server/src/runtime/index.ts 访问Goal Server 运行时组件（引用 ./runtime/../runtime/composition）",
+        "组件边界违规：Goal Server 运行时组件 不得导入 HTTP 组合根（apps/goal-server/src/runtime/composition.ts 引用 ./../composition-root）",
+        "组件边界违规：Goal Server 运行时组件 不得导入 宿主 CLI（apps/goal-server/src/runtime/composition.ts 引用 .././cli）",
+    ]);
+});
+
+test("组件与其消费型测试拒绝项目内构建产物，第三方依赖产物不受限", async () => {
+    const root = await fixtureProject({
+        "apps/goal-server/src/runtime/execution-composition.ts": [
+            'import { helper } from "../../../../dist/runtime/index";',
+            'import { z } from "../../../../node_modules/zod/dist/index";',
+            "export const wiring = [helper, z];",
+        ].join("\n"),
+        "apps/goal-server/test/runtime-composition.integration.test.ts":
+            'import { createRuntimeComposition } from "../dist/composition-root";\nvoid createRuntimeComposition;\n',
+    });
+
+    assert.deepEqual(componentViolations(await analyzeDependencies(root)), [
+        "构件导入违规：apps/goal-server/src/runtime/execution-composition.ts 不得导入项目内构建产物（引用 ../../../../dist/runtime/index）",
+        "构件导入违规：apps/goal-server/test/runtime-composition.integration.test.ts 不得导入项目内构建产物（引用 ../dist/composition-root）",
+    ]);
+});

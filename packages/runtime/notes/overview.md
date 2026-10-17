@@ -73,7 +73,7 @@ Runner 和 GoalCoordinator 可通过 [`@lazygoal/execution-stream`](../../execut
 
 `ManagedResource.close()` 成功返回表示该实现拥有的资源与必要写入已结算，拒绝表示清理失败且原因保留在注册表，未完成表示尚未确认活动停止。正常阶段失败或未完成的资源在强制阶段升级处理；强制成功可替代正常阶段的失败记录并移除资源，强制拒绝或未完成则保留身份与原因，状态不可重新受理。资源注销同样丢弃其失败记录，因此空注册表一定表示全部确认结算。
 
-Gate、控制器与注册表由资源所有者创建并交付实例；宿主借出的 Adapter、Policy、Store 与宿主信号不在交付范围内。`ExitPort`、`ProcessExitPort`、进程信号与退出码属于 `goal-server` 宿主适配层，Runtime 不导入它们。
+Gate、控制器与注册表由资源所有者创建并交付实例；宿主借出的 Adapter、Policy、Store 与宿主信号不在交付范围内。`ExitPort`、`ProcessExitPort`、进程信号与退出码属于 `goal-server` 宿主适配层，Runtime 不导入它们。`scripts/check-dependencies.mjs` 强制 `src/lifecycle/` 不依赖应用、模型或具体存储实现，也不直接请求进程退出或注册进程信号；目录之外的源码只能通过 `lifecycle/index.ts` 入口访问。
 
 ## 恢复与持久化
 

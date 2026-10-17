@@ -79,6 +79,12 @@ Home 与数据目录上装配模型、存储、工具与上下文默认实现，
 `composition-root.ts` 是无界面装配之上的 HTTP 宿主：创建 HTTP 服务、挂载指标路由与
 浏览器访问控制、追加关闭准入中间件，并构造宿主退出协调器。
 
+`scripts/check-dependencies.mjs` 以现有依赖门强制这些目录的边界：`src/runtime/` 不得
+反向导入宿主 CLI、组合根、Browser/HTTP/Web wire 或 Node HTTP 服务实现，也不得直接
+请求进程退出或注册进程信号；`execution-composition.ts` 只能引用现有 Runtime、工具与
+执行控制契约。目录之外的调用方必须通过 `src/runtime/index.ts` 入口访问，组件源码与
+其消费型测试不得解析到项目内 `dist`/`lib`/`build` 产物。
+
 ## 宿主退出与实例关闭
 
 Composition Root 构造 `RuntimeLifecycle` 并把实例 Gate、`ManagedResourceRegistry`、实例 AbortController 交付给它；HTTP 关闭后写请求的拒绝继续读取实例控制器信号，不为关闭另建状态。`HostShutdownCoordinator`（[进程退出适配](../src/process-exit.ts)）幂等地并发执行实例关闭与应用资源清理（HTTP 服务），再经 `ExitPort` 请求退出码 130；实例关闭失败或应用清理失败都会上报，但退出请求始终已发出，`ProcessExitPort` 是本应用直接调用 `process.exit` 的唯一实现。CLI 的 SIGINT 与普通退出路径共用该协调器，关闭不完整时记录 `RuntimeLifecycleIncompleteError` 的原因后仍返回 130。

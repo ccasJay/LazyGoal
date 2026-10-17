@@ -39,7 +39,7 @@
   - 实现：外层 composition-root 只消费 runtime 目录入口并装配 HTTP、路由和 Browser Port，CLI 负责信号与退出。HTTP/浏览器资源归应用，执行实例资源归生命周期；移除重复 Runner/Coordinator、关闭算法及不再需要的内部对象依赖，不增加兼容壳。更新原调用方与测试接线，保持 wire 契约与断言强度；同步 goal-server overview、semantics 及受影响布局导航。
   - 检查：`npm --prefix apps/goal-server test`；`npx tsc --noEmit -p apps/goal-server/tsconfig.json`；保留现有工具、配置和持久化回归。浏览器整体验收命令列于 Feature Verification，使用现有确定性服务替身。
 
-- [ ] //TODO 5. 用现有检查入口约束组件依赖、调用入口及源码使用
+- [x] //TODO 5. 用现有检查入口约束组件依赖、调用入口及源码使用
   - 落实标准：[5.1](./spec.md#spec-req-5-1)、[5.2](./spec.md#spec-req-5-2)、[5.3](./spec.md#spec-req-5-3)。
   - 先验证：扩展现有 `scripts/check-dependencies.test.mjs` 的临时工程样本，确认合法入口及目录内部引用通过；宿主反向导入、执行装配引用具体 Provider/文件存储、生命周期引用应用、跨目录穿透、直接退出/信号 API 和项目产物导入均定位失败。覆盖 import/export、侧效导入、字面量动态导入与路径归一化，允许第三方依赖产物；生产入口规则与内部单元测试例外均有证据。
   - 实现：在现有依赖检查中增加 Spec 的定向目录与入口约束，识别所需模块引用和直接进程 API；可复用已安装 TypeScript 解析能力，不另建架构框架。将本次组件及消费型测试纳入相应扫描，增量保留原有及其它 Spec 已加入的包间/DTO 规则与确定性错误；证明新目录源码和测试被实际发现，不为既有包层级重写 CI。所属说明只记录约束含义，源码规则持有实际判定。
