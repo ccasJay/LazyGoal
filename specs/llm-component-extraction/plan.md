@@ -44,7 +44,7 @@
   - 实现：将默认装配收进拟新增 `llm/src/default-adapters.ts` 并建立唯一公共入口，删除旧 `factory.ts`，迁移所有工厂调用者；llm 只依赖 core 和三个适配包，不直接依赖 config、model-catalog 或生成 SDK。将 src 下 smoke 可执行入口移入 `test/`，保持现有两条付费 smoke npm 命令的显式语义，更新直接运行路径和宿主依赖归属。同步测试、脚本与当前文档，不批量重写历史 Spec/Memory，不新增路径兼容文件。
   - 检查：`npx tsx --test packages/llm/test/*.test.ts packages/config/test/*.test.ts`；三处 TypeScript 检查；搜索所有当前源码、脚本、测试和构建引用，区分历史记录与活跃引用。smoke 只使用其已有本机模拟端点测试和入口检查，不运行真实付费命令。
 
-- [ ] //TODO 7. 由服务、Headless、RPC 与反思评测验证消费迁移
+- [x] //TODO 7. 由服务、Headless、RPC 与反思评测验证消费迁移
   - 落实标准：[2.3](./spec.md#spec-req-2-3)、[3.1](./spec.md#spec-req-3-1)、[3.2](./spec.md#spec-req-3-2)、[3.5](./spec.md#spec-req-3-5)、[4.4](./spec.md#spec-req-4-4)、[5.2](./spec.md#spec-req-5-2)、[5.3](./spec.md#spec-req-5-3)、[5.4](./spec.md#spec-req-5-4)、[6.4](./spec.md#spec-req-6-4)。
   - 先验证：扩展现有 goal-server 模型切换、Headless、LLM RPC、Reflection Bridge、Context paired-runner/CLI 测试，用确定性 Adapter、内存或临时文件 Store 验证实际请求、调用数、用量缺失、等待/重建恢复与原生身份。服务覆盖候选 Binding 构造、Snapshot 保存后发布、保存失败不切换及恢复不静默换模型；RPC 覆盖取消与迟到响应，不改 wire 字段；反思与 Context 记录口径保持，付费入口仍需既有显式授权。
   - 实现：补齐所有当前消费者到 core、目标适配包、model-catalog 和 llm 工厂的入口引用，包括实际存在的旧 Agent 或已拆九包、Worker 与本地构建脚本。只调整模型依赖与装配段，保留当时已有的 Runtime 生命周期、进程接线及其它包规则；不为等候前三份 Spec 增加适配层。迁移必要的测试夹具与构建定位，更新所属读者文档。
