@@ -22,7 +22,7 @@ import {
     type LLMToolCall,
     type StructuredOutputMode,
 } from "../../llm-core/src/index";
-import { extractGeminiUsage } from "./core/usage";
+import { extractGeminiUsage } from "./usage";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,

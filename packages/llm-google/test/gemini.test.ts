@@ -5,7 +5,7 @@ import { contract } from "../../contracts/src/index";
 import { createModelOutputContractBundle } from "../../model-contracts/src/index";
 
 import { ExecutionAbortedError, TransientModelRequestFailure } from "../../execution-control/src/index";
-import { Gemini } from "../src/gemini";
+import { Gemini } from "../src/index";
 import {
     LLMRequestModeMismatchError,
     type LLMRequest,

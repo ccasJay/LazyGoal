@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { OpenAICompatible } from "../../llm-openai/src/index";
-import { Gemini } from "../src/gemini";
+import { Gemini } from "../../llm-google/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
 
 const tools = [{ id: "read_file", description: "Read", parametersSchema: { type: "object", properties: {}, required: [], additionalProperties: false } }];

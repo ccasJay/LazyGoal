@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ExecutionAbortedError } from "../../execution-control/src/index";
-import { Gemini } from "../src/gemini";
+import { Gemini } from "../../llm-google/src/index";
 import { OpenAICompatible } from "../../llm-openai/src/index";
 
 const request = {

@@ -9,7 +9,7 @@ import {
     checkDependencies,
 } from "./check-dependencies.mjs";
 
-const EXISTING_PACKAGES = ["runtime", "llm", "llm-core", "storage", "agent", "tools"];
+const EXISTING_PACKAGES = ["runtime", "llm", "llm-core", "llm-google", "storage", "agent", "tools"];
 
 async function fixtureProject(files) {
     const root = await mkdtemp(path.join(os.tmpdir(), "lazygoal-dependencies-"));
@@ -163,6 +163,17 @@ test("allows llm-openai to consume llm-core and rejects application config edges
 
     assert.deepEqual(await analyzeDependencies(root), [
         "禁止依赖方向：packages/llm-openai 不得导入 packages/config（packages/llm-openai/src/index.ts 引用 ../../config/src/index）",
+    ]);
+});
+
+test("rejects outbound dependencies from llm-google to config", async () => {
+    const root = await fixtureProject({
+        "packages/llm-google/src/index.ts": 'export {} from "../../config/src/index";\n',
+        "packages/config/src/index.ts": "export {};\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/llm-google 不得导入 packages/config（packages/llm-google/src/index.ts 引用 ../../config/src/index）",
     ]);
 });
 

@@ -5,7 +5,7 @@ import { loadRuntimeConfig, readLLMConfig } from "../../config/src/index";
 import { LLMConfigurationError } from "../../llm-core/src/index";
 import { createLlmAdapter, createLlmStageAdapters } from "../src/factory";
 import { OpenAICompatible } from "../../llm-openai/src/index";
-import { Gemini } from "../src/gemini";
+import { Gemini } from "../../llm-google/src/index";
 import { PiAiAdapter } from "../src/pi-ai";
 
 test("readLLMConfig 支持解析 two_stage 模式并兼容 strict 与 prompt_only", () => {

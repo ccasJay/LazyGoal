@@ -20,7 +20,7 @@
   - 实现：迁移 `OpenAICompatible`、其参数契约及原始用量提取至 `llm-openai`，只从 core/model-contracts/execution-control 取得共享能力。将 OpenAI SDK 依赖按当前约束归入本包，同步当前工厂、Config 集成测试、对话测试和其它直接消费者，删除原实现文件；不增加 Provider、不改变 SDK 构造和消息映射。补所属文档及变更契约说明。
   - 检查：`npx tsx --test packages/llm-openai/test/*.test.ts packages/llm/test/native-dialogue.test.ts packages/llm/test/native-tool-calling.test.ts packages/llm/test/execution-control.test.ts packages/config/test/llm-config.test.ts`；`npx tsc --noEmit`；核对独立构造不发网络请求且不加载其它 LazyGoal 供应商包，完整入口隔离探针在 TODO 8 汇总。
 
-- [ ] //TODO 3. 直接使用 Google 适配包保持 strict 投影与原生对话
+- [x] //TODO 3. 直接使用 Google 适配包保持 strict 投影与原生对话
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)、[2.2](./spec.md#spec-req-2-2)、[2.3](./spec.md#spec-req-2-3)、[2.4](./spec.md#spec-req-2-4)、[3.2](./spec.md#spec-req-3-2)、[3.3](./spec.md#spec-req-3-3)、[3.4](./spec.md#spec-req-3-4)、[5.1](./spec.md#spec-req-5-1)、[6.1](./spec.md#spec-req-6-1)、[6.4](./spec.md#spec-req-6-4)。
   - 先验证：将 `gemini.test.ts` 迁入拟新增的 `packages/llm-google/test/`，保留全部 Schema、nullable/required、单值枚举、哨兵、证据与非法响应断言，特别保留直接构造 two_stage 并传入 structuredOutput 的测试。经公共入口验证工具与非工具请求、prompt_only 不带原生 Schema、输出上限、端点/协议身份、原始 Parts/签名及工具结果回传；覆盖用量、取消与错误路径，不将适配层投影测试替换为仅能解析 JSON 的检查。
   - 实现：迁入 `Gemini`、参数契约、Schema 转换/逆向投影和原始用量提取，Google SDK 依赖归本包并保留当前版本约束。修改工厂及直接消费者，删除原文件；不将 Provider 特定逻辑搬入 core 或 Agent 解码包，不收窄既有模式、不增加输出修复。同步文档及契约。

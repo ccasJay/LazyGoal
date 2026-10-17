@@ -1,6 +1,6 @@
 import type { GenerateContentResponseUsageMetadata } from "@google/genai";
 
-import { toSafeTokenCount, type NormalizedUsage } from "../../../llm-core/src/index";
+import { toSafeTokenCount, type NormalizedUsage } from "../../llm-core/src/index";
 
 /**
  * 从 Gemini 响应的 `usageMetadata` 提取归一化用量。

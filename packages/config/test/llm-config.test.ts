@@ -4,7 +4,7 @@ import { readLLMConfig } from "../src/index";
 import { LLMConfigurationError } from "../../llm-core/src/index";
 import { createLlmAdapter, createReflectionLlmAdapter } from "../../llm/src/factory";
 import { OpenAICompatible } from "../../llm-openai/src/index";
-import { Gemini } from "../../llm/src/gemini";
+import { Gemini } from "../../llm-google/src/index";
 import { PiAiAdapter } from "../../llm/src/pi-ai";
 
 const base = {
