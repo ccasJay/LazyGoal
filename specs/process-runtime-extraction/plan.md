@@ -84,9 +84,31 @@ git diff --check
 
 ### Latest Result
 
-- 状态：未执行。
-- 验证时间：未执行。
-- 测试提交与相关未提交改动：尚无实现测试状态；执行时记录提交、涉及文件的差异或内容指纹。
-- 验收契约：当前 spec.md 已批准；实际测试时记录其内容指纹，以及前置生命周期组件的版本和验证证据。
-- 验证摘要：本阶段只编写计划，文档检查不代表进程、工具或组合关闭行为通过。
-- 未解决项：6 个 TODO 及完整组合验收尚未执行；RuntimeLifecycle 前置在组合验证前核验，当前不宣称其已经交付。完整 Plan 待用户审阅。
+- 状态：blocked（TODO 1–4 已完成、提交并各自通过检查；TODO 5、TODO 6 与 Feature Verification 未执行，原因见“阻塞证据”）。
+- 验证时间：2026-10-17（本地时区）。
+- 测试提交与相关未提交改动：被测提交 `7c97bf98`；实现提交序列 `4d75fa11`（TODO 1）→ `4e83bcca`（TODO 2）→ `276c8d89`（TODO 3）→ `16861447`（TODO 4）→ `7c97bf98`（测试竞态修正）。工作区在该记录写入前无未提交源码改动。
+- 验收契约：`spec.md` 与 `plan.md` 基线提交 `c4a96fbd`；`spec.md` frontmatter 仍为 `status: proposed`（未交付），TODO 文本未改写。
+- 前置生命周期组件证据：未取得。2026-10-17 读取 `/Users/sawyerlau/Project/LazyGoal/.worktrees/runtime-sdk-extraction/specs/runtime-sdk-extraction/plan.md`：TODO 4、5、6 仍为 `- [ ]`，`### Latest Result` 状态为“未执行”。RuntimeLifecycle/资源注册表关闭契约尚不可用，组合关闭按计划不得以旧注册表或替身替代。
+
+已执行命令与观察结果（均为本 worktree 实际运行）：
+
+- `npx tsx --test packages/process-runtime/test/process-shutdown.test.ts packages/process-runtime/test/process-startup.test.ts packages/process-runtime/test/process-output.test.ts packages/process-runtime/test/process-manager.test.ts packages/tools/test/process-tools.test.ts packages/storage/test/process-session-store.test.ts apps/goal-server/test/process-lifecycle.integration.test.ts packages/runtime/test/git-sandbox-authorization.test.ts`：43 项全部通过（TODO 2–4 期间连续重跑，逐次记录）。
+- `npx tsc --noEmit`、`npx tsc --noEmit -p apps/goal-server/tsconfig.json`：通过。
+- `npm run check:dependencies`：通过（231 个源文件）；`npm run check:docs`：通过（31 个模块，119 份当前说明）。
+- `npm test`：通过（类型、文档、依赖、GEPA adapter、347 个 TS/TSX 测试文件共 1968 项、33 项 scripts 测试全部通过）。
+- 红绿证据：TODO 1–4 均在实现前以新测试观察到对应失败（TODO 2 全 10 项、TODO 3 顺序与“退出后仍等待写入”2 项、TODO 4 关闭窗口与未确认场景），再实现并通过；失败输出保留在执行日志。
+
+未解决项与风险：
+
+- TODO 5、TODO 6 与完整 Feature Verification 未开始；恢复条件：Runtime 前置组件（RuntimeLifecycle 与资源注册表关闭契约）完成并有其 Feature Verification 证据，或由编排恢复同一会话继续。
+- 消费型既有测试 `packages/runtime/test/git-sandbox-authorization.test.ts`（本分支仅改导入路径）在 8 文件并发负载下曾失败一次：其 1000ms `waitMs` 窗口内未取得 Seatbelt 拒绝的 stderr；单文件连续 3 次通过。属既有时间敏感性，未在本轮改动。
+- 维护候选：`project-memory/features/tool-suite-expansion.md` 的权威路径仍指向 `packages/tools/src/process-manager.ts`；按计划未改写历史 Memory，留待 memory 维护流程更新。
+- 环境说明：worktree 依赖按仓库实际方式在各包目录分别安装（`npm ci`，含 `benchmarks/`），否则 GEPA/基准相关回归会因缺少嵌套依赖失败。
+
+## Learning Candidates
+
+- 延迟 SIGKILL 定时器与 PID/PGID 复用：`killProcessGroup(child, { graceMs: 0 })` 先发 SIGTERM、再由 0ms 定时器发 SIGKILL；进程退出并被回收后，迟到信号可能命中被复用的进程组，误杀无关进程。强制升级应直接同步发送 SIGKILL，已退出句柄不再发信号，宽限定时器必须在结算时取消。
+- 测试清理与等待点：在 `finally` 中等待被测关闭时，若受控存储的等待点仍挂起，测试进程事件循环耗尽会以 `cancelledByParent` 掩盖真实断言失败。受控边界应提供“释放全部等待点”，清理路径先释放再关闭。
+- 异步探针误用：`() => markerExists(path) ? true : undefined` 对 async 函数永远为真，会让等待瞬间返回并产生随机结果；等待谓词必须 `await` 结果。
+- 输出分片不可假设：同一命令的连续 `stdout.write` 可能合并为单个 data 事件；依赖分片数量或边界断言必须用受控信号（如文件闸门）分阶段触发，而非固定次数或固定延迟。
+- 多文件并发回归的负载敏感性：独立运行通过不能证明并发下稳定；窗口型既有断言（如 1 秒 `waitMs`）在 8 文件并发下更易抖动，测试入口命令与并发度应作为证据的一部分记录。
