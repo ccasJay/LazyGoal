@@ -162,3 +162,74 @@ test("事件 Envelope 可安全 JSON 序列化", async () => {
     const parsed = JSON.parse(JSON.stringify(event)) as typeof event;
     assert.deepEqual(parsed, event);
 });
+
+test("增量合并只连接同一块同一字段的增量，跨块与跨调用不合并", async () => {
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const subscription = publisher.subscribe(ref);
+    const delta = (coalescingKey: string, payload: Record<string, string | number>) => draft({
+        kind: "model_block_delta",
+        delivery: "delta" as const,
+        coalescingKey,
+        payload,
+    });
+
+    publisher.publish(delta("model-block:call-1:0", { blockIndex: 0, deltaKind: "text", delta: "第一" }));
+    publisher.publish(delta("model-block:call-1:0", { blockIndex: 0, deltaKind: "text", delta: "段" }));
+    publisher.publish(delta("model-block:call-1:1", { blockIndex: 1, deltaKind: "text", delta: "第二块" }));
+    publisher.publish(delta("model-block:call-2:0", { blockIndex: 0, deltaKind: "text", delta: "下一次调用" }));
+
+    const first = await readOne(subscription);
+    assert.equal(first.coalescedFrom, 1);
+    assert.deepEqual(first.payload, { blockIndex: 0, deltaKind: "text", delta: "第一段" });
+    assert.deepEqual((await readOne(subscription)).payload, { blockIndex: 1, deltaKind: "text", delta: "第二块" });
+    assert.deepEqual((await readOne(subscription)).payload, { blockIndex: 0, deltaKind: "text", delta: "下一次调用" });
+    subscription.close();
+});
+
+test("类型不同的增量与其它字段变化不参与合并", async () => {
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const subscription = publisher.subscribe(ref, { minimumVisibility: "diagnostic" });
+    const delta = (payload: Record<string, string | number>) => draft({
+        kind: "model_block_delta",
+        visibility: "diagnostic" as const,
+        delivery: "delta" as const,
+        coalescingKey: "model-block:call-1:1",
+        payload,
+    });
+
+    publisher.publish(delta({ blockIndex: 1, deltaKind: "tool_arguments", delta: '{"a"' }));
+    publisher.publish(delta({ blockIndex: 1, deltaKind: "reasoning", delta: "not the same kind" }));
+    publisher.publish(delta({ blockIndex: 1, deltaKind: "tool_arguments", delta: ":1}" }));
+
+    const first = await readOne(subscription);
+    assert.deepEqual(first.payload, { blockIndex: 1, deltaKind: "tool_arguments", delta: '{"a"' });
+    assert.equal(first.coalescedFrom, undefined);
+    assert.deepEqual((await readOne(subscription)).payload, { blockIndex: 1, deltaKind: "reasoning", delta: "not the same kind" });
+    assert.deepEqual((await readOne(subscription)).payload, { blockIndex: 1, deltaKind: "tool_arguments", delta: ":1}" });
+    subscription.close();
+});
+
+test("慢订阅者因背压关闭时不影响快订阅者与控制事件保留", async () => {
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const slow = publisher.subscribe(ref, { maxQueueSize: 2 });
+    const fast = publisher.subscribe(ref, { maxQueueSize: 32 });
+    const fastPayloads: unknown[] = [];
+    fast.onEvent(event => { fastPayloads.push(event.payload); });
+
+    const delta = (text: string) => draft({
+        kind: "model_block_delta",
+        delivery: "delta" as const,
+        coalescingKey: `model-block:call-1:${text}`,
+        payload: { deltaKind: "text", delta: text },
+    });
+    for (const text of ["a", "b", "c", "d"]) publisher.publish(delta(text));
+    publisher.publish({ ...ref, kind: "model_completed", visibility: "public", durability: "live", delivery: "control", payload: { hasToolCalls: false } });
+
+    // 慢订阅者因背压关闭，快订阅者仍收到控制事件。
+    assert.equal(slow.closed, true);
+    assert.equal(fast.closed, false);
+    assert.deepEqual(fastPayloads.at(-1), { hasToolCalls: false });
+    assert.equal(fastPayloads.length, 5);
+    slow.close();
+    fast.close();
+});

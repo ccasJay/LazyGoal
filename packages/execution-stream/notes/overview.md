@@ -12,7 +12,7 @@ Core 不解释事件 `kind` 的领域含义，也不写 Goal Snapshot、Trajecto
 ## 所有权与适配器
 
 - Runtime 在 Runner/Coordinator 的生命周期和提交边界发布 `run_started`、`step_started`、`decision_received`、`tool_started`、`tool_finished`、`observation_recorded`、`step_committed` 以及等待和终态事件。发布失败被隔离，不改变执行和持久化结果。
-- Agent/LLM 将 Provider 流转换为 `assistant_text_delta`、`reasoning_delta`、`model_tool_call_delta` 和 `model_completed`。推理与不完整工具参数使用受限可见性；不支持流式 Provider 时，Agent 仍调用 `generate()` 并发布一次性模型事件。
+- Agent/LLM 按块身份发布 `model_block_started`／`model_block_delta`／`model_block_completed` 与 `model_started`／`model_completed`；普通正文公开、结构化 JSON 与工具参数诊断、reasoning 受限且须显式订阅。发布故障按观察通道隔离，慢订阅者按背压关闭；不支持流式 Provider 时按整块方式观察同一组事件。
 - Tools 的流能力是可选扩展。Bash 在同一次进程执行中发布 stdout/stderr 分片，其他 Tool 保持最终 Observation 回退；每个 Action 仍只执行一次，超时、中止、截断和 replayPolicy 由 Tool/Runtime 原有契约拥有。
 - Browser Stream Adapter 将通用事件投影为受授权的同源 SSE；Goal Board 更新模型文本尾部、Step/Tool 活动和有限输出。已提交会话仍由 Snapshot/Trajectory 投影，避免把实时事件当作恢复事实。
 

@@ -43,7 +43,7 @@
   - **实现**：统一三个 Adapter 的正常终结检查和本次资源清理，model-call 对失败／取消发安全终止摘要后传播原类型化原因，保持 Runtime 的预算、退避、Interrupt 和 unknown 规则。对已经出现工具对象的截断／阻断同样拒绝；不为部分块创建 Observation 或成功消息，不新增自动重发、模型降级和借用 Adapter 的全局关闭。
   - **验证**：新增 `packages/runtime/test/model-stream-execution-boundary.test.ts`（待实现），扩展三个协议流测试、`packages/model-execution/test/execution-control.test.ts`、`packages/runtime/test/execution-control.test.ts`、`runtime-feedback.test.ts` 和 `run-interrupt.test.ts`；运行相应 `npx tsx --test`。分别记录 Provider 请求、每次调用终止、审批等待、工具执行及已提交事实，避免将正常后续重试误算为失败响应的工具效果。
 
-- [ ] //TODO 6. 在公开活动、诊断和慢订阅者之间保持内容隔离与调用归属
+- [x] //TODO 6. 在公开活动、诊断和慢订阅者之间保持内容隔离与调用归属
 
   落实标准：[2.5](./spec.md#spec-req-2-5)、[5.5](./spec.md#spec-req-5-5)、[6.1](./spec.md#spec-req-6-1)、[6.2](./spec.md#spec-req-6-2)、[6.3](./spec.md#spec-req-6-3)、[6.4](./spec.md#spec-req-6-4)、[6.5](./spec.md#spec-req-6-5)。
   - **先验证**：同一 Goal／Run 的不同调用分别产生普通正文和 strict JSON，在支持的调用中加入参数、reasoning、签名和 metadata 的不同标记，同时读取默认／诊断／显式 reasoning 订阅及真实 Browser SSE；每次请求保持合法模式，仅允许对应内容出现在相应入口，开始、块结束和完整响应事件也不能旁路泄漏。让同块相邻增量合并、跨块／跨调用不合并，慢订阅者 backpressure 关闭后快订阅者和模型调用继续成功；发布抛错不改变响应，断开不产生 Interrupt。

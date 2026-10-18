@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { LLMAdapter, LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
-import { blockResponse } from "../../llm-core/test/response-fixtures";
+import { readAssistantText } from "../../llm-core/src/index";
+import { blockResponse, textResponse } from "../../llm-core/test/response-fixtures";
 import type { ModelInputRecord } from "../../runtime/src/model-input";
 import type { ExecutionStreamEventDraft, ExecutionStreamPublisher } from "../../execution-stream/src/index";
 import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/index";
@@ -383,4 +384,224 @@ test("失败或取消时发布安全终止摘要，指明未完成块且不携�
     assert.equal(cancelled.visibility, "public");
     const startedDraft = cancellation.drafts.find(draft => draft.kind === "model_started");
     assert.equal(cancelledPayload.modelCallId, (startedDraft?.payload as { readonly modelCallId?: string } | undefined)?.modelCallId);
+});
+
+test("公开、诊断与显式 reasoning 订阅互不越界，块边界与完成事件也不旁路泄漏", async () => {
+    const PLAIN_MARKER = "PUBLIC_PLAIN_TEXT";
+    const JSON_MARKER = "PRIVATE_JSON_MARKER";
+    const ARGUMENT_MARKER = "PRIVATE_ARGUMENT_MARKER";
+    const REASONING_MARKER = "PRIVATE_REASONING_MARKER";
+    const METADATA_MARKER = "PRIVATE_METADATA_MARKER";
+    const jsonText = `{"result":{"kind":"complete","summary":"${JSON_MARKER}"}}`;
+
+    let calls = 0;
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(): Promise<LLMResponse> { throw new Error("stream adapter must not call generate"); },
+        async *stream(): AsyncIterable<LLMStreamEvent> {
+            calls += 1;
+            yield { kind: "started" };
+            if (calls === 1) {
+                yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "plain" };
+                yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: PLAIN_MARKER.slice(0, 6) };
+                yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: PLAIN_MARKER.slice(6) };
+                yield { kind: "content_block_completed", delivery: "incremental", block: { index: 0, type: "text", format: "plain", text: PLAIN_MARKER } };
+                yield {
+                    kind: "completed",
+                    response: { ...textResponse(PLAIN_MARKER), providerMetadata: { marker: METADATA_MARKER } },
+                };
+                return;
+            }
+            yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "whole", format: "json" };
+            yield { kind: "content_block_completed", delivery: "whole", block: { index: 0, type: "text", format: "json", text: jsonText } };
+            yield { kind: "content_block_started", index: 1, blockType: "tool_call", delivery: "whole" };
+            yield {
+                kind: "content_block_completed", delivery: "whole",
+                block: { index: 1, type: "tool_call", callId: "call-isolated", toolId: "read_file", argumentsJson: `{"path":"${ARGUMENT_MARKER}"}` },
+            };
+            yield { kind: "content_block_started", index: 2, blockType: "reasoning", delivery: "whole" };
+            yield { kind: "content_block_completed", delivery: "whole", block: { index: 2, type: "reasoning", text: REASONING_MARKER } };
+            yield {
+                kind: "completed",
+                response: blockResponse(
+                    { type: "text", format: "json", text: jsonText },
+                    { type: "tool_call", callId: "call-isolated", toolId: "read_file", argumentsJson: `{"path":"${ARGUMENT_MARKER}"}` },
+                    { type: "reasoning", text: REASONING_MARKER },
+                ),
+            };
+        },
+    };
+
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const collect = (policy?: Parameters<InMemoryExecutionStreamPublisher["subscribe"]>[1]) => {
+        const events: { readonly kind: string; readonly visibility: string; readonly coalescingKey?: string; readonly payload: unknown }[] = [];
+        const subscription = publisher.subscribe({ goalId: "goal-stream", runId: "run-stream" }, policy);
+        subscription.onEvent(event => events.push({
+            kind: event.kind, visibility: event.visibility,
+            ...(event.coalescingKey === undefined ? {} : { coalescingKey: event.coalescingKey }),
+            payload: event.payload,
+        }));
+        return { events, subscription };
+    };
+    const publicView = collect();
+    const diagnosticView = collect({ minimumVisibility: "diagnostic" });
+    const reasoningView = collect({ minimumVisibility: "restricted", includeReasoning: true });
+
+    const first = await callModel({ adapter, executionStream: publisher }, { context: context(), request: REQUEST, stage: "decide" });
+    const second = await callModel({ adapter, executionStream: publisher }, { context: context(), request: REQUEST, stage: "decide" });
+
+    // 默认订阅只得到既有允许的普通正文与安全生命周期，且同一块相邻增量合并。
+    const publicKinds = publicView.events.map(event => event.kind);
+    assert.deepEqual(publicKinds, [
+        "model_started", "model_block_started", "model_block_delta", "model_block_delta", "model_block_completed", "model_completed",
+        "model_started", "model_completed",
+    ]);
+    // 回调订阅立即交付，不合并；同块相邻增量的合并由缓冲订阅用例覆盖。
+    assert.deepEqual(
+        publicView.events.filter(event => event.kind === "model_block_delta")
+            .map(event => (event.payload as { readonly delta: string }).delta).join(""),
+        PLAIN_MARKER,
+    );
+    assert.equal(publicView.events.filter(event => event.kind === "model_block_delta").length > 0, true);
+    for (const marker of [JSON_MARKER, ARGUMENT_MARKER, REASONING_MARKER, METADATA_MARKER]) {
+        assert.equal(JSON.stringify(publicView.events).includes(marker), false, marker);
+    }
+    // 公共完成事件只带安全摘要与调用身份，不携带整个响应。
+    const completions = publicView.events.filter(event => event.kind === "model_completed").map(event => event.payload);
+    assert.deepEqual(completions, [
+        { modelCallId: first.callId, hasToolCalls: false },
+        { modelCallId: second.callId, hasToolCalls: true },
+    ]);
+
+    // 诊断订阅得到结构化 JSON 与工具参数，但仍看不到 reasoning 与供应商 metadata。
+    assert.ok(JSON.stringify(diagnosticView.events).includes(JSON_MARKER));
+    assert.ok(JSON.stringify(diagnosticView.events).includes(ARGUMENT_MARKER));
+    assert.equal(JSON.stringify(diagnosticView.events).includes(REASONING_MARKER), false);
+    assert.equal(JSON.stringify(diagnosticView.events).includes(METADATA_MARKER), false);
+    const diagnosticVisibilities = [...new Set(diagnosticView.events.filter(event => event.visibility !== "public").map(event => event.visibility))];
+    assert.deepEqual(diagnosticVisibilities, ["diagnostic"]);
+
+    // 只有显式开启的受限订阅才能获得公开 reasoning 摘要。
+    assert.ok(JSON.stringify(reasoningView.events).includes(REASONING_MARKER));
+    assert.equal(JSON.stringify(reasoningView.events).includes(METADATA_MARKER), false);
+    assert.equal(reasoningView.events.some(event => event.visibility === "restricted" && event.kind === "model_block_completed"), true);
+
+    // 每条增量只能归入自己的调用与块：合并键以调用身份与块索引结尾。
+    for (const event of diagnosticView.events.filter(item => item.kind === "model_block_delta")) {
+        const blockIndex = (event.payload as { readonly blockIndex?: number }).blockIndex;
+        assert.equal(event.coalescingKey, `model-block:${(event.payload as { readonly modelCallId: string }).modelCallId}:${blockIndex}`);
+        assert.ok(event.coalescingKey.endsWith(`:${blockIndex}`));
+    }
+    assert.equal(new Set([first.callId, second.callId]).size, 2);
+});
+
+test("缓冲订阅按同一块的相邻增量合并，跨块与跨调用保持独立", async () => {
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(): Promise<LLMResponse> { throw new Error("stream adapter must not call generate"); },
+        async *stream(): AsyncIterable<LLMStreamEvent> {
+            yield { kind: "started" };
+            yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "plain" };
+            yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: "第一" };
+            yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: "段" };
+            yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: "。" };
+            yield { kind: "content_block_completed", delivery: "incremental", block: { index: 0, type: "text", format: "plain", text: "第一段。" } };
+            yield { kind: "content_block_started", index: 1, blockType: "tool_call", delivery: "incremental" };
+            yield { kind: "content_block_delta", index: 1, deltaKind: "tool_arguments", delta: '{"a"' };
+            yield { kind: "content_block_delta", index: 1, deltaKind: "tool_arguments", delta: ":1}" };
+            yield { kind: "content_block_completed", delivery: "incremental", block: { index: 1, type: "tool_call", callId: "call-1", toolId: "read_file", argumentsJson: '{"a":1}' } };
+            yield { kind: "completed", response: blockResponse(
+                { type: "text", text: "第一段。" },
+                { type: "tool_call", callId: "call-1", toolId: "read_file", argumentsJson: '{"a":1}' },
+            ) };
+        },
+    };
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const subscription = publisher.subscribe({ goalId: "goal-stream", runId: "run-stream" }, { minimumVisibility: "diagnostic" });
+    const iterator = subscription[Symbol.asyncIterator]();
+
+    const first = await callModel({ adapter, executionStream: publisher }, { context: context(), request: REQUEST, stage: "decide" });
+    await callModel({ adapter, executionStream: publisher }, { context: context(), request: REQUEST, stage: "decide" });
+
+    const events: { readonly kind: string; readonly payload: unknown; readonly coalescedFrom?: number }[] = [];
+    // 两次调用各产生：started、块开始、合并增量、块结束、块开始、合并增量、块结束、完成。
+    while (events.length < 16) {
+        const next = await Promise.race([
+            iterator.next(),
+            new Promise<"idle">(resolve => setTimeout(() => resolve("idle"), 50)),
+        ]);
+        if (next === "idle" || next.done === true) break;
+        events.push({ kind: next.value.kind, payload: next.value.payload,
+            ...(next.value.coalescedFrom === undefined ? {} : { coalescedFrom: next.value.coalescedFrom }) });
+    }
+    subscription.close();
+    assert.equal(events.length, 16, `缓冲事件数量: ${events.map(event => event.kind).join(",")}`);
+
+    // 缓冲期间同一块的相邻增量合并为一条，跨度不同的块与调用各保持独立。
+    const deltas = events.filter(event => event.kind === "model_block_delta");
+    assert.deepEqual(deltas.map(event => (event.payload as { readonly delta: string }).delta),
+        ["第一段。", '{"a":1}', "第一段。", '{"a":1}']);
+    assert.equal(deltas[0]?.coalescedFrom, 3);
+    assert.equal(events.filter(event => event.kind === "model_started").length, 2);
+    assert.equal((events.find(event => event.kind === "model_started")?.payload as { readonly modelCallId?: string }).modelCallId, first.callId);
+});
+
+test("发布故障与慢订阅者不改变调用结果，也不触发 Interrupt", async () => {
+    let calls = 0;
+    const adapter = streamingAdapter([
+        { kind: "started" },
+        { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "plain" },
+        { kind: "content_block_delta", index: 0, deltaKind: "text", delta: "answer" },
+        { kind: "content_block_completed", delivery: "incremental", block: { index: 0, type: "text", format: "plain", text: "answer" } },
+        { kind: "completed", response: textResponse("answer") },
+    ]);
+    calls += 1;
+
+    // 发布抛错属于观察通道故障：调用结果保持不变。
+    const throwingPublisher = { publish() { throw new Error("subscriber exploded"); } } as unknown as ExecutionStreamPublisher;
+    const result = await callModel({ adapter, executionStream: throwingPublisher }, { context: context(), request: REQUEST, stage: "decide" });
+    assert.equal(readAssistantText(result.response), "answer");
+    assert.equal(calls, 1);
+
+    // 慢订阅者因背压关闭，快订阅者与模型调用继续成功。
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const slow = publisher.subscribe({ goalId: "goal-stream", runId: "run-stream" }, { maxQueueSize: 1 });
+    const fast: string[] = [];
+    publisher.subscribe({ goalId: "goal-stream", runId: "run-stream" }, { maxQueueSize: 32 })
+        .onEvent(event => { fast.push(event.kind); });
+    const streamed = await callModel({ adapter, executionStream: publisher }, { context: context(), request: REQUEST, stage: "decide" });
+    assert.equal(readAssistantText(streamed.response), "answer");
+    assert.deepEqual(fast, ["model_started", "model_block_started", "model_block_delta", "model_block_completed", "model_completed"]);
+    assert.equal(slow.closed, true);
+    slow.close();
+    publisher.dispose();
+});
+
+test("大段分片只保留一份所需输出，不按分片写持久化记录", async () => {
+    const fragments = 400;
+    const adapter = streamingAdapter([
+        { kind: "started" },
+        { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "plain" },
+        ...Array.from({ length: fragments }, (_unused, index) => ({
+            kind: "content_block_delta" as const, index: 0, deltaKind: "text" as const, delta: `${index % 10}`,
+        })),
+        { kind: "content_block_completed", delivery: "incremental", block: { index: 0, type: "text", format: "plain", text: Array.from({ length: fragments }, (_unused, index) => `${index % 10}`).join("") } },
+        { kind: "completed", response: textResponse(Array.from({ length: fragments }, (_unused, index) => `${index % 10}`).join("")) },
+    ]);
+    const inputs: ModelInputRecord[] = [];
+    const metrics: string[] = [];
+    const traces: unknown[] = [];
+    const result = await callModel({
+        adapter,
+        modelInputStore: { append: async record => { inputs.push(record); }, read: async () => inputs },
+        metricsRecorder: { record: async record => { metrics.push(record.recordType); } },
+        traceSink: { append: async record => { traces.push(record); } },
+    }, { context: context(), request: REQUEST, stage: "decide" });
+
+    assert.equal(readAssistantText(result.response).length, fragments);
+    // 记录与指标按调用而非按分片计数；观测状态只保留一份累计输出。
+    assert.equal(inputs.length, 1);
+    assert.deepEqual(metrics, ["call_started", "call_finished"]);
+    assert.equal(traces.length, 2);
+    assert.equal(result.response.blocks.length, 1);
 });

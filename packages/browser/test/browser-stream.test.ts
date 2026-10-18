@@ -7,6 +7,8 @@ import {
     type GoalStore,
 } from "../../runtime/src/index";
 import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/index";
+import type { LLMAdapter, LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
+import { blockResponse } from "../../llm-core/test/response-fixtures";
 import {
     BrowserGoalStreamService,
     createBrowserGoalRoutes,
@@ -400,4 +402,72 @@ test("HTTP 事件流只接受单一 Goal/Run 身份并关闭时清理订阅", as
         `event: update\ndata: ${JSON.stringify(events[0])}\n\n`);
     assert.equal((await reader.read()).done, true);
     assert.equal(closeCalls, 1);
+});
+
+test("真实模型调用链下的浏览器活动只包含公开正文与调用提示", async () => {
+    const goal = goalFor("goal-stream-real");
+    const store = new NotifyingMemoryStore();
+    await store.save(goal);
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const streams = new BrowserGoalStreamService({ store, saveNotifications: store, publisher });
+    const opened = await streams.open(goal.id, goal.state.run.id);
+    assert.equal(opened.ok, true);
+    if (!opened.ok) return;
+    const iterator = opened.feed.events[Symbol.asyncIterator]();
+    await nextEvent(iterator);
+
+    const PLAIN_MARKER = "PUBLIC_ANSWER";
+    const JSON_MARKER = "PRIVATE_JSON";
+    const ARGUMENT_MARKER = "PRIVATE_ARGUMENT";
+    const REASONING_MARKER = "PRIVATE_REASONING";
+    const METADATA_MARKER = "PRIVATE_METADATA";
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(): Promise<LLMResponse> { throw new Error("stream adapter must not call generate"); },
+        async *stream(): AsyncIterable<LLMStreamEvent> {
+            yield { kind: "started" };
+            yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "plain" };
+            yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: PLAIN_MARKER };
+            yield { kind: "content_block_completed", delivery: "incremental", block: { index: 0, type: "text", format: "plain", text: PLAIN_MARKER } };
+            yield { kind: "content_block_started", index: 1, blockType: "text", delivery: "whole", format: "json" };
+            yield { kind: "content_block_completed", delivery: "whole", block: { index: 1, type: "text", format: "json", text: `{"summary":"${JSON_MARKER}"}` } };
+            yield { kind: "content_block_started", index: 2, blockType: "tool_call", delivery: "whole" };
+            yield { kind: "content_block_completed", delivery: "whole", block: { index: 2, type: "tool_call", callId: "call-1", toolId: "read_file", argumentsJson: `{"path":"${ARGUMENT_MARKER}"}` } };
+            yield { kind: "content_block_started", index: 3, blockType: "reasoning", delivery: "whole" };
+            yield { kind: "content_block_completed", delivery: "whole", block: { index: 3, type: "reasoning", text: REASONING_MARKER } };
+            yield { kind: "completed", response: { ...blockResponse(
+                { type: "text", text: PLAIN_MARKER },
+                { type: "text", format: "json", text: `{"summary":"${JSON_MARKER}"}` },
+                { type: "tool_call", callId: "call-1", toolId: "read_file", argumentsJson: `{"path":"${ARGUMENT_MARKER}"}` },
+                { type: "reasoning", text: REASONING_MARKER },
+            ), providerMetadata: { marker: METADATA_MARKER } } };
+        },
+    };
+
+    const { callModel } = await import("../../model-call/src/index");
+    await callModel({ adapter, executionStream: publisher }, {
+        context: {
+            goalId: goal.id, runId: goal.state.run.id, stepIndex: 1, modelId: "test-model",
+            conversationMessages: [], sections: [],
+        },
+        request: { messages: [{ role: "user", content: "hi" }] },
+        stage: "decide",
+    });
+
+    const activities: BrowserGoalLiveEvent[] = [];
+    while (true) {
+        const next = await nextEvent(iterator);
+        if (next.done === true) break;
+        activities.push(next.value);
+        if (next.value.type === "activity" && next.value.activity.kind === "model_completed") break;
+    }
+    opened.feed.close();
+
+    const projected = activities.filter((event): event is Extract<BrowserGoalLiveEvent, { type: "activity" }> => event.type === "activity");
+    assert.deepEqual(projected.map(event => event.activity.kind), ["model_started", "assistant_text_delta", "model_completed"]);
+    const text = projected.find(event => event.activity.kind === "assistant_text_delta");
+    assert.equal(text?.activity.kind === "assistant_text_delta" ? text.activity.text : undefined, PLAIN_MARKER);
+    for (const marker of [JSON_MARKER, ARGUMENT_MARKER, REASONING_MARKER, METADATA_MARKER]) {
+        assert.equal(JSON.stringify(activities).includes(marker), false, marker);
+    }
 });

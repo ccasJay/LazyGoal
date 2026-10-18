@@ -62,8 +62,9 @@ export interface ExecutionStreamPublisher {
  * @remarks
  * Publisher 按 Goal/Run 隔离 cursor 和订阅者。发布只负责把已经发生的观察
  * 通知到当前进程的订阅者，不写入 Snapshot、Trajectory 或外部传输。增量事件
- * 在每个订阅者的队列中按相同 `kind`、`coalescingKey` 和 visibility 合并；控制
- * 事件不会被丢弃，无法保留时会关闭慢订阅者。
+ * 在每个订阅者的队列中按相同 `kind`、`coalescingKey` 和 visibility 合并；合并
+ * 只连接声明携带增量文本的字符串字段（`text` 或 `delta`），其它字段必须完全一致。
+ * 控制事件不会被丢弃，无法保留时会关闭慢订阅者。
  *
  * @example
  * ```ts
@@ -258,8 +259,32 @@ function mergeTextPayload(
     right: StreamJsonValue,
 ): StreamJsonValue | undefined {
     if (!isRecord(left) || !isRecord(right)) return undefined;
-    if (typeof left.text !== "string" || typeof right.text !== "string") return undefined;
-    return { ...left, text: `${left.text}${right.text}` };
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    if (leftKeys.length !== rightKeys.length || !leftKeys.every(key => Object.hasOwn(right, key))) return undefined;
+
+    // 通用增量合并：除声明携带增量的字符串字段外，其它字段必须完全一致。
+    let mergedField: string | undefined;
+    for (const key of leftKeys) {
+        if (Object.is(left[key], right[key])) continue;
+        if (mergedField !== undefined) return undefined;
+        if (isDeltaTextField(key) && typeof left[key] === "string" && typeof right[key] === "string") {
+            mergedField = key;
+            continue;
+        }
+        return undefined;
+    }
+    const field = mergedField ?? DELTA_TEXT_FIELDS.find(candidate =>
+        isDeltaTextField(candidate) && typeof left[candidate] === "string" && typeof right[candidate] === "string");
+    if (field === undefined) return undefined;
+    return { ...left, [field]: `${String(left[field])}${String(right[field])}` };
+}
+
+/** 通用增量载荷允许携带增量文本的字段名；Core 不解释这些字段的业务含义。 */
+const DELTA_TEXT_FIELDS = ["text", "delta"] as const;
+
+function isDeltaTextField(key: string): key is (typeof DELTA_TEXT_FIELDS)[number] {
+    return (DELTA_TEXT_FIELDS as readonly string[]).includes(key);
 }
 
 function isRecord(value: StreamJsonValue): value is { readonly [key: string]: StreamJsonValue } {
