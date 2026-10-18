@@ -341,6 +341,25 @@ export type {
 } from "./session-input";
 export { SessionInputAdmission } from "./session-admission";
 export type { SessionInputAdmissionDependencies } from "./session-admission";
+export {
+    Session,
+    SessionDetachedError,
+    projectGoalSessionState,
+} from "./session";
+export type {
+    GoalSessionState,
+    GoalSessionStateInput,
+    SessionHandlePort,
+    SessionManagerErrorCode,
+    SessionReceipt,
+} from "./session";
+export { SessionManager } from "./session-manager";
+export type {
+    SessionCreateRequest,
+    SessionCreateResult,
+    SessionManagerDependencies,
+    SessionOpenResult,
+} from "./session-manager";
 export { Runner, type InterruptRunResult, type SteerInputResult } from "./runner";
 export { RunRecoveryReader, type RunRecoveryReaderDependencies } from "./run-recovery-reader";
 export type { RunnerDependencies, RunnerResult, SandboxPlanResolver } from "./runner";
@@ -387,8 +406,10 @@ export type {
     ToolGrantStore,
     UnifiedGrantSummary,
 } from "./tool-grant";
-export { launch } from "./launcher";
+export { launch, createGoalCheckpoint } from "./launcher";
 export type {
+    CreateGoalRequest,
+    CreateGoalResult,
     LauncherDependencies,
     LaunchRequest,
     LaunchResult,

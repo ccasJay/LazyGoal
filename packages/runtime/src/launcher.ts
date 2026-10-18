@@ -1,9 +1,11 @@
 import type { AgentProfileRegistry } from "./agent-profile";
 import {
     createGoal,
+    type Goal,
     type RunMode,
     type GoalModelSelection,
     type GoalProtocolValidator,
+    type RunRef,
 } from "./domain";
 import {
     isExecutionAbortedError,
@@ -13,6 +15,7 @@ import {
 import type { GoalStore } from "./goal-store";
 import type {
     GoalCoordinator,
+    GoalProgressErrorCode,
     GoalProgressResult,
 } from "./goal-coordinator";
 import type { TrajectoryStore } from "./trajectory";
@@ -59,13 +62,60 @@ export interface LaunchRequest {
 /** 由调用方注入；生产环境可生成 UUID，测试可返回固定值。 */
 export type RunIdGenerator = () => string;
 
+/**
+ * 创建 Goal 并保存首次检查点的请求。
+ *
+ * @remarks
+ * 在 {@link LaunchRequest} 之上增加可选的首条输入身份：提供时，首次保存
+ * 同时写入该输入的受理记录，使首条消息与 Goal、Run 和收据在同一提交边界
+ * 生效。
+ *
+ * @example
+ * ```ts
+ * const request: CreateGoalRequest = {
+ *   goalId: "goal-1",
+ *   intent: "Build a session",
+ *   profileId: "default",
+ *   firstInput: { inputId: "input-1", digest: "sha256:..." },
+ * };
+ * ```
+ */
+export interface CreateGoalRequest extends LaunchRequest {
+    /** 首条输入的稳定身份与规范化载荷摘要。 */
+    readonly firstInput?: {
+        readonly inputId: string;
+        readonly digest: `sha256:${string}`;
+    } | undefined;
+}
+
+/**
+ * 保存 Goal 首次检查点的结果。
+ *
+ * @remarks `ok: true` 只表示 Goal、首条消息、Run 与可选受理记录已经提交；
+ * 调用方仍需自行决定何时推进 Run。
+ *
+ * @example
+ * ```ts
+ * const created = await createGoalCheckpoint(request, dependencies);
+ * ```
+ */
+export type CreateGoalResult =
+    | { readonly ok: true; readonly goal: Goal; readonly ref: RunRef }
+    | {
+        readonly ok: false;
+        readonly error: {
+            readonly code: "INVALID_GOAL_INPUT" | "PROFILE_NOT_FOUND";
+            readonly message: string;
+        };
+    };
+
 /** Launcher 的 Goal 推进结果，额外包含 Profile 查找失败。 */
 export type LaunchResult =
     | GoalProgressResult
     | {
         readonly ok: false;
         readonly error: {
-            readonly code: "PROFILE_NOT_FOUND";
+            readonly code: GoalProgressErrorCode | "PROFILE_NOT_FOUND";
             readonly message: string;
         };
     };
@@ -136,6 +186,43 @@ export async function launch(
     dependencies: LauncherDependencies,
     control?: ExecutionControl,
 ): Promise<LaunchResult> {
+    const created = await createGoalCheckpoint(request, dependencies, control);
+    if (!created.ok) return created;
+    const result = await dependencies.coordinator.advance(created.ref, control);
+    throwIfAborted(control);
+    return result;
+}
+
+/**
+ * 校验创建输入、冻结 Profile 并保存 Goal 首次检查点。
+ *
+ * @remarks
+ * 固定顺序为：输入校验 → Profile lookup → 生成 runId → 保存
+ * `executing/created` Goal。intent 为空白或 maxSteps 非非负整数时返回
+ * `INVALID_GOAL_INPUT`，且不会查找 Profile、生成 runId 或保存。初始快照未
+ * 保存成功时不会推进 Run，也不会调用模型或工具。提供 `firstInput` 时，首次
+ * 保存同时写入该输入的受理记录，使首条消息、Run 与收据在同一提交边界生效。
+ *
+ * @param request - Goal ID、原始意图、Profile ID、可选 Step 上限与首条输入身份。
+ * @param dependencies - Profile Registry、Run ID 生成器、Store 与可选 Trajectory。
+ * @param control - 当前 Goal 创建调用共享的中止控制。
+ * @returns 已保存的 Goal 与首次 Run 引用，或稳定输入/Profile 业务失败。
+ * @throws Run ID 生成、GoalStore 或 Trajectory 依赖失败时传播原始异常；中止时
+ *   抛出 `ExecutionAbortedError`。
+ *
+ * @example
+ * ```ts
+ * const created = await createGoalCheckpoint(
+ *   { goalId: "goal-1", intent: "Build a session", profileId: "default" },
+ *   { profiles, runIdGenerator, store, coordinator },
+ * );
+ * ```
+ */
+export async function createGoalCheckpoint(
+    request: CreateGoalRequest,
+    dependencies: LauncherDependencies,
+    control?: ExecutionControl,
+): Promise<CreateGoalResult> {
     throwIfAborted(control);
 
     if (request.intent.trim().length === 0) {
@@ -185,7 +272,24 @@ export async function launch(
     });
     const ref = { goalId: goal.id, runId };
 
-    let initialGoal = goal;
+    let initialGoal: Goal = request.firstInput === undefined
+        ? goal
+        : {
+            ...goal,
+            state: {
+                ...goal.state,
+                inputLedger: [{
+                    inputId: request.firstInput.inputId,
+                    kind: "message",
+                    digest: request.firstInput.digest,
+                    sequence: 1,
+                    status: "applied",
+                    admittedAtRevision: 1,
+                    appliedRunId: runId,
+                    messageIndex: 0,
+                }],
+            },
+        };
     if (dependencies.trajectoryStore !== undefined) {
         throwIfAborted(control);
         let goalCreatedEvent;
@@ -205,11 +309,11 @@ export async function launch(
             );
         }
         initialGoal = {
-            ...goal,
+            ...initialGoal,
             state: {
-                ...goal.state,
+                ...initialGoal.state,
                 run: {
-                    ...goal.state.run,
+                    ...initialGoal.state.run,
                     committedThroughSequence: goalCreatedEvent.sequence,
                 },
             },
@@ -259,12 +363,11 @@ export async function launch(
         }
         throwIfAborted(control);
     }
-    const result = await dependencies.coordinator.advance(ref, control);
-    throwIfAborted(control);
-    return result;
+
+    return { ok: true, goal: initialGoal, ref };
 }
 
-function invalidGoalInput(message: string): LaunchResult {
+function invalidGoalInput(message: string): CreateGoalResult {
     return {
         ok: false,
         error: {

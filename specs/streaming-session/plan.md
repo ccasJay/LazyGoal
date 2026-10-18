@@ -12,7 +12,7 @@
   - 实施目标：在 Runtime 会话模块定义内部输入、收据与查询契约，扩展 Goal／Snapshot／Trajectory 当前协议、受理序号、队列修订和 Goal 提交修订。复用并扩展现有短 mutation Gate，将 Launcher、Runner、Coordinator、模型选择及管理写入纳入一致的读取／提交边界，防止旧快照覆盖新受理；校验放在 queued、durable 和 wire 等真实边界，不引入旧数据兼容或独立 inbox 文件。
   - 验证手段：`npx tsx --test packages/runtime/test/session-input.test.ts packages/storage/test/session-input-snapshot.test.ts packages/runtime/test/trajectory-checkpoint-committer.test.ts packages/runtime/test/trajectory-failure.test.ts packages/storage/test/goal-store.test.ts`；断言快照、轨迹提交边界、修订和实际调用数，不以收据对象存在代替落盘证据。
 
-- [ ] //TODO 2. 创建长期 Session 并在受理返回后由唯一所有者推进 Run
+- [x] //TODO 2. 创建长期 Session 并在受理返回后由唯一所有者推进 Run
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[1.5](./spec.md#spec-req-1-5)、[8.1](./spec.md#spec-req-8-1)、[8.3](./spec.md#spec-req-8-3)、[8.4](./spec.md#spec-req-8-4)。
   - 先验证：在待实现的 `packages/runtime/test/session-execution.test.ts` 中阻塞模型，验证创建 Promise 已在首次保存后返回、执行仍在进行；两个句柄连接同 Goal 不产生两个执行器，另一 Goal 的推进和新输入明确 busy。重建实例后只读连接和原创建身份重试均不调用模型；缺失／损坏 Goal 明确失败，四类 Run 结果均不销毁 Session。
   - 实施目标：接入 `sessions.create`／`sessions.open`、被生命周期追踪的后台任务、单活动 Goal 名额及只读状态；拆开受理与执行 Promise，复用 Launcher／Coordinator／Runner，不复制执行循环。实例级执行名额和 Goal 短 Gate 职责分开，外部模型／工具等待不持有短 Gate；观察后台异常并释放或保留真实恢复状态，不产生未处理 rejection。
