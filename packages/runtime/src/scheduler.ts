@@ -55,7 +55,8 @@ export interface RunScheduler {
     /**
      * 持久化受理并中止目标 Run；不影响 Scheduler 的其它 Run 调用。
      * @param ref - 目标 Goal 与 Run 身份。
-     * @param requestId - 重试时复用的稳定请求 ID。
+     * @param requestId - 重试时复用的稳定请求 ID，同时作为统一输入账本身份。
+     * @param ledger - 提供时在同一提交中写入中断收据并暂停队列。
      * @returns 已持久化受理或稳定拒绝结果。
      * @throws Goal 快照或轨迹提交失败时拒绝。
      * @example
@@ -63,5 +64,9 @@ export interface RunScheduler {
      * await scheduler.interrupt?.({ goalId: "goal-1", runId: "run-1" }, "interrupt-1");
      * ```
      */
-    interrupt?(ref: RunRef, requestId: string): Promise<InterruptRunResult>;
+    interrupt?(
+        ref: RunRef,
+        requestId: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<InterruptRunResult>;
 }

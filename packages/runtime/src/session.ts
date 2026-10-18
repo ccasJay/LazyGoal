@@ -63,6 +63,18 @@ export interface GoalSessionState {
      * 消息都不会自动恢复，必须提交显式 `resume`。
      */
     readonly needsRecovery: boolean;
+    /**
+     * 当前 Run 的用户中断状态；未受理用户中断时省略。
+     *
+     * @remarks
+     * 调用方据此区分已受理（`requested`）、停止／有限收尾（`repairing`）与
+     * 已结算（`finished`）；`outcomeUnknown` 表示仍有未解决的未知外部效果。
+     */
+    readonly interruption?: {
+        readonly requestId: string;
+        readonly status: "requested" | "repairing" | "finished";
+        readonly outcomeUnknown: boolean;
+    } | undefined;
     /** 当前实例是否持有该 Goal 的执行所有者。 */
     readonly executionOwner: boolean;
 }
@@ -251,6 +263,15 @@ export function projectGoalSessionState(input: GoalSessionStateInput): GoalSessi
         ...(run.status === "waiting" ? { waitingFor: resolveWaitingFor(goal) } : {}),
         needsRecovery: !executionOwner
             && (run.status === "created" || run.status === "running" || interruptionActive),
+        ...(run.interruption === undefined
+            ? {}
+            : {
+                interruption: {
+                    requestId: run.interruption.requestId,
+                    status: run.interruption.status,
+                    outcomeUnknown: run.interruption.outcomeUnknown === true,
+                },
+            }),
         executionOwner,
     };
 }

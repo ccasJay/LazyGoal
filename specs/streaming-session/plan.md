@@ -30,7 +30,7 @@
   - 实施目标：将既有 Steer 受理与应用接入统一账本及修订，保持目标 Run 校验、待应用顺序、模型 frame 身份及失效指针清理；先完成已启动工具的真实结算，再重建模型输入。终态转换在同一 Gate 检查新输入，拒绝时不自动降级成普通队列消息，提供可供 Web 核验的收据与拒绝结果。
   - 验证手段：`npx tsx --test packages/runtime/test/run-steer.test.ts packages/runtime/test/model-context-frame.test.ts packages/runtime/test/think-decision-recovery.test.ts packages/runtime/test/completion-review.test.ts`；断言同一 goalId／runId、受理与应用事件、实际请求正文、Action 次数及重建后的消息位置。
 
-- [ ] //TODO 5. 显式 Interrupt 原子暂停队列，并保留有限收尾与取消的真实状态
+- [x] //TODO 5. 显式 Interrupt 原子暂停队列，并保留有限收尾与取消的真实状态
   - 落实标准：[5.1](./spec.md#spec-req-5-1)、[5.2](./spec.md#spec-req-5-2)、[5.3](./spec.md#spec-req-5-3)、[5.4](./spec.md#spec-req-5-4)、[5.5](./spec.md#spec-req-5-5)、[3.3](./spec.md#spec-req-3-3)、[8.5](./spec.md#spec-req-8-5)。
   - 先验证：扩展 `packages/runtime/test/run-interrupt.test.ts` 和 `program-interruption.test.ts`，在模型、普通工具及 PTC 执行中请求中断，确认受理不等待停止完成，队列已暂停且原任务不再准入。覆盖未知效果核查、必要审批、收尾预算耗尽、重复中断，以及中断／Steer／完成／关闭的不同提交顺序；重建实例只读不收尾，显式恢复继续原预算。
   - 实施目标：在同一提交中保存中断意图、输入收据与暂停状态，再委派现有 Abort 和有限修复路径；公开状态区分已受理、停止／收尾、待审批和 cancelled。保留已有授权、沙箱、预算、未知效果记录和工具真实返回规则，不重写收尾算法、不把断线或宿主关闭转成用户 Interrupt。

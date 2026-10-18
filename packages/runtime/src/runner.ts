@@ -2,6 +2,7 @@ import type { ModelContextFrameForStage } from "./step-executor";
 import {
     findSessionInputRecord,
     nextSessionInputSequence,
+    withQueuePause,
     type SessionInputDigest,
     type SessionInputRecord,
 } from "./session-input";
@@ -1371,7 +1372,11 @@ class RunExecutor {
         });
     }
 
-    async interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {
+    async interrupt(
+        ref: RunRef,
+        requestId: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<InterruptRunResult> {
         if (requestId.trim().length === 0) return { ok: false, error: "INTERRUPT_CONFLICT" };
         const result = await withGoalMutationGate(this.store, ref.goalId, async (): Promise<InterruptRunResult> => {
             const goal = await this.restore(ref);
@@ -1385,8 +1390,41 @@ class RunExecutor {
             if (goal.state.run.status !== "running" && goal.state.run.status !== "waiting") {
                 return { ok: false, error: "RUN_NOT_RUNNING" };
             }
+            if (ledger !== undefined) {
+                const existingRecord = findSessionInputRecord(goal, requestId);
+                if (existingRecord !== undefined && existingRecord.digest !== ledger.digest) {
+                    return { ok: false, error: "INTERRUPT_CONFLICT" };
+                }
+            }
             const interruption: RunInterruption = { requestId, status: "requested", repairCallsStarted: 0 };
-            const nextGoal = this.withRun(goal, { ...goal.state.run, interruption });
+            const ledgerEntry: SessionInputRecord | undefined = ledger === undefined
+                ? undefined
+                : {
+                    // 中断意图在同一提交中生效；收据直接记录为已应用。
+                    inputId: requestId,
+                    kind: "interrupt",
+                    digest: ledger.digest,
+                    sequence: nextSessionInputSequence(goal),
+                    status: "applied",
+                    admittedAtRevision: (goal.state.commitRevision ?? 0) + 1,
+                    targetRunId: ref.runId,
+                    appliedRunId: ref.runId,
+                };
+            const nextGoal: Goal = {
+                ...goal,
+                state: {
+                    ...goal.state,
+                    ...(ledgerEntry === undefined
+                        ? {}
+                        : { inputLedger: [...(goal.state.inputLedger ?? []), ledgerEntry] }),
+                    // 中断意图与队列暂停在同一提交边界生效。
+                    messageQueue: withQueuePause(goal.state.messageQueue, {
+                        reason: "user_interrupt",
+                        runId: ref.runId,
+                    }),
+                    run: { ...goal.state.run, interruption },
+                },
+            };
             const fact: TrajectoryEventDraft = {
                 goalId: goal.id,
                 runId: ref.runId,
@@ -1394,7 +1432,10 @@ class RunExecutor {
                 eventType: "run_interrupt_requested",
                 payload: { type: "run_interrupt_requested", requestId },
             };
-            const committed = await this.checkpointCommitter.commit(nextGoal, { facts: [fact] });
+            const committed = await this.checkpointCommitter.commit(nextGoal, {
+                facts: [fact],
+                sessionState: "caller",
+            });
             this.publishCommittedEvents(committed);
             this.publishCheckpointCommitted(committed, [fact]);
             return { ok: true, goalId: goal.id, runId: ref.runId, requestId, existing: false };
@@ -6613,7 +6654,11 @@ export class Runner {
      * await runner.interrupt({ goalId, runId }, "interrupt-1");
      * ```
      */
-    interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {
-        return this.executor.interrupt(ref, requestId);
+    interrupt(
+        ref: RunRef,
+        requestId: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<InterruptRunResult> {
+        return this.executor.interrupt(ref, requestId, ledger);
     }
 }

@@ -14,6 +14,7 @@
 | 消息队列 | 尚未应用的普通消息 FIFO、队列修订与暂停原因；变更推进修订。 | [Goal Runtime](../README.md) | [输入契约](../src/session-input.ts) |
 | 队列暂停 | Run 失败或用户 Interrupt 后阻止后继 Run 启动；只有显式继续队列才解除，新消息只追加队尾。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 会话 Steer 受理 | 目标 running Run 的补充输入与 Run 内待应用记录、账本收据在同一提交生效；拒绝不写收据也不降级为队列消息。 | [Goal Runtime](../README.md) | [输入受理边界](../src/session-admission.ts) |
+| 会话 Interrupt 受理 | 中断意图、账本收据与队列暂停在同一提交生效；受理后观察停止、有限收尾、必要审批与最终 cancelled。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 后继 Run 绑定 | 队首消息、输入应用关联、队列修订与新 Run 创建在同一 Snapshot 提交中完成。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts) |
 | Goal 提交修订 | Goal 级单调提交修订，跨 Run 递增，用于恢复命令、状态同步与竞态判定。 | [Goal Runtime](../README.md) | [提交边界](../src/trajectory-checkpoint-committer.ts) |
 | 短 mutation Gate | 按 Store 与 Goal 串行化读取与 Snapshot 提交；同一异步调用链可安全重入。 | [Goal Runtime](../README.md) | [提交边界](../src/goal-mutation-gate.ts) |

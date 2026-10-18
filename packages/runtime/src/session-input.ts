@@ -233,6 +233,7 @@ export type SessionInputRejectionCode =
     | "GOAL_NOT_FOUND"
     | "BUSY"
     | "STEER_CONFLICT"
+    | "INTERRUPT_CONFLICT"
     | "QUEUE_FULL"
     | "QUEUE_TEXT_TOO_LARGE"
     | "TEXT_TOO_LARGE"

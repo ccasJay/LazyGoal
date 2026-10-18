@@ -57,7 +57,7 @@ waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表�
 
 同一执行所有者在 Run 结束后继续消费持久化队列：Run `completed` 且队列未暂停时，按 FIFO 为队首消息创建后继 Run——归档旧 Run、追加真实用户消息、创建新 Run 与应用队首输入在同一 Snapshot 提交中完成（`GoalCoordinator.continue` 的队列绑定），因此崩溃或响应丢失不会重复创建 Run。Run `waiting` 时队列不出队、不启动后继；Run `failed` 或用户 Interrupt 结算为 `cancelled` 时持久化队列暂停（`run_failed`／`user_interrupt`）并保留尚未应用的消息，新消息只追加到队尾，只有显式 `queue_control continue` 才解除暂停并从原队首启动。`queue_control clear` 只清除尚未应用的普通消息：保留收据、真实对话和当前 Run。
 
-用户 Interrupt 通过稳定请求身份持久化到 `RunState.interruption`，再中止目标 Run 的进程内信号；宿主关闭仍使用独立调用信号。已开始但结果未知的直接 Tool 或 PTC 操作会写入不可重试的失败 Observation 和原 Action 来源，原操作不重放。RunExecutor 在同一 Run 中仅为该未知结果进行最多三次已持久化预算的核查/修复模型调用，必要工具沿用原授权、审批和沙箱路径；收尾结束或预算耗尽后保存 `run_cancelled` 并结算 `cancelled`。该终态可通过 `continue` 在同一 Goal 创建新 Run。普通服务关闭不会创建 Interrupt 记录。
+用户 Interrupt 通过稳定请求身份持久化到 `RunState.interruption`，并同时暂停该 Goal 的消息队列（`user_interrupt`）与写入统一输入账本收据，再中止目标 Run 的进程内信号；受理不等待停止完成，宿主关闭仍使用独立调用信号。已开始但结果未知的直接 Tool 或 PTC 操作会写入不可重试的失败 Observation 和原 Action 来源，原操作不重放。RunExecutor 在同一 Run 中仅为该未知结果进行最多三次已持久化预算的核查/修复模型调用，必要工具沿用原授权、审批和沙箱路径；收尾结束或预算耗尽后保存 `run_cancelled` 并结算 `cancelled`。该终态可通过 `continue` 在同一 Goal 创建新 Run。普通服务关闭不会创建 Interrupt 记录。
 
 Runner 将调度契约委派给 RunExecutor；RunExecutor 按当前 Run 模式和获批任务推进：
 

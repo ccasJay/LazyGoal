@@ -115,7 +115,7 @@ export interface SessionManagerDependencies {
     /** 与执行链共享的 Trajectory/Snapshot 提交器。 */
     readonly committer: TrajectoryCheckpointCommitterPort;
     /** 运行 created/running Run 的调度入口与后继 Run 创建入口。 */
-    readonly coordinator: Pick<GoalCoordinator, "advance" | "continue" | "steer">;
+    readonly coordinator: Pick<GoalCoordinator, "advance" | "continue" | "steer" | "interrupt">;
     /** 冻结 Profile 解析。 */
     readonly profiles: AgentProfileRegistry;
     /** 新 Run 身份生成器。 */
@@ -160,7 +160,7 @@ export interface SessionManagerDependencies {
 export class SessionManager implements SessionHandlePort {
     private readonly store: GoalStore;
     private readonly committer: TrajectoryCheckpointCommitterPort;
-    private readonly coordinator: Pick<GoalCoordinator, "advance" | "continue" | "steer">;
+    private readonly coordinator: Pick<GoalCoordinator, "advance" | "continue" | "steer" | "interrupt">;
     private readonly profiles: AgentProfileRegistry;
     private readonly runIdGenerator: RunIdGenerator;
     private readonly protocolValidator: GoalProtocolValidator | undefined;
@@ -387,7 +387,67 @@ export class SessionManager implements SessionHandlePort {
             };
         }
         if (input.kind === "steer") return this.admitSteer(goalId, input);
+        if (input.kind === "interrupt") return this.admitInterrupt(goalId, input);
         return this.admission.admit(goalId, input);
+    }
+
+    /**
+     * 受理关联当前 Run 的用户 Interrupt。
+     *
+     * @remarks
+     * 中断意图、统一账本收据与队列暂停在同一 Snapshot 提交中生效，然后才委派
+     * 现有中止与有限修复路径：受理不等待停止完成。重复身份返回原收据，其他
+     * 中断请求或非 running／waiting 目标明确拒绝。
+     */
+    private async admitInterrupt(
+        goalId: string,
+        input: Extract<SessionInput, { readonly kind: "interrupt" }>,
+    ): Promise<SessionInputAdmissionResult> {
+        const shape = validateSessionInputShape(input);
+        if (shape !== undefined) return { ok: false, code: shape.code, message: shape.message };
+        const digest = computeSessionInputDigest(input);
+
+        const current = await this.store.restore(goalId);
+        if (current === undefined) {
+            return { ok: false, code: "GOAL_NOT_FOUND", message: `Goal "${goalId}" was not found` };
+        }
+        const existing = findSessionInputRecord(current, input.inputId);
+        if (existing !== undefined) {
+            return existing.digest === digest && existing.kind === "interrupt"
+                ? { ok: true, existing: true, receipt: toSessionInputReceipt(goalId, existing) }
+                : {
+                    ok: false,
+                    code: "INPUT_CONFLICT",
+                    message: `Input "${input.inputId}" already exists with a different kind or payload`,
+                };
+        }
+
+        const result = await this.coordinator.interrupt(
+            { goalId, runId: input.runId },
+            input.inputId,
+            { digest },
+        );
+        if (!result.ok) {
+            return {
+                ok: false,
+                code: result.error,
+                message: `Interrupt input "${input.inputId}" was rejected: ${result.error}`,
+            };
+        }
+        const committed = await this.store.restore(goalId);
+        const record = committed === undefined ? undefined : findSessionInputRecord(committed, input.inputId);
+        if (record === undefined) {
+            return {
+                ok: false,
+                code: "GOAL_NOT_FOUND",
+                message: `Goal "${goalId}" disappeared while admitting Interrupt input`,
+            };
+        }
+        return {
+            ok: true,
+            existing: result.existing,
+            receipt: toSessionInputReceipt(goalId, record),
+        };
     }
 
     /**

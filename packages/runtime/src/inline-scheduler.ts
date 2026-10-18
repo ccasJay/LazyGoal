@@ -67,9 +67,13 @@ export class InlineScheduler implements RunScheduler {
             : this.runner.steer(ref, messageId, content, ledger);
     }
 
-    interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {
+    interrupt(
+        ref: RunRef,
+        requestId: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<InterruptRunResult> {
         return this.runner.interrupt === undefined
             ? Promise.resolve({ ok: false, error: "INTERRUPT_CONFLICT" })
-            : this.runner.interrupt(ref, requestId);
+            : this.runner.interrupt(ref, requestId, ledger);
     }
 }

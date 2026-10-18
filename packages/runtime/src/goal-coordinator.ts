@@ -991,6 +991,7 @@ export class GoalCoordinator {
      *
      * @param ref - 当前 Goal 与 Run 的稳定身份。
      * @param requestId - 客户端稳定请求身份，用于受理结果重试。
+     * @param ledger - 提供时在同一提交中写入统一输入账本收据并暂停队列。
      * @returns 已保存的终止意图或稳定拒绝；受理不表示收尾已经结束。
      * @throws Snapshot 或 Trajectory 提交失败时传播原始错误。
      * @example
@@ -998,10 +999,14 @@ export class GoalCoordinator {
      * const result = await coordinator.interrupt({ goalId, runId }, "interrupt-1");
      * ```
      */
-    interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {
+    interrupt(
+        ref: RunRef,
+        requestId: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<InterruptRunResult> {
         return this.scheduler.interrupt === undefined
             ? Promise.resolve({ ok: false, error: "INTERRUPT_CONFLICT" })
-            : this.scheduler.interrupt(ref, requestId);
+            : this.scheduler.interrupt(ref, requestId, ledger);
     }
 
     /**
