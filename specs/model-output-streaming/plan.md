@@ -50,7 +50,7 @@
   - **实现**：完成 model-call 的类型／格式／用途可见性投影和调用／块／字段合并键；如需扩展执行流合并，仅保留通用 JSON／队列职责，不让 Core 解释业务工具。Browser 直接消费新内部协议并映射当前安全活动 DTO，公共结束只发摘要，不携带整个响应；完成审查保持私有。流采集保留一份所需输出，不保存每个累计前缀或逐片写持久化文件。
   - **验证**：扩展 `packages/execution-stream/test/execution-stream.test.ts`、`packages/browser/test/browser-stream.test.ts`、`packages/model-call/test/content-block-stream.test.ts`（TODO 2 新增）与 `llm-diagnostic-trace.test.ts`；运行对应 `npx tsx --test`。真实 SSE 和序列化后的完整事件都做标记排查，不能只过滤某个 delta；检查大段受控分片的最终内容和实现中的累积存储方式，不以不稳定堆内存阈值测试替代归属与背压断言。
 
-- [ ] //TODO 7. 保持流式调用的指标、阶段业务解码和已提交原生历史一致
+- [x] //TODO 7. 保持流式调用的指标、阶段业务解码和已提交原生历史一致
 
   落实标准：[1.5](./spec.md#spec-req-1-5)、[4.5](./spec.md#spec-req-4-5)、[7.1](./spec.md#spec-req-7-1)、[7.2](./spec.md#spec-req-7-2)、[7.3](./spec.md#spec-req-7-3)。
   - **先验证**：对三种协议的成功、取消和失败各检查一次 call_started／call_finished；多块不增加模型调用计数，缺失用量不补零，pi-ai 的诊断计数不变成正式 usage。whole 输出不伪造逐 token 时间；输入记录失败为零请求，诊断／指标写失败不改变调用结果。将完整块送入 Decide／Think／完成审查，空结果和无效参数仍由阶段协议拒绝；原生两轮请求保留调用 ID、参数及签名，未提交片段不进入历史或 Goal 对话。

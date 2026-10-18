@@ -268,6 +268,14 @@ test("完整工具块后失败或取消不产生本次响应的工具效果，�
 
     // 第一次尝试的完整工具块没有产生任何工具效果；合法重试沿用既有预算并产生新调用身份。
     assert.deepEqual(executed, ["attempt-2"]);
+    // 未提交片段不进入 Goal 对话，也不出现在下一次请求中。
+    const messages = (await store.restore(goalId))!.state.messages;
+    assert.equal(messages.some(message => message.content.includes("attempt-1")), false);
+    assert.equal(JSON.stringify(messages).includes("call-attempt-1"), false);
+    const nextRequest = (adapter as unknown as { lastRequest?: LLMRequest }).lastRequest;
+    if (nextRequest !== undefined) {
+        assert.equal(JSON.stringify(nextRequest.messages).includes("attempt-1"), false);
+    }
     const events = await trajectoryStore.read({ goalId, runId });
     assert.equal(events.filter(event => event.payload.type === "tool_started").length, 1);
     assert.equal(events.filter(event => event.payload.type === "model_request_retry_recorded").length, 1);
