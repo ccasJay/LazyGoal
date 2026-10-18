@@ -5,11 +5,12 @@ import { contract } from "../../contracts/src/index";
 import { createModelOutputContractBundle } from "../../model-contracts/src/index";
 
 import { ExecutionAbortedError, TransientModelRequestFailure } from "../../execution-control/src/index";
-import { Gemini } from "../src/index";
+import { Gemini, GeminiIncompleteResponseError } from "../src/index";
 import {
     LLMRequestModeMismatchError,
     readAssistantText,
     type LLMRequest,
+    type LLMStreamEvent,
 } from "../../llm-core/src/index";
 
 const dummySchema = {
@@ -826,4 +827,44 @@ test("Gemini strips evidenceSequences residue from a tool_call in normal mode", 
     const decoded = bundle.decode(wire);
     assert.equal(decoded.kind, "tool_call");
     assert.equal(decoded.memoryPatch, undefined);
+});
+
+test("Gemini native adapter rejects truncated, blocked and unsupported completions before returning decisions", async () => {
+    const adapter = createAdapter("prompt_only");
+    for (const finishReason of ["MAX_TOKENS", "SAFETY", "PROHIBITED_CONTENT", "MALFORMED_FUNCTION_CALL"] as const) {
+        (adapter as any).client = { models: { generateContent: async () => ({
+            candidates: [{ content: { role: "model", parts: [{ text: "部分正文" }] }, finishReason }],
+        }) } };
+        await assert.rejects(
+            adapter.generate({ messages: [{ role: "user", content: "hi" }] }),
+            (error: unknown) => error instanceof GeminiIncompleteResponseError && error.code === "GEMINI_INCOMPLETE_RESPONSE",
+            finishReason,
+        );
+    }
+
+    (adapter as any).client = { models: { generateContent: async () => ({ promptFeedback: { blockReason: "PROHIBITED_CONTENT" } }) } };
+    await assert.rejects(
+        adapter.generate({ messages: [{ role: "user", content: "hi" }] }),
+        (error: unknown) => error instanceof GeminiIncompleteResponseError,
+    );
+
+    (adapter as any).client = { models: { generateContent: async () => ({
+        candidates: [{ content: { role: "model", parts: [{ inlineData: { mimeType: "image/png", data: "AAAA" } }] }, finishReason: "STOP" }],
+    }) } };
+    await assert.rejects(
+        adapter.generate({ messages: [{ role: "user", content: "hi" }] }),
+        (error: unknown) => error instanceof LLMRequestModeMismatchError,
+    );
+});
+
+test("Gemini native stream validates the fixed output mode before dispatch", async () => {
+    const adapter = createAdapter("strict");
+    let dispatched = 0;
+    (adapter as any).client = { models: { generateContentStream: async () => { dispatched += 1; throw new Error("must not dispatch"); } } };
+    const events: LLMStreamEvent[] = [];
+    await assert.rejects(async () => {
+        for await (const event of adapter.stream!({ messages: [{ role: "user", content: "hi" }] })) events.push(event);
+    }, (error: unknown) => error instanceof LLMRequestModeMismatchError);
+    assert.equal(dispatched, 0);
+    assert.deepEqual(events, []);
 });

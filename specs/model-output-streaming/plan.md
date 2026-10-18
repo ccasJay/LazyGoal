@@ -29,7 +29,7 @@
   - **实现**：在 llm-openai 增加真实 stream 路径并与完整调用共享请求构造和响应归一化，保持 Chat Completions、tools／tool choice、strict、现有 reasoning 扩展、输出上限、取消与 maxRetries=0。按工具索引累计，收齐合法结束及用量尾部后产生最终结果；不切换 Responses、不因兼容端点拒绝 stream 再发非流式请求。
   - **验证**：新增 `packages/llm-openai/test/openai-stream.test.ts`（待实现），扩展 `openai-compatible.test.ts`，运行 `npx tsx --test packages/llm-openai/test/openai-compatible.test.ts packages/llm-openai/test/openai-stream.test.ts packages/llm/test/native-tool-calling.test.ts`。使用本机随机端口、虚拟密钥和真实 SDK，检查网络请求次数、请求体、chunk 到达前后观测及原始参数，不访问线上端点。
 
-- [ ] //TODO 4. 通过 Gemini 流保持 Part 续接，并将需要逆向投影的 strict JSON 整块交付
+- [x] //TODO 4. 通过 Gemini 流保持 Part 续接，并将需要逆向投影的 strict JSON 整块交付
 
   落实标准：[1.4](./spec.md#spec-req-1-4)、[1.5](./spec.md#spec-req-1-5)、[2.3](./spec.md#spec-req-2-3)、[3.2](./spec.md#spec-req-3-2)、[3.3](./spec.md#spec-req-3-3)、[3.5](./spec.md#spec-req-3-5)、[5.2](./spec.md#spec-req-5-2)、[7.2](./spec.md#spec-req-7-2)。
   - **先验证**：真实 SDK 消费本地 SSE 的多段普通文本、thought／签名和整块函数参数，检查输出归属、whole 标记及下一请求的原始 Parts／签名；缺失调用 ID 只分配一次本地身份，不改写供应商原文。strict fixture 覆盖空值／缺省哨兵、联合分支清理与证据字段恢复，规范块在投影完成前不结束，generate／stream 结果等价。截断、安全阻断、未知 Part 和无正常结束均失败。

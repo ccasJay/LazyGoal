@@ -20,8 +20,10 @@ import {
     type LLMMessage,
     type LLMRequest,
     type LLMResponse,
+    type LLMStreamEvent,
     type LLMTextBlockFormat,
     type LLMToolCall,
+    type NormalizedUsage,
     type StructuredOutputMode,
 } from "../../llm-core/src/index";
 import { extractGeminiUsage } from "./usage";
@@ -124,58 +126,8 @@ export class Gemini implements LLMAdapter {
         control?: ExecutionControl,
     ): Promise<LLMResponse> {
         throwIfAborted(control);
-        if (request.tools === undefined && this.structuredOutputMode === "strict") {
-            if (request.structuredOutput === undefined) {
-                throw new LLMRequestModeMismatchError(
-                    "Gemini adapter is configured with 'strict' mode, but LLMRequest does not provide structuredOutput",
-                );
-            }
-        } else if (this.structuredOutputMode === "prompt_only") {
-            if (request.structuredOutput !== undefined) {
-                throw new LLMRequestModeMismatchError(
-                    "Gemini adapter is configured with 'prompt_only' mode, but LLMRequest provides structuredOutput",
-                );
-            }
-        }
-
-        const input = toGeminiInput(request.messages, this.nativeConversationIdentity, request.maxOutputTokens ?? this.maxOutputTokens);
-
-        if ((this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && request.structuredOutput !== undefined && !request.tools?.length) {
-            input.config = {
-                ...input.config,
-                responseMimeType: "application/json",
-                responseSchema: prepareGeminiSchema(request.structuredOutput.schema),
-            };
-        }
-
-        if (request.tools !== undefined && request.tools.length > 0) {
-            input.config = {
-                ...input.config,
-                tools: [{
-                    functionDeclarations: request.tools.map(t => ({
-                        name: t.id,
-                        description: t.description,
-                        parameters: prepareGeminiSchema(t.parametersSchema as unknown as JsonSchema202012),
-                    })),
-                }],
-                toolConfig: {
-                    functionCallingConfig: {
-                        mode: (request.toolChoice === "required"
-                            ? "ANY"
-                            : request.toolChoice === "none"
-                            ? "NONE"
-                            : "AUTO") as any,
-                    },
-                },
-            };
-        }
-
-        if (control?.signal !== undefined) {
-            input.config = {
-                ...input.config,
-                abortSignal: control.signal,
-            };
-        }
+        this.assertRequestMode(request);
+        const input = this.buildInput(request, control);
 
         try {
             const response = await this.client.models.generateContent({
@@ -186,6 +138,13 @@ export class Gemini implements LLMAdapter {
             const usage = extractGeminiUsage(response.usageMetadata);
 
             const candidate = response.candidates?.[0];
+            assertAcceptedGeminiFinishReason(
+                candidate?.finishReason === undefined || candidate.finishReason === null
+                    ? undefined
+                    : String(candidate.finishReason),
+                { requireKnownReason: false },
+            );
+            assertNotBlocked(response.promptFeedback?.blockReason);
             const parts = candidate?.content?.parts;
             const structuredProjection = (this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage")
                 && request.structuredOutput !== undefined && !request.tools?.length;
@@ -277,23 +236,308 @@ export class Gemini implements LLMAdapter {
                 },
             };
         } catch (error) {
-            if (isExecutionAbortedError(error)) {
-                throw error;
-            }
-
-            if (control?.signal?.aborted) {
-                throw new ExecutionAbortedError();
-            }
-
-            const transientFailure = classifyTransientModelFailure(error);
-            if (transientFailure !== undefined) throw transientFailure;
-
-            throw error;
+            throw this.classifyFailure(error, control);
         }
+    }
+
+    /**
+     * 以 generateContent 流交付有序块事件，并在正常 EOF 后给出最终响应。
+     *
+     * @remarks
+     * 请求配置与 `generate()` 共享，保持 ANY／AUTO／NONE、输出上限与 Schema 不变性。
+     * 普通文本按真实 Part 增量交付；相邻同类型 Part 归并为一个块，其它 Part 类型打断块边界。
+     * 严格结构化文本缓冲原文，收齐后完成同一逆向投影再以 `whole` 块交付，不先发布哨兵原文。
+     * 完整函数参数按整块交付，不开启协议不支持的参数分片；续接 Parts 与签名按到达顺序原样保存。
+     * 截断、安全阻断、未知 Part 与无正常结束的 EOF 明确拒绝，且不切换到非流式重发。
+     *
+     * @param request - 供应商无关的消息请求。
+     * @param control - 当前执行调用的中止控制。
+     * @returns 带真实 Part 边界的块事件与唯一成功完成。
+     */
+    async *stream(
+        request: LLMRequest,
+        control?: ExecutionControl,
+    ): AsyncIterable<LLMStreamEvent> {
+        throwIfAborted(control);
+        this.assertRequestMode(request);
+        const input = this.buildInput(request, control);
+        const structuredProjection = (this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage")
+            && request.structuredOutput !== undefined && !request.tools?.length;
+        const textFormat: LLMTextBlockFormat = structuredProjection ? "json" : "plain";
+        yield { kind: "started" };
+
+        try {
+            const sdkStream = await this.client.models.generateContentStream({ model: this.model, ...input });
+            let nextIndex = 0;
+            let text: { readonly index: number; readonly whole: boolean; raw: string; started: boolean } | undefined;
+            let reasoning: { readonly index: number; text: string } | undefined;
+            const sealed: LLMContentBlock[] = [];
+            const continuationParts: GeminiContinuationPart[] = [];
+            let finishReason: string | undefined;
+            let blockedReason: string | undefined;
+            let usage: NormalizedUsage | undefined;
+            let sawChunk = false;
+
+            const sealReasoning = (): readonly LLMStreamEvent[] => {
+                if (reasoning === undefined) return [];
+                const block: LLMContentBlock = { index: reasoning.index, type: "reasoning", text: reasoning.text };
+                reasoning = undefined;
+                if (block.text.length === 0) return [];
+                sealed.push(block);
+                return [{ kind: "content_block_completed", delivery: "incremental", block }];
+            };
+            const sealText = (): readonly LLMStreamEvent[] => {
+                if (text === undefined) return [];
+                const current = text;
+                text = undefined;
+                if (current.raw.length === 0) return [];
+                const block: LLMContentBlock = {
+                    index: current.index, type: "text", format: textFormat,
+                    text: current.whole
+                        ? restoreGeminiResponseProjection(current.raw, request.structuredOutput!.schema)
+                        : current.raw,
+                };
+                sealed.push(block);
+                return current.whole
+                    ? [
+                        { kind: "content_block_started", index: current.index, blockType: "text", delivery: "whole", format: textFormat },
+                        { kind: "content_block_completed", delivery: "whole", block },
+                    ]
+                    : [{ kind: "content_block_completed", delivery: "incremental", block }];
+            };
+
+            for await (const chunk of sdkStream) {
+                throwIfAborted(control);
+                sawChunk = true;
+                usage = extractGeminiUsage(chunk.usageMetadata) ?? usage;
+                blockedReason ??= readGeminiBlockedReason(chunk);
+                const candidate = chunk.candidates?.[0];
+                const chunkFinishReason = candidate?.finishReason === undefined || candidate.finishReason === null
+                    ? undefined : String(candidate.finishReason);
+                if (chunkFinishReason !== undefined && chunkFinishReason !== "FINISH_REASON_UNSPECIFIED") {
+                    finishReason = chunkFinishReason;
+                }
+                const parts = candidate?.content?.parts;
+                if (parts === undefined || parts.length === 0) continue;
+                continuationParts.push(...structuredClone(parts) as readonly GeminiContinuationPart[]);
+
+                for (const part of parts) {
+                    assertSupportedGeminiPart(part);
+                    if (typeof part.text === "string" && part.text.length > 0) {
+                        if (part.thought === true) {
+                            if (!structuredProjection) {
+                                for (const event of sealText()) yield event;
+                            }
+                            if (reasoning === undefined) {
+                                reasoning = { index: nextIndex++, text: "" };
+                                yield { kind: "content_block_started", index: reasoning.index, blockType: "reasoning", delivery: "incremental" };
+                            }
+                            reasoning.text += part.text;
+                            yield { kind: "content_block_delta", index: reasoning.index, deltaKind: "reasoning", delta: part.text };
+                            continue;
+                        }
+                        for (const event of sealReasoning()) yield event;
+                        if (text === undefined) {
+                            text = { index: nextIndex++, whole: structuredProjection, raw: "", started: false };
+                        }
+                        text.raw += part.text;
+                        if (!text.whole) {
+                            if (!text.started) {
+                                text.started = true;
+                                yield { kind: "content_block_started", index: text.index, blockType: "text", delivery: "incremental", format: textFormat };
+                            }
+                            yield { kind: "content_block_delta", index: text.index, deltaKind: "text", delta: part.text };
+                        }
+                        continue;
+                    }
+                    if (part.functionCall !== undefined) {
+                        for (const event of sealText()) yield event;
+                        for (const event of sealReasoning()) yield event;
+                        const call: LLMToolCall = {
+                            callId: (part.functionCall as any).id ?? `call_${randomUUID()}`,
+                            toolId: part.functionCall.name ?? "",
+                            argumentsJson: JSON.stringify(part.functionCall.args ?? {}),
+                        };
+                        const block: LLMContentBlock = { index: nextIndex++, type: "tool_call", ...call };
+                        sealed.push(block);
+                        yield { kind: "content_block_started", index: block.index, blockType: "tool_call", delivery: "whole" };
+                        yield { kind: "content_block_completed", delivery: "whole", block };
+                    }
+                }
+            }
+
+            throwIfAborted(control);
+            if (!sawChunk) throw new GeminiIncompleteResponseError("Gemini stream produced no chunks");
+            for (const event of sealReasoning()) yield event;
+            for (const event of sealText()) yield event;
+            assertNotBlocked(blockedReason);
+            if (finishReason === undefined) {
+                throw new GeminiIncompleteResponseError("Gemini stream ended without a finish reason");
+            }
+            assertAcceptedGeminiFinishReason(finishReason, { requireKnownReason: true });
+
+            const blocks = [...sealed].sort((left, right) => left.index - right.index);
+            const continuation = {
+                identity: this.nativeConversationIdentity,
+                parts: continuationParts,
+            };
+            const message = {
+                role: "assistant" as const,
+                content: blocks.flatMap(block => block.type === "text" ? [block.text] : []).join(""),
+                ...(blocks.some(block => block.type === "reasoning") ? {
+                    reasoning: blocks.flatMap(block => block.type === "reasoning" ? [block.text] : []).join(""),
+                } : {}),
+                ...(blocks.some(block => block.type === "tool_call") ? {
+                    toolCalls: blocks.flatMap(block => block.type === "tool_call"
+                        ? [{ callId: block.callId, toolId: block.toolId, argumentsJson: block.argumentsJson }] : []),
+                } : {}),
+                continuation,
+            };
+            if (blocks.filter(block => block.type === "tool_call").length <= 1 && !isModelAssistantMessage(message)) {
+                throw new LLMRequestModeMismatchError("Unsupported Gemini response parts for native text/tool history");
+            }
+
+            yield {
+                kind: "completed",
+                response: {
+                    blocks,
+                    continuation,
+                    providerMetadata: {
+                        model: this.model,
+                        ...(usage !== undefined ? { usage } : {}),
+                    },
+                },
+            };
+        } catch (error) {
+            throw this.classifyFailure(error, control);
+        }
+    }
+
+    private assertRequestMode(request: LLMRequest): void {
+        if (request.tools === undefined && this.structuredOutputMode === "strict") {
+            if (request.structuredOutput === undefined) {
+                throw new LLMRequestModeMismatchError(
+                    "Gemini adapter is configured with 'strict' mode, but LLMRequest does not provide structuredOutput",
+                );
+            }
+        } else if (this.structuredOutputMode === "prompt_only") {
+            if (request.structuredOutput !== undefined) {
+                throw new LLMRequestModeMismatchError(
+                    "Gemini adapter is configured with 'prompt_only' mode, but LLMRequest provides structuredOutput",
+                );
+            }
+        }
+    }
+
+    /** 共享请求配置：消息、输出上限、结构 Schema、工具声明与中止信号。 */
+    private buildInput(request: LLMRequest, control?: ExecutionControl): GeminiInput {
+        const input = toGeminiInput(request.messages, this.nativeConversationIdentity, request.maxOutputTokens ?? this.maxOutputTokens);
+
+        if ((this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && request.structuredOutput !== undefined && !request.tools?.length) {
+            input.config = {
+                ...input.config,
+                responseMimeType: "application/json",
+                responseSchema: prepareGeminiSchema(request.structuredOutput.schema),
+            };
+        }
+
+        if (request.tools !== undefined && request.tools.length > 0) {
+            input.config = {
+                ...input.config,
+                tools: [{
+                    functionDeclarations: request.tools.map(t => ({
+                        name: t.id,
+                        description: t.description,
+                        parameters: prepareGeminiSchema(t.parametersSchema as unknown as JsonSchema202012),
+                    })),
+                }],
+                toolConfig: {
+                    functionCallingConfig: {
+                        mode: (request.toolChoice === "required"
+                            ? "ANY"
+                            : request.toolChoice === "none"
+                            ? "NONE"
+                            : "AUTO") as any,
+                    },
+                },
+            };
+        }
+
+        if (control?.signal !== undefined) {
+            input.config = {
+                ...input.config,
+                abortSignal: control.signal,
+            };
+        }
+        return input;
+    }
+
+    private classifyFailure(error: unknown, control: ExecutionControl | undefined): unknown {
+        if (isExecutionAbortedError(error)) return error;
+        if (control?.signal?.aborted) return new ExecutionAbortedError();
+        const transientFailure = classifyTransientModelFailure(error);
+        return transientFailure ?? error;
     }
 }
 
 
+
+/**
+ * Gemini 响应未以可接受方式完成。
+ *
+ * @remarks
+ * 长度截断、安全阻断、内容过滤、未知 Part 或无有效结束的 EOF 在供应商边界抛出；
+ * 非暂时故障，不触发适配器内部重试、协议迁移或非流式降级。
+ *
+ * @example
+ * ```ts
+ * throw new GeminiIncompleteResponseError("Gemini response was blocked (SAFETY)");
+ * ```
+ */
+export class GeminiIncompleteResponseError extends Error {
+    readonly code = "GEMINI_INCOMPLETE_RESPONSE";
+
+    constructor(message: string) {
+        super(message);
+        this.name = "GeminiIncompleteResponseError";
+    }
+}
+
+const REJECTED_GEMINI_FINISH_REASONS = new Set([
+    "MAX_TOKENS", "SAFETY", "RECITATION", "LANGUAGE", "BLOCKLIST", "PROHIBITED_CONTENT",
+    "SPII", "MALFORMED_FUNCTION_CALL", "IMAGE_SAFETY", "UNEXPECTED_TOOL_CALL",
+    "TOO_MANY_TOOL_CALLS", "MISSING_THOUGHT_SIGNATURE", "OTHER",
+]);
+
+/** 拒绝供应商明确报告的截断、安全阻断与异常结束；流式路径还要求存在结束原因。 */
+function assertAcceptedGeminiFinishReason(
+    finishReason: string | undefined,
+    options: { readonly requireKnownReason: boolean },
+): void {
+    if (finishReason === undefined) {
+        if (!options.requireKnownReason) return;
+        throw new GeminiIncompleteResponseError("Gemini response ended without a finish reason");
+    }
+    if (finishReason === "STOP") return;
+    throw new GeminiIncompleteResponseError(`Gemini response did not complete normally (${finishReason})`);
+}
+
+/** 被安全策略阻断的提示词不属于成功响应。 */
+function assertNotBlocked(blockReason: string | undefined): void {
+    if (blockReason === undefined) return;
+    throw new GeminiIncompleteResponseError(`Gemini response was blocked (${blockReason})`);
+}
+
+function readGeminiBlockedReason(chunk: { readonly promptFeedback?: { readonly blockReason?: string } }): string | undefined {
+    const reason = chunk.promptFeedback?.blockReason;
+    return typeof reason === "string" && reason.length > 0 ? reason : undefined;
+}
+
+/** 未知或空白 Part 在供应商边界拒绝，不静默丢弃后宣称成功。 */
+function assertSupportedGeminiPart(part: { readonly text?: string; readonly functionCall?: unknown }): void {
+    if (typeof part.text === "string" || part.functionCall !== undefined) return;
+    throw new LLMRequestModeMismatchError("Unsupported Gemini response parts for native text/tool history");
+}
 
 /** 将统一消息转换为 Gemini contents 与可选 systemInstruction。 */
 function toGeminiInput(
