@@ -49,6 +49,8 @@ waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表�
 
 会话输入受理由 [SessionInputAdmission](../src/session-admission.ts) 拥有：它在 [Goal mutation gate](../src/goal-mutation-gate.ts) 内读取最新快照并提交单次变更，先按 `inputId` 与规范化载荷摘要判定重复受理或身份冲突，再校验文本额度，然后追加 `GoalState.inputLedger` 记录与 `messageQueue` 队列项。受理成功只表示输入已保存，不表示消息已应用、工具已停止或 Run 已完成；受理本身不调用模型或工具。保存失败或结果不明时抛出 `SessionInputAdmissionError`，调用方必须使用原 `inputId` 查询或重试。普通消息与 Steer 共享单条 64,000、128 项与合计 1,048,576 个 UTF-16 code unit 的额度；中断、回答、恢复与队列清空不受文本额度阻塞。
 
+会话模块把交互回答与显式恢复接入同一输入边界：`respond` 先核验 Goal、Run、请求及必要 Action 身份，再委派既有 Coordinator 等待恢复规则；匹配回答只推进对应等待，旧请求、错身份或载荷冲突不解除等待也不写收据。`resume` 必须匹配最新 Run 与当前 Goal 提交修订：等待交互时报告所需交互，队列暂停时拒绝并要求显式继续队列，只有可恢复的当前 Run 或已受理队首才唤醒执行所有者。恢复不会代答，也不会解除失败或 Interrupt 造成的队列暂停。新 Run 启动前后台执行在推进与创建后继 Run 前按最新快照的 `modelSelection` 重新对齐模型 Binding，避免继承另一个 Goal 的进程绑定。
+
 `GoalState.commitRevision` 是 Goal 级单调提交修订，跨 Run 递增，由 Launcher 的首次保存与 `TrajectoryCheckpointCommitter` 的每次成功提交维护。基于旧快照的执行提交在提交边界重新读取最新修订：未声明会话权威时沿用最新快照的输入账本与消息队列，避免旧快照覆盖并发受理。
 
 [SessionManager](../src/session-manager.ts) 拥有长期会话的创建、只读连接与实例级执行名额。`sessions.create` 先持久化 Goal、首条用户消息、Run 与首条收据（`createGoalCheckpoint` 复用既有 Launcher 校验、Profile 冻结与首次提交），再返回句柄并以被追踪的后台任务推进首个 Run；返回不等待 Run 完成，首次保存失败不会调用模型或工具。相同 `goalId` 与首条输入身份／载荷的重试只连接原 Goal：不推进 Run，也不把创建重试当作恢复指令。`sessions.open` 只读取快照并投影安全状态，不推进、不消费队列；缺失 Goal 返回 `GOAL_NOT_FOUND`，损坏快照返回 `GOAL_UNREADABLE`。

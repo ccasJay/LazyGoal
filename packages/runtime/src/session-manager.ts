@@ -18,14 +18,18 @@ import {
     type SessionManagerErrorCode,
 } from "./session";
 import { SessionInputAdmission, type SessionInputAdmissionDependencies } from "./session-admission";
+import type { GoalUserAction } from "./goal-coordinator";
 import {
     computeSessionInputDigest,
     findSessionInputRecord,
+    nextSessionInputSequence,
     toSessionInputReceipt,
     validateSessionInputShape,
     withQueuePause,
+    type SessionInputRecord,
     type SessionInput,
     type SessionInputAdmissionResult,
+    type SessionInteractionResponse,
     type SessionInputQueryResult,
     type SessionInputReceipt,
 } from "./session-input";
@@ -69,6 +73,31 @@ export interface SessionCreateRequest {
     readonly maxSteps?: number | undefined;
     /** 首个 Run 使用的模型选择；省略时使用默认基准。 */
     readonly modelSelection?: GoalModelSelection | undefined;
+}
+
+/** 把会话交互回答映射为既有 Coordinator 用户操作；不改变安全与授权规则。 */
+function toGoalUserAction(
+    response: SessionInteractionResponse,
+    requestId: string,
+): GoalUserAction {
+    switch (response.kind) {
+        case "answer_ask_user":
+            return { kind: "answer_ask_user", requestId, answers: response.answers };
+        case "cancel_ask_user":
+            return { kind: "cancel_ask_user", requestId };
+        case "approve_task":
+            return { kind: "approve_task", requestId };
+        case "feedback_task":
+            return { kind: "feedback_task", requestId, feedback: response.feedback };
+        case "approve_action":
+            return {
+                kind: "approve_action",
+                actionId: response.actionId,
+                ...(response.scope === undefined ? {} : { scope: response.scope }),
+            };
+        case "reject_action":
+            return { kind: "reject_action", actionId: response.actionId, reason: response.reason };
+    }
 }
 
 /** 创建或连接 Session 的结果。 */
@@ -115,7 +144,7 @@ export interface SessionManagerDependencies {
     /** 与执行链共享的 Trajectory/Snapshot 提交器。 */
     readonly committer: TrajectoryCheckpointCommitterPort;
     /** 运行 created/running Run 的调度入口与后继 Run 创建入口。 */
-    readonly coordinator: Pick<GoalCoordinator, "advance" | "continue" | "steer" | "interrupt">;
+    readonly coordinator: Pick<GoalCoordinator, "advance" | "continue" | "steer" | "interrupt" | "resume">;
     /** 冻结 Profile 解析。 */
     readonly profiles: AgentProfileRegistry;
     /** 新 Run 身份生成器。 */
@@ -135,6 +164,14 @@ export interface SessionManagerDependencies {
     readonly trackBackgroundTask?: ((label: string, task: Promise<void>) => void) | undefined;
     /** 可选日志端口；只用于观察后台执行异常。 */
     readonly onBackgroundFailure?: ((goalId: string, error: unknown) => void) | undefined;
+    /**
+     * 新 Run 启动前按最新 Goal 对齐模型 Binding。
+     *
+     * @remarks
+     * 每次推进或创建后继 Run 前以最新快照的 `modelSelection` 调用一次，避免继承
+     * 另一个 Goal 的进程绑定；省略时不改变 Binding。
+     */
+    readonly alignModelBinding?: ((selection: GoalModelSelection) => void) | undefined;
 }
 
 /**
@@ -160,7 +197,7 @@ export interface SessionManagerDependencies {
 export class SessionManager implements SessionHandlePort {
     private readonly store: GoalStore;
     private readonly committer: TrajectoryCheckpointCommitterPort;
-    private readonly coordinator: Pick<GoalCoordinator, "advance" | "continue" | "steer" | "interrupt">;
+    private readonly coordinator: Pick<GoalCoordinator, "advance" | "continue" | "steer" | "interrupt" | "resume">;
     private readonly profiles: AgentProfileRegistry;
     private readonly runIdGenerator: RunIdGenerator;
     private readonly protocolValidator: GoalProtocolValidator | undefined;
@@ -168,6 +205,7 @@ export class SessionManager implements SessionHandlePort {
     private readonly traceSink: DiagnosticTraceSink | undefined;
     private readonly trackBackgroundTask: ((label: string, task: Promise<void>) => void) | undefined;
     private readonly onBackgroundFailure: ((goalId: string, error: unknown) => void) | undefined;
+    private readonly alignModelBinding: ((selection: GoalModelSelection) => void) | undefined;
     private readonly admission: SessionInputAdmission;
     private readonly executions = new Map<string, Promise<void>>();
     private readonly backgroundTasks = new Set<Promise<void>>();
@@ -186,6 +224,7 @@ export class SessionManager implements SessionHandlePort {
         this.traceSink = dependencies.traceSink;
         this.trackBackgroundTask = dependencies.trackBackgroundTask;
         this.onBackgroundFailure = dependencies.onBackgroundFailure;
+        this.alignModelBinding = dependencies.alignModelBinding;
         const admissionDependencies: SessionInputAdmissionDependencies = {
             store: this.store,
             committer: this.committer,
@@ -388,7 +427,244 @@ export class SessionManager implements SessionHandlePort {
         }
         if (input.kind === "steer") return this.admitSteer(goalId, input);
         if (input.kind === "interrupt") return this.admitInterrupt(goalId, input);
+        if (input.kind === "respond") return this.admitRespond(goalId, input);
+        if (input.kind === "resume") return this.admitResume(goalId, input);
         return this.admission.admit(goalId, input);
+    }
+
+    /**
+     * 受理交互回答并委派既有 Coordinator 规则。
+     *
+     * @remarks
+     * 先核验 Goal、Run、请求及必要 Action 身份，再由现有等待恢复规则应用；匹配
+     * 回答只推进对应的等待，旧请求、错身份或载荷冲突不会解除等待。应用成功后
+     * 写入统一账本收据；收据提交失败时抛出
+     * {@link SessionInputAdmissionError}，调用方必须按原身份查询状态而不是重复生成
+     * 新身份——交互解析结果以 Snapshot 为准。
+     */
+    private async admitRespond(
+        goalId: string,
+        input: Extract<SessionInput, { readonly kind: "respond" }>,
+    ): Promise<SessionInputAdmissionResult> {
+        const shape = validateSessionInputShape(input);
+        if (shape !== undefined) return { ok: false, code: shape.code, message: shape.message };
+        const digest = computeSessionInputDigest(input);
+
+        const current = await this.store.restore(goalId);
+        if (current === undefined) {
+            return { ok: false, code: "GOAL_NOT_FOUND", message: `Goal "${goalId}" was not found` };
+        }
+        const existing = findSessionInputRecord(current, input.inputId);
+        if (existing !== undefined) {
+            return existing.digest === digest && existing.kind === "respond"
+                ? { ok: true, existing: true, receipt: toSessionInputReceipt(goalId, existing) }
+                : {
+                    ok: false,
+                    code: "INPUT_CONFLICT",
+                    message: `Input "${input.inputId}" already exists with a different kind or payload`,
+                };
+        }
+        const identity = this.verifyInteractionIdentity(current, input);
+        if (identity !== undefined) return identity;
+
+        const action = toGoalUserAction(input.response, input.requestId);
+        const result = await this.coordinator.resume(
+            { ref: { goalId, runId: input.runId }, action },
+        );
+        if (!result.ok) {
+            return {
+                ok: false,
+                code: result.error.code === "RUN_NOT_FOUND" ? "RUN_NOT_FOUND" : "INTERACTION_MISMATCH",
+                message: `Interaction response "${input.inputId}" was rejected: ${result.error.code} ${result.error.message}`,
+            };
+        }
+
+        const committed = await withGoalMutationGate(this.store, goalId, async () => {
+            const latest = await this.store.restore(goalId);
+            if (latest === undefined) return undefined;
+            const record: SessionInputRecord = {
+                inputId: input.inputId,
+                kind: "respond",
+                digest,
+                sequence: nextSessionInputSequence(latest),
+                status: "applied",
+                admittedAtRevision: (latest.state.commitRevision ?? 0) + 1,
+                targetRunId: input.runId,
+                appliedRunId: latest.state.run.id,
+            };
+            const nextGoal: Goal = {
+                ...latest,
+                state: {
+                    ...latest.state,
+                    inputLedger: [...(latest.state.inputLedger ?? []), record],
+                },
+            };
+            await this.committer.commit(nextGoal, { sessionState: "caller" });
+            return record;
+        });
+        if (committed === undefined) {
+            return { ok: false, code: "GOAL_NOT_FOUND", message: `Goal "${goalId}" was not found` };
+        }
+        this.continueQueueIfEligible(goalId);
+        return { ok: true, existing: false, receipt: toSessionInputReceipt(goalId, committed) };
+    }
+
+    /**
+     * 受理显式恢复命令。
+     *
+     * @remarks
+     * 必须匹配最新 Run 与当前 Goal 提交修订；等待交互、暂停队列或没有可恢复
+     * 工作时返回稳定拒绝。恢复不会代答等待，也不会解除失败／Interrupt 造成的
+     * 队列暂停，但会重新唤醒执行所有者推进当前 Run 或已受理队首。
+     */
+    private async admitResume(
+        goalId: string,
+        input: Extract<SessionInput, { readonly kind: "resume" }>,
+    ): Promise<SessionInputAdmissionResult> {
+        const shape = validateSessionInputShape(input);
+        if (shape !== undefined) return { ok: false, code: shape.code, message: shape.message };
+        const digest = computeSessionInputDigest(input);
+
+        const current = await this.store.restore(goalId);
+        if (current === undefined) {
+            return { ok: false, code: "GOAL_NOT_FOUND", message: `Goal "${goalId}" was not found` };
+        }
+        const existing = findSessionInputRecord(current, input.inputId);
+        if (existing !== undefined) {
+            return existing.digest === digest && existing.kind === "resume"
+                ? { ok: true, existing: true, receipt: toSessionInputReceipt(goalId, existing) }
+                : {
+                    ok: false,
+                    code: "INPUT_CONFLICT",
+                    message: `Input "${input.inputId}" already exists with a different kind or payload`,
+                };
+        }
+        if (current.state.run.id !== input.runId) {
+            return { ok: false, code: "RUN_NOT_FOUND", message: `Run "${input.runId}" is not the latest Run` };
+        }
+        if ((current.state.commitRevision ?? 0) !== input.commitRevision) {
+            return {
+                ok: false,
+                code: "STALE_REVISION",
+                message: `commitRevision ${input.commitRevision} does not match current ${current.state.commitRevision ?? 0}`,
+            };
+        }
+        if (this.activeGoalId !== undefined && this.activeGoalId !== goalId) {
+            return {
+                ok: false,
+                code: "BUSY",
+                message: `Goal "${this.activeGoalId}" currently owns the instance execution slot`,
+            };
+        }
+
+        const status = current.state.run.status;
+        if (status === "waiting") {
+            const waiting = current.state.run.pendingInteraction !== undefined
+                || current.state.run.pendingAction !== undefined;
+            return {
+                ok: false,
+                code: waiting ? "INTERACTION_REQUIRED" : "RUN_NOT_RESUMABLE",
+                message: waiting
+                    ? `Run "${input.runId}" is waiting for a matching interaction response`
+                    : `Run "${input.runId}" is waiting for a matching interaction`,
+            };
+        }
+        if (current.state.messageQueue?.pause !== undefined) {
+            return {
+                ok: false,
+                code: "QUEUE_PAUSED",
+                message: "The Goal message queue is paused; continue it explicitly with queue_control",
+            };
+        }
+        if (status !== "created" && status !== "running" && status !== "completed"
+            && status !== "failed" && status !== "cancelled") {
+            return {
+                ok: false,
+                code: "RUN_NOT_RESUMABLE",
+                message: `Run "${input.runId}" cannot be resumed from ${status}`,
+            };
+        }
+
+        const record = await withGoalMutationGate(this.store, goalId, async () => {
+            const latest = await this.store.restore(goalId);
+            if (latest === undefined) return undefined;
+            const entry: SessionInputRecord = {
+                inputId: input.inputId,
+                kind: "resume",
+                digest,
+                sequence: nextSessionInputSequence(latest),
+                status: "applied",
+                admittedAtRevision: (latest.state.commitRevision ?? 0) + 1,
+                targetRunId: input.runId,
+                appliedRunId: latest.state.run.id,
+            };
+            const nextGoal: Goal = {
+                ...latest,
+                state: {
+                    ...latest.state,
+                    inputLedger: [...(latest.state.inputLedger ?? []), entry],
+                },
+            };
+            await this.committer.commit(nextGoal, { sessionState: "caller" });
+            return entry;
+        });
+        if (record === undefined) {
+            return { ok: false, code: "GOAL_NOT_FOUND", message: `Goal "${goalId}" was not found` };
+        }
+
+        if (status === "created" || status === "running") {
+            this.startExecution(goalId);
+        } else {
+            this.continueQueueIfEligible(goalId);
+        }
+        return { ok: true, existing: false, receipt: toSessionInputReceipt(goalId, record) };
+    }
+
+    /** 核验交互回答与当前等待身份是否匹配；不匹配时返回稳定拒绝。 */
+    private verifyInteractionIdentity(
+        goal: Goal,
+        input: Extract<SessionInput, { readonly kind: "respond" }>,
+    ): SessionInputAdmissionResult | undefined {
+        if (goal.state.run.id !== input.runId) {
+            return { ok: false, code: "RUN_NOT_FOUND", message: `Run "${input.runId}" is not the latest Run` };
+        }
+        const pendingInteraction = goal.state.run.pendingInteraction;
+        const pendingAction = goal.state.run.pendingAction;
+        const response = input.response;
+        if (response.kind === "approve_action" || response.kind === "reject_action") {
+            const expectedActionId = pendingAction?.action.actionId;
+            if (expectedActionId === undefined || expectedActionId !== response.actionId) {
+                return {
+                    ok: false,
+                    code: "INTERACTION_MISMATCH",
+                    message: `Action "${response.actionId}" is not the current pending Action`,
+                };
+            }
+            return undefined;
+        }
+        if (pendingInteraction === undefined || pendingInteraction.requestId !== input.requestId) {
+            return {
+                ok: false,
+                code: "INTERACTION_MISMATCH",
+                message: `requestId "${input.requestId}" is not the current pending interaction`,
+            };
+        }
+        if (response.kind === "answer_ask_user" || response.kind === "cancel_ask_user") {
+            return pendingInteraction.kind === "ask_user"
+                ? undefined
+                : {
+                    ok: false,
+                    code: "INTERACTION_MISMATCH",
+                    message: "The current interaction is not an ask_user request",
+                };
+        }
+        return pendingInteraction.kind === "task_approval"
+            ? undefined
+            : {
+                ok: false,
+                code: "INTERACTION_MISMATCH",
+                message: "The current interaction is not a task approval request",
+            };
     }
 
     /**
@@ -591,6 +867,22 @@ export class SessionManager implements SessionHandlePort {
         });
     }
 
+    /**
+     * 在会话内联推进（交互回答、显式恢复）后继续消费队列。
+     *
+     * @remarks 只有终态、未暂停且仍有待处理消息的 Goal 会重新启动执行所有者；
+     * 等待与运行中的结果保持原状。
+     */
+    private continueQueueIfEligible(goalId: string): void {
+        if (this.executions.has(goalId)) return;
+        if (this.activeGoalId !== undefined && this.activeGoalId !== goalId) return;
+        const task = this.runWake(goalId, false);
+        this.backgroundTasks.add(task);
+        void task.catch(() => undefined).finally(() => {
+            this.backgroundTasks.delete(task);
+        });
+    }
+
     private async runWake(goalId: string, explicitContinuation: boolean): Promise<void> {
         const goal = await this.store.restore(goalId);
         if (goal === undefined) return;
@@ -626,6 +918,7 @@ export class SessionManager implements SessionHandlePort {
                 if (goal === undefined) return;
                 const status = goal.state.run.status;
                 if (status === "created" || status === "running") {
+                    this.alignModelBinding?.(goal.state.modelSelection);
                     const result = await this.coordinator.advance({ goalId, runId: goal.state.run.id });
                     if (!result.ok) {
                         this.onBackgroundFailure?.(goalId, new Error(`${result.error.code}: ${result.error.message}`));
@@ -669,6 +962,7 @@ export class SessionManager implements SessionHandlePort {
         const queue = goal.state.messageQueue;
         const head = queue?.items[0];
         if (head === undefined || queue === undefined) return false;
+        this.alignModelBinding?.(goal.state.modelSelection);
         const result = await this.coordinator.continue(
             { goalId, runId: goal.state.run.id },
             head.content,

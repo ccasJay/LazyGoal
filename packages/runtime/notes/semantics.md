@@ -14,6 +14,9 @@
 | 消息队列 | 尚未应用的普通消息 FIFO、队列修订与暂停原因；变更推进修订。 | [Goal Runtime](../README.md) | [输入契约](../src/session-input.ts) |
 | 队列暂停 | Run 失败或用户 Interrupt 后阻止后继 Run 启动；只有显式继续队列才解除，新消息只追加队尾。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 会话 Steer 受理 | 目标 running Run 的补充输入与 Run 内待应用记录、账本收据在同一提交生效；拒绝不写收据也不降级为队列消息。 | [Goal Runtime](../README.md) | [输入受理边界](../src/session-admission.ts) |
+| 交互回答受理 | 匹配当前等待身份的回答通过既有 Coordinator 规则推进对应等待并写入收据；旧请求与错身份不解除等待。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
+| 显式恢复 | 匹配最新 Run 与提交修订的恢复命令唤醒执行所有者或已受理队首；不代答等待，也不解除队列暂停。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
+| 模型 Binding 对齐 | 新 Run 启动前按最新 Goal 的 `modelSelection` 重新对齐实例绑定。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 会话 Interrupt 受理 | 中断意图、账本收据与队列暂停在同一提交生效；受理后观察停止、有限收尾、必要审批与最终 cancelled。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 后继 Run 绑定 | 队首消息、输入应用关联、队列修订与新 Run 创建在同一 Snapshot 提交中完成。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts) |
 | Goal 提交修订 | Goal 级单调提交修订，跨 Run 递增，用于恢复命令、状态同步与竞态判定。 | [Goal Runtime](../README.md) | [提交边界](../src/trajectory-checkpoint-committer.ts) |

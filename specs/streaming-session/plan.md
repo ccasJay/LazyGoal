@@ -36,7 +36,7 @@
   - 实施目标：在同一提交中保存中断意图、输入收据与暂停状态，再委派现有 Abort 和有限修复路径；公开状态区分已受理、停止／收尾、待审批和 cancelled。保留已有授权、沙箱、预算、未知效果记录和工具真实返回规则，不重写收尾算法、不把断线或宿主关闭转成用户 Interrupt。
   - 验证手段：`npx tsx --test packages/runtime/test/run-interrupt.test.ts packages/runtime/test/program-interruption.test.ts packages/runtime/test/execution-control.test.ts packages/storage/test/run-input-control-snapshot.test.ts`；检查取消传播范围、资源停止／实际调用数、剩余预算与持久化未知结果，收尾未结算时不得报告已取消或启动队首。
 
-- [ ] //TODO 6. 通过匹配交互与显式恢复继续执行，并保持模型和权限边界
+- [x] //TODO 6. 通过匹配交互与显式恢复继续执行，并保持模型和权限边界
   - 落实标准：[6.1](./spec.md#spec-req-6-1)、[6.2](./spec.md#spec-req-6-2)、[6.3](./spec.md#spec-req-6-3)、[6.4](./spec.md#spec-req-6-4)、[8.1](./spec.md#spec-req-8-1)、[8.2](./spec.md#spec-req-8-2)、[8.3](./spec.md#spec-req-8-3)、[8.4](./spec.md#spec-req-8-4)。
   - 先验证：在待实现的 `packages/runtime/test/session-recovery.test.ts` 中，保存 ask_user、Plan 提案、Action／沙箱审批或既有恢复等待后重建；只读、重复创建和普通消息均不代答或推进，匹配回答只恢复同一 Run，错请求或旧修订拒绝。验证 `resume` 不自动解除失败／Interrupt 队列暂停；两个 Goal 交替执行时各自重新对齐模型 Binding，安全点之外的切换不改快照。
   - 实施目标：把 `respond`／`resume` 和队列继续接入统一收据、目标身份与后台执行所有权，委派现有 Coordinator、模型选择及权限服务。默认恢复保持只读，匹配回答作为显式操作推进对应等待；关联自定义工具仍经过发现、授权和审批，不通过会话接口暴露直接执行 Action 的捷径。
