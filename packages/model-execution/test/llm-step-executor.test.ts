@@ -6,6 +6,7 @@ import { contract } from "../../contracts/src/index";
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
 import { readAssistantText } from "../../llm-core/src/index";
+import { readToolCalls } from "../../llm-core/src/index";
 import { blockResponse, textResponse } from "../../llm-core/test/response-fixtures";
 import {
     createGoal,
@@ -170,20 +171,36 @@ class StreamingAdapter implements LLMAdapter {
     }
 
     async *stream(): AsyncIterable<LLMStreamEvent> {
+        const call = readToolCalls(toolResponseFixture(JSON.stringify({
+            result: {
+                kind: "complete",
+                summary: "streamed",
+                completionEvidence: [],
+                memoryPatch: null,
+                contextNotes: null,
+            },
+        })))[0]!;
+        const argumentsFragments = [call.argumentsJson.slice(0, 12), call.argumentsJson.slice(12)];
         yield { kind: "started" };
-        yield { kind: "reasoning_delta", text: "Checking context..." };
-        yield { kind: "assistant_text_delta", text: "{\"result\":" };
+        yield { kind: "content_block_started", index: 0, blockType: "reasoning", delivery: "incremental" };
+        yield { kind: "content_block_delta", index: 0, deltaKind: "reasoning", delta: "Checking context..." };
+        yield { kind: "content_block_completed", delivery: "incremental", block: { index: 0, type: "reasoning", text: "Checking context..." } };
+        yield { kind: "content_block_started", index: 1, blockType: "text", delivery: "incremental", format: "json" };
+        yield { kind: "content_block_delta", index: 1, deltaKind: "text", delta: "{\"result\":" };
+        yield { kind: "content_block_completed", delivery: "incremental", block: { index: 1, type: "text", format: "json", text: "{\"result\":" } };
+        yield { kind: "content_block_started", index: 2, blockType: "tool_call", delivery: "incremental" };
+        for (const fragment of argumentsFragments) {
+            yield { kind: "content_block_delta", index: 2, deltaKind: "tool_arguments", delta: fragment };
+        }
+        const toolCallBlock = { index: 2, type: "tool_call" as const, ...call };
+        yield { kind: "content_block_completed", delivery: "incremental", block: toolCallBlock };
         yield {
             kind: "completed",
-            response: toolResponseFixture(JSON.stringify({
-                    result: {
-                        kind: "complete",
-                        summary: "streamed",
-                        completionEvidence: [],
-                        memoryPatch: null,
-                        contextNotes: null,
-                    },
-                })),
+            response: blockResponse(
+                { type: "reasoning", text: "Checking context..." },
+                { type: "text", format: "json", text: "{\"result\":" },
+                { type: "tool_call", ...call },
+            ),
         };
     }
 }
@@ -291,8 +308,11 @@ test("LLMStepExecutor 归一化 Provider 流并按可见性发布模型事件", 
     assert.equal(result.kind, "complete");
     assert.equal(adapter.generateCalls, 0);
     assert.ok(events.includes("model_started:public"));
-    assert.ok(events.includes("reasoning_delta:restricted"));
-    assert.ok(events.includes("assistant_text_delta:public"));
+    assert.ok(events.includes("model_block_started:restricted"));
+    assert.ok(events.includes("model_block_delta:restricted"));
+    assert.ok(events.includes("model_block_completed:restricted"));
+    assert.ok(events.includes("model_block_started:diagnostic"));
+    assert.ok(events.includes("model_block_delta:diagnostic"));
     assert.ok(events.includes("model_completed:public"));
 });
 
@@ -325,7 +345,7 @@ test("LLMStepExecutor 对不支持流式的 Adapter 保留 generate 回退并发
 
     assert.equal(result.kind, "complete");
     assert.equal(adapter.requests.length, 1);
-    assert.deepEqual(events, ["model_started", "assistant_text_delta", "model_completed"]);
+    assert.deepEqual(events, ["model_started", "model_block_started", "model_block_completed", "model_completed"]);
 });
 
 test("LLMStepExecutor 不修改传入的 Goal", async () => {

@@ -76,9 +76,11 @@ test("仅注入确定性 Adapter 与请求即可完成一次调用并发布既�
     assert.equal(typeof result.callId, "string");
     assert.equal(adapter.calls, 1);
     assert.equal(adapter.requests[0]?.sessionId, "goal-call");
+    // 无流式能力时按整块方式观察：开始状态在 generate 之后补齐，不伪造增量。
     assert.deepEqual(events.map((event) => event.kind), [
         "model_started",
-        "assistant_text_delta",
+        "model_block_started",
+        "model_block_completed",
         "model_completed",
     ]);
 });
@@ -118,7 +120,9 @@ test("流必须提供唯一 completed 响应，缺失或重复都判协议错误
     const streaming = new ScriptedAdapter(() => textResponse("unused"));
     const adapter = withStream(streaming, async function* (): AsyncIterable<LLMStreamEvent> {
         yield { kind: "started" };
-        yield { kind: "assistant_text_delta", text: "streamed" };
+        yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "plain" };
+        yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: "streamed" };
+        yield { kind: "content_block_completed", delivery: "incremental", block: { index: 0, type: "text", format: "plain", text: "streamed" } };
         yield { kind: "completed", response: completeResponse };
     });
 
@@ -127,7 +131,8 @@ test("流必须提供唯一 completed 响应，缺失或重复都判协议错误
     assert.equal(streaming.calls, 0, "stream 路径不得调用 generate");
 
     const noCompleted = withStream(new ScriptedAdapter(() => textResponse("unused")), async function* (): AsyncIterable<LLMStreamEvent> {
-        yield { kind: "assistant_text_delta", text: "partial" };
+        yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "plain" };
+        yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: "partial" };
     });
     await assert.rejects(
         callModel({ adapter: noCompleted }, { context: context(), request: REQUEST, stage: "decide" }),
@@ -140,8 +145,35 @@ test("流必须提供唯一 completed 响应，缺失或重复都判协议错误
     });
     await assert.rejects(
         callModel({ adapter: duplicated }, { context: context(), request: REQUEST, stage: "decide" }),
-        /LLM stream produced multiple completed responses/,
+        /multiple completed responses|after the completed response/,
     );
+});
+
+test("仅流路径按调用与块身份发布公开活动，完成后不再输出", async () => {
+    const { publisher, events } = captureStream();
+    const adapter = withStream(new ScriptedAdapter(() => textResponse("unused")), async function* (): AsyncIterable<LLMStreamEvent> {
+        yield { kind: "started" };
+        yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "plain" };
+        yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: "streamed" };
+        yield { kind: "content_block_completed", delivery: "incremental", block: { index: 0, type: "text", format: "plain", text: "streamed" } };
+        yield { kind: "completed", response: textResponse("streamed") };
+    });
+
+    const result = await callModel({ adapter, executionStream: publisher }, {
+        context: context(), request: REQUEST, stage: "decide",
+    });
+
+    assert.deepEqual(events.map(event => event.kind), [
+        "model_started",
+        "model_block_started",
+        "model_block_delta",
+        "model_block_completed",
+        "model_completed",
+    ]);
+    assert.ok(events.every(event => (event.payload as { readonly modelCallId?: string }).modelCallId === result.callId));
+    assert.deepEqual(events.map(event => event.visibility), ["public", "public", "public", "public", "public"]);
+    assert.equal(events.find(event => event.kind === "model_block_completed")?.delivery, "control");
+    assert.equal(events.find(event => event.kind === "model_block_delta")?.coalescingKey, `model-block:${result.callId}:0`);
 });
 
 test("指标与诊断写入失败按 best effort 隔离，不改变调用结果", async () => {

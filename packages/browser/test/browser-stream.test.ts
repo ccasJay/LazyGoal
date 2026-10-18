@@ -77,22 +77,22 @@ test("实时流按 Goal/Run 隔离，白名单裁剪载荷并将提交变化转�
     publisher.publish({
         goalId: goal.id,
         runId: "old-run",
-        kind: "assistant_text_delta",
+        kind: "model_block_delta",
         visibility: "public",
         durability: "live",
         delivery: "delta",
-        coalescingKey: "assistant:old",
-        payload: { text: "旧 Run" },
+        coalescingKey: "model-block:old:0",
+        payload: { blockIndex: 0, deltaKind: "text", delta: "旧 Run" },
     });
     publisher.publish({
         goalId: goal.id,
         runId: goal.state.run.id,
-        kind: "reasoning_delta",
+        kind: "model_block_delta",
         visibility: "restricted",
         durability: "live",
         delivery: "delta",
-        coalescingKey: "reasoning:step",
-        payload: { text: "private reasoning" },
+        coalescingKey: "model-block:step:2",
+        payload: { blockIndex: 2, deltaKind: "reasoning", delta: "private reasoning" },
     });
     publisher.publish({
         goalId: goal.id,
@@ -116,12 +116,41 @@ test("实时流按 Goal/Run 隔离，白名单裁剪载荷并将提交变化转�
     publisher.publish({
         goalId: goal.id,
         runId: goal.state.run.id,
-        kind: "assistant_text_delta",
+        kind: "model_block_delta",
         visibility: "public",
         durability: "live",
         delivery: "delta",
-        coalescingKey: "assistant:step",
-        payload: { text: "x".repeat(2_500), thought: "do not leak" },
+        coalescingKey: "model-block:step:0",
+        payload: { blockIndex: 0, deltaKind: "text", delta: "x".repeat(2_500), thought: "do not leak" },
+    });
+    // 结构化 JSON 正文、工具参数与块边界不进入公开活动 DTO。
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "model_block_delta",
+        visibility: "diagnostic",
+        durability: "live",
+        delivery: "delta",
+        coalescingKey: "model-block:step:1",
+        payload: { blockIndex: 1, deltaKind: "text", delta: '{"result":"private"}' },
+    });
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "model_block_started",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: { blockIndex: 0, blockType: "text", delivery: "incremental", format: "plain" },
+    });
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "model_block_completed",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: { blockIndex: 0, blockType: "text", delivery: "whole", format: "plain", text: "整块正文" },
     });
     const activity = await nextEvent(iterator);
     assert.deepEqual(activity.value, {
@@ -134,6 +163,19 @@ test("实时流按 Goal/Run 隔离，白名单裁剪载荷并将提交变化转�
             truncated: true,
             sourceEventId: "event-4",
             sourceCursor: 4,
+        },
+    });
+    // 同一批中的诊断 JSON 增量、块开始与块结束都不产生第二条公开活动；整块交付只呈现一次正文。
+    assert.deepEqual((await nextEvent(iterator)).value, {
+        type: "activity",
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        activity: {
+            kind: "assistant_text_delta",
+            text: "整块正文",
+            truncated: false,
+            sourceEventId: "event-7",
+            sourceCursor: 7,
         },
     });
 

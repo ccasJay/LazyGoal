@@ -10,11 +10,13 @@ import { readLLMConfig } from "../../config/src/index";
 import {
     LLMConfigurationError,
     LLMRequestModeMismatchError,
+    createContentBlockStreamTracker,
     readAssistantText,
     readNormalizedUsage,
     readReasoningText,
     readToolCalls,
     type LLMRequest,
+    type LLMStreamEvent,
 } from "../../llm-core/src/index";
 import { ExecutionAbortedError } from "../../execution-control/src/index";
 
@@ -90,9 +92,20 @@ test("pi-ai keeps thinking out of tool-request text and final responses in both 
         const internals = instance as unknown as { models: { stream: () => ReturnType<typeof createAssistantMessageEventStream> } };
         internals.models.stream = () => {
             const stream = createAssistantMessageEventStream();
-            stream.push({ type: "thinking_delta", contentIndex: 0, delta: "PRIVATE_THINKING", partial: message });
-            for (const block of blocks) {
-                if (block.type === "text") stream.push({ type: "text_delta", contentIndex: 1, delta: block.text, partial: message });
+            for (const [contentIndex, block] of blocks.entries()) {
+                if (block.type === "thinking") {
+                    stream.push({ type: "thinking_start", contentIndex, partial: message });
+                    stream.push({ type: "thinking_delta", contentIndex, delta: block.thinking, partial: message });
+                    stream.push({ type: "thinking_end", contentIndex, content: block.thinking, partial: message });
+                } else if (block.type === "text") {
+                    stream.push({ type: "text_start", contentIndex, partial: message });
+                    stream.push({ type: "text_delta", contentIndex, delta: block.text, partial: message });
+                    stream.push({ type: "text_end", contentIndex, content: block.text, partial: message });
+                } else if (block.type === "toolCall") {
+                    stream.push({ type: "toolcall_start", contentIndex, partial: message });
+                    stream.push({ type: "toolcall_delta", contentIndex, delta: JSON.stringify(block.arguments), partial: message });
+                    stream.push({ type: "toolcall_end", contentIndex, toolCall: block, partial: message });
+                }
             }
             stream.push({ type: "done", reason: message.stopReason as "stop" | "toolUse", message });
             return stream;
@@ -109,7 +122,12 @@ test("pi-ai keeps thinking out of tool-request text and final responses in both 
         // thinking 保留在受限 reasoning 块中，且绝不混入正文或工具参数。
         assert.equal(readReasoningText(generated), "PRIVATE_THINKING");
         assert.equal(readAssistantText(generated).includes("PRIVATE_THINKING"), false);
-        assert.ok(events.some(e => e.kind === "reasoning_delta" && e.text === "PRIVATE_THINKING"));
+        assert.ok(events.some(e => e.kind === "content_block_delta" && e.deltaKind === "reasoning" && e.delta === "PRIVATE_THINKING"));
+        // 每个块事件与最终响应同源：块索引、类型与内容逐项一致。
+        for (const event of events) {
+            if (event.kind !== "content_block_completed") continue;
+            assert.deepEqual(generated.blocks[event.block.index], event.block);
+        }
         if (blocks.some(b => b.type === "toolCall")) {
             assert.deepEqual(readToolCalls(generated), [{ callId: "call-preserved", toolId: "report", argumentsJson: '{"result":"ok"}' }]);
         } else {
@@ -303,6 +321,59 @@ test("real pi-ai SDK maps four wire protocols against local SSE servers", async 
         assert.equal(sent.headers["x-opencode-session"], undefined, provider);
         assert.notEqual(sent.headers["user-agent"], "lazygoal", provider);
     }
+});
+
+test("real pi-ai stream maps fragmented tool arguments and preserves the ended block", async () => {
+    const argumentFragments = ['{"res', 'ult":', '"ok"}'];
+    const body = sse([
+        { id: "chat-1", object: "chat.completion.chunk", model: "local-model", created: 1, choices: [{ index: 0, delta: { role: "assistant", content: "先说明" }, finish_reason: null }] },
+        { id: "chat-1", object: "chat.completion.chunk", model: "local-model", created: 1, choices: [{ index: 0, delta: { content: "，再调用。" }, finish_reason: null }] },
+        { id: "chat-1", object: "chat.completion.chunk", model: "local-model", created: 1, choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call-fragment", type: "function", function: { name: "report", arguments: argumentFragments[0] } }] }, finish_reason: null }] },
+        { id: "chat-1", object: "chat.completion.chunk", model: "local-model", created: 1, choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: argumentFragments[1] } }] }, finish_reason: null }] },
+        { id: "chat-1", object: "chat.completion.chunk", model: "local-model", created: 1, choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: argumentFragments[2] } }] }, finish_reason: null }] },
+        { id: "chat-1", object: "chat.completion.chunk", model: "local-model", created: 1, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 7, completion_tokens: 3 } },
+    ]) + "data: [DONE]\n\n";
+
+    await withServer((request, response) => {
+        request.resume();
+        response.writeHead(200, { "Content-Type": "text/event-stream" });
+        response.end(body);
+    }, async url => {
+        const input: LLMRequest = {
+            ...request,
+            tools: [{ id: "report", description: "Report", parametersSchema: { type: "object" } }],
+            toolChoice: "required",
+        };
+        const instance = adapter("openai-compatible", "local-model", `${url}/v1`);
+        const events: LLMStreamEvent[] = [];
+        const tracker = createContentBlockStreamTracker();
+        for await (const event of instance.stream(input)) {
+            tracker.accept(event);
+            events.push(event);
+        }
+        const response = tracker.result();
+
+        // 真实 SDK 分片保留原始参数字节、内容索引与交错完成顺序。
+        assert.equal(events[0]?.kind, "started");
+        assert.equal(events.at(-1)?.kind, "completed");
+        assert.deepEqual(events.filter(event => event.kind === "content_block_started")
+            .map(event => (event.kind === "content_block_started" ? `${event.index}:${event.blockType}:${event.delivery}` : "")),
+        ["0:text:incremental", "1:tool_call:incremental"]);
+        assert.deepEqual(events.filter(event => event.kind === "content_block_completed")
+            .map(event => (event.kind === "content_block_completed" ? event.block.type : "")),
+        ["text", "tool_call"]);
+        assert.deepEqual(events.filter(event => event.kind === "content_block_delta" && event.deltaKind === "tool_arguments")
+            .map(event => (event.kind === "content_block_delta" ? event.delta : "")), argumentFragments);
+        assert.deepEqual(response.blocks.map(block => block.index), [0, 1]);
+        assert.deepEqual(response.blocks.map(block => block.type), ["text", "tool_call"]);
+        assert.equal(readAssistantText(response), "先说明，再调用。");
+        assert.deepEqual(readToolCalls(response), [{
+            callId: "call-fragment", toolId: "report", argumentsJson: argumentFragments.join(""),
+        }]);
+        const completedToolCall = events.filter(event => event.kind === "content_block_completed")
+            .find(event => event.kind === "content_block_completed" && event.block.type === "tool_call");
+        assert.deepEqual(completedToolCall?.block, response.blocks[1]);
+    });
 });
 
 test("pi-ai serializes tool choice for generate and stream across provider protocols", async () => {

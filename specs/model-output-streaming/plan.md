@@ -15,7 +15,7 @@
   - **实现**：在 llm-core 定义三种完整块和唯一 `LLMResponse.blocks`，实现共享纯读投影；在三个 Adapter 的完整响应归一化中接入，修改 model-response、model-execution、model-call／诊断及实际依赖方。迁移现有确定性 Adapter、共享 fixture、示例、应用与 Benchmark 的响应构造；保持输入消息角色和历史结构，避免把 fixture 包装器写成旧／新响应识别器。本任务先迁移最终响应，增量事件在 TODO 2 原子切换，不增加永久双实现。
   - **验证**：新增 `packages/llm-core/test/content-blocks.test.ts`（待实现），扩展现有 `core-consumption.test.ts`、`packages/model-response/test/stage-response.test.ts`、`packages/model-execution/test/native-step-executor.test.ts`、`packages/model-context/test/native-model-history.test.ts`、`packages/llm/test/native-dialogue.test.ts` 及三个 Adapter 原有测试；运行相应 `npx tsx --test`、`npx tsc --noEmit`、`npm --prefix apps/goal-server run build` 和 `npm run build:web`。核对实际响应生产与读取位置，不能只批量替换断言或重录基线掩盖语义改变。
 
-- [ ] //TODO 2. 贯通有稳定身份的内容块流，并在正常流结束后才交付成功响应
+- [x] //TODO 2. 贯通有稳定身份的内容块流，并在正常流结束后才交付成功响应
 
   落实标准：[1.4](./spec.md#spec-req-1-4)、[2.1](./spec.md#spec-req-2-1)、[2.2](./spec.md#spec-req-2-2)、[2.3](./spec.md#spec-req-2-3)、[2.4](./spec.md#spec-req-2-4)、[2.5](./spec.md#spec-req-2-5)、[3.4](./spec.md#spec-req-3-4)、[4.2](./spec.md#spec-req-4-2)、[4.3](./spec.md#spec-req-4-3)、[4.4](./spec.md#spec-req-4-4)、[7.1](./spec.md#spec-req-7-1)。
   - **先验证**：确定性流交错输出两个块、晚到工具身份、whole 块和 reasoning，断言每个事件与最终响应同源。对未知索引、重复边界、结束后追加、类型冲突、缺失／重复完成、未封口和最终块失配逐项拒绝。完成候选后以屏障延迟 EOF，调用不能提前返回；尾部再抛错必须失败。只实现 generate 的 Adapter 在返回前已发开始状态，整块观察不拆字；stream 失败时 generate 调用计数为零。

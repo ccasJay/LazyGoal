@@ -1,4 +1,5 @@
 import { toolResponseFixture } from "../../agent/test/tool-response-fixture";
+import { blockResponse } from "../../llm-core/test/response-fixtures";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -108,6 +109,23 @@ function input(): Parameters<LLMStepExecutor["execute"]>[0] {
 
 test("LLMStepExecutor records provider usage, request duration, and first-text-to-completion duration", async () => {
     const metricsStore = new CaptureMetricsStore();
+    const decisionText = JSON.stringify({
+        result: {
+            kind: "complete",
+            summary: "检查完成",
+            completionEvidence: [],
+            memoryPatch: null,
+            contextNotes: null,
+        },
+    });
+    const streamedResponse: LLMResponse = {
+        ...blockResponse(
+            { type: "text", format: "json", text: decisionText },
+            { type: "tool_call", callId: "fixture-call", toolId: "system_complete_task",
+                argumentsJson: JSON.stringify({ summary: "检查完成", completionEvidence: [], memoryPatch: null }) },
+        ),
+        providerMetadata: { usage: { inputTokens: 120, outputTokens: 18, cachedInputTokens: 45 } },
+    };
     const adapter: LLMAdapter = {
         structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> {
@@ -116,15 +134,17 @@ test("LLMStepExecutor records provider usage, request duration, and first-text-t
         async *stream(): AsyncIterable<LLMStreamEvent> {
             yield { kind: "started" };
             await new Promise((resolve) => setTimeout(resolve, 15));
-            yield { kind: "assistant_text_delta", text: "{" };
+            yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "json" };
+            yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: decisionText.slice(0, 5) };
             await new Promise((resolve) => setTimeout(resolve, 2));
-            yield { kind: "assistant_text_delta", text: "}" };
-            yield {
-                kind: "completed",
-                response: completedResponse({
-                    usage: { inputTokens: 120, outputTokens: 18, cachedInputTokens: 45 },
-                }),
-            };
+            yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: decisionText.slice(5) };
+            yield { kind: "content_block_completed", delivery: "incremental", block: { index: 0, type: "text", format: "json", text: decisionText } };
+            yield { kind: "content_block_started", index: 1, blockType: "tool_call", delivery: "incremental" };
+            const argumentsJson = "{\"summary\":\"检查完成\",\"completionEvidence\":[],\"memoryPatch\":null}";
+            yield { kind: "content_block_delta", index: 1, deltaKind: "tool_arguments", delta: argumentsJson };
+            yield { kind: "content_block_completed", delivery: "incremental",
+                block: { index: 1, type: "tool_call", callId: "fixture-call", toolId: "system_complete_task", argumentsJson } };
+            yield { kind: "completed", response: streamedResponse };
         },
     };
 

@@ -15,6 +15,8 @@ export type {
     LLMReasoningBlock,
     LLMToolCallBlock,
     LLMContentBlock,
+    LLMContentDeltaKind,
+    LLMContentDelivery,
     LLMResponse,
     LLMStreamEvent,
 } from "./types";
@@ -25,6 +27,12 @@ export {
     readReasoningText,
     readToolCalls,
 } from "./content-blocks";
+
+export {
+    LLMStreamProtocolError,
+    createContentBlockStreamTracker,
+} from "./content-block-stream";
+export type { ContentBlockStreamTracker } from "./content-block-stream";
 
 export {
     LLMConfigurationError,

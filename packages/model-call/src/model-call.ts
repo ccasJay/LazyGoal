@@ -12,8 +12,18 @@ import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 
 import type { LLMAdapter } from "../../llm-core/src/index";
-import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
-import { readNormalizedUsage, readToolCalls } from "../../llm-core/src/index";
+import type {
+    LLMContentBlock,
+    LLMContentDelivery,
+    LLMRequest,
+    LLMResponse,
+    LLMStreamEvent,
+} from "../../llm-core/src/index";
+import {
+    createContentBlockStreamTracker,
+    readNormalizedUsage,
+    readToolCalls,
+} from "../../llm-core/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -172,11 +182,12 @@ export async function callModel(
     let requestDurationMs: number | undefined;
     try {
         if (dependencies.adapter.stream === undefined) {
+            publishModelStarted(dependencies, context, callId);
             requestStartedAt = performance.now();
             response = await dependencies.adapter.generate(providerRequest, control);
             const elapsedMs = performance.now() - requestStartedAt;
             if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
-            publishFallbackModelEvents(dependencies, context, callId, response);
+            publishWholeResponseEvents(dependencies, context, callId, response);
         } else {
             requestStartedAt = performance.now();
             const streamed = await consumeModelStream(dependencies, providerRequest, context, control, callId);
@@ -226,34 +237,30 @@ async function consumeModelStream(
     callId: string,
 ): Promise<{ readonly response: LLMResponse; readonly decodeDurationMs?: number }> {
     if (dependencies.adapter.stream === undefined) {
+        publishModelStarted(dependencies, context, callId);
         const response = await dependencies.adapter.generate(request, control);
-        publishFallbackModelEvents(dependencies, context, callId, response);
+        publishWholeResponseEvents(dependencies, context, callId, response);
         return { response };
     }
 
-    let response: LLMResponse | undefined;
+    const tracker = createContentBlockStreamTracker();
     let firstTextDeltaAt: number | undefined;
     let decodeDurationMs: number | undefined;
     for await (const event of dependencies.adapter.stream.call(dependencies.adapter, request, control)) {
         throwIfAborted(control);
-        if (event.kind === "assistant_text_delta" && event.text.length > 0 && firstTextDeltaAt === undefined) {
+        tracker.accept(event);
+        if (event.kind === "content_block_delta" && event.deltaKind === "text"
+            && event.delta.length > 0 && firstTextDeltaAt === undefined) {
             firstTextDeltaAt = performance.now();
         }
-        publishModelStreamEvent(dependencies, context, event);
-        if (event.kind !== "completed") continue;
-        if (response !== undefined) {
-            throw new LLMResponseProtocolError("LLM stream produced multiple completed responses");
-        }
-        response = event.response;
-        if (firstTextDeltaAt !== undefined) {
-            const measuredDurationMs = performance.now() - firstTextDeltaAt;
-            if (measuredDurationMs > 0) decodeDurationMs = measuredDurationMs;
-        }
+        publishModelStreamEvent(dependencies, context, callId, event);
+        if (event.kind !== "completed" || firstTextDeltaAt === undefined) continue;
+        const measuredDurationMs = performance.now() - firstTextDeltaAt;
+        if (measuredDurationMs > 0) decodeDurationMs = measuredDurationMs;
     }
 
-    if (response === undefined) {
-        throw new LLMResponseProtocolError("LLM stream ended without a completed response");
-    }
+    throwIfAborted(control);
+    const response = tracker.result();
     return {
         response,
         ...(decodeDurationMs === undefined ? {} : { decodeDurationMs }),
@@ -272,11 +279,10 @@ async function appendModelMetric(
     }
 }
 
-function publishFallbackModelEvents(
+function publishModelStarted(
     dependencies: ModelCallDependencies,
     context: ModelCallContext,
     callId: string,
-    response: LLMResponse,
 ): void {
     publishExecutionEvent(dependencies, context, {
         kind: "model_started",
@@ -285,28 +291,18 @@ function publishFallbackModelEvents(
         delivery: "control",
         payload: { modelCallId: callId },
     });
+}
+
+/** 无流式能力的 Adapter 在返回后按整块方式观察；不伪造增量。 */
+function publishWholeResponseEvents(
+    dependencies: ModelCallDependencies,
+    context: ModelCallContext,
+    callId: string,
+    response: LLMResponse,
+): void {
     for (const block of response.blocks) {
-        if (block.type === "text") {
-            if (block.text.length === 0) continue;
-            publishExecutionEvent(dependencies, context, {
-                kind: "assistant_text_delta",
-                visibility: block.format === "json" ? "diagnostic" : "public",
-                durability: "live",
-                delivery: "delta",
-                coalescingKey: `assistant:${callId}:${block.index}`,
-                payload: { modelCallId: callId, blockIndex: block.index, format: block.format, text: block.text },
-            });
-        } else if (block.type === "reasoning") {
-            if (block.text.length === 0) continue;
-            publishExecutionEvent(dependencies, context, {
-                kind: "reasoning_delta",
-                visibility: "restricted",
-                durability: "live",
-                delivery: "delta",
-                coalescingKey: `reasoning:${callId}:${block.index}`,
-                payload: { modelCallId: callId, blockIndex: block.index, text: block.text },
-            });
-        }
+        publishExecutionEvent(dependencies, context, blockEventDraft(callId, "started", block, "whole"));
+        publishExecutionEvent(dependencies, context, blockEventDraft(callId, "completed", block, "whole"));
     }
     publishExecutionEvent(dependencies, context, {
         kind: "model_completed",
@@ -320,50 +316,50 @@ function publishFallbackModelEvents(
 function publishModelStreamEvent(
     dependencies: ModelCallDependencies,
     context: ModelCallContext,
+    callId: string,
     event: LLMStreamEvent,
 ): void {
     switch (event.kind) {
         case "started":
+            publishModelStarted(dependencies, context, callId);
+            return;
+        case "content_block_started":
             publishExecutionEvent(dependencies, context, {
-                kind: "model_started",
-                visibility: "public",
+                kind: "model_block_started",
+                visibility: blockVisibility(event.blockType, event.format),
                 durability: "live",
                 delivery: "control",
-                payload: {},
-            });
-            return;
-        case "assistant_text_delta":
-            publishExecutionEvent(dependencies, context, {
-                kind: event.kind,
-                visibility: "public",
-                durability: "live",
-                delivery: "delta",
-                coalescingKey: `assistant:${context.executionUnitId ?? "run"}`,
-                payload: { text: event.text },
-            });
-            return;
-        case "reasoning_delta":
-            publishExecutionEvent(dependencies, context, {
-                kind: event.kind,
-                visibility: "restricted",
-                durability: "live",
-                delivery: "delta",
-                coalescingKey: `reasoning:${context.executionUnitId ?? "run"}`,
-                payload: { text: event.text },
-            });
-            return;
-        case "model_tool_call_delta":
-            publishExecutionEvent(dependencies, context, {
-                kind: event.kind,
-                visibility: "diagnostic",
-                durability: "live",
-                delivery: "delta",
-                coalescingKey: `model-tool-call:${context.executionUnitId ?? "run"}`,
                 payload: {
-                    delta: event.delta,
-                    ...(event.contentIndex === undefined ? {} : { contentIndex: event.contentIndex }),
+                    modelCallId: callId,
+                    blockIndex: event.index,
+                    blockType: event.blockType,
+                    delivery: event.delivery,
+                    ...(event.format === undefined ? {} : { format: event.format }),
                 },
             });
+            return;
+        case "content_block_delta":
+            publishExecutionEvent(dependencies, context, {
+                kind: "model_block_delta",
+                visibility: blockVisibility(event.deltaKind === "tool_arguments" ? "tool_call" : event.deltaKind),
+                durability: "live",
+                delivery: "delta",
+                coalescingKey: `model-block:${callId}:${event.index}`,
+                payload: {
+                    modelCallId: callId,
+                    blockIndex: event.index,
+                    deltaKind: event.deltaKind,
+                    delta: event.delta,
+                },
+            });
+            return;
+        case "content_block_completed":
+            publishExecutionEvent(dependencies, context, blockEventDraft(
+                callId,
+                "completed",
+                event.block,
+                event.delivery,
+            ));
             return;
         case "completed":
             publishExecutionEvent(dependencies, context, {
@@ -371,10 +367,62 @@ function publishModelStreamEvent(
                 visibility: "public",
                 durability: "live",
                 delivery: "control",
-                payload: { hasToolCalls: readToolCalls(event.response).length > 0 },
+                payload: { modelCallId: callId, hasToolCalls: readToolCalls(event.response).length > 0 },
             });
             return;
     }
+}
+
+function blockEventDraft(
+    callId: string,
+    phase: "started" | "completed",
+    block: LLMContentBlock,
+    delivery: LLMContentDelivery,
+): Omit<ExecutionStreamEventDraft, "goalId" | "runId"> {
+    const identity = {
+        modelCallId: callId,
+        blockIndex: block.index,
+        blockType: block.type,
+        delivery,
+        ...(block.type === "text" ? { format: block.format } : {}),
+    };
+    if (phase === "started") {
+        return {
+            kind: "model_block_started",
+            visibility: blockVisibility(block.type, block.type === "text" ? block.format : undefined),
+            durability: "live",
+            delivery: "control",
+            payload: identity,
+        };
+    }
+    return {
+        kind: "model_block_completed",
+        visibility: blockVisibility(block.type, block.type === "text" ? block.format : undefined),
+        durability: "live",
+        delivery: "control",
+        // 整块交付没有增量，完整事件携带该块内容；增量块的内容已经发布，不重复发送。
+        payload: delivery === "whole" ? { ...identity, ...blockContent(block) } : identity,
+    };
+}
+
+function blockContent(block: LLMContentBlock): { readonly [key: string]: string } {
+    switch (block.type) {
+        case "text":
+            return { text: block.text };
+        case "reasoning":
+            return { text: block.text };
+        case "tool_call":
+            return { callId: block.callId, toolId: block.toolId, argumentsJson: block.argumentsJson };
+    }
+}
+
+function blockVisibility(
+    blockType: LLMContentBlock["type"],
+    format?: "plain" | "json",
+): "public" | "diagnostic" | "restricted" {
+    if (blockType === "reasoning") return "restricted";
+    if (blockType === "tool_call") return "diagnostic";
+    return format === "json" ? "diagnostic" : "public";
 }
 
 function publishExecutionEvent(

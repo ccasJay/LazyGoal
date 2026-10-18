@@ -11,11 +11,11 @@ const ref = { goalId: "goal-1", runId: "run-1" };
 function draft(overrides: Partial<Parameters<InMemoryExecutionStreamPublisher["publish"]>[0]> = {}) {
     return {
         ...ref,
-        kind: "assistant_text_delta",
+        kind: "text_stream_delta",
         visibility: "public" as const,
         durability: "live" as const,
         delivery: "delta" as const,
-        coalescingKey: "assistant:step-1",
+        coalescingKey: "text:step-1",
         payload: { text: "hello" },
         ...overrides,
     };
@@ -62,30 +62,30 @@ test("连续文本增量在订阅队列中合并并保留 cursor 范围", async 
     assert.equal(event.coalescedFrom, 1);
 });
 
-test("可见性和 reasoning 默认过滤", async () => {
+test("可见性默认过滤，受限内容须显式订阅", async () => {
     const publisher = new InMemoryExecutionStreamPublisher();
     const subscription = publisher.subscribe(ref);
     publisher.publish({
         ...ref,
-        kind: "reasoning_delta",
+        kind: "model_block_delta",
         visibility: "restricted",
         durability: "live",
         delivery: "delta",
-        coalescingKey: "reasoning:step-1",
-        payload: { text: "secret" },
+        coalescingKey: "model-block:call-1:1",
+        payload: { deltaKind: "reasoning", delta: "secret" },
     });
     publisher.publish({
         ...ref,
-        kind: "assistant_text_delta",
+        kind: "model_block_delta",
         visibility: "public",
         durability: "live",
         delivery: "delta",
-        coalescingKey: "assistant:step-1",
-        payload: { text: "visible" },
+        coalescingKey: "model-block:call-1:0",
+        payload: { deltaKind: "text", delta: "visible" },
     });
 
     const event = await readOne(subscription);
-    assert.equal(event.kind, "assistant_text_delta");
+    assert.equal(event.kind, "model_block_delta");
     subscription.close();
 });
 

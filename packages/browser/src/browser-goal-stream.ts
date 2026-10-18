@@ -391,9 +391,11 @@ function projectLiveActivity(
                 attempt: Number(event.payload.attempt), reason: event.payload.reason.slice(0, 160),
             };
         }
-        case "assistant_text_delta": {
-            if (!isRecord(event.payload) || typeof event.payload.text !== "string") return undefined;
-            const text = event.payload.text;
+        case "model_block_delta": {
+            // 只有公开的普通正文增量进入当前活动视图；结构化 JSON、工具参数与 reasoning 不投影。
+            if (!isRecord(event.payload) || event.payload.deltaKind !== "text"
+                || typeof event.payload.delta !== "string") return undefined;
+            const text = event.payload.delta;
             if (identity === undefined) return undefined;
             return {
                 kind: "assistant_text_delta",
@@ -402,6 +404,21 @@ function projectLiveActivity(
                 truncated: text.length > MAX_LIVE_TEXT_LENGTH,
             };
         }
+        case "model_block_completed": {
+            // 整块交付的公开正文以完整文本一次性呈现；增量块的内容已由增量发布。
+            if (!isRecord(event.payload) || event.payload.blockType !== "text"
+                || event.payload.delivery !== "whole" || typeof event.payload.text !== "string") return undefined;
+            const text = event.payload.text;
+            if (text.length === 0 || identity === undefined) return undefined;
+            return {
+                kind: "assistant_text_delta",
+                ...identity,
+                text: text.slice(0, MAX_LIVE_TEXT_LENGTH),
+                truncated: text.length > MAX_LIVE_TEXT_LENGTH,
+            };
+        }
+        case "model_block_started":
+            return undefined;
         case "decision_received": {
             if (isRecord(event.payload) && isRecord(event.payload.decision) && event.payload.decision.kind === "tool_call") return undefined;
             return projectActivityBoundary(identity, "assistant_reply");

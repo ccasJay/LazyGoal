@@ -235,28 +235,73 @@ export interface LLMResponse {
 }
 
 /**
+ * 内容块增量的类型化种类。
+ *
+ * @remarks
+ * 与块类型一一对应：正文、公开 reasoning 与工具参数；不用于任意 JSON merge。
+ *
+ * @example
+ * ```ts
+ * const deltaKind: LLMContentDeltaKind = "text";
+ * ```
+ */
+export type LLMContentDeltaKind = "text" | "reasoning" | "tool_arguments";
+
+/**
+ * 完整块的交付方式。
+ *
+ * @remarks
+ * `incremental` 表示内容通过有序增量到达；`whole` 表示必须收齐或为整块到达，
+ * 由块开始与完整结束表达，不伪造分片。
+ *
+ * @example
+ * ```ts
+ * const delivery: LLMContentDelivery = "whole";
+ * ```
+ */
+export type LLMContentDelivery = "incremental" | "whole";
+
+/**
  * 供应商无关的模型流事件。
  *
  * @remarks
- * `completed` 携带与 `generate()` 相同的最终响应；其它事件只描述生成过程，
- * 不参与 AgentDecision 解析。工具调用参数可能是不完整 JSON，调用方不得直接
- * 将其作为可执行 Action 使用。
+ * 事件顺序为响应开始、块开始、块增量、块完整结束、响应成功完成；`completed`
+ * 必须是 Adapter 的最后一个事件，携带与 `generate()` 相同形状的最终响应，其它
+ * 事件只描述生成过程。块增量不参与 AgentDecision 解析；工具参数增量可能是不完整
+ * JSON，调用方不得直接把它当作可执行参数。块完成后不可再追加内容。
  *
  * @example
  * ```ts
  * const event: LLMStreamEvent = {
- *     kind: "assistant_text_delta",
- *     text: "正在检查文件...",
+ *     kind: "content_block_delta", index: 0, deltaKind: "text", delta: "正在检查文件...",
  * };
  * ```
  */
 export type LLMStreamEvent =
     | { readonly kind: "started" }
-    | { readonly kind: "assistant_text_delta"; readonly text: string }
-    | { readonly kind: "reasoning_delta"; readonly text: string }
     | {
-        readonly kind: "model_tool_call_delta";
+        readonly kind: "content_block_started";
+        /** 本次响应内稳定且唯一的块索引；必须从 0 开始连续。 */
+        readonly index: number;
+        /** 开始的块类型；工具身份可以晚到完整结束。 */
+        readonly blockType: LLMContentBlock["type"];
+        /** 该块的交付方式。 */
+        readonly delivery: LLMContentDelivery;
+        /** 文本块的正文格式；仅 `text` 块携带。 */
+        readonly format?: LLMTextBlockFormat;
+    }
+    | {
+        readonly kind: "content_block_delta";
+        readonly index: number;
+        readonly deltaKind: LLMContentDeltaKind;
+        /** 该种类的原始增量文本；不隐式 trim 或改写。 */
         readonly delta: string;
-        readonly contentIndex?: number;
+    }
+    | {
+        readonly kind: "content_block_completed";
+        /** 该块的最终内容；工具块的名称与调用 ID 此时必须齐备。 */
+        readonly block: LLMContentBlock;
+        /** 与块开始时一致的交付方式；`whole` 块的完成事件是该块内容的唯一来源。 */
+        readonly delivery: LLMContentDelivery;
     }
     | { readonly kind: "completed"; readonly response: LLMResponse };

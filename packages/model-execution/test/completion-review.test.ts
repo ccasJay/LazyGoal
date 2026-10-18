@@ -153,10 +153,23 @@ test("streaming review text, reasoning and result arguments stay outside the pub
         async generate() { throw new Error("Expected streaming review"); },
         async *stream(): AsyncIterable<LLMStreamEvent> {
             yield { kind: "started" };
-            yield { kind: "assistant_text_delta", text: "Internal review" };
-            yield { kind: "reasoning_delta", text: "Internal reasoning" };
-            yield { kind: "model_tool_call_delta", delta: '{"result":{"kind":"accept"}}' };
-            yield { kind: "completed", response: reviewAcceptResponse("native-review") };
+            yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "plain" };
+            yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: "Internal review" };
+            yield { kind: "content_block_completed", delivery: "incremental", block: { index: 0, type: "text", format: "plain", text: "Internal review" } };
+            yield { kind: "content_block_started", index: 1, blockType: "reasoning", delivery: "incremental" };
+            yield { kind: "content_block_delta", index: 1, deltaKind: "reasoning", delta: "Internal reasoning" };
+            yield { kind: "content_block_completed", delivery: "incremental", block: { index: 1, type: "reasoning", text: "Internal reasoning" } };
+            yield { kind: "content_block_started", index: 2, blockType: "tool_call", delivery: "incremental" };
+            yield { kind: "content_block_delta", index: 2, deltaKind: "tool_arguments", delta: '{"result":{"kind":"accept"}}' };
+            yield { kind: "content_block_completed", delivery: "incremental", block: { index: 2, type: "tool_call", callId: "native-review", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' } };
+            yield {
+                kind: "completed",
+                response: blockResponse(
+                    { type: "text", text: "Internal review" },
+                    { type: "reasoning", text: "Internal reasoning" },
+                    { type: "tool_call", callId: "native-review", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' },
+                ),
+            };
         },
     };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });

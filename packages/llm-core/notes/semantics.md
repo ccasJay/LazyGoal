@@ -8,6 +8,7 @@
 | LLMRequest / LLMResponse / LLMStreamEvent | 请求、以有序完整块为权威的响应与流事件契约。 | [LLM 核心契约](../README.md) | [请求与响应契约](../src/types.ts) |
 | LLMContentBlock | `text`／`reasoning`／`tool_call` 完整块；正文格式与工具参数来源。 | [LLM 核心契约](../README.md) | [块类型](../src/types.ts) |
 | 内容块读投影 | 按块顺序派生正文、reasoning 与工具调用，不持有第二份状态。 | [LLM 核心契约](../README.md) | [content-blocks](../src/content-blocks.ts) |
+| 内容块流协议 | 响应开始、块开始／增量／完整结束与唯一成功完成；whole 交付不伪造分片。 | [LLM 核心契约](../README.md) | [content-block-stream](../src/content-block-stream.ts) |
 | LLMConfig / LLMConfigurationError | 共享连接配置与唯一配置错误构造器；读取归 Config。 | [LLM 核心契约](../README.md) | [配置契约](../src/llm-config.ts) |
 | NormalizedUsage / readNormalizedUsage | 归一化用量形态与安全读取；缺失不补零。 | [LLM 核心契约](../README.md) | [用量契约](../src/usage.ts) |
 | 暂时故障分类 | 把结构化识别的限流、5xx、连接与超时映射为 execution-control 身份。 | [LLM 核心契约](../README.md) | [故障分类](../src/model-request-failure.ts) |
