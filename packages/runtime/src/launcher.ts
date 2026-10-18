@@ -217,6 +217,10 @@ export async function launch(
     }
 
     throwIfAborted(control);
+    initialGoal = {
+        ...initialGoal,
+        state: { ...initialGoal.state, commitRevision: 1 },
+    };
     await dependencies.store.save(initialGoal);
     throwIfAborted(control);
     if (dependencies.trajectoryStore !== undefined) {

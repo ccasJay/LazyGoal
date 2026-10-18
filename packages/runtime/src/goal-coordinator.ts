@@ -49,7 +49,7 @@ import {
     type TrajectoryCheckpointCommitResult,
     type TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
-import { withRunModeSelectionGate } from "./run-mode-selection-gate";
+import { withGoalMutationGate } from "./goal-mutation-gate";
 import {
     DefaultPermissionGrantService,
     createSandboxGrantMatcher,
@@ -593,7 +593,7 @@ export class GoalCoordinator {
         ref: RunRef,
         control?: ExecutionControl,
     ): Promise<GoalProgressResult> {
-        return withRunModeSelectionGate(this.store, ref.goalId, async () => {
+        return withGoalMutationGate(this.store, ref.goalId, async () => {
             throwIfAborted(control);
             const goal = await this.restore(ref, control);
             throwIfAborted(control);
@@ -760,7 +760,7 @@ export class GoalCoordinator {
         continuation?: { readonly messageId: string },
     ): Promise<GoalProgressResult> {
         return this.withContinuationGate(ref.goalId, async () => {
-            const preparation = await withRunModeSelectionGate(
+            const preparation = await withGoalMutationGate(
                 this.store,
                 ref.goalId,
                 async (): Promise<

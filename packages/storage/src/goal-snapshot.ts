@@ -736,12 +736,74 @@ export interface GoalSnapshotModelSelectionV1 {
  */
 export interface GoalSnapshotStateV1 {
     readonly nextRunMode?: "plan" | undefined;
+    /** Goal 级单调提交修订；省略等同 0。 */
+    readonly commitRevision?: number | undefined;
+    /** 已受理输入账本；省略表示尚未受理输入。 */
+    readonly inputLedger?: readonly GoalSnapshotSessionInputV1[] | undefined;
+    /** 待处理普通消息队列；省略表示空队列。 */
+    readonly messageQueue?: GoalSnapshotMessageQueueV1 | undefined;
     readonly workflow: GoalSnapshotWorkflowV1;
     readonly messages: readonly GoalSnapshotMessageV1[];
     readonly run: GoalSnapshotRunStateV1;
     readonly modelSelection: GoalSnapshotModelSelectionV1;
     readonly goalPlan?: GoalSnapshotGoalPlanV1 | undefined;
     readonly completedRuns: readonly GoalSnapshotCompletedRunV1[];
+}
+
+/**
+ * Snapshot 中一条已受理输入的账本记录。
+ *
+ * @remarks 记录不复制正文；正文只保存在队列项、Run 内 Steer 记录或 Goal 消息中。
+ *
+ * @example
+ * ```ts
+ * const record: GoalSnapshotSessionInputV1 = {
+ *   inputId: "input-1", kind: "message", digest: "sha256:abc",
+ *   sequence: 1, status: "pending", admittedAtRevision: 1,
+ * };
+ * ```
+ */
+export interface GoalSnapshotSessionInputV1 {
+    readonly inputId: string;
+    readonly kind: "message" | "steer" | "interrupt" | "respond" | "resume" | "queue_control";
+    readonly digest: string;
+    readonly sequence: number;
+    readonly status: "pending" | "applied" | "cleared";
+    readonly admittedAtRevision: number;
+    readonly targetRunId?: string | undefined;
+    readonly appliedRunId?: string | undefined;
+    readonly messageIndex?: number | undefined;
+}
+
+/**
+ * Snapshot 中队列内一条尚未应用的普通消息。
+ *
+ * @example
+ * ```ts
+ * const item: GoalSnapshotSessionQueueItemV1 = { inputId: "input-2", content: "继续", sequence: 2 };
+ * ```
+ */
+export interface GoalSnapshotSessionQueueItemV1 {
+    readonly inputId: string;
+    readonly content: string;
+    readonly sequence: number;
+}
+
+/**
+ * Snapshot 中的待处理消息队列、修订与暂停状态。
+ *
+ * @example
+ * ```ts
+ * const queue: GoalSnapshotMessageQueueV1 = { revision: 1, items: [] };
+ * ```
+ */
+export interface GoalSnapshotMessageQueueV1 {
+    readonly revision: number;
+    readonly items: readonly GoalSnapshotSessionQueueItemV1[];
+    readonly pause?: {
+        readonly reason: "run_failed" | "user_interrupt";
+        readonly runId: string;
+    } | undefined;
 }
 
 /** 当前唯一支持的 Goal Snapshot DTO。 */
@@ -1295,6 +1357,31 @@ const CompletedRunSchema = z.object({
     }).strict().optional(),
 }).strict();
 
+const SessionInputRecordSchema = z.object({
+    inputId: NonEmptyStringSchema,
+    kind: z.enum(["message", "steer", "interrupt", "respond", "resume", "queue_control"]),
+    digest: NonEmptyStringSchema.regex(/^sha256:[0-9a-f]{64}$/),
+    sequence: z.number().int().positive(),
+    status: z.enum(["pending", "applied", "cleared"]),
+    admittedAtRevision: z.number().int().nonnegative(),
+    targetRunId: NonEmptyStringSchema.optional(),
+    appliedRunId: NonEmptyStringSchema.optional(),
+    messageIndex: z.number().int().nonnegative().optional(),
+}).strict();
+
+const SessionMessageQueueSchema = z.object({
+    revision: z.number().int().nonnegative(),
+    items: z.array(z.object({
+        inputId: NonEmptyStringSchema,
+        content: NonEmptyStringSchema,
+        sequence: z.number().int().positive(),
+    }).strict()),
+    pause: z.object({
+        reason: z.enum(["run_failed", "user_interrupt"]),
+        runId: NonEmptyStringSchema,
+    }).strict().optional(),
+}).strict();
+
 const GoalSnapshotV1BaseSchema = z.object({
     id: NonEmptyStringSchema,
     metadata: z.object({ schemaVersion: z.literal(1) }).strict(),
@@ -1320,6 +1407,9 @@ const GoalSnapshotV1BaseSchema = z.object({
     }).strict(),
     state: z.object({
         nextRunMode: z.literal("plan").optional(),
+        commitRevision: z.number().int().nonnegative().optional(),
+        inputLedger: z.array(SessionInputRecordSchema).optional(),
+        messageQueue: SessionMessageQueueSchema.optional(),
         workflow: WorkflowSchema,
         messages: z.array(GoalSnapshotMessageSchema),
         run: z.object({
@@ -1474,6 +1564,50 @@ function validateSnapshotInvariants(
             && (steer.messageIndex >= goal.state.messages.length
                 || goal.state.messages[steer.messageIndex]?.role !== "user")) {
             addInvariantIssue(context, "Applied Steer must point to a real user message", ["state", "run", "steerInputs", index, "messageIndex"]);
+        }
+    }
+    const inputIds = new Set<string>();
+    let previousInputSequence = 0;
+    for (const [index, record] of (goal.state.inputLedger ?? []).entries()) {
+        if (inputIds.has(record.inputId)) {
+            addInvariantIssue(context, "session input IDs must be unique within the Goal", ["state", "inputLedger", index, "inputId"]);
+        }
+        inputIds.add(record.inputId);
+        if (record.sequence <= previousInputSequence) {
+            addInvariantIssue(context, "session input sequences must increase in ledger order", ["state", "inputLedger", index, "sequence"]);
+        }
+        previousInputSequence = record.sequence;
+        if (record.status === "applied") {
+            if (record.appliedRunId === undefined) {
+                addInvariantIssue(context, "applied session input requires its applied Run", ["state", "inputLedger", index, "appliedRunId"]);
+            }
+            if (record.messageIndex !== undefined
+                && (record.messageIndex >= goal.state.messages.length
+                    || goal.state.messages[record.messageIndex]?.role !== "user")) {
+                addInvariantIssue(context, "applied session input must point to a real user message", ["state", "inputLedger", index, "messageIndex"]);
+            }
+        } else if (record.appliedRunId !== undefined || record.messageIndex !== undefined) {
+            addInvariantIssue(context, "only applied session inputs may reference an applied Run or message", ["state", "inputLedger", index]);
+        }
+    }
+    const messageQueue = goal.state.messageQueue;
+    const queuedInputIds = new Set<string>();
+    for (const [index, item] of (messageQueue?.items ?? []).entries()) {
+        if (queuedInputIds.has(item.inputId)) {
+            addInvariantIssue(context, "queued message IDs must be unique", ["state", "messageQueue", "items", index, "inputId"]);
+        }
+        queuedInputIds.add(item.inputId);
+        const record = (goal.state.inputLedger ?? []).find((candidate) => candidate.inputId === item.inputId);
+        if (record === undefined
+            || record.kind !== "message"
+            || record.status !== "pending"
+            || record.sequence !== item.sequence) {
+            addInvariantIssue(context, "queued message must match a pending message input record", ["state", "messageQueue", "items", index]);
+        }
+    }
+    for (const [index, record] of (goal.state.inputLedger ?? []).entries()) {
+        if (record.kind === "message" && record.status === "pending" && !queuedInputIds.has(record.inputId)) {
+            addInvariantIssue(context, "pending message input requires a queued item", ["state", "inputLedger", index]);
         }
     }
     const step = run.lastStep;

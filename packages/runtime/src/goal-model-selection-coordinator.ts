@@ -1,6 +1,8 @@
 import type { Goal, GoalModelSelection, RunRef } from "./domain.js";
 import { throwIfAborted, type ExecutionControl } from "../../execution-control/src/index";
 import type { GoalStore } from "./goal-store.js";
+import { withGoalMutationGate } from "./goal-mutation-gate";
+import { saveGoalWithSessionState } from "./trajectory-checkpoint-committer";
 
 /**
  * 切换模型选择请求的稳定业务错误分类。
@@ -129,6 +131,17 @@ export class DefaultGoalModelSelectionCoordinator implements GoalModelSelectionC
         request: GoalModelSelectionRequest,
         control?: ExecutionControl,
     ): Promise<GoalModelSelectionResult> {
+        return withGoalMutationGate(
+            this.dependencies.store,
+            request.ref.goalId,
+            () => this.updateModelSelectionWithinGate(request, control),
+        );
+    }
+
+    private async updateModelSelectionWithinGate(
+        request: GoalModelSelectionRequest,
+        control?: ExecutionControl,
+    ): Promise<GoalModelSelectionResult> {
         throwIfAborted(control);
 
         const goal = await this.dependencies.store.restore(request.ref.goalId);
@@ -175,7 +188,11 @@ export class DefaultGoalModelSelectionCoordinator implements GoalModelSelectionC
         throwIfAborted(control);
 
         try {
-            await this.dependencies.store.save(updatedGoal);
+            const saved = await saveGoalWithSessionState(this.dependencies.store, updatedGoal);
+            return {
+                ok: true,
+                goal: saved,
+            };
         } catch (error) {
             return {
                 ok: false,
@@ -186,10 +203,5 @@ export class DefaultGoalModelSelectionCoordinator implements GoalModelSelectionC
                 goal,
             };
         }
-
-        return {
-            ok: true,
-            goal: updatedGoal,
-        };
     }
 }

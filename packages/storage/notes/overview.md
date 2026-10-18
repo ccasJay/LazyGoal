@@ -13,7 +13,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 | --- | --- | --- |
 | [AgentProfileFile](../src/agent-profile-file.ts) | Profile 文件 DTO（`schemaVersion: 1`）、严格 Schema 与 `AgentProfileConfigurationError` | 读取文件系统、构造 Runtime Profile |
 | [JsonFileAgentProfileStore](../src/json-file-agent-profile-store.ts) | 实现 Runtime `AgentProfileStore` Port，读取单个 `<profileId>.json` | 扫描其它 Profile、读取 Tool 实例、校验 Tool 注册 |
-| [GoalSnapshotV1 协议](../src/goal-snapshot.ts) | 当前唯一 Snapshot DTO、严格字段与跨字段不变量校验；保存当前 Prompt/Memory/Model Context/Retrieval 组合、模型选择状态（`modelSelection`）、完整消息、`mode`、GoalPlan、`completedRuns`、Run/todo 关系、Run 的唯一 `exposedToolIds`、Context Epoch、内部阶段（`currentStage`）、获批 Plan Run 路线（`planRoute`）与待执行 Action 的授权引用 | 文件系统 I/O、构造 Runtime Goal、迁移历史 Snapshot |
+| [GoalSnapshotV1 协议](../src/goal-snapshot.ts) | 当前唯一 Snapshot DTO、严格字段与跨字段不变量校验；保存当前 Prompt/Memory/Model Context/Retrieval 组合、模型选择状态（`modelSelection`）、完整消息、`mode`、GoalPlan、`completedRuns`、Run/todo 关系、Run 的唯一 `exposedToolIds`、Context Epoch、内部阶段（`currentStage`）、获批 Plan Run 路线（`planRoute`）、待执行 Action 的授权引用、Goal 提交修订（`commitRevision`）、输入账本（`inputLedger`）与消息队列（`messageQueue`） | 文件系统 I/O、构造 Runtime Goal、迁移历史 Snapshot |
 | [GoalSnapshotCodec](../src/goal-snapshot-codec.ts) | Runtime Goal↔v1 Snapshot 的 encode/decode 深复制转换；只接受当前 v1，不迁移或回写历史版本 | 文件系统 I/O、读写 Store |
 | [InMemoryGoalStore](../src/goal-store.ts) | 实现 Runtime `GoalStore` Port：save 经 Codec encode、restore 经 decode | 跨实例或跨进程恢复 |
 | [JsonFileGoalStore](../src/goal-store.ts) | 实现 `GoalStore` 与 `GoalCatalog`：base64url 文件名、临时文件 + rename 原子替换、明确临时故障核对后有界重试、目录扫描摘要 | 跨进程锁、乐观锁、租约或版本冲突检测 |
@@ -35,6 +35,8 @@ Plan Run 的 `planRoute` 仅能出现在已有 `approvedTask` 的 Plan Run 上�
 待审批 Plan Run 的 `task_approval` 交互必须包含非空阶段和验收条件组成的 `planRouteCandidate`。Snapshot 对候选做严格字段和非空约束校验，Codec 深复制往返；该字段不含 Runtime 身份或执行状态，批准后候选随等待交互清除并由 Runtime 创建正式路线。不迁移缺失字段的旧开发快照。
 
 路线扩展等待保存在 `pendingInteraction.routeRevision`，包括基于的路线 revision、完整候选、修订理由和唯一批准选项。只有选择该批准项才应用修订；用户选择保留当前路线时，Snapshot 中的路线不变。路线修订事实进入 Trajectory，Snapshot 游标决定恢复时可见的修订边界。
+
+Snapshot 原样保存 Goal 级 `commitRevision`、`inputLedger` 与 `messageQueue`。账本记录只保存 `inputId`、种类、`sha256` 载荷摘要、受理序号、`admittedAtRevision` 与 pending／applied／cleared 状态及必要关联；正文只保存在队列项或 Goal 消息中。Schema 要求账本身份唯一、受理序号在账本顺序内严格递增、已应用记录指向真实 user 消息位置、队列项与一条 pending message 记录一一对应，并要求摘要为 `sha256:<64 hex>`；不一致的快照 fail-closed，不自动修正或迁移。
 
 
 当前 Snapshot 同时校验 `pendingProgram` 与运行中父 Action、子 `pendingAction` 的身份及调用位置；Codec 原位保存恢复指针和已用结果字节数。PTC 子事实的 `programId/callIndex` 随 Trajectory 严格解析，结果仍以 Snapshot 的提交边界为准。`program_time_reserved` 是例外：它在同一 JSONL 中单独同步到磁盘，恢复时无论 Snapshot 是否纳入该事件都要计入预算，防止崩溃重置额度。Storage 不推断工具是否已经产生外部副作用。

@@ -6,7 +6,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 持久化受理文本输入，并通过稳定收据核验重复和不确定结果
+- [x] //TODO 1. 持久化受理文本输入，并通过稳定收据核验重复和不确定结果
   - 落实标准：[2.1](./spec.md#spec-req-2-1)、[2.3](./spec.md#spec-req-2-3)、[2.4](./spec.md#spec-req-2-4)、[3.6](./spec.md#spec-req-3-6)、[8.3](./spec.md#spec-req-8-3)、[9.6](./spec.md#spec-req-9-6)。
   - 先验证：在待实现的 `packages/runtime/test/session-input.test.ts` 和 `packages/storage/test/session-input-snapshot.test.ts` 中，以已有 Goal 受理消息后重建 Store；核对同 ID／同载荷返回原收据，改载荷冲突，恢复后身份仍有效。控制保存失败、保存结果不明及容量边界，验证未受理不产生执行，原身份可核验；满队列仍允许中断、回答、恢复和清空。
   - 实施目标：在 Runtime 会话模块定义内部输入、收据与查询契约，扩展 Goal／Snapshot／Trajectory 当前协议、受理序号、队列修订和 Goal 提交修订。复用并扩展现有短 mutation Gate，将 Launcher、Runner、Coordinator、模型选择及管理写入纳入一致的读取／提交边界，防止旧快照覆盖新受理；校验放在 queued、durable 和 wire 等真实边界，不引入旧数据兼容或独立 inbox 文件。

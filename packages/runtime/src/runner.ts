@@ -178,7 +178,7 @@ import {
     selectLatestConversationStart,
     toEpochRange,
 } from "./context-epoch";
-import { withRunModeSelectionGate } from "./run-mode-selection-gate";
+import { withGoalMutationGate } from "./goal-mutation-gate";
 import { RunRecoveryReader } from "./run-recovery-reader";
 import {
     createSandboxGrantMatcher,
@@ -1227,7 +1227,7 @@ class RunExecutor {
         }
 
         if (goal.state.run.status === "created") {
-            const start = await withRunModeSelectionGate(this.store, goal.id, async () => {
+            const start = await withGoalMutationGate(this.store, goal.id, async () => {
                 throwIfAborted(effectiveControl);
                 const latestGoal = await this.restore(ref, effectiveControl);
                 throwIfAborted(effectiveControl);
@@ -1295,7 +1295,7 @@ class RunExecutor {
         if (messageId.trim().length === 0 || content.trim().length === 0 || content.length > 64_000) {
             return { ok: false, error: "STEER_CONFLICT" };
         }
-        return withRunModeSelectionGate(this.store, ref.goalId, async () => {
+        return withGoalMutationGate(this.store, ref.goalId, async () => {
             const goal = await this.restore(ref);
             if (goal === undefined || goal.state.run.id !== ref.runId) {
                 return { ok: false, error: "RUN_NOT_FOUND" };
@@ -1333,7 +1333,7 @@ class RunExecutor {
 
     async interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {
         if (requestId.trim().length === 0) return { ok: false, error: "INTERRUPT_CONFLICT" };
-        const result = await withRunModeSelectionGate(this.store, ref.goalId, async (): Promise<InterruptRunResult> => {
+        const result = await withGoalMutationGate(this.store, ref.goalId, async (): Promise<InterruptRunResult> => {
             const goal = await this.restore(ref);
             if (goal === undefined || goal.state.run.id !== ref.runId) return { ok: false, error: "RUN_NOT_FOUND" };
             const existing = goal.state.run.interruption;
@@ -2460,7 +2460,7 @@ class RunExecutor {
             readonly stepIndex?: number;
         },
     ): Promise<Goal> {
-        return withRunModeSelectionGate(this.store, goal.id, async () => {
+        return withGoalMutationGate(this.store, goal.id, async () => {
             const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
             if (latest?.state.run.interruption?.status === "requested") {
                 throw new RunInterruptAcceptedError("Run Interrupt was accepted before the model checkpoint");
@@ -2535,7 +2535,7 @@ class RunExecutor {
         facts: readonly TrajectoryEventDraft[],
         control?: ExecutionControl,
     ): Promise<TrajectoryCheckpointCommitResult> {
-        return withRunModeSelectionGate(this.store, goal.id, async () => {
+        return withGoalMutationGate(this.store, goal.id, async () => {
             const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
             if (latest?.state.run.interruption?.status === "requested") {
                 throw new RunInterruptAcceptedError("Run Interrupt was accepted before a new Tool attempt");
@@ -2569,7 +2569,7 @@ class RunExecutor {
     }
 
     private async applyPendingSteers(goal: Goal, control?: ExecutionControl): Promise<Goal> {
-        return withRunModeSelectionGate(this.store, goal.id, async (): Promise<Goal> => {
+        return withGoalMutationGate(this.store, goal.id, async (): Promise<Goal> => {
             const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
             if (latest === undefined || latest.state.run.status !== "running") return latest ?? goal;
             const pending = (latest.state.run.steerInputs ?? []).filter(
@@ -3833,7 +3833,7 @@ class RunExecutor {
             eventType: "observation_recorded",
             payload: { type: "observation_recorded", actionId: prepared.action.actionId, observation },
         };
-        const committed = await withRunModeSelectionGate(this.store, goal.id, async () => {
+        const committed = await withGoalMutationGate(this.store, goal.id, async () => {
             const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
             if (latest === undefined) throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "Run disappeared before Observation commit");
             const toolFinishedEvent = await this.appendTrajectory({

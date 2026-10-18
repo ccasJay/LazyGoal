@@ -17,6 +17,7 @@ import type {
     ModelContextEpochState,
 } from "./domain";
 import type { RuntimeFeedback } from "./runtime-feedback";
+import type { SessionInputKind } from "./session-input";
 import type { GoalPlanPatchOperation } from "./goal-plan";
 import { assertValidRunPlanRoute } from "./run-plan";
 import type { RunPlanRouteState } from "./run-plan";
@@ -135,6 +136,23 @@ export type TrajectoryEventPayload =
         readonly intent: string;
     }
     | { readonly type: "run_started" }
+    | {
+        readonly type: "session_input_admitted";
+        readonly inputId: string;
+        readonly kind: SessionInputKind;
+        readonly sequence: number;
+    }
+    | {
+        readonly type: "session_input_applied";
+        readonly inputId: string;
+        readonly runId: string;
+        readonly messageIndex: number;
+    }
+    | {
+        readonly type: "session_input_cleared";
+        readonly inputId: string;
+        readonly queueRevision: number;
+    }
     | { readonly type: "steer_input_received"; readonly messageId: string }
     | { readonly type: "steer_input_applied"; readonly messageId: string; readonly messageIndex: number }
     | { readonly type: "run_interrupt_requested"; readonly requestId: string }
@@ -806,6 +824,9 @@ export class TrajectoryCommitMarkerError extends Error {
 const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "goal_created",
     "run_started",
+    "session_input_admitted",
+    "session_input_applied",
+    "session_input_cleared",
     "steer_input_received",
     "steer_input_applied",
     "run_interrupt_requested",
@@ -1278,6 +1299,37 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             throw new TrajectoryProtocolError("run_waiting.requestId is only valid for ask_user or task_approval");
         }
     }
+    if (eventType === "session_input_admitted") {
+        if (Object.keys(payload).some((key) => !["type", "inputId", "kind", "sequence"].includes(key))) {
+            throw new TrajectoryProtocolError("session_input_admitted contains unknown fields");
+        }
+        assertNonEmptyString(payload.inputId, "session_input_admitted.inputId");
+        if (!["message", "steer", "interrupt", "respond", "resume", "queue_control"].includes(payload.kind as string)) {
+            throw new TrajectoryProtocolError("session_input_admitted.kind is invalid");
+        }
+        if (!Number.isSafeInteger(payload.sequence) || (payload.sequence as number) < 1) {
+            throw new TrajectoryProtocolError("session_input_admitted.sequence is invalid");
+        }
+    }
+    if (eventType === "session_input_applied") {
+        if (Object.keys(payload).some((key) => !["type", "inputId", "runId", "messageIndex"].includes(key))) {
+            throw new TrajectoryProtocolError("session_input_applied contains unknown fields");
+        }
+        assertNonEmptyString(payload.inputId, "session_input_applied.inputId");
+        assertNonEmptyString(payload.runId, "session_input_applied.runId");
+        if (!Number.isSafeInteger(payload.messageIndex) || (payload.messageIndex as number) < 0) {
+            throw new TrajectoryProtocolError("session_input_applied.messageIndex is invalid");
+        }
+    }
+    if (eventType === "session_input_cleared") {
+        if (Object.keys(payload).some((key) => !["type", "inputId", "queueRevision"].includes(key))) {
+            throw new TrajectoryProtocolError("session_input_cleared contains unknown fields");
+        }
+        assertNonEmptyString(payload.inputId, "session_input_cleared.inputId");
+        if (!Number.isSafeInteger(payload.queueRevision) || (payload.queueRevision as number) < 0) {
+            throw new TrajectoryProtocolError("session_input_cleared.queueRevision is invalid");
+        }
+    }
     if (eventType === "steer_input_received") {
         if (Object.keys(payload).some((key) => !["type", "messageId"].includes(key))) {
             throw new TrajectoryProtocolError("steer_input_received contains unknown fields");
@@ -1667,6 +1719,9 @@ export function classifyTrajectoryEvent(
         case "task_feedback_received":
         case "steer_input_received":
         case "steer_input_applied":
+        case "session_input_admitted":
+        case "session_input_applied":
+        case "session_input_cleared":
         case "run_interrupt_requested":
         case "run_interrupted_action_unknown":
         case "run_interrupt_repair_started":

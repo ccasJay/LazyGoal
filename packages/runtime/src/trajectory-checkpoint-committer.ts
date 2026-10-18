@@ -8,6 +8,7 @@ import type {
     MemoryRevision,
 } from "../../working-memory/src/index";
 import type { GoalStore } from "./goal-store";
+import { withGoalMutationGate } from "./goal-mutation-gate";
 import {
     isExecutionAbortedError,
     throwIfAborted,
@@ -90,8 +91,70 @@ export interface TrajectoryCheckpointCommitRequest {
         readonly executionUnitId?: string;
         readonly stepIndex?: number;
     };
+    /**
+     * 会话输入账本与消息队列的写入权威。
+     *
+     * @remarks
+     * 省略或传 `latest` 时，本次保存沿用最新快照的会话状态，避免基于旧快照的
+     * 执行提交覆盖并发受理；只有已完成最新读取的会话受理与队列写入才传 `caller`。
+     */
+    readonly sessionState?: "latest" | "caller";
     /** 当前调用级中止控制。 */
     readonly control?: ExecutionControl;
+}
+
+function withLatestSessionState(goal: Goal, latest: Goal): Goal {
+    const { inputLedger: _inputLedger, messageQueue: _messageQueue, commitRevision: _commitRevision, ...rest } = goal.state;
+    return {
+        ...goal,
+        state: {
+            ...rest,
+            ...(latest.state.inputLedger === undefined ? {} : { inputLedger: latest.state.inputLedger }),
+            ...(latest.state.messageQueue === undefined ? {} : { messageQueue: latest.state.messageQueue }),
+        },
+    };
+}
+
+/**
+ * 按共享提交边界保存 Goal，维护 Goal 提交修订与会话状态所有权。
+ *
+ * @remarks
+ * 写入必须在同一 Store 实例的短 mutation Gate 内完成：本函数重新读取最新快照，
+ * 把 `commitRevision` 推进为 `max(本地, 最新) + 1`，并在未声明会话权威时沿用
+ * 最新快照的输入账本与消息队列。边界内不含模型、工具或人工等待。
+ *
+ * @param store - Goal 快照存储。
+ * @param goal - 本次业务转换后的 Goal；不会被原地修改。
+ * @param options - 会话状态写入权威；省略时沿用最新快照。
+ * @returns 实际写入的 Goal 副本，含本次提交修订。
+ * @throws Store 读取或写入失败时传播原始异常。
+ * @example
+ * ```ts
+ * const saved = await saveGoalWithSessionState(store, goal);
+ * ```
+ */
+export async function saveGoalWithSessionState(
+    store: GoalStore,
+    goal: Goal,
+    options?: { readonly sessionState?: "latest" | "caller" },
+): Promise<Goal> {
+    return withGoalMutationGate(store, goal.id, async () => {
+        const baseRevision = goal.state.commitRevision ?? 0;
+        const latest = await store.restore(goal.id);
+        const latestRevision = latest?.state.commitRevision ?? 0;
+        const merged = latest !== undefined && options?.sessionState !== "caller" && latestRevision > baseRevision
+            ? withLatestSessionState(goal, latest)
+            : goal;
+        const checkpoint: Goal = {
+            ...merged,
+            state: {
+                ...merged.state,
+                commitRevision: Math.max(baseRevision, latestRevision) + 1,
+            },
+        };
+        await store.save(checkpoint);
+        return checkpoint;
+    });
 }
 
 /**
@@ -301,6 +364,13 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
         goal: Goal,
         request: TrajectoryCheckpointCommitRequest = {},
     ): Promise<TrajectoryCheckpointCommitResult> {
+        return withGoalMutationGate(this.store, goal.id, () => this.commitWithinGate(goal, request));
+    }
+
+    private async commitWithinGate(
+        goal: Goal,
+        request: TrajectoryCheckpointCommitRequest,
+    ): Promise<TrajectoryCheckpointCommitResult> {
         throwIfAborted(request.control);
 
         if (!this.trajectoryEnabled) {
@@ -309,9 +379,11 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
                     "accepted Memory Patch and model context frames require an enabled Trajectory sink",
                 );
             }
-            await this.store.save(goal);
+            const saved = await saveGoalWithSessionState(this.store, goal, {
+                ...(request.sessionState === undefined ? {} : { sessionState: request.sessionState }),
+            });
             throwIfAborted(request.control);
-            return { goal, events: [] };
+            return { goal: saved, events: [] };
         }
 
         if (request.modelContextFrame !== undefined) {
@@ -431,13 +503,15 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
             },
         };
 
-        await this.store.save(checkpoint);
+        const saved = await saveGoalWithSessionState(this.store, checkpoint, {
+            ...(request.sessionState === undefined ? {} : { sessionState: request.sessionState }),
+        });
         throwIfAborted(request.control);
         try {
             await this.append({
-                goalId: checkpoint.id,
-                runId: checkpoint.state.run.id,
-                phase: checkpoint.state.workflow.phase,
+                goalId: saved.id,
+                runId: saved.state.run.id,
+                phase: saved.state.workflow.phase,
                 eventType: "state_committed",
                 payload: {
                     type: "state_committed",
@@ -446,7 +520,7 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
             }, request.control, false);
         } catch (error) {
             if (isExecutionAbortedError(error)) throw error;
-            await this.recordMarkerDiagnostic(checkpoint, error);
+            await this.recordMarkerDiagnostic(saved, error);
             throw new TrajectoryCommitMarkerError(
                 error instanceof Error ? error.message : String(error),
                 { cause: error },
@@ -454,7 +528,7 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
         }
 
         return {
-            goal: checkpoint,
+            goal: saved,
             events: Object.freeze(events),
             ...(memoryPatchEvent === undefined ? {} : { memoryPatchEvent }),
             ...(modelContextFrameEvent === undefined ? {} : { modelContextFrameEvent }),

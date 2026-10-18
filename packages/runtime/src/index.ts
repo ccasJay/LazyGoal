@@ -296,6 +296,7 @@ export type {
 } from "./evidence-gate";
 export {
     TrajectoryCheckpointCommitter,
+    saveGoalWithSessionState,
 } from "./trajectory-checkpoint-committer";
 export type {
     AcceptedMemoryPatchInput,
@@ -305,6 +306,41 @@ export type {
     TrajectoryCheckpointCommitterDependencies,
     TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
+export { withGoalMutationGate } from "./goal-mutation-gate";
+export {
+    MAX_PENDING_SESSION_INPUTS,
+    MAX_PENDING_SESSION_INPUT_TEXT_LENGTH,
+    MAX_SESSION_INPUT_TEXT_LENGTH,
+    SessionInputAdmissionError,
+    appendQueuedMessage,
+    clearQueuedMessages,
+    computeSessionInputDigest,
+    findSessionInputRecord,
+    measurePendingInputUsage,
+    nextSessionInputSequence,
+    toSessionInputReceipt,
+    validateSessionInputShape,
+    withQueuePause,
+    withoutQueuePause,
+} from "./session-input";
+export type {
+    SessionInput,
+    SessionInputAdmissionResult,
+    SessionInputControl,
+    SessionInputDigest,
+    SessionInputKind,
+    SessionInputQueryResult,
+    SessionInputReceipt,
+    SessionInputRecord,
+    SessionInputRejectionCode,
+    SessionInputStatus,
+    SessionInteractionResponse,
+    SessionMessageQueue,
+    SessionMessageQueueItem,
+    SessionQueuePauseReason,
+} from "./session-input";
+export { SessionInputAdmission } from "./session-admission";
+export type { SessionInputAdmissionDependencies } from "./session-admission";
 export { Runner, type InterruptRunResult, type SteerInputResult } from "./runner";
 export { RunRecoveryReader, type RunRecoveryReaderDependencies } from "./run-recovery-reader";
 export type { RunnerDependencies, RunnerResult, SandboxPlanResolver } from "./runner";
