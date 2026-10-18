@@ -5,6 +5,7 @@ import {
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import type { RunScheduler } from "./scheduler";
+import type { SessionInputDigest } from "./session-input";
 
 /**
  * 在当前调用栈内直接执行 Runner 的 Scheduler。
@@ -49,15 +50,21 @@ export class InlineScheduler implements RunScheduler {
      * 通过同一 Runner 执行所有者持久化受理 Steer。
      *
      * @param ref - 当前 Goal 与 Run 身份。
-     * @param messageId - 稳定幂等消息身份。
+     * @param messageId - 稳定幂等消息身份，同时作为统一输入账本身份。
      * @param content - 非空消息正文。
+     * @param ledger - 提供时在同一提交中写入统一输入账本条目。
      * @returns 持久化受理或 Runner 返回的稳定拒绝。
      * @throws Snapshot 或 Trajectory 保存失败时传播原始错误。
      */
-    steer(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult> {
+    steer(
+        ref: RunRef,
+        messageId: string,
+        content: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<SteerInputResult> {
         return this.runner.steer === undefined
             ? Promise.resolve({ ok: false, error: "RUN_CONTROL_UNAVAILABLE" })
-            : this.runner.steer(ref, messageId, content);
+            : this.runner.steer(ref, messageId, content, ledger);
     }
 
     interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {

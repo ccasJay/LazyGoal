@@ -32,7 +32,7 @@ import {
 } from "../../execution-control/src/index";
 import { transition } from "./transition";
 import { createRunPlanRoute, reviseRunPlanExecution } from "./run-plan";
-import type { SessionInputRecord, SessionMessageQueue } from "./session-input";
+import type { SessionInputDigest, SessionInputRecord, SessionMessageQueue } from "./session-input";
 import {
     type DiagnosticTraceSink,
     type TrajectoryEventDraft,
@@ -967,6 +967,7 @@ export class GoalCoordinator {
      * @param ref - 当前 Goal 与 Run 的稳定关联身份。
      * @param messageId - 客户端生成的幂等身份；相同身份与正文可安全重试。
      * @param content - 非空的补充或修正文本。
+     * @param ledger - 提供时在同一提交中写入统一输入账本条目。
      * @returns 持久化受理、幂等重试或稳定拒绝结果。
      * @throws Runner 的 Snapshot 或 Trajectory 提交失败时传播错误。
      * @example
@@ -974,10 +975,15 @@ export class GoalCoordinator {
      * const result = await coordinator.steer({ goalId, runId }, "message-1", "不要修改公开接口");
      * ```
      */
-    steer(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult> {
+    steer(
+        ref: RunRef,
+        messageId: string,
+        content: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<SteerInputResult> {
         return this.scheduler.steer === undefined
             ? Promise.resolve({ ok: false, error: "RUN_CONTROL_UNAVAILABLE" })
-            : this.scheduler.steer(ref, messageId, content);
+            : this.scheduler.steer(ref, messageId, content, ledger);
     }
 
     /**

@@ -24,7 +24,7 @@
   - 实施目标：在单个 Snapshot 中完成旧 Run 归档、队首应用关联、真实用户消息追加与新 Run 创建；正常完成可在同一执行所有权内续跑，等待和无消息时释放名额。持久化暂停原因及队列修订，清空保留去重收据；终态管理拒绝仍有未处理输入或未完成收尾的 Goal，不删除用户数据，也不建立跨 Goal 调度队列。
   - 验证手段：`npx tsx --test packages/runtime/test/session-queue.test.ts packages/runtime/test/goal-multi-run-session.test.ts packages/runtime/test/goal-multi-run-recovery.test.ts packages/storage/test/session-input-snapshot.test.ts`；核对逐项的输入序号、消息位置、唯一 Run、暂停原因和提交边界，并验证新 Run 不继承旧 Evidence。
 
-- [ ] //TODO 4. 显式 Steer 在同一 Run 生效，并与决策和完成提交正确竞争
+- [x] //TODO 4. 显式 Steer 在同一 Run 生效，并与决策和完成提交正确竞争
   - 落实标准：[4.1](./spec.md#spec-req-4-1)、[4.2](./spec.md#spec-req-4-2)、[4.3](./spec.md#spec-req-4-3)、[4.4](./spec.md#spec-req-4-4)、[2.3](./spec.md#spec-req-2-3)、[8.3](./spec.md#spec-req-8-3)。
   - 先验证：扩展 `packages/runtime/test/run-steer.test.ts`，在模型、工具、Think 和完成审查被阻塞时受理 Steer，观察不触发原调用 abort、消息在后续安全点按序应用；用可控提交屏障分别验证 Steer 先受理与完成先提交。保存后重建同一 Run，重复身份不重复追加正文；旧输入的未执行 Action 和旧完成候选不得继续生效。
   - 实施目标：将既有 Steer 受理与应用接入统一账本及修订，保持目标 Run 校验、待应用顺序、模型 frame 身份及失效指针清理；先完成已启动工具的真实结算，再重建模型输入。终态转换在同一 Gate 检查新输入，拒绝时不自动降级成普通队列消息，提供可供 Web 核验的收据与拒绝结果。

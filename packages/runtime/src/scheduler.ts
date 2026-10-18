@@ -1,4 +1,5 @@
 import type { InterruptRunResult, RunnerResult, SteerInputResult } from "./runner";
+import type { SessionInputDigest } from "./session-input";
 import type { RunExecutionOptions, RunRef } from "./domain";
 import type { ExecutionControl } from "../../execution-control/src/index";
 
@@ -39,11 +40,17 @@ export interface RunScheduler {
      * 实现需通过当前 Run 执行所有者转发，不能直接修改 Snapshot。
      *
      * @param ref - 目标 Goal 与 Run 的关联身份。
-     * @param messageId - 客户端分配的幂等消息身份。
+     * @param messageId - 客户端分配的幂等消息身份，同时作为统一输入账本身份。
      * @param content - 非空消息正文。
+     * @param ledger - 提供时在同一提交中写入统一输入账本条目。
      * @returns 已受理或稳定拒绝结果。
      */
-    steer?(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult>;
+    steer?(
+        ref: RunRef,
+        messageId: string,
+        content: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<SteerInputResult>;
 
     /**
      * 持久化受理并中止目标 Run；不影响 Scheduler 的其它 Run 调用。

@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createGoal, Runner, type AgentProfile, type StepExecutor } from "../src/index";
+import {
+    createGoal,
+    GoalCoordinator,
+    InlineScheduler,
+    Runner,
+    SessionManager,
+    TrajectoryCheckpointCommitter,
+    type AgentProfile,
+    type AgentProfileRegistry,
+    type StepExecutor,
+} from "../src/index";
 import { contract } from "../../contracts/src/index";
 import { createToolRegistration, type Tool } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
@@ -234,4 +244,227 @@ test("accepted Steer survives an execution restart and is injected once", async 
     assert.deepEqual(saved.state.run.steerInputs, [
         { messageId: "survives-restart", status: "applied", messageIndex: 1 },
     ]);
+});
+
+function createSteerSessions(input: {
+    readonly store: InMemoryGoalStore;
+    readonly onDecide: (
+        goal: { readonly state: { readonly messages: readonly { readonly content: string }[] } },
+        callIndex: number,
+    ) => unknown;
+}): { readonly sessions: SessionManager; readonly calls: () => number } {
+    const trajectory = trajectoryStoreFor(input.store);
+    const committer = new TrajectoryCheckpointCommitter({ store: input.store, trajectoryStore: trajectory });
+    let calls = 0;
+    const executor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" }; },
+        async decide({ goal }) {
+            calls += 1;
+            return input.onDecide(goal, calls) as never;
+        },
+        async think() { throw new Error("unexpected Think call"); },
+    };
+    const runner = new Runner({
+        store: input.store,
+        trajectoryStore: trajectory,
+        executor,
+        checkpointCommitter: committer,
+    });
+    const coordinator = new GoalCoordinator({
+        store: input.store,
+        scheduler: new InlineScheduler(runner),
+        checkpointCommitter: committer,
+        runIdGenerator: () => `run-session-steer-${calls + 1}`,
+    });
+    const profiles: AgentProfileRegistry = {
+        get: (profileId) => profileId === profile.id ? profile : undefined,
+    };
+    const sessions = new SessionManager({
+        store: input.store,
+        committer,
+        coordinator,
+        profiles,
+        runIdGenerator: () => `run-session-steer-${calls + 1}`,
+    });
+    return { sessions, calls: () => calls };
+}
+
+test("session Steer writes a durable receipt, keeps the run alive and never duplicates the body", async () => {
+    const store = new InMemoryGoalStore();
+    const entered = deferred();
+    const release = deferred();
+    const sampled: string[][] = [];
+    const harness = createSteerSessions({
+        store,
+        onDecide: async (goal, callIndex) => {
+            sampled.push(goal.state.messages.map((message) => message.content));
+            if (callIndex === 1) {
+                entered.resolve();
+                await release.promise;
+            }
+            return {
+                kind: "decision",
+                decision: { kind: "fail", error: `terminal ${callIndex}` },
+                modelContextFrame: {
+                    stage: "decide",
+                    epochNumber: 0,
+                    conversationPosition: goal.state.messages.length,
+                    sections: [],
+                },
+            };
+        },
+    });
+
+    const created = await harness.sessions.create({
+        goalId: "goal-session-steer",
+        inputId: "input-first",
+        content: "首个任务",
+        profileId: profile.id,
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    await entered.promise;
+    const runId = (await store.restore("goal-session-steer"))!.state.run.id;
+
+    const accepted = await created.session.send({
+        kind: "steer",
+        inputId: "steer-1",
+        runId,
+        content: "补充约束",
+    });
+    assert.equal(accepted.ok, true);
+    if (!accepted.ok) return;
+    assert.equal(accepted.existing, false);
+    assert.equal(accepted.receipt.status, "pending");
+    assert.equal(accepted.receipt.targetRunId, runId);
+    // 受理不取消在途模型调用，也不把 Steer 降级为普通队列消息。
+    assert.equal(harness.calls(), 1);
+    const afterAccept = (await store.restore("goal-session-steer"))!;
+    assert.equal(afterAccept.state.messageQueue?.items.length ?? 0, 0);
+    assert.deepEqual(afterAccept.state.run.steerInputs, [
+        { messageId: "steer-1", status: "pending", content: "补充约束" },
+    ]);
+    assert.deepEqual(
+        afterAccept.state.inputLedger?.map((record) => [record.inputId, record.kind, record.status]),
+        [["input-first", "message", "applied"], ["steer-1", "steer", "pending"]],
+    );
+
+    // 同身份同载荷重试返回原收据；异载荷身份冲突且不改写原记录。
+    const retried = await created.session.send({
+        kind: "steer",
+        inputId: "steer-1",
+        runId,
+        content: "补充约束",
+    });
+    assert.equal(retried.ok, true);
+    assert.equal(retried.ok && retried.existing, true);
+    assert.equal(retried.ok && retried.receipt.sequence, accepted.receipt.sequence);
+    const conflicted = await created.session.send({
+        kind: "steer",
+        inputId: "steer-1",
+        runId,
+        content: "改写后的补充",
+    });
+    assert.equal(conflicted.ok, false);
+    assert.equal(conflicted.ok === false && conflicted.code, "INPUT_CONFLICT");
+    const afterConflict = (await store.restore("goal-session-steer"))!;
+    assert.deepEqual(afterConflict.state.run.steerInputs, [
+        { messageId: "steer-1", status: "pending", content: "补充约束" },
+    ]);
+    assert.deepEqual(afterConflict.state.inputLedger?.length, 2);
+
+    release.resolve();
+    await harness.sessions.waitForIdle();
+
+    const applied = (await store.restore("goal-session-steer"))!;
+    assert.deepEqual(
+        applied.state.messages.filter((message) => message.role === "user").map((message) => message.content),
+        ["首个任务", "补充约束"],
+    );
+    assert.deepEqual(applied.state.run.steerInputs, [
+        { messageId: "steer-1", status: "applied", messageIndex: 1 },
+    ]);
+    assert.deepEqual(
+        applied.state.inputLedger?.map((record) => [record.inputId, record.status, record.messageIndex]),
+        [["input-first", "applied", 0], ["steer-1", "applied", 1]],
+    );
+    assert.deepEqual(sampled.at(-1), ["首个任务", "补充约束"]);
+
+    // 重建后同身份重试只返回已应用的原收据，不重复追加正文。
+    const rebuilt = createSteerSessions({
+        store,
+        onDecide: () => { throw new Error("rebuilt instance must not call the model"); },
+    });
+    const reopened = await rebuilt.sessions.open("goal-session-steer");
+    assert.equal(reopened.ok, true);
+    if (!reopened.ok) return;
+    const replayed = await reopened.session.send({
+        kind: "steer",
+        inputId: "steer-1",
+        runId,
+        content: "补充约束",
+    });
+    assert.equal(replayed.ok, true);
+    assert.equal(replayed.ok && replayed.existing, true);
+    assert.equal(replayed.ok && replayed.receipt.status, "applied");
+    const finalGoal = (await store.restore("goal-session-steer"))!;
+    assert.equal(finalGoal.state.messages.filter((message) => message.content === "补充约束").length, 1);
+    assert.equal(rebuilt.calls(), 0);
+});
+
+test("session Steer rejects stale or non-running targets without queueing the message", async () => {
+    const store = new InMemoryGoalStore();
+    const harness = createSteerSessions({
+        store,
+        onDecide: (goal, callIndex) => ({
+            kind: "decision",
+            decision: { kind: "fail", error: `terminal ${callIndex}` },
+            modelContextFrame: {
+                stage: "decide",
+                epochNumber: 0,
+                conversationPosition: goal.state.messages.length,
+                sections: [],
+            },
+        }),
+    });
+
+    const created = await harness.sessions.create({
+        goalId: "goal-session-steer-reject",
+        inputId: "input-first",
+        content: "首个任务",
+        profileId: profile.id,
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    await harness.sessions.waitForIdle();
+    const finished = (await store.restore("goal-session-steer-reject"))!;
+    assert.equal(finished.state.run.status, "failed");
+    const runId = finished.state.run.id;
+
+    const notRunning = await created.session.send({
+        kind: "steer",
+        inputId: "steer-late",
+        runId,
+        content: "完成后的补充",
+    });
+    assert.equal(notRunning.ok, false);
+    assert.equal(notRunning.ok === false && notRunning.code, "RUN_NOT_RUNNING");
+
+    const staleRun = await created.session.send({
+        kind: "steer",
+        inputId: "steer-stale",
+        runId: "run-unknown",
+        content: "旧 Run 的补充",
+    });
+    assert.equal(staleRun.ok, false);
+    assert.equal(staleRun.ok === false && staleRun.code, "RUN_NOT_FOUND");
+
+    const afterRejections = (await store.restore("goal-session-steer-reject"))!;
+    // 拒绝不写入收据，也不会静默降级为普通队列消息。
+    assert.deepEqual(
+        afterRejections.state.inputLedger?.map((record) => record.inputId),
+        ["input-first"],
+    );
+    assert.equal(afterRejections.state.messageQueue?.items.length ?? 0, 0);
+    assert.equal(harness.calls(), 1);
 });

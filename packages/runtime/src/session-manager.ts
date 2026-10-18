@@ -115,7 +115,7 @@ export interface SessionManagerDependencies {
     /** 与执行链共享的 Trajectory/Snapshot 提交器。 */
     readonly committer: TrajectoryCheckpointCommitterPort;
     /** 运行 created/running Run 的调度入口与后继 Run 创建入口。 */
-    readonly coordinator: Pick<GoalCoordinator, "advance" | "continue">;
+    readonly coordinator: Pick<GoalCoordinator, "advance" | "continue" | "steer">;
     /** 冻结 Profile 解析。 */
     readonly profiles: AgentProfileRegistry;
     /** 新 Run 身份生成器。 */
@@ -160,7 +160,7 @@ export interface SessionManagerDependencies {
 export class SessionManager implements SessionHandlePort {
     private readonly store: GoalStore;
     private readonly committer: TrajectoryCheckpointCommitterPort;
-    private readonly coordinator: Pick<GoalCoordinator, "advance" | "continue">;
+    private readonly coordinator: Pick<GoalCoordinator, "advance" | "continue" | "steer">;
     private readonly profiles: AgentProfileRegistry;
     private readonly runIdGenerator: RunIdGenerator;
     private readonly protocolValidator: GoalProtocolValidator | undefined;
@@ -386,7 +386,68 @@ export class SessionManager implements SessionHandlePort {
                 message: `Goal "${this.activeGoalId}" currently owns the instance execution slot`,
             };
         }
+        if (input.kind === "steer") return this.admitSteer(goalId, input);
         return this.admission.admit(goalId, input);
+    }
+
+    /**
+     * 受理关联当前 running Run 的 Steer。
+     *
+     * @remarks
+     * 先按统一账本判定重复与身份冲突，再委派执行所有者；受理不取消在途模型或
+     * 工具调用，执行器在下一模型边界按受理顺序应用。目标 Run 非 running、已
+     * 进入 Interrupt 或身份冲突时明确拒绝，不降级为普通队列消息。
+     */
+    private async admitSteer(
+        goalId: string,
+        input: Extract<SessionInput, { readonly kind: "steer" }>,
+    ): Promise<SessionInputAdmissionResult> {
+        const shape = validateSessionInputShape(input);
+        if (shape !== undefined) return { ok: false, code: shape.code, message: shape.message };
+        const digest = computeSessionInputDigest(input);
+
+        const current = await this.store.restore(goalId);
+        if (current === undefined) {
+            return { ok: false, code: "GOAL_NOT_FOUND", message: `Goal "${goalId}" was not found` };
+        }
+        const existing = findSessionInputRecord(current, input.inputId);
+        if (existing !== undefined) {
+            return existing.digest === digest && existing.kind === "steer"
+                ? { ok: true, existing: true, receipt: toSessionInputReceipt(goalId, existing) }
+                : {
+                    ok: false,
+                    code: "INPUT_CONFLICT",
+                    message: `Input "${input.inputId}" already exists with a different kind or payload`,
+                };
+        }
+
+        const result = await this.coordinator.steer(
+            { goalId, runId: input.runId },
+            input.inputId,
+            input.content,
+            { digest },
+        );
+        if (!result.ok) {
+            return {
+                ok: false,
+                code: result.error === "STEER_CONFLICT" ? "STEER_CONFLICT" : result.error,
+                message: `Steer input "${input.inputId}" was rejected: ${result.error}`,
+            };
+        }
+        const committed = await this.store.restore(goalId);
+        const record = committed === undefined ? undefined : findSessionInputRecord(committed, input.inputId);
+        if (record === undefined) {
+            return {
+                ok: false,
+                code: "GOAL_NOT_FOUND",
+                message: `Goal "${goalId}" disappeared while admitting Steer input`,
+            };
+        }
+        return {
+            ok: true,
+            existing: result.existing,
+            receipt: toSessionInputReceipt(goalId, record),
+        };
     }
 
     /** @param goalId - 目标 Goal。 @param inputId - 输入身份。 @returns 持久化收据或稳定失败。 */
