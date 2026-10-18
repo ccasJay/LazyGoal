@@ -42,7 +42,7 @@
   - 实施目标：把 `respond`／`resume` 和队列继续接入统一收据、目标身份与后台执行所有权，委派现有 Coordinator、模型选择及权限服务。默认恢复保持只读，匹配回答作为显式操作推进对应等待；关联自定义工具仍经过发现、授权和审批，不通过会话接口暴露直接执行 Action 的捷径。
   - 验证手段：`npx tsx --test packages/runtime/test/session-recovery.test.ts packages/runtime/test/goal-coordinator-task-interaction.test.ts packages/runtime/test/permission-grant-recovery.test.ts packages/runtime/test/sandbox-plan-recovery.test.ts packages/runtime/test/goal-model-selection-coordinator.test.ts apps/goal-server/test/composition-root-model-switching.test.ts`；核对错误身份零执行、同 Run 续跑、Grant 范围、Binding 和冻结 Profile。
 
-- [ ] //TODO 7. 持续订阅整个 Goal，并通过状态同步处理重连、缺口与背压
+- [x] //TODO 7. 持续订阅整个 Goal，并通过状态同步处理重连、缺口与背压
   - 落实标准：[7.1](./spec.md#spec-req-7-1)、[7.2](./spec.md#spec-req-7-2)、[7.3](./spec.md#spec-req-7-3)、[7.4](./spec.md#spec-req-7-4)、[7.5](./spec.md#spec-req-7-5)、[7.6](./spec.md#spec-req-7-6)、[6.1](./spec.md#spec-req-6-1)、[9.6](./spec.md#spec-req-9-6)。
   - 先验证：在待实现的 `packages/runtime/test/session-stream.test.ts` 和既有 `packages/execution-stream/test/execution-stream.test.ts` 中控制注册订阅、读取快照和连续创建后继 Run 的先后关系；首项是 `state_sync`，切换 Run 不丢开始事件，旧调用增量不进入当前回复。注入最后一次提交通知丢失并推进 fake clock，验证不超过 Spec 约定的一秒核对间隔就能观察终态；读取失败报告同步故障。
   - 实施目标：在原 Core 增加 Goal 范围订阅与来源身份，在 Runtime 会话模块完成快照修订、缓冲交接、类型化安全投影、缺口重同步及按 Goal 合并的只读核对任务。沿用相邻增量合并和有界背压，控制事件无法保留时关闭慢订阅；无观察者停止核对，不持久化或重放每个分片，不将发布失败转为业务回滚。

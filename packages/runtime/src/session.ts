@@ -3,6 +3,7 @@ import type {
     RunMode,
     RunStatus,
 } from "./domain";
+import type { ExecutionStreamEvent } from "../../execution-stream/src/index";
 import type {
     SessionInput,
     SessionInputAdmissionResult,
@@ -10,6 +11,27 @@ import type {
     SessionInputReceipt,
     SessionQueuePauseReason,
 } from "./session-input";
+import type { SessionInputOutcome, SessionOutputStream } from "./session-stream";
+
+/**
+ * 会话输出流的事件联合。
+ *
+ * @remarks
+ * 首项为一致快照 `state_sync`；`input_result` 按 `inputId` 关联受理或拒绝；
+ * `activity` 携带公开执行事件（Run 仍是来源身份）；`sync_error` 报告读取故障；
+ * `closed` 报告订阅结束原因（背压、主动关闭或发布端关闭）。
+ *
+ * @example
+ * ```ts
+ * const event: SessionOutputEvent = { type: "state_sync", state };
+ * ```
+ */
+export type SessionOutputEvent =
+    | { readonly type: "state_sync"; readonly state: GoalSessionState }
+    | { readonly type: "input_result"; readonly outcome: SessionInputOutcome }
+    | { readonly type: "activity"; readonly event: ExecutionStreamEvent }
+    | { readonly type: "sync_error"; readonly message: string }
+    | { readonly type: "closed"; readonly reason: "backpressure" | "closed" | "publisher_closed" };
 
 /**
  * 会话句柄可见的 Goal 状态投影。
@@ -98,6 +120,8 @@ export interface SessionHandlePort {
     sendSessionInput(goalId: string, input: SessionInput): Promise<SessionInputAdmissionResult>;
     /** 按身份查询持久化输入收据。 */
     querySessionInput(goalId: string, inputId: string): Promise<SessionInputQueryResult>;
+    /** 建立该句柄对整个 Goal 的输出订阅。 */
+    openSessionEvents(goalId: string, sessionId: string): SessionOutputStream;
     /** 释放该句柄的来源与订阅；不影响共享实例与其他句柄。 */
     detachSession(sessionId: string): void;
 }
@@ -124,6 +148,7 @@ export class Session {
     /** 句柄自身的稳定标识；用于释放该句柄的订阅与来源。 */
     readonly sessionId: string;
     private readonly port: SessionHandlePort;
+    private readonly streams = new Set<SessionOutputStream>();
     private detachedState = false;
 
     /**
@@ -191,6 +216,23 @@ export class Session {
     }
 
     /**
+     * 建立整个 Goal 的输出订阅。
+     *
+     * @returns 独立、单消费者的异步输出流；首项是一致 `state_sync`。
+     * @throws 句柄已解除连接时拒绝。
+     * @example
+     * ```ts
+     * const stream = session.events();
+     * ```
+     */
+    events(): SessionOutputStream {
+        this.assertAttached();
+        const stream = this.port.openSessionEvents(this.goalId, this.sessionId);
+        this.streams.add(stream);
+        return stream;
+    }
+
+    /**
      * 幂等解除该句柄的连接。
      *
      * @remarks
@@ -204,6 +246,8 @@ export class Session {
     detach(): void {
         if (this.detachedState) return;
         this.detachedState = true;
+        for (const stream of [...this.streams]) stream.close();
+        this.streams.clear();
         this.port.detachSession(this.sessionId);
     }
 

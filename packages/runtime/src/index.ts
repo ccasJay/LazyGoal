@@ -353,8 +353,21 @@ export type {
     GoalSessionStateInput,
     SessionHandlePort,
     SessionManagerErrorCode,
+    SessionOutputEvent,
     SessionReceipt,
 } from "./session";
+export {
+    DEFAULT_RESYNC_INTERVAL_MS,
+    GoalRevisionMonitor,
+    GoalSessionStream,
+    SESSION_INPUT_RESULT_KIND,
+} from "./session-stream";
+export type {
+    GoalRevisionMonitorDependencies,
+    GoalSessionStreamDependencies,
+    SessionInputOutcome,
+    SessionOutputStream,
+} from "./session-stream";
 export { SessionManager } from "./session-manager";
 export type {
     SessionCreateRequest,

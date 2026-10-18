@@ -20,4 +20,4 @@ Core 不解释事件 `kind` 的领域含义，也不写 Goal Snapshot、Trajecto
 
 每个事件包含 `schemaVersion`、`eventId`、`goalId`、`runId`、可选执行单元和 Action 标识、单调 `cursor`、时间、`visibility`、`durability`、`kind` 和 JSON-safe `payload`。同一 Goal/Run 内的相邻 `delta` 事件在相同 `kind`、可见性和 `coalescingKey` 下可以合并；控制事件保持顺序且不会被静默丢弃。
 
-订阅默认只接收 `public` 事件并排除 reasoning。内部诊断订阅可提高可见性并显式打开 reasoning。订阅队列达到上限后，Core 关闭慢订阅者并提供 `backpressure` 原因；调用方也可以主动关闭，发布器关闭时所有订阅收到 `publisher_closed`。实时层没有历史回放；恢复和去重必须使用持久化 Snapshot/Trajectory 的边界。
+订阅支持两种范围：`subscribe(ref)` 只观察单个 Goal/Run，`subscribeGoal(goalId)` 观察整个 Goal 并覆盖其后创建的后继 Run（Run 仍是每条事件的来源身份，订阅不随 Run 结束关闭）。Goal 范围内的增量合并不跨 Run；`closeGoal` 显式结束 Goal 范围订阅。订阅默认只接收 `public` 事件并排除 reasoning。内部诊断订阅可提高可见性并显式打开 reasoning。订阅队列达到上限后，Core 关闭慢订阅者并提供 `backpressure` 原因；调用方也可以主动关闭，发布器关闭时所有订阅收到 `publisher_closed`。实时层没有历史回放；恢复和去重必须使用持久化 Snapshot/Trajectory 的边界。

@@ -26,14 +26,25 @@ import {
     toSessionInputReceipt,
     validateSessionInputShape,
     withQueuePause,
+    type SessionInputReceipt,
     type SessionInputRecord,
     type SessionInput,
     type SessionInputAdmissionResult,
     type SessionInteractionResponse,
     type SessionInputQueryResult,
-    type SessionInputReceipt,
 } from "./session-input";
 import { withGoalMutationGate } from "./goal-mutation-gate";
+import {
+    GoalRevisionMonitor,
+    GoalSessionStream,
+    SESSION_INPUT_RESULT_KIND,
+    type SessionOutputStream,
+} from "./session-stream";
+import {
+    InMemoryExecutionStreamPublisher,
+    type ExecutionStreamPublisher,
+    type StreamJsonValue,
+} from "../../execution-stream/src/index";
 import type {
     DiagnosticTraceSink,
     TrajectoryStore,
@@ -100,6 +111,22 @@ function toGoalUserAction(
     }
 }
 
+/** 把收据投影为可发布的 JSON 对象；不包含队列正文或隐藏推理。 */
+function serializeReceipt(receipt: SessionInputReceipt): Record<string, StreamJsonValue> {
+    return {
+        goalId: receipt.goalId,
+        inputId: receipt.inputId,
+        kind: receipt.kind,
+        digest: receipt.digest,
+        sequence: receipt.sequence,
+        status: receipt.status,
+        admittedAtRevision: receipt.admittedAtRevision,
+        ...(receipt.targetRunId === undefined ? {} : { targetRunId: receipt.targetRunId }),
+        ...(receipt.appliedRunId === undefined ? {} : { appliedRunId: receipt.appliedRunId }),
+        ...(receipt.messageIndex === undefined ? {} : { messageIndex: receipt.messageIndex }),
+    };
+}
+
 /** 创建或连接 Session 的结果。 */
 export type SessionCreateResult =
     | {
@@ -164,6 +191,17 @@ export interface SessionManagerDependencies {
     readonly trackBackgroundTask?: ((label: string, task: Promise<void>) => void) | undefined;
     /** 可选日志端口；只用于观察后台执行异常。 */
     readonly onBackgroundFailure?: ((goalId: string, error: unknown) => void) | undefined;
+    /** 与执行链共享的实时事件发布端口；省略时输出流只依赖快照同步。 */
+    readonly executionStream?: ExecutionStreamPublisher | undefined;
+    /**
+     * 提交核对任务的定时器边界；省略时使用进程定时器。
+     *
+     * @remarks 用于测试注入 fake clock；生产保持不超过一秒的核对间隔。
+     */
+    readonly resyncIntervalMs?: number | undefined;
+    /** 定时器实现；省略时使用进程 `setInterval`/`clearInterval`。 */
+    readonly setInterval?: ((handler: () => void, timeout: number) => unknown) | undefined;
+    readonly clearInterval?: ((handle: unknown) => void) | undefined;
     /**
      * 新 Run 启动前按最新 Goal 对齐模型 Binding。
      *
@@ -206,6 +244,9 @@ export class SessionManager implements SessionHandlePort {
     private readonly trackBackgroundTask: ((label: string, task: Promise<void>) => void) | undefined;
     private readonly onBackgroundFailure: ((goalId: string, error: unknown) => void) | undefined;
     private readonly alignModelBinding: ((selection: GoalModelSelection) => void) | undefined;
+    private readonly executionStream: ExecutionStreamPublisher | undefined;
+    private readonly revisionMonitor: GoalRevisionMonitor;
+    private readonly sessionStreams = new Map<string, Set<GoalSessionStream>>();
     private readonly admission: SessionInputAdmission;
     private readonly executions = new Map<string, Promise<void>>();
     private readonly backgroundTasks = new Set<Promise<void>>();
@@ -225,6 +266,14 @@ export class SessionManager implements SessionHandlePort {
         this.trackBackgroundTask = dependencies.trackBackgroundTask;
         this.onBackgroundFailure = dependencies.onBackgroundFailure;
         this.alignModelBinding = dependencies.alignModelBinding;
+        this.executionStream = dependencies.executionStream;
+        this.revisionMonitor = new GoalRevisionMonitor({
+            readGoal: (goalId) => this.store.restore(goalId),
+            ...(dependencies.resyncIntervalMs === undefined ? {} : { intervalMs: dependencies.resyncIntervalMs }),
+            ...(dependencies.setInterval === undefined ? {} : { setInterval: dependencies.setInterval }),
+            ...(dependencies.clearInterval === undefined ? {} : { clearInterval: dependencies.clearInterval }),
+            onError: (goalId, error) => this.onBackgroundFailure?.(goalId, error),
+        });
         const admissionDependencies: SessionInputAdmissionDependencies = {
             store: this.store,
             committer: this.committer,
@@ -418,18 +467,62 @@ export class SessionManager implements SessionHandlePort {
      * ```
      */
     async sendSessionInput(goalId: string, input: SessionInput): Promise<SessionInputAdmissionResult> {
-        if (this.activeGoalId !== undefined && this.activeGoalId !== goalId) {
-            return {
-                ok: false,
-                code: "BUSY",
+        const busy = this.activeGoalId !== undefined && this.activeGoalId !== goalId
+            ? {
+                ok: false as const,
+                code: "BUSY" as const,
                 message: `Goal "${this.activeGoalId}" currently owns the instance execution slot`,
-            };
+            }
+            : undefined;
+        if (busy !== undefined) {
+            await this.publishInputResult(goalId, input, busy);
+            return busy;
         }
-        if (input.kind === "steer") return this.admitSteer(goalId, input);
-        if (input.kind === "interrupt") return this.admitInterrupt(goalId, input);
-        if (input.kind === "respond") return this.admitRespond(goalId, input);
-        if (input.kind === "resume") return this.admitResume(goalId, input);
-        return this.admission.admit(goalId, input);
+        const result = input.kind === "steer"
+            ? await this.admitSteer(goalId, input)
+            : input.kind === "interrupt"
+                ? await this.admitInterrupt(goalId, input)
+                : input.kind === "respond"
+                    ? await this.admitRespond(goalId, input)
+                    : input.kind === "resume"
+                        ? await this.admitResume(goalId, input)
+                        : await this.admission.admit(goalId, input);
+        await this.publishInputResult(goalId, input, result);
+        return result;
+    }
+
+    /** 以控制事件发布输入受理结果；事件携带真实 Goal／Run，发布失败不改变已提交结果。 */
+    private async publishInputResult(
+        goalId: string,
+        input: SessionInput,
+        result: SessionInputAdmissionResult,
+    ): Promise<void> {
+        if (this.executionStream === undefined) return;
+        try {
+            const goal = await this.store.restore(goalId);
+            if (goal === undefined) return;
+            this.executionStream.publish({
+                goalId,
+                runId: result.ok
+                    ? (result.receipt.targetRunId ?? result.receipt.appliedRunId ?? goal.state.run.id)
+                    : goal.state.run.id,
+                kind: SESSION_INPUT_RESULT_KIND,
+                visibility: "public",
+                durability: "checkpoint",
+                delivery: "control",
+                payload: {
+                    goalId,
+                    inputId: input.inputId,
+                    kind: input.kind,
+                    ok: result.ok,
+                    ...(result.ok ? { existing: result.existing } : {}),
+                    ...(result.ok ? { receipt: serializeReceipt(result.receipt) } : {}),
+                    ...(result.ok ? {} : { code: result.code }),
+                },
+            });
+        } catch {
+            // 实时发布是旁路：失败不改变已提交的受理结果。
+        }
     }
 
     /**
@@ -792,8 +885,56 @@ export class SessionManager implements SessionHandlePort {
     }
 
     /** @param sessionId - 需要释放的句柄身份。 @remarks 解除连接只释放该句柄的订阅与来源。 */
-    detachSession(_sessionId: string): void {
-        // TODO 7/8 注册的订阅与输入来源在此释放。
+    detachSession(sessionId: string): void {
+        const streams = this.sessionStreams.get(sessionId);
+        if (streams === undefined) return;
+        for (const stream of [...streams]) stream.close();
+        this.sessionStreams.delete(sessionId);
+    }
+
+    /**
+     * 建立整个 Goal 的会话输出流。
+     *
+     * @remarks
+     * 调用即注册缓冲再读取一致快照；首项为 `state_sync`。存在订阅时启动不超过
+     * 一秒的提交核对任务，没有观察者时停止。订阅退出只释放自己的队列。
+     *
+     * @param goalId - 目标 Goal。
+     * @param sessionId - 建立订阅的句柄身份。
+     * @returns 独立、单消费者的输出流。
+     */
+    openSessionEvents(goalId: string, sessionId: string): SessionOutputStream {
+        const publisher = this.executionStream ?? new InMemoryExecutionStreamPublisher();
+        const stream = new GoalSessionStream({
+            publisher,
+            goalId,
+            readState: (target) => this.readSessionState(target),
+            onClosed: (closed) => {
+                closed.setMonitorUnsubscribe(() => undefined);
+                this.sessionStreams.get(sessionId)?.delete(closed);
+            },
+        });
+        const unsubscribeMonitor = this.revisionMonitor.observe(goalId, () => {
+            void stream.resync();
+        });
+        stream.setMonitorUnsubscribe(unsubscribeMonitor);
+        let streams = this.sessionStreams.get(sessionId);
+        if (streams === undefined) {
+            streams = new Set();
+            this.sessionStreams.set(sessionId, streams);
+        }
+        streams.add(stream);
+        return stream;
+    }
+
+    /** 停止全部后台执行、核对任务与订阅；用于实例关闭结算。 */
+    async close(): Promise<void> {
+        for (const streams of this.sessionStreams.values()) {
+            for (const stream of [...streams]) stream.close();
+        }
+        this.sessionStreams.clear();
+        this.revisionMonitor.dispose();
+        await this.waitForIdle();
     }
 
     /**

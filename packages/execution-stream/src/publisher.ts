@@ -50,8 +50,23 @@ export interface ExecutionStreamPublisher {
         ref: ExecutionStreamRef,
         policy?: StreamSubscriptionPolicy,
     ): ExecutionStreamSubscription;
+    /**
+     * 订阅整个 Goal 的后续事件，覆盖其后创建的后继 Run。
+     *
+     * @remarks Run 仍是每条事件的来源身份；订阅不随 Run 结束关闭，由调用方
+     * 显式 `closeGoal` 或 `dispose` 结束。
+     * @param goalId - Goal 稳定标识。
+     * @param policy - 可见性与队列上限；省略时使用 public/128。
+     * @returns 聚合该 Goal 全部 Run 事件的订阅对象。
+     */
+    subscribeGoal(
+        goalId: string,
+        policy?: StreamSubscriptionPolicy,
+    ): ExecutionStreamSubscription;
     /** 关闭一个 Goal/Run 的所有订阅。 */
     close(ref: ExecutionStreamRef, reason?: StreamSubscriptionCloseReason): void;
+    /** 关闭一个 Goal 的全部订阅并释放内存状态。 */
+    closeGoal(goalId: string, reason?: StreamSubscriptionCloseReason): void;
     /** 关闭 Publisher 持有的全部订阅和内存状态。 */
     dispose(): void;
 }
@@ -83,6 +98,7 @@ export interface ExecutionStreamPublisher {
  */
 export class InMemoryExecutionStreamPublisher implements ExecutionStreamPublisher {
     private readonly streams = new Map<string, StreamState>();
+    private readonly goalStreams = new Map<string, GoalStreamState>();
 
     /** 发布一个事件；订阅者故障不会从该方法传播。 */
     publish(draft: ExecutionStreamEventDraft): void {
@@ -91,20 +107,29 @@ export class InMemoryExecutionStreamPublisher implements ExecutionStreamPublishe
         state.cursor += 1;
         const event = createEvent(draft, state.cursor);
 
-        for (const subscriber of [...state.subscribers]) {
+        this.deliver(event, state.subscribers);
+
+        const goalState = this.getOrCreateGoalState(draft.goalId);
+        goalState.cursor += 1;
+        this.deliver(event, goalState.subscribers);
+    }
+
+    /** 向一组订阅者投递事件，沿用增量合并与有界背压规则。 */
+    private deliver(event: ExecutionStreamEvent, subscribers: Set<SubscriberState>): void {
+        for (const subscriber of [...subscribers]) {
             if (!isStreamEventVisible(event, subscriber.policy)) continue;
             if (subscriber.subscription.closed) {
-                state.subscribers.delete(subscriber);
+                subscribers.delete(subscriber);
                 continue;
             }
 
             if (tryCoalesce(subscriber.subscription, event)) continue;
             if (subscriber.subscription.size >= subscriber.maxQueueSize) {
                 subscriber.subscription.close("backpressure");
-                state.subscribers.delete(subscriber);
+                subscribers.delete(subscriber);
                 continue;
             }
-            if (!subscriber.subscription.push(event)) state.subscribers.delete(subscriber);
+            if (!subscriber.subscription.push(event)) subscribers.delete(subscriber);
         }
     }
 
@@ -133,6 +158,31 @@ export class InMemoryExecutionStreamPublisher implements ExecutionStreamPublishe
         return subscription;
     }
 
+    /**
+     * 订阅整个 Goal 的后续事件。
+     *
+     * @param goalId - Goal 稳定标识。
+     * @param policy - 可见性与队列上限；省略时使用 public/128。
+     * @returns 覆盖该 Goal 全部 Run 的订阅对象。
+     */
+    subscribeGoal(
+        goalId: string,
+        policy: StreamSubscriptionPolicy = {},
+    ): ExecutionStreamSubscription {
+        if (goalId.trim() === "") throw new TypeError("goalId must be non-empty");
+        const state = this.getOrCreateGoalState(goalId);
+        const subscription = new BufferedExecutionStreamSubscription();
+        state.subscribers.add({
+            subscription,
+            policy,
+            maxQueueSize: resolveMaxQueueSize(policy),
+        });
+        if (state.cursor > 0 && isStreamEventVisible({ kind: "live_gap", visibility: "public" }, policy)) {
+            subscription.push(createLiveGapEvent({ goalId, runId: "*" }, state.cursor));
+        }
+        return subscription;
+    }
+
     /** 关闭指定 Goal/Run 的所有订阅并释放内存状态。 */
     close(ref: ExecutionStreamRef, reason: StreamSubscriptionCloseReason = "publisher_closed"): void {
         const key = refKey(ref);
@@ -143,6 +193,15 @@ export class InMemoryExecutionStreamPublisher implements ExecutionStreamPublishe
         this.streams.delete(key);
     }
 
+    /** 关闭一个 Goal 的全部订阅并释放内存状态。 */
+    closeGoal(goalId: string, reason: StreamSubscriptionCloseReason = "publisher_closed"): void {
+        const state = this.goalStreams.get(goalId);
+        if (state === undefined) return;
+        for (const subscriber of state.subscribers) subscriber.subscription.close(reason);
+        state.subscribers.clear();
+        this.goalStreams.delete(goalId);
+    }
+
     /** 关闭所有订阅并释放 Publisher 持有的状态。 */
     dispose(): void {
         for (const state of this.streams.values()) {
@@ -150,6 +209,19 @@ export class InMemoryExecutionStreamPublisher implements ExecutionStreamPublishe
             state.subscribers.clear();
         }
         this.streams.clear();
+        for (const state of this.goalStreams.values()) {
+            for (const subscriber of state.subscribers) subscriber.subscription.close("publisher_closed");
+            state.subscribers.clear();
+        }
+        this.goalStreams.clear();
+    }
+
+    private getOrCreateGoalState(goalId: string): GoalStreamState {
+        const existing = this.goalStreams.get(goalId);
+        if (existing !== undefined) return existing;
+        const state: GoalStreamState = { cursor: 0, subscribers: new Set() };
+        this.goalStreams.set(goalId, state);
+        return state;
     }
 
     private getOrCreateState(ref: ExecutionStreamRef): StreamState {
@@ -163,6 +235,11 @@ export class InMemoryExecutionStreamPublisher implements ExecutionStreamPublishe
 }
 
 interface StreamState {
+    cursor: number;
+    readonly subscribers: Set<SubscriberState>;
+}
+
+interface GoalStreamState {
     cursor: number;
     readonly subscribers: Set<SubscriberState>;
 }
@@ -239,6 +316,7 @@ function tryCoalesce(
         || last.kind !== incoming.kind
         || last.visibility !== incoming.visibility
         || last.coalescingKey !== incoming.coalescingKey
+        || last.runId !== incoming.runId
     ) {
         return false;
     }

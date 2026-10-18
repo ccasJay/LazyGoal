@@ -233,3 +233,72 @@ test("慢订阅者因背压关闭时不影响快订阅者与控制事件保留",
     slow.close();
     fast.close();
 });
+
+test("Goal 范围订阅覆盖后继 Run 且不合并跨 Run 的增量", async () => {
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const goalSubscription = publisher.subscribeGoal("goal-scope", { maxQueueSize: 32 });
+    const runSubscription = publisher.subscribe({ goalId: "goal-scope", runId: "run-1" }, { maxQueueSize: 32 });
+
+    publisher.publish({
+        goalId: "goal-scope",
+        runId: "run-1",
+        kind: "run_started",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: {},
+    });
+    publisher.publish({
+        goalId: "goal-scope",
+        runId: "run-1",
+        kind: "model_block_delta",
+        visibility: "public",
+        durability: "live",
+        delivery: "delta",
+        coalescingKey: "model-block:call-1",
+        payload: { deltaKind: "text", delta: "第一段" },
+    });
+    // 后继 Run 的事件同样进入 Goal 订阅，Run 仍是来源身份。
+    publisher.publish({
+        goalId: "goal-scope",
+        runId: "run-2",
+        kind: "run_started",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: {},
+    });
+    publisher.publish({
+        goalId: "goal-scope",
+        runId: "run-2",
+        kind: "model_block_delta",
+        visibility: "public",
+        durability: "live",
+        delivery: "delta",
+        coalescingKey: "model-block:call-1",
+        payload: { deltaKind: "text", delta: "第二段" },
+    });
+
+    const goalEvents: Array<[string, string]> = [];
+    goalSubscription.onEvent(event => { goalEvents.push([event.runId, event.kind]); });
+    assert.deepEqual(goalEvents, [
+        ["run-1", "run_started"],
+        ["run-1", "model_block_delta"],
+        ["run-2", "run_started"],
+        ["run-2", "model_block_delta"],
+    ]);
+    // Run 范围订阅只看到自己的 Run，且没有被关闭。
+    const runEvents: Array<[string, string]> = [];
+    runSubscription.onEvent(event => { runEvents.push([event.runId, event.kind]); });
+    assert.deepEqual(runEvents, [
+        ["run-1", "run_started"],
+        ["run-1", "model_block_delta"],
+    ]);
+    assert.equal(runSubscription.closed, false);
+
+    publisher.closeGoal("goal-scope", "closed");
+    assert.equal(goalSubscription.closed, true);
+    assert.equal(runSubscription.closed, false);
+    runSubscription.close();
+    publisher.dispose();
+});
