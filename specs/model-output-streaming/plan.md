@@ -136,7 +136,7 @@ git diff --check
 - Freshness：current。
 - 验证时间：2026-10-18 20:49–21:05（+08:00）。
 - 被测提交：`e7304c21ccdfb37c4aed83ceb9b72f0f634b2f15`（分支 `codex/model-output-streaming`，工作树 `.worktrees/model-output-streaming`；HEAD~8 基线 `ae417629`，文档基线 `31602fd0`）。本记录提交只改 `plan.md` 的勾选与本节。
-- 契约基线：已批准的 `spec.md` SHA-256 `d66dbaed073e795ae972c0ee34be7e1ec649b15f3c481e8985b89610cd994716`（未修改）；执行后 `plan.md` SHA-256 `4e0f32c2288eedc2b0927b2db08e9ca68d15843c53b33cf5660fd219a06cc0ba`。
+- 契约基线：已批准的 `spec.md` SHA-256 `d66dbaed073e795ae972c0ee34be7e1ec649b15f3c481e8985b89610cd994716`（未修改）；验证时的 `plan.md` SHA-256 `4e0f32c2288eedc2b0927b2db08e9ca68d15843c53b33cf5660fd219a06cc0ba`，写入本记录后 `plan.md` SHA-256 `2d1aeb1373ce9092486328867710cc2fe23c08cf2e008b2d873125859b2d3ae4`。
 - 验证摘要（逐项实际结果）：
   - **新增功能测试命令**（计划最终命令第一行）：`packages/llm-core/test/content-blocks.test.ts`、`packages/model-call/test/content-block-stream.test.ts`、`packages/llm-openai/test/openai-stream.test.ts`、`packages/llm-google/test/gemini-stream.test.ts`、`packages/runtime/test/model-stream-execution-boundary.test.ts`、`apps/goal-server/test/model-output-streaming.integration.test.ts` → 35 pass / 0 fail。
   - **`npm test`**：全部通过（类型检查、包内文档检查、依赖边界检查、GEPA adapter 198 项、TS 测试 2120 pass / 0 fail、scripts 测试 70 pass / 0 fail）；`[regression] 全部通过`。
