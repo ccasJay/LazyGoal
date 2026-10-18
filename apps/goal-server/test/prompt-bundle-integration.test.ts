@@ -79,6 +79,33 @@ function nativeFixtureMessage(content: string, id: string) {
     } }] };
 }
 
+/** 单个 Chat Completions 流式数据帧。 */
+function chatChunk(id: string, delta: Record<string, unknown>, finishReason: string | null = null) {
+    return {
+        id, object: "chat.completion.chunk", created: 0, model: "test-model",
+        choices: [{ index: 0, delta, finish_reason: finishReason }],
+    };
+}
+
+/** 把统一的 conversation fixture 消息编码为真实 Chat Completions SSE 响应。 */
+function sseCompletion(
+    message: { readonly content: string; readonly tool_calls?: readonly { readonly id: string; readonly type: "function"; readonly function: { readonly name: string; readonly arguments: string } }[] },
+    id: string,
+): string {
+    const frames: unknown[] = [];
+    if (message.content.length > 0) {
+        frames.push(chatChunk(id, { role: "assistant", content: message.content }));
+    }
+    for (const [index, call] of (message.tool_calls ?? []).entries()) {
+        frames.push(chatChunk(id, { tool_calls: [{
+            index, id: call.id, type: "function",
+            function: { name: call.function.name, arguments: call.function.arguments },
+        }] }));
+    }
+    frames.push(chatChunk(id, {}, "stop"));
+    return `${frames.map(frame => `data: ${JSON.stringify(frame)}\n\n`).join("")}data: [DONE]\n\n`;
+}
+
 async function waitForCommandIdle(commands: BrowserGoalCommandService): Promise<void> {
     for (let attempt = 0; attempt < 750 && commands.getActiveGoalId() !== undefined; attempt++) {
         await new Promise((resolve) => setTimeout(resolve, 20));
@@ -228,18 +255,8 @@ test("Composition Root carries Memory through task approval into Executing", { t
                 responseContent = JSON.stringify(proposal);
             }
             requests.push(capturedRequest);
-            response.setHeader("Content-Type", "application/json");
-            response.end(JSON.stringify({
-                id: `completion-${requests.length}`,
-                object: "chat.completion",
-                created: 0,
-                model: "test-model",
-                choices: [{
-                    index: 0,
-                    message: nativeFixtureMessage(responseContent, `call-${requests.length}`),
-                    finish_reason: "stop",
-                }],
-            }));
+            response.setHeader("Content-Type", "text/event-stream");
+            response.end(sseCompletion(nativeFixtureMessage(responseContent, `call-${requests.length}`), `completion-${requests.length}`));
         });
     });
     const port = await listen(server);
@@ -542,18 +559,8 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
                 return;
             }
             requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as CapturedRequest);
-            response.setHeader("Content-Type", "application/json");
-            response.end(JSON.stringify({
-                id: `completion-${requests.length}`,
-                object: "chat.completion",
-                created: 0,
-                model: "test-model",
-                choices: [{
-                    index: 0,
-                    message: nativeFixtureMessage(responseContent, `call-${requests.length}`),
-                    finish_reason: "stop",
-                }],
-            }));
+            response.setHeader("Content-Type", "text/event-stream");
+            response.end(sseCompletion(nativeFixtureMessage(responseContent, `call-${requests.length}`), `completion-${requests.length}`));
         });
     });
     const port = await listen(server);

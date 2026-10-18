@@ -22,7 +22,7 @@
   - **实现**：更新 LLMStreamEvent 和无 I/O 组装／核验规则，model-call 将现有 callId 贯穿输入、指标、诊断和观察，成功终止延迟到正常 EOF。将 pi-ai 真实块边界、内容索引、thinking、参数分片及最终结果接入同一协议；有原始参数文本时保留，SDK 对象只用于语义核对。更新旧增量生产者、测试 Adapter 和当前 Browser 读投影，使切换后类型和正常路径可用；各块事件从首次接入就沿 Spec 可见性发布，TODO 6 再完成独立泄漏与背压矩阵。
   - **验证**：新增 `packages/model-call/test/content-block-stream.test.ts`（待实现），扩展 `packages/model-call/test/public-entry.test.ts`、`packages/llm-pi-ai/test/pi-ai.test.ts`、`packages/llm-core/test/core-consumption.test.ts` 和 `packages/browser/test/browser-stream.test.ts`；运行对应 `npx tsx --test` 与类型检查。pi-ai 正常路径至少有一组真实 SDK 加本地 SSE fixture，不能仅伪造 SDK 内部事件；断言观察终止和返回／抛错顺序，而非只检查事件名称。
 
-- [ ] //TODO 3. 通过原生 OpenAI Chat Completions 实时生成文本和工具块
+- [x] //TODO 3. 通过原生 OpenAI Chat Completions 实时生成文本和工具块
 
   落实标准：[1.3](./spec.md#spec-req-1-3)、[1.5](./spec.md#spec-req-1-5)、[2.3](./spec.md#spec-req-2-3)、[3.1](./spec.md#spec-req-3-1)、[3.5](./spec.md#spec-req-3-5)、[4.3](./spec.md#spec-req-4-3)、[5.2](./spec.md#spec-req-5-2)。
   - **先验证**：本地服务记录真实 SDK 请求，分片返回文本、两个调用索引、跨 chunk 的工具名／ID／参数、reasoning 扩展与 usage-only 尾部。检查独立块、参数字节、最终用量及正常终结；分别注入 length、content_filter、异常 EOF 和不支持内容，不能仅因已有完整工具对象而成功。generate／stream 等价 fixture 保持读视图和原生续接语义，缺失 usage 仍缺省。
