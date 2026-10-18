@@ -132,8 +132,41 @@ git diff --check
 
 ### Latest Result
 
-- 状态：未执行。
-- 验证时间：-。
-- 测试提交：无，尚未开始实现。
-- 契约基线：已批准的 `spec.md`，SHA-256 `d66dbaed073e795ae972c0ee34be7e1ec649b15f3c481e8985b89610cd994716`。
-- 验证摘要：本阶段仅创建计划；规划文档检查不作为功能实现或验收通过证据。执行后记录各验收实际检查、结果、证据位置、未解决项及对应 Git／工作树指纹，全部必要结果满足后才可标记 passed／current。
+- 状态：passed（含 1 项与本 Spec 无关的预存环境未满足项：goal-board Chrome 页面链路；本记录不据此宣称现有页面链路通过）。
+- Freshness：current。
+- 验证时间：2026-10-18 20:49–21:05（+08:00）。
+- 被测提交：`e7304c21ccdfb37c4aed83ceb9b72f0f634b2f15`（分支 `codex/model-output-streaming`，工作树 `.worktrees/model-output-streaming`；HEAD~8 基线 `ae417629`，文档基线 `31602fd0`）。本记录提交只改 `plan.md` 的勾选与本节。
+- 契约基线：已批准的 `spec.md` SHA-256 `d66dbaed073e795ae972c0ee34be7e1ec649b15f3c481e8985b89610cd994716`（未修改）；执行后 `plan.md` SHA-256 `4e0f32c2288eedc2b0927b2db08e9ca68d15843c53b33cf5660fd219a06cc0ba`。
+- 验证摘要（逐项实际结果）：
+  - **新增功能测试命令**（计划最终命令第一行）：`packages/llm-core/test/content-blocks.test.ts`、`packages/model-call/test/content-block-stream.test.ts`、`packages/llm-openai/test/openai-stream.test.ts`、`packages/llm-google/test/gemini-stream.test.ts`、`packages/runtime/test/model-stream-execution-boundary.test.ts`、`apps/goal-server/test/model-output-streaming.integration.test.ts` → 35 pass / 0 fail。
+  - **`npm test`**：全部通过（类型检查、包内文档检查、依赖边界检查、GEPA adapter 198 项、TS 测试 2120 pass / 0 fail、scripts 测试 70 pass / 0 fail）；`[regression] 全部通过`。
+  - **`npm --prefix apps/goal-server run build`**：通过（`tsc --noEmit` 无输出）。
+  - **`npm --prefix apps/goal-board test`**：81 pass / 0 fail。
+  - **`npm run build:web`**：构建成功（`✓ built`）。
+  - **`node --test --test-concurrency=1 apps/goal-board/e2e/runtime.test.mjs`**：**失败（未满足，预存环境）**。首条 UI 断言 `document.querySelector('.primary')?.disabled === true` 得到 `undefined`；独立 CDP 探针显示无 token 页面渲染 "Open the local link printed by `lazygoal web` to connect this board."，因此 Composer 不存在。已在纯文档基线 `31602fd0`（本 Spec 任何改动之前）复现同一断言失败，本次未修改 `apps/goal-board/src`，故判为环境／夹具既有问题，不作为本 Spec 的通过证据，也不宣称页面链路通过。
+  - **`npm run check:dependencies`**：通过（259 个源文件）。
+  - **`npm run check:docs`**：通过（45 个模块，161 份当前说明）。
+  - **`git diff --check`**：无输出（通过）。
+  - **装配与恢复回归**：`apps/goal-server/test/runtime-composition.integration.test.ts`、`runtime-recovery.integration.test.ts`、`model-output-streaming.integration.test.ts` → 10 pass / 0 fail。
+- 验收对照证据（Planned Checks 各项）：
+  - 1.1／1.2／1.3：`packages/llm-core/test/content-blocks.test.ts`（块顺序、格式、投影不 trim），三个 Adapter 测试的块顺序／分片断言。
+  - 1.4：`packages/model-call/test/content-block-stream.test.ts`（最终块失配、改写、未封口全部拒绝）与 Gemini strict 投影用例。
+  - 1.5：`openai-stream.test.ts`、`gemini-stream.test.ts` 的 generate／stream 等价用例；`packages/llm/test/native-dialogue*.test.ts` 续接回归。
+  - 2.1–2.5：`content-block-stream.test.ts`（身份、交错、晚到身份、非法序列、终止摘要、合并键）。
+  - 3.1／3.5：`openai-stream.test.ts`（真实 SDK + 本机 SSE、负例、非字符串内容拒绝）。
+  - 3.2／3.3：`gemini-stream.test.ts`（Part 顺序、签名回放、whole 投影、generateContent 路由）。
+  - 3.4：`packages/llm-pi-ai/test/pi-ai.test.ts`（真实 SDK 分片参数、thinking 受限、索引）。
+  - 4.1：`packages/runtime/test/model-stream-execution-boundary.test.ts` 与 `apps/goal-server/test/model-output-streaming.integration.test.ts` 的屏障断言。
+  - 4.2／4.3：`content-block-stream.test.ts`（缺失／重复完成、EOF 屏障与尾部异常）。
+  - 4.4：`content-block-stream.test.ts`（generate-only 整块观察与开始状态）。
+  - 4.5：`packages/model-call/test/llm-step-executor-metrics.test.ts`（多块单次计数、取消／失败结果、整块不伪造解码耗时、诊断按调用计数）。
+  - 5.1–5.5：`model-stream-execution-boundary.test.ts`（合法重试新身份、零工具效果、迭代清理不覆盖主错误），三个 Adapter 的迭代器释放用例。
+  - 6.1–6.5：`content-block-stream.test.ts` 隐私矩阵、`packages/execution-stream/test/execution-stream.test.ts` 合并与背压、`packages/browser/test/browser-stream.test.ts` 真实调用链活动投影。
+  - 7.1／7.2：源码级旧字段审计＋`packages/model-context/test/native-model-history.test.ts`、`packages/llm/test/native-dialogue.test.ts`、装配集成测试的下一轮请求断言。
+  - 7.3：上述真实本地服务／真实 SDK／Runtime 链路与隐私矩阵证据；页面链路见未满足项。
+  - 7.4：本文件与各模块 overview／semantics 同步；`check:docs`、`check:dependencies`、`tsc` 通过。
+- 未解决项与说明：
+  1. `apps/goal-board/e2e/runtime.test.mjs` 未满足（预存环境／夹具问题，基线复现）；如需页面级证据，请在能通过该断言的机器或修正夹具后重跑。
+  2. 工作树本地新增了 `benchmarks/node_modules` 符号链接（gitignore 覆盖）以便运行 benchmark 测试与类型检查；不属于提交内容。
+  3. `.execution-progress.md` 是仓库既有被跟踪文件，按本地恢复约定保持未提交修改，因此 `git status --short` 不会完全干净；提交内容本身不含该文件。
+  4. 已知与本次无关的负载型 flake 曾在并行全量运行中出现（goal-server browser-session、benchmarks/context CLI 子进程超时、composition-root-model-switching），单跑或低负载复跑均通过，最终一次 `npm test` 全绿。
