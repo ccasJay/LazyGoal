@@ -10,9 +10,21 @@ export type {
     LLMToolDefinition,
     LLMToolCall,
     LLMRequest,
+    LLMTextBlockFormat,
+    LLMTextBlock,
+    LLMReasoningBlock,
+    LLMToolCallBlock,
+    LLMContentBlock,
     LLMResponse,
     LLMStreamEvent,
 } from "./types";
+
+export {
+    readTextBlocks,
+    readAssistantText,
+    readReasoningText,
+    readToolCalls,
+} from "./content-blocks";
 
 export {
     LLMConfigurationError,

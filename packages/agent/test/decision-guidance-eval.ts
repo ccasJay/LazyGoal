@@ -7,6 +7,7 @@ import {
     createModelOutputContractBundle, decodePhaseToolCall,
     type AgentDecision, type ModelOutputContractBundle,
 } from "../../model-contracts/src/index";
+import { readAssistantText, readToolCalls } from "../../llm-core/src/index";
 import type { LLMResponse } from "../../llm-core/src/index";
 import type { StructuredOutputMode } from "../../llm-core/src/index";
 import { readLLMConfig } from "../../config/src/index";
@@ -73,14 +74,14 @@ export function evaluationRequest(scenario: Scenario, renderer: PromptBundleRend
 
 /** 保留原始调用数检查，使用生产解码器；文本回退可解码但不算满足原生调用协议。 */
 export function evaluateResponse(scenario: Scenario, plan: ReturnType<typeof evaluationRequest>, response: LLMResponse) {
-    const calls = response.toolCalls ?? [];
+    const calls = readToolCalls(response);
     let decision: AgentDecision | undefined;
     let parseError: string | undefined;
     try {
         if (calls.length > 1) throw new Error("multiple_tool_calls");
         decision = calls.length === 1
             ? decodePhaseToolCall(plan.declarations, calls[0]!.toolId, JSON.parse(calls[0]!.argumentsJson)) as AgentDecision
-            : parseModelOutput(response.content, plan.bundle);
+            : parseModelOutput(readAssistantText(response), plan.bundle);
     } catch (error) {
         parseError = error instanceof Error ? error.message : "Unknown decode error";
     }
@@ -150,7 +151,7 @@ export async function runDecisionEvaluation(env: Readonly<Record<string, string 
                 const metadata = response.providerMetadata;
                 const usage = metadata && typeof metadata === "object" && "usage" in metadata ? metadata.usage : undefined;
                 await appendFile(resolve(outputDir, "results.jsonl"), JSON.stringify({ ...row,
-                    raw: { content: response.content, toolCalls: response.toolCalls }, ...(usage === undefined ? {} : { usage }) }) + "\n");
+                    raw: { blocks: response.blocks }, ...(usage === undefined ? {} : { usage }) }) + "\n");
                 console.log(JSON.stringify({ scenario: row.scenario, variant, repeat, passed: row.passed }));
             }
         }

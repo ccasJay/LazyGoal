@@ -10,7 +10,10 @@ import { readLLMConfig } from "../../config/src/index";
 import {
     LLMConfigurationError,
     LLMRequestModeMismatchError,
+    readAssistantText,
     readNormalizedUsage,
+    readReasoningText,
+    readToolCalls,
     type LLMRequest,
 } from "../../llm-core/src/index";
 import { ExecutionAbortedError } from "../../execution-control/src/index";
@@ -64,13 +67,14 @@ test("PiAiAdapter maps ordered text history and isolates thinking and unverified
         return result({ content: [{ type: "thinking", thinking: "private reasoning" }, { type: "text", text: '{"answer":' }, { type: "text", text: '"ok"}' }], responseId: "response-1" });
     });
     const response = await instance.generate(request, { signal: controller.signal });
-    assert.equal(response.content, json);
+    assert.equal(readAssistantText(response), json);
+    assert.equal(readReasoningText(response), "private reasoning");
     assert.equal(readNormalizedUsage(response.providerMetadata), undefined);
     assert.deepEqual(response.providerMetadata, {
         provider: "openai", api: "openai-responses", model: "gpt-4.1-mini", responseId: "response-1", stopReason: "stop",
         piUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     });
-    assert.ok(!JSON.stringify(response).includes("private reasoning"));
+    assert.equal(response.blocks.some(block => block.type === "reasoning" && block.text.includes("private reasoning")), true);
 });
 
 test("pi-ai keeps thinking out of tool-request text and final responses in both entrypoints", async () => {
@@ -101,11 +105,15 @@ test("pi-ai keeps thinking out of tool-request text and final responses in both 
         const completed = events.find(e => e.kind === "completed");
         assert.ok(completed?.kind === "completed");
         assert.deepEqual(completed.response, generated);
-        assert.equal(generated.content, blocks.some(b => b.type === "text") ? json : "");
-        assert.ok(!JSON.stringify(generated).includes("PRIVATE_THINKING"));
+        assert.equal(readAssistantText(generated), blocks.some(b => b.type === "text") ? json : "");
+        // thinking 保留在受限 reasoning 块中，且绝不混入正文或工具参数。
+        assert.equal(readReasoningText(generated), "PRIVATE_THINKING");
+        assert.equal(readAssistantText(generated).includes("PRIVATE_THINKING"), false);
         assert.ok(events.some(e => e.kind === "reasoning_delta" && e.text === "PRIVATE_THINKING"));
         if (blocks.some(b => b.type === "toolCall")) {
-            assert.deepEqual(generated.toolCalls, [{ callId: "call-preserved", toolId: "report", argumentsJson: '{"result":"ok"}' }]);
+            assert.deepEqual(readToolCalls(generated), [{ callId: "call-preserved", toolId: "report", argumentsJson: '{"result":"ok"}' }]);
+        } else {
+            assert.deepEqual(readToolCalls(generated), []);
         }
     }
 });
@@ -137,7 +145,7 @@ test("incomplete, erroneous and tool responses never return partial JSON", async
 test("empty text stays empty and thrown SDK exceptions preserve identity", async () => {
     const instance = adapter();
     stub(instance, async () => result({ content: [] }));
-    assert.equal((await instance.generate(request)).content, "");
+    assert.equal(readAssistantText(await instance.generate(request)), "");
     const failure = new Error("SDK failure");
     stub(instance, async () => { throw failure; });
     await assert.rejects(instance.generate(request), error => error === failure);
@@ -221,7 +229,7 @@ test("Google factory uses the configured API prefix with the real SDK in both ou
                     ...request,
                     ...(mode === "strict" ? { structuredOutput: { name: "answer", schema } } : {}),
                 });
-                assert.equal(response.content, json);
+                assert.equal(readAssistantText(response), json);
             });
             assert.equal(captured.length, 1);
             const sent = captured[0]!;
@@ -264,7 +272,7 @@ test("real pi-ai SDK maps four wire protocols against local SSE servers", async 
             try {
                 const instance = adapter(provider, model, provider === "openai" || provider === "openai-compatible" ? `${url}/v1` : undefined);
                 const response = await instance.generate(request);
-                assert.equal(response.content, json, provider);
+                assert.equal(readAssistantText(response), json, provider);
                 assert.equal(readNormalizedUsage(response.providerMetadata), undefined);
                 const metadata = response.providerMetadata as Record<string, any>;
                 assert.ok(metadata.piUsage.output > 0, provider);
@@ -401,12 +409,12 @@ test("opencode-go 注入 LazyGoal UA 与稳定会话头，且仅在提供会话�
                 LLM_STRUCTURED_OUTPUT_MODE: "prompt_only",
             }));
             const withSession = await instance.generate({ ...request, sessionId: "goal-123" });
-            assert.equal(withSession.content, json);
+            assert.equal(readAssistantText(withSession), json);
             assert.equal(captured[0]?.["x-opencode-session"], "goal-123");
             assert.equal(captured[0]?.["user-agent"], "lazygoal");
 
             const withoutSession = await instance.generate({ ...request });
-            assert.equal(withoutSession.content, json);
+            assert.equal(readAssistantText(withoutSession), json);
             assert.equal(captured[1]?.["x-opencode-session"], undefined);
             assert.equal(captured[1]?.["user-agent"], "lazygoal");
         } finally { globalThis.fetch = realFetch; }
@@ -558,6 +566,6 @@ test("prompt_only 携带工具集合时接受零调用与非空正文", async ()
         tools: [{ id: "bash", description: "Run a command", parametersSchema: { type: "object", properties: {} } }],
         toolChoice: "auto",
     });
-    assert.equal(generated.content, "我先解释现状，再决定下一步。");
-    assert.equal(generated.toolCalls, undefined);
+    assert.equal(readAssistantText(generated), "我先解释现状，再决定下一步。");
+    assert.deepEqual(readToolCalls(generated), []);
 });

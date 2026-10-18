@@ -6,7 +6,10 @@ import {
     LLMConfigurationError,
     LLMRequestModeMismatchError,
     classifyTransientModelFailure,
+    readAssistantText,
     readNormalizedUsage,
+    readReasoningText,
+    readToolCalls,
     toSafeTokenCount,
     type LLMAdapter,
     type LLMRequest,
@@ -16,7 +19,7 @@ import {
 
 test("经公共入口实现的确定性 Adapter 可直接消费请求、响应与流契约", async () => {
     const generate = async (request: LLMRequest): Promise<LLMResponse> => ({
-        content: `echo:${request.messages.length}`,
+        blocks: [{ index: 0, type: "text", format: "plain", text: `echo:${request.messages.length}` }],
         providerMetadata: { usage: { inputTokens: 12, outputTokens: 34, cachedInputTokens: 5 } },
     });
     const adapter: LLMAdapter = {
@@ -37,7 +40,7 @@ test("经公共入口实现的确定性 Adapter 可直接消费请求、响应�
         sessionId: "goal-1",
     };
     const response = await adapter.generate(request);
-    assert.equal(response.content, "echo:2");
+    assert.equal(readAssistantText(response), "echo:2");
     assert.deepEqual(
         readNormalizedUsage(response.providerMetadata),
         { inputTokens: 12, outputTokens: 34, cachedInputTokens: 5 },
@@ -48,7 +51,7 @@ test("经公共入口实现的确定性 Adapter 可直接消费请求、响应�
     for await (const event of adapter.stream(request)) events.push(event);
     assert.deepEqual(events.map(event => event.kind), ["started", "assistant_text_delta", "completed"]);
     const completed = events.at(-1);
-    assert.equal(completed?.kind === "completed" ? completed.response.content : undefined, response.content);
+    assert.equal(completed?.kind === "completed" ? readAssistantText(completed.response) : undefined, readAssistantText(response));
 });
 
 test("归一化用量读取在缺失或非法时省略而不补零", () => {

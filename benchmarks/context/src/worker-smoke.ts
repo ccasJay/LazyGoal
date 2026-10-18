@@ -28,9 +28,9 @@ export async function runWorkerSmoke(output?: string): Promise<string> {
                 : messages.includes("Say hello") ? { kind: "complete", summary: "Hello.", evidenceSequences: [], memoryPatch: null, contextNotes: null }
                 : kind === "retry" ? { kind: "fail", error: "Expected probe failure", memoryPatch: null, contextNotes: null }
                 : { kind: "wait", reason: "Await user input", memoryPatch: null, contextNotes: null };
-            return { content: JSON.stringify({ result }) };
+            return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ result }) }] };
         } };
-        const judge: LLMAdapter = { structuredOutputMode: "prompt_only", generate: async () => ({ content: JSON.stringify({ score: 1, rationale: "The supplied output is a greeting.", evidence: ["output"] }) }) };
+        const judge: LLMAdapter = { structuredOutputMode: "prompt_only", generate: async () => ({ blocks: [{ index: 0, type: "text", format: "plain", text: JSON.stringify({ score: 1, rationale: "The supplied output is a greeting.", evidence: ["output"] }) }] }) };
         const candidate = await captureScenario(scenario, worker, { id: "offline-probe-capture", adapter }, join(directory, kind, "capture"));
         const checkpoint = JSON.parse(await readFile(join(candidate, "checkpoint.json"), "utf8"));
         const bindings = await new JsonFileBenchmarkPersistenceAdapter({ rootDirectory: join(candidate, "state"), namespaceFor: () => "session" }).open({
@@ -62,12 +62,10 @@ export async function runWorkerSmoke(output?: string): Promise<string> {
         stages: [{ operation: "launch", prompt: "Expected failure", expect: "failed" }, { operation: "continue", prompt: "Say hello", expect: "completed" }],
         verifier: "test -f config.json", rubric: { text: "A greeting", threshold: 0.5 }, limitations: "Controlled call budget termination.",
     });
-    const budgetAdapter: LLMAdapter = { structuredOutputMode: "prompt_only", generate: async request => ({
-        content: JSON.stringify({ result: JSON.stringify(request.messages).includes("Say hello")
+    const budgetAdapter: LLMAdapter = { structuredOutputMode: "prompt_only", generate: async request => ({ blocks: [{ index: 0, type: "text", format: "plain", text: JSON.stringify({ result: JSON.stringify(request.messages).includes("Say hello")
             ? { kind: "complete", summary: "Hello.", evidenceSequences: [], memoryPatch: null, contextNotes: null }
-            : { kind: "fail", error: "Expected failure", memoryPatch: null, contextNotes: null } }),
-    }) };
-    const highJudge: LLMAdapter = { structuredOutputMode: "prompt_only", generate: async () => ({ content: JSON.stringify({ score: 1, rationale: "Hello", evidence: ["output"] }) }) };
+            : { kind: "fail", error: "Expected failure", memoryPatch: null, contextNotes: null } }) }] }) };
+    const highJudge: LLMAdapter = { structuredOutputMode: "prompt_only", generate: async () => ({ blocks: [{ index: 0, type: "text", format: "plain", text: JSON.stringify({ score: 1, rationale: "Hello", evidence: ["output"] }) }] }) };
     const budgetCandidate = await captureScenario(failureScenario, worker, { id: "offline-budget", adapter: budgetAdapter }, join(directory, "budget", "capture"));
     const budgetFrozen = await freezeCandidate(budgetCandidate, join(directory, "corpus"), "challenge", "smoke", await reviewCandidate(budgetCandidate), "test-only-review-action-fixture");
     const budgetReport = await runPairedCase(budgetFrozen, worker, { id: "offline-budget", adapter: budgetAdapter }, { id: "offline-high-judge", adapter: highJudge }, join(directory, "budget", "pair"));

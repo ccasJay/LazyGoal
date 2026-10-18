@@ -1,7 +1,6 @@
 import type { JsonSchema202012, JsonValue } from "../../contracts/src/index";
 
 import type {
-    ModelAssistantMessage,
     ModelConversationMessage,
     ModelToolCall,
     ModelContinuation,
@@ -117,12 +116,95 @@ export class LLMRequestModeMismatchError extends Error {
 }
 
 /**
- * 供应商无关的模型响应。
+ * 文本内容块正文的来源格式。
  *
  * @remarks
- * `content` 只包含模型正文，不得拼入 thinking；工具调用通过 `toolCalls` 独立返回。
- * Agent 对 required 工具请求只解码调用参数，不把正文当作替代决策。可选的
- * `providerMetadata` 只供 Diagnostic Trace 使用，不进入 Domain Event、Goal
+ * 由本次请求的结构化输出契约决定，不扫描正文猜测：携带原生结构 Schema 的无工具
+ * 请求返回 `json`，自由文本请求返回 `plain`。格式只说明正文来源，不表示解析结果。
+ *
+ * @example
+ * ```ts
+ * const format: LLMTextBlockFormat = request.structuredOutput === undefined ? "plain" : "json";
+ * ```
+ */
+export type LLMTextBlockFormat = "plain" | "json";
+
+/**
+ * 完整响应中的正文块。
+ *
+ * @remarks
+ * 块索引在本次响应内稳定且唯一，从 0 开始；正文按块内容直接连接，不隐式 trim 或插入换行。
+ *
+ * @example
+ * ```ts
+ * const block: LLMTextBlock = { index: 0, type: "text", format: "plain", text: "检查完成" };
+ * ```
+ */
+export interface LLMTextBlock {
+    /** 本次响应内稳定且唯一的块索引。 */
+    readonly index: number;
+    readonly type: "text";
+    /** 正文来源格式；结构化输出为 `json`。 */
+    readonly format: LLMTextBlockFormat;
+    /** 该块的完整正文。 */
+    readonly text: string;
+}
+
+/**
+ * 完整响应中的公开 reasoning 块。
+ *
+ * @remarks
+ * 只承载供应商实际返回的 reasoning 文本；保持受限，不与签名或最终答复混淆。
+ *
+ * @example
+ * ```ts
+ * const block: LLMReasoningBlock = { index: 1, type: "reasoning", text: "先核对文件差异" };
+ * ```
+ */
+export interface LLMReasoningBlock {
+    /** 本次响应内稳定且唯一的块索引。 */
+    readonly index: number;
+    readonly type: "reasoning";
+    /** 该块的完整 reasoning 文本。 */
+    readonly text: string;
+}
+
+/**
+ * 完整响应中的工具调用块。
+ *
+ * @remarks
+ * `callId` 是模型供应商协议中的调用身份，不替代 Runtime `actionId`；`argumentsJson`
+ * 保留原始或协议规范化后的参数 JSON 文本，其业务 Schema 是否可用由阶段解码判断。
+ *
+ * @example
+ * ```ts
+ * const block: LLMToolCallBlock = {
+ *     index: 0, type: "tool_call", callId: "call-1", toolId: "read_file", argumentsJson: '{"path":"README.md"}',
+ * };
+ * ```
+ */
+export interface LLMToolCallBlock {
+    /** 本次响应内稳定且唯一的块索引。 */
+    readonly index: number;
+    readonly type: "tool_call";
+    /** 供应商工具调用 ID；缺失时由协议规则分配一次本地身份。 */
+    readonly callId: string;
+    /** 模型选择的工具名。 */
+    readonly toolId: string;
+    /** 工具参数 JSON 文本。 */
+    readonly argumentsJson: string;
+}
+
+/** 一次模型响应的有序内容块。 */
+export type LLMContentBlock = LLMTextBlock | LLMReasoningBlock | LLMToolCallBlock;
+
+/**
+ * 供应商无关的完整模型响应。
+ *
+ * @remarks
+ * `blocks` 是正文、工具调用与公开 reasoning 的唯一权威；现有消费者所需的正文、
+ * 推理视图与工具列表由 `llm-core` 的纯投影从块派生，不保存可独立修改的平行字段。
+ * 可选的 `providerMetadata` 只供 Diagnostic Trace 使用，不进入 Domain Event、Goal
  * Snapshot 或模型上下文。调用方应避免把凭据放入 metadata。
  * 原生 OpenAI/Gemini Adapter 在响应携带用量时把归一化 token 计数写入
  * `providerMetadata.usage`（`{ inputTokens, outputTokens, cachedInputTokens? }`），
@@ -132,7 +214,10 @@ export class LLMRequestModeMismatchError extends Error {
  * @example
  * ```ts
  * const response: LLMResponse = {
- *     content: '{"result":{"kind":"complete","summary":"完成","completionEvidence":[],"memoryPatch":null}}',
+ *     blocks: [{
+ *         index: 0, type: "text", format: "json",
+ *         text: '{"result":{"kind":"complete","summary":"完成","completionEvidence":[],"memoryPatch":null}}',
+ *     }],
  *     providerMetadata: {
  *         requestId: "req-1",
  *         usage: { inputTokens: 12, outputTokens: 34, cachedInputTokens: 5 },
@@ -140,15 +225,11 @@ export class LLMRequestModeMismatchError extends Error {
  * };
  * ```
  */
-export interface LLMResponse extends Omit<ModelAssistantMessage, "role"> {
-    /** 正文文本，不包含思考块；原生 Adapter 的公开 reasoning 摘要通过独立字段返回。 */
-    readonly content: string;
-    /** 供应商实际公开的 reasoning 摘要，不进入正文解析。 */
-    readonly reasoning?: string;
+export interface LLMResponse {
+    /** 本次响应的有序完整块；正文、工具调用与公开 reasoning 的唯一来源。 */
+    readonly blocks: readonly LLMContentBlock[];
     /** 可持久化的协议续接字段，不属于诊断 metadata。 */
     readonly continuation?: ModelContinuation;
-    /** 模型发起的工具调用列表。原生双通道下单次单步通常包含 0 个或 1 个工具调用。 */
-    readonly toolCalls?: readonly LLMToolCall[];
     /** 可选供应商诊断字段；不会参与 Runtime 状态转换。 */
     readonly providerMetadata?: JsonValue;
 }

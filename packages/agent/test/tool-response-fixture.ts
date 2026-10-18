@@ -1,4 +1,5 @@
 import type { LLMResponse } from "../../llm-core/src/index";
+import { blockResponse, textResponse, toolCallResponse } from "../../llm-core/test/response-fixtures";
 
 /**
  * 将测试中既有的决策 fixture 编码为模型工具调用，不参与生产解码。
@@ -9,14 +10,14 @@ export function toolResponseFixture(content: string): LLMResponse {
     try {
         decision = JSON.parse(content).result;
     } catch {
-        return { content: "", toolCalls: [{ callId: "fixture-call", toolId: "system_complete_task", argumentsJson: content }] };
+        return toolCallResponse({ callId: "fixture-call", toolId: "system_complete_task", argumentsJson: content });
     }
     if (decision.kind === "tool_call" && decision.action === undefined) {
-        return { content: "", toolCalls: [{ callId: "fixture-call", toolId: "undeclared-fixture-tool", argumentsJson: JSON.stringify(decision) }] };
+        return toolCallResponse({ callId: "fixture-call", toolId: "undeclared-fixture-tool", argumentsJson: JSON.stringify(decision) });
     }
     if (decision.kind === "tool_call") {
-        return { content: "", toolCalls: [{ callId: decision.action.actionId, toolId: decision.action.toolId,
-            argumentsJson: JSON.stringify(decision.action.input) }] };
+        return toolCallResponse({ callId: decision.action.actionId, toolId: decision.action.toolId,
+            argumentsJson: JSON.stringify(decision.action.input) });
     }
     const { kind, contextNotes: _notes, ...args } = decision;
     const names: Record<string, string> = {
@@ -26,6 +27,9 @@ export function toolResponseFixture(content: string): LLMResponse {
         task_proposal: "system_propose_task_plan", context_checkpoint: "system_context_checkpoint",
         context_lookup: "system_context_lookup", goal_plan_update: "system_update_goal_plan",
     };
-    return { content: "", toolCalls: [{ callId: "fixture-call", toolId: kind === "accept" || kind === "reject" ? "system_review_completion" : names[kind] ?? "undeclared-fixture-tool",
-        argumentsJson: JSON.stringify(kind === "accept" || kind === "reject" ? { result: decision } : args) }] };
+    return toolCallResponse({ callId: "fixture-call", toolId: kind === "accept" || kind === "reject" ? "system_review_completion" : names[kind] ?? "undeclared-fixture-tool",
+        argumentsJson: JSON.stringify(kind === "accept" || kind === "reject" ? { result: decision } : args) });
 }
+
+/** 导出共享构造器，供 fixture 调用方直接使用。 */
+export { blockResponse, textResponse, toolCallResponse };

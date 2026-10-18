@@ -16,9 +16,11 @@ import {
     LLMRequestModeMismatchError,
     classifyTransientModelFailure,
     type LLMAdapter,
+    type LLMContentBlock,
     type LLMMessage,
     type LLMRequest,
     type LLMResponse,
+    type LLMTextBlockFormat,
     type LLMToolCall,
     type StructuredOutputMode,
 } from "../../llm-core/src/index";
@@ -67,7 +69,8 @@ const GEMINI_ABSENT_SENTINEL = "__lazygoal_absent__";
  *
  * @remarks
  * system 消息合并为 `systemInstruction`，assistant 映射为 Gemini 的 model
- * 角色，其余消息保持顺序。响应没有文本内容时返回空字符串，SDK 异常原样传播。
+ * 角色，其余消息保持顺序。响应按真实 Part 顺序输出正文、公开 reasoning 与工具调用块，
+ * 相邻同类型 Part 归并为一个块并按内容直接连接；SDK 异常原样传播。
  * 在 strict 模式下将结构 Schema 转换后映射为 `responseMimeType: "application/json"` 与 `responseSchema`；
  * 枚举补齐类型，nullable 由 SDK 转换；对象联合投影为字段并集与必填交集。
  * 联合分支约束和 additionalProperties 仍由 Agent 本地契约严格校验。
@@ -112,7 +115,7 @@ export class Gemini implements LLMAdapter {
     /**
      * @param request - 供应商无关的消息请求。
      * @param control - 当前 Goal 推进调用共享的中止控制。
-     * @returns Gemini 响应中的文本内容。
+     * @returns Gemini 响应归一化后的有序完整内容块。
      * @throws Google Gen AI SDK 暴露的网络、鉴权、限流或协议异常；中止时抛出
      *   `ExecutionAbortedError`；请求参数模式不匹配时抛出 `LLMRequestModeMismatchError`。
      */
@@ -183,46 +186,91 @@ export class Gemini implements LLMAdapter {
             const usage = extractGeminiUsage(response.usageMetadata);
 
             const candidate = response.candidates?.[0];
-            const textParts: string[] = [];
-            const reasoningParts: string[] = [];
+            const parts = candidate?.content?.parts;
+            const structuredProjection = (this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage")
+                && request.structuredOutput !== undefined && !request.tools?.length;
+            const textFormat: LLMTextBlockFormat = structuredProjection ? "json" : "plain";
+            const blocks: LLMContentBlock[] = [];
             const toolCalls: LLMToolCall[] = [];
 
-            if (candidate?.content?.parts) {
-                for (const part of candidate.content.parts) {
+            if (parts !== undefined) {
+                // 相邻同类型 Part 归并为一个块：正文按 Part 顺序直接连接，块边界由真实 Part 切换表达。
+                let textSegment: string[] = [];
+                let reasoningSegment: string[] = [];
+                const flushText = (): void => {
+                    if (textSegment.length === 0) return;
+                    const rawText = textSegment.join("");
+                    textSegment = [];
+                    if (rawText.length === 0) return;
+                    blocks.push({
+                        index: blocks.length, type: "text", format: textFormat,
+                        text: structuredProjection
+                            ? restoreGeminiResponseProjection(rawText, request.structuredOutput!.schema)
+                            : rawText,
+                    });
+                };
+                const flushReasoning = (): void => {
+                    if (reasoningSegment.length === 0) return;
+                    const text = reasoningSegment.join("");
+                    reasoningSegment = [];
+                    if (text.length === 0) return;
+                    blocks.push({ index: blocks.length, type: "reasoning", text });
+                };
+                for (const part of parts) {
                     if (typeof part.text === "string" && part.text.length > 0) {
-                        (part.thought === true ? reasoningParts : textParts).push(part.text);
+                        if (part.thought === true) {
+                            flushText();
+                            reasoningSegment.push(part.text);
+                        } else {
+                            flushReasoning();
+                            textSegment.push(part.text);
+                        }
+                        continue;
                     }
-                    if (part.functionCall) {
-                        toolCalls.push({
+                    if (part.functionCall !== undefined) {
+                        flushText();
+                        flushReasoning();
+                        const call: LLMToolCall = {
                             callId: (part.functionCall as any).id ?? `call_${randomUUID()}`,
                             toolId: part.functionCall.name ?? "",
                             argumentsJson: JSON.stringify(part.functionCall.args ?? {}),
-                        });
+                        };
+                        toolCalls.push(call);
+                        blocks.push({ index: blocks.length, type: "tool_call", ...call });
                     }
+                }
+                flushText();
+                flushReasoning();
+            } else {
+                const rawText = response.text ?? "";
+                if (rawText.length > 0) {
+                    blocks.push({
+                        index: 0, type: "text", format: textFormat,
+                        text: structuredProjection
+                            ? restoreGeminiResponseProjection(rawText, request.structuredOutput!.schema)
+                            : rawText,
+                    });
                 }
             }
 
-            const rawContent = textParts.length > 0
-                ? textParts.join("\n").trim()
-                : (toolCalls.length > 0 || candidate?.content?.parts !== undefined ? "" : (response.text ?? ""));
-            const content = (this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && request.structuredOutput !== undefined && !request.tools?.length
-                ? restoreGeminiResponseProjection(rawContent, request.structuredOutput.schema)
-                : rawContent;
-
             const continuation = {
                 identity: this.nativeConversationIdentity,
-                parts: structuredClone(candidate?.content?.parts ?? []) as readonly GeminiContinuationPart[],
+                parts: structuredClone(parts ?? []) as readonly GeminiContinuationPart[],
             };
             const message = {
-                role: "assistant" as const, content,
-                ...(reasoningParts.length === 0 ? {} : { reasoning: reasoningParts.join("\n") }),
+                role: "assistant" as const,
+                content: blocks.flatMap(block => block.type === "text" ? [block.text] : []).join(""),
+                ...(blocks.some(block => block.type === "reasoning") ? {
+                    reasoning: blocks.flatMap(block => block.type === "reasoning" ? [block.text] : []).join(""),
+                } : {}),
                 ...(toolCalls.length > 0 ? { toolCalls } : {}), continuation,
             };
             if (toolCalls.length <= 1 && !isModelAssistantMessage(message)) {
                 throw new LLMRequestModeMismatchError("Unsupported Gemini response parts for native text/tool history");
             }
             return {
-                ...message,
+                blocks,
+                continuation,
                 providerMetadata: {
                     model: this.model,
                     ...(usage !== undefined ? { usage } : {}),

@@ -18,26 +18,26 @@ import type { LLMAdapter } from "../packages/llm-core/src/index.js";
  */
 export function scriptedEngineeringRole(): ModelRole {
     const adapter: LLMAdapter = { structuredOutputMode: "prompt_only", async generate(request) {
-        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
+        if (request.tools?.[0]?.id === "system_review_completion") return { blocks: [{ index: 0, type: "text", format: "plain", text: JSON.stringify({ result: { kind: "accept" } }) }] };
         const messages = JSON.stringify(request.messages);
         const suffix = messages.includes("Continue resolving the original issue using the investigation and verify the change.") || messages.includes("Confirmed. Continue resolving the original issue and verify the change.");
         const payload = request.messages.map(m => { try { return typeof m.content === "string" ? JSON.parse(m.content) : null; } catch { return null; } }).reverse().find(p => p?.phase === "executing");
-        if (!payload?.execution?.currentStage) return { content: "", toolCalls: [{ callId: "fixture-stage-call", toolId: "system_update_run_stage", argumentsJson: JSON.stringify({ target: "Validate infrastructure with actual engineering tools", acceptanceCriteria: ["Run the fixed infrastructure probe"], stageId: null, baseRevision: null, reason: null, memoryPatch: null }) }] };
-        if (!request.tools?.some(tool => tool.id === "bash")) return { content: JSON.stringify({ result: { kind: "tool_discovery", query: "bash" } }) };
+        if (!payload?.execution?.currentStage) return { blocks: [{ index: 0, type: "tool_call", callId: "fixture-stage-call", toolId: "system_update_run_stage", argumentsJson: JSON.stringify({ target: "Validate infrastructure with actual engineering tools", acceptanceCriteria: ["Run the fixed infrastructure probe"], stageId: null, baseRevision: null, reason: null, memoryPatch: null }) }] };
+        if (!request.tools?.some(tool => tool.id === "bash")) return { blocks: [{ index: 0, type: "text", format: "plain", text: JSON.stringify({ result: { kind: "tool_discovery", query: "bash" } }) }] };
         const marker = suffix ? "SUFFIX_RESTORED_READY" : "PREFIX_ENV_READY";
-        if (!messages.includes(marker)) return { content: JSON.stringify({ result: { kind: "tool_call", action: { actionId: suffix ? "fixture-suffix" : "fixture-prefix", toolId: "bash", input: { command: suffix
+        if (!messages.includes(marker)) return { blocks: [{ index: 0, type: "text", format: "plain", text: JSON.stringify({ result: { kind: "tool_call", action: { actionId: suffix ? "fixture-suffix" : "fixture-prefix", toolId: "bash", input: { command: suffix
             ? "test -f /opt/lazygoal/context-sentinel && test -L /opt/lazygoal/context-link && cmp /opt/lazygoal/context-sentinel /opt/lazygoal/context-link && printf 'infrastructure probe\\n' > lazygoal-context-probe.txt && echo SUFFIX_RESTORED_READY"
-            : "python -c 'import sys,pytest; print(sys.prefix)' && git status --porcelain && printf '\\000\\377context' > /opt/lazygoal/context-sentinel && ln -s context-sentinel /opt/lazygoal/context-link && echo PREFIX_ENV_READY", timeoutMs: null, sandboxAccess: null } }, memoryPatch: null } }) };
-        if (!suffix && messages.includes('Then use ask_user')) return { content: JSON.stringify({ result: { kind: "ask_user", questions: [{ header: "Repair", question: "Proceed with repairing the original issue?", options: [{ label: "Proceed", description: null }, { label: "Stop", description: null }], multiSelect: false }], memoryPatch: null } }) };
+            : "python -c 'import sys,pytest; print(sys.prefix)' && git status --porcelain && printf '\\000\\377context' > /opt/lazygoal/context-sentinel && ln -s context-sentinel /opt/lazygoal/context-link && echo PREFIX_ENV_READY", timeoutMs: null, sandboxAccess: null } }, memoryPatch: null } }) }] };
+        if (!suffix && messages.includes('Then use ask_user')) return { blocks: [{ index: 0, type: "text", format: "plain", text: JSON.stringify({ result: { kind: "ask_user", questions: [{ header: "Repair", question: "Proceed with repairing the original issue?", options: [{ label: "Proceed", description: null }, { label: "Stop", description: null }], multiSelect: false }], memoryPatch: null } }) }] };
         const evidenceSequences = payload?.trajectoryContext?.hot?.flatMap((unit: { events?: { eventType: string; sequence: number }[] }) => unit.events ?? []).filter((event: { eventType: string }) => event.eventType === "observation_recorded").map((event: { sequence: number }) => event.sequence).slice(-1) ?? [];
         if (!evidenceSequences.length) throw new Error("Infrastructure fixture requires a real committed tool observation before completion");
-        return { content: JSON.stringify({ result: { kind: "complete", summary: suffix ? "Infrastructure continuation verified. This fixture does not solve the issue." : "Investigation infrastructure verified. Repository source unchanged.", evidenceSequences, memoryPatch: null, contextNotes: null } }) };
+        return { blocks: [{ index: 0, type: "text", format: "plain", text: JSON.stringify({ result: { kind: "complete", summary: suffix ? "Infrastructure continuation verified. This fixture does not solve the issue." : "Investigation infrastructure verified. Repository source unchanged.", evidenceSequences, memoryPatch: null, contextNotes: null } }) }] };
     } };
     return { id: "scripted-engineering-fixture", kind: "scripted", adapter, configuration: { fixture: "engineering-v1", actualModelCalls: 0 } };
 }
 /** 独立 Judge fixture，仍经真实评分解析；仅验证接线，不评估模型语义能力。 */
 export function scriptedJudgeRole(): ModelRole {
-    return { id: "scripted-judge-fixture", kind: "scripted", configuration: { fixture: "judge-v1", actualModelCalls: 0 }, adapter: { structuredOutputMode: "prompt_only", generate: async () => ({ content: JSON.stringify({ score: 1, rationale: "Fixed infrastructure Judge fixture; not a semantic capability assessment.", evidence: ["requirements", "rubric_annotations"] }) }) } };
+    return { id: "scripted-judge-fixture", kind: "scripted", configuration: { fixture: "judge-v1", actualModelCalls: 0 }, adapter: { structuredOutputMode: "prompt_only", generate: async () => ({ blocks: [{ index: 0, type: "text", format: "plain", text: JSON.stringify({ score: 1, rationale: "Fixed infrastructure Judge fixture; not a semantic capability assessment.", evidence: ["requirements", "rubric_annotations"] }) }] }) } };
 }
 /**
  * 真 Docker 和官方 harness 探针，默认单题；五题通过 manifest 显式选择。

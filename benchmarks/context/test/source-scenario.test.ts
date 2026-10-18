@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { blockResponse, textResponse, toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
 import { test } from "node:test";
 import { identity } from "../../src/content-identity.js";
 import { parseSourceTask } from "../../src/task-source.js";
@@ -37,7 +38,7 @@ test("waiting script rejects a different confirmation question before injecting 
     assert.equal(calls, 1);
 });
 test("source engineering unresolved remains independent of valid Context; Judge cannot override deterministic failure", async () => {
-    const judge = await judgeExplanation({ structuredOutputMode: "prompt_only", generate: async () => ({ content: JSON.stringify({ score: 1, rationale: "fixture", evidence: ["actual"] }) }) }, "rubric", { actual: "Real fact" }, new AbortController().signal);
+    const judge = await judgeExplanation({ structuredOutputMode: "prompt_only", generate: async () => (blockResponse({ type: "text", format: "json", text: JSON.stringify({ score: 1, rationale: "fixture", evidence: ["actual"] }) })) }, "rubric", { actual: "Real fact" }, new AbortController().signal);
     const engineering = { status: "unresolved", resolved: false };
     assert.equal(evaluate(true, judge, 0.8, []).combined, "passed");
     assert.equal(engineering.resolved, false);

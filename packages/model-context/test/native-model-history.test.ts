@@ -9,6 +9,7 @@ import type { ModelAssistantMessage, NativeConversationIdentity } from "../../mo
 import { allocateImmutableEvent, createGoal, Runner, GoalCoordinator, InlineScheduler, type TrajectoryEvent, type TrajectoryEventPayload } from "../../runtime/src/index";
 import { createToolRegistration, InMemoryToolRegistry } from "../../tool-core/src/index";
 import { JsonFileGoalStore, JsonFileTrajectoryStore, InMemoryGoalStore } from "../../storage/src/index";
+import { blockResponse, textResponse } from "../../llm-core/test/response-fixtures";
 import { collectNativeModelExchanges } from "../src/native-model-history";
 import { TrajectoryEventProjector } from "../src/trajectory-event-projector";
 import { ModelInferenceProjector, TrajectoryModelContextAssembler } from "../src/index";
@@ -161,7 +162,10 @@ test("assembler uses only committed exchanges, strips duplicate Hot payload, and
 test("native Decide accepts multiple calls as an ordered batch", async () => {
     const adapter: LLMAdapter = { structuredOutputMode: "strict", nativeConversationIdentity: identity, async generate() {
         const call = message("read_file", { path: "README.md" }).toolCalls![0]!;
-        return { content: "", toolCalls: [call, { ...call, callId: "provider-call-2" }] };
+        return blockResponse(
+            { type: "tool_call", ...call },
+            { type: "tool_call", ...call, callId: "provider-call-2" },
+        );
     } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: compactor, trajectoryContextAssembler: new TrajectoryModelContextAssembler({ trajectoryStore: createInMemoryTrajectoryStore(), policy: createDefaultModelContextBudgetPolicy() }) });
     const goal = initial();
@@ -177,7 +181,7 @@ test("native Decide accepts multiple calls as an ordered batch", async () => {
 });
 
 test("native Decide classifies zero calls with empty content as no usable result", async () => {
-    const adapter: LLMAdapter = { structuredOutputMode: "strict", nativeConversationIdentity: identity, async generate() { return { content: "", toolCalls: [] }; } };
+    const adapter: LLMAdapter = { structuredOutputMode: "strict", nativeConversationIdentity: identity, async generate() { return { blocks: [] }; } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: compactor, trajectoryContextAssembler: new TrajectoryModelContextAssembler({ trajectoryStore: createInMemoryTrajectoryStore(), policy: createDefaultModelContextBudgetPolicy() }) });
     const goal = initial();
     await assert.rejects(executor.decide({ goal: { ...goal, state: { ...goal.state, run: { ...goal.state.run, status: "running" } } }, authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] }), (error: unknown) => {
@@ -192,7 +196,14 @@ function nativeAdapter(generate: (request: LLMRequest) => Promise<LLMResponse>):
 }
 const responseFor = (toolId: string, args: Record<string, unknown>, callId = "provider-call"): LLMResponse => {
     const saved = message(toolId, args);
-    return { ...saved, toolCalls: [{ ...saved.toolCalls![0]!, callId }] };
+    return {
+        ...blockResponse(
+            { type: "text", text: saved.content },
+            { type: "reasoning", text: saved.reasoning! },
+            { type: "tool_call", ...saved.toolCalls![0]!, callId },
+        ),
+        ...(saved.continuation === undefined ? {} : { continuation: saved.continuation }),
+    };
 };
 function executorFor(adapter: LLMAdapter, trajectoryStore: ReturnType<typeof createInMemoryTrajectoryStore>, thinkAdapter?: LLMAdapter) {
     const binding = createModelExecutionBinding({ generation: 1,
@@ -254,7 +265,7 @@ test("Runner restores a settled Think before final decision and sends its output
     const thinkAdapter: LLMAdapter = { structuredOutputMode: "prompt_only", async generate(request) {
         thoughts++;
         assert.equal(request.messages.some(message => message.role === "tool"), false);
-        return { content: "Think output" };
+        return textResponse("Think output");
     } };
     await assert.rejects(new Runner({ store, trajectoryStore: trajectory, executor: executorFor(adapter, trajectory, thinkAdapter) })
         .run({ goalId: "native-goal", runId: "native-run" }), ExecutionAbortedError);

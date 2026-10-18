@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
+import { textResponse } from "../../llm-core/test/response-fixtures";
 import {
     createGoal,
     } from "../../runtime/src/index";
@@ -116,13 +117,11 @@ class BlockingAssembler {
 
 test("LLMStepExecutor passes the signal and rejects before parsing after abort", async () => {
     const controller = new AbortController();
-    const adapter = new BlockingAdapter({
-        content: JSON.stringify({
-            kind: "complete",
-            summary: "not persisted",
-            completionEvidence: [],
-        }),
-    });
+    const adapter = new BlockingAdapter(textResponse(JSON.stringify({
+        kind: "complete",
+        summary: "not persisted",
+        completionEvidence: [],
+    }), "json"));
     const executor = new LLMStepExecutor({
         adapter,
         renderer,

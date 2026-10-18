@@ -150,7 +150,7 @@ export function createStageMessages(
  * ```ts
  * const plan = await buildStepRequest(goal, tools, renderer, compactor);
  * const response = await adapter.generate(plan.request);
- * const decision = parseModelOutput(response.content, plan.bundle);
+ * const decision = parseModelOutput(readAssistantText(response), plan.bundle);
  * ```
  */
 export interface ModelOutputRequestPlan<Result = AgentDecision> {

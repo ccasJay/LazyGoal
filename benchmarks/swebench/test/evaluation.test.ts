@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
+import { textResponse } from "../../../packages/llm-core/test/response-fixtures";
 import { applyGrades, gradeSwebenchEvaluation, runSwebenchEvaluation, preflightSwebench, type SwebenchEvaluationOptions } from "../src/evaluation.js";
 import { SWEBENCH_VERSION, type SwebenchManifest } from "../src/manifest.js";
 import type { ProcessRunner } from "../../src/process.js";
@@ -72,7 +73,7 @@ async function fixture(t: TestContext, changes: {
         generate: async () => {
             modelCalls++;
             changes.onGenerate?.();
-            return { content: "{}", ...(modelCalls === 1 ? { providerMetadata: { usage: { inputTokens: 12, outputTokens: 3 } } } : {}) };
+            return { ...textResponse("{}", "json"), ...(modelCalls === 1 ? { providerMetadata: { usage: { inputTokens: 12, outputTokens: 3 } } } : {}) };
         },
     };
     const runSupervisor: NonNullable<SwebenchEvaluationOptions["runSupervisor"]> = async (supervisorOptions) => {

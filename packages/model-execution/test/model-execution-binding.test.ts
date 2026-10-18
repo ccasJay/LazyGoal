@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import type { LLMAdapter } from "../../llm-core/src/index.js";
 import type { LLMRequest, LLMResponse } from "../../llm-core/src/index.js";
+import { textResponse } from "../../llm-core/test/response-fixtures";
 import type { GoalModelSelection } from "../../runtime/src/domain.js";
 import {
     createModelExecutionBinding,
@@ -20,7 +21,7 @@ class FakeAdapter implements LLMAdapter {
 
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.requests.push(request);
-        return { content: "{}" };
+        return textResponse("{}", "json");
     }
 }
 
@@ -28,7 +29,7 @@ class PromptOnlyAdapter implements LLMAdapter {
     readonly structuredOutputMode = "prompt_only" as const;
 
     async generate(): Promise<LLMResponse> {
-        return { content: "{}" };
+        return textResponse("{}");
     }
 }
 

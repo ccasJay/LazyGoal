@@ -5,6 +5,8 @@ import { test } from "node:test";
 import { contract } from "../../contracts/src/index";
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
+import { readAssistantText } from "../../llm-core/src/index";
+import { blockResponse, textResponse } from "../../llm-core/test/response-fixtures";
 import {
     createGoal,
     ModelStageFeedbackError,
@@ -118,7 +120,13 @@ class FakeAdapter implements LLMAdapter {
 
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.requests.push(request);
-        return { ...toolResponseFixture(this.content), content: "Accompanying response text." };
+        const fixture = toolResponseFixture(this.content);
+        return {
+            blocks: [
+                { index: 0, type: "text", format: "plain", text: "Accompanying response text." },
+                ...fixture.blocks.map((block, index) => ({ ...block, index: index + 1 })),
+            ],
+        };
     }
 }
 
@@ -782,15 +790,15 @@ test("LLMStepExecutor: 连续调用能感知 bindingProvider 发布的新 genera
 
 test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部发布不会中途换模", async () => {
     const trajectoryStore = createInMemoryTrajectoryStore();
-    let resolveAdapter1!: (val: { content: string }) => void;
-    const adapter1Promise = new Promise<{ content: string }>((resolve) => {
+    let resolveAdapter1!: (val: LLMResponse) => void;
+    const adapter1Promise = new Promise<LLMResponse>((resolve) => {
         resolveAdapter1 = resolve;
     });
 
     const adapter1: LLMAdapter = {
         structuredOutputMode: "strict",
         async generate() {
-            return adapter1Promise.then(response => toolResponseFixture(response.content));
+            return adapter1Promise.then(response => toolResponseFixture(readAssistantText(response)));
         },
     };
     const adapter2 = new FakeAdapter(JSON.stringify({
@@ -851,8 +859,7 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
     bindingManager.publish(candidateBinding);
 
     // 释放 adapter1
-    resolveAdapter1({
-        content: JSON.stringify({
+    resolveAdapter1(blockResponse({ type: "text", format: "json", text: JSON.stringify({
             result: {
                 kind: "complete",
                 summary: "第一代挂起完成",
@@ -860,8 +867,7 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
                 memoryPatch: null,
                 contextNotes: null,
             },
-        }),
-    });
+        }) }));
 
     const decision = await executePromise;
     assert.equal(decision.kind, "complete");
@@ -876,9 +882,7 @@ for (const mode of ["strict", "prompt_only"] as const) {
             structuredOutputMode: mode,
             async generate() {
                 const input = { command: "PRIVATE_INPUT_VALUE", timeoutMs: null, sandboxAccess: null };
-                return {
-                    content: "", toolCalls: [{ callId: "read-1", toolId: "read_file", argumentsJson: JSON.stringify(input) }],
-                };
+                return blockResponse({ type: "tool_call", callId: "read-1", toolId: "read_file", argumentsJson: JSON.stringify(input) });
             },
         };
         await assert.rejects(createExecutor(adapter).execute({
@@ -918,7 +922,7 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
         structuredOutputMode: "strict",
         async generate(request) {
             requests.push(request);
-            const call = (toolId: string, args: unknown): LLMResponse => ({ content: "", toolCalls: [{ callId: `call-${requests.length}`, toolId, argumentsJson: JSON.stringify(args) }] });
+            const call = (toolId: string, args: unknown): LLMResponse => (blockResponse({ type: "tool_call", callId: `call-${requests.length}`, toolId, argumentsJson: JSON.stringify(args) }));
             if (requests.length === 1) return call("bash", { command: "ls -la" });
             if (requests.length === 2) return call("read_file", { command: "" });
             if (requests.length === 3) {
@@ -976,14 +980,14 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
 for (const mode of ["strict", "prompt_only"] as const) {
     test(`${mode} Decide accepts text JSON and trace-shaped text as an assistant message`, async () => {
         const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
-            return { content: '{"result":{"kind":"complete","summary":"done","completionEvidence":[],"memoryPatch":null}}' };
+            return blockResponse({ type: "text", format: "json", text: '{"result":{"kind":"complete","summary":"done","completionEvidence":[],"memoryPatch":null}}' });
         } };
         const jsonLike = await createExecutor(adapter).decide({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] });
         assert.equal(jsonLike.kind, "assistant_message");
         assert.equal(jsonLike.kind === "assistant_message" && jsonLike.text, '{"result":{"kind":"complete","summary":"done","completionEvidence":[],"memoryPatch":null}}');
 
         const traceAdapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
-            return { content: 'I need to read the workspace.\n{"result":{"kind":"tool_call","action":{"toolId":"read_file","input":{"path":"README.md"}}}}' };
+            return blockResponse({ type: "text", format: "plain", text: 'I need to read the workspace.\n{"result":{"kind":"tool_call","action":{"toolId":"read_file","input":{"path":"README.md"}}}}' });
         } };
         const traceShaped = await createExecutor(traceAdapter).decide({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] });
         assert.equal(traceShaped.kind, "assistant_message");
@@ -992,8 +996,7 @@ for (const mode of ["strict", "prompt_only"] as const) {
 
     test(`${mode} Decide accepts multiple calls as an ordered batch preserving callId order`, async () => {
         const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
-            return { content: "", toolCalls: [1, 2, 3].map(i => ({ callId: `call-${i}`, toolId: "read_file",
-                argumentsJson: JSON.stringify({ path: `file-${i}.md` }) })) };
+            return blockResponse(...([1, 2, 3].map(i => ({ callId: `call-${i}`, toolId: "read_file", argumentsJson: JSON.stringify({ path: `file-${i}.md` }) }))).map(call => ({ type: "tool_call" as const, ...call })));
         } };
         const result = await createExecutor(adapter).decide({
             goal: createTestGoal("run-batch-order", { ...profile, toolIds: ["read_file"] }),
@@ -1012,8 +1015,10 @@ for (const mode of ["strict", "prompt_only"] as const) {
 
     test(`${mode} Decide ignores accompanying text and decodes only a declared call`, async () => {
         const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
-            return { content: 'not JSON or a decision', toolCalls: [{ callId: "trace-valid", toolId: "system_complete_task",
-                argumentsJson: '{"summary":"Declared result","completionEvidence":[],"memoryPatch":null}' }] };
+            return blockResponse(
+                { type: "text", format: "plain", text: 'not JSON or a decision' },
+                { type: "tool_call", callId: "trace-valid", toolId: "system_complete_task", argumentsJson: '{"summary":"Declared result","completionEvidence":[],"memoryPatch":null}' },
+            );
         } };
         const result = await createExecutor(adapter).execute({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory });
         assert.equal(result.kind, "complete");
@@ -1023,8 +1028,7 @@ for (const mode of ["strict", "prompt_only"] as const) {
 
 test("invalid completion memory patch retains field feedback in the tool protocol", async () => {
     const adapter: LLMAdapter = { structuredOutputMode: "prompt_only", async generate() {
-        return { content: "", toolCalls: [{ callId: "bad-patch", toolId: "system_complete_task",
-            argumentsJson: '{"summary":"done","completionEvidence":[],"memoryPatch":"__lazygoal_null__"}' }] };
+        return blockResponse({ type: "tool_call", callId: "bad-patch", toolId: "system_complete_task", argumentsJson: '{"summary":"done","completionEvidence":[],"memoryPatch":"__lazygoal_null__"}' });
     } };
     await assert.rejects(createExecutor(adapter).execute({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory }), (error: unknown) => {
         assert.ok(error instanceof ModelStageFeedbackError);
@@ -1036,7 +1040,7 @@ test("invalid completion memory patch retains field feedback in the tool protoco
 for (const mode of ["strict", "prompt_only"] as const) {
     test(`${mode} Decide accepts zero calls with non-empty text as an assistant message`, async () => {
         const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
-            return { content: "我已看完目录结构，先说明我的判断，再决定下一步。" };
+            return blockResponse({ type: "text", format: "plain", text: "我已看完目录结构，先说明我的判断，再决定下一步。" });
         } };
         const result = await createExecutor(adapter).decide({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] });
         assert.equal(result.kind, "assistant_message");
@@ -1045,7 +1049,7 @@ for (const mode of ["strict", "prompt_only"] as const) {
 
     test(`${mode} Decide classifies empty or reasoning-only output as no usable result`, async () => {
         const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
-            return { content: "", reasoning: "only thinking, no answer" };
+            return blockResponse({ type: "reasoning", text: "only thinking, no answer" });
         } };
         await assert.rejects(createExecutor(adapter).decide({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] }), (error: unknown) => {
             assert.ok(error instanceof ModelStageFeedbackError);
@@ -1072,7 +1076,7 @@ test("Runner 把零调用正文本提交为 Assistant 消息，不推进 Step �
         structuredOutputMode: "strict",
         async generate(request) {
             requests.push(request);
-            return { content: `我先说明判断，这是第 ${requests.length} 次只说话。` };
+            return blockResponse({ type: "text", format: "plain", text: `我先说明判断，这是第 ${requests.length} 次只说话。` });
         },
     };
     const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-assistant-text", intent: "Explain the workspace", promptBundleVersion: 1,
@@ -1112,10 +1116,9 @@ test("Runner 的不推进预算与协议纠错预算互不占用", async () => {
             // 2 次零调用正文本 + 2 次 Tool 输入纠错 + 1 次零调用正文本：共享预算会在第 4 次前终止，
             // 独立预算下两类各自 3 次，因此可以走到第 5 次。
             if (requests.length === 1 || requests.length === 2 || requests.length === 5) {
-                return { content: `第 ${requests.length} 次只说话。` };
+                return blockResponse({ type: "text", format: "plain", text: `第 ${requests.length} 次只说话。` });
             }
-            return { content: "", toolCalls: [{ callId: `call-${requests.length}`, toolId: "read_file",
-                argumentsJson: JSON.stringify({ command: "ls" }) }] };
+            return blockResponse({ type: "tool_call", callId: `call-${requests.length}`, toolId: "read_file", argumentsJson: JSON.stringify({ command: "ls" }) });
         },
     };
     const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-independent-budget", intent: "Explain the workspace", promptBundleVersion: 1,
@@ -1149,10 +1152,9 @@ test("Runner 在有效 request_think 后重新开始不推进计数", async () =
             requests.push(request);
             // 2 次零调用正文本 → 1 次 request_think → 再 2 次零调用正文本。
             if (requests.length === 3) {
-                return { content: "", toolCalls: [{ callId: "think-1", toolId: "system_request_think",
-                    argumentsJson: JSON.stringify({ goal: "比较两种修复方案" }) }] };
+                return blockResponse({ type: "tool_call", callId: "think-1", toolId: "system_request_think", argumentsJson: JSON.stringify({ goal: "比较两种修复方案" }) });
             }
-            return { content: `第 ${requests.length} 次只说话。` };
+            return blockResponse({ type: "text", format: "plain", text: `第 ${requests.length} 次只说话。` });
         },
     };
     const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-think-reset", intent: "Explain the workspace", promptBundleVersion: 1,
@@ -1186,13 +1188,13 @@ test("Runner 按模型返回顺序执行多调用批次，各计一次 Step 且 
         async generate(request) {
             requests.push(request);
             if (requests.length === 1) {
-                return { content: "", toolCalls: [
-                    { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
-                    { callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
-                    { callId: "call-c", toolId: "read_c", argumentsJson: '{"path":"c.md"}' },
-                ] };
+                return blockResponse(
+                    { type: "tool_call", callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                    { type: "tool_call", callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+                    { type: "tool_call", callId: "call-c", toolId: "read_c", argumentsJson: '{"path":"c.md"}' },
+                );
             }
-            return { content: "已完成全部读取。" };
+            return blockResponse({ type: "text", format: "plain", text: "已完成全部读取。" });
         },
     };
     const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-order", intent: "Read three files", promptBundleVersion: 1,
@@ -1250,11 +1252,11 @@ test("Runner 顺序执行两调用批次后回到模型并正常终止", async (
             requests.push({ messages: [] });
             // 只在对第一次请求返回批次，之后返回普通文本，验证批次结束后不再自增循环。
             return requests.length === 1
-                ? { content: "", toolCalls: [
-                    { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
-                    { callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
-                ] }
-                : { content: "批次已完成。" };
+                ? blockResponse(
+                    { type: "tool_call", callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                    { type: "tool_call", callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+                )
+                : blockResponse({ type: "text", format: "plain", text: "批次已完成。" });
         },
     };
     const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-two", intent: "Read two files", promptBundleVersion: 1,
@@ -1295,12 +1297,12 @@ test("Runner 在批次中途需要审批时停止后续执行并保留已执行�
             requests.push({ messages: [] });
             // 仅第一次请求返回批次；后续返回文本，避免用恒定桩制造无限批次。
             return requests.length === 1
-                ? { content: "", toolCalls: [
-                    { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
-                    { callId: "call-b", toolId: "write_b", argumentsJson: '{"path":"b.md"}' },
-                    { callId: "call-c", toolId: "read_c", argumentsJson: '{"path":"c.md"}' },
-                ] }
-                : { content: "等待审批。" };
+                ? blockResponse(
+                    { type: "tool_call", callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                    { type: "tool_call", callId: "call-b", toolId: "write_b", argumentsJson: '{"path":"b.md"}' },
+                    { type: "tool_call", callId: "call-c", toolId: "read_c", argumentsJson: '{"path":"c.md"}' },
+                )
+                : blockResponse({ type: "text", format: "plain", text: "等待审批。" });
         },
     };
     const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-approval", intent: "Read and write", promptBundleVersion: 1,
@@ -1340,10 +1342,10 @@ test("Runner 拒绝重放已提交结果的 Action，并在有界尝试后终止
         async generate() {
             requests.push({ messages: [] });
             // 恒定返回同一批次：第一批执行后再次提交相同 actionId 必须被拒绝，而不是重放。
-            return { content: "", toolCalls: [
-                { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
-                { callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
-            ] };
+            return blockResponse(
+                { type: "tool_call", callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                { type: "tool_call", callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+            );
         },
     };
     const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-replay", intent: "Read twice", promptBundleVersion: 1,
@@ -1383,10 +1385,10 @@ test("Runner 在批次执行中被取消时不再启动后续 Action", async () 
     const adapter: LLMAdapter = {
         structuredOutputMode: "prompt_only",
         async generate() {
-            return { content: "", toolCalls: [
-                { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
-                { callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
-            ] };
+            return blockResponse(
+                { type: "tool_call", callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                { type: "tool_call", callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+            );
         },
     };
     const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-cancel", intent: "Read two files", promptBundleVersion: 1,
@@ -1424,11 +1426,11 @@ test("Trajectory 记录多调用批次事实，可与单调用、零调用区分
         async generate() {
             requests.push({ messages: [] });
             return requests.length === 1
-                ? { content: "", toolCalls: [
-                    { callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
-                    { callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
-                ] }
-                : { content: "只有文本，没有工具调用。" };
+                ? blockResponse(
+                    { type: "tool_call", callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                    { type: "tool_call", callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+                )
+                : blockResponse({ type: "text", format: "plain", text: "只有文本，没有工具调用。" });
         },
     };
     const created = createGoal({ ...currentProtocols, id: goalId, runId: "run-batch-event", intent: "Read two files", promptBundleVersion: 1,

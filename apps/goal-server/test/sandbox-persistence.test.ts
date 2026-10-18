@@ -16,6 +16,7 @@ import {
 } from "../../../packages/tool-core/src/index";
 import { ReadFileTool, READ_FILE_TOOL_ID } from "../../../packages/tools/src/index";
 import type { LLMAdapter } from "../../../packages/llm-core/src/index";
+import { toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
 
 async function computeDirectoryFingerprint(dir: string): Promise<string> {
     const hash = createHash("sha256");
@@ -46,10 +47,9 @@ function createMockAdapter(): LLMAdapter {
     return {
         structuredOutputMode: "prompt_only",
         generate: async () => ({
-            content: "",
-            toolCalls: [{ callId: "persistence-wait", toolId: "system_wait_for_input", argumentsJson: JSON.stringify({
+            ...toolCallResponse({ callId: "persistence-wait", toolId: "system_wait_for_input", argumentsJson: JSON.stringify({
                 reason: "Wait for the persistence attempt to be inspected.", memoryPatch: null,
-            }) }],
+            }) }),
             usage: { inputTokens: 10, outputTokens: 10 },
         }),
     };

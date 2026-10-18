@@ -1,6 +1,6 @@
 import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import type { LLMRequest } from "../../../packages/llm-core/src/index.js";
-import { readNormalizedUsage } from "../../../packages/llm-core/src/index.js";
+import { readAssistantText, readNormalizedUsage } from "../../../packages/llm-core/src/index.js";
 import type { NormalizedUsage } from "../../../packages/llm-core/src/index.js";
 import { record } from "./scenario.js";
 /**
@@ -37,7 +37,7 @@ export async function judgeExplanation(adapter: LLMAdapter, rubric: string, evid
         const output = await adapter.generate(request, { signal });
         response = output;
         usage = readNormalizedUsage(output.providerMetadata) ?? null;
-        const result = record(JSON.parse(output.content));
+        const result = record(JSON.parse(readAssistantText(output)));
         if (Object.keys(result).some(key => !["score", "rationale", "evidence"].includes(key)) || typeof result.score !== "number" || !Number.isFinite(result.score) || result.score < 0 || result.score > 1 ||
             typeof result.rationale !== "string" || result.rationale.trim() === "" || !Array.isArray(result.evidence) || !result.evidence.length ||
             !result.evidence.every(id => typeof id === "string" && Object.hasOwn(evidence, id))) throw new Error("Invalid Judge score or evidence");

@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { judgeExplanation } from "../src/judge.js";
+import { blockResponse, textResponse } from "../../../packages/llm-core/test/response-fixtures";
 test("Judge saves independent rubric request, raw response, and actual usage", async () => {
-    const response = { content: JSON.stringify({ score: 0.9, rationale: "Matches verified file", evidence: ["verifier"] }), providerMetadata: { usage: { inputTokens: 12, outputTokens: 4 } } };
+    const response = {
+        ...blockResponse(
+            { type: "text", format: "json", text: JSON.stringify({ score: 0.9, rationale: "Matches verified file", evidence: ["verifier"] }) },
+        ),
+        providerMetadata: { usage: { inputTokens: 12, outputTokens: 4 } },
+    };
     const result = await judgeExplanation({ structuredOutputMode: "prompt_only", generate: async () => response }, "Fixed rubric", { verifier: "Verified" }, new AbortController().signal);
     assert.equal(result.score, 0.9);
     assert.equal(result.response, response);

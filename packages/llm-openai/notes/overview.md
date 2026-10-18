@@ -1,6 +1,6 @@
 # OpenAI 适配
 
-本包把供应商无关的请求映射为 OpenAI Chat Completions（含兼容端点）原生调用，并回传正文、工具调用、续接字段与用量。
+本包把供应商无关的请求映射为 OpenAI Chat Completions（含兼容端点）原生调用，并回传有序正文、公开 reasoning 与工具调用块、续接字段与用量。
 
 ## 职责
 

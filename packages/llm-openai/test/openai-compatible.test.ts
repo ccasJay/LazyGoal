@@ -5,6 +5,8 @@ import { ExecutionAbortedError } from "../../execution-control/src/index";
 import { OpenAICompatible } from "../src/index";
 import {
     LLMRequestModeMismatchError,
+    readAssistantText,
+    readTextBlocks,
     type LLMRequest,
 } from "../../llm-core/src/index";
 
@@ -75,7 +77,8 @@ test("OpenAICompatible in strict mode maps structuredOutput to response_format.j
     const response = await adapter.generate(request);
 
     assert.equal(callCount, 1);
-    assert.equal(response.content, JSON.stringify({ answer: "hello" }));
+    assert.equal(readAssistantText(response), JSON.stringify({ answer: "hello" }));
+    assert.deepEqual(readTextBlocks(response, "json"), [JSON.stringify({ answer: "hello" })]);
     assert.equal(capturedParams.model, "test-model-name");
     assert.deepEqual(capturedParams.response_format, {
         type: "json_schema",
@@ -152,7 +155,8 @@ test("OpenAICompatible in prompt_only mode does not send response_format paramet
     const response = await adapter.generate(request);
 
     assert.equal(callCount, 1);
-    assert.equal(response.content, "plain text response");
+    assert.equal(readAssistantText(response), "plain text response");
+    assert.deepEqual(readTextBlocks(response, "plain"), ["plain text response"]);
     assert.equal(capturedParams.response_format, undefined);
 });
 

@@ -8,6 +8,7 @@ import { ExecutionAbortedError, TransientModelRequestFailure } from "../../execu
 import { Gemini } from "../src/index";
 import {
     LLMRequestModeMismatchError,
+    readAssistantText,
     type LLMRequest,
 } from "../../llm-core/src/index";
 
@@ -136,7 +137,7 @@ test("Gemini in strict mode maps structuredOutput to responseMimeType and respon
     const response = await adapter.generate(request);
 
     assert.equal(callCount, 1);
-    assert.equal(response.content, JSON.stringify({ summary: "done" }));
+    assert.equal(readAssistantText(response), JSON.stringify({ summary: "done" }));
     assert.equal(capturedInput.model, "gemini-2.5-flash");
     assert.equal(capturedInput.config?.responseMimeType, "application/json");
     assert.deepEqual(capturedInput.config?.responseSchema, dummySchema);
@@ -150,8 +151,8 @@ test("Gemini preserves valid Plan completion evidence without rewriting", async 
     const text = JSON.stringify(value);
     (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
-    assert.equal(response.content, text);
-    assert.equal(bundle.decode(JSON.parse(response.content)).kind, "complete");
+    assert.equal(readAssistantText(response), text);
+    assert.equal(bundle.decode(JSON.parse(readAssistantText(response))).kind, "complete");
 });
 
 test("Gemini preserves and rejects invalid completion evidence formats", async () => {
@@ -185,8 +186,8 @@ test("Gemini preserves and rejects invalid completion evidence formats", async (
             messages: [],
             structuredOutput: { name: bundle.name, schema: bundle.jsonSchema },
         });
-        assert.deepEqual(JSON.parse(response.content), responseValue, JSON.stringify(completionEvidence));
-        assert.throws(() => bundle.decode(JSON.parse(response.content)), JSON.stringify(completionEvidence));
+        assert.deepEqual(JSON.parse(readAssistantText(response)), responseValue, JSON.stringify(completionEvidence));
+        assert.throws(() => bundle.decode(JSON.parse(readAssistantText(response))), JSON.stringify(completionEvidence));
     }
 });
 
@@ -209,8 +210,8 @@ test("Gemini rejects non-placeholder completion evidence on tool calls", async (
         messages: [],
         structuredOutput: { name: bundle.name, schema: bundle.jsonSchema },
     });
-    assert.deepEqual(JSON.parse(response.content), responseValue);
-    assert.throws(() => bundle.decode(JSON.parse(response.content)));
+    assert.deepEqual(JSON.parse(readAssistantText(response)), responseValue);
+    assert.throws(() => bundle.decode(JSON.parse(readAssistantText(response))));
 });
 
 test("Gemini normalizes tool call and removes extraneous summary field", async () => {
@@ -233,7 +234,7 @@ test("Gemini normalizes tool call and removes extraneous summary field", async (
         messages: [],
         structuredOutput: { name: bundle.name, schema: bundle.jsonSchema },
     });
-    const decoded = bundle.decode(JSON.parse(response.content));
+    const decoded = bundle.decode(JSON.parse(readAssistantText(response)));
     assert.equal(decoded.kind, "tool_call");
 });
 
@@ -245,7 +246,7 @@ test("Gemini normalizes sentinel values and missing action into complete", async
     const adapter = createAdapter("strict");
     (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
-    const wire = JSON.parse(response.content);
+    const wire = JSON.parse(readAssistantText(response));
     assert.equal(wire.result.memoryPatch, null);
     const decoded = bundle.decode(wire);
     assert.equal(decoded.kind, "complete");
@@ -257,10 +258,10 @@ test("Gemini leaves malformed JSON and missing non-nullable fields unchanged", a
     let content = "not-json";
     (adapter as any).client = { models: { generateContent: async () => ({ text: content }) } };
     const request = { messages: [], structuredOutput: { name: "answer", schema: dummySchema } };
-    assert.equal((await adapter.generate(request)).content, content);
+    assert.equal(readAssistantText(await adapter.generate(request)), content);
 
     content = "{}";
-    assert.equal((await adapter.generate(request)).content, content);
+    assert.equal(readAssistantText(await adapter.generate(request)), content);
 });
 
 test("Gemini in strict mode fails fast when structuredOutput is missing without calling client", async () => {
@@ -316,7 +317,7 @@ test("Gemini in prompt_only mode does not send native schema parameters", async 
     const response = await adapter.generate(request);
 
     assert.equal(callCount, 1);
-    assert.equal(response.content, "plain text response");
+    assert.equal(readAssistantText(response), "plain text response");
     assert.equal(capturedInput.config?.responseMimeType, undefined);
     assert.equal(capturedInput.config?.responseJsonSchema, undefined);
     assert.equal(capturedInput.config?.responseSchema, undefined);
@@ -550,8 +551,8 @@ test("Gemini preserves executing Working Memory updates and rejects task-plannin
     const adapter = createAdapter("strict");
     (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
-    assert.equal(response.content, text);
-    const decoded = bundle.decode(JSON.parse(response.content));
+    assert.equal(readAssistantText(response), text);
+    const decoded = bundle.decode(JSON.parse(readAssistantText(response)));
     assert.equal(decoded.kind, "tool_call");
     if (decoded.kind === "tool_call") assert.equal(decoded.memoryPatch?.operations[0]?.type, "upsert_fact");
     assert.ok(!JSON.stringify(bundle.jsonSchema).includes("create_plan_item"));
@@ -630,7 +631,7 @@ test("Gemini restores response and strips null properties for all branches", asy
     };
     (adapter as any).client = { models: { generateContent: async () => ({ text: JSON.stringify(completeWithNullAction) }) } };
     const res1 = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
-    const parsed1 = JSON.parse(res1.content);
+    const parsed1 = JSON.parse(readAssistantText(res1));
     assert.equal("action" in parsed1.result, false);
     const decoded1 = bundle.decode(parsed1);
     assert.equal(decoded1.kind, "complete");
@@ -649,7 +650,7 @@ test("Gemini restores response and strips null properties for all branches", asy
     };
     (adapter as any).client = { models: { generateContent: async () => ({ text: JSON.stringify(toolCallWithNulls) }) } };
     const res2 = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
-    const parsed2 = JSON.parse(res2.content);
+    const parsed2 = JSON.parse(readAssistantText(res2));
     assert.equal("summary" in parsed2.result, false);
     assert.equal("reason" in parsed2.result, false);
     assert.equal("error" in parsed2.result, false);
@@ -679,7 +680,7 @@ test("Gemini strips ask_user residue from a tool_call before restoring sentinels
     (adapter as any).client = { models: { generateContent: async () => ({ text: JSON.stringify(modelResponse) }) } };
 
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
-    const wire = JSON.parse(response.content);
+    const wire = JSON.parse(readAssistantText(response));
     assert.equal("questions" in wire.result, false);
     assert.equal(wire.result.memoryPatch, null);
     const decoded = bundle.decode(wire);
@@ -704,8 +705,8 @@ test("Gemini does not rollback on evidence sentinel and keeps corrupted output t
     };
     (adapter as any).client = { models: { generateContent: async () => ({ text: JSON.stringify(validWithSentinel) }) } };
     const res = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
-    assert.equal(JSON.parse(res.content).result.completionEvidence, undefined);
-    assert.equal(bundle.decode(JSON.parse(res.content)).kind, "tool_call");
+    assert.equal(JSON.parse(readAssistantText(res)).result.completionEvidence, undefined);
+    assert.equal(bundle.decode(JSON.parse(readAssistantText(res))).kind, "tool_call");
 
     // 响应严重违背契约（缺少 action 且无 summary），原样输出，严禁制造假数据，由 bundle.decode 明确抛出异常
     const invalidDecision = {
@@ -716,7 +717,7 @@ test("Gemini does not rollback on evidence sentinel and keeps corrupted output t
     };
     (adapter as any).client = { models: { generateContent: async () => ({ text: JSON.stringify(invalidDecision) }) } };
     const resInvalid = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
-    assert.throws(() => bundle.decode(JSON.parse(resInvalid.content)));
+    assert.throws(() => bundle.decode(JSON.parse(readAssistantText(resInvalid))));
 });
 
 test("Gemini in two_stage mode restores sentinel values when structuredOutput is provided", async () => {
@@ -727,7 +728,7 @@ test("Gemini in two_stage mode restores sentinel values when structuredOutput is
     const adapter = createAdapter("two_stage");
     (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
-    const wire = JSON.parse(response.content);
+    const wire = JSON.parse(readAssistantText(response));
     assert.equal(wire.result.memoryPatch, null);
     const decoded = bundle.decode(wire);
     assert.equal(decoded.kind, "complete");
@@ -757,7 +758,7 @@ test("Gemini restores a normal completion with request_think field residue", asy
         messages: [],
         structuredOutput: { name: bundle.name, schema: bundle.jsonSchema },
     });
-    const wire = JSON.parse(response.content);
+    const wire = JSON.parse(readAssistantText(response));
     assert.equal("goal" in wire.result, false);
     assert.equal(wire.result.memoryPatch, null);
     assert.equal(bundle.decode(wire).kind, "complete");
@@ -787,7 +788,7 @@ test("Gemini preserves authorized Tool calls in Plan Mode before task approval",
     const adapter = createAdapter("two_stage");
     (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
-    const wire = JSON.parse(response.content);
+    const wire = JSON.parse(readAssistantText(response));
     assert.equal(wire.result.kind, "tool_call");
     assert.equal(wire.result.memoryPatch, null);
     const decoded = bundle.decode(wire);
@@ -817,7 +818,7 @@ test("Gemini strips evidenceSequences residue from a tool_call in normal mode", 
     const adapter = createAdapter("strict");
     (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
-    const wire = JSON.parse(response.content);
+    const wire = JSON.parse(readAssistantText(response));
     assert.equal(wire.result.kind, "tool_call");
     assert.equal(wire.result.memoryPatch, null);
     assert.equal(wire.result.evidenceSequences, undefined);

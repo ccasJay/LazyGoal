@@ -4,7 +4,8 @@
 
 ## 职责
 
-- [LLMAdapter](../src/adapter.ts) 定义供应商无关的最小调用边界：[LLMRequest / LLMResponse / LLMStreamEvent](../src/types.ts) 分离正文、公开 reasoning、工具调用与续接字段；实例构造时固定 `strict` 或 `prompt_only`，`two_stage` 由装配层解析为阶段 Adapter 对。
+- [LLMAdapter](../src/adapter.ts) 定义供应商无关的最小调用边界：[LLMRequest / LLMResponse / LLMStreamEvent](../src/types.ts) 以有序内容块 `blocks`（`text`、`reasoning`、`tool_call`）作为一次响应正文、公开 reasoning 与工具调用的唯一权威，并承载协议续接字段；实例构造时固定 `strict` 或 `prompt_only`，`two_stage` 由装配层解析为阶段 Adapter 对。
+- [content-blocks](../src/content-blocks.ts) 提供无 I/O 的纯读投影：按块顺序派生既有正文（不隐式 trim 或插入换行）、受限 reasoning 与工具调用列表，供阶段解码与原生历史使用；投影不是第二份可变状态，文本格式（`plain`／`json`）只来自请求的结构化输出契约。
 - [LLMConfig / LLMConfigurationError](../src/llm-config.ts) 提供无 I/O 的共享连接配置与唯一配置错误构造器。环境、TOML/Profile 的读取、合并与校验仍在 [Config](../../config/notes/overview.md)；解析、默认工厂与 pi-ai 引用同一错误类。
 - [NormalizedUsage / toSafeTokenCount / readNormalizedUsage](../src/usage.ts) 定义归一化 token 用量形态与数字守卫；供应商原始字段提取归各供应商适配包，缺失或非法计数整体缺省，不以 0 或估算值代替。
 - [classifyTransientModelFailure](../src/model-request-failure.ts) 只做结构化识别（限流、暂时性 5xx、连接与超时），结果身份来自 [execution-control](../../execution-control/notes/overview.md)；鉴权、配额、协议与未知错误原样返回。

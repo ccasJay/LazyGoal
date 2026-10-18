@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
+import { blockResponse, textResponse } from "../../../packages/llm-core/test/response-fixtures";
 import type { AcpSessionInput, AcpSessionUpdate } from "../../../packages/acp/src/index.js";
 import { InMemoryTrajectoryStore } from "../../../packages/runtime/test/current-fixtures.js";
 import type { TrajectoryEventDraft } from "../../../packages/runtime/src/index.js";
@@ -181,7 +182,7 @@ test("ACP Session cancellation returns cancelled and rejects mismatched Prompt",
                 if (control === undefined) throw new TypeError("expected execution control");
                 const signal = control.signal;
                 if (signal === undefined) throw new TypeError("expected execution signal");
-                signal.addEventListener("abort", () => resolve({ content: "{}" }), { once: true });
+                signal.addEventListener("abort", () => resolve(blockResponse({ type: "text", format: "json", text: "{}" })), { once: true });
             }),
         },
         renderer: {

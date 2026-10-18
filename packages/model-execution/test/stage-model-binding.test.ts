@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
+import { blockResponse, textResponse } from "../../llm-core/test/response-fixtures";
 import { ModelStageFeedbackError } from "../../runtime/src/index";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal } from "../../runtime/src/domain";
@@ -35,7 +36,7 @@ class ReplyAdapter implements LLMAdapter {
 
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.requests.push(request);
-        return request.toolChoice === "required" ? toolResponseFixture(this.reply) : { content: this.reply };
+        return request.toolChoice === "required" ? toolResponseFixture(this.reply) : textResponse(this.reply);
     }
 }
 
@@ -45,14 +46,12 @@ class RequestThinkFunctionAdapter implements LLMAdapter {
 
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.request = request;
-        return {
-            content: "",
-            toolCalls: [{
-                callId: "think-request-1",
-                toolId: "system_request_think",
-                argumentsJson: JSON.stringify({ goal: "检查工具调用协议" }),
-            }],
-        };
+        return blockResponse({
+            type: "tool_call",
+            callId: "think-request-1",
+            toolId: "system_request_think",
+            argumentsJson: JSON.stringify({ goal: "检查工具调用协议" }),
+        });
     }
 }
 

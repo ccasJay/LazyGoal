@@ -13,7 +13,7 @@ import { performance } from "node:perf_hooks";
 
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
-import { readNormalizedUsage } from "../../llm-core/src/index";
+import { readNormalizedUsage, readToolCalls } from "../../llm-core/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -176,10 +176,10 @@ export async function callModel(
             response = await dependencies.adapter.generate(providerRequest, control);
             const elapsedMs = performance.now() - requestStartedAt;
             if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
-            publishFallbackModelEvents(dependencies, context, response);
+            publishFallbackModelEvents(dependencies, context, callId, response);
         } else {
             requestStartedAt = performance.now();
-            const streamed = await consumeModelStream(dependencies, providerRequest, context, control);
+            const streamed = await consumeModelStream(dependencies, providerRequest, context, control, callId);
             response = streamed.response;
             decodeDurationMs = streamed.decodeDurationMs;
             const elapsedMs = performance.now() - requestStartedAt;
@@ -223,10 +223,11 @@ async function consumeModelStream(
     request: LLMRequest,
     context: ModelCallContext,
     control: ExecutionControl | undefined,
+    callId: string,
 ): Promise<{ readonly response: LLMResponse; readonly decodeDurationMs?: number }> {
     if (dependencies.adapter.stream === undefined) {
         const response = await dependencies.adapter.generate(request, control);
-        publishFallbackModelEvents(dependencies, context, response);
+        publishFallbackModelEvents(dependencies, context, callId, response);
         return { response };
     }
 
@@ -274,6 +275,7 @@ async function appendModelMetric(
 function publishFallbackModelEvents(
     dependencies: ModelCallDependencies,
     context: ModelCallContext,
+    callId: string,
     response: LLMResponse,
 ): void {
     publishExecutionEvent(dependencies, context, {
@@ -281,30 +283,37 @@ function publishFallbackModelEvents(
         visibility: "public",
         durability: "live",
         delivery: "control",
-        payload: {},
+        payload: { modelCallId: callId },
     });
-    if (response.content.length > 0) {
-        publishExecutionEvent(dependencies, context, {
-            kind: "assistant_text_delta",
-            visibility: "public",
-            durability: "live",
-            delivery: "delta",
-            coalescingKey: `assistant:${context.executionUnitId ?? "run"}`,
-            payload: { text: response.content },
-        });
-    }
-    if (response.reasoning !== undefined && response.reasoning.length > 0) {
-        publishExecutionEvent(dependencies, context, {
-            kind: "reasoning_delta", visibility: "restricted", durability: "live", delivery: "delta",
-            coalescingKey: `reasoning:${context.executionUnitId ?? "run"}`, payload: { text: response.reasoning },
-        });
+    for (const block of response.blocks) {
+        if (block.type === "text") {
+            if (block.text.length === 0) continue;
+            publishExecutionEvent(dependencies, context, {
+                kind: "assistant_text_delta",
+                visibility: block.format === "json" ? "diagnostic" : "public",
+                durability: "live",
+                delivery: "delta",
+                coalescingKey: `assistant:${callId}:${block.index}`,
+                payload: { modelCallId: callId, blockIndex: block.index, format: block.format, text: block.text },
+            });
+        } else if (block.type === "reasoning") {
+            if (block.text.length === 0) continue;
+            publishExecutionEvent(dependencies, context, {
+                kind: "reasoning_delta",
+                visibility: "restricted",
+                durability: "live",
+                delivery: "delta",
+                coalescingKey: `reasoning:${callId}:${block.index}`,
+                payload: { modelCallId: callId, blockIndex: block.index, text: block.text },
+            });
+        }
     }
     publishExecutionEvent(dependencies, context, {
         kind: "model_completed",
         visibility: "public",
         durability: "live",
         delivery: "control",
-        payload: { hasToolCalls: (response.toolCalls?.length ?? 0) > 0 },
+        payload: { modelCallId: callId, hasToolCalls: readToolCalls(response).length > 0 },
     });
 }
 
@@ -362,7 +371,7 @@ function publishModelStreamEvent(
                 visibility: "public",
                 durability: "live",
                 delivery: "control",
-                payload: { hasToolCalls: (event.response.toolCalls?.length ?? 0) > 0 },
+                payload: { hasToolCalls: readToolCalls(event.response).length > 0 },
             });
             return;
     }

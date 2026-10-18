@@ -4,9 +4,11 @@ import {
     LLMRequestModeMismatchError,
     classifyTransientModelFailure,
     type LLMAdapter,
+    type LLMContentBlock,
     type LLMMessage,
     type LLMRequest,
     type LLMResponse,
+    type LLMTextBlockFormat,
     type LLMToolCall,
     type StructuredOutputMode,
 } from "../../llm-core/src/index";
@@ -180,14 +182,19 @@ export class OpenAICompatible implements LLMAdapter {
                 };
             });
 
+            // 非流式 Chat Completions 只有分离字段而无相对时序，按正文、公开 reasoning、工具数组的固定顺序映射块。
+            const textFormat: LLMTextBlockFormat = _request.structuredOutput !== undefined && !hasTools ? "json" : "plain";
+            const blocks: LLMContentBlock[] = [];
+            if (textContent.length > 0) blocks.push({ index: blocks.length, type: "text", format: textFormat, text: textContent });
+            if (reasoning !== undefined && reasoning.length > 0) blocks.push({ index: blocks.length, type: "reasoning", text: reasoning });
+            for (const call of toolCalls ?? []) blocks.push({ index: blocks.length, type: "tool_call", ...call });
+
             return {
-                content: textContent,
-                ...(reasoning === undefined ? {} : { reasoning }),
+                blocks,
                 continuation: {
                     identity: this.nativeConversationIdentity,
                     ...(reasoningContent === undefined ? {} : { reasoningContent }),
                 },
-                ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
                 providerMetadata: {
                     requestId: response.id,
                     model: response.model,

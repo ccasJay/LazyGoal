@@ -12,10 +12,10 @@ import {
     classifyTransientModelFailure,
     type LLMAdapter,
     type LLMConfig,
+    type LLMContentBlock,
     type LLMRequest,
     type LLMResponse,
     type LLMStreamEvent,
-    type LLMToolCall,
 } from "../../llm-core/src/index";
 import { ExecutionAbortedError, throwIfAborted, type ExecutionControl } from "../../execution-control/src/index";
 
@@ -279,23 +279,30 @@ export class PiAiAdapter implements LLMAdapter {
         const piUsage = Object.fromEntries(Object.entries({ input, output, cacheRead, cacheWrite, reasoning })
             .filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] >= 0));
 
-        const textBlocks = response.content.flatMap(block => block.type === "text" ? [block.text] : []);
-        const content = textBlocks.join("");
-
-        const toolCalls: LLMToolCall[] = response.content.flatMap(block => {
-            if (block.type === "toolCall") {
-                return [{
-                    callId: block.id,
-                    toolId: block.name,
-                    argumentsJson: typeof block.arguments === "string" ? block.arguments : JSON.stringify(block.arguments ?? {}),
-                }];
+        // pi-ai 内容数组顺序即真实块归属；本适配器不请求图片，未知块类型在协议边界拒绝。
+        const blocks: LLMContentBlock[] = [];
+        for (const block of response.content) {
+            switch (block.type) {
+                case "text":
+                    blocks.push({ index: blocks.length, type: "text", format: "plain", text: block.text });
+                    break;
+                case "thinking":
+                    blocks.push({ index: blocks.length, type: "reasoning", text: block.thinking });
+                    break;
+                case "toolCall":
+                    blocks.push({
+                        index: blocks.length, type: "tool_call", callId: block.id, toolId: block.name,
+                        argumentsJson: typeof block.arguments === "string" ? block.arguments : JSON.stringify(block.arguments ?? {}),
+                    });
+                    break;
+                default:
+                    throw new PiAiProviderError(this.config.provider, response.stopReason,
+                        `Provider "${this.config.provider}" returned an unsupported content block`);
             }
-            return [];
-        });
+        }
 
         return {
-            content,
-            ...(toolCalls.length > 0 ? { toolCalls } : {}),
+            blocks,
             providerMetadata: {
                 provider: response.provider, api: response.api, model: response.model,
                 ...(response.responseId === undefined ? {} : { responseId: response.responseId }),

@@ -3,6 +3,8 @@ import { test } from "node:test";
 
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
+import { readAssistantText } from "../../llm-core/src/index";
+import { textResponse } from "../../llm-core/test/response-fixtures";
 import type { ModelInputRecord } from "../../runtime/src/model-input";
 import type {
     ExecutionStreamEventDraft,
@@ -61,7 +63,7 @@ function captureStream(): { publisher: ExecutionStreamPublisher; events: Executi
 }
 
 test("仅注入确定性 Adapter 与请求即可完成一次调用并发布既有可见性事件", async () => {
-    const adapter = new ScriptedAdapter(() => ({ content: "answer" }));
+    const adapter = new ScriptedAdapter(() => textResponse("answer"));
     const { publisher, events } = captureStream();
 
     const result = await callModel({ adapter, executionStream: publisher }, {
@@ -70,7 +72,7 @@ test("仅注入确定性 Adapter 与请求即可完成一次调用并发布既�
         stage: "decide",
     });
 
-    assert.equal(result.response.content, "answer");
+    assert.equal(readAssistantText(result.response), "answer");
     assert.equal(typeof result.callId, "string");
     assert.equal(adapter.calls, 1);
     assert.equal(adapter.requests[0]?.sessionId, "goal-call");
@@ -83,7 +85,7 @@ test("仅注入确定性 Adapter 与请求即可完成一次调用并发布既�
 
 test("输入记录失败阻止 Adapter 调用，取消时不调用 Adapter", async () => {
     let calls = 0;
-    const adapter = new ScriptedAdapter(() => { calls += 1; return { content: "unused" }; });
+    const adapter = new ScriptedAdapter(() => { calls += 1; return textResponse("unused"); });
 
     await assert.rejects(
         callModel({
@@ -112,8 +114,8 @@ test("输入记录失败阻止 Adapter 调用，取消时不调用 Adapter", asy
 });
 
 test("流必须提供唯一 completed 响应，缺失或重复都判协议错误", async () => {
-    const completeResponse: LLMResponse = { content: "streamed" };
-    const streaming = new ScriptedAdapter(() => ({ content: "unused" }));
+    const completeResponse: LLMResponse = textResponse("streamed");
+    const streaming = new ScriptedAdapter(() => textResponse("unused"));
     const adapter = withStream(streaming, async function* (): AsyncIterable<LLMStreamEvent> {
         yield { kind: "started" };
         yield { kind: "assistant_text_delta", text: "streamed" };
@@ -121,10 +123,10 @@ test("流必须提供唯一 completed 响应，缺失或重复都判协议错误
     });
 
     const result = await callModel({ adapter }, { context: context(), request: REQUEST, stage: "decide" });
-    assert.equal(result.response.content, "streamed");
+    assert.equal(readAssistantText(result.response), "streamed");
     assert.equal(streaming.calls, 0, "stream 路径不得调用 generate");
 
-    const noCompleted = withStream(new ScriptedAdapter(() => ({ content: "unused" })), async function* (): AsyncIterable<LLMStreamEvent> {
+    const noCompleted = withStream(new ScriptedAdapter(() => textResponse("unused")), async function* (): AsyncIterable<LLMStreamEvent> {
         yield { kind: "assistant_text_delta", text: "partial" };
     });
     await assert.rejects(
@@ -132,7 +134,7 @@ test("流必须提供唯一 completed 响应，缺失或重复都判协议错误
         /LLM stream ended without a completed response/,
     );
 
-    const duplicated = withStream(new ScriptedAdapter(() => ({ content: "unused" })), async function* (): AsyncIterable<LLMStreamEvent> {
+    const duplicated = withStream(new ScriptedAdapter(() => textResponse("unused")), async function* (): AsyncIterable<LLMStreamEvent> {
         yield { kind: "completed", response: completeResponse };
         yield { kind: "completed", response: completeResponse };
     });
@@ -143,7 +145,7 @@ test("流必须提供唯一 completed 响应，缺失或重复都判协议错误
 });
 
 test("指标与诊断写入失败按 best effort 隔离，不改变调用结果", async () => {
-    const adapter = new ScriptedAdapter(() => ({ content: "answer" }));
+    const adapter = new ScriptedAdapter(() => textResponse("answer"));
     const result = await callModel({
         adapter,
         metricsRecorder: {
@@ -154,7 +156,7 @@ test("指标与诊断写入失败按 best effort 隔离，不改变调用结果"
         },
     }, { context: context(), request: REQUEST, stage: "decide" });
 
-    assert.equal(result.response.content, "answer");
+    assert.equal(readAssistantText(result.response), "answer");
 });
 
 test("输入记录保留消息来源归类与 Stage/指标事实顺序", async () => {
@@ -169,7 +171,7 @@ test("输入记录保留消息来源归类与 Stage/指标事实顺序", async (
             { role: "user", content: "控制" },
         ],
     };
-    const adapter = new ScriptedAdapter(() => ({ content: "answer" }));
+    const adapter = new ScriptedAdapter(() => textResponse("answer"));
 
     await callModel({
         adapter,
