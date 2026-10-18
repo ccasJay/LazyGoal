@@ -23,6 +23,7 @@ import {
     createContentBlockStreamTracker,
     readNormalizedUsage,
     readToolCalls,
+    type ContentBlockStreamTracker,
 } from "../../llm-core/src/index";
 import {
     ExecutionAbortedError,
@@ -180,6 +181,7 @@ export async function callModel(
     let decodeDurationMs: number | undefined;
     let requestStartedAt: number | undefined;
     let requestDurationMs: number | undefined;
+    const observation: ModelStreamObservation = {};
     try {
         if (dependencies.adapter.stream === undefined) {
             publishModelStarted(dependencies, context, callId);
@@ -190,7 +192,7 @@ export async function callModel(
             publishWholeResponseEvents(dependencies, context, callId, response);
         } else {
             requestStartedAt = performance.now();
-            const streamed = await consumeModelStream(dependencies, providerRequest, context, control, callId);
+            const streamed = await consumeModelStream(dependencies, providerRequest, context, control, callId, observation);
             response = streamed.response;
             decodeDurationMs = streamed.decodeDurationMs;
             const elapsedMs = performance.now() - requestStartedAt;
@@ -202,6 +204,8 @@ export async function callModel(
             const elapsedMs = performance.now() - requestStartedAt;
             if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
         }
+        const cancelled = isExecutionAbortedError(error) || control?.signal?.aborted === true;
+        publishModelTerminated(dependencies, context, callId, cancelled, observation.tracker?.unfinishedIndexes() ?? []);
         await appendModelMetric(dependencies.metricsRecorder, {
             recordType: "call_finished",
             ...metricIdentity,
@@ -229,12 +233,18 @@ export async function callModel(
     return { response, startedAt, callId };
 }
 
+/** 一次流式调用的观察状态；失败或取消后仍可说明哪些块未完成。 */
+interface ModelStreamObservation {
+    tracker?: ContentBlockStreamTracker;
+}
+
 async function consumeModelStream(
     dependencies: ModelCallDependencies,
     request: LLMRequest,
     context: ModelCallContext,
     control: ExecutionControl | undefined,
     callId: string,
+    observation: ModelStreamObservation,
 ): Promise<{ readonly response: LLMResponse; readonly decodeDurationMs?: number }> {
     if (dependencies.adapter.stream === undefined) {
         publishModelStarted(dependencies, context, callId);
@@ -244,19 +254,29 @@ async function consumeModelStream(
     }
 
     const tracker = createContentBlockStreamTracker();
+    observation.tracker = tracker;
     let firstTextDeltaAt: number | undefined;
     let decodeDurationMs: number | undefined;
-    for await (const event of dependencies.adapter.stream.call(dependencies.adapter, request, control)) {
-        throwIfAborted(control);
-        tracker.accept(event);
-        if (event.kind === "content_block_delta" && event.deltaKind === "text"
-            && event.delta.length > 0 && firstTextDeltaAt === undefined) {
-            firstTextDeltaAt = performance.now();
+    // 借用 Adapter 的迭代器：正常消费到底；异常、取消或提前退出时尝试释放本次拥有的迭代器并保留主失败原因。
+    const iterator = dependencies.adapter.stream.call(dependencies.adapter, request, control)[Symbol.asyncIterator]();
+    try {
+        while (true) {
+            const next = await iterator.next();
+            if (next.done === true) break;
+            const event = next.value;
+            throwIfAborted(control);
+            tracker.accept(event);
+            if (event.kind === "content_block_delta" && event.deltaKind === "text"
+                && event.delta.length > 0 && firstTextDeltaAt === undefined) {
+                firstTextDeltaAt = performance.now();
+            }
+            publishModelStreamEvent(dependencies, context, callId, event);
+            if (event.kind !== "completed" || firstTextDeltaAt === undefined) continue;
+            const measuredDurationMs = performance.now() - firstTextDeltaAt;
+            if (measuredDurationMs > 0) decodeDurationMs = measuredDurationMs;
         }
-        publishModelStreamEvent(dependencies, context, callId, event);
-        if (event.kind !== "completed" || firstTextDeltaAt === undefined) continue;
-        const measuredDurationMs = performance.now() - firstTextDeltaAt;
-        if (measuredDurationMs > 0) decodeDurationMs = measuredDurationMs;
+    } finally {
+        await releaseIterator(iterator);
     }
 
     throwIfAborted(control);
@@ -265,6 +285,33 @@ async function consumeModelStream(
         response,
         ...(decodeDurationMs === undefined ? {} : { decodeDurationMs }),
     };
+}
+
+/** 尽力释放迭代器；清理异常不覆盖调用方的主失败原因。 */
+async function releaseIterator(iterator: AsyncIterator<LLMStreamEvent>): Promise<void> {
+    if (iterator.return === undefined) return;
+    try {
+        await iterator.return();
+    } catch {
+        // 观察通道的清理失败按既有规则隔离，调用结果或主错误保持不变。
+    }
+}
+
+/** 失败或取消时发布安全终止摘要：只带调用身份、结果与未完成块索引，不携带任何块内容。 */
+function publishModelTerminated(
+    dependencies: ModelCallDependencies,
+    context: ModelCallContext,
+    callId: string,
+    cancelled: boolean,
+    unfinishedBlockIndexes: readonly number[],
+): void {
+    publishExecutionEvent(dependencies, context, {
+        kind: cancelled ? "model_cancelled" : "model_failed",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: { modelCallId: callId, unfinishedBlockIndexes: [...unfinishedBlockIndexes] },
+    });
 }
 
 async function appendModelMetric(

@@ -69,6 +69,13 @@ export interface ContentBlockStreamTracker {
      *   或最终响应的索引、类型与内容同已封口块不一致时抛出。
      */
     result(): LLMResponse;
+
+    /**
+     * 列出尚未完整结束的块索引。
+     *
+     * @returns 已开始但未收到完整结束的块索引，按索引升序；调用失败或取消时用于说明哪些块失效。
+     */
+    unfinishedIndexes(): readonly number[];
 }
 
 interface TrackedBlock {
@@ -165,6 +172,10 @@ class Tracker implements ContentBlockStreamTracker {
                 return;
             }
         }
+    }
+
+    unfinishedIndexes(): readonly number[] {
+        return this.blocks.filter(block => block.sealed === undefined).map(block => block.index);
     }
 
     result(): LLMResponse {

@@ -639,3 +639,46 @@ test("prompt_only 携带工具集合时接受零调用与非空正文", async ()
     assert.equal(readAssistantText(generated), "我先解释现状，再决定下一步。");
     assert.deepEqual(readToolCalls(generated), []);
 });
+
+test("pi-ai stream releases the supplier iterator without masking the primary failure", async () => {
+    const instance = adapter();
+    let released = 0;
+    const internals = instance as unknown as { models: { stream: () => unknown } };
+    internals.models.stream = () => ({
+        [Symbol.asyncIterator]() {
+            let step = 0;
+            return {
+                async next() {
+                    step += 1;
+                    if (step === 1) {
+                        return { done: false as const, value: {
+                            type: "text_delta", contentIndex: 0, delta: "部分正文",
+                            partial: result({ content: [{ type: "text", text: "部分正文" }] }),
+                        } };
+                    }
+                    throw new Error("stream transport failed");
+                },
+                async return() {
+                    released += 1;
+                    throw new Error("iterator cleanup failed");
+                },
+            };
+        },
+    });
+
+    const input: LLMRequest = { ...request, toolChoice: "required",
+        tools: [{ id: "report", description: "Report", parametersSchema: { type: "object" } }] };
+    const events: LLMStreamEvent[] = [];
+    assert.ok(instance.stream);
+    await assert.rejects(async () => {
+        for await (const event of instance.stream!(input)) events.push(event);
+    }, /stream transport failed/);
+    assert.equal(released, 1);
+    assert.equal(events.some(event => event.kind === "completed"), false);
+
+    released = 0;
+    for await (const event of instance.stream!(input)) {
+        if (event.kind === "content_block_delta") break;
+    }
+    assert.equal(released, 1);
+});

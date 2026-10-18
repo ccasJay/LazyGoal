@@ -418,6 +418,9 @@ function projectLiveActivity(
             };
         }
         case "model_block_started":
+            // 模型失败／取消的安全终止摘要只结束本次调用的观察，不产生公开活动 DTO。
+        case "model_failed":
+        case "model_cancelled":
             return undefined;
         case "decision_received": {
             if (isRecord(event.payload) && isRecord(event.payload.decision) && event.payload.decision.kind === "tool_call") return undefined;

@@ -198,55 +198,69 @@ export class OpenAICompatible implements LLMAdapter {
             let created: number | undefined;
             let usage: ReturnType<typeof extractOpenAIUsage>;
 
-            for await (const chunk of sdkStream) {
-                throwIfAborted(control);
-                sawChunk = true;
-                requestId ??= chunk.id;
-                model ??= chunk.model;
-                created ??= chunk.created;
-                usage = extractOpenAIUsage(chunk.usage) ?? usage;
-                const choice = chunk.choices[0];
-                const delta = choice?.delta;
-                if (choice?.finish_reason !== undefined && choice.finish_reason !== null) finishReason = choice.finish_reason;
+            const iterator = sdkStream[Symbol.asyncIterator]();
+            let primaryError: unknown;
+            try {
+                while (true) {
+                    const next = await iterator.next();
+                    if (next.done === true) break;
+                    throwIfAborted(control);
+                    const chunk = next.value;
+                    sawChunk = true;
+                    requestId ??= chunk.id;
+                    model ??= chunk.model;
+                    created ??= chunk.created;
+                    usage = extractOpenAIUsage(chunk.usage) ?? usage;
+                    const choice = chunk.choices[0];
+                    const delta = choice?.delta;
+                    if (choice?.finish_reason !== undefined && choice.finish_reason !== null) finishReason = choice.finish_reason;
 
-                const deltaText = readProviderText(delta?.content, "stream content delta");
-                if (deltaText.length > 0) {
-                    if (text === undefined) {
-                        text = { index: nextIndex++, text: "" };
-                        yield { kind: "content_block_started", index: text.index, blockType: "text", delivery: "incremental", format: textFormat };
+                    const deltaText = readProviderText(delta?.content, "stream content delta");
+                    if (deltaText.length > 0) {
+                        if (text === undefined) {
+                            text = { index: nextIndex++, text: "" };
+                            yield { kind: "content_block_started", index: text.index, blockType: "text", delivery: "incremental", format: textFormat };
+                        }
+                        text.text += deltaText;
+                        yield { kind: "content_block_delta", index: text.index, deltaKind: "text", delta: deltaText };
                     }
-                    text.text += deltaText;
-                    yield { kind: "content_block_delta", index: text.index, deltaKind: "text", delta: deltaText };
+
+                    const extended = delta as typeof delta & { reasoning_content?: unknown; thought?: unknown } | undefined;
+                    const reasoningDelta = readProviderText(extended?.reasoning_content ?? extended?.thought, "stream reasoning delta");
+                    if (reasoningDelta.length > 0) {
+                        if (reasoning === undefined) {
+                            reasoning = { index: nextIndex++, text: "" };
+                            yield { kind: "content_block_started", index: reasoning.index, blockType: "reasoning", delivery: "incremental" };
+                        }
+                        reasoning.text += reasoningDelta;
+                        yield { kind: "content_block_delta", index: reasoning.index, deltaKind: "reasoning", delta: reasoningDelta };
+                    }
+
+                    for (const call of delta?.tool_calls ?? []) {
+                        let block = toolBlocks.get(call.index);
+                        if (block === undefined) {
+                            block = { index: nextIndex++, callId: "", toolId: "", argumentsJson: "" };
+                            toolBlocks.set(call.index, block);
+                            yield { kind: "content_block_started", index: block.index, blockType: "tool_call", delivery: "incremental" };
+                        }
+                        const func = "function" in call ? call.function : (call as any).function;
+                        if (typeof call.id === "string" && call.id.length > 0) block.callId = call.id;
+                        if (typeof func?.name === "string" && func.name.length > 0) block.toolId = func.name;
+                        const argumentsDelta = readProviderText(func?.arguments, "stream tool arguments");
+                        if (argumentsDelta.length > 0) {
+                            block.argumentsJson += argumentsDelta;
+                            yield { kind: "content_block_delta", index: block.index, deltaKind: "tool_arguments", delta: argumentsDelta };
+                        }
+                    }
                 }
 
-                const extended = delta as typeof delta & { reasoning_content?: unknown; thought?: unknown } | undefined;
-                const reasoningDelta = readProviderText(extended?.reasoning_content ?? extended?.thought, "stream reasoning delta");
-                if (reasoningDelta.length > 0) {
-                    if (reasoning === undefined) {
-                        reasoning = { index: nextIndex++, text: "" };
-                        yield { kind: "content_block_started", index: reasoning.index, blockType: "reasoning", delivery: "incremental" };
-                    }
-                    reasoning.text += reasoningDelta;
-                    yield { kind: "content_block_delta", index: reasoning.index, deltaKind: "reasoning", delta: reasoningDelta };
-                }
-
-                for (const call of delta?.tool_calls ?? []) {
-                    let block = toolBlocks.get(call.index);
-                    if (block === undefined) {
-                        block = { index: nextIndex++, callId: "", toolId: "", argumentsJson: "" };
-                        toolBlocks.set(call.index, block);
-                        yield { kind: "content_block_started", index: block.index, blockType: "tool_call", delivery: "incremental" };
-                    }
-                    const func = "function" in call ? call.function : (call as any).function;
-                    if (typeof call.id === "string" && call.id.length > 0) block.callId = call.id;
-                    if (typeof func?.name === "string" && func.name.length > 0) block.toolId = func.name;
-                    const argumentsDelta = readProviderText(func?.arguments, "stream tool arguments");
-                    if (argumentsDelta.length > 0) {
-                        block.argumentsJson += argumentsDelta;
-                        yield { kind: "content_block_delta", index: block.index, deltaKind: "tool_arguments", delta: argumentsDelta };
-                    }
-                }
+            } catch (error) {
+                primaryError = error;
+            } finally {
+                // 释放本次拥有的迭代器；清理异常不覆盖主失败原因。
+                await releaseSdkIterator(iterator);
             }
+            if (primaryError !== undefined) throw primaryError;
 
             throwIfAborted(control);
             if (!sawChunk) throw new OpenAIIncompleteResponseError("Chat Completions stream produced no chunks");
@@ -396,6 +410,16 @@ function assertAcceptedFinishReason(finishReason: string | null): void {
     throw new OpenAIIncompleteResponseError(
         `Chat Completions response did not complete normally (${finishReason})`,
     );
+}
+
+/** 尽力释放供应商流迭代器；清理异常按观察通道隔离。 */
+async function releaseSdkIterator(iterator: AsyncIterator<unknown>): Promise<void> {
+    if (iterator.return === undefined) return;
+    try {
+        await iterator.return();
+    } catch {
+        // 迭代清理失败不改变调用方的主错误。
+    }
 }
 
 /** 在供应商边界读取文本字段；非字符串内容（多模态或其他 Part）明确拒绝。 */

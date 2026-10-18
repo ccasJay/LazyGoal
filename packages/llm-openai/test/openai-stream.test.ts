@@ -244,3 +244,45 @@ test("流式响应缺失用量尾部时用量整体缺省，不补零", async ()
         assert.equal(JSON.stringify(response!.providerMetadata).includes("inputTokens"), false);
     });
 });
+
+test("OpenAI native stream releases the supplier iterator without masking the primary failure", async () => {
+    const adapter = new OpenAICompatible({ apiKey: "key", baseURL: "https://example.test/v1", model: "model", structuredOutputMode: "prompt_only" });
+    let released = 0;
+    (adapter as any).client = { chat: { completions: { create: async () => ({
+        [Symbol.asyncIterator]() {
+            let step = 0;
+            return {
+                async next() {
+                    step += 1;
+                    if (step === 1) {
+                        return { done: false as const, value: {
+                            id: "chatcmpl-1", model: "model", created: 0,
+                            choices: [{ index: 0, delta: { content: "partial" }, finish_reason: null }],
+                        } };
+                    }
+                    throw new Error("stream transport failed");
+                },
+                async return() {
+                    released += 1;
+                    throw new Error("iterator cleanup failed");
+                },
+            };
+        },
+    }) } } };
+
+    const events: LLMStreamEvent[] = [];
+    await assert.rejects(async () => {
+        assert.ok(adapter.stream);
+        for await (const event of adapter.stream({ messages: [{ role: "user", content: "开始" }] })) events.push(event);
+    }, /stream transport failed/);
+    assert.equal(released, 1);
+    assert.equal(events.some(event => event.kind === "completed"), false);
+
+    // 消费方提前退出同样释放本次迭代器。
+    released = 0;
+    assert.ok(adapter.stream);
+    for await (const event of adapter.stream({ messages: [{ role: "user", content: "开始" }] })) {
+        if (event.kind === "content_block_delta") break;
+    }
+    assert.equal(released, 1);
+});

@@ -6,6 +6,7 @@ import { blockResponse } from "../../llm-core/test/response-fixtures";
 import type { ModelInputRecord } from "../../runtime/src/model-input";
 import type { ExecutionStreamEventDraft, ExecutionStreamPublisher } from "../../execution-stream/src/index";
 import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/index";
+import { ExecutionAbortedError } from "../../execution-control/src/index";
 import { callModel, type ModelCallContext } from "../src/index";
 
 const REQUEST: LLMRequest = { messages: [{ role: "user", content: "hello" }] };
@@ -330,4 +331,56 @@ test("只实现 generate 的 Adapter 在返回前发布开始状态，并按整�
         callId: "call-whole", toolId: "read_file", argumentsJson: '{"path":"README.md"}',
     });
     assert.deepEqual(drafts.at(-1)?.payload, { modelCallId: result.callId, hasToolCalls: true });
+});
+
+test("失败或取消时发布安全终止摘要，指明未完成块且不携带块内容", async () => {
+    const failing: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(): Promise<LLMResponse> { throw new Error("stream adapter must not call generate"); },
+        async *stream(): AsyncIterable<LLMStreamEvent> {
+            yield { kind: "started" };
+            yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "plain" };
+            yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: "PRIVATE_PARTIAL_TEXT" };
+            throw new Error("stream transport failed");
+        },
+    };
+    const failure = captureEvents();
+    await assert.rejects(
+        callModel({ adapter: failing, executionStream: failure.publisher }, { context: context(), request: REQUEST, stage: "decide" }),
+        /stream transport failed/,
+    );
+    const terminated = failure.drafts.find(draft => draft.kind === "model_failed");
+    assert.ok(terminated);
+    const terminationPayload = terminated.payload as { readonly modelCallId: string; readonly unfinishedBlockIndexes: readonly number[] };
+    assert.deepEqual(terminationPayload.unfinishedBlockIndexes, [0]);
+    assert.equal(typeof terminationPayload.modelCallId, "string");
+    assert.equal(JSON.stringify(failure.drafts).includes("PRIVATE_PARTIAL_TEXT"), true, "增量本身在失败前已按可见性发布");
+
+    const controller = new AbortController();
+    const cancelling: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(): Promise<LLMResponse> { throw new Error("stream adapter must not call generate"); },
+        async *stream(): AsyncIterable<LLMStreamEvent> {
+            yield { kind: "started" };
+            yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "plain" };
+            yield { kind: "content_block_completed", delivery: "incremental", block: { index: 0, type: "text", format: "plain", text: "complete" } };
+            yield { kind: "content_block_started", index: 1, blockType: "reasoning", delivery: "incremental" };
+            controller.abort();
+            yield { kind: "content_block_delta", index: 1, deltaKind: "reasoning", delta: "late" };
+        },
+    };
+    const cancellation = captureEvents();
+    await assert.rejects(
+        callModel({ adapter: cancelling, executionStream: cancellation.publisher }, {
+            context: context(), request: REQUEST, stage: "decide", control: { signal: controller.signal },
+        }),
+        (error: unknown) => error instanceof ExecutionAbortedError,
+    );
+    const cancelled = cancellation.drafts.find(draft => draft.kind === "model_cancelled");
+    assert.ok(cancelled);
+    const cancelledPayload = cancelled.payload as { readonly modelCallId: string; readonly unfinishedBlockIndexes: readonly number[] };
+    assert.deepEqual(cancelledPayload.unfinishedBlockIndexes, [1], "已结束的块不列为未完成");
+    assert.equal(cancelled.visibility, "public");
+    const startedDraft = cancellation.drafts.find(draft => draft.kind === "model_started");
+    assert.equal(cancelledPayload.modelCallId, (startedDraft?.payload as { readonly modelCallId?: string } | undefined)?.modelCallId);
 });

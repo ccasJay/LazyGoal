@@ -36,7 +36,7 @@
   - **实现**：在 llm-google 使用 generateContentStream，与 generate 共用请求配置、Part 归一化和既有 strict 逆向投影；普通文本真实增量，函数参数和需要整体归一化的 JSON 明确 whole。保持 ANY／AUTO／NONE、输出上限、Schema 不变性、原生续接及 attempts=1，不开启不支持的参数流字段、不迁移 Interactions、不用占位原文替代规范结果。
   - **验证**：新增 `packages/llm-google/test/gemini-stream.test.ts`（待实现），扩展 `gemini.test.ts`；运行 `npx tsx --test packages/llm-google/test/gemini.test.ts packages/llm-google/test/gemini-stream.test.ts packages/llm/test/native-dialogue.test.ts`。本地 fixture 穿过真实 Google SDK 并检查 generateContent 对应路由、请求体和下一轮续接；不能用直接调用归一化函数替代该验证。
 
-- [ ] //TODO 5. 在取消、截断和失败重试中隔离每次生成，防止残缺响应触发操作
+- [x] //TODO 5. 在取消、截断和失败重试中隔离每次生成，防止残缺响应触发操作
 
   落实标准：[2.4](./spec.md#spec-req-2-4)、[2.5](./spec.md#spec-req-2-5)、[4.1](./spec.md#spec-req-4-1)、[5.1](./spec.md#spec-req-5-1)、[5.2](./spec.md#spec-req-5-2)、[5.3](./spec.md#spec-req-5-3)、[5.4](./spec.md#spec-req-5-4)、[5.5](./spec.md#spec-req-5-5)。
   - **先验证**：让完整工具块已到达但响应／EOF 被屏障阻塞，实际阶段执行器和 Runner 不得创建该块的待审批操作或执行工具。随后分别正常结束、失败、取消，只有正常完整响应才进入原审批／执行。对失败调用冻结后续重试或使用非暂时协议错误，断言本次工具效果为零；再独立放行合法重试，检查新 callId、无旧分片混入和没有额外 generate 请求。派发前取消、chunk 间取消和迭代清理失败均保留主错误并关闭本次传输。

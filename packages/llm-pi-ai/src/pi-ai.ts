@@ -234,9 +234,16 @@ export class PiAiAdapter implements LLMAdapter {
                     ...options,
                     ...(request.toolChoice === undefined ? {} : { toolChoice: request.toolChoice }),
                 });
-            for await (const event of stream as AsyncIterable<AssistantMessageEvent>) {
-                throwIfAborted(control);
-                switch (event.type) {
+            let primaryError: unknown;
+            let sdkIterator: AsyncIterator<AssistantMessageEvent> | undefined;
+            try {
+                sdkIterator = (stream as AsyncIterable<AssistantMessageEvent>)[Symbol.asyncIterator]();
+                while (true) {
+                    const next = await sdkIterator.next();
+                    if (next.done === true) break;
+                    const event = next.value;
+                    throwIfAborted(control);
+                    switch (event.type) {
                     case "text_start":
                         yield {
                             kind: "content_block_started", index: event.contentIndex,
@@ -323,8 +330,22 @@ export class PiAiAdapter implements LLMAdapter {
                                 `Provider "${this.config.provider}" did not complete a text response (${event.reason})`,
                             );
                         }
+                    }
+                }
+            } catch (error) {
+                primaryError = error;
+            } finally {
+                // 释放本次拥有的迭代器；清理异常不覆盖主失败原因，消费方提前退出同样释放。
+                if (sdkIterator?.return !== undefined) {
+                    try {
+                        await sdkIterator.return();
+                    } catch {
+                        // 迭代清理失败不改变调用方的主错误。
+                    }
                 }
             }
+            if (primaryError !== undefined) throw primaryError;
+
             throwIfAborted(control);
             if (!completed) {
                 throw new PiAiProviderError(

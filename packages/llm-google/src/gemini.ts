@@ -306,65 +306,79 @@ export class Gemini implements LLMAdapter {
                     : [{ kind: "content_block_completed", delivery: "incremental", block }];
             };
 
-            for await (const chunk of sdkStream) {
+            const iterator = sdkStream[Symbol.asyncIterator]();
+            let primaryError: unknown;
+            try {
+            while (true) {
+                const next = await iterator.next();
+                if (next.done === true) break;
                 throwIfAborted(control);
+                const chunk = next.value;
                 sawChunk = true;
                 usage = extractGeminiUsage(chunk.usageMetadata) ?? usage;
-                blockedReason ??= readGeminiBlockedReason(chunk);
-                const candidate = chunk.candidates?.[0];
-                const chunkFinishReason = candidate?.finishReason === undefined || candidate.finishReason === null
-                    ? undefined : String(candidate.finishReason);
-                if (chunkFinishReason !== undefined && chunkFinishReason !== "FINISH_REASON_UNSPECIFIED") {
-                    finishReason = chunkFinishReason;
-                }
-                const parts = candidate?.content?.parts;
-                if (parts === undefined || parts.length === 0) continue;
-                continuationParts.push(...structuredClone(parts) as readonly GeminiContinuationPart[]);
+                    blockedReason ??= readGeminiBlockedReason(chunk);
+                    const candidate = chunk.candidates?.[0];
+                    const chunkFinishReason = candidate?.finishReason === undefined || candidate.finishReason === null
+                        ? undefined : String(candidate.finishReason);
+                    if (chunkFinishReason !== undefined && chunkFinishReason !== "FINISH_REASON_UNSPECIFIED") {
+                        finishReason = chunkFinishReason;
+                    }
+                    const parts = candidate?.content?.parts;
+                    if (parts === undefined || parts.length === 0) continue;
+                    continuationParts.push(...structuredClone(parts) as readonly GeminiContinuationPart[]);
 
-                for (const part of parts) {
-                    assertSupportedGeminiPart(part);
-                    if (typeof part.text === "string" && part.text.length > 0) {
-                        if (part.thought === true) {
-                            if (!structuredProjection) {
-                                for (const event of sealText()) yield event;
+                    for (const part of parts) {
+                        assertSupportedGeminiPart(part);
+                        if (typeof part.text === "string" && part.text.length > 0) {
+                            if (part.thought === true) {
+                                if (!structuredProjection) {
+                                    for (const event of sealText()) yield event;
+                                }
+                                if (reasoning === undefined) {
+                                    reasoning = { index: nextIndex++, text: "" };
+                                    yield { kind: "content_block_started", index: reasoning.index, blockType: "reasoning", delivery: "incremental" };
+                                }
+                                reasoning.text += part.text;
+                                yield { kind: "content_block_delta", index: reasoning.index, deltaKind: "reasoning", delta: part.text };
+                                continue;
                             }
-                            if (reasoning === undefined) {
-                                reasoning = { index: nextIndex++, text: "" };
-                                yield { kind: "content_block_started", index: reasoning.index, blockType: "reasoning", delivery: "incremental" };
+                            for (const event of sealReasoning()) yield event;
+                            if (text === undefined) {
+                                text = { index: nextIndex++, whole: structuredProjection, raw: "", started: false };
                             }
-                            reasoning.text += part.text;
-                            yield { kind: "content_block_delta", index: reasoning.index, deltaKind: "reasoning", delta: part.text };
+                            text.raw += part.text;
+                            if (!text.whole) {
+                                if (!text.started) {
+                                    text.started = true;
+                                    yield { kind: "content_block_started", index: text.index, blockType: "text", delivery: "incremental", format: textFormat };
+                                }
+                                yield { kind: "content_block_delta", index: text.index, deltaKind: "text", delta: part.text };
+                            }
                             continue;
                         }
-                        for (const event of sealReasoning()) yield event;
-                        if (text === undefined) {
-                            text = { index: nextIndex++, whole: structuredProjection, raw: "", started: false };
+                        if (part.functionCall !== undefined) {
+                            for (const event of sealText()) yield event;
+                            for (const event of sealReasoning()) yield event;
+                            const call: LLMToolCall = {
+                                callId: (part.functionCall as any).id ?? `call_${randomUUID()}`,
+                                toolId: part.functionCall.name ?? "",
+                                argumentsJson: JSON.stringify(part.functionCall.args ?? {}),
+                            };
+                            const block: LLMContentBlock = { index: nextIndex++, type: "tool_call", ...call };
+                            sealed.push(block);
+                            yield { kind: "content_block_started", index: block.index, blockType: "tool_call", delivery: "whole" };
+                            yield { kind: "content_block_completed", delivery: "whole", block };
                         }
-                        text.raw += part.text;
-                        if (!text.whole) {
-                            if (!text.started) {
-                                text.started = true;
-                                yield { kind: "content_block_started", index: text.index, blockType: "text", delivery: "incremental", format: textFormat };
-                            }
-                            yield { kind: "content_block_delta", index: text.index, deltaKind: "text", delta: part.text };
-                        }
-                        continue;
-                    }
-                    if (part.functionCall !== undefined) {
-                        for (const event of sealText()) yield event;
-                        for (const event of sealReasoning()) yield event;
-                        const call: LLMToolCall = {
-                            callId: (part.functionCall as any).id ?? `call_${randomUUID()}`,
-                            toolId: part.functionCall.name ?? "",
-                            argumentsJson: JSON.stringify(part.functionCall.args ?? {}),
-                        };
-                        const block: LLMContentBlock = { index: nextIndex++, type: "tool_call", ...call };
-                        sealed.push(block);
-                        yield { kind: "content_block_started", index: block.index, blockType: "tool_call", delivery: "whole" };
-                        yield { kind: "content_block_completed", delivery: "whole", block };
                     }
                 }
+
+            } catch (error) {
+                primaryError = error;
+            } finally {
+                // 释放本次拥有的迭代器；清理异常不覆盖主失败原因。
+                await releaseSdkIterator(iterator);
             }
+            if (primaryError !== undefined) throw primaryError;
 
             throwIfAborted(control);
             if (!sawChunk) throw new GeminiIncompleteResponseError("Gemini stream produced no chunks");
@@ -531,6 +545,16 @@ function assertNotBlocked(blockReason: string | undefined): void {
 function readGeminiBlockedReason(chunk: { readonly promptFeedback?: { readonly blockReason?: string } }): string | undefined {
     const reason = chunk.promptFeedback?.blockReason;
     return typeof reason === "string" && reason.length > 0 ? reason : undefined;
+}
+
+/** 尽力释放供应商流迭代器；清理异常按观察通道隔离。 */
+async function releaseSdkIterator(iterator: AsyncIterator<unknown>): Promise<void> {
+    if (iterator.return === undefined) return;
+    try {
+        await iterator.return();
+    } catch {
+        // 迭代清理失败不改变调用方的主错误。
+    }
 }
 
 /** 未知或空白 Part 在供应商边界拒绝，不静默丢弃后宣称成功。 */
