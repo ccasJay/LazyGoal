@@ -141,13 +141,13 @@ export interface BrowserGoalApiPort {
      * @param archived - true 移入归档视图，false 恢复默认看板。
      * @returns 成功，或缺失、非终态、服务关闭期间的稳定拒绝码。
      */
-    setArchived?(goalId: string, archived: boolean): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: "goal_not_found" | "goal_not_terminal" | "service_shutting_down" }>;
+    setArchived?(goalId: string, archived: boolean): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: "goal_not_found" | "goal_not_terminal" | "goal_has_pending_inputs" | "service_shutting_down" }>;
     /**
      * 删除终态 Goal 的本地记录；清理失败时保留快照供重试。
      * @param goalId - 正式工作区 Goal 身份。
      * @returns 成功，或缺失、非终态、服务关闭期间的稳定拒绝码。
      */
-    deleteGoal?(goalId: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: "goal_not_found" | "goal_not_terminal" | "service_shutting_down" }>;
+    deleteGoal?(goalId: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: "goal_not_found" | "goal_not_terminal" | "goal_has_pending_inputs" | "service_shutting_down" }>;
     /**
      * 读取一个 Goal 的最新已提交会话。
      *

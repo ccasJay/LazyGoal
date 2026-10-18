@@ -27,6 +27,7 @@ import {
     type TrajectoryStore,
     type ToolPolicy,
     IndexedContextLookupService,
+    hasUnsettledSessionWork,
 } from "../../../../packages/runtime/src/index";
 import type { ProjectPermissionModeStore } from "../../../../packages/permission/src/index";
 import {
@@ -286,8 +287,8 @@ export interface RuntimeComposition {
     readonly store: GoalStore & GoalCatalog;
     readonly workspaceGoalStore: Pick<GoalStore, "restore"> & GoalCatalog;
     readonly manageGoal: {
-        readonly setArchived: (goalId: string, archived: boolean) => Promise<"ok" | "goal_not_found" | "goal_not_terminal">;
-        readonly delete: (goalId: string) => Promise<"ok" | "goal_not_found" | "goal_not_terminal">;
+        readonly setArchived: (goalId: string, archived: boolean) => Promise<"ok" | "goal_not_found" | "goal_not_terminal" | "goal_has_pending_inputs">;
+        readonly delete: (goalId: string) => Promise<"ok" | "goal_not_found" | "goal_not_terminal" | "goal_has_pending_inputs">;
     };
     readonly notifyingStore: NotifyingGoalStore;
     readonly trajectoryStore: TrajectoryStore;
@@ -832,6 +833,7 @@ async function assembleRuntimeComposition(
                     if (goal === undefined) return "goal_not_found";
                     const status = goal.state.run.status;
                     if (status !== "completed" && status !== "failed" && status !== "cancelled") return "goal_not_terminal";
+                    if (hasUnsettledSessionWork(goal)) return "goal_has_pending_inputs";
                     await primaryGoalStore.setArchived(goalId, archived);
                     return "ok";
                 }),
@@ -841,6 +843,7 @@ async function assembleRuntimeComposition(
                     if (goal === undefined) return "goal_not_found";
                     const status = goal.state.run.status;
                     if (status !== "completed" && status !== "failed" && status !== "cancelled") return "goal_not_terminal";
+                    if (hasUnsettledSessionWork(goal)) return "goal_has_pending_inputs";
                     const encodedGoalId = Buffer.from(goalId, "utf8").toString("base64url");
                     for (const directory of [trajectoriesDirectory, tracesDirectory, metricsDirectory, contextSidecarsDirectory, join(dataDirectory, "model-inputs")]) {
                         await rm(join(directory, encodedGoalId), { recursive: true, force: true });

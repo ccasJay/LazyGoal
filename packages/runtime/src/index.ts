@@ -316,6 +316,8 @@ export {
     clearQueuedMessages,
     computeSessionInputDigest,
     findSessionInputRecord,
+    hasPendingSessionInputs,
+    hasUnsettledSessionWork,
     measurePendingInputUsage,
     nextSessionInputSequence,
     toSessionInputReceipt,
@@ -415,6 +417,7 @@ export type {
     LaunchResult,
     RunIdGenerator,
 } from "./launcher";
+export type { ContinuationQueueBinding } from "./goal-coordinator";
 export type { RunScheduler } from "./scheduler";
 export { GoalCoordinator } from "./goal-coordinator";
 export type {

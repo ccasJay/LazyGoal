@@ -224,6 +224,12 @@ export class SessionInputAdmission {
                 return { planned: true, goal: nextGoal, record: baseRecord };
             }
             case "queue_control": {
+                // 队列控制没有后续应用步骤：受理本身即生效，因此直接记为已应用。
+                const controlRecord: SessionInputRecord = {
+                    ...baseRecord,
+                    status: "applied",
+                    appliedRunId: goal.state.run.id,
+                };
                 const queue = goal.state.messageQueue ?? { revision: 0, items: [] };
                 if (input.queueRevision !== queue.revision) {
                     return {
@@ -245,11 +251,11 @@ export class SessionInputAdmission {
                         ...goal,
                         state: {
                             ...goal.state,
-                            inputLedger: [...(goal.state.inputLedger ?? []), baseRecord],
+                            inputLedger: [...(goal.state.inputLedger ?? []), controlRecord],
                             messageQueue: withoutQueuePause(queue),
                         },
                     };
-                    return { planned: true, goal: nextGoal, record: baseRecord };
+                    return { planned: true, goal: nextGoal, record: controlRecord };
                 }
 
                 const cleared = new Set(queue.items.map((item) => item.inputId));
@@ -261,11 +267,11 @@ export class SessionInputAdmission {
                     ...goal,
                     state: {
                         ...goal.state,
-                        inputLedger: [...ledger, baseRecord],
+                        inputLedger: [...ledger, controlRecord],
                         messageQueue: clearQueuedMessages(queue),
                     },
                 };
-                return { planned: true, goal: nextGoal, record: baseRecord };
+                return { planned: true, goal: nextGoal, record: controlRecord };
             }
             case "steer":
             case "interrupt":

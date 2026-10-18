@@ -443,6 +443,47 @@ export function measurePendingInputUsage(
 }
 
 /**
+ * 判断 Goal 是否仍有尚未消费的会话输入。
+ *
+ * @remarks
+ * 待处理包括消息队列中未应用的普通消息，以及账本中仍为 `pending` 的任何
+ * 输入。终态 Goal 的归档与删除必须据此拒绝，不得自动丢弃已受理工作。
+ *
+ * @param goal - 当前 Goal 快照。
+ * @returns 仍有未消费输入时为 `true`。
+ * @example
+ * ```ts
+ * if (hasPendingSessionInputs(goal)) return "goal_has_pending_inputs";
+ * ```
+ */
+export function hasPendingSessionInputs(goal: Goal): boolean {
+    if ((goal.state.messageQueue?.items.length ?? 0) > 0) return true;
+    return (goal.state.inputLedger ?? []).some((record) => record.status === "pending");
+}
+
+/**
+ * 判断 Goal 是否仍有未完成结算的会话工作。
+ *
+ * @remarks
+ * 除未消费输入外，还包括未结算的用户中断与结果未知的 Action。只有这些工作
+ * 都已明确处理或清空后，才允许归档或删除终态 Goal。
+ *
+ * @param goal - 当前 Goal 快照。
+ * @returns 仍有未结算工作时为 `true`。
+ * @example
+ * ```ts
+ * if (hasUnsettledSessionWork(goal)) return "goal_has_pending_inputs";
+ * ```
+ */
+export function hasUnsettledSessionWork(goal: Goal): boolean {
+    if (hasPendingSessionInputs(goal)) return true;
+    const run = goal.state.run;
+    if (run.interruption !== undefined && run.interruption.status !== "finished") return true;
+    if (run.pendingAction?.status === "outcome_unknown") return true;
+    return false;
+}
+
+/**
  * 在输入账本中查询指定输入身份。
  *
  * @param goal - 当前 Goal 快照。

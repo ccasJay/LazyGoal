@@ -32,6 +32,7 @@ import {
 } from "../../execution-control/src/index";
 import { transition } from "./transition";
 import { createRunPlanRoute, reviseRunPlanExecution } from "./run-plan";
+import type { SessionInputRecord, SessionMessageQueue } from "./session-input";
 import {
     type DiagnosticTraceSink,
     type TrajectoryEventDraft,
@@ -138,10 +139,31 @@ export type GoalProgressErrorCode =
     | "INVALID_CONTEXT_LOOKUP"
     | "CONTEXT_LOOKUP_CHAIN_LIMIT"
     | "PLAN_MODE_BUSY"
+    | "QUEUE_REVISION_MISMATCH"
     | "TOOL_NOT_AUTHORIZED"
     | "TOOL_NOT_FOUND"
     | "INVALID_TOOL_INPUT"
     | "TOOL_EXECUTION_ERROR";
+
+/**
+ * 由会话队列消费驱动的后继 Run 绑定。
+ *
+ * @remarks
+ * 提供该绑定时，被应用的队首消息、输入账本状态、队列修订与新 Run 创建在
+ * 同一 Snapshot 提交中完成；`newInput` 必须等于队首消息正文，队列修订失配
+ * 时拒绝且不创建 Run。
+ *
+ * @example
+ * ```ts
+ * const binding: ContinuationQueueBinding = { inputId: "input-2", queueRevision: 3 };
+ * ```
+ */
+export interface ContinuationQueueBinding {
+    /** 被应用的队首输入身份。 */
+    readonly inputId: string;
+    /** 调用方观察到的队列修订。 */
+    readonly queueRevision: number;
+}
 
 /**
  * 用户对 Goal 当前交互等待点提交的操作。
@@ -758,6 +780,7 @@ export class GoalCoordinator {
         newInput: string,
         control?: ExecutionControl,
         continuation?: { readonly messageId: string },
+        queueBinding?: ContinuationQueueBinding,
     ): Promise<GoalProgressResult> {
         return this.withContinuationGate(ref.goalId, async () => {
             const preparation = await withGoalMutationGate(
@@ -780,6 +803,59 @@ export class GoalCoordinator {
                     if (goal.state.run.status !== "completed" && goal.state.run.status !== "failed"
                         && goal.state.run.status !== "cancelled") {
                         return { progress: this.goalNotCompleted(ref) };
+                    }
+
+                    let queueState:
+                        | {
+                            readonly inputId: string;
+                            readonly ledger: readonly SessionInputRecord[];
+                            readonly queue: SessionMessageQueue;
+                        }
+                        | undefined;
+                    if (queueBinding !== undefined) {
+                        const queue = goal.state.messageQueue ?? { revision: 0, items: [] };
+                        if (queue.revision !== queueBinding.queueRevision) {
+                            return {
+                                progress: {
+                                    ok: false,
+                                    error: {
+                                        code: "QUEUE_REVISION_MISMATCH",
+                                        message: `queueRevision ${queueBinding.queueRevision} does not match current revision ${queue.revision}`,
+                                    },
+                                },
+                            };
+                        }
+                        const head = queue.items[0];
+                        if (head === undefined || head.inputId !== queueBinding.inputId) {
+                            return {
+                                progress: {
+                                    ok: false,
+                                    error: {
+                                        code: "QUEUE_REVISION_MISMATCH",
+                                        message: `queued head does not match input "${queueBinding.inputId}"`,
+                                    },
+                                },
+                            };
+                        }
+                        if (head.content !== newInput) {
+                            return {
+                                progress: this.invalidGoalInput(
+                                    "Continuation input must match the queued message body",
+                                ),
+                            };
+                        }
+                        queueState = {
+                            inputId: head.inputId,
+                            ledger: (goal.state.inputLedger ?? []).map((record) =>
+                                record.inputId === head.inputId && record.status === "pending"
+                                    ? { ...record, status: "applied" as const }
+                                    : record),
+                            queue: {
+                                revision: queue.revision + 1,
+                                items: queue.items.slice(1),
+                                ...(queue.pause === undefined ? {} : { pause: queue.pause }),
+                            },
+                        };
                     }
 
                     const runId = this.runIdGenerator();
@@ -815,6 +891,7 @@ export class GoalCoordinator {
                     const nextRunMode = goal.state.nextRunMode ?? "normal";
                     const nextRun = createRun(runId, nextRunMode);
                     const { nextRunMode: _consumedNextRunMode, ...stateWithoutNextRunMode } = goal.state;
+                    const messageIndex = priorMessages.length;
                     const nextGoal: Goal = {
                         ...goal,
                         state: {
@@ -825,6 +902,14 @@ export class GoalCoordinator {
                             ],
                             run: nextRun,
                             completedRuns: [...priorHistory, history],
+                            ...(queueState === undefined
+                                ? {}
+                                : {
+                                    inputLedger: queueState.ledger.map((record) => record.inputId === queueState.inputId
+                                        ? { ...record, appliedRunId: runId, messageIndex }
+                                        : record),
+                                    messageQueue: queueState.queue,
+                                }),
                         },
                     };
 
@@ -841,7 +926,22 @@ export class GoalCoordinator {
                                     mode: nextRun.mode,
                                 },
                             },
+                            ...(queueBinding === undefined
+                                ? []
+                                : [{
+                                    goalId: goal.id,
+                                    runId,
+                                    phase: goal.state.workflow.phase,
+                                    eventType: "session_input_applied" as const,
+                                    payload: {
+                                        type: "session_input_applied" as const,
+                                        inputId: queueBinding.inputId,
+                                        runId,
+                                        messageIndex,
+                                    },
+                                }]),
                         ],
+                        ...(queueBinding === undefined ? {} : { sessionState: "caller" as const }),
                         ...(control === undefined ? {} : { control }),
                     });
                     this.publishCommittedEvents(committed, committed.events);

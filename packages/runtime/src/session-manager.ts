@@ -23,11 +23,13 @@ import {
     findSessionInputRecord,
     toSessionInputReceipt,
     validateSessionInputShape,
+    withQueuePause,
     type SessionInput,
     type SessionInputAdmissionResult,
     type SessionInputQueryResult,
     type SessionInputReceipt,
 } from "./session-input";
+import { withGoalMutationGate } from "./goal-mutation-gate";
 import type {
     DiagnosticTraceSink,
     TrajectoryStore,
@@ -112,8 +114,8 @@ export interface SessionManagerDependencies {
     readonly store: GoalStore;
     /** 与执行链共享的 Trajectory/Snapshot 提交器。 */
     readonly committer: TrajectoryCheckpointCommitterPort;
-    /** 运行 created/running Run 的调度入口。 */
-    readonly coordinator: Pick<GoalCoordinator, "advance">;
+    /** 运行 created/running Run 的调度入口与后继 Run 创建入口。 */
+    readonly coordinator: Pick<GoalCoordinator, "advance" | "continue">;
     /** 冻结 Profile 解析。 */
     readonly profiles: AgentProfileRegistry;
     /** 新 Run 身份生成器。 */
@@ -158,7 +160,7 @@ export interface SessionManagerDependencies {
 export class SessionManager implements SessionHandlePort {
     private readonly store: GoalStore;
     private readonly committer: TrajectoryCheckpointCommitterPort;
-    private readonly coordinator: Pick<GoalCoordinator, "advance">;
+    private readonly coordinator: Pick<GoalCoordinator, "advance" | "continue">;
     private readonly profiles: AgentProfileRegistry;
     private readonly runIdGenerator: RunIdGenerator;
     private readonly protocolValidator: GoalProtocolValidator | undefined;
@@ -169,6 +171,7 @@ export class SessionManager implements SessionHandlePort {
     private readonly admission: SessionInputAdmission;
     private readonly executions = new Map<string, Promise<void>>();
     private readonly backgroundTasks = new Set<Promise<void>>();
+    private readonly explicitContinuations = new Set<string>();
     private activeGoalId: string | undefined;
 
     /** @param dependencies - Store、提交器、Coordinator、Profile 与身份生成器。 */
@@ -186,7 +189,7 @@ export class SessionManager implements SessionHandlePort {
         const admissionDependencies: SessionInputAdmissionDependencies = {
             store: this.store,
             committer: this.committer,
-            onAdmitted: (goalId) => this.wakeExecution(goalId),
+            onAdmitted: (goalId, input) => this.wakeAfterAdmission(goalId, input),
         };
         this.admission = new SessionInputAdmission(admissionDependencies);
     }
@@ -287,7 +290,7 @@ export class SessionManager implements SessionHandlePort {
 
         const record = findSessionInputRecord(created.goal, request.inputId);
         const session = this.createHandle(request.goalId);
-        this.wakeExecution(request.goalId);
+        this.startExecution(request.goalId);
         return {
             ok: true,
             existing: false,
@@ -447,18 +450,37 @@ export class SessionManager implements SessionHandlePort {
         return new Session(goalId, `session-${randomUUID()}`, this);
     }
 
-    private wakeExecution(goalId: string): void {
+    /**
+     * 受理后唤醒执行所有者。
+     *
+     * @remarks
+     * 只有新的普通消息或显式继续队列会唤醒；创建重试、只读连接和普通查询都
+     * 不会。运行中或重建后仍需显式恢复的 Run 不会被唤醒，避免隐式解除恢复约束。
+     */
+    private wakeAfterAdmission(goalId: string, input: SessionInput): void {
+        const explicitContinuation = input.kind === "queue_control" && input.action === "continue";
+        if (input.kind !== "message" && !explicitContinuation) return;
+        if (explicitContinuation) this.explicitContinuations.add(goalId);
+        if (this.executions.has(goalId)) return;
         if (this.activeGoalId !== undefined && this.activeGoalId !== goalId) return;
-        void this.store.restore(goalId).then((goal) => {
-            if (goal === undefined) return;
-            const status = goal.state.run.status;
-            if (status === "created" || status === "running") {
-                this.startExecution(goalId);
-                return;
-            }
-        }).catch((error: unknown) => {
-            this.onBackgroundFailure?.(goalId, error);
+        const task = this.runWake(goalId, explicitContinuation);
+        this.backgroundTasks.add(task);
+        void task.catch(() => undefined).finally(() => {
+            this.backgroundTasks.delete(task);
         });
+    }
+
+    private async runWake(goalId: string, explicitContinuation: boolean): Promise<void> {
+        const goal = await this.store.restore(goalId);
+        if (goal === undefined) return;
+        const status = goal.state.run.status;
+        const queue = goal.state.messageQueue;
+        if (queue?.pause !== undefined && !explicitContinuation) return;
+        if ((queue?.items.length ?? 0) === 0) return;
+        if (status !== "completed" && status !== "failed" && status !== "cancelled") return;
+        if (this.executions.has(goalId)) return;
+        if (this.activeGoalId !== undefined && this.activeGoalId !== goalId) return;
+        this.startExecution(goalId);
     }
 
     private startExecution(goalId: string): void {
@@ -476,16 +498,34 @@ export class SessionManager implements SessionHandlePort {
 
     private async runExecution(goalId: string): Promise<void> {
         try {
-            const goal = await this.store.restore(goalId);
-            if (goal === undefined) return;
-            const status = goal.state.run.status;
-            if (status !== "created" && status !== "running") {
-                // 队列消费与后继 Run 创建由会话队列所有权实现决定；此处只释放名额。
-                return;
-            }
-            const result = await this.coordinator.advance({ goalId, runId: goal.state.run.id });
-            if (!result.ok) {
-                this.onBackgroundFailure?.(goalId, new Error(`${result.error.code}: ${result.error.message}`));
+            // 同一执行所有者在 Run 结束后继续消费队列；等待、暂停与无消息时释放名额。
+            // eslint-disable-next-line no-constant-condition
+            while (true) {
+                const goal = await this.store.restore(goalId);
+                if (goal === undefined) return;
+                const status = goal.state.run.status;
+                if (status === "created" || status === "running") {
+                    const result = await this.coordinator.advance({ goalId, runId: goal.state.run.id });
+                    if (!result.ok) {
+                        this.onBackgroundFailure?.(goalId, new Error(`${result.error.code}: ${result.error.message}`));
+                        return;
+                    }
+                    continue;
+                }
+                if (status === "waiting") return;
+
+                const queue = goal.state.messageQueue;
+                if (queue?.pause !== undefined) return;
+                if ((queue?.items.length ?? 0) === 0) return;
+
+                if (status === "failed" || status === "cancelled") {
+                    if (!this.explicitContinuations.delete(goalId)) {
+                        await this.pauseQueueAfterTerminalRun(goalId);
+                        return;
+                    }
+                }
+                const advanced = await this.startNextQueuedRun(goalId);
+                if (!advanced) return;
             }
         } catch (error) {
             // 后台异常被观察：保留真实恢复状态，不伪装为终态或成功。
@@ -493,6 +533,59 @@ export class SessionManager implements SessionHandlePort {
         } finally {
             this.executions.delete(goalId);
             if (this.activeGoalId === goalId) this.activeGoalId = undefined;
+        }
+    }
+
+    /**
+     * 为队首消息创建后继 Run。
+     *
+     * @remarks 归档旧 Run、追加真实用户消息、创建新 Run 与应用队首输入在同一
+     * Snapshot 提交中完成；队列修订或队首身份失配时不创建 Run，也不跳过旧项。
+     */
+    private async startNextQueuedRun(goalId: string): Promise<boolean> {
+        const goal = await this.store.restore(goalId);
+        if (goal === undefined) return false;
+        const queue = goal.state.messageQueue;
+        const head = queue?.items[0];
+        if (head === undefined || queue === undefined) return false;
+        const result = await this.coordinator.continue(
+            { goalId, runId: goal.state.run.id },
+            head.content,
+            undefined,
+            undefined,
+            { inputId: head.inputId, queueRevision: queue.revision },
+        );
+        if (!result.ok) {
+            this.onBackgroundFailure?.(goalId, new Error(`${result.error.code}: ${result.error.message}`));
+            return false;
+        }
+        return true;
+    }
+
+    /** 在失败或取消的终态上持久化队列暂停，保留尚未应用的消息。 */
+    private async pauseQueueAfterTerminalRun(goalId: string): Promise<void> {
+        try {
+            await withGoalMutationGate(this.store, goalId, async () => {
+                const latest = await this.store.restore(goalId);
+                if (latest === undefined) return;
+                const status = latest.state.run.status;
+                if (status !== "failed" && status !== "cancelled") return;
+                if (latest.state.messageQueue?.pause !== undefined) return;
+                const reason = latest.state.run.interruption !== undefined ? "user_interrupt" : "run_failed";
+                const paused: Goal = {
+                    ...latest,
+                    state: {
+                        ...latest.state,
+                        messageQueue: withQueuePause(latest.state.messageQueue, {
+                            reason,
+                            runId: latest.state.run.id,
+                        }),
+                    },
+                };
+                await this.committer.commit(paused, { sessionState: "caller" });
+            });
+        } catch (error) {
+            this.onBackgroundFailure?.(goalId, error);
         }
     }
 

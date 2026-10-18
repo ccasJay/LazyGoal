@@ -18,7 +18,7 @@
   - 实施目标：接入 `sessions.create`／`sessions.open`、被生命周期追踪的后台任务、单活动 Goal 名额及只读状态；拆开受理与执行 Promise，复用 Launcher／Coordinator／Runner，不复制执行循环。实例级执行名额和 Goal 短 Gate 职责分开，外部模型／工具等待不持有短 Gate；观察后台异常并释放或保留真实恢复状态，不产生未处理 rejection。
   - 验证手段：`npx tsx --test packages/runtime/test/session-execution.test.ts packages/runtime/test/launcher.test.ts packages/runtime/test/goal-coordinator.test.ts packages/runtime/test/inline-scheduler.test.ts`；检查先保存、再受理、后调用的顺序及不同 Goal 的 Binding 隔离，不能用等待 Run 完成的旧同步入口冒充受理 API。
 
-- [ ] //TODO 3. 按 FIFO 持续执行持久化队列，并支持暂停、继续和清空
+- [x] //TODO 3. 按 FIFO 持续执行持久化队列，并支持暂停、继续和清空
   - 落实标准：[3.1](./spec.md#spec-req-3-1)、[3.2](./spec.md#spec-req-3-2)、[3.3](./spec.md#spec-req-3-3)、[3.4](./spec.md#spec-req-3-4)、[3.5](./spec.md#spec-req-3-5)、[8.1](./spec.md#spec-req-8-1)、[8.6](./spec.md#spec-req-8-6)。
   - 先验证：在待实现的 `packages/runtime/test/session-queue.test.ts` 中阻塞首个 Run 并受理两条消息，释放后观察两个不同后继 Run 按序启动；分别在“保存后未唤醒”和“创建后继 Run 后未调用模型”处模拟进程退出并重建，显式恢复后每项只应用一次。覆盖等待不出队、失败暂停、新消息不解除暂停、继续从原队首启动，以及清空只影响未应用普通消息。
   - 实施目标：在单个 Snapshot 中完成旧 Run 归档、队首应用关联、真实用户消息追加与新 Run 创建；正常完成可在同一执行所有权内续跑，等待和无消息时释放名额。持久化暂停原因及队列修订，清空保留去重收据；终态管理拒绝仍有未处理输入或未完成收尾的 Goal，不删除用户数据，也不建立跨 Goal 调度队列。
