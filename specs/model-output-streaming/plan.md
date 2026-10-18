@@ -57,7 +57,7 @@
   - **实现**：补齐新块契约下指标计时、受限诊断与 response-to-message 的实际接线，消除迁移遗漏的旧字段读取；维持现有应用观察速率定义和阶段业务检查。迁移真实调用方与示例的派生访问，不顺带修改 Session 消息 Schema、历史裁剪或权限。当前基线若含原响应形状，只更新有新行为断言支撑的期望，不降低原业务验收。
   - **验证**：扩展 `packages/model-call/test/llm-step-executor-metrics.test.ts`、`model-input-recording.test.ts`、`llm-diagnostic-trace.test.ts`、`packages/model-response/test/stage-response.test.ts`、`packages/model-execution/test/native-step-executor.test.ts`、`completion-review.test.ts`、`packages/model-context/test/native-model-history.test.ts`、`packages/llm/test/native-dialogue.test.ts` 和 `packages/model-contracts/test/model-conversation.test.ts`；运行对应 `npx tsx --test`，检查下一请求消息及实际记录而不只断言最终 result.kind。
 
-- [ ] //TODO 8. 从正式无界面装配完成流式执行与恢复验证，并保持现有 Web 活动可用
+- [x] //TODO 8. 从正式无界面装配完成流式执行与恢复验证，并保持现有 Web 活动可用
 
   落实标准：[4.1](./spec.md#spec-req-4-1)、[6.4](./spec.md#spec-req-6-4)、[6.5](./spec.md#spec-req-6-5)、[7.1](./spec.md#spec-req-7-1)、[7.2](./spec.md#spec-req-7-2)、[7.3](./spec.md#spec-req-7-3)、[7.4](./spec.md#spec-req-7-4)。
   - **先验证**：经 `apps/goal-server/src/runtime/index.ts` 的 createRuntimeComposition 注入连接本地协议 fixture 的正式 Adapter，走生成、既有工具准入／必要审批、执行、完成或等待、关闭和文件存储重建。屏障前无工具，合法完整响应后按原规则执行，重建只读不恢复分片；已提交历史和后续模型请求来源可核验。现有 Web 仍显示公开正文／调用状态并可继续对话，不依赖新的 Session API 或 UI。

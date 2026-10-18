@@ -89,14 +89,17 @@ function chatChunk(id: string, delta: Record<string, unknown>, finishReason: str
 
 /** 把统一的 conversation fixture 消息编码为真实 Chat Completions SSE 响应。 */
 function sseCompletion(
-    message: { readonly content: string; readonly tool_calls?: readonly { readonly id: string; readonly type: "function"; readonly function: { readonly name: string; readonly arguments: string } }[] },
+    message: { readonly content: string; readonly tool_calls?: unknown },
     id: string,
 ): string {
+    const calls = Array.isArray(message.tool_calls)
+        ? message.tool_calls as readonly { readonly id: string; readonly function: { readonly name: string; readonly arguments: string } }[]
+        : [];
     const frames: unknown[] = [];
     if (message.content.length > 0) {
         frames.push(chatChunk(id, { role: "assistant", content: message.content }));
     }
-    for (const [index, call] of (message.tool_calls ?? []).entries()) {
+    for (const [index, call] of calls.entries()) {
         frames.push(chatChunk(id, { tool_calls: [{
             index, id: call.id, type: "function",
             function: { name: call.function.name, arguments: call.function.arguments },
