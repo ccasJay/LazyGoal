@@ -142,3 +142,22 @@ git diff --check
 - 环境与归因：验证期间主机负载 2.3～4.5 且存在无关高 CPU 进程。`board.test.mjs` 在本次 TODO 6 之前的上一次执行中已在相同漂移点（`/plan` 命令请求计数、等待文案、移动视口几何）失败；本次单独复跑 7 次仍于漂移点超时，失败诊断显示 mock HTTP 请求长期无响应、浏览器同源连接被占满，未出现交互功能断言失败。已在不弱化断言的前提下补充“视口切换后等待移动单列布局生效”的前置条件；未改写产品行为或降低几何要求。
 - 未解决项：`board.test.mjs` 需在空闲机器复跑确认；其失败点与交互功能无关（slash command 请求计数、mock 响应悬挂与响应式布局时序）。
 - 证据：以上命令的实际退出码与通过计数记录于执行会话；复跑命令与输出归因见本节各项。
+
+### Repair Result（2026-10-19，追加记录；上方 blocked 记录保留为历史）
+
+- 状态：`passed` / `current`。此前 `blocked` 的根因已定位并修复，全部 Feature Verification 命令复跑通过。
+- 根因（以探针与 mock 日志为准，取代此前的“环境漂移”归因）：
+  1. `apps/goal-board/e2e/board.test.mjs` 的 mock 不关闭被新订阅取代的 SSE 响应（`/api/goals/:goalId/events`、`/goals/:goalId/metrics/stream`）。多次页面导航后浏览器同源连接配额（6）被陈旧流占满，后续 `/models`、`GET /api/goals/:goalId`、`POST /plan-mode` 请求未到达 mock（mock 无请求记录、`planModeRequests` 仍为 0、候选按钮处于 busy/disabled），表现为第 539 行超时。
+  2. mock 的 `GET /api/goals/:goalId/interaction-details` 契约不一致：守卫读 H 引入的 `session.interaction`，成功分支却读已移除的 `session.pendingInteraction`；详情请求在非等待状态恒返回 409，且问题详情依赖失效字段。
+- 修复内容：
+  - `apps/goal-board/e2e/board.test.mjs`：新 events／metrics 订阅结束时关闭旧响应，测试导航先离开当前文档；`interaction-details` 统一以 `session.interaction` + 独立问题详情 fixture + `pendingAction` 为唯一来源（缺失时 409），保留「错 runId／旧引用／非等待 → 409」语义；新增 `failNextInteractionDetails(code)` 故障注入与 `GET /inputs/:inputId` 收据查询；新增断言：详情读取 500（不可用）与 409（旧引用）只显示可重试的限制，会话保持 `Awaiting your response`，无关的 Queue next task 输入保持可用，重试后问卷恢复。
+  - `apps/goal-board/src/api.ts`：`readInteractionDetail` 将稳定 4xx 拒绝码投影为 `BrowserInteractionDetailResult` 的失败结果（界面可区分“请求已变化”与网络失败），只有违反 wire 契约的响应才抛错；移除已被新交互区域替换的 `readActionDetails` 客户端方法。
+- 复跑结果（主机负载 2.3～3.9；被测提交 `96ed9076`）：
+  - `node --test --test-concurrency=1 apps/goal-board/e2e/board.test.mjs`：通过；连续复跑 2 次均通过（约 6.5～6.8s）。
+  - `node --test --test-concurrency=1 apps/goal-board/e2e/*.test.mjs`：**9/9 通过**（含新 `human-interaction.test.mjs` 4/4、`runtime`、`streaming-session`、`run-input-control`、`run-stages`）。
+  - `npm test`：通过（根严格类型、依赖与文档检查、GEPA adapter、385 个 TS/TSX 测试及脚本测试）。
+  - `npm --prefix apps/goal-board test`：94/94；`npm run build:web` 通过；`git diff --check` 通过。
+  - 本轮未修改 `packages/*` 产品代码；此前记录的 `packages/runtime`／`packages/browser`／`apps/goal-server` 结果仍然适用（`npm test` 复跑覆盖）。
+- 契约版本：Spec 指纹仍为 `47bd7ad219c603ff63b63fef48ae15dbf36888c4fb2237d66cc219f9a3ad7b9e`；`current`（本轮无契约变化）。
+- 未解决项：无。此前“环境漂移”判断不成立，已在本记录中更正。
+
