@@ -128,10 +128,24 @@ git diff --check
 
 ### Latest Result
 
-- 状态：未执行。
-- 验证时间：未执行。
-- 实测 Git 提交：无；当前仅完成计划编写，未实施本功能。
-- 契约版本／指纹：执行前记录本次获批 `spec.md`／`plan.md` 的内容 SHA-256；本阶段尚无功能验收证据。
-- 未提交实现及指纹：无本功能实现；执行时按实际路径和 diff／内容指纹记录，不混入其他工作。
-- 结果与证据：未运行上述功能检查；执行时逐项记录实际命令、观察结果、证据位置和未解决问题。
-- 汇总状态／新鲜度：未执行，不宣称 passed／current。后续按 `passed / failed / blocked / pending-human` 与 `current / stale` 记录；失败、缺失条件和未确认人工项均不得算成功。
+- 状态：passed（7 项综合检查全部通过）。
+- 验证时间：2026-10-19 12:34（CST，本机真实 Chrome）。
+- 实测 Git 提交：`7b59ac9c`（`test(goal-board): 迁移 board e2e 到统一输入契约并修正过期断言`，分支 `codex/streaming-session`）。验证时唯一未提交文件为临时进度文件 `.execution-progress.md`（不属交付内容）。
+- 契约版本／指纹：`spec.md` SHA-256 = `bde764142c7241593af2c6ef7d258d736638c3e0ac949a9f3c4d5eda7c893526`（与获批指纹一致）；`plan.md` SHA-256 = `027d220cd6f6b962cba864a3093817afbca32dc7d3912d7e98f84ee714d7e549`（本次写入 Latest Result 之前的获批计划内容）。本次仅在本小节记录结果，未改动任务清单与检查表。
+- 未提交实现及指纹：无。board e2e 的统一输入契约迁移已随 `7b59ac9c` 提交（`apps/goal-board/e2e/board.test.mjs`，+142/−53）；提交前已删除全部调试脚手架（`window.__fetchLog` fetch 注入、`PROBE` 日志、仅为探针服务的额外 `delay(2500)`，以及仅为探针服务的 CDP 请求日志改动）。
+- 结果与证据（逐项实际结果）：
+
+  | 检查 | 命令 | 实际结果 |
+  | --- | --- | --- |
+  | 根回归 | `npm test` | 退出码 0；377 个 `.ts/.tsx` 测试文件 2146 项通过，`scripts/` 5 个 `.mjs` 70 项通过，类型检查、包内文档检查、依赖边界检查与 GEPA adapter 测试均通过，末尾 `[regression] 全部通过`。 |
+  | 服务端类型 | `npx tsc --noEmit -p apps/goal-server/tsconfig.json` | 退出码 0，无诊断输出。 |
+  | goal-server 测试 | `npm --prefix apps/goal-server test` | 48/48 通过（21.9s）。 |
+  | goal-board 单测 | `npm --prefix apps/goal-board test` | 77/77 通过（1.1s）。 |
+  | 前端构建 | `npm run build:web` | 退出码 0，生成 `dist/index.html`（0.53 kB）与 `dist/assets/index-*.js`（586.14 kB）等产物。 |
+  | 真实浏览器 e2e | `node --test --test-concurrency=1 apps/goal-board/e2e/*.test.mjs` | 5/5 通过（158.1s）：board 11.2s、run-input-control 4.1s、run-stages 2.0s、runtime 57.8s、streaming-session 17.8s。 |
+  | 空白检查 | `git diff --check` | 退出码 0，无输出。 |
+
+- board e2e 迁移说明：mock 服务切到统一输入契约（`POST /api/goals/:goalId/inputs` 分流 `respond`／`message` 并返回带稳定 `inputId` 的收据；`POST /api/goals` 返回 `{ ok, existing, goalId, runId, receipt }` 与 202；`GET /api/goals/:goalId/events` 首项为 `state_sync`，附带安全会话状态投影），新增 `sessionInputReceipt`／`sessionState` 测试装置。断言按新 wire 语义拆分但不弱化：回答拆为稳定 `inputId` 身份、`kind: "respond"`、`runId`／`requestId` 与 `response.{kind,answers}`；`response.scope` 显式核验批准范围；拒绝 Action 由整对象比较改为种类／目标 Run 加 `response` 深比较；普通消息由 `runId`／`messageId` 改为稳定 `inputId` 身份并显式断言不携带 `runId`；composer 布局由“视口居中”改为“列内对齐且列与主区均在视口内”，保留宽度上限。另修正两处在分支基线 `9b0c1ddf` 即已失效的过期断言（非本 Spec 引入）：轨迹折叠文案已于 `65c6a5a0` 英文化（改为断言 `All steps are collapsed. Expand a step to see its events.`，`prototypes/` 保留中文不动）；`.header-actions .primary` 在侧栏重构 `0bb84a09` 后已不存在（改为 `button[aria-label="New goal"]`，仍完整覆盖草稿创建与模型偏好落地流程）。
+- 预存环境事项与处置（均已在 TODO 10 内解决，本轮无复现）：headless 默认视口（约 756px）会触发移动布局，相关 e2e 按既有 CDP 惯例显式 `Emulation.setDeviceMetricsOverride`；`runtime.test.mjs` 的 `/api/models` 失败源于 fixture 写入旧偏好形状，`a3506f0f` 改为 `{ modelId }`；`Streaming session flow:` 意图需 8s 模型延迟才能形成足够长的 running 窗口，`a3506f0f` 已加入。
+- 未解决项：无阻塞或失败项。TODO 1 期间观察到的 goal-server 首次并行运行单次断言失败归属环境 flake，本轮 `npm test` 与 `npm --prefix apps/goal-server test`（48/48）均未复现；按计划要求未以 HTTP 断言替代 UI 断言，界面行为由真实 Chrome e2e 覆盖，未额外安排人工视觉复验。
+- 汇总状态／新鲜度：passed / current。工作树在 `7b59ac9c` 之后无源码改动，全部 11 个 TODO 已勾选并提交，交付物与上述指纹一致。
