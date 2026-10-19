@@ -308,6 +308,52 @@ function interactionDetailsPort(
     };
 }
 
+test("结算后的重复投影不再产生可操作交互，旧引用也不会读到新等待", async () => {
+    const goal = waitingGoal("goal-settled", {
+        pendingInteraction: {
+            kind: "ask_user",
+            requestId: "ask-settled-1",
+            mode: "execution",
+            questions: [{
+                id: "source",
+                header: "Choose a source",
+                question: "Which notes should I include?",
+                multiSelect: false,
+                options: [{ id: "approved", label: "Approved notes" }],
+            }],
+        },
+    });
+    const store = new MemoryStore();
+    const projected = await project(goal, store);
+    assert.equal(projected.interaction?.interactionId, "question:ask-settled-1");
+
+    // 另一客户端提交决定：快照结算，等待清除。
+    const settled: Goal = {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: { ...goal.state.run, status: "completed", pendingInteraction: undefined },
+        },
+    };
+    const afterSettlement = await project(settled, store);
+    assert.equal(afterSettlement.interaction, undefined, "a settled request no longer exposes a decision");
+    assert.equal(afterSettlement.pendingAction, undefined);
+
+    // 第二次结算同一引用不产生新交互；旧引用也无法读到已结算的等待。
+    const service = new BrowserGoalCommandService({
+        store,
+        coordinator: {
+            resume: async () => ({ ok: false as const, error: { code: "GOAL_NOT_WAITING", message: "no wait" } }),
+        },
+    } as never);
+    assert.deepEqual(
+        await service.readInteractionDetails(settled.id, settled.state.run.id, "question:ask-settled-1"),
+        { ok: false, error: "interaction_not_waiting" },
+    );
+    const reparsed = await project(settled, store);
+    assert.equal(reparsed.interaction, undefined, "repeat projection stays settled without a new interaction");
+});
+
 test("交互详情路由校验身份参数并只返回服务端授权读取结果", async () => {
     const requests: string[] = [];
     const routes = createBrowserGoalRoutes(interactionDetailsPort(async (goalId, runId, interactionId) => {

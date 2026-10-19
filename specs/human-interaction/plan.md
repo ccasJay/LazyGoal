@@ -57,7 +57,7 @@
   - **实现**：分别建立范围审阅／任务决定区、操作能力／权限期限／工具决定区及明确的恢复视图，替换旧 TaskApprovalForm 和 ActionApprovalForm。接入任务 1 的完整详情与共享响应控制器，保留 PTC 来源、沙箱范围、所有原有合法授权路径；实际决定和授权事务沿用原规则，不在本任务修改工具输入或拆分恢复命令。移除失效旧布局、分支和测试断言。
   - **验证**：扩展新 `human-interaction.test.tsx`／`human-interaction.test.mjs`（任务 6 建立），更新 `apps/goal-board/test/p2-improvements.test.tsx` 与现有 `e2e/runtime.test.mjs` 的实际交互断言，保留完整路线检查。运行上述前端检查及 `npx tsx --test packages/runtime/test/goal-coordinator.test.ts packages/runtime/test/permission-grant-recovery.test.ts packages/runtime/test/sandbox-permission-action.test.ts`；观察批准先保存、Grant 后激活及原工具真实调用结果。
 
-- [ ] //TODO 8. 让新交互在提交不明、多客户端结算和重连后保持可信状态
+- [x] //TODO 8. 让新交互在提交不明、多客户端结算和重连后保持可信状态
 
   落实标准：[1.3](./spec.md#spec-req-1-3)、[5.6](./spec.md#spec-req-5-6)、[6.1](./spec.md#spec-req-6-1)、[6.2](./spec.md#spec-req-6-2)、[6.3](./spec.md#spec-req-6-3)、[6.4](./spec.md#spec-req-6-4)、[7.2](./spec.md#spec-req-7-2)、[7.3](./spec.md#spec-req-7-3)。
   - **先验证**：提交后丢失响应，界面保持冻结身份和载荷，原身份核验／重试只应用一次；字段拒绝保留草稿，新决定使用新身份。另一客户端先结算、请求切换或新 Run 出现时旧草稿／详情不能串入新请求；相同请求快照更新和暂时断线保留编辑。页面刷新从真实等待／收据重建，不从 localStorage 自动提交；已受理不等于工具完成，末次通知丢失也能同步实际状态。

@@ -247,6 +247,92 @@ test("human interaction questionnaire: waiting stop, keyboard and narrow layout"
   }
 });
 
+test("human interaction submit state: frozen decision, host settlement and refresh", { timeout: 240_000 }, async () => {
+  const fixture = await startHarness("human-interaction-submit-state");
+  const { socket, service } = fixture;
+  const { origin, token, launchUrl } = await service.ready;
+
+  try {
+    await navigate(socket, launchUrl);
+    await waitForExpression(socket, "document.querySelector('button.primary') !== null", 20_000);
+
+    // 提交未送达：客户端冻结身份与载荷，不产生第二个身份。
+    const frozenGoal = await createGoal(socket, origin, token, "Human interaction flow: questionnaire", fixture.statusPath);
+    await waitForExpression(socket, "document.querySelector('.interaction-region.question-region') !== null", 20_000);
+    await cdp(socket, "Fetch.enable", { patterns: [{ urlPattern: "*inputs", requestStage: "Request" }] });
+    socket.on("Fetch.requestPaused", (params) => {
+      const pathname = new URL(params.request.url).pathname;
+      if (params.request.method === "POST" && pathname.endsWith("/inputs")) {
+        void cdp(socket, "Fetch.failRequest", { requestId: params.requestId, errorReason: "Failed" });
+        return;
+      }
+      void cdp(socket, "Fetch.continueRequest", { requestId: params.requestId });
+    });
+    await clickLabel(socket, "label.answer-option", "Approved notes");
+    await clickButton(socket, "Next question");
+    await waitForExpression(socket, "document.querySelector('.question legend')?.textContent === 'Choose sections'");
+    await clickLabel(socket, "label.answer-option", "Summary");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.ask-user-actions .approval-primary').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.interaction-status')?.innerText.includes('could not be confirmed')", 20_000);
+    assert.equal(await value(socket, "document.querySelector('.interaction-resolve button')?.textContent.includes('Check saved decision')"), true);
+    assert.equal(await value(socket, "document.querySelector('.ask-user-actions .approval-primary')?.disabled"), true, "an unconfirmed decision cannot send a second identity");
+    assert.match(await value(socket, "document.querySelector('.interaction-resolve button + button').textContent"), /Retry the same decision/);
+
+    // 原身份核验：确认未提交后保留原身份供重试。
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.interaction-resolve button')].find(button => button.textContent.includes('Check saved decision')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.interaction-error')?.innerText.includes('was not saved')", 20_000);
+    // 核验确认未保存后回到编辑状态，保留原身份与载荷供重试。
+    assert.equal(await value(socket, "document.querySelector('.interaction-resolve') === null"), true);
+    assert.equal(await value(socket, "document.querySelector('.ask-user-actions .approval-primary')?.disabled"), false);
+
+    // 恢复提交后按原身份重试：只应用一次答案。
+    await cdp(socket, "Fetch.disable");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.ask-user-actions .approval-primary').click()", returnByValue: true });
+    const frozenAfter = await waitFor(async () => {
+      const candidate = await sessionDetail(origin, token, frozenGoal.goalId);
+      return candidate.runStatus === "completed" && candidate.interaction === undefined ? candidate : undefined;
+    }, "the retried decision to settle exactly once", 40_000);
+    assert.equal(frozenAfter.messages.filter((message) => message.content.includes("Answer:")).length, 1, "the retried decision applies once");
+    assert.match(frozenAfter.messages.find((message) => message.content.includes("Answer:")).content, /Summary/);
+
+    // 第二个客户端（显式宿主）先结算：旧页面收敛到权威状态，只保留一次决定。
+    const contestedGoal = await createGoal(socket, origin, token, "Human interaction flow: skip", fixture.statusPath);
+    await waitForExpression(socket, "document.querySelector('.interaction-region.question-region') !== null", 20_000);
+    const hostDecision = await answerQuestionnaireAsHost(origin, token, contestedGoal.goalId, "host-settled-decision");
+    assert.equal(hostDecision.response.status, 202, JSON.stringify(hostDecision.body));
+    const contestedAfter = await waitFor(async () => {
+      const candidate = await sessionDetail(origin, token, contestedGoal.goalId);
+      return candidate.runStatus === "completed" && candidate.interaction === undefined ? candidate : undefined;
+    }, "the host decision to settle the questionnaire", 40_000);
+    assert.equal(contestedAfter.messages.filter((message) => message.content.includes("Answer:")).length, 1, "the settled request keeps exactly one decision");
+    await waitForExpression(socket, "document.querySelector('.interaction-region.question-region') === null", 30_000);
+    assert.equal(await value(socket, "document.querySelector('.question-nav-progress') === null"), true, "the settled page no longer offers the old decision");
+    const storageAfterContested = await value(socket, "Object.fromEntries(Object.entries(localStorage))");
+    assert.equal(JSON.stringify(storageAfterContested).includes("Answer:"), false);
+
+    // 刷新：草稿不跨刷新恢复，也不把答案或参数镜像到 localStorage。
+    const refreshGoal = await createGoal(socket, origin, token, "Human interaction flow: reply", fixture.statusPath);
+    await waitForExpression(socket, "document.querySelector('.interaction-region.question-region') !== null", 20_000);
+    await clickLabel(socket, "label.answer-option", "All notes");
+    await waitForExpression(socket, "document.querySelector('.question-nav-progress')?.textContent.includes('Answered 1 of 2')");
+    await cdp(socket, "Page.reload");
+    await waitForExpression(socket, "document.readyState === 'complete' && document.querySelector('.goal-card') !== null", 20_000);
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.goal-card')].find(card => card.innerText.includes('Human interaction flow: reply')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.interaction-region.question-region') !== null", 20_000);
+    assert.match(await value(socket, "document.querySelector('.question-nav-progress').textContent"), /Answered 0 of 2/);
+    assert.equal(await value(socket, "document.querySelector('.decision-summaries') === null"), true, "page-level decision history never survives a refresh");
+    const afterRefresh = await sessionDetail(origin, token, refreshGoal.goalId);
+    assert.equal(afterRefresh.runStatus, "waiting");
+    assert.equal(afterRefresh.interaction.kind, "question");
+    assert.equal(afterRefresh.messages.filter((message) => message.role === "user").length, 1, "refresh never submits a stored draft");
+    const storage = await value(socket, "Object.fromEntries(Object.entries(localStorage))");
+    assert.equal(JSON.stringify(storage).includes("All notes"), false);
+    assert.equal(JSON.stringify(storage).includes("controlled"), false);
+  } finally {
+    await fixture.stop();
+  }
+});
+
 async function startHarness(label) {
   const temporaryRoot = await mkdtemp(join(tmpdir(), `lazygoal-${label}-`));
   const workspace = join(temporaryRoot, "workspace");
@@ -303,16 +389,43 @@ async function createGoal(socket, origin, token, intent, statusPath) {
   return { goalId: waiting.goalId, runId: waiting.currentRunId, modelCallsAtWait: status.modelCalls };
 }
 
-async function clickLabel(socket, selector, text) {
+async function clickButton(socket, text) {
   await cdp(socket, "Runtime.evaluate", {
-    expression: `[...document.querySelectorAll(${JSON.stringify(selector)})].find(label => label.innerText.includes(${JSON.stringify(text)})).querySelector('input').click()`,
+    expression: `[...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)}).click()`,
     returnByValue: true,
   });
 }
 
-async function clickButton(socket, text) {
+async function answerQuestionnaireAsHost(origin, token, goalId, inputId) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const current = await sessionDetail(origin, token, goalId);
+    if (current.interaction === undefined) return { response: { status: 409 }, body: { error: "interaction_not_waiting" } };
+    const detail = await api(origin, `/api/goals/${goalId}/interaction-details?runId=${encodeURIComponent(current.currentRunId)}&interactionId=${encodeURIComponent(current.interaction.interactionId)}`, { token });
+    assert.equal(detail.response.status, 200, JSON.stringify(detail.body));
+    const answers = detail.body.detail.questions.map((question) => ({
+      questionId: question.id,
+      optionIds: [question.options[0].id],
+    }));
+    const submitted = await api(origin, `/api/goals/${goalId}/inputs`, {
+      token,
+      method: "POST",
+      headers: { "content-type": "application/json", origin },
+      body: JSON.stringify({
+        kind: "respond",
+        inputId: `${inputId}-${attempt}`,
+        runId: current.currentRunId,
+        requestId: current.interaction.requestId,
+        response: { kind: "answer_ask_user", answers },
+      }),
+    });
+    if (submitted.response.status === 202) return submitted;
+  }
+  throw new Error("the host could not settle the questionnaire with a current identity");
+}
+
+async function clickLabel(socket, selector, text) {
   await cdp(socket, "Runtime.evaluate", {
-    expression: `[...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)}).click()`,
+    expression: `[...document.querySelectorAll(${JSON.stringify(selector)})].find(label => label.innerText.includes(${JSON.stringify(text)})).querySelector('input').click()`,
     returnByValue: true,
   });
 }
@@ -475,9 +588,14 @@ function findChrome() {
 async function connectCdp(url) {
   const socket = new WebSocket(url);
   const pending = new Map();
+  const listeners = new Map();
   let nextId = 0;
   socket.addEventListener("message", (event) => {
     const message = JSON.parse(event.data);
+    if (message.id === undefined) {
+      for (const listener of listeners.get(message.method) ?? []) listener(message.params);
+      return;
+    }
     const entry = pending.get(message.id);
     if (entry === undefined) return;
     pending.delete(message.id);
@@ -491,6 +609,11 @@ async function connectCdp(url) {
   return {
     raw: socket,
     close() { socket.close(); },
+    on(method, listener) {
+      const registered = listeners.get(method) ?? [];
+      registered.push(listener);
+      listeners.set(method, registered);
+    },
     send(method, params) {
       const id = ++nextId;
       const promise = new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
