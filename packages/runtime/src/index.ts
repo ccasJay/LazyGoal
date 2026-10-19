@@ -343,6 +343,14 @@ export type {
 } from "./session-input";
 export { SessionInputAdmission } from "./session-admission";
 export type { SessionInputAdmissionDependencies } from "./session-admission";
+export { handlerNameFor } from "./interaction-handlers";
+export type {
+    InteractionHandlerAttachResult,
+    InteractionHandlerCall,
+    InteractionHandlerHandle,
+    InteractionHandlerResult,
+    SessionInteractionHandlers,
+} from "./interaction-handlers";
 export {
     formatInteractionId,
     projectInteractionView,

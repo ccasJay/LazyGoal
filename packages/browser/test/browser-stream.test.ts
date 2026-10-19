@@ -80,6 +80,8 @@ function openFeed(store: GoalStore, publisher: InMemoryExecutionStreamPublisher,
                 ? { ok: false, code: "INTERACTION_NOT_WAITING", message: `Goal "${target}" was not found` }
                 : readInteractionDetail(goal, ref);
         },
+        attachSessionInteractionHandlers: () => ({ ok: false, code: "HANDLER_CONFLICT", message: "unused" }),
+        detachSessionInteractionHandlers: () => undefined,
         sendSessionInput: async () => ({ ok: false, code: "RUN_CONTROL_UNAVAILABLE", message: "unused" }),
         querySessionInput: async () => ({ ok: true, found: false }),
         openSessionEvents: () => stream,

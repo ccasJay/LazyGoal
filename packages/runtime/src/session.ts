@@ -17,6 +17,11 @@ import type {
     InteractionDetailResult,
     InteractionViewRef,
 } from "./interaction-view";
+import type {
+    InteractionHandlerAttachResult,
+    InteractionHandlerHandle,
+    SessionInteractionHandlers,
+} from "./interaction-handlers";
 
 /**
  * 一个输入来源的消费结果。
@@ -159,6 +164,14 @@ export interface SessionHandlePort {
     querySessionInput(goalId: string, inputId: string): Promise<SessionInputQueryResult>;
     /** 建立该句柄对整个 Goal 的输出订阅。 */
     openSessionEvents(goalId: string, sessionId: string): SessionOutputStream;
+    /** 连接按交互种类分派的自动处理器；同一 Goal 只允许一个自动所有者。 */
+    attachSessionInteractionHandlers(
+        goalId: string,
+        sessionId: string,
+        handlers: SessionInteractionHandlers,
+    ): InteractionHandlerAttachResult;
+    /** 释放该句柄持有的自动处理器连接；不影响其他句柄与 Goal。 */
+    detachSessionInteractionHandlers(goalId: string, sessionId: string): void;
     /** 顺序消费一个宿主拥有的异步输入来源。 */
     consumeSessionInputs(
         goalId: string,
@@ -192,6 +205,7 @@ export class Session {
     readonly sessionId: string;
     private readonly port: SessionHandlePort;
     private readonly streams = new Set<SessionOutputStream>();
+    private readonly handlers = new Set<InteractionHandlerHandle>();
     private detachedState = false;
 
     /**
@@ -293,6 +307,30 @@ export class Session {
     }
 
     /**
+     * 连接按交互种类分派的自动处理器。
+     *
+     * @remarks
+     * 同一 Goal 只允许一个自动所有者：已有连接时返回稳定冲突，不替换原处理器。
+     * 连接先做一致同步，再核验当前等待是否允许自动投递；本次连接之前已经存在的
+     * 历史等待不会因此被程序化回答，只有本实例新产生的等待或宿主显式恢复发现的
+     * 请求才会被投递。处理函数在短提交 Gate 外运行，结果仍作为统一 `send` 受理。
+     *
+     * @param handlers - 按种类注册的处理函数；缺少对应函数时保持等待。
+     * @returns 可解除的处理器句柄，或稳定冲突。
+     * @throws 句柄已解除连接时拒绝。
+     * @example
+     * ```ts
+     * const attached = session.attachInteractionHandlers({ onQuestion: async () => ({ kind: "unhandled" }) });
+     * ```
+     */
+    attachInteractionHandlers(handlers: SessionInteractionHandlers): InteractionHandlerAttachResult {
+        this.assertAttached();
+        const result = this.port.attachSessionInteractionHandlers(this.goalId, this.sessionId, handlers);
+        if (result.ok) this.handlers.add(result.handle);
+        return result;
+    }
+
+    /**
      * 顺序消费一个异步输入来源。
      *
      * @remarks
@@ -348,6 +386,8 @@ export class Session {
         this.detachedState = true;
         for (const stream of [...this.streams]) stream.close();
         this.streams.clear();
+        for (const handle of [...this.handlers]) handle.detach();
+        this.handlers.clear();
         this.port.detachSession(this.sessionId);
     }
 
