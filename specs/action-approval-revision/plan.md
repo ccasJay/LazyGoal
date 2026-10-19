@@ -50,7 +50,7 @@
   - **实现**：将已提交修订、批准、实际结果及来源关联接入模型上下文／请求、原生历史、只读历史查询与 Browser／Activity 安全投影；Evidence 解释统一使用最终版本，不另建完成规则。保留原 Provider 响应、系统工具调用和程序源码，按现有预算／可见性提供必要参数、差异与引用，明确截断，不公开广播完整自定义输入或敏感正文。
   - **验证**：新增 `packages/model-context/test/action-revision-context.test.ts`（待实现），扩展 `native-model-history.test.ts`、Runtime 的 `evidence-gate.test.ts`、`completion-review.test.ts`、`multi-run-context-lookup.test.ts` 和 Browser 投影测试。对当前三种模型协议经过正式解码和下一请求组装检查配对、说明、计量／截断与事实引用；运行对应 `npx tsx --test`，不能只检查一条提示文案存在。
 
-- [ ] //TODO 7. 在新 Web 审批区域完成编辑、审阅、确认和明确重执行
+- [x] //TODO 7. 在新 Web 审批区域完成编辑、审阅、确认和明确重执行
 
   落实标准：[7.1](./spec.md#spec-req-7-1)、[7.2](./spec.md#spec-req-7-2)、[7.3](./spec.md#spec-req-7-3)、[7.5](./spec.md#spec-req-7-5)、[2.4](./spec.md#spec-req-2-4)、[2.5](./spec.md#spec-req-2-5)。
   - **先验证**：真实浏览器中同一工具 JSON 编辑／校验 → 预检 → 对比原与最终参数／目标／范围 → 选择期限 → 明确确认；退出编辑不修改操作。再次编辑／换期限使旧预检失效，迟到响应不覆盖草稿，详情不完整不能确认。丢失确认回复按原身份核验，另一客户端结算或独立停止使旧操作失效；恢复视图只有明确 Retry action／拒绝，无编辑和持续授权。

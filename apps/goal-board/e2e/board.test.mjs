@@ -1074,7 +1074,7 @@ function createMockApi() {
           kind: "action_recovery",
           interactionId: "action_recovery:action-unknown",
           actionId: "action-unknown",
-          decisions: ["retry_action", "reject_action"],
+          decisions: ["retry_unknown_action", "decline_unknown_action_retry"],
           truncated: false,
         },
         pendingAction: {
@@ -1098,7 +1098,7 @@ function createMockApi() {
           kind: "action_approval",
           interactionId: "action_approval:action-1",
           actionId: "action-1",
-          decisions: ["approve_action", "reject_action"],
+          decisions: ["approve_action", "approve_action_revision", "reject_action"],
           truncated: false,
         },
         pendingAction: {

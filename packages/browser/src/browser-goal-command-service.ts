@@ -621,6 +621,7 @@ function toBrowserInteractionDetail(detail: InteractionDetail): BrowserInteracti
                 toolId: detail.toolId,
                 ...(detail.approvalKind === undefined ? {} : { approvalKind: detail.approvalKind }),
                 input: detail.input,
+                ...(detail.recoveryRef === undefined ? {} : { recoveryRef: detail.recoveryRef }),
                 ...(detail.parentProgram === undefined ? {} : { parentProgram: detail.parentProgram }),
             };
     }
