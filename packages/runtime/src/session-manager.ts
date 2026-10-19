@@ -27,6 +27,7 @@ import {
     toSessionInputReceipt,
     validateSessionInputShape,
     withQueuePause,
+    type SessionInputDigest,
     type SessionInputReceipt,
     type SessionInputRecord,
     type SessionInput,
@@ -717,13 +718,39 @@ export class SessionManager implements SessionHandlePort {
         if (status === "waiting") {
             const waiting = current.state.run.pendingInteraction !== undefined
                 || current.state.run.pendingAction !== undefined;
-            return {
-                ok: false,
-                code: waiting ? "INTERACTION_REQUIRED" : "RUN_NOT_RESUMABLE",
-                message: waiting
-                    ? `Run "${input.runId}" is waiting for a matching interaction response`
-                    : `Run "${input.runId}" is waiting for a matching interaction`,
-            };
+            if (waiting) {
+                return {
+                    ok: false,
+                    code: "INTERACTION_REQUIRED",
+                    message: `Run "${input.runId}" is waiting for a matching interaction response`,
+                };
+            }
+            // blocked 等待需要显式文本才能继续；恢复不得代答。
+            const content = input.content;
+            if (content === undefined || content.trim().length === 0) {
+                return {
+                    ok: false,
+                    code: "RUN_NOT_RESUMABLE",
+                    message: `Run "${input.runId}" is blocked and requires explicit resume content`,
+                };
+            }
+            const resumed = await this.coordinator.resume({
+                ref: { goalId, runId: input.runId },
+                action: { kind: "message", content },
+            });
+            if (!resumed.ok) {
+                return {
+                    ok: false,
+                    code: resumed.error.code === "RUN_NOT_FOUND" ? "RUN_NOT_FOUND" : "RUN_NOT_RESUMABLE",
+                    message: `Resume "${input.inputId}" was rejected: ${resumed.error.code} ${resumed.error.message}`,
+                };
+            }
+            const resumedRecord = await this.recordResumeReceipt(goalId, input, digest);
+            if (resumedRecord === undefined) {
+                return { ok: false, code: "GOAL_NOT_FOUND", message: `Goal "${goalId}" was not found` };
+            }
+            this.continueQueueIfEligible(goalId);
+            return { ok: true, existing: false, receipt: toSessionInputReceipt(goalId, resumedRecord) };
         }
         if (current.state.messageQueue?.pause !== undefined) {
             return {
@@ -741,29 +768,7 @@ export class SessionManager implements SessionHandlePort {
             };
         }
 
-        const record = await withGoalMutationGate(this.store, goalId, async () => {
-            const latest = await this.store.restore(goalId);
-            if (latest === undefined) return undefined;
-            const entry: SessionInputRecord = {
-                inputId: input.inputId,
-                kind: "resume",
-                digest,
-                sequence: nextSessionInputSequence(latest),
-                status: "applied",
-                admittedAtRevision: (latest.state.commitRevision ?? 0) + 1,
-                targetRunId: input.runId,
-                appliedRunId: latest.state.run.id,
-            };
-            const nextGoal: Goal = {
-                ...latest,
-                state: {
-                    ...latest.state,
-                    inputLedger: [...(latest.state.inputLedger ?? []), entry],
-                },
-            };
-            await this.committer.commit(nextGoal, { sessionState: "caller" });
-            return entry;
-        });
+        const record = await this.recordResumeReceipt(goalId, input, digest);
         if (record === undefined) {
             return { ok: false, code: "GOAL_NOT_FOUND", message: `Goal "${goalId}" was not found` };
         }
@@ -1022,6 +1027,40 @@ export class SessionManager implements SessionHandlePort {
                 : "waiting",
             state,
         };
+    }
+
+
+    /** 在短提交边界内为已生效的恢复命令写入账本收据。 */
+    private async recordResumeReceipt(
+        goalId: string,
+        input: Extract<SessionInput, { readonly kind: "resume" }>,
+        digest: SessionInputDigest,
+    ): Promise<SessionInputRecord | undefined> {
+        return withGoalMutationGate(this.store, goalId, async () => {
+            const latest = await this.store.restore(goalId);
+            if (latest === undefined) return undefined;
+            const existing = findSessionInputRecord(latest, input.inputId);
+            if (existing !== undefined) return existing;
+            const entry: SessionInputRecord = {
+                inputId: input.inputId,
+                kind: "resume",
+                digest,
+                sequence: nextSessionInputSequence(latest),
+                status: "applied",
+                admittedAtRevision: (latest.state.commitRevision ?? 0) + 1,
+                targetRunId: input.runId,
+                appliedRunId: latest.state.run.id,
+            };
+            const nextGoal: Goal = {
+                ...latest,
+                state: {
+                    ...latest.state,
+                    inputLedger: [...(latest.state.inputLedger ?? []), entry],
+                },
+            };
+            await this.committer.commit(nextGoal, { sessionState: "caller" });
+            return entry;
+        });
     }
 
     /** 以只读核对等待目标 Run 到达等待或终态；通知丢失由核对周期补齐。 */

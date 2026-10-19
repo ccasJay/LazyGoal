@@ -13,8 +13,10 @@ import {
     RuntimeLifecycle,
     DefaultGoalModelSelectionCoordinator,
     TrajectoryCheckpointCommitter,
+    allocateDiagnosticTraceRecord,
     readTrajectoryAtSnapshot,
     launch,
+    SessionManager,
     type AgentProfile,
     type AgentProfileRegistry,
     type GoalCatalog,
@@ -315,6 +317,22 @@ export interface RuntimeComposition {
     ): Promise<Readonly<TrajectoryReadResult>>;
     readWorkspaceModelInputs(goalId: string, runId: string): Promise<readonly import("../../../../packages/runtime/src/model-input").ModelInputRecord[]>;
     readonly checkpointStore: CheckpointGateGoalStore;
+    /**
+     * 现有无界面装配暴露的内部会话操作。
+     *
+     * @remarks
+     * 仓库内调用方通过该入口完成创建、流式交互、审批、关闭与重建恢复，不需要启动
+     * HTTP、绑定端口或手工组合 Runner。它不是对外稳定的 SDK API。
+     *
+     * @example
+     * ```ts
+     * const created = await root.sessions.create({
+     *     goalId: "goal-1", inputId: "input-1", content: "实现恢复能力", profileId: "default",
+     * });
+     * if (created.ok) await created.session.send({ kind: "message", inputId: "input-2", content: "继续" });
+     * ```
+     */
+    readonly sessions: SessionManager;
     readonly resources: ManagedResourceRegistry;
     readonly abortController: AbortController;
     readonly lifecycle: RuntimeLifecycle;
@@ -722,6 +740,34 @@ async function assembleRuntimeComposition(
         executionStream,
         runIdGenerator,
     });
+    const sessions = new SessionManager({
+        store: checkpointStore,
+        committer: checkpointCommitter,
+        coordinator: executionComponents.commands,
+        profiles,
+        runIdGenerator,
+        protocolValidator,
+        trajectoryStore,
+        traceSink,
+        alignModelBinding,
+        executionStream,
+        onBackgroundFailure: (goalId, error) => {
+            // 后台执行异常已经写入真实恢复状态；这里只保留诊断事实。
+            void traceSink.append(allocateDiagnosticTraceRecord({
+                goalId,
+                runId: "session-execution",
+                kind: "session_execution_failed",
+                payload: { reason: error instanceof Error ? error.message : String(error) },
+            })).catch(() => undefined);
+        },
+        trackBackgroundTask: (label, task) => {
+            const release = lifecycle.beginOperation(label);
+            void task.finally(() => release());
+        },
+    });
+    resources.register({
+        close: () => sessions.close({ timeoutMs: 5000 }),
+    });
     const rawCommands = executionComponents.commands;
     /** 将已受理的写操作纳入同一生命周期边界；读取保持可用，不受关闭阻塞。 */
     const runTrackedOperation = async <T>(label: string, operation: () => Promise<T>): Promise<T> => {
@@ -870,6 +916,7 @@ async function assembleRuntimeComposition(
         readWorkspaceTrajectory,
         readWorkspaceModelInputs: (goalId, runId) => new JsonFileModelInputStore(join(workspaceHomePaths.workspaceDirectory, "model-inputs")).read(goalId, runId),
         checkpointStore,
+        sessions,
         resources,
         abortController,
         lifecycle,

@@ -66,7 +66,7 @@
   - 实施目标：改造 API 与输入 Hooks，使 Session 状态成为已受理队列和调度的唯一来源；删除 `useQueue` 的自动发送、`queue-persistence` 的任务镜像及不再有效的测试，不把旧 localStorage 任务导入 Runtime。界面区分草稿、提交中、已受理、待应用与当前消息，提供明确的 Steer／Interrupt／恢复／继续操作；保留本地草稿，切换会话不让迟到响应覆盖新选择，产品文案使用英文。
   - 验证手段：`npm --prefix apps/goal-board test`、`npm run build:web`，然后 `node --test --test-concurrency=1 apps/goal-board/e2e/streaming-session.test.mjs apps/goal-board/e2e/runtime.test.mjs apps/goal-board/e2e/run-input-control.test.mjs`；真实 Chrome 检查按钮行为与页面状态，HTTP 测试不能代替 UI 断言。
 
-- [ ] //TODO 11. 从现有无界面入口贯通会话调用，并保持 CLI 和 Headless 执行语义
+- [x] //TODO 11. 从现有无界面入口贯通会话调用，并保持 CLI 和 Headless 执行语义
   - 落实标准：[1.4](./spec.md#spec-req-1-4)、[6.4](./spec.md#spec-req-6-4)、[9.4](./spec.md#spec-req-9-4)、[9.5](./spec.md#spec-req-9-5)、[9.6](./spec.md#spec-req-9-6)。
   - 先验证：扩展现有 `apps/goal-server/test/execution-composition.test.ts`、`runtime-composition.integration.test.ts`、`runtime-recovery.integration.test.ts` 和 `benchmarks/test/headless-composition-root.test.ts`，通过真实入口运行文本生成器、工具、问答／审批、关闭与重建；CLI 启动／信号与退出测试保持，不产生额外模型调用、端口绑定或第二条执行链。
   - 实施目标：在现有 runtime 目录入口暴露 `sessions`，补齐仓库内最小调用示例并由组合根消费；Headless 的单次运行与观察复用 Runtime 会话能力，保持原装配位置、环境、工具、预算和评分边界，不迁包或重写 Benchmark。更新 Runtime、Storage、Execution Stream、Browser、Goal Server、Goal Board 及实际受影响 Headless 说明与语义表；按现有脚本增量约束新目录／入口，示例不得依赖未导出的 Runner 或构建产物。

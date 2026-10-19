@@ -84,6 +84,13 @@ export type SessionInput =
         readonly inputId: string;
         readonly runId: string;
         readonly commitRevision: number;
+        /**
+         * 解除 blocked 等待所需的显式文本。
+         *
+         * @remarks 仅当 Run 处于无问答／审批的 blocked 等待时使用；恢复不得代答，
+         * 该文本会作为真实用户消息提交，成为继续执行的显式指令。
+         */
+        readonly content?: string | undefined;
     }
     | {
         readonly kind: "queue_control";
