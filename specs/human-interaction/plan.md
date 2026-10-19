@@ -64,7 +64,7 @@
   - **实现**：补齐共用交互提交状态机与 API 适配，区分编辑、提交中、待核验、已受理及失效，冻结结果不明的载荷而保留独立 Interrupt。按完整请求引用隔离页面草稿和详情、处理迟到网络读取、响应竞争与刷新错误，已提交请求／决定在 Activity 中留可查摘要。移除被替换的旧 interaction 分发，不重新引入 Browser 去重或前端权威队列。
   - **验证**：新增 `apps/goal-board/test/interaction-submit-state.test.ts`（待实现），扩展真实浏览器用例及 `packages/browser/test/browser-interactions.test.ts`、`browser-stream.test.ts`；通过双页面／显式宿主、响应丢弃和提交通知故障注入核验。运行对应前端、Browser 靶向检查与新 Chrome E2E，直接检查收据、消息数、作用 Run、实际工具次数及 localStorage 没有答案／完整参数镜像。
 
-- [ ] //TODO 9. 通过正式装配交付无界面示例、全链路验收与职责文档
+- [x] //TODO 9. 通过正式装配交付无界面示例、全链路验收与职责文档
 
   落实标准：[4.2](./spec.md#spec-req-4-2)、[4.6](./spec.md#spec-req-4-6)、[7.1](./spec.md#spec-req-7-1)、[7.2](./spec.md#spec-req-7-2)、[7.3](./spec.md#spec-req-7-3)、[7.4](./spec.md#spec-req-7-4)。
   - **先验证**：由现有 `apps/goal-server/src/runtime/index.ts` 装配真实文件存储与确定性模型／工具，在不启动 HTTP 或绑定信号的宿主中完成处理器决定、真人接手、解除连接及重建显式恢复；Web 使用同一执行和权限路径。检查仅导出类型、替换为假的 HTTP 后端、或保留旧表单推进路径不能满足验收。

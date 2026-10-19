@@ -8,7 +8,7 @@
 | BrowserGoalCommandService | 未迁入统一 inputs 入口的管理命令（Plan Mode、模型选择、Action 详情、授权与权限模式、终态管理前置检查）到 Runtime 的适配。 | [浏览器服务边界](../README.md) | [模块说明](./overview.md) |
 | BrowserGoalSessionPort | Browser 委派 Runtime 会话所有者的窄端口：创建、统一输入、收据查询、安全状态与 Goal 事件；Browser 不持有账本、队列、执行名额或后台推进。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
 | Task approval route projection | Plan Run 审批等待点中的完整候选阶段顺序与验收条件。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
-| Interaction view projection | 当前等待的类型化摘要：种类、稳定 `interactionId`、可用决定与字段级截断标记；正文仍由既有等待投影承载。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
+| Interaction view projection | 当前等待的类型化摘要：种类、稳定 `interactionId`、可用决定与字段级截断标记；完整请求正文由交互详情读取按同一引用提供，不在会话摘要中复制。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Interaction details route | 按当前 Goal／Run／交互引用读取完整问题、任务范围或 Action 输入；不匹配返回稳定错误且不推进等待。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
 | Approved Plan route projection | 当前获批 Plan Run 的 Snapshot 权威完整路线及其 Runtime 状态；普通 Run 省略。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Safe live activity projection | 白名单公开的 Goal 范围 SSE 活动、`state_sync`／`input_result` 与 ExecutionStream 来源身份；与 Trajectory 标识空间分离。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |

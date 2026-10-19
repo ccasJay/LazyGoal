@@ -67,6 +67,39 @@ class AskUserAdapter implements LLMAdapter {
     }
 }
 
+/** 连续提出三张问卷，之后进入 blocked 等待；用于交互处理端口用例。 */
+class RepeatingAskUserAdapter implements LLMAdapter {
+    readonly provider = "openai";
+    readonly structuredOutputMode = "strict" as const;
+    modelId = "model-runtime-composition";
+    readonly calls: LLMRequest[] = [];
+
+    async generate(request: LLMRequest): Promise<LLMResponse> {
+        this.calls.push(request);
+        if (this.calls.length <= 3) {
+            return toolCallResponse({
+                callId: "fixture-ask-user",
+                toolId: "ask_user",
+                argumentsJson: JSON.stringify({
+                    questions: [
+                        {
+                            header: `继续方式 ${this.calls.length}`,
+                            question: "Which path should be taken?",
+                            options: [{ label: "Path A" }, { label: "Path B" }],
+                            multiSelect: false,
+                        },
+                    ],
+                }),
+            });
+        }
+        return toolCallResponse({
+            callId: "fixture-wait",
+            toolId: "system_wait_for_input",
+            argumentsJson: JSON.stringify({ reason: "等待用户确认" }),
+        });
+    }
+}
+
 function readFileTool(): Tool {
     return {
         definition: {
@@ -362,6 +395,181 @@ test("在途权限、模型与归档删除操作参与关闭结算，关闭后�
     }
 });
 
+test("目录入口的交互端口完成程序化决定、真人接手与重建后显式恢复", async () => {
+    const fixture = await setupFixture();
+    const adapter = new RepeatingAskUserAdapter();
+    const runtime = await createRuntimeComposition({
+        cwd: fixture.workspace,
+        env: { LAZYGOAL_HOME: fixture.home } as NodeJS.ProcessEnv,
+        dataDirectory: fixture.dataDirectory,
+        adapter,
+        profile,
+        toolRegistry: new InMemoryToolRegistry([]),
+    });
+    const goalId = "goal-interaction-port";
+
+    try {
+        const created = await runtime.sessions.create({
+            goalId,
+            inputId: "port-input-1",
+            content: "通过交互端口处理问答",
+            profileId: profile.id,
+        });
+        assert.equal(created.ok, true);
+        // 等待第一个问卷成为已提交的历史等待。
+        await waitForCondition(async () => (await runtime.interactions.read(goalId))?.kind === "question");
+        await runtime.sessions.waitForIdle();
+        assert.equal((await runtime.interactions.read(goalId))?.kind, "question");
+
+        // 连接前已有的历史等待不会被自动回答。
+        const handledIds: string[] = [];
+        const attached = await runtime.interactions.attach(goalId, {
+            onQuestion: async ({ request, readDetail }) => {
+                handledIds.push(request.interactionId);
+                if (handledIds.length > 1 || request.kind !== "question") return { kind: "unhandled" };
+                const detail = await readDetail();
+                if (!detail.ok || detail.detail.kind !== "question") return { kind: "unhandled" };
+                return {
+                    kind: "respond",
+                    response: {
+                        kind: "answer_ask_user",
+                        answers: detail.detail.questions.map((question) => ({
+                            questionId: question.id,
+                            optionIds: [question.options[0]!.id],
+                        })),
+                    },
+                };
+            },
+        });
+        assert.equal(attached.ok, true);
+        if (!attached.ok) return;
+        await runtime.sessions.waitForIdle();
+        assert.deepEqual(handledIds, [], "attaching never answers a historical wait");
+        assert.equal(adapter.calls.length, 1);
+
+        // 显式恢复只解锁当前历史请求，不代替真人回答；处理函数随后按统一 send 提交。
+        const opened = await runtime.sessions.open(goalId);
+        assert.equal(opened.ok, true);
+        if (!opened.ok) return;
+        const resumed = await opened.session.send({
+            kind: "resume",
+            inputId: "port-resume-1",
+            runId: opened.state.runId,
+            commitRevision: opened.state.commitRevision,
+        });
+        assert.equal(resumed.ok, false);
+        assert.equal(resumed.ok ? undefined : resumed.code, "INTERACTION_REQUIRED");
+        await waitForCondition(() => handledIds.length === 1 && adapter.calls.length === 2);
+        await runtime.sessions.waitForIdle();
+        assert.equal(handledIds.length, 1, "explicit resume unlocks exactly the current wait");
+        assert.equal(adapter.calls.length, 2, "the programmatic decision continues the same Run");
+
+        await waitForCondition(async () => (await runtime.workspaceGoalStore.restore(goalId))?.state.run.status === "waiting");
+        const saved = await runtime.workspaceGoalStore.restore(goalId);
+        assert.ok(saved);
+        assert.equal(saved.state.run.status, "waiting");
+        assert.equal(
+            saved.state.messages.some((message) => message.role === "user" && message.content.includes("Answer: Path A")),
+            true,
+            "the handler decision is committed as a real model-visible answer",
+        );
+
+        // 真人接手：第二个等待由宿主显式响应，处理函数不重复调用。
+        await waitForCondition(async () => (await runtime.interactions.read(goalId))?.kind === "question");
+        const waiting = await runtime.interactions.read(goalId);
+        assert.equal(waiting?.kind, "question");
+        if (waiting === undefined || waiting.kind !== "question") return;
+        const human = await opened.session.send({
+            kind: "respond",
+            inputId: "port-human-1",
+            runId: waiting.runId,
+            requestId: waiting.requestId,
+            response: { kind: "skip_question" },
+        });
+        assert.equal(human.ok, true);
+        // 每个等待至多投递一次；同一请求不会因未处理结果反复调用。
+        assert.equal(new Set(handledIds).size, handledIds.length, "each wait is delivered to the handler at most once");
+        await waitForCondition(async () => {
+            const next = await runtime.interactions.read(goalId);
+            return next !== undefined && next.interactionId !== waiting.interactionId;
+        });
+        const nextWait = await runtime.interactions.read(goalId);
+        assert.notEqual(nextWait?.interactionId, waiting.interactionId, "the settled wait is never re-delivered");
+        assert.equal(new Set(handledIds).size, handledIds.length);
+        await waitForCondition(async () => (await runtime.workspaceGoalStore.restore(goalId))?.state.messages
+            .some((message) => message.role === "user" && message.content.includes("did not answer")) === true);
+        const afterHuman = await runtime.workspaceGoalStore.restore(goalId);
+        assert.equal(
+            afterHuman?.state.messages.some((message) => message.role === "user" && message.content.includes("did not answer")),
+            true,
+            "the human skip is committed as an explicit control message",
+        );
+
+        // 第二次连接同一 Goal 被拒绝；解除后可以重新连接。
+        const conflict = await runtime.interactions.attach(goalId, {});
+        assert.deepEqual(conflict.ok ? undefined : conflict.code, "HANDLER_CONFLICT");
+        attached.handle.detach();
+        assert.equal(attached.handle.detached, true);
+        const reattached = await runtime.interactions.attach(goalId, {});
+        assert.equal(reattached.ok, true);
+        reattached.ok && reattached.handle.detach();
+    } finally {
+        await runtime.lifecycle.close();
+    }
+
+    // 重建实例：只读连接不推进，显式恢复才允许已注册处理器处理历史等待。
+    const rebuiltAdapter = new RepeatingAskUserAdapter();
+    const rebuilt = await createRuntimeComposition({
+        cwd: fixture.workspace,
+        env: { LAZYGOAL_HOME: fixture.home } as NodeJS.ProcessEnv,
+        dataDirectory: fixture.dataDirectory,
+        adapter: rebuiltAdapter,
+        profile,
+        toolRegistry: new InMemoryToolRegistry([]),
+    });
+    try {
+        let rebuiltHandled = 0;
+        const attached = await rebuilt.interactions.attach(goalId, {
+            onQuestion: async ({ readDetail }) => {
+                rebuiltHandled += 1;
+                const detail = await readDetail();
+                if (!detail.ok || detail.detail.kind !== "question") return { kind: "unhandled" };
+                return {
+                    kind: "respond",
+                    response: {
+                        kind: "answer_ask_user",
+                        answers: detail.detail.questions.map((question) => ({
+                            questionId: question.id,
+                            optionIds: [question.options[0]!.id],
+                        })),
+                    },
+                };
+            },
+        });
+        assert.equal(attached.ok, true);
+        if (!attached.ok) return;
+        assert.equal(rebuiltAdapter.calls.length, 0, "打开与注册不调用模型");
+        assert.equal(rebuiltHandled, 0, "重建后的历史等待不会被自动回答");
+        const opened = await rebuilt.sessions.open(goalId);
+        assert.equal(opened.ok, true);
+        if (!opened.ok) return;
+        const resumed = await opened.session.send({
+            kind: "resume",
+            inputId: "port-resume-2",
+            runId: opened.state.runId,
+            commitRevision: opened.state.commitRevision,
+        });
+        assert.equal(resumed.ok ? undefined : resumed.code, "INTERACTION_REQUIRED");
+        await waitForCondition(() => rebuiltHandled === 1);
+        await rebuilt.sessions.waitForIdle();
+        assert.equal(rebuiltHandled, 1, "显式恢复后重新投递仍未结算的历史等待");
+        attached.handle.detach();
+    } finally {
+        await rebuilt.lifecycle.close();
+    }
+    await fixture.cleanup();
+});
+
 test("目录入口暴露的 sessions 完成创建、流式交互、问答、关闭与重建恢复", async () => {
     const fixture = await setupFixture();
     const adapter = new AskUserAdapter();
@@ -478,3 +686,11 @@ test("目录入口暴露的 sessions 完成创建、流式交互、问答、关�
     }
     await fixture.cleanup();
 });
+
+/** 有界等待宿主处理函数完成；处理调用在提交 Gate 外异步运行。 */
+async function waitForCondition(predicate: () => boolean | Promise<boolean>, timeoutMs = 5_000): Promise<void> {
+    const startedAt = Date.now();
+    while (!(await predicate()) && Date.now() - startedAt < timeoutMs) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+}

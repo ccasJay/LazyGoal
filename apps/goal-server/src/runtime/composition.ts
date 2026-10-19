@@ -17,6 +17,10 @@ import {
     readTrajectoryAtSnapshot,
     launch,
     SessionManager,
+    type GoalInteractionView,
+    type InteractionHandlerAttachOptions,
+    type InteractionHandlerAttachResult,
+    type SessionInteractionHandlers,
     type AgentProfile,
     type AgentProfileRegistry,
     type GoalCatalog,
@@ -281,6 +285,42 @@ export interface RuntimeCompositionOptions {
     readonly providerProfiles?: readonly ProviderProfile[];
 }
 
+/**
+ * 无界面宿主可用的交互接入端口。
+ *
+ * @remarks
+ * `attach` 打开（或复用）指定 Goal 的 Runtime 会话并注册按交互种类分派的处理函数；
+ * 历史等待不会因此被自动回答，只有本实例新产生的等待或宿主显式恢复发现的请求才会
+ * 投递。`read` 只读读取当前等待的类型化视图，不推进状态。解除句柄不取消 Goal。
+ *
+ * @example
+ * ```ts
+ * const attached = await root.interactions.attach("goal-1", { onTaskApproval: async () => ({ kind: "unhandled" }) });
+ * ```
+ */
+export interface RuntimeInteractionPort {
+    /**
+     * 打开 Goal 会话并注册交互处理器。
+     *
+     * @param goalId - 目标 Goal 的稳定标识。
+     * @param handlers - 按交互种类注册的处理函数。
+     * @param options - 可选的故障报告回调。
+     * @returns 已连接句柄，或会话不可用、已有自动所有者时的稳定拒绝。
+     */
+    attach(
+        goalId: string,
+        handlers: SessionInteractionHandlers,
+        options?: InteractionHandlerAttachOptions,
+    ): Promise<InteractionHandlerAttachResult>;
+    /**
+     * 只读读取当前等待的类型化视图。
+     *
+     * @param goalId - 目标 Goal 的稳定标识。
+     * @returns 当前等待视图；Goal 缺失或没有可决定等待时返回 `undefined`。
+     */
+    read(goalId: string): Promise<GoalInteractionView | undefined>;
+}
+
 export interface RuntimeComposition {
     readonly workspaceRoot: string;
     readonly workspaceHomeDirectory: string;
@@ -361,6 +401,23 @@ export interface RuntimeComposition {
      * ```
      */
     readonly sessions: SessionManager;
+    /**
+     * 无界面宿主接入会话交互处理器的窄入口。
+     *
+     * @remarks
+     * 只做「打开 Goal 会话 → 注册处理器」与只读等待视图读取，不暴露 SessionManager
+     * 内部对象，也不需要启动 HTTP 或绑定进程信号。处理器结果仍按统一 `send`
+     * 受理，受既有身份、授权与提交规则约束；同一 Goal 只允许一个自动所有者。
+     *
+     * @example
+     * ```ts
+     * const attached = await root.interactions.attach("goal-1", {
+     *     onQuestion: async () => ({ kind: "respond", response: { kind: "skip_question" } }),
+     * });
+     * if (!attached.ok) console.error(attached.code);
+     * ```
+     */
+    readonly interactions: RuntimeInteractionPort;
     readonly resources: ManagedResourceRegistry;
     readonly abortController: AbortController;
     readonly lifecycle: RuntimeLifecycle;
@@ -963,6 +1020,16 @@ async function assembleRuntimeComposition(
         readWorkspaceModelInputs: (goalId, runId) => new JsonFileModelInputStore(join(workspaceHomePaths.workspaceDirectory, "model-inputs")).read(goalId, runId),
         checkpointStore,
         sessions,
+        interactions: {
+            attach: async (goalId, handlers, options) => {
+                const opened = await runTrackedOperation("interaction-attach", () => sessions.open(goalId));
+                if (!opened.ok) {
+                    return { ok: false, code: "SESSION_DETACHED", message: opened.error.message };
+                }
+                return opened.session.attachInteractionHandlers(handlers, options);
+            },
+            read: (goalId) => sessions.readSessionInteraction(goalId),
+        },
         resources,
         abortController,
         lifecycle,

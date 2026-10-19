@@ -8,8 +8,10 @@
 | Settings page | 侧栏底部进入 Provider 管理页，切换时保留当前会话。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx)、[模块说明](./overview.md) |
 | Session view | 从服务读取的会话视图；刷新失败保留已保存内容与草稿，并暂停提交。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
 | 输出速率展示 | 显示已结束模型调用的端到端输出速率；在调用完成事实更新后刷新。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
-| Pending interaction | 等待用户处理的当前请求。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
-| 提案阶段路线 | 批准前显示 Plan Run 的完整候选阶段及各自验收条件。 | [Goal Board](../README.md) | [审批卡片](../src/panels.tsx) |
+| 交互区域 | 按已提交等待种类分派的统一决定区：问答导航与审阅、任务范围审阅、工具能力与期限、未知结果恢复；替换旧三套表单。 | [Goal Board](../README.md) | [InteractionRegion](../src/interaction-panel.tsx) |
+| 交互提交状态 | 编辑、提交中、待核验、已受理与失效的页面状态机；结果不明时冻结原身份与载荷，只允许核验或原身份重试。 | [Goal Board](../README.md) | [interaction-state.ts](../src/interaction-state.ts) |
+| 交互详情读取 | 按当前 Goal／Run／交互引用读取完整问题、任务范围或 Action 输入；失败保留等待并禁用依赖完整范围的决定。 | [浏览器服务边界](../../../packages/browser/README.md) | [交互详情路由](../../../packages/browser/src/browser-goal-routes.ts) |
+| 提案阶段路线 | 批准前显示 Plan Run 的完整候选阶段及各自验收条件。 | [Goal Board](../README.md) | [任务审批视图](../src/interaction-panel.tsx) |
 | 获批 Run 路线 | Activity 时间线上独立呈现 Plan Run 当前完整阶段顺序、状态与验收条件。 | [Goal Board](../README.md) | [PlanRouteList](../src/components/PlanRouteList.tsx) |
 | ActivityGroup | 从相邻且相关的真实调用派生的可展开展示组；不持久化且不影响 Runtime。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
 | Live Activity | 当前 Run 的短期公开活动；按来源身份去重并通过 Action ID 对齐已提交步骤。 | [Goal Board](../README.md) | [useRunStream](../src/hooks/useRunStream.ts) |
