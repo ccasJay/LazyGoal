@@ -105,7 +105,7 @@ test("匹配已有 active 持续授权时直接放行 (source: grant)", async ()
             scope: "goal",
             workspaceId: "ws-1",
             goalId: "goal-1",
-            source: { goalId: "goal-1", runId: "run-1", actionId: "act-1" },
+            source: { goalId: "goal-1", runId: "run-1", actionId: "act-1", approvalInputId: "input-1" },
             matcher,
             status: "active",
         };
@@ -143,7 +143,7 @@ test("pending 或 revoked 状态的 Grant 不能用于放行，仍须审批", as
             id: "grant-pending",
             scope: "workspace",
             workspaceId: "ws-1",
-            source: { goalId: "goal-1", runId: "run-1", actionId: "act-1" },
+            source: { goalId: "goal-1", runId: "run-1", actionId: "act-1", approvalInputId: "input-1" },
             matcher,
             status: "pending",
         };
@@ -167,7 +167,7 @@ test("pending 或 revoked 状态的 Grant 不能用于放行，仍须审批", as
             id: "grant-revoked",
             scope: "workspace",
             workspaceId: "ws-1",
-            source: { goalId: "goal-1", runId: "run-1", actionId: "act-1" },
+            source: { goalId: "goal-1", runId: "run-1", actionId: "act-1", approvalInputId: "input-1" },
             matcher,
             status: "revoked",
         };
@@ -198,7 +198,7 @@ test("不同 bash 命令不得共用授权", async () => {
             id: "grant-git-status",
             scope: "workspace",
             workspaceId: "ws-1",
-            source: { goalId: "goal-1", runId: "run-1", actionId: "act-1" },
+            source: { goalId: "goal-1", runId: "run-1", actionId: "act-1", approvalInputId: "input-1" },
             matcher: matcherA,
             status: "active",
         });
@@ -235,7 +235,7 @@ test("write_file 对同一目标路径的不同内容可以复用 target_path �
             scope: "goal",
             workspaceId: "ws-1",
             goalId: "goal-1",
-            source: { goalId: "goal-1", runId: "run-1", actionId: "act-1" },
+            source: { goalId: "goal-1", runId: "run-1", actionId: "act-1", approvalInputId: "input-1" },
             matcher: matcherFirst,
             status: "active",
         });

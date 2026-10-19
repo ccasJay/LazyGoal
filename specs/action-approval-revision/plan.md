@@ -22,7 +22,7 @@
   - **实现**：扩展现有 Coordinator、transition、当前 Snapshot／Trajectory 契约和执行版本选择入口，保存原请求到最终版本的关联、批准来源／种类与输入收据。确认时重算审阅、在基础短提交中冻结版本，再唤醒执行；直接准备、调用、沙箱计划及结果关联统一取最终版本。修订结算后清除直接批次未开始项，不把它们记作已执行；不覆盖原暂存事实、不为版本更换逻辑 Action ID。
   - **验证**：新增 `packages/runtime/test/action-approval-revision.test.ts`（待实现），扩展 `goal-coordinator.test.ts`、`transition.test.ts`、`packages/storage/test/goal-snapshot-interaction.test.ts` 和 `action-observation-recovery.test.ts`；运行对应 `npx tsx --test`，直接检查受控工具捕获的输入、原事实及最终 Snapshot，而非只断言 approved 状态。
 
-- [ ] //TODO 3. 让持续授权绑定最终版本并支持批准保存失败后的新决定
+- [x] //TODO 3. 让持续授权绑定最终版本并支持批准保存失败后的新决定
 
   落实标准：[3.2](./spec.md#spec-req-3-2)、[3.3](./spec.md#spec-req-3-3)、[3.4](./spec.md#spec-req-3-4)、[3.5](./spec.md#spec-req-3-5)、[3.6](./spec.md#spec-req-3-6)。
   - **先验证**：修订参数后选择 Goal／工作区授权，检查 matcher 和实际执行版本一致；单次批准无 Grant。Grant 已暂存而批准保存失败后，换参数或期限并使用新决定身份不会被旧 pending 阻塞；旧记录不可匹配或激活，相同决定重试复用自身记录。批准保存后激活失败／重启，可恢复激活精确引用；篡改来源／最终输入／能力范围时拒绝执行。

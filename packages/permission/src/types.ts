@@ -123,6 +123,13 @@ export interface ToolGrant {
         readonly goalId: string;
         readonly runId: string;
         readonly actionId: string;
+        /**
+         * 批准该授权的稳定决定身份。
+         *
+         * @remarks 同一 Action 的不同决定（如修订参数或更换期限）拥有不同身份，
+         * 因此可以各自暂存；只有被已提交批准引用的一条会被激活。
+         */
+        readonly approvalInputId: string;
     };
     readonly matcher: ToolGrantMatcher;
     readonly status: GrantStatus;
@@ -155,7 +162,8 @@ export interface ToolGrantLookup {
  * 支持审批事务与授权管理的持久化 Tool Grant 存储端口。
  *
  * @remarks
- * 同一来源 Action 的重复 `stage` 必须幂等；相同来源但期限或匹配器不同属于冲突。
+ * 同一来源 Action 与同一决定身份的重复 `stage` 必须幂等；相同来源但期限或匹配器
+ * 不同属于冲突。不同决定身份可以各自暂存一条 pending 记录。
  * `pending` 记录不得被查询为授权，只有 Coordinator 在 Goal 批准快照提交后才能激活。
  *
  * @example
@@ -474,6 +482,13 @@ export interface SandboxGrant {
         readonly goalId: string;
         readonly runId: string;
         readonly actionId: string;
+        /**
+         * 批准该授权的稳定决定身份。
+         *
+         * @remarks 同一 Action 的不同决定（如修订参数或更换期限）拥有不同身份，
+         * 因此可以各自暂存；只有被已提交批准引用的一条会被激活。
+         */
+        readonly approvalInputId: string;
     };
     readonly matcher: SandboxGrantMatcher;
     readonly status: GrantStatus;
@@ -506,7 +521,8 @@ export interface SandboxGrantLookup {
  * 支持审批事务与授权管理的持久化 Sandbox Grant 存储端口。
  *
  * @remarks
- * 同一来源 Action 的重复 `stage` 必须幂等；相同来源但期限或匹配器不同属于冲突。
+ * 同一来源 Action 与同一决定身份的重复 `stage` 必须幂等；相同来源但期限或匹配器
+ * 不同属于冲突。不同决定身份可以各自暂存一条 pending 记录。
  * `pending` 记录不得被查询为授权，只有 Coordinator 在 Goal 批准快照提交后才能激活。
  *
  * @example

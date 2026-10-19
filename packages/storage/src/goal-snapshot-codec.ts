@@ -609,6 +609,9 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                             ...(run.pendingAction.effectiveSandboxScope === undefined
                                 ? {}
                                 : { effectiveSandboxScope: structuredClone(run.pendingAction.effectiveSandboxScope) }),
+                            ...(run.pendingAction.approvalInputId === undefined
+                                ? {}
+                                : { approvalInputId: run.pendingAction.approvalInputId }),
                             ...(run.pendingAction.executionVersion === undefined
                                 ? {}
                                 : { executionVersion: encodeExecutionVersion(run.pendingAction.executionVersion) }),
@@ -959,6 +962,7 @@ function decodePendingAction(pendingAction: GoalSnapshotPendingActionV1): Pendin
         ...(pendingAction.grantId === undefined ? {} : { grantId: pendingAction.grantId }),
         ...(pendingAction.approvalKind === undefined ? {} : { approvalKind: pendingAction.approvalKind }),
         ...(pendingAction.effectiveSandboxScope === undefined ? {} : { effectiveSandboxScope: structuredClone(pendingAction.effectiveSandboxScope) }),
+        ...(pendingAction.approvalInputId === undefined ? {} : { approvalInputId: pendingAction.approvalInputId }),
         ...(pendingAction.executionVersion === undefined ? {} : { executionVersion: decodeExecutionVersion(pendingAction.executionVersion) }),
         ...(pendingAction.recoveryRef === undefined ? {} : { recoveryRef: pendingAction.recoveryRef }),
     };

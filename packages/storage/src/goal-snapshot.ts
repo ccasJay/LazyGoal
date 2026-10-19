@@ -340,6 +340,8 @@ export interface GoalSnapshotPendingActionV1 {
         }[];
         readonly network: "none" | "all_outbound";
     };
+    /** 批准该 Action 的稳定决定身份；持续授权按该身份暂存与激活。 */
+    readonly approvalInputId?: string;
     /** 已获批 Action 的最终执行版本；未修订的批准省略。 */
     readonly executionVersion?: GoalSnapshotExecutionVersionV1;
     /** 结果未知等待的恢复身份；跨重启稳定。 */
@@ -1139,6 +1141,7 @@ const PendingActionSchema = z.object({
         }).strict()),
         network: z.enum(["none", "all_outbound"]),
     }).strict().optional(),
+    approvalInputId: NonEmptyStringSchema.optional(),
     executionVersion: ExecutionVersionSchema.optional(),
     recoveryRef: NonEmptyStringSchema.optional(),
 }).strict().superRefine((pending, context) => {

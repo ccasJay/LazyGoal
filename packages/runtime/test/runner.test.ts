@@ -2019,7 +2019,7 @@ test("Runner 在 Policy 要求审批时允许匹配的 workspace Grant 放行同
         id: "grant-1",
         scope: "workspace",
         workspaceId: "workspace-1",
-        source: { goalId: "goal-old", runId: "run-old", actionId: "action-old" },
+        source: { goalId: "goal-old", runId: "run-old", actionId: "action-old", approvalInputId: "input-1" },
         matcher,
         status: "active",
     };

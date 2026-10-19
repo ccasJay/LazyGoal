@@ -639,6 +639,13 @@ export interface PendingAction {
      */
     readonly executionVersion?: import("./action-approval").ActionExecutionVersion;
     /**
+     * 批准该 Action 的稳定决定身份。
+     *
+     * @remarks 与持续授权账本的 Grant 来源使用同一身份；只有被该批准引用的一条
+     * 暂存授权会被激活。
+     */
+    readonly approvalInputId?: string;
+    /**
      * 结果未知等待的恢复身份。
      *
      * @remarks 由本次已提交尝试派生，跨重启稳定；同一 Action 再次产生未知结果时
@@ -1178,6 +1185,8 @@ export type RunInput =
         readonly actionId: string;
         readonly approvalScope?: "action" | "goal" | "workspace";
         readonly grantId?: string;
+        /** 批准决定的稳定身份；省略时由 Coordinator 按批准内容派生。 */
+        readonly approvalInputId?: string;
     }
     | {
         /**
@@ -1190,6 +1199,8 @@ export type RunInput =
         readonly actionId: string;
         readonly approvalScope?: "action" | "goal" | "workspace";
         readonly grantId?: string;
+        /** 批准决定的稳定身份；省略时由 Coordinator 按批准内容派生。 */
+        readonly approvalInputId?: string;
         readonly executionVersion: import("./action-approval").ActionExecutionVersion;
         /** 修订后重新计算的规范化沙箱范围；省略时沿用暂存时的范围。 */
         readonly effectiveSandboxScope?: EffectiveSandboxScope;

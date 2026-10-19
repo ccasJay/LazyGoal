@@ -246,6 +246,42 @@ export function computeActionApprovalReviewRef(input: {
 }
 
 /**
+ * 计算批准决定的稳定身份。
+ *
+ * @remarks
+ * 同一决定（同一 Action、期限与最终参数）拥有同一身份，因此重复提交复用同一条
+ * 暂存授权；不同决定（例如修订参数或更换期限）拥有不同身份，可以各自暂存。
+ * 会话入口优先使用会话输入身份，宿主直接调用时使用本函数的派生值。
+ *
+ * @param input - 参与身份计算的批准内容。
+ * @returns 稳定的批准决定身份。
+ * @example
+ * ```ts
+ * const id = computeApprovalInputId({
+ *     actionId: "action-1", toolId: "write_file",
+ *     scope: "action", finalInput: { path: "b.txt" },
+ * });
+ * ```
+ */
+export function computeApprovalInputId(input: {
+    readonly actionId: string;
+    readonly toolId: string;
+    readonly scope: ActionApprovalScope;
+    readonly finalInput: JsonValue;
+}): string {
+    const payload = canonicalize({
+        actionId: input.actionId,
+        toolId: input.toolId,
+        scope: input.scope,
+        finalInput: input.finalInput,
+    });
+    return `approval:${createHash("sha256")
+        .update(JSON.stringify(payload), "utf8")
+        .digest("hex")
+        .slice(0, 32)}`;
+}
+
+/**
  * 计算当前待处理 Action 的有效恢复身份。
  *
  * @remarks

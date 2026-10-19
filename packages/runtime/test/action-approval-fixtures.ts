@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,16 +13,29 @@ import {
 } from "../../tool-core/src/index";
 import {
     createGoal as createUnexposedGoal,
+    GoalCoordinator,
+    InlineScheduler,
+    Runner,
     transition,
     type AgentProfile,
+    type DecideStageResult,
     type Goal,
     type JsonValue,
+    type RunRef,
+    type RunScheduler,
+    type RunnerResult,
     type RunState,
+    type StepExecutor,
     type ToolCallAction,
     type ToolPolicy,
 } from "../src/index";
 import { InMemoryGoalStore, JsonFileSandboxGrantStore, JsonFileToolGrantStore } from "../../storage/src/index";
-import { currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import {
+    currentProtocols,
+    InMemoryTrajectoryStore,
+    trajectoryStoreFor,
+    withDiscoveredProfileTools,
+} from "./current-fixtures";
 
 /** 受控写入 Tool 的输入契约；字段级错误由 Tool Contract 负责。 */
 export const WRITE_INPUT_CONTRACT = contract.object({
@@ -199,6 +213,92 @@ export function createExecutingApprovalGoal(
             run: started.state,
         },
     };
+}
+
+/**
+ * 创建一个只把已批准 Action 结算为完成的调度器。
+ *
+ * @remarks 用于不需要真实模型与 Tool 的审批事务测试：调度后 Run 直接进入终态。
+ */
+export function createCompletingScheduler(store: {
+    restore(goalId: string): Promise<Goal | undefined>;
+    save(goal: Goal): Promise<void>;
+}): RunScheduler {
+    return {
+        async schedule(ref: RunRef): Promise<RunnerResult> {
+            const goal = await store.restore(ref.goalId);
+            if (goal === undefined) {
+                return { ok: false, error: { code: "RUN_NOT_FOUND", message: "Goal was not found" } };
+            }
+            const { pendingAction: _settled, ...rest } = goal.state.run;
+            const completed: Goal = {
+                ...goal,
+                state: {
+                    ...goal.state,
+                    run: {
+                        ...rest,
+                        status: "completed",
+                        stepCount: goal.state.run.stepCount + 1,
+                    },
+                },
+            };
+            await store.save(completed);
+            return { ok: true, state: completed.state.run };
+        },
+    };
+}
+
+/**
+ * 创建一个执行真实 Runner 的审批 Coordinator。
+ *
+ * @remarks 默认模型决策直接完成任务，便于断言审批后的真实执行与终态。
+ */
+export function createApprovalCoordinator(
+    fixture: ApprovalFixture,
+    options: {
+        readonly decisions?: readonly DecideStageResult[];
+        readonly store?: { restore(goalId: string): Promise<Goal | undefined>; save(goal: Goal): Promise<void> };
+    } = {},
+): { readonly coordinator: GoalCoordinator; readonly runner: Runner; readonly trajectoryStore: InMemoryTrajectoryStore } {
+    const decisions = options.decisions ?? [{
+        kind: "decision",
+        decision: { kind: "complete", summary: "done", completionEvidence: [] },
+    }];
+    let index = 0;
+    const executor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" as const }; },
+        async decide(): Promise<DecideStageResult> {
+            const decision = decisions[Math.min(index, decisions.length - 1)];
+            index += 1;
+            assert.ok(decision !== undefined);
+            return decision;
+        },
+        async think(): Promise<never> {
+            throw new Error("Unexpected Think call");
+        },
+    };
+    const store = options.store ?? fixture.store;
+    const trajectoryStore = trajectoryStoreFor(store);
+    const runner = new Runner({
+        store,
+        trajectoryStore,
+        executor,
+        toolRegistry: fixture.registry,
+        toolPolicy: REQUIRE_APPROVAL_POLICY,
+        workspaceRoot: fixture.workspaceRoot,
+        workspaceId: "ws-1",
+    });
+    const coordinator = new GoalCoordinator({
+        store,
+        trajectoryStore,
+        scheduler: new InlineScheduler(runner),
+        toolRegistry: fixture.registry,
+        toolGrantStore: fixture.toolGrantStore,
+        sandboxGrantStore: fixture.sandboxGrantStore,
+        workspaceId: "ws-1",
+        workspaceRoot: fixture.workspaceRoot,
+    });
+    return { coordinator, runner, trajectoryStore };
 }
 
 export { trajectoryStoreFor };

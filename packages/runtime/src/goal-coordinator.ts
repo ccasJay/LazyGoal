@@ -37,6 +37,8 @@ import { transition } from "./transition";
 import { createRunPlanRoute, reviseRunPlanExecution } from "./run-plan";
 import {
     computeActionApprovalReviewRef,
+    computeApprovalInputId,
+    resolveActionExecutionAction,
     resolveActionRecoveryRef,
     type ActionApprovalCapability,
     type ActionApprovalReview,
@@ -229,7 +231,18 @@ export type GoalUserAction =
     }
     | { readonly kind: "reply_to_question"; readonly requestId: string; readonly content: string }
     | { readonly kind: "skip_question"; readonly requestId: string }
-    | { readonly kind: "approve_action"; readonly actionId: string; readonly scope?: "action" | ToolGrantScope }
+    | {
+        readonly kind: "approve_action";
+        readonly actionId: string;
+        readonly scope?: "action" | ToolGrantScope;
+        /**
+         * 批准决定的稳定身份。
+         *
+         * @remarks 会话入口使用会话输入身份；省略时由 Coordinator 按批准内容派生，
+         * 保证同一决定重试复用同一条暂存授权。
+         */
+        readonly approvalInputId?: string;
+    }
     | {
         /**
          * 批准同一工具的修订参数版本。
@@ -242,6 +255,8 @@ export type GoalUserAction =
         readonly input: JsonValue;
         readonly scope?: "action" | ToolGrantScope;
         readonly reviewRef: string;
+        /** 批准决定的稳定身份；省略时由 Coordinator 按批准内容派生。 */
+        readonly approvalInputId?: string;
     }
     | {
         /**
@@ -1200,6 +1215,7 @@ export class GoalCoordinator {
         pendingAction: NonNullable<Goal["state"]["run"]["pendingAction"]>,
         finalInput: JsonValue,
         approvalScope: "goal" | "workspace",
+        approvalInputId: string,
         control?: ExecutionControl,
     ): Promise<{ readonly ok: true; readonly grantId: string } | { readonly ok: false; readonly message: string }> {
         if (this.workspaceId === undefined) {
@@ -1224,6 +1240,7 @@ export class GoalCoordinator {
                     goalId: goal.id,
                     runId: goal.state.run.id,
                     actionId: pendingAction.action.actionId,
+                    approvalInputId,
                 },
                 matcher,
             });
@@ -1254,6 +1271,7 @@ export class GoalCoordinator {
                 goalId: goal.id,
                 runId: goal.state.run.id,
                 actionId: pendingAction.action.actionId,
+                approvalInputId,
             },
             matcher,
         });
@@ -1716,6 +1734,14 @@ export class GoalCoordinator {
                     );
                 }
 
+                const approvalInputId = request.action.approvalInputId
+                    ?? computeApprovalInputId({
+                        actionId: pendingAction.action.actionId,
+                        toolId: pendingAction.action.toolId,
+                        scope: approvalScope,
+                        finalInput: pendingAction.action.input,
+                    });
+
                 let grantId: string | undefined;
                 if (approvalScope !== "action") {
                     const staged = await this.stageApprovalGrant(
@@ -1723,6 +1749,7 @@ export class GoalCoordinator {
                         pendingAction,
                         pendingAction.action.input,
                         approvalScope,
+                        approvalInputId,
                         control,
                     );
                     if (!staged.ok) return this.invalidGoalInput(staged.message);
@@ -1734,6 +1761,7 @@ export class GoalCoordinator {
                     actionId: request.action.actionId,
                     approvalScope,
                     ...(grantId === undefined ? {} : { grantId }),
+                    approvalInputId,
                 });
 
                 if (!approvedRun.ok) {
@@ -1761,6 +1789,7 @@ export class GoalCoordinator {
                         actionId: request.action.actionId,
                         approvalScope,
                         ...(grantId === undefined ? {} : { grantId }),
+                        approvalInputId,
                     },
                 }, control);
                 await this.saveCheckpoint(approvedGoal, control);
@@ -1836,6 +1865,14 @@ export class GoalCoordinator {
                     ? "sandbox" as const
                     : pendingAction.approvalKind;
 
+                const approvalInputId = request.action.approvalInputId
+                    ?? computeApprovalInputId({
+                        actionId: pendingAction.action.actionId,
+                        toolId: pendingAction.action.toolId,
+                        scope: approvalScope,
+                        finalInput: prepared.finalInput,
+                    });
+
                 let grantId: string | undefined;
                 if (approvalScope !== "action") {
                     const staged = await this.stageApprovalGrant(
@@ -1845,6 +1882,7 @@ export class GoalCoordinator {
                             : { ...pendingAction, approvalKind },
                         prepared.finalInput,
                         approvalScope,
+                        approvalInputId,
                         control,
                     );
                     if (!staged.ok) return this.invalidGoalInput(staged.message);
@@ -1870,6 +1908,7 @@ export class GoalCoordinator {
                     actionId: request.action.actionId,
                     approvalScope,
                     ...(grantId === undefined ? {} : { grantId }),
+                    approvalInputId,
                     executionVersion,
                     effectiveSandboxScope: prepared.effectiveSandboxScope,
                     ...(approvalKind === undefined ? {} : { approvalKind }),
@@ -1908,6 +1947,7 @@ export class GoalCoordinator {
                         finalInput: structuredClone(prepared.finalInput),
                         approvalScope,
                         ...(grantId === undefined ? {} : { grantId }),
+                        approvalInputId,
                         ...(invalidatedBatchActionIds.length === 0
                             ? {}
                             : { invalidatedBatchActionIds }),
@@ -2467,11 +2507,17 @@ export class GoalCoordinator {
         ) {
             throw new Error("Approved Action references an unavailable Grant store");
         }
+        if (pending.approvalInputId === undefined) {
+            throw new Error("Approved Action does not carry its approval decision identity");
+        }
         const source = {
             goalId: goal.id,
             runId: goal.state.run.id,
             actionId: pending.action.actionId,
+            approvalInputId: pending.approvalInputId,
         };
+        // 授权复核必须针对实际获批版本：修订后的最终参数与能力范围。
+        const executionAction = resolveActionExecutionAction(pending);
 
         if (pending.approvalKind === "sandbox") {
             if (this.sandboxGrantStore === undefined) {
@@ -2493,8 +2539,8 @@ export class GoalCoordinator {
             }
             const effectiveScope = pending.effectiveSandboxScope ?? { extraFiles: [], network: "none" };
             const matcher = createSandboxGrantMatcher(
-                pending.action.toolId,
-                pending.action.input,
+                executionAction.toolId,
+                executionAction.input,
                 effectiveScope,
             );
             if (
@@ -2525,11 +2571,11 @@ export class GoalCoordinator {
         ) {
             throw new Error("Approved Action Grant does not match the committed Goal identity");
         }
-        const registration = this.toolRegistry.get(pending.action.toolId);
+        const registration = this.toolRegistry.get(executionAction.toolId);
         if (registration === undefined) throw new Error("Approved Action Tool is no longer registered");
-        const prepared = registration.prepare(pending.action.input);
+        const prepared = registration.prepare(executionAction.input);
         if (!prepared.ok) throw new Error("Approved Action Tool input is no longer valid");
-        const matcher = await createToolGrantMatcher(pending.action.toolId, prepared.input, this.workspaceRoot);
+        const matcher = await createToolGrantMatcher(executionAction.toolId, prepared.input, this.workspaceRoot);
         if (!toolGrantMatchersEqual(grant.matcher, matcher)) {
             throw new Error("Approved Action Grant matcher does not match the committed Tool input");
         }

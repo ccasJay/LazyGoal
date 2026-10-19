@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import {
+    computeApprovalInputId,
     computeContentHash,
     createGoal as createUnexposedGoal,
     createStepExecutor,
@@ -541,6 +542,12 @@ test("saves Action approval before scheduling the matching transient authorizati
             action: waiting.state.run.pendingAction?.action,
             status: "approved",
             approvalScope: "action",
+            approvalInputId: computeApprovalInputId({
+                actionId: "action-approval",
+                toolId: "read_file",
+                scope: "action",
+                finalInput: { path: "README.md" },
+            }),
         });
 
         const observedRun = applyRunTransition(approved.state.run, {
@@ -687,13 +694,13 @@ test("Coordinator lists only the current Goal grants and commits revocation", as
             scope: "goal",
             goalId: waiting.id,
             workspaceId: "workspace-1",
-            source: { goalId: waiting.id, runId: "earlier-run", actionId: "goal-action" },
+            source: { goalId: waiting.id, runId: "earlier-run", actionId: "goal-action", approvalInputId: "input-1" },
             matcher,
         });
         const workspaceGrant = await ledger.stage({
             scope: "workspace",
             workspaceId: "workspace-1",
-            source: { goalId: "another-goal", runId: "another-run", actionId: "workspace-action" },
+            source: { goalId: "another-goal", runId: "another-run", actionId: "workspace-action", approvalInputId: "input-1" },
             matcher,
         });
         await ledger.activate(goalGrant.id, goalGrant.source);

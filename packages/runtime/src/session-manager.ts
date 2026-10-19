@@ -112,10 +112,16 @@ export interface SessionCreateRequest {
     readonly modelSelection?: GoalModelSelection | undefined;
 }
 
-/** 把会话交互回答映射为既有 Coordinator 用户操作；不改变安全与授权规则。 */
+/**
+ * 把会话交互回答映射为既有 Coordinator 用户操作；不改变安全与授权规则。
+ *
+ * @remarks 批准类决定携带会话输入身份，作为持续授权的稳定批准身份；同一输入重试
+ * 复用同一条暂存授权，不同输入对应不同决定。
+ */
 function toGoalUserAction(
     response: SessionInteractionResponse,
     requestId: string,
+    approvalInputId?: string,
 ): GoalUserAction {
     switch (response.kind) {
         case "answer_ask_user":
@@ -133,6 +139,7 @@ function toGoalUserAction(
                 kind: "approve_action",
                 actionId: response.actionId,
                 ...(response.scope === undefined ? {} : { scope: response.scope }),
+                ...(approvalInputId === undefined ? {} : { approvalInputId }),
             };
         case "approve_action_revision":
             return {
@@ -141,6 +148,7 @@ function toGoalUserAction(
                 input: response.input,
                 reviewRef: response.reviewRef,
                 ...(response.scope === undefined ? {} : { scope: response.scope }),
+                ...(approvalInputId === undefined ? {} : { approvalInputId }),
             };
         case "retry_unknown_action":
             return {
@@ -799,7 +807,7 @@ export class SessionManager implements SessionHandlePort {
         const identity = this.verifyInteractionIdentity(current, input);
         if (identity !== undefined) return identity;
 
-        const action = toGoalUserAction(input.response, input.requestId);
+        const action = toGoalUserAction(input.response, input.requestId, input.inputId);
         const result = await this.coordinator.resume(
             { ref: { goalId, runId: input.runId }, action },
         );

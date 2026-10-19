@@ -171,6 +171,7 @@ export { transition } from "./transition";
 export {
     computeActionApprovalReviewRef,
     computeActionRecoveryRef,
+    computeApprovalInputId,
     isRevisablePendingAction,
     projectSandboxTargetPaths,
     resolveActionExecutionAction,

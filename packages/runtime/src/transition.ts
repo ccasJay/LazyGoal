@@ -679,6 +679,7 @@ export function transition(
                             status: "approved",
                             approvalScope,
                             ...(input.grantId === undefined ? {} : { grantId: input.grantId }),
+                            ...(input.approvalInputId === undefined ? {} : { approvalInputId: input.approvalInputId }),
                             ...(pendingAction.approvalKind === undefined ? {} : { approvalKind: pendingAction.approvalKind }),
                             ...(pendingAction.effectiveSandboxScope === undefined ? {} : { effectiveSandboxScope: pendingAction.effectiveSandboxScope }),
                         },
@@ -739,6 +740,7 @@ export function transition(
                             status: "approved",
                             approvalScope,
                             ...(input.grantId === undefined ? {} : { grantId: input.grantId }),
+                            ...(input.approvalInputId === undefined ? {} : { approvalInputId: input.approvalInputId }),
                             ...(input.approvalKind === undefined
                                 ? (pendingAction.approvalKind === undefined ? {} : { approvalKind: pendingAction.approvalKind })
                                 : { approvalKind: input.approvalKind }),

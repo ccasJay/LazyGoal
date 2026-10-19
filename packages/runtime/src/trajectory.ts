@@ -306,6 +306,8 @@ export type TrajectoryEventPayload =
         readonly actionId: string;
         readonly approvalScope?: "action" | "goal" | "workspace";
         readonly grantId?: string;
+        /** 批准决定的稳定身份；持续授权按该身份暂存与激活。 */
+        readonly approvalInputId?: string;
     }
     | {
         /**
@@ -321,6 +323,8 @@ export type TrajectoryEventPayload =
         readonly finalInput: JsonValue;
         readonly approvalScope?: "action" | "goal" | "workspace";
         readonly grantId?: string;
+        /** 批准决定的稳定身份；持续授权按该身份暂存与激活。 */
+        readonly approvalInputId?: string;
         /** 因修订而失效的同批次未开始 Action 身份。 */
         readonly invalidatedBatchActionIds?: readonly string[];
     }
@@ -1025,7 +1029,7 @@ function assertPayload(payload: unknown, eventType: unknown): void {
     }
 
     if (eventType === "action_approved") {
-        if (Object.keys(payload).some((key) => !["type", "actionId", "approvalScope", "grantId"].includes(key))) {
+        if (Object.keys(payload).some((key) => !["type", "actionId", "approvalScope", "grantId", "approvalInputId"].includes(key))) {
             throw new TrajectoryProtocolError("action_approved contains unknown fields");
         }
         assertNonEmptyString(payload.actionId, "action_approved.actionId");
@@ -1047,7 +1051,7 @@ function assertPayload(payload: unknown, eventType: unknown): void {
     if (eventType === "action_revised") {
         if (Object.keys(payload).some((key) => ![
             "type", "actionId", "reviewRef", "originalInput", "finalInput", "approvalScope", "grantId",
-            "invalidatedBatchActionIds",
+            "approvalInputId", "invalidatedBatchActionIds",
         ].includes(key))) {
             throw new TrajectoryProtocolError("action_revised contains unknown fields");
         }
