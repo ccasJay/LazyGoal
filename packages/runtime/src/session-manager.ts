@@ -19,6 +19,13 @@ import {
     type SessionManagerErrorCode,
 } from "./session";
 import { SessionInputAdmission, type SessionInputAdmissionDependencies } from "./session-admission";
+import {
+    projectInteractionView,
+    readInteractionDetail,
+    type GoalInteractionView,
+    type InteractionDetailResult,
+    type InteractionViewRef,
+} from "./interaction-view";
 import type { GoalUserAction } from "./goal-coordinator";
 import {
     computeSessionInputDigest,
@@ -525,6 +532,55 @@ export class SessionManager implements SessionHandlePort {
         const goal = await this.store.restore(goalId);
         if (goal === undefined) return undefined;
         return projectGoalSessionState({ goal, executionOwner: this.activeGoalId === goalId });
+    }
+
+    /**
+     * 读取指定 Goal 当前已提交等待的类型化交互视图。
+     *
+     * @remarks 只读取最新快照；重复同步、重连与多客户端读取都得到同一
+     * `interactionId`，不会因读取创建交互或推进执行。
+     *
+     * @param goalId - 目标 Goal。
+     * @returns 类型化交互视图；没有可决定等待或 Goal 不存在时返回 `undefined`。
+     * @throws 快照损坏或读取失败时抛出异常。
+     * @example
+     * ```ts
+     * const view = await sessions.readSessionInteraction("goal-1");
+     * ```
+     */
+    async readSessionInteraction(goalId: string): Promise<GoalInteractionView | undefined> {
+        const goal = await this.store.restore(goalId);
+        return goal === undefined ? undefined : projectInteractionView(goal);
+    }
+
+    /**
+     * 按稳定引用读取当前交互的完整审阅内容。
+     *
+     * @remarks 引用必须同时匹配当前 Run 与当前等待身份；过期引用返回稳定拒绝，
+     * 读取不推进等待、不调用模型或工具、也不返回其他 Action 的输入。
+     *
+     * @param goalId - 目标 Goal。
+     * @param ref - 调用方保存的 Run 与交互引用。
+     * @returns 完整审阅内容，或引用不匹配的稳定拒绝。
+     * @throws 快照损坏或读取失败时抛出异常。
+     * @example
+     * ```ts
+     * const detail = await sessions.readSessionInteractionDetail("goal-1", ref);
+     * ```
+     */
+    async readSessionInteractionDetail(
+        goalId: string,
+        ref: InteractionViewRef,
+    ): Promise<InteractionDetailResult> {
+        const goal = await this.store.restore(goalId);
+        if (goal === undefined) {
+            return {
+                ok: false,
+                code: "INTERACTION_NOT_WAITING",
+                message: `Goal "${goalId}" was not found`,
+            };
+        }
+        return readInteractionDetail(goal, ref);
     }
 
     /**

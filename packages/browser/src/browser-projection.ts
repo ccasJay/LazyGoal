@@ -11,6 +11,7 @@ import type {
     TrajectoryReadQuery,
     TrajectoryReadResult,
 } from "../../runtime/src/index";
+import { projectInteractionView } from "../../runtime/src/index";
 import {
     NETWORK_ALL_OUTBOUND_NOTICE,
     type EffectiveSandboxReview,
@@ -20,6 +21,7 @@ import type {
     BrowserGoalListItem,
     BrowserGoalPlan,
     BrowserGoalSession,
+    BrowserInteractionView,
     BrowserPendingAction,
     BrowserPendingInteraction,
     BrowserSessionMessage,
@@ -36,6 +38,7 @@ export type {
     BrowserGoalListItem,
     BrowserGoalPlan,
     BrowserGoalSession,
+    BrowserInteractionView,
     BrowserPendingAction,
     BrowserPendingInteraction,
     BrowserSessionMessage,
@@ -200,7 +203,8 @@ export async function readBrowserGoalSession(
         historyTruncated = true;
     }
 
-    const pendingInteraction = projectPendingInteraction(currentRun.pendingInteraction);
+    const pending = projectPendingInteraction(currentRun.pendingInteraction);
+    const pendingInteraction = pending?.interaction;
     const pendingSteers = (currentRun.steerInputs ?? [])
         .filter((input): input is Extract<NonNullable<Goal["state"]["run"]["steerInputs"]>[number], { readonly status: "pending" }> => input.status === "pending")
         .map(({ messageId, content }) => ({ messageId, content: boundedText(content, MAX_MESSAGE_LENGTH) }));
@@ -210,6 +214,8 @@ export async function readBrowserGoalSession(
     const pendingAction = currentRun.pendingAction === undefined
         ? undefined
         : projectPendingAction(currentRun.pendingAction, currentRun.pendingProgram);
+    const interaction = projectBrowserInteractionView(goal, pending?.truncated === true
+        || (pendingAction?.inputPreviewTruncated ?? false));
     const goalPlan = goal.state.goalPlan === undefined
         ? undefined
         : projectGoalPlan(goal.state.goalPlan);
@@ -246,6 +252,7 @@ export async function readBrowserGoalSession(
         runs: projectedRuns,
         ...(goalPlan === undefined ? {} : { goalPlan }),
         ...(pendingInteraction === undefined ? {} : { pendingInteraction }),
+        ...(interaction === undefined ? {} : { interaction }),
         ...(pendingAction === undefined ? {} : { pendingAction }),
         historyTruncated,
     };
@@ -721,52 +728,94 @@ function projectRunTerminalDetail(
     return {};
 }
 
+function projectBrowserInteractionView(
+    goal: Goal,
+    truncatedDisplay: boolean,
+): BrowserInteractionView | undefined {
+    const view = projectInteractionView(goal);
+    if (view === undefined) return undefined;
+    return {
+        goalId: view.goalId,
+        runId: view.runId,
+        kind: view.kind,
+        interactionId: view.interactionId,
+        ...(view.kind === "question" || view.kind === "task_approval"
+            ? { requestId: view.requestId }
+            : { actionId: view.actionId }),
+        decisions: view.decisions,
+        truncated: truncatedDisplay,
+    };
+}
+
 function projectPendingInteraction(
     pending: Goal["state"]["run"]["pendingInteraction"],
-): BrowserPendingInteraction | undefined {
+): { readonly interaction: BrowserPendingInteraction; readonly truncated: boolean } | undefined {
     if (pending === undefined) return undefined;
     if (pending.kind === "ask_user") {
+        const routeRevision = pending.routeRevision;
+        const truncated = pending.questions.some((question) =>
+            exceeds(question.header, 500)
+            || exceeds(question.question, 2_000)
+            || question.options.some((option) => exceeds(option.label, 500)
+                || (option.description !== undefined && exceeds(option.description, 1_000))))
+            || (routeRevision !== undefined && (
+                exceeds(routeRevision.approvalRequest, 1_000)
+                || exceeds(routeRevision.reason, 1_000)
+                || routeRevision.candidate.stages.some((stage) => exceeds(stage.target, 1_000)
+                    || stage.acceptanceCriteria.some((criterion) => exceeds(criterion, 500)))));
         return {
-            kind: "ask_user",
-            requestId: pending.requestId,
-            mode: pending.mode,
-            ...(pending.routeRevision === undefined ? {} : {
-                routeRevision: {
-                    approvalRequest: boundedText(pending.routeRevision.approvalRequest, 1_000),
-                    reason: boundedText(pending.routeRevision.reason, 1_000),
-                    route: pending.routeRevision.candidate.stages.map((stage): BrowserPlanRouteStage => ({
-                        target: boundedText(stage.target, 1_000),
-                        acceptanceCriteria: stage.acceptanceCriteria.map((criterion) => boundedText(criterion, 500)),
+            truncated,
+            interaction: {
+                kind: "ask_user",
+                requestId: pending.requestId,
+                mode: pending.mode,
+                ...(pending.routeRevision === undefined ? {} : {
+                    routeRevision: {
+                        approvalRequest: boundedText(pending.routeRevision.approvalRequest, 1_000),
+                        reason: boundedText(pending.routeRevision.reason, 1_000),
+                        route: pending.routeRevision.candidate.stages.map((stage): BrowserPlanRouteStage => ({
+                            target: boundedText(stage.target, 1_000),
+                            acceptanceCriteria: stage.acceptanceCriteria.map((criterion) => boundedText(criterion, 500)),
+                        })),
+                    },
+                }),
+                questions: pending.questions.map((question) => ({
+                    id: question.id,
+                    header: boundedText(question.header, 500),
+                    question: boundedText(question.question, 2_000),
+                    multiSelect: question.multiSelect,
+                    options: question.options.map((option) => ({
+                        id: option.id,
+                        label: boundedText(option.label, 500),
+                        ...(option.description === undefined
+                            ? {}
+                            : { description: boundedText(option.description, 1_000) }),
                     })),
-                },
-            }),
-            questions: pending.questions.map((question) => ({
-                id: question.id,
-                header: boundedText(question.header, 500),
-                question: boundedText(question.question, 2_000),
-                multiSelect: question.multiSelect,
-                options: question.options.map((option) => ({
-                    id: option.id,
-                    label: boundedText(option.label, 500),
-                    ...(option.description === undefined
-                        ? {}
-                        : { description: boundedText(option.description, 1_000) }),
                 })),
-            })),
+            },
         };
     }
+    const truncated = exceeds(pending.proposal.objective, 2_000)
+        || exceeds(pending.approvalRequest, 1_000)
+        || pending.proposal.completionCriteria.length > 32
+        || pending.proposal.completionCriteria.some((criterion) => exceeds(criterion.text, 1_000))
+        || pending.planRouteCandidate.stages.some((stage) => exceeds(stage.target, 1_000)
+            || stage.acceptanceCriteria.some((criterion) => exceeds(criterion, 500)));
     return {
-        kind: "task_approval",
-        requestId: pending.requestId,
-        objective: boundedText(pending.proposal.objective, 2_000),
-        approvalRequest: boundedText(pending.approvalRequest, 1_000),
-        completionCriteria: pending.proposal.completionCriteria
-            .slice(0, 32)
-            .map((criterion) => boundedText(criterion.text, 1_000)),
-        planRoute: pending.planRouteCandidate.stages.map((stage): BrowserPlanRouteStage => ({
-            target: boundedText(stage.target, 1_000),
-            acceptanceCriteria: stage.acceptanceCriteria.map((criterion) => boundedText(criterion, 500)),
-        })),
+        truncated,
+        interaction: {
+            kind: "task_approval",
+            requestId: pending.requestId,
+            objective: boundedText(pending.proposal.objective, 2_000),
+            approvalRequest: boundedText(pending.approvalRequest, 1_000),
+            completionCriteria: pending.proposal.completionCriteria
+                .slice(0, 32)
+                .map((criterion) => boundedText(criterion.text, 1_000)),
+            planRoute: pending.planRouteCandidate.stages.map((stage): BrowserPlanRouteStage => ({
+                target: boundedText(stage.target, 1_000),
+                acceptanceCriteria: stage.acceptanceCriteria.map((criterion) => boundedText(criterion, 500)),
+            })),
+        },
     };
 }
 
@@ -866,6 +915,10 @@ function findCompletedRunForMessage(
 function boundedText(value: string, maxLength: number): string {
     if (value.length <= maxLength) return value;
     return `${value.slice(0, maxLength)}…`;
+}
+
+function exceeds(value: string, maxLength: number): boolean {
+    return value.length > maxLength;
 }
 
 function isJsonObject(value: JsonValue): value is JsonObject {

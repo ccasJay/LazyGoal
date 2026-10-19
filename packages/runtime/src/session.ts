@@ -12,6 +12,11 @@ import type {
     SessionQueuePauseReason,
 } from "./session-input";
 import type { SessionInputOutcome, SessionOutputStream } from "./session-stream";
+import type {
+    GoalInteractionView,
+    InteractionDetailResult,
+    InteractionViewRef,
+} from "./interaction-view";
 
 /**
  * 一个输入来源的消费结果。
@@ -135,6 +140,13 @@ export interface GoalSessionState {
 export interface SessionHandlePort {
     /** 读取 Goal 的最新安全会话投影。 */
     readSessionState(goalId: string): Promise<GoalSessionState | undefined>;
+    /** 按最新快照派生当前类型化交互视图。 */
+    readSessionInteraction(goalId: string): Promise<GoalInteractionView | undefined>;
+    /** 按稳定引用读取当前交互的完整审阅内容。 */
+    readSessionInteractionDetail(
+        goalId: string,
+        ref: InteractionViewRef,
+    ): Promise<InteractionDetailResult>;
     /** 受理解析一条会话输入。 */
     sendSessionInput(goalId: string, input: SessionInput): Promise<SessionInputAdmissionResult>;
     /** 按身份查询持久化输入收据。 */
@@ -205,6 +217,40 @@ export class Session {
     async read(): Promise<GoalSessionState | undefined> {
         this.assertAttached();
         return this.port.readSessionState(this.goalId);
+    }
+
+    /**
+     * 读取当前已提交等待的类型化交互视图。
+     *
+     * @remarks 只读取最新快照派生的身份、种类与可用决定，不触发执行；重复同步
+     * 或重连得到相同 `interactionId`。
+     *
+     * @returns 当前交互视图；没有可决定等待时返回 `undefined`。
+     * @throws 句柄已解除连接或快照读取失败时抛出异常。
+     * @example
+     * ```ts
+     * const view = await session.interaction();
+     * ```
+     */
+    async interaction(): Promise<GoalInteractionView | undefined> {
+        this.assertAttached();
+        return this.port.readSessionInteraction(this.goalId);
+    }
+
+    /**
+     * 按稳定引用读取当前交互的完整审阅内容。
+     *
+     * @param ref - 调用方保存的 Run 与交互引用。
+     * @returns 完整内容，或引用与当前等待不匹配的稳定拒绝。
+     * @throws 句柄已解除连接或快照读取失败时抛出异常。
+     * @example
+     * ```ts
+     * const detail = await session.interactionDetail({ runId: "run-1", interactionId: "question:ask-1" });
+     * ```
+     */
+    async interactionDetail(ref: InteractionViewRef): Promise<InteractionDetailResult> {
+        this.assertAttached();
+        return this.port.readSessionInteractionDetail(this.goalId, ref);
     }
 
     /**

@@ -5,6 +5,8 @@ import {
     createGoal,
     GoalSessionStream,
     projectGoalSessionState,
+    projectInteractionView,
+    readInteractionDetail,
     Session,
     type Goal,
     type GoalStore,
@@ -67,6 +69,16 @@ function openFeed(store: GoalStore, publisher: InMemoryExecutionStreamPublisher,
         readSessionState: async (target) => {
             const goal = await store.restore(target);
             return goal === undefined ? undefined : projectGoalSessionState({ goal, executionOwner: true });
+        },
+        readSessionInteraction: async (target) => {
+            const goal = await store.restore(target);
+            return goal === undefined ? undefined : projectInteractionView(goal);
+        },
+        readSessionInteractionDetail: async (target, ref) => {
+            const goal = await store.restore(target);
+            return goal === undefined
+                ? { ok: false, code: "INTERACTION_NOT_WAITING", message: `Goal "${target}" was not found` }
+                : readInteractionDetail(goal, ref);
         },
         sendSessionInput: async () => ({ ok: false, code: "RUN_CONTROL_UNAVAILABLE", message: "unused" }),
         querySessionInput: async () => ({ ok: true, found: false }),

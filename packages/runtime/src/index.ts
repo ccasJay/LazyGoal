@@ -344,6 +344,19 @@ export type {
 export { SessionInputAdmission } from "./session-admission";
 export type { SessionInputAdmissionDependencies } from "./session-admission";
 export {
+    formatInteractionId,
+    projectInteractionView,
+    readInteractionDetail,
+} from "./interaction-view";
+export type {
+    GoalInteractionView,
+    InteractionDecision,
+    InteractionDetail,
+    InteractionDetailResult,
+    InteractionViewKind,
+    InteractionViewRef,
+} from "./interaction-view";
+export {
     Session,
     SessionDetachedError,
     projectGoalSessionState,

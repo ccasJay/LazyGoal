@@ -22,6 +22,11 @@ export {
     type BrowserToolGrantExtraFile,
     type BrowserSandboxReview,
     type BrowserPendingAction,
+    type BrowserInteractionKind,
+    type BrowserInteractionDecision,
+    type BrowserInteractionView,
+    type BrowserInteractionDetail,
+    type BrowserInteractionDetailResult,
     type BrowserGoalSession,
 } from "./session";
 
@@ -135,6 +140,8 @@ export {
     isGoalPlan,
     isPendingInteraction,
     isPendingAction,
+    isBrowserInteractionView,
+    isBrowserInteractionDetailResult,
     isBrowserGoalSession,
     isGoalSessionEnvelope,
     isModelCatalog,

@@ -9,6 +9,7 @@ import type {
     BrowserModelSelectionCommand,
     BrowserModelSelectionResult,
     BrowserActionDetailsResult,
+    BrowserInteractionDetailResult,
     BrowserToolGrantResult,
     BrowserToolGrantRevokeCommand,
     BrowserPermissionModeCommand,
@@ -184,6 +185,13 @@ export interface BrowserGoalApiPort {
     selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<BrowserModelSelectionResult>;
     /** 精确读取当前等待 Action 的完整输入；普通会话投影不携带此数据。 */
     readActionDetails?(goalId: string, runId: string, actionId: string): Promise<BrowserActionDetailsResult>;
+    /**
+     * 按稳定交互引用读取当前等待的完整审阅内容。
+     *
+     * @remarks 引用必须同时匹配当前 Run 与当前等待；读取不推进状态，也不返回
+     * 其他 Action 的参数。省略时详情路由返回 500 `interaction_details_unavailable`。
+     */
+    readInteractionDetails?(goalId: string, runId: string, interactionId: string): Promise<BrowserInteractionDetailResult>;
     /** 列出当前 Goal 与 workspace 的授权摘要。 */
     listToolGrants?(goalId: string, runId: string): Promise<BrowserToolGrantResult>;
     /** 撤销当前 Goal 或 workspace 的指定授权。 */
@@ -413,6 +421,26 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
                     : 409;
             return context.json({ error: result.error }, status);
         } catch { return context.json({ error: "action_details_unavailable" }, 500); }
+    });
+
+    routes.get("/api/goals/:goalId/interaction-details", async (context) => {
+        if (source.readInteractionDetails === undefined) {
+            return context.json({ error: "interaction_details_unavailable" }, 500);
+        }
+        const goalId = context.req.param("goalId");
+        const runId = context.req.query("runId");
+        const interactionId = context.req.query("interactionId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || !isWireId(runId, 256) || !isWireInteractionId(interactionId, 512)) {
+            return context.json({ error: "invalid_interaction_details_request" }, 400);
+        }
+        try {
+            const result = await source.readInteractionDetails(goalId, runId, interactionId);
+            if (result.ok) return context.json(result);
+            const status = result.error === "goal_not_found" ? 404
+                : result.error === "interaction_details_unavailable" ? 500
+                    : 409;
+            return context.json({ error: result.error }, status);
+        } catch { return context.json({ error: "interaction_details_unavailable" }, 500); }
     });
 
     routes.get("/api/goals/:goalId/grants", async (context) => {
@@ -1153,6 +1181,14 @@ function isWireId(value: unknown, maximumLength: number): value is string {
         && value.length > 0
         && value.length <= maximumLength
         && /^[A-Za-z0-9_-]+$/.test(value);
+}
+
+/** 交互引用是 `种类:等待身份` 的稳定键：种类与身份各自受限于 wire id 字符集。 */
+function isWireInteractionId(value: unknown, maximumLength: number): value is string {
+    if (typeof value !== "string" || value.length === 0 || value.length > maximumLength) return false;
+    const separator = value.indexOf(":");
+    if (separator <= 0 || separator === value.length - 1) return false;
+    return isWireId(value.slice(0, separator), 64) && isWireId(value.slice(separator + 1), 256);
 }
 
 function createEventStreamResponse(

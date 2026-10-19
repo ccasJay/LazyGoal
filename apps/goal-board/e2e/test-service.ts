@@ -275,6 +275,7 @@ root.httpService.mount("/", createBrowserGoalRoutes({
         return { ok: true, modelId };
     },
     selectModel: (goalId, command) => commands.selectModel(goalId, command),
+    readInteractionDetails: (goalId, runId, interactionId) => commands.readInteractionDetails(goalId, runId, interactionId),
 }));
 root.httpService.mount("/", createBrowserTrajectoryRoutes(root.workspaceGoalStore, root.readWorkspaceTrajectory));
 root.httpService.mount("/", createBrowserModelInputRoutes(root.workspaceGoalStore, (goalId, runId) => new JsonFileModelInputStore(resolve(dataDirectory, "model-inputs")).read(goalId, runId)));

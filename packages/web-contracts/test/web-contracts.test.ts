@@ -9,6 +9,8 @@ import {
     isBrowserSessionInputResult,
     isBrowserSessionState,
     isBrowserGoalSession,
+    isBrowserInteractionDetailResult,
+    isBrowserInteractionView,
     isBrowserRun,
     isGoalList,
     isGoalListItem,
@@ -124,6 +126,92 @@ test("isBrowserGoalSession validates complete and malformed sessions", () => {
     assert.equal(isBrowserGoalSession({ ...validSession, currentRunMode: "other" }), false);
     assert.equal(isBrowserGoalSession({ ...validSession, runs: "not-array" }), false);
     assert.equal(isGoalSessionEnvelope({ goal: null }), false);
+});
+
+
+test("isBrowserInteractionView validates identity, decisions and truncation flags", () => {
+    const question = {
+        goalId: "goal-1",
+        runId: "run-1",
+        kind: "question",
+        interactionId: "question:ask-1",
+        requestId: "ask-1",
+        decisions: ["answer_questions", "reply_to_question", "skip_question"],
+        truncated: false,
+    };
+    assert.equal(isBrowserInteractionView(question), true);
+    assert.equal(isBrowserInteractionView({ ...question, truncated: "no" }), false);
+    assert.equal(isBrowserInteractionView({ ...question, interactionId: "" }), false);
+    assert.equal(isBrowserInteractionView({ ...question, decisions: [] }), false);
+    assert.equal(isBrowserInteractionView({ ...question, decisions: ["approve_task"] }), false);
+    assert.equal(isBrowserInteractionView({ ...question, actionId: "act-1" }), false);
+
+    const recovery = {
+        goalId: "goal-1",
+        runId: "run-1",
+        kind: "action_recovery",
+        interactionId: "action_recovery:act-1",
+        actionId: "act-1",
+        decisions: ["retry_action", "reject_action"],
+        truncated: true,
+    };
+    assert.equal(isBrowserInteractionView(recovery), true);
+    assert.equal(isBrowserInteractionView({ ...recovery, kind: "action_approval", decisions: ["approve_action", "reject_action"] }), true);
+    assert.equal(isBrowserInteractionView({ ...recovery, decisions: ["approve_action"] }), false);
+    assert.equal(isBrowserInteractionView({ ...recovery, kind: "other" }), false);
+
+    const session = {
+        goalId: "goal-1", intent: "Test goal", currentRunId: "run-1", runStatus: "waiting" as const,
+        currentRunMode: "normal" as const, messages: [], runs: [], historyTruncated: false,
+    };
+    assert.equal(isBrowserGoalSession({ ...session, interaction: question }), true);
+    assert.equal(isBrowserGoalSession({ ...session, interaction: recovery }), true);
+    assert.equal(isBrowserGoalSession({ ...session, interaction: { ...question, decisions: ["unknown"] } }), false);
+});
+
+test("isBrowserInteractionDetailResult validates full review content results", () => {
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "question:ask-1",
+        detail: {
+            kind: "question",
+            mode: "plan",
+            questions: [{
+                id: "q-1", header: "Scope", question: "Which scope?", multiSelect: false,
+                options: [{ id: "o-1", label: "All" }],
+            }],
+            routeRevision: {
+                baseRevision: 1, reason: "Scope grew", approvalRequest: "Approve expansion?",
+                approvalOptionId: "o-1", stages: [{ target: "Extend", acceptanceCriteria: ["Report complete"] }],
+            },
+        },
+    }), true);
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "action_approval:act-1",
+        detail: { kind: "action_approval", actionId: "act-1", toolId: "bash", input: { command: "ls" }, approvalKind: "tool" },
+    }), true);
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "task_approval:proposal-1",
+        detail: { kind: "task_approval", objective: "Ship it", approvalRequest: "Confirm", completionCriteria: ["Checks pass"], stages: [] },
+    }), true);
+    assert.equal(isBrowserInteractionDetailResult({ ok: false, error: "stale_run" }), true);
+    assert.equal(isBrowserInteractionDetailResult({ ok: false, error: "action_not_waiting" }), false);
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true, goalId: "goal-1", runId: "run-1", interactionId: "question:ask-1",
+        detail: { kind: "question", mode: "other", questions: [] },
+    }), false);
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true, goalId: "goal-1", runId: "run-1", interactionId: "action_approval:act-1",
+        detail: { kind: "action_approval", actionId: "act-1", toolId: "bash", input: undefined },
+    }), false);
 });
 
 test("isBrowserRun validates complete Plan Run route states", () => {

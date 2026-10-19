@@ -6,6 +6,10 @@ import type {
     GoalStore,
 } from "../../runtime/src/index";
 import {
+    readInteractionDetail,
+    type InteractionDetail,
+} from "../../runtime/src/index";
+import {
     PermissionModeConflictError,
     type PermissionMode,
 } from "../../permission/src/index";
@@ -13,6 +17,8 @@ import type {
     BrowserActionDetailsResult,
     BrowserGoalPlanModeCommand,
     BrowserGoalPlanModeResult,
+    BrowserInteractionDetail,
+    BrowserInteractionDetailResult,
     BrowserModelSelectionCommand,
     BrowserModelSelectionResult,
     BrowserPermissionModeCommand,
@@ -26,6 +32,8 @@ export type {
     BrowserActionDetailsResult,
     BrowserGoalPlanModeCommand,
     BrowserGoalPlanModeResult,
+    BrowserInteractionDetail,
+    BrowserInteractionDetailResult,
     BrowserModelSelectionCommand,
     BrowserModelSelectionResult,
     BrowserPermissionModeCommand,
@@ -272,6 +280,41 @@ export class BrowserGoalCommandService {
         };
     }
 
+    /**
+     * 按当前 Goal/Run/交互身份读取完整审阅内容。
+     *
+     * @param goalId - 路径中的 Goal 身份。
+     * @param runId - 当前 Run 身份。
+     * @param interactionId - 当前等待的稳定交互引用。
+     * @returns 完整问题／任务范围／Action 输入；引用过期或不再等待时返回稳定错误。
+     * @remarks 读取不推进等待，也不返回其他 Action 的参数。
+     */
+    async readInteractionDetails(
+        goalId: string,
+        runId: string,
+        interactionId: string,
+    ): Promise<BrowserInteractionDetailResult> {
+        let goal: Goal | undefined;
+        try { goal = await this.dependencies.store.restore(goalId); }
+        catch { return { ok: false, error: "interaction_details_unavailable" }; }
+        if (goal === undefined) return { ok: false, error: "goal_not_found" };
+        if (goal.state.run.id !== runId) return { ok: false, error: "stale_run" };
+        const result = readInteractionDetail(goal, { runId, interactionId });
+        if (!result.ok) {
+            return {
+                ok: false,
+                error: result.code === "INTERACTION_NOT_WAITING" ? "interaction_not_waiting" : "interaction_mismatch",
+            };
+        }
+        return {
+            ok: true,
+            goalId,
+            runId,
+            interactionId,
+            detail: toBrowserInteractionDetail(result.detail),
+        };
+    }
+
     /** 列出当前 Goal 与 workspace 的授权白名单摘要。 */
     async listToolGrants(goalId: string, runId: string): Promise<BrowserToolGrantResult> {
         const coordinator = this.dependencies.coordinator;
@@ -417,5 +460,60 @@ export class BrowserGoalCommandService {
 
     private isShuttingDown(): boolean {
         return this.dependencies.control?.signal?.aborted === true;
+    }
+}
+
+/** 把 Runtime 完整审阅内容投影为 wire DTO；阶段只保留目标与验收条件。 */
+function toBrowserInteractionDetail(detail: InteractionDetail): BrowserInteractionDetail {
+    switch (detail.kind) {
+        case "question":
+            return {
+                kind: "question",
+                mode: detail.mode,
+                questions: detail.questions.map((question) => ({
+                    id: question.id,
+                    header: question.header,
+                    question: question.question,
+                    multiSelect: question.multiSelect,
+                    options: question.options.map((option) => ({
+                        id: option.id,
+                        label: option.label,
+                        ...(option.description === undefined ? {} : { description: option.description }),
+                    })),
+                })),
+                ...(detail.routeRevision === undefined ? {} : {
+                    routeRevision: {
+                        baseRevision: detail.routeRevision.baseRevision,
+                        reason: detail.routeRevision.reason,
+                        approvalRequest: detail.routeRevision.approvalRequest,
+                        approvalOptionId: detail.routeRevision.approvalOptionId,
+                        stages: detail.routeRevision.stages.map((stage) => ({
+                            target: stage.target,
+                            acceptanceCriteria: [...stage.acceptanceCriteria],
+                        })),
+                    },
+                }),
+            };
+        case "task_approval":
+            return {
+                kind: "task_approval",
+                objective: detail.objective,
+                approvalRequest: detail.approvalRequest,
+                completionCriteria: [...detail.completionCriteria],
+                stages: detail.stages.map((stage) => ({
+                    target: stage.target,
+                    acceptanceCriteria: [...stage.acceptanceCriteria],
+                })),
+            };
+        case "action_approval":
+        case "action_recovery":
+            return {
+                kind: detail.kind,
+                actionId: detail.actionId,
+                toolId: detail.toolId,
+                ...(detail.approvalKind === undefined ? {} : { approvalKind: detail.approvalKind }),
+                input: detail.input,
+                ...(detail.parentProgram === undefined ? {} : { parentProgram: detail.parentProgram }),
+            };
     }
 }

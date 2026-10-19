@@ -1,6 +1,8 @@
 import type {
     BrowserActionDetailsResult,
     BrowserGoalListItem,
+    BrowserInteractionDetailResult,
+    BrowserInteractionView,
     BrowserGoalPlan,
     BrowserGoalSession,
     BrowserPendingAction,
@@ -483,6 +485,101 @@ export function isPendingAction(value: unknown): value is BrowserPendingAction {
 }
 
 /**
+ * 当前交互视图摘要类型守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为 BrowserInteractionView。
+ *
+ * @example
+ * ```ts
+ * if (isBrowserInteractionView(view)) console.log(view.interactionId);
+ * ```
+ */
+export function isBrowserInteractionView(value: unknown): value is BrowserInteractionView {
+    if (!isRecord(value)
+        || !isNonEmptyString(value.goalId)
+        || !isNonEmptyString(value.runId)
+        || !isNonEmptyString(value.interactionId)
+        || typeof value.truncated !== "boolean"
+        || !["question", "task_approval", "action_approval", "action_recovery"].includes(String(value.kind))) {
+        return false;
+    }
+    const kind = String(value.kind);
+    if (kind === "question" || kind === "task_approval") {
+        if (!isNonEmptyString(value.requestId) || value.actionId !== undefined) return false;
+    } else if (!isNonEmptyString(value.actionId) || value.requestId !== undefined) {
+        return false;
+    }
+    if (!Array.isArray(value.decisions) || value.decisions.length === 0) return false;
+    const allowed = kind === "question" ? ["answer_questions", "reply_to_question", "skip_question"]
+        : kind === "task_approval" ? ["approve_task", "send_task_feedback"]
+            : kind === "action_recovery" ? ["retry_action", "reject_action"]
+                : ["approve_action", "reject_action"];
+    return value.decisions.every((decision) => allowed.includes(String(decision)));
+}
+
+/**
+ * 交互详情读取结果类型守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为 BrowserInteractionDetailResult。
+ *
+ * @example
+ * ```ts
+ * if (isBrowserInteractionDetailResult(result)) console.log(result.detail.kind);
+ * ```
+ */
+export function isBrowserInteractionDetailResult(value: unknown): value is BrowserInteractionDetailResult {
+    if (!isRecord(value)) return false;
+    if (value.ok === false) {
+        return [
+            "goal_not_found",
+            "stale_run",
+            "interaction_not_waiting",
+            "interaction_mismatch",
+            "interaction_details_unavailable",
+        ].includes(String(value.error));
+    }
+    if (value.ok !== true
+        || !isNonEmptyString(value.goalId)
+        || !isNonEmptyString(value.runId)
+        || !isNonEmptyString(value.interactionId)
+        || !isRecord(value.detail)) {
+        return false;
+    }
+    const detail = value.detail;
+    if (detail.kind === "question") {
+        return (detail.mode === "plan" || detail.mode === "execution")
+            && Array.isArray(detail.questions)
+            && detail.questions.every((question) => isRecord(question)
+                && isNonEmptyString(question.id)
+                && typeof question.header === "string"
+                && typeof question.question === "string"
+                && typeof question.multiSelect === "boolean"
+                && Array.isArray(question.options))
+            && (detail.routeRevision === undefined
+                || (isRecord(detail.routeRevision)
+                    && isNonEmptyString(detail.routeRevision.approvalRequest)
+                    && isNonEmptyString(detail.routeRevision.reason)
+                    && Array.isArray(detail.routeRevision.stages)));
+    }
+    if (detail.kind === "task_approval") {
+        return typeof detail.objective === "string"
+            && typeof detail.approvalRequest === "string"
+            && Array.isArray(detail.completionCriteria)
+            && detail.completionCriteria.every((criterion) => typeof criterion === "string")
+            && Array.isArray(detail.stages);
+    }
+    if (detail.kind === "action_approval" || detail.kind === "action_recovery") {
+        return isNonEmptyString(detail.actionId)
+            && isNonEmptyString(detail.toolId)
+            && detail.input !== undefined
+            && (detail.approvalKind === undefined || detail.approvalKind === "tool" || detail.approvalKind === "sandbox");
+    }
+    return false;
+}
+
+/**
  * 完整 Goal 会话详情类型守卫。
  *
  * @param value - 待检测值。
@@ -536,6 +633,7 @@ export function isBrowserGoalSession(value: unknown): value is BrowserGoalSessio
     )) return false;
     if (value.pendingInteraction !== undefined && !isPendingInteraction(value.pendingInteraction)) return false;
     if (value.pendingAction !== undefined && !isPendingAction(value.pendingAction)) return false;
+    if (value.interaction !== undefined && !isBrowserInteractionView(value.interaction)) return false;
     return true;
 }
 

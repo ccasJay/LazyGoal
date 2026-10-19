@@ -623,6 +623,164 @@ export interface BrowserPendingAction {
 }
 
 /**
+ * 当前交互视图的种类。
+ *
+ * @remarks
+ * `question` 是模型发起的结构化问卷；`task_approval` 是 Plan 任务提案审批；
+ * `action_approval` 是工具／沙箱审批；`action_recovery` 是结果未知的恢复等待。
+ *
+ * @example
+ * ```ts
+ * const kind: BrowserInteractionKind = "action_recovery";
+ * ```
+ */
+export type BrowserInteractionKind =
+    | "question"
+    | "task_approval"
+    | "action_approval"
+    | "action_recovery";
+
+/**
+ * 当前交互允许的决定。
+ *
+ * @remarks
+ * 只描述响应种类；Interrupt 是独立的 Run 级输入，不在该列表中。恢复等待只
+ * 允许 `retry_action` 与 `reject_action`。
+ *
+ * @example
+ * ```ts
+ * const decisions: readonly BrowserInteractionDecision[] = ["approve_task", "send_task_feedback"];
+ * ```
+ */
+export type BrowserInteractionDecision =
+    | "answer_questions"
+    | "reply_to_question"
+    | "skip_question"
+    | "approve_task"
+    | "send_task_feedback"
+    | "approve_action"
+    | "reject_action"
+    | "retry_action";
+
+/**
+ * 当前已提交等待的类型化交互视图摘要。
+ *
+ * @remarks
+ * 身份来自与 `pendingInteraction`／`pendingAction` 相同的已提交快照：重复同步、
+ * 重连与其他客户端读取得到同一 `interactionId`。`truncated` 为真表示有界摘要
+ * 省略了决定所需内容，必须先完成详情读取再提交依赖完整范围的批准。
+ *
+ * @example
+ * ```ts
+ * const view: BrowserInteractionView = {
+ *     goalId: "goal-1",
+ *     runId: "run-1",
+ *     kind: "question",
+ *     interactionId: "question:ask-1",
+ *     requestId: "ask-1",
+ *     decisions: ["answer_questions", "reply_to_question", "skip_question"],
+ *     truncated: false,
+ * };
+ * ```
+ */
+export interface BrowserInteractionView {
+    /** Goal 稳定标识。 */
+    readonly goalId: string;
+    /** 等待所属的 Run 身份。 */
+    readonly runId: string;
+    /** 交互种类。 */
+    readonly kind: BrowserInteractionKind;
+    /** 由种类与等待身份构成的稳定引用。 */
+    readonly interactionId: string;
+    /** 问答与任务审批的请求身份。 */
+    readonly requestId?: string;
+    /** 工具／沙箱审批与恢复等待的 Action 身份。 */
+    readonly actionId?: string;
+    /** 当前等待允许的决定。 */
+    readonly decisions: readonly BrowserInteractionDecision[];
+    /** 有界摘要是否省略了决定所需内容。 */
+    readonly truncated: boolean;
+}
+
+/**
+ * 当前交互的完整审阅内容。
+ *
+ * @remarks
+ * 只包含身份匹配的当前等待：问题的完整正文与选项、任务提案的完整目标／验收／
+ * 有序路线，或待审 Action 的完整 canonical 输入。读取不推进等待。
+ *
+ * @example
+ * ```ts
+ * const detail: BrowserInteractionDetail = {
+ *     kind: "task_approval", objective: "实现导入", approvalRequest: "请确认",
+ *     completionCriteria: ["导入成功"], stages: [],
+ * };
+ * ```
+ */
+export type BrowserInteractionDetail =
+    | {
+        readonly kind: "question";
+        readonly mode: "plan" | "execution";
+        readonly questions: readonly BrowserAskUserQuestion[];
+        readonly routeRevision?: {
+            readonly baseRevision: number;
+            readonly reason: string;
+            readonly approvalRequest: string;
+            readonly approvalOptionId: string;
+            readonly stages: readonly BrowserPlanRouteStage[];
+        };
+    }
+    | {
+        readonly kind: "task_approval";
+        readonly objective: string;
+        readonly approvalRequest: string;
+        readonly completionCriteria: readonly string[];
+        readonly stages: readonly BrowserPlanRouteStage[];
+    }
+    | {
+        readonly kind: "action_approval" | "action_recovery";
+        readonly actionId: string;
+        readonly toolId: string;
+        readonly approvalKind?: "tool" | "sandbox";
+        /** 完整 canonical Tool 输入。 */
+        readonly input: unknown;
+        readonly parentProgram?: {
+            readonly actionId: string;
+            readonly callNumber: number;
+        };
+    };
+
+/**
+ * 当前交互完整详情读取的结果。
+ *
+ * @remarks
+ * 引用必须同时匹配当前 Run 与当前等待身份；过期引用返回稳定错误，不返回其他
+ * Action 的参数，也不触发执行。读取失败保留等待，依赖完整范围的批准保持禁用。
+ *
+ * @example
+ * ```ts
+ * const result: BrowserInteractionDetailResult = { ok: false, error: "interaction_mismatch" };
+ * ```
+ */
+export type BrowserInteractionDetailResult =
+    | {
+        readonly ok: true;
+        readonly goalId: string;
+        readonly runId: string;
+        readonly interactionId: string;
+        readonly detail: BrowserInteractionDetail;
+    }
+    | {
+        readonly ok: false;
+        readonly error:
+            | "goal_not_found"
+            | "stale_run"
+            | "interaction_not_waiting"
+            | "interaction_mismatch"
+            | "interaction_details_unavailable";
+    };
+
+/**
  * 完整 Goal 会话详情的传输对象。
  *
  * @remarks
@@ -682,6 +840,8 @@ export interface BrowserGoalSession {
     readonly goalPlan?: BrowserGoalPlan;
     /** 等待人工交互。 */
     readonly pendingInteraction?: BrowserPendingInteraction;
+    /** 当前已提交等待的类型化交互视图；没有可决定等待时省略。 */
+    readonly interaction?: BrowserInteractionView;
     /** 等待人工审批的 Action。 */
     readonly pendingAction?: BrowserPendingAction;
     /** 历史是否因达到上限被截断。 */
