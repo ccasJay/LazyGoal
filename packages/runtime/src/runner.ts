@@ -1,4 +1,4 @@
-import type { ModelContextFrameForStage } from "./step-executor";
+import type { ModelContextFrameForStage, PublicTextBlock } from "./step-executor";
 import {
     findSessionInputRecord,
     nextSessionInputSequence,
@@ -3009,7 +3009,7 @@ class RunExecutor {
             purpose: "process",
             profileId: goal.definition.profile.id,
             source: modelCallId === undefined
-                ? createStageOutputSource(executionUnitId)
+                ? createStageOutputSource(executionUnitId, 0)
                 : createModelTextSource(modelCallId, 0),
         }).goal;
         const committed = await this.checkpointCommitter.commit(
@@ -3018,6 +3018,43 @@ class RunExecutor {
         );
         this.publishCommittedEvents(committed);
         return committed.goal;
+    }
+
+    /**
+     * 把混合工具响应中的公开正文块按块顺序追加为过程消息。
+     *
+     * @remarks
+     * 每条正文保留原块下标与模型调用来源；空白块不产生消息。追加只改变内存中的
+     * Goal，真正落盘由随后的决策提交完成，因此响应失败、参数无效或完成候选被
+     * 审查拒绝时不会留下正式正文。
+     *
+     * @param goal - 当前已提交的 Goal。
+     * @param blocks - 本次响应被接受后应保存的公开正文块。
+     * @param modelCallId - 产生该正文的模型调用身份；缺省时不虚构模型调用。
+     * @param executionUnitId - 当前执行单元身份；仅在没有模型调用身份时作为来源。
+     * @returns 含过程消息的新 Goal；不修改输入对象。
+     */
+    private appendProcessTextMessages(
+        goal: Goal,
+        blocks: readonly PublicTextBlock[],
+        modelCallId: string | undefined,
+        executionUnitId: string,
+    ): Goal {
+        let next = goal;
+        for (const block of blocks) {
+            if (block.text.trim().length === 0) continue;
+            next = appendGoalMessage(next, {
+                role: "assistant",
+                content: block.text,
+                runId: goal.state.run.id,
+                purpose: "process",
+                profileId: goal.definition.profile.id,
+                source: modelCallId === undefined
+                    ? createStageOutputSource(executionUnitId, block.index)
+                    : createModelTextSource(modelCallId, block.index),
+            }).goal;
+        }
+        return next;
     }
 
     private async executeRepairableModelStage<T, U>(
@@ -4239,6 +4276,8 @@ class RunExecutor {
 
             try {
                 let normalized: NormalizedExecution;
+                /** 追加过程正文之前的 Goal；完成候选被审查拒绝时不提交这些正文。 */
+                let goalBeforeProcessText: Goal | undefined;
                 let stepInput!: StepExecutionInput;
                 let pendingThinkRequestCommitted = false;
                 /** 本次 Decide 新建的批次剩余项；来自队列时为 undefined。 */
@@ -4589,6 +4628,20 @@ class RunExecutor {
                                     ? {}
                                     : { acceptedContextNotes: decided.result.acceptedContextNotes }),
                             };
+                            // 混合响应被接受后，其公开正文块按块顺序成为过程消息；
+                            // 正文与随后的决策事实一起提交，失败或审查拒绝时不落盘。
+                            goalBeforeProcessText = goal;
+                            const publicTextBlocks = "publicTextBlocks" in stageResult
+                                ? stageResult.publicTextBlocks
+                                : undefined;
+                            if (publicTextBlocks !== undefined && publicTextBlocks.length > 0) {
+                                goal = this.appendProcessTextMessages(
+                                    goal,
+                                    publicTextBlocks,
+                                    normalized.modelCallId,
+                                    executionUnitId,
+                                );
+                            }
                             if (goal.state.run.interruption?.status === "repairing") {
                                 const repairDecision = normalized.decision;
                                 if (repairDecision.kind !== "tool_call") {
@@ -5602,7 +5655,8 @@ class RunExecutor {
                             stage: rejectedStage,
                             decision: stageDecision,
                         });
-                        const nextGoal = this.withRun(goal, nextRun);
+                        // 被审查拒绝的完成候选不提交其公开正文。
+                        const nextGoal = this.withRun(goalBeforeProcessText ?? goal, nextRun);
                         goal = await this.commitDecision(
                             nextGoal,
                             [
@@ -5747,7 +5801,8 @@ class RunExecutor {
                             stage: rejectedStage,
                             decision: normalized.decision,
                         });
-                        const nextGoal = this.withRun(goal, nextRun);
+                        // 被审查拒绝的完成候选不提交其公开正文。
+                        const nextGoal = this.withRun(goalBeforeProcessText ?? goal, nextRun);
                         goal = await this.commitDecision(
                             nextGoal,
                             [

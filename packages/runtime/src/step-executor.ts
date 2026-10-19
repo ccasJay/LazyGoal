@@ -39,6 +39,25 @@ export interface ThinkExchange {
 }
 
 /**
+ * 一次模型响应中的公开正文块及其块下标。
+ *
+ * @remarks
+ * 只承载供应商实际返回的公开正文，不包含 reasoning、结构化协议 JSON 或工具
+ * 参数；块下标在本次响应内稳定，用于把保存的正文关联回原模型调用。
+ *
+ * @example
+ * ```ts
+ * const block: PublicTextBlock = { index: 0, text: "先检查配置" };
+ * ```
+ */
+export interface PublicTextBlock {
+    /** 本次响应内的块下标。 */
+    readonly index: number;
+    /** 该块的完整公开正文。 */
+    readonly text: string;
+}
+
+/**
  * Decide 阶段返回的业务决策、独立 Think 控制结果或已接受的 Assistant 消息。
  *
  * @remarks
@@ -54,6 +73,13 @@ export type DecideStageResult =
     | {
         readonly kind: "decision";
         readonly decision: AgentDecision;
+        /**
+         * 本次响应中被接受后应保存为过程正文的公开正文块。
+         *
+         * @remarks
+         * 仅在响应同时包含公开正文与工具调用时存在；顺序与块下标保持响应原序。
+         */
+        readonly publicTextBlocks?: readonly PublicTextBlock[] | undefined;
         readonly modelContextFrame?: ModelContextFrameForStage;
       }
     | {
@@ -78,6 +104,13 @@ export type DecideStageResult =
         readonly kind: "batch";
         /** 一次 Decide 返回的多个决策，按模型返回顺序排列；首个即队首。 */
         readonly decisions: readonly DecideOutput[];
+        /**
+         * 本次响应中被接受后应保存为过程正文的公开正文块。
+         *
+         * @remarks
+         * 仅在响应同时包含公开正文与工具调用时存在；顺序与块下标保持响应原序。
+         */
+        readonly publicTextBlocks?: readonly PublicTextBlock[] | undefined;
         readonly modelContextFrame?: ModelContextFrameForStage;
       };
 

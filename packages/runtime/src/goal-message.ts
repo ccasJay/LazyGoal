@@ -71,7 +71,7 @@ export function goalMessageSourceKey(source: GoalMessageSource): string {
         case "model_text":
             return `model_text:${source.modelCallId}:${source.blockIndex}`;
         case "stage_output":
-            return `stage_output:${source.executionUnitId}`;
+            return `stage_output:${source.executionUnitId}:${source.blockIndex}`;
         case "completion_candidate":
             return `completion_candidate:${source.candidateId}`;
         case "host_execution":
@@ -285,12 +285,13 @@ export function createModelTextSource(modelCallId: string, blockIndex: number): 
  * 为没有模型调用身份的阶段正文构造来源。
  *
  * @param executionUnitId - 产生该正文的执行单元身份。
- * @returns 指向该执行单元的来源。
+ * @param blockIndex - 该正文在本次响应内的块下标。
+ * @returns 指向该执行单元与块的来源。
  * @example
  * ```ts
- * const source = createStageOutputSource("unit-1");
+ * const source = createStageOutputSource("unit-1", 0);
  * ```
  */
-export function createStageOutputSource(executionUnitId: string): GoalMessageSource {
-    return { kind: "stage_output", executionUnitId };
+export function createStageOutputSource(executionUnitId: string, blockIndex: number): GoalMessageSource {
+    return { kind: "stage_output", executionUnitId, blockIndex };
 }

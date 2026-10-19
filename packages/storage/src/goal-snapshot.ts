@@ -87,7 +87,7 @@ export type GoalSnapshotMessageSourceV1 =
     | { readonly kind: "user_input"; readonly inputId: string }
     | { readonly kind: "interaction_response"; readonly requestId: string }
     | { readonly kind: "model_text"; readonly modelCallId: string; readonly blockIndex: number }
-    | { readonly kind: "stage_output"; readonly executionUnitId: string }
+    | { readonly kind: "stage_output"; readonly executionUnitId: string; readonly blockIndex: number }
     | { readonly kind: "completion_candidate"; readonly candidateId: string }
     | { readonly kind: "host_execution"; readonly actionId: string }
     | { readonly kind: "runtime_notice"; readonly noticeId: string };
@@ -882,7 +882,11 @@ const GoalSnapshotMessageSourceSchema = z.discriminatedUnion("kind", [
         modelCallId: NonEmptyStringSchema,
         blockIndex: z.number().int().nonnegative(),
     }).strict(),
-    z.object({ kind: z.literal("stage_output"), executionUnitId: NonEmptyStringSchema }).strict(),
+    z.object({
+        kind: z.literal("stage_output"),
+        executionUnitId: NonEmptyStringSchema,
+        blockIndex: z.number().int().nonnegative(),
+    }).strict(),
     z.object({ kind: z.literal("completion_candidate"), candidateId: NonEmptyStringSchema }).strict(),
     z.object({ kind: z.literal("host_execution"), actionId: NonEmptyStringSchema }).strict(),
     z.object({ kind: z.literal("runtime_notice"), noticeId: NonEmptyStringSchema }).strict(),
@@ -1544,7 +1548,7 @@ function snapshotMessageSourceKey(source: GoalSnapshotMessageSourceV1): string {
         case "model_text":
             return `model_text:${source.modelCallId}:${source.blockIndex}`;
         case "stage_output":
-            return `stage_output:${source.executionUnitId}`;
+            return `stage_output:${source.executionUnitId}:${source.blockIndex}`;
         case "completion_candidate":
             return `completion_candidate:${source.candidateId}`;
         case "host_execution":

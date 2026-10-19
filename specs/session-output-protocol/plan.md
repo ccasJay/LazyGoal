@@ -24,7 +24,7 @@ action-approval-revision 是关联能力：存在时验证真实最终版本／�
   - **实现**：传递消息／调用／块来源到 model-view、model-context 的已提交交换和 model-request；让覆盖判定参与现有选择、预算及渲染，只有本次真正入选的同身份交换可覆盖。保留 conversationPosition、sourceMessageIndex、签名和结果配对，不另建历史或全局文本去重；本任务建立受测能力，TODO 3 才新增混合正文的生产提交。
   - **验证**：新增 `packages/model-request/test/process-message-dedup.test.ts`（待实现），扩展 `packages/model-context/test/native-model-history.test.ts`、`model-inference-projector.test.ts`、`packages/model-request/test/render.test.ts`、`prompt.test.ts`、`section-context-recovery.test.ts` 及 `packages/context-budget/test/model-context-budget.test.ts`；运行对应 `npx tsx --test`。捕获实际 LLMRequest、已选预算单元和最终输入估算，不能只测试一个去重函数或字符串出现次数而忽略配对。
 
-- [ ] //TODO 3. 在接受完整响应后保存混合工具响应的公开过程正文
+- [x] //TODO 3. 在接受完整响应后保存混合工具响应的公开过程正文
 
   落实标准：[4.1](./spec.md#spec-req-4-1)、[4.2](./spec.md#spec-req-4-2)、[4.5](./spec.md#spec-req-4-5)、[8.2](./spec.md#spec-req-8-2)。
   - **先验证**：真实阶段执行器返回正文／工具／正文混合块，每个公开正文块只在响应及现有阶段校验接受后成为一条有序 process 消息；工具仍等待整体成功及原有准入／审批。响应失败、无效参数或完成候选被审查拒绝时无提前正式正文；审批等待或后续工具失败保留已提交过程说明，不能变成成功证据。零工具正文、Think、直接调用和 PTC 父程序保持原 Step／模型／工具计数及可见性。

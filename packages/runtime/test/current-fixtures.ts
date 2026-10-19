@@ -199,7 +199,7 @@ export function testAssistantMessage(
         content,
         runId: options.runId ?? "run-fixture",
         purpose: options.purpose ?? "process",
-        source: options.source ?? { kind: "stage_output", executionUnitId: `unit-fixture-${fixtureMessageCounter}` },
+        source: options.source ?? { kind: "stage_output", executionUnitId: `unit-fixture-${fixtureMessageCounter}`, blockIndex: 0 },
         profileId: options.profileId ?? "profile-fixture",
         ...(options.messageId === undefined ? {} : { messageId: options.messageId }),
     });

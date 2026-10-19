@@ -31,6 +31,7 @@ export {
     decodeToolCallOutcome,
     nativeResponseMessage,
     normalizeRequestThinkGoal,
+    readPublicTextBlocks,
     requireSingleToolCall,
 } from "./stage-response";
 export type {

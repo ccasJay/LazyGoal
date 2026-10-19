@@ -47,6 +47,7 @@ import {
     decodeToolCallOutcome,
     nativeResponseMessage,
     normalizeRequestThinkGoal,
+    readPublicTextBlocks,
     type DecideResponseOutcome,
 } from "../../model-response/src/index";
 import type { LLMRequest, LLMResponse, LLMToolDefinition, LLMToolCall } from "../../llm-core/src/index";
@@ -367,6 +368,8 @@ export class LLMStepExecutor implements StepExecutor {
                 modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) },
             };
         }
+        // 混合响应的公开正文：与工具调用同在一次响应内，按块顺序交给 Runtime 保存为过程正文。
+        const publicTextBlocks = readPublicTextBlocks(response);
         if (classified.kind === "batch") {
             const decisions: DecideOutput[] = [];
             for (const call of classified.calls) {
@@ -375,6 +378,7 @@ export class LLMStepExecutor implements StepExecutor {
             return {
                 kind: "batch",
                 decisions,
+                ...(publicTextBlocks.length === 0 ? {} : { publicTextBlocks }),
                 modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) },
             };
         }
@@ -404,7 +408,12 @@ export class LLMStepExecutor implements StepExecutor {
 
         return output.kind === "request_think"
             ? { kind: "request_think", goal: output.goal, modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) } }
-            : { kind: "decision", decision: output, modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) } };
+            : {
+                kind: "decision",
+                decision: output,
+                ...(publicTextBlocks.length === 0 ? {} : { publicTextBlocks }),
+                modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) },
+            };
     }
 
     /**

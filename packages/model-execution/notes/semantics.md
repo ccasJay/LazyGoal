@@ -9,4 +9,5 @@
 | MutableModelBinding | 提供当前绑定的可替换 provider。 | [模型执行协调](../README.md) | [绑定契约](../src/model-execution-binding.ts) |
 | 动作身份分配 | 原生/供应商/契约 actionId 的既有优先级。 | [模型执行协调](../README.md) | [执行器](../src/llm-step-executor.ts) |
 | 阶段 frame | 关联 modelCallId 与原生响应的阶段结果元数据。 | [模型执行协调](../README.md) | [执行器](../src/llm-step-executor.ts) |
+| 公开正文块结果 | 混合响应中被接受后应保存为过程正文的公开正文块与块下标。 | [模型执行协调](../README.md) | [执行器](../src/llm-step-executor.ts) |
 | 阶段反馈转换 | 协议错误到有界 RuntimeFeedback 的转换。 | [模型执行协调](../README.md) | [反馈转换](../src/stage-feedback.ts) |

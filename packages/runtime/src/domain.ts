@@ -384,7 +384,7 @@ export type GoalMessageSource =
      * 只有在执行方没有报告模型调用身份时才使用；此时不得虚构 `modelCallId`
      * 或 Provider 内容块身份。
      */
-    | { readonly kind: "stage_output"; readonly executionUnitId: string }
+    | { readonly kind: "stage_output"; readonly executionUnitId: string; readonly blockIndex: number }
     /** 被现有完成审查接受的最终答复候选。 */
     | { readonly kind: "completion_candidate"; readonly candidateId: string }
     /** 宿主执行结果；没有模型来源时使用真实执行来源。 */
