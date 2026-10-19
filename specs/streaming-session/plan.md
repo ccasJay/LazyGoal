@@ -48,7 +48,7 @@
   - 实施目标：在原 Core 增加 Goal 范围订阅与来源身份，在 Runtime 会话模块完成快照修订、缓冲交接、类型化安全投影、缺口重同步及按 Goal 合并的只读核对任务。沿用相邻增量合并和有界背压，控制事件无法保留时关闭慢订阅；无观察者停止核对，不持久化或重放每个分片，不将发布失败转为业务回滚。
   - 验证手段：`npx tsx --test packages/runtime/test/session-stream.test.ts packages/runtime/test/execution-stream-runtime.test.ts packages/execution-stream/test/execution-stream.test.ts`；验证 eager 订阅、多 Run 来源、修订去重、backpressure、原始敏感字段不泄露以及一个订阅退出不影响其他订阅或执行。
 
-- [ ] //TODO 8. 用异步输入流驱动 Session，并安全结束来源、句柄和单消息等待
+- [x] //TODO 8. 用异步输入流驱动 Session，并安全结束来源、句柄和单消息等待
   - 落实标准：[2.1](./spec.md#spec-req-2-1)、[2.2](./spec.md#spec-req-2-2)、[2.3](./spec.md#spec-req-2-3)、[2.4](./spec.md#spec-req-2-4)、[2.5](./spec.md#spec-req-2-5)、[1.3](./spec.md#spec-req-1-3)、[7.5](./spec.md#spec-req-7-5)、[7.6](./spec.md#spec-req-7-6)、[8.5](./spec.md#spec-req-8-5)、[8.6](./spec.md#spec-req-8-6)、[9.3](./spec.md#spec-req-9-3)。
   - 先验证：在待实现的 `packages/runtime/test/session.test.ts` 中使用可计数、可阻塞的异步生成器，证明每次只等待持久化受理而非 Run 完成；业务拒绝继续消费，保存失败停止预取。覆盖 EOF、来源异常、卡住的 `next()`／`return()`、detach 后迟到消息、两个输入来源和两个订阅；单消息调用在等待与各终态返回真实身份，通知丢失不挂起。
   - 实施目标：落实 `send`／`consume`／`events`／`read`／`getInput`／`detach` 及内部 `sessions.query`，所有操作委派同一 Runtime 状态所有者。停止消费后拒绝迟到项，来源资源归宿主；只释放封装自己的订阅，不关闭借用实例。把自有消费者、核对任务和后台执行纳入现有生命周期，有界关闭未结算时保留类型化错误，不伪造 Run 取消。

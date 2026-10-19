@@ -13,6 +13,7 @@ import {
 import {
     Session,
     projectGoalSessionState,
+    type SessionInputConsumptionResult,
     type GoalSessionState,
     type SessionHandlePort,
     type SessionManagerErrorCode,
@@ -127,6 +128,39 @@ function serializeReceipt(receipt: SessionInputReceipt): Record<string, StreamJs
     };
 }
 
+/**
+ * 有界关闭未能在期限内结算自有工作时抛出的类型化错误。
+ *
+ * @remarks 错误保留仍未结算的 Goal 身份；调用方不能把该错误报告为安全关闭，
+ * 也不能立即重用同一存储。
+ *
+ * @example
+ * ```ts
+ * try { await sessions.close({ timeoutMs: 1000 }); } catch (error) {
+ *   if (error instanceof SessionManagerCloseError) console.error(error.unsettledGoalIds);
+ * }
+ * ```
+ */
+export class SessionManagerCloseError extends Error {
+    readonly code = "SESSION_MANAGER_CLOSE_TIMEOUT" as const;
+
+    constructor(readonly unsettledGoalIds: readonly string[]) {
+        super(`Session manager close timed out with unsettled work: ${unsettledGoalIds.join(", ") || "none"}`);
+        this.name = "SessionManagerCloseError";
+    }
+}
+
+/** 停止消费用的可等待信号。 */
+const STOPPED = Symbol("stopped");
+
+function deferredSignal(): { readonly promise: typeof STOPPED extends never ? never : Promise<typeof STOPPED>; resolve: () => void } {
+    let resolve!: () => void;
+    const promise = new Promise<typeof STOPPED>((done) => {
+        resolve = () => done(STOPPED);
+    });
+    return { promise, resolve };
+}
+
 /** 创建或连接 Session 的结果。 */
 export type SessionCreateResult =
     | {
@@ -138,6 +172,33 @@ export type SessionCreateResult =
     | {
         readonly ok: false;
         readonly error: { readonly code: SessionManagerErrorCode; readonly message: string };
+    };
+
+/**
+ * 单消息封装的调用结果。
+ *
+ * @remarks `ok: true` 在指定 Run 到达等待或终态后返回真实结果与可恢复身份；
+ * 等待交互时立即返回可恢复身份，不永久挂起等待尚未实现的回答。封装只创建并
+ * 释放自己的订阅，不关闭借用的实例。
+ *
+ * @example
+ * ```ts
+ * const result = await sessions.query(request);
+ * if (result.ok) console.log(result.outcome);
+ * ```
+ */
+export type SessionQueryResult =
+    | {
+        readonly ok: true;
+        readonly session: Session;
+        readonly receipt: SessionInputReceipt;
+        readonly runId: string;
+        readonly outcome: "completed" | "failed" | "cancelled" | "waiting";
+        readonly state: GoalSessionState;
+    }
+    | {
+        readonly ok: false;
+        readonly error: { readonly code: SessionManagerErrorCode | "QUERY_FAILED"; readonly message: string };
     };
 
 /** 只读连接已有 Goal 的结果。 */
@@ -247,6 +308,8 @@ export class SessionManager implements SessionHandlePort {
     private readonly executionStream: ExecutionStreamPublisher | undefined;
     private readonly revisionMonitor: GoalRevisionMonitor;
     private readonly sessionStreams = new Map<string, Set<GoalSessionStream>>();
+    private readonly sessionConsumers = new Map<string, Set<{ readonly stopped: boolean; stop: () => void }>>();
+    private readonly pendingWakes = new Set<string>();
     private readonly admission: SessionInputAdmission;
     private readonly executions = new Map<string, Promise<void>>();
     private readonly backgroundTasks = new Set<Promise<void>>();
@@ -887,9 +950,179 @@ export class SessionManager implements SessionHandlePort {
     /** @param sessionId - 需要释放的句柄身份。 @remarks 解除连接只释放该句柄的订阅与来源。 */
     detachSession(sessionId: string): void {
         const streams = this.sessionStreams.get(sessionId);
-        if (streams === undefined) return;
-        for (const stream of [...streams]) stream.close();
-        this.sessionStreams.delete(sessionId);
+        if (streams !== undefined) {
+            for (const stream of [...streams]) stream.close();
+            this.sessionStreams.delete(sessionId);
+        }
+        const consumers = this.sessionConsumers.get(sessionId);
+        if (consumers !== undefined) {
+            for (const consumer of consumers) consumer.stop();
+            this.sessionConsumers.delete(sessionId);
+        }
+    }
+
+    /**
+     * 创建或连接 Session 并等待首个 Run 到达等待或终态。
+     *
+     * @remarks
+     * 复用同一创建与执行链，不另建执行循环；等待以最新持久化状态复核，末次
+     * 提交通知丢失时由不超过一秒的核对周期补齐。等待交互时立即返回可恢复身份。
+     *
+     * @param request - 与 `create` 相同的稳定创建请求。
+     * @param control - 当前调用共享的中止控制。
+     * @returns 首个 Run 的真实结果与可恢复身份，或稳定失败。
+     * @throws 创建阶段的存储或 Trajectory 失败时传播原始异常。
+     * @example
+     * ```ts
+     * const result = await sessions.query({ goalId: "goal-1", inputId: "input-1", content: "一次性任务", profileId: "default" });
+     * ```
+     */
+    async query(
+        request: SessionCreateRequest,
+        control?: Parameters<typeof createGoalCheckpoint>[2],
+    ): Promise<SessionQueryResult> {
+        const created = await this.create(request, control);
+        if (!created.ok) return created;
+        const runId = created.receipt.appliedRunId;
+        if (runId === undefined) {
+            return {
+                ok: false,
+                error: { code: "QUERY_FAILED", message: "Creation receipt does not reference its first Run" },
+            };
+        }
+        // 先等待本实例的执行任务结算：它保持事件循环活跃，不依赖实时通知。
+        const execution = this.executions.get(request.goalId);
+        if (execution !== undefined) {
+            await execution.catch(() => undefined);
+        }
+        const state = await this.waitForRunOutcome(request.goalId, runId);
+        if (state === undefined) {
+            return {
+                ok: false,
+                error: { code: "GOAL_NOT_FOUND", message: `Goal "${request.goalId}" was not found` },
+            };
+        }
+        if (state.runId !== runId) {
+            return {
+                ok: false,
+                error: {
+                    code: "QUERY_FAILED",
+                    message: `Run "${runId}" was replaced before reaching a reportable state`,
+                },
+            };
+        }
+        return {
+            ok: true,
+            session: created.session,
+            receipt: created.receipt,
+            runId,
+            outcome: state.runStatus === "completed" || state.runStatus === "failed"
+                || state.runStatus === "cancelled" || state.runStatus === "waiting"
+                ? state.runStatus
+                : "waiting",
+            state,
+        };
+    }
+
+    /** 以只读核对等待目标 Run 到达等待或终态；通知丢失由核对周期补齐。 */
+    private waitForRunOutcome(goalId: string, runId: string): Promise<GoalSessionState | undefined> {
+        return new Promise((resolve) => {
+            let finished = false;
+            const finish = (state: GoalSessionState | undefined): void => {
+                if (finished) return;
+                finished = true;
+                unsubscribe();
+                resolve(state);
+            };
+            const check = async (): Promise<void> => {
+                if (finished) return;
+                let state: GoalSessionState | undefined;
+                try {
+                    state = await this.readSessionState(goalId);
+                } catch (error) {
+                    this.onBackgroundFailure?.(goalId, error);
+                    return;
+                }
+                if (state === undefined) {
+                    finish(undefined);
+                    return;
+                }
+                if (state.runId === runId) {
+                    if (state.runStatus === "waiting" || state.runStatus === "completed"
+                        || state.runStatus === "failed" || state.runStatus === "cancelled") {
+                        finish(state);
+                    }
+                    return;
+                }
+                // Run 已被后继 Run 替换：目标 Run 的终态在归档历史中。
+                const archivedStatus = await this.archivedRunStatus(goalId, runId);
+                if (archivedStatus !== undefined) {
+                    finish({ ...state, runId, runStatus: archivedStatus });
+                }
+            };
+            const unsubscribe = this.revisionMonitor.observe(goalId, (signal) => {
+                if (signal.kind === "revision_changed") void check();
+            });
+            void check();
+        });
+    }
+
+    private async archivedRunStatus(goalId: string, runId: string): Promise<GoalSessionState["runStatus"] | undefined> {
+        const goal = await this.store.restore(goalId);
+        return goal?.state.completedRuns?.find((record) => record.runId === runId)?.status;
+    }
+
+    /**
+     * 顺序消费宿主提供的异步输入来源。
+     *
+     * @remarks 每条输入先等待持久化受理再读取下一项；业务拒绝继续消费，基础设施
+     * 失败停止该来源且不预取。解除句柄或停止消费后，迟到的输入不会被受理。
+     */
+    async consumeSessionInputs(
+        goalId: string,
+        sessionId: string,
+        inputs: AsyncIterable<SessionInput>,
+    ): Promise<SessionInputConsumptionResult> {
+        const stopped = deferredSignal();
+        const consumer = {
+            stopped: false,
+            stop: () => {
+                consumer.stopped = true;
+                stopped.resolve();
+            },
+        };
+        let consumers = this.sessionConsumers.get(sessionId);
+        if (consumers === undefined) {
+            consumers = new Set();
+            this.sessionConsumers.set(sessionId, consumers);
+        }
+        consumers.add(consumer);
+        try {
+            const iterator = inputs[Symbol.asyncIterator]();
+            while (true) {
+                let next: IteratorResult<SessionInput> | typeof STOPPED;
+                try {
+                    next = await Promise.race([iterator.next(), stopped.promise]);
+                } catch (error) {
+                    return { reason: "failed", error };
+                }
+                // 停止消费后不再等待挂起的 next()，也不受理迟到项；来源资源归宿主。
+                if (next === STOPPED || consumer.stopped) {
+                    void iterator.return?.();
+                    return { reason: "stopped" };
+                }
+                if (next.done === true) return { reason: "completed" };
+                try {
+                    await this.sendSessionInput(goalId, next.value);
+                } catch (error) {
+                    void iterator.return?.().catch(() => undefined);
+                    return { reason: "failed", error };
+                }
+            }
+        } finally {
+            consumers.delete(consumer);
+            if (consumers.size === 0) this.sessionConsumers.delete(sessionId);
+        }
     }
 
     /**
@@ -927,14 +1160,46 @@ export class SessionManager implements SessionHandlePort {
         return stream;
     }
 
-    /** 停止全部后台执行、核对任务与订阅；用于实例关闭结算。 */
-    async close(): Promise<void> {
+    /**
+     * 停止全部订阅、输入消费与核对任务，并有界等待后台执行结算。
+     *
+     * @param options - 可选的结算期限；省略时无限等待。
+     * @returns 无未结算工作时完成。
+     * @throws SessionManagerCloseError 期限届满仍有未结算的输入消费或后台执行。
+     * @example
+     * ```ts
+     * await sessions.close({ timeoutMs: 5000 });
+     * ```
+     */
+    async close(options?: { readonly timeoutMs?: number }): Promise<void> {
         for (const streams of this.sessionStreams.values()) {
             for (const stream of [...streams]) stream.close();
         }
         this.sessionStreams.clear();
+        for (const consumers of this.sessionConsumers.values()) {
+            for (const consumer of consumers) consumer.stop();
+        }
+        this.sessionConsumers.clear();
         this.revisionMonitor.dispose();
-        await this.waitForIdle();
+
+        const timeoutMs = options?.timeoutMs;
+        if (timeoutMs === undefined) {
+            await this.waitForIdle();
+            return;
+        }
+        let timer: unknown;
+        const deadline = new Promise<"timeout">((resolve) => {
+            // 期限由调用方主动等待，不适用 unref：到期前必须保持事件循环活跃。
+            timer = setTimeout(() => resolve("timeout"), timeoutMs);
+        });
+        const settled = await Promise.race([
+            this.waitForIdle().then(() => "settled" as const),
+            deadline,
+        ]);
+        clearTimeout(timer as ReturnType<typeof setTimeout>);
+        if (settled === "timeout") {
+            throw new SessionManagerCloseError([...this.executions.keys()]);
+        }
     }
 
     /**
@@ -999,7 +1264,11 @@ export class SessionManager implements SessionHandlePort {
         const explicitContinuation = input.kind === "queue_control" && input.action === "continue";
         if (input.kind !== "message" && !explicitContinuation) return;
         if (explicitContinuation) this.explicitContinuations.add(goalId);
-        if (this.executions.has(goalId)) return;
+        if (this.executions.has(goalId)) {
+            // 执行所有者正在运行：在它退出前重新检查队列，避免新受理项无人消费。
+            this.pendingWakes.add(goalId);
+            return;
+        }
         if (this.activeGoalId !== undefined && this.activeGoalId !== goalId) return;
         const task = this.runWake(goalId, explicitContinuation);
         this.backgroundTasks.add(task);
@@ -1088,6 +1357,9 @@ export class SessionManager implements SessionHandlePort {
         } finally {
             this.executions.delete(goalId);
             if (this.activeGoalId === goalId) this.activeGoalId = undefined;
+            if (this.pendingWakes.delete(goalId)) {
+                this.continueQueueIfEligible(goalId);
+            }
         }
     }
 

@@ -352,6 +352,7 @@ export type {
     GoalSessionState,
     GoalSessionStateInput,
     SessionHandlePort,
+    SessionInputConsumptionResult,
     SessionManagerErrorCode,
     SessionOutputEvent,
     SessionReceipt,
@@ -368,12 +369,13 @@ export type {
     SessionInputOutcome,
     SessionOutputStream,
 } from "./session-stream";
-export { SessionManager } from "./session-manager";
+export { SessionManager, SessionManagerCloseError } from "./session-manager";
 export type {
     SessionCreateRequest,
     SessionCreateResult,
     SessionManagerDependencies,
     SessionOpenResult,
+    SessionQueryResult,
 } from "./session-manager";
 export { Runner, type InterruptRunResult, type SteerInputResult } from "./runner";
 export { RunRecoveryReader, type RunRecoveryReaderDependencies } from "./run-recovery-reader";

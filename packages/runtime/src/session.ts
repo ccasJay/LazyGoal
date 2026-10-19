@@ -14,6 +14,25 @@ import type {
 import type { SessionInputOutcome, SessionOutputStream } from "./session-stream";
 
 /**
+ * 一个输入来源的消费结果。
+ *
+ * @remarks `completed` 表示来源正常结束；`stopped` 表示消费被调用方或句柄解除
+ * 连接停止；`failed` 表示保存或受理基础设施失败，已受理工作仍然有效。
+ *
+ * @example
+ * ```ts
+ * const result = await session.consume(inputs);
+ * if (result.reason === "failed") console.error(result.error);
+ * ```
+ */
+export type SessionInputConsumptionResult = {
+    readonly reason: "completed" | "stopped";
+} | {
+    readonly reason: "failed";
+    readonly error: unknown;
+};
+
+/**
  * 会话输出流的事件联合。
  *
  * @remarks
@@ -122,6 +141,12 @@ export interface SessionHandlePort {
     querySessionInput(goalId: string, inputId: string): Promise<SessionInputQueryResult>;
     /** 建立该句柄对整个 Goal 的输出订阅。 */
     openSessionEvents(goalId: string, sessionId: string): SessionOutputStream;
+    /** 顺序消费一个宿主拥有的异步输入来源。 */
+    consumeSessionInputs(
+        goalId: string,
+        sessionId: string,
+        inputs: AsyncIterable<SessionInput>,
+    ): Promise<SessionInputConsumptionResult>;
     /** 释放该句柄的来源与订阅；不影响共享实例与其他句柄。 */
     detachSession(sessionId: string): void;
 }
@@ -213,6 +238,29 @@ export class Session {
     async getInput(inputId: string): Promise<SessionInputQueryResult> {
         this.assertAttached();
         return this.port.querySessionInput(this.goalId, inputId);
+    }
+
+    /**
+     * 顺序消费一个异步输入来源。
+     *
+     * @remarks
+     * 逐条等待持久化受理结果后才读取下一项，不等待业务执行结束；业务拒绝作为
+     * 输入结果继续消费，保存或受理基础设施失败时停止读取该来源、不预取后续项并
+     * 报告原始错误。来源结束时只结束该来源的消费：已受理输入、Session 与其他
+     * 来源保持有效。停止消费后迟到的 `next()` 结果不会被受理，来源资源归宿主。
+     *
+     * @param inputs - 宿主拥有的异步输入来源。
+     * @returns 来源结束、消费停止或基础设施失败的结果。
+     * @throws 句柄已解除连接时拒绝。
+     * @example
+     * ```ts
+     * for await (const input of inputs) await session.send(input);
+     * const result = await session.consume(inputs);
+     * ```
+     */
+    consume(inputs: AsyncIterable<SessionInput>): Promise<SessionInputConsumptionResult> {
+        this.assertAttached();
+        return this.port.consumeSessionInputs(this.goalId, this.sessionId, inputs);
     }
 
     /**

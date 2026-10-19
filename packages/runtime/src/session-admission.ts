@@ -98,8 +98,9 @@ export class SessionInputAdmission {
         const shape = validateSessionInputShape(input);
         if (shape !== undefined) return rejection(shape.code, shape.message);
 
+        let admitted: SessionInputAdmissionResult;
         try {
-            return await withGoalMutationGate(this.store, goalId, async () => {
+            admitted = await withGoalMutationGate(this.store, goalId, async () => {
                 const goal = await this.store.restore(goalId);
                 if (goal === undefined) {
                     return rejection("GOAL_NOT_FOUND", `Goal "${goalId}" was not found`);
@@ -134,9 +135,7 @@ export class SessionInputAdmission {
                     }],
                     sessionState: "caller",
                 });
-                const receipt = toSessionInputReceipt(goalId, plan.record);
-                this.onAdmitted?.(goalId, input);
-                return { ok: true, existing: false, receipt };
+                return { ok: true, existing: false, receipt: toSessionInputReceipt(goalId, plan.record) };
             });
         } catch (error) {
             if (error instanceof SessionInputAdmissionError) throw error;
@@ -147,6 +146,9 @@ export class SessionInputAdmission {
                 error,
             );
         }
+        // 唤醒通知在短边界之外触发：后台执行不得继承提交边界上下文。
+        if (admitted.ok) this.onAdmitted?.(goalId, input);
+        return admitted;
     }
 
     /**
