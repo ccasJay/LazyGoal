@@ -34,7 +34,7 @@ test("real local service restores and completes one authorized Goal conversation
     const noTokenCreate = await api(first.origin, "/api/goals", {
       method: "POST",
       headers: { "content-type": "application/json", origin: first.origin },
-      body: JSON.stringify({ goalId: "unauthorized-goal", intent: "Must not start" }),
+      body: JSON.stringify({ goalId: "unauthorized-goal", inputId: "unauthorized-input", intent: "Must not start" }),
     });
     assert.equal(noTokenCreate.response.status, 401);
     assert.deepEqual(await readStatus(statusPath), { modelCalls: 0, toolCalls: 0 });
@@ -56,6 +56,10 @@ test("real local service restores and completes one authorized Goal conversation
     socket = await connectCdp(target.webSocketDebuggerUrl);
     await cdp(socket, "Page.enable");
     await cdp(socket, "Runtime.enable");
+    // 显式桌面布局视口：headless 默认宽度会触发移动布局并使桌面断言失效。
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", {
+      width: 1280, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
 
     socket.statusPath = statusPath;
     await navigate(socket, `${first.origin}/`);
@@ -115,14 +119,18 @@ test("real local service restores and completes one authorized Goal conversation
     });
     assert.equal(crossOrigin.response.status, 403);
     assert.deepEqual(crossOrigin.body, { error: "cross_origin_denied" });
-    const plainTextAtAskUser = await api(first.origin, `/api/goals/${goalId}/messages`, {
+    const plainTextAtAskUser = await api(first.origin, `/api/goals/${goalId}/inputs`, {
       token: first.token,
       method: "POST",
       headers: { "content-type": "application/json", origin: first.origin },
-      body: JSON.stringify({ runId: firstRunId, messageId: "e2e-message-1", content: "Use approved notes" }),
+      body: JSON.stringify({ kind: "message", inputId: "e2e-message-1", content: "Use approved notes" }),
     });
     assert.equal(plainTextAtAskUser.response.status, 409);
-    assert.equal(plainTextAtAskUser.body.error, "structured_interaction_required");
+    assert.equal(plainTextAtAskUser.body.error, "INTERACTION_REQUIRED");
+    // 拒绝不写入收据：原身份仍可查询且明确未找到。
+    const rejectedReceipt = await api(first.origin, `/api/goals/${goalId}/inputs/e2e-message-1`, { token: first.token });
+    assert.equal(rejectedReceipt.response.status, 200);
+    assert.deepEqual(rejectedReceipt.body, { ok: true, found: false });
     assert.deepEqual(await readStatus(statusPath), { modelCalls: 1, toolCalls: 0 });
 
     const savedPreference = await api(first.origin, "/api/project/model-preference", {
@@ -183,14 +191,20 @@ test("real local service restores and completes one authorized Goal conversation
     session = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.pendingAction?.status === "awaiting_approval");
     const pendingActionId = session.pendingAction.actionId;
 
-    const staleApproval = await api(restarted.origin, `/api/goals/${goalId}/interactions`, {
+    const staleApproval = await api(restarted.origin, `/api/goals/${goalId}/inputs`, {
       token: restarted.token,
       method: "POST",
       headers: { "content-type": "application/json", origin: restarted.origin },
-      body: JSON.stringify({ kind: "approve_action", runId: session.currentRunId, actionId: "stale-action" }),
+      body: JSON.stringify({
+        kind: "respond",
+        inputId: "e2e-stale-approval",
+        runId: session.currentRunId,
+        requestId: session.pendingAction.actionId,
+        response: { kind: "approve_action", actionId: "stale-action" },
+      }),
     });
     assert.equal(staleApproval.response.status, 409);
-    assert.equal(staleApproval.body.error, "action_not_waiting");
+    assert.equal(staleApproval.body.error, "INTERACTION_MISMATCH");
     assert.deepEqual(await readStatus(statusPath), { modelCalls: 4, toolCalls: 0 });
 
     await cdp(socket, "Runtime.evaluate", {

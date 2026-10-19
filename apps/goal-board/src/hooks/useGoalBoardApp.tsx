@@ -59,7 +59,6 @@ export function useGoalBoardApp() {
     await goalsManager.deleteGoal(goal, () => {
       if (sessionManager.selectedGoalId === goal.goalId) sessionManager.setSelectedGoalId(null);
     });
-    queueManager.clearQueue(goal.goalId);
   };
 
   const { workspaceContext, workspaceContextError } = useWorkspaceContext({
@@ -118,7 +117,6 @@ export function useGoalBoardApp() {
 
   const queueManager = useQueue({
     session: sessionManager.session,
-    selectedGoalId: sessionManager.selectedGoalId,
     onRefreshSession: sessionManager.refreshSelectedSession,
     onCommandError: commandsManager.setCommandError,
   });
@@ -240,10 +238,10 @@ export function useGoalBoardApp() {
     setCommandError: commandsManager.setCommandError,
     stoppingRunId: commandsManager.stoppingRunId,
     canSendText,
-    queuedInputs: sessionManager.session ? queueManager.queuedByGoal[sessionManager.session.goalId] ?? [] : [],
-    queuePaused: sessionManager.session ? queueManager.queuePausedByGoal[sessionManager.session.goalId] ?? false : false,
-    onQueueInput: (content) => sessionManager.session ? queueManager.queueInput(sessionManager.session.goalId, content) : false,
+    queuedInputs: queueManager.queuedInputs,
+    queuePaused: queueManager.queuePaused,
     onContinueQueue: queueManager.continueQueue,
+    onClearQueue: queueManager.clearQueue,
     onSubmitMessage: commandsManager.submitMessage,
     onSubmitDraftMessage: commandsManager.submitDraftMessage,
     onSubmitSteer: commandsManager.submitSteer,

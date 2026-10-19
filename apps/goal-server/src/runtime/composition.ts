@@ -833,10 +833,10 @@ async function assembleRuntimeComposition(
             runTrackedOperation("resume", () => rawCommands.resume(request, control)),
         continue: (ref, content, control, continuation, queueBinding) =>
             runTrackedOperation("continue", () => rawCommands.continue(ref, content, control, continuation, queueBinding)),
-        steer: (ref, messageId, content) =>
-            runTrackedOperation("steer", () => rawCommands.steer(ref, messageId, content)),
-        interrupt: (ref, requestId) =>
-            runTrackedOperation("interrupt", () => rawCommands.interrupt(ref, requestId)),
+        steer: (ref, messageId, content, ledger) =>
+            runTrackedOperation("steer", () => rawCommands.steer(ref, messageId, content, ledger)),
+        interrupt: (ref, requestId, ledger) =>
+            runTrackedOperation("interrupt", () => rawCommands.interrupt(ref, requestId, ledger)),
         enterPlanMode: (ref, control) =>
             runTrackedOperation("enter_plan_mode", () => rawCommands.enterPlanMode(ref, control)),
         getPermissionMode: (workspaceId) => rawCommands.getPermissionMode(workspaceId),

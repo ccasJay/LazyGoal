@@ -509,6 +509,14 @@ export function isBrowserGoalSession(value: unknown): value is BrowserGoalSessio
             || !value.pendingSteers.every((steer) => isRecord(steer)
                 && isNonEmptyString(steer.messageId)
                 && typeof steer.content === "string")))
+        || (value.pendingMessages !== undefined && (!Array.isArray(value.pendingMessages)
+            || !value.pendingMessages.every((message) => isRecord(message)
+                && isNonEmptyString(message.inputId)
+                && typeof message.content === "string")))
+        || (value.queue !== undefined && (!isRecord(value.queue)
+            || !Number.isSafeInteger(value.queue.revision) || Number(value.queue.revision) < 0
+            || typeof value.queue.paused !== "boolean"
+            || (value.queue.pauseReason !== undefined && value.queue.pauseReason !== "run_failed" && value.queue.pauseReason !== "user_interrupt")))
         || (value.interruption !== undefined && (!isRecord(value.interruption)
             || !isNonEmptyString(value.interruption.requestId)
             || !["requested", "repairing", "finished"].includes(String(value.interruption.status))

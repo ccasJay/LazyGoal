@@ -10,8 +10,8 @@ export interface RunControlContextValue {
   readonly canSendText: boolean;
   readonly queuedInputs: readonly QueuedInput[];
   readonly queuePaused: boolean;
-  readonly onQueueInput: (content: string) => boolean;
   readonly onContinueQueue: () => Promise<void>;
+  readonly onClearQueue: () => Promise<void>;
   readonly onSubmitMessage: (content: string) => Promise<boolean>;
   readonly onSubmitDraftMessage: (content: string) => Promise<boolean>;
   readonly onSubmitSteer: (content: string) => Promise<boolean>;

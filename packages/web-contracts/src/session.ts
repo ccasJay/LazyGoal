@@ -661,6 +661,14 @@ export interface BrowserGoalSession {
     readonly messages: readonly BrowserSessionMessage[];
     /** 已受理且尚未进入模型输入的 Steer 消息，按受理顺序排列。 */
     readonly pendingSteers?: readonly { readonly messageId: string; readonly content: string }[];
+    /** 已受理、尚未应用的普通消息；Runtime 队列是唯一真源。 */
+    readonly pendingMessages?: readonly { readonly inputId: string; readonly content: string }[];
+    /** 队列修订与暂停事实；省略表示修订 0 且未暂停。 */
+    readonly queue?: {
+        readonly revision: number;
+        readonly paused: boolean;
+        readonly pauseReason?: "run_failed" | "user_interrupt";
+    };
     /** 已受理的用户终止及自动收尾进度。 */
     readonly interruption?: {
         readonly requestId: string;

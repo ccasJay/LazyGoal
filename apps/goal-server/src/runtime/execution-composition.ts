@@ -218,8 +218,8 @@ export function createExecutionComponents(
             resume: (request, control) => coordinator.resume(request, control),
             continue: (ref, content, control, continuation, queueBinding) =>
                 coordinator.continue(ref, content, control, continuation, queueBinding),
-            steer: (ref, messageId, content) => coordinator.steer(ref, messageId, content),
-            interrupt: (ref, requestId) => coordinator.interrupt(ref, requestId),
+            steer: (ref, messageId, content, ledger) => coordinator.steer(ref, messageId, content, ledger),
+            interrupt: (ref, requestId, ledger) => coordinator.interrupt(ref, requestId, ledger),
             enterPlanMode: (ref, control) => coordinator.enterPlanMode(ref, control),
             listGrants: (ref) => coordinator.listGrants(ref),
             revokeGrant: (request) => coordinator.revokeGrant(request),

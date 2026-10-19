@@ -13,12 +13,12 @@ import {
 import type { AgentProfile, Goal, ToolPolicy } from "../../../packages/runtime/src/index";
 import {
     createBrowserGoalRoutes,
+    createBrowserGoalSessionPort,
     createBrowserTrajectoryRoutes,
     createBrowserModelInputRoutes,
     createBrowserSessionAccess,
     createBrowserStaticRoutes,
     BrowserGoalCommandService,
-    BrowserGoalStreamService,
     listBrowserGoals,
     readBrowserGoalSession,
 } from "../../../packages/browser/src/index";
@@ -201,49 +201,48 @@ root.notifyingStore.onSave((goal) => {
 });
 const commands = new BrowserGoalCommandService({
     store: root.workspaceGoalStore,
-    saveNotifications: root.notifyingStore,
-    launcher: root.browserLauncher,
     coordinator: root.commands,
-    defaultModelSelection: root.defaultModelSelection,
+    modelSelectionCoordinator: root.goalModelSelectionCoordinator,
+    readActiveGoalId: () => root.sessions.activeGoal,
     resolveModelSelection: async (modelId) => modelId === root.defaultModelSelection.modelId || modelId === "model-b"
         ? { ...root.defaultModelSelection, modelId } : undefined,
-    profileId: root.profile.id,
     control: { signal: root.abortController.signal },
 });
-const streams = new BrowserGoalStreamService({
-    store: root.workspaceGoalStore,
-    saveNotifications: root.notifyingStore,
-    publisher: root.executionStream,
+/** 确定性 Adapter 需要知道当前受控 Goal；统一输入与事件流都由 Runtime 会话所有者处理。 */
+const sessionPort = createBrowserGoalSessionPort({
+    sessions: root.sessions,
+    profileId: root.profile.id,
+    isShuttingDown: () => root.abortController.signal.aborted,
+    resolveModelSelection: async (command) => {
+        const modelId = command.modelId ?? root.defaultModelSelection.modelId;
+        if (modelId !== root.defaultModelSelection.modelId && modelId !== "model-b") {
+            return { ok: false, error: "model_not_selectable" as const };
+        }
+        activeGoalId = command.goalId;
+        return { ok: true as const, selection: { ...root.defaultModelSelection, modelId } };
+    },
 });
+const browserSession = {
+    ...sessionPort,
+    submit: (goalId: string, input: Parameters<typeof sessionPort.submit>[1]) => {
+        activeGoalId = goalId;
+        return sessionPort.submit(goalId, input);
+    },
+    openEvents: (goalId: string, signal?: AbortSignal) => {
+        activeGoalId = goalId;
+        return sessionPort.openEvents(goalId, signal);
+    },
+};
 const modelPreferenceStore = new JsonFileModelPreferenceStore(root.workspaceHomeDirectory);
 root.httpService.mount("/", createBrowserGoalRoutes({
-    list: () => listBrowserGoals(root.workspaceGoalStore, commands.getActiveGoalId()),
+    list: () => listBrowserGoals(root.workspaceGoalStore, root.sessions.activeGoal),
     read: (goalId) => readBrowserGoalSession(
         goalId,
         root.workspaceGoalStore,
         root.readWorkspaceTrajectory,
-        commands.getActiveGoalId(),
+        root.sessions.activeGoal,
     ),
-    create: (command) => {
-        activeGoalId = command.goalId;
-        return commands.create(command);
-    },
-    interact: (goalId, command) => {
-        activeGoalId = goalId;
-        return commands.interact(goalId, command);
-    },
-    message: (goalId, command) => {
-        activeGoalId = goalId;
-        return commands.message(goalId, command);
-    },
-    steer: (goalId, command) => {
-        activeGoalId = goalId;
-        return commands.steer(goalId, command);
-    },
-    interrupt: (goalId, command) => {
-        activeGoalId = goalId;
-        return commands.interrupt(goalId, command);
-    },
+    session: browserSession,
     enterPlanMode: (goalId, command) => {
         activeGoalId = goalId;
         return commands.enterPlanMode(goalId, command);
@@ -273,7 +272,6 @@ root.httpService.mount("/", createBrowserGoalRoutes({
         return { ok: true, modelId };
     },
     selectModel: (goalId, command) => commands.selectModel(goalId, command),
-    openStream: (goalId, runId, signal) => streams.open(goalId, runId, signal),
 }));
 root.httpService.mount("/", createBrowserTrajectoryRoutes(root.workspaceGoalStore, root.readWorkspaceTrajectory));
 root.httpService.mount("/", createBrowserModelInputRoutes(root.workspaceGoalStore, (goalId, runId) => new JsonFileModelInputStore(resolve(dataDirectory, "model-inputs")).read(goalId, runId)));

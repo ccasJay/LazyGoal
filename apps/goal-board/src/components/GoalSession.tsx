@@ -134,8 +134,8 @@ export function GoalSession({
     canSendText,
     queuedInputs,
     queuePaused,
-    onQueueInput,
     onContinueQueue,
+    onClearQueue,
     onSubmitMessage,
     onSubmitDraftMessage,
     onSubmitSteer,
@@ -770,13 +770,22 @@ export function GoalSession({
           {sessionTab !== "Board" && (
             <div className="composer-area">
               {queuedInputs.length > 0 && (
-                <div className="queued-inputs" aria-label="Queued messages">
-                  <div className="queued-inputs-heading">Queued messages · next Run order</div>
+                <div className="queued-inputs" aria-label="Accepted queue">
+                  <div className="queued-inputs-heading">Accepted queue · next Run order</div>
                   <ol>
                     {queuedInputs.map((item) => (
                       <li key={item.messageId}>{item.content}</li>
                     ))}
                   </ol>
+                  <div className="queued-inputs-actions">
+                    <button
+                      type="button"
+                      disabled={commandBusy || sessionError !== null}
+                      onClick={() => void onClearQueue()}
+                    >
+                      Clear accepted queue
+                    </button>
+                  </div>
                   {queuePaused && (
                     <div className="queue-paused">
                       Queue paused. Continue when ready.
@@ -913,7 +922,7 @@ export function GoalSession({
                     placeholder="Add direction while this Run is working…"
                     pendingSteers={session.pendingSteers ?? []}
                     onSteer={onSubmitSteer}
-                    onQueue={onQueueInput}
+                    onQueue={onSubmitMessage}
                     onInterrupt={onInterrupt}
                     stopping={
                       stoppingRunId === session.currentRunId ||
