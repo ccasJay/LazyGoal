@@ -79,10 +79,11 @@ export function useGoalBoardApp() {
     onRefreshSession: sessionManager.refreshSelectedSession,
   });
 
+  // 运行中的文本发送进入持久化队列；等待交互或审批时保持阻止，避免代答。
   const canSendText = sessionManager.session !== null
     && sessionManager.session.pendingInteraction === undefined
     && sessionManager.session.pendingAction === undefined
-    && ["waiting", "completed", "failed", "cancelled"].includes(sessionManager.session.runStatus);
+    && ["running", "waiting", "completed", "failed", "cancelled"].includes(sessionManager.session.runStatus);
 
   const modelSelectionManager = useModelSelection({
     session: sessionManager.session,

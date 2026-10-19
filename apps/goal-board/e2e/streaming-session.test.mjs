@@ -55,14 +55,13 @@ test("streaming session keeps one runtime queue across Steer, Interrupt, tabs an
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null", 15_000);
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Composer status flow: stream one long running goal");
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Streaming session flow: stream one long running goal");
     await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false", 15_000);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
     let session = await waitForSession(first.origin, first.token, (candidate) => candidate.runStatus === "running" || candidate.runStatus === "waiting");
     const goalId = session.goalId;
     const firstRunId = session.currentRunId;
     await waitForExpression(socket, "document.querySelector('.composer-area') !== null", 15_000);
-    const callsBeforeQueue = (await readStatus(statusPath)).modelCalls;
 
     // 运行中默认 Queue：默认发送只持久化受理，不取消在途调用。
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Queued while running");
@@ -93,15 +92,28 @@ test("streaming session keeps one runtime queue across Steer, Interrupt, tabs an
     assert.equal((paused.pendingMessages ?? []).length, 1, "queued message stays pending while paused");
     const cancelled = await waitForSession(first.origin, first.token, (candidate) => candidate.runStatus === "cancelled");
     assert.equal(cancelled.currentRunId, firstRunId);
-    assert.equal((cancelled.pendingSteers ?? []).length, 0, "cancelled Run applies no Steer");
-    assert.equal((await readStatus(statusPath)).modelCalls, callsBeforeQueue, "control inputs never call the model again");
+    // 已受理但未应用的 Steer 保留可核验身份，且不能出现在对话中。
+    assert.deepEqual((cancelled.pendingSteers ?? []).map((item) => item.content), ["Steer this active Run"]);
+    assert.equal(cancelled.messages.some((message) => message.role === "user" && message.content === "Steer this active Run"), false, "a cancelled Run never applies its pending Steer");
+    // 取消结算后不再产生新的模型调用。
+    const cancelledCalls = (await readStatus(statusPath)).modelCalls;
+    await delay(1_500);
+    assert.equal((await readStatus(statusPath)).modelCalls, cancelledCalls, "a cancelled Run makes no further model call");
 
-    // 刷新与第二个标签页：队列、暂停与修订都来自服务端。
+    // 刷新与第二个标签页：队列、暂停与修订都来自服务端，旧本地队列不再被导入。
+    await cdp(socket, "Runtime.evaluate", {
+      expression: `localStorage.setItem(${JSON.stringify(`lazygoal.queue.${goalId}`)}, JSON.stringify({ items: [{ messageId: "legacy-local-task", content: "Legacy local task" }], paused: false }))`,
+      returnByValue: true,
+    });
     await cdp(socket, "Page.reload");
     await waitForExpression(socket, "document.readyState === 'complete' && document.querySelector('.goal-card') !== null", 15_000);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.goal-card')[0].click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.queued-inputs')?.innerText.includes('Queued while running')", 15_000);
+    assert.equal(await value(socket, "document.querySelector('.queued-inputs').innerText.includes('Legacy local task')"), false, "the legacy local queue is never imported");
     await waitForExpression(socket, "document.querySelector('.queue-paused') !== null", 15_000);
+    session = await sessionDetail(first.origin, first.token, goalId);
+    assert.deepEqual((session.pendingMessages ?? []).map((item) => item.content), ["Queued while running"], "refresh only restores Runtime-accepted items");
+    assert.equal(session.queue.paused, true, "the legacy paused flag is not imported");
     const secondTarget = await (await fetch(`http://127.0.0.1:${devtools.port}/json/new?${encodeURIComponent(first.launchUrl)}`, { method: "PUT" })).json();
     secondSocket = await connectCdp(secondTarget.webSocketDebuggerUrl);
     await cdp(secondSocket, "Page.enable");
@@ -167,8 +179,8 @@ test("streaming session keeps one runtime queue across Steer, Interrupt, tabs an
     assert.equal(receipt.body.found, true);
     assert.equal(receipt.body.receipt.status, "cleared");
 
-    // 重启：页面只显示待恢复状态，不发起模型调用。
-    const callsBeforeRestart = (await readStatus(statusPath)).modelCalls;
+    // 重启：页面只显示待恢复状态，不发起模型调用，已受理身份与当前 Run 保持不变。
+    const beforeRestart = await sessionDetail(first.origin, first.token, goalId);
     await stopService(service);
     service = await startService({ workspace, data, home, statusPath, runOffset: 20, modelOffset: 60, delayModel: true });
     const restarted = await service.ready;
@@ -178,8 +190,12 @@ test("streaming session keeps one runtime queue across Steer, Interrupt, tabs an
     await waitForExpression(socket, "document.querySelector('.composer-recover-actions button')?.textContent.includes('Resume Run')", 20_000);
     assert.equal((await readStatus(statusPath)).modelCalls, 60, "restart performs no automatic model call");
     const recovered = await sessionDetail(restarted.origin, restarted.token, goalId);
+    assert.equal(recovered.currentRunId, beforeRestart.currentRunId, "restart keeps the accepted Run identity");
     assert.notEqual(recovered.execution.state, "active");
-    assert.ok(callsBeforeRestart <= 60);
+    const restoredReceipt = await api(restarted.origin, `/api/goals/${goalId}/inputs/retry-identity`, { token: restarted.token });
+    assert.equal(restoredReceipt.response.status, 200);
+    assert.equal(restoredReceipt.body.found, true);
+    assert.equal(restoredReceipt.body.receipt.status, "cleared", "accepted input identities survive the restart");
   } finally {
     socket?.close();
     secondSocket?.close();

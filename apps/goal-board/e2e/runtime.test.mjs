@@ -23,6 +23,7 @@ test("real local service restores and completes one authorized Goal conversation
   let service;
   let chrome;
   let socket;
+  let failure;
 
   try {
     service = await startService({ workspace, data, home, statusPath, runOffset: 0, modelOffset: 0, delayModel: true });
@@ -501,12 +502,21 @@ test("real local service restores and completes one authorized Goal conversation
     await waitForExpression(socket, "document.querySelector('.queue-paused') !== null", 15_000);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.queue-paused button').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
+  } catch (error) {
+    failure = error;
   } finally {
     socket?.close();
-    if (chrome !== undefined) await stopProcess(chrome, "SIGTERM", 5_000);
-    if (service !== undefined) await stopService(service);
+    try {
+      if (chrome !== undefined) await stopProcess(chrome, "SIGTERM", 5_000);
+      if (service !== undefined) await stopService(service);
+    } catch (cleanupError) {
+      // 收尾失败不能掩盖主体断言的原始故障；无主体故障时仍然失败。
+      if (failure === undefined) failure = cleanupError;
+      else console.error(`Cleanup after the primary failure also failed: ${cleanupError}`);
+    }
     await rm(temporaryRoot, { recursive: true, force: true });
   }
+  if (failure !== undefined) throw failure;
 });
 
 function startService({ workspace, data, home, statusPath, runOffset, modelOffset, delayModel = false }) {
@@ -551,7 +561,8 @@ function startService({ workspace, data, home, statusPath, runOffset, modelOffse
 }
 
 async function stopService(service) {
-  await stopProcess(service.child, "SIGTERM", 1_500, service.logs);
+  // 确定性模型在途时会按 fixture 的人为延迟结算，SIGTERM 必须给它留出收尾窗口。
+  await stopProcess(service.child, "SIGTERM", 30_000, service.logs);
 }
 
 async function stopProcess(child, signal, timeoutMs, logs = "") {

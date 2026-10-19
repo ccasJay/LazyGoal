@@ -96,6 +96,8 @@ class DeterministicAdapter implements LLMAdapter {
         await appendFile(`${statusFile}.decisions`, JSON.stringify({ kind: result.kind, call: this.calls, feedback: request.messages.flatMap(message => { try { const data = JSON.parse(message.content); return data.source === "runtime_feedback" ? [{code: data.code, issues: data.issues.map((issue: {code: string; path: unknown}) => ({code: issue.code, path: issue.path}))}] : []; } catch { return []; } }) }) + "\n");
         const isComposerStatusFlow = request.messages.some(message => message.content.includes("Composer status flow:"));
         if (isComposerStatusFlow) await new Promise(resolve => setTimeout(resolve, 1200));
+        const isStreamingSessionFlow = request.messages.some(message => message.content.includes("Streaming session flow:"));
+        if (isStreamingSessionFlow) await new Promise(resolve => setTimeout(resolve, 8000));
         if (process.env.LAZYGOAL_E2E_DELAY_MODEL === "1" && !["run_stage_update", "tool_discovery"].includes(result.kind as string)) await new Promise(resolve => setTimeout(resolve, 5000));
         // 严格结构化输出以声明工具调用交付决策。
         return toolResponseFixture(JSON.stringify({ result }));
@@ -269,7 +271,7 @@ root.httpService.mount("/", createBrowserGoalRoutes({
     } }),
     setModelPreference: async (modelId) => {
         if (modelId !== root.defaultModelSelection.modelId && modelId !== "model-b") return { ok: false, error: "model_not_selectable" };
-        await modelPreferenceStore.set({ provider: root.defaultModelSelection.provider, modelId });
+        await modelPreferenceStore.set({ modelId });
         return { ok: true, modelId };
     },
     selectModel: (goalId, command) => commands.selectModel(goalId, command),

@@ -60,7 +60,7 @@
   - 实施目标：在 `web-contracts` 定义新的严格 wire 联合与安全投影；Browser 通过窄 Port 委派 Session，现有 `apps/goal-server/src/runtime/` 增加接线并共用 Binding 和生命周期。迁移创建、消息、回答、Steer、Interrupt、恢复与 Goal 事件路由，删除被替代的 DTO／控制路由、Browser 去重／执行预约和后台推进算法；保留模型、权限、Provider、指标与历史接口，通过相同提交边界管理。
   - 验证手段：`npx tsx --test packages/browser/test/*.test.ts`、`npm --prefix apps/goal-server test`、`npx tsc --noEmit -p apps/goal-server/tsconfig.json`；受影响旧测试改用新契约并保留安全、拒绝、模型绑定和持久化断言，不能用第二套兼容路由通过测试。
 
-- [ ] //TODO 10. Web 默认发送到持久化队列，并清楚展示 Steer、Interrupt 和恢复状态
+- [x] //TODO 10. Web 默认发送到持久化队列，并清楚展示 Steer、Interrupt 和恢复状态
   - 落实标准：[3.4](./spec.md#spec-req-3-4)、[3.5](./spec.md#spec-req-3-5)、[4.4](./spec.md#spec-req-4-4)、[5.3](./spec.md#spec-req-5-3)、[7.3](./spec.md#spec-req-7-3)、[9.1](./spec.md#spec-req-9-1)、[9.2](./spec.md#spec-req-9-2)。
   - 先验证：扩展真实浏览器 `apps/goal-board/e2e/runtime.test.mjs`，并在待实现的 `e2e/streaming-session.test.mjs` 中用受控服务覆盖运行中默认 Queue、显式 Steer、停止／收尾／审批／cancelled、队列继续和清空。刷新、多标签与断线后核对服务端顺序；请求拒绝保留草稿，丢响应重试复用原身份；重启页面只显示待恢复而不发起模型调用。
   - 实施目标：改造 API 与输入 Hooks，使 Session 状态成为已受理队列和调度的唯一来源；删除 `useQueue` 的自动发送、`queue-persistence` 的任务镜像及不再有效的测试，不把旧 localStorage 任务导入 Runtime。界面区分草稿、提交中、已受理、待应用与当前消息，提供明确的 Steer／Interrupt／恢复／继续操作；保留本地草稿，切换会话不让迟到响应覆盖新选择，产品文案使用英文。
