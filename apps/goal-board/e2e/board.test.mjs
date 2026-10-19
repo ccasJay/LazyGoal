@@ -50,6 +50,10 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     socket = await connectCdp(target.webSocketDebuggerUrl);
     await cdp(socket, "Page.enable");
     await cdp(socket, "Runtime.enable");
+    // 显式桌面布局视口：headless 默认宽度会触发移动布局并隐藏侧栏初始断言。
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", {
+      width: 1280, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
 
     await navigate(socket, `${webUrl}/`);
     await waitForExpression(socket, "document.body.innerText.includes('lazygoal web')");
@@ -60,6 +64,15 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
       await cdp(socket, "Emulation.setDeviceMetricsOverride", {
         width, height: 900, deviceScaleFactor: 1, mobile: width <= 760,
       });
+      if (width <= 760) {
+        // 移动布局会收起侧栏；显式展开后才能在真实移动视口检查品牌资源与尺寸。
+        await waitForExpression(socket, "document.querySelector('.workspace-sidebar-dialog') !== null || document.querySelector('button[aria-label=\"Expand sidebar\"]') !== null");
+        await cdp(socket, "Runtime.evaluate", {
+          expression: "(() => { const toggle = document.querySelector('button[aria-label=\"Expand sidebar\"]'); if (toggle === null) return false; toggle.click(); return true; })()",
+          returnByValue: true,
+        });
+        await waitForExpression(socket, "document.querySelector('.workspace-sidebar-dialog') !== null");
+      }
       const assetName = width <= 760 ? "mark-on-light" : "logo-on-light";
       await waitForExpression(socket, `(() => { const image = document.querySelector('.brand-logo img'); return image?.complete && image.naturalWidth > 0 && image.currentSrc.includes('${assetName}'); })()`);
       const brand = await value(socket, `(() => {
@@ -78,7 +91,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
 
     await navigate(socket, `${webUrl}/?session=desktop#${token}`);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
-    await waitForExpression(socket, "document.querySelector('.goal-card .card-metrics')?.innerText.includes('call unreported')");
+    await waitForExpression(socket, "document.querySelector('.goal-card .metric-coverage')?.innerText.includes('call unreported')");
     assert.match(await value(socket, "document.querySelector('.goal-card .card-metrics').innerText"), /Output rate/);
     assert.doesNotMatch(await value(socket, "document.querySelector('.goal-card .card-metrics').innerText"), /Generation/);
     assert.equal(await value(socket, "document.querySelector('.sidebar, .view-switch, .filter') === null"), true);
