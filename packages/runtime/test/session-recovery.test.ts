@@ -179,7 +179,7 @@ test("a persisted ask_user wait survives a rebuild and only a matching response 
         inputId: "respond-wrong",
         runId,
         requestId: "other-request",
-        response: { kind: "cancel_ask_user" },
+        response: { kind: "skip_question" },
     });
     assert.equal(wrongRequest.ok, false);
     assert.equal(wrongRequest.ok === false && wrongRequest.code, "INTERACTION_MISMATCH");
@@ -188,7 +188,7 @@ test("a persisted ask_user wait survives a rebuild and only a matching response 
         inputId: "respond-stale",
         runId: "run-unknown",
         requestId,
-        response: { kind: "cancel_ask_user" },
+        response: { kind: "skip_question" },
     });
     assert.equal(staleRun.ok, false);
     assert.equal(staleRun.ok === false && staleRun.code, "RUN_NOT_FOUND");
@@ -242,7 +242,7 @@ test("a persisted ask_user wait survives a rebuild and only a matching response 
         inputId: "respond-2",
         runId,
         requestId,
-        response: { kind: "cancel_ask_user" },
+        response: { kind: "skip_question" },
     });
     assert.equal(newRespond.ok, false);
     assert.ok(

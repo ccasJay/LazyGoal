@@ -25,9 +25,11 @@ export type SessionInputKind =
     | "queue_control";
 
 /**
- * 交互回答提交的选项组合。
+ * 交互回答提交的响应分支。
  *
  * @remarks 与当前等待的 `requestId` 一起提交；请求身份由会话输入携带。
+ * `answer_ask_user` 提交逐题答案，`reply_to_question` 以非空整体回复替代整份
+ * 问卷，`skip_question` 提交“未回答并要求继续”的控制语义。三者互斥。
  *
  * @example
  * ```ts
@@ -39,7 +41,8 @@ export type SessionInputKind =
  */
 export type SessionInteractionResponse =
     | { readonly kind: "answer_ask_user"; readonly answers: readonly AskUserAnswer[] }
-    | { readonly kind: "cancel_ask_user" }
+    | { readonly kind: "reply_to_question"; readonly content: string }
+    | { readonly kind: "skip_question" }
     | { readonly kind: "approve_task" }
     | { readonly kind: "feedback_task"; readonly feedback: string }
     | {
@@ -407,6 +410,17 @@ export function validateSessionInputShape(
             }
             if (typeof input.requestId !== "string" || input.requestId.trim().length === 0) {
                 return { code: "INVALID_INPUT", message: "respond input requires a requestId" };
+            }
+            if (input.response.kind === "reply_to_question") {
+                if (typeof input.response.content !== "string" || input.response.content.trim().length === 0) {
+                    return { code: "INVALID_INPUT", message: "Question reply must not be empty" };
+                }
+                if (input.response.content.length > MAX_SESSION_INPUT_TEXT_LENGTH) {
+                    return {
+                        code: "TEXT_TOO_LARGE",
+                        message: `Question reply exceeds ${MAX_SESSION_INPUT_TEXT_LENGTH} UTF-16 code units`,
+                    };
+                }
             }
             if (input.response.kind === "feedback_task" && input.response.feedback.trim().length === 0) {
                 return { code: "INVALID_INPUT", message: "Task feedback must not be empty" };

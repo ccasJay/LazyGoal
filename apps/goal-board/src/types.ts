@@ -27,7 +27,13 @@ export type QueuedInput = { readonly messageId: string; readonly content: string
  * 页面层交互提交：携带当前 Run 与等待身份，由 useRunCommands 映射为统一 respond 输入。
  */
 export type BrowserGoalInteractionCommand =
-  | { readonly kind: "cancel_ask_user"; readonly runId: string; readonly requestId: string }
+  | { readonly kind: "skip_question"; readonly runId: string; readonly requestId: string }
+  | {
+      readonly kind: "reply_to_question";
+      readonly runId: string;
+      readonly requestId: string;
+      readonly content: string;
+    }
   | {
       readonly kind: "answer_ask_user";
       readonly runId: string;
@@ -58,8 +64,10 @@ export function toSessionInteractionResponse(
   command: BrowserGoalInteractionCommand,
 ): import("../../../packages/web-contracts/src/index").BrowserSessionInteractionResponse {
   switch (command.kind) {
-    case "cancel_ask_user":
-      return { kind: "cancel_ask_user" };
+    case "skip_question":
+      return { kind: "skip_question" };
+    case "reply_to_question":
+      return { kind: "reply_to_question", content: command.content };
     case "answer_ask_user":
       return {
         kind: "answer_ask_user",

@@ -305,13 +305,13 @@ function AskUserForm({
             className="approval-cancel"
             disabled={busy}
             onClick={() => onSubmit({
-              kind: "cancel_ask_user",
+              kind: "skip_question",
               runId: session.currentRunId,
               requestId: interaction.requestId,
             })}
             type="button"
           >
-            <X size={13} /> Cancel question
+            <X size={13} /> Skip question
           </button>
         </div>
       </form>

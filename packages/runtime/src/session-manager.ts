@@ -108,8 +108,10 @@ function toGoalUserAction(
     switch (response.kind) {
         case "answer_ask_user":
             return { kind: "answer_ask_user", requestId, answers: response.answers };
-        case "cancel_ask_user":
-            return { kind: "cancel_ask_user", requestId };
+        case "reply_to_question":
+            return { kind: "reply_to_question", requestId, content: response.content };
+        case "skip_question":
+            return { kind: "skip_question", requestId };
         case "approve_task":
             return { kind: "approve_task", requestId };
         case "feedback_task":
@@ -880,7 +882,9 @@ export class SessionManager implements SessionHandlePort {
                 message: `requestId "${input.requestId}" is not the current pending interaction`,
             };
         }
-        if (response.kind === "answer_ask_user" || response.kind === "cancel_ask_user") {
+        if (response.kind === "answer_ask_user"
+            || response.kind === "reply_to_question"
+            || response.kind === "skip_question") {
             return pendingInteraction.kind === "ask_user"
                 ? undefined
                 : {

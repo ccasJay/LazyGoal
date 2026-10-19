@@ -15,7 +15,7 @@
   - **实现**：由 Runtime 的现有等待派生类型化交互视图，复用基础 Session 的同步身份；经现有 Browser 访问边界提供有界摘要及当前请求的完整问题／任务范围／Action 详情。扩展必要 wire 和读取 Port，保留字段级截断信息及可用操作，不增加持久化请求副本。新公开契约随变更补中文 TSDoc，来源由真实接入边界赋值。
   - **验证**：扩展 `packages/browser/test/browser-projection.test.ts`、`browser-interactions.test.ts` 和 `packages/web-contracts/test/web-contracts.test.ts`，新增 `packages/runtime/test/session-interaction-view.test.ts`（待实现）。运行 `npx tsx --test packages/runtime/test/session-interaction-view.test.ts packages/browser/test/browser-projection.test.ts packages/browser/test/browser-interactions.test.ts packages/web-contracts/test/web-contracts.test.ts`；检查查询前后 Snapshot 与模型／工具调用数不变。
 
-- [ ] //TODO 2. 在原 Run 中结算逐题回答、整体回复和跳过并恢复真实模型输入
+- [x] //TODO 2. 在原 Run 中结算逐题回答、整体回复和跳过并恢复真实模型输入
 
   落实标准：[2.1](./spec.md#spec-req-2-1)、[2.2](./spec.md#spec-req-2-2)、[2.3](./spec.md#spec-req-2-3)、[2.4](./spec.md#spec-req-2-4)、[2.5](./spec.md#spec-req-2-5)、[7.1](./spec.md#spec-req-7-1)。
   - **先验证**：同一问卷分别接受完整答案、非空整体回复和跳过；观察同一 Run、一次消息／事实提交、等待解除与下一模型输入。缺题、选项失配、空正文、重复身份载荷冲突应保留等待；普通 message 只入队。对路线扩展输入整体回复“批准”或跳过，断言候选未获批；显式批准选项仍按原规则生效。

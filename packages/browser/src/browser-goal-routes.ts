@@ -942,8 +942,13 @@ function parseInteractionResponse(value: unknown): BrowserSessionInteractionResp
     const body = value as Record<string, unknown>;
     const kind = body.kind;
     if (typeof kind !== "string") return undefined;
-    if (kind === "cancel_ask_user") {
+    if (kind === "skip_question") {
         return hasExactKeys(body, ["kind"]) ? { kind } : undefined;
+    }
+    if (kind === "reply_to_question") {
+        if (!hasExactKeys(body, ["kind", "content"])) return undefined;
+        const content = readSessionText(body.content);
+        return content === undefined ? undefined : { kind, content };
     }
     if (kind === "answer_ask_user") {
         if (!hasExactKeys(body, ["kind", "answers"])) return undefined;

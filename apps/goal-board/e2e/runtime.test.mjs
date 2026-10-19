@@ -469,7 +469,7 @@ test("real local service restores and completes one authorized Goal conversation
     assert.equal(cancellationSession.pendingInteraction, undefined);
     const cancellationTrajectory = await api(restarted.origin, `/api/goals/${cancellationSession.goalId}/trajectory?runId=${cancellationSession.currentRunId}`, { token: restarted.token });
     assert.equal(cancellationTrajectory.response.status, 200);
-    assert.ok(cancellationTrajectory.body.entries.some((event) => event.eventType === "ask_user_cancelled"));
+    assert.ok(cancellationTrajectory.body.entries.some((event) => event.eventType === "ask_user_skipped"));
 
     await cdp(socket, "Runtime.evaluate", {
       expression: "[...document.querySelectorAll('button.primary')].find(button => button.textContent.includes('New goal')).click()",

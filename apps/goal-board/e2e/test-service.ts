@@ -50,7 +50,7 @@ class DeterministicAdapter implements LLMAdapter {
         if (goal === undefined) throw new Error("The active fixture Goal disappeared");
         const trajectory = await compositionRoot.readWorkspaceTrajectory({ goalId: goal.id, runId: goal.state.run.id });
         const answered = trajectory.committed.some(event => event.eventType === "ask_user_answered");
-        const cancelled = trajectory.committed.some(event => event.eventType === "ask_user_cancelled");
+        const cancelled = trajectory.committed.some(event => event.eventType === "ask_user_skipped");
         const observed = trajectory.committed.some(event => event.eventType === "observation_recorded");
         const lastUser = goal.state.messages.filter(message => message.role === "user").at(-1)?.content ?? "";
         const cancellationFlow = goal.definition.intent.includes("Cancellation flow:");

@@ -541,7 +541,8 @@ function isActivityBoundaryEvent(event: TrajectoryEvent): boolean {
     if (payload.type === "decision_received") return payload.decision.kind !== "tool_call";
     return payload.type === "run_waiting"
         || payload.type === "ask_user_answered"
-        || payload.type === "ask_user_cancelled"
+        || payload.type === "ask_user_replied"
+        || payload.type === "ask_user_skipped"
         || payload.type === "task_approved"
         || payload.type === "task_feedback_received"
         || payload.type === "run_stage_declared"

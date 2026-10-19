@@ -175,7 +175,12 @@ export type TrajectoryEventPayload =
         readonly answers: readonly AskUserAnswer[];
     }
     | {
-        readonly type: "ask_user_cancelled";
+        readonly type: "ask_user_replied";
+        readonly requestId: string;
+        readonly content: string;
+    }
+    | {
+        readonly type: "ask_user_skipped";
         readonly requestId: string;
     }
     | {
@@ -837,7 +842,8 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "plan_mode_entered",
     "goal_plan_updated",
     "ask_user_answered",
-    "ask_user_cancelled",
+    "ask_user_replied",
+    "ask_user_skipped",
     "task_approved",
     "task_feedback_received",
     "decision_received",
@@ -1261,11 +1267,18 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             }
         }
     }
-    if (eventType === "ask_user_cancelled") {
-        if (Object.keys(payload).some((key) => !["type", "requestId"].includes(key))) {
-            throw new TrajectoryProtocolError("ask_user_cancelled contains unknown fields");
+    if (eventType === "ask_user_replied") {
+        if (Object.keys(payload).some((key) => !["type", "requestId", "content"].includes(key))) {
+            throw new TrajectoryProtocolError("ask_user_replied contains unknown fields");
         }
-        assertNonEmptyString(payload.requestId, "ask_user_cancelled.requestId");
+        assertNonEmptyString(payload.requestId, "ask_user_replied.requestId");
+        assertNonEmptyString(payload.content, "ask_user_replied.content");
+    }
+    if (eventType === "ask_user_skipped") {
+        if (Object.keys(payload).some((key) => !["type", "requestId"].includes(key))) {
+            throw new TrajectoryProtocolError("ask_user_skipped contains unknown fields");
+        }
+        assertNonEmptyString(payload.requestId, "ask_user_skipped.requestId");
     }
     if (eventType === "task_approved") {
         if (Object.keys(payload).some((key) => !["type", "requestId", "task"].includes(key))) {
@@ -1714,7 +1727,8 @@ export function classifyTrajectoryEvent(
         case "run_resumed":
         case "plan_mode_entered":
         case "ask_user_answered":
-        case "ask_user_cancelled":
+        case "ask_user_replied":
+        case "ask_user_skipped":
         case "task_approved":
         case "task_feedback_received":
         case "steer_input_received":

@@ -6,6 +6,8 @@
 | --- | --- | --- | --- |
 | BrowserGoalSession | 浏览器会话投影 DTO。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
 | BrowserPlanRouteStage | 任务审批 DTO 中按顺序展示的候选阶段目标与验收条件。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
+| BrowserInteractionView | 当前等待的类型化 wire 摘要：种类、稳定引用、可用决定与截断标记。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
+| BrowserInteractionDetailResult | 交互完整审阅内容的读取结果与稳定错误分类。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserPlanRoute | 获批 Plan Run 的完整权威路线及当前游标；普通 Run 省略。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserGoalActivityEvent | 白名单公开的短期 SSE 活动及其来源身份；不持久化。 | [Web 传输契约](../README.md) | [Event DTO](../src/events.ts) |
 | SessionMetricsSnapshot | 会话指标响应 DTO；`tokensPerSecond` 的端到端计时语义归属指标投影模块。 | [Web 传输契约](../README.md) | [指标 DTO](../src/metrics.ts) |
