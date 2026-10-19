@@ -29,7 +29,7 @@
   - **实现**：在 Tool／Sandbox 两类 Grant 的事务来源、唯一性与激活契约中关联稳定 `approvalInputId`，获批状态保存相同关联。保持 pending → 批准 Snapshot → 激活 → 调度顺序，两个账本均只激活被已提交批准引用的记录；不修改既有输入／路径 matcher、期限或撤销语义，不把残留 pending 自动删除，不用新决定绕过结果不明的已生效批准。
   - **验证**：扩展 `packages/runtime/test/permission-grant-recovery.test.ts`、`packages/storage/test/json-file-tool-grant-store.test.ts`、`sandbox-grant-store.test.ts` 和 `packages/permission/test/grant-matching.test.ts`，在新修订测试中加入保存／激活闩锁。运行上述 `npx tsx --test`，以两个真实 JSON 账本、批准快照、执行计数核对每个故障边界；路径型授权继续允许既有范围内不同正文，不误收窄为本次正文摘要。
 
-- [ ] //TODO 4. 分开首次批准与本次未知结果的重执行授权
+- [x] //TODO 4. 分开首次批准与本次未知结果的重执行授权
 
   落实标准：[4.1](./spec.md#spec-req-4-1)、[4.2](./spec.md#spec-req-4-2)、[4.3](./spec.md#spec-req-4-3)、[4.4](./spec.md#spec-req-4-4)、[4.5](./spec.md#spec-req-4-5)、[3.5](./spec.md#spec-req-3-5)。
   - **先验证**：首次批准不能消费未知等待，恢复命令不能消费首次审批。明确重执行绑定当前 `recoveryRef` 和最终参数，只执行该版本；改参、持续授权、YOLO／已有 Grant 代答均无效。再次未知形成新恢复身份，旧决定重试只返回原收据；拒绝重执行保留先前未知事实，不声称原操作未发生、已回滚或成功。排列重执行／拒绝／Interrupt／关闭先后并检查真实结果。

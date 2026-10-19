@@ -62,7 +62,11 @@ export interface CapturedToolCall {
  */
 export function createControlledWriteTool(
     calls: CapturedToolCall[],
-    options: { readonly failure?: (input: WriteToolInput) => ToolObservation | undefined } = {},
+    options: {
+        readonly failure?: (input: WriteToolInput) => ToolObservation | undefined;
+        readonly replayPolicy?: "safe" | "manual";
+        readonly throws?: (input: WriteToolInput) => boolean;
+    } = {},
 ): Tool<typeof WRITE_INPUT_CONTRACT> {
     return {
         definition: {
@@ -71,11 +75,14 @@ export function createControlledWriteTool(
             inputContract: WRITE_INPUT_CONTRACT,
             isReadOnly: false,
         },
-        replayPolicy: "manual",
+        replayPolicy: options.replayPolicy ?? "manual",
         validate: () => ({ ok: true }),
         async execute(request: ToolExecutionRequest): Promise<ToolObservation> {
             const input = request.input as unknown as WriteToolInput;
             calls.push({ toolId: "write_file", input: structuredClone(request.input) });
+            if (options.throws?.(input) === true) {
+                throw new Error("受控 Tool 故障");
+            }
             const failure = options.failure?.(input);
             if (failure !== undefined) return failure;
             return { kind: "success", output: { written: input.path }, summary: `wrote ${input.path}` };
@@ -109,14 +116,20 @@ export interface ApprovalFixture {
 }
 
 /** 创建隔离工作区与真实 JSON 授权账本。 */
-export async function createApprovalFixture(): Promise<ApprovalFixture> {
+export async function createApprovalFixture(
+    options: {
+        readonly throws?: (input: WriteToolInput) => boolean;
+    } = {},
+): Promise<ApprovalFixture> {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-approval-"));
     const store = new InMemoryGoalStore();
     const toolGrantStore = new JsonFileToolGrantStore(workspaceRoot);
     const sandboxGrantStore = new JsonFileSandboxGrantStore(workspaceRoot);
     const calls: CapturedToolCall[] = [];
     const registry = new InMemoryToolRegistry([
-        createToolRegistration(createControlledWriteTool(calls)),
+        createToolRegistration(createControlledWriteTool(calls, {
+            ...(options.throws === undefined ? {} : { throws: options.throws }),
+        })),
     ]);
     return {
         workspaceRoot,
