@@ -388,6 +388,7 @@ test("Projector 只投影 executing 阶段的任务与有界执行记忆", () =>
         role: "user",
         content: intent,
         sourceMessageIndex: 0,
+        source: { kind: "goal_intent", goalId: "goal-1" },
     }]);
     assert.deepEqual(view.workingContext, {
         phase: "executing",

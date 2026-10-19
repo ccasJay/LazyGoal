@@ -19,6 +19,7 @@ export type {
     ModelContextProtocol,
     ModelContextRetrievalProtocol,
     ModelConversationMessage,
+    ModelMessageSource,
     ModelDynamicContext,
     ModelFact,
     ModelGoalContextDirectoryEntry,

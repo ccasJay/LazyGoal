@@ -17,7 +17,7 @@ action-approval-revision 是关联能力：存在时验证真实最终版本／�
   - **实现**：扩展 GoalMessage、全部消息写入／克隆、当前 Snapshot 编解码和边界不变量；助手用途区分 process／answer／notice。将来源核对、身份分配和消息保存纳入基础 Goal 短提交，同相关 Run／输入事实共同提交，通知在保存后产生。宿主结果只使用实际执行来源，不虚构模型调用；迁移当前 fixture 和消费者，不按正文 hash 或数组位置生成身份。
   - **验证**：新增 `packages/runtime/test/message-identity.test.ts`、`packages/storage/test/goal-message-snapshot.test.ts`（待实现），扩展现有 `domain.test.ts`、`goal-multi-run-session.test.ts`、`goal-coordinator-task-interaction.test.ts`、`packages/storage/test/goal-snapshot-current.test.ts`、`goal-snapshot-interaction.test.ts`；运行对应 `npx tsx --test`、`npx tsc --noEmit` 和应用构建。真实 JsonFileGoalStore 重建后比对身份、来源、修订和消息数量，不以纯 codec 往返代替提交故障验证。
 
-- [ ] //TODO 2. 在最终请求选择与预算中按来源去重过程正文和原生交换
+- [x] //TODO 2. 在最终请求选择与预算中按来源去重过程正文和原生交换
 
   落实标准：[4.3](./spec.md#spec-req-4-3)、[4.4](./spec.md#spec-req-4-4)、[4.5](./spec.md#spec-req-4-5)、[8.2](./spec.md#spec-req-8-2)。
   - **先验证**：准备带持久化来源的过程消息和同源原生交换，已结算且实际选入请求时正文只出现一次，调用与结果相邻。交换未结算、被预算淘汰、协议／模型身份切换或不存在时，保留仍在 Conversation 预算内的正文；用户消息、另一调用及独立答案即使同文也不删除。压缩／预算选择前后及存储重建得到同样的最终请求，不从 Trace 或未提交 tail 补来源。

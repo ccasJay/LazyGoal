@@ -27,6 +27,7 @@ import {
 } from "./dynamic-section-diff";
 import type { PromptBundleRenderer } from "../../prompt-renderer/src/index";
 import { renderRequest, renderWorkingContextMessage } from "./render";
+import { omitCoveredProcessMessages } from "./process-message-dedup";
 import {
     TokenBudgetPlanner,
     type ModelCapabilities,
@@ -341,10 +342,13 @@ export async function buildStepRequest<Result extends DecideOutput = AgentDecisi
         stage === "decide" ? nativeConversationIdentity : undefined,
     );
 
-    const isInitialCheckpoint = assembled.view.contextEpoch?.control.status === "checkpoint_required";
+    // 本次请求实际包含的已结算原生交换覆盖同源过程正文；覆盖在预算裁剪前生效。
+    const dedupedView = omitCoveredProcessMessages(assembled.view);
+
+    const isInitialCheckpoint = dedupedView.contextEpoch?.control.status === "checkpoint_required";
     const taskPresent = !isInitialCheckpoint && goal.state.run.approvedTask !== undefined;
     const planMode = !isInitialCheckpoint && goal.state.run.mode === "plan";
-    const goalPlanWritable = !isInitialCheckpoint && assembled.view.dynamicContext.goalPlanWritable;
+    const goalPlanWritable = !isInitialCheckpoint && dedupedView.dynamicContext.goalPlanWritable;
     const authorizedToolContracts = visibleTools.map((t) => ({
         id: t.id,
         inputContract: t.inputContract,
@@ -376,7 +380,7 @@ export async function buildStepRequest<Result extends DecideOutput = AgentDecisi
         );
 
     return renderFinalRequest(
-        assembled.view,
+        dedupedView,
         renderer,
         initialBundle,
         toolDeclarations,

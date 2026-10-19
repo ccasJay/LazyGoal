@@ -161,6 +161,14 @@ export interface NativeModelExchange {
     readonly conversationPosition: number;
     readonly responseSequence: number;
     readonly settledThroughSequence: number;
+    /**
+     * 产生该交换的模型调用身份。
+     *
+     * @remarks
+     * 该身份与 Runtime 保存的过程正文来源对应：请求实际包含本交换时，同一模型
+     * 调用产生的过程正文不再重复进入对话。
+     */
+    readonly modelCallId: string;
     readonly messages: readonly ModelConversationMessage[];
 }
 
