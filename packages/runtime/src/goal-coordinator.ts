@@ -1061,6 +1061,13 @@ export class GoalCoordinator {
             return this.goalNotWaiting(request.ref);
         }
 
+        // 已受理但尚未处理的停止先于本次决定：旧等待的回答与批准都必须失效。
+        if (goal.state.run.interruption?.status === "requested") {
+            return this.invalidGoalInput(
+                `Run "${request.ref.runId}" was interrupted by "${goal.state.run.interruption.requestId}"; the previous wait can no longer be answered`,
+            );
+        }
+
         const pendingInteraction = goal.state.run.pendingInteraction;
         if (pendingInteraction !== undefined) {
             if (pendingInteraction.kind === "ask_user") {

@@ -22,7 +22,7 @@
   - **实现**：在现有 Session `respond` 和 Coordinator 领域分支中加入互斥响应，统一提交收据、请求关联、响应事实、消息和等待结算；保持当前问卷数量、单选／多选和 Other 契约。同步当前 Snapshot／Trajectory 编解码、已提交历史投影和模型请求组装；保存失败不调用下一阶段，不增加问答业务 Step、不伪造 Tool Observation、不丢失用户原文或混淆宿主来源。
   - **验证**：扩展 `packages/model-contracts/test/ask-user.test.ts`、`packages/runtime/test/goal-coordinator-task-interaction.test.ts`、`run-plan-route-approval.test.ts`、`packages/storage/test/goal-snapshot-interaction.test.ts`、`packages/model-context/test/native-model-history.test.ts`，新增 `packages/runtime/test/session-question-responses.test.ts`（待实现）。对当前三种模型协议使用确定性响应经过正式解码与请求组装，重建文件存储后复核实际请求和已提交消息；运行上述文件的 `npx tsx --test` 靶向检查，不以静态消息模板替代链路断言。
 
-- [ ] //TODO 3. 让等待中的停止与回答／批准按提交顺序竞争
+- [x] //TODO 3. 让等待中的停止与回答／批准按提交顺序竞争
 
   落实标准：[3.1](./spec.md#spec-req-3-1)、[3.2](./spec.md#spec-req-3-2)、[3.3](./spec.md#spec-req-3-3)、[3.4](./spec.md#spec-req-3-4)、[7.2](./spec.md#spec-req-7-2)。
   - **先验证**：用受控提交闩锁安排回答／批准和 Interrupt 的两种先后。Interrupt 先提交时旧响应不能推进，回答先提交时后续停止按实际状态生效；问答／任务／工具等待均覆盖，且队列仍暂停。对未知结果和必要收尾审批验证真实阶段、剩余预算及新请求，不把收尾误报为已取消。

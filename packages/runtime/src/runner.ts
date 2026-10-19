@@ -1215,7 +1215,13 @@ class RunExecutor {
             return this.runNotFound(ref);
         }
 
-        if (goal.state.run.interruption !== undefined) {
+        if (goal.state.run.interruption !== undefined && options.authorizedActionId === undefined) {
+            // 收尾阶段的新审批请求已被批准：先执行该 Action 再继续收尾，
+            // 否则已批准的真实操作会被收尾分支静默丢弃。
+            if (goal.state.run.interruption.status === "repairing"
+                && goal.state.run.pendingAction?.status === "approved") {
+                return this.recoverPendingAction(goal, effectiveControl);
+            }
             return this.resumeInterruptedRun(goal, control);
         }
 
