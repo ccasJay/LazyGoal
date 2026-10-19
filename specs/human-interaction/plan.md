@@ -128,8 +128,17 @@ git diff --check
 
 ### Latest Result
 
-- 状态：未执行；未开始本功能实现或 Feature Verification。
-- 验证时间、实现提交与相关未提交实现指纹：未记录。
-- 契约版本：以用户批准后的 `human-interaction/spec.md` 与本 Plan 内容为准；执行时记录两者哈希，以及实际集成的 `streaming-session` 契约／实现提交与验证证据。
-- 验证摘要：尚无行为验收结果；此前对旧问答／授权实现的测试和本次文档检查不能替代新功能验证。
-- 后续记录要求：逐项记录实际检查、观察结果、脱敏证据位置与未解决问题；标识被测提交，或明确无提交并列出相关未提交路径和 diff／内容指纹。总体结果使用 `passed / failed / blocked / pending-human`，并记录 `current / stale`；必需环境缺失、失败或待人工结果不得计为通过。
+- 状态：`blocked` / `current`。7 项完整检查通过；`board.test.mjs`（mock API + Vite 的既有 UI 用例）在主机高负载下于既有漂移点超时，未计为通过。
+- 验证时间：2026-10-19 20:48–21:35 CST。被测提交：`57eb6e8a`（TODO 1～9 与新增测试的严格类型修正），分支 `codex/human-interaction`。
+- 契约版本：本 Spec `47bd7ad219c603ff63b63fef48ae15dbf36888c4fb2237d66cc219f9a3ad7b9e`（与批准指纹一致）；本记录写入前 Plan `dae09cf1aa9d05f36ee934ef796744df74f23a2e0042e563085773f35fd3c2cc`；依赖的 `streaming-session` 实现提交 `3f8e9457`（其 Feature Verification 已通过）。
+- 验证摘要：
+  1. `npm test`：通过（根严格类型检查、依赖与文档检查、GEPA adapter、发现 385 个 TS/TSX 测试及脚本测试）。
+  2. `npx tsc --noEmit -p apps/goal-server/tsconfig.json`：通过。
+  3. `npm --prefix apps/goal-server test`：49/49 通过，含正式装配的交互端口用例（历史等待不自动回答、显式 `resume` 解锁、真人接手、单所有者冲突、解除后重连、重建后恢复）。
+  4. `npm --prefix apps/goal-board test`：94/94 通过（含新 `human-interaction.test.tsx` 与 `interaction-submit-state.test.ts`）。
+  5. `npm run build:web`：通过。
+  6. `node --test --test-concurrency=1 apps/goal-board/e2e/*.test.mjs`：9 个用例中 8 个通过。新 `human-interaction.test.mjs` 4/4（问答导航与审阅、整体回复、跳过、等待中停止、键盘与 320px、任务审批、单次工具授权、返回真实工具结果、提交未送达冻结与核验、显式宿主结算、刷新与 localStorage 检查）；`runtime.test.mjs`、`streaming-session.test.mjs`、`run-input-control.test.mjs`、`run-stages.test.mjs` 通过。
+  7. `git diff --check`：通过。
+- 环境与归因：验证期间主机负载 2.3～4.5 且存在无关高 CPU 进程。`board.test.mjs` 在本次 TODO 6 之前的上一次执行中已在相同漂移点（`/plan` 命令请求计数、等待文案、移动视口几何）失败；本次单独复跑 7 次仍于漂移点超时，失败诊断显示 mock HTTP 请求长期无响应、浏览器同源连接被占满，未出现交互功能断言失败。已在不弱化断言的前提下补充“视口切换后等待移动单列布局生效”的前置条件；未改写产品行为或降低几何要求。
+- 未解决项：`board.test.mjs` 需在空闲机器复跑确认；其失败点与交互功能无关（slash command 请求计数、mock 响应悬挂与响应式布局时序）。
+- 证据：以上命令的实际退出码与通过计数记录于执行会话；复跑命令与输出归因见本节各项。
