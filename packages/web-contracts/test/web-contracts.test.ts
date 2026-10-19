@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
     isAcceptedCommand,
-    isBrowserGoalSteerResult,
-    isBrowserGoalInterruptResult,
     isActionDetailsResult,
+    isBrowserCreateSessionResult,
+    isBrowserSessionInputQueryResult,
+    isBrowserSessionInputReceipt,
+    isBrowserSessionInputResult,
+    isBrowserSessionState,
     isBrowserGoalSession,
     isBrowserRun,
     isGoalList,
@@ -13,7 +16,6 @@ import {
     isGoalSessionEnvelope,
     isJsonValue,
     isLiveEvent,
-    isResumeGoalCommand,
     isMetricValues,
     isMetricsSnapshot,
     isModelCatalog,
@@ -43,15 +45,6 @@ import {
     type BrowserGoalSession,
     type SessionMetricsSnapshot,
 } from "../src/index";
-
-test("Run input control results validate stable accepted identities and known errors", () => {
-    assert.equal(isBrowserGoalSteerResult({ ok: true, goalId: "goal-1", runId: "run-1", messageId: "msg-1", existing: false }), true);
-    assert.equal(isBrowserGoalSteerResult({ ok: false, error: "goal_not_running" }), true);
-    assert.equal(isBrowserGoalSteerResult({ ok: false, error: "unexpected" }), false);
-    assert.equal(isBrowserGoalInterruptResult({ ok: true, goalId: "goal-1", runId: "run-1", requestId: "interrupt-1", existing: true }), true);
-    assert.equal(isBrowserGoalInterruptResult({ ok: false, error: "goal_not_running" }), true);
-    assert.equal(isBrowserGoalInterruptResult({ ok: false, error: "unexpected" }), false);
-});
 
 test("isRunStatus classifies valid and invalid run statuses", () => {
     assert.equal(isRunStatus("created"), true);
@@ -333,13 +326,36 @@ test("isTrajectoryPage and isTrajectoryDetail validate trajectory wire DTOs", ()
     );
 });
 
-test("isResumeGoalCommand validates valid and invalid resume commands", () => {
-    assert.equal(isResumeGoalCommand({ runId: "run-1", expectedCommittedThroughSequence: 0 }), true);
-    assert.equal(isResumeGoalCommand({ runId: "run-1", expectedCommittedThroughSequence: 10 }), true);
-    assert.equal(isResumeGoalCommand({ runId: "", expectedCommittedThroughSequence: 10 }), false);
-    assert.equal(isResumeGoalCommand({ runId: "run-1", expectedCommittedThroughSequence: -1 }), false);
-    assert.equal(isResumeGoalCommand({ runId: "run-1", expectedCommittedThroughSequence: 1.5 }), false);
-    assert.equal(isResumeGoalCommand({ runId: "run-1" }), false);
+test("Browser session input validators accept receipts, queries and state projections", () => {
+    const receipt = {
+        goalId: "goal-1", inputId: "input-1", kind: "message", sequence: 1,
+        status: "pending", admittedAtRevision: 2,
+    };
+    assert.equal(isBrowserSessionInputReceipt(receipt), true);
+    assert.equal(isBrowserSessionInputReceipt({ ...receipt, status: "unknown" }), false);
+    assert.equal(isBrowserSessionInputReceipt({ ...receipt, sequence: 0 }), false);
+    assert.equal(isBrowserSessionInputResult({ ok: true, existing: false, receipt }), true);
+    assert.equal(isBrowserSessionInputResult({ ok: false, error: "QUEUE_PAUSED" }), true);
+    assert.equal(isBrowserSessionInputResult({ ok: false, error: "goal_not_running" }), false);
+    assert.equal(isBrowserSessionInputQueryResult({ ok: true, found: false }), true);
+    assert.equal(isBrowserSessionInputQueryResult({ ok: true, found: true, receipt }), true);
+    assert.equal(isBrowserSessionInputQueryResult({ ok: false, error: "input_read_failed" }), true);
+    assert.equal(isBrowserSessionInputQueryResult({ ok: false, error: "GOAL_NOT_FOUND" }), true);
+    assert.equal(isBrowserSessionInputQueryResult({ ok: false, error: "unexpected" }), false);
+    const state = {
+        goalId: "goal-1", runId: "run-1", runStatus: "running", mode: "normal",
+        commitRevision: 4, queueRevision: 1, queuePaused: false,
+        pendingMessageCount: 1, pendingSteerCount: 0, needsRecovery: false, executionOwner: true,
+    };
+    assert.equal(isBrowserSessionState(state), true);
+    assert.equal(isBrowserSessionState({ ...state, waitingFor: "ask_user", queuePaused: true, queuePauseReason: "user_interrupt" }), true);
+    assert.equal(isBrowserSessionState({ ...state, pendingMessageCount: -1 }), false);
+    assert.equal(isBrowserSessionState({ ...state, queuePauseReason: "unknown" }), false);
+    assert.equal(isBrowserCreateSessionResult({
+        ok: true, existing: true, goalId: "goal-1", runId: "run-1", receipt,
+    }), true);
+    assert.equal(isBrowserCreateSessionResult({ ok: false, error: "goal_id_conflict" }), true);
+    assert.equal(isBrowserCreateSessionResult({ ok: false, error: "unexpected" }), false);
 });
 
 const maskedProfile = {

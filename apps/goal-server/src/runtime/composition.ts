@@ -151,6 +151,34 @@ export function createDefaultToolPolicy(options?: {
     };
 }
 
+/**
+ * 会话执行前显式失败使用的模型绑定错误。
+ *
+ * @remarks
+ * Goal 的模型选择无法由本进程提供服务时抛出：不会回退另一个 Provider 或进程
+ * 默认配置，调用方应保持可恢复状态并显式重新选择模型。
+ *
+ * @example
+ * ```ts
+ * throw new ModelBindingUnavailableError("anthropic", "openai");
+ * ```
+ */
+export class ModelBindingUnavailableError extends Error {
+    readonly code = "MODEL_BINDING_UNAVAILABLE" as const;
+
+    /**
+     * @param selectionProvider - Goal 快照中记录的 Provider。
+     * @param availableProvider - 本进程当前可服务的 Provider。
+     */
+    constructor(
+        readonly selectionProvider: string,
+        readonly availableProvider: string,
+    ) {
+        super(`Goal model selection requires provider "${selectionProvider}" but this instance serves "${availableProvider}"`);
+        this.name = "ModelBindingUnavailableError";
+    }
+}
+
 export class ConversationBudgetConfigurationError extends Error {
     readonly code = "INVALID_LLM_CONVERSATION_CHAR_BUDGET" as const;
     readonly variableName = "LLM_CONVERSATION_CHAR_BUDGET" as const;
@@ -711,6 +739,23 @@ async function assembleRuntimeComposition(
     };
     const goalIdGenerator = options.goalIdGenerator ?? randomUUID;
     const runIdGenerator = options.runIdGenerator ?? randomUUID;
+    /**
+     * 会话执行前的模型绑定对齐。
+     *
+     * @remarks
+     * 缺失或本进程不可服务的模型选择必须明确失败，而不是回退另一个 Goal 或进程
+     * 默认 Provider 的配置：这里在发布 Binding 前核验 Goal 选择的 provider 与本
+     * 进程真正可用的连接一致。核验失败会中止本次推进，Run 保留真实可恢复状态。
+     */
+    const alignGoalModelBinding = (selection: GoalModelSelection): void => {
+        const expectedProvider = selection.profileId === undefined
+            ? defaultModelSelection.provider
+            : resolveProviderProfileConfig(selection.profileId, selection.modelId).provider;
+        if (selection.provider !== expectedProvider) {
+            throw new ModelBindingUnavailableError(selection.provider, expectedProvider);
+        }
+        alignModelBinding(selection);
+    };
     const executionComponents = createExecutionComponents({
         store: checkpointStore,
         executor: await createAgentExecutor({
@@ -749,7 +794,8 @@ async function assembleRuntimeComposition(
         protocolValidator,
         trajectoryStore,
         traceSink,
-        alignModelBinding,
+        alignModelBinding: alignGoalModelBinding,
+        defaultModelSelection,
         executionStream,
         onBackgroundFailure: (goalId, error) => {
             // 后台执行异常已经写入真实恢复状态；这里只保留诊断事实。
@@ -785,8 +831,8 @@ async function assembleRuntimeComposition(
             runTrackedOperation("advance", () => rawCommands.advance(ref, control)),
         resume: (request, control) =>
             runTrackedOperation("resume", () => rawCommands.resume(request, control)),
-        continue: (ref, content, control, continuation) =>
-            runTrackedOperation("continue", () => rawCommands.continue(ref, content, control, continuation)),
+        continue: (ref, content, control, continuation, queueBinding) =>
+            runTrackedOperation("continue", () => rawCommands.continue(ref, content, control, continuation, queueBinding)),
         steer: (ref, messageId, content) =>
             runTrackedOperation("steer", () => rawCommands.steer(ref, messageId, content)),
         interrupt: (ref, requestId) =>

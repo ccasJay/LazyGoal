@@ -2,6 +2,8 @@
  * Web SSE 实时流事件数据传输对象 (DTO)。
  */
 
+import type { BrowserSessionInputOutcome, BrowserSessionState } from "./session-input";
+
 /**
  * 实时执行活动事件。
  *
@@ -68,10 +70,13 @@ export type BrowserGoalActivityEvent =
     };
 
 /**
- * 浏览器端消费的实时推送事件。
+ * 浏览器端消费的 Goal 范围实时推送事件。
  *
  * @remarks
- * 支持流式文本增量、状态活动、快照变更及强制刷新信号。
+ * 连接覆盖整个 Goal，不绑定单一当前 Run：`state_sync` 是订阅首项的一致安全状态，
+ * `input_result` 按 `inputId` 报告受理或拒绝，`activity` 携带真实来源 Run 的公开
+ * 执行活动；`snapshot_changed` 与 `refresh_required` 只要求客户端按最新 Snapshot
+ * 重新同步，不代表业务终态。
  *
  * @example
  * ```ts
@@ -85,6 +90,16 @@ export type BrowserGoalActivityEvent =
  */
 export type BrowserGoalLiveEvent =
     | {
+        readonly type: "state_sync";
+        readonly goalId: string;
+        readonly state: BrowserSessionState;
+    }
+    | {
+        readonly type: "input_result";
+        readonly goalId: string;
+        readonly outcome: BrowserSessionInputOutcome;
+    }
+    | {
         readonly type: "activity";
         readonly goalId: string;
         readonly runId: string;
@@ -93,10 +108,10 @@ export type BrowserGoalLiveEvent =
     | {
         readonly type: "snapshot_changed";
         readonly goalId: string;
-        readonly runId: string;
+        readonly runId?: string;
     }
     | {
         readonly type: "refresh_required";
         readonly goalId: string;
-        readonly runId: string;
+        readonly runId?: string;
     };

@@ -4,16 +4,6 @@ import { Hono } from "hono";
 import type { BrowserGoalListItem, BrowserGoalSession } from "./browser-projection";
 import type { BrowserModelCatalogReadResult } from "./browser-model-catalog";
 import type {
-    BrowserCreateGoalCommand,
-    BrowserCreateGoalResult,
-    BrowserGoalInteractionCommand,
-    BrowserGoalInteractionResult,
-    BrowserGoalMessageCommand,
-    BrowserGoalMessageResult,
-    BrowserGoalSteerCommand,
-    BrowserGoalSteerResult,
-    BrowserGoalInterruptCommand,
-    BrowserGoalInterruptResult,
     BrowserGoalPlanModeCommand,
     BrowserGoalPlanModeResult,
     BrowserModelSelectionCommand,
@@ -23,9 +13,17 @@ import type {
     BrowserToolGrantRevokeCommand,
     BrowserPermissionModeCommand,
     BrowserPermissionModeResult,
-    BrowserResumeGoalCommand,
-    BrowserResumeGoalResult,
 } from "./browser-goal-command-service";
+import type {
+    BrowserGoalLiveFeed,
+    BrowserGoalSessionPort,
+} from "./browser-session-port";
+import type {
+    BrowserCreateSessionCommand,
+    BrowserSessionInputCommand,
+    BrowserSessionInputErrorCode,
+    BrowserSessionInteractionResponse,
+} from "../../web-contracts/src/index";
 import type {
     BrowserProviderProfileInput,
     BrowserProviderProfileTestError,
@@ -38,12 +36,9 @@ import type {
     BrowserProviderProfileWriteResult,
     BrowserProviderSettingsReadResult,
 } from "../../web-contracts/src/index";
-import type {
-    BrowserGoalLiveFeed,
-    BrowserGoalStreamOpenResult,
-} from "./browser-goal-stream";
 
 const MAX_COMMAND_BODY_BYTES = 16 * 1024;
+const MAX_SESSION_INPUT_BODY_BYTES = 512 * 1024;
 const MAX_GOAL_ID_LENGTH = 128;
 const MAX_COMMAND_TEXT_LENGTH = 4_000;
 const MAX_PROVIDER_LABEL_LENGTH = 200;
@@ -110,14 +105,10 @@ export interface BrowserProviderSettingsPort {
  * const source: BrowserGoalApiPort = {
  *     list: async () => [],
  *     read: async () => undefined,
- *     create: async () => ({ ok: false, error: "goal_create_failed" }),
- *     interact: async () => ({ ok: false, error: "interaction_failed" }),
- *     message: async () => ({ ok: false, error: "message_failed" }),
  *     enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
  *     models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
  *     setModelPreference: async () => ({ ok: false, error: "model_catalog_unavailable" }),
  *     selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
- *     openStream: async () => ({ ok: false, error: "goal_not_found" }),
  * };
  * ```
  */
@@ -157,57 +148,11 @@ export interface BrowserGoalApiPort {
      */
     read(goalId: string): Promise<BrowserGoalSession | undefined>;
     /**
-     * 受理一个已通过 wire 校验的 Goal 创建。
+     * Runtime 会话委派端口；创建、统一输入、收据查询、状态与 Goal 事件均走该入口。
      *
-     * @param command - 稳定 Goal ID 与非空原始意图；Profile 和执行策略由本机决定。
-     * @returns 已保存快照后的受理结果或稳定拒绝码。
-     * @throws 正式工作区读取失败时拒绝。
+     * @remarks 省略时相关路由返回 503 `session_unavailable`，不提供替代执行路径。
      */
-    create(command: BrowserCreateGoalCommand): Promise<BrowserCreateGoalResult>;
-    /**
-     * 受理一个与最新 Snapshot 等待点匹配的结构化操作。
-     *
-     * @param goalId - URL 路径中的 Goal 身份。
-     * @param command - 带 Run、请求或动作身份的已验证操作。
-     * @returns 操作更新成功保存后的受理结果或稳定拒绝码。
-     * @throws Snapshot 读取失败时拒绝。
-     */
-    interact(goalId: string, command: BrowserGoalInteractionCommand): Promise<BrowserGoalInteractionResult>;
-    /**
-     * 按当前 Run 状态恢复普通等待或创建后续 Run。
-     *
-     * @param goalId - URL 路径中的 Goal 身份。
-     * @param command - 当前 Run 身份与普通文本。
-     * @returns 用户消息及对应 Run 变更保存后的受理结果。
-     * @throws Snapshot 读取失败时拒绝。
-     */
-    message(goalId: string, command: BrowserGoalMessageCommand): Promise<BrowserGoalMessageResult>;
-    /**
-     * 持久化受理运行中的 Steer。
-     *
-     * @param goalId - URL 中的 Goal 稳定身份。
-     * @param command - 当前 Run、幂等消息身份和正文。
-     * @returns 已保存的受理结果或稳定拒绝；仅受理后客户端才清除草稿。
-     * @throws Snapshot 读取失败时拒绝；未配置控制能力的实现可省略此端口。
-     * @example
-     * ```ts
-     * await source.steer?.("goal-1", { runId: "run-1", messageId: "message-1", content: "保留接口" });
-     * ```
-     */
-    steer?(goalId: string, command: BrowserGoalSteerCommand): Promise<BrowserGoalSteerResult>;
-    /** @returns 仅表示 Interrupt 意图已保存，不表示 Run 已完成取消结算。 */
-    /**
-     * 持久化受理目标 Run 的 Interrupt 请求。
-     * @param goalId - URL 中的 Goal 身份。
-     * @param command - 目标 Run 和稳定请求身份。
-     * @returns 仅表示终止意图已保存，不表示 Run 已完成收尾。
-     * @throws Snapshot 读取或 Runtime 保存失败时拒绝。
-     * @example
-     * ```ts
-     * await source.interrupt?.("goal-1", { runId: "run-1", requestId: "interrupt-1" });
-     * ```
-     */
-    interrupt?(goalId: string, command: BrowserGoalInterruptCommand): Promise<BrowserGoalInterruptResult>;
+    readonly session?: BrowserGoalSessionPort;
     /**
      * 将带当前 Run 身份的 Plan Mode 选择交给 Runtime Coordinator。
      *
@@ -217,15 +162,6 @@ export interface BrowserGoalApiPort {
      * @throws Snapshot 读取或 Coordinator 持久化失败时拒绝。
      */
     enterPlanMode(goalId: string, command: BrowserGoalPlanModeCommand): Promise<BrowserGoalPlanModeResult>;
-    /**
-     * 显式推进中断的未终态 Run。
-     *
-     * @param goalId - URL 路径中的 Goal 身份。
-     * @param command - 目标 Run 标识与页面读取的已提交序列号边界。
-     * @returns 新快照保存确认后的受理结果或稳定拒绝码。
-     * @throws Snapshot 读取失败时拒绝。
-     */
-    resume?(goalId: string, command: BrowserResumeGoalCommand): Promise<BrowserResumeGoalResult>;
     /**
      * 读取草稿默认模型或指定 Goal 当前 Run 的模型目录。
      *
@@ -246,16 +182,6 @@ export interface BrowserGoalApiPort {
     >;
     /** 保存由服务端重新验证的当前 Run 模型选择。 */
     selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<BrowserModelSelectionResult>;
-    /**
-     * 打开精确绑定到最新 Goal/Run 的实时进展流。
-     *
-     * @param goalId - URL 路径中的 Goal 身份。
-     * @param runId - 查询中的当前 Run 身份。
-     * @param signal - HTTP 请求断开时结束订阅的取消信号。
-     * @returns 安全事件流或 Goal/Run 稳定拒绝码。
-     * @throws 正式 Snapshot 读取失败时拒绝。
-     */
-    openStream(goalId: string, runId: string, signal?: AbortSignal): Promise<BrowserGoalStreamOpenResult>;
     /** 精确读取当前等待 Action 的完整输入；普通会话投影不携带此数据。 */
     readActionDetails?(goalId: string, runId: string, actionId: string): Promise<BrowserActionDetailsResult>;
     /** 列出当前 Goal 与 workspace 的授权摘要。 */
@@ -457,12 +383,15 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
     });
 
     routes.get("/api/goals/:goalId", async (context) => {
+        const goalId = context.req.param("goalId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) return context.json({ error: "invalid_goal_id" }, 400);
         try {
-            const goal = await source.read(context.req.param("goalId"));
+            const goal = await source.read(goalId);
             if (goal === undefined) {
                 return context.json({ error: "goal_not_found" }, 404);
             }
-            return context.json({ goal });
+            const session = source.session === undefined ? undefined : await source.session.readState(goalId);
+            return context.json({ goal, ...(session === undefined ? {} : { session }) });
         } catch {
             return context.json({ error: "goal_read_failed" }, 500);
         }
@@ -551,106 +480,67 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
     });
 
     routes.post("/api/goals", async (context) => {
-        const parsed = await parseCreateCommand(context.req.raw);
+        const parsed = await parseCreateSessionCommand(context.req.raw);
         if (!parsed.ok) {
             return context.json({ error: parsed.error }, parsed.status);
         }
+        const session = source.session;
+        if (session === undefined) return context.json({ error: "session_unavailable" }, 503);
         try {
-            const result = await source.create(parsed.command);
-            if (result.ok) {
-                return context.json({
-                    goalId: result.goalId,
-                    runId: result.runId,
-                    existing: result.existing,
-                }, result.existing ? 200 : 202);
-            }
-            const status = result.error === "goal_create_failed" ? 500
-                : result.error === "model_catalog_unavailable" ? 503
-                : result.error === "service_shutting_down" ? 503
-                : result.error === "goal_busy" || result.error === "goal_id_conflict" ? 409
-                : 400;
+            const result = await session.create(parsed.command);
+            if (result.ok) return context.json(result, result.existing ? 200 : 202);
+            const status = result.error === "create_failed" || result.error === "goal_unreadable" ? 500
+                : result.error === "model_catalog_unavailable" || result.error === "service_shutting_down" ? 503
+                    : result.error === "goal_busy" || result.error === "goal_id_conflict" ? 409
+                        : result.error === "profile_not_found" ? 500
+                            : 400;
             return context.json({ error: result.error }, status);
         } catch {
-            return context.json({ error: "goal_create_failed" }, 500);
+            return context.json({ error: "create_failed" }, 500);
         }
     });
 
-    routes.post("/api/goals/:goalId/interactions", async (context) => {
-        const parsed = await parseInteractionCommand(
-            context.req.param("goalId"),
-            context.req.raw,
-        );
+    routes.post("/api/goals/:goalId/inputs", async (context) => {
+        const goalId = context.req.param("goalId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) {
+            return context.json({ error: "INVALID_INPUT" }, 400);
+        }
+        const parsed = await parseSessionInputCommand(context.req.raw);
         if (!parsed.ok) {
             return context.json({ error: parsed.error }, parsed.status);
         }
+        const session = source.session;
+        if (session === undefined) return context.json({ error: "session_unavailable" }, 503);
         try {
-            const result = await source.interact(context.req.param("goalId"), parsed.command);
-            if (result.ok) {
-                return context.json({
-                    goalId: result.goalId,
-                    runId: result.runId,
-                    existing: result.existing,
-                }, result.existing ? 200 : 202);
-            }
-            return context.json({ error: result.error, refresh: true }, interactionErrorStatus(result.error));
-        } catch {
-            return context.json({ error: "interaction_failed" }, 500);
-        }
-    });
-
-    routes.post("/api/goals/:goalId/messages", async (context) => {
-        const parsed = await parseMessageCommand(
-            context.req.param("goalId"),
-            context.req.raw,
-        );
-        if (!parsed.ok) {
-            return context.json({ error: parsed.error }, parsed.status);
-        }
-        try {
-            const result = await source.message(context.req.param("goalId"), parsed.command);
-            if (result.ok) {
-                return context.json({
-                    goalId: result.goalId,
-                    runId: result.runId,
-                    existing: result.existing,
-                }, result.existing ? 200 : 202);
-            }
-            return context.json({ error: result.error, refresh: true }, messageErrorStatus(result.error));
-        } catch {
-            return context.json({ error: "message_failed" }, 500);
-        }
-    });
-
-    routes.post("/api/goals/:goalId/steer", async (context) => {
-        const parsed = await parseSteerCommand(context.req.param("goalId"), context.req.raw);
-        if (!parsed.ok) return context.json({ error: parsed.error }, parsed.status);
-        try {
-            if (source.steer === undefined) return context.json({ error: "steer_failed" }, 503);
-            const result = await source.steer(context.req.param("goalId"), parsed.command);
+            const result = await session.submit(goalId, parsed.command);
             if (result.ok) return context.json(result, result.existing ? 200 : 202);
-            const status = result.error === "goal_not_found" ? 404
-                : result.error === "steer_failed" ? 500
-                    : result.error === "service_shutting_down" ? 503 : 409;
-            return context.json({ error: result.error, refresh: true }, status);
+            return context.json(
+                { error: result.error, refresh: sessionInputErrorStatus(result.error) === 409 },
+                sessionInputErrorStatus(result.error),
+            );
         } catch {
-            return context.json({ error: "steer_failed" }, 500);
+            // 保存可能已经发生：调用方必须使用原 inputId 查询或重试。
+            return context.json({ error: "input_admission_failed" }, 503);
         }
     });
 
-    routes.post("/api/goals/:goalId/interrupt", async (context) => {
-        const parsed = await parseInterruptCommand(context.req.param("goalId"), context.req.raw);
-        if (!parsed.ok) return context.json({ error: parsed.error }, parsed.status);
-        try {
-            if (source.interrupt === undefined) return context.json({ error: "interrupt_failed" }, 503);
-            const result = await source.interrupt(context.req.param("goalId"), parsed.command);
-            if (result.ok) return context.json(result, result.existing ? 200 : 202);
-            const status = result.error === "goal_not_found" ? 404
-                : result.error === "interrupt_failed" ? 500
-                    : result.error === "service_shutting_down" ? 503 : 409;
-            return context.json({ error: result.error, refresh: true }, status);
-        } catch {
-            return context.json({ error: "interrupt_failed" }, 500);
+    routes.get("/api/goals/:goalId/inputs/:inputId", async (context) => {
+        const goalId = context.req.param("goalId");
+        const inputId = context.req.param("inputId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || !isWireId(inputId, 256)) {
+            return context.json({ error: "INVALID_INPUT" }, 400);
         }
+        const session = source.session;
+        if (session === undefined) return context.json({ error: "session_unavailable" }, 503);
+        let result;
+        try {
+            result = await session.readInput(goalId, inputId);
+        } catch {
+            return context.json({ error: "input_read_failed" }, 500);
+        }
+        if (result.ok) return context.json(result);
+        if (result.error === "GOAL_NOT_FOUND") return context.json({ error: "GOAL_NOT_FOUND" }, 404);
+        return context.json({ error: "input_read_failed" }, 500);
     });
 
     routes.post("/api/goals/:goalId/plan-mode", async (context) => {
@@ -681,57 +571,22 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         }
     });
 
-    routes.post("/api/goals/:goalId/resume", async (context) => {
-        const goalId = context.req.param("goalId");
-        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) {
-            return context.json({ error: "invalid_resume_command" }, 400);
-        }
-        const parsed = await parseResumeCommand(context.req.raw);
-        if (!parsed.ok) {
-            return context.json({ error: parsed.error }, parsed.status);
-        }
-        if (source.resume === undefined) {
-            return context.json({ error: "resume_failed" }, 500);
-        }
-        try {
-            const result = await source.resume(goalId, parsed.command);
-            if (result.ok) {
-                return context.json({
-                    goalId: result.goalId,
-                    runId: result.runId,
-                    existing: result.existing,
-                }, result.existing ? 200 : 202);
-            }
-            const status = resumeErrorStatus(result.error);
-            return context.json({ error: result.error, refresh: true }, status);
-        } catch {
-            return context.json({ error: "resume_failed" }, 500);
-        }
-    });
-
     routes.get("/api/goals/:goalId/events", async (context) => {
         const goalId = context.req.param("goalId");
         const query = new URL(context.req.url).searchParams;
-        const runIds = query.getAll("runId");
-        const runId = runIds[0];
-        if (
-            !isWireId(goalId, MAX_GOAL_ID_LENGTH)
-            || query.size !== 1
-            || runIds.length !== 1
-            || runId === undefined
-            || !isWireId(runId, 256)
-        ) {
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || query.size !== 0) {
             return context.json({ error: "invalid_stream_identity" }, 400);
         }
-        let opened: BrowserGoalStreamOpenResult;
+        const session = source.session;
+        if (session === undefined) return context.json({ error: "session_unavailable" }, 503);
+        let opened;
         try {
-            opened = await source.openStream(goalId, runId, context.req.raw.signal);
+            opened = await session.openEvents(goalId, context.req.raw.signal);
         } catch {
             return context.json({ error: "stream_unavailable" }, 500);
         }
         if (!opened.ok) {
-            const status = opened.error === "goal_not_found" ? 404 : 409;
-            return context.json({ error: opened.error, refresh: true }, status);
+            return context.json({ error: opened.error }, opened.error === "goal_not_found" ? 404 : 409);
         }
         return createEventStreamResponse(opened.feed);
     });
@@ -928,10 +783,10 @@ function modelCatalogErrorStatus(error: Exclude<BrowserModelCatalogReadResult, {
     return 502;
 }
 
-async function parseCreateCommand(
+async function parseCreateSessionCommand(
     request: Request,
 ): Promise<
-    | { readonly ok: true; readonly command: BrowserCreateGoalCommand }
+    | { readonly ok: true; readonly command: BrowserCreateSessionCommand }
     | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
 > {
     const parsedBody = await readJsonBody(request);
@@ -940,14 +795,11 @@ async function parseCreateCommand(
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return { ok: false, error: "invalid_goal_input", status: 400 };
     }
-
     const body = value as Record<string, unknown>;
     if (
-        Object.keys(body).some((key) => key !== "goalId" && key !== "intent" && key !== "mode" && key !== "modelId")
-        || typeof body.goalId !== "string"
-        || body.goalId.length === 0
-        || body.goalId.length > MAX_GOAL_ID_LENGTH
-        || !/^[A-Za-z0-9_-]+$/.test(body.goalId)
+        Object.keys(body).some((key) => key !== "goalId" && key !== "inputId" && key !== "intent" && key !== "mode" && key !== "modelId")
+        || !isWireId(body.goalId, MAX_GOAL_ID_LENGTH)
+        || !isWireId(body.inputId, 256)
         || typeof body.intent !== "string"
         || body.intent.trim().length === 0
         || body.intent.length > MAX_COMMAND_TEXT_LENGTH
@@ -961,11 +813,149 @@ async function parseCreateCommand(
         ok: true,
         command: {
             goalId: body.goalId,
+            inputId: body.inputId,
             intent: body.intent,
             ...(body.mode === undefined ? {} : { mode: body.mode }),
             ...(body.modelId === undefined ? {} : { modelId: body.modelId as string }),
         },
     };
+}
+
+/**
+ * 解析统一会话输入的严格 wire 联合。
+ *
+ * @remarks
+ * 每个变体只接受白名单字段；正文只接受非空文本并有长度上限，数字字段必须是
+ * 非负安全整数。字段错误与只读读取失败都在这里明确返回，不猜测输入种类。
+ */
+async function parseSessionInputCommand(
+    request: Request,
+): Promise<
+    | { readonly ok: true; readonly command: BrowserSessionInputCommand }
+    | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
+> {
+    const parsedBody = await readJsonBody(request, MAX_SESSION_INPUT_BODY_BYTES);
+    if (!parsedBody.ok) return parsedBody;
+    const value = parsedBody.value;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return { ok: false, error: "INVALID_INPUT", status: 400 };
+    }
+    const body = value as Record<string, unknown>;
+    const kind = body.kind;
+    if (!isWireId(body.inputId, 256) || typeof kind !== "string") {
+        return { ok: false, error: "INVALID_INPUT", status: 400 };
+    }
+
+    if (kind === "message") {
+        if (!hasExactKeys(body, ["kind", "inputId", "content"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
+        const content = readSessionText(body.content);
+        return content === undefined
+            ? { ok: false, error: "INVALID_INPUT", status: 400 }
+            : { ok: true, command: { kind, inputId: body.inputId, content } };
+    }
+
+    if (kind === "steer") {
+        if (!hasExactKeys(body, ["kind", "inputId", "runId", "content"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
+        const content = readSessionText(body.content);
+        return !isWireId(body.runId, 256) || content === undefined
+            ? { ok: false, error: "INVALID_INPUT", status: 400 }
+            : { ok: true, command: { kind, inputId: body.inputId, runId: body.runId, content } };
+    }
+
+    if (kind === "interrupt") {
+        if (!hasExactKeys(body, ["kind", "inputId", "runId"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
+        return !isWireId(body.runId, 256)
+            ? { ok: false, error: "INVALID_INPUT", status: 400 }
+            : { ok: true, command: { kind, inputId: body.inputId, runId: body.runId } };
+    }
+
+    if (kind === "respond") {
+        if (!hasExactKeys(body, ["kind", "inputId", "runId", "requestId", "response"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
+        const response = parseInteractionResponse(body.response);
+        return !isWireId(body.runId, 256) || !isWireId(body.requestId, 256) || response === undefined
+            ? { ok: false, error: "INVALID_INPUT", status: 400 }
+            : { ok: true, command: { kind, inputId: body.inputId, runId: body.runId, requestId: body.requestId, response } };
+    }
+
+    if (kind === "resume") {
+        if (!hasExactKeys(body, ["kind", "inputId", "runId", "commitRevision"], ["content"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
+        const content = body.content === undefined ? undefined : readSessionText(body.content);
+        if (
+            !isWireId(body.runId, 256)
+            || !isNonNegativeInteger(body.commitRevision)
+            || ("content" in body && content === undefined)
+        ) return { ok: false, error: "INVALID_INPUT", status: 400 };
+        return {
+            ok: true,
+            command: {
+                kind,
+                inputId: body.inputId,
+                runId: body.runId,
+                commitRevision: body.commitRevision,
+                ...(content === undefined ? {} : { content }),
+            },
+        };
+    }
+
+    if (kind === "queue_control") {
+        if (!hasExactKeys(body, ["kind", "inputId", "action", "queueRevision"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
+        const action = body.action;
+        if ((action !== "continue" && action !== "clear") || !isNonNegativeInteger(body.queueRevision)) {
+            return { ok: false, error: "INVALID_INPUT", status: 400 };
+        }
+        return { ok: true, command: { kind, inputId: body.inputId, action, queueRevision: body.queueRevision } };
+    }
+
+    return { ok: false, error: "INVALID_INPUT", status: 400 };
+}
+
+function parseInteractionResponse(value: unknown): BrowserSessionInteractionResponse | undefined {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    const body = value as Record<string, unknown>;
+    const kind = body.kind;
+    if (typeof kind !== "string") return undefined;
+    if (kind === "cancel_ask_user") {
+        return hasExactKeys(body, ["kind"]) ? { kind } : undefined;
+    }
+    if (kind === "answer_ask_user") {
+        if (!hasExactKeys(body, ["kind", "answers"])) return undefined;
+        const answers = parseAnswers(body.answers);
+        return answers === undefined ? undefined : { kind, answers };
+    }
+    if (kind === "approve_task") {
+        return hasExactKeys(body, ["kind"]) ? { kind } : undefined;
+    }
+    if (kind === "feedback_task") {
+        if (!hasExactKeys(body, ["kind", "feedback"])) return undefined;
+        const feedback = readWireText(body.feedback, MAX_COMMAND_TEXT_LENGTH);
+        return feedback === undefined ? undefined : { kind, feedback };
+    }
+    if (kind === "approve_action") {
+        if (!hasExactKeys(body, ["kind", "actionId"], ["scope"])) return undefined;
+        const actionId = readWireText(body.actionId, 256);
+        const scope = body.scope ?? "action";
+        return actionId === undefined || (scope !== "action" && scope !== "goal" && scope !== "workspace")
+            ? undefined
+            : { kind, actionId, scope };
+    }
+    if (kind === "reject_action") {
+        if (!hasExactKeys(body, ["kind", "actionId", "reason"])) return undefined;
+        const actionId = readWireText(body.actionId, 256);
+        const reason = readWireText(body.reason, MAX_COMMAND_TEXT_LENGTH);
+        return actionId === undefined || reason === undefined || reason.trim().length === 0
+            ? undefined
+            : { kind, actionId, reason };
+    }
+    return undefined;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function readSessionText(value: unknown): string | undefined {
+    // 只校验形状；正文额度由 Runtime 会话所有者判定并返回稳定拒绝码。
+    return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
 async function parsePlanModeCommand(
@@ -985,204 +975,6 @@ async function parsePlanModeCommand(
         return { ok: false, error: "invalid_plan_mode_command", status: 400 };
     }
     return { ok: true, command: { runId: body.runId } };
-}
-
-async function parseResumeCommand(
-    request: Request,
-): Promise<
-    | { readonly ok: true; readonly command: BrowserResumeGoalCommand }
-    | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
-> {
-    const parsedBody = await readJsonBody(request);
-    if (!parsedBody.ok) return parsedBody;
-    const value = parsedBody.value;
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return { ok: false, error: "invalid_resume_command", status: 400 };
-    }
-    const body = value as Record<string, unknown>;
-    if (
-        Object.keys(body).length !== 2
-        || typeof body.runId !== "string"
-        || !isWireId(body.runId, 256)
-        || typeof body.expectedCommittedThroughSequence !== "number"
-        || !Number.isSafeInteger(body.expectedCommittedThroughSequence)
-        || body.expectedCommittedThroughSequence < 0
-    ) {
-        return { ok: false, error: "invalid_resume_command", status: 400 };
-    }
-    return {
-        ok: true,
-        command: {
-            runId: body.runId,
-            expectedCommittedThroughSequence: body.expectedCommittedThroughSequence,
-        },
-    };
-}
-
-async function parseInteractionCommand(
-    goalId: string,
-    request: Request,
-): Promise<
-    | { readonly ok: true; readonly command: BrowserGoalInteractionCommand }
-    | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
-> {
-    if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) {
-        return { ok: false, error: "invalid_interaction", status: 400 };
-    }
-    const parsedBody = await readJsonBody(request);
-    if (!parsedBody.ok) return parsedBody;
-    const value = parsedBody.value;
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return { ok: false, error: "invalid_interaction", status: 400 };
-    }
-    const body = value as Record<string, unknown>;
-    const runId = readWireText(body.runId, 256);
-    const kind = body.kind;
-    if (runId === undefined || typeof kind !== "string") {
-        return { ok: false, error: "invalid_interaction", status: 400 };
-    }
-
-    if (kind === "cancel_ask_user") {
-        if (!hasExactKeys(body, ["kind", "runId", "requestId"])) {
-            return { ok: false, error: "invalid_interaction", status: 400 };
-        }
-        const requestId = readWireText(body.requestId, 256);
-        return requestId === undefined
-            ? { ok: false, error: "invalid_interaction", status: 400 }
-            : { ok: true, command: { kind, runId, requestId } };
-    }
-
-    if (kind === "answer_ask_user") {
-        if (!hasExactKeys(body, ["kind", "runId", "requestId", "answers"])) {
-            return { ok: false, error: "invalid_interaction", status: 400 };
-        }
-        const requestId = readWireText(body.requestId, 256);
-        const answers = parseAnswers(body.answers);
-        if (requestId === undefined || answers === undefined) {
-            return { ok: false, error: "invalid_interaction", status: 400 };
-        }
-        return { ok: true, command: { kind, runId, requestId, answers } };
-    }
-
-    if (kind === "approve_task") {
-        if (!hasExactKeys(body, ["kind", "runId", "requestId"])) {
-            return { ok: false, error: "invalid_interaction", status: 400 };
-        }
-        const requestId = readWireText(body.requestId, 256);
-        return requestId === undefined
-            ? { ok: false, error: "invalid_interaction", status: 400 }
-            : { ok: true, command: { kind, runId, requestId } };
-    }
-
-    if (kind === "feedback_task") {
-        if (!hasExactKeys(body, ["kind", "runId", "requestId", "feedback"])) {
-            return { ok: false, error: "invalid_interaction", status: 400 };
-        }
-        const requestId = readWireText(body.requestId, 256);
-        const feedback = readWireText(body.feedback, MAX_COMMAND_TEXT_LENGTH);
-        return requestId === undefined || feedback === undefined || feedback.trim().length === 0
-            ? { ok: false, error: "invalid_interaction", status: 400 }
-            : { ok: true, command: { kind, runId, requestId, feedback } };
-    }
-
-    if (kind === "approve_action") {
-        if (!hasExactKeys(body, ["kind", "runId", "actionId"], ["scope"])) {
-            return { ok: false, error: "invalid_interaction", status: 400 };
-        }
-        const actionId = readWireText(body.actionId, 256);
-        const scope = body.scope ?? "action";
-        return actionId === undefined
-            || (scope !== "action" && scope !== "goal" && scope !== "workspace")
-            ? { ok: false, error: "invalid_interaction", status: 400 }
-            : { ok: true, command: { kind, runId, actionId, scope } };
-    }
-
-    if (kind === "reject_action") {
-        if (!hasExactKeys(body, ["kind", "runId", "actionId", "reason"])) {
-            return { ok: false, error: "invalid_interaction", status: 400 };
-        }
-        const actionId = readWireText(body.actionId, 256);
-        const reason = readWireText(body.reason, MAX_COMMAND_TEXT_LENGTH);
-        return actionId === undefined || reason === undefined || reason.trim().length === 0
-            ? { ok: false, error: "invalid_interaction", status: 400 }
-            : { ok: true, command: { kind, runId, actionId, reason } };
-    }
-
-    return { ok: false, error: "invalid_interaction", status: 400 };
-}
-
-async function parseMessageCommand(
-    goalId: string,
-    request: Request,
-): Promise<
-    | { readonly ok: true; readonly command: BrowserGoalMessageCommand }
-    | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
-> {
-    if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) {
-        return { ok: false, error: "invalid_message", status: 400 };
-    }
-    const parsedBody = await readJsonBody(request);
-    if (!parsedBody.ok) return parsedBody;
-    const value = parsedBody.value;
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return { ok: false, error: "invalid_message", status: 400 };
-    }
-    const body = value as Record<string, unknown>;
-    if (!hasExactKeys(body, ["runId", "messageId", "content"])) {
-        return { ok: false, error: "invalid_message", status: 400 };
-    }
-    const runId = readWireText(body.runId, 256);
-    const messageId = readWireText(body.messageId, 256);
-    const content = readWireText(body.content, MAX_COMMAND_TEXT_LENGTH);
-    if (runId === undefined || messageId === undefined || content === undefined) {
-        return { ok: false, error: "invalid_message", status: 400 };
-    }
-    return { ok: true, command: { runId, messageId, content } };
-}
-
-async function parseSteerCommand(
-    goalId: string,
-    request: Request,
-): Promise<
-    | { readonly ok: true; readonly command: BrowserGoalSteerCommand }
-    | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
-> {
-    if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) return { ok: false, error: "invalid_steer", status: 400 };
-    const parsed = await readJsonBody(request);
-    if (!parsed.ok) return parsed;
-    if (typeof parsed.value !== "object" || parsed.value === null || Array.isArray(parsed.value)) {
-        return { ok: false, error: "invalid_steer", status: 400 };
-    }
-    const body = parsed.value as Record<string, unknown>;
-    if (!hasExactKeys(body, ["runId", "messageId", "content"])) return { ok: false, error: "invalid_steer", status: 400 };
-    const runId = readWireText(body.runId, 256);
-    const messageId = readWireText(body.messageId, 256);
-    const content = readWireText(body.content, MAX_COMMAND_TEXT_LENGTH);
-    if (runId === undefined || messageId === undefined || content === undefined || content.trim().length === 0) {
-        return { ok: false, error: "invalid_steer", status: 400 };
-    }
-    return { ok: true, command: { runId, messageId, content } };
-}
-
-async function parseInterruptCommand(
-    goalId: string,
-    request: Request,
-): Promise<
-    | { readonly ok: true; readonly command: BrowserGoalInterruptCommand }
-    | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
-> {
-    if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) return { ok: false, error: "invalid_interrupt", status: 400 };
-    const parsed = await readJsonBody(request);
-    if (!parsed.ok) return parsed;
-    if (typeof parsed.value !== "object" || parsed.value === null || Array.isArray(parsed.value)) {
-        return { ok: false, error: "invalid_interrupt", status: 400 };
-    }
-    const body = parsed.value as Record<string, unknown>;
-    if (!hasExactKeys(body, ["runId", "requestId"])) return { ok: false, error: "invalid_interrupt", status: 400 };
-    const runId = readWireText(body.runId, 256);
-    const requestId = readWireText(body.requestId, 256);
-    if (runId === undefined || requestId === undefined) return { ok: false, error: "invalid_interrupt", status: 400 };
-    return { ok: true, command: { runId, requestId } };
 }
 
 async function parseGrantRevokeCommand(request: Request): Promise<
@@ -1242,6 +1034,7 @@ async function parsePermissionModeCommand(request: Request): Promise<
 
 async function readJsonBody(
     request: Request,
+    maximumBytes: number = MAX_COMMAND_BODY_BYTES,
 ): Promise<
     | { readonly ok: true; readonly value: unknown }
     | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
@@ -1255,7 +1048,7 @@ async function readJsonBody(
         if (!/^\d+$/.test(contentLength)) {
             return { ok: false, error: "invalid_goal_input", status: 400 };
         }
-        if (Number(contentLength) > MAX_COMMAND_BODY_BYTES) {
+        if (Number(contentLength) > maximumBytes) {
             return { ok: false, error: "request_too_large", status: 413 };
         }
     }
@@ -1271,7 +1064,7 @@ async function readJsonBody(
             const chunk = await reader.read();
             if (chunk.done) break;
             totalBytes += chunk.value.byteLength;
-            if (totalBytes > MAX_COMMAND_BODY_BYTES) {
+            if (totalBytes > maximumBytes) {
                 await reader.cancel();
                 return { ok: false, error: "request_too_large", status: 413 };
             }
@@ -1288,11 +1081,26 @@ async function readJsonBody(
     }
 }
 
+/**
+ * 映射会话输入拒绝的 HTTP 状态。
+ *
+ * @remarks
+ * 字段与文本超限是调用方错误（400／413），Goal／Run 与修订冲突是 409，
+ * 关闭期间与不确定保存是 503；状态码不改变 wire 错误码的稳定性。
+ */
+function sessionInputErrorStatus(error: BrowserSessionInputErrorCode): 400 | 404 | 409 | 413 | 503 {
+    if (error === "INVALID_INPUT") return 400;
+    if (error === "TEXT_TOO_LARGE" || error === "QUEUE_TEXT_TOO_LARGE") return 413;
+    if (error === "GOAL_NOT_FOUND") return 404;
+    if (error === "input_admission_failed" || error === "session_unavailable") return 503;
+    return 409;
+}
+
 function parseAnswers(
     value: unknown,
-): Extract<BrowserGoalInteractionCommand, { readonly kind: "answer_ask_user" }>["answers"] | undefined {
+): { readonly questionId: string; readonly optionIds: readonly string[]; readonly otherText?: string }[] | undefined {
     if (!Array.isArray(value) || value.length === 0 || value.length > 3) return undefined;
-    type Answer = Extract<BrowserGoalInteractionCommand, { readonly kind: "answer_ask_user" }>["answers"][number];
+    type Answer = { readonly questionId: string; readonly optionIds: readonly string[]; readonly otherText?: string };
     const answers: Answer[] = [];
     for (const candidate of value) {
         if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return undefined;
@@ -1345,38 +1153,6 @@ function isWireId(value: unknown, maximumLength: number): value is string {
         && value.length > 0
         && value.length <= maximumLength
         && /^[A-Za-z0-9_-]+$/.test(value);
-}
-
-function interactionErrorStatus(
-    error: Extract<BrowserGoalInteractionResult, { readonly ok: false }>["error"],
-): 400 | 404 | 409 | 500 | 503 {
-    if (error === "goal_not_found") return 404;
-    if (error === "goal_busy" || error === "stale_run" || error === "goal_not_waiting"
-        || error === "stale_request" || error === "action_not_waiting") return 409;
-    if (error === "interaction_failed") return 500;
-    if (error === "model_restore_failed" || error === "service_shutting_down") return 503;
-    return 400;
-}
-
-function messageErrorStatus(
-    error: Extract<BrowserGoalMessageResult, { readonly ok: false }>["error"],
-): 400 | 404 | 409 | 500 | 503 {
-    if (error === "goal_not_found") return 404;
-    if (error === "goal_busy" || error === "stale_run" || error === "goal_not_waiting"
-        || error === "goal_not_completed" || error === "structured_interaction_required"
-        || error === "message_conflict") return 409;
-    if (error === "message_failed") return 500;
-    if (error === "model_restore_failed" || error === "service_shutting_down") return 503;
-    return 400;
-}
-
-function resumeErrorStatus(
-    error: Extract<BrowserResumeGoalResult, { readonly ok: false }>["error"],
-): 400 | 404 | 409 | 500 | 503 {
-    if (error === "goal_not_found") return 404;
-    if (error === "stale_run" || error === "stale_recovery" || error === "goal_busy" || error === "resume_not_allowed") return 409;
-    if (error === "model_restore_failed" || error === "service_shutting_down") return 503;
-    return 500;
 }
 
 function createEventStreamResponse(

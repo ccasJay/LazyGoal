@@ -54,7 +54,7 @@
   - 实施目标：落实 `send`／`consume`／`events`／`read`／`getInput`／`detach` 及内部 `sessions.query`，所有操作委派同一 Runtime 状态所有者。停止消费后拒绝迟到项，来源资源归宿主；只释放封装自己的订阅，不关闭借用实例。把自有消费者、核对任务和后台执行纳入现有生命周期，有界关闭未结算时保留类型化错误，不伪造 Run 取消。
   - 验证手段：`npx tsx --test packages/runtime/test/session.test.ts packages/runtime/test/session-stream.test.ts packages/runtime/test/runtime-lifecycle.test.ts packages/runtime/test/execution-control.test.ts`；使用 fake clock 和受控 Promise 断言零越界预取、零重复应用、无消费者驱动的执行取消、宿主仍可继续运行。
 
-- [ ] //TODO 9. Web 服务统一受理会话输入，并移除重复预约和旧控制路由
+- [x] //TODO 9. Web 服务统一受理会话输入，并移除重复预约和旧控制路由
   - 落实标准：[2.3](./spec.md#spec-req-2-3)、[2.4](./spec.md#spec-req-2-4)、[3.5](./spec.md#spec-req-3-5)、[6.2](./spec.md#spec-req-6-2)、[7.1](./spec.md#spec-req-7-1)、[7.3](./spec.md#spec-req-7-3)、[7.5](./spec.md#spec-req-7-5)、[8.3](./spec.md#spec-req-8-3)、[8.4](./spec.md#spec-req-8-4)、[8.6](./spec.md#spec-req-8-6)、[9.6](./spec.md#spec-req-9-6)。
   - 先验证：在待实现的 `packages/browser/test/browser-session-inputs.test.ts` 中通过真实路由验证统一 inputs、收据查询和 Goal SSE；新受理 202、重复收据 200，错误正文明确且脱敏。扩展现有访问控制、投影和管理测试，验证错误 Host／Origin／令牌无调用，缺失收据与读取失败不同，断连不取消，多客户端不重复创建 Run，待处理输入阻止终态删除。
   - 实施目标：在 `web-contracts` 定义新的严格 wire 联合与安全投影；Browser 通过窄 Port 委派 Session，现有 `apps/goal-server/src/runtime/` 增加接线并共用 Binding 和生命周期。迁移创建、消息、回答、Steer、Interrupt、恢复与 Goal 事件路由，删除被替代的 DTO／控制路由、Browser 去重／执行预约和后台推进算法；保留模型、权限、Provider、指标与历史接口，通过相同提交边界管理。

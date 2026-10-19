@@ -84,7 +84,12 @@ export interface SessionCreateRequest {
     readonly mode?: RunMode | undefined;
     /** 非负 Step 上限；`0` 或省略表示无限。 */
     readonly maxSteps?: number | undefined;
-    /** 首个 Run 使用的模型选择；省略时使用默认基准。 */
+    /**
+     * 首个 Run 使用的模型选择。
+     *
+     * @remarks 省略时使用装配提供的默认选择；装配未提供默认选择时使用
+     * Domain 的基准选择，由执行前的绑定核验决定是否可服务。
+     */
     readonly modelSelection?: GoalModelSelection | undefined;
 }
 
@@ -272,6 +277,12 @@ export interface SessionManagerDependencies {
      * 另一个 Goal 的进程绑定；省略时不改变 Binding。
      */
     readonly alignModelBinding?: ((selection: GoalModelSelection) => void) | undefined;
+    /**
+     * 创建 Session 时未显式指定模型选择所用的默认选择。
+     *
+     * @remarks 由装配提供本进程真正可服务的默认选择；省略时沿用 Domain 基准。
+     */
+    readonly defaultModelSelection?: GoalModelSelection | undefined;
 }
 
 /**
@@ -306,6 +317,7 @@ export class SessionManager implements SessionHandlePort {
     private readonly trackBackgroundTask: ((label: string, task: Promise<void>) => void) | undefined;
     private readonly onBackgroundFailure: ((goalId: string, error: unknown) => void) | undefined;
     private readonly alignModelBinding: ((selection: GoalModelSelection) => void) | undefined;
+    private readonly defaultModelSelection: GoalModelSelection | undefined;
     private readonly executionStream: ExecutionStreamPublisher | undefined;
     private readonly revisionMonitor: GoalRevisionMonitor;
     private readonly sessionStreams = new Map<string, Set<GoalSessionStream>>();
@@ -330,6 +342,7 @@ export class SessionManager implements SessionHandlePort {
         this.trackBackgroundTask = dependencies.trackBackgroundTask;
         this.onBackgroundFailure = dependencies.onBackgroundFailure;
         this.alignModelBinding = dependencies.alignModelBinding;
+        this.defaultModelSelection = dependencies.defaultModelSelection;
         this.executionStream = dependencies.executionStream;
         this.revisionMonitor = new GoalRevisionMonitor({
             readGoal: (goalId) => this.store.restore(goalId),
@@ -390,6 +403,7 @@ export class SessionManager implements SessionHandlePort {
         }
         const reserved = this.activeGoalId === undefined;
         if (reserved) this.activeGoalId = request.goalId;
+        const effectiveSelection = request.modelSelection ?? this.defaultModelSelection;
 
         let created: CreateGoalResult;
         try {
@@ -400,9 +414,9 @@ export class SessionManager implements SessionHandlePort {
                     profileId: request.profileId,
                     ...(request.mode === undefined ? {} : { mode: request.mode }),
                     ...(request.maxSteps === undefined ? {} : { maxSteps: request.maxSteps }),
-                    ...(request.modelSelection === undefined
+                    ...(effectiveSelection === undefined
                         ? {}
-                        : { modelSelection: request.modelSelection }),
+                        : { modelSelection: effectiveSelection }),
                     firstInput: {
                         inputId: request.inputId,
                         digest: computeSessionInputDigest({

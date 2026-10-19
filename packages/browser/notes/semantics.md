@@ -5,10 +5,11 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | BrowserSessionAccess | 短期授权和请求边界。 | [浏览器服务边界](../README.md) | [模块说明](./overview.md) |
-| BrowserGoalCommandService | Web 命令到协调器的适配。 | [浏览器服务边界](../README.md) | [模块说明](./overview.md) |
+| BrowserGoalCommandService | 未迁入统一 inputs 入口的管理命令（Plan Mode、模型选择、Action 详情、授权与权限模式、终态管理前置检查）到 Runtime 的适配。 | [浏览器服务边界](../README.md) | [模块说明](./overview.md) |
+| BrowserGoalSessionPort | Browser 委派 Runtime 会话所有者的窄端口：创建、统一输入、收据查询、安全状态与 Goal 事件；Browser 不持有账本、队列、执行名额或后台推进。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
 | Task approval route projection | Plan Run 审批等待点中的完整候选阶段顺序与验收条件。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Approved Plan route projection | 当前获批 Plan Run 的 Snapshot 权威完整路线及其 Runtime 状态；普通 Run 省略。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
-| Safe live activity projection | 白名单公开的短期 SSE 活动和 ExecutionStream 来源身份；与 Trajectory 标识空间分离。 | [浏览器服务边界](../README.md) | [Browser Goal Stream](../src/browser-goal-stream.ts) |
+| Safe live activity projection | 白名单公开的 Goal 范围 SSE 活动、`state_sync`／`input_result` 与 ExecutionStream 来源身份；与 Trajectory 标识空间分离。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
 | Provider settings routes | 受管 Provider 档案的掩码读取与增删改、激活、连接测试接口；写请求需同源 `Origin` 与 Bearer 令牌。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
 | Model source dimension | 模型目录携带的受管档案与回退来源列表，以及按 `providerProfileId` 读取指定来源目录的能力。 | [浏览器服务边界](../README.md) | [Model Catalog Projection](../src/browser-model-catalog.ts) |
 | Provider model preview | 受同源授权保护的未保存连接查询，不写入档案。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |

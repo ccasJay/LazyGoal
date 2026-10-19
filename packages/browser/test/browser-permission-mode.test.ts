@@ -13,23 +13,17 @@ import {
 } from "../src/index.js";
 
 class StubCoordinator implements BrowserGoalCoordinator {
-    async resume(): Promise<never> { throw new Error("not implemented"); }
-    continue(): never { throw new Error("not implemented"); }
-    enterPlanMode(): never { throw new Error("not implemented"); }
+    async enterPlanMode(): Promise<never> { throw new Error("not implemented"); }
 }
 
 function createPort(service: BrowserGoalCommandService): BrowserGoalApiPort {
     return {
         list: async () => [],
         read: async () => undefined,
-        create: async (cmd) => service.create(cmd),
-        interact: async (gid, cmd) => service.interact(gid, cmd),
-        message: async (gid, cmd) => service.message(gid, cmd),
         enterPlanMode: async (gid, cmd) => service.enterPlanMode(gid, cmd),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
         setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
         selectModel: async (gid, cmd) => service.selectModel(gid, cmd),
-        openStream: async () => ({ ok: false, error: "goal_not_found" }),
         getPermissionMode: () => service.getPermissionMode(),
         setPermissionMode: (cmd) => service.setPermissionMode(cmd),
     };
@@ -43,18 +37,13 @@ test("GET /api/project/permission-mode 返回当前项目权限模式", async ()
     };
 
     const coordinator: BrowserGoalCoordinator = {
-        resume: async () => { throw new Error("not implemented"); },
-        continue: () => { throw new Error("not implemented"); },
         enterPlanMode: () => { throw new Error("not implemented"); },
         getPermissionMode: async () => currentMode,
     };
 
     const service = new BrowserGoalCommandService({
         store: { restore: async () => undefined },
-        saveNotifications: { onSave: () => () => {} },
-        launcher: { launch: async () => ({ kind: "completed" } as never) },
         coordinator,
-        profileId: "default",
     });
 
     const routes = createBrowserGoalRoutes(createPort(service));
@@ -78,8 +67,6 @@ test("POST /api/project/permission-mode 成功切换模式，冲突时返回 409
     };
 
     const coordinator: BrowserGoalCoordinator = {
-        resume: async () => { throw new Error("not implemented"); },
-        continue: () => { throw new Error("not implemented"); },
         enterPlanMode: () => { throw new Error("not implemented"); },
         getPermissionMode: async () => currentMode,
         setPermissionMode: async (mode, expectedRevision) => {
@@ -101,10 +88,7 @@ test("POST /api/project/permission-mode 成功切换模式，冲突时返回 409
 
     const service = new BrowserGoalCommandService({
         store: { restore: async () => undefined },
-        saveNotifications: { onSave: () => () => {} },
-        launcher: { launch: async () => ({ kind: "completed" } as never) },
         coordinator,
-        profileId: "default",
     });
 
     const routes = createBrowserGoalRoutes(createPort(service));
@@ -142,10 +126,7 @@ test("POST /api/project/permission-mode 成功切换模式，冲突时返回 409
 test("POST /api/project/permission-mode 校验非法输入返回 400", async () => {
     const service = new BrowserGoalCommandService({
         store: { restore: async () => undefined },
-        saveNotifications: { onSave: () => () => {} },
-        launcher: { launch: async () => ({ kind: "completed" } as never) },
         coordinator: new StubCoordinator(),
-        profileId: "default",
     });
 
     const routes = createBrowserGoalRoutes(createPort(service));
@@ -174,14 +155,10 @@ test("服务未配置或异常时返回 500 permissions_unavailable 且无敏感
     const emptyPort: BrowserGoalApiPort = {
         list: async () => [],
         read: async () => undefined,
-        create: async () => ({ ok: false, error: "goal_create_failed" }),
-        interact: async () => ({ ok: false, error: "interaction_failed" }),
-        message: async () => ({ ok: false, error: "message_failed" }),
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
         setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
         selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
-        openStream: async () => ({ ok: false, error: "goal_not_found" }),
     };
 
     const routes = createBrowserGoalRoutes(emptyPort);

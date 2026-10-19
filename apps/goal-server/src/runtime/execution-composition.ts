@@ -216,8 +216,8 @@ export function createExecutionComponents(
             ),
             advance: (ref, control) => coordinator.advance(ref, control),
             resume: (request, control) => coordinator.resume(request, control),
-            continue: (ref, content, control, continuation) =>
-                coordinator.continue(ref, content, control, continuation),
+            continue: (ref, content, control, continuation, queueBinding) =>
+                coordinator.continue(ref, content, control, continuation, queueBinding),
             steer: (ref, messageId, content) => coordinator.steer(ref, messageId, content),
             interrupt: (ref, requestId) => coordinator.interrupt(ref, requestId),
             enterPlanMode: (ref, control) => coordinator.enterPlanMode(ref, control),

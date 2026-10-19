@@ -134,35 +134,42 @@ test("真实服务路径：断连与 SSE 关闭不取消执行，busy/旧 Run �
                 ...(signal === undefined ? {} : { signal }),
             });
             const text = await response.text();
-            return { status: response.status, body: text.length === 0 ? {} : JSON.parse(text) as Record<string, any> };
+            return { status: response.status, body: text.length === 0 || !text.startsWith("{") ? {} : JSON.parse(text) as Record<string, any> };
         };
 
         // 受理后模型阻塞：执行已进入 Runtime。
-        const accepted = await request("/api/goals/disconnect-target/resume", "POST", {
+        const accepted = await request("/api/goals/disconnect-target/inputs", "POST", {
+            kind: "resume",
+            inputId: "input-disconnect-resume",
             runId: "run-disconnect-target",
-            expectedCommittedThroughSequence: 0,
+            commitRevision: 0,
         });
         assert.equal(accepted.status, 202);
+        assert.equal(accepted.body.receipt.targetRunId, "run-disconnect-target");
         await withTimeout(modelStarted.promise, "Coordinator did not call the model");
 
         // 另一 Goal 的冲突推进明确拒绝；同一命令的稳定身份重试返回既有受理结果。
-        const busy = await request("/api/goals/busy-target/resume", "POST", {
+        const busy = await request("/api/goals/busy-target/inputs", "POST", {
+            kind: "resume",
+            inputId: "input-busy-resume",
             runId: "run-busy-target",
-            expectedCommittedThroughSequence: 0,
+            commitRevision: 0,
         });
         assert.equal(busy.status, 409);
-        assert.equal(busy.body.error, "goal_busy");
-        const retried = await request("/api/goals/disconnect-target/resume", "POST", {
+        assert.equal(busy.body.error, "BUSY");
+        // 同一稳定身份的重试返回既有收据，不重复推进（去重先于过期状态拒绝）。
+        const retried = await request("/api/goals/disconnect-target/inputs", "POST", {
+            kind: "resume",
+            inputId: "input-disconnect-resume",
             runId: "run-disconnect-target",
-            expectedCommittedThroughSequence: 0,
+            commitRevision: 0,
         });
         assert.equal(retried.status, 200);
         assert.equal(retried.body.existing, true);
-        assert.equal(retried.body.runId, "run-disconnect-target");
-
+        assert.equal(retried.body.receipt.inputId, "input-disconnect-resume");
         // SSE 订阅成功后由客户端断开，以及普通读取请求中途断连，都不取消已受理执行。
         const streamController = new AbortController();
-        const stream = await fetch(`${origin}/api/goals/disconnect-target/events?runId=run-disconnect-target`, {
+        const stream = await fetch(`${origin}/api/goals/disconnect-target/events`, {
             headers: { authorization: `Bearer ${token}`, origin },
             signal: streamController.signal,
         });
@@ -183,12 +190,21 @@ test("真实服务路径：断连与 SSE 关闭不取消执行，busy/旧 Run �
         assert.equal(modelCallCount, 1);
 
         // 结算后旧 Run 身份明确拒绝。
-        const stale = await request("/api/goals/disconnect-target/resume", "POST", {
+        const stale = await request("/api/goals/disconnect-target/inputs", "POST", {
+            kind: "resume",
+            inputId: "input-disconnect-stale",
             runId: "run-other",
-            expectedCommittedThroughSequence: 0,
+            commitRevision: 0,
         });
         assert.equal(stale.status, 409);
-        assert.equal(stale.body.error, "stale_run");
+        assert.equal(stale.body.error, "RUN_NOT_FOUND");
+        // 旧的独立控制路由不再存在，避免两套受理入口。
+        const removed = await fetch(`${origin}/api/goals/disconnect-target/resume`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${token}`, origin, "content-type": "application/json" },
+            body: JSON.stringify({ runId: "run-disconnect-target" }),
+        });
+        assert.equal(removed.status, 404);
 
         // 权限模式读取与写入走真实服务路径。
         const permissionMode = await request("/api/project/permission-mode", "GET");
@@ -313,12 +329,14 @@ test("真实 Web 服务恢复保留 Coordinator 接收者、展示活动状态�
             return { status: response.status, body: text.length === 0 ? {} : JSON.parse(text) as Record<string, any> };
         };
 
-        const resumed = await request("/api/goals/interrupted/resume", "POST", {
+        const resumed = await request("/api/goals/interrupted/inputs", "POST", {
+            kind: "resume",
+            inputId: "input-interrupted-resume",
             runId: "run-interrupted",
-            expectedCommittedThroughSequence: 0,
+            commitRevision: 0,
         });
         assert.equal(resumed.status, 202);
-        assert.equal(resumed.body.runId, "run-interrupted");
+        assert.equal(resumed.body.receipt.targetRunId, "run-interrupted");
         await withTimeout(modelStarted.promise, "Coordinator did not call the model");
 
         const list = await request("/api/goals", "GET");

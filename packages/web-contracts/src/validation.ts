@@ -18,9 +18,11 @@ import type {
     BrowserModelInputDetail,
     BrowserModelInputSummary,
     BrowserGoalLiveEvent,
-    BrowserResumeGoalCommand,
-    BrowserGoalSteerResult,
-    BrowserGoalInterruptResult,
+    BrowserCreateSessionResult,
+    BrowserSessionInputQueryResult,
+    BrowserSessionInputReceipt,
+    BrowserSessionInputResult,
+    BrowserSessionState,
     SessionMetricsSnapshot,
     BrowserProviderProfile,
     BrowserProviderSettings,
@@ -127,38 +129,132 @@ export function isAcceptedCommand(value: unknown): value is { readonly goalId: s
 }
 
 /**
- * 验证 Steer 路由返回的持久化受理或稳定拒绝结果。
+ * 验证 inputs 路由返回的持久化受理或既有收据结果。
  *
  * @param value - HTTP 响应 JSON。
- * @returns 字段与已知错误码均符合 Steer 响应契约时为 `true`。
+ * @returns 字段与已知错误码均符合受理响应契约时为 `true`。
  * @example
  * ```ts
- * if (isBrowserGoalSteerResult(response)) console.log(response.ok);
+ * if (isBrowserSessionInputResult(response)) console.log(response.ok);
  * ```
  */
-export function isBrowserGoalSteerResult(value: unknown): value is BrowserGoalSteerResult {
+export function isBrowserSessionInputResult(value: unknown): value is BrowserSessionInputResult {
     if (!isRecord(value)) return false;
-    if (value.ok === true) return isNonEmptyString(value.goalId) && isNonEmptyString(value.runId)
-        && isNonEmptyString(value.messageId) && typeof value.existing === "boolean";
-    return value.ok === false && ["goal_not_found", "stale_run", "goal_not_running", "goal_busy", "steer_conflict", "steer_failed", "service_shutting_down"].includes(String(value.error));
+    if (value.ok === true) {
+        return typeof value.existing === "boolean" && isBrowserSessionInputReceipt(value.receipt);
+    }
+    return value.ok === false && SESSION_INPUT_ERROR_CODES.has(String(value.error));
 }
 
 /**
- * 验证 Interrupt 路由返回的持久化受理或稳定拒绝结果。
+ * 输入收据类型守卫。
  *
- * @param value - HTTP 响应 JSON。
- * @returns 字段与已知错误码均符合 Interrupt 响应契约时为 `true`。
+ * @param value - 待检测值。
+ * @returns 字段符合收据契约时为 `true`。
  * @example
  * ```ts
- * if (isBrowserGoalInterruptResult(response)) console.log(response.ok);
+ * if (isBrowserSessionInputReceipt(receipt)) console.log(receipt.status);
  * ```
  */
-export function isBrowserGoalInterruptResult(value: unknown): value is BrowserGoalInterruptResult {
-    if (!isRecord(value)) return false;
-    if (value.ok === true) return isNonEmptyString(value.goalId) && isNonEmptyString(value.runId)
-        && isNonEmptyString(value.requestId) && typeof value.existing === "boolean";
-    return value.ok === false && ["goal_not_found", "stale_run", "goal_not_running", "goal_busy", "interrupt_conflict", "interrupt_failed", "service_shutting_down"].includes(String(value.error));
+export function isBrowserSessionInputReceipt(value: unknown): value is BrowserSessionInputReceipt {
+    return isRecord(value)
+        && isNonEmptyString(value.goalId)
+        && isNonEmptyString(value.inputId)
+        && SESSION_INPUT_KINDS.has(String(value.kind))
+        && Number.isSafeInteger(value.sequence) && Number(value.sequence) > 0
+        && ["pending", "applied", "cleared"].includes(String(value.status))
+        && Number.isSafeInteger(value.admittedAtRevision) && Number(value.admittedAtRevision) >= 0
+        && (value.targetRunId === undefined || isNonEmptyString(value.targetRunId))
+        && (value.appliedRunId === undefined || isNonEmptyString(value.appliedRunId))
+        && (value.messageIndex === undefined || (Number.isSafeInteger(value.messageIndex) && Number(value.messageIndex) >= 0));
 }
+
+/**
+ * 按身份查询收据的类型守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为未找到、命中收据或稳定读取失败。
+ * @example
+ * ```ts
+ * if (isBrowserSessionInputQueryResult(res) && res.ok && res.found) console.log(res.receipt.status);
+ * ```
+ */
+export function isBrowserSessionInputQueryResult(value: unknown): value is BrowserSessionInputQueryResult {
+    if (!isRecord(value)) return false;
+    if (value.ok === true) {
+        return value.found === false || (value.found === true && isBrowserSessionInputReceipt(value.receipt));
+    }
+    return value.ok === false && (value.error === "GOAL_NOT_FOUND" || value.error === "input_read_failed");
+}
+
+/**
+ * 安全会话状态投影类型守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 字段符合公开会话投影契约时为 `true`。
+ * @example
+ * ```ts
+ * if (isBrowserSessionState(state)) console.log(state.queueRevision);
+ * ```
+ */
+export function isBrowserSessionState(value: unknown): value is BrowserSessionState {
+    if (!isRecord(value)) return false;
+    return isNonEmptyString(value.goalId)
+        && isNonEmptyString(value.runId)
+        && isRunStatus(value.runStatus)
+        && (value.mode === "normal" || value.mode === "plan")
+        && Number.isSafeInteger(value.commitRevision) && Number(value.commitRevision) >= 0
+        && Number.isSafeInteger(value.queueRevision) && Number(value.queueRevision) >= 0
+        && typeof value.queuePaused === "boolean"
+        && (value.queuePauseReason === undefined || value.queuePauseReason === "run_failed" || value.queuePauseReason === "user_interrupt")
+        && Number.isSafeInteger(value.pendingMessageCount) && Number(value.pendingMessageCount) >= 0
+        && Number.isSafeInteger(value.pendingSteerCount) && Number(value.pendingSteerCount) >= 0
+        && (value.waitingFor === undefined
+            || ["ask_user", "task_approval", "action_approval", "action_recovery", "blocked"].includes(String(value.waitingFor)))
+        && typeof value.needsRecovery === "boolean"
+        && typeof value.executionOwner === "boolean"
+        && (value.interruption === undefined || (isRecord(value.interruption)
+            && isNonEmptyString(value.interruption.requestId)
+            && ["requested", "repairing", "finished"].includes(String(value.interruption.status))
+            && typeof value.interruption.outcomeUnknown === "boolean"));
+}
+
+/**
+ * 创建 Session 的 wire 结果守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为已受理创建（含首条收据）或稳定拒绝。
+ * @example
+ * ```ts
+ * if (isBrowserCreateSessionResult(res) && res.ok) console.log(res.runId);
+ * ```
+ */
+export function isBrowserCreateSessionResult(value: unknown): value is BrowserCreateSessionResult {
+    if (!isRecord(value)) return false;
+    if (value.ok === true) {
+        return typeof value.existing === "boolean"
+            && isNonEmptyString(value.goalId)
+            && isNonEmptyString(value.runId)
+            && isBrowserSessionInputReceipt(value.receipt);
+    }
+    return value.ok === false && [
+        "goal_id_conflict", "goal_busy", "model_not_selectable", "model_catalog_unavailable",
+        "profile_not_found", "invalid_goal_input", "goal_unreadable", "service_shutting_down", "create_failed",
+    ].includes(String(value.error));
+}
+
+const SESSION_INPUT_KINDS: ReadonlySet<string> = new Set([
+    "message", "steer", "interrupt", "respond", "resume", "queue_control",
+]);
+
+const SESSION_INPUT_ERROR_CODES: ReadonlySet<string> = new Set([
+    "INVALID_INPUT", "INPUT_CONFLICT", "INPUT_NOT_FOUND", "GOAL_NOT_FOUND", "BUSY", "STEER_CONFLICT",
+    "INTERRUPT_CONFLICT", "STALE_REVISION", "INTERACTION_MISMATCH", "INTERACTION_REQUIRED", "QUEUE_PAUSED",
+    "RUN_NOT_RESUMABLE", "QUEUE_FULL", "QUEUE_TEXT_TOO_LARGE", "TEXT_TOO_LARGE", "QUEUE_NOT_PAUSED",
+    "QUEUE_REVISION_MISMATCH", "RUN_NOT_FOUND", "RUN_NOT_RUNNING", "RUN_CONTROL_UNAVAILABLE",
+    "input_admission_failed", "session_unavailable",
+]);
+
 
 /**
  * Goal 列表项类型守卫。
@@ -446,8 +542,10 @@ export function isBrowserGoalSession(value: unknown): value is BrowserGoalSessio
  * if (isGoalSessionEnvelope(res)) console.log(res.goal.goalId);
  * ```
  */
-export function isGoalSessionEnvelope(value: unknown): value is { readonly goal: BrowserGoalSession } {
-    return isRecord(value) && isBrowserGoalSession(value.goal);
+export function isGoalSessionEnvelope(value: unknown): value is { readonly goal: BrowserGoalSession; readonly session?: BrowserSessionState } {
+    return isRecord(value)
+        && isBrowserGoalSession(value.goal)
+        && (value.session === undefined || isBrowserSessionState(value.session));
 }
 
 /**
@@ -740,9 +838,20 @@ export function isWorkspaceContext(value: unknown): value is BrowserWorkspaceCon
  * ```
  */
 export function isLiveEvent(value: unknown): value is BrowserGoalLiveEvent {
-    if (!isRecord(value) || !isNonEmptyString(value.goalId) || !isNonEmptyString(value.runId)) return false;
-    if (value.type === "snapshot_changed" || value.type === "refresh_required") return true;
-    if (value.type !== "activity" || !isRecord(value.activity)) return false;
+    if (!isRecord(value) || !isNonEmptyString(value.goalId)) return false;
+    if (value.type === "state_sync") return isBrowserSessionState(value.state);
+    if (value.type === "input_result") {
+        if (!isRecord(value.outcome)) return false;
+        const outcome = value.outcome;
+        return isNonEmptyString(outcome.inputId)
+            && SESSION_INPUT_KINDS.has(String(outcome.kind))
+            && typeof outcome.ok === "boolean"
+            && (outcome.ok ? isBrowserSessionInputReceipt(outcome.receipt) : SESSION_INPUT_ERROR_CODES.has(String(outcome.code)));
+    }
+    if (value.type === "snapshot_changed" || value.type === "refresh_required") {
+        return value.runId === undefined || isNonEmptyString(value.runId);
+    }
+    if (value.type !== "activity" || !isNonEmptyString(value.runId) || !isRecord(value.activity)) return false;
     const activity = value.activity;
     if (activity.kind === "assistant_text_delta") {
         return typeof activity.text === "string" && activity.text.length <= 2_000 && typeof activity.truncated === "boolean"
@@ -998,14 +1107,6 @@ export function isMetricsSnapshot(value: unknown): value is SessionMetricsSnapsh
  * if (isResumeGoalCommand(cmd)) console.log(cmd.runId);
  * ```
  */
-export function isResumeGoalCommand(value: unknown): value is BrowserResumeGoalCommand {
-    return isRecord(value)
-        && isNonEmptyString(value.runId)
-        && typeof value.expectedCommittedThroughSequence === "number"
-        && Number.isSafeInteger(value.expectedCommittedThroughSequence)
-        && value.expectedCommittedThroughSequence >= 0;
-}
-
 /**
  * 校验在线模型列表响应，不接受凭据或任意供应商响应正文。
  * @example

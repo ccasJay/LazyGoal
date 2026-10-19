@@ -1,13 +1,20 @@
 import { useCallback, useState } from "react";
 import type {
-  BrowserGoalInteractionCommand,
   BrowserGoalSession,
+  BrowserSessionState,
 } from "../../../../packages/web-contracts/src/index";
 import { BrowserApiError, browserApi } from "../api";
-import { type ModelPickerTarget, dispatchBrowserInput, errorMessage } from "../types";
+import {
+  toSessionInteractionResponse,
+  type BrowserGoalInteractionCommand,
+  type ModelPickerTarget,
+  dispatchBrowserInput,
+  errorMessage,
+} from "../types";
 
 export function useRunCommands({
   session,
+  sessionState,
   canSendText,
   draftGoalId,
   draftPlanMode,
@@ -19,6 +26,7 @@ export function useRunCommands({
   onRefreshGoals,
 }: {
   session: BrowserGoalSession | null;
+  sessionState?: BrowserSessionState | null;
   canSendText: boolean;
   draftGoalId: React.MutableRefObject<string | null>;
   draftPlanMode: boolean;
@@ -61,12 +69,15 @@ export function useRunCommands({
       try {
         const goalId = draftGoalId.current ?? crypto.randomUUID();
         draftGoalId.current = goalId;
+        const inputId = crypto.randomUUID();
         const result = await browserApi.createGoal({
           goalId,
+          inputId,
           intent,
           ...(draftPlanMode ? { mode: "plan" as const } : {}),
           modelId: draftModelId,
         });
+        if (!result.ok) throw new BrowserApiError(result.error, 409, false);
         onDraftCreated(result.goalId);
         await onRefreshGoals();
         return true;
@@ -135,11 +146,12 @@ export function useRunCommands({
       setCommandBusy(true);
       setCommandError(null);
       try {
-        await browserApi.sendMessage(session.goalId, {
-          runId: session.currentRunId,
-          messageId: crypto.randomUUID(),
+        const accepted = await browserApi.submitInput(session.goalId, {
+          kind: "message",
+          inputId: crypto.randomUUID(),
           content: trimmed,
         });
+        if (!accepted.ok) throw new BrowserApiError(accepted.error, 409, true);
         await onRefreshSession();
         return true;
       } catch (error) {
@@ -159,11 +171,13 @@ export function useRunCommands({
       setCommandBusy(true);
       setCommandError(null);
       try {
-        await browserApi.steer(session.goalId, {
+        const accepted = await browserApi.submitInput(session.goalId, {
+          kind: "steer",
+          inputId: crypto.randomUUID(),
           runId: session.currentRunId,
-          messageId: crypto.randomUUID(),
           content: content.trim(),
         });
+        if (!accepted.ok) throw new BrowserApiError(accepted.error, 409, true);
         await onRefreshSession();
         return true;
       } catch (error) {
@@ -174,7 +188,7 @@ export function useRunCommands({
         setCommandBusy(false);
       }
     },
-    [session, commandBusy, onRefreshSession]
+    [session, sessionState, commandBusy, onRefreshSession]
   );
 
   const interruptCurrentRun = useCallback(async (): Promise<void> => {
@@ -183,10 +197,12 @@ export function useRunCommands({
     setStoppingRunId(session.currentRunId);
     setCommandError(null);
     try {
-      await browserApi.interrupt(session.goalId, {
+      const accepted = await browserApi.submitInput(session.goalId, {
+        kind: "interrupt",
+        inputId: crypto.randomUUID(),
         runId: session.currentRunId,
-        requestId: crypto.randomUUID(),
       });
+      if (!accepted.ok) throw new BrowserApiError(accepted.error, 409, true);
       await onRefreshSession();
     } catch (error) {
       setStoppingRunId(null);
@@ -203,7 +219,14 @@ export function useRunCommands({
       setCommandBusy(true);
       setCommandError(null);
       try {
-        await browserApi.interact(session.goalId, command);
+        const accepted = await browserApi.submitInput(session.goalId, {
+          kind: "respond",
+          inputId: crypto.randomUUID(),
+          runId: session.currentRunId,
+          requestId: "requestId" in command ? command.requestId : command.actionId,
+          response: toSessionInteractionResponse(command),
+        });
+        if (!accepted.ok) throw new BrowserApiError(accepted.error, 409, true);
         await onRefreshSession();
       } catch (error) {
         setCommandError(errorMessage(error));
@@ -220,11 +243,14 @@ export function useRunCommands({
     setCommandBusy(true);
     setCommandError(null);
     try {
-      const expectedCommittedThroughSequence = session.execution?.committedThroughSequence ?? 0;
-      await browserApi.resumeGoal(session.goalId, {
+      const commitRevision = sessionState?.commitRevision ?? 0;
+      const accepted = await browserApi.submitInput(session.goalId, {
+        kind: "resume",
+        inputId: crypto.randomUUID(),
         runId: session.currentRunId,
-        expectedCommittedThroughSequence,
+        commitRevision,
       });
+      if (!accepted.ok) throw new BrowserApiError(accepted.error, 409, true);
       await onRefreshSession();
     } catch (error) {
       setCommandError(errorMessage(error));

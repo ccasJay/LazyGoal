@@ -43,7 +43,12 @@ export function useQueue({
       if (queueSendInFlight.current.has(reservation)) return false;
       queueSendInFlight.current.add(reservation);
       try {
-        await browserApi.sendMessage(goalId, { runId, messageId: item.messageId, content: item.content });
+        const accepted = await browserApi.submitInput(goalId, {
+          kind: "message",
+          inputId: item.messageId,
+          content: item.content,
+        });
+        if (!accepted.ok) throw new BrowserApiError(accepted.error, 409, true);
         setQueuedByGoal((current) => {
           const items = current[goalId] ?? [];
           return {

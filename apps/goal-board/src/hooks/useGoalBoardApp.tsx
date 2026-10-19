@@ -101,6 +101,7 @@ export function useGoalBoardApp() {
 
   const commandsManager = useRunCommands({
     session: sessionManager.session,
+    sessionState: sessionManager.sessionState,
     canSendText,
     draftGoalId: sessionManager.draftGoalId,
     draftPlanMode: sessionManager.draftPlanMode,

@@ -1,9 +1,6 @@
 import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
-import type {
-  BrowserGoalInteractionCommand,
-} from "../../../../packages/web-contracts/src/index";
-import type { QueuedInput } from "../types";
+import type { BrowserGoalInteractionCommand, QueuedInput } from "../types";
 
 export interface RunControlContextValue {
   readonly commandBusy: boolean;

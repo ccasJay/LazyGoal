@@ -7,7 +7,6 @@ import { test } from "node:test";
 
 import { createGoal, type Goal } from "../../../packages/runtime/src/index";
 import { currentProtocols } from "../../../packages/runtime/test/current-fixtures";
-import { BrowserGoalCommandService } from "../../../packages/browser/src/index";
 import { createCompositionRoot } from "../src/composition-root";
 import { writeDefaultProfile } from "./profile-fixture";
 
@@ -109,11 +108,24 @@ function sseCompletion(
     return `${frames.map(frame => `data: ${JSON.stringify(frame)}\n\n`).join("")}data: [DONE]\n\n`;
 }
 
-async function waitForCommandIdle(commands: BrowserGoalCommandService): Promise<void> {
-    for (let attempt = 0; attempt < 750 && commands.getActiveGoalId() !== undefined; attempt++) {
+/** 等待指定 Goal 的当前 Run 进入等待点或终态集合；受理不等待执行。 */
+async function waitForInFlightRun(
+    root: { workspaceGoalStore: { restore(goalId: string): Promise<Goal | undefined> } },
+    goalId: string,
+): Promise<void> {
+    for (let attempt = 0; attempt < 750; attempt += 1) {
+        const goal = await root.workspaceGoalStore.restore(goalId);
+        if (goal !== undefined && goal.state.run.status === "waiting") return;
         await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    assert.equal(commands.getActiveGoalId(), undefined, "Expected the previous Run reservation to be released");
+    assert.fail(`Goal ${goalId} did not reach a waiting Run`);
+}
+
+async function waitForSessionIdle(root: { sessions: { activeGoal: string | undefined } }): Promise<void> {
+    for (let attempt = 0; attempt < 750 && root.sessions.activeGoal !== undefined; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(root.sessions.activeGoal, undefined, "Expected the session execution slot to be released");
 }
 
 test("Composition Root carries Memory through task approval into Executing", { timeout: 120_000 }, async () => {
@@ -279,23 +291,13 @@ test("Composition Root carries Memory through task approval into Executing", { t
             runIdGenerator: () => "run-current",
         });
 
-        const commands = new BrowserGoalCommandService({
-            store: root.workspaceGoalStore,
-            saveNotifications: root.notifyingStore,
-            profileId: "default",
-            launcher: root.browserLauncher,
-            coordinator: root.commands,
-            defaultModelSelection: root.defaultModelSelection,
-            restoreModelBinding: async (g) => {
-                if (root === undefined || g.state.modelSelection.provider !== root.defaultModelSelection.provider) return false;
-                try { root.alignModelBinding(g.state.modelSelection); return true; } catch { return false; }
-            },
-        });
-
-        const createRes = await commands.create({
+        const createRes = await root.sessions.create({
             goalId: "goal-current",
-            intent: "Verify the current workflow",
+            inputId: "input-current-1",
+            content: "Verify the current workflow",
+            profileId: "default",
             mode: "plan",
+            modelSelection: root.defaultModelSelection,
         });
         assert.equal(createRes.ok, true, `create should succeed, got ${JSON.stringify(createRes)}`);
 
@@ -310,15 +312,19 @@ test("Composition Root carries Memory through task approval into Executing", { t
         const askUserInteraction = initialGoal.state.run.pendingInteraction;
         assert.ok(askUserInteraction && askUserInteraction.kind === "ask_user");
 
-        await waitForCommandIdle(commands);
-        const answer = await commands.interact("goal-current", {
+        await waitForInFlightRun(root, "goal-current");
+        const answer = await root.sessions.sendSessionInput("goal-current", {
+            kind: "respond",
+            inputId: "input-current-answer",
             runId: initialGoal.state.run.id,
-            kind: "answer_ask_user",
             requestId: askUserInteraction.requestId,
-            answers: [{
-                questionId: askUserInteraction.questions[0]!.id,
-                optionIds: [askUserInteraction.questions[0]!.options[0]!.id],
-            }],
+            response: {
+                kind: "answer_ask_user",
+                answers: [{
+                    questionId: askUserInteraction.questions[0]!.id,
+                    optionIds: [askUserInteraction.questions[0]!.options[0]!.id],
+                }],
+            },
         });
         assert.equal(answer.ok, true, JSON.stringify(answer));
 
@@ -332,12 +338,13 @@ test("Composition Root carries Memory through task approval into Executing", { t
         assert.ok(taskInteraction && taskInteraction.kind === "task_approval", `Expected task approval, got ${JSON.stringify(taskInteraction)}`);
         assert.equal(taskInteraction.proposal.objective, "Initial proposal");
 
-        await waitForCommandIdle(commands);
-        const feedback = await commands.interact("goal-current", {
+        await waitForInFlightRun(root, "goal-current");
+        const feedback = await root.sessions.sendSessionInput("goal-current", {
+            kind: "respond",
+            inputId: "input-current-feedback",
             runId: taskGoal.state.run.id,
-            kind: "feedback_task",
             requestId: taskInteraction.requestId,
-            feedback: "Please use the approved wording.",
+            response: { kind: "feedback_task", feedback: "Please use the approved wording." },
         });
         assert.equal(feedback.ok, true, JSON.stringify(feedback));
 
@@ -369,11 +376,13 @@ test("Composition Root carries Memory through task approval into Executing", { t
         }
         assertCurrentDefinition(snapshot.definition);
 
-        await waitForCommandIdle(commands);
-        const approval = await commands.interact("goal-current", {
+        await waitForInFlightRun(root, "goal-current");
+        const approval = await root.sessions.sendSessionInput("goal-current", {
+            kind: "respond",
+            inputId: "input-current-approve",
             runId: revisedGoal.state.run.id,
-            kind: "approve_task",
             requestId: revisedInteraction.requestId,
+            response: { kind: "approve_task" },
         });
         assert.equal(approval.ok, true, JSON.stringify(approval));
 
@@ -583,23 +592,13 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
             runIdGenerator: () => "run-invalid-wire",
         });
 
-        const commands = new BrowserGoalCommandService({
-            store: root.workspaceGoalStore,
-            saveNotifications: root.notifyingStore,
-            profileId: "default",
-            launcher: root.browserLauncher,
-            coordinator: root.commands,
-            defaultModelSelection: root.defaultModelSelection,
-            restoreModelBinding: async (g) => {
-                if (root === undefined || g.state.modelSelection.provider !== root.defaultModelSelection.provider) return false;
-                try { root.alignModelBinding(g.state.modelSelection); return true; } catch { return false; }
-            },
-        });
-
-        await commands.create({
+        await root.sessions.create({
             goalId: "goal-invalid-wire",
-            intent: "Test invalid wire response handling",
+            inputId: "input-invalid-wire-1",
+            content: "Test invalid wire response handling",
+            profileId: "default",
             mode: "plan",
+            modelSelection: root.defaultModelSelection,
         });
 
         let initialGoal = await root.workspaceGoalStore.restore("goal-invalid-wire");
@@ -611,11 +610,13 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
         const proposalInteraction = initialGoal.state.run.pendingInteraction;
         assert.ok(proposalInteraction && proposalInteraction.kind === "task_approval");
 
-        await waitForCommandIdle(commands);
-        const approval = await commands.interact("goal-invalid-wire", {
+        await waitForInFlightRun(root, "goal-invalid-wire");
+        const approval = await root.sessions.sendSessionInput("goal-invalid-wire", {
+            kind: "respond",
+            inputId: "input-invalid-wire-approve",
             runId: initialGoal.state.run.id,
-            kind: "approve_task",
             requestId: proposalInteraction.requestId,
+            response: { kind: "approve_task" },
         });
         assert.equal(approval.ok, true, JSON.stringify(approval));
 

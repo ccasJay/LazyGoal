@@ -2,11 +2,11 @@ import { useState } from "react";
 import { Check, Circle, CircleHelp, Clock3, Eye, Shield, Trash2, X, Zap } from "lucide-react";
 
 import type {
-  BrowserGoalInteractionCommand,
   BrowserGoalSession,
   BrowserToolGrantSummary,
 } from "../../../packages/web-contracts/src/index";
 import { BrowserApiError, browserApi } from "./api";
+import type { BrowserGoalInteractionCommand } from "./types";
 
 type SessionTab = "Activity" | "Plan" | "Details";
 

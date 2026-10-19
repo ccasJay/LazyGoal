@@ -23,6 +23,67 @@ export type SessionTab = "Board" | "Activity" | "Plan" | "Trajectory";
 export type MetricsState = { readonly kind: "ready"; readonly value: SessionMetricsSnapshot } | { readonly kind: "error" };
 export type QueuedInput = { readonly messageId: string; readonly content: string };
 
+/**
+ * 页面层交互提交：携带当前 Run 与等待身份，由 useRunCommands 映射为统一 respond 输入。
+ */
+export type BrowserGoalInteractionCommand =
+  | { readonly kind: "cancel_ask_user"; readonly runId: string; readonly requestId: string }
+  | {
+      readonly kind: "answer_ask_user";
+      readonly runId: string;
+      readonly requestId: string;
+      readonly answers: readonly {
+        readonly questionId: string;
+        readonly optionIds: readonly string[];
+        readonly otherText?: string;
+      }[];
+    }
+  | { readonly kind: "approve_task"; readonly runId: string; readonly requestId: string }
+  | {
+      readonly kind: "feedback_task";
+      readonly runId: string;
+      readonly requestId: string;
+      readonly feedback: string;
+    }
+  | {
+      readonly kind: "approve_action";
+      readonly runId: string;
+      readonly actionId: string;
+      readonly scope?: "action" | "goal" | "workspace";
+    }
+  | { readonly kind: "reject_action"; readonly runId: string; readonly actionId: string; readonly reason: string };
+
+/** 把页面交互命令映射为统一会话输入的 respond 载荷。 */
+export function toSessionInteractionResponse(
+  command: BrowserGoalInteractionCommand,
+): import("../../../packages/web-contracts/src/index").BrowserSessionInteractionResponse {
+  switch (command.kind) {
+    case "cancel_ask_user":
+      return { kind: "cancel_ask_user" };
+    case "answer_ask_user":
+      return {
+        kind: "answer_ask_user",
+        answers: command.answers.map((answer) => ({
+          questionId: answer.questionId,
+          optionIds: answer.optionIds,
+          ...(answer.otherText === undefined ? {} : { otherText: answer.otherText }),
+        })),
+      };
+    case "approve_task":
+      return { kind: "approve_task" };
+    case "feedback_task":
+      return { kind: "feedback_task", feedback: command.feedback };
+    case "approve_action":
+      return {
+        kind: "approve_action",
+        actionId: command.actionId,
+        ...(command.scope === undefined ? {} : { scope: command.scope }),
+      };
+    case "reject_action":
+      return { kind: "reject_action", actionId: command.actionId, reason: command.reason };
+  }
+}
+
 export const statuses: readonly GoalStatus[] = [
   "Ready",
   "Running",

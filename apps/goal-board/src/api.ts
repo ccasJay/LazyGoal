@@ -1,7 +1,9 @@
 import {
   isAcceptedCommand,
-  isBrowserGoalSteerResult,
-  isBrowserGoalInterruptResult,
+  isBrowserCreateSessionResult,
+  isBrowserSessionInputResult,
+  isBrowserSessionInputQueryResult,
+  isBrowserSessionState,
   isActionDetailsResult,
   isBrowserGoalSession,
   isGoalList,
@@ -32,16 +34,16 @@ import {
   isWorkspaceContext,
   type AcceptedCommand,
   type BrowserActionDetailsResult,
-  type BrowserCreateGoalCommand,
-  type BrowserGoalInteractionCommand,
-  type BrowserGoalSteerCommand,
-  type BrowserGoalInterruptCommand,
+  type BrowserCreateSessionCommand,
+  type BrowserCreateSessionResult,
   type BrowserGoalListItem,
   type BrowserGoalLiveEvent,
-  type BrowserGoalMessageCommand,
   type BrowserGoalPlanModeCommand,
   type BrowserGoalSession,
-  type BrowserResumeGoalCommand,
+  type BrowserSessionInputCommand,
+  type BrowserSessionInputQueryResult,
+  type BrowserSessionInputResult,
+  type BrowserSessionState,
   type BrowserModelCatalog,
   type BrowserModelInputDetail,
   type BrowserModelInputSummary,
@@ -95,11 +97,16 @@ export const browserApi = {
   },
 
   readGoal(goalId: string, signal?: AbortSignal): Promise<BrowserGoalSession> {
-    return requestJson(
-      `/api/goals/${encodeURIComponent(goalId)}`,
-      isGoalSessionEnvelope,
-      signal,
-    ).then((body) => body.goal);
+    return this.readGoalSession(goalId, signal).then((body) => body.goal);
+  },
+
+  /** 读取会话视图与 Runtime 安全会话投影（队列、暂停、提交修订、是否需要恢复）。 */
+  async readGoalSession(goalId: string, signal?: AbortSignal): Promise<{ goal: BrowserGoalSession; session?: BrowserSessionState }> {
+    const body = await requestJson(`/api/goals/${encodeURIComponent(goalId)}`, isGoalSessionEnvelope, signal);
+    return {
+      goal: body.goal,
+      ...(body.session === undefined ? {} : { session: body.session }),
+    };
   },
 
   modelInputs(goalId: string, runId: string, offset = 0, signal?: AbortSignal, query = ""): Promise<{ calls: BrowserModelInputSummary[]; total: number; nextOffset: number | null }> {
@@ -141,8 +148,22 @@ export const browserApi = {
     }
   },
 
-  createGoal(command: BrowserCreateGoalCommand): Promise<AcceptedCommand> {
-    return postJson("/api/goals", command, isAcceptedCommand);
+  createGoal(command: BrowserCreateSessionCommand): Promise<BrowserCreateSessionResult> {
+    return postJson("/api/goals", command, isBrowserCreateSessionResult);
+  },
+
+  /** 受理一条统一会话输入；新受理与既有收据都以收据核验。 */
+  submitInput(goalId: string, input: BrowserSessionInputCommand): Promise<BrowserSessionInputResult> {
+    return postJson(`/api/goals/${encodeURIComponent(goalId)}/inputs`, input, isBrowserSessionInputResult);
+  },
+
+  /** 按身份查询持久化收据；未找到与读取失败明确区分。 */
+  readInputReceipt(goalId: string, inputId: string, signal?: AbortSignal): Promise<BrowserSessionInputQueryResult> {
+    return requestJson(
+      `/api/goals/${encodeURIComponent(goalId)}/inputs/${encodeURIComponent(inputId)}`,
+      isBrowserSessionInputQueryResult,
+      signal,
+    );
   },
 
   listModels(target?: { goalId?: string; runId?: string; providerProfileId?: string }, signal?: AbortSignal): Promise<BrowserModelCatalog> {
@@ -201,53 +222,12 @@ export const browserApi = {
     return requestJson(`/api/providers/${encodeURIComponent(profileId)}/test`, isProviderProfileTestResult, signal, { method: "POST" });
   },
 
-  interact(
-    goalId: string,
-    command: BrowserGoalInteractionCommand,
-  ): Promise<AcceptedCommand> {
-    return postJson(
-      `/api/goals/${encodeURIComponent(goalId)}/interactions`,
-      command,
-      isAcceptedCommand,
-    );
-  },
-
-  sendMessage(
-    goalId: string,
-    command: BrowserGoalMessageCommand,
-  ): Promise<AcceptedCommand> {
-    return postJson(
-      `/api/goals/${encodeURIComponent(goalId)}/messages`,
-      command,
-      isAcceptedCommand,
-    );
-  },
-
-  steer(goalId: string, command: BrowserGoalSteerCommand) {
-    return postJson(`/api/goals/${encodeURIComponent(goalId)}/steer`, command, isBrowserGoalSteerResult);
-  },
-
-  interrupt(goalId: string, command: BrowserGoalInterruptCommand) {
-    return postJson(`/api/goals/${encodeURIComponent(goalId)}/interrupt`, command, isBrowserGoalInterruptResult);
-  },
-
   enterPlanMode(
     goalId: string,
     command: BrowserGoalPlanModeCommand,
   ): Promise<AcceptedCommand> {
     return postJson(
       `/api/goals/${encodeURIComponent(goalId)}/plan-mode`,
-      command,
-      isAcceptedCommand,
-    );
-  },
-
-  resumeGoal(
-    goalId: string,
-    command: BrowserResumeGoalCommand,
-  ): Promise<AcceptedCommand> {
-    return postJson(
-      `/api/goals/${encodeURIComponent(goalId)}/resume`,
       command,
       isAcceptedCommand,
     );
@@ -292,13 +272,13 @@ export const browserApi = {
     return postJson("/api/project/permission-mode", command, isPermissionModeResult);
   },
 
+  /** 订阅覆盖整个 Goal 的安全事件流；Run 切换不关闭订阅。 */
   async *events(
     goalId: string,
-    runId: string,
     signal: AbortSignal,
   ): AsyncGenerator<BrowserGoalLiveEvent> {
     const response = await fetch(
-      `/api/goals/${encodeURIComponent(goalId)}/events?runId=${encodeURIComponent(runId)}`,
+      `/api/goals/${encodeURIComponent(goalId)}/events`,
       {
         headers: authorizedHeaders({ accept: "text/event-stream" }),
         signal,
