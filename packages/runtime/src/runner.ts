@@ -3789,6 +3789,8 @@ class RunExecutor {
             programId: program.programId,
             callIndex: program.callIndex,
         };
+        // 修订说明在执行前从已获批版本派生：实际执行的参数与原请求同时可见。
+        const revision = resolveProgramCallRevision(goal.state.run.pendingAction);
         let observation: ToolObservation | undefined;
         const replaySafe = prepared.registration.replayPolicy === "safe"
             && (program === undefined || prepared.registration.definition.isReadOnly);
@@ -3842,6 +3844,12 @@ class RunExecutor {
                         actionId: prepared.action.actionId,
                         toolId: prepared.action.toolId,
                         input: prepared.action.input,
+                        ...(revision === undefined ? {} : {
+                            revision: {
+                                reviewRef: revision.reviewRef,
+                                originalInput: revision.originalInput,
+                            },
+                        }),
                     },
                 }, control);
                 const rawObservation = prepared.stream === undefined
@@ -3924,7 +3932,6 @@ class RunExecutor {
             }
         }
 
-        const revision = resolveProgramCallRevision(goal.state.run.pendingAction);
         let programResultBytes = 0;
         if (program !== undefined) {
             const current = goal.state.run.pendingProgram;

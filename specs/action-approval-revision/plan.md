@@ -43,7 +43,7 @@
   - **实现**：PTC 准入与执行复用任务 2 的最终版本选择，重放仍对原请求身份和 canonical 输入校验；保留原唯一暂存和已结算 Observation，以关联事实解释修订／尝试。扩展结果信封的可选修订元数据和事实引用，不改变业务 Observation 输出；恢复返回一致信封，字节／帧／累计结果与执行预算包含新增内容，不修改程序代码、调用顺序或放行嵌套／系统工具。
   - **验证**：新增 `packages/runtime/test/program-approval-revision.test.ts`（待实现），扩展 `program-execution.test.ts`、`program-interruption.test.ts`、`packages/storage/test/program-recovery.test.ts` 及其真实恢复夹具、`packages/sandbox/test/program-sandbox.test.ts`。运行对应 `npx tsx --test`；使用实际 worker／IPC 与受控工具捕获最终参数、返回修订元数据、重放次数及资源边界，不以假的 callback 代替程序重建。
 
-- [ ] //TODO 6. 让模型、历史查询和完成证据理解实际修订操作
+- [x] //TODO 6. 让模型、历史查询和完成证据理解实际修订操作
 
   落实标准：[6.1](./spec.md#spec-req-6-1)、[6.2](./spec.md#spec-req-6-2)、[6.3](./spec.md#spec-req-6-3)、[6.4](./spec.md#spec-req-6-4)、[6.5](./spec.md#spec-req-6-5)。
   - **先验证**：原请求写 A、实际修订写 B 后，下一模型请求明确解释变化，原生调用仍保留原 ID／参数且只配对真实结果；历史、Activity 和完成证据不能将 B 成功解释成 A 已写。PTC 即使不显式返回元数据，下一模型安全边界仍有有界修订说明；其余内部子事实不全量暴露。旧直接批次项不执行，模型读到说明后重新决策。

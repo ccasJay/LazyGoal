@@ -327,6 +327,15 @@ export type TrajectoryEventPayload =
         readonly approvalInputId?: string;
         /** 修订来源；程序结果信封据此重建一致的修订说明。 */
         readonly revisionSource?: "user" | "host";
+        /** 修订后重新计算的实际权限范围。 */
+        readonly effectiveSandboxScope?: {
+            readonly extraFiles: readonly {
+                readonly canonicalPath: string;
+                readonly access: "read" | "write";
+                readonly kind: "file" | "directory_tree";
+            }[];
+            readonly network: "none" | "all_outbound";
+        };
         /** 因修订而失效的同批次未开始 Action 身份。 */
         readonly invalidatedBatchActionIds?: readonly string[];
     }
@@ -368,6 +377,15 @@ export type TrajectoryEventPayload =
         readonly actionId: string;
         readonly toolId: string;
         readonly input: JsonValue;
+        /**
+         * 实际执行相对原请求的修订说明。
+         *
+         * @remarks 只在审批者修订过参数时存在；`input` 始终是实际执行的最终参数。
+         */
+        readonly revision?: {
+            readonly reviewRef: string;
+            readonly originalInput: JsonValue;
+        };
     }
     | {
         readonly type: "tool_attempt_started";
@@ -1053,7 +1071,7 @@ function assertPayload(payload: unknown, eventType: unknown): void {
     if (eventType === "action_revised") {
         if (Object.keys(payload).some((key) => ![
             "type", "actionId", "reviewRef", "originalInput", "finalInput", "approvalScope", "grantId",
-            "approvalInputId", "revisionSource", "invalidatedBatchActionIds",
+            "approvalInputId", "revisionSource", "effectiveSandboxScope", "invalidatedBatchActionIds",
         ].includes(key))) {
             throw new TrajectoryProtocolError("action_revised contains unknown fields");
         }

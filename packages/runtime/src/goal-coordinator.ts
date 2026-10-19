@@ -1956,6 +1956,7 @@ export class GoalCoordinator {
                         ...(grantId === undefined ? {} : { grantId }),
                         approvalInputId,
                         revisionSource: executionVersion.revision?.source ?? "user",
+                        effectiveSandboxScope: structuredClone(prepared.effectiveSandboxScope),
                         ...(invalidatedBatchActionIds.length === 0
                             ? {}
                             : { invalidatedBatchActionIds }),
