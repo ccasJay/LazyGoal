@@ -1933,11 +1933,18 @@ export class GoalCoordinator {
                     },
                 };
                 throwIfAborted(control);
+                const revisionProgram = goal.state.run.pendingProgram;
+                const revisionAssociation = revisionProgram === undefined ? {} : {
+                    executionUnitId: `${revisionProgram.executionUnitId}:call:${revisionProgram.nextCallIndex}`,
+                    programId: revisionProgram.programId,
+                    callIndex: revisionProgram.nextCallIndex,
+                };
                 await this.appendTrajectory({
                     goalId: goal.id,
                     runId: goal.state.run.id,
                     phase: "executing",
                     actionId: request.action.actionId,
+                    ...revisionAssociation,
                     eventType: "action_revised",
                     payload: {
                         type: "action_revised",
@@ -1948,6 +1955,7 @@ export class GoalCoordinator {
                         approvalScope,
                         ...(grantId === undefined ? {} : { grantId }),
                         approvalInputId,
+                        revisionSource: executionVersion.revision?.source ?? "user",
                         ...(invalidatedBatchActionIds.length === 0
                             ? {}
                             : { invalidatedBatchActionIds }),

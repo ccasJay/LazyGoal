@@ -202,6 +202,85 @@ function canonicalize(value: unknown): unknown {
 }
 
 /**
+ * 程序工具调用结果信封中的修订说明。
+ *
+ * @remarks 说明实际执行的最终参数与原请求差异；业务 Observation 输出本身不换形。
+ * 程序可以据此调整后续逻辑，Runtime 不修改冻结代码。
+ *
+ * @example
+ * ```ts
+ * const revision: ProgramCallRevision = {
+ *     reviewRef: "review:0123456789abcdef",
+ *     originalInput: { path: "a.txt" },
+ *     finalInput: { path: "b.txt" },
+ *     source: "user",
+ * };
+ * ```
+ */
+export interface ProgramCallRevision {
+    /** 绑定的审阅指纹。 */
+    readonly reviewRef: string;
+    /** 原请求参数。 */
+    readonly originalInput: JsonValue;
+    /** 实际执行的最终 canonical 参数。 */
+    readonly finalInput: JsonValue;
+    /** 修订来源。 */
+    readonly source: "user" | "host";
+}
+
+/**
+ * 从已获批 Action 派生程序结果信封中的修订说明。
+ *
+ * @remarks 未修订的批准不产生修订说明；修订批准返回原请求与最终参数的关联。
+ *
+ * @param pending - 当前待处理 Action；省略时返回 `undefined`。
+ * @returns 修订说明；没有修订时返回 `undefined`。
+ * @example
+ * ```ts
+ * const revision = resolveProgramCallRevision(pending);
+ * ```
+ */
+export function resolveProgramCallRevision(
+    pending: PendingAction | undefined,
+): ProgramCallRevision | undefined {
+    const version = pending?.executionVersion;
+    if (version === undefined || version.revision === undefined) return undefined;
+    return {
+        reviewRef: version.reviewRef,
+        originalInput: structuredClone(version.original.input),
+        finalInput: structuredClone(version.input),
+        source: version.revision.source,
+    };
+}
+
+/**
+ * 构造程序工具调用的结果信封。
+ *
+ * @remarks 信封固定包含观察结果与事实引用；发生修订时附带修订说明。信封字节计入
+ * PTC 既有结果与帧额度，恢复重放返回同一形状。
+ *
+ * @param observation - 工具观察结果。
+ * @param sourceReference - 事实引用序号。
+ * @param revision - 可选的修订说明。
+ * @returns 交给程序的结果信封。
+ * @example
+ * ```ts
+ * const envelope = createProgramCallEnvelope(observation, 12, revision);
+ * ```
+ */
+export function createProgramCallEnvelope(
+    observation: unknown,
+    sourceReference: number,
+    revision?: ProgramCallRevision | undefined,
+): { readonly observation: unknown; readonly sourceReferences: readonly number[]; readonly revision?: ProgramCallRevision } {
+    return {
+        observation,
+        sourceReferences: [sourceReference],
+        ...(revision === undefined ? {} : { revision }),
+    };
+}
+
+/**
  * 计算审批审阅指纹。
  *
  * @remarks 指纹绑定原审批基准、最终 canonical 输入、Tool 身份、授权期限与最终

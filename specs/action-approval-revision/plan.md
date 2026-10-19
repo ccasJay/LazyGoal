@@ -36,7 +36,7 @@
   - **实现**：在 Session 响应、Coordinator 和 transition 拆分首次批准、修订批准、未知重执行与拒绝重执行分支；由已提交尝试／未知结果生成稳定恢复引用。保留最终版本、真实未知来源和新的尝试关联，复用现有恢复分流、有限暂时故障重试及 PTC／中断预算；直接恢复仅重建等待，旧兼容 approve 分支不再接受未知结果，不增加人工填写成功入口。
   - **验证**：新增 `packages/runtime/test/action-reexecution.test.ts`（待实现），更新 `goal-coordinator.test.ts`、`runner.test.ts`、`run-interrupt.test.ts`、`packages/browser/test/browser-recovery.test.ts` 和 `packages/storage/test/action-observation-recovery.test.ts` 的实际消费者。运行对应 `npx tsx --test`；对同一 Action 连续制造两次未知，检查不同恢复引用、原参数／最终参数及调用次数，证明旧授权不可复用。
 
-- [ ] //TODO 5. 让 PTC 修订子调用执行最终参数并按原请求恢复重放
+- [x] //TODO 5. 让 PTC 修订子调用执行最终参数并按原请求恢复重放
 
   落实标准：[5.1](./spec.md#spec-req-5-1)、[5.2](./spec.md#spec-req-5-2)、[5.3](./spec.md#spec-req-5-3)、[5.4](./spec.md#spec-req-5-4)、[5.5](./spec.md#spec-req-5-5)。
   - **先验证**：固定程序在指定调用位置请求参数 A，批准修订 B 后实际 Tool 与 sandbox plan 使用 B。重建程序仍发出 A 时关联同一逻辑调用并仅返回已保存的 B 结果及修订信息；程序原调用被改变、关联缺失或结算不一致时仍报重放失配。审批后重启、写入未知和中断不使用旧参数、不跳过恢复；父 Step 单次结算，之前子结果及预算保留。

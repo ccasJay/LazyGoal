@@ -325,6 +325,8 @@ export type TrajectoryEventPayload =
         readonly grantId?: string;
         /** 批准决定的稳定身份；持续授权按该身份暂存与激活。 */
         readonly approvalInputId?: string;
+        /** 修订来源；程序结果信封据此重建一致的修订说明。 */
+        readonly revisionSource?: "user" | "host";
         /** 因修订而失效的同批次未开始 Action 身份。 */
         readonly invalidatedBatchActionIds?: readonly string[];
     }
@@ -1051,7 +1053,7 @@ function assertPayload(payload: unknown, eventType: unknown): void {
     if (eventType === "action_revised") {
         if (Object.keys(payload).some((key) => ![
             "type", "actionId", "reviewRef", "originalInput", "finalInput", "approvalScope", "grantId",
-            "approvalInputId", "invalidatedBatchActionIds",
+            "approvalInputId", "revisionSource", "invalidatedBatchActionIds",
         ].includes(key))) {
             throw new TrajectoryProtocolError("action_revised contains unknown fields");
         }

@@ -128,7 +128,12 @@ import {
     type RuntimeFeedbackIssue,
 } from "./runtime-feedback";
 import { transition } from "./transition";
-import { resolveActionExecutionAction } from "./action-approval";
+import {
+    createProgramCallEnvelope,
+    resolveActionExecutionAction,
+    resolveProgramCallRevision,
+    type ProgramCallRevision,
+} from "./action-approval";
 import { findTools, type ToolDiscoveryResult } from "./tool-discovery";
 import {
     createInitialRunStage,
@@ -3771,7 +3776,13 @@ class RunExecutor {
         plan?: SandboxExecutionPlan,
         program?: { readonly programId: string; readonly callIndex: number },
     ): Promise<
-        | { readonly kind: "observed"; readonly goal: Goal; readonly observation: ToolObservation; readonly sourceSequence?: number }
+        | {
+            readonly kind: "observed";
+            readonly goal: Goal;
+            readonly observation: ToolObservation;
+            readonly sourceSequence?: number;
+            readonly revision?: ProgramCallRevision | undefined;
+        }
         | { readonly kind: "stopped"; readonly result: RunnerResult }
     > {
         const association = program === undefined ? {} : {
@@ -3913,14 +3924,14 @@ class RunExecutor {
             }
         }
 
+        const revision = resolveProgramCallRevision(goal.state.run.pendingAction);
         let programResultBytes = 0;
         if (program !== undefined) {
             const current = goal.state.run.pendingProgram;
             if (current === undefined) throw new Error("PTC_REPLAY_MISMATCH");
-            const bytes = Buffer.byteLength(JSON.stringify({
-                observation,
-                sourceReferences: [0],
-            }));
+            const bytes = Buffer.byteLength(JSON.stringify(
+                createProgramCallEnvelope(observation, 0, revision),
+            ));
             if (bytes > 16 * 1024 * 1024) throw new ProgramResourceError("PTC_FRAME_LIMIT");
             if (current.resultBytes + bytes > 256 * 1024 * 1024) {
                 throw new ProgramResourceError("PTC_LOG_LIMIT");
@@ -3988,6 +3999,7 @@ class RunExecutor {
             && event.actionId === prepared.action.actionId)?.sequence;
         return {
             kind: "observed",
+            ...(revision === undefined ? {} : { revision }),
             goal: checkpoint,
             observation,
             ...(sourceSequence === undefined ? {} : { sourceSequence }),
@@ -6080,10 +6092,24 @@ class RunExecutor {
                 || staged[0]!.sequence >= result.sequence) {
                 throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
             }
-            committedResultBytes += Buffer.byteLength(JSON.stringify({
-                observation: result.payload.observation,
-                sourceReferences: [0],
-            }));
+            const revised = committed.find((event) => event.eventType === "action_revised"
+                && event.actionId === actionId
+                && event.programId === program.programId
+                && event.callIndex === index);
+            committedResultBytes += Buffer.byteLength(JSON.stringify(
+                createProgramCallEnvelope(
+                    result.payload.observation,
+                    0,
+                    revised?.eventType === "action_revised"
+                        ? {
+                            reviewRef: revised.payload.reviewRef,
+                            originalInput: revised.payload.originalInput,
+                            finalInput: revised.payload.finalInput,
+                            source: revised.payload.revisionSource ?? "user",
+                        }
+                        : undefined,
+                ),
+            ));
         }
         if (committedResultBytes !== program.resultBytes) {
             throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
@@ -6171,10 +6197,24 @@ class RunExecutor {
                             || JSON.stringify(stage.payload.action.input) !== JSON.stringify(prepared.action.input)) {
                             throw new Error("PTC_REPLAY_MISMATCH");
                         }
-                        return {
-                            observation: result.payload.observation,
-                            sourceReferences: [result.sequence],
-                        };
+                        // 已结算子调用只返回保存结果；修订说明与首次执行保持一致。
+                        const revised = committed.find((event) => event.eventType === "action_revised"
+                            && event.actionId === actionId
+                            && event.programId === program.programId
+                            && event.callIndex === callIndex);
+                        const revision = revised?.eventType === "action_revised"
+                            ? {
+                                reviewRef: revised.payload.reviewRef,
+                                originalInput: revised.payload.originalInput,
+                                finalInput: revised.payload.finalInput,
+                                source: revised.payload.revisionSource ?? "user",
+                            }
+                            : undefined;
+                        return createProgramCallEnvelope(
+                            result.payload.observation,
+                            result.sequence,
+                            revision,
+                        );
                     }
                     if (callIndex !== goal.state.run.pendingProgram!.nextCallIndex) {
                         throw new Error("PTC_REPLAY_MISMATCH");
@@ -6255,10 +6295,11 @@ class RunExecutor {
                         throw new ProgramWaitingError();
                     }
                     goal = outcome.goal;
-                    return {
-                        observation: outcome.observation,
-                        sourceReferences: outcome.sourceSequence === undefined ? [] : [outcome.sourceSequence],
-                    };
+                    return createProgramCallEnvelope(
+                        outcome.observation,
+                        outcome.sourceSequence ?? 0,
+                        outcome.revision,
+                    );
                 },
             });
             observation = { kind: "success", output: value as JsonValue, summary: "Program returned a result." };
