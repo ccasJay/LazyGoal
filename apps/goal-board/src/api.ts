@@ -4,7 +4,6 @@ import {
   isBrowserSessionInputResult,
   isBrowserSessionInputQueryResult,
   isBrowserSessionState,
-  isActionDetailsResult,
   isBrowserGoalSession,
   isBrowserInteractionDetailResult,
   isGoalList,
@@ -34,7 +33,6 @@ import {
   isTrajectoryRuns,
   isWorkspaceContext,
   type AcceptedCommand,
-  type BrowserActionDetailsResult,
   type BrowserCreateSessionCommand,
   type BrowserCreateSessionResult,
   type BrowserGoalListItem,
@@ -235,19 +233,32 @@ export const browserApi = {
     );
   },
 
-  readActionDetails(goalId: string, runId: string, actionId: string): Promise<BrowserActionDetailsResult> {
-    return requestJson(
-      `/api/goals/${encodeURIComponent(goalId)}/actions/${encodeURIComponent(actionId)}?runId=${encodeURIComponent(runId)}`,
-      isActionDetailsResult,
-    );
-  },
-
-  /** 按稳定交互引用读取完整审阅内容；读取失败与过期引用不改变等待。 */
-  readInteractionDetail(goalId: string, runId: string, interactionId: string): Promise<BrowserInteractionDetailResult> {
-    return requestJson(
+  /**
+   * 按稳定交互引用读取完整审阅内容；读取失败与过期引用不改变等待。
+   *
+   * @remarks 稳定拒绝（旧 Goal／Run／引用、详情不可用）作为读取结果返回，使界面能区分
+   * 「请求已变化」与网络失败；只有违反 wire 契约的响应才抛错。
+   */
+  async readInteractionDetail(goalId: string, runId: string, interactionId: string): Promise<BrowserInteractionDetailResult> {
+    const response = await fetch(
       `/api/goals/${encodeURIComponent(goalId)}/interaction-details?runId=${encodeURIComponent(runId)}&interactionId=${encodeURIComponent(interactionId)}`,
-      isBrowserInteractionDetailResult,
+      { headers: authorizedHeaders() },
     );
+    if (!response.ok) {
+      const error = await responseError(response);
+      switch (error.code) {
+        case "goal_not_found":
+        case "stale_run":
+        case "interaction_not_waiting":
+        case "interaction_mismatch":
+          return { ok: false, error: error.code };
+        default:
+          return { ok: false, error: "interaction_details_unavailable" };
+      }
+    }
+    const value: unknown = await response.json();
+    if (!isBrowserInteractionDetailResult(value)) throw new Error("invalid_api_response");
+    return value;
   },
 
   listToolGrants(goalId: string, runId: string): Promise<BrowserToolGrantResult> {

@@ -253,6 +253,28 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "getComputedStyle(document.querySelector('.session')).position"), "relative");
     assert.equal(await value(socket, "document.documentElement.scrollWidth <= window.innerWidth"), true);
     assert.equal(await value(socket, "document.querySelector('.run-timeline').getBoundingClientRect().width <= window.innerWidth - 32"), true);
+
+    // 详情读取失败只限制当前请求：明确报告可重试，不把会话拖入 Failed，也不禁用无关输入。
+    mock.failNextInteractionDetails("interaction_details_unavailable");
+    await navigate(socket, `${webUrl}/?session=details-unavailable#${token}`);
+    await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.interaction-region')?.innerText.includes('The request could not be loaded')");
+    assert.equal(await value(socket, "document.querySelector('.task-state')?.textContent"), "Awaiting your response");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Queue next task\"]')?.disabled"), false, "an unrelated queue input stays available");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.interaction-region button')].find(button => button.textContent.includes('Retry loading')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.question-nav-item') !== null");
+
+    // 旧引用（409）同样只报告限制，可重试后恢复问卷。
+    mock.failNextInteractionDetails("interaction_not_waiting");
+    await navigate(socket, `${webUrl}/?session=details-stale#${token}`);
+    await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.interaction-region')?.innerText.includes('latest saved state')");
+    assert.equal(await value(socket, "document.querySelector('.task-state')?.textContent"), "Awaiting your response");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.interaction-region button')].find(button => button.textContent.includes('Retry loading')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.question-nav-item') !== null");
+
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.permission-trigger').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.permission-popover') !== null");
     assert.equal(await value(socket, "(() => { const menu = document.querySelector('.permission-popover').getBoundingClientRect(); return menu.left >= 0 && menu.right <= window.innerWidth; })()"), true);
@@ -671,6 +693,8 @@ function createMockApi() {
   let trajectoryReads = 0;
   let inputDetailReads = 0;
   let inputSequence = 0;
+  const inputReceipts = new Map();
+  let nextInteractionDetailsFailure;
   const nativeCall = { goalId: "goal-1", runId: "run-1", callId: "call-native", stepIndex: 1, stage: "decide", occurredAt: "2026-08-05T09:00:01.000Z", messages: [
     { role: "tool", source: "native_history", callId: "tool-call", toolId: "read_file", content: "Native tool result" },
     { role: "user", source: "section", content: `[Dynamic section: run_mode; source: Goal.intent]\n${"Follow the current request.\n".repeat(80)}` },
@@ -738,12 +762,15 @@ function createMockApi() {
       return;
     }
     if (request.url === "/goals/goal-1/metrics/stream" && request.method === "GET") {
+      // 新订阅取代旧订阅：结束旧响应，模拟服务端不会无限保留同一客户端的陈旧流。
+      if (metricsStreamResponse !== undefined && !metricsStreamResponse.writableEnded) metricsStreamResponse.end();
       response.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
         connection: "keep-alive",
       });
       metricsStreamResponse = response;
+      response.on("close", () => { if (metricsStreamResponse === response) metricsStreamResponse = undefined; });
       response.write(`event: snapshot\ndata: ${JSON.stringify(currentMetrics)}\n\n`);
       return;
     }
@@ -871,6 +898,12 @@ function createMockApi() {
       return;
     }
     if (request.url?.startsWith("/api/goals/goal-1/interaction-details?") && request.method === "GET") {
+      if (nextInteractionDetailsFailure !== undefined) {
+        const failure = nextInteractionDetailsFailure;
+        nextInteractionDetailsFailure = undefined;
+        json(response, { ok: false, error: failure }, failure === "interaction_not_waiting" ? 409 : 500);
+        return;
+      }
       const query = new URL(request.url, "http://localhost").searchParams;
       const interactionId = query.get("interactionId");
       if (query.get("runId") !== "run-1" || session.interaction === undefined
@@ -879,13 +912,11 @@ function createMockApi() {
         return;
       }
       if (session.interaction.kind === "question") {
-        json(response, {
-          ok: true,
-          goalId: "goal-1",
-          runId: "run-1",
-          interactionId,
-          detail: { kind: "question", mode: session.pendingInteraction.mode, questions: session.pendingInteraction.questions },
-        });
+        json(response, { ok: true, goalId: "goal-1", runId: "run-1", interactionId, detail: questionInteractionDetail });
+        return;
+      }
+      if (session.pendingAction === undefined) {
+        json(response, { ok: false, error: "interaction_not_waiting" }, 409);
         return;
       }
       json(response, {
@@ -916,15 +947,18 @@ function createMockApi() {
       return;
     }
     if (request.url === "/api/goals/goal-1/events" && request.method === "GET") {
+      // 新订阅取代旧订阅：结束旧响应，避免测试客户端在多次导航后耗尽同源连接配额。
+      if (activityResponse !== undefined && !activityResponse.writableEnded) activityResponse.end();
       response.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
         connection: "keep-alive",
       });
+      activityResponse = response;
+      response.on("close", () => { if (activityResponse === response) activityResponse = undefined; });
       response.write(`data: ${JSON.stringify({ type: "state_sync", goalId: "goal-1", state: sessionState() })}\n\n`);
       if (!liveTransitionSent) {
         liveTransitionSent = true;
-        activityResponse = response;
         response.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "model_started" } })}\n\n`);
         response.write(`data: ${JSON.stringify({
           goalId: "goal-1",
@@ -940,15 +974,28 @@ function createMockApi() {
       }
       return;
     }
+    if (request.url?.startsWith("/api/goals/goal-1/inputs/") && request.method === "GET") {
+      const inputId = decodeURIComponent(new URL(request.url, "http://localhost").pathname.split("/").at(-1));
+      const receipt = inputReceipts.get(inputId);
+      json(response, receipt === undefined ? { ok: true, found: false } : { ok: true, found: true, receipt });
+      return;
+    }
     if (request.url === "/api/goals/goal-1/inputs" && request.method === "POST") {
       let body = "";
       for await (const chunk of request) body += chunk;
       const command = JSON.parse(body);
       if (command.kind === "respond") {
+        const existing = inputReceipts.get(command.inputId);
+        if (existing !== undefined) {
+          json(response, { ok: true, existing: true, receipt: existing }, 200);
+          return;
+        }
         lastInteraction = command;
         session = completedSession(session);
         currentListItem = listItem("completed");
-        json(response, { ok: true, existing: false, receipt: sessionInputReceipt(command.inputId, "respond", "applied") }, 202);
+        const receipt = sessionInputReceipt(command.inputId, "respond", "applied");
+        inputReceipts.set(command.inputId, receipt);
+        json(response, { ok: true, existing: false, receipt }, 202);
         return;
       }
       if (command.kind === "message") {
@@ -1004,6 +1051,7 @@ function createMockApi() {
     get lastCreate() { return lastCreate; },
     get preferredModelId() { return preferredModelId; },
     delayNextDraftCatalog() { delayNextDraftCatalog = true; },
+    failNextInteractionDetails(error = "interaction_details_unavailable") { nextInteractionDetailsFailure = error; },
     failNextDefaultSave() { failNextDefaultSave = true; },
     get planModeRequests() { return planModeRequests; },
     get permissionMode() { return permissionMode; },
@@ -1020,7 +1068,6 @@ function createMockApi() {
     resetToUnknownAction() {
       session = {
         ...interactionSession(),
-        pendingInteraction: undefined,
         interaction: {
           goalId: "goal-1",
           runId: "run-1",
@@ -1045,7 +1092,6 @@ function createMockApi() {
     resetToAction() {
       session = {
         ...interactionSession(),
-        pendingInteraction: undefined,
         interaction: {
           goalId: "goal-1",
           runId: "run-1",
@@ -1119,26 +1165,27 @@ function waitingSession() {
   };
 }
 
+/** 当前问题等待的完整详情；与 interaction 视图使用同一 request 身份。 */
+const questionInteractionDetail = {
+  kind: "question",
+  mode: "execution",
+  questions: [{
+    id: "source",
+    header: "Choose a source",
+    question: "Which notes should be included?",
+    multiSelect: false,
+    options: [
+      { id: "approved", label: "Approved notes" },
+      { id: "all", label: "All notes" },
+    ],
+  }],
+};
+
 function interactionSession() {
   const session = waitingSession();
   session.runStatus = "waiting";
   session.runs = session.runs.map((run) => ({ ...run, status: "waiting" }));
   session.messages = [...session.messages, { role: "assistant", content: "Which source should I use?" }];
-  session.pendingInteraction = {
-    kind: "ask_user",
-    requestId: "request-1",
-    mode: "execution",
-    questions: [{
-      id: "source",
-      header: "Choose a source",
-      question: "Which notes should be included?",
-      multiSelect: false,
-      options: [
-        { id: "approved", label: "Approved notes" },
-        { id: "all", label: "All notes" },
-      ],
-    }],
-  };
   session.interaction = {
     goalId: "goal-1",
     runId: "run-1",
@@ -1155,7 +1202,6 @@ function completedSession(previous) {
   return {
     ...previous,
     runStatus: "completed",
-    pendingInteraction: undefined,
     interaction: undefined,
     messages: [
       ...previous.messages,
@@ -1284,6 +1330,8 @@ async function cdp(socket, method, params = {}) {
 }
 
 async function navigate(socket, url) {
+  // 先离开当前文档，确保上一个页面的 SSE 连接被关闭，避免同源连接配额累积。
+  await cdp(socket, "Page.navigate", { url: "about:blank" });
   await cdp(socket, "Page.navigate", { url });
   await waitForExpression(socket, "document.readyState === 'complete'");
 }
