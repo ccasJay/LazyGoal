@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+    computeActionRecoveryRef,
     createGoal,
     projectInteractionView,
     readInteractionDetail,
@@ -164,7 +165,7 @@ test("工具审批视图区分审批类别与可用期限，详情返回完整 c
     assert.equal(view.approvalKind, "sandbox");
     assert.equal(view.fromProgram, false);
     assert.deepEqual([...view.scopeOptions], ["action", "goal", "workspace"]);
-    assert.deepEqual([...view.decisions], ["approve_action", "reject_action"]);
+    assert.deepEqual([...view.decisions], ["approve_action", "approve_action_revision", "reject_action"]);
 
     const detail = readInteractionDetail(goal, { runId: goal.state.run.id, interactionId: view.interactionId });
     assert.ok(detail.ok && detail.detail.kind === "action_approval");
@@ -202,7 +203,8 @@ test("未知结果恢复视图只允许单次重试或拒绝，并保留程序�
     assert.equal(view.interactionId, "action_recovery:act-2");
     assert.deepEqual([...view.scopeOptions], ["action"]);
     assert.equal(view.fromProgram, true);
-    assert.deepEqual([...view.decisions], ["retry_action", "reject_action"]);
+    assert.deepEqual([...view.decisions], ["retry_unknown_action", "decline_unknown_action_retry"]);
+    assert.equal(view.recoveryRef, computeActionRecoveryRef("act-2", 1));
 
     const detail = readInteractionDetail(goal, { runId: goal.state.run.id, interactionId: view.interactionId });
     assert.ok(detail.ok && detail.detail.kind === "action_recovery");

@@ -128,6 +128,7 @@ import {
     type RuntimeFeedbackIssue,
 } from "./runtime-feedback";
 import { transition } from "./transition";
+import { resolveActionExecutionAction } from "./action-approval";
 import { findTools, type ToolDiscoveryResult } from "./tool-discovery";
 import {
     createInitialRunStage,
@@ -3589,7 +3590,7 @@ class RunExecutor {
         try {
             validated = prepareToolAction(
                 goal,
-                pendingAction.action,
+                resolveActionExecutionAction(pendingAction),
                 this.toolRegistry,
                 this.toolPolicy,
                 false,
@@ -4080,6 +4081,8 @@ class RunExecutor {
                     );
                 }
 
+                const executionAction = resolveActionExecutionAction(pendingAction);
+
                 let effectivePlan: SandboxExecutionPlan | undefined = undefined;
                 if (
                     transientSandboxPlan !== undefined
@@ -4090,7 +4093,7 @@ class RunExecutor {
                 } else if (this.sandboxPlanResolver !== undefined && this.workspaceRoot !== undefined) {
                     effectivePlan = await this.sandboxPlanResolver({
                         workspaceRoot: this.workspaceRoot,
-                        action: pendingAction.action,
+                        action: executionAction,
                         effectiveScope: pendingAction.effectiveSandboxScope,
                     });
                 }
@@ -4101,7 +4104,7 @@ class RunExecutor {
                     validated = preparedAction === undefined
                         ? prepareToolAction(
                             goal,
-                            pendingAction.action,
+                            executionAction,
                             this.toolRegistry,
                             this.toolPolicy,
                             false,
@@ -6213,11 +6216,25 @@ class RunExecutor {
                         if (authorization.requiresApproval) throw new ProgramWaitingError();
                     }
                     if (pending?.status !== "approved") throw new ProgramWaitingError();
+                    const childExecutionAction = resolveActionExecutionAction(pending);
+                    if (JSON.stringify(childExecutionAction.input) !== JSON.stringify(prepared.action.input)) {
+                        prepared = prepareToolAction(
+                            goal,
+                            childExecutionAction,
+                            this.toolRegistry,
+                            this.toolPolicy,
+                            false,
+                            toolControl,
+                        );
+                        if (prepared.registration.kind === "program") {
+                            throw new Error("PTC_INVALID_TOOL_CALL");
+                        }
+                    }
                     let plan: SandboxExecutionPlan | undefined;
                     if (this.sandboxPlanResolver !== undefined && this.workspaceRoot !== undefined) {
                         plan = await this.sandboxPlanResolver({
                             workspaceRoot: this.workspaceRoot,
-                            action: prepared.action,
+                            action: childExecutionAction,
                             effectiveScope: pending.effectiveSandboxScope,
                         });
                     }

@@ -169,6 +169,23 @@ export type {
 } from "./domain";
 export { transition } from "./transition";
 export {
+    computeActionApprovalReviewRef,
+    computeActionRecoveryRef,
+    isRevisablePendingAction,
+    projectSandboxTargetPaths,
+    resolveActionExecutionAction,
+    resolveActionRecoveryRef,
+} from "./action-approval";
+export type {
+    ActionApprovalCapability,
+    ActionApprovalReview,
+    ActionApprovalReviewErrorCode,
+    ActionApprovalReviewRequest,
+    ActionApprovalReviewResult,
+    ActionApprovalScope,
+    ActionExecutionVersion,
+} from "./action-approval";
+export {
     MODEL_CONTEXT_CHECKPOINT_INVALID,
     ModelContextCheckpointError,
     createInitialContextEpoch,

@@ -332,3 +332,38 @@ test("非法路径输入派生匹配器失败时返回 deny", async () => {
         assert.equal(decision.code, "INVALID_MATCHER_INPUT");
     }
 });
+
+test("修订参数后重新计算的匹配器不匹配旧授权，旧批准不覆盖新范围", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "perm-revision-"));
+    try {
+        const original = await createToolGrantMatcher(
+            "write_file",
+            { path: "a.txt", content: "original" },
+            tempDir,
+        );
+        const revised = await createToolGrantMatcher(
+            "write_file",
+            { path: "b.txt", content: "revised" },
+            tempDir,
+        );
+
+        // 路径型授权按目标路径匹配：修订到另一个目标后旧授权不再命中。
+        assert.equal(original.kind, "target_path");
+        assert.equal(revised.kind, "target_path");
+        assert.notEqual(
+            original.kind === "target_path" ? original.path : "",
+            revised.kind === "target_path" ? revised.path : "",
+        );
+        assert.equal(toolGrantMatchersEqual(original, revised), false);
+
+        // 同一目标下的不同正文仍属于既有授权范围，不被重定义为只匹配本次正文。
+        const sameTargetOtherBody = await createToolGrantMatcher(
+            "write_file",
+            { path: "a.txt", content: "different body" },
+            tempDir,
+        );
+        assert.equal(toolGrantMatchersEqual(original, sameTargetOtherBody), true);
+    } finally {
+        await rm(tempDir, { recursive: true, force: true });
+    }
+});

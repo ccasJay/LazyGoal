@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createRun, transition } from "../src/index";
+import { computeActionRecoveryRef, createRun, transition } from "../src/index";
 import type {
     RunInput,
     RunState,
@@ -293,12 +293,21 @@ test("recover_action moves an approved Action to manual recovery without consumi
     assert.deepEqual(recovered.pendingAction, {
         action: staged.pendingAction?.action,
         status: "outcome_unknown",
+        recoveryRef: computeActionRecoveryRef("action-recover", 1),
     });
+
+    // 首次批准命令不再消费未知结果等待；重执行必须显式引用本次恢复身份。
+    const rejected = transition(recovered, {
+        kind: "approve_action",
+        actionId: "action-recover",
+    });
+    assert.equal(rejected.ok, false);
 
     const reapproved = requireSuccessfulState(
         transition(recovered, {
-            kind: "approve_action",
+            kind: "retry_unknown_action",
             actionId: "action-recover",
+            recoveryRef: computeActionRecoveryRef("action-recover", 1),
         }),
     );
     assert.equal(reapproved.status, "running");
@@ -443,6 +452,7 @@ test("execution_error stops without counting a Step and preserves unknown outcom
             input: { path: "README.md" },
         },
         status: "outcome_unknown",
+        recoveryRef: computeActionRecoveryRef("action-error", 1),
     });
     assert.deepEqual(nextState.stopReason, {
         kind: "execution_error",

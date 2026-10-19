@@ -24,6 +24,25 @@ export type BrowserSessionInputKind =
     | "queue_control";
 
 /**
+ * wire 上允许传输的 JSON 值。
+ *
+ * @remarks 只包含 JSON 原生类型；浏览器提交的 Tool 参数必须是该形状的普通对象
+ * 或标量，Runtime 会在提交边界按 Tool Contract 重新校验。
+ *
+ * @example
+ * ```ts
+ * const input: BrowserJsonValue = { path: "notes.md" };
+ * ```
+ */
+export type BrowserJsonValue =
+    | null
+    | boolean
+    | number
+    | string
+    | readonly BrowserJsonValue[]
+    | { readonly [key: string]: BrowserJsonValue };
+
+/**
  * 交互回答的 wire 载荷。
  *
  * @remarks
@@ -50,9 +69,48 @@ export type BrowserSessionInteractionResponse =
     | { readonly kind: "approve_task" }
     | { readonly kind: "feedback_task"; readonly feedback: string }
     | {
+        /**
+         * 批准首次未执行的工具调用。
+         *
+         * @remarks 只消费首次审批等待；不消费结果未知的恢复等待。
+         */
         readonly kind: "approve_action";
         readonly actionId: string;
         readonly scope?: "action" | "goal" | "workspace";
+    }
+    | {
+        /**
+         * 批准同一工具的修订参数版本。
+         *
+         * @remarks 必须携带预检返回的审阅引用；服务端会重新计算最终参数与范围并
+         * 比对，不一致时明确拒绝并要求重新审阅。
+         */
+        readonly kind: "approve_action_revision";
+        readonly actionId: string;
+        readonly input: BrowserJsonValue;
+        readonly reviewRef: string;
+        readonly scope?: "action" | "goal" | "workspace";
+    }
+    | {
+        /**
+         * 明确允许结果未知的操作按获批版本再次执行。
+         *
+         * @remarks 绑定本次未知结果等待身份；不携带新参数或持续授权期限。
+         */
+        readonly kind: "retry_unknown_action";
+        readonly actionId: string;
+        readonly recoveryRef: string;
+    }
+    | {
+        /**
+         * 拒绝结果未知的操作再次执行。
+         *
+         * @remarks 保留此前效果未知的事实，不把原操作记作未执行、已回滚或成功。
+         */
+        readonly kind: "decline_unknown_action_retry";
+        readonly actionId: string;
+        readonly recoveryRef: string;
+        readonly reason: string;
     }
     | { readonly kind: "reject_action"; readonly actionId: string; readonly reason: string };
 

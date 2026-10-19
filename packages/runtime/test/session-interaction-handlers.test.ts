@@ -577,7 +577,16 @@ test("未知结果恢复请求只由 onActionRecovery 处理，不落入普通�
         onActionApproval: async () => { approvalCalls.push("approval"); return { kind: "unhandled" }; },
         onActionRecovery: async ({ request }) => {
             recoveryRequests.push(request.kind);
-            return { kind: "respond", response: { kind: "reject_action", actionId: "act-recovery", reason: "拒绝再次执行" } };
+            assert.ok(request.kind === "action_recovery");
+            return {
+                kind: "respond",
+                response: {
+                    kind: "decline_unknown_action_retry",
+                    actionId: "act-recovery",
+                    recoveryRef: request.recoveryRef,
+                    reason: "拒绝再次执行",
+                },
+            };
         },
     });
     assert.equal(attached.ok, true);

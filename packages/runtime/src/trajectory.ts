@@ -308,6 +308,34 @@ export type TrajectoryEventPayload =
         readonly grantId?: string;
     }
     | {
+        /**
+         * 审批者修订了同一工具的最终参数并获批。
+         *
+         * @remarks 保留原请求参数与最终 canonical 参数的关联；原始暂存事实不被
+         * 覆盖。
+         */
+        readonly type: "action_revised";
+        readonly actionId: string;
+        readonly reviewRef: string;
+        readonly originalInput: JsonValue;
+        readonly finalInput: JsonValue;
+        readonly approvalScope?: "action" | "goal" | "workspace";
+        readonly grantId?: string;
+    }
+    | {
+        /** 明确允许结果未知的操作按获批版本再次执行。 */
+        readonly type: "action_reexecution_authorized";
+        readonly actionId: string;
+        readonly recoveryRef: string;
+    }
+    | {
+        /** 拒绝结果未知的操作再次执行；此前效果未知的事实保持不变。 */
+        readonly type: "action_reexecution_declined";
+        readonly actionId: string;
+        readonly recoveryRef: string;
+        readonly reason: string;
+    }
+    | {
         readonly type: "tool_grant_revoked";
         readonly grantId: string;
         readonly scope: "goal" | "workspace";
@@ -864,6 +892,9 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "program_started",
     "program_settled",
     "action_approved",
+    "action_revised",
+    "action_reexecution_authorized",
+    "action_reexecution_declined",
     "tool_grant_revoked",
     "sandbox_grant_revoked",
     "action_rejected",
@@ -1010,6 +1041,41 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         if (payload.approvalScope === undefined && payload.grantId !== undefined) {
             throw new TrajectoryProtocolError("action_approved Grant requires an approval scope");
         }
+    }
+    if (eventType === "action_revised") {
+        if (Object.keys(payload).some((key) => ![
+            "type", "actionId", "reviewRef", "originalInput", "finalInput", "approvalScope", "grantId",
+        ].includes(key))) {
+            throw new TrajectoryProtocolError("action_revised contains unknown fields");
+        }
+        assertNonEmptyString(payload.actionId, "action_revised.actionId");
+        assertNonEmptyString(payload.reviewRef, "action_revised.reviewRef");
+        if (payload.approvalScope !== undefined
+            && payload.approvalScope !== "action"
+            && payload.approvalScope !== "goal"
+            && payload.approvalScope !== "workspace") {
+            throw new TrajectoryProtocolError("action_revised.approvalScope is invalid");
+        }
+        if (payload.grantId !== undefined) assertNonEmptyString(payload.grantId, "action_revised.grantId");
+        if (payload.approvalScope !== undefined
+            && ((payload.approvalScope === "action") !== (payload.grantId === undefined))) {
+            throw new TrajectoryProtocolError("action_revised scope and Grant identity are inconsistent");
+        }
+    }
+    if (eventType === "action_reexecution_authorized") {
+        if (Object.keys(payload).some((key) => !["type", "actionId", "recoveryRef"].includes(key))) {
+            throw new TrajectoryProtocolError("action_reexecution_authorized contains unknown fields");
+        }
+        assertNonEmptyString(payload.actionId, "action_reexecution_authorized.actionId");
+        assertNonEmptyString(payload.recoveryRef, "action_reexecution_authorized.recoveryRef");
+    }
+    if (eventType === "action_reexecution_declined") {
+        if (Object.keys(payload).some((key) => !["type", "actionId", "recoveryRef", "reason"].includes(key))) {
+            throw new TrajectoryProtocolError("action_reexecution_declined contains unknown fields");
+        }
+        assertNonEmptyString(payload.actionId, "action_reexecution_declined.actionId");
+        assertNonEmptyString(payload.recoveryRef, "action_reexecution_declined.recoveryRef");
+        assertNonEmptyString(payload.reason, "action_reexecution_declined.reason");
     }
     if (eventType === "tool_grant_revoked" || eventType === "sandbox_grant_revoked") {
         if (Object.keys(payload).some((key) => !["type", "grantId", "scope"].includes(key))) {
@@ -1769,6 +1835,9 @@ export function classifyTrajectoryEvent(
         case "program_started":
         case "program_settled":
         case "action_approved":
+        case "action_revised":
+        case "action_reexecution_authorized":
+        case "action_reexecution_declined":
         case "tool_grant_revoked":
         case "sandbox_grant_revoked":
         case "action_rejected":

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+    computeActionRecoveryRef,
     createGoal,
     createRun,
     createStepExecutor,
@@ -2565,6 +2566,7 @@ test("Runner 恢复 manual pending Action 时进入 outcome_unknown waiting 而�
     assert.deepEqual(state.pendingAction, {
         action,
         status: "outcome_unknown",
+        recoveryRef: computeActionRecoveryRef("action-manual-replay", 1),
     });
     assert.equal(toolCalls, 0);
     assert.equal(executor.receivedGoals.length, 0);
@@ -2863,7 +2865,9 @@ test("Tool 异常会保存 outcome_unknown execution_error", async () => {
             toolId: "read_file",
             input: { path: "README.md" },
         },
+        attemptsStarted: 1,
         status: "outcome_unknown",
+        recoveryRef: computeActionRecoveryRef("action-tool-error", 1),
     });
     assert.deepEqual(state.stopReason, {
         kind: "execution_error",

@@ -559,6 +559,8 @@ function projectLiveActivity(
         case "model_request_retry_recorded":
         case "action_staged":
         case "action_approved":
+        case "action_revised":
+        case "action_reexecution_authorized":
         case "action_recovered":
         case "observation_recorded":
         case "state_committed":

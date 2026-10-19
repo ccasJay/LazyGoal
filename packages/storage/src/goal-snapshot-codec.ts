@@ -40,6 +40,7 @@ import {
     type GoalSnapshotMessageV1,
     type GoalSnapshotModelSelectionV1,
     type GoalSnapshotObservationV1,
+    type GoalSnapshotExecutionVersionV1,
     type GoalSnapshotPendingActionV1,
     type GoalSnapshotPendingProgramV1,
     type GoalSnapshotPendingInteractionV1,
@@ -608,6 +609,12 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                             ...(run.pendingAction.effectiveSandboxScope === undefined
                                 ? {}
                                 : { effectiveSandboxScope: structuredClone(run.pendingAction.effectiveSandboxScope) }),
+                            ...(run.pendingAction.executionVersion === undefined
+                                ? {}
+                                : { executionVersion: encodeExecutionVersion(run.pendingAction.executionVersion) }),
+                            ...(run.pendingAction.recoveryRef === undefined
+                                ? {}
+                                : { recoveryRef: run.pendingAction.recoveryRef }),
                         },
                     }),
                 ...(run.pendingActionBatch === undefined
@@ -909,6 +916,40 @@ function decodeStep(step: GoalSnapshotStepRecordV1): StepRecord {
         : { kind: "decision", result: decodeDecision(step.result) };
 }
 
+/** 编码已获批 Action 的最终执行版本；原请求引用与最终参数同时保留。 */
+function encodeExecutionVersion(
+    version: NonNullable<PendingAction["executionVersion"]>,
+): GoalSnapshotExecutionVersionV1 {
+    return {
+        original: {
+            actionId: version.original.actionId,
+            toolId: version.original.toolId,
+            input: structuredClone(version.original.input),
+        },
+        input: structuredClone(version.input),
+        reviewRef: version.reviewRef,
+        scope: version.scope,
+        ...(version.revision === undefined ? {} : { revision: { source: version.revision.source } }),
+    };
+}
+
+/** 解码已获批 Action 的最终执行版本。 */
+function decodeExecutionVersion(
+    version: GoalSnapshotExecutionVersionV1,
+): NonNullable<PendingAction["executionVersion"]> {
+    return {
+        original: {
+            actionId: version.original.actionId,
+            toolId: version.original.toolId,
+            input: structuredClone(version.original.input),
+        },
+        input: structuredClone(version.input),
+        reviewRef: version.reviewRef,
+        scope: version.scope,
+        ...(version.revision === undefined ? {} : { revision: { source: version.revision.source } }),
+    };
+}
+
 function decodePendingAction(pendingAction: GoalSnapshotPendingActionV1): PendingAction {
     return {
         action: decodeAction(pendingAction.action),
@@ -918,6 +959,8 @@ function decodePendingAction(pendingAction: GoalSnapshotPendingActionV1): Pendin
         ...(pendingAction.grantId === undefined ? {} : { grantId: pendingAction.grantId }),
         ...(pendingAction.approvalKind === undefined ? {} : { approvalKind: pendingAction.approvalKind }),
         ...(pendingAction.effectiveSandboxScope === undefined ? {} : { effectiveSandboxScope: structuredClone(pendingAction.effectiveSandboxScope) }),
+        ...(pendingAction.executionVersion === undefined ? {} : { executionVersion: decodeExecutionVersion(pendingAction.executionVersion) }),
+        ...(pendingAction.recoveryRef === undefined ? {} : { recoveryRef: pendingAction.recoveryRef }),
     };
 }
 

@@ -548,6 +548,7 @@ export async function runServerSession(
             readInteractionDetails: (goalId, runId, interactionId) => commandService.readInteractionDetails(goalId, runId, interactionId),
             listToolGrants: (goalId, runId) => commandService.listToolGrants(goalId, runId),
             revokeToolGrant: (goalId, command) => commandService.revokeToolGrant(goalId, command),
+            reviewActionApproval: (goalId, command) => commandService.reviewActionApproval(goalId, command),
             getPermissionMode: () => commandService.getPermissionMode(),
             setPermissionMode: (command) => commandService.setPermissionMode(command),
         }));

@@ -1,5 +1,7 @@
 import type {
     BrowserActionDetailsResult,
+    BrowserJsonValue,
+    BrowserActionReviewResult,
     BrowserGoalListItem,
     BrowserInteractionDetailResult,
     BrowserInteractionView,
@@ -74,7 +76,7 @@ export function isNonEmptyString(value: unknown): value is string {
  * if (isJsonValue(val)) JSON.stringify(val);
  * ```
  */
-export function isJsonValue(value: unknown): boolean {
+export function isJsonValue(value: unknown): value is BrowserJsonValue {
     if (value === null || typeof value === "string" || typeof value === "boolean") return true;
     if (typeof value === "number") return Number.isFinite(value);
     if (Array.isArray(value)) return value.every(isJsonValue);
@@ -460,8 +462,8 @@ export function isBrowserInteractionView(value: unknown): value is BrowserIntera
     if (!Array.isArray(value.decisions) || value.decisions.length === 0) return false;
     const allowed = kind === "question" ? ["answer_questions", "reply_to_question", "skip_question"]
         : kind === "task_approval" ? ["approve_task", "send_task_feedback"]
-            : kind === "action_recovery" ? ["retry_action", "reject_action"]
-                : ["approve_action", "reject_action"];
+            : kind === "action_recovery" ? ["retry_unknown_action", "decline_unknown_action_retry"]
+                : ["approve_action", "approve_action_revision", "reject_action"];
     return value.decisions.every((decision) => allowed.includes(String(decision)));
 }
 
@@ -524,6 +526,51 @@ export function isBrowserInteractionDetailResult(value: unknown): value is Brows
             && (detail.approvalKind === undefined || detail.approvalKind === "tool" || detail.approvalKind === "sandbox");
     }
     return false;
+}
+
+/**
+ * 只读审批预检结果类型守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为 BrowserActionReviewResult。
+ *
+ * @example
+ * ```ts
+ * if (isBrowserActionReviewResult(result)) console.log(result.review.reviewRef);
+ * ```
+ */
+export function isBrowserActionReviewResult(value: unknown): value is BrowserActionReviewResult {
+    if (!isRecord(value)) return false;
+    if (value.ok === false) {
+        return [
+            "goal_not_found",
+            "stale_run",
+            "action_not_waiting",
+            "action_id_mismatch",
+            "tool_not_found",
+            "invalid_tool_input",
+            "scope_unavailable",
+            "sandbox_scope_unavailable",
+            "review_unavailable",
+        ].includes(String(value.error));
+    }
+    if (value.ok !== true
+        || !isNonEmptyString(value.goalId)
+        || !isNonEmptyString(value.runId)
+        || !isRecord(value.review)) {
+        return false;
+    }
+    const review = value.review;
+    return isNonEmptyString(review.actionId)
+        && isNonEmptyString(review.toolId)
+        && review.originalInput !== undefined
+        && review.finalInput !== undefined
+        && typeof review.changed === "boolean"
+        && ["action", "goal", "workspace"].includes(String(review.scope))
+        && Array.isArray(review.availableScopes)
+        && isRecord(review.capability)
+        && typeof review.requiresSandboxApproval === "boolean"
+        && isNonEmptyString(review.reviewRef);
 }
 
 /**

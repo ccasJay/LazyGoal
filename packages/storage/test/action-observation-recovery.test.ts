@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+    computeActionRecoveryRef,
     createGoal,
     transition,
 } from "../../runtime/src/index";
@@ -285,6 +286,7 @@ test("跨进程恢复 manual Action 进入 outcome_unknown waiting 且不执行 
         assert.deepEqual(parsed.result.state?.pendingAction, {
             action,
             status: "outcome_unknown",
+            recoveryRef: computeActionRecoveryRef("action-manual", 1),
         });
         assert.equal(parsed.toolCalls, 0);
         assert.equal(parsed.executorCalls, 0);

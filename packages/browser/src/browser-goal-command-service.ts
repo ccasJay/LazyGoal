@@ -4,9 +4,11 @@ import type {
     GoalModelSelectionCoordinator,
     GoalCoordinator,
     GoalStore,
+    JsonValue,
 } from "../../runtime/src/index";
 import {
     readInteractionDetail,
+    type ActionApprovalReviewErrorCode,
     type InteractionDetail,
 } from "../../runtime/src/index";
 import {
@@ -15,6 +17,8 @@ import {
 } from "../../permission/src/index";
 import type {
     BrowserActionDetailsResult,
+    BrowserActionReviewCommand,
+    BrowserActionReviewResult,
     BrowserGoalPlanModeCommand,
     BrowserGoalPlanModeResult,
     BrowserInteractionDetail,
@@ -30,6 +34,8 @@ import type {
 
 export type {
     BrowserActionDetailsResult,
+    BrowserActionReviewCommand,
+    BrowserActionReviewResult,
     BrowserGoalPlanModeCommand,
     BrowserGoalPlanModeResult,
     BrowserInteractionDetail,
@@ -76,6 +82,15 @@ export interface BrowserGoalCoordinator {
     getPermissionMode?(workspaceId?: string): ReturnType<GoalCoordinator["getPermissionMode"]>;
     /** 设置项目权限执行模式。 */
     setPermissionMode?(mode: PermissionMode, expectedRevision: number, workspaceId?: string): ReturnType<GoalCoordinator["setPermissionMode"]>;
+    /**
+     * 只读预检同一工具的最终参数与实际权限范围。
+     *
+     * @remarks 省略时审批审阅路由返回 500 `review_unavailable`，不提供替代路径。
+     */
+    reviewActionApproval?(
+        request: Parameters<GoalCoordinator["reviewActionApproval"]>[0],
+        control?: Parameters<GoalCoordinator["reviewActionApproval"]>[1],
+    ): ReturnType<GoalCoordinator["reviewActionApproval"]>;
 }
 
 /**
@@ -315,6 +330,84 @@ export class BrowserGoalCommandService {
         };
     }
 
+    /**
+     * 只读预检同一工具的最终参数与实际权限范围。
+     *
+     * @remarks
+     * 预检只重新准备参数、规划执行准入、权限与沙箱范围，并返回可审阅结果；它
+     * 不保存批准、不暂存或激活授权、不解除等待，也不调用业务工具。多个客户端
+     * 各自预检时互不覆盖草稿或持久化候选。
+     *
+     * @param goalId - 路径中的 Goal 身份。
+     * @param command - 当前 Run、Action、拟修订参数与拟授权期限。
+     * @returns 可审阅结果，或可定位的稳定拒绝。
+     * @throws Snapshot 读取或预检失败时返回稳定错误，不抛出到 wire 层。
+     * @example
+     * ```ts
+     * const result = await service.reviewActionApproval("goal-1", {
+     *     runId: "run-1", actionId: "action-1", scope: "action",
+     *     input: { path: "b.txt" },
+     * });
+     * ```
+     */
+    async reviewActionApproval(
+        goalId: string,
+        command: BrowserActionReviewCommand,
+    ): Promise<BrowserActionReviewResult> {
+        const coordinator = this.dependencies.coordinator;
+        if (coordinator.reviewActionApproval === undefined) {
+            return { ok: false, error: "review_unavailable" };
+        }
+        let goal: Goal | undefined;
+        try { goal = await this.dependencies.store.restore(goalId); }
+        catch { return { ok: false, error: "review_unavailable" }; }
+        if (goal === undefined) return { ok: false, error: "goal_not_found" };
+        if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
+
+        let result: Awaited<ReturnType<NonNullable<typeof coordinator.reviewActionApproval>>>;
+        try {
+            result = await coordinator.reviewActionApproval({
+                ref: { goalId, runId: command.runId },
+                actionId: command.actionId,
+                ...(command.input === undefined ? {} : { input: command.input as JsonValue }),
+                ...(command.scope === undefined ? {} : { scope: command.scope }),
+            });
+        } catch { return { ok: false, error: "review_unavailable" }; }
+
+        if (!result.ok) {
+            return {
+                ok: false,
+                error: toBrowserReviewError(result.code),
+                ...(result.issues === undefined ? {} : { issues: result.issues.map((issue) => ({ path: [...issue.path], message: issue.message })) }),
+            };
+        }
+        return {
+            ok: true,
+            goalId,
+            runId: command.runId,
+            review: {
+                actionId: result.review.actionId,
+                toolId: result.review.toolId,
+                originalInput: result.review.originalInput,
+                finalInput: result.review.finalInput,
+                changed: result.review.changed,
+                scope: result.review.scope,
+                availableScopes: [...result.review.availableScopes],
+                capability: {
+                    network: result.review.capability.network,
+                    extraFiles: result.review.capability.extraFiles.map((file) => ({
+                        canonicalPath: file.canonicalPath,
+                        access: file.access,
+                        kind: file.kind,
+                    })),
+                    targetPaths: [...result.review.capability.targetPaths],
+                },
+                requiresSandboxApproval: result.review.requiresSandboxApproval,
+                reviewRef: result.review.reviewRef,
+            },
+        };
+    }
+
     /** 列出当前 Goal 与 workspace 的授权白名单摘要。 */
     async listToolGrants(goalId: string, runId: string): Promise<BrowserToolGrantResult> {
         const coordinator = this.dependencies.coordinator;
@@ -460,6 +553,21 @@ export class BrowserGoalCommandService {
 
     private isShuttingDown(): boolean {
         return this.dependencies.control?.signal?.aborted === true;
+    }
+}
+
+/** 把 Runtime 审批预检拒绝码投影为 wire 稳定错误码。 */
+function toBrowserReviewError(
+    code: ActionApprovalReviewErrorCode,
+): Extract<BrowserActionReviewResult, { readonly ok: false }>["error"] {
+    switch (code) {
+        case "ACTION_NOT_AWAITING_APPROVAL": return "action_not_waiting";
+        case "ACTION_ID_MISMATCH": return "action_id_mismatch";
+        case "TOOL_NOT_FOUND": return "tool_not_found";
+        case "INVALID_TOOL_INPUT": return "invalid_tool_input";
+        case "SCOPE_UNAVAILABLE": return "scope_unavailable";
+        case "SANDBOX_SCOPE_UNAVAILABLE": return "sandbox_scope_unavailable";
+        case "REVIEW_UNAVAILABLE": return "review_unavailable";
     }
 }
 

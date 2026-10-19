@@ -316,7 +316,6 @@ function createActionRecoveryGoal(): Goal {
         kind: "recover_action",
         actionId: "action-approval",
     });
-
     return {
         ...approval,
         state: { ...approval.state, run: recoveredRun },
@@ -892,9 +891,19 @@ test("allows re-approval of manual recovery and preserves the Action identity", 
     assert.equal(waiting.kind, "waiting");
     assert.equal(waiting.waitingFor, "action_recovery");
 
-    const result = requireSuccess(await coordinator.resume({
+    // 首次批准命令不再消费未知结果等待；恢复必须显式引用本次恢复身份。
+    const rejected = requireFailure(await coordinator.resume({
         ref: { goalId: recovery.id, runId: recovery.state.run.id },
         action: { kind: "approve_action", actionId: "action-approval" },
+    }));
+    assert.equal(rejected.error.code, "INVALID_GOAL_INPUT");
+
+    const recoveryRef = (await store.restore(recovery.id))?.state.run.pendingAction?.recoveryRef;
+    assert.ok(recoveryRef !== undefined);
+
+    const result = requireSuccess(await coordinator.resume({
+        ref: { goalId: recovery.id, runId: recovery.state.run.id },
+        action: { kind: "retry_unknown_action", actionId: "action-approval", recoveryRef },
     }));
 
     assert.equal(result.kind, "terminal");
@@ -949,9 +958,12 @@ test("Coordinator 与 Runner 协作恢复 manual Action 后等待重新批准", 
     assert.equal(recovery.waitingFor, "action_recovery");
     assert.equal(executedActionId, undefined);
 
+    const recoveryRef = (await store.restore(interrupted.id))?.state.run.pendingAction?.recoveryRef;
+    assert.ok(recoveryRef !== undefined);
+
     const completed = requireSuccess(await coordinator.resume({
         ref,
-        action: { kind: "approve_action", actionId: "action-approval" },
+        action: { kind: "retry_unknown_action", actionId: "action-approval", recoveryRef },
     }));
     assert.equal(completed.kind, "terminal");
     assert.equal(completed.goal.state.run.status, "completed");

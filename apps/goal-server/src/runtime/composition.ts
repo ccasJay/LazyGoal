@@ -905,6 +905,8 @@ async function assembleRuntimeComposition(
         listToolGrants: (ref) => rawCommands.listToolGrants(ref),
         revokeToolGrant: (request) =>
             runTrackedOperation("revoke_tool_grant", () => rawCommands.revokeToolGrant(request)),
+        reviewActionApproval: (request, control) =>
+            runTrackedOperation("review_action_approval", () => rawCommands.reviewActionApproval(request, control)),
     };
     const launcher = {
         async launch(request: Parameters<typeof launch>[0], control?: Parameters<typeof launch>[2]) {

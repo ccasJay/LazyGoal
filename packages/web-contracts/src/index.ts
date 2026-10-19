@@ -26,6 +26,9 @@ export {
     type BrowserInteractionView,
     type BrowserInteractionDetail,
     type BrowserInteractionDetailResult,
+    type BrowserActionReviewCommand,
+    type BrowserActionReview,
+    type BrowserActionReviewResult,
     type BrowserGoalSession,
 } from "./session";
 
@@ -62,6 +65,7 @@ export {
     type BrowserSessionInputResult,
     type BrowserSessionInputStatus,
     type BrowserSessionInteractionResponse,
+    type BrowserJsonValue,
     type BrowserSessionState,
 } from "./session-input";
 
@@ -139,6 +143,7 @@ export {
     isGoalPlan,
     isPendingAction,
     isBrowserInteractionView,
+    isBrowserActionReviewResult,
     isBrowserInteractionDetailResult,
     isBrowserGoalSession,
     isGoalSessionEnvelope,

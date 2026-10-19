@@ -425,6 +425,8 @@ function projectBrowserSteps(
                 }
             } else if (payload.type === "action_approved") {
                 actionStatus = "approved";
+            } else if (payload.type === "action_revised") {
+                actionStatus = "approved";
             } else if (payload.type === "action_rejected") {
                 actionStatus = "rejected";
                 status = "rejected";
@@ -549,7 +551,8 @@ function isActivityBoundaryEvent(event: TrajectoryEvent): boolean {
         || payload.type === "run_failed"
         || payload.type === "run_cancelled"
         || payload.type === "execution_error"
-        || payload.type === "action_rejected";
+        || payload.type === "action_rejected"
+        || payload.type === "action_reexecution_declined";
 }
 
 function isTransparentActivityBridge(event: TrajectoryEvent): boolean {
@@ -557,6 +560,8 @@ function isTransparentActivityBridge(event: TrajectoryEvent): boolean {
     if (type === "decision_received") return event.payload.decision.kind === "tool_call";
     return type === "action_staged"
         || type === "action_approved"
+        || type === "action_revised"
+        || type === "action_reexecution_authorized"
         || type === "action_recovered"
         || type === "tool_started"
         || type === "tool_attempt_started"
@@ -739,6 +744,7 @@ function projectBrowserInteractionView(
         ...(view.kind === "question" || view.kind === "task_approval"
             ? { requestId: view.requestId }
             : { actionId: view.actionId }),
+        ...(view.kind === "action_recovery" ? { recoveryRef: view.recoveryRef } : {}),
         decisions: view.decisions,
         truncated: truncatedDisplay,
     };
@@ -791,6 +797,9 @@ function trajectoryActionId(event: TrajectoryEvent): string | undefined {
     if (payload.type === "action_staged") return payload.action.actionId;
     if (
         payload.type === "action_approved"
+        || payload.type === "action_revised"
+        || payload.type === "action_reexecution_authorized"
+        || payload.type === "action_reexecution_declined"
         || payload.type === "action_rejected"
         || payload.type === "action_recovered"
         || payload.type === "tool_started"

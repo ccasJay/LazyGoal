@@ -1,5 +1,6 @@
 import type { AskUserQuestion } from "../../model-contracts/src/index";
 import type { EffectiveSandboxScope } from "../../sandbox/src/index";
+import { resolveActionRecoveryRef } from "./action-approval";
 import type { Goal, JsonValue } from "./domain";
 
 /**
@@ -40,8 +41,10 @@ export type InteractionDecision =
     | "approve_task"
     | "send_task_feedback"
     | "approve_action"
+    | "approve_action_revision"
     | "reject_action"
-    | "retry_action";
+    | "retry_unknown_action"
+    | "decline_unknown_action_retry";
 
 /**
  * 交互视图的稳定引用。
@@ -122,6 +125,13 @@ export type GoalInteractionView =
         readonly actionId: string;
         readonly toolId: string;
         readonly approvalKind?: "tool" | "sandbox";
+        /**
+         * 本次未知结果等待的恢复身份。
+         *
+         * @remarks 重执行决定必须原样带回该引用；同一 Action 再次产生未知结果时
+         * 引用改变，旧决定不能授权新一轮重执行。
+         */
+        readonly recoveryRef: string;
         /** 恢复只允许单次重试或拒绝。 */
         readonly scopeOptions: readonly ["action"];
         readonly fromProgram: boolean;
@@ -173,6 +183,12 @@ export type InteractionDetail =
         readonly toolId: string;
         readonly approvalKind?: "tool" | "sandbox" | undefined;
         readonly input: JsonValue;
+        /**
+         * 本次未知结果等待的恢复身份。
+         *
+         * @remarks 仅 `action_recovery` 提供；重执行决定必须原样带回。
+         */
+        readonly recoveryRef?: string | undefined;
         readonly effectiveSandboxScope?: EffectiveSandboxScope | undefined;
         readonly parentProgram?: {
             readonly actionId: string;
@@ -254,9 +270,10 @@ export function projectInteractionView(goal: Goal): GoalInteractionView | undefi
             actionId: pending.action.actionId,
             toolId: pending.action.toolId,
             ...(pending.approvalKind === undefined ? {} : { approvalKind: pending.approvalKind }),
+            recoveryRef: resolveActionRecoveryRef(pending),
             scopeOptions: ["action"],
             fromProgram,
-            decisions: ["retry_action", "reject_action"],
+            decisions: ["retry_unknown_action", "decline_unknown_action_retry"],
         };
     }
     return {
@@ -269,7 +286,7 @@ export function projectInteractionView(goal: Goal): GoalInteractionView | undefi
         ...(pending.approvalKind === undefined ? {} : { approvalKind: pending.approvalKind }),
         scopeOptions: ["action", "goal", "workspace"],
         fromProgram,
-        decisions: ["approve_action", "reject_action"],
+        decisions: ["approve_action", "approve_action_revision", "reject_action"],
     };
 }
 
@@ -378,6 +395,11 @@ export function readInteractionDetail(goal: Goal, ref: InteractionViewRef): Inte
             toolId: pending.action.toolId,
             ...(pending.approvalKind === undefined ? {} : { approvalKind: pending.approvalKind }),
             input: structuredClone(pending.action.input),
+            ...(view.kind === "action_recovery"
+                ? {
+                    recoveryRef: resolveActionRecoveryRef(pending),
+                }
+                : {}),
             ...(pending.effectiveSandboxScope === undefined
                 ? {}
                 : { effectiveSandboxScope: structuredClone(pending.effectiveSandboxScope) }),

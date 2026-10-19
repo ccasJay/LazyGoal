@@ -151,11 +151,12 @@ test("isBrowserInteractionView validates identity, decisions and truncation flag
         kind: "action_recovery",
         interactionId: "action_recovery:act-1",
         actionId: "act-1",
-        decisions: ["retry_action", "reject_action"],
+        recoveryRef: "recovery:0123456789abcdef",
+        decisions: ["retry_unknown_action", "decline_unknown_action_retry"],
         truncated: true,
     };
     assert.equal(isBrowserInteractionView(recovery), true);
-    assert.equal(isBrowserInteractionView({ ...recovery, kind: "action_approval", decisions: ["approve_action", "reject_action"] }), true);
+    assert.equal(isBrowserInteractionView({ ...recovery, kind: "action_approval", decisions: ["approve_action", "approve_action_revision", "reject_action"] }), true);
     assert.equal(isBrowserInteractionView({ ...recovery, decisions: ["approve_action"] }), false);
     assert.equal(isBrowserInteractionView({ ...recovery, kind: "other" }), false);
 

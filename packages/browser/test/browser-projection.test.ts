@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+    computeActionRecoveryRef,
     createGoal,
     createRunPlanRoute,
     type Goal,
@@ -203,7 +204,8 @@ test("action approval projection flags the typed view without exposing another A
         kind: "action_recovery",
         interactionId: "action_recovery:act-1",
         actionId: "act-1",
-        decisions: ["retry_action", "reject_action"],
+        recoveryRef: computeActionRecoveryRef("act-1", 1),
+        decisions: ["retry_unknown_action", "decline_unknown_action_retry"],
         truncated: false,
     });
     assert.equal(session?.pendingAction?.inputPreview.includes("npm test"), true);

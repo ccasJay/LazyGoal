@@ -306,6 +306,24 @@ export interface GoalSnapshotPendingActionBatchV1 {
     readonly remaining: readonly GoalSnapshotToolCallActionV1[];
 }
 
+/** Snapshot 中已获批 Action 的最终执行版本。 */
+export interface GoalSnapshotExecutionVersionV1 {
+    /** 原请求的稳定引用与原始参数；不被修订覆盖。 */
+    readonly original: {
+        readonly actionId: string;
+        readonly toolId: string;
+        readonly input: SnapshotJsonValue;
+    };
+    /** 最终 canonical 执行参数。 */
+    readonly input: SnapshotJsonValue;
+    /** 绑定的审阅指纹。 */
+    readonly reviewRef: string;
+    /** 实际获批的授权期限。 */
+    readonly scope: "action" | "goal" | "workspace";
+    /** 修订来源；未修订的批准省略。 */
+    readonly revision?: { readonly source: "user" | "host" };
+}
+
 /** Snapshot 中的未完成 Action。 */
 export interface GoalSnapshotPendingActionV1 {
     readonly action: GoalSnapshotToolCallActionV1;
@@ -322,6 +340,10 @@ export interface GoalSnapshotPendingActionV1 {
         }[];
         readonly network: "none" | "all_outbound";
     };
+    /** 已获批 Action 的最终执行版本；未修订的批准省略。 */
+    readonly executionVersion?: GoalSnapshotExecutionVersionV1;
+    /** 结果未知等待的恢复身份；跨重启稳定。 */
+    readonly recoveryRef?: string;
 }
 
 /**
@@ -1088,6 +1110,20 @@ const StepRecordSchema = z.discriminatedUnion("kind", [
     }).strict(),
 ]);
 
+const ExecutionVersionSchema = z.object({
+    original: z.object({
+        actionId: NonEmptyStringSchema,
+        toolId: NonEmptyStringSchema,
+        input: JsonValueSchema,
+    }).strict(),
+    input: JsonValueSchema,
+    reviewRef: NonEmptyStringSchema,
+    scope: z.enum(["action", "goal", "workspace"]),
+    revision: z.object({
+        source: z.enum(["user", "host"]),
+    }).strict().optional(),
+}).strict();
+
 const PendingActionSchema = z.object({
     action: ToolCallActionSchema,
     status: z.enum(["approved", "awaiting_approval", "outcome_unknown"]),
@@ -1103,6 +1139,8 @@ const PendingActionSchema = z.object({
         }).strict()),
         network: z.enum(["none", "all_outbound"]),
     }).strict().optional(),
+    executionVersion: ExecutionVersionSchema.optional(),
+    recoveryRef: NonEmptyStringSchema.optional(),
 }).strict().superRefine((pending, context) => {
     if (pending.status !== "approved" && (pending.approvalScope !== undefined || pending.grantId !== undefined)) {
         context.addIssue({ code: "custom", path: ["approvalScope"], message: "unapproved Action cannot retain authorization" });
