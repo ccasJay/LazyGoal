@@ -1,5 +1,10 @@
 import type { SessionInteractionResponse } from "./session-input";
-import type { GoalInteractionView, InteractionDetailResult, InteractionViewRef } from "./interaction-view";
+import type {
+    GoalInteractionView,
+    InteractionDetailResult,
+    InteractionViewKind,
+    InteractionViewRef,
+} from "./interaction-view";
 
 /**
  * 一次宿主交互处理调用的只读输入。
@@ -110,6 +115,55 @@ export type InteractionHandlerAttachResult =
         readonly code: "HANDLER_CONFLICT" | "SESSION_DETACHED";
         readonly message: string;
     };
+
+/**
+ * 一次宿主处理调用可定位的故障报告。
+ *
+ * @remarks
+ * `phase: "handler"` 表示宿主函数自身抛错或被中止；`phase: "admission"` 表示结果
+ * 未能作为决定提交：`ADMISSION_REJECTED` 是 Runtime 业务规则拒绝，
+ * `ADMISSION_UNKNOWN` 表示提交结果不明（保存可能已发生）。两者都保留原等待，
+ * 不默认批准或拒绝，也不重调函数；`inputId` 指向本次决定冻结的稳定输入身份。
+ *
+ * @example
+ * ```ts
+ * const failure: InteractionHandlerFailure = {
+ *   goalId: "goal-1", interactionId: "question:ask-1", kind: "question",
+ *   phase: "handler", code: "HANDLER_FAILED", message: "boom",
+ * };
+ * ```
+ */
+export interface InteractionHandlerFailure {
+    /** 目标 Goal。 */
+    readonly goalId: string;
+    /** 发生故障的等待引用。 */
+    readonly interactionId: string;
+    /** 等待种类。 */
+    readonly kind: InteractionViewKind;
+    /** 故障阶段。 */
+    readonly phase: "handler" | "admission";
+    /** 稳定故障分类。 */
+    readonly code: "HANDLER_FAILED" | "ADMISSION_REJECTED" | "ADMISSION_UNKNOWN";
+    /** 面向宿主的可定位说明。 */
+    readonly message: string;
+    /** 本次决定冻结的稳定输入身份；处理函数失败时为省略。 */
+    readonly inputId?: string;
+}
+
+/**
+ * 连接自动处理器时的可选宿主回调。
+ *
+ * @example
+ * ```ts
+ * const attached = session.attachInteractionHandlers(handlers, {
+ *   onFailure: (failure) => console.error(failure.interactionId, failure.code),
+ * });
+ * ```
+ */
+export interface InteractionHandlerAttachOptions {
+    /** 处理函数故障或决定未被受理时的可定位报告；省略时静默保留等待。 */
+    readonly onFailure?: (failure: InteractionHandlerFailure) => void;
+}
 
 /** 交互种类到处理函数名称的映射；恢复请求不会落到普通工具审批函数。 */
 export function handlerNameFor(view: GoalInteractionView): keyof SessionInteractionHandlers {

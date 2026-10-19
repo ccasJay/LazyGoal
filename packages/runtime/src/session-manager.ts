@@ -28,7 +28,9 @@ import {
 } from "./interaction-view";
 import {
     handlerNameFor,
+    type InteractionHandlerAttachOptions,
     type InteractionHandlerAttachResult,
+    type InteractionHandlerFailure,
     type InteractionHandlerHandle,
     type SessionInteractionHandlers,
 } from "./interaction-handlers";
@@ -185,6 +187,7 @@ const STOPPED = Symbol("stopped");
 interface SessionInteractionAttachment {
     readonly goalId: string;
     readonly handlers: SessionInteractionHandlers;
+    readonly onFailure: ((failure: InteractionHandlerFailure) => void) | undefined;
     /** 连接之前已经存在的等待身份；不会被自动回答。 */
     readonly baselineInteractionId: string | undefined;
     /** 已经启动过处理的交互身份；同一请求至多启动一次调用。 */
@@ -1084,6 +1087,7 @@ export class SessionManager implements SessionHandlePort {
         goalId: string,
         sessionId: string,
         handlers: SessionInteractionHandlers,
+        options?: InteractionHandlerAttachOptions,
     ): InteractionHandlerAttachResult {
         const existing = this.interactionAttachments.get(goalId);
         if (existing !== undefined && !existing.detached) {
@@ -1096,6 +1100,7 @@ export class SessionManager implements SessionHandlePort {
         const attachment: SessionInteractionAttachment = {
             goalId,
             handlers,
+            onFailure: options?.onFailure,
             baselineInteractionId: undefined,
             invoked: new Set(),
             pending: new Map(),
@@ -1131,6 +1136,48 @@ export class SessionManager implements SessionHandlePort {
     /** 释放指定句柄建立的自动处理器连接；其他句柄与 Goal 保持原状。 */
     detachSessionInteractionHandlers(goalId: string, _sessionId: string): void {
         this.interactionAttachments.get(goalId)?.detach();
+    }
+
+    /** 处理结果提交结果不明：按冻结身份核验收据；收据不存在时才报告未提交。 */
+    private async reportUnknownAdmission(
+        attachment: SessionInteractionAttachment,
+        view: GoalInteractionView,
+        inputId: string,
+        error: unknown,
+    ): Promise<void> {
+        let settled = false;
+        try {
+            const queried = await this.querySessionInput(attachment.goalId, inputId);
+            settled = queried.ok && queried.found;
+        } catch {
+            settled = false;
+        }
+        if (settled) return;
+        this.reportHandlerFailure(attachment, {
+            goalId: attachment.goalId,
+            interactionId: view.interactionId,
+            kind: view.kind,
+            phase: "admission",
+            code: "ADMISSION_UNKNOWN",
+            message: error instanceof Error ? error.message : String(error),
+            inputId,
+        });
+    }
+
+    /** 向宿主与后台观察者报告可定位的处理故障；等待保持不变。 */
+    private reportHandlerFailure(
+        attachment: SessionInteractionAttachment,
+        failure: InteractionHandlerFailure,
+    ): void {
+        try {
+            attachment.onFailure?.(failure);
+        } catch (error) {
+            this.onBackgroundFailure?.(attachment.goalId, error);
+        }
+        this.onBackgroundFailure?.(
+            attachment.goalId,
+            new Error(`${failure.phase}:${failure.code}:${failure.message}`),
+        );
     }
 
     /**
@@ -1200,15 +1247,42 @@ export class SessionManager implements SessionHandlePort {
             const latest = await this.store.restore(attachment.goalId);
             const current = latest === undefined ? undefined : projectInteractionView(latest);
             if (attachment.detached || current?.interactionId !== view.interactionId) return;
-            await this.sendSessionInput(attachment.goalId, {
-                kind: "respond",
-                inputId,
-                runId: view.runId,
-                requestId: interactionLocalId(view),
-                response: result.response,
-            });
+            let admitted: SessionInputAdmissionResult;
+            try {
+                admitted = await this.sendSessionInput(attachment.goalId, {
+                    kind: "respond",
+                    inputId,
+                    runId: view.runId,
+                    requestId: interactionLocalId(view),
+                    response: result.response,
+                });
+            } catch (error) {
+                // 提交结果不明：查询原输入收据确定是否提交，不伪造收据也不重调函数。
+                await this.reportUnknownAdmission(attachment, view, inputId, error);
+                return;
+            }
+            if (!admitted.ok) {
+                this.reportHandlerFailure(attachment, {
+                    goalId: attachment.goalId,
+                    interactionId: view.interactionId,
+                    kind: view.kind,
+                    phase: "admission",
+                    code: "ADMISSION_REJECTED",
+                    message: `Handler decision for "${view.interactionId}" was rejected: ${admitted.code} ${admitted.message}`,
+                    inputId,
+                });
+            }
         } catch (error) {
-            if (!attachment.detached) this.onBackgroundFailure?.(attachment.goalId, error);
+            if (!attachment.detached) {
+                this.reportHandlerFailure(attachment, {
+                    goalId: attachment.goalId,
+                    interactionId: view.interactionId,
+                    kind: view.kind,
+                    phase: "handler",
+                    code: "HANDLER_FAILED",
+                    message: error instanceof Error ? error.message : String(error),
+                });
+            }
         } finally {
             attachment.pending.delete(controller);
         }

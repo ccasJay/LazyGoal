@@ -18,6 +18,7 @@ import type {
     InteractionViewRef,
 } from "./interaction-view";
 import type {
+    InteractionHandlerAttachOptions,
     InteractionHandlerAttachResult,
     InteractionHandlerHandle,
     SessionInteractionHandlers,
@@ -169,6 +170,7 @@ export interface SessionHandlePort {
         goalId: string,
         sessionId: string,
         handlers: SessionInteractionHandlers,
+        options?: InteractionHandlerAttachOptions,
     ): InteractionHandlerAttachResult;
     /** 释放该句柄持有的自动处理器连接；不影响其他句柄与 Goal。 */
     detachSessionInteractionHandlers(goalId: string, sessionId: string): void;
@@ -323,9 +325,12 @@ export class Session {
      * const attached = session.attachInteractionHandlers({ onQuestion: async () => ({ kind: "unhandled" }) });
      * ```
      */
-    attachInteractionHandlers(handlers: SessionInteractionHandlers): InteractionHandlerAttachResult {
+    attachInteractionHandlers(
+        handlers: SessionInteractionHandlers,
+        options?: InteractionHandlerAttachOptions,
+    ): InteractionHandlerAttachResult {
         this.assertAttached();
-        const result = this.port.attachSessionInteractionHandlers(this.goalId, this.sessionId, handlers);
+        const result = this.port.attachSessionInteractionHandlers(this.goalId, this.sessionId, handlers, options);
         if (result.ok) this.handlers.add(result.handle);
         return result;
     }

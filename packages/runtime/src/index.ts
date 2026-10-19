@@ -345,8 +345,10 @@ export { SessionInputAdmission } from "./session-admission";
 export type { SessionInputAdmissionDependencies } from "./session-admission";
 export { handlerNameFor } from "./interaction-handlers";
 export type {
+    InteractionHandlerAttachOptions,
     InteractionHandlerAttachResult,
     InteractionHandlerCall,
+    InteractionHandlerFailure,
     InteractionHandlerHandle,
     InteractionHandlerResult,
     SessionInteractionHandlers,
