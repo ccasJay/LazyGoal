@@ -6,6 +6,7 @@ import {
   isBrowserSessionState,
   isActionDetailsResult,
   isBrowserGoalSession,
+  isBrowserInteractionDetailResult,
   isGoalList,
   isGoalSessionEnvelope,
   isLiveEvent,
@@ -40,6 +41,7 @@ import {
   type BrowserGoalLiveEvent,
   type BrowserGoalPlanModeCommand,
   type BrowserGoalSession,
+  type BrowserInteractionDetailResult,
   type BrowserSessionInputCommand,
   type BrowserSessionInputQueryResult,
   type BrowserSessionInputResult,
@@ -237,6 +239,14 @@ export const browserApi = {
     return requestJson(
       `/api/goals/${encodeURIComponent(goalId)}/actions/${encodeURIComponent(actionId)}?runId=${encodeURIComponent(runId)}`,
       isActionDetailsResult,
+    );
+  },
+
+  /** 按稳定交互引用读取完整审阅内容；读取失败与过期引用不改变等待。 */
+  readInteractionDetail(goalId: string, runId: string, interactionId: string): Promise<BrowserInteractionDetailResult> {
+    return requestJson(
+      `/api/goals/${encodeURIComponent(goalId)}/interaction-details?runId=${encodeURIComponent(runId)}&interactionId=${encodeURIComponent(interactionId)}`,
+      isBrowserInteractionDetailResult,
     );
   },
 

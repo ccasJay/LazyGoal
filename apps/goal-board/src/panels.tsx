@@ -6,6 +6,7 @@ import type {
   BrowserToolGrantSummary,
 } from "../../../packages/web-contracts/src/index";
 import { BrowserApiError, browserApi } from "./api";
+import { QuestionInteractionRegion, type AcceptedDecisionSummary } from "./interaction-panel";
 import type { BrowserGoalInteractionCommand } from "./types";
 
 type SessionTab = "Activity" | "Plan" | "Details";
@@ -141,23 +142,34 @@ export function GoalDetails({
 export function WaitingInteraction({
   session,
   busy,
+  stopping,
   onSubmit,
+  onInterrupt,
+  onRefreshSession,
+  onDecisionAccepted,
 }: {
   session: BrowserGoalSession;
   busy: boolean;
+  stopping: boolean;
   onSubmit: (command: BrowserGoalInteractionCommand) => void;
+  onInterrupt: () => Promise<void>;
+  onRefreshSession: () => Promise<void>;
+  onDecisionAccepted: (summary: AcceptedDecisionSummary) => void;
 }) {
-  const interaction = session.pendingInteraction;
-  if (interaction?.kind === "ask_user") {
+  const view = session.interaction;
+  if (view?.kind === "question") {
     return (
-      <AskUserForm
-        key={`${session.currentRunId}:${interaction.requestId}`}
-        session={session}
-        busy={busy}
-        onSubmit={onSubmit}
+      <QuestionInteractionRegion
+        key={`${view.runId}:${view.interactionId}`}
+        view={view}
+        chrome={{ label: "Question", busy, stopping }}
+        onRefreshSession={onRefreshSession}
+        onInterrupt={onInterrupt}
+        onDecisionAccepted={onDecisionAccepted}
       />
     );
   }
+  const interaction = session.pendingInteraction;
   if (interaction?.kind === "task_approval") {
     return (
       <TaskApprovalForm
@@ -180,143 +192,6 @@ export function WaitingInteraction({
     );
   }
   return null;
-}
-
-function AskUserForm({
-  session,
-  busy,
-  onSubmit,
-}: {
-  session: BrowserGoalSession;
-  busy: boolean;
-  onSubmit: (command: BrowserGoalInteractionCommand) => void;
-}) {
-  const interaction = session.pendingInteraction;
-  if (interaction?.kind !== "ask_user") return null;
-  const [selected, setSelected] = useState<Record<string, string[]>>({});
-  const [otherText, setOtherText] = useState<Record<string, string>>({});
-  const canSubmit = interaction.questions.length > 0 && interaction.questions.every((question) =>
-    (selected[question.id]?.length ?? 0) > 0 || (otherText[question.id]?.trim().length ?? 0) > 0);
-
-  return (
-    <section className="approval structured-form">
-      <div className="approval-heading">
-        <CircleHelp size={15} />
-        <strong>Your answer is needed</strong>
-      </div>
-      {interaction.routeRevision && (
-        <>
-          <p>{interaction.routeRevision.approvalRequest}</p>
-          <p><strong>Reason:</strong> {interaction.routeRevision.reason}</p>
-          <div className="proposed-route" aria-label="Proposed route revision">
-            <h5>Proposed stages</h5>
-            <ol>
-              {interaction.routeRevision.route.map((stage, index) => (
-                <li key={`${index}-${stage.target}`}>
-                  <strong>{stage.target}</strong>
-                  <ul>{stage.acceptanceCriteria.map((criterion, criterionIndex) => (
-                    <li key={`${index}-${criterionIndex}`}>{criterion}</li>
-                  ))}</ul>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </>
-      )}
-      <form onSubmit={(event) => {
-        event.preventDefault();
-        if (!canSubmit) return;
-        onSubmit({
-          kind: "answer_ask_user",
-          runId: session.currentRunId,
-          requestId: interaction.requestId,
-          answers: interaction.questions.map((question) => {
-            const otherAnswer = otherText[question.id]?.trim();
-            return {
-              questionId: question.id,
-              optionIds: !question.multiSelect && otherAnswer
-                ? []
-                : selected[question.id] ?? [],
-              ...(otherAnswer ? { otherText: otherAnswer } : {}),
-            };
-          }),
-        });
-      }}>
-        {interaction.questions.map((question) => (
-          <fieldset className="question" key={question.id}>
-            <legend>{question.header}</legend>
-            <p>{question.question}</p>
-            <div className="question-options">
-              {question.options.map((option) => {
-                const checked = (selected[question.id] ?? []).includes(option.id);
-                return (
-                  <label className="answer-option" key={option.id} htmlFor={`question-${question.id}-option-${option.id}`}>
-                    <input
-                      id={`question-${question.id}-option-${option.id}`}
-                      type={question.multiSelect ? "checkbox" : "radio"}
-                      name={`question-${question.id}`}
-                      checked={checked}
-                      disabled={busy}
-                      onChange={() => {
-                        setSelected((current) => {
-                          const previous = current[question.id] ?? [];
-                          const next = question.multiSelect
-                            ? checked
-                              ? previous.filter((id) => id !== option.id)
-                              : [...previous, option.id]
-                            : [option.id];
-                          return { ...current, [question.id]: next };
-                        });
-                        if (!question.multiSelect) {
-                          setOtherText((current) => ({ ...current, [question.id]: "" }));
-                        }
-                      }}
-                    />
-                    <span>{option.label}
-                      {option.description && <small>{option.description}</small>}
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-            <label className="other-answer" htmlFor={`question-${question.id}-other`}>
-              <span>Other answer</span>
-              <input
-                id={`question-${question.id}-other`}
-                name={`question-${question.id}-other`}
-                value={otherText[question.id] ?? ""}
-                disabled={busy}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setOtherText((current) => ({ ...current, [question.id]: value }));
-                  if (!question.multiSelect && value.trim().length > 0) {
-                    setSelected((current) => ({ ...current, [question.id]: [] }));
-                  }
-                }}
-              />
-            </label>
-          </fieldset>
-        ))}
-        <div className="ask-user-actions">
-          <button className="approval-primary" disabled={busy || !canSubmit} type="submit">
-            <Check size={13} /> Submit answer
-          </button>
-          <button
-            className="approval-cancel"
-            disabled={busy}
-            onClick={() => onSubmit({
-              kind: "skip_question",
-              runId: session.currentRunId,
-              requestId: interaction.requestId,
-            })}
-            type="button"
-          >
-            <X size={13} /> Skip question
-          </button>
-        </div>
-      </form>
-    </section>
-  );
 }
 
 function TaskApprovalForm({

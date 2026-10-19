@@ -469,6 +469,57 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .action-rejection .feedback-form label { color: var(--muted); font-size: 10px; }
 .action-rejection textarea { border-color: var(--control-border); background: var(--panel); color: var(--text); font-size: 11px; }
 .action-rejection button { border-color: var(--line); color: var(--text); font-size: 11px; }
+.interaction-region { padding: 14px; }
+.interaction-region .approval-heading { flex-wrap: wrap; font-size: 13px; }
+.interaction-stop { margin-left: auto; padding: 5px 9px; border: 1px solid var(--danger-border); border-radius: 5px; color: var(--danger); font-size: 10px; }
+.interaction-stop:disabled { opacity: .5; }
+.interaction-note { margin: 6px 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.interaction-mode-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 12px 0 4px; padding: 0; border: 0; }
+.interaction-mode-switch legend { margin-bottom: 6px; color: var(--muted); font-size: 10px; }
+.interaction-mode-switch label { display: flex; align-items: flex-start; gap: 7px; padding: 9px; border: 1px solid var(--control-border); border-radius: 6px; color: var(--text); cursor: pointer; }
+.interaction-mode-switch label:has(input:checked) { border-color: var(--accent-ink); background: var(--accent-soft); }
+.interaction-mode-switch input { margin: 2px 0 0; accent-color: var(--accent-ink); }
+.interaction-mode-switch span { display: grid; gap: 2px; }
+.interaction-mode-switch strong { font-size: 10px; font-weight: 550; }
+.interaction-mode-switch small { color: var(--muted); font-size: 10px; line-height: 1.5; }
+.question-nav { margin: 10px 0; }
+.question-nav-progress { margin: 0 0 6px; color: var(--accent-ink); font-size: 10px; font-weight: 600; }
+.question-nav ol { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.question-nav-item { display: grid; width: 100%; gap: 2px; padding: 8px 9px; border: 1px solid var(--control-border); border-radius: 5px; background: var(--panel); color: var(--text-secondary); font-size: 10px; text-align: left; cursor: pointer; }
+.question-nav-item.current { border-color: var(--accent-ink); background: var(--accent-soft); color: var(--text); }
+.question-nav-item:disabled { opacity: .55; cursor: default; }
+.question-nav-index { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+.question-nav-header { color: var(--text); font-size: 10px; font-weight: 550; overflow-wrap: anywhere; }
+.question-nav-state { color: var(--muted); font-size: 10px; }
+.question-nav-item.answered .question-nav-state { color: var(--accent-ink); }
+.question-nav-item.unanswered .question-nav-state { color: var(--warning); }
+.question-nav-actions { display: flex; gap: 8px; margin: 8px 0; }
+.question-nav-actions button { padding: 6px 9px; border: 1px solid var(--control-border); border-radius: 4px; color: var(--text-secondary); font-size: 10px; }
+.question-nav-actions button:disabled { opacity: .45; }
+.interaction-review { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.interaction-review h5 { margin: 0 0 7px; color: var(--muted); font-size: 10px; font-weight: 550; text-transform: uppercase; letter-spacing: .05em; }
+.interaction-review ol { display: grid; gap: 5px; margin: 0; padding-left: 4px; list-style: none; }
+.interaction-review li { display: grid; gap: 2px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); }
+.interaction-review li.unanswered { border-color: var(--warning-border); }
+.interaction-review strong { font-size: 10px; font-weight: 550; }
+.interaction-review span { color: var(--text-secondary); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.interaction-review li.unanswered span { color: var(--warning); }
+.overall-reply { display: grid; gap: 6px; margin: 12px 0; }
+.overall-reply label { color: var(--muted); font-size: var(--font-size-xs); }
+.overall-reply textarea { min-height: 76px; padding: 8px; border: 1px solid var(--control-border); border-radius: 5px; background: var(--panel); color: var(--text); font-size: 11px; resize: vertical; }
+.interaction-status { margin: 8px 0 0; color: var(--muted); font-size: 10px; }
+.interaction-error { margin: 8px 0 0; padding: 7px 8px; border-left: 2px solid var(--danger-border); background: var(--danger-soft); color: var(--danger); font-size: 10px; line-height: 1.6; }
+.interaction-resolve { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.interaction-accepted { display: flex; align-items: center; gap: 6px; color: var(--accent-ink); font-size: 11px; font-weight: 550; }
+.skip-confirm { display: grid; gap: 7px; width: 100%; margin-top: 8px; padding: 9px; border: 1px solid var(--warning-border); border-radius: 5px; background: var(--warning-soft); }
+.skip-confirm p { margin: 0; color: var(--warning); font-size: 10px; line-height: 1.6; }
+.skip-confirm button { justify-self: start; padding: 6px 9px; border: 1px solid var(--control-border); border-radius: 4px; color: var(--text-secondary); font-size: 10px; }
+.skip-confirm .approval-cancel { border-color: var(--warning-border); color: var(--warning); }
+.interaction-skip { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border: 1px solid var(--control-border); border-radius: 4px; color: var(--text-secondary); font-size: 10px; }
+.queue-composer { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.queue-note { margin: 0 0 6px; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.decision-summaries { display: grid; gap: 6px; margin-bottom: 10px; }
+.decision-summary { display: flex; align-items: center; gap: 6px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--text-secondary); font-size: 10px; }
 .grant-panel { margin-top: 20px; padding-top: 17px; border-top: 1px solid var(--line); }
 .grant-panel .panel-heading { margin-bottom: 8px; }
 .grant-panel h3 { display: flex; align-items: center; gap: 6px; }
@@ -489,6 +540,9 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 @media (max-width: 560px) {
   .approval-scopes { grid-template-columns: 1fr; gap: 3px; }
   .approval-scopes label { padding: 8px 7px; }
+  .interaction-mode-switch { grid-template-columns: 1fr; }
+  .interaction-region .approval-heading { align-items: flex-start; }
+  .interaction-stop { margin-left: 0; }
   .grant-list li { align-items: flex-start; }
 }
 

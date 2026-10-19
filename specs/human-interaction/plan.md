@@ -43,7 +43,7 @@
   - **实现**：追踪调用取消和每次已产生决定的稳定输入身份；提交不明时核验收据，不重新调用函数产生第二决定。隔离函数故障、停止重复调用和晚到结果；解除时释放自动所有者、停止自己订阅且不取消 Goal。复用基础恢复资格和生命周期，不持久化函数或增加第二套恢复标记；显式重连可重新投递未结算请求，文档不承诺回调跨重启 exactly-once。
   - **验证**：新增 `packages/runtime/test/session-interaction-handler-recovery.test.ts`（待实现），扩展 `runtime-lifecycle.test.ts` 和 `apps/goal-server/test/runtime-recovery.integration.test.ts`。运行对应 `npx tsx --test`，注入真实文件存储重建、提交前后故障与受控信号；核验中止原因、处理器故障可定位性、收据去重、调用次数及关闭期限。
 
-- [ ] //TODO 6. 用全新问题导航、答案审阅和整体回复替换旧问答表单
+- [x] //TODO 6. 用全新问题导航、答案审阅和整体回复替换旧问答表单
 
   落实标准：[5.1](./spec.md#spec-req-5-1)、[5.2](./spec.md#spec-req-5-2)、[5.3](./spec.md#spec-req-5-3)、[5.6](./spec.md#spec-req-5-6)、[5.7](./spec.md#spec-req-5-7)、[7.3](./spec.md#spec-req-7-3)。
   - **先验证**：浏览器中编辑多题问卷，导航回看与审阅不提交；单选 Other 与选项互斥、多选组合有效。切换整体回复保留两种草稿且只提交当前模式；跳过需明确确认后果，独立 Stop run 可达，普通队列输入有不同用途。对 320px、桌面、长内容、键盘操作和焦点验证全过程，文本框 Enter／Escape 不隐式批准、跳过或停止。

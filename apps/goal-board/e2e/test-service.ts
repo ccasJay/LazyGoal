@@ -55,6 +55,12 @@ class DeterministicAdapter implements LLMAdapter {
         const lastUser = goal.state.messages.filter(message => message.role === "user").at(-1)?.content ?? "";
         const cancellationFlow = goal.definition.intent.includes("Cancellation flow:");
         const needsQuestion = cancellationFlow ? !cancelled : goal.definition.intent.includes("Collect approved notes") && !lastUser.includes("follow-up") && !answered;
+        // 人机交互验收流程：同一问卷覆盖逐题回答、整体回复、跳过与等待中停止，回答后按普通收尾继续。
+        const humanFlow = goal.definition.intent.includes("Human interaction flow:");
+        const humanResolved = trajectory.committed.some(event =>
+            event.eventType === "ask_user_answered"
+            || event.eventType === "ask_user_replied"
+            || event.eventType === "ask_user_skipped");
         let result: Record<string, unknown>;
         if (goal.state.run.mode === "plan" && goal.state.run.approvedTask === undefined) {
             result = {
@@ -62,6 +68,25 @@ class DeterministicAdapter implements LLMAdapter {
                 planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                 task: { objective: "Finish the controlled plan-flow check", completionCriteria: [{ text: "Plan Run completed", acceptance: null }] },
                 approvalRequest: "Approve the deterministic plan-flow task?",
+                memoryPatch: null,
+            };
+        } else if (humanFlow) {
+            result = humanResolved ? await completedDecision() : {
+                kind: "ask_user",
+                questions: [
+                    {
+                        header: "Choose a source",
+                        question: "Which notes should I include?",
+                        options: [{ label: "Approved notes", description: null }, { label: "All notes", description: null }],
+                        multiSelect: false,
+                    },
+                    {
+                        header: "Choose sections",
+                        question: "Which sections should I include?",
+                        options: [{ label: "Summary", description: null }, { label: "Details", description: null }, { label: "Appendix", description: null }],
+                        multiSelect: true,
+                    },
+                ],
                 memoryPatch: null,
             };
         } else if (needsQuestion) {

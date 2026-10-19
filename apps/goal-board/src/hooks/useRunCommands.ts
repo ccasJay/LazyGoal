@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type {
   BrowserGoalSession,
   BrowserSessionState,
@@ -40,6 +40,7 @@ export function useRunCommands({
   const [commandBusy, setCommandBusy] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [stoppingRunId, setStoppingRunId] = useState<string | null>(null);
+  const interruptInFlight = useRef(false);
 
   const submitDraftMessage = useCallback(
     async (content: string): Promise<boolean> => {
@@ -192,8 +193,9 @@ export function useRunCommands({
   );
 
   const interruptCurrentRun = useCallback(async (): Promise<void> => {
-    if (!session || session.runStatus !== "running" || commandBusy) return;
-    setCommandBusy(true);
+    // 停止使用独立输入身份与在途标记：等待中的回答提交不能锁住停止入口。
+    if (!session || !["running", "waiting"].includes(session.runStatus) || interruptInFlight.current) return;
+    interruptInFlight.current = true;
     setStoppingRunId(session.currentRunId);
     setCommandError(null);
     try {
@@ -209,9 +211,9 @@ export function useRunCommands({
       setCommandError(errorMessage(error));
       if (error instanceof BrowserApiError && error.refresh) await onRefreshSession();
     } finally {
-      setCommandBusy(false);
+      interruptInFlight.current = false;
     }
-  }, [session, commandBusy, onRefreshSession]);
+  }, [session, onRefreshSession]);
 
   const submitInteraction = useCallback(
     async (command: BrowserGoalInteractionCommand) => {

@@ -164,7 +164,7 @@ test("real local service restores and completes one authorized Goal conversation
     assert.ok(await value(socket, "document.querySelector('.structured-form') !== null"), "disconnect preserves the saved answer form");
     await waitForExpression(socket, "document.querySelector('.session [role=alert]') !== null");
     assert.equal(await value(socket, "document.querySelector('.other-answer input').value"), "Saved answer draft");
-    assert.equal(await value(socket, "document.querySelector('.structured-form button[type=submit]').disabled"), true);
+    assert.equal(await value(socket, "document.querySelector('.ask-user-actions .interaction-skip').disabled"), true, "offline state disables the questionnaire controls");
 
     service = await startService({ workspace, data, home, statusPath, runOffset: 1, modelOffset: 1, delayModel: true });
     const restarted = await service.ready;
@@ -196,9 +196,9 @@ test("real local service restores and completes one authorized Goal conversation
     });
     await setText(socket, ".other-answer input", "暂停");
     assert.equal(await value(socket, "document.querySelector('label.answer-option input:checked') === null"), true, "Other answer clears a single-choice radio selection");
-    assert.equal(await value(socket, "document.querySelector('.ask-user-actions .approval-cancel')?.textContent.includes('Cancel question')"), true, "AskUser exposes a cancel control beside Submit answer");
+    assert.equal(await value(socket, "document.querySelector('.ask-user-actions .interaction-skip')?.textContent.includes('Skip questionnaire')"), true, "the questionnaire exposes an explicit skip control beside Send answers");
     await cdp(socket, "Runtime.evaluate", {
-      expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Submit answer')).click()",
+      expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Send answers')).click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Your approval is needed')", 15_000);
@@ -459,9 +459,14 @@ test("real local service restores and completes one authorized Goal conversation
     });
     await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Should this Run continue?')", 15_000);
     let cancellationSession = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.intent.includes("Cancellation flow") && candidate.pendingInteraction?.kind === "ask_user");
-    assert.equal(await value(socket, "document.querySelector('.ask-user-actions button.approval-primary + button.approval-cancel')?.textContent.includes('Cancel question')"), true);
+    assert.equal(await value(socket, "document.querySelector('.ask-user-actions .interaction-skip')?.textContent.includes('Skip questionnaire')"), true);
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('.ask-user-actions .approval-cancel').click()",
+      expression: "document.querySelector('.interaction-skip').click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('.skip-confirm') !== null");
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "document.querySelector('.skip-confirm .approval-cancel').click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 10_000);

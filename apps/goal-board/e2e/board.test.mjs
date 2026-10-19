@@ -195,7 +195,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "[...document.querySelectorAll('label.answer-option')].find(label => label.innerText.includes('Approved notes')).querySelector('input').checked"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close model picker\"]').click()", returnByValue: true });
     await cdp(socket, "Runtime.evaluate", {
-      expression: "[...document.querySelectorAll('button')].find(button => button.textContent.includes('Submit answer')).click()",
+      expression: "[...document.querySelectorAll('button')].find(button => button.textContent.includes('Send answers')).click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')");
@@ -869,6 +869,23 @@ function createMockApi() {
       json(response, { goalId: "goal-1", runId: "run-1", existing: planModeRequests > 1 });
       return;
     }
+    if (request.url?.startsWith("/api/goals/goal-1/interaction-details?") && request.method === "GET") {
+      const query = new URL(request.url, "http://localhost").searchParams;
+      const interactionId = query.get("interactionId");
+      if (query.get("runId") !== "run-1" || session.pendingInteraction === undefined
+        || interactionId !== `question:${session.pendingInteraction.requestId}`) {
+        json(response, { ok: false, error: "interaction_not_waiting" }, 409);
+        return;
+      }
+      json(response, {
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId,
+        detail: { kind: "question", mode: session.pendingInteraction.mode, questions: session.pendingInteraction.questions },
+      });
+      return;
+    }
     if (request.url === "/api/goals/goal-1/actions/action-1?runId=run-1" && request.method === "GET") {
       json(response, { ok: true, goalId: "goal-1", runId: "run-1", actionId: "action-1", toolId: "write_file", input: { path: "src/file.ts", content: "Complete private body" } });
       return;
@@ -987,6 +1004,7 @@ function createMockApi() {
       session = {
         ...interactionSession(),
         pendingInteraction: undefined,
+        interaction: undefined,
         pendingAction: {
           actionId: "action-unknown",
           toolId: "write_file",
@@ -1003,6 +1021,7 @@ function createMockApi() {
       session = {
         ...interactionSession(),
         pendingInteraction: undefined,
+        interaction: undefined,
         pendingAction: {
           actionId: "action-1",
           toolId: "write_file",
@@ -1087,6 +1106,15 @@ function interactionSession() {
       ],
     }],
   };
+  session.interaction = {
+    goalId: "goal-1",
+    runId: "run-1",
+    kind: "question",
+    interactionId: "question:request-1",
+    requestId: "request-1",
+    decisions: ["answer_questions", "reply_to_question", "skip_question"],
+    truncated: false,
+  };
   return session;
 }
 
@@ -1095,6 +1123,7 @@ function completedSession(previous) {
     ...previous,
     runStatus: "completed",
     pendingInteraction: undefined,
+    interaction: undefined,
     messages: [
       ...previous.messages,
       { role: "user", content: "Approved notes" },
