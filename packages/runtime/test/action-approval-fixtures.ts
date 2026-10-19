@@ -18,6 +18,7 @@ import {
     type JsonValue,
     type RunState,
     type ToolCallAction,
+    type ToolPolicy,
 } from "../src/index";
 import { InMemoryGoalStore, JsonFileSandboxGrantStore, JsonFileToolGrantStore } from "../../storage/src/index";
 import { currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
@@ -75,6 +76,11 @@ export const APPROVAL_PROFILE: AgentProfile = {
     toolIds: ["write_file"],
     instructions: [],
     systemPrompt: "system prompt",
+};
+
+/** 默认模式下要求写类 Tool 先经用户审批的策略。 */
+export const REQUIRE_APPROVAL_POLICY: ToolPolicy = {
+    evaluate: ({ tool }) => tool.isReadOnly === true ? "allow" : "require_approval",
 };
 
 /** 一次审批测试的装配结果。 */
@@ -167,6 +173,32 @@ export function toOutcomeUnknown(run: RunState, actionId: string): RunState {
 /** 生成一个当前待审批 Action 的稳定引用。 */
 export function actionRef(action: ToolCallAction): { actionId: string; toolId: string } {
     return { actionId: action.actionId, toolId: action.toolId };
+}
+
+/** 创建一个已进入执行阶段、等待模型决策的 Goal。 */
+export function createExecutingApprovalGoal(
+    options: { readonly goalId?: string; readonly runId?: string } = {},
+): Goal {
+    const goalId = options.goalId ?? "goal-execution";
+    const runId = options.runId ?? "run-execution";
+    const created = withDiscoveredProfileTools(createUnexposedGoal({
+        ...currentProtocols,
+        promptBundleVersion: 1,
+        id: goalId,
+        intent: "受控审批执行测试",
+        profile: APPROVAL_PROFILE,
+        runId,
+    }));
+    const started = transition(created.state.run, { kind: "start" });
+    if (!started.ok) throw new Error(started.error.message);
+    return {
+        ...created,
+        state: {
+            ...created.state,
+            workflow: { phase: "executing" },
+            run: started.state,
+        },
+    };
 }
 
 export { trajectoryStoreFor };

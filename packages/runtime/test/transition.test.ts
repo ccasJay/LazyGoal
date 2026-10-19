@@ -631,3 +631,87 @@ for (const terminalState of terminalStates) {
         assert.strictEqual(result.state, terminalState);
     });
 }
+
+test("approve_action_revision freezes the final execution version and rejects mismatched identities", () => {
+    const staged = requireSuccessfulState(
+        transition(createRunningState(), {
+            kind: "stage_action",
+            status: "awaiting_approval",
+            action: {
+                actionId: "action-revise",
+                toolId: "write_file",
+                input: { path: "a.txt" },
+            },
+        }),
+    );
+
+    const executionVersion = {
+        original: { actionId: "action-revise", toolId: "write_file", input: { path: "a.txt" } },
+        input: { path: "b.txt" },
+        reviewRef: "review:0123456789abcdef0123456789abcdef",
+        scope: "action" as const,
+        revision: { source: "user" as const },
+    };
+
+    const approved = requireSuccessfulState(
+        transition(staged, {
+            kind: "approve_action_revision",
+            actionId: "action-revise",
+            executionVersion,
+        }),
+    );
+    assert.equal(approved.status, "running");
+    assert.equal(approved.stepCount, 0);
+    assert.deepEqual(approved.pendingAction?.executionVersion, executionVersion);
+    // 原请求不被覆盖。
+    assert.deepEqual(approved.pendingAction?.action.input, { path: "a.txt" });
+
+    const wrongTool = transition(staged, {
+        kind: "approve_action_revision",
+        actionId: "action-revise",
+        executionVersion: {
+            ...executionVersion,
+            original: { ...executionVersion.original, toolId: "other_tool" },
+        },
+    });
+    assert.equal(wrongTool.ok, false);
+
+    const wrongAction = transition(staged, {
+        kind: "approve_action_revision",
+        actionId: "action-other",
+        executionVersion,
+    });
+    assert.equal(wrongAction.ok, false);
+});
+
+test("approve_action_revision does not consume an unknown-outcome wait", () => {
+    const staged = requireSuccessfulState(
+        transition(createRunningState(), {
+            kind: "stage_action",
+            status: "awaiting_approval",
+            action: {
+                actionId: "action-revise",
+                toolId: "write_file",
+                input: { path: "a.txt" },
+            },
+        }),
+    );
+    const approved = requireSuccessfulState(
+        transition(staged, { kind: "approve_action", actionId: "action-revise" }),
+    );
+    const unknown = requireSuccessfulState(
+        transition(approved, { kind: "recover_action", actionId: "action-revise" }),
+    );
+
+    const rejected = transition(unknown, {
+        kind: "approve_action_revision",
+        actionId: "action-revise",
+        executionVersion: {
+            original: { actionId: "action-revise", toolId: "write_file", input: { path: "a.txt" } },
+            input: { path: "b.txt" },
+            reviewRef: "review:0123456789abcdef0123456789abcdef",
+            scope: "action",
+        },
+    });
+    assert.equal(rejected.ok, false);
+});

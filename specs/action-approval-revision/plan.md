@@ -15,7 +15,7 @@
   - **实现**：在 Runtime 与现有内部 Session／窄管理 Port 接入预检，复用工具准备、执行准入、Permission 与 Sandbox 规则，通过受保护 wire 返回可审阅数据；绑定原审批基准、最终输入、期限与有效能力的审阅指纹。参数与路径元数据准备不跨越长时间 Gate，确认仍需复核；不持久化编辑候选、不暂存 Grant、不启动审批回调，不引入新授权或配置引擎。
   - **验证**：新增 `packages/runtime/test/action-approval-review.test.ts`（待实现），扩展 `packages/browser/test/browser-interactions.test.ts`、`packages/permission/test/tool-authorization.test.ts` 和 `sandbox-decision.test.ts`；运行这些文件的 `npx tsx --test`。用路径／策略可控变化探针和现有沙箱规划检查真实 scope，不只比较预检响应字段。
 
-- [ ] //TODO 2. 把原请求与最终批准版本关联并让直接调用执行正确参数
+- [x] //TODO 2. 把原请求与最终批准版本关联并让直接调用执行正确参数
 
   落实标准：[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)、[2.3](./spec.md#spec-req-2-3)、[3.1](./spec.md#spec-req-3-1)、[3.4](./spec.md#spec-req-3-4)、[6.4](./spec.md#spec-req-6-4)。
   - **先验证**：将原操作写入目标 A 改为 B，只在绑定最终审阅结果的确认保存后调用工具，实际输入和沙箱计划均指向 B。断言原 Action ID、原模型响应、原 `action_staged` 保留，获批版本不可再改；原样批准、拒绝／建议仍有效。修订后旧批次未执行项失效，回到模型决策；保存失败无调用，同身份重试无重复消息／批准，停止与不同决定竞争仅一个按提交顺序有效。

@@ -8,6 +8,7 @@ import type {
     JsonValue,
     PendingInteractionAskUser,
     RunRef,
+    RunState,
     AskUserAnswer,
     AskUserQuestion,
 } from "./domain";
@@ -1862,6 +1863,8 @@ export class GoalCoordinator {
                     revision: { source: "user" },
                 };
 
+                const invalidatedBatchActionIds = (goal.state.run.pendingActionBatch?.remaining ?? [])
+                    .map((action) => action.actionId);
                 const approvedRun = transition(goal.state.run, {
                     kind: "approve_action_revision",
                     actionId: request.action.actionId,
@@ -1878,11 +1881,16 @@ export class GoalCoordinator {
                     );
                 }
 
+                // 修订使同批次尚未开始的旧决策失效：模型在知晓实际参数后重新决策。
+                const { pendingActionBatch: _invalidatedBatch, ...runWithoutBatch } = approvedRun.state;
+                const revisedRun: RunState = invalidatedBatchActionIds.length === 0
+                    ? approvedRun.state
+                    : runWithoutBatch;
                 const approvedGoal: Goal = {
                     ...goal,
                     state: {
                         ...goal.state,
-                        run: approvedRun.state,
+                        run: revisedRun,
                     },
                 };
                 throwIfAborted(control);
@@ -1900,6 +1908,9 @@ export class GoalCoordinator {
                         finalInput: structuredClone(prepared.finalInput),
                         approvalScope,
                         ...(grantId === undefined ? {} : { grantId }),
+                        ...(invalidatedBatchActionIds.length === 0
+                            ? {}
+                            : { invalidatedBatchActionIds }),
                     },
                 }, control);
                 await this.saveCheckpoint(approvedGoal, control);

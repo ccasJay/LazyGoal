@@ -321,6 +321,8 @@ export type TrajectoryEventPayload =
         readonly finalInput: JsonValue;
         readonly approvalScope?: "action" | "goal" | "workspace";
         readonly grantId?: string;
+        /** 因修订而失效的同批次未开始 Action 身份。 */
+        readonly invalidatedBatchActionIds?: readonly string[];
     }
     | {
         /** 明确允许结果未知的操作按获批版本再次执行。 */
@@ -1045,8 +1047,14 @@ function assertPayload(payload: unknown, eventType: unknown): void {
     if (eventType === "action_revised") {
         if (Object.keys(payload).some((key) => ![
             "type", "actionId", "reviewRef", "originalInput", "finalInput", "approvalScope", "grantId",
+            "invalidatedBatchActionIds",
         ].includes(key))) {
             throw new TrajectoryProtocolError("action_revised contains unknown fields");
+        }
+        if (payload.invalidatedBatchActionIds !== undefined
+            && (!Array.isArray(payload.invalidatedBatchActionIds)
+                || !payload.invalidatedBatchActionIds.every((id) => typeof id === "string" && id.length > 0))) {
+            throw new TrajectoryProtocolError("action_revised.invalidatedBatchActionIds is invalid");
         }
         assertNonEmptyString(payload.actionId, "action_revised.actionId");
         assertNonEmptyString(payload.reviewRef, "action_revised.reviewRef");
