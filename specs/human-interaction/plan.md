@@ -29,14 +29,14 @@
   - **实现**：复用基础 Spec 的短提交边界与中断入口，统一失效旧交互引用、发布实际等待／停止状态。保留原有限收尾、必要授权与未知效果处理，不新增强制终止算法；独立 Interrupt 不被问答响应的在途状态或局部表单锁阻塞。
   - **验证**：新增 `packages/runtime/test/session-interaction-races.test.ts`（待实现），扩展现有 `run-interrupt.test.ts`、`program-interruption.test.ts` 和 `run-plan-route-approval.test.ts`；运行对应 `npx tsx --test`。复核收据、最终 Snapshot、已提交中断／响应事实、队列暂停及工具调用次数；读取、断线和解除处理器不得出现用户 Interrupt 事实。
 
-- [ ] //TODO 4. 让内部宿主按交互种类程序化决定或交给真人
+- [x] //TODO 4. 让内部宿主按交互种类程序化决定或交给真人
 
   落实标准：[4.1](./spec.md#spec-req-4-1)、[4.2](./spec.md#spec-req-4-2)、[4.3](./spec.md#spec-req-4-3)、[1.4](./spec.md#spec-req-1-4)。
   - **先验证**：通过 Session 注册处理器，分别触发问答、任务审批、工具／沙箱审批和恢复等待；仅匹配函数被调用，`unhandled` 或缺少函数时仍等待，自动放行工具不触发审批。重复同步／事件只调用一次；第二个自动所有者明确冲突，真人和其他只读观察仍可工作；恢复请求不能落入普通工具批准函数。
   - **实现**：在 Runtime 会话边界提供 `attachInteractionHandlers` 与可解除句柄，按稳定引用去重并维持同 Goal 单自动所有者。调用在 Gate 外运行，传递取消信号、请求和显式详情读取能力；类型化结果通过统一 `send` 受理，不能直接执行工具、保存 Goal 或写 Grant。仅复用现有应用装配接线，不新增 SDK 包或通用 Hook 平台。
   - **验证**：新增 `packages/runtime/test/session-interaction-handlers.test.ts`（待实现），覆盖程序化答案／批准／拒绝、真人 Promise、同步重复、所有者冲突与并发只读／停止。运行 `npx tsx --test packages/runtime/test/session-interaction-handlers.test.ts`；检查合法授权仍走既有协调器路径，公开订阅不因处理器存在而泄露完整参数。
 
-- [ ] //TODO 5. 结算宿主处理器的迟到、故障、解除连接和重启恢复
+- [x] //TODO 5. 结算宿主处理器的迟到、故障、解除连接和重启恢复
 
   落实标准：[4.4](./spec.md#spec-req-4-4)、[4.5](./spec.md#spec-req-4-5)、[4.6](./spec.md#spec-req-4-6)、[7.2](./spec.md#spec-req-7-2)。
   - **先验证**：真人／Interrupt 先提交后再释放回调 Promise，断言迟到结果不提交；决定先进入受理再解除时按实际收据结算。抛错、业务拒绝、响应丢失和永不完成的 Promise 均不默认决定或拖住关闭。重建实例并注册处理器只展示历史等待，显式恢复成功后才投递；busy／恢复失败不解锁，直接真人响应仍只推进目标等待。
