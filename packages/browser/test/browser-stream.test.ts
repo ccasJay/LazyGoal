@@ -439,9 +439,10 @@ test("末次提交通知丢失后仍以权威读取结算等待，公开同步�
     assert.equal(JSON.stringify(sync).includes("optionIds"), false);
 
     // 其他客户端结算并提交：通知丢失，只有权威快照变化。
+    const { pendingInteraction: _clearedInteraction, ...settledRun } = waiting.state.run;
     await store.save({
         ...waiting,
-        state: { ...waiting.state, run: { ...waiting.state.run, status: "completed", pendingInteraction: undefined } },
+        state: { ...waiting.state, run: { ...settledRun, status: "completed" } },
     });
     publisher.publish({
         goalId: waiting.id,

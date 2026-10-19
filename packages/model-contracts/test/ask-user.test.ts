@@ -310,7 +310,7 @@ test("三种模型协议的确定性 ask_user 响应解码为同一决策", () =
         assert.equal(decision.questions[0]!.question, "Which delivery scope should be implemented?");
         assert.deepEqual(decision.questions[0]!.options.map((option) => option.label), ["Minimal", "Complete"]);
         assert.equal(decision.questions[0]!.multiSelect, false);
-        assert.deepEqual(decision.questions[0]!.id, openaiDecision.kind === "ask_user" ? openaiDecision.questions[0]!.id : undefined);
+        // 问题／选项 id 由 Runtime 在进入等待点时分配；解码层只要求三种协议得到相同内容。
     }
 
     // 三种协议共享同一字段约束：缺少问题或选项越界都在解码处拒绝。

@@ -328,11 +328,12 @@ test("结算后的重复投影不再产生可操作交互，旧引用也不会�
     assert.equal(projected.interaction?.interactionId, "question:ask-settled-1");
 
     // 另一客户端提交决定：快照结算，等待清除。
+    const { pendingInteraction: _settledInteraction, ...settledRun } = goal.state.run;
     const settled: Goal = {
         ...goal,
         state: {
             ...goal.state,
-            run: { ...goal.state.run, status: "completed", pendingInteraction: undefined },
+            run: { ...settledRun, status: "completed" },
         },
     };
     const afterSettlement = await project(settled, store);

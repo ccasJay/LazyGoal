@@ -365,9 +365,21 @@ function createApi(store: JsonFileGoalStore, trajectory: JsonFileTrajectoryStore
                 });
                 const session = new Session(goalId, "recovery-handle", {
                     readSessionState: async () => undefined,
+                    readSessionInteraction: async () => undefined,
+                    readSessionInteractionDetail: async () => ({
+                        ok: false,
+                        code: "INTERACTION_NOT_WAITING",
+                        message: "unused",
+                    }),
                     sendSessionInput: async () => ({ ok: false, code: "RUN_CONTROL_UNAVAILABLE", message: "unused" }),
                     querySessionInput: async () => ({ ok: true, found: false }),
                     openSessionEvents: () => stream,
+                    attachSessionInteractionHandlers: () => ({
+                        ok: false,
+                        code: "SESSION_DETACHED",
+                        message: "unused",
+                    }),
+                    detachSessionInteractionHandlers: () => undefined,
                     consumeSessionInputs: async () => ({ reason: "completed" }),
                     detachSession: () => undefined,
                 });

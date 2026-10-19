@@ -258,9 +258,10 @@ test("过期 Run／请求引用与已失效等待的详情读取明确拒绝且�
     const decided = waitingGoal(askUserInteraction);
     const decidedView = projectInteractionView(decided);
     assert.ok(decidedView !== undefined);
+    const { pendingInteraction: _decidedInteraction, ...decidedRun } = decided.state.run;
     const afterDecision: Goal = {
         ...decided,
-        state: { ...decided.state, run: { ...decided.state.run, status: "running", pendingInteraction: undefined } },
+        state: { ...decided.state, run: { ...decidedRun, status: "running" } },
     };
     const expired = readInteractionDetail(afterDecision, {
         runId: afterDecision.state.run.id,

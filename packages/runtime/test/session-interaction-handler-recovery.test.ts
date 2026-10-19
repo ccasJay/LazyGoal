@@ -263,14 +263,13 @@ test("提交结果不明：查询原身份收据后报告未知，不伪造收�
     const attached = opened.session.attachInteractionHandlers({
         onQuestion: async () => {
             calls += 1;
+            const pending = (await inner.restore(goalId))!.state.run.pendingInteraction;
             return {
                 kind: "respond",
                 response: {
                     kind: "answer_ask_user",
                     answers: [{
-                        questionId: (await inner.restore(goalId))!.state.run.pendingInteraction!.kind === "ask_user"
-                            ? (await inner.restore(goalId))!.state.run.pendingInteraction!.questions[0]!.id
-                            : "q-1",
+                        questionId: pending?.kind === "ask_user" ? pending.questions[0]!.id : "q-1",
                         optionIds: ["o-1"],
                     }],
                 },

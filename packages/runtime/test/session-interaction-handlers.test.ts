@@ -83,17 +83,18 @@ function createHarness(options: {
         },
         async think() { throw new Error("unexpected Think call"); },
     };
+    const tool = options.tool;
     const runner = new Runner({
         store: options.store,
         trajectoryStore: trajectory,
         executor,
         checkpointCommitter: committer,
-        ...(options.tool === undefined
+        ...(tool === undefined
             ? {}
             : {
                 toolRegistry: {
-                    get: (toolId: string) => toolId === options.tool!.definition.id
-                        ? createToolRegistration(options.tool)
+                    get: (toolId: string) => toolId === tool.definition.id
+                        ? createToolRegistration(tool)
                         : undefined,
                 },
             }),

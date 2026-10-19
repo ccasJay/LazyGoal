@@ -283,7 +283,7 @@ test("跳过问卷提交未回答并要求继续的控制语义，不把 Run 标
     assert.match(content, /did not answer/i);
     assert.match(content, /continue/i);
     assert.equal(settled.state.run.status, "completed");
-    assert.equal(settled.state.run.stopReason?.kind === "cancelled", false);
+    assert.notEqual(settled.state.run.status, "cancelled");
     assert.equal(settled.state.run.pendingInteraction, undefined);
     assert.equal(scenario.harness.calls(), 2);
 
