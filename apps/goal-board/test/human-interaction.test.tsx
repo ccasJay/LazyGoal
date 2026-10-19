@@ -215,3 +215,88 @@ test("路线扩展问卷展示审批性质、理由与完整候选阶段", async
   assert.match(html, /Report covers affected callers/);
   assert.match(html, /an overall reply or a skip keeps the current route/);
 });
+
+test("任务审批区域完整展示目标、验收与有序阶段，反馈不是批准", async () => {
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { TaskApprovalInteractionView } = await import("../src/interaction-panel");
+  const { createInteractionSubmissionState } = await import("../src/interaction-state");
+  const html = renderToStaticMarkup(React.createElement(TaskApprovalInteractionView, {
+    detail: {
+      kind: "task_approval",
+      objective: "Deliver the import pipeline",
+      approvalRequest: "Approve the deterministic task?",
+      completionCriteria: ["Import succeeds", "Regression checks pass"],
+      stages: [
+        { target: "Parse the input", acceptanceCriteria: ["Formats covered"] },
+        { target: "Store the result", acceptanceCriteria: ["Rows persisted"] },
+      ],
+    },
+    submission: createInteractionSubmissionState(),
+    feedback: "",
+    chrome: { label: "task_approval", stopping: false, busy: false },
+    onEvent: () => {},
+  }));
+  assert.match(html, /Review the proposed task/);
+  assert.match(html, /Approve the deterministic task\?/);
+  assert.match(html, /Parse the input/);
+  assert.match(html, /Rows persisted/);
+  assert.ok(html.indexOf("Parse the input") < html.indexOf("Approve task"));
+  assert.match(html, /Send feedback/);
+  assert.match(html, /Stop run/);
+});
+
+test("工具审批区域默认单次授权，完整输入可见且拒绝需要非空理由", async () => {
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { ActionInteractionView } = await import("../src/interaction-panel");
+  const { createInteractionSubmissionState } = await import("../src/interaction-state");
+  const base = {
+    detail: {
+      kind: "action_approval" as const,
+      actionId: "action-1",
+      toolId: "write_file",
+      approvalKind: "tool" as const,
+      input: { path: "src/file.ts", content: "complete body" },
+    },
+    summary: {
+      actionId: "action-1",
+      toolId: "write_file",
+      status: "awaiting_approval" as const,
+      inputPreview: "{...}",
+      inputPreviewTruncated: true,
+      targetPath: "src/file.ts",
+    },
+    scope: "action" as const,
+    rejection: "",
+    rejectionOpen: false,
+    submission: createInteractionSubmissionState(),
+    chrome: { label: "action_approval", stopping: false, busy: false },
+    onEvent: () => {},
+  };
+  const html = renderToStaticMarkup(React.createElement(ActionInteractionView, base));
+  assert.match(html, /Your approval is needed/);
+  assert.match(html, /Tool permission request/);
+  assert.match(html, /Approve once/);
+  assert.match(html, /complete body/, "the complete canonical input is reviewable");
+  assert.match(html, /src\/file\.ts/);
+  assert.match(html, /Reject action/);
+  assert.equal(html.includes("Retry action"), false, "a normal approval never asks for a retry");
+
+  const recovery = renderToStaticMarkup(React.createElement(ActionInteractionView, {
+    ...base,
+    detail: { ...base.detail, kind: "action_recovery" as const },
+    summary: { ...base.summary, status: "outcome_unknown" as const },
+    rejection: "Not safe to repeat",
+  }));
+  assert.match(recovery, /Action result needs review/);
+  assert.match(recovery, /may already have run/);
+  assert.match(recovery, /Retry action/);
+  assert.equal(recovery.includes("Approve once"), false, "recovery only allows the single retry decision");
+  assert.equal(recovery.includes("Approve for this Goal"), false, "recovery never offers ongoing permission");
+});
+
+test("详情读取失败时保留等待并说明限制", async () => {
+  const { interactionDetailErrorText } = await import("../src/interaction-panel");
+  assert.match(interactionDetailErrorText("interaction_details_unavailable"), /Retry before making a decision/);
+  assert.match(interactionDetailErrorText("stale_run"), /latest saved state/);
+  assert.match(interactionDetailErrorText("goal_not_found"), /no longer available/);
+});

@@ -50,7 +50,7 @@
   - **实现**：建立与 Activity 正文对齐的新交互区域及具体请求视图，整体移除旧 AskUserForm 的单页问卷流程；沿用白色薄荷绿 token 和字体，重新组织导航、问题正文、选项、Other、审阅、整体回复与独立停止，不新增模态弹出平台或新品牌依赖。通过类型化响应控制器接入 Session，组件不从整个 BrowserGoalSession 猜测种类；原有外壳与 Goal info 保持各自职责。
   - **验证**：新增 `apps/goal-board/test/human-interaction.test.tsx` 和 `apps/goal-board/e2e/human-interaction.test.mjs`（均待实现）；在 Chrome／CDP 的真实服务链路断言正式输入、收据和真实 Run 不变，检查截屏、焦点、字段标签／错误关联和状态播报。运行 `npm --prefix apps/goal-board test`、`npm run build:web` 与 `node --test --test-concurrency=1 apps/goal-board/e2e/human-interaction.test.mjs`；静态渲染只辅助检查语义结构，不替代交互验证。
 
-- [ ] //TODO 7. 整体替换任务与工具审批布局并准确展示操作恢复
+- [x] //TODO 7. 整体替换任务与工具审批布局并准确展示操作恢复
 
   落实标准：[1.2](./spec.md#spec-req-1-2)、[5.1](./spec.md#spec-req-5-1)、[5.4](./spec.md#spec-req-5-4)、[5.5](./spec.md#spec-req-5-5)、[5.7](./spec.md#spec-req-5-7)、[7.3](./spec.md#spec-req-7-3)。
   - **先验证**：新任务／路线审批在决定前可完整审阅目标、验收与有序阶段，反馈使提案失效而非批准。工具审批默认单次，展示能力、参数和期限；截断详情未读取／读取失败时不能授予持续权限，拒绝需非空理由。未知结果显示可能已执行与重复效果警示，恢复按钮明确为 Retry action，不出现持续授权和参数编辑。

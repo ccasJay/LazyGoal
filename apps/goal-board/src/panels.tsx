@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { Check, Circle, CircleHelp, Clock3, Eye, Shield, Trash2, X, Zap } from "lucide-react";
+import { Check, Circle, Clock3, Shield, Trash2, X } from "lucide-react";
 
 import type {
   BrowserGoalSession,
   BrowserToolGrantSummary,
 } from "../../../packages/web-contracts/src/index";
-import { BrowserApiError, browserApi } from "./api";
-import { QuestionInteractionRegion, type AcceptedDecisionSummary } from "./interaction-panel";
-import type { BrowserGoalInteractionCommand } from "./types";
+import {
+  ActionInteractionRegion,
+  QuestionInteractionRegion,
+  TaskApprovalRegion,
+  type AcceptedDecisionSummary,
+} from "./interaction-panel";
 
 type SessionTab = "Activity" | "Plan" | "Details";
 
@@ -139,11 +142,17 @@ export function GoalDetails({
   );
 }
 
+/**
+ * 当前等待交互的统一区域入口。
+ *
+ * @remarks
+ * 只按已提交的类型化交互视图分派具体请求视图；没有等待时不渲染。停止按钮由各
+ * 区域独立提供，普通消息的排队输入由外层外壳负责。
+ */
 export function WaitingInteraction({
   session,
   busy,
   stopping,
-  onSubmit,
   onInterrupt,
   onRefreshSession,
   onDecisionAccepted,
@@ -151,259 +160,50 @@ export function WaitingInteraction({
   session: BrowserGoalSession;
   busy: boolean;
   stopping: boolean;
-  onSubmit: (command: BrowserGoalInteractionCommand) => void;
   onInterrupt: () => Promise<void>;
   onRefreshSession: () => Promise<void>;
   onDecisionAccepted: (summary: AcceptedDecisionSummary) => void;
 }) {
   const view = session.interaction;
-  if (view?.kind === "question") {
-    return (
-      <QuestionInteractionRegion
-        key={`${view.runId}:${view.interactionId}`}
-        view={view}
-        chrome={{ label: "Question", busy, stopping }}
-        onRefreshSession={onRefreshSession}
-        onInterrupt={onInterrupt}
-        onDecisionAccepted={onDecisionAccepted}
-      />
-    );
-  }
-  const interaction = session.pendingInteraction;
-  if (interaction?.kind === "task_approval") {
-    return (
-      <TaskApprovalForm
-        key={`${session.currentRunId}:${interaction.requestId}`}
-        session={session}
-        busy={busy}
-        onSubmit={onSubmit}
-      />
-    );
-  }
-  const action = session.pendingAction;
-  if (action !== undefined && action.status !== "approved") {
-    return (
-      <ActionApprovalForm
-        key={`${session.currentRunId}:${action.actionId}`}
-        session={session}
-        busy={busy}
-        onSubmit={onSubmit}
-      />
-    );
-  }
-  return null;
-}
-
-function TaskApprovalForm({
-  session,
-  busy,
-  onSubmit,
-}: {
-  session: BrowserGoalSession;
-  busy: boolean;
-  onSubmit: (command: BrowserGoalInteractionCommand) => void;
-}) {
-  const interaction = session.pendingInteraction;
-  const [feedback, setFeedback] = useState("");
-  if (interaction?.kind !== "task_approval") return null;
-
-  return (
-    <section className="approval structured-form">
-      <div className="approval-heading">
-        <CircleHelp size={15} />
-        <strong>Review the proposed task</strong>
-      </div>
-      <p>{interaction.approvalRequest}</p>
-      <h4>{interaction.objective}</h4>
-      {interaction.completionCriteria.length > 0 && (
-        <ul className="criteria-list">
-          {interaction.completionCriteria.map((criterion, index) => <li key={index}>{criterion}</li>)}
-        </ul>
-      )}
-      <div className="proposed-route" aria-label="Proposed stages">
-        <h5>Proposed stages</h5>
-        <ol>
-          {interaction.planRoute.map((stage, index) => (
-            <li key={index}>
-              <strong>{stage.target}</strong>
-              <ul>{stage.acceptanceCriteria.map((criterion, criterionIndex) => (
-                <li key={criterionIndex}>{criterion}</li>
-              ))}</ul>
-            </li>
-          ))}
-        </ol>
-      </div>
-      <button
-        className="approval-primary"
-        disabled={busy}
-        onClick={() => onSubmit({
-          kind: "approve_task",
-          runId: session.currentRunId,
-          requestId: interaction.requestId,
-        })}
-      >
-        <Check size={13} /> Approve task
-      </button>
-      <form className="feedback-form" onSubmit={(event) => {
-        event.preventDefault();
-        if (!feedback.trim()) return;
-        onSubmit({
-          kind: "feedback_task",
-          runId: session.currentRunId,
-          requestId: interaction.requestId,
-          feedback: feedback.trim(),
-        });
-      }}>
-        <label htmlFor="task-feedback">Or send feedback</label>
-        <textarea
-          id="task-feedback"
-          name="task-feedback"
-          value={feedback}
-          disabled={busy}
-          onChange={(event) => setFeedback(event.target.value)}
-          placeholder="Describe what should change…"
+  if (view === undefined) return null;
+  const chrome = { label: view.kind, busy, stopping };
+  switch (view.kind) {
+    case "question":
+      return (
+        <QuestionInteractionRegion
+          key={`${view.runId}:${view.interactionId}`}
+          view={view}
+          chrome={chrome}
+          onRefreshSession={onRefreshSession}
+          onInterrupt={onInterrupt}
+          onDecisionAccepted={onDecisionAccepted}
         />
-        <button disabled={busy || !feedback.trim()} type="submit">Send feedback</button>
-      </form>
-    </section>
-  );
-}
-
-function ActionApprovalForm({
-  session,
-  busy,
-  onSubmit,
-}: {
-  session: BrowserGoalSession;
-  busy: boolean;
-  onSubmit: (command: BrowserGoalInteractionCommand) => void;
-}) {
-  const action = session.pendingAction;
-  const [reason, setReason] = useState("");
-  const [scope, setScope] = useState<"action" | "goal" | "workspace">("action");
-  const [fullInput, setFullInput] = useState<string | null>(null);
-  const [detailsLoading, setDetailsLoading] = useState(false);
-  const [detailsError, setDetailsError] = useState<string | null>(null);
-  if (action === undefined || action.status === "approved") return null;
-  const pendingAction = action;
-  const recovery = pendingAction.status === "outcome_unknown";
-  const persistentDisabled = recovery || busy || (pendingAction.inputPreviewTruncated && fullInput === null);
-  const pathAuthorization = pendingAction.targetPath !== undefined
-    && (pendingAction.toolId === "write_file" || pendingAction.toolId === "edit_file");
-
-  async function revealFullInput() {
-    if (fullInput !== null || detailsLoading) return;
-    setDetailsLoading(true);
-    setDetailsError(null);
-    try {
-      const details = await browserApi.readActionDetails(session.goalId, session.currentRunId, pendingAction.actionId);
-      if (!details.ok) throw new BrowserApiError(details.error, 409, true);
-      setFullInput(JSON.stringify(details.input, null, 2));
-    } catch (error) {
-      setDetailsError(error instanceof Error ? error.message : "Action details could not be loaded.");
-    } finally { setDetailsLoading(false); }
+      );
+    case "task_approval":
+      return (
+        <TaskApprovalRegion
+          key={`${view.runId}:${view.interactionId}`}
+          view={view}
+          chrome={chrome}
+          onRefreshSession={onRefreshSession}
+          onInterrupt={onInterrupt}
+          onDecisionAccepted={onDecisionAccepted}
+        />
+      );
+    case "action_approval":
+    case "action_recovery":
+      return (
+        <ActionInteractionRegion
+          key={`${view.runId}:${view.interactionId}`}
+          view={view}
+          summary={session.pendingAction}
+          chrome={chrome}
+          onRefreshSession={onRefreshSession}
+          onInterrupt={onInterrupt}
+          onDecisionAccepted={onDecisionAccepted}
+        />
+      );
   }
-
-  return (
-    <section className="approval structured-form action-approval">
-      <div className="approval-heading">
-        <CircleHelp size={15} />
-        <strong>{recovery ? "Action result needs review" : "Your approval is needed"}</strong>
-        <span className="action-summary"><Zap size={13} />{action.toolId}</span>
-      </div>
-      {recovery && <p>The previous result could not be confirmed. Review this action before choosing what to do.</p>}
-      {action.parentProgram && <p>Program <code>{action.parentProgram.actionId}</code>, call {action.parentProgram.callNumber}. Review this operation on its own merits.</p>}
-      <div className="action-input-preview">
-        <label>{action.inputSummary !== undefined ? action.toolId === "bash" ? "Command" : "Target" : "Tool input"}</label>
-        <pre>{action.inputSummary ?? action.inputPreview}</pre>
-        {action.inputPreviewTruncated && fullInput === null && <p>Preview shortened. View the complete input before granting ongoing permission.</p>}
-        <button className="action-details-toggle" disabled={detailsLoading} onClick={() => {
-          if (fullInput === null) void revealFullInput();
-          else { setFullInput(null); if (pendingAction.inputPreviewTruncated) setScope("action"); }
-        }}>
-          <Eye size={13} /> {detailsLoading ? "Loading…" : fullInput === null ? "View complete input" : "Hide complete input"}
-        </button>
-        {detailsError && <span className="grant-error" role="alert">{detailsError}</span>}
-        {fullInput !== null && <pre className="action-input-full">{fullInput}</pre>}
-      </div>
-      {pathAuthorization && <p className="path-permission-note">
-        Ongoing permission for <code>{action.targetPath}</code> also allows later writes to this path with different content.
-      </p>}
-      {!recovery && <fieldset className="approval-scopes" disabled={busy}>
-        <legend>Allow this action</legend>
-        <label htmlFor={`scope-${action.actionId}-action`}>
-          <input
-            id={`scope-${action.actionId}-action`}
-            type="radio"
-            name={`scope-${action.actionId}`}
-            checked={scope === "action"}
-            onChange={() => setScope("action")}
-          />
-          <span><strong>Once</strong><small>Approve this action only.</small></span>
-        </label>
-        <label className={persistentDisabled ? "is-disabled" : ""} htmlFor={`scope-${action.actionId}-goal`}>
-          <input
-            id={`scope-${action.actionId}-goal`}
-            type="radio"
-            name={`scope-${action.actionId}`}
-            checked={scope === "goal"}
-            disabled={persistentDisabled}
-            onChange={() => setScope("goal")}
-          />
-          <span><strong>This Goal</strong><small>Allow matching actions in this session.</small></span>
-        </label>
-        <label className={persistentDisabled ? "is-disabled" : ""} htmlFor={`scope-${action.actionId}-workspace`}>
-          <input
-            id={`scope-${action.actionId}-workspace`}
-            type="radio"
-            name={`scope-${action.actionId}`}
-            checked={scope === "workspace"}
-            disabled={persistentDisabled}
-            onChange={() => setScope("workspace")}
-          />
-          <span><strong>This project</strong><small>Allow matching actions in future Goals.</small></span>
-        </label>
-      </fieldset>}
-      <div className="action-approval-actions">
-        <button
-          className="approval-primary"
-          disabled={busy}
-          onClick={() => onSubmit({
-            kind: "approve_action",
-            runId: session.currentRunId,
-            actionId: action.actionId,
-            scope: recovery ? "action" : scope,
-          })}
-        >
-          <Check size={13} /> {busy ? "Saving approval…" : recovery ? "Approve action" : scope === "goal" ? "Approve for this Goal" : scope === "workspace" ? "Approve for this project" : "Approve once"}
-        </button>
-        <details className="action-rejection">
-          <summary>Reject action</summary>
-          <form className="feedback-form" onSubmit={(event) => {
-            event.preventDefault();
-            if (!reason.trim()) return;
-            onSubmit({
-              kind: "reject_action",
-              runId: session.currentRunId,
-              actionId: action.actionId,
-              reason: reason.trim(),
-            });
-          }}>
-            <label htmlFor="action-reason">Reason for rejecting</label>
-            <textarea
-              id="action-reason"
-              name="action-reason"
-              value={reason}
-              disabled={busy}
-              onChange={(event) => setReason(event.target.value)}
-              placeholder="Explain why this action should not run…"
-            />
-            <button disabled={busy || !reason.trim()} type="submit">Reject action</button>
-          </form>
-        </details>
-      </div>
-    </section>
-  );
 }
 
 function planStatus(status: string): string {

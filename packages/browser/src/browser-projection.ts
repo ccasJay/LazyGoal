@@ -23,7 +23,6 @@ import type {
     BrowserGoalSession,
     BrowserInteractionView,
     BrowserPendingAction,
-    BrowserPendingInteraction,
     BrowserSessionMessage,
     BrowserSessionRun,
     BrowserSessionStep,
@@ -40,7 +39,6 @@ export type {
     BrowserGoalSession,
     BrowserInteractionView,
     BrowserPendingAction,
-    BrowserPendingInteraction,
     BrowserSessionMessage,
     BrowserSessionRun,
     BrowserSessionStep,
@@ -203,8 +201,7 @@ export async function readBrowserGoalSession(
         historyTruncated = true;
     }
 
-    const pending = projectPendingInteraction(currentRun.pendingInteraction);
-    const pendingInteraction = pending?.interaction;
+    const pendingTruncated = pendingInteractionDisplayTruncated(currentRun.pendingInteraction);
     const pendingSteers = (currentRun.steerInputs ?? [])
         .filter((input): input is Extract<NonNullable<Goal["state"]["run"]["steerInputs"]>[number], { readonly status: "pending" }> => input.status === "pending")
         .map(({ messageId, content }) => ({ messageId, content: boundedText(content, MAX_MESSAGE_LENGTH) }));
@@ -214,7 +211,7 @@ export async function readBrowserGoalSession(
     const pendingAction = currentRun.pendingAction === undefined
         ? undefined
         : projectPendingAction(currentRun.pendingAction, currentRun.pendingProgram);
-    const interaction = projectBrowserInteractionView(goal, pending?.truncated === true
+    const interaction = projectBrowserInteractionView(goal, pendingTruncated
         || (pendingAction?.inputPreviewTruncated ?? false));
     const goalPlan = goal.state.goalPlan === undefined
         ? undefined
@@ -251,7 +248,6 @@ export async function readBrowserGoalSession(
         }),
         runs: projectedRuns,
         ...(goalPlan === undefined ? {} : { goalPlan }),
-        ...(pendingInteraction === undefined ? {} : { pendingInteraction }),
         ...(interaction === undefined ? {} : { interaction }),
         ...(pendingAction === undefined ? {} : { pendingAction }),
         historyTruncated,
@@ -748,13 +744,14 @@ function projectBrowserInteractionView(
     };
 }
 
-function projectPendingInteraction(
+/** 有界摘要是否省略了问答／任务提案的决定内容；越界内容必须经详情读取查看。 */
+function pendingInteractionDisplayTruncated(
     pending: Goal["state"]["run"]["pendingInteraction"],
-): { readonly interaction: BrowserPendingInteraction; readonly truncated: boolean } | undefined {
-    if (pending === undefined) return undefined;
+): boolean {
+    if (pending === undefined) return false;
     if (pending.kind === "ask_user") {
         const routeRevision = pending.routeRevision;
-        const truncated = pending.questions.some((question) =>
+        return pending.questions.some((question) =>
             exceeds(question.header, 500)
             || exceeds(question.question, 2_000)
             || question.options.some((option) => exceeds(option.label, 500)
@@ -764,60 +761,13 @@ function projectPendingInteraction(
                 || exceeds(routeRevision.reason, 1_000)
                 || routeRevision.candidate.stages.some((stage) => exceeds(stage.target, 1_000)
                     || stage.acceptanceCriteria.some((criterion) => exceeds(criterion, 500)))));
-        return {
-            truncated,
-            interaction: {
-                kind: "ask_user",
-                requestId: pending.requestId,
-                mode: pending.mode,
-                ...(pending.routeRevision === undefined ? {} : {
-                    routeRevision: {
-                        approvalRequest: boundedText(pending.routeRevision.approvalRequest, 1_000),
-                        reason: boundedText(pending.routeRevision.reason, 1_000),
-                        route: pending.routeRevision.candidate.stages.map((stage): BrowserPlanRouteStage => ({
-                            target: boundedText(stage.target, 1_000),
-                            acceptanceCriteria: stage.acceptanceCriteria.map((criterion) => boundedText(criterion, 500)),
-                        })),
-                    },
-                }),
-                questions: pending.questions.map((question) => ({
-                    id: question.id,
-                    header: boundedText(question.header, 500),
-                    question: boundedText(question.question, 2_000),
-                    multiSelect: question.multiSelect,
-                    options: question.options.map((option) => ({
-                        id: option.id,
-                        label: boundedText(option.label, 500),
-                        ...(option.description === undefined
-                            ? {}
-                            : { description: boundedText(option.description, 1_000) }),
-                    })),
-                })),
-            },
-        };
     }
-    const truncated = exceeds(pending.proposal.objective, 2_000)
+    return exceeds(pending.proposal.objective, 2_000)
         || exceeds(pending.approvalRequest, 1_000)
         || pending.proposal.completionCriteria.length > 32
         || pending.proposal.completionCriteria.some((criterion) => exceeds(criterion.text, 1_000))
         || pending.planRouteCandidate.stages.some((stage) => exceeds(stage.target, 1_000)
             || stage.acceptanceCriteria.some((criterion) => exceeds(criterion, 500)));
-    return {
-        truncated,
-        interaction: {
-            kind: "task_approval",
-            requestId: pending.requestId,
-            objective: boundedText(pending.proposal.objective, 2_000),
-            approvalRequest: boundedText(pending.approvalRequest, 1_000),
-            completionCriteria: pending.proposal.completionCriteria
-                .slice(0, 32)
-                .map((criterion) => boundedText(criterion.text, 1_000)),
-            planRoute: pending.planRouteCandidate.stages.map((stage): BrowserPlanRouteStage => ({
-                target: boundedText(stage.target, 1_000),
-                acceptanceCriteria: stage.acceptanceCriteria.map((criterion) => boundedText(criterion, 500)),
-            })),
-        },
-    };
 }
 
 function projectGoalPlan(plan: NonNullable<Goal["state"]["goalPlan"]>): BrowserGoalPlan {

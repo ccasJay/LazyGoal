@@ -61,33 +61,23 @@ test("GoalBoard 搜索框包含 id 与 name 属性且在初始状态展示总数
 
 test("任务批准卡片在批准按钮前展示完整有序阶段路线", async () => {
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { WaitingInteraction } = await import("../src/panels");
-  const session = {
-    goalId: "goal-1",
-    intent: "Implement a feature",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    archived: false,
-    runStatus: "waiting",
-    currentRunId: "run-1",
-    messages: [],
-    runs: [],
-    pendingInteraction: {
+  const { TaskApprovalInteractionView } = await import("../src/interaction-panel");
+  const { createInteractionSubmissionState } = await import("../src/interaction-state");
+  const html = renderToStaticMarkup(React.createElement(TaskApprovalInteractionView, {
+    detail: {
       kind: "task_approval",
-      requestId: "proposal-1",
       objective: "Implement the feature",
       approvalRequest: "Review the complete plan",
       completionCriteria: ["All checks pass"],
-      planRoute: [
+      stages: [
         { target: "Inspect current behavior", acceptanceCriteria: ["Find the entry point"] },
         { target: "Implement the change", acceptanceCriteria: ["Feature works", "Regression checks pass"] },
       ],
     },
-  } as any;
-  const html = renderToStaticMarkup(React.createElement(WaitingInteraction, {
-    session,
-    busy: false,
-    onSubmit: () => {},
+    submission: createInteractionSubmissionState(),
+    feedback: "",
+    chrome: { label: "task_approval", stopping: false, busy: false },
+    onEvent: () => {},
   }));
 
   const firstStage = html.indexOf("Inspect current behavior");

@@ -5,8 +5,6 @@ import type {
 } from "../../../../packages/web-contracts/src/index";
 import { BrowserApiError, browserApi } from "../api";
 import {
-  toSessionInteractionResponse,
-  type BrowserGoalInteractionCommand,
   type ModelPickerTarget,
   dispatchBrowserInput,
   errorMessage,
@@ -215,31 +213,6 @@ export function useRunCommands({
     }
   }, [session, onRefreshSession]);
 
-  const submitInteraction = useCallback(
-    async (command: BrowserGoalInteractionCommand) => {
-      if (!session || commandBusy) return;
-      setCommandBusy(true);
-      setCommandError(null);
-      try {
-        const accepted = await browserApi.submitInput(session.goalId, {
-          kind: "respond",
-          inputId: crypto.randomUUID(),
-          runId: session.currentRunId,
-          requestId: "requestId" in command ? command.requestId : command.actionId,
-          response: toSessionInteractionResponse(command),
-        });
-        if (!accepted.ok) throw new BrowserApiError(accepted.error, 409, true);
-        await onRefreshSession();
-      } catch (error) {
-        setCommandError(errorMessage(error));
-        if (error instanceof BrowserApiError && error.refresh) await onRefreshSession();
-      } finally {
-        setCommandBusy(false);
-      }
-    },
-    [session, commandBusy, onRefreshSession]
-  );
-
   const submitResume = useCallback(async () => {
     if (!session || commandBusy) return;
     setCommandBusy(true);
@@ -272,7 +245,6 @@ export function useRunCommands({
     submitMessage,
     submitSteer,
     interruptCurrentRun,
-    submitInteraction,
     submitResume,
   };
 }

@@ -54,7 +54,6 @@ export {
     type BrowserGoalPlan,
     type BrowserGoalSession,
     type BrowserBashExecutionDetail,
-    type BrowserPendingInteraction,
     type BrowserSessionMessage,
     type BrowserSessionRun,
     type BrowserSessionStep,

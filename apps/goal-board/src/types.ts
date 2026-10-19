@@ -158,7 +158,7 @@ export function sessionStatusTone(session: BrowserGoalSession): string {
   if (
     session.pendingAction?.status === "outcome_unknown" ||
     session.pendingAction?.status === "awaiting_approval" ||
-    session.pendingInteraction
+    session.interaction !== undefined
   ) {
     return "needs-input attention";
   }
@@ -184,8 +184,8 @@ export function sessionStatus(session: BrowserGoalSession): string {
   if (session.pendingAction?.status === "outcome_unknown") return "Outcome needs review";
   if (session.pendingAction?.status === "awaiting_approval") return "Awaiting approval";
   if (session.pendingAction?.status === "approved") return "Action accepted";
-  if (session.pendingInteraction?.kind === "task_approval") return "Awaiting task approval";
-  if (session.pendingInteraction) return "Awaiting your response";
+  if (session.interaction?.kind === "task_approval") return "Awaiting task approval";
+  if (session.interaction !== undefined) return "Awaiting your response";
   if (session.runStatus === "cancelled") return "Stopped";
   return session.runStatus.charAt(0).toUpperCase() + session.runStatus.slice(1);
 }

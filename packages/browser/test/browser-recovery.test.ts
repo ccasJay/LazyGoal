@@ -85,8 +85,9 @@ test("recreated browser services restore committed messages, steps, wait, and pl
         ]);
         assert.equal(afterRestart.currentRunId, goal.state.run.id);
         assert.equal(afterRestart.runStatus, "waiting");
-        assert.equal(afterRestart.pendingInteraction?.kind, "ask_user");
-        assert.equal(afterRestart.pendingInteraction?.requestId, "request-recovery-1");
+        assert.equal(afterRestart.interaction?.kind, "question");
+        assert.equal(afterRestart.interaction?.requestId, "request-recovery-1");
+        assert.equal(afterRestart.interaction?.interactionId, "question:request-recovery-1");
         assert.deepEqual(afterRestart.goalPlan?.items.map((item) => item.content), ["Review saved notes"]);
         assert.equal(afterRestart.runs[0]?.steps.length, 1);
         assert.equal(afterRestart.runs[0]?.steps[0]?.status, "completed");

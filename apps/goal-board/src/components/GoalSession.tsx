@@ -141,7 +141,6 @@ export function GoalSession({
     onSubmitDraftMessage,
     onSubmitSteer,
     onInterrupt,
-    onSubmitInteraction,
     onSubmitResume,
   } = useRunControlContext();
 
@@ -776,7 +775,7 @@ export function GoalSession({
 
           {sessionTab !== "Board" && (
             <div className="composer-area">
-              {decisionSummaries.length > 0 && (
+              {sessionTab === "Activity" && decisionSummaries.length > 0 && (
                 <div className="decision-summaries" aria-label="Saved interaction decisions">
                   {decisionSummaries.map((entry) => (
                     <div className="decision-summary" key={`${entry.runId}:${entry.interactionId}`}>
@@ -840,7 +839,6 @@ export function GoalSession({
                         stoppingRunId === session.currentRunId ||
                         (session.interruption !== undefined && session.interruption.status !== "finished")
                       }
-                      onSubmit={(command) => void onSubmitInteraction(command)}
                       onInterrupt={onInterrupt}
                       onRefreshSession={refreshSelectedSession}
                       onDecisionAccepted={(summary) => {

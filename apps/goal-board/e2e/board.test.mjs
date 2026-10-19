@@ -274,7 +274,9 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Action result needs review')");
     assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') === null"), true);
-    assert.equal(await value(socket, "[...document.querySelectorAll('.approval button')].some(button => button.textContent.includes('Approve action'))"), true);
+    assert.equal(await value(socket, "[...document.querySelectorAll('.approval button')].some(button => button.textContent.includes('Retry action'))"), true);
+    assert.equal(await value(socket, "document.querySelector('.interaction-warning')?.innerText.includes('may already have run')"), true);
+    assert.equal(await value(socket, "document.querySelector('.approval-scopes') === null"), true, "an unknown outcome never offers ongoing permission");
 
     mock.resetToAction();
     await navigate(socket, `${webUrl}/?session=approval#${token}`);
@@ -294,21 +296,18 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "(() => { const panel = document.querySelector('.action-approval').getBoundingClientRect(); const timeline = document.querySelector('.run-timeline').getBoundingClientRect(); return panel.width === timeline.width && Math.abs((panel.left + panel.right - timeline.left - timeline.right) / 2) < 2; })()"), true);
     assert.equal(await value(socket, "getComputedStyle(document.querySelector('.approval-scopes')).gridTemplateColumns.split(' ').length"), 3);
     assert.equal(await value(socket, "document.querySelector('.action-summary').textContent"), "write_file");
-    assert.equal(await value(socket, "[...document.querySelectorAll('.approval-scopes label')].find(label => label.innerText.includes('This Goal')).querySelector('input').disabled"), true);
-    assert.equal(await value(socket, "document.querySelector('.path-permission-note')?.innerText.includes('src/file.ts')"), true);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.action-details-toggle').click()", returnByValue: true });
+    // 完整 canonical 输入在决定前可审阅；持续授权因此可用，但默认仍是单次。
     await waitForExpression(socket, "document.querySelector('.action-input-full')?.innerText.includes('Complete private body')");
+    assert.equal(await value(socket, "document.querySelector('.path-permission-note')?.innerText.includes('src/file.ts')"), true);
     assert.equal(await value(socket, "[...document.querySelectorAll('.approval-scopes label')].find(label => label.innerText.includes('This Goal')).querySelector('input').disabled"), false);
+    assert.equal(await value(socket, "document.querySelector('.approval-scopes input').checked"), true);
     await cdp(socket, "Runtime.evaluate", {
       expression: "[...document.querySelectorAll('.approval-scopes label')].find(label => label.innerText.includes('This Goal')).querySelector('input').click()",
       returnByValue: true,
     });
     assert.equal(await value(socket, "document.querySelector('.approval-primary').innerText"), "Approve for this Goal");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.action-details-toggle').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.approval-scopes label')].find(label => label.innerText.includes('Once')).querySelector('input').click()", returnByValue: true });
     assert.equal(await value(socket, "document.querySelector('.approval-primary').innerText"), "Approve once");
-    assert.equal(await value(socket, "document.querySelector('.approval-scopes input').checked"), true);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.action-details-toggle').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.action-input-full') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.approval-scopes label')].find(label => label.innerText.includes('This Goal')).querySelector('input').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.approval-primary')?.textContent.includes('Approve for this Goal')");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.approval-primary').click()", returnByValue: true });
@@ -368,6 +367,8 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.mi-message.is-selected')?.dataset.messageIndex === '2'");
     assert.equal(await value(socket, "document.querySelectorAll('.tr-inspector').length"), 1);
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    // 视口切换后移动布局（收起侧栏）异步生效；等单列布局稳定再核验轨迹面板几何。
+    await waitForExpression(socket, "document.querySelector('.session').getBoundingClientRect().width >= window.innerWidth - 32");
     await waitForExpression(socket, "(() => { const message = document.querySelector('.mi-message.is-selected').getBoundingClientRect(); const body = document.querySelector('.mi-inspector .tr-detail-body').getBoundingClientRect(); return message.top >= body.top && message.top < body.bottom; })()");
     assert.equal(await value(socket, "(() => { const inspector = document.querySelector('.mi-inspector').getBoundingClientRect(); const ledger = document.querySelector('.tr-ledger').getBoundingClientRect(); const overview = document.querySelector('.tr-overview').getBoundingClientRect(); return inspector.top >= overview.bottom && inspector.bottom <= ledger.top + 1 && ledger.height >= 180 && document.querySelector('.mi-inspector .tr-detail-body').getBoundingClientRect().height >= 100 && document.documentElement.scrollWidth <= window.innerWidth; })()"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close prompt details\"]').click()", returnByValue: true });
@@ -872,9 +873,19 @@ function createMockApi() {
     if (request.url?.startsWith("/api/goals/goal-1/interaction-details?") && request.method === "GET") {
       const query = new URL(request.url, "http://localhost").searchParams;
       const interactionId = query.get("interactionId");
-      if (query.get("runId") !== "run-1" || session.pendingInteraction === undefined
-        || interactionId !== `question:${session.pendingInteraction.requestId}`) {
+      if (query.get("runId") !== "run-1" || session.interaction === undefined
+        || interactionId !== session.interaction.interactionId) {
         json(response, { ok: false, error: "interaction_not_waiting" }, 409);
+        return;
+      }
+      if (session.interaction.kind === "question") {
+        json(response, {
+          ok: true,
+          goalId: "goal-1",
+          runId: "run-1",
+          interactionId,
+          detail: { kind: "question", mode: session.pendingInteraction.mode, questions: session.pendingInteraction.questions },
+        });
         return;
       }
       json(response, {
@@ -882,7 +893,13 @@ function createMockApi() {
         goalId: "goal-1",
         runId: "run-1",
         interactionId,
-        detail: { kind: "question", mode: session.pendingInteraction.mode, questions: session.pendingInteraction.questions },
+        detail: {
+          kind: session.interaction.kind,
+          actionId: session.interaction.actionId,
+          toolId: session.pendingAction.toolId,
+          approvalKind: "tool",
+          input: { path: "src/file.ts", content: "Complete private body" },
+        },
       });
       return;
     }
@@ -1004,7 +1021,15 @@ function createMockApi() {
       session = {
         ...interactionSession(),
         pendingInteraction: undefined,
-        interaction: undefined,
+        interaction: {
+          goalId: "goal-1",
+          runId: "run-1",
+          kind: "action_recovery",
+          interactionId: "action_recovery:action-unknown",
+          actionId: "action-unknown",
+          decisions: ["retry_action", "reject_action"],
+          truncated: false,
+        },
         pendingAction: {
           actionId: "action-unknown",
           toolId: "write_file",
@@ -1021,7 +1046,15 @@ function createMockApi() {
       session = {
         ...interactionSession(),
         pendingInteraction: undefined,
-        interaction: undefined,
+        interaction: {
+          goalId: "goal-1",
+          runId: "run-1",
+          kind: "action_approval",
+          interactionId: "action_approval:action-1",
+          actionId: "action-1",
+          decisions: ["approve_action", "reject_action"],
+          truncated: false,
+        },
         pendingAction: {
           actionId: "action-1",
           toolId: "write_file",

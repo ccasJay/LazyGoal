@@ -332,9 +332,20 @@ test("交互详情路由校验身份参数并只返回服务端授权读取结�
         "http://localhost/api/goals/goal-1/interaction-details?runId=run-1&interactionId=task_approval%3Aproposal-1",
     );
     assert.equal(response.status, 200);
-    const body = await response.json() as { ok: boolean; interactionId: string };
-    assert.equal(body.ok, true);
-    assert.equal(body.interactionId, "task_approval:proposal-1");
+    // 详情读取保留完整审阅内容：身份、完整目标、验收条件与有序候选阶段。
+    assert.deepEqual(await response.json(), {
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "task_approval:proposal-1",
+        detail: {
+            kind: "task_approval",
+            objective: "实现导入",
+            approvalRequest: "请确认任务目标",
+            completionCriteria: ["导入成功"],
+            stages: [{ target: "解析", acceptanceCriteria: ["覆盖主要格式"] }],
+        },
+    });
 
     const stale = await routes.request(
         "http://localhost/api/goals/goal-1/interaction-details?runId=run-old&interactionId=task_approval%3Aproposal-1",

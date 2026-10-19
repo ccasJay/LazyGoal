@@ -460,46 +460,6 @@ export interface BrowserPlanRouteStage {
 }
 
 /**
- * 当前等待人工交互的请求视图。
- *
- * @remarks
- * 支持 AskUser 问卷及 TaskApproval 任务提案两种交互类型。
- *
- * @example
- * ```ts
- * const interaction: BrowserPendingInteraction = {
- *     kind: "task_approval",
- *     requestId: "req-1",
- *     objective: "完成重构",
- *     approvalRequest: "是否批准执行？",
- *     completionCriteria: ["测试全部通过"],
- *     planRoute: [{ target: "调查", acceptanceCriteria: ["定位入口"] }],
- * };
- * ```
- */
-export type BrowserPendingInteraction =
-    | {
-        readonly kind: "ask_user";
-        readonly requestId: string;
-        readonly mode: "plan" | "execution";
-        readonly questions: readonly BrowserAskUserQuestion[];
-        readonly routeRevision?: {
-            readonly approvalRequest: string;
-            readonly reason: string;
-            readonly route: readonly BrowserPlanRouteStage[];
-        };
-    }
-    | {
-        readonly kind: "task_approval";
-        readonly requestId: string;
-        readonly objective: string;
-        readonly approvalRequest: string;
-        readonly completionCriteria: readonly string[];
-        /** Plan Run 一次审批覆盖的完整有序候选路线。 */
-        readonly planRoute: readonly BrowserPlanRouteStage[];
-    };
-
-/**
  * 目标拆解计划中的条目。
  *
  * @example
@@ -666,7 +626,7 @@ export type BrowserInteractionDecision =
  * 当前已提交等待的类型化交互视图摘要。
  *
  * @remarks
- * 身份来自与 `pendingInteraction`／`pendingAction` 相同的已提交快照：重复同步、
+ * 身份来自与已提交等待相同的快照：重复同步、
  * 重连与其他客户端读取得到同一 `interactionId`。`truncated` 为真表示有界摘要
  * 省略了决定所需内容，必须先完成详情读取再提交依赖完整范围的批准。
  *
@@ -838,8 +798,6 @@ export interface BrowserGoalSession {
     readonly runs: readonly BrowserSessionRun[];
     /** 任务计划。 */
     readonly goalPlan?: BrowserGoalPlan;
-    /** 等待人工交互。 */
-    readonly pendingInteraction?: BrowserPendingInteraction;
     /** 当前已提交等待的类型化交互视图；没有可决定等待时省略。 */
     readonly interaction?: BrowserInteractionView;
     /** 等待人工审批的 Action。 */

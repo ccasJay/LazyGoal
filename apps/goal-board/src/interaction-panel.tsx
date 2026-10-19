@@ -1,10 +1,11 @@
-import { useEffect, useId, useReducer, useRef, useState } from "react";
-import { Check, CircleHelp, Eye, Loader, ShieldAlert, X } from "lucide-react";
+import { useCallback, useEffect, useId, useReducer, useRef, useState } from "react";
+import { Check, CircleHelp, Eye, Loader, Shield, ShieldAlert, X, Zap } from "lucide-react";
 
 import type {
   BrowserAskUserQuestion,
   BrowserInteractionDetail,
   BrowserInteractionView,
+  BrowserPendingAction,
 } from "../../../packages/web-contracts/src/index";
 import { BrowserApiError, browserApi } from "./api";
 import {
@@ -90,11 +91,195 @@ export type QuestionViewEvent =
   | { readonly kind: "retry" }
   | { readonly kind: "stop" };
 
+/** 任务审批区域的用户动作。 */
+export type TaskApprovalViewEvent =
+  | { readonly kind: "submit_approve" }
+  | { readonly kind: "feedback_text"; readonly value: string }
+  | { readonly kind: "submit_feedback" }
+  | { readonly kind: "verify" }
+  | { readonly kind: "retry" }
+  | { readonly kind: "stop" };
+
+/** 工具／沙箱审批与结果恢复区域的用户动作。 */
+export type ActionViewEvent =
+  | { readonly kind: "scope"; readonly scope: "action" | "goal" | "workspace" }
+  | { readonly kind: "submit_approve" }
+  | { readonly kind: "reject_text"; readonly value: string }
+  | { readonly kind: "submit_reject" }
+  | { readonly kind: "verify" }
+  | { readonly kind: "retry" }
+  | { readonly kind: "stop" };
+
 /** 新交互区域共用的只读展示上下文。 */
 export interface InteractionRegionChrome {
   readonly label: string;
   readonly stopping: boolean;
   readonly busy: boolean;
+}
+
+/** 按目标交互种类读取完整审阅内容；引用变化时重新读取。 */
+export function useInteractionDetail(view: BrowserInteractionView): {
+  readonly state: InteractionDetailState;
+  readonly reload: () => void;
+} {
+  const [state, setState] = useState<InteractionDetailState>({ kind: "loading" });
+  const requestRef = useRef(0);
+
+  const load = useCallback(() => {
+    const request = requestRef.current + 1;
+    requestRef.current = request;
+    setState({ kind: "loading" });
+    browserApi.readInteractionDetail(view.goalId, view.runId, view.interactionId).then((result) => {
+      if (requestRef.current !== request) return;
+      setState(result.ok
+        ? { kind: "ready", detail: result.detail }
+        : { kind: "error", message: interactionDetailErrorText(result.error) });
+    }).catch(() => {
+      if (requestRef.current !== request) return;
+      setState({ kind: "error", message: "The complete request could not be loaded. Retry before making a decision." });
+    });
+  }, [view.goalId, view.runId, view.interactionId]);
+
+  useEffect(() => {
+    load();
+    return () => { requestRef.current += 1; };
+  }, [load]);
+
+  return { state, reload: load };
+}
+
+/** 统一交互提交与结果核验；冻结身份、复用原身份重试并保留编辑草稿。 */
+export function useInteractionSubmission({
+  view,
+  onRefreshSession,
+  onDecisionAccepted,
+}: {
+  readonly view: BrowserInteractionView;
+  readonly onRefreshSession: () => Promise<void>;
+  readonly onDecisionAccepted: (summary: AcceptedDecisionSummary) => void;
+}) {
+  const [submission, dispatch] = useReducer(reduceInteractionSubmission, undefined, createInteractionSubmissionState);
+
+  const submitCommand = useCallback(async (command: BrowserGoalInteractionCommand): Promise<void> => {
+    const inputId = resolveDecisionInputId(submission, command, () => crypto.randomUUID());
+    dispatch({ kind: "submit", decision: { inputId, command } });
+    try {
+      const accepted = await browserApi.submitInput(view.goalId, {
+        kind: "respond",
+        inputId,
+        runId: view.runId,
+        requestId: view.requestId ?? view.actionId ?? "",
+        response: toSessionInteractionResponse(command),
+      });
+      if (!accepted.ok) {
+        const message = errorMessage(new BrowserApiError(accepted.error, 409, true));
+        if (isInvalidatingCode(accepted.error)) dispatch({ kind: "invalidated", message });
+        else dispatch({ kind: "rejected", message });
+        return;
+      }
+      dispatch({ kind: "accepted" });
+      onDecisionAccepted({ interactionId: view.interactionId, runId: view.runId, summary: decisionSummary(command) });
+      await onRefreshSession();
+    } catch (error) {
+      if (error instanceof BrowserApiError && isInvalidatingCode(error.code)) {
+        dispatch({ kind: "invalidated", message: errorMessage(error) });
+        return;
+      }
+      dispatch({ kind: "unverified", message: errorMessage(error) });
+    }
+  }, [submission, view, onRefreshSession, onDecisionAccepted]);
+
+  const verifyFrozen = useCallback(async (): Promise<void> => {
+    if (submission.frozen === null) return;
+    try {
+      const queried = await browserApi.readInputReceipt(view.goalId, submission.frozen.inputId);
+      if (!queried.ok) {
+        dispatch({ kind: "unverified", message: "The saved decision could not be read. Check again before sending anything else." });
+        return;
+      }
+      if (!queried.found) {
+        dispatch({ kind: "verified_absent", message: "This decision was not saved. You can retry the same decision." });
+        return;
+      }
+      dispatch({ kind: "verified_accepted" });
+      onDecisionAccepted({
+        interactionId: view.interactionId,
+        runId: view.runId,
+        summary: decisionSummary(submission.frozen.command),
+      });
+      await onRefreshSession();
+    } catch (error) {
+      dispatch({ kind: "unverified", message: errorMessage(error) });
+    }
+  }, [submission, view, onRefreshSession, onDecisionAccepted]);
+
+  return { submission, submitCommand, verifyFrozen };
+}
+
+function isInvalidatingCode(code: string): boolean {
+  return code === "stale_run" || code === "stale_request" || code === "action_not_waiting" || code === "goal_not_waiting";
+}
+
+/** 已受理／失效的终态摘要：移除可操作表单，只保留决定记录。 */
+function DecisionSettled({
+  submission,
+  label,
+}: {
+  submission: InteractionSubmissionState;
+  label: string;
+}) {
+  return (
+    <section className="approval structured-form interaction-region" aria-label={label}>
+      {submission.phase === "accepted" ? (
+        <div className="interaction-accepted" role="status">
+          <Check size={14} aria-hidden="true" /> {submissionStatusText(submission)}
+        </div>
+      ) : (
+        <>
+          <p className="interaction-error" role="alert">{submission.error}</p>
+          <p className="interaction-status" role="status">{submissionStatusText(submission)}</p>
+        </>
+      )}
+    </section>
+  );
+}
+
+function SubmissionStatus({
+  submission,
+  onEvent,
+}: {
+  submission: InteractionSubmissionState;
+  onEvent: (event: { readonly kind: "verify" } | { readonly kind: "retry" }) => void;
+}) {
+  return (
+    <>
+      {submission.error !== null && (
+        <p className="interaction-error" role="alert">{submission.error}</p>
+      )}
+      <p className="interaction-status" role="status" aria-live="polite">
+        {submissionStatusText(submission)}
+      </p>
+      {needsVerification(submission) && (
+        <div className="interaction-resolve">
+          <button type="button" className="approval-primary" onClick={() => onEvent({ kind: "verify" })}>
+            <Eye size={13} aria-hidden="true" /> Check saved decision
+          </button>
+          <button type="button" onClick={() => onEvent({ kind: "retry" })}>
+            Retry the same decision
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** 停止 Run 的独立入口；只受停止状态限制，不受回答提交在途限制。 */
+function StopRunButton({ stopping, onStop }: { stopping: boolean; onStop: () => void }) {
+  return (
+    <button type="button" className="interaction-stop" disabled={stopping} onClick={onStop}>
+      {stopping ? "Stopping…" : "Stop run"}
+    </button>
+  );
 }
 
 /**
@@ -132,23 +317,8 @@ export function QuestionInteractionView({
   const locked = !canSubmitDecision(submission) && submission.phase !== "editing";
   const review = buildReview(draft, questions);
 
-  if (submission.phase === "accepted") {
-    return (
-      <section className="approval structured-form interaction-region question-region" aria-label="Interaction decision">
-        <div className="interaction-accepted" role="status">
-          <Check size={14} aria-hidden="true" /> {submissionStatusText(submission)}
-        </div>
-      </section>
-    );
-  }
-
-  if (submission.phase === "invalidated") {
-    return (
-      <section className="approval structured-form interaction-region question-region" aria-label="Interaction decision">
-        <p className="interaction-error" role="alert">{submission.error}</p>
-        <p className="interaction-status" role="status">{submissionStatusText(submission)}</p>
-      </section>
-    );
+  if (submission.phase === "accepted" || submission.phase === "invalidated") {
+    return <DecisionSettled submission={submission} label="Interaction decision" />;
   }
 
   const routeRevision = detail.routeRevision;
@@ -158,14 +328,7 @@ export function QuestionInteractionView({
       <div className="approval-heading">
         <CircleHelp size={15} aria-hidden="true" />
         <strong id={headingId}>Your answer is needed</strong>
-        <button
-          type="button"
-          className="interaction-stop"
-          disabled={chrome.stopping}
-          onClick={() => onEvent({ kind: "stop" })}
-        >
-          {chrome.stopping ? "Stopping…" : "Stop run"}
-        </button>
+        <StopRunButton stopping={chrome.stopping} onStop={() => onEvent({ kind: "stop" })} />
       </div>
       <p className="interaction-note" id={hintId}>
         {detail.mode === "plan"
@@ -436,6 +599,264 @@ function QuestionField({
 }
 
 /**
+ * 任务提案审批区域的纯展示视图。
+ *
+ * @remarks
+ * 决定前展示完整目标、验收条件与有序候选阶段；批准是明确操作，反馈携带非空
+ * 文本并使提案失效后重新规划。反馈文本不构成批准。
+ */
+export function TaskApprovalInteractionView({
+  detail,
+  submission,
+  feedback,
+  chrome,
+  onEvent,
+}: {
+  detail: Extract<BrowserInteractionDetail, { kind: "task_approval" }>;
+  submission: InteractionSubmissionState;
+  feedback: string;
+  chrome: InteractionRegionChrome;
+  onEvent: (event: TaskApprovalViewEvent) => void;
+}) {
+  const baseId = useId();
+  const headingId = `${baseId}-heading`;
+  const feedbackId = "task-feedback";
+  const locked = submission.phase !== "editing";
+
+  if (submission.phase === "accepted" || submission.phase === "invalidated") {
+    return <DecisionSettled submission={submission} label="Task approval decision" />;
+  }
+
+  return (
+    <section className="approval structured-form interaction-region task-approval-region" aria-labelledby={headingId}>
+      <div className="approval-heading">
+        <CircleHelp size={15} aria-hidden="true" />
+        <strong id={headingId}>Review the proposed task</strong>
+        <StopRunButton stopping={chrome.stopping} onStop={() => onEvent({ kind: "stop" })} />
+      </div>
+      <p>{detail.approvalRequest}</p>
+      <h4>{detail.objective}</h4>
+      {detail.completionCriteria.length > 0 && (
+        <ul className="criteria-list" aria-label="Completion criteria">
+          {detail.completionCriteria.map((criterion, index) => <li key={index}>{criterion}</li>)}
+        </ul>
+      )}
+      <div className="proposed-route" aria-label="Proposed stages">
+        <h5>Proposed stages</h5>
+        <ol>
+          {detail.stages.map((stage, index) => (
+            <li key={index}>
+              <strong>{stage.target}</strong>
+              <ul>{stage.acceptanceCriteria.map((criterion, criterionIndex) => (
+                <li key={criterionIndex}>{criterion}</li>
+              ))}</ul>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <SubmissionStatus submission={submission} onEvent={onEvent} />
+      <button
+        type="button"
+        className="approval-primary"
+        disabled={chrome.busy || locked}
+        onClick={() => onEvent({ kind: "submit_approve" })}
+      >
+        <Check size={13} aria-hidden="true" /> Approve task
+      </button>
+      <div className="feedback-form">
+        <label htmlFor={feedbackId}>Or send feedback</label>
+        <textarea
+          id={feedbackId}
+          name="task-feedback"
+          aria-label="Task feedback"
+          value={feedback}
+          disabled={chrome.busy || locked}
+          onChange={(event) => onEvent({ kind: "feedback_text", value: event.target.value })}
+          placeholder="Describe what should change…"
+        />
+        <button
+          type="button"
+          disabled={chrome.busy || locked || feedback.trim().length === 0}
+          onClick={() => onEvent({ kind: "submit_feedback" })}
+        >
+          Send feedback
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * 工具／沙箱审批与结果恢复区域的纯展示视图。
+ *
+ * @remarks
+ * 完整展示操作输入、申请能力与授权期限；默认单次，持续授权受完整审阅限制。
+ * 结果未知时明确说明可能已执行及重复效果，只提供单次重试与拒绝，不提供持续
+ * 授权或参数编辑。拒绝必须携带非空理由。
+ */
+export function ActionInteractionView({
+  detail,
+  summary,
+  scope,
+  rejection,
+  submission,
+  chrome,
+  onEvent,
+}: {
+  detail: Extract<BrowserInteractionDetail, { kind: "action_approval" | "action_recovery" }>;
+  summary: BrowserPendingAction | undefined;
+  scope: "action" | "goal" | "workspace";
+  rejection: string;
+  submission: InteractionSubmissionState;
+  chrome: InteractionRegionChrome;
+  onEvent: (event: ActionViewEvent) => void;
+}) {
+  const baseId = useId();
+  const headingId = `${baseId}-heading`;
+  const reasonId = "action-reason";
+  const recovery = detail.kind === "action_recovery";
+  const locked = submission.phase !== "editing";
+  const persistentDisabled = recovery || chrome.busy || locked;
+  const targetPath = summary?.targetPath;
+  const pathAuthorization = targetPath !== undefined && (detail.toolId === "write_file" || detail.toolId === "edit_file");
+
+  if (submission.phase === "accepted" || submission.phase === "invalidated") {
+    return <DecisionSettled submission={submission} label="Action decision" />;
+  }
+
+  return (
+    <section className="approval structured-form action-approval interaction-region action-region" aria-labelledby={headingId}>
+      <div className="approval-heading">
+        <CircleHelp size={15} aria-hidden="true" />
+        <strong id={headingId}>{recovery ? "Action result needs review" : "Your approval is needed"}</strong>
+        <span className="action-summary"><Zap size={13} aria-hidden="true" />{detail.toolId}</span>
+        <StopRunButton stopping={chrome.stopping} onStop={() => onEvent({ kind: "stop" })} />
+      </div>
+      <p className="interaction-kind-note">
+        <Shield size={13} aria-hidden="true" />
+        {detail.approvalKind === "sandbox" ? " Sandbox permission request." : " Tool permission request."}
+      </p>
+      {recovery && (
+        <p className="interaction-warning" role="alert">
+          This action may already have run. Retrying can execute it again and repeat its effects.
+        </p>
+      )}
+      {detail.parentProgram !== undefined && (
+        <p>
+          Program <code>{detail.parentProgram.actionId}</code>, call {detail.parentProgram.callNumber}.
+          Review this operation on its own merits.
+        </p>
+      )}
+      <div className="action-input-preview">
+        <label>Tool input</label>
+        <pre className="action-input-full">{formatToolInput(detail.input)}</pre>
+      </div>
+      {pathAuthorization && (
+        <p className="path-permission-note">
+          Ongoing permission for <code>{targetPath}</code> also allows later writes to this path with different content.
+        </p>
+      )}
+      {summary?.sandboxReview !== undefined && (
+        <section className="sandbox-review" aria-label="Sandbox scope">
+          <h5>Requested sandbox scope</h5>
+          <p>Network: {summary.sandboxReview.network === "none" ? "None" : "All outbound"}</p>
+          {summary.sandboxReview.networkNotice !== undefined && <p>{summary.sandboxReview.networkNotice}</p>}
+          {summary.sandboxReview.extraFiles.length > 0 && (
+            <ul>
+              {summary.sandboxReview.extraFiles.map((file) => (
+                <li key={file.canonicalPath}><code>{file.canonicalPath}</code> · {file.access}</li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+      {!recovery && (
+        <fieldset className="approval-scopes" disabled={chrome.busy || locked}>
+          <legend>Allow this action</legend>
+          <label htmlFor={`${baseId}-scope-action`}>
+            <input
+              id={`${baseId}-scope-action`}
+              type="radio"
+              name={`scope-${detail.actionId}`}
+              checked={scope === "action"}
+              onChange={() => onEvent({ kind: "scope", scope: "action" })}
+            />
+            <span><strong>Once</strong><small>Approve this action only.</small></span>
+          </label>
+          <label className={persistentDisabled ? "is-disabled" : ""} htmlFor={`${baseId}-scope-goal`}>
+            <input
+              id={`${baseId}-scope-goal`}
+              type="radio"
+              name={`scope-${detail.actionId}`}
+              checked={scope === "goal"}
+              disabled={persistentDisabled}
+              onChange={() => onEvent({ kind: "scope", scope: "goal" })}
+            />
+            <span><strong>This Goal</strong><small>Allow matching actions in this session.</small></span>
+          </label>
+          <label className={persistentDisabled ? "is-disabled" : ""} htmlFor={`${baseId}-scope-workspace`}>
+            <input
+              id={`${baseId}-scope-workspace`}
+              type="radio"
+              name={`scope-${detail.actionId}`}
+              checked={scope === "workspace"}
+              disabled={persistentDisabled}
+              onChange={() => onEvent({ kind: "scope", scope: "workspace" })}
+            />
+            <span><strong>This project</strong><small>Allow matching actions in future Goals.</small></span>
+          </label>
+        </fieldset>
+      )}
+      <SubmissionStatus submission={submission} onEvent={onEvent} />
+      <div className="action-approval-actions">
+        <button
+          type="button"
+          className="approval-primary"
+          disabled={chrome.busy || locked}
+          onClick={() => onEvent({ kind: "submit_approve" })}
+        >
+          <Check size={13} aria-hidden="true" />
+          {recovery ? "Retry action"
+            : scope === "goal" ? "Approve for this Goal"
+              : scope === "workspace" ? "Approve for this project"
+                : "Approve once"}
+        </button>
+        <details className="action-rejection">
+          <summary>Reject action</summary>
+          <div className="feedback-form">
+            <label htmlFor={reasonId}>Reason for rejecting</label>
+            <textarea
+              id={reasonId}
+              name="action-reason"
+              value={rejection}
+              disabled={chrome.busy || locked}
+              onChange={(event) => onEvent({ kind: "reject_text", value: event.target.value })}
+              placeholder="Explain why this action should not run…"
+            />
+            <button
+              type="button"
+              disabled={chrome.busy || locked || rejection.trim().length === 0}
+              onClick={() => onEvent({ kind: "submit_reject" })}
+            >
+              Reject action
+            </button>
+          </div>
+        </details>
+      </div>
+    </section>
+  );
+}
+
+/** 完整 canonical 工具输入的只读格式；空对象也明确展示。 */
+function formatToolInput(input: unknown): string {
+  try {
+    return JSON.stringify(input, null, 2) ?? "{}";
+  } catch {
+    return "The complete input could not be displayed.";
+  }
+}
+
+/**
  * 问答交互区域容器。
  *
  * @remarks
@@ -455,91 +876,16 @@ export function QuestionInteractionRegion({
   onInterrupt: () => Promise<void>;
   onDecisionAccepted: (summary: AcceptedDecisionSummary) => void;
 }) {
-  const [detail, setDetail] = useState<InteractionDetailState>({ kind: "loading" });
+  const { state: detail, reload } = useInteractionDetail(view);
+  const { submission, submitCommand, verifyFrozen } = useInteractionSubmission({ view, onRefreshSession, onDecisionAccepted });
   const [draft, setDraft] = useState<QuestionDraftState>(createQuestionDraft);
   const [skipConfirmOpen, setSkipConfirmOpen] = useState(false);
-  const [submission, dispatch] = useReducer(reduceInteractionSubmission, undefined, createInteractionSubmissionState);
-  const requestRef = useRef(0);
 
   const identity = `${view.runId}:${view.interactionId}`;
   useEffect(() => {
     setDraft(createQuestionDraft());
     setSkipConfirmOpen(false);
-    dispatch({ kind: "reset" });
   }, [identity]);
-
-  useEffect(() => {
-    let active = true;
-    const request = requestRef.current + 1;
-    requestRef.current = request;
-    setDetail({ kind: "loading" });
-    browserApi.readInteractionDetail(view.goalId, view.runId, view.interactionId).then((result) => {
-      if (!active || requestRef.current !== request) return;
-      setDetail(result.ok
-        ? { kind: "ready", detail: result.detail }
-        : { kind: "error", message: interactionDetailErrorText(result.error) });
-    }).catch(() => {
-      if (!active || requestRef.current !== request) return;
-      setDetail({ kind: "error", message: "The complete request could not be loaded. Retry before making a decision." });
-    });
-    return () => { active = false; };
-  }, [view.goalId, view.runId, view.interactionId]);
-
-  const invalidatingCodes = ["stale_run", "stale_request", "action_not_waiting", "goal_not_waiting"];
-
-  async function submitCommand(command: BrowserGoalInteractionCommand): Promise<void> {
-    const inputId = resolveDecisionInputId(submission, command, () => crypto.randomUUID());
-    dispatch({ kind: "submit", decision: { inputId, command } });
-    try {
-      const accepted = await browserApi.submitInput(view.goalId, {
-        kind: "respond",
-        inputId,
-        runId: view.runId,
-        requestId: view.requestId ?? view.actionId ?? "",
-        response: toSessionInteractionResponse(command),
-      });
-      if (!accepted.ok) {
-        const code = accepted.error;
-        const message = errorMessage(new BrowserApiError(code, 409, true));
-        if (invalidatingCodes.includes(code)) dispatch({ kind: "invalidated", message });
-        else dispatch({ kind: "rejected", message });
-        return;
-      }
-      dispatch({ kind: "accepted" });
-      onDecisionAccepted({ interactionId: view.interactionId, runId: view.runId, summary: decisionSummary(command) });
-      await onRefreshSession();
-    } catch (error) {
-      if (error instanceof BrowserApiError && invalidatingCodes.includes(error.code)) {
-        dispatch({ kind: "invalidated", message: errorMessage(error) });
-        return;
-      }
-      dispatch({ kind: "unverified", message: errorMessage(error) });
-    }
-  }
-
-  async function verifyFrozen(): Promise<void> {
-    if (submission.frozen === null) return;
-    try {
-      const queried = await browserApi.readInputReceipt(view.goalId, submission.frozen.inputId);
-      if (!queried.ok) {
-        dispatch({ kind: "unverified", message: "The saved decision could not be read. Check again before sending anything else." });
-        return;
-      }
-      if (!queried.found) {
-        dispatch({ kind: "verified_absent", message: "This decision was not saved. You can retry the same decision." });
-        return;
-      }
-      dispatch({ kind: "verified_accepted" });
-      onDecisionAccepted({
-        interactionId: view.interactionId,
-        runId: view.runId,
-        summary: decisionSummary(submission.frozen.command),
-      });
-      await onRefreshSession();
-    } catch (error) {
-      dispatch({ kind: "unverified", message: errorMessage(error) });
-    }
-  }
 
   function handleEvent(event: QuestionViewEvent): void {
     if (detail.kind !== "ready" || detail.detail.kind !== "question") {
@@ -608,39 +954,23 @@ export function QuestionInteractionRegion({
         void onInterrupt();
         return;
     }
-    return;
   }
 
   if (detail.kind === "loading") {
-    return (
-      <section className="approval structured-form interaction-region" aria-busy="true">
-        <p className="interaction-note">Loading the complete request…</p>
-      </section>
-    );
+    return <InteractionLoading />;
   }
   if (detail.kind === "error") {
     return (
-      <section className="approval structured-form interaction-region" role="alert">
-        <div className="approval-heading">
-          <ShieldAlert size={15} aria-hidden="true" />
-          <strong>The request could not be loaded</strong>
-        </div>
-        <p>{detail.message}</p>
-        <button type="button" onClick={() => setDetail({ kind: "loading" })}>
-          <Loader size={13} aria-hidden="true" /> Retry loading
-        </button>
-        <button type="button" className="interaction-stop" disabled={chrome.stopping} onClick={() => void onInterrupt()}>
-          {chrome.stopping ? "Stopping…" : "Stop run"}
-        </button>
-      </section>
+      <InteractionDetailFailure
+        message={detail.message}
+        stopping={chrome.stopping}
+        onRetry={reload}
+        onStop={() => void onInterrupt()}
+      />
     );
   }
   if (detail.detail.kind !== "question") {
-    return (
-      <section className="approval structured-form interaction-region" role="alert">
-        <p>The saved request no longer matches this form. The latest state is being loaded.</p>
-      </section>
-    );
+    return <InteractionMismatch />;
   }
 
   return (
@@ -653,5 +983,217 @@ export function QuestionInteractionRegion({
       skipConfirmOpen={skipConfirmOpen}
       onEvent={handleEvent}
     />
+  );
+}
+
+/** 任务审批区域容器：完整详情读取、批准与反馈提交。 */
+export function TaskApprovalRegion({
+  view,
+  chrome,
+  onRefreshSession,
+  onInterrupt,
+  onDecisionAccepted,
+}: {
+  view: BrowserInteractionView;
+  chrome: InteractionRegionChrome;
+  onRefreshSession: () => Promise<void>;
+  onInterrupt: () => Promise<void>;
+  onDecisionAccepted: (summary: AcceptedDecisionSummary) => void;
+}) {
+  const { state: detail, reload } = useInteractionDetail(view);
+  const { submission, submitCommand, verifyFrozen } = useInteractionSubmission({ view, onRefreshSession, onDecisionAccepted });
+  const [feedback, setFeedback] = useState("");
+  const identity = `${view.runId}:${view.interactionId}`;
+  useEffect(() => { setFeedback(""); }, [identity]);
+
+  function handleEvent(event: TaskApprovalViewEvent): void {
+    switch (event.kind) {
+      case "feedback_text":
+        setFeedback(event.value);
+        return;
+      case "submit_approve":
+        if (view.requestId === undefined) return;
+        void submitCommand({ kind: "approve_task", runId: view.runId, requestId: view.requestId });
+        return;
+      case "submit_feedback": {
+        const content = feedback.trim();
+        if (content.length === 0 || view.requestId === undefined) return;
+        void submitCommand({ kind: "feedback_task", runId: view.runId, requestId: view.requestId, feedback: content });
+        return;
+      }
+      case "verify":
+        void verifyFrozen();
+        return;
+      case "retry":
+        if (submission.frozen !== null) void submitCommand(submission.frozen.command);
+        return;
+      case "stop":
+        void onInterrupt();
+        return;
+    }
+  }
+
+  if (detail.kind === "loading") {
+    return <InteractionLoading />;
+  }
+  if (detail.kind === "error") {
+    return (
+      <InteractionDetailFailure
+        message={detail.message}
+        stopping={chrome.stopping}
+        onRetry={reload}
+        onStop={() => void onInterrupt()}
+      />
+    );
+  }
+  if (detail.detail.kind !== "task_approval") {
+    return <InteractionMismatch />;
+  }
+  return (
+    <TaskApprovalInteractionView
+      detail={detail.detail}
+      submission={submission}
+      feedback={feedback}
+      chrome={chrome}
+      onEvent={handleEvent}
+    />
+  );
+}
+
+/**
+ * 工具／沙箱审批与结果恢复区域容器。
+ *
+ * @remarks
+ * 完整输入来自身份匹配的详情读取；读取失败或引用变化时保留等待并禁用批准。
+ * 结果未知只允许单次重试或拒绝，授权范围固定为本次。
+ */
+export function ActionInteractionRegion({
+  view,
+  summary,
+  chrome,
+  onRefreshSession,
+  onInterrupt,
+  onDecisionAccepted,
+}: {
+  view: BrowserInteractionView;
+  summary: BrowserPendingAction | undefined;
+  chrome: InteractionRegionChrome;
+  onRefreshSession: () => Promise<void>;
+  onInterrupt: () => Promise<void>;
+  onDecisionAccepted: (summary: AcceptedDecisionSummary) => void;
+}) {
+  const { state: detail, reload } = useInteractionDetail(view);
+  const { submission, submitCommand, verifyFrozen } = useInteractionSubmission({ view, onRefreshSession, onDecisionAccepted });
+  const [scope, setScope] = useState<"action" | "goal" | "workspace">("action");
+  const [rejection, setRejection] = useState("");
+  const identity = `${view.runId}:${view.interactionId}`;
+  useEffect(() => {
+    setScope("action");
+    setRejection("");
+  }, [identity]);
+
+  function handleEvent(event: ActionViewEvent): void {
+    switch (event.kind) {
+      case "scope":
+        setScope(event.scope);
+        return;
+      case "reject_text":
+        setRejection(event.value);
+        return;
+      case "submit_approve":
+        if (view.actionId === undefined) return;
+        void submitCommand({
+          kind: "approve_action",
+          runId: view.runId,
+          actionId: view.actionId,
+          scope: view.kind === "action_recovery" ? "action" : scope,
+        });
+        return;
+      case "submit_reject": {
+        const reason = rejection.trim();
+        if (reason.length === 0 || view.actionId === undefined) return;
+        void submitCommand({ kind: "reject_action", runId: view.runId, actionId: view.actionId, reason });
+        return;
+      }
+      case "verify":
+        void verifyFrozen();
+        return;
+      case "retry":
+        if (submission.frozen !== null) void submitCommand(submission.frozen.command);
+        return;
+      case "stop":
+        void onInterrupt();
+        return;
+    }
+  }
+
+  if (detail.kind === "loading") {
+    return <InteractionLoading />;
+  }
+  if (detail.kind === "error") {
+    return (
+      <InteractionDetailFailure
+        message={detail.message}
+        stopping={chrome.stopping}
+        onRetry={reload}
+        onStop={() => void onInterrupt()}
+      />
+    );
+  }
+  if (detail.detail.kind !== "action_approval" && detail.detail.kind !== "action_recovery") {
+    return <InteractionMismatch />;
+  }
+  return (
+    <ActionInteractionView
+      detail={detail.detail}
+      summary={summary}
+      scope={scope}
+      rejection={rejection}
+      submission={submission}
+      chrome={chrome}
+      onEvent={handleEvent}
+    />
+  );
+}
+
+function InteractionLoading() {
+  return (
+    <section className="approval structured-form interaction-region" aria-busy="true">
+      <p className="interaction-note">Loading the complete request…</p>
+    </section>
+  );
+}
+
+function InteractionDetailFailure({
+  message,
+  stopping,
+  onRetry,
+  onStop,
+}: {
+  message: string;
+  stopping: boolean;
+  onRetry: () => void;
+  onStop: () => void;
+}) {
+  return (
+    <section className="approval structured-form interaction-region" role="alert">
+      <div className="approval-heading">
+        <ShieldAlert size={15} aria-hidden="true" />
+        <strong>The request could not be loaded</strong>
+      </div>
+      <p>{message}</p>
+      <button type="button" onClick={onRetry}>
+        <Loader size={13} aria-hidden="true" /> Retry loading
+      </button>
+      <StopRunButton stopping={stopping} onStop={onStop} />
+    </section>
+  );
+}
+
+function InteractionMismatch() {
+  return (
+    <section className="approval structured-form interaction-region" role="alert">
+      <p>The saved request no longer matches this form. The latest state is being loaded.</p>
+    </section>
   );
 }

@@ -116,6 +116,79 @@ test("human interaction questionnaire: navigation, review, queue, overall reply 
   }
 });
 
+test("human interaction approvals: full task review, single tool approval and explicit recovery prompt", { timeout: 240_000 }, async () => {
+  const fixture = await startHarness("human-interaction-approvals");
+  const { socket, service } = fixture;
+  const { origin, token, launchUrl } = await service.ready;
+
+  try {
+    await navigate(socket, launchUrl);
+    await waitForExpression(socket, "document.querySelector('button.primary') !== null", 20_000);
+
+    // 通过正式 API 建立 Plan Run，使第一个决定是任务提案审批；界面只负责决定与审阅。
+    const catalog = await api(origin, "/api/models", { token });
+    const createGoal = await api(origin, "/api/goals", {
+      token,
+      method: "POST",
+      headers: { "content-type": "application/json", origin },
+      body: JSON.stringify({
+        goalId: "goal-approval-flow",
+        inputId: "approval-goal-input",
+        intent: "Plan flow: inspect and complete the approval path",
+        mode: "plan",
+        modelId: catalog.body.currentModelId,
+      }),
+    });
+    assert.equal(createGoal.response.status, 202, JSON.stringify(createGoal.body));
+    const goalId = "goal-approval-flow";
+
+    // 刷新 board 读取新 Goal；同一 URL 的 hash 导航不会重新加载页面。
+    await cdp(socket, "Page.reload");
+    await waitForExpression(socket, "document.readyState === 'complete' && document.querySelector('.goal-card') !== null", 20_000);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.task-approval-region')?.innerText.includes('Review the proposed task')", 30_000);
+    const taskRegion = await value(socket, "document.querySelector('.task-approval-region').innerText");
+    assert.match(taskRegion, /Approve the deterministic plan-flow task\?/);
+    assert.match(taskRegion, /Finish the controlled plan-flow check/);
+    assert.match(taskRegion, /Complete the proposed task/);
+    assert.match(taskRegion, /The task outcome is verified/);
+    assert.match(taskRegion, /Approve task/);
+    assert.equal(await value(socket, "document.querySelector('.task-approval-region .interaction-stop') !== null"), true);
+    assert.ok(taskRegion.indexOf("Complete the proposed task") < taskRegion.indexOf("Approve task"), "the complete route precedes the approve action");
+
+    const beforeApproval = await sessionDetail(origin, token, goalId);
+    assert.equal(beforeApproval.interaction.kind, "task_approval");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.task-approval-region button')].find(button => button.textContent.includes('Approve task')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.action-region')?.innerText.includes('Your approval is needed')", 30_000);
+    const actionSession = await waitForSession(origin, token, (candidate) => candidate.goalId === goalId && candidate.interaction?.kind === "action_approval");
+    assert.equal(actionSession.pendingAction.toolId, "browser_fixture_write");
+    const actionRegion = await value(socket, "document.querySelector('.action-region').innerText");
+    assert.match(actionRegion, /Tool permission request/);
+    assert.match(actionRegion, /browser_fixture_write/);
+    assert.match(actionRegion, /controlled plan write/, "the complete canonical input is reviewable before deciding");
+    assert.match(actionRegion, /Approve once/);
+    // 拒绝需要非空理由：未填写时拒绝按钮不可用，也从不提供参数编辑。
+    assert.equal(await value(socket, "document.querySelector('.approval-scopes input').checked"), true, "the default scope is the single action");
+    await clickButton(socket, "Reject action");
+    assert.equal(await value(socket, "(() => { const button = [...document.querySelectorAll('.action-region button')].find(candidate => candidate.textContent.trim() === 'Reject action'); return button.disabled; })()"), true);
+    assert.equal(actionRegion.includes("Edit input"), false);
+
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.action-region button')].find(button => button.textContent.includes('Approve once')).click()", returnByValue: true });
+    const completed = await waitFor(async () => {
+      const candidate = await sessionDetail(origin, token, goalId);
+      return candidate.runStatus === "completed" ? candidate : undefined;
+    }, "the approved plan action to complete", 60_000);
+    assert.equal(completed.interaction, undefined);
+    assert.equal(completed.pendingAction, undefined);
+    const actionLines = (await readFile(join(fixture.workspace, "controlled-tool-actions.jsonl"), "utf8")).trim().split("\n");
+    assert.equal(actionLines.length, 1, "the reviewed approval executed exactly one real tool call");
+    assert.equal(JSON.parse(actionLines[0]).value, "controlled plan write");
+    assert.equal(await value(socket, "document.body.innerText.includes('PRIVATE_CONTROLLED_TOOL_OUTPUT')"), false);
+  } finally {
+    await fixture.stop();
+  }
+});
+
 test("human interaction questionnaire: waiting stop, keyboard and narrow layout", { timeout: 180_000 }, async () => {
   const fixture = await startHarness("human-interaction-stop");
   const { socket, service } = fixture;
@@ -206,6 +279,7 @@ async function startHarness(label) {
     socket,
     service,
     statusPath,
+    workspace,
     async stop() {
       socket.close();
       await stopProcess(chrome, "SIGKILL", 5_000);

@@ -6,7 +6,6 @@ import type {
     BrowserGoalPlan,
     BrowserGoalSession,
     BrowserPendingAction,
-    BrowserPendingInteraction,
     BrowserPermissionModeResult,
     BrowserRunStatus,
     BrowserSessionRun,
@@ -405,58 +404,6 @@ export function isGoalPlan(value: unknown): value is BrowserGoalPlan {
             && ["pending", "in_progress", "completed", "cancelled"].includes(String(item.status)));
 }
 
-/**
- * 人工等待交互类型守卫。
- *
- * @param value - 待检测值。
- * @returns 是否为 BrowserPendingInteraction。
- *
- * @example
- * ```ts
- * if (isPendingInteraction(pending)) console.log(pending.kind);
- * ```
- */
-export function isPendingInteraction(value: unknown): value is BrowserPendingInteraction {
-    if (!isRecord(value) || !isNonEmptyString(value.requestId)) return false;
-    if (value.kind === "task_approval") {
-        return typeof value.objective === "string"
-            && typeof value.approvalRequest === "string"
-            && Array.isArray(value.completionCriteria)
-            && value.completionCriteria.every((item) => typeof item === "string")
-            && Array.isArray(value.planRoute)
-            && value.planRoute.length > 0
-            && value.planRoute.every((stage) => isRecord(stage)
-                && isNonEmptyString(stage.target)
-                && Array.isArray(stage.acceptanceCriteria)
-                && stage.acceptanceCriteria.length > 0
-                && stage.acceptanceCriteria.every(isNonEmptyString));
-    }
-    const validRouteRevision = value.routeRevision === undefined
-        || (isRecord(value.routeRevision)
-            && isNonEmptyString(value.routeRevision.approvalRequest)
-            && isNonEmptyString(value.routeRevision.reason)
-            && Array.isArray(value.routeRevision.route)
-            && value.routeRevision.route.length > 0
-            && value.routeRevision.route.every((stage) => isRecord(stage)
-                && isNonEmptyString(stage.target)
-                && Array.isArray(stage.acceptanceCriteria)
-                && stage.acceptanceCriteria.length > 0
-                && stage.acceptanceCriteria.every(isNonEmptyString)));
-    return value.kind === "ask_user"
-        && (value.mode === "plan" || value.mode === "execution")
-        && validRouteRevision
-        && Array.isArray(value.questions)
-        && value.questions.every((question) => isRecord(question)
-            && isNonEmptyString(question.id)
-            && typeof question.header === "string"
-            && typeof question.question === "string"
-            && typeof question.multiSelect === "boolean"
-            && Array.isArray(question.options)
-            && question.options.every((option) => isRecord(option)
-                && isNonEmptyString(option.id)
-                && typeof option.label === "string"
-                && (option.description === undefined || typeof option.description === "string")));
-}
 
 /**
  * 待审 Action 类型守卫。
@@ -631,7 +578,6 @@ export function isBrowserGoalSession(value: unknown): value is BrowserGoalSessio
         && ["active", "recoverable", "inactive"].includes(String(value.execution.state))
         && typeof value.execution.committedThroughSequence === "number"
     )) return false;
-    if (value.pendingInteraction !== undefined && !isPendingInteraction(value.pendingInteraction)) return false;
     if (value.pendingAction !== undefined && !isPendingAction(value.pendingAction)) return false;
     if (value.interaction !== undefined && !isBrowserInteractionView(value.interaction)) return false;
     return true;

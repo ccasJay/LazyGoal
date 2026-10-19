@@ -101,10 +101,12 @@ test("Plan task approval projection preserves the complete ordered route", async
     const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
         committed: [], uncommittedTail: [],
     }));
-    assert.deepEqual(session?.pendingInteraction?.kind === "task_approval" ? session.pendingInteraction.planRoute : undefined, [
-        { target: "Inspect existing behavior", acceptanceCriteria: ["Identify the current entry point"] },
-        { target: "Implement the change", acceptanceCriteria: ["The feature behaves as requested", "Regression coverage passes"] },
-    ]);
+    assert.equal(session?.interaction?.kind, "task_approval");
+    assert.equal(session?.interaction?.interactionId, "task_approval:proposal-1");
+    assert.equal(session?.interaction?.requestId, "proposal-1");
+    assert.deepEqual(session?.interaction?.decisions, ["approve_task", "send_task_feedback"]);
+    // 完整有序路线不再复制到会话摘要；它由显式详情读取按同一引用提供。
+    assert.equal(session?.interaction?.truncated, false);
 });
 
 test("session projection exposes the typed interaction identity and truncation flag", async () => {
@@ -291,14 +293,11 @@ test("Plan route revision approval projection includes reason and full candidate
     const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
         committed: [], uncommittedTail: [],
     }));
-    assert.deepEqual(session?.pendingInteraction?.kind === "ask_user" ? session.pendingInteraction.routeRevision : undefined, {
-        approvalRequest: "Approve this additional outcome?",
-        reason: "New evidence adds a deliverable outside the approved scope",
-        route: [
-            { target: "Repair", acceptanceCriteria: ["Behavior works"] },
-            { target: "Write report", acceptanceCriteria: ["Report is reviewed"] },
-        ],
-    });
+    // 路线扩展的完整候选路线由详情读取提供；摘要只保留身份、种类与可决定操作。
+    assert.equal(session?.interaction?.kind, "question");
+    assert.equal(session?.interaction?.interactionId, "question:route-approval-1");
+    assert.deepEqual(session?.interaction?.decisions, ["answer_questions", "reply_to_question", "skip_question"]);
+    assert.equal(session?.interaction?.truncated, false);
 });
 
 function event(

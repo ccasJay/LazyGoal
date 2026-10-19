@@ -508,6 +508,13 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .overall-reply label { color: var(--muted); font-size: var(--font-size-xs); }
 .overall-reply textarea { min-height: 76px; padding: 8px; border: 1px solid var(--control-border); border-radius: 5px; background: var(--panel); color: var(--text); font-size: 11px; resize: vertical; }
 .interaction-status { margin: 8px 0 0; color: var(--muted); font-size: 10px; }
+.interaction-kind-note { display: inline-flex; align-items: center; gap: 5px; margin: 6px 0; padding: 4px 7px; border-radius: 4px; background: var(--surface-raised); color: var(--text-secondary); font-size: 10px; }
+.interaction-warning { margin: 6px 0; padding: 7px 8px; border-left: 2px solid var(--warning-border); background: var(--warning-soft); color: var(--warning); font-size: 10px; line-height: 1.6; }
+.sandbox-review { margin: 10px 0; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.sandbox-review h5 { margin: 0 0 6px; color: var(--muted); font-size: 10px; font-weight: 550; text-transform: uppercase; letter-spacing: .05em; }
+.sandbox-review p { margin: 0 0 4px; color: var(--text-secondary); font-size: 10px; }
+.sandbox-review ul { display: grid; gap: 3px; margin: 4px 0 0; padding-left: 16px; color: var(--text-secondary); font-size: 10px; }
+.sandbox-review code { overflow-wrap: anywhere; }
 .interaction-error { margin: 8px 0 0; padding: 7px 8px; border-left: 2px solid var(--danger-border); background: var(--danger-soft); color: var(--danger); font-size: 10px; line-height: 1.6; }
 .interaction-resolve { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .interaction-accepted { display: flex; align-items: center; gap: 6px; color: var(--accent-ink); font-size: 11px; font-weight: 550; }

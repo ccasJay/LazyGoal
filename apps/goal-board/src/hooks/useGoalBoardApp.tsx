@@ -246,7 +246,6 @@ export function useGoalBoardApp() {
     onSubmitDraftMessage: commandsManager.submitDraftMessage,
     onSubmitSteer: commandsManager.submitSteer,
     onInterrupt: commandsManager.interruptCurrentRun,
-    onSubmitInteraction: commandsManager.submitInteraction,
     onSubmitResume: commandsManager.submitResume,
   };
 
