@@ -125,12 +125,26 @@ test("real local service restores and completes one authorized Goal conversation
       headers: { "content-type": "application/json", origin: first.origin },
       body: JSON.stringify({ kind: "message", inputId: "e2e-message-1", content: "Use approved notes" }),
     });
-    assert.equal(plainTextAtAskUser.response.status, 409);
-    assert.equal(plainTextAtAskUser.body.error, "INTERACTION_REQUIRED");
-    // 拒绝不写入收据：原身份仍可查询且明确未找到。
-    const rejectedReceipt = await api(first.origin, `/api/goals/${goalId}/inputs/e2e-message-1`, { token: first.token });
-    assert.equal(rejectedReceipt.response.status, 200);
-    assert.deepEqual(rejectedReceipt.body, { ok: true, found: false });
+    // 普通消息进入持久化队列，但不代答结构化等待、不推进当前 Run。
+    assert.equal(plainTextAtAskUser.response.status, 202);
+    assert.equal(plainTextAtAskUser.body.receipt.status, "pending");
+    const queuedAtWait = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages?.length ?? 0) === 1);
+    assert.equal(queuedAtWait.pendingInteraction.kind, "ask_user");
+    assert.deepEqual(await readStatus(statusPath), { modelCalls: 1, toolCalls: 0 });
+    const clearedAtWait = await api(first.origin, `/api/goals/${goalId}/inputs`, {
+      token: first.token,
+      method: "POST",
+      headers: { "content-type": "application/json", origin: first.origin },
+      body: JSON.stringify({ kind: "queue_control", inputId: "e2e-clear-queue", action: "clear", queueRevision: queuedAtWait.queue.revision }),
+    });
+    assert.equal(clearedAtWait.response.status, 202);
+    const afterClearAtWait = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages ?? []).length === 0);
+    assert.equal(afterClearAtWait.pendingInteraction.kind, "ask_user");
+    // 清空保留收据：原身份仍可核验且明确标记为已清空。
+    const clearedReceipt = await api(first.origin, `/api/goals/${goalId}/inputs/e2e-message-1`, { token: first.token });
+    assert.equal(clearedReceipt.response.status, 200);
+    assert.equal(clearedReceipt.body.found, true);
+    assert.equal(clearedReceipt.body.receipt.status, "cleared");
     assert.deepEqual(await readStatus(statusPath), { modelCalls: 1, toolCalls: 0 });
 
     const savedPreference = await api(first.origin, "/api/project/model-preference", {

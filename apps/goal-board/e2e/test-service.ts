@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 
 import { contract } from "../../../packages/contracts/src/index";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
-import { textResponse } from "../../../packages/llm-core/test/response-fixtures";
+import { toolResponseFixture } from "../../../packages/agent/test/tool-response-fixture";
 import {
     createToolRegistration,
     InMemoryToolRegistry,
@@ -44,7 +44,7 @@ class DeterministicAdapter implements LLMAdapter {
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.calls += 1;
         await writeStatus();
-        if (request.tools?.[0]?.id === "system_review_completion") return textResponse(JSON.stringify({ result: { kind: "accept" } }), "json");
+        if (request.tools?.[0]?.id === "system_review_completion") return toolResponseFixture(JSON.stringify({ result: { kind: "accept" } }));
         if (compositionRoot === undefined || activeGoalId === undefined) throw new Error("The fixture needs the active Goal");
         const goal = await compositionRoot.workspaceGoalStore.restore(activeGoalId);
         if (goal === undefined) throw new Error("The active fixture Goal disappeared");
@@ -97,7 +97,8 @@ class DeterministicAdapter implements LLMAdapter {
         const isComposerStatusFlow = request.messages.some(message => message.content.includes("Composer status flow:"));
         if (isComposerStatusFlow) await new Promise(resolve => setTimeout(resolve, 1200));
         if (process.env.LAZYGOAL_E2E_DELAY_MODEL === "1" && !["run_stage_update", "tool_discovery"].includes(result.kind as string)) await new Promise(resolve => setTimeout(resolve, 5000));
-        return textResponse(JSON.stringify({ result }), "json");
+        // 严格结构化输出以声明工具调用交付决策。
+        return toolResponseFixture(JSON.stringify({ result }));
     }
 }
 

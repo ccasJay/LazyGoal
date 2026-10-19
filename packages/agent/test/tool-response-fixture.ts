@@ -21,7 +21,7 @@ export function toolResponseFixture(content: string): LLMResponse {
     }
     const { kind, contextNotes: _notes, ...args } = decision;
     const names: Record<string, string> = {
-        complete: "system_complete_task", wait: "system_wait_for_input", fail: "system_fail_goal",
+        complete: "system_complete_task", wait: "system_wait_for_input", fail: "system_fail_goal", ask_user: "ask_user",
         request_think: "system_request_think", tool_discovery: "system_find_tools",
         run_stage_update: "system_update_run_stage", run_stage_complete: "system_complete_run_stage",
         task_proposal: "system_propose_task_plan", context_checkpoint: "system_context_checkpoint",
