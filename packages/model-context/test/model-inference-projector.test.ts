@@ -39,6 +39,7 @@ import type { ToolDefinition } from "../../tool-core/src/index";
 import { currentProtocols, currentWorkingMemory } from "./current-fixtures";
 import { ModelInferenceProjector } from "../src/model-inference-projector";
 import type { PromptStage } from "../../model-view/src/index";
+import { testAssistantMessage } from "../../runtime/test/current-fixtures";
 
 const intent = "完成示例任务";
 const task = {
@@ -251,11 +252,7 @@ function assertPortableSchema(schema: Record<string, unknown>, path: string): vo
 
 test("Projector 投影未批准 Goal 的 PromptContext、Conversation 与 Working Context", () => {
     const view = project(createUnapprovedGoal([
-        {
-            role: "assistant",
-            assistant: { profileId: "profile-1" },
-            content: "已记录的问题",
-        },
+        testAssistantMessage("已记录的问题", { profileId: "profile-1" }),
     ]));
 
     assert.deepEqual(Object.keys(view).sort(), [

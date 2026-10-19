@@ -70,13 +70,45 @@ export interface GoalSnapshotTaskV1 {
     readonly completionCriteria: readonly GoalSnapshotCompletionCriterionV1[];
 }
 
+/**
+ * Snapshot 中保存的消息来源。
+ *
+ * @remarks
+ * 来源描述消息为什么存在；它参与提交重试核对与原生历史去重判定，不参与正文比较。
+ * 同文不同来源仍是两条独立消息。
+ *
+ * @example
+ * ```ts
+ * const source: GoalSnapshotMessageSourceV1 = { kind: "user_input", inputId: "input-1" };
+ * ```
+ */
+export type GoalSnapshotMessageSourceV1 =
+    | { readonly kind: "goal_intent"; readonly goalId: string }
+    | { readonly kind: "user_input"; readonly inputId: string }
+    | { readonly kind: "interaction_response"; readonly requestId: string }
+    | { readonly kind: "model_text"; readonly modelCallId: string; readonly blockIndex: number }
+    | { readonly kind: "stage_output"; readonly executionUnitId: string }
+    | { readonly kind: "completion_candidate"; readonly candidateId: string }
+    | { readonly kind: "host_execution"; readonly actionId: string }
+    | { readonly kind: "runtime_notice"; readonly noticeId: string };
+
 /** Snapshot 中按时间顺序保存的真实会话消息。 */
 export type GoalSnapshotMessageV1 =
-    | { readonly role: "user"; readonly content: string }
+    | {
+        readonly role: "user";
+        readonly content: string;
+        readonly messageId: string;
+        readonly runId: string;
+        readonly source: GoalSnapshotMessageSourceV1;
+    }
     | {
         readonly role: "assistant";
         readonly assistant: { readonly profileId: string };
         readonly content: string;
+        readonly messageId: string;
+        readonly runId: string;
+        readonly purpose: "process" | "answer" | "notice";
+        readonly source: GoalSnapshotMessageSourceV1;
     };
 
 /** Snapshot 中的 Tool Action。 */
@@ -841,12 +873,37 @@ const GoalSnapshotTaskSchema = z.object({
     completionCriteria: z.array(GoalSnapshotCompletionCriterionSchema),
 }).strict();
 
+const GoalSnapshotMessageSourceSchema = z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("goal_intent"), goalId: NonEmptyStringSchema }).strict(),
+    z.object({ kind: z.literal("user_input"), inputId: NonEmptyStringSchema }).strict(),
+    z.object({ kind: z.literal("interaction_response"), requestId: NonEmptyStringSchema }).strict(),
+    z.object({
+        kind: z.literal("model_text"),
+        modelCallId: NonEmptyStringSchema,
+        blockIndex: z.number().int().nonnegative(),
+    }).strict(),
+    z.object({ kind: z.literal("stage_output"), executionUnitId: NonEmptyStringSchema }).strict(),
+    z.object({ kind: z.literal("completion_candidate"), candidateId: NonEmptyStringSchema }).strict(),
+    z.object({ kind: z.literal("host_execution"), actionId: NonEmptyStringSchema }).strict(),
+    z.object({ kind: z.literal("runtime_notice"), noticeId: NonEmptyStringSchema }).strict(),
+]);
+
 const GoalSnapshotMessageSchema = z.discriminatedUnion("role", [
-    z.object({ role: z.literal("user"), content: z.string() }).strict(),
+    z.object({
+        role: z.literal("user"),
+        content: z.string(),
+        messageId: NonEmptyStringSchema,
+        runId: NonEmptyStringSchema,
+        source: GoalSnapshotMessageSourceSchema,
+    }).strict(),
     z.object({
         role: z.literal("assistant"),
         assistant: z.object({ profileId: NonEmptyStringSchema }).strict(),
         content: z.string(),
+        messageId: NonEmptyStringSchema,
+        runId: NonEmptyStringSchema,
+        purpose: z.enum(["process", "answer", "notice"]),
+        source: GoalSnapshotMessageSourceSchema,
     }).strict(),
 ]);
 
@@ -1462,6 +1519,41 @@ function addInvariantIssue(
     context.addIssue({ code: "custom", message, path });
 }
 
+/**
+ * 计算持久化消息来源的稳定比较键。
+ *
+ * @remarks
+ * 键只由来源自身的判别字段组成，不包含正文或数组位置；同文不同来源因此得到
+ * 不同键。本文件不得依赖 Runtime 包，故在持久化形态上独立实现同一规则。
+ *
+ * @param source - 持久化消息来源。
+ * @returns 该来源在同一 Goal 内的稳定比较键。
+ * @example
+ * ```ts
+ * const key = snapshotMessageSourceKey({ kind: "user_input", inputId: "input-1" });
+ * ```
+ */
+function snapshotMessageSourceKey(source: GoalSnapshotMessageSourceV1): string {
+    switch (source.kind) {
+        case "goal_intent":
+            return `goal_intent:${source.goalId}`;
+        case "user_input":
+            return `user_input:${source.inputId}`;
+        case "interaction_response":
+            return `interaction_response:${source.requestId}`;
+        case "model_text":
+            return `model_text:${source.modelCallId}:${source.blockIndex}`;
+        case "stage_output":
+            return `stage_output:${source.executionUnitId}`;
+        case "completion_candidate":
+            return `completion_candidate:${source.candidateId}`;
+        case "host_execution":
+            return `host_execution:${source.actionId}`;
+        case "runtime_notice":
+            return `runtime_notice:${source.noticeId}`;
+    }
+}
+
 function validateSnapshotInvariants(
     goal: z.infer<typeof GoalSnapshotV1BaseSchema>,
     context: z.RefinementCtx,
@@ -1589,6 +1681,19 @@ function validateSnapshotInvariants(
         } else if (record.appliedRunId !== undefined || record.messageIndex !== undefined) {
             addInvariantIssue(context, "only applied session inputs may reference an applied Run or message", ["state", "inputLedger", index]);
         }
+    }
+    const messageIds = new Set<string>();
+    const messageSourceKeys = new Set<string>();
+    for (const [index, message] of goal.state.messages.entries()) {
+        if (messageIds.has(message.messageId)) {
+            addInvariantIssue(context, "Goal message IDs must be unique within the Goal", ["state", "messages", index, "messageId"]);
+        }
+        messageIds.add(message.messageId);
+        const sourceKey = snapshotMessageSourceKey(message.source);
+        if (messageSourceKeys.has(sourceKey)) {
+            addInvariantIssue(context, "Goal message sources must be unique within the Goal", ["state", "messages", index, "source"]);
+        }
+        messageSourceKeys.add(sourceKey);
     }
     const messageQueue = goal.state.messageQueue;
     const queuedInputIds = new Set<string>();

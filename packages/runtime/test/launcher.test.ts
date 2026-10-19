@@ -22,7 +22,7 @@ import type {
     TrajectoryStore,
 } from "../src/index";
 import { GoalProtocolError } from "../src/index";
-import { currentProtocols } from "./current-fixtures";
+import { currentProtocols, testUserMessage } from "./current-fixtures";
 
 function createProfile(): AgentProfile {
     return {
@@ -189,7 +189,13 @@ test("launch saves an initial executing Goal before Coordinator.advance", async 
                 phase: "executing",
             },
             messages: [
-                { role: "user", content: "  Build a resumable workflow  " },
+                {
+                    role: "user",
+                    content: "  Build a resumable workflow  ",
+                    messageId: "msg-intent-goal-1",
+                    runId: "run-1",
+                    source: { kind: "goal_intent", goalId: "goal-1" },
+                },
             ],
             run: {
                 id: "run-1",

@@ -39,6 +39,8 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 
 Goal workflow 只有 `phase: "executing"`。Goal 是可持续恢复的会话聚合，保存完整 messages、独立 GoalPlan、可选的一次性 `nextRunMode` 和 `completedRuns`；Run 是一次执行边界，保存自己的 `mode`、可选 `approvedTask`、Plan Run 可选的 `planRoute`、`status`、`stepCount`、最新 Step、等待点、Context Epoch、Trajectory 提交边界和 Working Memory revision。`planRoute` 只在获批 Plan Run 上保存完整有序阶段、状态和恢复游标；普通 Run 与待审批 Run 不包含该状态。GoalPlan Todo 不绑定 Run；同一 Run 可依次更新多个 Todo，结束时未完成项保留原状态。
 
+每条正式消息都带稳定 `messageId`、所属 `runId` 与判别式 `source`；助手消息另有 `purpose` 区分 `process`（模型公开过程正文）、`answer`（被审查接受的最终答复）与 `notice`（等待、失败等 Runtime 通知）。[GoalMessage](../src/goal-message.ts) 拥有身份分配、来源比较键与同源幂等追加：同一来源重试返回已提交的原消息身份，同一来源正文不一致时明确失败且不覆盖已提交正文；正文相同但来源不同的消息保持为两条独立记录。来源同时是后续按模型调用与内容块判定原生历史去重的依据；没有模型调用身份的执行方只使用真实执行来源，不虚构模型调用或 Provider 块身份。
+
 无参数 `/plan` 通过 Coordinator 为尚未提交 `run_started` 的当前 Run 选择 Plan 模式；当前 Run 已完成或失败时，它将 Plan 作为下一 Run 的一次性选择持久化。新 Run 缺省使用普通模式并消费待用选择。模式只属于 Run，GoalPlan 可在任意模式下存在并继续读取。
 
 waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表单取消当前询问。Runtime 清除该待处理交互，记录询问取消事件，并将“跳过此询问、继续当前任务”的控制消息交给同一 Run；Run 不会因此进入取消终态。completed、failed 或 cancelled 输入调用 `continue`，在追加用户消息前归档上一 Run 的终态、保存新 Run，再交给现有 Scheduler。失败 Run 不会原地恢复；只有用户提交新输入才会创建后续 Run。未完成 Todo 不会自动推进。

@@ -111,6 +111,7 @@ export type {
 } from "./lifecycle";
 export type {
     AssistantMessage,
+    AssistantMessagePurpose,
     AgentDecision,
     CompletionAcceptance,
     CompletionEvidence,
@@ -129,6 +130,7 @@ export type {
     GoalCreationInput,
     GoalDefinition,
     GoalMessage,
+    GoalMessageSource,
     GoalModelSelection,
     RunMode,
     CompletedRunRecord,
@@ -168,6 +170,24 @@ export type {
     WorkingMemoryPatch,
 } from "./domain";
 export { transition } from "./transition";
+export {
+    appendGoalMessage,
+    createAssistantMessage,
+    createModelTextSource,
+    createRuntimeNoticeSource,
+    createStageOutputSource,
+    createUserMessage,
+    findGoalMessageById,
+    findGoalMessageBySource,
+    goalMessageSourceKey,
+    GoalMessageSourceConflictError,
+} from "./goal-message";
+export type {
+    AppendGoalMessageResult,
+    AssistantMessageDraft,
+    GoalMessageDraft,
+    UserMessageDraft,
+} from "./goal-message";
 export {
     MODEL_CONTEXT_CHECKPOINT_INVALID,
     ModelContextCheckpointError,

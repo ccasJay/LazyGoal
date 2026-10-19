@@ -388,11 +388,21 @@ function encodeStep(step: StepRecord): GoalSnapshotStepRecordV1 {
 
 function encodeMessage(message: GoalMessage): GoalSnapshotMessageV1 {
     return message.role === "user"
-        ? { role: "user", content: message.content }
+        ? {
+            role: "user",
+            content: message.content,
+            messageId: message.messageId,
+            runId: message.runId,
+            source: { ...message.source },
+        }
         : {
             role: "assistant",
             assistant: { profileId: message.assistant.profileId },
             content: message.content,
+            messageId: message.messageId,
+            runId: message.runId,
+            purpose: message.purpose,
+            source: { ...message.source },
         };
 }
 
@@ -1052,11 +1062,21 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
             workflow: decodeWorkflow(snapshot.state.workflow),
             messages: snapshot.state.messages.map((message): GoalMessage =>
                 message.role === "user"
-                    ? { role: "user", content: message.content }
+                    ? {
+                        role: "user",
+                        content: message.content,
+                        messageId: message.messageId,
+                        runId: message.runId,
+                        source: { ...message.source },
+                    }
                     : {
                         role: "assistant",
                         assistant: { profileId: message.assistant.profileId },
                         content: message.content,
+                        messageId: message.messageId,
+                        runId: message.runId,
+                        purpose: message.purpose,
+                        source: { ...message.source },
                     }
             ),
             run: {

@@ -6,6 +6,10 @@
 | --- | --- | --- | --- |
 | Goal | 可恢复的会话聚合。 | [Goal Runtime](../README.md) | [模块说明](./overview.md) |
 | Run | Goal 内的一次执行边界。 | [Goal Runtime](../README.md) | [模块说明](./overview.md) |
+| 正式消息身份 | 每条已保存消息在所属 Runtime 提交边界分配的 `messageId` 与所属 `runId`；刷新、重试或切换 Run 后仍可定位，不由数组位置或正文哈希推导。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |
+| 消息来源 | 描述消息为什么存在的判别式来源：基础输入、交互回复、模型正文块、被接受的完成候选、宿主执行或 Runtime 通知；参与提交重试核对与原生历史去重。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |
+| 助手消息用途 | `process` 是模型公开过程正文，`answer` 是被审查接受的最终答复，`notice` 是等待、失败等 Runtime 通知。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |
+| 同源幂等提交 | 同一来源重试返回已提交的原消息身份，不追加第二条；同一来源正文不一致时明确失败，不覆盖已提交正文。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |
 | 会话输入受理 | 在短提交边界内保存一条带稳定身份的输入并返回收据；受理不等于应用。 | [Goal Runtime](../README.md) | [输入受理边界](../src/session-admission.ts) |
 | 长期 Session | 稳定 Goal 句柄与只读状态投影；创建、连接与输入受理复用同一 Runtime 执行规则。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 单活动执行名额 | 一个实例同时只运行一个 Goal；其他 Goal 的执行、交互推进与输入受理返回 busy，不进入隐式调度队列。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |

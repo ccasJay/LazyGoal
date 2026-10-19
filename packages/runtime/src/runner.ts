@@ -31,7 +31,15 @@ import type {
     PendingInteractionTaskApproval,
     PendingThink,
     PendingModelRepair,
+    AssistantMessagePurpose,
+    GoalMessageSource,
 } from "./domain";
+import {
+    appendGoalMessage,
+    createModelTextSource,
+    createStageOutputSource,
+    createUserMessage,
+} from "./goal-message";
 import { validateAndReduceContextNotes, type RuntimeContextNote, type ContextNoteSource } from "./context-notes";
 import type { ModelContextCheckpointResult } from "./domain";
 import type { GoalStore } from "./goal-store";
@@ -288,6 +296,8 @@ type NormalizedExecution = {
     readonly thought?: string;
     readonly preparedToolAction?: PreparedToolAction;
     readonly acceptedContextNotes?: readonly RuntimeContextNote[];
+    /** 本次 Decide 实际产生的模型调用身份；缺省表示执行方没有报告。 */
+    readonly modelCallId?: string;
 };
 
 function extractExistingContextNotesFromEvents(events: readonly TrajectoryEvent[]): readonly RuntimeContextNote[] {
@@ -1482,14 +1492,19 @@ class RunExecutor {
             };
             const { pendingAction: _pendingAction, pendingProgram: _pendingProgram,
                 pendingThink: _pendingThink, pendingModelRepair: _pendingModelRepair, ...run } = goal.state.run;
-            const nextGoal: Goal = {
-                ...goal,
+            const nextGoal: Goal = appendGoalMessage(goal, {
+                role: "user",
+                content: `The current Run was interrupted while Tool ${toolId} (Action ${actionId}) was executing. Its external effect is unknown. Do not repeat that operation. Use necessary authorized tools only to inspect and safely repair its outcome, then stop.`,
+                runId: goal.state.run.id,
+                source: {
+                    kind: "runtime_notice",
+                    noticeId: `interruption:${interruption.requestId}:${actionId}`,
+                },
+            }).goal;
+            const nextGoalWithRun: Goal = {
+                ...nextGoal,
                 state: {
-                    ...goal.state,
-                    messages: [...goal.state.messages, {
-                        role: "user",
-                        content: `The current Run was interrupted while Tool ${toolId} (Action ${actionId}) was executing. Its external effect is unknown. Do not repeat that operation. Use necessary authorized tools only to inspect and safely repair its outcome, then stop.`,
-                    }],
+                    ...nextGoal.state,
                     run: { ...run, status: "running", interruption: nextInterruption },
                 },
             };
@@ -1519,7 +1534,7 @@ class RunExecutor {
                     },
                 ];
             });
-            const committed = await this.checkpointCommitter.commit(nextGoal, { facts, ...(control === undefined ? {} : { control }) });
+            const committed = await this.checkpointCommitter.commit(nextGoalWithRun, { facts, ...(control === undefined ? {} : { control }) });
             this.publishCommittedEvents(committed);
             this.publishCheckpointCommitted(committed, facts);
             goal = committed.goal;
@@ -2682,7 +2697,11 @@ class RunExecutor {
             const appliedPositions = new Map<string, number>();
             for (const input of pending) {
                 const messageIndex = messages.length;
-                messages.push({ role: "user", content: input.content });
+                messages.push(createUserMessage({
+                    content: input.content,
+                    runId: latest.state.run.id,
+                    source: { kind: "user_input", inputId: input.messageId },
+                }));
                 appliedPositions.set(input.messageId, messageIndex);
                 const index = steerInputs.findIndex(item => item.messageId === input.messageId);
                 steerInputs[index] = { messageId: input.messageId, status: "applied", messageIndex };
@@ -2979,20 +2998,20 @@ class RunExecutor {
     private async commitAssistantMessage(
         goal: Goal,
         result: Extract<DecideStageResult, { readonly kind: "assistant_message" }>,
-        executionUnitId: string | undefined,
+        executionUnitId: string,
         control?: ExecutionControl,
     ): Promise<Goal> {
-        const nextGoal: Goal = {
-            ...goal,
-            state: {
-                ...goal.state,
-                messages: [...goal.state.messages, {
-                    role: "assistant",
-                    assistant: { profileId: goal.definition.profile.id },
-                    content: result.text,
-                }],
-            },
-        };
+        const modelCallId = result.modelCallId ?? result.modelContextFrame?.modelCallId;
+        const nextGoal: Goal = appendGoalMessage(goal, {
+            role: "assistant",
+            content: result.text,
+            runId: goal.state.run.id,
+            purpose: "process",
+            profileId: goal.definition.profile.id,
+            source: modelCallId === undefined
+                ? createStageOutputSource(executionUnitId)
+                : createModelTextSource(modelCallId, 0),
+        }).goal;
         const committed = await this.checkpointCommitter.commit(
             nextGoal,
             { facts: [], ...(control === undefined ? {} : { control }) },
@@ -3071,8 +3090,11 @@ class RunExecutor {
                 if (error.assistantMessageText !== undefined) {
                     currentGoal = await this.commitAssistantMessage(
                         currentGoal,
-                        { kind: "assistant_message", text: error.assistantMessageText },
-                        pending.executionUnitId,
+                        {
+                            kind: "assistant_message",
+                            text: error.assistantMessageText,
+                            ...(error.modelCallId === undefined ? {} : { modelCallId: error.modelCallId }),
+                        },                        pending.executionUnitId,
                         control,
                     );
                 }
@@ -4367,7 +4389,7 @@ class RunExecutor {
                                                 message: "Return one declared tool call, or a non-empty text answer.",
                                             }],
                                             constraints: ["A text-only answer is accepted as an assistant message but does not advance the task. Continue the original task with one declared tool call."],
-                                        }), "A text-only answer does not advance the task.", undefined, result.text);
+                                        }), "A text-only answer does not advance the task.", undefined, result.text, result.modelContextFrame?.modelCallId);
                                     }
                                     const queue = result.kind === "batch" ? result.decisions.slice(1) : [];
                                     if (result.kind === "batch" && result.decisions.some(decision => decision.kind !== "tool_call")) {
@@ -4555,6 +4577,9 @@ class RunExecutor {
                             }
                             normalized = {
                                 decision: stageResult.decision,
+                                ...(stageResult.modelContextFrame?.modelCallId === undefined
+                                    ? {}
+                                    : { modelCallId: stageResult.modelContextFrame.modelCallId }),
                                 ...(!("preparedToolAction" in decided.result)
                                     || decided.result.preparedToolAction === undefined
                                     ? {}
@@ -4658,6 +4683,7 @@ class RunExecutor {
                     const nextGoal = this.appendDecisionMessage(
                         this.withRun(goal, nextRun),
                         decision,
+                        executionUnitId,
                     );
 
                     const closedEpochFact = this.contextEpochClosedFact(nextGoal, "run_failed");
@@ -4869,7 +4895,10 @@ class RunExecutor {
                     });
                     const transitionedGoal = this.withRun(goal, nextRun);
                     const formattedContent = this.formatAskUserQuestions(normalizedReq.questions);
-                    const nextGoal = this.appendAssistantContent(transitionedGoal, formattedContent);
+                    const nextGoal = this.appendAssistantContent(transitionedGoal, formattedContent, {
+                        purpose: "notice",
+                        source: { kind: "runtime_notice", noticeId: `ask_user:${normalizedReq.requestId}` },
+                    });
 
                     const decisionFact: TrajectoryEventDraft = {
                         goalId: goal.id,
@@ -4950,6 +4979,10 @@ class RunExecutor {
                         const nextGoal = this.appendAssistantContent(
                             this.withRun(goal, nextRun),
                             this.formatAskUserQuestions(normalizedAsk.questions),
+                            {
+                                purpose: "notice",
+                                source: { kind: "runtime_notice", noticeId: `ask_user:${normalizedAsk.requestId}` },
+                            },
                         );
                         goal = await this.commitDecision(
                             nextGoal,
@@ -5064,7 +5097,10 @@ class RunExecutor {
                         normalized.decision.task,
                         normalized.decision.approvalRequest,
                     );
-                    const nextGoal = this.appendAssistantContent(transitionedGoal, formattedContent);
+                    const nextGoal = this.appendAssistantContent(transitionedGoal, formattedContent, {
+                        purpose: "notice",
+                        source: { kind: "runtime_notice", noticeId: `task_proposal:${requestId}` },
+                    });
 
                     const decisionFact: TrajectoryEventDraft = {
                         goalId: goal.id,
@@ -5783,9 +5819,11 @@ class RunExecutor {
                 const nextRun = acceptedPlanRoute === undefined
                     ? transitionedRun
                     : { ...transitionedRun, planRoute: acceptedPlanRoute };
-                let nextGoal = this.appendDecisionMessage(
+                const decisionIdentity = normalized.modelCallId ?? executionUnitId;
+                const nextGoal = this.appendDecisionMessage(
                     this.withRun(goal, nextRun),
                     normalized.decision,
+                    decisionIdentity,
                 );
 
                 let terminalFact: TrajectoryEventDraft;
@@ -5808,10 +5846,7 @@ class RunExecutor {
                         payload: { type: "run_waiting", reason: normalized.decision.reason },
                     };
                 } else if (normalized.decision.kind === "fail") {
-                    nextGoal = this.appendDecisionMessage(
-                        this.withRun(goal, nextRun),
-                        normalized.decision,
-                    );
+                    // 失败通知正文已在统一决策提交处追加；此处只补充终态事实。
                     terminalFact = {
                         goalId: goal.id,
                         runId: goal.state.run.id,
@@ -6531,34 +6566,38 @@ class RunExecutor {
                 | { readonly kind: "run_stage_complete" }
                 | { readonly kind: "run_plan_route_update" }
         >,
+        candidateId: string,
     ): Goal {
-        const content = decision.kind === "complete"
-            ? decision.summary
-            : decision.kind === "wait"
-                ? decision.reason
-                : decision.error;
-
-        return this.appendAssistantContent(goal, content);
+        if (decision.kind === "complete") {
+            // 只有 Runtime 真正结算当前 Run 的最终答复才标记为 answer。
+            return this.appendAssistantContent(goal, decision.summary, {
+                purpose: "answer",
+                source: { kind: "completion_candidate", candidateId },
+            });
+        }
+        const content = decision.kind === "wait" ? decision.reason : decision.error;
+        return this.appendAssistantContent(goal, content, {
+            purpose: "notice",
+            source: { kind: "runtime_notice", noticeId: `${decision.kind}:${candidateId}` },
+        });
     }
 
     private appendAssistantContent(
         goal: Goal,
         content: string,
+        identity: {
+            readonly purpose: AssistantMessagePurpose;
+            readonly source: GoalMessageSource;
+        },
     ): Goal {
-        return {
-            ...goal,
-            state: {
-                ...goal.state,
-                messages: [
-                    ...goal.state.messages,
-                    {
-                        role: "assistant",
-                        assistant: { profileId: goal.definition.profile.id },
-                        content,
-                    },
-                ],
-            },
-        };
+        return appendGoalMessage(goal, {
+            role: "assistant",
+            content,
+            runId: goal.state.run.id,
+            purpose: identity.purpose,
+            profileId: goal.definition.profile.id,
+            source: identity.source,
+        }).goal;
     }
 
     private applyTransition(state: RunState, input: RunInput): RunState {

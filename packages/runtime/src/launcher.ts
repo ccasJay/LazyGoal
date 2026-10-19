@@ -278,6 +278,13 @@ export async function createGoalCheckpoint(
             ...goal,
             state: {
                 ...goal.state,
+                // 首条输入就是本 Goal 的意图消息：来源指向该输入账本条目。
+                messages: goal.state.messages.map((message, index) => index === 0 && message.role === "user"
+                    ? {
+                        ...message,
+                        source: { kind: "user_input", inputId: request.firstInput!.inputId },
+                    }
+                    : message),
                 inputLedger: [{
                     inputId: request.firstInput.inputId,
                     kind: "message",

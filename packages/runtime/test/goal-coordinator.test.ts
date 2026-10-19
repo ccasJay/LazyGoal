@@ -24,7 +24,7 @@ import {
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { JsonFileGoalStore, JsonFileToolGrantStore } from "../../storage/src/index";
 import { contract } from "../../contracts/src/index";
-import { currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import { currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor, withDiscoveredProfileTools, testAssistantMessage } from "./current-fixtures";
 import type {
     AgentProfile,
     CompletionCriterion,
@@ -176,11 +176,7 @@ function createAskUserWaitingGoal(): Goal {
             },
             messages: [
                 ...goal.state.messages,
-                {
-                    role: "assistant",
-                    assistant: { profileId: profile.id },
-                    content: "Which database should be used?",
-                },
+                testAssistantMessage("Which database should be used?", { profileId: profile.id }),
             ],
             run: {
                 ...goal.state.run,
@@ -222,11 +218,7 @@ function createTaskApprovalWaitingGoal(
             },
             messages: [
                 ...goal.state.messages,
-                {
-                    role: "assistant",
-                    assistant: { profileId: profile.id },
-                    content: "Approve the persistence task?",
-                },
+                testAssistantMessage("Approve the persistence task?", { profileId: profile.id }),
             ],
             run: {
                 ...goal.state.run,
@@ -268,11 +260,7 @@ function createExecutingWaitingGoal(): Goal {
         state: {
             ...goal.state,
             messages: [
-                {
-                    role: "assistant",
-                    assistant: { profileId: profile.id },
-                    content: "Production permission required",
-                },
+                testAssistantMessage("Production permission required", { profileId: profile.id }),
             ],
             run: waitingRun,
         },
@@ -1368,9 +1356,13 @@ test("saves a blocked user message and running state before scheduling", async (
         assert.ok(resumed);
         assert.equal(resumed.state.run.status, "running");
         assert.deepEqual(resumed.state.run.lastStep, waiting.state.run.lastStep);
-        assert.deepEqual(resumed.state.messages.at(-1), {
-            role: "user",
-            content: "  Permission granted  ",
+        const lastMessage = resumed.state.messages.at(-1);
+        assert.equal(lastMessage?.role, "user");
+        assert.equal(lastMessage?.content, "  Permission granted  ");
+        assert.equal(lastMessage?.runId, waiting.state.run.id);
+        assert.deepEqual(lastMessage?.source, {
+            kind: "user_input",
+            inputId: `resume:${waiting.state.run.id}`,
         });
 
         const completedRun = applyRunTransition(resumed.state.run, {
@@ -1403,10 +1395,17 @@ test("saves a blocked user message and running state before scheduling", async (
         < events.indexOf(`schedule:${waiting.id}`),
     );
     assert.equal(result.kind, "terminal");
-    assert.deepEqual(result.goal.state.messages, [
-        ...waiting.state.messages,
-        { role: "user", content: "  Permission granted  " },
-    ]);
+    const resumedMessages = result.goal.state.messages;
+    assert.equal(resumedMessages.length, waiting.state.messages.length + 1);
+    assert.deepEqual(resumedMessages.slice(0, -1), waiting.state.messages);
+    const appended = resumedMessages.at(-1)!;
+    assert.equal(appended.role, "user");
+    assert.equal(appended.content, "  Permission granted  ");
+    assert.equal(appended.runId, waiting.state.run.id);
+    assert.deepEqual(appended.source, {
+        kind: "user_input",
+        inputId: `resume:${waiting.state.run.id}`,
+    });
 });
 
 test("rejects invalid blocked actions without saving or scheduling", async () => {

@@ -32,6 +32,7 @@ import {
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import { transition } from "./transition";
+import { appendGoalMessage } from "./goal-message";
 import { createRunPlanRoute, reviseRunPlanExecution } from "./run-plan";
 import type { SessionInputDigest, SessionInputRecord, SessionMessageQueue } from "./session-input";
 import {
@@ -194,7 +195,7 @@ export interface ContinuationQueueBinding {
  * ```
  */
 export type GoalUserAction =
-    | { readonly kind: "message"; readonly content: string }
+    | { readonly kind: "message"; readonly content: string; readonly inputId?: string | undefined }
     | { readonly kind: "approve_task"; readonly requestId: string }
     | { readonly kind: "feedback_task"; readonly requestId: string; readonly feedback: string }
     | {
@@ -898,15 +899,32 @@ export class GoalCoordinator {
                     const nextRunMode = goal.state.nextRunMode ?? "normal";
                     const nextRun = createRun(runId, nextRunMode);
                     const { nextRunMode: _consumedNextRunMode, ...stateWithoutNextRunMode } = goal.state;
-                    const messageIndex = priorMessages.length;
+                    const appended = appendGoalMessage(
+                        {
+                            ...goal,
+                            state: {
+                                ...stateWithoutNextRunMode,
+                                messages: priorMessages,
+                            },
+                        },
+                        {
+                            role: "user",
+                            content: newInput,
+                            runId,
+                            source: {
+                                kind: "user_input",
+                                inputId: queueState?.inputId ?? `continuation:${runId}`,
+                            },
+                        },
+                    );
+                    // 追加后的实际下标即该消息在对话中的位置；同源复用时保持原位置。
+                    const messageIndex = appended.reused
+                        ? priorMessages.findIndex((message) => message.messageId === appended.message.messageId)
+                        : appended.goal.state.messages.length - 1;
                     const nextGoal: Goal = {
-                        ...goal,
+                        ...appended.goal,
                         state: {
-                            ...stateWithoutNextRunMode,
-                            messages: [
-                                ...priorMessages,
-                                { role: "user", content: newInput },
-                            ],
+                            ...appended.goal.state,
                             run: nextRun,
                             completedRuns: [...priorHistory, history],
                             ...(queueState === undefined
@@ -1154,14 +1172,22 @@ export class GoalCoordinator {
                     };
                 }
 
-                const resumedGoal: Goal = {
-                    ...goal,
+                const resumedGoal: Goal = appendGoalMessage(
+                    goal,
+                    {
+                        role: "user",
+                        content: answerContent,
+                        runId: goal.state.run.id,
+                        source: {
+                            kind: "interaction_response",
+                            requestId: pendingInteraction.requestId,
+                        },
+                    },
+                ).goal;
+                const resumedGoalWithRun: Goal = {
+                    ...resumedGoal,
                     state: {
-                        ...goal.state,
-                        messages: [
-                            ...goal.state.messages,
-                            { role: "user", content: answerContent },
-                        ],
+                        ...resumedGoal.state,
                         run: nextRunState,
                     },
                 };
@@ -1191,7 +1217,7 @@ export class GoalCoordinator {
                     await this.appendTrajectory(revisedRouteEvent, control);
                 }
 
-                await this.saveCheckpoint(resumedGoal, control);
+                await this.saveCheckpoint(resumedGoalWithRun, control);
                 return this.advance(request.ref, control);
             }
 
@@ -1289,14 +1315,19 @@ export class GoalCoordinator {
                         );
                     }
 
+                    const feedbackMessage = appendGoalMessage(goal, {
+                        role: "user",
+                        content: feedbackText,
+                        runId: goal.state.run.id,
+                        source: {
+                            kind: "interaction_response",
+                            requestId: pendingInteraction.requestId,
+                        },
+                    }).goal;
                     const resumedGoal: Goal = {
-                        ...goal,
+                        ...feedbackMessage,
                         state: {
-                            ...goal.state,
-                            messages: [
-                                ...goal.state.messages,
-                                { role: "user", content: feedbackText },
-                            ],
+                            ...feedbackMessage.state,
                             run: resolvedRun.state,
                         },
                     };
@@ -1559,14 +1590,22 @@ export class GoalCoordinator {
             );
         }
 
-        const resumedGoal: Goal = {
-            ...goal,
+        const resumedGoal: Goal = appendGoalMessage(
+            goal,
+            {
+                role: "user",
+                content: request.action.content,
+                runId: goal.state.run.id,
+                source: {
+                    kind: "user_input",
+                    inputId: request.action.inputId ?? `resume:${goal.state.run.id}`,
+                },
+            },
+        ).goal;
+        const resumedGoalWithRun: Goal = {
+            ...resumedGoal,
             state: {
-                ...goal.state,
-                messages: [
-                    ...goal.state.messages,
-                    { role: "user", content: request.action.content },
-                ],
+                ...resumedGoal.state,
                 run: resumedRun.state,
             },
         };
@@ -1578,7 +1617,7 @@ export class GoalCoordinator {
             eventType: "run_resumed",
             payload: { type: "run_resumed" },
         }, control);
-        await this.saveCheckpoint(resumedGoal, control);
+        await this.saveCheckpoint(resumedGoalWithRun, control);
         return this.advance(request.ref, control);
     }
 
@@ -1616,19 +1655,24 @@ export class GoalCoordinator {
             );
         }
 
-        const resumedGoal: Goal = {
-            ...goal,
+        const resumedGoal: Goal = appendGoalMessage(
+            goal,
+            {
+                role: "user",
+                content: action.kind === "reply_to_question"
+                    ? action.content
+                    : ASK_USER_SKIP_MESSAGE,
+                runId: goal.state.run.id,
+                source: {
+                    kind: "interaction_response",
+                    requestId: pending.requestId,
+                },
+            },
+        ).goal;
+        const resumedGoalWithRun: Goal = {
+            ...resumedGoal,
             state: {
-                ...goal.state,
-                messages: [
-                    ...goal.state.messages,
-                    {
-                        role: "user",
-                        content: action.kind === "reply_to_question"
-                            ? action.content
-                            : ASK_USER_SKIP_MESSAGE,
-                    },
-                ],
+                ...resumedGoal.state,
                 run: resolvedRun.state,
             },
         };
@@ -1659,7 +1703,7 @@ export class GoalCoordinator {
             }, control);
         }
 
-        await this.saveCheckpoint(resumedGoal, control);
+        await this.saveCheckpoint(resumedGoalWithRun, control);
         return this.advance(ref, control);
     }
 

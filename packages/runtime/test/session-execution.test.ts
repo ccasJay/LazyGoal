@@ -21,7 +21,7 @@ import {
 } from "../src/index";
 import { InMemoryGoalStore, JsonFileGoalStore } from "../../storage/src/index";
 import { ExecutionAbortedError } from "../../execution-control/src/index";
-import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { currentProtocols, messageOutline, trajectoryStoreFor } from "./current-fixtures";
 
 const profile: AgentProfile = {
     id: "session-execution-profile",
@@ -151,7 +151,9 @@ test("create persists the first input before returning and keeps executing in th
     await entered.promise;
     const persisted = await store.restore("goal-create");
     assert.ok(persisted);
-    assert.deepEqual(persisted.state.messages, [{ role: "user", content: "首次任务" }]);
+    assert.deepEqual(messageOutline(persisted.state.messages), [
+        { role: "user", content: "首次任务" },
+    ]);
     assert.ok((persisted.state.commitRevision ?? 0) >= 1);
     assert.equal(await store.restore("goal-create") === undefined, false);
     const duringRun = await created.session.read();

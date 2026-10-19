@@ -19,7 +19,7 @@ import {
     type StepExecutor,
 } from "../src/index";
 import { InMemoryGoalStore, JsonFileGoalStore } from "../../storage/src/index";
-import { currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor } from "./current-fixtures";
+import { currentProtocols, InMemoryTrajectoryStore, messageOutline, trajectoryStoreFor } from "./current-fixtures";
 
 const profile: AgentProfile = {
     id: "session-profile",
@@ -89,7 +89,9 @@ test("an accepted message is persisted with a stable receipt that survives a reb
         }]);
         // 受理不执行任务：Run 与真实对话保持受理前的状态。
         assert.equal(restored.state.run.status, "created");
-        assert.deepEqual(restored.state.messages, [{ role: "user", content: "test session inputs" }]);
+        assert.deepEqual(messageOutline(restored.state.messages), [
+            { role: "user", content: "test session inputs" },
+        ]);
 
         const rebuiltAdmission = createAdmission(rebuilt);
         const retried = await rebuiltAdmission.admission.admit(goal.id, {

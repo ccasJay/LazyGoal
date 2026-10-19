@@ -20,7 +20,7 @@ import {
 import { InMemoryGoalStore, JsonFileGoalStore } from "../../storage/src/index";
 import { ModelInferenceProjector } from "../../model-context/src/index";
 import type { WorkingMemory } from "../../working-memory/src/index";
-import { trajectoryStoreFor } from "./current-fixtures";
+import { messageOutline, trajectoryStoreFor } from "./current-fixtures";
 
 const profile: AgentProfile = {
     id: "session-question-profile",
@@ -247,12 +247,21 @@ test("整体回复替代整份问卷：原文成为真实用户消息且不伪�
     const settled = (await scenario.store.restore(scenario.goalId))!;
     assert.equal(settled.state.run.id, runId);
     assert.equal(settled.state.messages.length, messageCount + 2);
-    assert.deepEqual(settled.state.messages.at(-2), { role: "user", content: reply });
+    const replyMessage = settled.state.messages.at(-2);
+    assert.equal(replyMessage?.role, "user");
+    assert.equal(replyMessage?.content, reply);
+    assert.deepEqual(replyMessage?.source, {
+        kind: "interaction_response",
+        requestId: scenario.requestId,
+    });
     assert.equal(settled.state.run.pendingInteraction, undefined);
     assert.equal(settled.state.completedRuns?.length ?? 0, 0);
 
     const nextInput = scenario.harness.inputs().at(-1)!;
-    assert.deepEqual(nextInput.goal.state.messages.at(-1), { role: "user", content: reply });
+    assert.deepEqual(messageOutline(nextInput.goal.state.messages).at(-1), {
+        role: "user",
+        content: reply,
+    });
 
     // 模型可见输入来自真实投影：原文完整保留，且不包含伪造的逐题 Answer 块。
     const conversation = scenario.harness.projections().at(-1);
@@ -519,7 +528,13 @@ test("文件存储重建后，已提交回答与模型输入保持一致", async
         // 用新实例与新 Store 实例从磁盘重建，不共享内存状态。
         const rebuiltStore = new JsonFileGoalStore(directory);
         const restored = (await rebuiltStore.restore(goalId))!;
-        assert.deepEqual(restored.state.messages.at(-2), { role: "user", content: reply });
+        const restoredReply = restored.state.messages.at(-2);
+        assert.equal(restoredReply?.role, "user");
+        assert.equal(restoredReply?.content, reply);
+        assert.deepEqual(restoredReply?.source, {
+            kind: "interaction_response",
+            requestId: pending.requestId,
+        });
         assert.equal(restored.state.run.pendingInteraction, undefined);
         const receipt = restored.state.inputLedger?.find((record) => record.inputId === "input-file-reply");
         assert.ok(receipt !== undefined);

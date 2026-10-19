@@ -20,6 +20,8 @@ import {
     type BrowserGoalListItem,
 } from "../src/index";
 import type { BrowserCreateSessionCommand } from "../../web-contracts/src/index";
+import { testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
+
 
 const protocols = {
     memoryProtocol: { kind: "structured", version: 1 } as const,
@@ -509,8 +511,8 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
         state: {
             ...initial.state,
             messages: [
-                { role: "user", content: "检查项目" },
-                { role: "assistant", assistant: { profileId: "private-profile-id" }, content: "会话已完成" },
+                testUserMessage("检查项目"),
+                testAssistantMessage("会话已完成", { profileId: "private-profile-id" }),
             ],
             goalPlan: {
                 revision: 1,
@@ -608,7 +610,7 @@ test("会话保留完整的常规长答复，并标记超出消息上限的正�
         ...initial,
         state: {
             ...initial.state,
-            messages: [{ role: "assistant", assistant: { profileId: "private-profile-id" }, content }],
+            messages: [testAssistantMessage(content, { profileId: "private-profile-id" })],
         },
     }), async () => ({ committed: [], uncommittedTail: [] }));
 

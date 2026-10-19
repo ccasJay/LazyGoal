@@ -852,7 +852,7 @@ export class SessionManager implements SessionHandlePort {
             }
             const resumed = await this.coordinator.resume({
                 ref: { goalId, runId: input.runId },
-                action: { kind: "message", content },
+                action: { kind: "message", content, inputId: input.inputId },
             });
             if (!resumed.ok) {
                 return {

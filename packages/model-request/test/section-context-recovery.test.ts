@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { contract } from "../../contracts/src/index";
 import { createGoal } from "../../runtime/src/domain";
-import type { Goal } from "../../runtime/src/domain";
+import type { Goal, GoalMessage } from "../../runtime/src/domain";
 import type { GoalPlan } from "../../runtime/src/goal-plan";
 import type { ToolDefinition } from "../../tool-core/src/index";
 import {
@@ -38,6 +38,7 @@ import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index
 import type { DynamicSectionMessage } from "../../prompt-renderer/src/index";
 import type { ModelConversationMessage } from "../../model-view/src/index";
 import { currentProtocols } from "../../agent/test/current-fixtures";
+import { testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const profile = {
@@ -90,7 +91,7 @@ function createRunningGoal(input: {
     readonly plan?: GoalPlan;
     readonly boundary?: number;
     readonly epoch?: number;
-    readonly conversation?: readonly ModelConversationMessage[];
+    readonly conversation?: readonly GoalMessage[];
 } = {}): Goal {
     const base = createGoal({
         ...currentProtocols,
@@ -284,16 +285,11 @@ test("已提交的未知 Section 身份在请求生成前失败", async () => {
 });
 
 test("会话裁剪后保留当前状态、Step 输入与逐请求工具 Schema", async () => {
-    const conversation: ModelConversationMessage[] = [];
+    const conversation: GoalMessage[] = [];
     for (let index = 0; index < 24; index += 1) {
         conversation.push(
-            { role: "user", content: `历史请求 ${index} ${"u".repeat(1_200)}`, sourceMessageIndex: index * 2 },
-            {
-                role: "assistant",
-                assistant: { profileId: profile.id },
-                content: `历史响应 ${index} ${"a".repeat(1_200)}`,
-                sourceMessageIndex: index * 2 + 1,
-            },
+            testUserMessage(`历史请求 ${index} ${"u".repeat(1_200)}`),
+            testAssistantMessage(`历史响应 ${index} ${"a".repeat(1_200)}`, { profileId: profile.id }),
         );
     }
     const goal = createRunningGoal({

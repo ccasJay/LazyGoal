@@ -29,6 +29,7 @@ import {
 } from "../../runtime/src/index";
 import { createEmptyWorkingMemory } from "../../working-memory/src/index";
 import { currentProtocols } from "./current-fixtures";
+import { testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
 
 const profile: AgentProfile = {
     id: "assembler-profile",
@@ -465,12 +466,8 @@ test("Assembler 默认 fixed input 按原始 Conversation 索引保留当前 Epo
         intent: "旧阶段输入",
         profile,
         messages: [
-            {
-                role: "assistant",
-                assistant: { profileId: profile.id },
-                content: "旧阶段响应",
-            },
-            { role: "user", content: "当前阶段输入" },
+            testAssistantMessage("旧阶段响应", { profileId: profile.id }),
+            testUserMessage("当前阶段输入"),
         ],
     });
     const goal: Goal = {

@@ -37,6 +37,8 @@ import {
     projectSessionState,
     readBrowserGoalSession,
 } from "../src/index";
+import { testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
+
 
 const protocols = {
     memoryProtocol: { kind: "structured", version: 1 } as const,
@@ -247,9 +249,9 @@ async function saveWaitingSession(
             ...initial.state,
             workflow: { phase: "executing" },
             messages: [
-                { role: "user", content: "Collect approved notes" },
-                { role: "assistant", assistant: { profileId: profile.id }, content: "I found three notes." },
-                { role: "assistant", assistant: { profileId: profile.id }, content: "Which source should I use?" },
+                testUserMessage("Collect approved notes"),
+                testAssistantMessage("I found three notes.", { profileId: profile.id }),
+                testAssistantMessage("Which source should I use?", { profileId: profile.id }),
             ],
             goalPlan: {
                 revision: 1,

@@ -64,6 +64,14 @@ export type DecideStageResult =
     | {
         readonly kind: "assistant_message";
         readonly text: string;
+        /**
+         * 产生该正文的模型调用身份。
+         *
+         * @remarks
+         * 仅在执行方报告了模型调用身份时存在；Runtime 用它为正式消息分配稳定
+         * 来源，使同一次执行单元内的多次尝试互不覆盖。
+         */
+        readonly modelCallId?: string | undefined;
         readonly modelContextFrame?: ModelContextFrameForStage;
       }
     | {
