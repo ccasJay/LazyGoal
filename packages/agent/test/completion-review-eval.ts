@@ -13,6 +13,7 @@ import type { CompletionReviewInput } from "../../runtime/src/step-executor";
 import { currentProtocols } from "./current-fixtures";
 import { createHash } from "node:crypto";
 import { COMPLETION_REVIEW_PROMPT } from "../../model-request/src/index";
+import { testUserMessage } from "../../runtime/test/current-fixtures";
 
 const source = "export const read = (cache, key) => cache.get(key);";
 export const completionReviewScenarios = [
@@ -85,7 +86,7 @@ export function completionReviewScenarioInput(scenario: typeof completionReviewS
     const stage = "stage" in scenario ? scenario.stage : undefined;
     const messages = [...created.state.messages];
     if ("additionalUserMessage" in scenario && scenario.additionalUserMessage !== undefined) {
-        messages.push({ role: "user" as const, content: scenario.additionalUserMessage });
+        messages.push(testUserMessage(scenario.additionalUserMessage));
     }
     const goal = { ...created, state: { ...created.state, messages, run: { ...created.state.run, committedThroughSequence: evidence.length,
         ...(stage !== undefined ? { currentStage: stage } : {}),

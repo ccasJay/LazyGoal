@@ -26,12 +26,13 @@ const profile: ModelProfileView = {
 };
 
 const conversation: ModelInferenceView["conversation"] = [
-    { role: "user", content: "补充的真实输入", sourceMessageIndex: 0 },
+    { role: "user", content: "补充的真实输入", sourceMessageIndex: 0, source: { kind: "user_input", inputId: "input-1" } },
     {
         role: "assistant",
         assistant: { profileId: "profile-1" },
         content: "真实响应",
         sourceMessageIndex: 1,
+        source: { kind: "stage_output", executionUnitId: "unit-1" },
     },
 ];
 
@@ -168,6 +169,7 @@ test("Conversation 与 Working Context 保持原始内容，不执行 Nunjucks �
                 role: "user",
                 content: "{{ profile.systemPrompt }}",
                 sourceMessageIndex: 0,
+                source: { kind: "user_input", inputId: "input-1" },
             }],
         },
     );

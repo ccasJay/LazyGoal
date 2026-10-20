@@ -18,11 +18,8 @@ import {
 } from "../../model-execution/src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
-import {
-    createCurrentContextAssembler,
-    currentProtocols,
-    currentWorkingMemory,
-} from "../../agent/test/current-fixtures";
+import { createCurrentContextAssembler, currentProtocols, currentWorkingMemory } from "../../agent/test/current-fixtures";
+import { testUserMessage } from "../../runtime/test/current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();
@@ -46,10 +43,7 @@ function createGoalForMetrics(): Goal {
         profile,
         runId: "run-metrics",
     });
-    const message: GoalMessage = {
-        role: "user",
-        content: "请检查指标记录。",
-    };
+    const message: GoalMessage = testUserMessage("请检查指标记录。");
 
     return {
         ...created,

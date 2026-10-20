@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import type { BrowserGoalActivityEvent, BrowserGoalLiveEvent, BrowserGoalSession } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
 import { createTextBatcher } from "../live-text-batch";
+import {
+  EMPTY_SESSION_OUTPUT_DISPLAY,
+  applySessionOutputEvent,
+} from "../session-output-consumer";
 
 export function useRunStream({
   selectedGoalId,
@@ -93,6 +97,21 @@ export function useRunStream({
               await refreshLatest();
               continue;
             }
+            if (event.type === "message_committed") {
+              // 正式消息替换未确认预览：清空临时正文，避免同一份内容出现两次。
+              const display = applySessionOutputEvent(EMPTY_SESSION_OUTPUT_DISPLAY, event);
+              textBatcher.clear();
+              setLiveText(display?.liveText ?? "");
+              setLiveActivity(display?.liveActivity ?? "");
+              await refreshLatest();
+              continue;
+            }
+            if (event.type === "interaction_required") {
+              const display = applySessionOutputEvent(EMPTY_SESSION_OUTPUT_DISPLAY, event);
+              setLiveActivity(display?.liveActivity ?? "Waiting for your answer");
+              await refreshLatest();
+              continue;
+            }
             const retainedActivity: BrowserGoalActivityEvent | undefined = event.activity.kind === "assistant_text_delta"
               ? {
                   kind: "activity_boundary",
@@ -138,6 +157,16 @@ export function useRunStream({
               case "tool_finished":
                 setLiveActivity("Workspace action finished; waiting for saved state");
                 break;
+              case "candidate_preview":
+              case "candidate_invalidated":
+                // 候选预览与作废由统一归约处理：未确认候选只进入临时区域。
+                break;
+            }
+            const outputDisplay = applySessionOutputEvent(EMPTY_SESSION_OUTPUT_DISPLAY, event);
+            if (outputDisplay !== undefined) {
+              textBatcher.clear();
+              setLiveText(outputDisplay.liveText);
+              setLiveActivity(outputDisplay.liveActivity);
             }
           }
           if (active && !controller.signal.aborted) {

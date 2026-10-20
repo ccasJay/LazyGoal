@@ -67,6 +67,23 @@ export type BrowserGoalActivityEvent =
         readonly sourceEventId: string;
         readonly sourceCursor: number;
         readonly reason: "assistant_reply" | "user_wait" | "stage_change" | "terminal" | "failure" | "unknown";
+    }
+    | {
+        readonly kind: "candidate_preview";
+        readonly sourceEventId: string;
+        readonly sourceCursor: number;
+        readonly candidateId: string;
+        readonly text: string;
+        readonly startOffset: number;
+        readonly truncated: boolean;
+        readonly complete: boolean;
+    }
+    | {
+        readonly kind: "candidate_invalidated";
+        readonly sourceEventId: string;
+        readonly sourceCursor: number;
+        readonly candidateId: string;
+        readonly reason: "rejected" | "cancelled" | "failed" | "replaced" | "ambiguous";
     };
 
 /**
@@ -104,6 +121,29 @@ export type BrowserGoalLiveEvent =
         readonly goalId: string;
         readonly runId: string;
         readonly activity: BrowserGoalActivityEvent;
+    }
+    | {
+        readonly type: "message_committed";
+        readonly goalId: string;
+        readonly runId: string;
+        readonly message: {
+            readonly messageId: string;
+            readonly role: "user" | "assistant";
+            readonly runId: string;
+            readonly purpose?: "process" | "answer" | "notice";
+            readonly commitRevision: number;
+            readonly previewId?: string;
+        };
+    }
+    | {
+        readonly type: "interaction_required";
+        readonly goalId: string;
+        readonly runId: string;
+        readonly interaction: {
+            readonly interactionId: string;
+            readonly kind: "ask_user" | "task_approval" | "action_approval" | "action_recovery";
+            readonly runId: string;
+        };
     }
     | {
         readonly type: "snapshot_changed";

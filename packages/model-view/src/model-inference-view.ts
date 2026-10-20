@@ -23,6 +23,29 @@ export interface ModelProfileView {
     readonly instructions: readonly string[];
 }
 
+/**
+ * 模型可见消息的来源投影。
+ *
+ * @remarks
+ * 来源描述该条会话消息为什么存在，是 Runtime 领域来源在模型视图中的只读镜像。
+ * 请求组装据此判断某条过程正文是否已被本次请求实际包含的原生交换覆盖；
+ * 本视图不推导来源，也不从正文或数组位置猜测来源。
+ *
+ * @example
+ * ```ts
+ * const source: ModelMessageSource = { kind: "model_text", modelCallId: "call-1", blockIndex: 0 };
+ * ```
+ */
+export type ModelMessageSource =
+    | { readonly kind: "goal_intent"; readonly goalId: string }
+    | { readonly kind: "user_input"; readonly inputId: string }
+    | { readonly kind: "interaction_response"; readonly requestId: string }
+    | { readonly kind: "model_text"; readonly modelCallId: string; readonly blockIndex: number }
+    | { readonly kind: "stage_output"; readonly executionUnitId: string }
+    | { readonly kind: "completion_candidate"; readonly candidateId: string }
+    | { readonly kind: "host_execution"; readonly actionId: string }
+    | { readonly kind: "runtime_notice"; readonly noticeId: string };
+
 /** 一次模型轮次会消费的真实会话消息投影。 */
 export type ModelConversationMessage =
     | {
@@ -30,6 +53,8 @@ export type ModelConversationMessage =
         readonly content: string;
         /** 对应 Goal.state.messages 的稳定原始索引。 */
         readonly sourceMessageIndex: number;
+        /** 该消息在 Runtime 中的真实来源。 */
+        readonly source: ModelMessageSource;
     }
     | {
         readonly role: "assistant";
@@ -37,6 +62,8 @@ export type ModelConversationMessage =
         readonly content: string;
         /** 对应 Goal.state.messages 的稳定原始索引。 */
         readonly sourceMessageIndex: number;
+        /** 该消息在 Runtime 中的真实来源。 */
+        readonly source: ModelMessageSource;
     };
 
 /** 模型可见的单条完成条件投影。 */

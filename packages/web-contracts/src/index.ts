@@ -66,6 +66,9 @@ export {
     type BrowserSessionInputStatus,
     type BrowserSessionInteractionResponse,
     type BrowserJsonValue,
+    type BrowserSessionMessageEntry,
+    type BrowserSessionMessageListResult,
+    type BrowserSessionMessageResult,
     type BrowserSessionState,
 } from "./session-input";
 

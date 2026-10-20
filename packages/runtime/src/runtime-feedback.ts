@@ -88,19 +88,32 @@ export class ModelStageFeedbackError extends Error {
     readonly assistantMessageText?: string | undefined;
 
     /**
+     * 产生本次零调用正文的模型调用身份。
+     *
+     * @remarks
+     * 仅在执行方报告了模型调用身份时存在；Runtime 用它为补记的正文分配稳定
+     * 来源，避免同一次执行单元内的多次尝试互相覆盖。
+     */
+    readonly modelCallId?: string | undefined;
+
+    /**
      * @param feedback - 已移除原始输出的模型修复反馈。
      * @param message - 仅供进程内诊断的简短错误标题。
      * @param cause - 原始异常；不能转发到模型可见消息。
+     * @param assistantMessageText - 与本次反馈一同产生的零调用正文。
+     * @param modelCallId - 产生该正文的模型调用身份。
      */
     constructor(
         readonly feedback: RuntimeFeedback,
         message: string,
         cause?: unknown,
         assistantMessageText?: string,
+        modelCallId?: string,
     ) {
         super(message);
         this.name = "ModelStageFeedbackError";
         this.assistantMessageText = assistantMessageText;
+        this.modelCallId = modelCallId;
         this.cause = cause;
     }
 }

@@ -22,6 +22,11 @@ export {
 } from "./render";
 
 export {
+    coveredModelCallIds,
+    omitCoveredProcessMessages,
+} from "./process-message-dedup";
+
+export {
     DYNAMIC_SECTION_DIFF_ERROR_CODE,
     DynamicSectionDiffError,
     planDynamicSectionUpdates,

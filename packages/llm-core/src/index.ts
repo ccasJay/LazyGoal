@@ -23,6 +23,7 @@ export type {
 
 export {
     readTextBlocks,
+    readTextBlocksWithIndex,
     readAssistantText,
     readReasoningText,
     readToolCalls,

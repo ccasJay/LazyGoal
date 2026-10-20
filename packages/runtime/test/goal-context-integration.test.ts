@@ -14,7 +14,7 @@ import {
     executeSourceExpand,
     type GoalSourceEnvelope,
 } from "../../context-retrieval/src/index";
-import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
+import { currentProtocols, InMemoryTrajectoryStore, testUserMessage } from "./current-fixtures";
 import { buildGoalContextNavigation } from "../../model-context/src/index";
 
 function createInitialGoal(id: string): Goal {
@@ -125,7 +125,7 @@ test("TODO 6: 真实组合根生命周期 - launch → 多阶段 → waiting →
             ...snapshot1.state,
             messages: [
                 ...snapshot1.state.messages,
-                { role: "user", content: "架构方案已确认，请继续实现数据库连接" },
+                testUserMessage("架构方案已确认，请继续实现数据库连接"),
             ],
             run: {
                 ...snapshot1.state.run,
@@ -183,7 +183,7 @@ test("TODO 6: 真实组合根生命周期 - launch → 多阶段 → waiting →
             workflow: { phase: "executing" },
             messages: [
                 ...snapshot2.state.messages,
-                { role: "user", content: "请继续实现索引构建功能，并保留上一轮架构决定" },
+                testUserMessage("请继续实现索引构建功能，并保留上一轮架构决定"),
             ],
             completedRuns: [
                 ...(snapshot2.state.completedRuns ?? []),

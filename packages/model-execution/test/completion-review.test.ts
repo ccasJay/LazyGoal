@@ -14,6 +14,7 @@ import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import type { CompletionReviewInput } from "../../runtime/src/step-executor";
 import { currentProtocols } from "../../agent/test/current-fixtures";
+import { testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
 
 
 /** 评审接受响应的统一夹具：完整工具块携带原始参数。 */
@@ -102,7 +103,7 @@ test("required review input overflow is rejected before any model call", async (
     const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate() { calls++; return reviewAcceptResponse("review"); } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
     const review = input();
-    const large = { ...review, goal: { ...review.goal, state: { ...review.goal.state, messages: [{ role: "user" as const, content: "source".repeat(40_000) }] } } };
+    const large = { ...review, goal: { ...review.goal, state: { ...review.goal.state, messages: [testUserMessage("source".repeat(40_000))] } } };
     await assert.rejects(executor.reviewCompletion(large), error => error instanceof CompletionReviewInputBudgetError
         && error.code === "COMPLETION_REVIEW_INPUT_TOO_LARGE");
     assert.equal(calls, 0);
@@ -182,7 +183,7 @@ test("streaming review text, reasoning and result arguments stay outside the pub
 test("review receives the actual source request and scoped lookup without an optional Patch", async () => {
     const fixture = input();
     const request = "Read project memory files, select a real historical decision and propose a reversal condition.";
-    const goal = { ...fixture.goal, state: { ...fixture.goal.state, messages: [{ role: "user" as const, content: request }] } };
+    const goal = { ...fixture.goal, state: { ...fixture.goal.state, messages: [testUserMessage(request)] } };
     const candidate = { kind: "complete" as const, summary: "A generic example is to split a monolith into microservices.", evidenceSequences: [] };
     const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
         const content = JSON.parse(modelRequest.messages[1]!.content);
@@ -313,10 +314,10 @@ test("review request includes historical accepted stage evidence for overall ver
 test("review omits unrelated assistant history while retaining original user constraints and source positions", async () => {
     const fixture = input();
     const messages = [
-        { role: "user" as const, content: "Keep the public API unchanged." },
-        { role: "assistant" as const, assistant: { profileId: "review" }, content: "irrelevant-history".repeat(40_000) },
-        { role: "assistant" as const, assistant: { profileId: "review" }, content: "Which result should I verify?" },
-        { role: "user" as const, content: "Now verify the final result." },
+        testUserMessage("Keep the public API unchanged."),
+        testAssistantMessage("irrelevant-history".repeat(40_000), { profileId: "review" }),
+        testAssistantMessage("Which result should I verify?", { profileId: "review" }),
+        testUserMessage("Now verify the final result."),
     ];
     let called = false;
     const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(request) {
