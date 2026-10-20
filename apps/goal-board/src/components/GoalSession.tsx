@@ -44,6 +44,10 @@ export function GoalSession({
   const {
     session,
     activityPage,
+    activityWindow,
+    loadEarlierActivity,
+    loadNewerActivity,
+    jumpToLatestActivity,
     fullSession,
     fullSessionLoading,
     fullSessionError,
@@ -456,6 +460,15 @@ export function GoalSession({
                           setTrajectoryTarget({ ...target, nonce: Date.now() });
                           setSessionTab("Trajectory");
                         }}
+                        onLoadEarlier={() => void loadEarlierActivity()}
+                        onLoadNewer={() => void loadNewerActivity()}
+                        olderItemCount={activityWindow.page?.gaps
+                          .filter((gap) => gap.direction === "older")
+                          .reduce((total, gap) => total + gap.itemCount, 0) ?? 0}
+                        newerItemCount={activityWindow.page?.gaps
+                          .filter((gap) => gap.direction === "newer")
+                          .reduce((total, gap) => total + gap.itemCount, 0) ?? 0}
+                        unreadCount={activityWindow.unread}
                         brandMark={brandMark}
                       />
                     )}
@@ -465,7 +478,10 @@ export function GoalSession({
                       className="jump"
                       aria-label="Back to latest"
                       title="Back to latest"
-                      onClick={() => setFollow(true)}
+                      onClick={() => {
+                        setFollow(true);
+                        void jumpToLatestActivity();
+                      }}
                     >
                       <ArrowDown size={17} aria-hidden="true" />
                     </button>

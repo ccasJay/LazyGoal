@@ -11,6 +11,7 @@ import type {
 } from "../../../../packages/web-contracts/src/index";
 import type { MetricsState, ModelPickerTarget, SessionTab } from "../types";
 import type { SessionOutputDisplay } from "../session-output-consumer";
+import type { ActivityWindowState } from "../activity-page-window";
 
 /**
  * Goal Board 单个会话视图消费的局部状态与只读加载入口。
@@ -30,6 +31,14 @@ export interface GoalSessionContextValue {
   readonly session: BrowserGoalSessionState | null;
   /** 当前 Goal 的固定 Activity 页；游标描述窗口外历史，当前视图只提示更早来源仍存在。 */
   readonly activityPage: BrowserActivityPage | null;
+  /** 有界 Activity 窗口的本地状态：缓存页、缺口、跟随与阅读锚点。 */
+  readonly activityWindow: ActivityWindowState;
+  /** 读取更早一页并并入当前窗口；只读，不恢复执行。 */
+  readonly loadEarlierActivity: () => Promise<void>;
+  /** 读取更新一页并并入当前窗口；只读，不恢复执行。 */
+  readonly loadNewerActivity: () => Promise<void>;
+  /** 重新读取最新固定窗口并回到跟随状态；只读，不提交输入。 */
+  readonly jumpToLatestActivity: () => Promise<void>;
   /** 按需加载的完整会话，用于需要步骤或完整消息的专用视图。 */
   readonly fullSession: BrowserGoalSession | null;
   /** 完整会话读取是否正在进行。 */

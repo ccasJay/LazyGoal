@@ -57,7 +57,7 @@
   - **实现**：在既有流／会话 Hook 消费基础修订与故障协议，将连接、历史读取和执行状态分离；复用统一 Goal SSE 及基础末次核对，不增加浏览器领域轮询或重发策略。同步时按正式身份合并并清理临时来源，保留可核验的原输入尝试和有效交互草稿；AbortController、合并帧和回调归属随视图释放，宿主执行不受观察者关闭影响。
   - **验证**：新增 `apps/goal-board/test/session-stream-recovery.test.ts`（待实现），扩展 [Browser 恢复测试](../../packages/browser/test/browser-recovery.test.ts)、[流测试](../../packages/browser/test/browser-stream.test.ts)；在正式服务／Chrome 注入断线、读取故障、最后通知丢失及 Publisher／服务重建，结合受控时钟、订阅计数和实际调用计数核对。前置核对实现缺失则报告依赖，不在本 TODO 重写它。
 
-- [ ] //TODO 8. 在同一 Run 内切换有界历史窗口，保持阅读锚点、当前请求和详情可达
+- [x] //TODO 8. 在同一 Run 内切换有界历史窗口，保持阅读锚点、当前请求和详情可达
 
   落实标准：[3.5](./spec.md#spec-req-3-5)、[6.1](./spec.md#spec-req-6-1)、[6.2](./spec.md#spec-req-6-2)、[6.3](./spec.md#spec-req-6-3)、[6.4](./spec.md#spec-req-6-4)、[6.5](./spec.md#spec-req-6-5)。
   - **先验证**：一个长 Run 分成多个页，读前／后页和跨 Run 页时标题、缺口、阶段与不完整组可辨，无重复／遗漏；失败重试不丢现有窗口。缓存最多三页，正文详情最多三段，移出窗口可按原身份再读；阅读旧页时只更新最新水位与未读提示，连续新消息不挤掉锚点页。加载、展开及候选转正保持可见项和偏移；用户上滑暂停跟随，60px 内的跟随状态及 Jump to latest 按 Spec 区分，后继 Run 不强行滚动或切页。

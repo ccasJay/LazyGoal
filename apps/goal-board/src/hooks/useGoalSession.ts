@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   BrowserActivityPage,
+  BrowserActivityQuery,
   BrowserGoalSession,
   BrowserGoalSessionState,
   BrowserModelCatalog,
@@ -8,6 +9,15 @@ import type {
 } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
 import { errorMessage } from "../types";
+import {
+  applyActivityPage,
+  applyActivityPageFailure,
+  appendActivityPage,
+  createActivityWindowState,
+  mergeLatestPage,
+  prependActivityPage,
+  type ActivityWindowState,
+} from "../activity-page-window";
 
 /**
  * 同步选中 Goal 的窄状态与首个 Activity 页，并按需读取完整会话。
@@ -34,6 +44,7 @@ export function useGoalSession({
   const [session, setSession] = useState<BrowserGoalSessionState | null>(null);
   const [sessionState, setSessionState] = useState<BrowserSessionState | null>(null);
   const [activityPage, setActivityPage] = useState<BrowserActivityPage | null>(null);
+  const [activityWindow, setActivityWindow] = useState<ActivityWindowState>(createActivityWindowState());
   const [fullSession, setFullSession] = useState<BrowserGoalSession | null>(null);
   const [fullSessionLoading, setFullSessionLoading] = useState(false);
   const [fullSessionError, setFullSessionError] = useState<string | null>(null);
@@ -143,6 +154,7 @@ export function useGoalSession({
       setSession(next.goal);
       setSessionState(next.session ?? null);
       setActivityPage(nextActivity);
+      setActivityWindow((current) => mergeLatestPage(current, nextActivity));
       setSessionError(null);
       const hasNewSavedMessage = nextActivity.items.some((item) => item.type === "message" && !previousMessageIds.has(item.messageId));
       if (hadVisibleSession && hasNewSavedMessage) onClearLiveTextRef.current();
@@ -155,6 +167,65 @@ export function useGoalSession({
     }
   }, [loadFullSession, selectedGoalId]);
 
+  const readActivityWindow = useCallback(async (query: BrowserActivityQuery): Promise<BrowserActivityPage | undefined> => {
+    const goalId = selectedGoalId;
+    if (goalId === null) return undefined;
+    const page = await browserApi.readGoalActivity(goalId, query);
+    if (selectedGoalIdRef.current !== goalId) return undefined;
+    return page;
+  }, [selectedGoalId]);
+
+  /**
+   * 读取更早一页并并入当前窗口。
+   *
+   * @remarks 只读历史：读取不恢复执行、不消费队列，也不提交任何输入。失败保留当前窗口。
+   */
+  const loadEarlierActivity = useCallback(async (): Promise<void> => {
+    const cursor = activityWindow.page?.beforeCursor;
+    if (cursor === undefined) return;
+    try {
+      const page = await readActivityWindow({ before: cursor });
+      if (page === undefined) return;
+      setActivityWindow((current) => prependActivityPage(current, page));
+      setActivityPage((current) => (current === null ? page : current));
+    } catch (error) {
+      setActivityWindow((current) => applyActivityPageFailure(current, { kind: "failed", message: errorMessage(error) }));
+    }
+  }, [activityWindow.page, readActivityWindow]);
+
+  /**
+   * 读取更新一页并并入当前窗口。
+   *
+   * @remarks 只读历史：读取不恢复执行、不消费队列，也不提交任何输入。失败保留当前窗口。
+   */
+  const loadNewerActivity = useCallback(async (): Promise<void> => {
+    const cursor = activityWindow.page?.afterCursor;
+    if (cursor === undefined) return;
+    try {
+      const page = await readActivityWindow({ after: cursor });
+      if (page === undefined) return;
+      setActivityWindow((current) => appendActivityPage(current, page));
+    } catch (error) {
+      setActivityWindow((current) => applyActivityPageFailure(current, { kind: "failed", message: errorMessage(error) }));
+    }
+  }, [activityWindow.page, readActivityWindow]);
+
+  /**
+   * 重新读取最新固定窗口并回到跟随状态。
+   *
+   * @remarks 只读操作：不提交输入，不恢复执行，也不消费队列。
+   */
+  const jumpToLatestActivity = useCallback(async (): Promise<void> => {
+    try {
+      const page = await readActivityWindow({});
+      if (page === undefined) return;
+      setActivityWindow((current) => applyActivityPage({ ...current, following: true, unread: 0 }, page));
+      setActivityPage(page);
+    } catch (error) {
+      setActivityWindow((current) => applyActivityPageFailure(current, { kind: "failed", message: errorMessage(error) }));
+    }
+  }, [readActivityWindow]);
+
   useEffect(() => {
     if (selectedGoalId === null) {
       latestSession.current = null;
@@ -164,6 +235,7 @@ export function useGoalSession({
       setSession(null);
       setSessionState(null);
       setActivityPage(null);
+      setActivityWindow(createActivityWindowState());
       setFullSession(null);
       setFullSessionLoading(false);
       setFullSessionError(null);
@@ -197,6 +269,7 @@ export function useGoalSession({
         setSession(next.goal);
         setSessionState(next.session ?? null);
         setActivityPage(nextActivity);
+        setActivityWindow((current) => applyActivityPage(current, nextActivity));
       })
       .catch((error: unknown) => {
         if (active && !controller.signal.aborted) setSessionError(errorMessage(error));
@@ -218,6 +291,10 @@ export function useGoalSession({
     session,
     sessionState,
     activityPage,
+    activityWindow,
+    loadEarlierActivity,
+    loadNewerActivity,
+    jumpToLatestActivity,
     fullSession,
     fullSessionLoading,
     fullSessionError,

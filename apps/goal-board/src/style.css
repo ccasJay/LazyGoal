@@ -192,7 +192,10 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .timeline-region { position: relative; display: flex; flex: 1; min-height: 0; flex-direction: column; }
 .timeline { flex: 1; min-height: 0; overflow: auto; padding: 20px 23px 12px; scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
 .timeline > * { width: min(100%, var(--conversation-width)); margin-inline: auto; }
-.history-note { margin: 0 0 18px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); font-size: 10px; }
+.history-note { display: flex; align-items: center; gap: 9px; margin: 0 0 18px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); font-size: 10px; }
+.history-note > span { flex: 1 1 auto; min-width: 0; }
+.history-note button { padding: 4px 8px; border: 1px solid var(--control-border); border-radius: 4px; background: var(--panel); color: var(--text-secondary); font-size: 10px; white-space: nowrap; }
+.history-unread { border-color: var(--accent-ink); color: var(--accent-ink); }
 .history-expand { display: block; margin: 0 0 18px; padding: 8px 10px; width: 100%; border: 1px dashed var(--line); border-radius: 5px; background: none; color: var(--accent-ink); font-size: var(--font-size-xs); text-align: center; }
 .history-expand:hover { background: var(--surface); }
 .timeline-date { display: flex; align-items: center; gap: 10px; margin: 0 0 24px; color: var(--subtle); font-size: var(--font-size-xs); }

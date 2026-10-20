@@ -24,7 +24,7 @@
 | RunControlContext | 隔离指令分发、客户端排队有限状态机与原子单飞防重锁的局部上下文。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
 | 已受理队列投影 | Runtime Snapshot 中的待处理普通消息、队列修订与暂停原因；页面只读取该投影，不再镜像本地任务或由前端 effect 启动后继 Run。 | [Goal Board](../README.md) | [Session Projection](../../../packages/browser/src/browser-projection.ts) |
 | 本地草稿 | 仅保存在输入框的未提交文本；提交中、拒绝与结果不明时保留，受理成功后由服务端收据接管。 | [Goal Board](../README.md) | [MessageComposer](../src/components/MessageComposer.tsx) |
-| 会话渐进加载 | 当前只呈现固定 Activity 页并提示页外历史；游标导航和阅读锚点恢复尚未接入页面。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx) |
+| 会话渐进加载 | 固定水位 Activity 页支持双向翻页：更早与更新的页按稳定身份并入当前窗口，缺口明确提示；历史页缓存至多三页，正文分段至多三段；阅读锚点按可见项身份恢复。 | [Goal Board](../README.md) | [Activity 窗口](../src/activity-page-window.ts)、[SessionTimeline](../src/components/SessionTimeline.tsx) |
 | 会话输出消费 | 页面消费同一条 Goal SSE：保存不明的候选保持待核验；正式 Activity 以同一展示 key 替换候选；确定作废后保留最多八份可释放旧稿，换 Goal 或重连清除临时正文。 | [Goal Board](../README.md) | [会话输出归约](../src/session-output-consumer.ts) |
 | 普通发送与显式 Steer | Enter 直接走普通消息受理并排队；Shift+Enter 换行，输入法组合期间不提交。Steer 是独立次操作，说明它修改当前任务而不是排队；拒绝保留草稿且不降级为排队。 | [Goal Board](../README.md) | [输入控制语义](../src/session-controls.ts)、[输入区](../src/components/MessageComposer.tsx) |
 | 独立 Stop run | 中断入口不依赖输入框是否有草稿；停止中、收尾、审批与最终取消各按真实状态呈现，Stopping 不等于已取消。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx) |

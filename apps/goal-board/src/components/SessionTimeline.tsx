@@ -99,6 +99,16 @@ export interface SessionTimelineProps {
   readonly brandMark: string;
   /** 打开 Trajectory 并定位到成员的真实执行单元。 */
   readonly onOpenTrajectory?: (target: { readonly runId: string; readonly executionUnitId: string }) => void;
+  /** 读取更早一页；只读，不恢复执行。 */
+  readonly onLoadEarlier?: () => void;
+  /** 读取更新一页；只读，不恢复执行。 */
+  readonly onLoadNewer?: () => void;
+  /** 当前页之前尚未读取的项数。 */
+  readonly olderItemCount?: number;
+  /** 当前页之后尚未读取的项数。 */
+  readonly newerItemCount?: number;
+  /** 未跟随时累计的新增项数。 */
+  readonly unreadCount?: number;
 }
 
 const executionEventTypes = new Set([
@@ -143,6 +153,11 @@ export function SessionTimeline({
   onReleaseCandidate,
   brandMark,
   onOpenTrajectory,
+  onLoadEarlier,
+  onLoadNewer,
+  olderItemCount = 0,
+  newerItemCount = 0,
+  unreadCount = 0,
 }: SessionTimelineProps) {
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(() => new Set());
   const toggleGroup = useCallback((groupId: string) => {
@@ -159,7 +174,22 @@ export function SessionTimeline({
 
   return (
     <div className="session-timeline-feed" data-testid="session-timeline">
-      {olderAvailable && <div className="history-note">Earlier activity is outside this fixed page.</div>}
+      {olderAvailable && (
+        <div className="history-note">
+          <span>
+            Earlier activity is outside this fixed page
+            {olderItemCount > 0 ? ` (${olderItemCount} item(s) not loaded)` : ""}.
+          </span>
+          {onLoadEarlier !== undefined && (
+            <button type="button" onClick={onLoadEarlier}>Load earlier activity</button>
+          )}
+        </div>
+      )}
+      {unreadCount > 0 && (
+        <div className="history-note history-unread" role="status">
+          {unreadCount} new item(s) arrived while you were reading.
+        </div>
+      )}
       {projection.items.map((item) => renderEntry(item, {
         currentRunId,
         currentPlanRoute: projection.currentPlanRoute,
@@ -177,6 +207,12 @@ export function SessionTimeline({
       }))}
       {savedContentCount === 0 && (
         <div className="timeline-date"><span />No saved activity in this window<span /></div>
+      )}
+      {newerItemCount > 0 && onLoadNewer !== undefined && (
+        <div className="history-note">
+          <span>{newerItemCount} later item(s) are outside this fixed page.</span>
+          <button type="button" onClick={onLoadNewer}>Load newer activity</button>
+        </div>
       )}
     </div>
   );
