@@ -65,6 +65,10 @@ export interface GoalSessionContextValue {
   readonly releaseCandidateDraft: (presentationKey: string) => void;
   readonly liveEvents: readonly BrowserGoalLiveEvent[];
   readonly streamConnected: boolean;
+  /** 最后确认的正式内容是否可能过期；过期期间限制依赖最新状态的新决定。 */
+  readonly stateStale: boolean;
+  /** 本次连接是否已收到权威同步。 */
+  readonly streamSynced: boolean;
   readonly metricsByGoal: Record<string, MetricsState>;
   readonly currentModelCatalog: BrowserModelCatalog | null;
   readonly currentModelName: string;

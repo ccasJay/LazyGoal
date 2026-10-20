@@ -50,7 +50,7 @@
   - **实现**：调整 [MessageComposer](../../apps/goal-board/src/components/MessageComposer.tsx)、[命令 Hook](../../apps/goal-board/src/hooks/useRunCommands.ts) 和局部控制状态，普通发送、Steer、Stop、resume／queue_control 分别走前置统一 inputs。提交中冻结目标与载荷，明确拒绝再编辑，不明只核验／原身份重试；独立 Stop 不被普通输入单飞锁住。队列和待应用 Steer 仅显示 Runtime 状态，不恢复旧 localStorage 镜像或自动出队 effect，不改变既有模型／模式／权限安全点。
   - **验证**：新增 `apps/goal-board/test/session-controls.test.ts`（待实现），使用受控网络结果测试身份与草稿归属；真实按键、独立按钮、输入法、响应丢失、多客户端和收尾审批由 TODO 10 的 Chrome 验证。扩展／迁移现有 [输入控制 e2e](../../apps/goal-board/e2e/run-input-control.test.mjs)，核对真实收据、队列顺序与工具计数，不只看按钮文案；运行对应测试和构建。
 
-- [ ] //TODO 7. 在断线、缺口、快速跨 Run 和重启后同步同一会话，并清理旧观察资源
+- [x] //TODO 7. 在断线、缺口、快速跨 Run 和重启后同步同一会话，并清理旧观察资源
 
   落实标准：[2.4](./spec.md#spec-req-2-4)、[2.5](./spec.md#spec-req-2-5)、[4.6](./spec.md#spec-req-4-6)、[5.1](./spec.md#spec-req-5-1)、[5.2](./spec.md#spec-req-5-2)、[5.3](./spec.md#spec-req-5-3)、[5.4](./spec.md#spec-req-5-4)、[5.5](./spec.md#spec-req-5-5)。
   - **先验证**：state_sync 后才交接有效事件，快速后继 Run 不重建独立执行订阅，旧 Run／Goal 响应不覆盖当前。断线／读取失败保留正式内容和草稿并限制依赖最新状态的新决定，EOF 不伪造失败或取消；重连不拼缺前缀、不回放旧候选。丢最后一条消息／等待／终态通知且不再发 token，基础核对仍更新页面；进程重建只展示显式恢复需求，打开／分页不产生调用。卸载与切 Goal 后旧请求、帧、延迟回调均不可写入新视图，也不发送 Interrupt。

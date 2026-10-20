@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { ArrowUp, ChevronDown, Folder } from "lucide-react";
 import { slashCommands } from "../types";
-import { resolveComposerKey } from "../session-controls";
+import { resolveComposerKey, steerActionState } from "../session-controls";
 
 export function InboxIcon() {
   return (
@@ -50,6 +50,7 @@ export function MessageComposer({
   pendingSteers = [],
   onSteer,
   onInterrupt,
+  steerDisabled = false,
   autoFocus = false,
   showHint = true,
 }: {
@@ -66,6 +67,8 @@ export function MessageComposer({
   pendingSteers?: readonly { readonly messageId: string; readonly content: string }[];
   onSteer?: (content: string) => Promise<boolean>;
   onInterrupt?: () => Promise<void>;
+  /** 状态可能过期时禁止依赖最新状态的 Steer 决定。 */
+  steerDisabled?: boolean;
   footerControls?: ReactNode;
   autoFocus?: boolean;
   showHint?: boolean;
@@ -76,6 +79,7 @@ export function MessageComposer({
   const inspection = slashCommands.inspect(draft);
   const candidates = !running && inspection.kind === "candidates" && !commandMenuClosed ? inspection.candidates : [];
   const activeCandidate = candidates[Math.min(selectedCommand, candidates.length - 1)];
+  const steer = steerActionState({ busy, stale: steerDisabled, hasDraft: draft.trim().length > 0 });
 
   async function submit(content = draft) {
     if (busy || !content.trim()) return;
@@ -88,7 +92,7 @@ export function MessageComposer({
   }
 
   async function chooseSteer() {
-    if (!onSteer || busy || !draft.trim()) return;
+    if (!onSteer || !steer.enabled || !draft.trim()) return;
     const submittedDraft = draft;
     if (await onSteer(submittedDraft)) {
       setDraft((current) => (current === submittedDraft ? "" : current));
@@ -207,7 +211,7 @@ export function MessageComposer({
                 aria-label="Steer the current Run with this message"
                 aria-describedby="composer-run-note"
                 title="Steer modifies the current task instead of queuing the next task."
-                disabled={busy || !draft.trim()}
+                disabled={!steer.enabled}
                 onClick={() => void chooseSteer()}
               >
                 Steer

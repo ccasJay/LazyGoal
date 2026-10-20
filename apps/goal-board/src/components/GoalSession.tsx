@@ -73,6 +73,7 @@ export function GoalSession({
     expandCandidateDraft,
     releaseCandidateDraft,
     streamConnected,
+    stateStale,
     metricsByGoal,
     currentModelName,
     canSwitchCurrentModel,
@@ -347,6 +348,13 @@ export function GoalSession({
               </span>
             </div>
           </div>
+          {stateStale && (
+            <div className="state-stale" role="status">
+              The live connection dropped. The last confirmed content is shown, but it may be outdated. New Steer
+              and Resume actions stay unavailable until the state is re-read.
+              <button type="button" onClick={() => void refreshSelectedSession()}>Re-read state</button>
+            </div>
+          )}
           {sessionTab === "Board" ? (
             boardContent
           ) : sessionTab === "Trajectory" ? (
@@ -708,7 +716,7 @@ export function GoalSession({
                       <button
                         type="button"
                         className="primary"
-                        disabled={commandBusy || sessionError !== null}
+                        disabled={commandBusy || sessionError !== null || stateStale}
                         onClick={() => void onSubmitResume()}
                       >
                         {commandBusy ? "Resuming…" : "Resume Run"}
@@ -725,6 +733,7 @@ export function GoalSession({
                     pendingSteers={session.pendingSteers ?? []}
                     onSteer={onSubmitSteer}
                     onInterrupt={onInterrupt}
+                    steerDisabled={stateStale}
                     stopping={
                       stoppingRunId === session.currentRunId ||
                       (session.interruption !== undefined &&
@@ -759,7 +768,7 @@ export function GoalSession({
                       <button
                         type="button"
                         className="primary"
-                        disabled={commandBusy || sessionError !== null}
+                        disabled={commandBusy || sessionError !== null || stateStale}
                         onClick={() => void onSubmitResume()}
                       >
                         {commandBusy ? "Resuming…" : "Resume Run"}

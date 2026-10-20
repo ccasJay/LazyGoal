@@ -464,6 +464,39 @@ test("末次提交通知丢失后仍以权威读取结算等待，公开同步�
     opened.feed.close();
 });
 
+test("释放观察只关闭本连接的资源，其它 Goal 订阅不受影响", async () => {
+    const goal = goalFor("goal-stream-successor");
+    const store = new MemoryStore();
+    await store.save(goal);
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const opened = openFeed(store, publisher, goal.id);
+    const iterator = opened.feed.events[Symbol.asyncIterator]();
+    assert.equal((await nextEvent(iterator)).value?.type, "state_sync");
+
+    const other = openFeed(store, publisher, goal.id);
+    const otherIterator = other.feed.events[Symbol.asyncIterator]();
+    assert.equal((await nextEvent(otherIterator)).value?.type, "state_sync");
+
+    // 关闭一个观察只释放它自己的订阅与句柄。
+    opened.feed.close();
+    assert.equal(opened.detached(), true);
+    assert.equal(other.detached(), false);
+
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "model_started",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: {},
+    });
+    const stillObserved = (await nextEvent(otherIterator)).value;
+    assert.equal(stillObserved?.type, "activity");
+    assert.equal(stillObserved?.type === "activity" ? stillObserved.runId : undefined, goal.state.run.id);
+    other.feed.close();
+});
+
 test("HTTP 事件流是 Goal 范围事件，拒绝 run 绑定参数并在取消时清理订阅", async () => {
     const events: BrowserGoalLiveEvent[] = [{
         type: "activity",

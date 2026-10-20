@@ -215,6 +215,8 @@ export function useGoalBoardApp() {
     releaseCandidateDraft: streamManager.releaseCandidateDraft,
     liveEvents: streamManager.liveEvents,
     streamConnected: streamManager.streamConnected,
+    stateStale: streamManager.stateStale,
+    streamSynced: streamManager.streamSynced,
     metricsByGoal: goalsManager.metricsByGoal,
     currentModelCatalog: modelSelectionManager.currentModelCatalog,
     currentModelName,

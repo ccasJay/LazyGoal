@@ -197,3 +197,35 @@ export function queueClearScope(queuedCount: number): string | undefined {
     ? "Clear 1 accepted queued task?"
     : `Clear ${queuedCount} accepted queued tasks?`;
 }
+
+/**
+ * Steer 决定当前是否可用及其原因。
+ *
+ * @remarks
+ * Steer 以“当前 Run 正在执行什么”为前提，因此状态可能过期时不可用；普通发送不受
+ * 该限制。
+ */
+export type SteerActionState =
+  | { readonly enabled: true }
+  | { readonly enabled: false; readonly reason: "busy" | "stale" | "empty-draft" };
+
+/**
+ * 判断 Steer 入口当前是否可用。
+ *
+ * @param input - 提交在途、状态新鲜度与草稿状态。
+ * @returns Steer 入口的可用性与原因。
+ * @example
+ * ```ts
+ * steerActionState({ busy: false, stale: true, hasDraft: true }).enabled; // false
+ * ```
+ */
+export function steerActionState(input: {
+  readonly busy: boolean;
+  readonly stale: boolean;
+  readonly hasDraft: boolean;
+}): SteerActionState {
+  if (input.busy) return { enabled: false, reason: "busy" };
+  if (input.stale) return { enabled: false, reason: "stale" };
+  if (!input.hasDraft) return { enabled: false, reason: "empty-draft" };
+  return { enabled: true };
+}

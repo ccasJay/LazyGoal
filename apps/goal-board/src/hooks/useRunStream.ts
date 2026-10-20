@@ -9,6 +9,12 @@ import {
   releaseDiscardedCandidate,
   setExpandedCandidate,
 } from "../session-output-consumer";
+import {
+  INITIAL_STREAM_RECOVERY_STATE,
+  reduceStreamRecovery,
+  releaseObservation,
+  type StreamRecoveryState,
+} from "../session-stream-recovery";
 
 export function useRunStream({
   selectedGoalId,
@@ -26,6 +32,7 @@ export function useRunStream({
   const [outputDisplay, setOutputDisplay] = useState(EMPTY_SESSION_OUTPUT_DISPLAY);
   const [liveEvents, setLiveEvents] = useState<BrowserGoalLiveEvent[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
+  const [recovery, setRecovery] = useState<StreamRecoveryState>(INITIAL_STREAM_RECOVERY_STATE);
   const onRefreshRef = useRef(onRefresh);
   const liveText = outputDisplay.liveText;
   const liveActivity = outputDisplay.liveActivity || null;
@@ -57,6 +64,7 @@ export function useRunStream({
       setOutputDisplay(EMPTY_SESSION_OUTPUT_DISPLAY);
       setLiveEvents([]);
       setStreamConnected(false);
+      setRecovery(INITIAL_STREAM_RECOVERY_STATE);
     }
   }, [selectedGoalId]);
 
@@ -64,6 +72,11 @@ export function useRunStream({
     if (activityPage === null || selectedGoalId !== activityPage.goalId) return;
     setOutputDisplay((current) => reconcileCandidatePresentation(current, activityPage));
   }, [activityPage, selectedGoalId]);
+
+  // 后继 Run 开始时清除上一 Run 的未提交正文；正式消息与候选结算不受影响。
+  useEffect(() => {
+    setLiveText("");
+  }, [session?.currentRunId]);
 
   useEffect(() => {
     if (
@@ -78,15 +91,10 @@ export function useRunStream({
     setOutputDisplay(EMPTY_SESSION_OUTPUT_DISPLAY);
     setLiveEvents([]);
     setStreamConnected(false);
+    setRecovery(INITIAL_STREAM_RECOVERY_STATE);
 
     const refreshLatest = async () => {
       await onRefreshRef.current();
-    };
-
-    const clearStreamTransients = () => {
-      textBatcher.clear();
-      setOutputDisplay(EMPTY_SESSION_OUTPUT_DISPLAY);
-      setLiveEvents([]);
     };
 
     const delay = () =>
@@ -105,10 +113,34 @@ export function useRunStream({
     const listen = async () => {
       while (active && !controller.signal.aborted) {
         try {
+          // 一次连接先消费权威同步，再把后续事件当作当前状态。
+          let synced = false;
           for await (const event of browserApi.events(selectedGoalId, controller.signal)) {
             if (!active) return;
             setStreamConnected(true);
-            if (event.type === "state_sync" || event.type === "input_result") {
+            setRecovery((current) => reduceStreamRecovery(current, { kind: "connected" }));
+            if (event.type === "state_sync") {
+              if (!synced) {
+                synced = true;
+                // 重建连接后的权威同步：丢弃断线期间保留的旧临时正文与作废旧稿。
+                textBatcher.clear();
+                setOutputDisplay((current) => ({
+                  ...current,
+                  liveText: "",
+                  discardedDrafts: [],
+                  unavailableDraftCount: 0,
+                }));
+              }
+              setRecovery((current) => reduceStreamRecovery(current, { kind: "state_sync" }));
+              // 一致状态与受理结果只用于同步：最新快照由读取接口给出。
+              await refreshLatest();
+              continue;
+            }
+            if (!synced) {
+              synced = true;
+              await refreshLatest();
+            }
+            if (event.type === "input_result") {
               // 一致状态与受理结果只用于同步：最新快照由读取接口给出。
               await refreshLatest();
               continue;
@@ -191,15 +223,16 @@ export function useRunStream({
             }
           }
           if (active && !controller.signal.aborted) {
+            // 单纯断开不是执行失败或取消：保留最后确认的正式内容与当前草稿，只标记可能过期。
             setStreamConnected(false);
-            clearStreamTransients();
+            setRecovery((current) => reduceStreamRecovery(current, { kind: "disconnected" }));
             await refreshLatest();
             await delay();
           }
         } catch {
           if (!active || controller.signal.aborted) return;
           setStreamConnected(false);
-          clearStreamTransients();
+          setRecovery((current) => reduceStreamRecovery(current, { kind: "failed" }));
           try {
             await refreshLatest();
           } catch {
@@ -212,11 +245,14 @@ export function useRunStream({
 
     void listen();
     return () => {
+      // 释放观察只回收浏览器本地资源：不发送 Interrupt，不撤销已受理输入，也不关闭宿主 Runtime。
+      const release = releaseObservation();
       active = false;
-      controller.abort();
-      textBatcher.dispose();
+      if (release.abortLocalReads) controller.abort();
+      if (release.cancelPendingFrames) textBatcher.dispose();
     };
-  }, [selectedGoalId, session?.currentRunId, session?.goalId, sessionLoading]);
+    // 订阅按 Goal 建立：后继 Run 不重建执行订阅，跨 Run 只换权威读取的水位。
+  }, [selectedGoalId, session?.goalId, sessionLoading]);
 
   const expandCandidateDraft = useCallback((presentationKey: string | undefined) => {
     setOutputDisplay((current) => setExpandedCandidate(current, presentationKey));
@@ -234,5 +270,7 @@ export function useRunStream({
     releaseCandidateDraft,
     liveEvents,
     streamConnected,
+    stateStale: recovery.stale,
+    streamSynced: recovery.synced,
   };
 }
