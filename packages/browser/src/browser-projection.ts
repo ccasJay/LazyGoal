@@ -657,6 +657,7 @@ function projectActivityThinkItems(
                 itemKind: "fact",
                 order: 0,
             },
+            executionUnitId: request.executionUnitId,
             think: {
                 goal,
                 ...(output === undefined ? {} : { output: boundedText(output, MAX_MESSAGE_LENGTH) }),

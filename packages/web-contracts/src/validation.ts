@@ -832,10 +832,11 @@ function isBrowserActivityItem(value: unknown): boolean {
  */
 function isActivityThinkItem(value: unknown): boolean {
     if (!isRecord(value)) return false;
-    if (!Object.keys(value).some((key) => !["type", "itemId", "runId", "position", "think"].includes(key))) return false;
+    if (Object.keys(value).some((key) => !["type", "itemId", "runId", "position", "executionUnitId", "think"].includes(key))) return false;
     if (value.type !== "think") return false;
     if (!isNonEmptyString(value.itemId) || !isNonEmptyString(value.runId)) return false;
     if (!isActivityPosition(value.position) || value.position.runId !== value.runId) return false;
+    if (value.executionUnitId !== undefined && (!isNonEmptyString(value.executionUnitId) || value.executionUnitId.length > 200)) return false;
     if (!isRecord(value.think)) return false;
     if (!isNonEmptyString(value.think.goal) || value.think.goal.length > 4_000) return false;
     if (value.think.output !== undefined && (typeof value.think.output !== "string" || value.think.output.length > 64_000)) return false;

@@ -198,6 +198,22 @@ test("Activity 与窄状态 wire guards 接受有界安全 DTO 并拒绝原始�
     assert.equal(isBrowserActivityPage({ ...page, items: [missingStageTarget] }), false);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...stageFact, eventType: "tool_started" }] }), false);
 
+    const thinkItem = {
+        type: "think" as const,
+        itemId: "think:event-1",
+        runId: "run-1",
+        position: { ...position, itemKind: "fact" as const },
+        executionUnitId: "unit-think",
+        think: { goal: "Compare evidence", output: "Committed analysis" },
+    };
+    assert.equal(isBrowserActivityPage({ ...page, items: [thinkItem] }), true);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, executionUnitId: "" }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, executionUnitId: "x".repeat(201) }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, payload: { secret: "raw" } }] }), false);
+    // 未知字段必须被拒绝：白名单守卫在 Think 项上曾经反向取值，导致合法项被误拒。
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, reviewNotes: "private" }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, think: { ...thinkItem.think, privateReasoning: "x" } }] }), false);
+
     const state: BrowserGoalSessionState = {
         goalId: "goal-1", intent: "inspect", currentRunId: "run-1", runStatus: "running",
         currentRunMode: "normal", currentRunStepCount: 1,

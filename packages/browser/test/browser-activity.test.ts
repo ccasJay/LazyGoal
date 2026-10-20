@@ -302,7 +302,51 @@ test("Activity 事实携带最小已提交工具状态白名单，并按真实�
     assert.equal(JSON.stringify(result.page).includes("PRIVATE_RAW_TOOL_OUTPUT"), false);
 });
 
-test("窄状态生产投影只恢复 Snapshot，不调用轨迹读取器", async () => {    const initial = createTestGoal();
+test("Activity 显式 Think 保留获准摘要与详情定位入口，不公开未提交输出", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = {
+        ...initial,
+        state: { ...initial.state, run: { ...initial.state.run, committedThroughSequence: 4 } },
+    };
+    const thinkEvent = (sequence: number, output?: string): TrajectoryEvent => {
+        const metadata = {
+            goalId: goal.id, runId: goal.state.run.id, phase: "executing" as const,
+            executionUnitId: "unit-think", stepIndex: 1,
+        };
+        const payload = { requestId: "think-1", stepOrdinal: 1, goal: "比较已提交证据" };
+        return allocateImmutableEvent(output === undefined
+            ? { ...metadata, eventType: "think_requested", payload: { type: "think_requested", ...payload } }
+            : { ...metadata, eventType: "think_completed", payload: { type: "think_completed", ...payload, output } },
+        sequence);
+    };
+    const committed = [
+        thinkEvent(1),
+        thinkEvent(2, "已提交的分析结论"),
+    ];
+    const store = { restore: async (id: string) => (id === goal.id ? goal : undefined) };
+    const readTrajectory = async () => ({
+        committed,
+        uncommittedTail: [thinkEvent(5, "PRIVATE_UNCOMMITTED_THINK")],
+    });
+
+    const result = await readBrowserGoalActivity(goal.id, {}, store, readTrajectory);
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    const thinkItems = result.page.items.filter((item) => item.type === "think");
+    assert.equal(thinkItems.length, 1);
+    const think = thinkItems[0];
+    assert.equal(think?.type, "think");
+    if (think?.type !== "think") return;
+    assert.match(think.itemId, /^think:event-/);
+    assert.equal(think.executionUnitId, "unit-think", "Think 保留 Trajectory 详情定位引用");
+    assert.equal(think.think.goal, "比较已提交证据");
+    assert.equal(think.think.output, "已提交的分析结论");
+    assert.equal(JSON.stringify(result.page).includes("PRIVATE_UNCOMMITTED_THINK"), false);
+});
+
+test("窄状态生产投影只恢复 Snapshot，不调用轨迹读取器", async () => {
+    const initial = createTestGoal();
     const state = await readBrowserGoalSessionState(initial.id, { restore: async () => initial });
     assert.equal(state?.currentRunStepCount, initial.state.run.stepCount);
     assert.deepEqual(state?.history, {

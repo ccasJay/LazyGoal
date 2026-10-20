@@ -289,6 +289,53 @@ test("SessionTimeline 把真实工具活动呈现为可展开活动组，并保�
   assert.match(expandedHtml, /View trajectory/);
 });
 
+test("SessionTimeline 保留显式 Think 的获准摘要、已提交输出与详情入口", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { ActivityGroupRow } = await import("../src/components/SessionTimeline");
+  const position = (sequence: number) => ({
+    runId: "run-1", runOrder: 0, sequence, itemKind: "fact" as const, order: 0,
+  });
+  const group = {
+    id: "think:run-1:think:event-1",
+    runId: "run-1",
+    category: "think" as const,
+    status: "completed" as const,
+    summary: "Thinking · Compare evidence",
+    position: position(4),
+    members: [{
+      id: "think:run-1:think:event-1",
+      runId: "run-1",
+      category: "think" as const,
+      label: "Thinking",
+      status: "completed" as const,
+      isCommitted: true,
+      attempts: [],
+      executionUnitId: "unit-think",
+      think: { goal: "Compare evidence", output: "Use the observed result.", truncated: true },
+      sourceItemId: "think:event-1",
+      position: position(4),
+    }],
+  };
+
+  const html = renderToStaticMarkup(React.createElement(ActivityGroupRow, {
+    itemId: "activity:think:run-1:think:event-1",
+    runId: "run-1",
+    group: group as any,
+    expanded: true,
+    onToggle: () => {},
+    onOpenTrajectory: () => {},
+  }));
+
+  assert.match(html, /Thinking · Compare evidence/);
+  assert.match(html, /Compare evidence/);
+  assert.match(html, /Use the observed result\./);
+  assert.match(html, /Some Think content is omitted\. View the complete event in trajectory\./);
+  // 详情入口依赖执行单元定位引用，缺失时无法回到 Trajectory 的完整事件。
+  assert.match(html, /View trajectory/);
+  assert.match(html, /aria-label="Open trajectory for Thinking"/);
+});
+
 test("关闭 Execution steps 只隐藏活动主体，正文与 Run 边界仍然保留", async () => {
   const React = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");

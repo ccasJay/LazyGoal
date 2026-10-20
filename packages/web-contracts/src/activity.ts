@@ -189,13 +189,15 @@ export interface BrowserActivityFactItem {
  * @remarks
  * 只保留既有获准摘要与已提交输出：思考目标、已提交的分析正文及其截断标记。不包含
  * 供应商隐藏推理、私有阶段或原始 Prompt。Think 是同一 Runtime Step 内的展示成员，
- * 不增加 Step 计数，也不产生新的工具事实。
+ * 不增加 Step 计数，也不产生新的工具事实。`executionUnitId` 是该 Think 的详情
+ * 定位引用，指向 Trajectory 中同一执行单元的已提交事件。
  *
  * @example
  * ```ts
  * const item: BrowserActivityThinkItem = {
  *     type: "think", itemId: "think:event-4", runId: "run-1",
  *     position: { runId: "run-1", runOrder: 0, sequence: 4, itemKind: "fact", order: 0 },
+ *     executionUnitId: "unit-1",
  *     think: { goal: "比较证据", output: "需要一次新观察。" },
  * };
  * ```
@@ -206,6 +208,8 @@ export interface BrowserActivityThinkItem {
     readonly itemId: string;
     readonly runId: string;
     readonly position: BrowserActivityPosition;
+    /** 该 Think 所属的 Runtime 执行单元；用于定位 Trajectory 中的完整事件。 */
+    readonly executionUnitId?: string;
     /** 显式 Think 的目标及已提交输出；输出缺省表示尚无已提交完成事实。 */
     readonly think: {
         /** 本次明确的思考目标；最多 4,000 字符。 */

@@ -183,6 +183,7 @@ export function projectActivityGroups(input: {
         isCommitted: true,
         attempts: [],
         think: item.think,
+        ...(item.executionUnitId === undefined ? {} : { executionUnitId: item.executionUnitId }),
         sourceItemId: item.itemId,
         position: item.position,
         breaksBefore: true,

@@ -87,6 +87,7 @@ function think(options: {
   readonly goal: string;
   readonly output?: string;
   readonly runId?: string;
+  readonly executionUnitId?: string;
 }): BrowserActivityThinkItem {
   const runId = options.runId ?? "run-1";
   return {
@@ -94,6 +95,7 @@ function think(options: {
     itemId: `think:event-${options.sequence}`,
     runId,
     position: position(options.sequence, runId),
+    ...(options.executionUnitId === undefined ? {} : { executionUnitId: options.executionUnitId }),
     think: {
       goal: options.goal,
       ...(options.output === undefined ? {} : { output: options.output }),
@@ -136,6 +138,18 @@ test("Think rounds remain separate from tools and retain committed analysis afte
   assert.equal(groups[1]?.summary, "Thinking · Compare evidence");
   assert.equal(groups[1]?.members[0]?.think?.output, "Use the observed result.");
   assert.equal(groups[1]?.members[0]?.actionId, undefined);
+});
+
+test("Think 成员保留 Trajectory 详情定位引用，不暴露未获准内容", () => {
+  const groups = project([
+    think({ sequence: 4, goal: "Compare evidence", output: "Use the observed result.", executionUnitId: "unit-think" }),
+  ]);
+
+  const member = groups[0]?.members[0];
+  assert.equal(member?.category, "think");
+  assert.equal(member?.executionUnitId, "unit-think");
+  assert.deepEqual(member?.think, { goal: "Compare evidence", output: "Use the observed result." });
+  assert.equal(JSON.stringify(groups).includes("PRIVATE_"), false);
 });
 
 test("committed actions merge only when category, stage and verified adjacency match", () => {

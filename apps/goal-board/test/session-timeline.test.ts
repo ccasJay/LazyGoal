@@ -127,3 +127,53 @@ test("saved multi-Run activity keeps stable source order across duplicate sync a
   const refreshed = projectSessionTimeline(duplicateAndReorderedPage, state, activityGroups, "temporary answer");
   assert.deepEqual(refreshed.items.map((item) => item.itemId), projection.items.map((item) => item.itemId));
 });
+
+test("显式 Think 在时间线中保留获准摘要与详情定位入口", async () => {
+  const initial = createGoal({
+    id: "timeline-think-goal",
+    intent: "Review the issue",
+    promptBundleVersion: 1,
+    memoryProtocol: { kind: "structured", version: 1 },
+    modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+    contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+    profile: { id: "profile", systemPrompt: "private", instructions: [], toolIds: [] },
+    runId: "run-1",
+  });
+  const goal: Goal = {
+    ...initial,
+    state: { ...initial.state, run: { ...initial.state.run, committedThroughSequence: 3 } },
+  };
+  const thinkMetadata = { goalId: goal.id, runId: "run-1", phase: "executing" as const, executionUnitId: "unit-think", stepIndex: 1 };
+  const thinkPayload = { requestId: "think-1", stepOrdinal: 1, goal: "Compare the committed evidence" };
+  const committed: readonly TrajectoryEvent[] = [
+    allocateImmutableEvent({ ...thinkMetadata, eventType: "think_requested", payload: { type: "think_requested", ...thinkPayload } }, 1),
+    allocateImmutableEvent({ ...thinkMetadata, eventType: "think_completed", payload: { type: "think_completed", ...thinkPayload, output: "The committed analysis" } }, 2),
+    allocateImmutableEvent({ goalId: goal.id, runId: "run-1", phase: "executing", eventType: "run_completed", payload: { type: "run_completed", summary: "Done" } }, 3),
+  ];
+  const store = { restore: async (goalId: string) => (goalId === goal.id ? goal : undefined) };
+  const readTrajectory = async () => ({ committed, uncommittedTail: [] });
+
+  const [activity, state] = await Promise.all([
+    readBrowserGoalActivity(goal.id, {}, store, readTrajectory),
+    readBrowserGoalSessionState(goal.id, store),
+  ]);
+  assert.equal(activity.ok, true);
+  assert.ok(state);
+  if (!activity.ok || state === undefined) return;
+
+  const thinkItem = activity.page.items.find((item) => item.type === "think");
+  assert.equal(thinkItem?.type, "think");
+  if (thinkItem?.type !== "think") return;
+  assert.equal(thinkItem.executionUnitId, "unit-think");
+  assert.equal(thinkItem.think.goal, "Compare the committed evidence");
+  assert.equal(thinkItem.think.output, "The committed analysis");
+
+  const activityGroups = collectActivityProjections(activity.page, goal.id, []);
+  const projection = projectSessionTimeline(activity.page, state, activityGroups);
+  const thinkEntry = projection.items.find((item) => item.kind === "activity" && item.group.category === "think");
+  assert.ok(thinkEntry);
+  if (thinkEntry?.kind !== "activity") return;
+  assert.equal(thinkEntry.group.members[0]?.executionUnitId, "unit-think");
+  assert.equal(thinkEntry.group.members[0]?.think?.output, "The committed analysis");
+  assert.equal(JSON.stringify(projection).includes("PRIVATE_"), false);
+});
