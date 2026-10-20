@@ -297,6 +297,27 @@ export interface BrowserSessionState {
         | "action_approval"
         | "action_recovery"
         | "blocked";
+    /** 当前等待交互的规范引用；没有等待时省略。 */
+    readonly interaction?: {
+        readonly interactionId: string;
+        readonly kind: "question" | "task_approval" | "action_approval" | "action_recovery";
+        readonly runId: string;
+        readonly requestId?: string;
+        readonly actionId?: string;
+    };
+    /** 已提交消息的有界范围；不包含正文。 */
+    readonly messages: {
+        readonly count: number;
+        readonly throughMessageId?: string;
+        readonly recent: readonly {
+            readonly messageId: string;
+            readonly role: "user" | "assistant";
+            readonly runId: string;
+            readonly purpose?: "process" | "answer" | "notice";
+            readonly sourceKind: string;
+            readonly sourceId: string;
+        }[];
+    };
     /** 是否需要调用方显式恢复执行。 */
     readonly needsRecovery: boolean;
     /** 当前 Run 的用户中断状态；未受理用户中断时省略。 */

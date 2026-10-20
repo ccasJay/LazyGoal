@@ -4,9 +4,13 @@ import type {
     ExecutionStreamSubscription,
     StreamSubscriptionPolicy,
 } from "../../execution-stream/src/index";
-import type { GoalSessionState, SessionOutputEvent } from "./session";
+import type { GoalSessionState } from "./session";
 import type { SessionInputKind, SessionInputReceipt, SessionInputRejectionCode } from "./session-input";
 import type { Goal } from "./domain";
+import {
+    classifySessionStreamEvent,
+    type SessionOutputEvent,
+} from "./session-output";
 
 /**
  * 一条输入受理／拒绝对应的公开结果。
@@ -36,7 +40,7 @@ export interface SessionInputOutcome {
 }
 
 /** 会话输出流的核心事件种类。 */
-export const SESSION_INPUT_RESULT_KIND = "session_input_result" as const;
+export { SESSION_INPUT_RESULT_KIND } from "./session-output";
 
 /**
  * 订阅整个 Goal 的输出流。
@@ -125,6 +129,8 @@ export class GoalSessionStream implements SessionOutputStream {
      * 按最新提交修订重新同步状态。
      *
      * @remarks 由提交核对任务或缺口事件触发；读取失败报告同步故障，不伪装业务结果。
+     * 同步同时比对已提交消息范围与当前等待：订阅期间新保存的消息按稳定身份
+     * 发出 `message_committed`，新建立的等待发出 `interaction_required`。
      */
     async resync(): Promise<void> {
         if (this.closedState) return;
@@ -133,16 +139,20 @@ export class GoalSessionStream implements SessionOutputStream {
             state = await this.readState(this.goalId);
         } catch (error) {
             this.push({
-                type: "sync_error",
-                message: error instanceof Error ? error.message : String(error),
+                type: "stream_fault",
+                event: { kind: "read_failed", message: error instanceof Error ? error.message : String(error) },
             });
             return;
         }
         if (state === undefined) {
-            this.push({ type: "sync_error", message: `Goal "${this.goalId}" was not found` });
+            this.push({
+                type: "stream_fault",
+                event: { kind: "read_failed", message: `Goal "${this.goalId}" was not found` },
+            });
             return;
         }
         this.push({ type: "state_sync", state });
+        this.publishDerivedNotifications(state);
     }
 
     close(reason: "closed" | "backpressure" | "publisher_closed" = "closed"): void {
@@ -216,11 +226,79 @@ export class GoalSessionStream implements SessionOutputStream {
             if (event.delivery === "delta" && currentRunId !== undefined && event.runId !== currentRunId) {
                 continue;
             }
-            this.push(this.toOutputEvent(event));
+            const output = this.toOutputEvent(event);
+            if (output !== undefined) this.push(output);
         }
     }
 
     private lastSyncedRunId: string | undefined;
+    private readonly notifiedMessageIds = new Set<string>();
+    private knownInteractionId: string | undefined;
+    private interactionBaselineReady = false;
+
+    /**
+     * 比对同步状态，发布订阅期间新出现的正式消息与等待交互。
+     *
+     * @remarks 首次同步只建立基线：既有消息与等待由 `state_sync` 的范围表达，
+     * 不重复通知。之后的每次同步只为新出现的身份发出一次通知。
+     *
+     * @param state - 刚同步完成的安全会话状态。
+     */
+    private publishDerivedNotifications(state: GoalSessionState): void {
+        const messageIds = state.messages.recent.map((message) => message.messageId);
+        if (this.interactionBaselineReady) {
+            for (const message of state.messages.recent) {
+                if (this.notifiedMessageIds.has(message.messageId)) continue;
+                this.notifiedMessageIds.add(message.messageId);
+                this.push({
+                    type: "message_committed",
+                    event: {
+                        source: {
+                            goalId: state.goalId,
+                            runId: message.runId,
+                            eventId: `message:${message.messageId}`,
+                            cursor: 0,
+                            occurredAt: new Date(0).toISOString(),
+                            durability: "checkpoint",
+                        },
+                        messageId: message.messageId,
+                        role: message.role,
+                        ...(message.purpose === undefined ? {} : { purpose: message.purpose }),
+                        runId: message.runId,
+                        commitRevision: state.commitRevision,
+                        ...(message.sourceKind === "completion_candidate"
+                            ? { previewId: message.sourceId }
+                            : {}),
+                    },
+                });
+            }
+            const interactionId = state.interaction?.interactionId;
+            if (interactionId !== undefined && interactionId !== this.knownInteractionId) {
+                this.knownInteractionId = interactionId;
+                this.push({
+                    type: "interaction_required",
+                    event: {
+                        kind: "required",
+                        source: {
+                            goalId: state.goalId,
+                            runId: state.interaction?.runId ?? state.runId,
+                            eventId: `interaction:${interactionId}`,
+                            cursor: 0,
+                            occurredAt: new Date(0).toISOString(),
+                            durability: "checkpoint",
+                        },
+                        interactionKind: resolveInteractionKind(state),
+                        interactionId,
+                        runId: state.interaction?.runId ?? state.runId,
+                    },
+                });
+            }
+        } else {
+            this.interactionBaselineReady = true;
+            for (const messageId of messageIds) this.notifiedMessageIds.add(messageId);
+            this.knownInteractionId = state.interaction?.interactionId;
+        }
+    }
 
     private push(event: SessionOutputEvent): void {
         if (this.closedState) return;
@@ -243,15 +321,19 @@ export class GoalSessionStream implements SessionOutputStream {
         this.queue.push(event);
     }
 
-    private toOutputEvent(event: ExecutionStreamEvent): SessionOutputEvent {
-        if (event.kind === SESSION_INPUT_RESULT_KIND) {
-            const payload = event.payload as unknown as SessionInputOutcome;
-            if (payload !== null && typeof payload === "object" && typeof payload.inputId === "string") {
-                return { type: "input_result", outcome: payload };
-            }
-        }
-        return { type: "activity", event };
+    private toOutputEvent(event: ExecutionStreamEvent): SessionOutputEvent | undefined {
+        return classifySessionStreamEvent(event);
     }
+}
+
+function resolveInteractionKind(
+    state: GoalSessionState,
+): "ask_user" | "task_approval" | "action_approval" | "action_recovery" {
+    const kind = state.interaction?.kind;
+    if (kind === "task_approval") return "task_approval";
+    if (kind === "action_approval") return "action_approval";
+    if (kind === "action_recovery") return "action_recovery";
+    return "ask_user";
 }
 
 /**

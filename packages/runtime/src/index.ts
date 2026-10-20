@@ -387,9 +387,11 @@ export type {
     InteractionViewRef,
 } from "./interaction-view";
 export {
+    MAX_SESSION_MESSAGE_RECENT,
     Session,
     SessionDetachedError,
     projectGoalSessionState,
+    projectSessionMessageRange,
 } from "./session";
 export type {
     GoalSessionState,
@@ -397,14 +399,33 @@ export type {
     SessionHandlePort,
     SessionInputConsumptionResult,
     SessionManagerErrorCode,
+    SessionMessageRange,
+    SessionMessageSummary,
     SessionOutputEvent,
     SessionReceipt,
 } from "./session";
 export {
+    MAX_LIVE_TEXT_LENGTH,
+    SESSION_INPUT_RESULT_KIND,
+    classifySessionStreamEvent,
+    readPendingInteraction,
+} from "./session-output";
+export type {
+    SessionActivityBoundaryReason,
+    SessionCommitBoundaryEvent,
+    SessionEventSource,
+    SessionGenerationEvent,
+    SessionInteractionEvent,
+    SessionMessageCommittedEvent,
+    SessionRunResultEvent,
+    SessionRunStatusEvent,
+    SessionStreamFaultEvent,
+    SessionToolActivityEvent,
+} from "./session-output";
+export {
     DEFAULT_RESYNC_INTERVAL_MS,
     GoalRevisionMonitor,
     GoalSessionStream,
-    SESSION_INPUT_RESULT_KIND,
 } from "./session-stream";
 export type {
     GoalRevisionMonitorDependencies,

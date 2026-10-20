@@ -31,7 +31,7 @@ action-approval-revision 是关联能力：存在时验证真实最终版本／�
   - **实现**：在 model-execution 的完整结果中携带公开正文来源，Runner 将正文与已接受的 frame／决策边界共同保存，接入 TODO 1 身份及 TODO 2 覆盖规则。保留每块顺序，不保存 reasoning、协议 JSON 或工具参数；不为每段正文增一次模型请求、Step 或 Observation。模型调用和父程序来源不可套到 PTC 子操作。
   - **验证**：新增 `packages/runtime/test/process-message.test.ts`（待实现），扩展 `packages/model-execution/test/native-step-executor.test.ts`、`packages/runtime/test/completion-review.test.ts`、`think-decision-loop.test.ts`、`program-execution.test.ts`、`packages/storage/test/program-recovery.test.ts`；运行对应 `npx tsx --test`。捕获实际下一模型请求、Snapshot／轨迹、审批等待和工具计数，覆盖正文保存与工具执行之间的屏障及重建。
 
-- [ ] //TODO 4. 通过 Session 类型化输出区分输入、正式消息、工具、交互和 Run 结果
+- [x] //TODO 4. 通过 Session 类型化输出区分输入、正式消息、工具、交互和 Run 结果
 
   落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)、[1.5](./spec.md#spec-req-1-5)、[2.3](./spec.md#spec-req-2-3)、[5.1](./spec.md#spec-req-5-1)、[5.2](./spec.md#spec-req-5-2)、[5.3](./spec.md#spec-req-5-3)、[5.4](./spec.md#spec-req-5-4)、[5.5](./spec.md#spec-req-5-5)。
   - **先验证**：同一 Goal 依次出现受理／应用、生成、消息保存、工具审批／执行／返回／Observation 提交、交互结算、waiting 和终态；每项类型、来源及提交关联准确。工具生成不发可响应审批，waiting 不发 completed，Run 终态重发以 runId 归并且 Session 保持开放。PTC、未知结果和实际已接入的参数修订保留领域身份；退出观察不取消执行，Interrupt／收尾／连接关闭分别表达。

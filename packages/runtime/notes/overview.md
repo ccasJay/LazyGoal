@@ -59,6 +59,8 @@ waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表�
 
 会话输出由 [GoalSessionStream](../src/session-stream.ts) 提供：`session.events()` 调用时先向事件 Core 注册 Goal 范围缓冲，再在同一提交协调边界读取一致快照，首项输出 `state_sync` 与 Goal 提交修订，随后按来源顺序交接缓冲。已由同步状态覆盖的旧提交通知去重，旧执行单元的暂时增量被丢弃，当前调用的增量按来源顺序保留；模型或工具分片不会被当作已提交结果。输入受理与拒绝以 `session_input_result` 控制事件发布并按 `inputId` 关联；Run 结束与切换不关闭订阅。
 
+输出语义由 [会话输出分类器](../src/session-output.ts) 拥有：[`SessionOutputEvent`](../src/session-output.ts) 是可辨识联合，成员为 `state_sync`、`input_result`、`generation_event`、`message_committed`、`tool_activity`、`interaction_required`、`interaction_settled`、`run_status`、`run_result`、`stream_fault`、`commit_boundary` 与 `closed`。分类器只依据来源事件自身的事实：公开生成、工具活动与分组边界在 Runtime 内判定，Browser 与 wire 只做受授权的序列化，不再按任意 `kind: string` 猜测业务；reasoning、结构化协议 JSON、工具原始参数与私有阶段输出不进入公开信封。`state_sync` 同时携带当前等待的规范交互引用与已提交消息的有界范围（总数、末尾身份与最近摘要）；同步时新出现的消息按稳定身份发出 `message_committed`，新建立的等待发出 `interaction_required`，重复同步不追加第二条通知。
+
 存在订阅时，[GoalRevisionMonitor](../src/session-stream.ts) 按不超过一秒的间隔（默认 1000ms，可注入定时器与间隔）合并核对被观察 Goal 的最新提交修订，弥补末次提交通知丢失；没有观察者时停止核对，核对只读、不调度执行。读取失败作为同步故障报告，不伪装业务结果。订阅队列沿用 Core 的有界背压：控制事件无法保留时订阅以 `backpressure` 结束，执行不受影响；退出迭代或解除句柄只释放该订阅自己的队列与监听。
 
 `GoalState.commitRevision` 是 Goal 级单调提交修订，跨 Run 递增，由 Launcher 的首次保存与 `TrajectoryCheckpointCommitter` 的每次成功提交维护。基于旧快照的执行提交在提交边界重新读取最新修订：未声明会话权威时沿用最新快照的输入账本与消息队列，避免旧快照覆盖并发受理。

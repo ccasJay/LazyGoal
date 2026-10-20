@@ -28,6 +28,9 @@
 | 单消息封装 | 等待指定 Run 的等待或终态结果并返回可恢复身份；只释放自己的资源。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 有界关闭 | 停止接受与订阅后按期限结算；未结算时保留类型化错误，不伪造取消。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 会话输出订阅 | Goal 范围实时输出：先 `state_sync`，再输入结果与公开执行活动；不随 Run 结束关闭。 | [Goal Runtime](../README.md) | [会话流](../src/session-stream.ts) |
+| 类型化会话输出 | 可辨识联合区分状态同步、输入结果、公开生成、正式消息、工具活动、交互、Run 状态与终态、流故障与提交边界；消费者不按任意 `kind` 猜测。 | [Goal Runtime](../README.md) | [会话输出分类器](../src/session-output.ts) |
+| 正式消息通知 | 保存成功后按稳定 `messageId`、用途、来源与提交修订通知；重复同步只更新同一条消息。 | [Goal Runtime](../README.md) | [会话输出分类器](../src/session-output.ts) |
+| 有界消息范围 | 状态同步只携带消息总数、末尾身份与最近摘要；完整正文按 `messageId` 另行只读读取。 | [Goal Runtime](../README.md) | [会话状态投影](../src/session.ts) |
 | 提交核对 | 有观察者时按不超过一秒的间隔只读核对最新提交修订，弥补末次通知丢失。 | [Goal Runtime](../README.md) | [会话流](../src/session-stream.ts) |
 | 流背压 | 控制事件无法保留时以 `backpressure` 结束该订阅，不静默丢弃也不阻塞执行。 | [Goal Runtime](../README.md) | [事件 Core](../../execution-stream/src/publisher.ts) |
 | 模型 Binding 对齐 | 新 Run 启动前按最新 Goal 的 `modelSelection` 重新对齐实例绑定。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |

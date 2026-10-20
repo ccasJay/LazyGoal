@@ -212,6 +212,20 @@ export function isBrowserSessionState(value: unknown): value is BrowserSessionSt
         && Number.isSafeInteger(value.pendingSteerCount) && Number(value.pendingSteerCount) >= 0
         && (value.waitingFor === undefined
             || ["ask_user", "task_approval", "action_approval", "action_recovery", "blocked"].includes(String(value.waitingFor)))
+        && (value.interaction === undefined || (isRecord(value.interaction)
+            && isNonEmptyString(value.interaction.interactionId)
+            && ["question", "task_approval", "action_approval", "action_recovery"].includes(String(value.interaction.kind))
+            && isNonEmptyString(value.interaction.runId)))
+        && isRecord(value.messages)
+        && Number.isSafeInteger(value.messages.count) && Number(value.messages.count) >= 0
+        && (value.messages.throughMessageId === undefined || isNonEmptyString(value.messages.throughMessageId))
+        && Array.isArray(value.messages.recent)
+        && value.messages.recent.every((message: unknown) => isRecord(message)
+            && isNonEmptyString(message.messageId)
+            && ["user", "assistant"].includes(String(message.role))
+            && isNonEmptyString(message.runId)
+            && isNonEmptyString(message.sourceKind)
+            && isNonEmptyString(message.sourceId))
         && typeof value.needsRecovery === "boolean"
         && typeof value.executionOwner === "boolean"
         && (value.interruption === undefined || (isRecord(value.interruption)
@@ -902,6 +916,27 @@ export function isLiveEvent(value: unknown): value is BrowserGoalLiveEvent {
     }
     if (value.type === "snapshot_changed" || value.type === "refresh_required") {
         return value.runId === undefined || isNonEmptyString(value.runId);
+    }
+    if (value.type === "message_committed") {
+        if (!isNonEmptyString(value.runId) || !isRecord(value.message)) return false;
+        const message = value.message;
+        return isNonEmptyString(message.messageId)
+            && message.messageId.length <= 200
+            && ["user", "assistant"].includes(String(message.role))
+            && isNonEmptyString(message.runId)
+            && Number.isSafeInteger(message.commitRevision)
+            && (message.purpose === undefined
+                || ["process", "answer", "notice"].includes(String(message.purpose)))
+            && (message.previewId === undefined
+                || (typeof message.previewId === "string" && message.previewId.length <= 200));
+    }
+    if (value.type === "interaction_required") {
+        if (!isNonEmptyString(value.runId) || !isRecord(value.interaction)) return false;
+        const interaction = value.interaction;
+        return isNonEmptyString(interaction.interactionId)
+            && interaction.interactionId.length <= 200
+            && ["ask_user", "task_approval", "action_approval", "action_recovery"].includes(String(interaction.kind))
+            && isNonEmptyString(interaction.runId);
     }
     if (value.type !== "activity" || !isNonEmptyString(value.runId) || !isRecord(value.activity)) return false;
     const activity = value.activity;

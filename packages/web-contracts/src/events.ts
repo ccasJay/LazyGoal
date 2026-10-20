@@ -106,6 +106,29 @@ export type BrowserGoalLiveEvent =
         readonly activity: BrowserGoalActivityEvent;
     }
     | {
+        readonly type: "message_committed";
+        readonly goalId: string;
+        readonly runId: string;
+        readonly message: {
+            readonly messageId: string;
+            readonly role: "user" | "assistant";
+            readonly runId: string;
+            readonly purpose?: "process" | "answer" | "notice";
+            readonly commitRevision: number;
+            readonly previewId?: string;
+        };
+    }
+    | {
+        readonly type: "interaction_required";
+        readonly goalId: string;
+        readonly runId: string;
+        readonly interaction: {
+            readonly interactionId: string;
+            readonly kind: "ask_user" | "task_approval" | "action_approval" | "action_recovery";
+            readonly runId: string;
+        };
+    }
+    | {
         readonly type: "snapshot_changed";
         readonly goalId: string;
         readonly runId?: string;

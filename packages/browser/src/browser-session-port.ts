@@ -7,6 +7,11 @@ import type {
     SessionOutputStream,
     GoalModelSelection,
     GoalSessionState,
+    SessionEventSource,
+    SessionGenerationEvent,
+    SessionInteractionEvent,
+    SessionMessageCommittedEvent,
+    SessionToolActivityEvent,
 } from "../../runtime/src/index";
 import type {
     BrowserCreateSessionCommand,
@@ -21,45 +26,6 @@ import type {
     BrowserSessionState,
 } from "../../web-contracts/src/index";
 
-/**
- * Browser 端口消费的最小执行事件形状。
- *
- * @remarks
- * 只声明投影实际读取的字段，保持浏览器包不反向依赖 Execution Stream 包；
- * Runtime 会话输出直接以结构兼容的事件对象传入。
- *
- * @example
- * ```ts
- * const event: BrowserGoalExecutionEvent = {
- *     goalId: "goal-1", runId: "run-1", kind: "model_started",
- *     visibility: "public", durability: "live", payload: {},
- * };
- * ```
- */
-export interface BrowserGoalExecutionEvent {
-    /** Goal 稳定标识。 */
-    readonly goalId: string;
-    /** 事件来源 Run。 */
-    readonly runId: string;
-    /** 事件类型名称。 */
-    readonly kind: string;
-    /** 来源事件标识；与 Trajectory 标识空间分离。 */
-    readonly eventId: string;
-    /** 来源游标；只在该实时来源内排序。 */
-    readonly cursor: number;
-    /** 可选的执行单元标识。 */
-    readonly executionUnitId?: string;
-    /** 可选的 Action 标识。 */
-    readonly actionId?: string;
-    /** 订阅过滤使用的可见性。 */
-    readonly visibility: "public" | "diagnostic" | "restricted";
-    /** 事件对应的实时、Trajectory 或 Snapshot 提交边界。 */
-    readonly durability: "live" | "trajectory" | "checkpoint";
-    /** JSON-safe 的事件内容。 */
-    readonly payload: unknown;
-}
-
-const MAX_LIVE_TEXT_LENGTH = 2_000;
 const MAX_PENDING_LIVE_EVENTS = 128;
 type ActivityBoundaryReason = "assistant_reply" | "user_wait" | "stage_change" | "terminal" | "failure" | "unknown";
 
@@ -365,12 +331,64 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
             case "input_result":
                 this.push({ type: "input_result", goalId, outcome: projectInputOutcome(goalId, event.outcome) });
                 return;
-            case "activity":
-                this.onExecutionEvent(goalId, event.event);
+            case "generation_event":
+                if (this.pushCommittedBoundary(goalId, event.event.source)) return;
+                this.onGenerationEvent(goalId, event.event);
                 return;
-            case "sync_error":
-                // 读取故障不伪装业务结果：要求客户端重新同步最新快照。
+            case "tool_activity":
+                if (this.pushCommittedBoundary(goalId, event.event.source)) return;
+                this.onToolActivity(goalId, event.event);
+                return;
+            case "message_committed":
+                this.push({
+                    type: "message_committed",
+                    goalId,
+                    runId: event.event.runId,
+                    message: projectCommittedMessage(event.event),
+                });
+                return;
+            case "interaction_required":
+                this.push({
+                    type: "interaction_required",
+                    goalId,
+                    runId: event.event.runId,
+                    interaction: projectInteractionSummary(event.event),
+                });
+                return;
+            case "interaction_settled":
+                if (this.pushCommittedBoundary(goalId, event.event.source)) return;
+                // 既有公开活动语义：交互结算仍以 user_wait 分组边界呈现。
+                this.push({
+                    type: "activity",
+                    goalId,
+                    runId: event.event.runId,
+                    activity: projectActivityBoundary(event.event.source, "user_wait"),
+                });
+                return;
+            case "run_status":
+                if (this.pushCommittedBoundary(goalId, event.event.source)) return;
+                this.push({
+                    type: "activity",
+                    goalId,
+                    runId: event.event.source.runId,
+                    activity: projectActivityBoundary(event.event.source, projectRunStatusReason(event.event.kind)),
+                });
+                return;
+            case "run_result":
+                if (this.pushCommittedBoundary(goalId, event.event.source)) return;
+                this.push({
+                    type: "activity",
+                    goalId,
+                    runId: event.event.runId,
+                    activity: projectActivityBoundary(event.event.source, "terminal"),
+                });
+                return;
+            case "stream_fault":
+                // 读取故障或缺口不伪装业务结果：要求客户端重新同步最新快照。
                 this.push({ type: "refresh_required", goalId });
+                return;
+            case "commit_boundary":
+                this.push({ type: "snapshot_changed", goalId, runId: event.event.source.runId });
                 return;
             case "closed":
                 if (event.reason !== "closed") this.push({ type: "refresh_required", goalId });
@@ -379,19 +397,120 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
         }
     }
 
-    private onExecutionEvent(goalId: string, event: BrowserGoalExecutionEvent): void {
-        if (event.goalId !== goalId) return;
-        if (event.kind === "live_gap") {
-            this.push({ type: "refresh_required", goalId });
-            return;
+    /**
+     * 已随 Snapshot 落盘的来源事件只要求客户端重新核对快照。
+     *
+     * @param goalId - 观察的 Goal。
+     * @param source - 来源信封。
+     * @returns 已按提交边界推送通知时返回 `true`。
+     */
+    private pushCommittedBoundary(goalId: string, source: SessionEventSource): boolean {
+        if (source.durability !== "checkpoint") return false;
+        this.push({ type: "snapshot_changed", goalId, runId: source.runId });
+        return true;
+    }
+
+    private onGenerationEvent(goalId: string, event: SessionGenerationEvent): void {
+        const source = event.source;
+        switch (event.kind) {
+            case "model_call_started":
+                this.push({ type: "activity", goalId, runId: source.runId, activity: { kind: "model_started" } });
+                return;
+            case "model_call_completed":
+                this.push({ type: "activity", goalId, runId: source.runId, activity: { kind: "model_completed" } });
+                return;
+            case "step_started":
+                this.push({ type: "activity", goalId, runId: source.runId, activity: { kind: "step_started" } });
+                return;
+            case "text_delta":
+                this.push({
+                    type: "activity",
+                    goalId,
+                    runId: source.runId,
+                    activity: {
+                        kind: "assistant_text_delta",
+                        text: event.text,
+                        truncated: event.truncated,
+                        sourceEventId: source.eventId,
+                        sourceCursor: source.cursor,
+                    },
+                });
+                return;
+            case "reply":
+                this.push({
+                    type: "activity",
+                    goalId,
+                    runId: source.runId,
+                    activity: projectActivityBoundary(source, "assistant_reply"),
+                });
+                return;
         }
-        if (event.durability === "checkpoint" || event.kind === "step_committed") {
-            this.push({ type: "snapshot_changed", goalId, runId: event.runId });
-            return;
-        }
-        const activity = projectLiveActivity(event);
-        if (activity !== undefined) {
-            this.push({ type: "activity", goalId, runId: event.runId, activity });
+    }
+
+    private onToolActivity(goalId: string, event: SessionToolActivityEvent): void {
+        const source = event.source;
+        switch (event.kind) {
+            case "started":
+                this.push({
+                    type: "activity",
+                    goalId,
+                    runId: source.runId,
+                    activity: {
+                        kind: "tool_started",
+                        sourceEventId: source.eventId,
+                        sourceCursor: source.cursor,
+                        actionId: event.actionId,
+                        executionUnitId: event.executionUnitId,
+                        toolId: event.toolId,
+                        ...(event.inputSummary === undefined ? {} : { inputSummary: event.inputSummary }),
+                    },
+                });
+                return;
+            case "attempt_started":
+                this.push({
+                    type: "activity",
+                    goalId,
+                    runId: source.runId,
+                    activity: {
+                        kind: "tool_attempt_started",
+                        sourceEventId: source.eventId,
+                        sourceCursor: source.cursor,
+                        actionId: event.actionId,
+                        attempt: event.attempt,
+                    },
+                });
+                return;
+            case "attempt_failed":
+                this.push({
+                    type: "activity",
+                    goalId,
+                    runId: source.runId,
+                    activity: {
+                        kind: "tool_attempt_failed",
+                        sourceEventId: source.eventId,
+                        sourceCursor: source.cursor,
+                        actionId: event.actionId,
+                        attempt: event.attempt,
+                        reason: event.reason,
+                    },
+                });
+                return;
+            case "finished":
+                this.push({
+                    type: "activity",
+                    goalId,
+                    runId: source.runId,
+                    activity: {
+                        kind: "tool_finished",
+                        sourceEventId: source.eventId,
+                        sourceCursor: source.cursor,
+                        actionId: event.actionId,
+                        toolId: event.toolId,
+                        outcome: event.outcome,
+                        ...(event.summary === undefined ? {} : { summary: event.summary }),
+                    },
+                });
+                return;
         }
     }
 }
@@ -442,156 +561,71 @@ class LiveEventQueue implements AsyncIterable<BrowserGoalLiveEvent>, AsyncIterat
     }
 }
 
-function projectLiveActivity(
-    event: BrowserGoalExecutionEvent,
-): BrowserGoalActivityEvent | undefined {
-    const identity = { sourceEventId: event.eventId, sourceCursor: event.cursor };
-    switch (event.kind) {
-        case "model_started":
-            return { kind: event.kind };
-        case "model_completed":
-            return { kind: "model_completed" };
-        case "step_started":
-            return { kind: "step_started" };
-        case "tool_started": {
-            if (event.actionId === undefined || event.executionUnitId === undefined
-                || !isRecord(event.payload) || typeof event.payload.toolId !== "string") return undefined;
-            const inputSummary = projectSafeToolInputSummary(event.payload.toolId, event.payload.input);
-            return {
-                kind: "tool_started",
-                ...identity,
-                actionId: event.actionId,
-                executionUnitId: event.executionUnitId,
-                toolId: event.payload.toolId,
-                ...(inputSummary === undefined ? {} : { inputSummary }),
-            };
-        }
-        case "tool_finished": {
-            if (event.actionId === undefined || !isRecord(event.payload)
-                || typeof event.payload.toolId !== "string" || !isRecord(event.payload.observation)) return undefined;
-            const observation = event.payload.observation;
-            const outcome = observation.kind === "failure" ? "failure" : observation.kind === "success" ? "success" : undefined;
-            if (outcome === undefined) return undefined;
-            const summary = outcome === "failure" && typeof observation.message === "string"
-                ? observation.message
-                : typeof observation.summary === "string" ? observation.summary : undefined;
-            return {
-                kind: "tool_finished",
-                ...identity,
-                actionId: event.actionId,
-                toolId: event.payload.toolId,
-                outcome,
-                ...(summary === undefined ? {} : { summary: summary.slice(0, 500) }),
-            };
-        }
-        case "tool_attempt_started": {
-            if (event.actionId === undefined || !isRecord(event.payload)
-                || !Number.isSafeInteger(event.payload.attempt)) return undefined;
-            return { kind: "tool_attempt_started", ...identity, actionId: event.actionId, attempt: Number(event.payload.attempt) };
-        }
-        case "tool_attempt_failed": {
-            if (event.actionId === undefined || !isRecord(event.payload)
-                || !Number.isSafeInteger(event.payload.attempt) || typeof event.payload.reason !== "string") return undefined;
-            return {
-                kind: "tool_attempt_failed", ...identity, actionId: event.actionId,
-                attempt: Number(event.payload.attempt), reason: event.payload.reason.slice(0, 160),
-            };
-        }
-        case "model_block_delta": {
-            // 只有公开的普通正文增量进入当前活动视图；结构化 JSON、工具参数与 reasoning 不投影。
-            if (!isRecord(event.payload) || event.payload.deltaKind !== "text"
-                || typeof event.payload.delta !== "string") return undefined;
-            const text = event.payload.delta;
-            return {
-                kind: "assistant_text_delta",
-                ...identity,
-                text: text.slice(0, MAX_LIVE_TEXT_LENGTH),
-                truncated: text.length > MAX_LIVE_TEXT_LENGTH,
-            };
-        }
-        case "model_block_completed": {
-            // 整块交付的公开正文以完整文本一次性呈现；增量块的内容已由增量发布。
-            if (!isRecord(event.payload) || event.payload.blockType !== "text"
-                || event.payload.delivery !== "whole" || typeof event.payload.text !== "string") return undefined;
-            const text = event.payload.text;
-            if (text.length === 0) return undefined;
-            return {
-                kind: "assistant_text_delta",
-                ...identity,
-                text: text.slice(0, MAX_LIVE_TEXT_LENGTH),
-                truncated: text.length > MAX_LIVE_TEXT_LENGTH,
-            };
-        }
-        case "model_block_started":
-            // 模型失败／取消的安全终止摘要只结束本次调用的观察，不产生公开活动 DTO。
-        case "model_failed":
-        case "model_cancelled":
-            return undefined;
-        case "decision_received": {
-            if (isRecord(event.payload) && isRecord(event.payload.decision) && event.payload.decision.kind === "tool_call") return undefined;
-            return projectActivityBoundary(identity, "assistant_reply");
-        }
-        case "run_waiting":
-        case "task_approved":
-        case "task_feedback_received":
-        case "ask_user_answered":
-        case "ask_user_replied":
-        case "ask_user_skipped":
-            return projectActivityBoundary(identity, "user_wait");
-        case "run_stage_declared":
-        case "run_stage_accepted":
-        case "run_stage_rejected":
-        case "run_plan_route_revised":
-            return projectActivityBoundary(identity, "stage_change");
-        case "run_failed":
-        case "run_completed":
-        case "run_cancelled":
-            return projectActivityBoundary(identity, "terminal");
-        case "execution_error":
-        case "action_rejected":
-            return projectActivityBoundary(identity, "failure");
-        case "model_response_received":
-        case "model_context_frame":
-        case "think_requested":
-        case "think_completed":
-        case "model_repair_attempt_started":
-        case "model_repair_feedback_recorded":
-        case "model_request_retry_recorded":
-        case "action_staged":
-        case "action_approved":
-        case "action_recovered":
-        case "observation_recorded":
-        case "state_committed":
-        case "memory_patch_accepted":
-        case "context_lookup_requested":
-        case "context_lookup_completed":
-        case "context_lookup_not_found":
-        case "context_lookup_failed":
-            return undefined;
-        default:
-            return projectActivityBoundary(identity, "unknown");
+function projectRunStatusReason(kind: "waiting" | "stage_changed" | "failure" | "unknown"): ActivityBoundaryReason {
+    switch (kind) {
+        case "waiting":
+            return "user_wait";
+        case "stage_changed":
+            return "stage_change";
+        case "failure":
+            return "failure";
+        case "unknown":
+            return "unknown";
     }
 }
 
-function projectSafeToolInputSummary(toolId: string, input: unknown): string | undefined {
-    if (!isRecord(input)) return undefined;
-    const key = toolId === "read_file" || toolId === "write_file" || toolId === "edit_file" ? "path"
-        : toolId === "grep" ? "pattern"
-            : toolId === "web_search" ? "query"
-                : toolId === "web_fetch" ? "url" : undefined;
-    const value = key === undefined ? undefined : input[key];
-    return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 240) : undefined;
-}
-
 function projectActivityBoundary(
-    identity: { readonly sourceEventId: string; readonly sourceCursor: number },
+    source: SessionEventSource,
     reason: ActivityBoundaryReason,
 ): BrowserGoalActivityEvent {
-    return { kind: "activity_boundary", ...identity, reason };
+    return {
+        kind: "activity_boundary",
+        sourceEventId: source.eventId,
+        sourceCursor: source.cursor,
+        reason,
+    };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
+/**
+ * 把 Runtime 的正式消息通知投影为 wire 结果。
+ *
+ * @param event - Runtime 已保存消息通知。
+ * @returns 只包含身份、来源关联与提交修订的 wire 结果。
+ */
+function projectCommittedMessage(event: SessionMessageCommittedEvent): {
+    readonly messageId: string;
+    readonly role: "user" | "assistant";
+    readonly runId: string;
+    readonly purpose?: "process" | "answer" | "notice";
+    readonly commitRevision: number;
+    readonly previewId?: string;
+} {
+    return {
+        messageId: event.messageId,
+        role: event.role,
+        runId: event.runId,
+        ...(event.purpose === undefined ? {} : { purpose: event.purpose }),
+        commitRevision: event.commitRevision,
+        ...(event.previewId === undefined ? {} : { previewId: event.previewId }),
+    };
+}
+
+/**
+ * 把 Runtime 的等待交互投影为 wire 结果。
+ *
+ * @param event - Runtime 交互等待事件。
+ * @returns 只包含规范引用与种类的 wire 结果。
+ */
+function projectInteractionSummary(event: SessionInteractionEvent): {
+    readonly interactionId: string;
+    readonly kind: "ask_user" | "task_approval" | "action_approval" | "action_recovery";
+    readonly runId: string;
+} {
+    return {
+        interactionId: event.interactionId,
+        kind: event.interactionKind,
+        runId: event.runId,
+    };
 }
 
 /**
@@ -612,6 +646,29 @@ export function projectSessionState(goalId: string, state: GoalSessionState): Br
         pendingMessageCount: state.pendingMessageCount,
         pendingSteerCount: state.pendingSteerCount,
         ...(state.waitingFor === undefined ? {} : { waitingFor: state.waitingFor }),
+        ...(state.interaction === undefined
+            ? {}
+            : {
+                interaction: {
+                    interactionId: state.interaction.interactionId,
+                    kind: state.interaction.kind,
+                    runId: state.interaction.runId,
+                    ...(state.interaction.requestId === undefined ? {} : { requestId: state.interaction.requestId }),
+                    ...(state.interaction.actionId === undefined ? {} : { actionId: state.interaction.actionId }),
+                },
+            }),
+        messages: {
+            count: state.messages.count,
+            ...(state.messages.throughMessageId === undefined ? {} : { throughMessageId: state.messages.throughMessageId }),
+            recent: state.messages.recent.map((message) => ({
+                messageId: message.messageId,
+                role: message.role,
+                runId: message.runId,
+                ...(message.purpose === undefined ? {} : { purpose: message.purpose }),
+                sourceKind: message.sourceKind,
+                sourceId: message.sourceId,
+            })),
+        },
         needsRecovery: state.needsRecovery,
         ...(state.interruption === undefined
             ? {}

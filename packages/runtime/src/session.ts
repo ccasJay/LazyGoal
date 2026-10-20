@@ -3,7 +3,6 @@ import type {
     RunMode,
     RunStatus,
 } from "./domain";
-import type { ExecutionStreamEvent } from "../../execution-stream/src/index";
 import type {
     SessionInput,
     SessionInputAdmissionResult,
@@ -17,6 +16,8 @@ import type {
     InteractionDetailResult,
     InteractionViewRef,
 } from "./interaction-view";
+import type { GoalMessageSource } from "./domain";
+import { projectInteractionView } from "./interaction-view";
 import type {
     InteractionHandlerAttachOptions,
     InteractionHandlerAttachResult,
@@ -47,21 +48,61 @@ export type SessionInputConsumptionResult = {
  * 会话输出流的事件联合。
  *
  * @remarks
- * 首项为一致快照 `state_sync`；`input_result` 按 `inputId` 关联受理或拒绝；
- * `activity` 携带公开执行事件（Run 仍是来源身份）；`sync_error` 报告读取故障；
- * `closed` 报告订阅结束原因（背压、主动关闭或发布端关闭）。
+ * 联合定义在 {@link SessionOutputEvent}：每个成员都是可辨识判别式，消费者按
+ * `type` 分派即可，不需要猜测任意 `kind: string` 或未知 payload。
+ */
+export type { SessionOutputEvent } from "./session-output";
+
+/**
+ * 已提交消息的公开摘要。
+ *
+ * @remarks
+ * 摘要只包含身份、角色、Run 归属、用途与来源判别式，不包含正文；正文由按
+ * `messageId` 的只读查询提供。
  *
  * @example
  * ```ts
- * const event: SessionOutputEvent = { type: "state_sync", state };
+ * const summary: SessionMessageSummary = {
+ *   messageId: "msg-1", role: "assistant", runId: "run-1", purpose: "answer", sourceKind: "completion_candidate",
+ * };
  * ```
  */
-export type SessionOutputEvent =
-    | { readonly type: "state_sync"; readonly state: GoalSessionState }
-    | { readonly type: "input_result"; readonly outcome: SessionInputOutcome }
-    | { readonly type: "activity"; readonly event: ExecutionStreamEvent }
-    | { readonly type: "sync_error"; readonly message: string }
-    | { readonly type: "closed"; readonly reason: "backpressure" | "closed" | "publisher_closed" };
+export interface SessionMessageSummary {
+    /** 消息稳定身份。 */
+    readonly messageId: string;
+    /** 消息角色。 */
+    readonly role: "user" | "assistant";
+    /** 消息所属 Run。 */
+    readonly runId: string;
+    /** 助手消息用途；用户消息省略。 */
+    readonly purpose?: "process" | "answer" | "notice" | undefined;
+    /** 来源判别式。 */
+    readonly sourceKind: GoalMessageSource["kind"];
+    /** 来源的稳定标识；用于关联同源重试与被替换的预览。 */
+    readonly sourceId: string;
+}
+
+/**
+ * 会话状态中已提交消息的有界范围。
+ *
+ * @remarks
+ * `count` 是该 Goal 的已提交消息总数，`recent` 只保留最近若干条摘要，
+ * `throughMessageId` 标识本次范围末尾。范围被截断时消费者必须按稳定身份继续
+ * 读取，不能声称历史已全部同步。
+ *
+ * @example
+ * ```ts
+ * const range: SessionMessageRange = { count: 3, throughMessageId: "msg-3", recent: [] };
+ * ```
+ */
+export interface SessionMessageRange {
+    /** 该 Goal 的已提交消息总数。 */
+    readonly count: number;
+    /** 范围末尾的消息身份；没有消息时省略。 */
+    readonly throughMessageId?: string | undefined;
+    /** 最近的消息摘要，按提交顺序。 */
+    readonly recent: readonly SessionMessageSummary[];
+}
 
 /**
  * 会话句柄可见的 Goal 状态投影。
@@ -112,6 +153,22 @@ export interface GoalSessionState {
         | "action_recovery"
         | "blocked"
         | undefined;
+    /**
+     * 当前等待交互的规范引用；没有等待时省略。
+     *
+     * @remarks
+     * 引用沿用 human-interaction 的 `interactionId` 契约：同一等待在初始同步、
+     * 重复通知与重连后保持不变。等待之外不产生该字段。
+     */
+    readonly interaction?: {
+        readonly interactionId: string;
+        readonly kind: "question" | "task_approval" | "action_approval" | "action_recovery";
+        readonly runId: string;
+        readonly requestId?: string | undefined;
+        readonly actionId?: string | undefined;
+    } | undefined;
+    /** 已提交消息的有界范围；不包含正文。 */
+    readonly messages: SessionMessageRange;
     /**
      * 是否需要调用方显式恢复执行。
      *
@@ -438,6 +495,7 @@ export function projectGoalSessionState(input: GoalSessionStateInput): GoalSessi
     const queue = goal.state.messageQueue;
     const pendingSteers = (run.steerInputs ?? []).filter((steer) => steer.status === "pending").length;
     const interruptionActive = run.interruption !== undefined && run.interruption.status !== "finished";
+    const interaction = projectInteractionView(goal);
     return {
         goalId: goal.id,
         runId: run.id,
@@ -450,6 +508,19 @@ export function projectGoalSessionState(input: GoalSessionStateInput): GoalSessi
         pendingMessageCount: queue?.items.length ?? 0,
         pendingSteerCount: pendingSteers,
         ...(run.status === "waiting" ? { waitingFor: resolveWaitingFor(goal) } : {}),
+        ...(interaction === undefined
+            ? {}
+            : {
+                interaction: {
+                    interactionId: interaction.interactionId,
+                    kind: interaction.kind,
+                    runId: interaction.runId,
+                    ...(interaction.kind === "question" || interaction.kind === "task_approval"
+                        ? { requestId: interaction.requestId }
+                        : { actionId: interaction.actionId }),
+                },
+            }),
+        messages: projectSessionMessageRange(goal),
         needsRecovery: !executionOwner
             && (run.status === "created" || run.status === "running" || interruptionActive),
         ...(run.interruption === undefined
@@ -463,6 +534,62 @@ export function projectGoalSessionState(input: GoalSessionStateInput): GoalSessi
             }),
         executionOwner,
     };
+}
+
+/**
+ * 状态投影中保留的最近消息摘要数量。
+ *
+ * @remarks 范围只用于定位与核对；完整历史由有界消息查询按稳定身份读取。
+ */
+export const MAX_SESSION_MESSAGE_RECENT = 20;
+
+/**
+ * 从已提交消息投影有界消息范围。
+ *
+ * @param goal - 当前已提交 Goal 快照。
+ * @returns 消息总数、范围末尾身份与最近摘要。
+ * @example
+ * ```ts
+ * const range = projectSessionMessageRange(goal);
+ * ```
+ */
+export function projectSessionMessageRange(goal: Goal): SessionMessageRange {
+    const messages = goal.state.messages;
+    const recent = messages.slice(-MAX_SESSION_MESSAGE_RECENT).map((message) => ({
+        messageId: message.messageId,
+        role: message.role,
+        runId: message.runId,
+        ...(message.role === "assistant" ? { purpose: message.purpose } : {}),
+        sourceKind: message.source.kind,
+        sourceId: projectMessageSourceId(message.source),
+    }));
+    const last = messages.at(-1);
+    return {
+        count: messages.length,
+        ...(last === undefined ? {} : { throughMessageId: last.messageId }),
+        recent,
+    };
+}
+
+function projectMessageSourceId(source: GoalMessageSource): string {
+    switch (source.kind) {
+        case "goal_intent":
+            return source.goalId;
+        case "user_input":
+            return source.inputId;
+        case "interaction_response":
+            return source.requestId;
+        case "model_text":
+            return `${source.modelCallId}#${source.blockIndex}`;
+        case "stage_output":
+            return `${source.executionUnitId}#${source.blockIndex}`;
+        case "completion_candidate":
+            return source.candidateId;
+        case "host_execution":
+            return source.actionId;
+        case "runtime_notice":
+            return source.noticeId;
+    }
 }
 
 function resolveWaitingFor(goal: Goal): GoalSessionState["waitingFor"] {
