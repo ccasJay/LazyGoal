@@ -3557,8 +3557,32 @@ class RunExecutor {
         }));
     }
 
-    private publishCommittedEvents(result: TrajectoryCheckpointCommitResult): void {
-        for (const event of result.events) {
+    /**
+     * 明确作废一个仍然有效的完成候选预览。
+     *
+     * @remarks
+     * 作废只影响观察：它不改写候选正文、不改变完成审查、重试预算或 Run 状态，
+     * 也不等同于 Run 失败。
+     *
+     * @param goal - 当前 Goal。
+     * @param candidateId - 被作废的候选身份。
+     * @param reason - 作废原因。
+     */
+    private publishCandidateInvalidated(
+        goal: Goal,
+        candidateId: string,
+        reason: "rejected" | "cancelled" | "failed" | "replaced" | "ambiguous",
+    ): void {
+        this.publishExecutionEvent(goal, {
+            kind: "candidate_invalidated",
+            visibility: "public",
+            durability: "live",
+            delivery: "control",
+            payload: { candidateId, reason },
+        });
+    }
+
+    private publishCommittedEvents(result: TrajectoryCheckpointCommitResult): void {        for (const event of result.events) {
             const executionUnitId = event.executionUnitId;
             const actionId = event.actionId;
             this.publishExecutionEvent(result.goal, {
@@ -4274,6 +4298,9 @@ class RunExecutor {
                 },
             });
 
+            /** 本次执行单元仍然有效的完成候选身份；决策被弃用时必须作废它。 */
+            let pendingCandidateId: string | undefined;
+
             try {
                 let normalized: NormalizedExecution;
                 /** 追加过程正文之前的 Goal；完成候选被审查拒绝时不提交这些正文。 */
@@ -4495,6 +4522,12 @@ class RunExecutor {
                                             ...stepInput, goal: activeGoal, candidate, evidence,
                                         });
                                         if (reviewed.kind === "reject") {
+                                            // 审查拒绝的候选必须明确作废：它不是正式答复，也不改变重试预算。
+                                            this.publishCandidateInvalidated(
+                                                activeGoal,
+                                                result.modelContextFrame?.modelCallId ?? executionUnitId,
+                                                "rejected",
+                                            );
                                             throw new ModelStageFeedbackError(createRuntimeFeedback({
                                                 goalId: activeGoal.id, runId: activeGoal.state.run.id,
                                                 executionUnitId, stepOrdinal, stage: "decide",
@@ -4628,6 +4661,9 @@ class RunExecutor {
                                     ? {}
                                     : { acceptedContextNotes: decided.result.acceptedContextNotes }),
                             };
+                            if (normalized.decision.kind === "complete") {
+                                pendingCandidateId = normalized.modelCallId ?? executionUnitId;
+                            }
                             // 混合响应被接受后，其公开正文块按块顺序成为过程消息；
                             // 正文与随后的决策事实一起提交，失败或审查拒绝时不落盘。
                             goalBeforeProcessText = goal;
@@ -5964,11 +6000,21 @@ class RunExecutor {
                 contextLookupResult = undefined;
                 contextLookupChainCount = 0;
             } catch (error) {
-                if (error instanceof RunInterruptAcceptedError) throw error;
+                if (error instanceof RunInterruptAcceptedError) {
+                    // 已被受理的中断使当前候选失效：它不是正式答复，也不改变收尾规则。
+                    if (pendingCandidateId !== undefined) {
+                        this.publishCandidateInvalidated(goal, pendingCandidateId, "cancelled");
+                    }
+                    throw error;
+                }
                 if (error instanceof InterruptRepairBudgetExhausted) {
                     return this.cancelInterruptedRun(error.goal, control);
                 }
                 if (error instanceof PendingSteerAcceptedError) {
+                    // Steer 到达使旧决策被弃用：对应候选必须先作废。
+                    if (pendingCandidateId !== undefined) {
+                        this.publishCandidateInvalidated(goal, pendingCandidateId, "replaced");
+                    }
                     goal = await this.applyPendingSteers(goal, control);
                     continue;
                 }

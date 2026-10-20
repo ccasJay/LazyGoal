@@ -143,7 +143,7 @@ test("只有请求实际声明完成候选工具时才产生预览", () => {
     assert.equal(preview.blockIndex, 0);
     assert.equal(preview.complete, true);
     assert.equal(preview.truncated, false);
-    assert.equal(preview.candidateId, "call-1:0");
+    assert.equal(preview.candidateId, "call-1");
 });
 
 test("身份不一致的工具调用不产生预览", () => {

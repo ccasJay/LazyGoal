@@ -63,6 +63,8 @@ waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表�
 
 存在订阅时，[GoalRevisionMonitor](../src/session-stream.ts) 按不超过一秒的间隔（默认 1000ms，可注入定时器与间隔）合并核对被观察 Goal 的最新提交修订，弥补末次提交通知丢失；没有观察者时停止核对，核对只读、不调度执行。读取失败作为同步故障报告，不伪装业务结果。订阅队列沿用 Core 的有界背压：控制事件无法保留时订阅以 `backpressure` 结束，执行不受影响；退出迭代或解除句柄只释放该订阅自己的队列与监听。
 
+完成候选由模型执行层在完成审查之前作为旁路预览发布，因此始终未确认：预览不授权工具、不代替审批、不作为完成证据，也不进入 Snapshot 或模型上下文。审查拒绝、Steer 到达使旧决策被弃用、Interrupt 被受理或出现新候选时，Runtime 明确发布作废通知（`candidate_invalidated`）；候选作废不等同于 Run 失败，也不改变既有重试与纠错预算。只有完成审查接受、且对应答复消息随决策提交保存成功后，正式消息才以 `answer` 用途出现，并通过 `message_committed` 通知关联回被替换的预览来源。
+
 `GoalState.commitRevision` 是 Goal 级单调提交修订，跨 Run 递增，由 Launcher 的首次保存与 `TrajectoryCheckpointCommitter` 的每次成功提交维护。基于旧快照的执行提交在提交边界重新读取最新修订：未声明会话权威时沿用最新快照的输入账本与消息队列，避免旧快照覆盖并发受理。
 
 [SessionManager](../src/session-manager.ts) 拥有长期会话的创建、只读连接与实例级执行名额。`sessions.create` 先持久化 Goal、首条用户消息、Run 与首条收据（`createGoalCheckpoint` 复用既有 Launcher 校验、Profile 冻结与首次提交），再返回句柄并以被追踪的后台任务推进首个 Run；返回不等待 Run 完成，首次保存失败不会调用模型或工具。相同 `goalId` 与首条输入身份／载荷的重试只连接原 Goal：不推进 Run，也不把创建重试当作恢复指令。`sessions.open` 只读取快照并投影安全状态，不推进、不消费队列；缺失 Goal 返回 `GOAL_NOT_FOUND`，损坏快照返回 `GOAL_UNREADABLE`。

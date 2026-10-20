@@ -45,7 +45,7 @@ action-approval-revision 是关联能力：存在时验证真实最终版本／�
   - **实现**：在理解本次声明的模型执行／响应协调层接入调用级受信观察，投影固定允许字段，不修改 llm-core／Adapter 的业务职责，不读取全局诊断或 Trace。使用能够处理字符串状态的提取方式，不能用正则／eval／补字符解析；错误隔离为对应预览停止或作废，不修改完整候选。复用调用／块来源创建预览引用、位置和阶段／Run 归属，whole 不模拟逐字。
   - **验证**：新增 `packages/model-execution/test/summary-preview.test.ts`（待实现），扩展 `completion-review.test.ts`、前置模型输出 Spec 的真实 SDK／SSE fixture 及 `packages/model-response/test/stage-response.test.ts`；运行对应 `npx tsx --test`。检查所有公开序列化事件而非只某个 text delta，保留 Evidence、Memory Patch、签名、reasoning 和 metadata 的不同敏感标记，确认正式响应及调用次数未被预览错误改变。
 
-- [ ] //TODO 6. 让候选只在真实提交后成为正式消息，并正确作废或核对不确定结果
+- [x] //TODO 6. 让候选只在真实提交后成为正式消息，并正确作废或核对不确定结果
 
   落实标准：[2.2](./spec.md#spec-req-2-2)、[2.3](./spec.md#spec-req-2-3)、[3.3](./spec.md#spec-req-3-3)、[3.4](./spec.md#spec-req-3-4)、[3.5](./spec.md#spec-req-3-5)、[3.6](./spec.md#spec-req-3-6)、[8.1](./spec.md#spec-req-8-1)。
   - **先验证**：用模型、完成审查、Steer 和文件保存屏障控制 generating → 完整候选／待确认 → 提交，只有保存成功才出现 answer／message_committed。协议拒绝、审查拒绝、取消、Runtime 弃用或替代只作废对应预览，下一候选使用独立身份，Run 不因此自动 failed。保存成功后抛错／读取故障时保持待核对，读到原消息才确认；预览歧义或与最终 summary 不同的旧预览不复活，正式内容以规范结果明确替换。阶段接受不是 Run 最终答复。

@@ -113,6 +113,14 @@ export class LLMStepExecutor implements StepExecutor {
     private readonly metricsRecorder: ModelCallMetricsRecorder | undefined;
     private readonly trajectoryContextAssembler: TrajectoryModelContextAssembler | undefined;
     private readonly modelCapabilities: ModelCapabilities | undefined;
+    /**
+     * 每个执行单元当前仍然有效的候选预览身份。
+     *
+     * @remarks
+     * 只保存进程内的临时观察状态：同一执行单元出现新候选时，旧候选必须先被
+     * 明确作废，消费者才不会被旧预览继续追加。
+     */
+    private readonly activeCandidateIds = new Map<string, string>();
 
     /** @param dependencies - 阶段绑定或单 Adapter Decide 入口、共享 Renderer 与共享裁剪策略。 */
     constructor(dependencies: LLMStepExecutorDependencies) {
@@ -380,7 +388,7 @@ export class LLMStepExecutor implements StepExecutor {
         const candidatePreview = readCompletionCandidatePreview(plan.request, response, callId);
         // 预览必须在完成审查之前发布：它始终未确认，被拒绝的候选随后由 Runtime 作废。
         if (candidatePreview !== undefined) {
-            publishCandidatePreview(input, callId, candidatePreview);
+            publishCandidatePreview(input, callId, candidatePreview, this.activeCandidateIds);
         }
         if (classified.kind === "batch") {
             const decisions: DecideOutput[] = [];
@@ -486,19 +494,28 @@ function traceIdentity(goal: Goal): { readonly goalId: string; readonly runId: s
  * 发布一次未确认的完成候选预览。
  *
  * @remarks
- * 发布端故障不得改变候选、审查或执行结果；预览只是旁路观察面。
+ * 同一执行单元出现新候选时，先明确作废旧候选：新的调用或候选不得继续追加
+ * 旧预览。发布端故障不得改变候选、审查或执行结果；预览只是旁路观察面。
  *
  * @param input - 当前 Step 输入；携带可选的执行流发布端口。
  * @param modelCallId - 产生该候选的模型调用身份。
  * @param preview - 已提取的未确认预览。
+ * @param activeCandidateIds - 每个执行单元当前有效候选的临时观察状态。
  */
 function publishCandidatePreview(
     input: StepExecutionInput,
     modelCallId: string,
     preview: CompletionCandidatePreview,
+    activeCandidateIds: Map<string, string>,
 ): void {
     const publisher = input.executionStream;
     if (publisher === undefined) return;
+    const unitKey = input.executionUnitId ?? modelCallId;
+    const previous = activeCandidateIds.get(unitKey);
+    if (previous !== undefined && previous !== preview.candidateId) {
+        publishCandidateInvalidation(input, previous, "replaced");
+    }
+    activeCandidateIds.set(unitKey, preview.candidateId);
     try {
         publisher.publish({
             goalId: input.goal.id,
@@ -519,6 +536,40 @@ function publishCandidatePreview(
         });
     } catch {
         // 预览发布是旁路：故障只影响观察，不改变候选与审查结果。
+    }
+}
+
+/**
+ * 明确作废一个仍然有效的候选预览。
+ *
+ * @remarks
+ * 作废只影响观察：它不改变候选、审查、重试预算或 Run 状态，也不等同于
+ * Run 失败。
+ *
+ * @param input - 当前 Step 输入；携带可选的执行流发布端口。
+ * @param candidateId - 被作废的候选身份。
+ * @param reason - 作废原因。
+ */
+export function publishCandidateInvalidation(
+    input: StepExecutionInput,
+    candidateId: string,
+    reason: "rejected" | "cancelled" | "failed" | "replaced" | "ambiguous",
+): void {
+    const publisher = input.executionStream;
+    if (publisher === undefined) return;
+    try {
+        publisher.publish({
+            goalId: input.goal.id,
+            runId: input.goal.state.run.id,
+            ...(input.executionUnitId === undefined ? {} : { executionUnitId: input.executionUnitId }),
+            kind: "candidate_invalidated",
+            visibility: "public",
+            durability: "live",
+            delivery: "control",
+            payload: { candidateId, reason },
+        });
+    } catch {
+        // 作废通知是旁路：发布故障不得改变候选与执行结果。
     }
 }
 
@@ -551,7 +602,7 @@ export function readCompletionCandidatePreview(
         });
         if (!preview.matched || preview.ambiguous) return undefined;
         return {
-            candidateId: `${modelCallId}:${block.index}`,
+            candidateId: modelCallId,
             modelCallId,
             blockIndex: block.index,
             text: preview.text,
