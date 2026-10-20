@@ -155,8 +155,15 @@ test("real service and browser share one session output protocol", { timeout: 18
     const answer = committedActivity.items.find(item => item.type === 'message' && item.purpose === 'answer');
     assert.ok(answer);
     assert.equal(answer.previewId, previewNode.key.split(":").at(-1));
+    // 同一 Action 的事实在页面上归入一个活动组条目；其余条目与服务端逐项对应。
+    const actionFactItems = committedActivity.items.filter(item => item.type === "fact" && item.tool !== undefined);
+    const actionGroupKeys = [...new Set(actionFactItems.map(item => item.actionId ?? item.eventId))];
+    assert.equal(actionGroupKeys.length, 1, "the controlled action contributes exactly one activity group");
+    const expectedItemIds = committedActivity.items
+      .filter(item => !(item.type === "fact" && item.tool !== undefined))
+      .map(item => item.itemId);
     await cdp(socket, "Runtime.evaluate", {
-      expression: `window.__expectedActivityIds = ${JSON.stringify(committedActivity.items.map(item => item.itemId))}`,
+      expression: `window.__expectedActivityIds = ${JSON.stringify(expectedItemIds)}`,
       returnByValue: true,
     });
 
@@ -170,8 +177,9 @@ test("real service and browser share one session output protocol", { timeout: 18
       const prefixStable = window.__candidatePrefix.every((prefixNode, index) => items[index] === prefixNode);
       const terminal = feed?.querySelector('.timeline-terminal');
       const terminalAfter = terminal !== null && terminal !== undefined && nodeIndex < items.indexOf(terminal);
-      const domActivityIds = items.map(item => item.dataset.itemId)
-        .filter(itemId => window.__expectedActivityIds.includes(itemId));
+      const domItemIds = items.map(item => item.dataset.itemId).filter(Boolean);
+      const domActivityIds = domItemIds.filter(itemId => window.__expectedActivityIds.includes(itemId));
+      const domGroupIds = domItemIds.filter(itemId => itemId.startsWith("activity:"));
       return {
         count: matches.length,
         sameNode: node === window.__candidateNode,
@@ -181,6 +189,7 @@ test("real service and browser share one session output protocol", { timeout: 18
         prefixStable,
         terminalAfter,
         domActivityIds,
+        domGroupIds,
       };
     })()`);
     assert.equal(promotedNode.count, 1);
@@ -191,7 +200,8 @@ test("real service and browser share one session output protocol", { timeout: 18
     assert.equal(promotedNode.itemId, `message:${answer.messageId}`);
     assert.equal(promotedNode.prefixStable, true);
     assert.equal(promotedNode.terminalAfter, true);
-    assert.deepEqual(promotedNode.domActivityIds, committedActivity.items.map(item => item.itemId));
+    assert.deepEqual(promotedNode.domActivityIds, expectedItemIds, "the DOM keeps the server Activity order for messages and facts");
+    assert.equal(promotedNode.domGroupIds.length, 1, "the same Action collapses into one activity group entry");
 
     const persistedMessages = await api(first.origin, `/api/goals/${goalId}/messages?limit=50`, { token: first.token });
     assert.equal(persistedMessages.response.status, 200);
