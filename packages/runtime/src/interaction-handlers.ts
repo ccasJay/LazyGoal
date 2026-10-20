@@ -1,4 +1,9 @@
 import type { SessionInteractionResponse } from "./session-input";
+import type { JsonValue } from "./domain";
+import type {
+    ActionApprovalReviewResult,
+    ActionApprovalScope,
+} from "./action-approval";
 import type {
     GoalInteractionView,
     InteractionDetailResult,
@@ -39,6 +44,21 @@ export interface InteractionHandlerCall {
      * @returns 完整问题／任务范围／Action 输入，或引用不匹配的稳定拒绝。
      */
     readonly readDetail: (ref?: InteractionViewRef) => Promise<InteractionDetailResult>;
+    /**
+     * 只读预检同一工具的最终参数与实际权限范围。
+     *
+     * @remarks 只在工具审批等待提供：宿主可先预检再返回修订决定。预检不保存批准、
+     * 不暂存或激活授权、不解除等待，也不调用业务工具。
+     *
+     * @param input - 拟审阅的最终参数与授权期限；省略参数表示原样审阅。
+     * @returns 可审阅结果，或可定位的稳定拒绝。
+     */
+    readonly review?: (
+        input: {
+            readonly input?: JsonValue | undefined;
+            readonly scope?: ActionApprovalScope | undefined;
+        },
+    ) => Promise<ActionApprovalReviewResult>;
 }
 
 /**

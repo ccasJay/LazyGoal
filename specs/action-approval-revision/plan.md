@@ -57,7 +57,7 @@
   - **实现**：扩展 human-interaction 已交付的交互区域、响应控制器和详情 Port，增加 JSON 参数编辑、字段错误与只读差异审阅，不引入通用表单引擎或第二套提交状态机。接入只读预检与新的决定联合，说明路径型持续授权含义、扩大范围和重执行重复效果；沿用英文文案、主题 token、草稿冻结、320px 窄屏与键盘规则，不重写任务／问答流程。
   - **验证**：新增 `apps/goal-board/test/action-approval-revision.test.tsx`、`apps/goal-board/e2e/action-approval-revision.test.mjs`（均待实现），扩展 Browser 交互／恢复测试和正式服务夹具。运行 `npm --prefix apps/goal-board test`、`npm run build:web`、`node --test --test-concurrency=1 apps/goal-board/e2e/action-approval-revision.test.mjs`；检查实际 API／收据、隔离文件目标、权限范围、双客户端行为、焦点及截图，不以静态组件输出替代验收。
 
-- [ ] //TODO 8. 让无界面宿主通过正式预检返回修订或恢复决定
+- [x] //TODO 8. 让无界面宿主通过正式预检返回修订或恢复决定
 
   落实标准：[7.4](./spec.md#spec-req-7-4)、[1.2](./spec.md#spec-req-1-2)、[2.3](./spec.md#spec-req-2-3)、[7.3](./spec.md#spec-req-7-3)、[8.3](./spec.md#spec-req-8-3)。
   - **先验证**：从现有无界面装配注册普通审批处理器，显式预检后返回绑定最终参数与期限的修订决定，实际工具执行新参数。注册／预检不自动处理历史工作；缺少专用恢复处理器时未知等待不被普通审批函数代办。取消、真人竞争和预检后范围变化时结果失效，不能把 updatedInput 直接交给 Tool 执行。

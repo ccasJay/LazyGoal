@@ -1323,6 +1323,14 @@ export class SessionManager implements SessionHandlePort {
                     attachment.goalId,
                     ref ?? { runId: view.runId, interactionId: view.interactionId },
                 ),
+                ...(view.kind === "action_approval" ? {
+                    review: (input) => this.reviewActionApproval(attachment.goalId, {
+                        runId: view.runId,
+                        actionId: view.actionId,
+                        ...(input.input === undefined ? {} : { input: input.input }),
+                        ...(input.scope === undefined ? {} : { scope: input.scope }),
+                    }),
+                } : {}),
             });
             if (attachment.detached || result.kind === "unhandled") return;
             // 结果冻结后再核验连接与请求仍然有效；其他响应或 Interrupt 先提交时本结果失效。
