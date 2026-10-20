@@ -106,7 +106,21 @@ export type SessionGenerationEvent =
         readonly text: string;
         readonly truncated: boolean;
     }
-    | { readonly kind: "reply"; readonly source: SessionEventSource };
+    | { readonly kind: "reply"; readonly source: SessionEventSource }
+    | {
+        readonly kind: "candidate_preview";
+        readonly source: SessionEventSource;
+        readonly candidateId: string;
+        readonly text: string;
+        readonly truncated: boolean;
+        readonly complete: boolean;
+    }
+    | {
+        readonly kind: "candidate_invalidated";
+        readonly source: SessionEventSource;
+        readonly candidateId: string;
+        readonly reason: "rejected" | "cancelled" | "failed" | "replaced" | "ambiguous";
+    };
 
 /**
  * 工具活动事件。
@@ -360,6 +374,14 @@ export function classifySessionStreamEvent(event: ExecutionStreamEvent): Session
     if (event.kind === "message_committed") {
         const committed = readMessageCommitted(event);
         return committed === undefined ? undefined : { type: "message_committed", event: committed };
+    }
+    if (event.kind === "candidate_preview") {
+        const preview = readCandidatePreview(event);
+        return preview === undefined ? undefined : { type: "generation_event", event: preview };
+    }
+    if (event.kind === "candidate_invalidated") {
+        const invalidated = readCandidateInvalidation(event);
+        return invalidated === undefined ? undefined : { type: "generation_event", event: invalidated };
     }
     if (event.kind === "step_committed") {
         return { type: "commit_boundary", event: readCommitBoundary(event) };
@@ -626,8 +648,37 @@ function readCommitRevision(payload: unknown): number | undefined {
         : undefined;
 }
 
-function readMessageCommitted(event: ExecutionStreamEvent): SessionMessageCommittedEvent | undefined {
+function readCandidatePreview(event: ExecutionStreamEvent): SessionGenerationEvent | undefined {
     const payload = event.payload;
+    if (!isRecord(payload)) return undefined;
+    if (typeof payload.candidateId !== "string") return undefined;
+    if (typeof payload.text !== "string") return undefined;
+    return {
+        kind: "candidate_preview",
+        source: toSource(event),
+        candidateId: payload.candidateId,
+        text: payload.text,
+        truncated: payload.truncated === true,
+        complete: payload.complete === true,
+    };
+}
+
+function readCandidateInvalidation(event: ExecutionStreamEvent): SessionGenerationEvent | undefined {
+    const payload = event.payload;
+    if (!isRecord(payload)) return undefined;
+    if (typeof payload.candidateId !== "string") return undefined;
+    const reason = payload.reason;
+    if (reason !== "rejected" && reason !== "cancelled" && reason !== "failed"
+        && reason !== "replaced" && reason !== "ambiguous") return undefined;
+    return {
+        kind: "candidate_invalidated",
+        source: toSource(event),
+        candidateId: payload.candidateId,
+        reason,
+    };
+}
+
+function readMessageCommitted(event: ExecutionStreamEvent): SessionMessageCommittedEvent | undefined {    const payload = event.payload;
     if (!isRecord(payload)) return undefined;
     if (typeof payload.messageId !== "string") return undefined;
     const role = payload.role === "assistant" ? "assistant" : payload.role === "user" ? "user" : undefined;

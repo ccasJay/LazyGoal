@@ -52,6 +52,12 @@ import {
 } from "../../model-response/src/index";
 import type { LLMRequest, LLMResponse, LLMToolDefinition, LLMToolCall } from "../../llm-core/src/index";
 import { toModelStageFeedback } from "./stage-feedback";
+import {
+    COMPLETION_CANDIDATE_TOOL_ID,
+    isCompletionCandidateTool,
+    readCompleteSummaryPreview,
+} from "./summary-preview";
+import type { CompletionCandidatePreview } from "../../runtime/src/step-executor";
 
 /**
  * 创建 {@link LLMStepExecutor} 所需的供应商无关依赖。
@@ -370,6 +376,12 @@ export class LLMStepExecutor implements StepExecutor {
         }
         // 混合响应的公开正文：与工具调用同在一次响应内，按块顺序交给 Runtime 保存为过程正文。
         const publicTextBlocks = readPublicTextBlocks(response);
+        // 完成候选的未确认预览：只读取已声明完成候选工具的顶层 summary 字段值。
+        const candidatePreview = readCompletionCandidatePreview(plan.request, response, callId);
+        // 预览必须在完成审查之前发布：它始终未确认，被拒绝的候选随后由 Runtime 作废。
+        if (candidatePreview !== undefined) {
+            publishCandidatePreview(input, callId, candidatePreview);
+        }
         if (classified.kind === "batch") {
             const decisions: DecideOutput[] = [];
             for (const call of classified.calls) {
@@ -379,6 +391,7 @@ export class LLMStepExecutor implements StepExecutor {
                 kind: "batch",
                 decisions,
                 ...(publicTextBlocks.length === 0 ? {} : { publicTextBlocks }),
+                ...(candidatePreview === undefined ? {} : { candidatePreview }),
                 modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) },
             };
         }
@@ -412,6 +425,7 @@ export class LLMStepExecutor implements StepExecutor {
                 kind: "decision",
                 decision: output,
                 ...(publicTextBlocks.length === 0 ? {} : { publicTextBlocks }),
+                ...(candidatePreview === undefined ? {} : { candidatePreview }),
                 modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) },
             };
     }
@@ -466,4 +480,84 @@ export class LLMStepExecutor implements StepExecutor {
 
 function traceIdentity(goal: Goal): { readonly goalId: string; readonly runId: string } {
     return { goalId: goal.id, runId: goal.state.run.id };
+}
+
+/**
+ * 发布一次未确认的完成候选预览。
+ *
+ * @remarks
+ * 发布端故障不得改变候选、审查或执行结果；预览只是旁路观察面。
+ *
+ * @param input - 当前 Step 输入；携带可选的执行流发布端口。
+ * @param modelCallId - 产生该候选的模型调用身份。
+ * @param preview - 已提取的未确认预览。
+ */
+function publishCandidatePreview(
+    input: StepExecutionInput,
+    modelCallId: string,
+    preview: CompletionCandidatePreview,
+): void {
+    const publisher = input.executionStream;
+    if (publisher === undefined) return;
+    try {
+        publisher.publish({
+            goalId: input.goal.id,
+            runId: input.goal.state.run.id,
+            ...(input.executionUnitId === undefined ? {} : { executionUnitId: input.executionUnitId }),
+            kind: "candidate_preview",
+            visibility: "public",
+            durability: "live",
+            delivery: "control",
+            payload: {
+                candidateId: preview.candidateId,
+                modelCallId,
+                blockIndex: preview.blockIndex,
+                text: preview.text,
+                truncated: preview.truncated,
+                complete: preview.complete,
+            },
+        });
+    } catch {
+        // 预览发布是旁路：故障只影响观察，不改变候选与审查结果。
+    }
+}
+
+/**
+ * 从已声明完成候选工具的响应中读取未确认预览。
+ *
+ * @remarks
+ * 只有本次请求实际声明了完成候选工具、且响应中存在身份完全一致的工具调用时
+ * 才返回预览；参数对象的其它字段（Evidence、Memory Patch 等）不进入公开正文。
+ * 整块参数不伪造逐字增量，只提供完整候选。
+ *
+ * @param request - 本次实际发出的模型请求。
+ * @param response - 本次完整响应。
+ * @param modelCallId - 产生该响应的模型调用身份。
+ * @returns 未确认预览；没有可公开的顶层 summary 时返回 `undefined`。
+ */
+export function readCompletionCandidatePreview(
+    request: LLMRequest,
+    response: LLMResponse,
+    modelCallId: string,
+): CompletionCandidatePreview | undefined {
+    const declared = (request.tools ?? []).some((tool) => tool.id === COMPLETION_CANDIDATE_TOOL_ID);
+    if (!declared) return undefined;
+    for (const block of response.blocks) {
+        if (block.type !== "tool_call") continue;
+        if (!isCompletionCandidateTool(block.toolId)) continue;
+        const preview = readCompleteSummaryPreview({
+            toolId: block.toolId,
+            argumentsJson: block.argumentsJson,
+        });
+        if (!preview.matched || preview.ambiguous) return undefined;
+        return {
+            candidateId: `${modelCallId}:${block.index}`,
+            modelCallId,
+            blockIndex: block.index,
+            text: preview.text,
+            truncated: preview.truncated,
+            complete: preview.complete,
+        };
+    }
+    return undefined;
 }

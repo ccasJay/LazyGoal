@@ -205,10 +205,12 @@ export type {
 export { createStepExecutor } from "./step-executor";
 export type { StepExecutor } from "./step-executor";
 export type {
+    CompletionCandidatePreview,
     CompletionReviewCandidate,
     CompletionReviewInput,
     DecideStageResult,
     ModelContextFrameForStage,
+    PublicTextBlock,
     StepExecutionInput,
     ThinkExchange,
     ThinkStageResult,

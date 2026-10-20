@@ -329,7 +329,11 @@ test("LLMStepExecutor 对不支持流式的 Adapter 保留 generate 回退并发
         { goalId: currentGoal.id, runId: currentGoal.state.run.id },
     );
     const events: string[] = [];
-    subscription.onEvent((event) => events.push(event.kind));
+    const previews: unknown[] = [];
+    subscription.onEvent((event) => {
+        events.push(event.kind);
+        if (event.kind === "candidate_preview") previews.push(event.payload);
+    });
 
     const result = await createExecutor(adapter).execute({
         goal: currentGoal,
@@ -341,7 +345,17 @@ test("LLMStepExecutor 对不支持流式的 Adapter 保留 generate 回退并发
 
     assert.equal(result.kind, "complete");
     assert.equal(adapter.requests.length, 1);
-    assert.deepEqual(events, ["model_started", "model_block_started", "model_block_completed", "model_completed"]);
+    assert.deepEqual(events, [
+        "model_started",
+        "model_block_started",
+        "model_block_completed",
+        "model_completed",
+        "candidate_preview",
+    ]);
+    // 未确认预览只公开顶层 summary 字段值，不公开参数对象其它字段。
+    assert.equal(previews.length, 1);
+    assert.equal((previews[0] as { text: string }).text, "fallback");
+    assert.equal(JSON.stringify(previews[0]).includes("completionEvidence"), false);
 });
 
 test("LLMStepExecutor 不修改传入的 Goal", async () => {

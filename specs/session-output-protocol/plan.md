@@ -38,7 +38,7 @@ action-approval-revision 是关联能力：存在时验证真实最终版本／�
   - **实现**：在 Runtime Session 明确输出联合及同步／实时／提交来源，复用既有受理、提交通知、交互视图和运行状态；类型不依赖 web-contracts。消息通知关联来源／预览，不将模型完成当成正式提交；工具区分实时返回与已提交事实，私有原始结果不进入公共信封。保留单消息封装的等待返回和既有资源所有权，不增加调度、回调或状态账本。
   - **验证**：新增 `packages/runtime/test/session-output.test.ts`（待实现），扩展 `execution-stream-runtime.test.ts`、`goal-coordinator-task-interaction.test.ts`、`run-interrupt.test.ts`、`program-interruption.test.ts` 和前置 Spec 已交付的 Session／交互测试；运行对应 `npx tsx --test`。核对真正写入／执行顺序与类型化消费结果，关联修订能力的验证范围按计划开头的实际交付条件记录，不伪造实现证据。
 
-- [ ] //TODO 5. 从受信请求与内容块中安全提取候选 summary 预览
+- [x] //TODO 5. 从受信请求与内容块中安全提取候选 summary 预览
 
   落实标准：[3.1](./spec.md#spec-req-3-1)、[3.2](./spec.md#spec-req-3-2)、[3.6](./spec.md#spec-req-3-6)、[7.1](./spec.md#spec-req-7-1)、[7.2](./spec.md#spec-req-7-2)、[8.1](./spec.md#spec-req-8-1)。
   - **先验证**：实际 Decide 声明匹配、工具身份可靠时，跨分片 summary 产生有位置和来源的解码文本；测试引号／反斜线、换行、Unicode 代理对、字段顺序、嵌套同名字段及歧义重复键。未声明工具、私有审查、任意 JSON 路径和身份不可靠时不泄漏；晚到身份、Gemini whole／strict 完整决定及无模型来源宿主结果只在可用时给完整候选。64,000 code unit 边界明确截断，原完整响应不受影响。

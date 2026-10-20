@@ -58,6 +58,37 @@ export interface PublicTextBlock {
 }
 
 /**
+ * 一次完成候选的未确认预览。
+ *
+ * @remarks
+ * 预览只是受控观察状态：它始终未确认，既不是正式消息，也不构成完成证据或
+ * 授权。`candidateId` 在同一模型调用与内容块内保持稳定，用于把预览与随后
+ * 保存的正式答复消息关联起来。
+ *
+ * @example
+ * ```ts
+ * const preview: CompletionCandidatePreview = {
+ *   candidateId: "candidate-1", modelCallId: "call-1", blockIndex: 0,
+ *   text: "已完成", truncated: false, complete: true,
+ * };
+ * ```
+ */
+export interface CompletionCandidatePreview {
+    /** 候选稳定身份；同一模型调用与块内保持不变。 */
+    readonly candidateId: string;
+    /** 产生该预览的模型调用身份。 */
+    readonly modelCallId: string;
+    /** 产生该预览的内容块下标。 */
+    readonly blockIndex: number;
+    /** 已解码的公开正文；只包含允许公开的字段值。 */
+    readonly text: string;
+    /** 公开正文是否因上限被截断。 */
+    readonly truncated: boolean;
+    /** 字段值是否已完整解析。 */
+    readonly complete: boolean;
+}
+
+/**
  * Decide 阶段返回的业务决策、独立 Think 控制结果或已接受的 Assistant 消息。
  *
  * @remarks
@@ -80,6 +111,14 @@ export type DecideStageResult =
          * 仅在响应同时包含公开正文与工具调用时存在；顺序与块下标保持响应原序。
          */
         readonly publicTextBlocks?: readonly PublicTextBlock[] | undefined;
+        /**
+         * 本次响应中的完成候选未确认预览。
+         *
+         * @remarks
+         * 仅在响应确实调用了完成候选工具且其顶层 `summary` 可安全提取时存在；
+         * 预览不授权工具、不代替审批、不作为完成证据。
+         */
+        readonly candidatePreview?: CompletionCandidatePreview | undefined;
         readonly modelContextFrame?: ModelContextFrameForStage;
       }
     | {
@@ -111,6 +150,13 @@ export type DecideStageResult =
          * 仅在响应同时包含公开正文与工具调用时存在；顺序与块下标保持响应原序。
          */
         readonly publicTextBlocks?: readonly PublicTextBlock[] | undefined;
+        /**
+         * 本次响应中的完成候选未确认预览。
+         *
+         * @remarks
+         * 语义与单决策分支一致：预览未确认，不构成完成证据。
+         */
+        readonly candidatePreview?: CompletionCandidatePreview | undefined;
         readonly modelContextFrame?: ModelContextFrameForStage;
       };
 

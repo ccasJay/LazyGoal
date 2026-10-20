@@ -444,6 +444,36 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                     activity: projectActivityBoundary(source, "assistant_reply"),
                 });
                 return;
+            case "candidate_preview":
+                this.push({
+                    type: "activity",
+                    goalId,
+                    runId: source.runId,
+                    activity: {
+                        kind: "candidate_preview",
+                        sourceEventId: source.eventId,
+                        sourceCursor: source.cursor,
+                        candidateId: event.candidateId,
+                        text: event.text,
+                        truncated: event.truncated,
+                        complete: event.complete,
+                    },
+                });
+                return;
+            case "candidate_invalidated":
+                this.push({
+                    type: "activity",
+                    goalId,
+                    runId: source.runId,
+                    activity: {
+                        kind: "candidate_invalidated",
+                        sourceEventId: source.eventId,
+                        sourceCursor: source.cursor,
+                        candidateId: event.candidateId,
+                        reason: event.reason,
+                    },
+                });
+                return;
         }
     }
 

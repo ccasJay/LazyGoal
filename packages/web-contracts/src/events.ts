@@ -67,6 +67,22 @@ export type BrowserGoalActivityEvent =
         readonly sourceEventId: string;
         readonly sourceCursor: number;
         readonly reason: "assistant_reply" | "user_wait" | "stage_change" | "terminal" | "failure" | "unknown";
+    }
+    | {
+        readonly kind: "candidate_preview";
+        readonly sourceEventId: string;
+        readonly sourceCursor: number;
+        readonly candidateId: string;
+        readonly text: string;
+        readonly truncated: boolean;
+        readonly complete: boolean;
+    }
+    | {
+        readonly kind: "candidate_invalidated";
+        readonly sourceEventId: string;
+        readonly sourceCursor: number;
+        readonly candidateId: string;
+        readonly reason: "rejected" | "cancelled" | "failed" | "replaced" | "ambiguous";
     };
 
 /**

@@ -985,6 +985,25 @@ export function isLiveEvent(value: unknown): value is BrowserGoalLiveEvent {
             && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
             && ["assistant_reply", "user_wait", "stage_change", "terminal", "failure", "unknown"].includes(String(activity.reason));
     }
+    if (activity.kind === "candidate_preview") {
+        return isNonEmptyString(activity.sourceEventId)
+            && activity.sourceEventId.length <= 200
+            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
+            && isNonEmptyString(activity.candidateId)
+            && activity.candidateId.length <= 200
+            && typeof activity.text === "string"
+            && activity.text.length <= 64_000
+            && typeof activity.truncated === "boolean"
+            && typeof activity.complete === "boolean";
+    }
+    if (activity.kind === "candidate_invalidated") {
+        return isNonEmptyString(activity.sourceEventId)
+            && activity.sourceEventId.length <= 200
+            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
+            && isNonEmptyString(activity.candidateId)
+            && activity.candidateId.length <= 200
+            && ["rejected", "cancelled", "failed", "replaced", "ambiguous"].includes(String(activity.reason));
+    }
     return false;
 }
 
