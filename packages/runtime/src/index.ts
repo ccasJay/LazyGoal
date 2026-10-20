@@ -412,6 +412,22 @@ export {
     classifySessionStreamEvent,
     readPendingInteraction,
 } from "./session-output";
+export {
+    DEFAULT_MESSAGE_PAGE_SIZE,
+    MAX_MESSAGE_BODY_LENGTH,
+    MAX_MESSAGE_LIST_CONTENT_LENGTH,
+    MAX_MESSAGE_PAGE_SIZE,
+    projectSessionMessageEntry,
+    queryGoalMessages,
+    readGoalMessageBody,
+    sliceWithoutSplittingSurrogate,
+} from "./session-message-query";
+export type {
+    SessionMessageBodyResult,
+    SessionMessageEntry,
+    SessionMessageListResult,
+    SessionMessageQuery,
+} from "./session-message-query";
 export type {
     SessionActivityBoundaryReason,
     SessionCommitBoundaryEvent,

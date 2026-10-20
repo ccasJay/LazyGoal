@@ -1031,6 +1031,8 @@ test("创建与 Plan Mode 路由拒绝非法 wire 输入并要求稳定身份", 
             async readInput() { return { ok: true as const, found: false as const }; },
             async readState() { return undefined; },
             async openEvents() { return { ok: false as const, error: "goal_not_found" as const }; },
+            async listMessages() { return { ok: true as const, messages: [], total: 0 }; },
+            async readMessage() { return { ok: false as const, error: "message_not_found" as const }; },
         },
     });
     const send = (body: string) => routes.request("http://localhost/api/goals", {

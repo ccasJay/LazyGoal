@@ -19,6 +19,11 @@ import type {
 import type { GoalMessageSource } from "./domain";
 import { projectInteractionView } from "./interaction-view";
 import type {
+    SessionMessageBodyResult,
+    SessionMessageListResult,
+    SessionMessageQuery,
+} from "./session-message-query";
+import type {
     InteractionHandlerAttachOptions,
     InteractionHandlerAttachResult,
     InteractionHandlerHandle,
@@ -220,6 +225,14 @@ export interface SessionHandlePort {
     sendSessionInput(goalId: string, input: SessionInput): Promise<SessionInputAdmissionResult>;
     /** 按身份查询持久化输入收据。 */
     querySessionInput(goalId: string, inputId: string): Promise<SessionInputQueryResult>;
+    /** 按稳定身份执行有界消息列表读取。 */
+    readSessionMessages(goalId: string, query: SessionMessageQuery): Promise<SessionMessageListResult>;
+    /** 按稳定身份读取单条消息正文。 */
+    readSessionMessageBody(
+        goalId: string,
+        messageId: string,
+        offset?: number,
+    ): Promise<SessionMessageBodyResult>;
     /** 建立该句柄对整个 Goal 的输出订阅。 */
     openSessionEvents(goalId: string, sessionId: string): SessionOutputStream;
     /** 连接按交互种类分派的自动处理器；同一 Goal 只允许一个自动所有者。 */
@@ -363,6 +376,43 @@ export class Session {
     async getInput(inputId: string): Promise<SessionInputQueryResult> {
         this.assertAttached();
         return this.port.querySessionInput(this.goalId, inputId);
+    }
+
+    /**
+     * 按稳定身份执行有界消息列表读取。
+     *
+     * @remarks
+     * 只读当前快照的正式消息：翻页区间由首批确定的 `throughMessageId` 固定，
+     * 翻页期间新追加的消息不会混入既定范围。读取不调用模型或工具、不写状态。
+     *
+     * @param query - 追加起点、区间末尾与页大小。
+     * @returns 列表结果，或明确的范围错误。
+     * @throws 句柄已解除连接或快照读取失败时抛出异常。
+     * @example
+     * ```ts
+     * const page = await session.messages({ limit: 50 });
+     * ```
+     */
+    async messages(query: SessionMessageQuery = {}): Promise<SessionMessageListResult> {
+        this.assertAttached();
+        return this.port.readSessionMessages(this.goalId, query);
+    }
+
+    /**
+     * 按稳定身份读取单条消息正文。
+     *
+     * @param messageId - 消息稳定身份。
+     * @param offset - 起始位置（UTF-16 code unit）；省略时从头读取。
+     * @returns 正文结果，或明确的不存在。
+     * @throws 句柄已解除连接或快照读取失败时抛出异常。
+     * @example
+     * ```ts
+     * const body = await session.message("msg-1");
+     * ```
+     */
+    async message(messageId: string, offset?: number): Promise<SessionMessageBodyResult> {
+        this.assertAttached();
+        return this.port.readSessionMessageBody(this.goalId, messageId, offset);
     }
 
     /**

@@ -423,8 +423,66 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         } catch { return context.json({ error: "action_details_unavailable" }, 500); }
     });
 
-    routes.get("/api/goals/:goalId/interaction-details", async (context) => {
-        if (source.readInteractionDetails === undefined) {
+    routes.get("/api/goals/:goalId/messages", async (context) => {
+        const session = source.session;
+        if (session === undefined) return context.json({ error: "session_unavailable" }, 503);
+        const goalId = context.req.param("goalId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) return context.json({ error: "invalid_goal_id" }, 400);
+        const afterMessageId = context.req.query("afterMessageId");
+        const throughMessageId = context.req.query("throughMessageId");
+        const rawLimit = context.req.query("limit");
+        if ((afterMessageId !== undefined && !isWireId(afterMessageId, 256))
+            || (throughMessageId !== undefined && !isWireId(throughMessageId, 256))) {
+            return context.json({ error: "invalid_message_query" }, 400);
+        }
+        let limit: number | undefined;
+        if (rawLimit !== undefined) {
+            const parsed = Number(rawLimit);
+            if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 100) {
+                return context.json({ error: "invalid_message_query" }, 400);
+            }
+            limit = parsed;
+        }
+        try {
+            const result = await session.listMessages(goalId, {
+                ...(afterMessageId === undefined ? {} : { afterMessageId }),
+                ...(throughMessageId === undefined ? {} : { throughMessageId }),
+                ...(limit === undefined ? {} : { limit }),
+            });
+            if (result.ok) return context.json(result);
+            return context.json({ error: result.error }, result.error === "goal_not_found" ? 404 : 409);
+        } catch {
+            return context.json({ error: "message_read_failed" }, 500);
+        }
+    });
+
+    routes.get("/api/goals/:goalId/messages/:messageId", async (context) => {
+        const session = source.session;
+        if (session === undefined) return context.json({ error: "session_unavailable" }, 503);
+        const goalId = context.req.param("goalId");
+        const messageId = context.req.param("messageId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || !isWireId(messageId, 256)) {
+            return context.json({ error: "invalid_message_query" }, 400);
+        }
+        const rawOffset = context.req.query("offset");
+        let offset: number | undefined;
+        if (rawOffset !== undefined) {
+            const parsed = Number(rawOffset);
+            if (!Number.isSafeInteger(parsed) || parsed < 0) {
+                return context.json({ error: "invalid_message_query" }, 400);
+            }
+            offset = parsed;
+        }
+        try {
+            const result = await session.readMessage(goalId, messageId, offset);
+            if (result.ok) return context.json(result);
+            return context.json({ error: result.error }, result.error === "goal_not_found" ? 404 : 404);
+        } catch {
+            return context.json({ error: "message_read_failed" }, 500);
+        }
+    });
+
+    routes.get("/api/goals/:goalId/interaction-details", async (context) => {        if (source.readInteractionDetails === undefined) {
             return context.json({ error: "interaction_details_unavailable" }, 500);
         }
         const goalId = context.req.param("goalId");

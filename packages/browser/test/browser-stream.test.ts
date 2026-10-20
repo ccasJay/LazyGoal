@@ -84,6 +84,8 @@ function openFeed(store: GoalStore, publisher: InMemoryExecutionStreamPublisher,
         detachSessionInteractionHandlers: () => undefined,
         sendSessionInput: async () => ({ ok: false, code: "RUN_CONTROL_UNAVAILABLE", message: "unused" }),
         querySessionInput: async () => ({ ok: true, found: false }),
+        readSessionMessages: async () => ({ ok: true, messages: [], total: 0 }),
+        readSessionMessageBody: async () => ({ ok: false, code: "MESSAGE_NOT_FOUND" as const, message: "not found" }),
         openSessionEvents: () => stream,
         consumeSessionInputs: async () => ({ reason: "completed" }),
         detachSession: () => undefined,
@@ -496,6 +498,8 @@ test("HTTP 事件流是 Goal 范围事件，拒绝 run 绑定参数并在取消�
                     },
                 };
             },
+            async listMessages() { return { ok: true as const, messages: [], total: 0 }; },
+            async readMessage() { return { ok: false as const, error: "message_not_found" as const }; },
         },
     });
 
@@ -516,8 +520,62 @@ test("HTTP 事件流是 Goal 范围事件，拒绝 run 绑定参数并在取消�
     assert.equal(closeCalls, 1);
 });
 
-test("真实模型调用链下的浏览器活动只包含公开正文与调用提示", async () => {
-    const goal = goalFor("goal-stream-real");
+test("HTTP 消息入口按稳定身份返回有界列表与正文，并区分不存在与非法参数", async () => {
+    const entry = {
+        messageId: "msg-1",
+        role: "assistant" as const,
+        runId: "run-1",
+        purpose: "answer" as const,
+        sourceKind: "completion_candidate",
+        sourceId: "candidate-1",
+        content: "正式答复",
+        contentLength: 4,
+        truncated: false,
+    };
+    const routes = createBrowserGoalRoutes({
+        async list() { return []; },
+        async read() { return undefined; },
+        async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
+        async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
+        setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
+        async selectModel() { return { ok: false as const, error: "model_selection_failed" as const }; },
+        session: {
+            async create() { return { ok: false as const, error: "create_failed" as const }; },
+            async submit() { return { ok: false as const, error: "session_unavailable" as const }; },
+            async readInput() { return { ok: true as const, found: false as const }; },
+            async readState() { return undefined; },
+            async openEvents() { return { ok: false as const, error: "goal_not_found" as const }; },
+            async listMessages() {
+                return { ok: true as const, messages: [entry], total: 1, throughMessageId: "msg-1" };
+            },
+            async readMessage(_goalId: string, messageId: string) {
+                if (messageId !== "msg-1") return { ok: false as const, error: "message_not_found" as const };
+                return { ok: true as const, message: entry };
+            },
+        },
+    });
+
+    const list = await routes.request("http://localhost/api/goals/goal-1/messages?limit=50");
+    assert.equal(list.status, 200);
+    const listBody = await list.json() as { ok: boolean; messages: unknown[]; total: number };
+    assert.equal(listBody.ok, true);
+    assert.equal(listBody.messages.length, 1);
+    assert.equal(listBody.total, 1);
+
+    const invalidLimit = await routes.request("http://localhost/api/goals/goal-1/messages?limit=1000");
+    assert.equal(invalidLimit.status, 400);
+
+    const detail = await routes.request("http://localhost/api/goals/goal-1/messages/msg-1");
+    assert.equal(detail.status, 200);
+    const detailBody = await detail.json() as { ok: boolean; message: { messageId: string } };
+    assert.equal(detailBody.ok, true);
+    assert.equal(detailBody.message.messageId, "msg-1");
+
+    const missing = await routes.request("http://localhost/api/goals/goal-1/messages/msg-unknown");
+    assert.equal(missing.status, 404);
+});
+
+test("真实模型调用链下的浏览器活动只包含公开正文与调用提示", async () => {    const goal = goalFor("goal-stream-real");
     const store = new MemoryStore();
     await store.save(goal);
     const publisher = new InMemoryExecutionStreamPublisher();

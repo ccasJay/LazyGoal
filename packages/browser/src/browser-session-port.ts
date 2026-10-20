@@ -11,6 +11,7 @@ import type {
     SessionGenerationEvent,
     SessionInteractionEvent,
     SessionMessageCommittedEvent,
+    SessionMessageQuery,
     SessionToolActivityEvent,
 } from "../../runtime/src/index";
 import type {
@@ -23,6 +24,8 @@ import type {
     BrowserSessionInputQueryResult,
     BrowserSessionInputReceipt,
     BrowserSessionInputResult,
+    BrowserSessionMessageListResult,
+    BrowserSessionMessageResult,
     BrowserSessionState,
 } from "../../web-contracts/src/index";
 
@@ -108,6 +111,25 @@ export interface BrowserGoalSessionPort {
      * @throws 打开订阅时的底层读取失败向上传播。
      */
     openEvents(goalId: string, signal?: AbortSignal): Promise<BrowserSessionEventsResult>;
+    /**
+     * 按稳定身份执行有界消息列表读取。
+     *
+     * @param goalId - 目标 Goal。
+     * @param query - 追加起点、区间末尾与页大小。
+     * @returns 有界消息列表或稳定失败。
+     * @throws 底层读取失败时传播错误。
+     */
+    listMessages(goalId: string, query: SessionMessageQuery): Promise<BrowserSessionMessageListResult>;
+    /**
+     * 按稳定身份读取单条消息正文。
+     *
+     * @param goalId - 目标 Goal。
+     * @param messageId - 消息稳定身份。
+     * @param offset - 起始位置（UTF-16 code unit）。
+     * @returns 消息正文或稳定失败。
+     * @throws 底层读取失败时传播错误。
+     */
+    readMessage(goalId: string, messageId: string, offset?: number): Promise<BrowserSessionMessageResult>;
 }
 
 /** Goal 范围实时流的打开结果。 */
@@ -209,6 +231,46 @@ export function createBrowserGoalSessionPort(
             }
             return { ok: true, feed: createBrowserSessionFeed(opened.session, opened.session.events(), signal) };
         },
+        listMessages: async (goalId, query) => {
+            const result = await dependencies.sessions.readSessionMessages(goalId, query);
+            if (!result.ok) return { ok: false, error: "message_range_invalid" };
+            return {
+                ok: true,
+                messages: result.messages.map((message) => ({
+                    messageId: message.messageId,
+                    role: message.role,
+                    runId: message.runId,
+                    ...(message.purpose === undefined ? {} : { purpose: message.purpose }),
+                    sourceKind: message.sourceKind,
+                    sourceId: message.sourceId,
+                    content: message.content,
+                    contentLength: message.contentLength,
+                    truncated: message.truncated,
+                })),
+                ...(result.nextAfterMessageId === undefined ? {} : { nextAfterMessageId: result.nextAfterMessageId }),
+                ...(result.throughMessageId === undefined ? {} : { throughMessageId: result.throughMessageId }),
+                total: result.total,
+            };
+        },
+        readMessage: async (goalId, messageId, offset) => {
+            const result = await dependencies.sessions.readSessionMessageBody(goalId, messageId, offset);
+            if (!result.ok) return { ok: false, error: "message_not_found" };
+            return {
+                ok: true,
+                message: {
+                    messageId: result.entry.messageId,
+                    role: result.entry.role,
+                    runId: result.entry.runId,
+                    ...(result.entry.purpose === undefined ? {} : { purpose: result.entry.purpose }),
+                    sourceKind: result.entry.sourceKind,
+                    sourceId: result.entry.sourceId,
+                    content: result.entry.content,
+                    contentLength: result.entry.contentLength,
+                    truncated: result.entry.truncated,
+                },
+                ...(result.nextOffset === undefined ? {} : { nextOffset: result.nextOffset }),
+            };
+        },
     };
 }
 
@@ -228,7 +290,13 @@ export interface BrowserGoalSessionPortDependencies {
     /** Runtime 会话所有者；创建、受理、收据、状态与订阅都委派它。 */
     readonly sessions: Pick<
         SessionManager,
-        "create" | "open" | "readSessionState" | "sendSessionInput" | "querySessionInput"
+        | "create"
+        | "open"
+        | "readSessionState"
+        | "sendSessionInput"
+        | "querySessionInput"
+        | "readSessionMessages"
+        | "readSessionMessageBody"
     >;
     /** 创建新 Goal 时使用的 Profile 身份。 */
     readonly profileId: string;

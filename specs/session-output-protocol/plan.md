@@ -52,7 +52,7 @@ action-approval-revision 是关联能力：存在时验证真实最终版本／�
   - **实现**：将候选接受／拒绝关联接入现有 Runner 完成、阶段、修复和控制边界，正式消息走 TODO 1 的同源提交，输出走 TODO 4。只维护临时预览观察状态，正式来源由 Snapshot／已提交事实保存；不持久化未确认正文、不绕过完成审查，不增加重试预算或“观察失败即执行失败”的反馈。
   - **验证**：新增 `packages/runtime/test/candidate-message-commit.test.ts`（待实现），扩展 `completion-review.test.ts`、`run-stage-review.test.ts`、`run-steer.test.ts`、`trajectory-checkpoint-committer.test.ts`、`trajectory-failure.test.ts` 和 `packages/storage/test/goal-message-snapshot.test.ts`（TODO 1 新增）；运行对应 `npx tsx --test`。核对正式文件、消息来源、候选终态和真实工具／模型计数，不能用只抛错但从未落盘的 Store 代表提交结果不明。
 
-- [ ] //TODO 7. 按稳定消息身份提供有界列表和正文只读查询
+- [x] //TODO 7. 按稳定消息身份提供有界列表和正文只读查询
 
   落实标准：[2.4](./spec.md#spec-req-2-4)、[2.5](./spec.md#spec-req-2-5)、[7.2](./spec.md#spec-req-7-2)、[7.3](./spec.md#spec-req-7-3)。
   - **先验证**：分页首批固定 throughMessageId，翻页期间追加消息不会混入既定范围，afterMessageId 保持顺序；默认 50、最大 100 条，正文每次最多 64,000 UTF-16 code unit，跨代理对调整后不丢字／重复。空集合、末页、正文截断、未知／跨 Goal ID、反向范围、非法分页与读取故障各有明确结果；无令牌、错误 Host／Origin 不读取详情，所有合法只读查询零模型／工具／状态写入。

@@ -331,6 +331,90 @@ export interface BrowserSessionState {
 }
 
 /**
+ * 会话消息的公开条目。
+ *
+ * @remarks
+ * 只包含身份、角色、Run 归属、用途、来源与有界正文摘要；正文超限时明确标记
+ * 截断，完整原文按 `messageId` 另行读取。
+ *
+ * @example
+ * ```ts
+ * const entry: BrowserSessionMessageEntry = {
+ *   messageId: "msg-1", role: "assistant", runId: "run-1",
+ *   purpose: "answer", sourceKind: "completion_candidate", sourceId: "c1",
+ *   content: "已完成", contentLength: 3, truncated: false,
+ * };
+ * ```
+ */
+export interface BrowserSessionMessageEntry {
+    /** 消息稳定身份。 */
+    readonly messageId: string;
+    /** 消息角色。 */
+    readonly role: "user" | "assistant";
+    /** 消息所属 Run。 */
+    readonly runId: string;
+    /** 助手消息用途；用户消息省略。 */
+    readonly purpose?: "process" | "answer" | "notice";
+    /** 来源判别式。 */
+    readonly sourceKind: string;
+    /** 来源的稳定标识。 */
+    readonly sourceId: string;
+    /** 有界正文摘要。 */
+    readonly content: string;
+    /** 原始正文长度。 */
+    readonly contentLength: number;
+    /** 正文摘要是否被截断。 */
+    readonly truncated: boolean;
+}
+
+/**
+ * 有界消息列表的 wire 结果。
+ *
+ * @remarks
+ * `nextAfterMessageId` 表示还有后续页；`throughMessageId` 是本批确定的范围
+ * 末尾，翻页必须沿用同一值。
+ *
+ * @example
+ * ```ts
+ * const list: BrowserSessionMessageListResult = { ok: true, messages: [], total: 0 };
+ * ```
+ */
+export type BrowserSessionMessageListResult =
+    | {
+        readonly ok: true;
+        readonly messages: readonly BrowserSessionMessageEntry[];
+        readonly nextAfterMessageId?: string;
+        readonly throughMessageId?: string;
+        readonly total: number;
+    }
+    | {
+        readonly ok: false;
+        readonly error: "message_range_invalid" | "goal_not_found";
+    };
+
+/**
+ * 单条消息正文的 wire 结果。
+ *
+ * @remarks
+ * `nextOffset` 是截断后续读的位置；`truncated` 明确说明本次不是完整原文。
+ *
+ * @example
+ * ```ts
+ * const message: BrowserSessionMessageResult = { ok: true, message: entry };
+ * ```
+ */
+export type BrowserSessionMessageResult =
+    | {
+        readonly ok: true;
+        readonly message: BrowserSessionMessageEntry;
+        readonly nextOffset?: number;
+    }
+    | {
+        readonly ok: false;
+        readonly error: "message_not_found" | "goal_not_found";
+    };
+
+/**
  * 创建 Session 的 wire 命令。
  *
  * @remarks

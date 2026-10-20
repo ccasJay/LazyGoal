@@ -375,6 +375,8 @@ function createApi(store: JsonFileGoalStore, trajectory: JsonFileTrajectoryStore
                     }),
                     sendSessionInput: async () => ({ ok: false, code: "RUN_CONTROL_UNAVAILABLE", message: "unused" }),
                     querySessionInput: async () => ({ ok: true, found: false }),
+                    readSessionMessages: async () => ({ ok: true, messages: [], total: 0 }),
+                    readSessionMessageBody: async () => ({ ok: false, code: "MESSAGE_NOT_FOUND" as const, message: "not found" }),
                     openSessionEvents: () => stream,
                     attachSessionInteractionHandlers: () => ({
                         ok: false,
@@ -387,6 +389,8 @@ function createApi(store: JsonFileGoalStore, trajectory: JsonFileTrajectoryStore
                 });
                 return { ok: true as const, feed: createBrowserSessionFeed(session, stream, signal) };
             },
+            async listMessages() { return { ok: true as const, messages: [], total: 0 }; },
+            async readMessage() { return { ok: false as const, error: "message_not_found" as const }; },
         },
         enterPlanMode: (goalId, command) => commands.enterPlanMode(goalId, command),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
