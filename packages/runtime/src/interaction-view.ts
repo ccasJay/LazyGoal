@@ -31,7 +31,7 @@ export type InteractionViewKind =
  *
  * @example
  * ```ts
- * const decisions: readonly InteractionDecision[] = ["retry_action", "reject_action"];
+ * const decisions: readonly InteractionDecision[] = ["retry_unknown_action", "decline_unknown_action_retry"];
  * ```
  */
 export type InteractionDecision =

@@ -467,6 +467,27 @@ export function validateSessionInputShape(
             if (input.response.kind === "reject_action" && input.response.reason.trim().length === 0) {
                 return { code: "INVALID_INPUT", message: "Action rejection requires a reason" };
             }
+            if (input.response.kind === "approve_action_revision") {
+                if (input.response.reviewRef.trim().length === 0) {
+                    return { code: "INVALID_INPUT", message: "Approval revision requires a review reference" };
+                }
+                if (input.response.actionId.trim().length === 0) {
+                    return { code: "INVALID_INPUT", message: "Approval revision requires an action identity" };
+                }
+            }
+            if (
+                (input.response.kind === "retry_unknown_action"
+                    || input.response.kind === "decline_unknown_action_retry")
+                && input.response.recoveryRef.trim().length === 0
+            ) {
+                return { code: "INVALID_INPUT", message: "A re-execution decision requires a recovery reference" };
+            }
+            if (
+                input.response.kind === "decline_unknown_action_retry"
+                && input.response.reason.trim().length === 0
+            ) {
+                return { code: "INVALID_INPUT", message: "Declining a re-execution requires a reason" };
+            }
             return undefined;
         }
         case "queue_control": {

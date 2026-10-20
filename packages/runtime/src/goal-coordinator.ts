@@ -208,8 +208,10 @@ export interface ContinuationQueueBinding {
  * - `answer_ask_user`: 回答 Agent 发起的 `ask_user` 结构化问卷；
  * - `reply_to_question`: 以非空整体回复替代整份问卷，原文作为真实用户消息继续当前 Run；
  * - `skip_question`: 提交“未回答并要求继续”的控制语义并继续当前 Run，不等同于取消 Run；
- * - `approve_action`: 批准待审批的工具调用（附带一次性授权）；
- * - `reject_action`: 拒绝待审批的工具调用并记录原因；
+ * - `approve_action`: 批准首次待审批的工具调用（附带一次性授权）；
+ * - `approve_action_revision`: 批准同一工具的修订参数版本，提交绑定审阅引用的最终参数；
+ * - `reject_action`: 拒绝首次待审批的工具调用并记录原因；
+ * - `retry_unknown_action`/`decline_unknown_action_retry`: 明确允许或拒绝结果未知的操作按获批版本再次执行；
  * 兼容分支 `approve` 与 `approve_task` 行为一致，且同样必须携带当前提案的 `requestId`。
  *
  * @example
@@ -1399,7 +1401,9 @@ export class GoalCoordinator {
      * - `ask_user`: 校验 requestId 和答案结构，写入 `ask_user_answered` 事实并解除等待；
      * - `task_approval`: 批准或反馈必须匹配当前提案 requestId。批准固定任务并推进
      *   ContextEpoch；反馈写入用户消息与 Trajectory，使旧请求失效后在同一 Run 重新规划；
-     * - `approve_action`/`reject_action`: 审核待处理的工具调用；
+     * - `approve_action`/`approve_action_revision`: 批准首次未执行的工具调用，可附带修订后的最终参数版本；
+     * - `reject_action`: 拒绝首次未执行的工具调用；
+     * - `retry_unknown_action`/`decline_unknown_action_retry`: 明确允许或拒绝结果未知的操作按获批版本再次执行；
      * - `message`: 解除因 wait 决策引起的 blocked 等待。
      * Goal/Run 引用不匹配时返回 `RUN_NOT_FOUND`；任务请求 ID 过期时返回
      * `INVALID_GOAL_INPUT`，两者均保留当前等待点。有效恢复先保存快照，再调用

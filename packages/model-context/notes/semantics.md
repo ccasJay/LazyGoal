@@ -14,3 +14,4 @@
 | DeterministicWarmEntryExtractor | 不猜测语义的确定性 Warm 候选提取。 | [模型上下文组装](../README.md) | [确定性提取器](../src/deterministic-warm.ts) |
 | Lookup 结果投影 | 带来源范围与时效提示的历史命中投影。 | [模型上下文组装](../README.md) | [Lookup 投影](../src/context-lookup-projection.ts) |
 | 目标工作导航 | 当前阶段、缺口与重要信息的只读导航投影。 | [模型上下文组装](../README.md) | [导航投影](../src/goal-context-navigation.ts) |
+| 修订说明 | 下一模型请求中说明实际执行参数与原请求差异的有界说明；原生调用保持原文。 | [模型上下文组装](../README.md) | [原生历史](../src/native-model-history.ts) |

@@ -44,3 +44,7 @@
 | 批次顺序执行 | 一次 Decide 返回的多个业务 Action 按模型返回顺序逐个暂存与执行。 | [Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 批次恢复点 | `pendingAction` 与 `pendingActionBatch` 共同构成"从第一个未产生结果的 Action 继续"的指针。 | [Runtime](../README.md) | [Goal 领域模型](../src/domain.ts) |
 | 不推进类预算 | 零调用正文与无可用结果的独立有界计数，与协议类纠错预算互不占用。 | [Runtime](../README.md) | [Runner](../src/runner.ts) |
+| 审批参数修订 | 审批者可为同一工具提交最终参数版本；原请求引用与最终 canonical 参数一并冻结，获批后不可再编辑。 | [Goal Runtime](../README.md) | [审批修订规则](../src/action-approval.ts) |
+| 审批只读预检 | 重新准备参数、规划执行准入、权限与沙箱范围并返回可审阅结果；不保存批准、不暂存授权、不解除等待。 | [Goal Runtime](../README.md) | [审批修订规则](../src/action-approval.ts) |
+| 未知结果重执行决定 | 明确允许或拒绝结果未知的操作按获批版本再次执行；绑定本次恢复身份，旧决定不能授权新一轮。 | [Goal Runtime](../README.md) | [审批修订规则](../src/action-approval.ts) |
+| 批准决定身份 | 批准决定的稳定身份；持续授权按该身份暂存与激活，同一决定重试复用同一条记录。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts) |

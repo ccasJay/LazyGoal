@@ -64,7 +64,7 @@
   - **实现**：扩展现有 Session 预检／响应的类型化入口、human-interaction 处理器结果联合及组合根窄接线，为恢复函数提供当前 `recoveryRef` 和最终版本。保持宿主与 Web 同一受理／权限路径和解除／关闭语义，新增公开方法同步中文 TSDoc 与最小示例；不发布 SDK、不移动装配或重复解析可信同进程类型。
   - **验证**：新增 `apps/goal-server/test/action-approval-revision.integration.test.ts`（待实现），扩展现有 `runtime-composition.integration.test.ts`、`runtime-recovery.integration.test.ts` 与前置功能处理器测试；运行相应 `npx tsx --test` 和 `npx tsc --noEmit -p apps/goal-server/tsconfig.json`。使用真实文件存储、正式组合根、假模型与隔离工具，不启动 HTTP／信号的宿主场景也能完成同一流程。
 
-- [ ] //TODO 9. 完成跨边界故障验收并交付当前契约与操作说明
+- [x] //TODO 9. 完成跨边界故障验收并交付当前契约与操作说明
 
   落实标准：[8.1](./spec.md#spec-req-8-1)、[8.2](./spec.md#spec-req-8-2)、[8.3](./spec.md#spec-req-8-3)、[8.4](./spec.md#spec-req-8-4)。
   - **先验证**：按下方组合流程在最终集成状态验证直接／PTC、原样／修订、单次／持续及范围扩大／缩小／拒绝；确定性排列批准、拒绝、Interrupt、旧恢复决定与提交重试，并在预检后、Grant 暂存、批准保存、激活和工具开始处注入故障。证据必须包含实际输入、matcher、sandbox plan、Snapshot、轨迹、收据和工具次数。

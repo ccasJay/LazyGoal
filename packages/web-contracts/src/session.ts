@@ -711,7 +711,7 @@ export type BrowserInteractionKind =
  *
  * @remarks
  * 只描述响应种类；Interrupt 是独立的 Run 级输入，不在该列表中。恢复等待只
- * 允许 `retry_action` 与 `reject_action`。
+ * 允许 `retry_unknown_action` 与 `decline_unknown_action_retry`。
  *
  * @example
  * ```ts

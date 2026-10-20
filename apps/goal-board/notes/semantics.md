@@ -26,3 +26,4 @@
 | 来源两级选择 | 模型选择器先选 Provider 来源再选模型，结果写入对应偏好或 Goal 选择。 | [Goal Board](../README.md) | [ModelPicker](../src/components/ModelPicker.tsx) |
 | Fetch models | 用当前表单查询在线模型并填入默认模型，不保存档案。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx) |
 | Think activity | 同一 Step 内独立展示的显式思考目标、进行状态及已提交分析；可定位原轨迹。 | [Goal Board](../README.md) | [活动投影](../src/activity-projector.ts)、[轨迹详情](../src/trajectory-event-summary.tsx) |
+| 审批参数编辑与审阅 | 同一工具的 JSON 参数编辑、只读预检与原／最终参数差异确认；再次编辑使旧审阅失效。 | [Goal Board](../README.md) | [交互面板](../src/interaction-panel.tsx) |
