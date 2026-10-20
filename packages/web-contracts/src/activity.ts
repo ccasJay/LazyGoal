@@ -64,14 +64,16 @@ export interface BrowserActivityPosition {
  * Activity 窗口中的正式消息摘要。
  *
  * @remarks
- * 摘要只含稳定身份、Run 内位置和最多 4,000 UTF-16 code unit 正文；`truncated` 为
- * true 时须按 `messageId` 使用单条正文读取接口继续读取。
+ * 摘要只含稳定身份、Run 内位置、助手消息用途和最多 4,000 UTF-16 code unit 正文；
+ * `truncated` 为 true 时须按 `messageId` 使用单条正文读取接口继续读取。用户消息不带
+ * `purpose`；助手消息必须区分过程、最终答复或公开通知。
  *
  * @example
  * ```ts
  * const item: BrowserActivityMessageItem = {
- *     type: "message", itemId: "message:msg-1", messageId: "msg-1", role: "user",
- *     runId: "run-1", position: { runId: "run-1", runOrder: 0, sequence: 0, itemKind: "message", order: 0 },
+ *     type: "message", itemId: "message:msg-1", messageId: "msg-1", role: "assistant",
+ *     runId: "run-1", purpose: "answer",
+ *     position: { runId: "run-1", runOrder: 0, sequence: 0, itemKind: "message", order: 0 },
  *     content: "继续", contentLength: 2, truncated: false,
  * };
  * ```
@@ -83,6 +85,8 @@ export interface BrowserActivityMessageItem {
     /** 正式消息稳定身份。 */
     readonly messageId: string;
     readonly role: "user" | "assistant";
+    /** 助手正文的 Runtime 用途；用户消息省略。 */
+    readonly purpose?: "process" | "answer" | "notice";
     readonly runId: string;
     readonly position: BrowserActivityPosition;
     /** 最多 4,000 UTF-16 code unit 的正文摘要。 */
@@ -98,7 +102,8 @@ export interface BrowserActivityMessageItem {
  *
  * @remarks
  * 只包含事实身份及必要关联标识，不包含原始 payload、工具参数、Observation、私有
- * Prompt 或模型内部推理。
+ * Prompt 或模型内部推理。阶段标题仅取自已提交 `run_stage_declared.target`，并按公开
+ * 文本上限截断；其他事件不携带阶段标题。
  *
  * @example
  * ```ts
@@ -127,6 +132,8 @@ export interface BrowserActivityFactItem {
     readonly stageId?: string;
     /** 阶段生命周期事实携带的 Runtime 修订号。 */
     readonly stageRevision?: number;
+    /** 已提交阶段声明中的有界目标；仅 `run_stage_declared` 提供。 */
+    readonly stageTarget?: string;
 }
 
 /** 正式消息和安全轨迹事实组成的原子 Activity 项。 */

@@ -1,6 +1,7 @@
 import type {
   BrowserGoalListItem,
   BrowserGoalSession,
+  BrowserGoalSessionState,
   BrowserSessionMessage,
   BrowserSessionStep,
   BrowserToolGrantSummary,
@@ -199,7 +200,7 @@ export function cardStatusPresentation(status: BrowserGoalListItem["runStatus"])
 /**
  * 计算会话详情页顶部状态的指示样式。
  */
-export function sessionStatusTone(session: BrowserGoalSession): string {
+export function sessionStatusTone(session: BrowserGoalSessionState): string {
   if (
     session.pendingAction?.status === "outcome_unknown" ||
     session.pendingAction?.status === "awaiting_approval" ||
@@ -225,7 +226,7 @@ export function sessionStatusTone(session: BrowserGoalSession): string {
   }
 }
 
-export function sessionStatus(session: BrowserGoalSession): string {
+export function sessionStatus(session: BrowserGoalSessionState): string {
   if (session.pendingAction?.status === "outcome_unknown") return "Outcome needs review";
   if (session.pendingAction?.status === "awaiting_approval") return "Awaiting approval";
   if (session.pendingAction?.status === "approved") return "Action accepted";

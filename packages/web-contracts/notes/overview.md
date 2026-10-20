@@ -4,6 +4,8 @@
 
 `BrowserGoalSessionState` 明确把消息、步骤和阶段历史标记为 Activity 外置，同时保留当前 Run、Plan 路线、等待、队列、中断和既有当前状态。`BrowserActivityPage` 只包含白名单事实摘要和有界正文，默认页大小为 50、上限为 100；Run 内事实序号与 Snapshot 保存的消息位置决定稳定顺序。cursor 绑定 Goal、筛选与每个相关 Run 的首次消息/轨迹水位，双向读取不吸收窗口之后追加的内容；`gaps` 给出页首尾尚未加载范围的准确项数和首尾位置。DTO 不把原始事件 payload 或完整工具／Observation 载荷暴露给浏览器。
 
+Activity 助手消息必须携带 `process`、`answer` 或 `notice` 用途；用户消息不带助手用途。只有 `run_stage_declared` 事实可以携带最多 1,000 字符的 `stageTarget`，值只来自已提交声明。wire guard 拒绝缺失或无效的助手用途，以及放在其他事件类型上的阶段目标。
+
 本包定义 Browser HTTP 命令、Session 投影和 SSE 事件的传输形状。[Session DTO](../src/session.ts) 与 [命令 DTO](../src/command.ts) 面向 Web 边界；包含内部阶段分组（`BrowserRunStageGroup`）、Plan Run 路线和步骤归属身份。待审批任务候选 `BrowserPlanRouteStage` 只含目标与验收条件；获批 Run 的 `BrowserPlanRoute` 另含 Runtime 阶段身份、修订、状态及游标，普通 Run 省略此字段。Browser 包提供路由和投影，Goal Board 只渲染接收到的视图。
 
 会话指标 DTO 的 `tokensPerSecond` 表示应用观察到的端到端 Provider 请求输出速率；其分子使用 Provider 确认的输出 token，时间语义和测量覆盖由 [指标投影模块](../../session-metrics/notes/overview.md)定义。

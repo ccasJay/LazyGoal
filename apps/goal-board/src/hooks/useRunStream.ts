@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { BrowserGoalActivityEvent, BrowserGoalLiveEvent, BrowserGoalSession } from "../../../../packages/web-contracts/src/index";
+import type { BrowserGoalActivityEvent, BrowserGoalLiveEvent, BrowserGoalSessionState } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
 import { createTextBatcher } from "../live-text-batch";
 import {
@@ -14,7 +14,7 @@ export function useRunStream({
   onRefresh,
 }: {
   selectedGoalId: string | null;
-  session: BrowserGoalSession | null;
+  session: BrowserGoalSessionState | null;
   sessionLoading: boolean;
   onRefresh: () => Promise<void>;
 }) {

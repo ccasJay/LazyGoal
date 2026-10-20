@@ -3,6 +3,7 @@ import { Check, Circle, Clock3, Shield, Trash2, X } from "lucide-react";
 
 import type {
   BrowserGoalSession,
+  BrowserGoalSessionState,
   BrowserToolGrantSummary,
 } from "../../../packages/web-contracts/src/index";
 import {
@@ -146,8 +147,16 @@ export function GoalDetails({
  * 当前等待交互的统一区域入口。
  *
  * @remarks
- * 只按已提交的类型化交互视图分派具体请求视图；没有等待时不渲染。停止按钮由各
- * 区域独立提供，普通消息的排队输入由外层外壳负责。
+ * 只按窄状态 DTO 中已提交的类型化交互视图分派具体请求视图，不读取历史正文、阶段或步骤；
+ * 没有等待时不渲染。停止按钮由各区域独立提供，普通消息的排队输入由外层外壳负责。
+ *
+ * @param props - 当前等待状态、提交忙碌态和决定完成通知。
+ * @returns 对应问题、任务审批或 Action 审批视图；没有交互等待时返回 `null`。
+ * @example
+ * ```tsx
+ * <WaitingInteraction session={goalState} busy={false} stopping={false}
+ *   onInterrupt={interrupt} onRefreshSession={refresh} onDecisionAccepted={recordDecision} />
+ * ```
  */
 export function WaitingInteraction({
   session,
@@ -157,7 +166,7 @@ export function WaitingInteraction({
   onRefreshSession,
   onDecisionAccepted,
 }: {
-  session: BrowserGoalSession;
+  session: BrowserGoalSessionState;
   busy: boolean;
   stopping: boolean;
   onInterrupt: () => Promise<void>;

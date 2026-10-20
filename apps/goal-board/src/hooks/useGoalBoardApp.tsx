@@ -185,6 +185,10 @@ export function useGoalBoardApp() {
   const sessionContextValue: GoalSessionContextValue = {
     selectedGoalId: sessionManager.selectedGoalId,
     session: sessionManager.session,
+    activityPage: sessionManager.activityPage,
+    fullSession: sessionManager.fullSession,
+    fullSessionLoading: sessionManager.fullSessionLoading,
+    fullSessionError: sessionManager.fullSessionError,
     sessionLoading: sessionManager.sessionLoading,
     sessionError: sessionManager.sessionError,
     workspaceContext,
@@ -218,6 +222,7 @@ export function useGoalBoardApp() {
     retryModelPreference: modelSelectionManager.retryModelPreference,
     onModelCatalogRefresh: modelSelectionManager.refreshModelCatalog,
     refreshSelectedSession: sessionManager.refreshSelectedSession,
+    loadFullSession: sessionManager.loadFullSession,
     selectGoal: sessionManager.selectGoal,
     closeSession: sessionManager.closeSession,
     openNewGoalDraft: sessionManager.openNewGoalDraft,

@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type {
-  BrowserGoalSession,
+  BrowserGoalSessionState,
   BrowserSessionState,
 } from "../../../../packages/web-contracts/src/index";
 import { BrowserApiError, browserApi } from "../api";
@@ -23,7 +23,7 @@ export function useRunCommands({
   onRefreshSession,
   onRefreshGoals,
 }: {
-  session: BrowserGoalSession | null;
+  session: BrowserGoalSessionState | null;
   sessionState?: BrowserSessionState | null;
   canSendText: boolean;
   draftGoalId: React.MutableRefObject<string | null>;

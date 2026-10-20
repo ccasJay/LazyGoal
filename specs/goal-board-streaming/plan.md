@@ -22,7 +22,7 @@
   - **实现**：复用位置、已提交轨迹和安全摘要构建 `GET /api/goals/:goalId/activity` 及显式 `?view=state` DTO／路由，返回范围、双向 cursor、缺口和必要 Run／阶段上下文。状态视图明确未内嵌历史，仍有当前等待、收据、队列、控制与既有管理引用。只读投影无调度／写入；不将原始轨迹发给浏览器，不另建消息账本、数据库或完整历史下载再裁剪路径。
   - **验证**：新增 `packages/browser/test/browser-activity.test.ts`（待实现），扩展 [Browser 投影测试](../../packages/browser/test/browser-projection.test.ts)、[消息测试](../../packages/browser/test/browser-messages.test.ts)、[wire 测试](../../packages/web-contracts/test/web-contracts.test.ts)；通过正式路由真实 HTTP 和文件 Store 重建验证页界与正文拼接，运行对应 `npx tsx --test`。记录读取／写入及调用计数，响应有界不宣称磁盘随机访问有界。
 
-- [ ] //TODO 3. 将当前会话切换为按稳定来源交错排列的正文、活动与 Run／阶段边界
+- [x] //TODO 3. 将当前会话切换为按稳定来源交错排列的正文、活动与 Run／阶段边界
 
   落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)、[2.6](./spec.md#spec-req-2-6)、[7.5](./spec.md#spec-req-7-5)。
   - **先验证**：用实际保存的“用户 → 正文 → 工具 → Steer 应用 → 新正文 → 最终答复”数据，在初始页、通知先到／后到、重复同步和刷新后得到相同顺序、身份和 Run 归属；同文不同源保留两条。单次多正文／工具块保持正文相对次序，但生成工具请求不出现执行中／可审批状态；阶段接受和 process 保存不出现 Run completed，普通 Run 不造阶段，Plan 路线与指标／轨迹入口保留。

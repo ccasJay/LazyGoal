@@ -1,6 +1,6 @@
 # Goal Board
 
-React 浏览器前端，呈现 Plan Run 阶段路线、已提交会话及可展开的临时活动组。
+React 浏览器前端，呈现固定水位 Activity 时间线、Plan Run 阶段路线与按需会话视图。
 
 阅读 [模块说明](./notes/overview.md)、[语义表](./notes/semantics.md)、[使用说明](./notes/usage.md)。
 

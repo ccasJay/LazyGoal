@@ -560,6 +560,7 @@ function projectActivityMessage(
         itemId: `message:${message.messageId}`,
         messageId: message.messageId,
         role: message.role,
+        ...(message.role === "assistant" ? { purpose: message.purpose } : {}),
         runId: run.runId,
         position: {
             runId: run.runId,
@@ -580,6 +581,7 @@ function projectActivityFact(event: TrajectoryEvent, run: ActivityRunSnapshot): 
         ? payload.stageId : undefined;
     const stageRevision = payload.type === "run_stage_declared" || payload.type === "run_stage_accepted" || payload.type === "run_stage_rejected"
         ? payload.revision : undefined;
+    const stageTarget = payload.type === "run_stage_declared" ? boundedText(payload.target, 1_000) : undefined;
     const actionId = event.actionId
         ?? ("actionId" in payload ? payload.actionId : undefined)
         ?? (payload.type === "action_staged" ? payload.action.actionId : undefined);
@@ -601,6 +603,7 @@ function projectActivityFact(event: TrajectoryEvent, run: ActivityRunSnapshot): 
         ...(actionId === undefined ? {} : { actionId }),
         ...(stageId === undefined ? {} : { stageId }),
         ...(stageRevision === undefined ? {} : { stageRevision }),
+        ...(stageTarget === undefined ? {} : { stageTarget }),
     };
 }
 

@@ -158,6 +158,53 @@ test("Activity 独立展示完整 Plan Run 路线，不依赖执行步骤是否�
   assert.match(html, /Pending/);
 });
 
+test("SessionTimeline 保留真实来源身份并按交错顺序渲染消息、事实和终态", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { SessionTimeline } = await import("../src/components/SessionTimeline");
+  const position = (sequence: number, itemKind: "fact" | "message" = "fact", order = 0) => ({
+    runId: "run-1", runOrder: 0, sequence, itemKind, order,
+  });
+  const html = renderToStaticMarkup(React.createElement(SessionTimeline, {
+    projection: {
+      currentPlanRoute: {
+        revision: 1,
+        nextStageIndex: 1,
+        nextStageOrdinal: 2,
+        stages: [{
+          stageId: "stage-1", revision: 1, status: "accepted", target: "Review the saved evidence",
+          acceptanceCriteria: ["Use stable source positions"], acceptedSequence: 2,
+        }],
+      },
+      items: [
+        { kind: "run", itemId: "run:run-1", runId: "run-1", status: "completed", position: position(0) },
+        { kind: "message", itemId: "message:user", runId: "run-1", role: "user", content: "Start review", position: position(0, "message") },
+        { kind: "fact", itemId: "event:tool", runId: "run-1", title: "Tool started", eventType: "tool_started", position: position(1) },
+        { kind: "message", itemId: "message:steer", runId: "run-1", role: "user", content: "Keep it short", position: position(2, "message") },
+        { kind: "message", itemId: "message:progress", runId: "run-1", role: "assistant", purpose: "process", content: "Checking the source", position: position(3, "message") },
+        { kind: "message", itemId: "message:answer", runId: "run-1", role: "assistant", purpose: "answer", content: "Review complete", position: position(4, "message") },
+        { kind: "terminal", itemId: "terminal:run-1:completed", runId: "run-1", status: "completed", position: position(4) },
+      ],
+    },
+    currentRunId: "run-1",
+    runStatus: "completed",
+    olderAvailable: true,
+    showExecutionFacts: true,
+    liveActivity: null,
+    streamConnected: false,
+    brandMark: "/logo.svg",
+  }));
+
+  const orderedIds = ["run:run-1", "message:user", "event:tool", "message:steer", "message:progress", "message:answer", "terminal:run-1:completed"];
+  const positions = orderedIds.map((id) => html.indexOf(`data-item-id="${id}"`));
+  assert.ok(positions.every((position) => position >= 0));
+  assert.deepEqual(positions, [...positions].sort((left, right) => left - right));
+  assert.match(html, /Earlier activity is outside this fixed page/);
+  assert.match(html, /Review the saved evidence/);
+  assert.match(html, /Progress/);
+  assert.match(html, /Run completed/);
+});
+
 test("PermissionControl 单选框包含 id 和 name 属性并正确关联 label", async () => {
   const React = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");

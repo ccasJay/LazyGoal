@@ -1,7 +1,9 @@
 import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import type {
+  BrowserActivityPage,
   BrowserGoalSession,
+  BrowserGoalSessionState,
   BrowserGoalLiveEvent,
   BrowserModelCatalog,
   BrowserToolGrantSummary,
@@ -9,9 +11,31 @@ import type {
 } from "../../../../packages/web-contracts/src/index";
 import type { MetricsState, ModelPickerTarget, SessionTab } from "../types";
 
+/**
+ * Goal Board 单个会话视图消费的局部状态与只读加载入口。
+ *
+ * @remarks
+ * `session` 是不含历史的窄状态，`activityPage` 是独立固定水位正文／事实窗口；完整会话只在
+ * Plan、Trajectory 或 Goal details 需要时通过 `loadFullSession` 读取。
+ *
+ * @example
+ * ```tsx
+ * const { session, activityPage, loadFullSession } = useGoalSessionContext();
+ * ```
+ */
 export interface GoalSessionContextValue {
   readonly selectedGoalId: string | null;
-  readonly session: BrowserGoalSession | null;
+  /** 当前 Goal 的窄状态，不包含消息、步骤或阶段历史。 */
+  readonly session: BrowserGoalSessionState | null;
+  /** 当前 Goal 的固定 Activity 页；游标描述窗口外历史，当前视图只提示更早来源仍存在。 */
+  readonly activityPage: BrowserActivityPage | null;
+  /** 按需加载的完整会话，用于需要步骤或完整消息的专用视图。 */
+  readonly fullSession: BrowserGoalSession | null;
+  /** 完整会话读取是否正在进行。 */
+  readonly fullSessionLoading: boolean;
+  /** 最近一次完整会话读取错误；失败不清除窄状态与 Activity 页。 */
+  readonly fullSessionError: string | null;
+  /** 初始窄状态与 Activity 页是否正在读取。 */
   readonly sessionLoading: boolean;
   readonly sessionError: string | null;
   readonly workspaceContext: BrowserWorkspaceContext | null;
@@ -44,7 +68,26 @@ export interface GoalSessionContextValue {
   readonly setModelPreferenceRetry: (retry: string | null) => void;
   readonly retryModelPreference: () => Promise<void>;
   readonly onModelCatalogRefresh: () => void;
+  /**
+   * 重读窄状态与首个 Activity 窗口；已请求过完整会话时再同步完整投影。
+   *
+   * @returns 读取结束时兑现；失败状态保留在 context 的错误字段中。
+   * @example
+   * ```ts
+   * await refreshSelectedSession();
+   * ```
+   */
   readonly refreshSelectedSession: () => Promise<void>;
+  /**
+   * 按当前选择读取完整会话历史；只读，不触发 Goal 执行或持久化写入。
+   *
+   * @returns 读取成功的完整会话；未选择 Goal、读取失败或结果已过期时返回 `null`。
+   * @example
+   * ```ts
+   * const session = await loadFullSession();
+   * ```
+   */
+  readonly loadFullSession: () => Promise<BrowserGoalSession | null>;
   readonly selectGoal: (goalId: string) => void;
   readonly closeSession: () => void;
   readonly openNewGoalDraft: () => void;

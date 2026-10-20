@@ -794,22 +794,29 @@ function isBrowserActivityItem(value: unknown): boolean {
     if (!isRecord(value) || !isNonEmptyString(value.itemId) || !isNonEmptyString(value.runId)
         || !isActivityPosition(value.position) || value.position.runId !== value.runId) return false;
     if (value.type === "message") {
-        return !Object.keys(value).some((key) => !["type", "itemId", "messageId", "role", "runId", "position", "content", "contentLength", "truncated"].includes(key))
+        return !Object.keys(value).some((key) => !["type", "itemId", "messageId", "role", "purpose", "runId", "position", "content", "contentLength", "truncated"].includes(key))
             && isNonEmptyString(value.messageId)
             && (value.role === "user" || value.role === "assistant")
+            && (value.role === "user"
+                ? value.purpose === undefined
+                : value.purpose === "process" || value.purpose === "answer" || value.purpose === "notice")
             && typeof value.content === "string" && value.content.length <= 4_000
             && Number.isSafeInteger(value.contentLength) && Number(value.contentLength) >= value.content.length
             && typeof value.truncated === "boolean";
     }
     if (value.type !== "fact") return false;
-    return !Object.keys(value).some((key) => !["type", "itemId", "eventId", "runId", "position", "eventType", "title", "executionUnitId", "actionId", "stageId", "stageRevision"].includes(key))
+    const isStageDeclaration = value.eventType === "run_stage_declared";
+    return !Object.keys(value).some((key) => !["type", "itemId", "eventId", "runId", "position", "eventType", "title", "executionUnitId", "actionId", "stageId", "stageRevision", "stageTarget"].includes(key))
         && isNonEmptyString(value.eventId)
         && (BROWSER_ACTIVITY_EVENT_TYPES as readonly string[]).includes(String(value.eventType))
         && typeof value.title === "string"
         && (value.executionUnitId === undefined || isNonEmptyString(value.executionUnitId))
         && (value.actionId === undefined || isNonEmptyString(value.actionId))
         && (value.stageId === undefined || isNonEmptyString(value.stageId))
-        && (value.stageRevision === undefined || Number.isSafeInteger(value.stageRevision) && Number(value.stageRevision) > 0);
+        && (value.stageRevision === undefined || Number.isSafeInteger(value.stageRevision) && Number(value.stageRevision) > 0)
+        && (isStageDeclaration
+            ? isNonEmptyString(value.stageTarget) && value.stageTarget.length <= 1_000
+            : value.stageTarget === undefined);
 }
 
 /**

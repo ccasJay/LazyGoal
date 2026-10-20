@@ -144,7 +144,7 @@ test("Activity 与窄状态 wire guards 接受有界安全 DTO 并拒绝原始�
         goalId: "goal-1",
         limit: 1,
         items: [{
-            type: "message", itemId: "message:msg-1", messageId: "msg-1", role: "assistant", runId: "run-1",
+            type: "message", itemId: "message:msg-1", messageId: "msg-1", role: "assistant", purpose: "answer", runId: "run-1",
             position, content: "saved", contentLength: 5, truncated: false,
         }],
         runs: [{ runId: "run-1", status: "running", current: true, runOrder: 0, committedThroughSequence: 2 }],
@@ -157,11 +157,30 @@ test("Activity 与窄状态 wire guards 接受有界安全 DTO 并拒绝原始�
     assert.equal(isBrowserActivityPage(page), true);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], payload: { secret: "raw" } }] }), false);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], content: "x".repeat(4_001), contentLength: 4_001 }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], purpose: undefined }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], role: "user", purpose: "answer" }] }), false);
     assert.equal(isBrowserActivityPage({ ...page, limit: 101 }), false);
     assert.equal(isBrowserActivityPage({ ...page, gaps: [{ direction: "older", itemCount: 0, first: position, last: position }] }), false);
     assert.equal(isBrowserActivityPage({ ...page, gaps: [{ direction: "sideways", itemCount: 1, first: position, last: position }] }), false);
     const { gaps: _gaps, ...missingGaps } = page;
     assert.equal(isBrowserActivityPage(missingGaps), false);
+
+    const stageFact = {
+        type: "fact" as const,
+        itemId: "event:stage-declared",
+        eventId: "stage-declared",
+        runId: "run-1",
+        position: { ...position, itemKind: "fact" as const },
+        eventType: "run_stage_declared" as const,
+        title: "Stage declared",
+        stageId: "stage-1",
+        stageRevision: 1,
+        stageTarget: "Summarize verified findings",
+    };
+    assert.equal(isBrowserActivityPage({ ...page, items: [stageFact] }), true);
+    const { stageTarget: _stageTarget, ...missingStageTarget } = stageFact;
+    assert.equal(isBrowserActivityPage({ ...page, items: [missingStageTarget] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...stageFact, eventType: "tool_started" }] }), false);
 
     const state: BrowserGoalSessionState = {
         goalId: "goal-1", intent: "inspect", currentRunId: "run-1", runStatus: "running",

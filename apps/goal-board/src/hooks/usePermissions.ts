@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
-  BrowserGoalSession,
+  BrowserGoalSessionState,
   BrowserPermissionModeResult,
   BrowserToolGrantSummary,
 } from "../../../../packages/web-contracts/src/index";
@@ -9,7 +9,7 @@ import { browserApi } from "../api";
 export function usePermissions({
   session,
 }: {
-  session: BrowserGoalSession | null;
+  session: BrowserGoalSessionState | null;
 }) {
   const [permissionMenuOpen, setPermissionMenuOpen] = useState(false);
   const [permissionMode, setPermissionMode] = useState<Extract<BrowserPermissionModeResult, { ok: true }> | null>(null);

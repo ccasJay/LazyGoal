@@ -8,7 +8,9 @@ import {
   isBrowserInteractionDetailResult,
   isBrowserActionReviewResult,
   isGoalList,
+  isBrowserActivityPage,
   isGoalSessionEnvelope,
+  isGoalSessionStateEnvelope,
   isLiveEvent,
   isMetricsSnapshot,
   isModelCatalog,
@@ -40,6 +42,9 @@ import {
   type BrowserGoalLiveEvent,
   type BrowserGoalPlanModeCommand,
   type BrowserGoalSession,
+  type BrowserGoalSessionState,
+  type BrowserActivityPage,
+  type BrowserActivityQuery,
   type BrowserActionReviewCommand,
   type BrowserActionReviewResult,
   type BrowserInteractionDetailResult,
@@ -110,6 +115,49 @@ export const browserApi = {
       goal: body.goal,
       ...(body.session === undefined ? {} : { session: body.session }),
     };
+  },
+
+  /**
+   * 读取不含历史正文、步骤或阶段的窄 Goal 状态及安全 Runtime 会话元数据。
+   *
+   * @param goalId - 要读取的稳定 Goal 标识。
+   * @param signal - 可选取消信号；取消只中止本次浏览器读取。
+   * @returns 窄 Goal 状态及可选的 Runtime 会话元数据，不包含完整历史。
+   * @throws HTTP 请求失败或响应不符合当前 wire 契约时抛出 `BrowserApiError` 或协议错误。
+   * @example
+   * ```ts
+   * const { goal } = await browserApi.readGoalSessionState(goalId, signal);
+   * ```
+   */
+  async readGoalSessionState(goalId: string, signal?: AbortSignal): Promise<{ goal: BrowserGoalSessionState; session?: BrowserSessionState }> {
+    const body = await requestJson(`/api/goals/${encodeURIComponent(goalId)}?view=state`, isGoalSessionStateEnvelope, signal);
+    return {
+      goal: body.goal,
+      ...(body.session === undefined ? {} : { session: body.session }),
+    };
+  },
+
+  /**
+   * 按服务端固定水位读取有界的正文与安全 Activity 来源。
+   *
+   * @param goalId - 要读取的稳定 Goal 标识。
+   * @param query - 可选 Run 筛选、同一窗口的前／后 cursor 与页大小；服务端默认 50、最大 100。
+   * @param signal - 可选取消信号；取消只中止本次浏览器读取。
+   * @returns 一页安全 Activity DTO 及固定水位、范围和后续 cursor；不自动读取其它页。
+   * @throws HTTP 请求失败、cursor 被服务端拒绝或响应不符合当前 wire 契约时抛出错误。
+   * @example
+   * ```ts
+   * const page = await browserApi.readGoalActivity(goalId, { limit: 50 }, signal);
+   * ```
+   */
+  readGoalActivity(goalId: string, query: BrowserActivityQuery = {}, signal?: AbortSignal): Promise<BrowserActivityPage> {
+    const params = new URLSearchParams();
+    if (query.runId !== undefined) params.set("runId", query.runId);
+    if (query.before !== undefined) params.set("before", query.before);
+    if (query.after !== undefined) params.set("after", query.after);
+    if (query.limit !== undefined) params.set("limit", String(query.limit));
+    const suffix = params.size === 0 ? "" : `?${params.toString()}`;
+    return requestJson(`/api/goals/${encodeURIComponent(goalId)}/activity${suffix}`, isBrowserActivityPage, signal);
   },
 
   modelInputs(goalId: string, runId: string, offset = 0, signal?: AbortSignal, query = ""): Promise<{ calls: BrowserModelInputSummary[]; total: number; nextOffset: number | null }> {
