@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { contract } from "../../../packages/contracts/src/index";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import { toolResponseFixture } from "../../../packages/agent/test/tool-response-fixture";
-import type { AgentProfile, Goal } from "../../../packages/runtime/src/index";
+import type { AgentProfile, Goal, RunStopReason } from "../../../packages/runtime/src/index";
 import { createToolRegistration, InMemoryToolRegistry, type Tool } from "../../../packages/tool-core/src/index";
 import {
     readBrowserGoalActivity,
@@ -122,7 +122,7 @@ test("正式装配贯通工具活动与正式答复，并给出稳定位置与�
         // 等待受控工具执行并让 Run 进入终态。
         const deadline = Date.now() + 30_000;
         let status = "running";
-        let stopReason: string | undefined;
+        let stopReason: RunStopReason | undefined;
         while (Date.now() < deadline && status !== "waiting" && status !== "completed" && status !== "failed") {
             await new Promise((resolve) => setTimeout(resolve, 50));
             const goal = await runtime.workspaceGoalStore.restore(goalId);
