@@ -525,6 +525,7 @@ test("HTTP 消息入口按稳定身份返回有界列表与正文，并区分不
         messageId: "msg-1",
         role: "assistant" as const,
         runId: "run-1",
+        position: { afterSequence: 0, order: 0 },
         purpose: "answer" as const,
         sourceKind: "completion_candidate",
         sourceId: "candidate-1",

@@ -394,6 +394,7 @@ function encodeMessage(message: GoalMessage): GoalSnapshotMessageV1 {
             content: message.content,
             messageId: message.messageId,
             runId: message.runId,
+            position: { ...message.position },
             source: { ...message.source },
         }
         : {
@@ -402,6 +403,7 @@ function encodeMessage(message: GoalMessage): GoalSnapshotMessageV1 {
             content: message.content,
             messageId: message.messageId,
             runId: message.runId,
+            position: { ...message.position },
             purpose: message.purpose,
             source: { ...message.source },
         };
@@ -1114,6 +1116,7 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
                         content: message.content,
                         messageId: message.messageId,
                         runId: message.runId,
+                        position: { ...message.position },
                         source: { ...message.source },
                     }
                     : {
@@ -1122,6 +1125,7 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
                         content: message.content,
                         messageId: message.messageId,
                         runId: message.runId,
+                        position: { ...message.position },
                         purpose: message.purpose,
                         source: { ...message.source },
                     }

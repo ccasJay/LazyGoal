@@ -112,6 +112,33 @@ test("Plan task approval projection preserves the complete ordered route", async
     assert.equal(session?.interaction?.truncated, false);
 });
 
+test("Browser session messages preserve stable identity and persisted Run position", async () => {
+    const initial = createTestGoal();
+    const assistant = testAssistantMessage("已保存正文", {
+        runId: initial.state.run.id,
+        profileId: "private-profile-id",
+        position: { afterSequence: 4, order: 0 },
+    });
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: { ...initial.state.run, committedThroughSequence: 4 },
+            messages: [...initial.state.messages, assistant],
+        },
+    };
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.deepEqual(session?.messages[1], {
+        messageId: assistant.messageId,
+        role: "assistant",
+        content: "已保存正文",
+        runId: goal.state.run.id,
+        position: { afterSequence: 4, order: 0 },
+    });
+});
+
 test("session projection exposes the typed interaction identity and truncation flag", async () => {
     const initial = createTestGoal();
     const goal: Goal = {
@@ -513,8 +540,15 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
         state: {
             ...initial.state,
             messages: [
-                testUserMessage("检查项目"),
-                testAssistantMessage("会话已完成", { profileId: "private-profile-id" }),
+                testUserMessage("检查项目", {
+                    runId: initial.state.run.id,
+                    position: { afterSequence: 0, order: 0 },
+                }),
+                testAssistantMessage("会话已完成", {
+                    runId: initial.state.run.id,
+                    profileId: "private-profile-id",
+                    position: { afterSequence: 4, order: 0 },
+                }),
             ],
             goalPlan: {
                 revision: 1,
@@ -539,8 +573,16 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
 
     assert.ok(session);
     assert.deepEqual(session.messages, [
-        { role: "user", content: "检查项目", runId: "run-real-1" },
-        { role: "assistant", content: "会话已完成", runId: "run-real-1" },
+        {
+            messageId: goal.state.messages[0]!.messageId,
+            role: "user", content: "检查项目", runId: "run-real-1",
+            position: { afterSequence: 0, order: 0 },
+        },
+        {
+            messageId: goal.state.messages[1]!.messageId,
+            role: "assistant", content: "会话已完成", runId: "run-real-1",
+            position: { afterSequence: 4, order: 0 },
+        },
     ]);
     assert.equal(session.currentRunMode, "normal");
     assert.equal(session.nextRunMode, undefined);

@@ -88,7 +88,10 @@ test("isBrowserGoalSession validates complete and malformed sessions", () => {
         currentRunId: "run-1",
         runStatus: "waiting",
         currentRunMode: "normal",
-        messages: [{ role: "user", content: "hello", runId: "run-1" }],
+        messages: [{
+            messageId: "msg-1", role: "user", content: "hello", runId: "run-1",
+            position: { afterSequence: 0, order: 0 },
+        }],
         runs: [
             {
                 runId: "run-1",
@@ -123,6 +126,10 @@ test("isBrowserGoalSession validates complete and malformed sessions", () => {
     }
 
     assert.equal(isBrowserGoalSession({ ...validSession, currentRunMode: "other" }), false);
+    assert.equal(isBrowserGoalSession({
+        ...validSession,
+        messages: [{ ...validSession.messages[0]!, position: { afterSequence: -1, order: 0 } }],
+    }), false);
     assert.equal(isBrowserGoalSession({ ...validSession, runs: "not-array" }), false);
     assert.equal(isGoalSessionEnvelope({ goal: null }), false);
 });
@@ -251,6 +258,27 @@ test("isLiveEvent validates activity identities without conflating trajectory ID
     assert.equal(isLiveEvent({
         type: "activity", goalId: "goal-1", runId: "run-1",
         activity: { kind: "activity_boundary", sourceEventId: "event-2", sourceCursor: 2, reason: "private_reasoning" },
+    }), false);
+});
+
+test("message committed live events require a valid persisted Run position", () => {
+    const event = {
+        type: "message_committed",
+        goalId: "goal-1",
+        runId: "run-1",
+        message: {
+            messageId: "msg-1",
+            role: "assistant",
+            runId: "run-1",
+            position: { afterSequence: 8, order: 0 },
+            purpose: "answer",
+            commitRevision: 3,
+        },
+    };
+    assert.equal(isLiveEvent(event), true);
+    assert.equal(isLiveEvent({
+        ...event,
+        message: { ...event.message, position: { afterSequence: 8, order: -1 } },
     }), false);
 });
 
@@ -458,6 +486,7 @@ test("Browser session input validators accept receipts, queries and state projec
             throughMessageId: "msg-1",
             recent: [{
                 messageId: "msg-1", role: "user", runId: "run-1",
+                position: { afterSequence: 0, order: 0 },
                 sourceKind: "goal_intent", sourceId: "goal-1",
             }],
         },

@@ -1,4 +1,4 @@
-import type { GoalMessage, GoalMessageSource } from "./domain";
+import type { GoalMessage, GoalMessagePosition, GoalMessageSource } from "./domain";
 
 /**
  * 列表读取时每条消息公开正文的上限（UTF-16 code unit）。
@@ -59,13 +59,13 @@ export interface SessionMessageQuery {
  * 一条消息的公开条目。
  *
  * @remarks
- * 条目只包含身份、角色、Run 归属、用途、来源与有界正文摘要；不包含隐藏推理、
+ * 条目只包含身份、角色、Run 归属、稳定位置、用途、来源与有界正文摘要；不包含隐藏推理、
  * 凭据或原始 Provider 响应。
  *
  * @example
  * ```ts
  * const entry: SessionMessageEntry = {
- *   messageId: "msg-1", role: "assistant", runId: "run-1",
+ *   messageId: "msg-1", role: "assistant", runId: "run-1", position: { afterSequence: 8, order: 0 },
  *   purpose: "answer", sourceKind: "completion_candidate", sourceId: "c1",
  *   content: "已完成", contentLength: 3, truncated: false,
  * };
@@ -78,6 +78,8 @@ export interface SessionMessageEntry {
     readonly role: "user" | "assistant";
     /** 消息所属 Run。 */
     readonly runId: string;
+    /** 消息在所属 Run 已提交事实流中的稳定位置。 */
+    readonly position: GoalMessagePosition;
     /** 助手消息用途；用户消息省略。 */
     readonly purpose?: "process" | "answer" | "notice" | undefined;
     /** 来源判别式。 */
@@ -216,6 +218,7 @@ export function projectSessionMessageEntry(
         messageId: message.messageId,
         role: message.role,
         runId: message.runId,
+        position: { ...message.position },
         ...(message.role === "assistant" ? { purpose: message.purpose } : {}),
         sourceKind: message.source.kind,
         sourceId: projectMessageSourceId(message.source),

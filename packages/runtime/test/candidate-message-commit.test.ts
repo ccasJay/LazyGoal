@@ -95,6 +95,9 @@ test("完成候选在审查接受并保存消息后才成为正式答复", async
     assert.equal(answer.content, "最终答复正文");
     assert.equal(answer.runId, "run-1");
     assert.deepEqual(answer.source, { kind: "completion_candidate", candidateId: "call-accepted" });
+    const completedFact = trajectory.events.find((event) => event.payload.type === "run_completed");
+    assert.ok(completedFact);
+    assert.deepEqual(answer.position, { afterSequence: completedFact.sequence, order: 0 });
 });
 
 test("审查拒绝的候选被明确作废，且不产生正式答复", async () => {

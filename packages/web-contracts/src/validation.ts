@@ -50,6 +50,12 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isMessagePosition(value: unknown): value is { readonly afterSequence: number; readonly order: number } {
+    return isRecord(value)
+        && Number.isSafeInteger(value.afterSequence) && Number(value.afterSequence) >= 0
+        && Number.isSafeInteger(value.order) && Number(value.order) >= 0;
+}
+
 /**
  * 非空字符串类型守卫。
  *
@@ -226,6 +232,7 @@ export function isBrowserSessionState(value: unknown): value is BrowserSessionSt
             && isNonEmptyString(message.messageId)
             && ["user", "assistant"].includes(String(message.role))
             && isNonEmptyString(message.runId)
+            && isMessagePosition(message.position)
             && isNonEmptyString(message.sourceKind)
             && isNonEmptyString(message.sourceId))
         && typeof value.needsRecovery === "boolean"
@@ -609,7 +616,10 @@ export function isBrowserGoalSession(value: unknown): value is BrowserGoalSessio
         || !Array.isArray(value.messages)
         || !value.messages.every((message) => isRecord(message)
             && (message.role === "user" || message.role === "assistant")
-            && typeof message.content === "string")
+            && typeof message.content === "string"
+            && isNonEmptyString(message.messageId)
+            && isNonEmptyString(message.runId)
+            && isMessagePosition(message.position))
         || (value.pendingSteers !== undefined && (!Array.isArray(value.pendingSteers)
             || !value.pendingSteers.every((steer) => isRecord(steer)
                 && isNonEmptyString(steer.messageId)
@@ -971,6 +981,7 @@ export function isLiveEvent(value: unknown): value is BrowserGoalLiveEvent {
             && message.messageId.length <= 200
             && ["user", "assistant"].includes(String(message.role))
             && isNonEmptyString(message.runId)
+            && isMessagePosition(message.position)
             && Number.isSafeInteger(message.commitRevision)
             && (message.purpose === undefined
                 || ["process", "answer", "notice"].includes(String(message.purpose)))

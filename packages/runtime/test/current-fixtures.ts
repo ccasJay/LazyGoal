@@ -159,6 +159,7 @@ export function testUserMessage(
         readonly runId?: string | undefined;
         readonly source?: GoalMessageSource | undefined;
         readonly messageId?: string | undefined;
+        readonly position?: { readonly afterSequence: number; readonly order: number } | undefined;
     } = {},
 ): UserMessage {
     fixtureMessageCounter += 1;
@@ -166,6 +167,7 @@ export function testUserMessage(
         content,
         runId: options.runId ?? "run-fixture",
         source: options.source ?? { kind: "user_input", inputId: `input-fixture-${fixtureMessageCounter}` },
+        position: options.position ?? { afterSequence: 0, order: 0 },
         ...(options.messageId === undefined ? {} : { messageId: options.messageId }),
     });
 }
@@ -192,6 +194,7 @@ export function testAssistantMessage(
         readonly source?: GoalMessageSource | undefined;
         readonly profileId?: string | undefined;
         readonly messageId?: string | undefined;
+        readonly position?: { readonly afterSequence: number; readonly order: number } | undefined;
     } = {},
 ): AssistantMessage {
     fixtureMessageCounter += 1;
@@ -201,6 +204,7 @@ export function testAssistantMessage(
         purpose: options.purpose ?? "process",
         source: options.source ?? { kind: "stage_output", executionUnitId: `unit-fixture-${fixtureMessageCounter}`, blockIndex: 0 },
         profileId: options.profileId ?? "profile-fixture",
+        position: options.position ?? { afterSequence: 0, order: 0 },
         ...(options.messageId === undefined ? {} : { messageId: options.messageId }),
     });
 }

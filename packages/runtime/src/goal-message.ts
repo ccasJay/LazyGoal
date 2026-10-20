@@ -6,6 +6,7 @@ import type {
     Goal,
     GoalMessage,
     GoalMessageSource,
+    GoalMessagePosition,
     UserMessage,
 } from "./domain";
 
@@ -118,39 +119,95 @@ export function findGoalMessageById(
     return messages.find((message) => message.messageId === messageId);
 }
 
-/** 构造用户消息所需的最小输入。 */
+/**
+ * 直接构造用户消息时所需的最小输入。
+ *
+ * @remarks
+ * 直接调用构造器的调用者必须提供已经确定的 Run 内位置；通过
+ * appendGoalMessage 追加时，Runtime 根据当前已提交事实边界推导位置。
+ *
+ * @example
+ * ```ts
+ * const draft: UserMessageDraft = {
+ *   content: "继续", runId: "run-1", position: { afterSequence: 0, order: 0 }, source,
+ * };
+ * ```
+ */
 export interface UserMessageDraft {
     readonly content: string;
     readonly runId: string;
     readonly source: GoalMessageSource;
+    /** 正式位置；统一追加器按当前快照边界推导，直接构造消息时必须提供。 */
+    readonly position: GoalMessagePosition;
     /** 可选的消息身份；省略时由 Runtime 在提交边界分配。 */
     readonly messageId?: string | undefined;
 }
 
-/** 构造助手消息所需的最小输入。 */
+/**
+ * 直接构造助手消息时所需的最小输入。
+ *
+ * @remarks
+ * 直接调用构造器的调用者必须提供已经确定的 Run 内位置；通过
+ * appendGoalMessage 追加时，Runtime 根据当前已提交事实边界推导位置。
+ *
+ * @example
+ * ```ts
+ * const draft: AssistantMessageDraft = {
+ *   content: "已完成", runId: "run-1", purpose: "answer", profileId: "default",
+ *   position: { afterSequence: 8, order: 0 }, source,
+ * };
+ * ```
+ */
 export interface AssistantMessageDraft {
     readonly content: string;
     readonly runId: string;
     readonly purpose: AssistantMessagePurpose;
     readonly source: GoalMessageSource;
     readonly profileId: string;
+    /** 正式位置；统一追加器按当前快照边界推导，直接构造消息时必须提供。 */
+    readonly position: GoalMessagePosition;
     /** 可选的消息身份；省略时由 Runtime 在提交边界分配。 */
     readonly messageId?: string | undefined;
 }
 
-/** 追加正式消息的统一草稿。 */
+/**
+ * 追加正式消息的统一草稿。
+ *
+ * @remarks
+ * 省略 position 时由 appendGoalMessage 按 Goal 的当前 Run 边界计算；显式提供时
+ * 必须对应原始事实提交位置。
+ *
+ * @example
+ * ```ts
+ * const draft: GoalMessageDraft = { role: "user", content: "继续", runId: "run-1", source };
+ * ```
+ */
 export type GoalMessageDraft =
-    | ({ readonly role: "user" } & UserMessageDraft)
-    | ({ readonly role: "assistant" } & AssistantMessageDraft);
+    | ({ readonly role: "user" } & Omit<UserMessageDraft, "position"> & { readonly position?: GoalMessagePosition })
+    | ({ readonly role: "assistant" } & Omit<AssistantMessageDraft, "position"> & { readonly position?: GoalMessagePosition });
+
+function nextPosition(goal: Goal, runId: string): GoalMessagePosition {
+    const completed = (goal.state.completedRuns ?? []).find((run) => run.runId === runId);
+    const afterSequence = runId === goal.state.run.id
+        ? goal.state.run.committedThroughSequence ?? 0
+        : completed?.committedThroughSequence ?? 0;
+    const order = goal.state.messages.reduce((next, message) =>
+        message.runId === runId && message.position.afterSequence === afterSequence
+            ? Math.max(next, message.position.order + 1)
+            : next, 0);
+    return { afterSequence, order };
+}
 
 /**
  * 构造带稳定身份的用户消息。
  *
- * @param draft - 正文、Run 归属、来源与可选身份。
+ * @param draft - 正文、Run 归属、来源、稳定位置与可选身份。
  * @returns 满足当前消息契约的只读用户消息。
  * @example
  * ```ts
- * const message = createUserMessage({ content: "继续", runId: "run-1", source });
+ * const message = createUserMessage({
+ *   content: "继续", runId: "run-1", position: { afterSequence: 0, order: 0 }, source,
+ * });
  * ```
  */
 export function createUserMessage(draft: UserMessageDraft): UserMessage {
@@ -159,6 +216,7 @@ export function createUserMessage(draft: UserMessageDraft): UserMessage {
         content: draft.content,
         messageId: draft.messageId ?? `msg-${randomUUID()}`,
         runId: draft.runId,
+        position: { ...draft.position },
         source: draft.source,
     };
 }
@@ -172,6 +230,7 @@ export function createUserMessage(draft: UserMessageDraft): UserMessage {
  * ```ts
  * const message = createAssistantMessage({
  *   content: "先检查配置", runId: "run-1", purpose: "process", source, profileId: "default",
+ *   position: { afterSequence: 4, order: 0 },
  * });
  * ```
  */
@@ -182,6 +241,7 @@ export function createAssistantMessage(draft: AssistantMessageDraft): AssistantM
         content: draft.content,
         messageId: draft.messageId ?? `msg-${randomUUID()}`,
         runId: draft.runId,
+        position: { ...draft.position },
         purpose: draft.purpose,
         source: draft.source,
     };
@@ -231,12 +291,14 @@ export function appendGoalMessage(
             purpose: draft.purpose,
             source: draft.source,
             profileId: draft.profileId,
+            position: draft.position ?? nextPosition(goal, draft.runId),
             ...(draft.messageId === undefined ? {} : { messageId: draft.messageId }),
         })
         : createUserMessage({
             content: draft.content,
             runId: draft.runId,
             source: draft.source,
+            position: draft.position ?? nextPosition(goal, draft.runId),
             ...(draft.messageId === undefined ? {} : { messageId: draft.messageId }),
         });
     return {

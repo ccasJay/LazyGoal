@@ -166,6 +166,25 @@ export interface BrowserGoalExecution {
 }
 
 /**
+ * 浏览器可读的 Run 内消息位置。
+ *
+ * @remarks
+ * `afterSequence` 对应消息前最后一条已提交 Run 事实，`order` 保持同锚点消息的
+ * Snapshot 次序；该值不表示墙钟时间或执行 Step。
+ *
+ * @example
+ * ```ts
+ * const position: BrowserMessagePosition = { afterSequence: 12, order: 0 };
+ * ```
+ */
+export interface BrowserMessagePosition {
+    /** 消息之前的最后一条已提交事实序列。 */
+    readonly afterSequence: number;
+    /** 同一 Run、同一事实锚点内的零基 Snapshot 次序。 */
+    readonly order: number;
+}
+
+/**
  * 工作区 Goal 列表项的安全传输对象。
  *
  * @remarks
@@ -208,24 +227,30 @@ export interface BrowserGoalListItem {
  * 会话时间线中的用户或助手文本消息。
  *
  * @remarks
- * 仅包含角色、有界文本及所属 Run 标识；超出长度限制的正文会在服务端截断。
+ * 包含稳定身份、来源、Run 内位置及有界正文；超出长度限制的正文会在服务端截断。
  *
  * @example
  * ```ts
  * const msg: BrowserSessionMessage = {
+ *     messageId: "msg-1",
  *     role: "user",
  *     content: "请检查代码质量",
  *     runId: "run-1",
+ *     position: { afterSequence: 0, order: 0 },
  * };
  * ```
  */
 export interface BrowserSessionMessage {
+    /** 消息稳定身份。 */
+    readonly messageId: string;
     /** 消息角色。 */
     readonly role: "user" | "assistant";
     /** 消息正文。 */
     readonly content: string;
-    /** 消息所属的 Run 标识；历史无归属时省略。 */
-    readonly runId?: string;
+    /** 消息所属的 Run 标识；每条正式消息必须关联到真实 Run。 */
+    readonly runId: string;
+    /** 消息在所属 Run 已提交事实流中的稳定位置。 */
+    readonly position: BrowserMessagePosition;
 }
 
 /**

@@ -105,10 +105,11 @@ test("completed normal Run is archived before a new Run is scheduled", async () 
     const initial = completedGoal("normal");
     await store.save(initial);
     const scheduler = new WaitingScheduler(store);
+    const trajectoryStore = trajectoryStoreFor(store);
     const coordinator = new GoalCoordinator({
         store,
         scheduler,
-        trajectoryStore: trajectoryStoreFor(store),
+        trajectoryStore,
         runIdGenerator: () => "run-2",
     });
 
@@ -134,6 +135,9 @@ test("completed normal Run is archived before a new Run is scheduled", async () 
         kind: "user_input",
         inputId: "continuation:run-2",
     });
+    const runCreated = trajectoryStore.events.find((event) => event.runId === "run-2" && event.payload.type === "run_created");
+    assert.ok(runCreated);
+    assert.deepEqual(continuationMessage?.position, { afterSequence: runCreated.sequence, order: 0 });
     assert.deepEqual(persisted.state.completedRuns, [{
         runId: "run-1",
         status: "completed",

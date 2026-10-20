@@ -15,6 +15,7 @@ export type {
     GoalSnapshotDecisionResultV1,
     GoalSnapshotDefinitionV1,
     GoalSnapshotMessageV1,
+    GoalSnapshotMessagePositionV1,
     GoalSnapshotMetadataV1,
     GoalSnapshotModelSelectionV1,
     GoalSnapshotObservationV1,

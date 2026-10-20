@@ -240,6 +240,7 @@ export function createBrowserGoalSessionPort(
                     messageId: message.messageId,
                     role: message.role,
                     runId: message.runId,
+                    position: message.position,
                     ...(message.purpose === undefined ? {} : { purpose: message.purpose }),
                     sourceKind: message.sourceKind,
                     sourceId: message.sourceId,
@@ -261,6 +262,7 @@ export function createBrowserGoalSessionPort(
                     messageId: result.entry.messageId,
                     role: result.entry.role,
                     runId: result.entry.runId,
+                    position: result.entry.position,
                     ...(result.entry.purpose === undefined ? {} : { purpose: result.entry.purpose }),
                     sourceKind: result.entry.sourceKind,
                     sourceId: result.entry.sourceId,
@@ -712,6 +714,7 @@ function projectCommittedMessage(event: SessionMessageCommittedEvent): {
     readonly messageId: string;
     readonly role: "user" | "assistant";
     readonly runId: string;
+    readonly position: SessionMessageCommittedEvent["position"];
     readonly purpose?: "process" | "answer" | "notice";
     readonly commitRevision: number;
     readonly previewId?: string;
@@ -720,6 +723,7 @@ function projectCommittedMessage(event: SessionMessageCommittedEvent): {
         messageId: event.messageId,
         role: event.role,
         runId: event.runId,
+        position: event.position,
         ...(event.purpose === undefined ? {} : { purpose: event.purpose }),
         commitRevision: event.commitRevision,
         ...(event.previewId === undefined ? {} : { previewId: event.previewId }),
@@ -780,6 +784,7 @@ export function projectSessionState(goalId: string, state: GoalSessionState): Br
                 messageId: message.messageId,
                 role: message.role,
                 runId: message.runId,
+                position: message.position,
                 ...(message.purpose === undefined ? {} : { purpose: message.purpose }),
                 sourceKind: message.sourceKind,
                 sourceId: message.sourceId,

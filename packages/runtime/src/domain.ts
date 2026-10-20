@@ -408,12 +408,31 @@ export type GoalMessageSource =
 export type AssistantMessagePurpose = "process" | "answer" | "notice";
 
 /**
+ * 正式消息在所属 Run 的已提交轨迹中的位置。
+ *
+ * @remarks
+ * `afterSequence` 指消息之前最后一条已提交事实；Run 首条事实之前为 `0`。
+ * 同一事实锚点上的消息按 Snapshot 顺序使用从 `0` 开始的 `order`，不代表时间或 Step。
+ *
+ * @example
+ * ```ts
+ * const position: GoalMessagePosition = { afterSequence: 12, order: 0 };
+ * ```
+ */
+export interface GoalMessagePosition {
+    /** 消息之前的最后一条已提交 Run 事实序列。 */
+    readonly afterSequence: number;
+    /** 同一 Run、同一事实锚点内按 Snapshot 顺序排列的零基序号。 */
+    readonly order: number;
+}
+
+/**
  * 用户实际发送并需要随 Session 恢复的消息。
  *
  * @remarks
  * `messageId` 在所属 Runtime 提交边界分配并随快照保存，刷新、重试或切换 Run
- * 后仍可定位；`runId` 记录归属 Run；`source` 指向产生它的基础输入或交互请求。
- * 身份不由数组位置或正文哈希推导。
+ * 后仍可定位；`runId` 记录归属 Run；`source` 指向产生它的基础输入或交互请求；
+ * `position` 以该 Run 的已提交事实与同锚点 Snapshot 次序定位消息。身份不由正文推导。
  *
  * @example
  * ```ts
@@ -422,6 +441,7 @@ export type AssistantMessagePurpose = "process" | "answer" | "notice";
  *   content: "继续",
  *   messageId: "msg-1",
  *   runId: "run-1",
+ *   position: { afterSequence: 0, order: 0 },
  *   source: { kind: "user_input", inputId: "input-1" },
  * };
  * ```
@@ -433,6 +453,8 @@ export interface UserMessage {
     readonly messageId: string;
     /** 该消息所属的 Run 身份。 */
     readonly runId: string;
+    /** 该消息在所属 Run 已提交事实流中的稳定位置。 */
+    readonly position: GoalMessagePosition;
     /** 产生该消息的真实来源。 */
     readonly source: GoalMessageSource;
 }
@@ -442,8 +464,8 @@ export interface UserMessage {
  *
  * @remarks
  * `profileId` 记录消息来源；Working Context 不属于真实消息。`purpose` 区分
- * 过程正文、最终答复与 Runtime 通知；`messageId`、`runId` 与 `source` 与用户
- * 消息遵守同一身份契约。
+ * 过程正文、最终答复与 Runtime 通知；`messageId`、`runId`、`position` 与 `source`
+ * 与用户消息遵守同一身份契约。
  *
  * @example
  * ```ts
@@ -453,6 +475,7 @@ export interface UserMessage {
  *   content: "需要批准后继续",
  *   messageId: "msg-2",
  *   runId: "run-1",
+ *   position: { afterSequence: 4, order: 0 },
  *   purpose: "notice",
  *   source: { kind: "runtime_notice", noticeId: "notice-1" },
  * };
@@ -466,6 +489,8 @@ export interface AssistantMessage {
     readonly messageId: string;
     /** 该消息所属的 Run 身份。 */
     readonly runId: string;
+    /** 该消息在所属 Run 已提交事实流中的稳定位置。 */
+    readonly position: GoalMessagePosition;
     /** 该消息的用途分类。 */
     readonly purpose: AssistantMessagePurpose;
     /** 产生该消息的真实来源。 */
@@ -1405,6 +1430,7 @@ function cloneMessages(messages: readonly GoalMessage[]): readonly GoalMessage[]
             content: message.content,
             messageId: message.messageId,
             runId: message.runId,
+            position: { ...message.position },
             source: { ...message.source },
         }
         : {
@@ -1413,6 +1439,7 @@ function cloneMessages(messages: readonly GoalMessage[]): readonly GoalMessage[]
             content: message.content,
             messageId: message.messageId,
             runId: message.runId,
+            position: { ...message.position },
             purpose: message.purpose,
             source: { ...message.source },
         });
@@ -1469,6 +1496,7 @@ export function createGoal(input: GoalCreationInput): Goal {
                     content: input.intent,
                     messageId: `msg-intent-${input.id}`,
                     runId: input.runId,
+                    position: { afterSequence: 0, order: 0 },
                     source: { kind: "goal_intent", goalId: input.id },
                 },
                 ...(input.messages ?? []),

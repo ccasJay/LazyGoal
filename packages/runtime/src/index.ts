@@ -130,6 +130,7 @@ export type {
     GoalCreationInput,
     GoalDefinition,
     GoalMessage,
+    GoalMessagePosition,
     GoalMessageSource,
     GoalModelSelection,
     RunMode,

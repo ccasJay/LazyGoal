@@ -185,16 +185,13 @@ export async function readBrowserGoalSession(
     const allMessages = goal.state.messages;
     if (allMessages.length > MAX_MESSAGES) historyTruncated = true;
     const firstMessageIndex = Math.max(0, allMessages.length - MAX_MESSAGES);
-    const currentMessageStart = completedRuns.at(-1)?.messageRange.end ?? 0;
-    const messages = allMessages.slice(firstMessageIndex).map((message, offset) => {
-        const messageIndex = firstMessageIndex + offset;
-        const completedRun = findCompletedRunForMessage(completedRuns, messageIndex);
-        const runId = completedRun?.runId
-            ?? (messageIndex >= currentMessageStart ? currentRun.id : undefined);
+    const messages = allMessages.slice(firstMessageIndex).map((message) => {
         return {
+            messageId: message.messageId,
             role: message.role,
             content: boundedText(message.content, MAX_MESSAGE_LENGTH),
-            ...(runId === undefined ? {} : { runId }),
+            runId: message.runId,
+            position: { ...message.position },
         };
     });
     if (allMessages.some((message) => message.content.length > MAX_MESSAGE_LENGTH)) {
@@ -853,24 +850,6 @@ function projectBashExecution(
     };
 }
 
-
-function findCompletedRunForMessage(
-    completedRuns: Goal["state"]["completedRuns"],
-    messageIndex: number,
-): NonNullable<Goal["state"]["completedRuns"]>[number] | undefined {
-    const records = completedRuns ?? [];
-    let low = 0;
-    let high = records.length - 1;
-    while (low <= high) {
-        const middle = Math.floor((low + high) / 2);
-        const record = records[middle];
-        if (record === undefined) return undefined;
-        if (messageIndex < record.messageRange.start) high = middle - 1;
-        else if (messageIndex >= record.messageRange.end) low = middle + 1;
-        else return record;
-    }
-    return undefined;
-}
 
 function boundedText(value: string, maxLength: number): string {
     if (value.length <= maxLength) return value;
