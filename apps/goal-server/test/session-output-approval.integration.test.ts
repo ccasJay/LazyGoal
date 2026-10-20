@@ -74,7 +74,7 @@ async function startHarness(options: {
     readonly adapter: LLMAdapter;
     readonly profile: AgentProfile;
     readonly toolRegistry: InMemoryToolRegistry;
-    readonly toolPolicy: { readonly evaluate: (input: { readonly tool: { readonly id: string; readonly isReadOnly?: boolean } }) => "allow" | "require_approval" | "deny" };
+    readonly toolPolicy: { readonly evaluate: (input: { readonly tool: { readonly id: string; readonly isReadOnly?: boolean } }) => "allow" | "require_approval" };
 }): Promise<Harness> {
     const root = await mkdtemp(join(tmpdir(), "lg-integration-"));
     const workspace = join(root, "workspace");
@@ -243,8 +243,9 @@ function isCompletionReview(request: LLMRequest): boolean {
 function readEvidenceSequences(request: LLMRequest): number[] {
     const feedback = request.messages.at(-1)?.content ?? "";
     const match = /Valid committed evidence sequences: ([0-9, ]+)/.exec(feedback);
-    if (match === null) return [];
-    return match[1]
+    const captured = match?.[1];
+    if (captured === undefined) return [];
+    return captured
         .split(",")
         .map((value) => Number(value.trim()))
         .filter((value) => Number.isSafeInteger(value));
