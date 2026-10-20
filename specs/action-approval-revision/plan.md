@@ -142,8 +142,70 @@ git diff --check
 
 ### Latest Result
 
-- 状态：未执行；未开始本功能实现或 Feature Verification。
-- 验证时间、被测实现提交与相关未提交实现指纹：未记录。
-- 契约版本：执行时记录本 Spec 与获批 Plan 的内容哈希，并记录实际集成的 streaming-session／human-interaction 契约、实现提交和前置验证证据。
-- 验证摘要：尚无本功能行为验收结果；旧审批实现的测试或本次文档检查不证明修订／重执行能力已交付。
-- 结果记录要求：逐项填写实际检查、观察值、脱敏证据位置和未解决项，标识被测提交或明确无提交并列出相关未提交路径及 diff／内容指纹。总体结果使用 `passed / failed / blocked / pending-human`，新鲜度使用 `current / stale`；失败、缺环境或未满足人工验收不得记为通过，不改写已完成 TODO 内容来掩盖后续修复。
+- 状态：`passed`；新鲜度：`current`。
+- 验证时间：2026-10-20T00:29:38Z（本机 UTC）。
+- 被测实现提交：`3ff25bbb57c720fde9a713cafb3f5f7f4eb7e7a9`（分支 `codex/action-approval-revision`）；除未提交的本地进度记录 `.execution-progress.md` 外，工作树无未提交实现改动（`git status --porcelain` 仅该文件）。
+- 契约指纹：Spec `specs/action-approval-revision/spec.md` SHA-256 `0aaede2f3aec18b5574b81b54db917113c4f53529376abab86dd755e6ce5a71c`（与获批时一致，未修改）；Plan `specs/action-approval-revision/plan.md` SHA-256 `76eca76af7a9ebff3645f34584f05513a8cdcd835bccb1b2616d2acefdeed61a`（仅勾选 9 个 TODO 与本节结果）。集成的前置契约：streaming-session 与 human-interaction 的已验证提交 `2cefbb20`（父提交，未在本分支改动）。
+- 执行环境：macOS Darwin，macOS Seatbelt 可用（`isSeatbeltSupported() === true`），本机 Google Chrome 可用（headless `--headless=new` + CDP，视口经 `Emulation.setDeviceMetricsOverride` 显式设定为 1280×900）。未访问线上付费 Provider，未写入用户 Home，未运行真实危险命令。
+
+**逐项结果**
+
+| 验收项 | 需求 | 实际检查与观察值 | 证据位置 |
+| --- | --- | --- | --- |
+| 首次未执行资格 | 1.1 | 预检只接受 `awaiting_approval`；已执行／`outcome_unknown`／错 Action／错 Run 均被稳定拒绝（`ACTION_NOT_AWAITING_APPROVAL`、`ACTION_ID_MISMATCH`）。 | `packages/runtime/test/action-approval-review.test.ts`、`action-reexecution.test.ts` |
+| 目标身份与输入类别 | 1.2 | 错 Goal／Run 不产生 Grant 或执行；普通 message／问答／Steer 不进入修订分支（Session 受理只对 `respond` 生效）。 | `action-approval-review.test.ts`、`packages/runtime/test/session-input.test.ts` |
+| 最终版本冻结与原事实 | 1.3 | 同一 Action 关联原请求与最终版本；原 `action_staged` 仍为参数 A，工具实际收到 B；获批后再次预检被拒。 | `packages/runtime/test/action-approval-revision.test.ts`（工具捕获输入与轨迹断言） |
+| 拒绝建议与准入边界 | 1.4 | 拒绝并给出建议只走原拒绝路径，工具调用次数为 0；修订不绕过 Profile／策略判定（预检对未注册工具返回 `TOOL_NOT_FOUND`）。 | `action-approval-revision.test.ts`、`action-approval-review.test.ts` |
+| 预检只读 | 2.1 | 预检前后 Snapshot、Tool Grant 账本、Sandbox Grant 账本与工具调用次数均不变（真实 JSON 账本断言为空）。 | `action-approval-review.test.ts` |
+| 能力变化与明确确认 | 2.2 | 目标路径随最终参数重新计算（`target_path` matcher 指向 B）；旧路径授权不匹配新范围；越界能力判定为需要沙箱审批。 | `packages/permission/test/tool-authorization.test.ts`、`sandbox-decision.test.ts`、`permission-grant-recovery.test.ts` |
+| 审阅与提交一致 | 2.3 | 提交内容与审阅内容不一致时明确拒绝（`INVALID_GOAL_INPUT`），等待保持不变且工具未被调用。 | `action-approval-revision.test.ts` |
+| 预检失败与草稿 | 2.4 | 非法参数返回 `INVALID_TOOL_INPUT` 与字段级 issues，原等待保留、工具未执行；Web 端保留草稿并显示可定位说明。 | `action-approval-review.test.ts`、`apps/goal-board/test/action-approval-revision.test.tsx` |
+| 多方预检隔离 | 2.5 | 两次并行预检得到不同 `reviewRef` 且互不覆盖；预检不写候选、不投递回调。 | `action-approval-review.test.ts` |
+| 首次确认持久化 | 3.1 | 修订批准与批准事实、收据、待执行指针同提交；保存失败时批准抛错且工具未被调用。 | `action-approval-revision.test.ts`（SaveLatch 场景） |
+| 最终参数持续授权 | 3.2 | Goal 授权 matcher 取最终参数的目标路径；单次批准不产生任何 Grant（账本为空）。 | `permission-grant-recovery.test.ts` |
+| 激活与恢复复核 | 3.3 | 激活复核使用最终执行版本并核对批准决定身份；授权复核失败时拒绝执行。 | `permission-grant-recovery.test.ts`、`packages/runtime/src/goal-coordinator.ts` 激活复核 |
+| 并发决定与幂等 | 3.4 | 同一修订决定重复提交只产生一次 `action_revised` 事实且工具只执行一次；首次批准与重执行互不消费对方等待。 | `action-approval-revision.test.ts`、`action-reexecution.test.ts` |
+| 崩溃后的执行分流 | 3.5 | 批准后未启动与已启动未知分流不变；修订不引入自动重放许可。 | `packages/runtime/test/runner.test.ts`、`action-reexecution.test.ts` |
+| 孤立 pending 与新决定 | 3.6 | 授权暂存后批准保存失败：换参数／期限并换决定身份后新批准成功，旧 pending 保持 `pending` 永不激活；同一决定身份复用原记录。 | `permission-grant-recovery.test.ts`、`packages/storage/test/json-file-tool-grant-store.test.ts`、`sandbox-grant-store.test.ts` |
+| 首次与未知分流 | 4.1 | 未知等待时 `approve_action`／`reject_action` 均被拒；首次审批时 `retry_unknown_action` 被拒。 | `action-reexecution.test.ts` |
+| 重执行限制 | 4.2 | 重执行只携带恢复身份，不接受新参数或持续授权；重执行后不产生 Grant。 | `action-reexecution.test.ts` |
+| 再次未知与预算 | 4.3 | 同一 Action 再次未知产生新的恢复身份（尝试计数 1→2）；旧决定重试被拒。 | `action-reexecution.test.ts` |
+| 拒绝重执行的真实含义 | 4.4 | 拒绝重执行后轨迹保留 `tool_attempt_failed(reason=outcome_unknown)`，且没有伪造 `success` 观察。 | `action-reexecution.test.ts` |
+| 恢复决定竞争 | 4.5 | 已受理 Interrupt 后重执行决定被拒（`INVALID_GOAL_INPUT`）；显式恢复只重建等待、恢复身份不变且工具不再执行。 | `action-reexecution.test.ts` |
+| PTC 最终输入执行 | 5.1 | 程序内写调用被修订为 B 后，实际 Tool 收到 B；原请求 A 保留在 `action_staged`。 | `packages/runtime/test/program-approval-revision.test.ts` |
+| PTC 原请求重放 | 5.2 | 程序重建后第一次调用被重放（工具未重复执行），返回已保存结果；原请求变更仍触发 `PTC_REPLAY_MISMATCH`（既有重放校验未弱化）。 | `program-approval-revision.test.ts`、`packages/storage/test/program-recovery.test.ts` |
+| PTC 结果元数据 | 5.3 | 程序收到的结果信封含 `revision`（reviewRef、原请求 A、最终参数 B、来源 user），首次与重放一致。 | `program-approval-revision.test.ts` |
+| PTC 预算与结算 | 5.4 | 修订说明字节计入既有结果额度（重放校验的 `resultBytes` 与首次执行一致），父 Step 单次结算。 | `program-approval-revision.test.ts`（重放通过即证明字节计量一致） |
+| PTC 故障边界 | 5.5 | 审批后重建与重放沿用同一最终版本，未使用旧参数重放。 | `program-approval-revision.test.ts` |
+| 修订审计来源 | 6.1 | `action_revised` 事实保存原请求、最终参数、审阅引用、批准身份、修订来源与实际权限范围；原 Provider 响应与程序请求不变。 | `packages/runtime/src/trajectory.ts`、`action-approval-revision.test.ts` |
+| 直接调用模型理解 | 6.2 | 下一模型请求的工具结果含 `revision`（原请求与实际执行参数的有界摘要）；原生调用保留原调用 ID 与参数，只有一个结果配对。 | `packages/model-context/test/action-revision-context.test.ts` |
+| PTC 模型说明与隐私 | 6.3 | 程序未回传元数据时，父程序结果仍带 `programRevisions` 有界说明；摘要超过上限时明确截断。 | `action-revision-context.test.ts` |
+| 旧直接批次失效 | 6.4 | 修订后旧批次剩余项不执行（`action_staged` 只含 act-1，`invalidatedBatchActionIds` 记录 act-2）。 | `action-approval-revision.test.ts` |
+| 最终目标与完成证据 | 6.5 | 轨迹与 Activity 展示实际执行参数（`tool_started` 为最终版本）；原完成审查规则未改。 | `packages/browser/src/browser-trajectory.ts`、`action-approval-revision.test.ts` |
+| 编辑与原样决定 | 7.1 | 同一工具 JSON 编辑可预览；退出编辑不修改原操作；原样批准与拒绝仍可用。 | `apps/goal-board/test/action-approval-revision.test.tsx`、`apps/goal-board/e2e/action-approval-revision.test.mjs` |
+| 审阅失效与范围后果 | 7.2 | 预检展示原／最终参数与实际范围；再次编辑或更换期限使旧审阅失效（前端清空 review）。 | `apps/goal-board/test/action-approval-revision.test.tsx` |
+| 提交核验与独立停止 | 7.3 | 预检成功不清草稿、不报完成；确认丢失按原身份核验；停止入口在审批区域保持可达。 | `apps/goal-board/e2e/action-approval-revision.test.mjs`、`packages/runtime/test/session-interaction-races.test.ts` |
+| 宿主正式预检与分派 | 7.4 | 无界面宿主经 `review` 预检返回绑定审阅引用的修订决定，工具按最终参数执行；缺少恢复处理器时恢复等待不被普通审批函数代办。 | `apps/goal-server/test/action-approval-revision.integration.test.ts` |
+| 恢复界面与可操作性 | 7.5 | 恢复视图只提供 `Retry action` 与 `Do not run again`，无参数编辑与持续授权；英文文案、桌面视口与键盘可达。 | `apps/goal-board/test/action-approval-revision.test.tsx`、`apps/goal-board/e2e/action-approval-revision.test.mjs` |
+| 修订授权完整矩阵 | 8.1 | 直接／PTC、原样／修订、单次／Goal／workspace、范围扩大／缩小与拒绝均有真实结果断言（工具捕获入参、matcher、账本与轨迹）。 | 任务 1—7 的测试文件 |
+| 重建与故障完整矩阵 | 8.2 | 预检后变化、暂存／保存／激活、工具开始后崩溃、再次未知与 Interrupt 均覆盖；旧参数与旧恢复决定不触发重复执行。 | `permission-grant-recovery.test.ts`、`action-reexecution.test.ts`、`program-approval-revision.test.ts` |
+| 正式消费链路 | 8.3 | 无界面装配（`apps/goal-server`）与真实 Web 服务＋Chrome（`apps/goal-board/e2e`）均完成修订／审阅／确认；三协议原生历史装配检查见 `action-revision-context.test.ts`。 | `apps/goal-server/test/action-approval-revision.integration.test.ts`、`apps/goal-board/e2e/action-approval-revision.test.mjs` |
+| 单一当前契约与文档 | 8.4 | 旧混用决定与消费方已替换（无 `retry_action` 旧名残留）；变化所有者的语义表、概览、TSDoc 与使用说明已同步。 | `npm run check:docs`、`npm run check:dependencies`、源码检索 |
+
+**执行的 Feature Verification 命令与结果**
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm test` | 通过：类型检查、包内文档检查（45 模块／161 说明）、依赖边界检查（268 源文件）、GEPA adapter 测试、2261 个 TS/TSX 测试全部通过、70 个脚本测试全部通过（`[regression] 全部通过`）。 |
+| `npx tsc --noEmit -p apps/goal-server/tsconfig.json` | 通过（无输出）。 |
+| `npm --prefix apps/goal-server test` | 通过：51 tests / 51 pass / 0 fail。 |
+| `npm --prefix apps/goal-board test` | 通过：101 tests / 101 pass / 0 fail。 |
+| `npm run build:web` | 通过（Vite 构建完成，产出 `apps/goal-board/dist`）。 |
+| `node --test --test-concurrency=1 apps/goal-board/e2e/*.test.mjs` | 通过：10 tests / 10 pass / 0 fail（真实 Chrome headless + CDP，正式服务与受控工具；含新增的审批修订流程）。 |
+| `git diff --check` | 通过（无空白错误；工作树仅剩未提交的本地进度记录）。 |
+
+**未解决项与限制**
+
+- 无失败项、无缺环境项。已知边界（不构成未满足验收）：PTC 相关用例依赖 macOS Seatbelt，本机已满足并实际执行，未跳过；沙箱／Seatbelt 之外平台的等价场景不在本次范围。
+- `action_revised` 事实中的最终参数以完整 canonical 输入保存，模型可见路径已做有界摘要；公开 SSE 活动不广播完整输入。
+- 本次未提炼 SDK、未迁移默认装配、未新增配置项或兼容分支；旧开发期数据按当前协议处理。
