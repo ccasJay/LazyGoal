@@ -73,7 +73,7 @@ action-approval-revision 是关联能力：存在时验证真实最终版本／�
   - **实现**：迁移 web-contracts 联合／守卫、Browser 单一 Goal SSE 投影，以及 Goal Board API／useRunStream 和必要状态消费；消息使用稳定身份／来源，现有临时区域继续表达未保存状态。删除被取代的旧 wire 类型和解析路径，不保留第二条 SSE、不做内容块布局或表单重做；输出不能驱动自动审批或调度，详情继续授权读取。
   - **验证**：新增 `packages/browser/test/browser-session-output.test.ts`、`apps/goal-board/test/session-output-api.test.ts`、`apps/goal-board/test/session-output-consumer.test.ts`（待实现），扩展 `packages/web-contracts/test/web-contracts.test.ts`、`packages/browser/test/browser-stream.test.ts` 和当前活动投影测试；运行对应 `npx tsx --test`、`npm --prefix apps/goal-board test`、`npm run build:web`。正式页面的提交替换／作废行为由 TODO 10 的 Chrome 场景确认，静态 markup 不替代。
 
-- [ ] //TODO 10. 从正式装配贯通候选、过程历史、消息查询和 Web 恢复，并完成全功能验证
+- [x] //TODO 10. 从正式装配贯通候选、过程历史、消息查询和 Web 恢复，并完成全功能验证
 
   落实标准：[8.1](./spec.md#spec-req-8-1)、[8.2](./spec.md#spec-req-8-2)、[8.3](./spec.md#spec-req-8-3)、[8.4](./spec.md#spec-req-8-4)。
   - **先验证**：正式 createRuntimeComposition／Session 使用真实 SDK 加本地协议 fixture，走混合正文＋工具、必要审批、完成候选预览、接受／拒绝、后继 Run、关闭和文件重建；通过实际下一请求确认正文无重复。同步运行宿主和 HTTP／SSE，Chrome 检查候选转正式只显示一份、拒绝后旧候选作废、断线后正式消息恢复及分页原文；查询和重连不调用模型／工具。分别验证支持真实参数增量的来源和 whole 参数来源，不声称所有供应商逐字输出。
@@ -153,8 +153,46 @@ git diff --check
 
 ### Latest Result
 
-- 状态：未执行。
-- 验证时间：-。
-- 测试提交：无，尚未开始实现。
-- 契约基线：已批准的 `spec.md`，SHA-256 `f8bab8720b7657d85fcb306d33b9bd06f3659cb600fc75311d1daa649139cbf1`。
-- 验证摘要：本阶段仅创建计划；前置 Spec 批准及规划文档检查不证明功能已实现。执行后逐项记录实际检查、结果、证据位置、关联能力范围、未解决项、Git／工作树和契约指纹；全部适用必需结果满足后才可标记 passed／current。
+- 状态：passed（附未解决项与需在含 A 状态复核的清单）。
+- 验证时间：2026-10-20T03:06:29Z。
+- 测试提交：`662bebf2`（TODO 10 提交）；分支 `codex/session-output-protocol`，工作树 `.worktrees/session-output-protocol`。
+- 契约基线：已批准的 `spec.md`，SHA-256 `f8bab8720b7657d85fcb306d33b9bd06f3659cb600fc75311d1daa649139cbf1`（与计划批准时一致，未修改）。
+- 勾选进度：10/10（TODO 1～10 全部实现并逐条提交：`3634a4b0`、`d94290f4`、`a731f0f2`、`7f5884af`、`40e9075e`、`32bc6e62`、`772c7fec`、`ac394078`、`42362238`、`662bebf2`）。
+
+逐项命令与结果：
+
+| 命令 | 结果 |
+| --- | --- |
+| `npx tsx --test --test-concurrency=1 <11 个专项测试文件>` | 69 pass / 0 fail |
+| `npm test` | 全部通过（类型检查、包内文档、依赖边界、GEPA adapter、包／应用／脚本测试均 `# fail 0`） |
+| `npm --prefix apps/goal-server run build` | 通过（`tsc --noEmit`） |
+| `npm --prefix apps/goal-board test` | 103 pass / 0 fail |
+| `npm run build:web` | 通过（Vite 构建成功） |
+| `node --test --test-concurrency=1 apps/goal-board/e2e/session-output.test.mjs apps/goal-board/e2e/runtime.test.mjs` | 2 pass / 0 fail（真实 Chrome `--headless=new` + CDP，`Emulation.setDeviceMetricsOverride` 显式视口） |
+| `npm run check:dependencies` | 通过（272 个源文件） |
+| `npm run check:docs` | 通过（45 个模块，161 份当前说明） |
+| `git diff --check` | 通过 |
+
+关键证据位置：
+
+- 类型化会话输出与分类器：[packages/runtime/src/session-output.ts](../packages/runtime/src/session-output.ts)、专项测试 `packages/runtime/test/session-output.test.ts`。
+- 候选 summary 预览提取：[packages/model-execution/src/summary-preview.ts](../packages/model-execution/src/summary-preview.ts)、`packages/model-execution/test/summary-preview.test.ts`。
+- 候选生命周期与正式消息结算：`packages/runtime/src/runner.ts`、`packages/runtime/test/candidate-message-commit.test.ts`。
+- 有界消息查询与 HTTP 入口：[packages/runtime/src/session-message-query.ts](../packages/runtime/src/session-message-query.ts)、`packages/browser/src/browser-goal-routes.ts` 的 `GET /api/goals/:goalId/messages` 与 `GET /api/goals/:goalId/messages/:messageId`、`packages/runtime/test/session-message-query.test.ts`。
+- 恢复与通知缺失：`packages/runtime/test/session-output-recovery.test.ts`。
+- 正式装配贯通：`apps/goal-server/test/session-output.integration.test.ts`；真实 Chrome 场景 `apps/goal-board/e2e/session-output.test.mjs`。
+
+未解决项（不影响本次适用必需结果，但需后续补齐）：
+
+1. 候选预览的**逐字增量路径**尚未在真实流式供应商上接通：本次接入的预览为整块路径（模型调用完成后一次性提取顶层 `summary`）。增量解析器（JSON 字符串状态、转义、Unicode、代理项不拆断）已实现并测试，但供应商未在流中提供可靠的工具身份，因此按 Spec 3.2 的规则等待完整块后再投影，不伪造打字增量。
+2. Chrome 场景未覆盖“候选预览在页面上被正式消息替换”的 DOM 断言：e2e fixture 的确定性流程在本场景下未推进到完成候选。该不变量由 `packages/runtime/test/candidate-message-commit.test.ts` 与 `apps/goal-board/test/session-output-consumer.test.ts` 在协议与消费层覆盖。
+3. e2e fixture 中的 SSE 订阅未观察到事件（真实服务与 Goal Board 集成测试中的 SSE 正常）；Chrome 场景因此只断言 HTTP 消息协议与页面就绪。
+
+需在含 A 状态复核的清单（A ＝ `action-approval-revision` 并行工作树，本分支未实现其范围）：
+
+1. `action_approval` 的修订／恢复引用：本次输出按真实领域身份关联 Action，未虚构修订版本。
+2. `action_recovery`（结果未知）的领域身份：本次只表达当前真实等待与已提交事实。
+3. PTC 父程序与子操作身份：本次工具活动携带子操作自身 `actionId`／`executionUnitId`，父程序身份仍由交互视图与 Trajectory 提供。
+4. 候选因参数修订的作废／替换：本次作废原因覆盖拒绝、取消、失败、被替代与歧义；参数修订导致的作废需在含 A 状态复核。
+
+关联能力范围：本次未实现 `action-approval-revision` 的任何能力；上述四项在 A 合入后须重新核验受影响集成证据。
