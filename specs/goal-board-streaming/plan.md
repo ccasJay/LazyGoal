@@ -64,7 +64,7 @@
   - **实现**：用 Activity 双向窗口取代 [完整 Run 窗口](../../apps/goal-board/src/session-window.ts)，保持真实 cursor／上界与稳定项定位，复用消息正文分段读取，局部错误明确区分截断、未加载和不存在。以稳定可见项恢复滚动，固定当前交互／Stop 的可达入口而不遮挡正文；分页与缓存淘汰不重置仍有效草稿／决定，跳到最新只读且不提交输入。
   - **验证**：新增 `apps/goal-board/test/activity-page-window.test.ts`（待实现），将 [session-window 测试](../../apps/goal-board/test/session-window.test.ts) 改为新窗口行为，运行对应 `npx tsx --test`。Chrome 实测翻页前后锚点几何位置、长内容展开、旧页阅读期间持续生成、详情重读与固定入口遮挡情况；仅纯函数状态不能证明滚动体验。
 
-- [ ] //TODO 9. 在安全 Markdown 和有界帧合并下保持焦点、可访问状态与窄屏阅读
+- [x] //TODO 9. 在安全 Markdown 和有界帧合并下保持焦点、可访问状态与窄屏阅读
 
   落实标准：[7.1](./spec.md#spec-req-7-1)、[7.2](./spec.md#spec-req-7-2)、[7.3](./spec.md#spec-req-7-3)、[7.4](./spec.md#spec-req-7-4)、[7.5](./spec.md#spec-req-7-5)。
   - **先验证**：对正文、代码围栏、GFM 表格、链接、转义和 Unicode 使用不同分片方式，最终原文及正式内容相同，未闭合格式不补改源文本；HTML／脚本不执行，模型图片／嵌入不产生网络请求，私有敏感标记不进入公开 UI。手动帧调度下大量 delta 只更新当前来源，结束／作废／换源时尾部不丢字、旧帧不复活；未变化历史不重解析，侧栏不随 token 全树更新。新请求／状态不抢焦点、不逐 token 播报全文。

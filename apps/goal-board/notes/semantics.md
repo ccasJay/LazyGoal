@@ -18,6 +18,8 @@
 | ActivityGroup | 从固定 Activity 页的已提交事实与安全实时事件派生的纯分组投影；断组由完整交错来源决定，正文、交互、未知事实与阶段边界都会断开相邻成员，隐藏正文不改变该判定。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
 | 活动成员状态 | 区分执行中、重试、结果待保存、已提交失败／成功与已拒绝；实时返回不标为已保存成功，已提交 Observation 才决定终态。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
 | Live Activity | 当前 Goal SSE 的公开生成与连接状态；候选正文不持久化，保存通知后仍待固定 Activity 页核验。 | [Goal Board](../README.md) | [useRunStream](../src/hooks/useRunStream.ts) |
+| 临时正文来源索引 | 流式正文按来源身份独立累积并有界：换源时旧来源保留已到达内容，新来源单独累积；结算边界立即提交待合并尾部，不丢字也不复活旧帧。 | [Goal Board](../README.md) | [流式渲染状态](../src/streaming-render.ts)、[帧合并](../src/live-text-batch.ts) |
+| 安全 Markdown | 正文与 Think 输出共用同一安全 GFM 渲染：原始 HTML 与脚本不进入 DOM，模型图片与嵌入降级为链接，代码与表格只在自身区域横向滚动。 | [Goal Board](../README.md) | [AssistantMarkdown](../src/components/AssistantMarkdown.tsx) |
 | 观察同步与过期 | 订阅按 Goal 建立并先消费权威同步；单纯断开或读取失败只标记内容可能过期，保留最后确认的正式内容与当前草稿，并限制 Steer 与 Resume 一类依赖最新状态的决定。 | [Goal Board](../README.md) | [观察恢复语义](../src/session-stream-recovery.ts) |
 | 观察释放 | 卸载视图或切换 Goal 只回收浏览器本地的订阅、请求与合并帧；不发送 Interrupt，不撤销已受理输入，也不关闭宿主 Runtime。 | [Goal Board](../README.md) | [观察恢复语义](../src/session-stream-recovery.ts) |
 | GoalSessionContext | 局部持有 Goal 窄状态、固定 Activity 页、按需完整会话及视图状态。 | [Goal Board](../README.md) | [上下文契约](../src/context/GoalSessionContext.tsx) |

@@ -278,6 +278,10 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .markdown-body hr { height: 1px; margin: 18px 0; border: 0; background: var(--surface-raised); }
 .markdown-body :not(pre) > code { padding: 1px 4px; border-radius: 3px; background: var(--surface); color: var(--accent-ink); font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .markdown-body pre { max-width: 100%; overflow: auto; margin: 0 0 12px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text-secondary); font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
+.session-timeline-feed, .timeline { min-width: 0; max-width: 100%; overflow-x: hidden; }
+.session-timeline-feed img, .session-timeline-feed table { max-width: 100%; }
+.timeline-activity-members { min-width: 0; }
+.timeline-activity-members > li { min-width: 0; overflow-wrap: anywhere; }
 .markdown-table-scroll { max-width: 100%; overflow-x: auto; margin: 0 0 14px; }
 .markdown-table-scroll table { min-width: 100%; border-collapse: collapse; white-space: normal; }
 .markdown-table-scroll th, .markdown-table-scroll td { padding: 7px 10px; border: 1px solid var(--line); text-align: left; vertical-align: top; }

@@ -59,8 +59,7 @@ test("text batcher maintains order and never drops trailing deltas", () => {
   assert.equal(scheduler.queue.length, 0, "no pending callback after final flush");
 });
 
-test("clear discards buffered deltas and neutralizes pending frames", () => {
-  const scheduler = fakeScheduler();
+test("clear discards buffered deltas and neutralizes pending frames", () => {  const scheduler = fakeScheduler();
   const commits: string[] = [];
   const batcher = createTextBatcher((delta) => commits.push(delta), scheduler.schedule);
 
@@ -90,4 +89,19 @@ test("cancelling the scheduled frame prevents a flush without an extra edge", ()
   cancel();
   scheduler.flushOnce();
   assert.deepEqual(commits, []);
+});
+
+test("flush commits the pending tail at a settle boundary without an extra frame", () => {
+  const scheduler = fakeScheduler();
+  const commits: string[] = [];
+  const batcher = createTextBatcher((delta) => commits.push(delta), scheduler.schedule);
+
+  batcher.push("tail");
+  batcher.flush();
+  assert.deepEqual(commits, ["tail"], "结算边界立即提交待合并尾部");
+  assert.equal(scheduler.queue.length, 0, "已排程的帧被取消，不会重复提交");
+
+  batcher.push("next");
+  scheduler.flushOnce();
+  assert.deepEqual(commits, ["tail", "next"], "结算后继续累积新正文");
 });

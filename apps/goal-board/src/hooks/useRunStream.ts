@@ -15,6 +15,13 @@ import {
   releaseObservation,
   type StreamRecoveryState,
 } from "../session-stream-recovery";
+import {
+  applyTextDelta,
+  createLivePreviewState,
+  latestSource,
+  releaseSources,
+  type LivePreviewState,
+} from "../streaming-render";
 
 export function useRunStream({
   selectedGoalId,
@@ -33,23 +40,60 @@ export function useRunStream({
   const [liveEvents, setLiveEvents] = useState<BrowserGoalLiveEvent[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
   const [recovery, setRecovery] = useState<StreamRecoveryState>(INITIAL_STREAM_RECOVERY_STATE);
+  const [livePreview, setLivePreview] = useState<LivePreviewState>(createLivePreviewState());
   const onRefreshRef = useRef(onRefresh);
-  const liveText = outputDisplay.liveText;
+  const liveText = latestSource(livePreview, session?.currentRunId ?? "")?.content ?? "";
   const liveActivity = outputDisplay.liveActivity || null;
-  const setLiveText = useCallback((next: string | ((current: string) => string)) => {
-    setOutputDisplay((current) => ({
-      ...current,
-      liveText: typeof next === "function" ? next(current.liveText) : next,
-    }));
+
+  /** 当前累积中的来源身份；换源时开启新的来源，旧来源独立结算。 */
+  const sourceRef = useRef<{ readonly sourceKey: string; readonly runId: string } | null>(null);
+  const segmentRef = useRef(0);
+
+  const openSource = useCallback((runId: string): string => {
+    segmentRef.current += 1;
+    const sourceKey = `${runId}:segment:${segmentRef.current}`;
+    sourceRef.current = { sourceKey, runId };
+    setLivePreview((current) => applyTextDelta(current, { sourceKey, runId, text: "", cursor: 0 }));
+    return sourceKey;
   }, []);
 
+  const setLiveText = useCallback((next: string | ((current: string) => string)) => {
+    setLivePreview((current) => {
+      const source = sourceRef.current;
+      if (source === null) return current;
+      const existing = latestSource(current, source.runId);
+      const base = existing?.content ?? "";
+      const resolved = typeof next === "function" ? next(base) : next;
+      return applyTextDelta(current, {
+        sourceKey: source.sourceKey,
+        runId: source.runId,
+        text: resolved.slice(base.length),
+        cursor: existing?.cursor ?? 0,
+      });
+    });
+  }, []);
+
+  // 展示投影与按来源的临时正文保持一致：页面只读取派生正文。
+  useEffect(() => {
+    setOutputDisplay((current) => (current.liveText === liveText ? current : { ...current, liveText }));
+  }, [liveText]);
+
   /**
-   * 打字机增量的按帧合并缓冲；`setLiveText` 引用稳定，缓冲可在首次渲染时一次性创建。
+   * 打字机增量的按帧合并缓冲；缓冲按来源身份累积，不丢弃已经到达的正文。
    */
-  const textBatcherRef = useRef<ReturnType<typeof createTextBatcher> | null>(null);
+  const textBatcherRef = useRef<ReturnType<typeof createTextBatcher<string>> | null>(null);
   if (textBatcherRef.current === null) {
     textBatcherRef.current = createTextBatcher((delta) => {
-      setLiveText((current) => (current + delta).slice(-8_000));
+      setLivePreview((current) => {
+        const source = sourceRef.current;
+        if (source === null) return current;
+        return applyTextDelta(current, {
+          sourceKey: source.sourceKey,
+          runId: source.runId,
+          text: delta,
+          cursor: 0,
+        });
+      });
     });
   }
   const textBatcher = textBatcherRef.current;
@@ -154,9 +198,12 @@ export function useRunStream({
               continue;
             }
             if (event.type === "message_committed") {
+              // 结算边界先提交待合并的尾部，正式消息接管后释放该来源。
+              textBatcher.flush();
               if (event.message.previewId === undefined) {
-                textBatcher.clear();
                 setLiveText("");
+                setLivePreview((current) => releaseSources(current, event.runId));
+                sourceRef.current = null;
               }
               setOutputDisplay((current) => applySessionOutputEvent(current, event) ?? current);
               await refreshLatest();
@@ -169,7 +216,7 @@ export function useRunStream({
             }
             if (event.type === "activity"
               && (event.activity.kind === "candidate_preview" || event.activity.kind === "candidate_invalidated")) {
-              textBatcher.clear();
+              textBatcher.flush();
               setLiveText("");
               setOutputDisplay((current) => applySessionOutputEvent(current, event) ?? current);
               await refreshLatest();
@@ -197,12 +244,14 @@ export function useRunStream({
             }
             switch (event.activity.kind) {
               case "assistant_text_delta": {
+                if (sourceRef.current === null) openSource(event.runId);
                 textBatcher.push(event.activity.text);
                 setOutputDisplay((current) => ({ ...current, liveActivity: "A response is being generated" }));
                 break;
               }
               case "model_started":
-                textBatcher.clear();
+                textBatcher.flush();
+                openSource(event.runId);
                 setLiveText("");
                 setOutputDisplay((current) => ({ ...current, liveActivity: "Runtime is working on this Goal" }));
                 break;
@@ -210,7 +259,8 @@ export function useRunStream({
                 setOutputDisplay((current) => ({ ...current, liveActivity: "Waiting for the saved result" }));
                 break;
               case "step_started":
-                textBatcher.clear();
+                textBatcher.flush();
+                openSource(event.runId);
                 setLiveText("");
                 setOutputDisplay((current) => ({ ...current, liveActivity: "A new execution step has started" }));
                 break;
