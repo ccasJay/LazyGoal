@@ -1,4 +1,5 @@
 import type { AgentProfile } from "./agent-profile";
+import { randomUUID } from "node:crypto";
 import type {
     AgentDecision,
     BlockerCreate,
@@ -1365,6 +1366,40 @@ export type TransitionResult<TState extends RunState = RunState> =
     };
 
 /**
+ * createGoal 接受的初始消息草稿。
+ *
+ * @remarks
+ * 草稿只描述正文、身份、来源与用途；Run 归属和 Run 内位置由 {@link createGoal}
+ * 在创建边界统一分配，因此调用方不能自行指定。
+ *
+ * @example
+ * ```ts
+ * const draft: GoalInitialMessageDraft = {
+ *     role: "user",
+ *     content: "补充上下文",
+ *     source: { kind: "user_input", inputId: "input-1" },
+ * };
+ * ```
+ */
+export type GoalInitialMessageDraft =
+    | {
+        readonly role: "user";
+        readonly content: string;
+        /** 可选的消息身份；省略时由创建边界分配。 */
+        readonly messageId?: string | undefined;
+        readonly source: GoalMessageSource;
+    }
+    | {
+        readonly role: "assistant";
+        readonly content: string;
+        /** 可选的消息身份；省略时由创建边界分配。 */
+        readonly messageId?: string | undefined;
+        readonly source: GoalMessageSource;
+        readonly purpose: AssistantMessagePurpose;
+        readonly assistant: { readonly profileId: string };
+    };
+
+/**
  * createGoal 所需的确定性输入。
  *
  * @remarks intent 同时写入冻结定义和首条 user 消息；maxSteps 默认 0；
@@ -1396,7 +1431,14 @@ export interface GoalCreationInput {
     /** 首个 Run 的模式；未提供时直接执行。 */
     readonly mode?: RunMode;
     readonly maxSteps?: number;
-    readonly messages?: readonly GoalMessage[];
+    /**
+     * 创建时随 Goal 一并提交的初始消息。
+     *
+     * @remarks
+     * 这些消息一律归属 {@link GoalCreationInput.runId}，并按初始次序获得
+     * `afterSequence: 0` 的连续 `order`；调用方提供的 Run 归属与位置不生效。
+     */
+    readonly messages?: readonly GoalInitialMessageDraft[];
     /** 可选的模型选择状态；未提供时使用 DEFAULT_GOAL_MODEL_SELECTION。 */
     readonly modelSelection?: GoalModelSelection | undefined;
 }
@@ -1446,6 +1488,49 @@ function cloneMessages(messages: readonly GoalMessage[]): readonly GoalMessage[]
 }
 
 /**
+ * 组装 Goal 创建边界上的初始消息集。
+ *
+ * @remarks
+ * 创建时只存在首个 Run，因此初始消息一律归属该 Run；首条 Run 事实之前使用
+ * `afterSequence: 0`，同一锚点内按初始次序连续编号 `order`。这保证创建出的
+ * Goal 天然满足 Snapshot 的 Run 归属与位置不变量。
+ *
+ * @param input - Goal 创建输入。
+ * @returns 归属创建 Run、位置连续的初始消息集。
+ */
+function initialGoalMessages(input: GoalCreationInput): readonly GoalMessage[] {
+    const drafts: readonly GoalInitialMessageDraft[] = [
+        {
+            role: "user",
+            content: input.intent,
+            messageId: `msg-intent-${input.id}`,
+            source: { kind: "goal_intent", goalId: input.id },
+        },
+        ...(input.messages ?? []),
+    ];
+
+    return drafts.map((draft, index) => draft.role === "user"
+        ? {
+            role: "user",
+            content: draft.content,
+            messageId: draft.messageId ?? `msg-${randomUUID()}`,
+            runId: input.runId,
+            position: { afterSequence: 0, order: index },
+            source: { ...draft.source },
+        }
+        : {
+            role: "assistant",
+            assistant: { profileId: draft.assistant.profileId },
+            content: draft.content,
+            messageId: draft.messageId ?? `msg-${randomUUID()}`,
+            runId: input.runId,
+            position: { afterSequence: 0, order: index },
+            purpose: draft.purpose,
+            source: { ...draft.source },
+        });
+}
+
+/**
  * 创建统一 executing 生命周期的确定性 Goal 聚合。
  * @param input - Goal ID、原始意图、冻结 Prompt Bundle 版本、Profile、Run ID 与执行策略。
  * @returns 处于 executing 阶段且 Run 为 created/0 的全新 Goal。
@@ -1490,17 +1575,7 @@ export function createGoal(input: GoalCreationInput): Goal {
             workflow: {
                 phase: "executing",
             },
-            messages: cloneMessages([
-                {
-                    role: "user",
-                    content: input.intent,
-                    messageId: `msg-intent-${input.id}`,
-                    runId: input.runId,
-                    position: { afterSequence: 0, order: 0 },
-                    source: { kind: "goal_intent", goalId: input.id },
-                },
-                ...(input.messages ?? []),
-            ]),
+            messages: initialGoalMessages(input),
             run: createRun(input.runId, mode),
             modelSelection: cloneModelSelection(input.modelSelection ?? DEFAULT_GOAL_MODEL_SELECTION),
             completedRuns: [],

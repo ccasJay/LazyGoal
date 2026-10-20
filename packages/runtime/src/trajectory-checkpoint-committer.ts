@@ -233,6 +233,29 @@ function trajectoryKey(goal: Pick<Goal, "id" | "state">): string {
     return `${goal.id}\u0000${goal.state.run.id}`;
 }
 
+/**
+ * 取指定事实类型在候选事件中的最新序列。
+ *
+ * @remarks
+ * 同一 Run 可能多次恢复；恢复输入必须锚定最近一次恢复事实，取最早一次会让
+ * 后继消息的位置回退到旧锚点，破坏 Run 内位置的单调性。
+ *
+ * @param candidates - 同一 Run 的候选事件。
+ * @param payloadType - 目标事实负载类型。
+ * @returns 最新一条匹配事实的序列；没有匹配事实时返回 `undefined`。
+ */
+function latestEventSequence(
+    candidates: readonly Readonly<TrajectoryEvent>[],
+    payloadType: "run_resumed",
+): number | undefined {
+    let latest: number | undefined;
+    for (const event of candidates) {
+        if (event.payload.type !== payloadType) continue;
+        if (latest === undefined || event.sequence > latest) latest = event.sequence;
+    }
+    return latest;
+}
+
 function messageFactSequence(
     message: GoalMessage,
     events: readonly Readonly<TrajectoryEvent>[],
@@ -250,8 +273,9 @@ function messageFactSequence(
             const steered = candidates.find((event) => event.payload.type === "steer_input_applied"
                 && event.payload.messageId === source.inputId);
             if (steered !== undefined) return steered.sequence;
-            const resumed = candidates.find((event) => event.payload.type === "run_resumed");
-            if (resumed !== undefined) return resumed.sequence;
+            // 恢复输入归属最近一次恢复事实；取最早的一次会把后继消息锚回旧位置。
+            const resumed = latestEventSequence(candidates, "run_resumed");
+            if (resumed !== undefined) return resumed;
             const created = candidates.find((event) => event.payload.type === "run_created");
             return created?.sequence;
         }

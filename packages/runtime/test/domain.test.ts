@@ -59,9 +59,27 @@ test("createGoal creates an initial executing snapshot with independent IDs", ()
                     content: "完成最小 Runtime",
                     messageId: "msg-intent-goal-1",
                     runId: "run-1",
+                    position: { afterSequence: 0, order: 0 },
                     source: { kind: "goal_intent", goalId: "goal-1" },
                 },
-                ...messages,
+                {
+                    role: "user",
+                    content: "补充上下文",
+                    messageId: messages[0]!.messageId,
+                    runId: "run-1",
+                    position: { afterSequence: 0, order: 1 },
+                    source: messages[0]!.source,
+                },
+                {
+                    role: "assistant",
+                    assistant: { profileId: "profile-1" },
+                    content: "我会继续确认",
+                    messageId: messages[1]!.messageId,
+                    runId: "run-1",
+                    position: { afterSequence: 0, order: 2 },
+                    purpose: "process",
+                    source: messages[1]!.source,
+                },
             ],
             run: {
                 id: "run-1",
@@ -121,9 +139,14 @@ test("createGoal isolates frozen definition and real messages from input mutatio
             content: "原始意图",
             messageId: "msg-intent-goal-2",
             runId: "run-2",
+            position: { afterSequence: 0, order: 0 },
             source: { kind: "goal_intent", goalId: "goal-2" },
         },
-        originalMessage,
+        {
+            ...originalMessage,
+            runId: "run-2",
+            position: { afterSequence: 0, order: 1 },
+        },
     ]);
 });
 

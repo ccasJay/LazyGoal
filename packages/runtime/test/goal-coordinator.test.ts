@@ -177,7 +177,7 @@ function createAskUserWaitingGoal(): Goal {
             },
             messages: [
                 ...goal.state.messages,
-                testAssistantMessage("Which database should be used?", { profileId: profile.id }),
+                testAssistantMessage("Which database should be used?", { profileId: profile.id, goal }),
             ],
             run: {
                 ...goal.state.run,
@@ -219,7 +219,7 @@ function createTaskApprovalWaitingGoal(
             },
             messages: [
                 ...goal.state.messages,
-                testAssistantMessage("Approve the persistence task?", { profileId: profile.id }),
+                testAssistantMessage("Approve the persistence task?", { profileId: profile.id, goal }),
             ],
             run: {
                 ...goal.state.run,
@@ -261,7 +261,7 @@ function createExecutingWaitingGoal(): Goal {
         state: {
             ...goal.state,
             messages: [
-                testAssistantMessage("Production permission required", { profileId: profile.id }),
+                testAssistantMessage("Production permission required", { profileId: profile.id, goal }),
             ],
             run: waitingRun,
         },

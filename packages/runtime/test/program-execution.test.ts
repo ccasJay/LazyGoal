@@ -18,7 +18,7 @@ import {
     createToolRegistration,
     InMemoryToolRegistry,
 } from "../../tool-core/src/index";
-import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
+import { bindMessagesToRun, currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
 
 test("PTC executes a program and inner tool without an extra model step", {
     skip: !isSeatbeltSupported(),
@@ -413,6 +413,8 @@ test("PTC pauses for a real child approval and resumes the same code", {
         state: {
             ...goal.state,
             run: { ...goal.state.run, id: "ptc-rejected-run" },
+            // 被拒绝的场景使用独立 Run，消息归属与 Run 内位置随之绑定。
+            messages: bindMessagesToRun(goal.state.messages, "ptc-rejected-run"),
         },
     };
     await store.save(rejectedGoal);
@@ -449,6 +451,8 @@ test("PTC pauses for a real child approval and resumes the same code", {
         state: {
             ...goal.state,
             run: { ...goal.state.run, id: "ptc-entry-approval-run" },
+            // 入口审批场景使用独立 Run，消息归属与 Run 内位置随之绑定。
+            messages: bindMessagesToRun(goal.state.messages, "ptc-entry-approval-run"),
         },
     };
     await store.save(entryGoal);

@@ -385,7 +385,7 @@ test("GoalSnapshotCodec restores the complete Runtime State for every phase", ()
             },
             messages: [
                 ...planning.state.messages,
-                testAssistantMessage("请批准任务", { profileId: "profile-1" }),
+                testAssistantMessage("请批准任务", { profileId: "profile-1", goal: planning }),
             ],
             run: {
                 ...planning.state.run,
@@ -667,8 +667,16 @@ test("InMemoryGoalStore keeps only the latest complete snapshot", async () => {
             ...initial.state,
             messages: [
                 ...initial.state.messages,
-                testUserMessage("继续执行"),
+                testUserMessage("继续执行", { runId: "run-2", position: { afterSequence: 0, order: 0 } }),
             ],
+            // 新 Run 接管前，旧 Run 必须留在已归档 Run 列表里。
+            completedRuns: [{
+                runId: "run-1",
+                status: "completed",
+                stepCount: initial.state.run.stepCount,
+                committedThroughSequence: initial.state.run.committedThroughSequence,
+                messageRange: { start: 0, end: initial.state.messages.length },
+            }],
             run: {
                 ...initial.state.run,
                 id: "run-2",
@@ -715,7 +723,11 @@ test("InMemoryGoalStore clones on save and restore", async () => {
     }
 
     (first.definition.profile.instructions as string[]).push("恢复结果修改");
-    (first.state.messages as GoalMessage[]).push(testAssistantMessage("不应写回 Store", { profileId: "profile-1" }));
+    (first.state.messages as GoalMessage[]).push(testAssistantMessage("不应写回 Store", {
+        profileId: "profile-1",
+        runId: "run-1",
+        position: { afterSequence: 0, order: first.state.messages.length },
+    }));
 
     assert.deepEqual(await store.restore("goal-1"), createSnapshot());
 });
@@ -894,8 +906,16 @@ test("JsonFileGoalStore overwrites the previous snapshot for the same Goal", asy
                 ...initial.state,
                 messages: [
                     ...initial.state.messages,
-                    testUserMessage("恢复后继续执行"),
+                    testUserMessage("恢复后继续执行", { runId: "run-latest", position: { afterSequence: 0, order: 0 } }),
                 ],
+                // 新 Run 接管前，旧 Run 必须留在已归档 Run 列表里。
+                completedRuns: [{
+                    runId: "run-old",
+                    status: "completed",
+                    stepCount: initial.state.run.stepCount,
+                    committedThroughSequence: initial.state.run.committedThroughSequence,
+                    messageRange: { start: 0, end: initial.state.messages.length },
+                }],
                 run: {
                     ...initial.state.run,
                     id: "run-latest",
@@ -1313,7 +1333,7 @@ test("a cross-process waiting Goal resumes with its run and latest snapshot", as
                 ...goal.state,
                 messages: [
                     ...goal.state.messages,
-                    testUserMessage("恢复后的输入"),
+                    testUserMessage("恢复后的输入", { goal }),
                 ],
                 run: { ...goal.state.run, status: "running" },
             },
