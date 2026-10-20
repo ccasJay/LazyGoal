@@ -150,50 +150,69 @@ git diff --check
 
 ### Latest Result
 
-- 状态：failed（功能实现与定向验收通过；全量回归被 TODO 1 的快照不变量与共享夹具不一致阻断）。
-- 验证时间：2026-10-20（本工作树 `codex/goal-board-streaming`，基线 `1145f823`，接续 HEAD `88d5b1af`）。
-- 测试提交：`d68273fa`（TODO 5）、`9fd806c0`（TODO 6）、`f7eacc11`（TODO 7）、`0fec8530`（TODO 8）、`ae7d10dc`（TODO 9）、`757b58f6`（TODO 10）。
-- 契约基线：已批准的 `spec.md`，SHA-256 `8573444de38feb37fec0d5bfe799efe74cd1dd114249226729581d6fe64350ab`；`plan.md` SHA-256 `d290d597694bf89ca3a2ad26b709e3a58c9ae1076e08b905a001687ee3b1c4ec`。
+- 状态：passed（功能实现、修复轮与完整 Feature Verification 全部通过）。
+- 验证时间：2026-10-21（本工作树 `codex/goal-board-streaming`，基线 `1145f823`，接续 HEAD `79063533`）。
+- 契约基线：已批准的 `spec.md`，SHA-256 `8573444de38feb37fec0d5bfe799efe74cd1dd114249226729581d6fe64350ab`（与批准版本一致，本轮未修改）；本次更新前的 `plan.md` SHA-256 `26ec5feacaf9800d4f54dea31b2b2c33d305a152afe3b6326d0253dafe1b4c6d`。
+- 功能提交：`f0fb75b1`…`757b58f6`（TODO 1–10），`f0e4082c`（上一轮 FV 记录）。
+- 修复轮提交：`81a4ec16`（TODO 1 快照不变量与共享夹具）、`72009c7c`（集成测试工具策略取值）、`135715ee`（新增集成用例停止原因类型）、`b1616022`（活动投影裸 NUL 分隔符）、`491ed382`（显式 Think 摘要与详情入口）、`10a976e6`（既有 Chrome 用例与 mock 端点迁移）、`79063533`（语义表说明）。
 
 #### 逐项检查结果
 
 | 检查入口 | 结果 | 证据 |
 | --- | --- | --- |
-| `npx tsx --test packages/runtime/test/message-timeline-position.test.ts packages/storage/test/message-timeline-position.test.ts packages/browser/test/browser-activity.test.ts apps/goal-server/test/goal-board-streaming.integration.test.ts` | passed（14 项全部通过） | 终端输出 `# tests 14 / # pass 14 / # fail 0` |
-| `npm --prefix apps/goal-server run build` | **failed（既有基线问题，与本次改动无关）** | `apps/goal-server/test/session-output-approval.integration.test.ts:96` 的 `toolPolicy` 内联类型允许 `"deny"`，而 `packages/runtime/src/tool.ts` 的 `ToolPolicy` 只允许 `"allow" \| "require_approval"`；该测试文件与 runtime `ToolPolicy` 自基线 `1145f823` 起逐字未变 |
-| `npm run build:web` | passed | `vite build` 输出 `✓ built in 1.10s` |
-| `npm test`（根类型、依赖、文档、GEPA 与各包／应用回归） | **failed** | `# tests 2405 / # pass 2362 / # fail 43`；失败全部落在 `packages/storage`(18)、`packages/runtime`(17)、`packages/model-request`(3)、`packages/model-execution`(2)、`apps/goal-server` 既有集成用例(2)、`packages/browser`(1) |
-| `node --test --test-concurrency=1 apps/goal-board/e2e/*.test.mjs` | **failed（新增场景通过；5 项既有 Chrome 用例因断言被替代的旧界面而失败）** | `# tests 12 / # pass 7 / # fail 5`；详见“浏览器验收”小节 |
-| `git diff --check` | passed | 无输出 |
+| `npx tsx --test packages/runtime/test/message-timeline-position.test.ts packages/storage/test/message-timeline-position.test.ts packages/browser/test/browser-activity.test.ts apps/goal-server/test/goal-board-streaming.integration.test.ts` | passed | `# tests 15 / # pass 15 / # fail 0` |
+| `npm --prefix apps/goal-server run build` | passed | `tsc --noEmit` 退出码 0；上一轮 `session-output-approval.integration.test.ts` 的 `toolPolicy` 类型错误已由 `72009c7c` 收窄 |
+| `npm run build:web` | passed | `vite build` 输出 `✓ built in 1.12s` |
+| `npm --prefix apps/goal-board test` | passed | `# tests 151 / # pass 151 / # fail 0` |
+| `node --test --test-concurrency=1 apps/goal-board/e2e/*.test.mjs` | passed | `# tests 12 / # pass 12 / # fail 0`（真实 Chrome `--headless=new` + CDP + 显式 `Emulation.setDeviceMetricsOverride`） |
+| `npm run check:docs` | passed | `文档检查通过：45 个模块，161 份当前说明。` |
+| `npm run check:dependencies` | passed | `依赖边界验证通过：274 个源文件` |
+| `git diff --check` | passed | 无输出（工作区与 `HEAD` 均无空白错误） |
+| 全量回归（串行，`npx tsx --test --test-concurrency=1` + `node --test --test-concurrency=1`） | passed | 确定性测试 `# tests 2409 / # pass 2409 / # fail 0`；scripts 测试 `# tests 70 / # pass 70 / # fail 0` |
+| `npm test`（仓库标准并行回归） | passed | 确定性测试 `# tests 2409 / # pass 2409 / # fail 0`；scripts 测试 `# tests 70 / # pass 70 / # fail 0` |
 
-#### 失败项归因（未削弱任何断言）
+#### 上一轮 43 项失败的复核结论
 
-43 项全量失败**不是** TODO 5–10 引入的：本次六个提交（`88d5b1af..HEAD`）未改动 `packages/runtime` 与 `packages/storage` 的任何文件（`git diff --stat 88d5b1af..HEAD -- packages/runtime packages/storage` 为空）。把 `packages/`、`apps/` 临时检出到基线 `1145f823` 后，`packages/storage/test/goal-store.test.ts` 与 `packages/runtime/test/domain.test.ts` 共 35 项全部通过，随后已完整还原工作树。
+根因仍是 TODO 1 的快照不变量与共享夹具不一致：快照要求同一 Run、同一锚点（`afterSequence`）内的消息 `order` 从 0 连续递增，而 `packages/runtime/test/current-fixtures.ts` 的 `testUserMessage`／`testAssistantMessage` 默认一律给出 `{ afterSequence: 0, order: 0 }`；同一快照内出现两条消息时违反不变量，`encodeSnapshot` 以 `INVALID_GOAL_SNAPSHOT` 拒绝。
 
-根因在 TODO 1（消息 Run 内位置）新增的快照不变量与共享夹具不一致：快照要求同一 Run、同一锚点（`afterSequence`）内的消息 `order` 从 0 连续递增，而 `packages/runtime/test/current-fixtures.ts` 的 `testUserMessage`／`testAssistantMessage` 默认一律给出 `{ afterSequence: 0, order: 0 }`；同一快照内出现两条消息时违反不变量，`encodeSnapshot` 以 `INVALID_GOAL_SNAPSHOT`／`Goal does not satisfy the current snapshot schema` 拒绝。这属于已批准 TODO 1 契约下的旧夹具迁移缺口，需在 TODO 1 域内补齐夹具位置，不在本 TODO 改写他人域契约。
+`81a4ec16` 在 TODO 1 域内修复，未放宽校验、未删除断言：创建路径统一把初始消息集归属创建 Run 并分配 `afterSequence: 0` 的连续 `order`（调用方不能在创建时指定 Run 归属或位置），共享夹具新增 Run 绑定与 Goal 绑定辅助，恢复输入改按最近一次恢复事实锚定。
 
-`packages/browser/test/browser-recovery.test.ts` 的同一错误在 `88d5b1af` 基线上即可复现（已用 `git stash` 对照确认），非本次改动引入。
+复核证据：受影响包的定向回归 `npx tsx --test --test-concurrency=1 packages/runtime/test/*.test.ts packages/storage/test/*.test.ts packages/model-request/test/*.test.ts packages/model-execution/test/*.test.ts packages/browser/test/*.test.ts apps/goal-server/test/*.test.ts` 为 `# tests 1052 / # pass 1052 / # fail 0`，`INVALID_GOAL_SNAPSHOT` 类失败全部消失且无新增失败；全量串行与并行回归均为 2409/2409。
 
 #### 浏览器验收（真实 Chrome）
 
-- 新增 `apps/goal-board/e2e/goal-board-streaming.test.mjs`：以正式 `apps/goal-board/e2e/test-service.ts`（真实 `createCompositionRoot`、隔离文件存储、确定性适配器与受控工具）启动服务，用真实 Chrome（`--headless=new`、CDP、`Emulation.setDeviceMetricsOverride` 显式视口）验证：用户消息 → 工具活动组 → 正式答复的真实交错顺序；活动组呈现已提交工具身份与 `Completed` 状态、可展开成员详情与 `View trajectory` 定位入口；刷新重建后来源身份与次序不变；320px 视口 + `Page.setFontSizes`（200% 文本放大）+ `prefers-reduced-motion: reduce` 下时间线不产生横向溢出且输入控件可达；页面不发起模型图片或远程嵌入请求。
-- 扩展 `apps/goal-board/e2e/run-input-control.test.mjs`：按原身份读取持久化收据（`GET /api/goals/:goalId/inputs/:inputId`）并区分已受理与不存在。
-- 扩展 `apps/goal-board/e2e/test-service.ts`：新增 `LAZYGOAL_E2E_TOOL_POLICY=allow` 开关，默认仍为 `require_approval`，既有验收场景行为不变。
-- 新增场景 `goal-board-streaming.test.mjs` **通过**；以下 5 项既有 Chrome 用例**失败**，均因断言被本功能替代的旧界面，需要按新契约迁移断言（未删除任何安全或恢复场景）：
-  - `board.test.mjs`“Goal board uses saved state…”：该用例的 mock API 未实现应用现在调用的 `GET /api/goals/:goalId/activity` 与 `GET /api/goals/:goalId?view=state`，返回 404，时间线无法加载。mock 必须实现应用实际调用的每个端点。
-  - `run-stages.test.mjs`“Web goal session presents run stages…”：断言已被替代的分区渲染容器 `.run-stages-container`。
-  - `runtime.test.mjs`“real local service restores and completes…”：断言已被替代的活动组标记 `.activity-group` / `.tool-activity-label`（新实现为 `.timeline-activity` 与其成员列表）。
-  - `session-output.test.mjs`“real service and browser share one session output protocol”：期望的来源项清单按旧的逐事实条目书写，新实现把同一 Action 的事实归入 `activity:` 组。
-  - `streaming-session.test.mjs`“streaming session keeps one runtime queue across Steer, Interrupt, tabs and restart”：断言已被移除的 Steer／Queue 弹出菜单 `.run-send-options`（新契约下 Enter 直接排队、Steer 为独立按钮）。
+5 项既有 Chrome 用例已按新契约迁移断言与 mock，全部通过，未删除任何场景：
+
+- `board.test.mjs`“Goal board uses saved state…”：mock 补齐应用实际调用的 `GET /api/goals/goal-1?view=state` 与 `GET /api/goals/goal-1/activity`，正式消息补上稳定身份与 Run 内位置；断言改用 `.timeline-activity`、`.timeline-activity-member-label`、`.timeline-activity-member-status`、`.session .timeline > *` 与 `.timeline-terminal.failed`，并保留 Execution steps 筛选只隐藏活动主体、正文与 Run 边界仍可见的验证意图。
+- `run-stages.test.mjs`“Web goal session presents run stages…”：被替代的 `.run-stages-container`／`.run-stage-group` 改为 `.timeline-run-boundary`（Run 分界与当前 Run）、`.plan-route-stage`（获批 Plan 路线阶段、状态、路线修订号与修订理由）与 `.timeline-fact.run_stage_declared .timeline-stage-target`（阶段标题）；步骤按阶段与类别归组为默认折叠的活动组并可展开核对成员身份与状态；显式 Think 的获准摘要、进行状态与 Trajectory 详情入口逐项保留。
+- `runtime.test.mjs`：“real local service restores and completes…”：`.activity-group`／`.tool-activity-label` 改为 `.timeline-activity` 与 `.timeline-activity-member-label`；`.run-stages-container` 之外的旧 Stop 入口改为新契约的独立 `Stop run` 按钮，Steer 改为独立 `Steer the current Run with this message` 按钮；队列顺序、跨 Run、恢复与工具调用次数的验证未削弱。
+- `session-output.test.mjs`“real service and browser share one session output protocol”：期望项清单按新实现区分消息／事实与 `activity:` 活动组条目，额外断言同一 Action 只贡献一个活动组条目，DOM 次序仍与服务端 Activity 顺序逐项对应。
+- `streaming-session.test.mjs`“streaming session keeps one runtime queue across Steer, Interrupt, tabs and restart”：移除已不存在的 `.run-send-options` 弹出菜单，改为 Enter 直接排队、显式 Steer 走独立按钮、Stop 走独立 `Stop run`；队列顺序、待应用 Steer、暂停原因与重启恢复的验证保留。
+
+#### 显式 Think 可见性的证据判定
+
+判定结论：属可见能力回退，本轮已恢复。
+
+证据（基线 `1145f823` 确实展示过）：
+
+- `apps/goal-board/src/components/GoalSession.tsx`（基线 545–552）在活动组成员内渲染 `Think goal`、已提交分析正文（安全 Markdown）与 `Some Think content is omitted. View the complete event in trajectory.`。
+- 同文件基线 588–601 为每个带 `executionUnitId` 的成员渲染 `View in trajectory` 入口；基线 `apps/goal-board/src/activity-projector.ts:176-190` 把 Think 成员记入 `executionUnitId`，因此 Think 成员同样具备该入口。
+- `packages/browser/src/browser-projection.ts`（基线 350–395）按 `think_requested`／`think_completed` 投影 Think 步骤；`packages/browser/src/browser-trajectory.ts:175-183` 提供完整事件读取。
+
+回退根因与处理：
+
+1. `packages/web-contracts/src/validation.ts` 的 `isActivityThinkItem` 把未知字段白名单取反（`if (!Object.keys(value).some(...)) return false`），导致合法的 Think 项被整体拒绝，客户端 `isBrowserActivityPage` 随之拒绝整页，Think 摘要与详情入口完全不可见。该守卫由本分支 `d68273fa` 引入，非基线问题。`491ed382` 修正取值。
+2. Activity 的 Think 项不带 `executionUnitId`，页面无法为 Think 成员提供 Trajectory 详情定位引用。`491ed382` 在 `BrowserActivityThinkItem` 增加可选 `executionUnitId`，由 Browser 投影与 Goal Board 活动投影逐层传递，页面据此渲染 `View trajectory`。
+3. 安全边界不变：只投影获准的思考目标、已提交输出与截断标记；未提交输出、供应商隐藏推理、私有阶段与审查内部内容都不进入公开 DTO。证据见 `packages/browser/test/browser-activity.test.ts`（未提交 Think 输出不进入页面）、`packages/web-contracts/test/web-contracts.test.ts`（未知字段与私有载荷被 wire guard 拒绝）、`apps/goal-board/test/activity-projector.test.ts`、`apps/goal-board/test/p2-improvements.test.tsx`（摘要、输出与详情入口渲染）、`apps/goal-board/test/session-timeline.test.ts`（端到端时间线投影）。
 
 #### 已落实的验收标准
 
-- [1.1][1.2][1.3][1.4][1.5]、[2.1]–[2.6]、[3.1]–[3.5]、[4.1]–[4.6]、[5.1]–[5.5]、[6.1]–[6.5]、[7.1]–[7.5]、[8.1]–[8.4]：对应 TODO 1–10 的定向测试与本文件表格中的命令；[8.3] 的 Chrome 证据见上。
+- [1.1][1.2][1.3][1.4][1.5]、[2.1]–[2.6]、[3.1]–[3.5]、[4.1]–[4.6]、[5.1]–[5.5]、[6.1]–[6.5]、[7.1]–[7.5]、[8.1]–[8.4]：对应 TODO 1–10 的定向测试与本文件表格中的命令。
 - [7.4] 的“200% 文本放大”使用 Chrome `Page.setFontSizes`（Chrome 文本缩放本身只放大默认字号文本，px 字号按浏览器规则不放大），已在 e2e 中注明实现方式。
+- [1.1] 的“阶段标题”由 `.timeline-fact.run_stage_declared .timeline-stage-target` 与获批 Plan 路线共同承担；[8.1][8.4] 的入口迁移由 `?view=state`、Activity 页与 `build:web`／`check:docs` 覆盖。
 
-#### 未解决项
+#### 未解决项与观察
 
-1. 全量 `npm test` 的 43 项失败：需在 TODO 1 域补齐共享夹具的 `position.order`（或按已批准契约迁移旧断言），完成后重跑本表全部命令。
-2. `npm --prefix apps/goal-server run build` 的既有类型错误（基线 `1145f823` 已存在）：`apps/goal-server/test/session-output-approval.integration.test.ts` 的内联 `toolPolicy` 类型与 `packages/runtime` 的 `ToolPolicy` 不一致，需由该域所有者决定是收窄测试内联类型还是扩展 Runtime 契约。
-3. 5 项既有 Chrome 用例仍断言被替代的旧界面（见“浏览器验收”小节）：需按新契约迁移断言与 mock 端点（`board.test.mjs` 的 mock 必须提供 `/activity` 与 `?view=state`），迁移后重跑 `node --test --test-concurrency=1 apps/goal-board/e2e/*.test.mjs`。
-4. 显式 Think 目前不在 Activity 窗口内：Think 事实（`think_requested`／`think_completed`）未进入 `BROWSER_ACTIVITY_EVENT_TYPES` 白名单，本轮为避免扩大公开白名单而未纳入；TODO 3 改为 Activity 窗口后，Think 仅可从 Trajectory 与完整会话读取。
+1. 阶段逐项修订号与审查拒绝问题清单不再单独渲染。基线的 `.run-stage-group` 容器按验收标准 8.4“旧展示路径移除”被整体替换；新契约保留阶段标题、获批 Plan 路线（目标、状态、路线修订号与修订理由），但 Activity 与 Plan 路线 DTO 不携带逐阶段修订号，也不携带 `run_stage_rejected` 的问题正文。`run-stages.test.mjs` 因此以路线修订号与修订理由承载审查反馈的可见性，未伪造逐阶段修订展示。恢复逐阶段修订与问题清单需要扩展公开 wire 契约，超出本轮范围。
+2. `apps/goal-board/src/style.css` 与 `workspace.css` 仍保留 `.run-stages-container`、`.run-stage-group`、`.stage-rejection-feedback` 等已无组件引用的规则，`apps/goal-board/test/run-stage-styles.test.ts` 仍以这些选择器断言样式存在。属于本分支移除旧阶段分组视图后遗留的死样式，不影响行为验收，但应在后续简化轮次一并清理。
+3. `packages/runtime/test/git-sandbox-authorization.test.ts` 的“真实 Runtime 与 Seatbelt”用例在一次全量串行回归中因受管进程 stderr 为空而失败一次，同一提交重跑即通过，单独连续 6 次运行均通过；该文件自基线 `1145f823` 起逐字未变，属 macOS Seatbelt 沙箱在高负载下的环境抖动，不是本功能引入的失败。
