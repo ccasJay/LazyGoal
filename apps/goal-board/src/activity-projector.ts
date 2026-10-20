@@ -316,7 +316,7 @@ function projectLiveMembers(
     if (event.type !== "activity" || event.goalId !== goalId || event.runId !== runId) continue;
     const activity = event.activity;
     if (!("sourceEventId" in activity) || !("sourceCursor" in activity)) continue;
-    latestByIdentity.set(`${activity.sourceCursor} ${activity.sourceEventId}`, {
+    latestByIdentity.set(`${activity.sourceCursor}\u0000${activity.sourceEventId}`, {
       event,
       cursor: activity.sourceCursor,
     });
