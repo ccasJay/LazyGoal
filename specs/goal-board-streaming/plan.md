@@ -43,7 +43,7 @@
   - **实现**：调整 [ActivityProjector](../../apps/goal-board/src/activity-projector.ts) 以完整交错来源确定断组，按 Action／尝试身份协调实时覆盖和保存事实，保留局部展开、当前状态与 Trajectory 定位。接入前置交互与参数修订区域，不复制表单、授权校验或未知结果决策；关闭 Execution steps 仍保留正文、边界、当前请求和控制。
   - **验证**：扩展 [活动投影测试](../../apps/goal-board/test/activity-projector.test.ts)、[页面断言](../../apps/goal-board/test/p2-improvements.test.tsx) 和前置交互消费测试，运行对应 `npx tsx --test`／Goal Board 测试。TODO 10 的真实页面执行问答、批准／拒绝、修改后批准和未知结果恢复，检查实际等待、工具入参／次数、父子身份与详情定位；不以虚构 DTO 测完便声称已集成。
 
-- [ ] //TODO 6. 提供默认排队、显式 Steer 与不受草稿占用的独立 Stop，并核验不确定提交
+- [x] //TODO 6. 提供默认排队、显式 Steer 与不受草稿占用的独立 Stop，并核验不确定提交
 
   落实标准：[4.1](./spec.md#spec-req-4-1)、[4.2](./spec.md#spec-req-4-2)、[4.3](./spec.md#spec-req-4-3)、[4.4](./spec.md#spec-req-4-4)、[4.5](./spec.md#spec-req-4-5)、[4.6](./spec.md#spec-req-4-6)。
   - **先验证**：首条普通消息创建一次 Goal；运行／等待中 Enter 直接排队，Shift+Enter 换行，输入法确认不发送；显式 Steer 指向原 Run，拒绝不改为 Queue。保有草稿、队列提交或问答编辑时 Stop 仍可达，受理／收尾／必要审批／cancelled 不混淆。模拟响应丢失，原 inputId／载荷核验后仅受理一次；其他客户端推进、切 Goal、设置返回及迟到响应不清空新草稿。清空先确认目标范围，暂停队列继续与重启 resume 分开，连接不消费队列。

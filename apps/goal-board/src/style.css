@@ -433,6 +433,19 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .composer textarea::placeholder { color: var(--muted); }
 .composer-tools { display: flex; align-items: center; justify-content: space-between; }
 .composer-tools > span { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; }
+.composer-actions { display: flex; align-items: center; gap: 7px; }
+.composer-run-note { margin: 0 0 7px; color: var(--subtle); font-size: var(--font-size-xs); }
+.stop-run { padding: 7px 10px; border: 1px solid var(--control-border); border-radius: 6px; background: var(--surface-raised); color: var(--text-secondary); font-size: 11px; }
+.stop-run:hover:not(:disabled) { color: var(--danger); }
+.stop-run:disabled { opacity: 0.65; }
+.steer-send { padding: 7px 10px; border: 1px solid var(--control-border); border-radius: 6px; background: var(--surface-raised); color: var(--accent-ink); font-size: 11px; }
+.steer-send:hover:not(:disabled) { border-color: var(--accent-ink); }
+.steer-send:disabled { opacity: 0.6; }
+.queue-clear-confirm { color: var(--text-secondary); font-size: 11px; }
+.unverified-submissions { display: grid; margin: 0 0 10px; gap: 6px; }
+.unverified-submission { display: flex; align-items: center; gap: 8px; padding: 6px 9px; border: 1px solid var(--control-border); border-radius: 6px; background: var(--surface-wash); color: var(--text-secondary); font-size: 11px; }
+.unverified-submission > span { flex: 1 1 auto; min-width: 0; }
+.unverified-submission button { padding: 4px 8px; border: 1px solid var(--control-border); border-radius: 4px; background: var(--panel); color: var(--text-secondary); font-size: 10px; }
 .send { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 5px; background: var(--accent); color: var(--text); }
 .send.is-running { width: auto; min-width: 76px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 9px; background: var(--surface-raised); color: var(--accent-ink); font-size: 10px; }
 .send.is-running:disabled { opacity: 1; }

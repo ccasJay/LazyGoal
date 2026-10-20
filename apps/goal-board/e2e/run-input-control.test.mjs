@@ -73,6 +73,15 @@ test("Run input controls persist Steer and deduplicate continuation retries", as
     const first = await request(ready, `/api/goals/${goalId}/inputs`, { method: "POST", body: followUp });
     assert.equal(first.response.status, 202);
     assert.equal(first.body.receipt.status, "pending");
+    // 结果不明时的核验路径：按原身份读取持久化收据，不生成新身份。
+    const receipt = await request(ready, `/api/goals/${goalId}/inputs/${followUp.inputId}`);
+    assert.equal(receipt.response.status, 200);
+    assert.equal(receipt.body.found, true);
+    assert.equal(receipt.body.receipt.inputId, followUp.inputId);
+    assert.equal(receipt.body.receipt.kind, "message");
+    const unknownReceipt = await request(ready, `/api/goals/${goalId}/inputs/never-accepted-input`);
+    assert.equal(unknownReceipt.response.status, 200);
+    assert.equal(unknownReceipt.body.found, false);
     const queued = await waitForSessionBody(ready, goalId, (session) => session.pendingMessages?.length === 1);
     assert.equal(queued.queue.paused, true);
     // 暂停期间新消息只追加到队尾：显式继续才解除暂停。

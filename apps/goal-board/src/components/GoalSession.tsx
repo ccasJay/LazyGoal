@@ -24,6 +24,7 @@ import { projectSessionTimeline } from "../session-timeline";
 import { SessionTimeline } from "./SessionTimeline";
 import { collectActivityProjections } from "../collect-activity-projections";
 import type { ActivityGroup } from "../activity-projector";
+import { queueClearScope } from "../session-controls";
 
 export function GoalSession({
   activeGoal,
@@ -103,6 +104,10 @@ export function GoalSession({
     onSubmitSteer,
     onInterrupt,
     onSubmitResume,
+    unverifiedSubmissions,
+    onVerifySubmission,
+    onRetrySubmission,
+    onDiscardSubmission,
   } = useRunControlContext();
 
   const timeline = useRef<HTMLDivElement>(null);
@@ -110,6 +115,7 @@ export function GoalSession({
   const currentRun = activityPage?.runs.find((run) => run.current);
   const [draftNoticeDismissed, setDraftNoticeDismissed] = useState(false);
   const [decisionSummaries, setDecisionSummaries] = useState<readonly AcceptedDecisionSummary[]>([]);
+  const [queueClearConfirm, setQueueClearConfirm] = useState(false);
 
   const projectionGoalKey = session?.goalId ?? null;
   useEffect(() => {
@@ -119,6 +125,7 @@ export function GoalSession({
   // 切换 Goal 时清空页面级决定摘要：新会话不复用旧请求的决定记录。
   useEffect(() => {
     setDecisionSummaries([]);
+    setQueueClearConfirm(false);
   }, [projectionGoalKey]);
 
   useEffect(() => () => {
@@ -494,13 +501,33 @@ export function GoalSession({
                     ))}
                   </ol>
                   <div className="queued-inputs-actions">
-                    <button
-                      type="button"
-                      disabled={commandBusy || sessionError !== null}
-                      onClick={() => void onClearQueue()}
-                    >
-                      Clear accepted queue
-                    </button>
+                    {queueClearConfirm ? (
+                      <>
+                        <span className="queue-clear-confirm">
+                          {queueClearScope(queuedInputs.length)}
+                        </span>
+                        <button
+                          type="button"
+                          className="primary"
+                          disabled={commandBusy || sessionError !== null}
+                          onClick={() => {
+                            setQueueClearConfirm(false);
+                            void onClearQueue();
+                          }}
+                        >
+                          Clear queued tasks
+                        </button>
+                        <button type="button" onClick={() => setQueueClearConfirm(false)}>Keep queue</button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={commandBusy || sessionError !== null}
+                        onClick={() => setQueueClearConfirm(true)}
+                      >
+                        Clear accepted queue
+                      </button>
+                    )}
                   </div>
                   {queuePaused && (
                     <div className="queue-paused">
@@ -514,6 +541,32 @@ export function GoalSession({
                       </button>
                     </div>
                   )}
+                </div>
+              )}
+              {unverifiedSubmissions.length > 0 && (
+                <div className="unverified-submissions" aria-label="Unconfirmed submissions">
+                  {unverifiedSubmissions.map((item) => (
+                    <div className="unverified-submission" key={item.inputId} data-input-id={item.inputId}>
+                      <span>
+                        {item.kind === "steer" ? "Steer" : "Message"} result is unknown. Verify it before sending again.
+                      </span>
+                      <button
+                        type="button"
+                        disabled={commandBusy}
+                        onClick={() => void onVerifySubmission(item.inputId)}
+                      >
+                        Verify
+                      </button>
+                      <button
+                        type="button"
+                        disabled={commandBusy}
+                        onClick={() => void onRetrySubmission(item.inputId)}
+                      >
+                        Retry same input
+                      </button>
+                      <button type="button" onClick={() => onDiscardSubmission(item.inputId)}>Discard</button>
+                    </div>
+                  ))}
                 </div>
               )}
               {session.runStatus === "waiting" &&
@@ -563,6 +616,11 @@ export function GoalSession({
                           placeholder="Queue next task…"
                           busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
                           onSubmit={onSubmitMessage}
+                          onInterrupt={onInterrupt}
+                          stopping={
+                            stoppingRunId === session.currentRunId ||
+                            (session.interruption !== undefined && session.interruption.status !== "finished")
+                          }
                         />
                       </div>
                     )}
@@ -666,7 +724,6 @@ export function GoalSession({
                     placeholder="Add direction while this Run is working…"
                     pendingSteers={session.pendingSteers ?? []}
                     onSteer={onSubmitSteer}
-                    onQueue={onSubmitMessage}
                     onInterrupt={onInterrupt}
                     stopping={
                       stoppingRunId === session.currentRunId ||

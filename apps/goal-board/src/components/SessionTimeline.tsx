@@ -405,7 +405,7 @@ export function ActivityGroupRow({
                   type="button"
                   className="timeline-activity-trajectory"
                   aria-label={`Open trajectory for ${member.label}`}
-                  onClick={() => onOpenTrajectory({ runId: member.runId, executionUnitId: member.executionUnitId })}
+                  onClick={() => onOpenTrajectory({ runId: member.runId, executionUnitId: member.executionUnitId! })}
                 >
                   View trajectory
                 </button>

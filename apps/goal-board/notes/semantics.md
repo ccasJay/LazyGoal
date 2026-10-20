@@ -24,6 +24,9 @@
 | 本地草稿 | 仅保存在输入框的未提交文本；提交中、拒绝与结果不明时保留，受理成功后由服务端收据接管。 | [Goal Board](../README.md) | [MessageComposer](../src/components/MessageComposer.tsx) |
 | 会话渐进加载 | 当前只呈现固定 Activity 页并提示页外历史；游标导航和阅读锚点恢复尚未接入页面。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx) |
 | 会话输出消费 | 页面消费同一条 Goal SSE：保存不明的候选保持待核验；正式 Activity 以同一展示 key 替换候选；确定作废后保留最多八份可释放旧稿，换 Goal 或重连清除临时正文。 | [Goal Board](../README.md) | [会话输出归约](../src/session-output-consumer.ts) |
+| 普通发送与显式 Steer | Enter 直接走普通消息受理并排队；Shift+Enter 换行，输入法组合期间不提交。Steer 是独立次操作，说明它修改当前任务而不是排队；拒绝保留草稿且不降级为排队。 | [Goal Board](../README.md) | [输入控制语义](../src/session-controls.ts)、[输入区](../src/components/MessageComposer.tsx) |
+| 独立 Stop run | 中断入口不依赖输入框是否有草稿；停止中、收尾、审批与最终取消各按真实状态呈现，Stopping 不等于已取消。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx) |
+| 不确定提交核验 | 受理结果不明时保留原 `inputId` 与冻结载荷，只提供按原身份核验收据或重试；明确拒绝保留可编辑草稿。 | [Goal Board](../README.md) | [输入控制语义](../src/session-controls.ts)、[运行命令](../src/hooks/useRunCommands.ts) |
 | 渲染错误边界 | 会话与轨迹视图的渲染异常被边界捕获，显示错误卡与重载入口，不整页白屏。 | [Goal Board](../README.md) | [SessionBoundary](../src/components/error-boundary.tsx) |
 | liveText 帧合并 | 打字机增量按帧合并后提交渲染，跟随滚动以帧节流，流结束不丢字。 | [Goal Board](../README.md) | [live-text-batch](../src/live-text-batch.ts) |
 | Provider 设置页 | 受管 Provider 紧凑列表与按需展开表单；区分凭据已保存、激活与目录检查状态，不回显已保存密钥。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx) |
