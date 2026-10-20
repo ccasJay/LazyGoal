@@ -400,10 +400,12 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                 this.push({ type: "input_result", goalId, outcome: projectInputOutcome(goalId, event.outcome) });
                 return;
             case "generation_event":
+                if (!this.isOwnSource(goalId, event.event.source)) return;
                 if (this.pushCommittedBoundary(goalId, event.event.source)) return;
                 this.onGenerationEvent(goalId, event.event);
                 return;
             case "tool_activity":
+                if (!this.isOwnSource(goalId, event.event.source)) return;
                 if (this.pushCommittedBoundary(goalId, event.event.source)) return;
                 this.onToolActivity(goalId, event.event);
                 return;
@@ -463,6 +465,21 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                 this.close();
                 return;
         }
+    }
+
+    /**
+     * 判断来源事件是否属于当前观察的 Goal。
+     *
+     * @remarks
+     * 跨 Goal 的迟到输出必须被忽略：它既不能覆盖当前 Goal 的活动，也不能被
+     * 当作当前 Run 的事实。
+     *
+     * @param goalId - 当前观察的 Goal。
+     * @param source - 来源信封。
+     * @returns 是否属于当前 Goal。
+     */
+    private isOwnSource(goalId: string, source: SessionEventSource): boolean {
+        return source.goalId === goalId;
     }
 
     /**

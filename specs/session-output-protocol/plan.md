@@ -66,7 +66,7 @@ action-approval-revision 是关联能力：存在时验证真实最终版本／�
   - **实现**：扩展基础 Session 同步投影，携带消息范围、来源及预览位置，复用已有缓冲／修订核对和故障类型，不再起一套每连接轮询。按持久化身份归并正式消息／交互／Run 结果，按实时来源处理增量；读取失败保留待核对状态，重新连接只读、不自动 resume 或 Interrupt。
   - **验证**：新增 `packages/runtime/test/session-output-recovery.test.ts`（待实现），扩展 `packages/execution-stream/test/execution-stream.test.ts`、`packages/browser/test/browser-recovery.test.ts` 及基础 Session 订阅测试；运行对应 `npx tsx --test`。使用文件重建、独立观察者和受控时钟证明末次通知核对确实运行且只读，无观察者时不遗留任务；不能用持续发 token 掩盖最后通知丢失。
 
-- [ ] //TODO 9. 将真实 HTTP／SSE 和当前 Web 消费入口切换到单一安全会话协议
+- [x] //TODO 9. 将真实 HTTP／SSE 和当前 Web 消费入口切换到单一安全会话协议
 
   落实标准：[1.4](./spec.md#spec-req-1-4)、[2.3](./spec.md#spec-req-2-3)、[5.3](./spec.md#spec-req-5-3)、[5.4](./spec.md#spec-req-5-4)、[5.5](./spec.md#spec-req-5-5)、[7.1](./spec.md#spec-req-7-1)、[7.3](./spec.md#spec-req-7-3)、[7.4](./spec.md#spec-req-7-4)。
   - **先验证**：内部句柄和真实 HTTP／SSE 对同一受控会话输出相同公开语义；页面生成预览、待确认、正式替换、候选作废、等待和终态各可消费，正式通知和重复同步不追加两份正文。跨 Goal 切换的迟到响应无效；断线／流 EOF 不显示 Run cancelled，等待不显示 completed。公开整个序列无参数、reasoning、签名、原始 Observation／metadata 或私有提示词。
