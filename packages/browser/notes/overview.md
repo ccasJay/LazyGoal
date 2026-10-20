@@ -1,11 +1,11 @@
 # 浏览器服务边界
 
-本机浏览器会话的访问检查、Goal 命令与投影路由；不拥有前端视图。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。
+本机浏览器会话的访问检查、Goal 命令、历史读取与投影路由；不拥有前端视图。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。
 
 
 ## 职责
 
-正式消息投影保留 Snapshot 中的稳定消息身份、所属 Run 和事实锚点位置；状态摘要、消息读取与 SSE 提交通知复用同一位置，不依据连接到达时间排序。
+正式消息投影保留 Snapshot 中的稳定消息身份、所属 Run 和事实锚点位置；窄状态摘要、Activity 历史、消息读取与 SSE 提交通知复用同一位置，不依据连接到达时间排序。
 
 [`@lazygoal/browser`](../src/index.ts) 负责本机浏览器入口的短期能力令牌、Host/Origin 检查、安全响应头、静态资源路由、正式工作区 Goal 投影、类型化命令和实时事件。它不拥有 Goal 状态或持久化。
 
@@ -13,7 +13,11 @@
 
 `lazygoal` 与 `lazygoal web` 都由独立 `apps/goal-server` 启动 Web 服务。服务创建随机能力令牌，将其放入页面 URL fragment，并在同源 HTTP Host 上提供 API、SSE 与已构建的 Goal Board 静态资源。服务监听 `127.0.0.1` 上的操作系统分配端口；静态页面根文档、favicon 和 `/assets/` 可不带令牌读取。其他请求须匹配精确 Host、同源约束和 Bearer 令牌。静态响应限制来源、禁止 referrer 并禁用缓存。
 
-授权后，`GET /api/goals` 从正式工作区 Catalog 返回真实 Goal 摘要，`GET /api/goals/:goalId` 从正式 Snapshot 和各 Run 的 Trajectory 返回会话视图。看板读取使用 Composition Root 暴露的正式工作区 Store 与 Trajectory 读取器，不经过含 Benchmark 的聚合目录。会话投影只纳入 Snapshot 提交边界内的事件，限制历史数量、消息正文长度（每条最多 64,000 字符）及其他预览文本，并省略 Profile、模型配置、供应商隐藏推理、原始事件及完整 Tool 输入/输出。内置文件、搜索和网页工具仅投影有界路径或查询摘要，用于 Activity 操作标题；写入正文和其他参数仍不投影。Bash 步骤按 Action 身份合并模型决定与执行事件；展开后只显示限长命令，以及已提交 Observation 中的成功输出白名单字段或失败说明，整个会话最多投影 100 组 Bash 详情。步骤可显示已提交的模型纠错和模型/Tool 重试摘要；Run 终态显示稳定失败原因或等待原因。终态 `complete` 决策由 Run 状态显示，不另生成一条步骤。Tool 结果只有在 Snapshot 纳入 `observation_recorded` 后才显示为已完成步骤；恢复后被纳入的新提交边界可能包含旧的 `tool_finished`，单独该事件不会确认结果。缺失 Goal 与不可读数据分别返回 404 和稳定的 500 错误码。在包含内部阶段的 Run 中，服务端从已提交轨迹事件聚合阶段分组（`stages`），按首次声明顺序保留阶段身份，聚合同一阶段的多轮修订、验收条件、阶段生命周期状态、审查拒绝反馈与接受后的结果摘要；归属于阶段的步骤关联 `stageId` 并在看板中按阶段折叠展示，首个阶段声明前的控制活动保留在 Run 级展示。中间阶段接受不标记 Run 完成，审查拒绝后阶段维持进行中并展示具体缺口原因；刷新或重连后均保持一致的稳定身份投影。
+授权后，`GET /api/goals` 从正式工作区 Catalog 返回真实 Goal 摘要，`GET /api/goals/:goalId` 从正式 Snapshot 和各 Run 的 Trajectory 返回完整会话投影。`GET /api/goals/:goalId?view=state` 返回 Snapshot-only 窄状态，不内嵌消息、步骤和阶段历史；它保留当前 Run、等待与 Action、队列、中断、GoalPlan、Plan 路线及当前会话摘要。看板读取使用 Composition Root 暴露的正式工作区 Store 与 Trajectory 读取器，不经过含 Benchmark 的聚合目录。
+
+`GET /api/goals/:goalId/activity` 提供默认 50、最大 100 个原子项的 Activity 窗口，接受可选 Run 过滤和互斥的 `before`／`after` cursor。消息最多返回 4,000 UTF-16 code unit 摘要；截断正文按 messageId 使用既有消息详情读取。事实投影只公开白名单事件类型、稳定身份与必要 Action／阶段关联，不发送事件 payload、原始 Observation、工具参数或模型内部内容。cursor 固定首次窗口内每个 Run 的 messageCount、throughMessageId 和 Snapshot 已提交 Trajectory 序号；后续正文、Observation、后继 Run 与未提交 tail 不进入该窗口。页面给出实际页范围、两侧未加载缺口的准确项数与首尾位置、Run 水位及跨页阶段／Action 组完整性提示。Activity 和窄状态路由均位于 BrowserSessionAccess 之后，Host、Origin 与 Bearer 校验在 Snapshot/Trajectory 读取之前执行。
+
+Activity 响应项数有界；当前文件 JSONL 读取器仍可扫描整个 Run 文件，接口不承诺磁盘随机访问或 I/O 成本有界。完整会话投影仍限制历史数量、消息正文长度（每条最多 64,000 字符）及其他预览文本，并省略 Profile、模型配置、供应商隐藏推理、原始事件及完整 Tool 输入/输出。内置文件、搜索和网页工具仅投影有界路径或查询摘要，用于 Activity 操作标题；写入正文和其他参数仍不投影。Bash 步骤按 Action 身份合并模型决定与执行事件；展开后只显示限长命令，以及已提交 Observation 中的成功输出白名单字段或失败说明，整个会话最多投影 100 组 Bash 详情。步骤可显示已提交的模型纠错和模型/Tool 重试摘要；Run 终态显示稳定失败原因或等待原因。终态 `complete` 决策由 Run 状态显示，不另生成一条步骤。Tool 结果只有在 Snapshot 纳入 `observation_recorded` 后才显示为已完成步骤；恢复后被纳入的新提交边界可能包含旧的 `tool_finished`，单独该事件不会确认结果。缺失 Goal 与不可读数据分别返回 404 和稳定的 500 错误码。在包含内部阶段的 Run 中，服务端从已提交轨迹事件聚合阶段分组（`stages`），按首次声明顺序保留阶段身份，聚合同一阶段的多轮修订、验收条件、阶段生命周期状态、审查拒绝反馈与接受后的结果摘要；归属于阶段的步骤关联 `stageId` 并在看板中按阶段折叠展示，首个阶段声明前的控制活动保留在 Run 级展示。中间阶段接受不标记 Run 完成，审查拒绝后阶段维持进行中并展示具体缺口原因；刷新或重连后均保持一致的稳定身份投影。
 
 看板列表包含持久化的归档标记。卡片菜单仅允许对已完成、失败或取消的 Goal 归档与删除；归档保留 Snapshot 和运行记录，从默认看板移到 Archived 视图，可恢复到默认看板。`POST /api/goals/:goalId/archive` 设置或清除归档标记。`DELETE /api/goals/:goalId` 清理该 Goal 的 Snapshot、Trajectory、模型输入、指标、诊断 Trace、检索 Sidecar 和 Goal 级授权，保留 Workspace 级授权与工作区文件。终态管理拒绝仍有未处理输入或未完成收尾的 Goal；删除先清理附属数据、最后删除快照，清理失败时可重试。两条路由都受会话令牌保护，缺失返回 404，非终态返回 409。
 

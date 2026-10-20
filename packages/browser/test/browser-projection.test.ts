@@ -18,6 +18,7 @@ import {
     createBrowserGoalRoutes,
     listBrowserGoals,
     readBrowserGoalSession,
+    readBrowserGoalSessionState,
     type BrowserGoalListItem,
 } from "../src/index";
 import type { BrowserCreateSessionCommand } from "../../web-contracts/src/index";
@@ -137,6 +138,42 @@ test("Browser session messages preserve stable identity and persisted Run positi
         runId: goal.state.run.id,
         position: { afterSequence: 4, order: 0 },
     });
+});
+
+test("narrow Browser state retains current Plan route, waiting decision, and server queue metadata", async () => {
+    const initial = createTestGoal();
+    const planRoute = createRunPlanRoute({
+        stages: [{ target: "Inspect the source", acceptanceCriteria: ["Find the current route"] }],
+    });
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            messageQueue: { revision: 9, items: [{ inputId: "queued-1", content: "continue later", sequence: 4 }] },
+            run: {
+                ...initial.state.run,
+                mode: "plan",
+                status: "waiting",
+                stepCount: 3,
+                planRoute,
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "ask-1",
+                    mode: "execution",
+                    questions: [{ id: "q-1", header: "Scope", question: "Continue?", multiSelect: false, options: [{ id: "yes", label: "Yes" }] }],
+                },
+            },
+        },
+    };
+    const state = await readBrowserGoalSessionState(goal.id, new TestGoalStore(goal));
+    assert.equal(state?.runStatus, "waiting");
+    assert.equal(state?.currentRunStepCount, 3);
+    assert.deepEqual(state?.currentPlanRoute?.stages.map((stage) => stage.stageId), planRoute.stages.map((stage) => stage.stageId));
+    assert.equal(state?.interaction?.kind, "question");
+    assert.deepEqual(state?.pendingMessages, [{ inputId: "queued-1", content: "continue later" }]);
+    assert.equal(state?.history.messages.included, false);
+    assert.equal("messages" in (state ?? {}), false);
+    assert.equal("runs" in (state ?? {}), false);
 });
 
 test("session projection exposes the typed interaction identity and truncation flag", async () => {

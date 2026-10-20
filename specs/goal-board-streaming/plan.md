@@ -15,7 +15,7 @@
   - **实现**：在消息原提交路径赋值 position，并扩展克隆、Snapshot schema／codec、公开消息投影和所有当前 fixture。新增事实的序列在同一提交中确定后再保存消息；重试复用已存来源和位置，不靠成功通知补写、不新增展示日志。当前文件／wire 边界校验，不对同进程已类型化值重复套解析器，也不从 Trace 或旧开发数据猜位置。
   - **验证**：新增 `packages/runtime/test/message-timeline-position.test.ts`、`packages/storage/test/message-timeline-position.test.ts`（待实现）；扩展现有 [提交器测试](../../packages/runtime/test/trajectory-checkpoint-committer.test.ts)、[多 Run 测试](../../packages/runtime/test/goal-multi-run-session.test.ts)、[交互测试](../../packages/runtime/test/goal-coordinator-task-interaction.test.ts) 和 [当前 Snapshot 测试](../../packages/storage/test/goal-snapshot-current.test.ts)，运行对应 `npx tsx --test`。同时断言普通查询／重建不增加模型、工具或 Step，核对已保存文件、原 messageRange 和公开消息位置。
 
-- [ ] //TODO 2. 从真实保存边界提供双向有界 Activity 历史和窄 Session 状态读取
+- [x] //TODO 2. 从真实保存边界提供双向有界 Activity 历史和窄 Session 状态读取
 
   落实标准：[1.2](./spec.md#spec-req-1-2)、[1.5](./spec.md#spec-req-1-5)、[6.1](./spec.md#spec-req-6-1)、[6.2](./spec.md#spec-req-6-2)、[6.3](./spec.md#spec-req-6-3)。
   - **先验证**：以一个超过 100 项的 Run、多个归档 Run 和跨页阶段／工具组读取最近、before、after 页；默认 50、最多 100 项，正序与反向再读结果一致。翻页间追加正文、Observation 和后继 Run，固定 throughMessageId／轨迹上界的旧页不混入新事实。正文 4,000 UTF-16 边界不拆代理项，可按 messageId 分段读取原文；非法／跨 Goal／错筛选 cursor、不存在、底层读取失败及未提交 tail 分别处理。真实 HTTP 的 Host／Origin／Bearer 校验先于读取，敏感标记不进入响应。

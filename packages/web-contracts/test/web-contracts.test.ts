@@ -9,6 +9,8 @@ import {
     isBrowserSessionInputResult,
     isBrowserSessionState,
     isBrowserGoalSession,
+    isBrowserGoalSessionState,
+    isBrowserActivityPage,
     isBrowserInteractionDetailResult,
     isBrowserInteractionView,
     isBrowserRun,
@@ -44,6 +46,8 @@ import {
     isWorkspaceContext,
     type BrowserGoalListItem,
     type BrowserGoalSession,
+    type BrowserGoalSessionState,
+    type BrowserActivityPage,
     type SessionMetricsSnapshot,
 } from "../src/index";
 
@@ -132,6 +136,45 @@ test("isBrowserGoalSession validates complete and malformed sessions", () => {
     }), false);
     assert.equal(isBrowserGoalSession({ ...validSession, runs: "not-array" }), false);
     assert.equal(isGoalSessionEnvelope({ goal: null }), false);
+});
+
+test("Activity 与窄状态 wire guards 接受有界安全 DTO 并拒绝原始载荷或内嵌历史", () => {
+    const position = { runId: "run-1", runOrder: 0, sequence: 2, itemKind: "message" as const, order: 0 };
+    const page: BrowserActivityPage = {
+        goalId: "goal-1",
+        limit: 1,
+        items: [{
+            type: "message", itemId: "message:msg-1", messageId: "msg-1", role: "assistant", runId: "run-1",
+            position, content: "saved", contentLength: 5, truncated: false,
+        }],
+        runs: [{ runId: "run-1", status: "running", current: true, runOrder: 0, committedThroughSequence: 2 }],
+        window: [{ runId: "run-1", messageCount: 1, throughMessageId: "msg-1", committedThroughSequence: 2 }],
+        gaps: [{ direction: "older", itemCount: 3, first: position, last: position }],
+        range: { first: position, last: position, olderAvailable: true, newerAvailable: false },
+        stages: [],
+        actionGroups: [],
+    };
+    assert.equal(isBrowserActivityPage(page), true);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], payload: { secret: "raw" } }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], content: "x".repeat(4_001), contentLength: 4_001 }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, limit: 101 }), false);
+    assert.equal(isBrowserActivityPage({ ...page, gaps: [{ direction: "older", itemCount: 0, first: position, last: position }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, gaps: [{ direction: "sideways", itemCount: 1, first: position, last: position }] }), false);
+    const { gaps: _gaps, ...missingGaps } = page;
+    assert.equal(isBrowserActivityPage(missingGaps), false);
+
+    const state: BrowserGoalSessionState = {
+        goalId: "goal-1", intent: "inspect", currentRunId: "run-1", runStatus: "running",
+        currentRunMode: "normal", currentRunStepCount: 1,
+        history: {
+            messages: { included: false, source: "activity" },
+            steps: { included: false, source: "activity" },
+            stages: { included: false, source: "activity" },
+        },
+    };
+    assert.equal(isBrowserGoalSessionState(state), true);
+    assert.equal(isBrowserGoalSessionState({ ...state, messages: [] }), false);
+    assert.equal(isBrowserGoalSessionState({ ...state, history: { ...state.history, messages: { included: true, source: "activity" } } }), false);
 });
 
 

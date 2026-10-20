@@ -49,10 +49,13 @@ export {
 export {
     listBrowserGoals,
     projectBrowserGoalList,
+    readBrowserGoalActivity,
     readBrowserGoalSession,
+    readBrowserGoalSessionState,
     type BrowserGoalListItem,
     type BrowserGoalPlan,
     type BrowserGoalSession,
+    type BrowserGoalSessionState,
     type BrowserBashExecutionDetail,
     type BrowserSessionMessage,
     type BrowserSessionRun,

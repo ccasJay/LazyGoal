@@ -946,3 +946,56 @@ export interface BrowserGoalSession {
     /** 历史是否因达到上限被截断。 */
     readonly historyTruncated: boolean;
 }
+
+/**
+ * 初始读取和分页使用的窄 Goal 状态。
+ *
+ * @remarks
+ * 不内嵌消息、步骤或历史阶段；`history` 明确指向 Activity 窗口。当前 Run、Plan
+ * 路线、队列、等待、交互与待审批 Action 仍保留在此状态中。
+ *
+ * @example
+ * ```ts
+ * const state: BrowserGoalSessionState = {
+ *     goalId: "goal-1", intent: "检查仓库", currentRunId: "run-1",
+ *     runStatus: "running", currentRunMode: "normal",
+ *     history: {
+ *         messages: { included: false, source: "activity" },
+ *         steps: { included: false, source: "activity" },
+ *         stages: { included: false, source: "activity" },
+ *     },
+ * };
+ * ```
+ */
+export interface BrowserGoalSessionState {
+    readonly goalId: string;
+    readonly intent: string;
+    readonly currentRunId: string;
+    readonly runStatus: BrowserRunStatus;
+    readonly currentRunMode: "normal" | "plan";
+    readonly nextRunMode?: "plan";
+    readonly currentRunStepCount: number;
+    readonly currentPlanRoute?: BrowserPlanRoute;
+    readonly execution?: BrowserGoalExecution;
+    readonly pendingSteers?: readonly { readonly messageId: string; readonly content: string }[];
+    readonly pendingMessages?: readonly { readonly inputId: string; readonly content: string }[];
+    readonly queue?: {
+        readonly revision: number;
+        readonly paused: boolean;
+        readonly pauseReason?: "run_failed" | "user_interrupt";
+    };
+    readonly interruption?: {
+        readonly requestId: string;
+        readonly status: "requested" | "repairing" | "finished";
+        readonly repairCallsStarted: number;
+        readonly outcomeUnknown?: boolean;
+    };
+    readonly goalPlan?: BrowserGoalPlan;
+    readonly interaction?: BrowserInteractionView;
+    readonly pendingAction?: BrowserPendingAction;
+    readonly history: {
+        readonly messages: { readonly included: false; readonly source: "activity" };
+        readonly steps: { readonly included: false; readonly source: "activity" };
+        readonly stages: { readonly included: false; readonly source: "activity" };
+    };
+}

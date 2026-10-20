@@ -13,6 +13,9 @@
 | Approved Plan route projection | 当前获批 Plan Run 的 Snapshot 权威完整路线及其 Runtime 状态；普通 Run 省略。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Session output projection | Runtime 的类型化会话输出按 wire 联合投影为单一 Goal SSE：状态同步、输入结果、公开生成、正式消息、工具活动、交互、Run 状态与终态、流故障与提交边界；不保留第二条事件流。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
 | 正式消息位置投影 | 状态摘要、消息读取和提交通知保留消息身份及 Snapshot 保存的 Run 事实锚点位置。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
+| Goal Session state view | `?view=state` 从 Snapshot 投影当前执行、等待、队列、控制与管理状态；消息／步骤／阶段历史明确由 Activity 提供。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
+| Activity history page | 固定每个 Run 的消息数量、末消息身份与提交序号，按稳定位置返回最多 100 项、双向 cursor 及首尾未加载范围。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
+| Activity route access | Activity 与窄状态读取由同一 Host、Origin、Bearer 边界保护，授权失败发生于数据读取之前。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
 | Safe live activity projection | 白名单公开的 Goal 范围 SSE 活动、`state_sync`／`input_result` 与 ExecutionStream 来源身份；与 Trajectory 标识空间分离。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
 | Provider settings routes | 受管 Provider 档案的掩码读取与增删改、激活、连接测试接口；写请求需同源 `Origin` 与 Bearer 令牌。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
 | Model source dimension | 模型目录携带的受管档案与回退来源列表，以及按 `providerProfileId` 读取指定来源目录的能力。 | [浏览器服务边界](../README.md) | [Model Catalog Projection](../src/browser-model-catalog.ts) |
