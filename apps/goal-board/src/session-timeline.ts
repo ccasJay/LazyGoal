@@ -9,13 +9,15 @@ import {
   EMPTY_SESSION_OUTPUT_DISPLAY,
   type SessionOutputDisplay,
 } from "./session-output-consumer";
+import type { ActivityGroup } from "./activity-projector";
 
 /**
  * 单一时间线中的已保存来源边界、消息、事实和当前临时正文。
  *
  * @remarks
  * 各持久化项使用 Activity `itemId` 与位置；Run 终态只由 Goal/Run 状态构造，临时正文身份
- * 仅在当前 Run 内有效，不能作为已保存消息提交或恢复。
+ * 仅在当前 Run 内有效，不能作为已保存消息提交或恢复。工具活动以真实动作组呈现，组的
+ * 位置取其首个成员，组内成员保持各自来源身份。
  *
  * @example
  * ```ts
@@ -28,6 +30,8 @@ import {
 export type SessionTimelineEntry =
   | { readonly kind: "run"; readonly itemId: string; readonly runId: string; readonly status: string; readonly position: BrowserActivityPosition }
   | { readonly kind: "message"; readonly itemId: string; readonly presentationKey: string; readonly runId: string; readonly role: "user" | "assistant"; readonly purpose?: "process" | "answer" | "notice"; readonly content: string; readonly position: BrowserActivityPosition; readonly previewIssue?: "official-text-differs" | "preview-incomplete" }
+  | { readonly kind: "activity"; readonly itemId: string; readonly runId: string; readonly group: ActivityGroup; readonly position?: BrowserActivityPosition }
+  | { readonly kind: "interaction"; readonly itemId: string; readonly runId: string; readonly interactionId: string; readonly interactionKind: string; readonly position: BrowserActivityPosition }
   | { readonly kind: "fact"; readonly itemId: string; readonly runId: string; readonly title: string; readonly eventType: string; readonly stageTarget?: string; readonly position: BrowserActivityPosition }
   | { readonly kind: "terminal"; readonly itemId: string; readonly runId: string; readonly status: "completed" | "failed" | "cancelled"; readonly position: BrowserActivityPosition }
   | { readonly kind: "live-preview"; readonly itemId: string; readonly runId: string; readonly content: string }
@@ -58,20 +62,23 @@ export interface SessionTimelineProjection {
  *
  * @remarks
  * 已保存项只按服务端位置排序并按稳定身份去重；有效候选、作废旧稿与临时正文排在已保存来源之后。
- * Run 完成状态只来自状态投影，不从模型正文、过程提交或阶段事实推断。
+ * Run 完成状态只来自状态投影，不从模型正文、过程提交或阶段事实推断。工具事实按真实动作
+ * 归入活动组，组出现在其首个成员的位置；实时活动组没有已提交位置，排在当前 Run 末尾。
  *
  * @param page - 服务端固定水位 Activity 页。
  * @param state - 不含历史正文的当前 Goal 状态。
+ * @param activityGroups - 按 Run 收集的真实活动组。
  * @param liveText - 当前连接尚未提交的正文；空字符串不生成临时项。
  * @returns 按 Run 与来源位置排序的时间线及当前 Plan 路线。
  * @example
  * ```ts
- * const timeline = projectSessionTimeline(activityPage, goalState, liveText, outputDisplay);
+ * const timeline = projectSessionTimeline(activityPage, goalState, groups, liveText, outputDisplay);
  * ```
  */
 export function projectSessionTimeline(
   page: BrowserActivityPage,
   state: BrowserGoalSessionState,
+  activityGroups: ReadonlyMap<string, readonly ActivityGroup[]>,
   liveText = "",
   outputDisplay: SessionOutputDisplay = EMPTY_SESSION_OUTPUT_DISPLAY,
 ): SessionTimelineProjection {
@@ -105,30 +112,79 @@ export function projectSessionTimeline(
     };
     items.push({ kind: "run", itemId: `run:${run.runId}`, runId: run.runId, status: run.status, position: runPosition });
 
+    const groups = activityGroups.get(run.runId) ?? [];
+    const groupBySourceItem = new Map<string, ActivityGroup>();
+    for (const group of groups) {
+      const first = group.members[0];
+      if (first === undefined) continue;
+      if (!groupBySourceItem.has(first.sourceItemId)) groupBySourceItem.set(first.sourceItemId, group);
+    }
+    const emittedGroups = new Set<string>();
+
     for (const item of runItems) {
-      items.push(item.type === "message"
-        ? {
-            kind: "message",
-            itemId: item.itemId,
-            presentationKey: item.previewId === undefined
-              ? item.itemId
-              : candidatePresentationKey(page.goalId, item.runId, item.previewId),
+      if (item.type === "message") {
+        items.push({
+          kind: "message",
+          itemId: item.itemId,
+          presentationKey: item.previewId === undefined
+            ? item.itemId
+            : candidatePresentationKey(page.goalId, item.runId, item.previewId),
+          runId: item.runId,
+          role: item.role,
+          ...("purpose" in item && item.purpose !== undefined ? { purpose: item.purpose } : {}),
+          content: item.content,
+          position: item.position,
+          ...findPreviewIssue(outputDisplay, page.goalId, item.runId, item.previewId),
+        });
+        continue;
+      }
+      if (item.type === "think") {
+        const group = groupBySourceItem.get(item.itemId);
+        if (group !== undefined && !emittedGroups.has(group.id)) {
+          emittedGroups.add(group.id);
+          items.push({
+            kind: "activity",
+            itemId: `activity:${group.id}`,
             runId: item.runId,
-            role: item.role,
-            ...("purpose" in item && item.purpose !== undefined ? { purpose: item.purpose } : {}),
-            content: item.content,
-            position: item.position,
-            ...findPreviewIssue(outputDisplay, page.goalId, item.runId, item.previewId),
-          }
-        : {
-            kind: "fact",
-            itemId: item.itemId,
-            runId: item.runId,
-            title: item.stageTarget === undefined ? item.title : `${item.title} · ${item.stageTarget}`,
-            eventType: item.eventType,
-            ...(item.stageTarget === undefined ? {} : { stageTarget: item.stageTarget }),
-            position: item.position,
+            group,
+            ...(group.position === undefined ? {} : { position: group.position }),
           });
+        }
+        continue;
+      }
+      if (item.tool !== undefined) {
+        const group = groupBySourceItem.get(item.itemId);
+        if (group === undefined || emittedGroups.has(group.id)) continue;
+        emittedGroups.add(group.id);
+        items.push({
+          kind: "activity",
+          itemId: `activity:${group.id}`,
+          runId: item.runId,
+          group,
+          ...(group.position === undefined ? {} : { position: group.position }),
+        });
+        continue;
+      }
+      items.push({
+        kind: "fact",
+        itemId: item.itemId,
+        runId: item.runId,
+        title: item.stageTarget === undefined ? item.title : `${item.title} · ${item.stageTarget}`,
+        eventType: item.eventType,
+        ...(item.stageTarget === undefined ? {} : { stageTarget: item.stageTarget }),
+        position: item.position,
+      });
+    }
+
+    for (const group of groups) {
+      if (group.live !== true || emittedGroups.has(group.id)) continue;
+      emittedGroups.add(group.id);
+      items.push({
+        kind: "activity",
+        itemId: `activity:${group.id}`,
+        runId: run.runId,
+        group,
+      });
     }
 
     if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") {
@@ -139,6 +195,28 @@ export function projectSessionTimeline(
         runId: run.runId,
         status: run.status,
         position: terminalPosition,
+      });
+    }
+  }
+
+  // 当前等待在时间线上只保留只读关联；唯一可操作区域在 Activity 下部。
+  const currentInteraction = state.interaction;
+  if (currentInteraction !== undefined) {
+    const interactionRun = page.runs.find((run) => run.runId === currentInteraction.runId);
+    if (interactionRun !== undefined) {
+      items.push({
+        kind: "interaction",
+        itemId: `interaction:${currentInteraction.interactionId}`,
+        runId: currentInteraction.runId,
+        interactionId: currentInteraction.interactionId,
+        interactionKind: currentInteraction.kind,
+        position: {
+          runId: interactionRun.runId,
+          runOrder: interactionRun.runOrder,
+          sequence: interactionRun.committedThroughSequence,
+          itemKind: "fact",
+          order: 0,
+        },
       });
     }
   }
@@ -202,17 +280,26 @@ export function projectSessionTimeline(
 }
 
 function compareTimelineEntries(left: SessionTimelineEntry, right: SessionTimelineEntry): number {
-  const isEphemeral = (entry: SessionTimelineEntry) => entry.kind === "live-preview"
-    || entry.kind === "candidate-preview"
-    || entry.kind === "discarded-preview"
-    || entry.kind === "discarded-notice";
-  if (isEphemeral(left)) return isEphemeral(right) ? left.itemId.localeCompare(right.itemId) : 1;
-  if (isEphemeral(right)) return -1;
-  const byPosition = comparePositions(left.position, right.position);
-  if (byPosition !== 0) return byPosition;
-  const rank = (entry: SessionTimelineEntry) => entry.kind === "run" ? 0 : entry.kind === "terminal" ? 2 : 1;
-  const byKind = rank(left) - rank(right);
+  const leftPosition = "position" in left ? left.position : undefined;
+  const rightPosition = "position" in right ? right.position : undefined;
+  if (leftPosition !== undefined && rightPosition !== undefined) {
+    const byPosition = comparePositions(leftPosition, rightPosition);
+    if (byPosition !== 0) return byPosition;
+  } else if (leftPosition === undefined && rightPosition !== undefined) {
+    return 1;
+  } else if (rightPosition === undefined && leftPosition !== undefined) {
+    return -1;
+  }
+  const byKind = kindRank(left) - kindRank(right);
   return byKind !== 0 ? byKind : left.itemId < right.itemId ? -1 : left.itemId > right.itemId ? 1 : 0;
+}
+
+function kindRank(entry: SessionTimelineEntry): number {
+  if (entry.kind === "run") return 0;
+  if (entry.kind === "terminal" || entry.kind === "interaction") return 2;
+  if (entry.kind === "activity") return entry.position === undefined ? 3 : 1;
+  if (entry.kind === "message" || entry.kind === "fact") return 1;
+  return 4;
 }
 
 function findPreviewIssue(

@@ -51,6 +51,8 @@ export type {
     BrowserActivityRunContext,
     BrowserActivityRunWindow,
     BrowserActivityStageContext,
+    BrowserActivityThinkItem,
+    BrowserActivityToolState,
 } from "./activity";
 
 export {

@@ -18,6 +18,8 @@
 | Activity message purpose | 助手正文公开区分过程、答复和通知；用途只取已保存消息字段并由 wire guard 校验。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Activity candidate association | 仅正式完成候选答复携带稳定 `previewId`，供浏览器按候选身份结算预览；不投影未确认正文。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Activity stage target | 仅已提交的 `run_stage_declared` 事实公开有界阶段目标；其他事实不携带标题载荷。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
+| Activity tool state | Activity 事实按其所属已提交动作附带最小工具状态白名单：工具身份、执行状态、审批状态、白名单输入与结果摘要、恢复尝试、修订与恢复引用、PTC 父身份，以及已验证的断组边界；原始参数、Observation 正文与 reasoning 不投影。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
+| Activity think summary | Activity 页从已提交 Think 事实投影既有获准摘要与已提交输出，作为独立原子项参与排序与分页。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Activity route access | Activity 与窄状态读取由同一 Host、Origin、Bearer 边界保护，授权失败发生于数据读取之前。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
 | Safe live activity projection | 白名单公开的 Goal 范围 SSE 活动、`state_sync`／`input_result` 与 ExecutionStream 来源身份；与 Trajectory 标识空间分离。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
 | Provider settings routes | 受管 Provider 档案的掩码读取与增删改、激活、连接测试接口；写请求需同源 `Origin` 与 Bearer 令牌。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |

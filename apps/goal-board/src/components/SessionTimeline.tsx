@@ -1,4 +1,4 @@
-import React, { memo } from "react";
+import React, { memo, useCallback, useState } from "react";
 import { Check, CircleHelp, X } from "lucide-react";
 import type {
   BrowserPlanRoute,
@@ -8,6 +8,7 @@ import { AssistantMarkdown } from "./AssistantMarkdown";
 import { PlanRouteList } from "./PlanRouteList";
 import type { SessionTimelineEntry, SessionTimelineProjection } from "../session-timeline";
 import type { SessionOutputDisplay } from "../session-output-consumer";
+import type { ActivityGroup, ActivityMemberStatus } from "../activity-projector";
 
 type RenderableSessionMessage =
   | Extract<SessionTimelineEntry, { kind: "message" }>
@@ -96,6 +97,8 @@ export interface SessionTimelineProps {
   readonly onReleaseCandidate: (presentationKey: string) => void;
   /** 由 Goal Board 装配提供的品牌图标 URL。 */
   readonly brandMark: string;
+  /** 打开 Trajectory 并定位到成员的真实执行单元。 */
+  readonly onOpenTrajectory?: (target: { readonly runId: string; readonly executionUnitId: string }) => void;
 }
 
 const executionEventTypes = new Set([
@@ -115,7 +118,8 @@ const executionEventTypes = new Set([
  *
  * @remarks
  * 消息、事实和临时正文保留各自的稳定来源身份；状态为终态的 Run 才显示终态行，阶段事实
- * 不改变 Run 状态。Plan 路线只显示在当前 Run 边界，旧页缺口仍明确提示。
+ * 不改变 Run 状态。Plan 路线只显示在当前 Run 边界，旧页缺口仍明确提示。工具活动以真实
+ * 动作组呈现，展开状态由页面局部保存，追加内容不强制收起用户正在阅读的详情。
  *
  * @param props - 当前固定 Activity 页的来源投影与安全实时状态。
  * @returns 按稳定来源顺序排列的可滚动 feed。
@@ -138,8 +142,20 @@ export function SessionTimeline({
   onExpandCandidate,
   onReleaseCandidate,
   brandMark,
+  onOpenTrajectory,
 }: SessionTimelineProps) {
-  const savedContentCount = projection.items.filter((item) => item.kind === "message" || item.kind === "fact").length;
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleGroup = useCallback((groupId: string) => {
+    setExpandedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  }, []);
+  const savedContentCount = projection.items
+    .filter((item) => item.kind === "message" || item.kind === "fact" || item.kind === "activity")
+    .length;
 
   return (
     <div className="session-timeline-feed" data-testid="session-timeline">
@@ -155,6 +171,9 @@ export function SessionTimeline({
         candidatePresentation,
         onExpandCandidate,
         onReleaseCandidate,
+        expandedGroups,
+        onToggleGroup: toggleGroup,
+        onOpenTrajectory,
       }))}
       {savedContentCount === 0 && (
         <div className="timeline-date"><span />No saved activity in this window<span /></div>
@@ -176,6 +195,9 @@ function renderEntry(
     readonly candidatePresentation: SessionOutputDisplay;
     readonly onExpandCandidate: SessionTimelineProps["onExpandCandidate"];
     readonly onReleaseCandidate: SessionTimelineProps["onReleaseCandidate"];
+    readonly expandedGroups: ReadonlySet<string>;
+    readonly onToggleGroup: (groupId: string) => void;
+    readonly onOpenTrajectory: SessionTimelineProps["onOpenTrajectory"];
   },
 ) {
   if (item.kind === "run") {
@@ -195,6 +217,33 @@ function renderEntry(
 
   if (item.kind === "message") return <SessionMessage key={item.presentationKey} entry={item} brandMark={options.brandMark} />;
   if (item.kind === "candidate-preview") return <SessionMessage key={item.presentationKey} entry={item} brandMark={options.brandMark} />;
+
+  if (item.kind === "activity") {
+    if (!options.showExecutionFacts) return null;
+    return (
+      <ActivityGroupRow
+        key={item.itemId}
+        itemId={item.itemId}
+        runId={item.runId}
+        group={item.group}
+        expanded={options.expandedGroups.has(item.group.id)}
+        onToggle={() => options.onToggleGroup(item.group.id)}
+        onOpenTrajectory={options.onOpenTrajectory}
+      />
+    );
+  }
+
+  if (item.kind === "interaction") {
+    return (
+      <article className="timeline-interaction" key={item.itemId} data-item-id={item.itemId} data-run-id={item.runId}>
+        <span className="timeline-fact-marker" aria-hidden="true" />
+        <div className="timeline-fact-content">
+          <strong>{interactionLabel(item.interactionKind)}</strong>
+        </div>
+        <small>Reply below</small>
+      </article>
+    );
+  }
 
   if (item.kind === "discarded-preview") {
     const expanded = options.candidatePresentation.expandedCandidateKey === item.presentationKey;
@@ -276,6 +325,113 @@ function renderEntry(
       )}
     </article>
   );
+}
+
+/**
+ * 可展开的真实工具活动组。
+ *
+ * @remarks
+ * 展开状态由页面局部保存；追加内容、阶段结算和刷新不会收起用户正在阅读的详情。成员只
+ * 显示既有安全摘要与真实来源身份，原始参数与 Observation 不进入此处。
+ *
+ * @param props - 活动组身份、展开状态与 Trajectory 定位回调。
+ * @returns 一个可展开的活动组行。
+ * @example
+ * ```tsx
+ * <ActivityGroupRow itemId="activity:action:run-1:a1" runId="run-1" group={group} expanded={false} onToggle={() => {}} />
+ * ```
+ */
+export function ActivityGroupRow({
+  itemId,
+  runId,
+  group,
+  expanded,
+  onToggle,
+  onOpenTrajectory,
+}: {
+  readonly itemId: string;
+  readonly runId: string;
+  readonly group: ActivityGroup;
+  readonly expanded: boolean;
+  readonly onToggle: () => void;
+  readonly onOpenTrajectory: SessionTimelineProps["onOpenTrajectory"];
+}) {
+  const detailId = `activity-detail-${group.id.replace(/[^A-Za-z0-9_-]/gu, "-")}`;
+  return (
+    <section className={`timeline-activity ${group.status}`} data-item-id={itemId} data-run-id={runId} data-group-id={group.id}>
+      <button
+        type="button"
+        className="timeline-activity-heading"
+        aria-expanded={expanded}
+        aria-controls={detailId}
+        onClick={onToggle}
+      >
+        <span className="timeline-activity-marker" aria-hidden="true" />
+        <strong>{group.summary}</strong>
+        <span className={`timeline-activity-status ${group.status}`}>{activityStatusLabel(group.status)}</span>
+        {group.live === true && <small>Not saved yet</small>}
+      </button>
+      {expanded && (
+        <ul className="timeline-activity-members" id={detailId}>
+          {group.members.map((member) => (
+            <li key={member.id} data-member-id={member.id} data-action-id={member.actionId ?? ""}>
+              <span className="timeline-activity-member-label">
+                {member.think === undefined ? member.label : member.think.goal}
+              </span>
+              <span className={`timeline-activity-member-status ${member.status}`}>{activityStatusLabel(member.status)}</span>
+              {member.summary !== undefined && <small className="timeline-activity-member-summary">{member.summary}</small>}
+              {member.think?.output !== undefined && (
+                <div className="message-body markdown-body timeline-activity-member-think">
+                  <AssistantMarkdown content={member.think.output} />
+                </div>
+              )}
+              {member.think?.truncated === true && (
+                <small className="timeline-activity-member-summary">Some Think content is omitted. View the complete event in trajectory.</small>
+              )}
+              {member.parentActionId !== undefined && (
+                <small className="timeline-activity-member-origin">Child of {member.parentActionId}</small>
+              )}
+              {member.revisionRef !== undefined && (
+                <small className="timeline-activity-member-origin">Revised as {member.revisionRef}</small>
+              )}
+              {member.recoveryRef !== undefined && (
+                <small className="timeline-activity-member-origin">Recovery {member.recoveryRef}</small>
+              )}
+              {member.attempts.map((attempt) => (
+                <small className="timeline-activity-member-attempt" key={attempt}>{attempt}</small>
+              ))}
+              {onOpenTrajectory !== undefined && member.executionUnitId !== undefined && (
+                <button
+                  type="button"
+                  className="timeline-activity-trajectory"
+                  aria-label={`Open trajectory for ${member.label}`}
+                  onClick={() => onOpenTrajectory({ runId: member.runId, executionUnitId: member.executionUnitId })}
+                >
+                  View trajectory
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function activityStatusLabel(status: ActivityMemberStatus): string {
+  if (status === "running") return "Running";
+  if (status === "retrying") return "Retrying";
+  if (status === "pending-result") return "Result pending save";
+  if (status === "completed") return "Completed";
+  if (status === "failed") return "Failed";
+  return "Rejected";
+}
+
+function interactionLabel(kind: string): string {
+  if (kind === "question") return "Question awaiting your response";
+  if (kind === "task_approval") return "Plan awaiting your approval";
+  if (kind === "action_recovery") return "Action result awaiting your decision";
+  return "Action awaiting your approval";
 }
 
 function candidateStatusLabel(status: "generating" | "ready" | "pending-verification"): string {

@@ -247,8 +247,62 @@ test("Activity 真实读取在多 Run 与长历史中固定水位、双向排页
     }
 });
 
-test("窄状态生产投影只恢复 Snapshot，不调用轨迹读取器", async () => {
+test("Activity 事实携带最小已提交工具状态白名单，并按真实来源边界断组", async () => {
     const initial = createTestGoal();
+    const goal: Goal = {
+        ...initial,
+        state: { ...initial.state, run: { ...initial.state.run, committedThroughSequence: 12 } },
+    };
+    const createCall = (firstSequence: number, unit: string, actionId: string): TrajectoryEvent[] => [
+        allocateImmutableEvent({
+            goalId: goal.id, runId: goal.state.run.id, phase: "executing", executionUnitId: unit, stepIndex: firstSequence,
+            eventType: "decision_received",
+            payload: { type: "decision_received", decision: { kind: "tool_call", action: { actionId, toolId: "read_file", input: { path: `${actionId}.ts` } } } },
+        }, firstSequence),
+        allocateImmutableEvent({
+            goalId: goal.id, runId: goal.state.run.id, phase: "executing", executionUnitId: unit, stepIndex: firstSequence,
+            eventType: "action_staged", actionId,
+            payload: { type: "action_staged", action: { actionId, toolId: "read_file", input: { path: `${actionId}.ts` } }, approvalStatus: "approved" },
+        }, firstSequence + 1),
+        allocateImmutableEvent({
+            goalId: goal.id, runId: goal.state.run.id, phase: "executing", executionUnitId: unit, stepIndex: firstSequence,
+            eventType: "observation_recorded", actionId,
+            payload: { type: "observation_recorded", actionId, observation: { kind: "success", output: "PRIVATE_RAW_TOOL_OUTPUT", summary: "Read file" } },
+        }, firstSequence + 2),
+    ];
+    const answerBoundary = allocateImmutableEvent({
+        goalId: goal.id, runId: goal.state.run.id, phase: "executing", executionUnitId: "assistant-unit",
+        eventType: "decision_received",
+        payload: { type: "decision_received", decision: { kind: "complete", summary: "A visible reply", completionEvidence: [] } },
+    }, 7);
+    const committed = [...createCall(1, "unit-1", "action-1"), answerBoundary, ...createCall(8, "unit-2", "action-2")];
+    const store = { restore: async (id: string) => (id === goal.id ? goal : undefined) };
+    const readTrajectory = async () => ({ committed, uncommittedTail: [] });
+
+    const result = await readBrowserGoalActivity(goal.id, {}, store, readTrajectory);
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    const facts = result.page.items.filter((item) => item.type === "fact");
+    const firstToolFacts = facts.filter((item) => item.type === "fact" && item.actionId === "action-1");
+    assert.equal(firstToolFacts.length, 3);
+    for (const fact of firstToolFacts) {
+        assert.equal(fact.type, "fact");
+        if (fact.type !== "fact") continue;
+        assert.equal(fact.tool?.toolId, "read_file");
+        assert.equal(fact.tool?.status, "completed");
+        assert.equal(fact.tool?.actionStatus, "approved");
+        assert.equal(fact.tool?.inputSummary, "action-1.ts");
+        assert.equal(fact.tool?.summary, "Read file");
+        assert.equal(fact.tool?.activityBoundaryBefore, undefined);
+    }
+    const secondToolFacts = facts.filter((item) => item.type === "fact" && item.actionId === "action-2");
+    assert.equal(secondToolFacts.length, 3);
+    assert.equal(secondToolFacts[0]?.type === "fact" ? secondToolFacts[0].tool?.activityBoundaryBefore : undefined, true);
+    assert.equal(JSON.stringify(result.page).includes("PRIVATE_RAW_TOOL_OUTPUT"), false);
+});
+
+test("窄状态生产投影只恢复 Snapshot，不调用轨迹读取器", async () => {    const initial = createTestGoal();
     const state = await readBrowserGoalSessionState(initial.id, { restore: async () => initial });
     assert.equal(state?.currentRunStepCount, initial.state.run.stepCount);
     assert.deepEqual(state?.history, {

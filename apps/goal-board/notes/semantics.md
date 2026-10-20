@@ -15,7 +15,8 @@
 | 交互详情读取 | 按当前 Goal／Run／交互引用读取完整问题、任务范围或 Action 输入；失败保留等待并禁用依赖完整范围的决定。 | [浏览器服务边界](../../../packages/browser/README.md) | [交互详情路由](../../../packages/browser/src/browser-goal-routes.ts) |
 | 提案阶段路线 | 批准前显示 Plan Run 的完整候选阶段及各自验收条件。 | [Goal Board](../README.md) | [任务审批视图](../src/interaction-panel.tsx) |
 | 获批 Run 路线 | Activity 时间线上独立呈现 Plan Run 当前完整阶段顺序、状态与验收条件。 | [Goal Board](../README.md) | [PlanRouteList](../src/components/PlanRouteList.tsx) |
-| ActivityGroup | 从完整会话步骤与安全实时事件派生的纯分组投影；与 Activity 来源排序分开，不持久化且不改变 Runtime。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
+| ActivityGroup | 从固定 Activity 页的已提交事实与安全实时事件派生的纯分组投影；断组由完整交错来源决定，正文、交互、未知事实与阶段边界都会断开相邻成员，隐藏正文不改变该判定。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
+| 活动成员状态 | 区分执行中、重试、结果待保存、已提交失败／成功与已拒绝；实时返回不标为已保存成功，已提交 Observation 才决定终态。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
 | Live Activity | 当前 Goal SSE 的公开生成与连接状态；候选正文不持久化，保存通知后仍待固定 Activity 页核验。 | [Goal Board](../README.md) | [useRunStream](../src/hooks/useRunStream.ts) |
 | GoalSessionContext | 局部持有 Goal 窄状态、固定 Activity 页、按需完整会话及视图状态。 | [Goal Board](../README.md) | [上下文契约](../src/context/GoalSessionContext.tsx) |
 | RunControlContext | 隔离指令分发、客户端排队有限状态机与原子单飞防重锁的局部上下文。 | [Goal Board](../README.md) | [模块说明](./overview.md) |

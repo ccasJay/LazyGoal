@@ -22,6 +22,8 @@ import { WorkspaceContext } from "./WorkspaceContext";
 import { SessionBoundary } from "./error-boundary";
 import { projectSessionTimeline } from "../session-timeline";
 import { SessionTimeline } from "./SessionTimeline";
+import { collectActivityProjections } from "../collect-activity-projections";
+import type { ActivityGroup } from "../activity-projector";
 
 export function GoalSession({
   activeGoal,
@@ -65,6 +67,7 @@ export function GoalSession({
     revokingGrantId,
     liveText,
     liveActivity,
+    liveEvents,
     candidatePresentation,
     expandCandidateDraft,
     releaseCandidateDraft,
@@ -133,11 +136,18 @@ export function GoalSession({
       session.pendingAction?.status === "awaiting_approval" ||
       session.pendingAction?.status === "outcome_unknown");
 
+  const activityGroups = useMemo(
+    () => session === null || activityPage === null
+      ? new Map<string, readonly ActivityGroup[]>()
+      : collectActivityProjections(activityPage, session.goalId, liveEvents),
+    [activityPage, session, liveEvents],
+  );
+
   const timelineProjection = useMemo(
     () => session === null || activityPage === null
       ? { items: [], currentPlanRoute: undefined }
-      : projectSessionTimeline(activityPage, session, liveText, candidatePresentation),
-    [activityPage, session, liveText, candidatePresentation],
+      : projectSessionTimeline(activityPage, session, activityGroups, liveText, candidatePresentation),
+    [activityPage, session, activityGroups, liveText, candidatePresentation],
   );
 
   useEffect(() => {
@@ -427,6 +437,10 @@ export function GoalSession({
                         candidatePresentation={candidatePresentation}
                         onExpandCandidate={expandCandidateDraft}
                         onReleaseCandidate={releaseCandidateDraft}
+                        onOpenTrajectory={(target) => {
+                          setTrajectoryTarget({ ...target, nonce: Date.now() });
+                          setSessionTab("Trajectory");
+                        }}
                         brandMark={brandMark}
                       />
                     )}

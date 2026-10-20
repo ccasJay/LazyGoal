@@ -37,6 +37,8 @@ import type {
     BrowserActivityRunContext,
     BrowserActivityRunWindow,
     BrowserActivityStageContext,
+    BrowserActivityThinkItem,
+    BrowserActivityToolState,
     BrowserInteractionView,
     BrowserPendingAction,
     BrowserSessionMessage,
@@ -444,9 +446,14 @@ export async function readBrowserGoalActivity(
             activity.push(projectActivityMessage(message, run));
         }
         const result = await readTrajectory({ goalId, runId: run.runId });
+        const toolStates = projectActivityToolStates(result.committed);
         for (const event of result.committed) {
             if (event.sequence > runWindow.committedThroughSequence || !isBrowserActivityFact(event.eventType)) continue;
-            activity.push(projectActivityFact(event, run));
+            activity.push(projectActivityFact(event, run, toolStates.get(event.eventId)));
+        }
+        for (const think of projectActivityThinkItems(run.runId, run.runOrder, result.committed)) {
+            if (think.position.sequence > runWindow.committedThroughSequence) continue;
+            activity.push(think);
         }
     }
     activity.sort(compareActivityPosition);
@@ -578,16 +585,18 @@ function projectActivityMessage(
     };
 }
 
-function projectActivityFact(event: TrajectoryEvent, run: ActivityRunSnapshot): BrowserActivityFactItem {
+function projectActivityFact(
+    event: TrajectoryEvent,
+    run: ActivityRunSnapshot,
+    tool: BrowserActivityToolState | undefined,
+): BrowserActivityFactItem {
     const payload = event.payload;
     const stageId = payload.type === "run_stage_declared" || payload.type === "run_stage_accepted" || payload.type === "run_stage_rejected"
         ? payload.stageId : undefined;
     const stageRevision = payload.type === "run_stage_declared" || payload.type === "run_stage_accepted" || payload.type === "run_stage_rejected"
         ? payload.revision : undefined;
     const stageTarget = payload.type === "run_stage_declared" ? boundedText(payload.target, 1_000) : undefined;
-    const actionId = event.actionId
-        ?? ("actionId" in payload ? payload.actionId : undefined)
-        ?? (payload.type === "action_staged" ? payload.action.actionId : undefined);
+    const actionId = trajectoryActionId(event);
     return {
         type: "fact",
         itemId: `event:${event.eventId}`,
@@ -607,7 +616,223 @@ function projectActivityFact(event: TrajectoryEvent, run: ActivityRunSnapshot): 
         ...(stageId === undefined ? {} : { stageId }),
         ...(stageRevision === undefined ? {} : { stageRevision }),
         ...(stageTarget === undefined ? {} : { stageTarget }),
+        ...(tool === undefined ? {} : { tool }),
     };
+}
+
+/**
+ * 从已提交 Trajectory 投影显式 Think 摘要。
+ *
+ * @remarks
+ * 只保留既有获准摘要与已提交输出；未提交的思考不进入窗口。输出超长时按既有上限截断并
+ * 标记，完整事件仍可从 Trajectory 读取。Think 不产生新的工具事实，也不改变 Step 计数。
+ *
+ * @param runId - Think 所属 Run 身份。
+ * @param runOrder - Run 在 Goal 中的稳定顺序。
+ * @param committedEvents - 当前 Run 已提交的轨迹事件。
+ * @returns 显式 Think 摘要项。
+ */
+function projectActivityThinkItems(
+    runId: string,
+    runOrder: number,
+    committedEvents: readonly TrajectoryEvent[],
+): readonly BrowserActivityThinkItem[] {
+    const sorted = [...committedEvents].sort((left, right) => left.sequence - right.sequence);
+    const items: BrowserActivityThinkItem[] = [];
+    for (const request of sorted) {
+        if (request.eventType !== "think_requested" || request.executionUnitId === undefined) continue;
+        const completed = sorted.find((event) => event.eventType === "think_completed"
+            && event.payload.requestId === request.payload.requestId
+            && event.executionUnitId === request.executionUnitId);
+        const output = completed?.eventType === "think_completed" ? completed.payload.output : undefined;
+        const goal = boundedText(request.payload.goal, MAX_TEXT_LENGTH);
+        items.push({
+            type: "think",
+            itemId: `think:${request.eventId}`,
+            runId,
+            position: {
+                runId,
+                runOrder,
+                sequence: request.sequence,
+                itemKind: "fact",
+                order: 0,
+            },
+            think: {
+                goal,
+                ...(output === undefined ? {} : { output: boundedText(output, MAX_MESSAGE_LENGTH) }),
+                ...(request.payload.goal.length > MAX_TEXT_LENGTH || (output?.length ?? 0) > MAX_MESSAGE_LENGTH
+                    ? { truncated: true as const }
+                    : {}),
+            },
+        });
+    }
+    return items;
+}
+
+/**
+ * 从已提交 Trajectory 事实投影每个白名单事件所属动作的工具状态。
+ *
+ * @remarks
+ * 状态只来自已提交的 `action_staged`、`tool_started`、`observation_recorded` 等事实；
+ * 实时返回不会进入该投影。原始工具参数与 Observation 正文不进入结果，只保留既有白名单
+ * 输入摘要与结果摘要。PTC 子调用按其真实父程序身份归组。
+ *
+ * @param committedEvents - 当前 Run 已提交的轨迹事件。
+ * @returns 以事件 ID 索引的已提交工具状态。
+ */
+function projectActivityToolStates(
+    committedEvents: readonly TrajectoryEvent[],
+): ReadonlyMap<string, BrowserActivityToolState> {
+    const sorted = [...committedEvents].sort((left, right) => left.sequence - right.sequence);
+    const unitStageMap = new Map<string, string>();
+    let currentStageId: string | undefined;
+    for (const event of sorted) {
+        if (event.payload.type === "run_stage_declared") currentStageId = event.payload.stageId;
+        if (event.executionUnitId !== undefined && currentStageId !== undefined && !unitStageMap.has(event.executionUnitId)) {
+            unitStageMap.set(event.executionUnitId, currentStageId);
+        }
+    }
+
+    const parentActionByProgram = new Map<string, string>();
+    for (const event of sorted) {
+        if (event.payload.type === "program_started") {
+            parentActionByProgram.set(event.payload.programId, event.payload.parentActionId);
+        }
+    }
+
+    interface MutableToolAction {
+        readonly actionId?: string;
+        readonly executionUnitId?: string;
+        readonly stageId?: string;
+        readonly parentActionId?: string;
+        firstSequence: number;
+        lastSequence: number;
+        toolId: string | undefined;
+        status: "recorded" | "pending-result" | "completed" | "failed" | "rejected";
+        actionStatus: "awaiting_approval" | "approved" | "rejected" | undefined;
+        inputSummary: string | undefined;
+        summary: string | undefined;
+        attempts: string[];
+        revisionRef: string | undefined;
+        recoveryRef: string | undefined;
+        eventIds: string[];
+    }
+
+    const actions = new Map<string, MutableToolAction>();
+    for (const event of sorted) {
+        const actionId = trajectoryActionId(event);
+        const key = actionId !== undefined
+            ? `action:${actionId}`
+            : event.executionUnitId !== undefined ? `unit:${event.executionUnitId}` : undefined;
+        if (key === undefined) continue;
+        let action = actions.get(key);
+        if (action === undefined) {
+            const stageId = event.executionUnitId === undefined ? undefined : unitStageMap.get(event.executionUnitId);
+            const parentActionId = event.programId === undefined ? undefined : parentActionByProgram.get(event.programId);
+            action = {
+                ...(actionId !== undefined ? { actionId } : {}),
+                ...(event.executionUnitId !== undefined ? { executionUnitId: event.executionUnitId } : {}),
+                ...(stageId === undefined ? {} : { stageId }),
+                ...(parentActionId === undefined ? {} : { parentActionId }),
+                firstSequence: event.sequence,
+                lastSequence: event.sequence,
+                toolId: undefined,
+                status: "recorded",
+                actionStatus: undefined,
+                inputSummary: undefined,
+                summary: undefined,
+                attempts: [],
+                revisionRef: undefined,
+                recoveryRef: undefined,
+                eventIds: [],
+            };
+            actions.set(key, action);
+        }
+        action.lastSequence = event.sequence;
+        action.eventIds.push(event.eventId);
+
+        const payload = event.payload;
+        if (payload.type === "decision_received") {
+            if (payload.decision.kind === "tool_call") action.toolId = payload.decision.action.toolId;
+        } else if (payload.type === "action_staged") {
+            action.toolId = payload.action.toolId;
+            action.inputSummary = projectToolInputSummary(payload.action.toolId, payload.action.input);
+            action.actionStatus = payload.approvalStatus;
+        } else if (payload.type === "action_approved") {
+            action.actionStatus = "approved";
+        } else if (payload.type === "action_revised") {
+            action.actionStatus = "approved";
+            action.revisionRef = payload.reviewRef;
+        } else if (payload.type === "action_rejected") {
+            action.actionStatus = "rejected";
+            action.status = "rejected";
+        } else if (payload.type === "action_reexecution_authorized") {
+            action.recoveryRef = payload.recoveryRef;
+        } else if (payload.type === "action_reexecution_declined") {
+            action.recoveryRef = payload.recoveryRef;
+        } else if (payload.type === "tool_started") {
+            action.toolId = payload.toolId;
+            action.inputSummary = projectToolInputSummary(payload.toolId, payload.input) ?? action.inputSummary;
+            if (payload.revision !== undefined) action.revisionRef = payload.revision.reviewRef;
+        } else if (payload.type === "tool_attempt_started") {
+            action.attempts.push(`Tool attempt ${payload.attempt}`);
+        } else if (payload.type === "tool_attempt_failed") {
+            action.attempts.push(`Tool retry ${payload.attempt} failed: ${boundedText(payload.reason, 160)}`);
+        } else if (payload.type === "tool_finished") {
+            action.toolId = payload.toolId;
+            // 工具已返回但 Observation 尚未提交：结果待保存，不等于已保存成功。
+            if (action.status === "recorded") action.status = "pending-result";
+        } else if (payload.type === "observation_recorded") {
+            if (payload.observation.kind === "success") {
+                action.status = "completed";
+                action.summary = boundedText(payload.observation.summary, MAX_STEP_SUMMARY_LENGTH);
+            } else if (payload.observation.kind === "failure") {
+                action.status = "failed";
+                action.summary = boundedText(payload.observation.message, MAX_STEP_SUMMARY_LENGTH);
+            } else {
+                action.status = "rejected";
+            }
+        }
+    }
+
+    const toolActions = [...actions.values()]
+        .filter((action) => action.toolId !== undefined)
+        .sort((left, right) => left.firstSequence - right.firstSequence);
+    const eventById = new Map(sorted.map((event) => [event.eventId, event]));
+    const boundaryEventIds = new Set<string>();
+    for (const action of toolActions) {
+        for (const eventId of action.eventIds) {
+            const event = eventById.get(eventId);
+            if (event !== undefined && isActivityBoundaryEvent(event)) boundaryEventIds.add(eventId);
+        }
+    }
+
+    const states = new Map<string, BrowserActivityToolState>();
+    let previous: { readonly lastSequence: number; readonly stageId?: string } | undefined;
+    for (const action of toolActions) {
+        const hasBoundaryInAction = action.eventIds.some((eventId) => boundaryEventIds.has(eventId));
+        const boundaryBefore = previous !== undefined
+            && (hasBoundaryInAction || previous.stageId !== action.stageId
+                || !hasVerifiedActivityBridge(previous.lastSequence, action.firstSequence, sorted));
+        const state: BrowserActivityToolState = {
+            toolId: action.toolId!,
+            status: action.status,
+            ...(action.actionStatus === undefined ? {} : { actionStatus: action.actionStatus }),
+            ...(action.inputSummary === undefined ? {} : { inputSummary: action.inputSummary }),
+            ...(action.summary === undefined ? {} : { summary: action.summary }),
+            ...(action.attempts.length === 0 ? {} : { attempts: [...action.attempts] }),
+            ...(action.revisionRef === undefined ? {} : { revisionRef: action.revisionRef }),
+            ...(action.recoveryRef === undefined ? {} : { recoveryRef: action.recoveryRef }),
+            ...(action.parentActionId === undefined ? {} : { parentActionId: action.parentActionId }),
+            ...(boundaryBefore ? { activityBoundaryBefore: true as const } : {}),
+        };
+        for (const eventId of action.eventIds) states.set(eventId, state);
+        previous = {
+            lastSequence: action.lastSequence,
+            ...(action.stageId === undefined ? {} : { stageId: action.stageId }),
+        };
+    }
+    return states;
 }
 
 function activityEventTitle(eventType: BrowserActivityEventType): string {

@@ -223,6 +223,30 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .timeline-terminal.failed { color: var(--danger); }
 .timeline-terminal.cancelled { color: var(--muted); }
 .timeline-terminal svg { flex: 0 0 auto; }
+.timeline-interaction { position: relative; display: flex; align-items: flex-start; gap: 9px; margin: 0 auto 10px; padding: 4px 0 4px 18px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.timeline-interaction::before { position: absolute; top: 0; bottom: 0; left: 5px; width: 1px; background: var(--line); content: ""; }
+.timeline-interaction .timeline-fact-marker { position: absolute; top: 10px; left: 2px; border-color: var(--warning); }
+.timeline-interaction .timeline-fact-content > strong { color: var(--text-secondary); font-weight: 500; }
+.timeline-interaction > small { margin-left: auto; color: var(--subtle); font-size: 10px; white-space: nowrap; }
+.timeline-activity { position: relative; margin: 0 auto 10px; padding: 4px 0 4px 18px; color: var(--muted); font-size: 11px; }
+.timeline-activity::before { position: absolute; top: 0; bottom: 0; left: 5px; width: 1px; background: var(--line); content: ""; }
+.timeline-activity-heading { display: flex; align-items: center; gap: 9px; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.timeline-activity-heading > strong { color: var(--text-secondary); font-weight: 500; }
+.timeline-activity-marker { position: absolute; top: 10px; left: 2px; width: 7px; height: 7px; flex: 0 0 auto; border: 1px solid var(--control-border); border-radius: 50%; background: var(--panel); }
+.timeline-activity-status { padding: 2px 6px; border-radius: 4px; background: var(--surface-wash); color: var(--muted); font-size: 10px; }
+.timeline-activity-status.running, .timeline-activity-status.retrying { color: var(--accent-ink); }
+.timeline-activity-status.completed { color: var(--success); }
+.timeline-activity-status.failed { color: var(--danger); }
+.timeline-activity-status.rejected { color: var(--warning); }
+.timeline-activity-heading > small { margin-left: auto; color: var(--subtle); font-size: 10px; white-space: nowrap; }
+.timeline-activity-members { display: grid; margin: 6px 0 0; padding: 0; gap: 6px; list-style: none; }
+.timeline-activity-members > li { display: grid; gap: 2px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.timeline-activity-member-label { color: var(--text-secondary); }
+.timeline-activity-member-status { color: var(--muted); font-size: 10px; }
+.timeline-activity-member-summary, .timeline-activity-member-origin, .timeline-activity-member-attempt { color: var(--subtle); font-size: 10px; overflow-wrap: anywhere; }
+.timeline-activity-member-think { padding-left: 0; font-size: 12px; line-height: 1.7; }
+.timeline-activity-trajectory { justify-self: start; padding: 2px 6px; border: 1px solid var(--control-border); border-radius: 4px; background: none; color: var(--muted); font-size: 10px; cursor: pointer; }
+.timeline-activity-trajectory:hover { color: var(--text-secondary); }
 .message { margin-bottom: 23px; }
 .message-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 11px; }
 .message-heading strong { font-weight: 550; }

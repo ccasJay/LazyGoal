@@ -15,6 +15,7 @@ import { readBrowserGoalActivity, readBrowserGoalSessionState } from "../../../p
 import { InMemoryExecutionStreamPublisher } from "../../../packages/execution-stream/src/index";
 import type { BrowserActivityPage, BrowserGoalLiveEvent } from "../../../packages/web-contracts/src/index";
 import { InMemoryTrajectoryStore } from "../../../packages/runtime/test/current-fixtures";
+import { collectActivityProjections } from "../src/collect-activity-projections";
 import {
   EMPTY_SESSION_OUTPUT_DISPLAY,
   applySessionOutputEvent,
@@ -223,8 +224,8 @@ test("真实 GoalSessionStream 在保存屏障前展示候选，正式保存核�
     const finalState = await readBrowserGoalSessionState(initial.id, store);
     assert.ok(finalState);
     if (finalState === undefined) return;
-    const previewProjection = projectSessionTimeline(beforePage.page, beforeState, "", beforeSave);
-    const finalProjection = projectSessionTimeline(finalPage.page, finalState, "", promoted);
+    const previewProjection = projectSessionTimeline(beforePage.page, beforeState, collectActivityProjections(beforePage.page, beforePage.page.goalId, []), "", beforeSave);
+    const finalProjection = projectSessionTimeline(finalPage.page, finalState, collectActivityProjections(finalPage.page, finalPage.page.goalId, []), "", promoted);
     const previewIndex = previewProjection.items.findIndex((item) =>
       item.kind === "candidate-preview" && item.presentationKey === stableKey);
     const formalIndex = finalProjection.items.findIndex((item) =>
@@ -368,7 +369,7 @@ function renderTimeline(
   state: NonNullable<Awaited<ReturnType<typeof readBrowserGoalSessionState>>>,
   display: NonNullable<ReturnType<typeof applySessionOutputEvent>>,
 ): string {
-  const projection = projectSessionTimeline(page, state, "", display);
+  const projection = projectSessionTimeline(page, state, collectActivityProjections(page, page.goalId, []), "", display);
   return renderToStaticMarkup(createElement(SessionTimeline, {
     projection,
     currentRunId: state.currentRunId,

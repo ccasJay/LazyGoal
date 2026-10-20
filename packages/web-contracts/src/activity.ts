@@ -101,12 +101,53 @@ export interface BrowserActivityMessageItem {
 }
 
 /**
+ * Activity 事实项携带的已提交工具状态白名单投影。
+ *
+ * @remarks
+ * 只包含恢复活动组所需的工具身份、执行状态与既有安全摘要；不包含原始工具参数、
+ * Observation 正文、供应商 reasoning 或审批表单内容。`status` 只反映已提交的
+ * Observation 与拒绝事实，实时返回不会把它提前标为成功。`activityBoundaryBefore` 表示
+ * 该动作与前一个活动组之间存在已验证的来源边界，隐藏正文不会改变该判定。
+ *
+ * @example
+ * ```ts
+ * const tool: BrowserActivityToolState = {
+ *     toolId: "read_file", status: "completed",
+ *     inputSummary: "src/index.ts", summary: "读取成功",
+ * };
+ * ```
+ */
+export interface BrowserActivityToolState {
+    /** 白名单工具标识。 */
+    readonly toolId: string;
+    /** 已提交的工具执行状态；`pending-result` 表示工具已返回但结果尚未提交。 */
+    readonly status: "recorded" | "pending-result" | "completed" | "failed" | "rejected";
+    /** 已提交的审批状态。 */
+    readonly actionStatus?: "awaiting_approval" | "approved" | "rejected";
+    /** 白名单输入摘要；不是原始工具参数。 */
+    readonly inputSummary?: string;
+    /** 已提交结果摘要；不是原始 Observation 正文。 */
+    readonly summary?: string;
+    /** 已提交的恢复尝试摘要。 */
+    readonly attempts?: readonly string[];
+    /** 审批者修订后的实际版本引用。 */
+    readonly revisionRef?: string;
+    /** 结果未知重执行的恢复引用。 */
+    readonly recoveryRef?: string;
+    /** PTC 子调用的父程序 Action 身份。 */
+    readonly parentActionId?: string;
+    /** 与前一活动组的已验证断组边界。 */
+    readonly activityBoundaryBefore?: true;
+}
+
+/**
  * Activity 窗口中的安全轨迹事实摘要。
  *
  * @remarks
  * 只包含事实身份及必要关联标识，不包含原始 payload、工具参数、Observation、私有
  * Prompt 或模型内部推理。阶段标题仅取自已提交 `run_stage_declared.target`，并按公开
- * 文本上限截断；其他事件不携带阶段标题。
+ * 文本上限截断；其他事件不携带阶段标题。`tool` 只在事实属于某个已提交工具动作时
+ * 提供，用于在不读取完整会话的情况下恢复活动组。
  *
  * @example
  * ```ts
@@ -114,6 +155,7 @@ export interface BrowserActivityMessageItem {
  *     type: "fact", itemId: "event:event-12", eventId: "event-12", runId: "run-1",
  *     eventType: "tool_started", title: "Tool started",
  *     position: { runId: "run-1", runOrder: 0, sequence: 12, itemKind: "fact", order: 0 },
+ *     tool: { toolId: "read_file", status: "recorded", inputSummary: "src/index.ts" },
  * };
  * ```
  */
@@ -137,10 +179,46 @@ export interface BrowserActivityFactItem {
     readonly stageRevision?: number;
     /** 已提交阶段声明中的有界目标；仅 `run_stage_declared` 提供。 */
     readonly stageTarget?: string;
+    /** 该事实所属已提交工具动作的安全状态；非工具事实省略。 */
+    readonly tool?: BrowserActivityToolState;
 }
 
-/** 正式消息和安全轨迹事实组成的原子 Activity 项。 */
-export type BrowserActivityItem = BrowserActivityMessageItem | BrowserActivityFactItem;
+/**
+ * Activity 窗口中的显式 Think 摘要。
+ *
+ * @remarks
+ * 只保留既有获准摘要与已提交输出：思考目标、已提交的分析正文及其截断标记。不包含
+ * 供应商隐藏推理、私有阶段或原始 Prompt。Think 是同一 Runtime Step 内的展示成员，
+ * 不增加 Step 计数，也不产生新的工具事实。
+ *
+ * @example
+ * ```ts
+ * const item: BrowserActivityThinkItem = {
+ *     type: "think", itemId: "think:event-4", runId: "run-1",
+ *     position: { runId: "run-1", runOrder: 0, sequence: 4, itemKind: "fact", order: 0 },
+ *     think: { goal: "比较证据", output: "需要一次新观察。" },
+ * };
+ * ```
+ */
+export interface BrowserActivityThinkItem {
+    readonly type: "think";
+    /** 以 Think 请求事件身份构造的稳定项身份。 */
+    readonly itemId: string;
+    readonly runId: string;
+    readonly position: BrowserActivityPosition;
+    /** 显式 Think 的目标及已提交输出；输出缺省表示尚无已提交完成事实。 */
+    readonly think: {
+        /** 本次明确的思考目标；最多 4,000 字符。 */
+        readonly goal: string;
+        /** 已提交的显式分析正文；最多 64,000 字符，不包含供应商隐藏推理。 */
+        readonly output?: string;
+        /** 目标或正文被截断时为 true；完整事件仍可从 Trajectory 读取。 */
+        readonly truncated?: true;
+    };
+}
+
+/** 正式消息、安全轨迹事实与显式 Think 组成的原子 Activity 项。 */
+export type BrowserActivityItem = BrowserActivityMessageItem | BrowserActivityFactItem | BrowserActivityThinkItem;
 
 /**
  * 一次读取涉及的 Run 上下文。

@@ -193,6 +193,9 @@ test("SessionTimeline 保留真实来源身份并按交错顺序渲染消息、�
     liveActivity: null,
     streamConnected: false,
     brandMark: "/logo.svg",
+    candidatePresentation: { candidates: [], settledCandidates: [], discardedDrafts: [], unavailableDraftCount: 0 } as any,
+    onExpandCandidate: () => {},
+    onReleaseCandidate: () => {},
   }));
 
   const orderedIds = ["run:run-1", "message:user", "event:tool", "message:steer", "message:progress", "message:answer", "terminal:run-1:completed"];
@@ -203,6 +206,140 @@ test("SessionTimeline 保留真实来源身份并按交错顺序渲染消息、�
   assert.match(html, /Review the saved evidence/);
   assert.match(html, /Progress/);
   assert.match(html, /Run completed/);
+});
+
+test("SessionTimeline 把真实工具活动呈现为可展开活动组，并保留成员身份与 Trajectory 定位入口", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { SessionTimeline, ActivityGroupRow } = await import("../src/components/SessionTimeline");
+  const position = (sequence: number, itemKind: "fact" | "message" = "fact", order = 0) => ({
+    runId: "run-1", runOrder: 0, sequence, itemKind, order,
+  });
+  const group = {
+    id: "action:run-1:a1",
+    runId: "run-1",
+    category: "explore" as const,
+    status: "completed" as const,
+    summary: "Explored 1 item",
+    position: position(1),
+    members: [{
+      id: "action:run-1:a1",
+      runId: "run-1",
+      category: "explore" as const,
+      label: "Read src/app.ts",
+      status: "completed" as const,
+      isCommitted: true,
+      attempts: ["Tool retry 1 failed: temporary failure"],
+      actionId: "a1",
+      executionUnitId: "unit-1",
+      inputSummary: "src/app.ts",
+      summary: "Read succeeded",
+      parentActionId: "parent-action",
+      revisionRef: "review-1",
+      recoveryRef: "recovery-1",
+      sourceItemId: "fact:tool",
+      position: position(1),
+    }],
+  };
+  const html = renderToStaticMarkup(React.createElement(SessionTimeline, {
+    projection: {
+      currentPlanRoute: undefined,
+      items: [
+        { kind: "run", itemId: "run:run-1", runId: "run-1", status: "running", position: position(0) },
+        { kind: "activity", itemId: "activity:action:run-1:a1", runId: "run-1", group, position: position(1) },
+        { kind: "message", itemId: "message:answer", runId: "run-1", role: "assistant", purpose: "answer", content: "Review complete", position: position(2, "message") },
+      ],
+    },
+    currentRunId: "run-1",
+    runStatus: "running",
+    olderAvailable: false,
+    showExecutionFacts: true,
+    liveActivity: null,
+    streamConnected: false,
+    brandMark: "/logo.svg",
+    candidatePresentation: { candidates: [], settledCandidates: [], discardedDrafts: [], unavailableDraftCount: 0 } as any,
+    onExpandCandidate: () => {},
+    onReleaseCandidate: () => {},
+  }));
+
+  assert.match(html, /data-group-id="action:run-1:a1"/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.match(html, /Explored 1 item/);
+  assert.match(html, /Completed/);
+  // 折叠状态下不渲染成员详情，避免未展开即占用阅读空间。
+  assert.equal(html.includes("Read src/app.ts"), false);
+
+  const expandedHtml = renderToStaticMarkup(React.createElement(ActivityGroupRow, {
+    itemId: "activity:action:run-1:a1",
+    runId: "run-1",
+    group: group as any,
+    expanded: true,
+    onToggle: () => {},
+    onOpenTrajectory: () => {},
+  }));
+  assert.match(expandedHtml, /aria-expanded="true"/);
+  assert.match(expandedHtml, /data-member-id="action:run-1:a1"/);
+  assert.match(expandedHtml, /data-action-id="a1"/);
+  assert.match(expandedHtml, /Read src\/app\.ts/);
+  assert.match(expandedHtml, /Read succeeded/);
+  assert.match(expandedHtml, /Tool retry 1 failed: temporary failure/);
+  assert.match(expandedHtml, /Child of parent-action/);
+  assert.match(expandedHtml, /Revised as review-1/);
+  assert.match(expandedHtml, /Recovery recovery-1/);
+  assert.match(expandedHtml, /View trajectory/);
+});
+
+test("关闭 Execution steps 只隐藏活动主体，正文与 Run 边界仍然保留", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { SessionTimeline } = await import("../src/components/SessionTimeline");
+  const position = (sequence: number, itemKind: "fact" | "message" = "fact", order = 0) => ({
+    runId: "run-1", runOrder: 0, sequence, itemKind, order,
+  });
+  const group = {
+    id: "action:run-1:a1",
+    runId: "run-1",
+    category: "explore" as const,
+    status: "completed" as const,
+    summary: "Explored 1 item",
+    position: position(1),
+    members: [{
+      id: "action:run-1:a1",
+      runId: "run-1",
+      category: "explore" as const,
+      label: "Read src/app.ts",
+      status: "completed" as const,
+      isCommitted: true,
+      attempts: [],
+      sourceItemId: "fact:tool",
+      position: position(1),
+    }],
+  };
+  const html = renderToStaticMarkup(React.createElement(SessionTimeline, {
+    projection: {
+      currentPlanRoute: undefined,
+      items: [
+        { kind: "run", itemId: "run:run-1", runId: "run-1", status: "running", position: position(0) },
+        { kind: "activity", itemId: "activity:action:run-1:a1", runId: "run-1", group, position: position(1) },
+        { kind: "message", itemId: "message:answer", runId: "run-1", role: "assistant", purpose: "answer", content: "Review complete", position: position(2, "message") },
+      ],
+    },
+    currentRunId: "run-1",
+    runStatus: "running",
+    olderAvailable: false,
+    showExecutionFacts: false,
+    liveActivity: null,
+    streamConnected: false,
+    brandMark: "/logo.svg",
+    candidatePresentation: { candidates: [], settledCandidates: [], discardedDrafts: [], unavailableDraftCount: 0 } as any,
+    onExpandCandidate: () => {},
+    onReleaseCandidate: () => {},
+  }));
+
+  assert.equal(html.includes("Explored 1 item"), false);
+  assert.match(html, /data-item-id="run:run-1"/);
+  assert.match(html, /data-item-id="message:answer"/);
+  assert.match(html, /Review complete/);
 });
 
 test("PermissionControl 单选框包含 id 和 name 属性并正确关联 label", async () => {

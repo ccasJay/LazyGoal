@@ -806,9 +806,9 @@ function isBrowserActivityItem(value: unknown): boolean {
             && Number.isSafeInteger(value.contentLength) && Number(value.contentLength) >= value.content.length
             && typeof value.truncated === "boolean";
     }
-    if (value.type !== "fact") return false;
+    if (value.type !== "fact") return value.type === "think" && isActivityThinkItem(value);
     const isStageDeclaration = value.eventType === "run_stage_declared";
-    return !Object.keys(value).some((key) => !["type", "itemId", "eventId", "runId", "position", "eventType", "title", "executionUnitId", "actionId", "stageId", "stageRevision", "stageTarget"].includes(key))
+    return !Object.keys(value).some((key) => !["type", "itemId", "eventId", "runId", "position", "eventType", "title", "executionUnitId", "actionId", "stageId", "stageRevision", "stageTarget", "tool"].includes(key))
         && isNonEmptyString(value.eventId)
         && (BROWSER_ACTIVITY_EVENT_TYPES as readonly string[]).includes(String(value.eventType))
         && typeof value.title === "string"
@@ -818,7 +818,57 @@ function isBrowserActivityItem(value: unknown): boolean {
         && (value.stageRevision === undefined || Number.isSafeInteger(value.stageRevision) && Number(value.stageRevision) > 0)
         && (isStageDeclaration
             ? isNonEmptyString(value.stageTarget) && value.stageTarget.length <= 1_000
-            : value.stageTarget === undefined);
+            : value.stageTarget === undefined)
+        && (value.tool === undefined || isActivityToolState(value.tool));
+}
+
+/**
+ * Activity 显式 Think 摘要守卫。
+ *
+ * @remarks 只接受思考目标、已提交输出与截断标记。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为合法的 Think 摘要。
+ */
+function isActivityThinkItem(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    if (!Object.keys(value).some((key) => !["type", "itemId", "runId", "position", "think"].includes(key))) return false;
+    if (value.type !== "think") return false;
+    if (!isNonEmptyString(value.itemId) || !isNonEmptyString(value.runId)) return false;
+    if (!isActivityPosition(value.position) || value.position.runId !== value.runId) return false;
+    if (!isRecord(value.think)) return false;
+    if (!isNonEmptyString(value.think.goal) || value.think.goal.length > 4_000) return false;
+    if (value.think.output !== undefined && (typeof value.think.output !== "string" || value.think.output.length > 64_000)) return false;
+    if (value.think.truncated !== undefined && value.think.truncated !== true) return false;
+    return !Object.keys(value.think).some((key) => !["goal", "output", "truncated"].includes(key));
+}
+
+/**
+ * Activity 事实项的已提交工具状态白名单守卫。
+ *
+ * @remarks 只接受工具身份、已提交状态与既有安全摘要；原始参数与 Observation 不在
+ * wire 白名单内。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为合法的工具状态投影。
+ */
+function isActivityToolState(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    if (!isNonEmptyString(value.toolId)) return false;
+    if (!["recorded", "pending-result", "completed", "failed", "rejected"].includes(String(value.status))) return false;
+    if (value.actionStatus !== undefined && !["awaiting_approval", "approved", "rejected"].includes(String(value.actionStatus))) return false;
+    if (value.inputSummary !== undefined && typeof value.inputSummary !== "string") return false;
+    if (value.summary !== undefined && typeof value.summary !== "string") return false;
+    if (value.attempts !== undefined && (!Array.isArray(value.attempts)
+        || !value.attempts.every((attempt) => typeof attempt === "string"))) return false;
+    if (value.revisionRef !== undefined && !isNonEmptyString(value.revisionRef)) return false;
+    if (value.recoveryRef !== undefined && !isNonEmptyString(value.recoveryRef)) return false;
+    if (value.parentActionId !== undefined && !isNonEmptyString(value.parentActionId)) return false;
+    if (value.activityBoundaryBefore !== undefined && value.activityBoundaryBefore !== true) return false;
+    return !Object.keys(value).some((key) => ![
+        "toolId", "status", "actionStatus", "inputSummary", "summary",
+        "attempts", "revisionRef", "recoveryRef", "parentActionId", "activityBoundaryBefore",
+    ].includes(key));
 }
 
 /**

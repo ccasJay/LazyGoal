@@ -11,6 +11,7 @@ import { testAssistantMessage, testUserMessage } from "../../../packages/runtime
 import { readBrowserGoalActivity, readBrowserGoalSessionState } from "../../../packages/browser/src/index";
 import type { BrowserActivityPage, BrowserGoalSessionState } from "../../../packages/web-contracts/src/index";
 import { projectSessionTimeline } from "../src/session-timeline";
+import { collectActivityProjections } from "../src/collect-activity-projections";
 
 test("saved multi-Run activity keeps stable source order across duplicate sync and refresh", async () => {
   const initial = createGoal({
@@ -87,14 +88,15 @@ test("saved multi-Run activity keeps stable source order across duplicate sync a
   assert.ok(state);
   if (!activity.ok || state === undefined) return;
 
-  const projection = projectSessionTimeline(activity.page, state, "temporary answer");
+  const activityGroups = collectActivityProjections(activity.page, goal.id, []);
+  const projection = projectSessionTimeline(activity.page, state, activityGroups, "temporary answer");
   const saved = projection.items.filter((item) => item.kind !== "live-preview");
   assert.deepEqual(saved.map((item) => item.itemId), [
     "run:run-normal",
     "message:user-start",
     "event:event-run-normal-1",
     "message:process-first",
-    "event:event-run-normal-2",
+    "activity:action:run-normal:action-1",
     "event:event-run-normal-4",
     "message:steer-applied",
     "message:process-second",
@@ -122,6 +124,6 @@ test("saved multi-Run activity keeps stable source order across duplicate sync a
     ...activity.page,
     items: [...activity.page.items].reverse().concat(activity.page.items[0]!),
   };
-  const refreshed = projectSessionTimeline(duplicateAndReorderedPage, state, "temporary answer");
+  const refreshed = projectSessionTimeline(duplicateAndReorderedPage, state, activityGroups, "temporary answer");
   assert.deepEqual(refreshed.items.map((item) => item.itemId), projection.items.map((item) => item.itemId));
 });
