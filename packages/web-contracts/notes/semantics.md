@@ -11,7 +11,7 @@
 | BrowserActivityMessageItem.previewId | 已保存完成候选答复关联的公开候选身份；不包含临时预览正文。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
 | BrowserActivityFactItem.stageTarget | 仅已提交阶段声明携带的有界目标文本。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
 | BrowserActivityToolState | 事实项携带的最小已提交工具状态：工具身份、执行状态、审批状态、白名单输入与结果摘要、恢复尝试、修订与恢复引用、PTC 父身份和断组边界；不含原始参数、Observation 正文或 reasoning。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
-| BrowserActivityThinkItem | 显式 Think 的既有获准摘要与已提交输出；不新增 Step 计数，也不引入私有推理。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
+| BrowserActivityThinkItem | 显式 Think 的既有获准摘要与已提交输出；不新增 Step 计数，也不引入私有推理；`executionUnitId` 是定位 Trajectory 完整事件的详情引用。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
 | BrowserMessagePosition | 正式消息所属 Run 的已提交事实锚点与同锚点 Snapshot 次序；不表示墙钟时间或 Step。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserPlanRouteStage | 任务审批 DTO 中按顺序展示的候选阶段目标与验收条件。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserInteractionView | 当前等待的类型化 wire 摘要：种类、稳定引用、可用决定与截断标记。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
