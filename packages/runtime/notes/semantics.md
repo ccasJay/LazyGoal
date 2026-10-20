@@ -31,6 +31,7 @@
 | 类型化会话输出 | 可辨识联合区分状态同步、输入结果、公开生成、正式消息、工具活动、交互、Run 状态与终态、流故障与提交边界；消费者不按任意 `kind` 猜测。 | [Goal Runtime](../README.md) | [会话输出分类器](../src/session-output.ts) |
 | 正式消息通知 | 保存成功后按稳定 `messageId`、用途、来源与提交修订通知；重复同步只更新同一条消息。 | [Goal Runtime](../README.md) | [会话输出分类器](../src/session-output.ts) |
 | 有界消息范围 | 状态同步只携带消息总数、末尾身份与最近摘要；完整正文按 `messageId` 另行只读读取。 | [Goal Runtime](../README.md) | [会话状态投影](../src/session.ts) |
+| 输出恢复来源 | 重建订阅先给出一致状态与消息范围；未确认预览不跨连接重放，末次通知丢失由只读核对发现。 | [Goal Runtime](../README.md) | [会话流](../src/session-stream.ts) |
 | 有界消息查询 | 按稳定身份分页读取正式消息与正文：页大小 50／100，正文上限 64,000，翻页区间由首批固定。 | [Goal Runtime](../README.md) | [消息查询](../src/session-message-query.ts) |
 | 完成候选生命周期 | 候选预览始终未确认；审查拒绝、Steer 弃用、中断或被新候选替代时明确作废，只有审查接受且消息已保存才成为正式答复。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 提交核对 | 有观察者时按不超过一秒的间隔只读核对最新提交修订，弥补末次通知丢失。 | [Goal Runtime](../README.md) | [会话流](../src/session-stream.ts) |

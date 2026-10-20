@@ -530,6 +530,7 @@ function publishCandidatePreview(
                 modelCallId,
                 blockIndex: preview.blockIndex,
                 text: preview.text,
+                startOffset: 0,
                 truncated: preview.truncated,
                 complete: preview.complete,
             },

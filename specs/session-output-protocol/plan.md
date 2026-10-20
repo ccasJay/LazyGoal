@@ -59,7 +59,7 @@ action-approval-revision 是关联能力：存在时验证真实最终版本／�
   - **实现**：在 Session 读 Port 中查询当前 Snapshot 的正式消息和稳定范围，返回截断、实际位置及后续位置；Browser 映射两个获批 GET 入口并验证 wire 参数。公开消息 DTO 保留身份和来源摘要，不从预览补正文、不建立第二套账本或磁盘分页索引，不把消息缺失与读取错误混为一谈。
   - **验证**：新增 `packages/runtime/test/session-message-query.test.ts`（待实现），扩展 `packages/browser/test/browser-messages.test.ts`、`browser-projection.test.ts`、`packages/web-contracts/test/web-contracts.test.ts`；运行对应 `npx tsx --test`。通过真实 HTTP 读列表／正文，并在每页之间提交新消息、重建文件 Store，再比对读取拼接与已保存原文；访问控制不能只测试 DTO 守卫。
 
-- [ ] //TODO 8. 在同步竞争、断线和通知缺失后恢复正式结果而不拼接残缺预览
+- [x] //TODO 8. 在同步竞争、断线和通知缺失后恢复正式结果而不拼接残缺预览
 
   落实标准：[1.1](./spec.md#spec-req-1-1)、[1.5](./spec.md#spec-req-1-5)、[6.1](./spec.md#spec-req-6-1)、[6.2](./spec.md#spec-req-6-2)、[6.3](./spec.md#spec-req-6-3)、[6.4](./spec.md#spec-req-6-4)、[6.5](./spec.md#spec-req-6-5)。
   - **先验证**：分别在注册订阅、读取 Snapshot、缓冲交接及保存后发布处设置屏障，先见 state_sync 再接有效活动，不重放旧候选。重连首次仅见非零位置增量时不展示为从头完整文本；完整候选／正式消息可重建基准，作废或已覆盖的旧增量不能复活。丢弃最后一条消息／waiting／终态通知且不再发 token，基础只读核对仍发现真实提交；重复／迟到、快速后继 Run、多客户端、Publisher 重建、背压和读取故障不伪造结果或重复输入。

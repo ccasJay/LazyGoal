@@ -523,6 +523,7 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                         sourceCursor: source.cursor,
                         candidateId: event.candidateId,
                         text: event.text,
+                        startOffset: event.startOffset,
                         truncated: event.truncated,
                         complete: event.complete,
                     },

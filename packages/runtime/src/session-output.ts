@@ -112,6 +112,14 @@ export type SessionGenerationEvent =
         readonly source: SessionEventSource;
         readonly candidateId: string;
         readonly text: string;
+        /**
+         * 本次正文在候选完整正文中的起始位置。
+         *
+         * @remarks
+         * 位置非零表示本次只提供了候选的后半段：消费者据此识别缺失前缀，不得
+         * 把后半段当作从头生成的完整回答。
+         */
+        readonly startOffset: number;
         readonly truncated: boolean;
         readonly complete: boolean;
     }
@@ -658,6 +666,10 @@ function readCandidatePreview(event: ExecutionStreamEvent): SessionGenerationEve
         source: toSource(event),
         candidateId: payload.candidateId,
         text: payload.text,
+        startOffset: typeof payload.startOffset === "number" && Number.isSafeInteger(payload.startOffset)
+            && payload.startOffset > 0
+            ? payload.startOffset
+            : 0,
         truncated: payload.truncated === true,
         complete: payload.complete === true,
     };

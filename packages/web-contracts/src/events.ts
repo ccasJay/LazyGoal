@@ -74,6 +74,7 @@ export type BrowserGoalActivityEvent =
         readonly sourceCursor: number;
         readonly candidateId: string;
         readonly text: string;
+        readonly startOffset: number;
         readonly truncated: boolean;
         readonly complete: boolean;
     }

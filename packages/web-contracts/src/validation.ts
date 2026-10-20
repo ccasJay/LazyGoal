@@ -993,6 +993,7 @@ export function isLiveEvent(value: unknown): value is BrowserGoalLiveEvent {
             && activity.candidateId.length <= 200
             && typeof activity.text === "string"
             && activity.text.length <= 64_000
+            && Number.isSafeInteger(activity.startOffset) && Number(activity.startOffset) >= 0
             && typeof activity.truncated === "boolean"
             && typeof activity.complete === "boolean";
     }
