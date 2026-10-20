@@ -201,7 +201,8 @@ const controlledTool: Tool<typeof fixtureInput> = {
     },
 };
 const toolPolicy: ToolPolicy = {
-    evaluate: () => "require_approval",
+    // 验收场景默认等待人工审批；只读验收可用 LAZYGOAL_E2E_TOOL_POLICY=allow 跳过审批。
+    evaluate: () => process.env.LAZYGOAL_E2E_TOOL_POLICY === "allow" ? "allow" : "require_approval",
 };
 const access = createBrowserSessionAccess();
 const root = await createCompositionRoot({

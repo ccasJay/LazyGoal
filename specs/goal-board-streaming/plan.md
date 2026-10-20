@@ -71,7 +71,7 @@
   - **实现**：复用 [AssistantMarkdown](../../apps/goal-board/src/components/AssistantMarkdown.tsx) 与 [帧缓冲](../../apps/goal-board/src/live-text-batch.ts) 的有效职责，按来源合并并在控制边界及时结算；不缓存无限原始 token 事件或让隐藏标签页积压无界。使用既有 token／字体／Logo，区分正文、紧凑活动、未确认内容与正式结果，补齐键盘焦点／状态播报及 reduced-motion；局部代码／表格滚动，保留 Plan、指标、模型和 Trajectory 入口。
   - **验证**：新增 `apps/goal-board/test/streaming-markdown.test.tsx`、`apps/goal-board/test/streaming-render-schedule.test.ts`（待实现），扩展 [帧合并测试](../../apps/goal-board/test/live-text-batch.test.ts)，运行 Goal Board 测试及构建。TODO 10 的 Chrome 在桌面、320px、200% 文本放大和 reduced-motion 下验证实际焦点、文本选择、横向溢出、网络请求与可访问属性，记录桌面／窄屏截图并核对正文和操作不被遮挡；静态 HTML 只辅助安全格式断言。
 
-- [ ] //TODO 10. 从正式 Runtime、HTTP／SSE 到 Chrome 贯通全部行为，并完成交付验证
+- [x] //TODO 10. 从正式 Runtime、HTTP／SSE 到 Chrome 贯通全部行为，并完成交付验证
 
   落实标准：[8.1](./spec.md#spec-req-8-1)、[8.2](./spec.md#spec-req-8-2)、[8.3](./spec.md#spec-req-8-3)、[8.4](./spec.md#spec-req-8-4)。
   - **先验证**：使用正式 createRuntimeComposition、隔离文件存储、确定性工具及前置实际 Adapter／本地协议 fixture，贯通“多轮正文＋工具 → 问答／审批 → 过程提交 → 候选拒绝／替换 → 正式答复 → 快速后继 Run”；另测 whole 来源、保存后报错、响应／末次通知丢失、双客户端、Interrupt 收尾和服务重启。Chrome 操作真实表单／输入及有界分页；将 DOM 顺序、消息／位置／事实、实际参数和模型／工具调用次数对应，刷新重建仍一致，不注入伪造最终 Session DTO 作为后端替身。
