@@ -420,7 +420,7 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         const goalId = context.req.param("goalId");
         const actionId = context.req.param("actionId");
         const runId = context.req.query("runId");
-        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || !isWireId(actionId, 256) || !isWireId(runId, 256)) {
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || !isWireActionIdentity(actionId, 256) || !isWireId(runId, 256)) {
             return context.json({ error: "invalid_action_details_request" }, 400);
         }
         try {
@@ -988,9 +988,13 @@ async function parseSessionInputCommand(
     if (kind === "respond") {
         if (!hasExactKeys(body, ["kind", "inputId", "runId", "requestId", "response"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
         const response = parseInteractionResponse(body.response);
-        return !isWireId(body.runId, 256) || !isWireId(body.requestId, 256) || response === undefined
+        // Action 类决定以当前 Action 身份作为请求引用；PTC 子操作身份包含分隔符。
+        const requestId = response !== undefined && ACTION_RESPONSE_KINDS.has(response.kind)
+            ? (isWireActionIdentity(body.requestId, 256) ? body.requestId : undefined)
+            : (isWireId(body.requestId, 256) ? body.requestId : undefined);
+        return !isWireId(body.runId, 256) || requestId === undefined || response === undefined
             ? { ok: false, error: "INVALID_INPUT", status: 400 }
-            : { ok: true, command: { kind, inputId: body.inputId, runId: body.runId, requestId: body.requestId, response } };
+            : { ok: true, command: { kind, inputId: body.inputId, runId: body.runId, requestId, response } };
     }
 
     if (kind === "resume") {
@@ -1024,6 +1028,19 @@ async function parseSessionInputCommand(
 
     return { ok: false, error: "INVALID_INPUT", status: 400 };
 }
+
+/**
+ * 以 Action 身份作为请求引用的交互决定种类。
+ *
+ * @remarks 这些决定不引用问答请求身份，只引用当前待决 Action 的真实身份。
+ */
+const ACTION_RESPONSE_KINDS: ReadonlySet<string> = new Set([
+    "approve_action",
+    "approve_action_revision",
+    "reject_action",
+    "retry_unknown_action",
+    "decline_unknown_action_retry",
+]);
 
 function parseInteractionResponse(value: unknown): BrowserSessionInteractionResponse | undefined {
     if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
@@ -1334,12 +1351,39 @@ function isWireId(value: unknown, maximumLength: number): value is string {
         && /^[A-Za-z0-9_-]+$/.test(value);
 }
 
-/** 交互引用是 `种类:等待身份` 的稳定键：种类与身份各自受限于 wire id 字符集。 */
+/**
+ * Action 身份是普通 wire id，或 PTC 子操作身份 `父程序身份:调用序号`。
+ *
+ * @remarks
+ * PTC 子调用以父程序身份加调用序号作为自身 Action 身份；wire 必须原样承载这一
+ * 真实身份，不能把它截断成父程序身份，也不能因为包含分隔符而拒绝该引用。
+ *
+ * @param value - 待检测值。
+ * @param maximumLength - 允许的最大长度。
+ * @returns 是否为合法 Action 身份。
+ *
+ * @example
+ * ```ts
+ * if (isWireActionIdentity("program-1:0", 256)) console.log("valid");
+ * ```
+ */
+function isWireActionIdentity(value: unknown, maximumLength: number): value is string {
+    return typeof value === "string"
+        && value.length > 0
+        && value.length <= maximumLength
+        && /^[A-Za-z0-9_:-]+$/.test(value);
+}
+
+/**
+ * 交互引用是 `种类:等待身份` 的稳定键：种类与身份各自受限于 wire id 字符集。
+ *
+ * @remarks 等待身份可能是 PTC 子操作身份，因此按 Action 身份字符集校验。
+ */
 function isWireInteractionId(value: unknown, maximumLength: number): value is string {
     if (typeof value !== "string" || value.length === 0 || value.length > maximumLength) return false;
     const separator = value.indexOf(":");
     if (separator <= 0 || separator === value.length - 1) return false;
-    return isWireId(value.slice(0, separator), 64) && isWireId(value.slice(separator + 1), 256);
+    return isWireId(value.slice(0, separator), 64) && isWireActionIdentity(value.slice(separator + 1), 256);
 }
 
 function createEventStreamResponse(
