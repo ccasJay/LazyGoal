@@ -258,6 +258,14 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .markdown-table-scroll tr:nth-child(even) td { background: var(--surface); }
 .transient-message .message-body { color: var(--accent-ink); }
 .transient-message .message-heading small { color: var(--muted); }
+.candidate-message .candidate-settlement-note, .candidate-settlement-note { display: block; margin: 5px 0 0 29px; color: var(--muted); font-size: var(--font-size-xs); }
+.discarded-candidate-draft { margin: 0 0 12px 29px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--muted); font-size: 11px; }
+.discarded-candidate-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.discarded-candidate-heading > span { color: var(--text-secondary); font-weight: 550; }
+.discarded-candidate-heading > small { margin-right: auto; color: var(--subtle); }
+.discarded-candidate-heading > button { min-height: 28px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--text-secondary); font-size: 10px; cursor: pointer; }
+.discarded-candidate-draft > .message-body { margin-top: 10px; }
+.discarded-candidate-notice { margin: 0 0 12px 29px; color: var(--muted); font-size: var(--font-size-xs); }
 .cursor { width: 5px; height: 13px; display: inline-block; margin-left: 3px; background: var(--accent-ink); vertical-align: middle; animation: pulse 1s infinite; }
 .run-steps { margin: 12px 0 22px 29px; }
 .plan-route-list { max-width: 760px; margin: 12px 0 18px 29px; padding: 10px 12px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text-secondary); }

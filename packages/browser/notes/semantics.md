@@ -16,6 +16,7 @@
 | Goal Session state view | `?view=state` 从 Snapshot 投影当前执行、等待、队列、控制与管理状态；消息／步骤／阶段历史明确由 Activity 提供。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Activity history page | 固定每个 Run 的消息数量、末消息身份与提交序号，按稳定位置返回最多 100 项、双向 cursor 及首尾未加载范围。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Activity message purpose | 助手正文公开区分过程、答复和通知；用途只取已保存消息字段并由 wire guard 校验。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
+| Activity candidate association | 仅正式完成候选答复携带稳定 `previewId`，供浏览器按候选身份结算预览；不投影未确认正文。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Activity stage target | 仅已提交的 `run_stage_declared` 事实公开有界阶段目标；其他事实不携带标题载荷。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Activity route access | Activity 与窄状态读取由同一 Host、Origin、Bearer 边界保护，授权失败发生于数据读取之前。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
 | Safe live activity projection | 白名单公开的 Goal 范围 SSE 活动、`state_sync`／`input_result` 与 ExecutionStream 来源身份；与 Trajectory 标识空间分离。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |

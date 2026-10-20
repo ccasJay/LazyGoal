@@ -1,4 +1,4 @@
-import { memo } from "react";
+import React, { memo } from "react";
 import { Check, CircleHelp, X } from "lucide-react";
 import type {
   BrowserPlanRoute,
@@ -7,27 +7,54 @@ import type {
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { PlanRouteList } from "./PlanRouteList";
 import type { SessionTimelineEntry, SessionTimelineProjection } from "../session-timeline";
+import type { SessionOutputDisplay } from "../session-output-consumer";
+
+type RenderableSessionMessage =
+  | Extract<SessionTimelineEntry, { kind: "message" }>
+  | Extract<SessionTimelineEntry, { kind: "candidate-preview" }>;
 
 const SessionMessage = memo(function SessionMessage({
   entry,
   brandMark,
 }: {
-  readonly entry: Extract<SessionTimelineEntry, { kind: "message" }>;
+  readonly entry: RenderableSessionMessage;
   readonly brandMark: string;
 }) {
-  const assistantLabel = entry.purpose === "process" ? "Progress" : entry.purpose === "notice" ? "Notice" : "LazyGoal";
+  const isCandidate = entry.kind === "candidate-preview";
+  const role = isCandidate ? "assistant" : entry.role;
+  const assistantLabel = entry.kind === "candidate-preview" ? "LazyGoal"
+    : entry.purpose === "process" ? "Progress"
+      : entry.purpose === "notice" ? "Notice" : "LazyGoal";
   return (
-    <article className={`message ${entry.role}`} data-item-id={entry.itemId} data-run-id={entry.runId}>
+    <article
+      className={`message ${role}${isCandidate ? " transient-message candidate-message" : ""}`}
+      data-item-id={entry.itemId}
+      data-run-id={entry.runId}
+      data-presentation-key={entry.presentationKey}
+    >
       <div className="message-heading">
-        <span className={`message-avatar ${entry.role}`}>
-          {entry.role === "user" ? "You" : <img src={brandMark} alt="" width={20} height={20} />}
+        <span className={`message-avatar ${role}`}>
+          {role === "user" ? "You" : <img src={brandMark} alt="" width={20} height={20} />}
         </span>
-        <strong>{entry.role === "user" ? "You" : assistantLabel}</strong>
-        {entry.role === "assistant" && entry.purpose === "process" && <small>Process update</small>}
+        <strong>{role === "user" ? "You" : assistantLabel}</strong>
+        {!isCandidate && role === "assistant" && entry.purpose === "process" && <small>Process update</small>}
+        {isCandidate && <small>{candidateStatusLabel(entry.status)}</small>}
       </div>
-      <div className={`message-body ${entry.role === "assistant" ? "markdown-body" : ""}`}>
-        {entry.role === "assistant" ? <AssistantMarkdown content={entry.content} /> : entry.content}
+      <div className={`message-body ${role === "assistant" ? "markdown-body" : ""}`}>
+        {role === "assistant" ? <AssistantMarkdown content={entry.content} /> : entry.content}
       </div>
+      {entry.kind === "candidate-preview" && entry.missingPrefix && (
+        <small className="candidate-settlement-note">Earlier candidate text is missing.</small>
+      )}
+      {entry.kind === "candidate-preview" && entry.truncated && (
+        <small className="candidate-settlement-note">This candidate preview was truncated.</small>
+      )}
+      {!isCandidate && entry.previewIssue === "official-text-differs" && (
+        <small className="candidate-settlement-note">The saved answer differs from its preview.</small>
+      )}
+      {!isCandidate && entry.previewIssue === "preview-incomplete" && (
+        <small className="candidate-settlement-note">The saved answer is shown; its preview was incomplete.</small>
+      )}
     </article>
   );
 });
@@ -42,6 +69,7 @@ const SessionMessage = memo(function SessionMessage({
  * ```tsx
  * <SessionTimeline projection={projection} currentRunId={state.currentRunId} runStatus={state.runStatus}
  *   olderAvailable={page.range.olderAvailable} showExecutionFacts liveActivity={null} streamConnected
+ *   candidatePresentation={outputDisplay} onExpandCandidate={() => {}} onReleaseCandidate={() => {}}
  *   brandMark={brandMark} />
  * ```
  */
@@ -60,6 +88,12 @@ export interface SessionTimelineProps {
   readonly liveActivity: string | null;
   /** 当前 Goal SSE 是否已连接。 */
   readonly streamConnected: boolean;
+  /** 当前候选、有限作废旧稿与释放状态。 */
+  readonly candidatePresentation: SessionOutputDisplay;
+  /** 设置唯一展开的旧稿；undefined 表示全部折叠。 */
+  readonly onExpandCandidate: (presentationKey: string | undefined) => void;
+  /** 释放旧稿正文并显示不可恢复提示。 */
+  readonly onReleaseCandidate: (presentationKey: string) => void;
   /** 由 Goal Board 装配提供的品牌图标 URL。 */
   readonly brandMark: string;
 }
@@ -100,6 +134,9 @@ export function SessionTimeline({
   showExecutionFacts,
   liveActivity,
   streamConnected,
+  candidatePresentation,
+  onExpandCandidate,
+  onReleaseCandidate,
   brandMark,
 }: SessionTimelineProps) {
   const savedContentCount = projection.items.filter((item) => item.kind === "message" || item.kind === "fact").length;
@@ -115,6 +152,9 @@ export function SessionTimeline({
         streamConnected,
         showExecutionFacts,
         brandMark,
+        candidatePresentation,
+        onExpandCandidate,
+        onReleaseCandidate,
       }))}
       {savedContentCount === 0 && (
         <div className="timeline-date"><span />No saved activity in this window<span /></div>
@@ -133,6 +173,9 @@ function renderEntry(
     readonly streamConnected: boolean;
     readonly showExecutionFacts: boolean;
     readonly brandMark: string;
+    readonly candidatePresentation: SessionOutputDisplay;
+    readonly onExpandCandidate: SessionTimelineProps["onExpandCandidate"];
+    readonly onReleaseCandidate: SessionTimelineProps["onReleaseCandidate"];
   },
 ) {
   if (item.kind === "run") {
@@ -150,7 +193,41 @@ function renderEntry(
     );
   }
 
-  if (item.kind === "message") return <SessionMessage key={item.itemId} entry={item} brandMark={options.brandMark} />;
+  if (item.kind === "message") return <SessionMessage key={item.presentationKey} entry={item} brandMark={options.brandMark} />;
+  if (item.kind === "candidate-preview") return <SessionMessage key={item.presentationKey} entry={item} brandMark={options.brandMark} />;
+
+  if (item.kind === "discarded-preview") {
+    const expanded = options.candidatePresentation.expandedCandidateKey === item.presentationKey;
+    const detailId = "old-draft-" + encodeURIComponent(item.presentationKey);
+    return (
+      <article className="discarded-candidate-draft" key={item.itemId} data-run-id={item.runId}>
+        <div className="discarded-candidate-heading">
+          <span>Not adopted</span>
+          <small>{formatInvalidationReason(item.reason)}</small>
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-controls={detailId}
+            onClick={() => options.onExpandCandidate(expanded ? undefined : item.presentationKey)}
+          >
+            {expanded ? "Hide old draft" : "Review old draft"}
+          </button>
+          <button type="button" onClick={() => options.onReleaseCandidate(item.presentationKey)}>Release draft</button>
+        </div>
+        {item.missingPrefix && <small className="candidate-settlement-note">Earlier candidate text is missing.</small>}
+        {item.truncated && <small className="candidate-settlement-note">This candidate preview was truncated.</small>}
+        {expanded && (
+          <div id={detailId} className="message-body markdown-body">
+            <AssistantMarkdown content={item.content} />
+          </div>
+        )}
+      </article>
+    );
+  }
+
+  if (item.kind === "discarded-notice") {
+    return <div className="discarded-candidate-notice" key={item.itemId}>{item.content}</div>;
+  }
 
   if (item.kind === "fact") {
     if (!options.showExecutionFacts && executionEventTypes.has(item.eventType)) return null;
@@ -199,6 +276,20 @@ function renderEntry(
       )}
     </article>
   );
+}
+
+function candidateStatusLabel(status: "generating" | "ready" | "pending-verification"): string {
+  if (status === "generating") return "Draft answer · generating";
+  if (status === "pending-verification") return "Checking whether this answer was saved";
+  return "Draft answer · not saved";
+}
+
+function formatInvalidationReason(reason: string): string {
+  if (reason === "rejected") return "Rejected";
+  if (reason === "cancelled") return "Cancelled";
+  if (reason === "failed") return "Generation failed";
+  if (reason === "replaced") return "Replaced";
+  return "Not adopted";
 }
 
 function formatRunStatus(status: string): string {

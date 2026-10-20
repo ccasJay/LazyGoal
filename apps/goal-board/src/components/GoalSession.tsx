@@ -65,6 +65,9 @@ export function GoalSession({
     revokingGrantId,
     liveText,
     liveActivity,
+    candidatePresentation,
+    expandCandidateDraft,
+    releaseCandidateDraft,
     streamConnected,
     metricsByGoal,
     currentModelName,
@@ -133,8 +136,8 @@ export function GoalSession({
   const timelineProjection = useMemo(
     () => session === null || activityPage === null
       ? { items: [], currentPlanRoute: undefined }
-      : projectSessionTimeline(activityPage, session, liveText),
-    [activityPage, session, liveText],
+      : projectSessionTimeline(activityPage, session, liveText, candidatePresentation),
+    [activityPage, session, liveText, candidatePresentation],
   );
 
   useEffect(() => {
@@ -147,7 +150,7 @@ export function GoalSession({
         }
       });
     }
-  }, [activityPage?.items, currentRun?.runId, liveText, follow]);
+  }, [activityPage?.items, currentRun?.runId, liveText, candidatePresentation, follow]);
 
   const sessionTabs = session?.goalPlan === undefined
     ? (["Board", "Activity", "Trajectory"] as const)
@@ -421,6 +424,9 @@ export function GoalSession({
                         showExecutionFacts={showTools}
                         liveActivity={liveActivity}
                         streamConnected={streamConnected}
+                        candidatePresentation={candidatePresentation}
+                        onExpandCandidate={expandCandidateDraft}
+                        onReleaseCandidate={releaseCandidateDraft}
                         brandMark={brandMark}
                       />
                     )}

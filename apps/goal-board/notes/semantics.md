@@ -7,7 +7,7 @@
 | Workspace shell | 当前工作区的紧凑导航、详情、Goal 搜索与可收起最近列表；侧栏可隐藏及拖动调宽，宽度仅保存在页面内。 | [Goal Board](../README.md) | [WorkspaceShell](../src/components/WorkspaceShell.tsx)、[ResizableSidebar](../src/components/ResizableSidebar.tsx) |
 | Settings page | 侧栏底部进入 Provider 管理页，切换时保留当前会话。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx)、[模块说明](./overview.md) |
 | Session view | 首屏并行读取不含历史的 Goal 状态与固定水位 Activity 页；完整会话按需用于 Plan、Trajectory 和 Goal details。 | [Goal Board](../README.md) | [useGoalSession](../src/hooks/useGoalSession.ts)、[模块说明](./overview.md) |
-| SessionTimeline | 按服务端 Run 内位置合并稳定来源身份，单列呈现消息、活动事实、Run 边界与终态；临时正文附加于当前 Run。 | [Goal Board](../README.md) | [投影](../src/session-timeline.ts)、[视图](../src/components/SessionTimeline.tsx) |
+| SessionTimeline | 按服务端 Run 内位置合并稳定来源身份，单列呈现消息、候选预览、活动事实、Run 边界与终态；候选按 `previewId` 在原展示身份转为正式消息。 | [Goal Board](../README.md) | [投影](../src/session-timeline.ts)、[视图](../src/components/SessionTimeline.tsx) |
 | 固定 Activity 页 | 有界正文／安全活动读取带固定水位和 cursor；当前页面提示更早来源存在，但不自动翻页。 | [浏览器服务边界](../../../packages/browser/README.md) | [Activity API](../../../packages/browser/src/browser-goal-routes.ts)、[页面说明](./overview.md) |
 | 输出速率展示 | 显示已结束模型调用的端到端输出速率；在调用完成事实更新后刷新。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
 | 交互区域 | 按已提交等待种类分派的统一决定区：问答导航与审阅、任务范围审阅、工具能力与期限、未知结果恢复；替换旧三套表单。 | [Goal Board](../README.md) | [InteractionRegion](../src/interaction-panel.tsx) |
@@ -16,13 +16,13 @@
 | 提案阶段路线 | 批准前显示 Plan Run 的完整候选阶段及各自验收条件。 | [Goal Board](../README.md) | [任务审批视图](../src/interaction-panel.tsx) |
 | 获批 Run 路线 | Activity 时间线上独立呈现 Plan Run 当前完整阶段顺序、状态与验收条件。 | [Goal Board](../README.md) | [PlanRouteList](../src/components/PlanRouteList.tsx) |
 | ActivityGroup | 从完整会话步骤与安全实时事件派生的纯分组投影；与 Activity 来源排序分开，不持久化且不改变 Runtime。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
-| Live Activity | 当前 Run 的临时输出与连接状态；正文只作临时显示，保存事实从固定 Activity 页读取。 | [Goal Board](../README.md) | [useRunStream](../src/hooks/useRunStream.ts) |
+| Live Activity | 当前 Goal SSE 的公开生成与连接状态；候选正文不持久化，保存通知后仍待固定 Activity 页核验。 | [Goal Board](../README.md) | [useRunStream](../src/hooks/useRunStream.ts) |
 | GoalSessionContext | 局部持有 Goal 窄状态、固定 Activity 页、按需完整会话及视图状态。 | [Goal Board](../README.md) | [上下文契约](../src/context/GoalSessionContext.tsx) |
 | RunControlContext | 隔离指令分发、客户端排队有限状态机与原子单飞防重锁的局部上下文。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
 | 已受理队列投影 | Runtime Snapshot 中的待处理普通消息、队列修订与暂停原因；页面只读取该投影，不再镜像本地任务或由前端 effect 启动后继 Run。 | [Goal Board](../README.md) | [Session Projection](../../../packages/browser/src/browser-projection.ts) |
 | 本地草稿 | 仅保存在输入框的未提交文本；提交中、拒绝与结果不明时保留，受理成功后由服务端收据接管。 | [Goal Board](../README.md) | [MessageComposer](../src/components/MessageComposer.tsx) |
 | 会话渐进加载 | 当前只呈现固定 Activity 页并提示页外历史；游标导航和阅读锚点恢复尚未接入页面。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx) |
-| 会话输出消费 | 页面消费同一条 Goal SSE：未确认候选只进入临时区域，正式消息替换候选而不追加第二份正文，候选作废后临时正文清空。 | [Goal Board](../README.md) | [会话输出归约](../src/session-output-consumer.ts) |
+| 会话输出消费 | 页面消费同一条 Goal SSE：保存不明的候选保持待核验；正式 Activity 以同一展示 key 替换候选；确定作废后保留最多八份可释放旧稿，换 Goal 或重连清除临时正文。 | [Goal Board](../README.md) | [会话输出归约](../src/session-output-consumer.ts) |
 | 渲染错误边界 | 会话与轨迹视图的渲染异常被边界捕获，显示错误卡与重载入口，不整页白屏。 | [Goal Board](../README.md) | [SessionBoundary](../src/components/error-boundary.tsx) |
 | liveText 帧合并 | 打字机增量按帧合并后提交渲染，跟随滚动以帧节流，流结束不丢字。 | [Goal Board](../README.md) | [live-text-batch](../src/live-text-batch.ts) |
 | Provider 设置页 | 受管 Provider 紧凑列表与按需展开表单；区分凭据已保存、激活与目录检查状态，不回显已保存密钥。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx) |

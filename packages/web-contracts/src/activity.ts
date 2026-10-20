@@ -66,13 +66,14 @@ export interface BrowserActivityPosition {
  * @remarks
  * 摘要只含稳定身份、Run 内位置、助手消息用途和最多 4,000 UTF-16 code unit 正文；
  * `truncated` 为 true 时须按 `messageId` 使用单条正文读取接口继续读取。用户消息不带
- * `purpose`；助手消息必须区分过程、最终答复或公开通知。
+ * `purpose`；助手消息必须区分过程、最终答复或公开通知。被正式接受的完成候选可带
+ * `previewId`，以便浏览器将公开预览原位结算为规范 Snapshot 消息。
  *
  * @example
  * ```ts
  * const item: BrowserActivityMessageItem = {
  *     type: "message", itemId: "message:msg-1", messageId: "msg-1", role: "assistant",
- *     runId: "run-1", purpose: "answer",
+ *     runId: "run-1", purpose: "answer", previewId: "call-1",
  *     position: { runId: "run-1", runOrder: 0, sequence: 0, itemKind: "message", order: 0 },
  *     content: "继续", contentLength: 2, truncated: false,
  * };
@@ -87,6 +88,8 @@ export interface BrowserActivityMessageItem {
     readonly role: "user" | "assistant";
     /** 助手正文的 Runtime 用途；用户消息省略。 */
     readonly purpose?: "process" | "answer" | "notice";
+    /** 仅正式完成候选答复提供；关联此前公开的候选预览，不携带候选正文。 */
+    readonly previewId?: string;
     readonly runId: string;
     readonly position: BrowserActivityPosition;
     /** 最多 4,000 UTF-16 code unit 的正文摘要。 */

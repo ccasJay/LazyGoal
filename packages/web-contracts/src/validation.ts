@@ -794,12 +794,14 @@ function isBrowserActivityItem(value: unknown): boolean {
     if (!isRecord(value) || !isNonEmptyString(value.itemId) || !isNonEmptyString(value.runId)
         || !isActivityPosition(value.position) || value.position.runId !== value.runId) return false;
     if (value.type === "message") {
-        return !Object.keys(value).some((key) => !["type", "itemId", "messageId", "role", "purpose", "runId", "position", "content", "contentLength", "truncated"].includes(key))
+        return !Object.keys(value).some((key) => !["type", "itemId", "messageId", "role", "purpose", "previewId", "runId", "position", "content", "contentLength", "truncated"].includes(key))
             && isNonEmptyString(value.messageId)
             && (value.role === "user" || value.role === "assistant")
             && (value.role === "user"
-                ? value.purpose === undefined
-                : value.purpose === "process" || value.purpose === "answer" || value.purpose === "notice")
+                ? value.purpose === undefined && value.previewId === undefined
+                : (value.purpose === "process" || value.purpose === "answer" || value.purpose === "notice")
+                    && (value.previewId === undefined
+                        || (value.purpose === "answer" && isNonEmptyString(value.previewId) && value.previewId.length <= 200)))
             && typeof value.content === "string" && value.content.length <= 4_000
             && Number.isSafeInteger(value.contentLength) && Number(value.contentLength) >= value.content.length
             && typeof value.truncated === "boolean";

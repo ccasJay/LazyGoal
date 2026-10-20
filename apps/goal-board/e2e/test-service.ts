@@ -18,9 +18,11 @@ import {
     createBrowserModelInputRoutes,
     createBrowserSessionAccess,
     createBrowserStaticRoutes,
+    readBrowserGoalActivity,
     BrowserGoalCommandService,
     listBrowserGoals,
     readBrowserGoalSession,
+    readBrowserGoalSessionState,
 } from "../../../packages/browser/src/index";
 import { createCompositionRoot } from "../../goal-server/src/composition-root";
 
@@ -269,6 +271,17 @@ root.httpService.mount("/", createBrowserGoalRoutes({
         root.workspaceGoalStore,
         root.readWorkspaceTrajectory,
         root.sessions.activeGoal,
+    ),
+    readState: (goalId) => readBrowserGoalSessionState(
+        goalId,
+        root.workspaceGoalStore,
+        root.sessions.activeGoal,
+    ),
+    readActivity: (goalId, query) => readBrowserGoalActivity(
+        goalId,
+        query,
+        root.workspaceGoalStore,
+        root.readWorkspaceTrajectory,
     ),
     session: browserSession,
     enterPlanMode: (goalId, command) => {

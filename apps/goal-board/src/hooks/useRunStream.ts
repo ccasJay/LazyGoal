@@ -1,28 +1,40 @@
-import { useEffect, useRef, useState } from "react";
-import type { BrowserGoalActivityEvent, BrowserGoalLiveEvent, BrowserGoalSessionState } from "../../../../packages/web-contracts/src/index";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { BrowserActivityPage, BrowserGoalActivityEvent, BrowserGoalLiveEvent, BrowserGoalSessionState } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
 import { createTextBatcher } from "../live-text-batch";
 import {
   EMPTY_SESSION_OUTPUT_DISPLAY,
   applySessionOutputEvent,
+  reconcileCandidatePresentation,
+  releaseDiscardedCandidate,
+  setExpandedCandidate,
 } from "../session-output-consumer";
 
 export function useRunStream({
   selectedGoalId,
   session,
+  activityPage,
   sessionLoading,
   onRefresh,
 }: {
   selectedGoalId: string | null;
   session: BrowserGoalSessionState | null;
+  activityPage: BrowserActivityPage | null;
   sessionLoading: boolean;
   onRefresh: () => Promise<void>;
 }) {
-  const [liveText, setLiveText] = useState("");
-  const [liveActivity, setLiveActivity] = useState<string | null>(null);
+  const [outputDisplay, setOutputDisplay] = useState(EMPTY_SESSION_OUTPUT_DISPLAY);
   const [liveEvents, setLiveEvents] = useState<BrowserGoalLiveEvent[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
   const onRefreshRef = useRef(onRefresh);
+  const liveText = outputDisplay.liveText;
+  const liveActivity = outputDisplay.liveActivity || null;
+  const setLiveText = useCallback((next: string | ((current: string) => string)) => {
+    setOutputDisplay((current) => ({
+      ...current,
+      liveText: typeof next === "function" ? next(current.liveText) : next,
+    }));
+  }, []);
 
   /**
    * 打字机增量的按帧合并缓冲；`setLiveText` 引用稳定，缓冲可在首次渲染时一次性创建。
@@ -42,11 +54,16 @@ export function useRunStream({
   useEffect(() => {
     if (selectedGoalId === null) {
       setLiveText("");
-      setLiveActivity(null);
+      setOutputDisplay(EMPTY_SESSION_OUTPUT_DISPLAY);
       setLiveEvents([]);
       setStreamConnected(false);
     }
   }, [selectedGoalId]);
+
+  useEffect(() => {
+    if (activityPage === null || selectedGoalId !== activityPage.goalId) return;
+    setOutputDisplay((current) => reconcileCandidatePresentation(current, activityPage));
+  }, [activityPage, selectedGoalId]);
 
   useEffect(() => {
     if (
@@ -58,11 +75,18 @@ export function useRunStream({
 
     const controller = new AbortController();
     let active = true;
+    setOutputDisplay(EMPTY_SESSION_OUTPUT_DISPLAY);
     setLiveEvents([]);
     setStreamConnected(false);
 
     const refreshLatest = async () => {
       await onRefreshRef.current();
+    };
+
+    const clearStreamTransients = () => {
+      textBatcher.clear();
+      setOutputDisplay(EMPTY_SESSION_OUTPUT_DISPLAY);
+      setLiveEvents([]);
     };
 
     const delay = () =>
@@ -92,23 +116,30 @@ export function useRunStream({
             if (event.type === "snapshot_changed" || event.type === "refresh_required") {
               setLiveEvents([]);
               if (event.type === "refresh_required") {
-                setLiveActivity("Waiting for the saved result");
+                setOutputDisplay((current) => ({ ...current, liveActivity: "Waiting for the saved result" }));
               }
               await refreshLatest();
               continue;
             }
             if (event.type === "message_committed") {
-              // 正式消息替换未确认预览：清空临时正文，避免同一份内容出现两次。
-              const display = applySessionOutputEvent(EMPTY_SESSION_OUTPUT_DISPLAY, event);
-              textBatcher.clear();
-              setLiveText(display?.liveText ?? "");
-              setLiveActivity(display?.liveActivity ?? "");
+              if (event.message.previewId === undefined) {
+                textBatcher.clear();
+                setLiveText("");
+              }
+              setOutputDisplay((current) => applySessionOutputEvent(current, event) ?? current);
               await refreshLatest();
               continue;
             }
             if (event.type === "interaction_required") {
-              const display = applySessionOutputEvent(EMPTY_SESSION_OUTPUT_DISPLAY, event);
-              setLiveActivity(display?.liveActivity ?? "Waiting for your answer");
+              setOutputDisplay((current) => applySessionOutputEvent(current, event) ?? current);
+              await refreshLatest();
+              continue;
+            }
+            if (event.type === "activity"
+              && (event.activity.kind === "candidate_preview" || event.activity.kind === "candidate_invalidated")) {
+              textBatcher.clear();
+              setLiveText("");
+              setOutputDisplay((current) => applySessionOutputEvent(current, event) ?? current);
               await refreshLatest();
               continue;
             }
@@ -135,48 +166,40 @@ export function useRunStream({
             switch (event.activity.kind) {
               case "assistant_text_delta": {
                 textBatcher.push(event.activity.text);
-                setLiveActivity("A response is being generated");
+                setOutputDisplay((current) => ({ ...current, liveActivity: "A response is being generated" }));
                 break;
               }
               case "model_started":
                 textBatcher.clear();
                 setLiveText("");
-                setLiveActivity("Runtime is working on this Goal");
+                setOutputDisplay((current) => ({ ...current, liveActivity: "Runtime is working on this Goal" }));
                 break;
               case "model_completed":
-                setLiveActivity("Waiting for the saved result");
+                setOutputDisplay((current) => ({ ...current, liveActivity: "Waiting for the saved result" }));
                 break;
               case "step_started":
                 textBatcher.clear();
                 setLiveText("");
-                setLiveActivity("A new execution step has started");
+                setOutputDisplay((current) => ({ ...current, liveActivity: "A new execution step has started" }));
                 break;
               case "tool_started":
-                setLiveActivity("A workspace action has started");
+                setOutputDisplay((current) => ({ ...current, liveActivity: "A workspace action has started" }));
                 break;
               case "tool_finished":
-                setLiveActivity("Workspace action finished; waiting for saved state");
+                setOutputDisplay((current) => ({ ...current, liveActivity: "Workspace action finished; waiting for saved state" }));
                 break;
-              case "candidate_preview":
-              case "candidate_invalidated":
-                // 候选预览与作废由统一归约处理：未确认候选只进入临时区域。
-                break;
-            }
-            const outputDisplay = applySessionOutputEvent(EMPTY_SESSION_OUTPUT_DISPLAY, event);
-            if (outputDisplay !== undefined) {
-              textBatcher.clear();
-              setLiveText(outputDisplay.liveText);
-              setLiveActivity(outputDisplay.liveActivity);
             }
           }
           if (active && !controller.signal.aborted) {
             setStreamConnected(false);
+            clearStreamTransients();
             await refreshLatest();
             await delay();
           }
         } catch {
           if (!active || controller.signal.aborted) return;
           setStreamConnected(false);
+          clearStreamTransients();
           try {
             await refreshLatest();
           } catch {
@@ -195,11 +218,20 @@ export function useRunStream({
     };
   }, [selectedGoalId, session?.currentRunId, session?.goalId, sessionLoading]);
 
+  const expandCandidateDraft = useCallback((presentationKey: string | undefined) => {
+    setOutputDisplay((current) => setExpandedCandidate(current, presentationKey));
+  }, []);
+  const releaseCandidateDraft = useCallback((presentationKey: string) => {
+    setOutputDisplay((current) => releaseDiscardedCandidate(current, presentationKey));
+  }, []);
+
   return {
     liveText,
     setLiveText,
     liveActivity,
-    setLiveActivity,
+    candidatePresentation: outputDisplay,
+    expandCandidateDraft,
+    releaseCandidateDraft,
     liveEvents,
     streamConnected,
   };

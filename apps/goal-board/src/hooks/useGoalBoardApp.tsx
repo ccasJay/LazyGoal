@@ -44,6 +44,7 @@ export function useGoalBoardApp() {
   const streamManager = useRunStream({
     selectedGoalId: sessionManager.selectedGoalId,
     session: sessionManager.session,
+    activityPage: sessionManager.activityPage,
     sessionLoading: sessionManager.sessionLoading,
     onRefresh: sessionManager.refreshSelectedSession,
   });
@@ -209,6 +210,9 @@ export function useGoalBoardApp() {
     revokingGrantId: permissionsManager.revokingGrantId,
     liveText: streamManager.liveText,
     liveActivity: streamManager.liveActivity,
+    candidatePresentation: streamManager.candidatePresentation,
+    expandCandidateDraft: streamManager.expandCandidateDraft,
+    releaseCandidateDraft: streamManager.releaseCandidateDraft,
     liveEvents: streamManager.liveEvents,
     streamConnected: streamManager.streamConnected,
     metricsByGoal: goalsManager.metricsByGoal,

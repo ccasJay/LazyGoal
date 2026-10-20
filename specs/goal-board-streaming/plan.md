@@ -29,7 +29,7 @@
   - **实现**：在现有 [API](../../apps/goal-board/src/api.ts)、[会话 Hook](../../apps/goal-board/src/hooks/useGoalSession.ts)、[流 Hook](../../apps/goal-board/src/hooks/useRunStream.ts)、局部 Context 与 [GoalSession](../../apps/goal-board/src/components/GoalSession.tsx) 接入 state-only／Activity 和单一 SessionOutput。展示投影协调持久化位置、来源、修订与当前临时项，改用稳定身份；移除角色分区排列及单条 liveText 的消费职责，不另开 SSE、全局状态框架或执行循环。
   - **验证**：新增 `apps/goal-board/test/session-timeline.test.ts`（待实现），扩展 [活动收集测试](../../apps/goal-board/test/collect-activity-projections.test.ts) 和 [现有页面断言](../../apps/goal-board/test/p2-improvements.test.tsx)，运行 `npm --prefix apps/goal-board test`、`npm run build:web`。纯投影断言覆盖乱序输入与来源，实际 DOM 顺序、Run／阶段边界及页面入口在 TODO 10 的 Chrome 场景核对，不以静态 markup 代替。
 
-- [ ] //TODO 4. 在原位置结算候选预览，保留有界的作废旧稿而不重复正式消息
+- [x] //TODO 4. 在原位置结算候选预览，保留有界的作废旧稿而不重复正式消息
 
   落实标准：[2.1](./spec.md#spec-req-2-1)、[2.2](./spec.md#spec-req-2-2)、[2.3](./spec.md#spec-req-2-3)、[2.4](./spec.md#spec-req-2-4)、[2.5](./spec.md#spec-req-2-5)、[2.6](./spec.md#spec-req-2-6)、[6.5](./spec.md#spec-req-6-5)。
   - **先验证**：逐个控制生成、待确认、保存不明、正式提交和确定作废，检查来源独立、有效预览原位转正及重复通知只一份正文；保存不明不作废，已作废旧稿不会因迟到 delta 或正式替换复活。缺失前缀、截断与规范正文不一致明确提示；whole／宿主完整结果直接显示。九份以上旧稿最多暂存八份正文，同时只展开一份且不淘汰该份；释放／移出窗口明确不可恢复，刷新、切 Goal 和连接重建清除临时旧稿。

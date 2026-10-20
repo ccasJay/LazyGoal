@@ -155,6 +155,22 @@ test("Activity 与窄状态 wire guards 接受有界安全 DTO 并拒绝原始�
         actionGroups: [],
     };
     assert.equal(isBrowserActivityPage(page), true);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        items: [{ ...page.items[0]!, previewId: "candidate-1" }],
+    }), true);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        items: [{ ...page.items[0]!, purpose: "process", previewId: "candidate-1" }],
+    }), false);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        items: [{ ...page.items[0]!, role: "user", purpose: undefined, previewId: "candidate-1" }],
+    }), false);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        items: [{ ...page.items[0]!, previewId: "x".repeat(201) }],
+    }), false);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], payload: { secret: "raw" } }] }), false);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], content: "x".repeat(4_001), contentLength: 4_001 }] }), false);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], purpose: undefined }] }), false);

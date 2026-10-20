@@ -10,6 +10,7 @@ import type {
   BrowserWorkspaceContext,
 } from "../../../../packages/web-contracts/src/index";
 import type { MetricsState, ModelPickerTarget, SessionTab } from "../types";
+import type { SessionOutputDisplay } from "../session-output-consumer";
 
 /**
  * Goal Board 单个会话视图消费的局部状态与只读加载入口。
@@ -56,6 +57,12 @@ export interface GoalSessionContextValue {
   readonly revokingGrantId: string | null;
   readonly liveText: string;
   readonly liveActivity: string | null;
+  /** 按候选 ID 关联的公开预览、保存核验与有界作废旧稿。 */
+  readonly candidatePresentation: SessionOutputDisplay;
+  /** 展开一个旧稿或收起当前唯一展开项。 */
+  readonly expandCandidateDraft: (presentationKey: string | undefined) => void;
+  /** 释放一份折叠旧稿正文并标记不可恢复。 */
+  readonly releaseCandidateDraft: (presentationKey: string) => void;
   readonly liveEvents: readonly BrowserGoalLiveEvent[];
   readonly streamConnected: boolean;
   readonly metricsByGoal: Record<string, MetricsState>;

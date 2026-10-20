@@ -561,6 +561,9 @@ function projectActivityMessage(
         messageId: message.messageId,
         role: message.role,
         ...(message.role === "assistant" ? { purpose: message.purpose } : {}),
+        ...(message.role === "assistant" && message.purpose === "answer" && message.source.kind === "completion_candidate"
+            ? { previewId: message.source.candidateId }
+            : {}),
         runId: run.runId,
         position: {
             runId: run.runId,

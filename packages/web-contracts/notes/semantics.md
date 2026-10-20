@@ -8,6 +8,7 @@
 | BrowserGoalSessionState | 只含当前 Run 状态的窄会话 DTO；消息、步骤和阶段历史明确由 Activity 提供。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserActivityPage | 固定水位的白名单 Activity 页；含最多 100 个原子项、双向 cursor 和未加载首尾范围。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
 | BrowserActivityMessageItem.purpose | 必填的助手消息用途：过程、最终答复或公开通知；用户消息省略。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
+| BrowserActivityMessageItem.previewId | 已保存完成候选答复关联的公开候选身份；不包含临时预览正文。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
 | BrowserActivityFactItem.stageTarget | 仅已提交阶段声明携带的有界目标文本。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
 | BrowserMessagePosition | 正式消息所属 Run 的已提交事实锚点与同锚点 Snapshot 次序；不表示墙钟时间或 Step。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserPlanRouteStage | 任务审批 DTO 中按顺序展示的候选阶段目标与验收条件。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
