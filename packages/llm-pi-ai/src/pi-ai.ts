@@ -265,9 +265,9 @@ export class PiAiAdapter implements LLMAdapter {
                         };
                         break;
                     case "thinking_start": {
-                        // 被安全过滤的 thinking 在开始时已完整，明确按整块交付，不伪造增量。
+                        // SDK 的 partial 会原地累积增量；只有明确被安全过滤的 thinking 按整块交付。
                         const existing = event.partial.content[event.contentIndex];
-                        const delivery = existing?.type === "thinking" && existing.thinking.length > 0 ? "whole" : "incremental";
+                        const delivery = existing?.type === "thinking" && existing.redacted === true ? "whole" : "incremental";
                         thinkingDelivery.set(event.contentIndex, delivery);
                         yield { kind: "content_block_started", index: event.contentIndex, blockType: "reasoning", delivery };
                         break;

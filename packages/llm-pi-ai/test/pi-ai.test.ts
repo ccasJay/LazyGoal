@@ -136,6 +136,30 @@ test("pi-ai keeps thinking out of tool-request text and final responses in both 
     }
 });
 
+test("pi-ai preserves redacted thinking as a whole block", async () => {
+    const instance = adapter();
+    const message = result({ content: [{ type: "thinking", thinking: "[Reasoning redacted]", redacted: true }] });
+    const internals = instance as unknown as { models: { stream: () => ReturnType<typeof createAssistantMessageEventStream> } };
+    internals.models.stream = () => {
+        const stream = createAssistantMessageEventStream();
+        stream.push({ type: "thinking_start", contentIndex: 0, partial: message });
+        stream.push({ type: "thinking_end", contentIndex: 0, content: "[Reasoning redacted]", partial: message });
+        stream.push({ type: "done", reason: "stop", message });
+        return stream;
+    };
+    const events: LLMStreamEvent[] = [];
+    const tracker = createContentBlockStreamTracker();
+    for await (const event of instance.stream({ ...request, toolChoice: "required" })) {
+        tracker.accept(event);
+        events.push(event);
+    }
+    assert.deepEqual(events.find(event => event.kind === "content_block_started"), {
+        kind: "content_block_started", index: 0, blockType: "reasoning", delivery: "whole",
+    });
+    assert.equal(events.some(event => event.kind === "content_block_delta"), false);
+    assert.equal(readReasoningText(tracker.result()), "[Reasoning redacted]");
+});
+
 test("invalid request mode, system placement and output cap fail before dispatch", async () => {
     const instance = adapter();
     stub(instance, async () => { assert.fail("must not dispatch"); });
@@ -320,6 +344,38 @@ test("real pi-ai SDK maps four wire protocols against local SSE servers", async 
         }
         assert.equal(sent.headers["x-opencode-session"], undefined, provider);
         assert.notEqual(sent.headers["user-agent"], "lazygoal", provider);
+    }
+});
+
+test("real pi-ai reasoning deltas remain incremental when the shared partial already contains text", async () => {
+    for (const field of ["reasoning", "reasoning_content"]) {
+        const body = sse([
+            { choices: [{ index: 0, delta: { [field]: "First reasoning " }, finish_reason: null }] },
+            { choices: [{ index: 0, delta: { [field]: "chunk" }, finish_reason: null }] },
+            { choices: [{ index: 0, delta: { content: json }, finish_reason: null }] },
+            { choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+        ]) + "data: [DONE]\n\n";
+        await withServer((request, response) => {
+            request.resume();
+            response.writeHead(200, { "Content-Type": "text/event-stream" });
+            response.end(body);
+        }, async url => {
+            const instance = adapter("openai-compatible", "local-model", `${url}/v1`);
+            const tracker = createContentBlockStreamTracker();
+            const events: LLMStreamEvent[] = [];
+            for await (const event of instance.stream({ ...request, toolChoice: "required" })) {
+                tracker.accept(event);
+                events.push(event);
+            }
+            assert.deepEqual(events.find(event => event.kind === "content_block_started"), {
+                kind: "content_block_started", index: 0, blockType: "reasoning", delivery: "incremental",
+            });
+            assert.deepEqual(events.filter(event => event.kind === "content_block_delta" && event.deltaKind === "reasoning")
+                .map(event => event.kind === "content_block_delta" ? event.delta : ""), ["First reasoning ", "chunk"]);
+            const response = tracker.result();
+            assert.equal(readReasoningText(response), "First reasoning chunk");
+            assert.equal(readAssistantText(response), json);
+        });
     }
 });
 
