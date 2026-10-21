@@ -318,6 +318,25 @@ test("ModelCatalog: opencode-go 在线结果用静态目录补全元数据", asy
     assert.equal(glm.metadataSource, "mixed");
 });
 
+test("ModelCatalog: opencode-go 在线新增但适配器未知的模型不可选", async () => {
+    const catalog = createLlmModelCatalog({
+        async fetchModels() {
+            return [
+                { id: "beam-free", contextWindowTokens: 128000, maxOutputTokens: 8192 },
+                { id: "longcat-2.5-preview-free" },
+            ];
+        },
+    });
+    for (const requireTokenCapacity of [false, true]) {
+        const models = await catalog.list(opencodeGoConfig, { requireTokenCapacity });
+        const unknown = models.find(model => model.id === "beam-free")!;
+        assert.equal(unknown.availabilitySource, "live");
+        assert.equal(unknown.selectable, false);
+        assert.equal(unknown.unavailableReason, "Model is not supported by the installed OpenCode Go adapter.");
+        assert.equal(models.find(model => model.id === "longcat-2.5-preview-free")?.selectable, true);
+    }
+});
+
 test("ModelCatalog: opencode-go 无在线拉取时回退静态目录", async () => {
     const catalog = new DefaultLlmModelCatalog();
     const result = await catalog.list(opencodeGoConfig);

@@ -64,6 +64,7 @@ export interface LlmModelDescriptor {
  *
  * @remarks
  * 获取当前 Provider 可用模型列表，支持在线查询、pi-ai Catalog 补全、排序与不可选过滤。
+ * OpenCode Go 在线返回但不在已安装 pi-ai 目录中的模型保留展示，并标记不可选，避免保存无法构造的执行绑定。
  *
  * @example
  * ```ts
@@ -330,7 +331,9 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
                 metadataSource = "mixed";
             }
 
-            const { selectable, unavailableReason } = determineSelectability(
+            const { selectable, unavailableReason } = config.provider === "opencode-go" && staticModel === undefined
+                ? { selectable: false, unavailableReason: "Model is not supported by the installed OpenCode Go adapter." }
+                : determineSelectability(
                 config.provider,
                 raw.id,
                 contextWindowTokens,
