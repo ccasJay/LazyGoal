@@ -4,9 +4,9 @@ status: active
 summary: "Goal 看板单会话后端接入验证、有界白名单会话投影与防误触审批交互"
 source_spec: specs/goal-board-backend-validation/
 distilled_at: 2026-10-02
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-21
 tags: [browser, goal-board, session-projection, approval-ux, safe-summary, markdown, e2e]
-authorities: [packages/browser/notes/overview.md, packages/browser/src/index.ts, packages/browser/src/browser-projection.ts, packages/browser/src/browser-goal-routes.ts, packages/browser/src/browser-goal-command-service.ts, apps/goal-board/src/main.tsx, apps/goal-board/src/panels.tsx]
+authorities: [packages/browser/notes/overview.md, packages/browser/src/index.ts, packages/browser/src/browser-projection.ts, packages/browser/src/browser-goal-routes.ts, packages/browser/src/browser-goal-command-service.ts, apps/goal-board/src/main.tsx, apps/goal-board/src/panels.tsx, apps/goal-board/src/interaction-panel.tsx]
 ---
 
 # Goal Board Backend Validation
@@ -20,8 +20,8 @@ authorities: [packages/browser/notes/overview.md, packages/browser/src/index.ts,
 
 - D1 — 单活动会话与严格回环授权边界：看板通过随机能力令牌及回环 HTTP 服务保护，创建 Goal 时重验模型与意图并锁定单活动会话，禁止并发创建或暗中推进其他 Goal；页面刷新与服务重启完全依据已提交 Snapshot 重建，连接中断或故障不伪造终态。 [S1, S2, S3, S7]
 - D2 — 会话步骤安全白名单摘要投影：会话步骤（`BrowserSessionStep`）通过 `inputSummary` 提供最多 240 字符的紧凑操作标题；严格限定只投影内置文件工具（`read_file`/`write_file`/`edit_file`）的目标路径、`grep` 的匹配模式、`web_search` 的查询词和 `web_fetch` 的 URL，绝对禁止投影写入正文、替换内容或其他参数；Bash 命令由结构化 `bashExecution` 承载，保证会话层不泄漏未授权内容。 [S1, S3, S4, S8]
-- D3 — 助手消息与流式响应的安全富文本呈现：前端采用 GFM Markdown 规范渲染助手回复和实时流响应（支持表格横向滚动、外部链接新窗口打开与图片安全降级），Activity 列表按工具类型提供直观语义动词（`Ran`、`Read`、`Wrote`、`Searched for`）与对应图标，仅在非完成状态显示状态标签。 [S1, S3, S5]
-- D4 — 审批交互主次收敛与权限弹层防误触：动作审批表单（`ActionApprovalForm`）将批准（Approve action）作为第一主操作，将驳回操作折叠并要求必填原因，防止无意阻断执行；项目权限菜单支持外部点击与 Escape 键即时失焦收起，切换模式后立即关闭，已存权限列表采用折叠收起。 [S1, S3, S6, S9]
+- D3 — 助手消息与流式响应的安全富文本呈现：前端采用 GFM Markdown 规范渲染助手回复和实时流响应（支持表格横向滚动、外部链接新窗口打开与图片安全降级），工具语义动词（`Ran`、`Read`、`Wrote`、`Searched for`）与对应图标仍由前端提供；状态标签规则随新的交错时间线分组变化（分组可显示 `Completed`），Activity 投影的归属见 `project-memory/features/goal-board-streaming.md`。 [S1, S3, S5]
+- D4 — 审批交互主次收敛与权限弹层防误触：动作审批表单（现由 `apps/goal-board/src/interaction-panel.tsx` 承载）将批准（Approve action）作为第一主操作，将驳回操作折叠并要求必填原因，防止无意阻断执行；同一表单同时承载参数修订路径（`Approve revision once`／`Approve revision for this Goal`／`Approve revision for this project`），修订语义归属 `project-memory/features/action-approval-revision.md`；项目权限菜单支持外部点击与 Escape 键即时失焦收起，切换模式后立即关闭，已存权限列表采用折叠收起。 [S1, S3, S6, S9]
 
 ## Guardrails
 
@@ -43,6 +43,6 @@ authorities: [packages/browser/notes/overview.md, packages/browser/src/index.ts,
 - S4: `packages/browser/src/browser-projection.ts`
 - S5: `apps/goal-board/src/main.tsx`
 - S6: `apps/goal-board/src/panels.tsx`
-- S7: `packages/browser/test/browser-commands.test.ts`
+- S7: `packages/browser/test/browser-session-inputs.test.ts`
 - S8: `packages/browser/test/browser-projection.test.ts`
 - S9: `apps/goal-board/e2e/runtime.test.mjs`

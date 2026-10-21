@@ -4,9 +4,9 @@ status: active
 summary: "Goal 看板前端模块化架构重构：上帝文件拆解、局部双 Context 隔离与领域自治 Hooks"
 source_spec: specs/goal-board-architecture-refactor/
 distilled_at: 2026-10-11
-reviewed_at: 2026-10-11
+reviewed_at: 2026-10-21
 tags: [browser, goal-board, architecture, refactoring, context-isolation, custom-hooks, react19]
-authorities: [apps/goal-board/notes/overview.md, apps/goal-board/notes/semantics.md, apps/goal-board/src/main.tsx, apps/goal-board/src/context/GoalSessionContext.tsx, apps/goal-board/src/context/RunControlContext.tsx, apps/goal-board/src/hooks/useRunStream.ts, apps/goal-board/src/hooks/useQueue.ts]
+authorities: [apps/goal-board/notes/overview.md, apps/goal-board/notes/semantics.md, apps/goal-board/src/main.tsx, apps/goal-board/src/context/GoalSessionContext.tsx, apps/goal-board/src/context/RunControlContext.tsx, apps/goal-board/src/hooks/useRunStream.ts, apps/goal-board/src/hooks/useQueue.ts, apps/goal-board/src/session-controls.ts]
 ---
 
 # Goal Board Architecture Refactor
@@ -18,10 +18,10 @@ authorities: [apps/goal-board/notes/overview.md, apps/goal-board/notes/semantics
 
 ## Durable Decisions
 
-- D1 — 纯净装配入口与展示子组件物理剥离：顶层入口 `main.tsx` 严格收敛至 180 行以内（实际 103 行），仅保留全局 Providers 组装与顶级分栏排版；所有展示子组件（`GoalCard`、`ModelPicker`、`MessageComposer`、`PermissionControl`、`WorkspaceContext` 等）和核心业务视图（`GoalBoard`、`GoalSession`）全部物理下沉至 `components/` 目录，无任何内联定义残留。 [S1, S3, S4]
+- D1 — 纯净装配入口与展示子组件物理剥离：顶层入口 `main.tsx` 严格收敛至 180 行以内（当前 6 行），仅保留全局 Providers 组装与顶级分栏排版；所有展示子组件（`GoalCard`、`ModelPicker`、`MessageComposer`、`PermissionControl`、`WorkspaceContext` 等）和核心业务视图（`GoalBoard`、`GoalSession`）全部物理下沉至 `components/` 目录，无任何内联定义残留。 [S1, S3, S4]
 - D2 — 局部双 Context 读写隔离架构：状态流划分为低频块状更新的快照上下文（`GoalSessionContext`）与高频交互调度的指令上下文（`RunControlContext`）；打字机字符追加、草稿输入与单飞锁轮转被严格限定在单会话主交互树局部，杜绝非活跃 Goal 列表与周边卡片的全量重复渲染。 [S1, S3, S5, S6]
 - D3 — 领域自治 Hooks 与 SSE 稳定订阅生命周期：将网络流与状态流正交抽取至 `hooks/`（`useRunStream`、`useGoalSession`、`useQueue`、`useRunCommands`）；SSE 长连接通过 `useRef` 解耦打字机增量回调闭包，杜绝因外部函数引用变动触发的意外断线重连（`reconnecting` 闪烁）。 [S1, S3, S7, S10]
-- D4 — 单飞排队锁与 DOM 结构严格保真：客户端命令排队（`useQueue`）维持原子互斥单飞锁（In-flight Lock），防止指令竞态与重复提交；子组件剥离时严格采用原生标签或 `<Fragment>`，不引入额外 `<div>` 包裹层，确保 CSS 选择器与 E2E 几何间距完全等价。 [S1, S3, S4, S8, S9]
+- D4 — 排队与提交状态机归属与 DOM 结构严格保真：队列状态所有权已移交 Runtime，`useQueue` 只读取 Runtime 会话投影的已受理队列与暂停原因，不再维护本地任务镜像；提交侧状态机位于 `session-controls.ts`，普通输入的排队与独立的 Stop 入口互不占用，Stop 不被输入单飞锁阻塞；子组件剥离时严格采用原生标签或 `<Fragment>`，不引入额外 `<div>` 包裹层，确保 CSS 选择器与 E2E 几何间距完全等价。 [S1, S3, S4, S8, S9]
 
 ## Guardrails
 
