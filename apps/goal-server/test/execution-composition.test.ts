@@ -291,6 +291,7 @@ test("构造组件不注册进程信号，也不接管调用方依赖", async ()
         "listGrants",
         "listToolGrants",
         "resume",
+        "reviewActionApproval",
         "revokeGrant",
         "revokeToolGrant",
         "setPermissionMode",

@@ -306,6 +306,51 @@ export type TrajectoryEventPayload =
         readonly actionId: string;
         readonly approvalScope?: "action" | "goal" | "workspace";
         readonly grantId?: string;
+        /** 批准决定的稳定身份；持续授权按该身份暂存与激活。 */
+        readonly approvalInputId?: string;
+    }
+    | {
+        /**
+         * 审批者修订了同一工具的最终参数并获批。
+         *
+         * @remarks 保留原请求参数与最终 canonical 参数的关联；原始暂存事实不被
+         * 覆盖。
+         */
+        readonly type: "action_revised";
+        readonly actionId: string;
+        readonly reviewRef: string;
+        readonly originalInput: JsonValue;
+        readonly finalInput: JsonValue;
+        readonly approvalScope?: "action" | "goal" | "workspace";
+        readonly grantId?: string;
+        /** 批准决定的稳定身份；持续授权按该身份暂存与激活。 */
+        readonly approvalInputId?: string;
+        /** 修订来源；程序结果信封据此重建一致的修订说明。 */
+        readonly revisionSource?: "user" | "host";
+        /** 修订后重新计算的实际权限范围。 */
+        readonly effectiveSandboxScope?: {
+            readonly extraFiles: readonly {
+                readonly canonicalPath: string;
+                readonly access: "read" | "write";
+                readonly kind: "file" | "directory_tree";
+            }[];
+            readonly network: "none" | "all_outbound";
+        };
+        /** 因修订而失效的同批次未开始 Action 身份。 */
+        readonly invalidatedBatchActionIds?: readonly string[];
+    }
+    | {
+        /** 明确允许结果未知的操作按获批版本再次执行。 */
+        readonly type: "action_reexecution_authorized";
+        readonly actionId: string;
+        readonly recoveryRef: string;
+    }
+    | {
+        /** 拒绝结果未知的操作再次执行；此前效果未知的事实保持不变。 */
+        readonly type: "action_reexecution_declined";
+        readonly actionId: string;
+        readonly recoveryRef: string;
+        readonly reason: string;
     }
     | {
         readonly type: "tool_grant_revoked";
@@ -332,6 +377,15 @@ export type TrajectoryEventPayload =
         readonly actionId: string;
         readonly toolId: string;
         readonly input: JsonValue;
+        /**
+         * 实际执行相对原请求的修订说明。
+         *
+         * @remarks 只在审批者修订过参数时存在；`input` 始终是实际执行的最终参数。
+         */
+        readonly revision?: {
+            readonly reviewRef: string;
+            readonly originalInput: JsonValue;
+        };
     }
     | {
         readonly type: "tool_attempt_started";
@@ -864,6 +918,9 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "program_started",
     "program_settled",
     "action_approved",
+    "action_revised",
+    "action_reexecution_authorized",
+    "action_reexecution_declined",
     "tool_grant_revoked",
     "sandbox_grant_revoked",
     "action_rejected",
@@ -992,7 +1049,7 @@ function assertPayload(payload: unknown, eventType: unknown): void {
     }
 
     if (eventType === "action_approved") {
-        if (Object.keys(payload).some((key) => !["type", "actionId", "approvalScope", "grantId"].includes(key))) {
+        if (Object.keys(payload).some((key) => !["type", "actionId", "approvalScope", "grantId", "approvalInputId"].includes(key))) {
             throw new TrajectoryProtocolError("action_approved contains unknown fields");
         }
         assertNonEmptyString(payload.actionId, "action_approved.actionId");
@@ -1010,6 +1067,47 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         if (payload.approvalScope === undefined && payload.grantId !== undefined) {
             throw new TrajectoryProtocolError("action_approved Grant requires an approval scope");
         }
+    }
+    if (eventType === "action_revised") {
+        if (Object.keys(payload).some((key) => ![
+            "type", "actionId", "reviewRef", "originalInput", "finalInput", "approvalScope", "grantId",
+            "approvalInputId", "revisionSource", "effectiveSandboxScope", "invalidatedBatchActionIds",
+        ].includes(key))) {
+            throw new TrajectoryProtocolError("action_revised contains unknown fields");
+        }
+        if (payload.invalidatedBatchActionIds !== undefined
+            && (!Array.isArray(payload.invalidatedBatchActionIds)
+                || !payload.invalidatedBatchActionIds.every((id) => typeof id === "string" && id.length > 0))) {
+            throw new TrajectoryProtocolError("action_revised.invalidatedBatchActionIds is invalid");
+        }
+        assertNonEmptyString(payload.actionId, "action_revised.actionId");
+        assertNonEmptyString(payload.reviewRef, "action_revised.reviewRef");
+        if (payload.approvalScope !== undefined
+            && payload.approvalScope !== "action"
+            && payload.approvalScope !== "goal"
+            && payload.approvalScope !== "workspace") {
+            throw new TrajectoryProtocolError("action_revised.approvalScope is invalid");
+        }
+        if (payload.grantId !== undefined) assertNonEmptyString(payload.grantId, "action_revised.grantId");
+        if (payload.approvalScope !== undefined
+            && ((payload.approvalScope === "action") !== (payload.grantId === undefined))) {
+            throw new TrajectoryProtocolError("action_revised scope and Grant identity are inconsistent");
+        }
+    }
+    if (eventType === "action_reexecution_authorized") {
+        if (Object.keys(payload).some((key) => !["type", "actionId", "recoveryRef"].includes(key))) {
+            throw new TrajectoryProtocolError("action_reexecution_authorized contains unknown fields");
+        }
+        assertNonEmptyString(payload.actionId, "action_reexecution_authorized.actionId");
+        assertNonEmptyString(payload.recoveryRef, "action_reexecution_authorized.recoveryRef");
+    }
+    if (eventType === "action_reexecution_declined") {
+        if (Object.keys(payload).some((key) => !["type", "actionId", "recoveryRef", "reason"].includes(key))) {
+            throw new TrajectoryProtocolError("action_reexecution_declined contains unknown fields");
+        }
+        assertNonEmptyString(payload.actionId, "action_reexecution_declined.actionId");
+        assertNonEmptyString(payload.recoveryRef, "action_reexecution_declined.recoveryRef");
+        assertNonEmptyString(payload.reason, "action_reexecution_declined.reason");
     }
     if (eventType === "tool_grant_revoked" || eventType === "sandbox_grant_revoked") {
         if (Object.keys(payload).some((key) => !["type", "grantId", "scope"].includes(key))) {
@@ -1769,6 +1867,9 @@ export function classifyTrajectoryEvent(
         case "program_started":
         case "program_settled":
         case "action_approved":
+        case "action_revised":
+        case "action_reexecution_authorized":
+        case "action_reexecution_declined":
         case "tool_grant_revoked":
         case "sandbox_grant_revoked":
         case "action_rejected":

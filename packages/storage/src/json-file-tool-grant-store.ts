@@ -30,6 +30,7 @@ const GrantSchema = z.object({
         goalId: z.string().min(1),
         runId: z.string().min(1),
         actionId: z.string().min(1),
+        approvalInputId: z.string().min(1),
     }).strict(),
     matcher: MatcherSchema,
     status: z.enum(["pending", "active", "revoked"]),
@@ -56,7 +57,7 @@ const LedgerSchema = z.object({
             context.addIssue({ code: "custom", path: ["grants", index, "id"], message: "duplicate Grant ID" });
         }
         ids.add(grant.id);
-        const source = `${grant.source.goalId}\0${grant.source.runId}\0${grant.source.actionId}`;
+        const source = `${grant.source.goalId}\0${grant.source.runId}\0${grant.source.actionId}\0${grant.source.approvalInputId}`;
         if (sources.has(source)) {
             context.addIssue({ code: "custom", path: ["grants", index, "source"], message: "duplicate Grant source" });
         }
@@ -105,7 +106,7 @@ export class JsonFileToolGrantStore implements ToolGrantStore {
             const candidate = { ...grant, id: sourceMatch?.id ?? randomUUID(), status: "pending" as const };
             if (sourceMatch !== undefined) {
                 if (!sameGrantRequest(sourceMatch, candidate)) {
-                    throw new Error("Tool Grant source conflicts with an existing authorization");
+                    throw new Error("Tool Grant decision identity conflicts with an existing authorization");
                 }
                 if (sourceMatch.status === "revoked") {
                     throw new Error("A revoked Tool Grant cannot be recreated for the same Action");
@@ -231,7 +232,10 @@ export class JsonFileToolGrantStore implements ToolGrantStore {
 }
 
 function sameSource(left: ToolGrant["source"], right: ToolGrant["source"]): boolean {
-    return left.goalId === right.goalId && left.runId === right.runId && left.actionId === right.actionId;
+    return left.goalId === right.goalId
+        && left.runId === right.runId
+        && left.actionId === right.actionId
+        && left.approvalInputId === right.approvalInputId;
 }
 
 function matches(left: ToolGrant["matcher"], right: ToolGrant["matcher"]): boolean {

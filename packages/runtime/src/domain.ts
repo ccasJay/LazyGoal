@@ -631,6 +631,27 @@ export interface PendingAction {
     readonly approvalKind?: "tool" | "sandbox";
     /** 获批或待审的规范化沙箱范围。 */
     readonly effectiveSandboxScope?: EffectiveSandboxScope;
+    /**
+     * 已获批 Action 的最终执行版本。
+     *
+     * @remarks 未修订的批准省略该字段，直接使用原请求参数；修订批准保存原请求
+     * 引用与最终 canonical 参数的关联，获批后不可再编辑。
+     */
+    readonly executionVersion?: import("./action-approval").ActionExecutionVersion;
+    /**
+     * 批准该 Action 的稳定决定身份。
+     *
+     * @remarks 与持续授权账本的 Grant 来源使用同一身份；只有被该批准引用的一条
+     * 暂存授权会被激活。
+     */
+    readonly approvalInputId?: string;
+    /**
+     * 结果未知等待的恢复身份。
+     *
+     * @remarks 由本次已提交尝试派生，跨重启稳定；同一 Action 再次产生未知结果时
+     * 身份改变，旧恢复决定不能授权新一轮重执行。
+     */
+    readonly recoveryRef?: string;
 }
 
 /**
@@ -1155,10 +1176,57 @@ export type RunInput =
         readonly reason: string;
     }
     | {
+        /**
+         * 批准首次未执行的工具调用；不消费结果未知的恢复等待。
+         *
+         * @remarks 批准范围与 Grant 身份必须一致；单次批准不产生持久化授权。
+         */
         readonly kind: "approve_action";
         readonly actionId: string;
         readonly approvalScope?: "action" | "goal" | "workspace";
         readonly grantId?: string;
+        /** 批准决定的稳定身份；省略时由 Coordinator 按批准内容派生。 */
+        readonly approvalInputId?: string;
+    }
+    | {
+        /**
+         * 批准同一工具的修订参数版本。
+         *
+         * @remarks 只接受首次未执行审批；最终执行版本与审阅引用由调用方在提交
+         * 边界冻结，获批后不可再编辑。
+         */
+        readonly kind: "approve_action_revision";
+        readonly actionId: string;
+        readonly approvalScope?: "action" | "goal" | "workspace";
+        readonly grantId?: string;
+        /** 批准决定的稳定身份；省略时由 Coordinator 按批准内容派生。 */
+        readonly approvalInputId?: string;
+        readonly executionVersion: import("./action-approval").ActionExecutionVersion;
+        /** 修订后重新计算的规范化沙箱范围；省略时沿用暂存时的范围。 */
+        readonly effectiveSandboxScope?: EffectiveSandboxScope;
+        /** 修订后实际的审批类别；省略时沿用暂存时的类别。 */
+        readonly approvalKind?: "tool" | "sandbox";
+    }
+    | {
+        /**
+         * 明确允许结果未知的操作按获批版本再次执行。
+         *
+         * @remarks 绑定本次未知结果等待身份；不携带新参数或持续授权期限。
+         */
+        readonly kind: "retry_unknown_action";
+        readonly actionId: string;
+        readonly recoveryRef: string;
+    }
+    | {
+        /**
+         * 拒绝结果未知的操作再次执行。
+         *
+         * @remarks 保留此前效果未知的事实，不把原操作记作未执行、已回滚或成功。
+         */
+        readonly kind: "decline_unknown_action_retry";
+        readonly actionId: string;
+        readonly recoveryRef: string;
+        readonly reason: string;
     }
     | {
         readonly kind: "recover_action";

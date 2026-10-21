@@ -328,6 +328,14 @@ export function decisionSummary(command: BrowserGoalInteractionCommand): string 
       return command.scope === "goal" ? "Action approved for this Goal"
         : command.scope === "workspace" ? "Action approved for this project"
           : "Action approved once";
+    case "approve_action_revision":
+      return command.scope === "goal" ? "Revised action approved for this Goal"
+        : command.scope === "workspace" ? "Revised action approved for this project"
+          : "Revised action approved once";
+    case "retry_unknown_action":
+      return "Action allowed to run again";
+    case "decline_unknown_action_retry":
+      return "Repeated execution declined";
     case "reject_action":
       return "Action rejected";
   }

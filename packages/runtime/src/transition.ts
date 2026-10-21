@@ -8,6 +8,7 @@ import type {
 } from "./domain";
 import { isContextLookupRequest } from "./context-retrieval";
 import type { ContextLookupRequest } from "./context-retrieval";
+import { computeActionRecoveryRef, resolveActionRecoveryRef } from "./action-approval";
 
 type TerminalDecision = Exclude<
     AgentDecision,
@@ -202,6 +203,11 @@ export function transition(
                             action: pendingAction.action,
                             status: "outcome_unknown",
                             ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
+                            ...(pendingAction.executionVersion === undefined ? {} : { executionVersion: pendingAction.executionVersion }),
+                            recoveryRef: computeActionRecoveryRef(
+                                pendingAction.action.actionId,
+                                pendingAction.attemptsStarted ?? 1,
+                            ),
                         },
                     },
                 };
@@ -574,6 +580,12 @@ export function transition(
                                 pendingAction: {
                                     action: pendingAction.action,
                                     status: "outcome_unknown" as const,
+                                    ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
+                                    ...(pendingAction.executionVersion === undefined ? {} : { executionVersion: pendingAction.executionVersion }),
+                                    recoveryRef: computeActionRecoveryRef(
+                                        pendingAction.action.actionId,
+                                        pendingAction.attemptsStarted ?? 1,
+                                    ),
                                 },
                             }),
                         stopReason: {
@@ -599,6 +611,11 @@ export function transition(
                             action: pendingAction.action,
                             status: "outcome_unknown",
                             ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
+                            ...(pendingAction.executionVersion === undefined ? {} : { executionVersion: pendingAction.executionVersion }),
+                            recoveryRef: computeActionRecoveryRef(
+                                pendingAction.action.actionId,
+                                pendingAction.attemptsStarted ?? 1,
+                            ),
                         },
                     },
                 };
@@ -623,15 +640,12 @@ export function transition(
 
                 if (
                     pendingAction === undefined
-                    || (
-                        pendingAction.status !== "awaiting_approval"
-                        && pendingAction.status !== "outcome_unknown"
-                    )
+                    || pendingAction.status !== "awaiting_approval"
                 ) {
                     return invalidTransition(
                         currentState,
                         input,
-                        "approve_action requires an approval or recovery pendingAction",
+                        "approve_action requires a first-time approval pendingAction",
                     );
                 }
 
@@ -647,7 +661,6 @@ export function transition(
                 if (
                     (approvalScope === "action" && input.grantId !== undefined)
                     || (approvalScope !== "action" && input.grantId === undefined)
-                    || (pendingAction.status === "outcome_unknown" && approvalScope !== "action")
                 ) {
                     return invalidTransition(
                         currentState,
@@ -666,10 +679,183 @@ export function transition(
                             status: "approved",
                             approvalScope,
                             ...(input.grantId === undefined ? {} : { grantId: input.grantId }),
+                            ...(input.approvalInputId === undefined ? {} : { approvalInputId: input.approvalInputId }),
                             ...(pendingAction.approvalKind === undefined ? {} : { approvalKind: pendingAction.approvalKind }),
                             ...(pendingAction.effectiveSandboxScope === undefined ? {} : { effectiveSandboxScope: pendingAction.effectiveSandboxScope }),
                         },
                     },
+                };
+            }
+
+            if (input.kind === "approve_action_revision") {
+                const pendingAction = currentState.pendingAction;
+
+                if (
+                    pendingAction === undefined
+                    || pendingAction.status !== "awaiting_approval"
+                ) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "approve_action_revision requires a first-time approval pendingAction",
+                    );
+                }
+
+                if (pendingAction.action.actionId !== input.actionId) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Approved actionId does not match pendingAction",
+                    );
+                }
+
+                if (input.executionVersion.original.actionId !== input.actionId
+                    || input.executionVersion.original.toolId !== pendingAction.action.toolId) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Approved execution version does not match the pending Action identity",
+                    );
+                }
+
+                const approvalScope = input.approvalScope ?? "action";
+                if (
+                    (approvalScope === "action" && input.grantId !== undefined)
+                    || (approvalScope !== "action" && input.grantId === undefined)
+                ) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Action approval scope and Grant identity are inconsistent",
+                    );
+                }
+
+                return {
+                    ok: true,
+                    state: {
+                        ...currentState,
+                        status: "running",
+                        pendingAction: {
+                            action: pendingAction.action,
+                            status: "approved",
+                            approvalScope,
+                            ...(input.grantId === undefined ? {} : { grantId: input.grantId }),
+                            ...(input.approvalInputId === undefined ? {} : { approvalInputId: input.approvalInputId }),
+                            ...(input.approvalKind === undefined
+                                ? (pendingAction.approvalKind === undefined ? {} : { approvalKind: pendingAction.approvalKind })
+                                : { approvalKind: input.approvalKind }),
+                            ...(input.effectiveSandboxScope === undefined
+                                ? (pendingAction.effectiveSandboxScope === undefined ? {} : { effectiveSandboxScope: pendingAction.effectiveSandboxScope })
+                                : { effectiveSandboxScope: input.effectiveSandboxScope }),
+                            executionVersion: input.executionVersion,
+                        },
+                    },
+                };
+            }
+
+            if (input.kind === "retry_unknown_action") {
+                const pendingAction = currentState.pendingAction;
+
+                if (pendingAction === undefined || pendingAction.status !== "outcome_unknown") {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "retry_unknown_action requires an outcome_unknown pendingAction",
+                    );
+                }
+
+                if (pendingAction.action.actionId !== input.actionId) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Retried actionId does not match pendingAction",
+                    );
+                }
+
+                if (resolveActionRecoveryRef(pendingAction) !== input.recoveryRef) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Recovery reference does not match the current unknown outcome",
+                    );
+                }
+
+                return {
+                    ok: true,
+                    state: {
+                        ...currentState,
+                        status: "running",
+                        pendingAction: {
+                            action: pendingAction.action,
+                            status: "approved",
+                            approvalScope: "action",
+                            ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
+                            ...(pendingAction.approvalKind === undefined ? {} : { approvalKind: pendingAction.approvalKind }),
+                            ...(pendingAction.effectiveSandboxScope === undefined ? {} : { effectiveSandboxScope: pendingAction.effectiveSandboxScope }),
+                            ...(pendingAction.executionVersion === undefined ? {} : { executionVersion: pendingAction.executionVersion }),
+                        },
+                    },
+                };
+            }
+
+            if (input.kind === "decline_unknown_action_retry") {
+                const pendingAction = currentState.pendingAction;
+
+                if (pendingAction === undefined || pendingAction.status !== "outcome_unknown") {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "decline_unknown_action_retry requires an outcome_unknown pendingAction",
+                    );
+                }
+
+                if (pendingAction.action.actionId !== input.actionId) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Declined actionId does not match pendingAction",
+                    );
+                }
+
+                if (resolveActionRecoveryRef(pendingAction) !== input.recoveryRef) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Recovery reference does not match the current unknown outcome",
+                    );
+                }
+
+                if (!hasText(input.reason)) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Declining a retry requires a non-empty reason",
+                    );
+                }
+
+                return {
+                    ok: true,
+                    state: currentState.pendingProgram === undefined
+                        ? {
+                            ...completeAction(
+                                currentState,
+                                pendingAction.action,
+                                {
+                                    kind: "failure",
+                                    code: "REEXECUTION_DECLINED",
+                                    message: input.reason,
+                                    retryable: false,
+                                },
+                            ),
+                        }
+                        : {
+                            ...clearPendingAction(currentState),
+                            status: "running",
+                            pendingProgram: {
+                                ...currentState.pendingProgram,
+                                nextCallIndex: currentState.pendingProgram.nextCallIndex + 1,
+                            },
+                        },
                 };
             }
 
@@ -678,15 +864,12 @@ export function transition(
 
                 if (
                     pendingAction === undefined
-                    || (
-                        pendingAction.status !== "awaiting_approval"
-                        && pendingAction.status !== "outcome_unknown"
-                    )
+                    || pendingAction.status !== "awaiting_approval"
                 ) {
                     return invalidTransition(
                         currentState,
                         input,
-                        "reject_action requires an approval or recovery pendingAction",
+                        "reject_action requires a first-time approval pendingAction",
                     );
                 }
 

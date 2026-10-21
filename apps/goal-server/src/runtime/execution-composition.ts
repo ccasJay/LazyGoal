@@ -121,6 +121,7 @@ export type ExecutionCommands = Pick<
     | "revokeToolGrant"
     | "getPermissionMode"
     | "setPermissionMode"
+    | "reviewActionApproval"
 > & {
     /**
      * 创建并保存新 Goal，然后推进到下一等待点或终态。
@@ -225,6 +226,7 @@ export function createExecutionComponents(
             revokeGrant: (request) => coordinator.revokeGrant(request),
             listToolGrants: (ref) => coordinator.listToolGrants(ref),
             revokeToolGrant: (request) => coordinator.revokeToolGrant(request),
+            reviewActionApproval: (request, control) => coordinator.reviewActionApproval(request, control),
             getPermissionMode: (workspaceId) => coordinator.getPermissionMode(workspaceId),
             setPermissionMode: (mode, expectedRevision, workspaceId) =>
                 coordinator.setPermissionMode(mode, expectedRevision, workspaceId),

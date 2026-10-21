@@ -1,3 +1,5 @@
+import type { BrowserJsonValue } from "./session-input";
+
 /**
  * Web 会话与看板投影的数据传输对象 (DTO)。
  *
@@ -5,6 +7,110 @@
  * 仅包含经安全白名单过滤后的只读投影事实，不直接暴露 Runtime Snapshot、
  * 凭据、私有 Prompt 或内部执行对象。
  */
+
+/**
+ * 只读审批预检的 wire 请求。
+ *
+ * @remarks
+ * 预检只返回可审阅内容，不保存批准、不暂存或激活授权、不解除等待，也不调用
+ * 业务工具。省略 `input` 表示按原样审阅当前请求。
+ *
+ * @example
+ * ```ts
+ * const command: BrowserActionReviewCommand = {
+ *     runId: "run-1", actionId: "action-1", scope: "action",
+ *     input: { path: "b.txt" },
+ * };
+ * ```
+ */
+export interface BrowserActionReviewCommand {
+    /** 当前 Run 身份。 */
+    readonly runId: string;
+    /** 当前待审批 Action 身份。 */
+    readonly actionId: string;
+    /** 拟审阅的最终参数；省略表示原样审阅。 */
+    readonly input?: BrowserJsonValue;
+    /** 拟申请的授权期限；省略表示单次放行。 */
+    readonly scope?: "action" | "goal" | "workspace";
+}
+
+/**
+ * 只读审批预检返回的可审阅内容。
+ *
+ * @remarks
+ * `reviewRef` 是内容一致性引用而非认证令牌；确认时必须原样带回并重新计算比对。
+ *
+ * @example
+ * ```ts
+ * const review: BrowserActionReview = {
+ *     actionId: "action-1", toolId: "write_file",
+ *     originalInput: { path: "a.txt" }, finalInput: { path: "b.txt" },
+ *     changed: true, scope: "action", availableScopes: ["action"],
+ *     capability: { network: "none", extraFiles: [], targetPaths: [] },
+ *     requiresSandboxApproval: false, reviewRef: "review:0123456789abcdef",
+ * };
+ * ```
+ */
+export interface BrowserActionReview {
+    /** 当前待审批 Action 身份。 */
+    readonly actionId: string;
+    /** 被审阅的 Tool 身份。 */
+    readonly toolId: string;
+    /** 原请求参数。 */
+    readonly originalInput: BrowserJsonValue;
+    /** 重新准备后的最终 canonical 参数。 */
+    readonly finalInput: BrowserJsonValue;
+    /** 最终参数是否与原请求不同。 */
+    readonly changed: boolean;
+    /** 本次审阅对应的授权期限。 */
+    readonly scope: "action" | "goal" | "workspace";
+    /** 当前真正可用的授权期限。 */
+    readonly availableScopes: readonly ("action" | "goal" | "workspace")[];
+    /** 重新计算出的实际能力范围。 */
+    readonly capability: {
+        readonly network: "none" | "all_outbound";
+        readonly extraFiles: readonly BrowserToolGrantExtraFile[];
+        readonly targetPaths: readonly string[];
+    };
+    /** 最终范围是否超出默认沙箱，需要沙箱能力审批。 */
+    readonly requiresSandboxApproval: boolean;
+    /** 审阅指纹；确认时必须原样带回。 */
+    readonly reviewRef: string;
+}
+
+/**
+ * 只读审批预检的 wire 结果。
+ *
+ * @remarks 失败时保留当前等待与调用方本地草稿，不裁剪参数、不降级权限，也不执行
+ * 原操作作为补偿。
+ *
+ * @example
+ * ```ts
+ * const result: BrowserActionReviewResult = { ok: false, error: "action_not_waiting" };
+ * ```
+ */
+export type BrowserActionReviewResult =
+    | {
+        readonly ok: true;
+        readonly goalId: string;
+        readonly runId: string;
+        readonly review: BrowserActionReview;
+    }
+    | {
+        readonly ok: false;
+        readonly error:
+            | "goal_not_found"
+            | "stale_run"
+            | "action_not_waiting"
+            | "action_id_mismatch"
+            | "tool_not_found"
+            | "invalid_tool_input"
+            | "scope_unavailable"
+            | "sandbox_scope_unavailable"
+            | "review_unavailable";
+        /** 可定位的字段级问题。 */
+        readonly issues?: readonly { readonly path: readonly (string | number)[]; readonly message: string }[];
+    };
 
 /**
  * Run 生命周期状态。
@@ -605,7 +711,7 @@ export type BrowserInteractionKind =
  *
  * @remarks
  * 只描述响应种类；Interrupt 是独立的 Run 级输入，不在该列表中。恢复等待只
- * 允许 `retry_action` 与 `reject_action`。
+ * 允许 `retry_unknown_action` 与 `decline_unknown_action_retry`。
  *
  * @example
  * ```ts
@@ -619,8 +725,10 @@ export type BrowserInteractionDecision =
     | "approve_task"
     | "send_task_feedback"
     | "approve_action"
+    | "approve_action_revision"
     | "reject_action"
-    | "retry_action";
+    | "retry_unknown_action"
+    | "decline_unknown_action_retry";
 
 /**
  * 当前已提交等待的类型化交互视图摘要。
@@ -656,6 +764,12 @@ export interface BrowserInteractionView {
     readonly requestId?: string;
     /** 工具／沙箱审批与恢复等待的 Action 身份。 */
     readonly actionId?: string;
+    /**
+     * 本次未知结果等待的恢复身份。
+     *
+     * @remarks 仅恢复等待提供；重执行决定必须原样带回该引用。
+     */
+    readonly recoveryRef?: string;
     /** 当前等待允许的决定。 */
     readonly decisions: readonly BrowserInteractionDecision[];
     /** 有界摘要是否省略了决定所需内容。 */
@@ -704,6 +818,8 @@ export type BrowserInteractionDetail =
         readonly approvalKind?: "tool" | "sandbox";
         /** 完整 canonical Tool 输入。 */
         readonly input: unknown;
+        /** 本次未知结果等待的恢复身份；仅恢复等待提供。 */
+        readonly recoveryRef?: string;
         readonly parentProgram?: {
             readonly actionId: string;
             readonly callNumber: number;

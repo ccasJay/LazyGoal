@@ -8,6 +8,7 @@ import type {
     JsonValue,
     PendingInteractionAskUser,
     RunRef,
+    RunState,
     AskUserAnswer,
     AskUserQuestion,
 } from "./domain";
@@ -29,10 +30,31 @@ import {
 } from "../../tool-core/src/index";
 import {
     throwIfAborted,
+    isExecutionAbortedError,
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import { transition } from "./transition";
 import { createRunPlanRoute, reviseRunPlanExecution } from "./run-plan";
+import {
+    computeActionApprovalReviewRef,
+    computeApprovalInputId,
+    resolveActionExecutionAction,
+    resolveActionRecoveryRef,
+    type ActionApprovalCapability,
+    type ActionApprovalReview,
+    type ActionApprovalReviewRequest,
+    type ActionApprovalReviewResult,
+    type ActionApprovalScope,
+    type ActionExecutionVersion,
+} from "./action-approval";
+import {
+    resolveEffectiveSandboxScope,
+    isSeatbeltSupported,
+    type DerivedSandboxAccess,
+    type EffectiveSandboxScope,
+    type SandboxAccessRequest,
+} from "../../sandbox/src/index";
+import { evaluateSandboxAuthorization } from "../../permission/src/index";
 import type { SessionInputDigest, SessionInputRecord, SessionMessageQueue } from "./session-input";
 import {
     type DiagnosticTraceSink,
@@ -68,6 +90,11 @@ import {
 
 function isStreamDeltaKind(kind: string): boolean {
     return kind.endsWith("_delta");
+}
+
+/** 判断 JSON 值是否为普通对象；用于读取可选的沙箱能力申请字段。 */
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function streamCoalescingKey(
@@ -181,8 +208,10 @@ export interface ContinuationQueueBinding {
  * - `answer_ask_user`: 回答 Agent 发起的 `ask_user` 结构化问卷；
  * - `reply_to_question`: 以非空整体回复替代整份问卷，原文作为真实用户消息继续当前 Run；
  * - `skip_question`: 提交“未回答并要求继续”的控制语义并继续当前 Run，不等同于取消 Run；
- * - `approve_action`: 批准待审批的工具调用（附带一次性授权）；
- * - `reject_action`: 拒绝待审批的工具调用并记录原因；
+ * - `approve_action`: 批准首次待审批的工具调用（附带一次性授权）；
+ * - `approve_action_revision`: 批准同一工具的修订参数版本，提交绑定审阅引用的最终参数；
+ * - `reject_action`: 拒绝首次待审批的工具调用并记录原因；
+ * - `retry_unknown_action`/`decline_unknown_action_retry`: 明确允许或拒绝结果未知的操作按获批版本再次执行；
  * 兼容分支 `approve` 与 `approve_task` 行为一致，且同样必须携带当前提案的 `requestId`。
  *
  * @example
@@ -204,7 +233,54 @@ export type GoalUserAction =
     }
     | { readonly kind: "reply_to_question"; readonly requestId: string; readonly content: string }
     | { readonly kind: "skip_question"; readonly requestId: string }
-    | { readonly kind: "approve_action"; readonly actionId: string; readonly scope?: "action" | ToolGrantScope }
+    | {
+        readonly kind: "approve_action";
+        readonly actionId: string;
+        readonly scope?: "action" | ToolGrantScope;
+        /**
+         * 批准决定的稳定身份。
+         *
+         * @remarks 会话入口使用会话输入身份；省略时由 Coordinator 按批准内容派生，
+         * 保证同一决定重试复用同一条暂存授权。
+         */
+        readonly approvalInputId?: string;
+    }
+    | {
+        /**
+         * 批准同一工具的修订参数版本。
+         *
+         * @remarks 提交绑定审阅引用的最终参数与期限；提交阶段会重新计算并比对，
+         * 与审阅内容不一致时明确拒绝并要求重新审阅。
+         */
+        readonly kind: "approve_action_revision";
+        readonly actionId: string;
+        readonly input: JsonValue;
+        readonly scope?: "action" | ToolGrantScope;
+        readonly reviewRef: string;
+        /** 批准决定的稳定身份；省略时由 Coordinator 按批准内容派生。 */
+        readonly approvalInputId?: string;
+    }
+    | {
+        /**
+         * 明确允许结果未知的操作按获批版本再次执行。
+         *
+         * @remarks 绑定本次未知结果等待身份；不携带新参数或持续授权期限。
+         */
+        readonly kind: "retry_unknown_action";
+        readonly actionId: string;
+        readonly recoveryRef: string;
+    }
+    | {
+        /**
+         * 拒绝结果未知的操作再次执行。
+         *
+         * @remarks 保留此前效果未知的事实，不把原操作记作未执行、已回滚或成功。
+         */
+        readonly kind: "decline_unknown_action_retry";
+        readonly actionId: string;
+        readonly recoveryRef: string;
+        readonly reason: string;
+    }
     | {
         readonly kind: "reject_action";
         readonly actionId: string;
@@ -1017,6 +1093,307 @@ export class GoalCoordinator {
     }
 
     /**
+     * 只读预检同一工具的最终参数与实际权限范围。
+     *
+     * @remarks
+     * 预检只重新准备参数、规划执行准入、权限与沙箱范围，并返回可审阅结果；它
+     * 不保存批准、不暂存或激活 Grant、不解除等待、不调用业务工具，也不隐式触发
+     * 宿主审批回调。多个客户端各自预检时互不覆盖草稿或持久化候选。
+     *
+     * 预检只接受处于首次审批等待、尚未开始执行的当前操作；工具身份、Goal／Run、
+     * PTC 程序与调用位置不能由修订请求替换。
+     *
+     * @param request - 当前操作引用、拟修订参数与拟授权期限。
+     * @param control - 当前调用共享的可选中止控制。
+     * @returns 可审阅结果，或可定位的稳定拒绝。
+     * @throws GoalStore 读取失败时传播原始异常。
+     * @example
+     * ```ts
+     * const result = await coordinator.reviewActionApproval({
+     *     ref: { goalId: "goal-1", runId: "run-1" },
+     *     actionId: "action-1",
+     *     input: { path: "b.txt", content: "x" },
+     *     scope: "action",
+     * });
+     * ```
+     */
+    async reviewActionApproval(
+        request: {
+            readonly ref: RunRef;
+            readonly actionId: string;
+            readonly input?: JsonValue | undefined;
+            readonly scope?: ActionApprovalScope | undefined;
+        },
+        control?: ExecutionControl,
+    ): Promise<ActionApprovalReviewResult> {
+        throwIfAborted(control);
+        const goal = await this.restore(request.ref, control);
+        throwIfAborted(control);
+        if (goal === undefined) {
+            return {
+                ok: false,
+                code: "ACTION_NOT_AWAITING_APPROVAL",
+                message: `Goal "${request.ref.goalId}" was not found`,
+            };
+        }
+
+        const pending = goal.state.run.pendingAction;
+        if (pending === undefined || pending.status !== "awaiting_approval") {
+            return {
+                ok: false,
+                code: "ACTION_NOT_AWAITING_APPROVAL",
+                message: "Only a first-time approval wait can be reviewed or revised",
+            };
+        }
+
+        if (pending.action.actionId !== request.actionId) {
+            return {
+                ok: false,
+                code: "ACTION_ID_MISMATCH",
+                message: `Action "${request.actionId}" is not the current pending Action`,
+            };
+        }
+
+        const scope = request.scope ?? "action";
+        const availableScopes = this.availableApprovalScopes(pending.approvalKind);
+        if (!availableScopes.includes(scope)) {
+            return {
+                ok: false,
+                code: "SCOPE_UNAVAILABLE",
+                message: `Persistent authorization scope "${scope}" is unavailable for this workspace`,
+            };
+        }
+
+        const prepared = await this.prepareApprovalReview(
+            pending.action.toolId,
+            request.input === undefined ? pending.action.input : request.input,
+            control,
+        );
+        if (!prepared.ok) return prepared;
+
+        const reviewRef = computeActionApprovalReviewRef({
+            actionId: pending.action.actionId,
+            toolId: pending.action.toolId,
+            originalInput: pending.action.input,
+            finalInput: prepared.finalInput,
+            scope,
+            capability: prepared.capability,
+        });
+
+        const review: ActionApprovalReview = {
+            actionId: pending.action.actionId,
+            toolId: pending.action.toolId,
+            originalInput: structuredClone(pending.action.input),
+            finalInput: structuredClone(prepared.finalInput),
+            changed: JSON.stringify(prepared.finalInput) !== JSON.stringify(pending.action.input),
+            scope,
+            availableScopes,
+            capability: prepared.capability,
+            requiresSandboxApproval: prepared.requiresSandboxApproval,
+            reviewRef,
+        };
+        return { ok: true, review };
+    }
+
+    /** 计算当前工作区真正可用的授权期限。 */
+    private availableApprovalScopes(
+        approvalKind: "tool" | "sandbox" | undefined,
+    ): readonly ActionApprovalScope[] {
+        if (this.workspaceId === undefined) return ["action"];
+        const persistent = approvalKind === "sandbox"
+            ? this.sandboxGrantStore !== undefined
+            : this.toolGrantStore !== undefined;
+        return persistent ? ["action", "goal", "workspace"] : ["action"];
+    }
+
+    /**
+     * 按最终获批参数与范围暂存持续授权。
+     *
+     * @remarks 暂存发生在批准快照提交之前；只有被该批准引用的一条记录才会被激活。
+     * 匹配器按最终参数重新生成，不沿用旧范围或旧输入匹配器。
+     */
+    private async stageApprovalGrant(
+        goal: Goal,
+        pendingAction: NonNullable<Goal["state"]["run"]["pendingAction"]>,
+        finalInput: JsonValue,
+        approvalScope: "goal" | "workspace",
+        approvalInputId: string,
+        control?: ExecutionControl,
+    ): Promise<{ readonly ok: true; readonly grantId: string } | { readonly ok: false; readonly message: string }> {
+        if (this.workspaceId === undefined) {
+            return { ok: false, message: "Persistent authorization is unavailable for this workspace" };
+        }
+
+        if (pendingAction.approvalKind === "sandbox") {
+            if (this.sandboxGrantStore === undefined) {
+                return { ok: false, message: "Persistent Sandbox authorization is unavailable for this workspace" };
+            }
+            const effectiveScope = pendingAction.effectiveSandboxScope ?? { extraFiles: [], network: "none" };
+            const matcher = createSandboxGrantMatcher(
+                pendingAction.action.toolId,
+                finalInput,
+                effectiveScope,
+            );
+            const grant = await this.sandboxGrantStore.stage({
+                scope: approvalScope,
+                ...(approvalScope === "goal" ? { goalId: goal.id } : {}),
+                workspaceId: this.workspaceId,
+                source: {
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    actionId: pendingAction.action.actionId,
+                    approvalInputId,
+                },
+                matcher,
+            });
+            return { ok: true, grantId: grant.id };
+        }
+
+        if (this.toolGrantStore === undefined) {
+            return { ok: false, message: "Persistent Tool authorization is unavailable for this workspace" };
+        }
+        const registration = this.toolRegistry.get(pendingAction.action.toolId);
+        if (registration === undefined) {
+            return { ok: false, message: "Cannot authorize an unregistered Tool" };
+        }
+        const prepared = registration.prepare(finalInput, control);
+        if (!prepared.ok) {
+            return { ok: false, message: "Cannot authorize an Action with invalid Tool input" };
+        }
+        const matcher = await createToolGrantMatcher(
+            pendingAction.action.toolId,
+            prepared.input,
+            this.workspaceRoot,
+        );
+        const grant = await this.toolGrantStore.stage({
+            scope: approvalScope,
+            ...(approvalScope === "goal" ? { goalId: goal.id } : {}),
+            workspaceId: this.workspaceId,
+            source: {
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                actionId: pendingAction.action.actionId,
+                approvalInputId,
+            },
+            matcher,
+        });
+        return { ok: true, grantId: grant.id };
+    }
+
+    /**
+     * 重新准备拟审阅参数并计算实际目标与能力范围。
+     *
+     * @remarks 只做参数与路径元数据准备，不执行工具、不调用模型、不保存候选。
+     */
+    private async prepareApprovalReview(
+        toolId: string,
+        proposedInput: JsonValue,
+        control?: ExecutionControl,
+    ): Promise<
+        | {
+            readonly ok: true;
+            readonly finalInput: JsonValue;
+            readonly capability: ActionApprovalCapability;
+            readonly requiresSandboxApproval: boolean;
+            readonly effectiveSandboxScope: EffectiveSandboxScope;
+        }
+        | {
+            readonly ok: false;
+            readonly code: "TOOL_NOT_FOUND" | "INVALID_TOOL_INPUT" | "SANDBOX_SCOPE_UNAVAILABLE";
+            readonly message: string;
+            readonly issues?: readonly { readonly path: readonly (string | number)[]; readonly message: string }[] | undefined;
+        }
+    > {
+        const registration = this.toolRegistry.get(toolId);
+        if (registration === undefined) {
+            return { ok: false, code: "TOOL_NOT_FOUND", message: `Tool "${toolId}" is not registered` };
+        }
+
+        let prepared;
+        try {
+            prepared = registration.prepare(proposedInput, control);
+            throwIfAborted(control);
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            throwIfAborted(control);
+            return {
+                ok: false,
+                code: "INVALID_TOOL_INPUT",
+                message: error instanceof Error ? error.message : String(error),
+            };
+        }
+
+        if (!prepared.ok) {
+            return {
+                ok: false,
+                code: "INVALID_TOOL_INPUT",
+                message: prepared.error.message,
+                ...(prepared.error.issues === undefined
+                    ? {}
+                    : { issues: prepared.error.issues.map((issue) => ({ path: [...issue.path], message: issue.message })) }),
+            };
+        }
+
+        const finalInput = prepared.input;
+        let sandboxAccessRequest: SandboxAccessRequest | undefined;
+        if (typeof prepared.resolveSandboxAccess === "function") {
+            const derived = await prepared.resolveSandboxAccess(control);
+            if (derived !== undefined) sandboxAccessRequest = derived;
+        } else if (isJsonRecord(finalInput) && isJsonRecord(finalInput.sandboxAccess)) {
+            sandboxAccessRequest = finalInput.sandboxAccess as unknown as SandboxAccessRequest;
+        }
+
+        let effectiveSandboxScope: EffectiveSandboxScope = { extraFiles: [], network: "none" };
+        if (this.workspaceRoot !== undefined && sandboxAccessRequest !== undefined) {
+            try {
+                effectiveSandboxScope = await resolveEffectiveSandboxScope(
+                    this.workspaceRoot,
+                    sandboxAccessRequest,
+                );
+            } catch (error) {
+                if (isExecutionAbortedError(error)) throw error;
+                return {
+                    ok: false,
+                    code: "SANDBOX_SCOPE_UNAVAILABLE",
+                    message: error instanceof Error ? error.message : String(error),
+                };
+            }
+        }
+
+        let targetPaths: string[] = [];
+        try {
+            const matcher = await createToolGrantMatcher(toolId, finalInput, this.workspaceRoot);
+            if (matcher.kind === "target_path") targetPaths.push(matcher.path);
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            return {
+                ok: false,
+                code: "INVALID_TOOL_INPUT",
+                message: error instanceof Error ? error.message : String(error),
+            };
+        }
+        targetPaths.push(...effectiveSandboxScope.extraFiles.map((file) => file.canonicalPath));
+
+        const requiresSandboxApproval = evaluateSandboxAuthorization({
+            isSeatbeltSupported: isSeatbeltSupported(),
+            workspaceRoot: this.workspaceRoot,
+            effectiveScope: effectiveSandboxScope,
+        }).decision === "approval_required";
+
+        return {
+            ok: true,
+            finalInput,
+            capability: {
+                network: effectiveSandboxScope.network,
+                extraFiles: effectiveSandboxScope.extraFiles,
+                targetPaths: [...new Set(targetPaths)].sort(),
+            },
+            requiresSandboxApproval,
+            effectiveSandboxScope,
+        };
+    }
+
+    /**
      * 提交交互等待中的用户操作（问答、任务提案批准/反馈、工具审核或消息）。
      *
      * @remarks
@@ -1024,7 +1401,9 @@ export class GoalCoordinator {
      * - `ask_user`: 校验 requestId 和答案结构，写入 `ask_user_answered` 事实并解除等待；
      * - `task_approval`: 批准或反馈必须匹配当前提案 requestId。批准固定任务并推进
      *   ContextEpoch；反馈写入用户消息与 Trajectory，使旧请求失效后在同一 Run 重新规划；
-     * - `approve_action`/`reject_action`: 审核待处理的工具调用；
+     * - `approve_action`/`approve_action_revision`: 批准首次未执行的工具调用，可附带修订后的最终参数版本；
+     * - `reject_action`: 拒绝首次未执行的工具调用；
+     * - `retry_unknown_action`/`decline_unknown_action_retry`: 明确允许或拒绝结果未知的操作按获批版本再次执行；
      * - `message`: 解除因 wait 决策引起的 blocked 等待。
      * Goal/Run 引用不匹配时返回 `RUN_NOT_FOUND`；任务请求 ID 过期时返回
      * `INVALID_GOAL_INPUT`，两者均保留当前等待点。有效恢复先保存快照，再调用
@@ -1335,13 +1714,13 @@ export class GoalCoordinator {
 
         const pendingAction = goal.state.run.pendingAction;
         if (pendingAction !== undefined) {
-            if (
-                request.action.kind === "approve_action"
-                && (
-                    pendingAction.status === "awaiting_approval"
-                    || pendingAction.status === "outcome_unknown"
-                )
-            ) {
+            if (request.action.kind === "approve_action") {
+                if (pendingAction.status !== "awaiting_approval") {
+                    return this.invalidGoalInput(
+                        "approve_action only applies to a first-time approval wait; unknown outcomes require an explicit re-execution decision",
+                    );
+                }
+
                 if (request.action.actionId.trim().length === 0) {
                     return this.invalidGoalInput("Action ID must not be empty");
                 }
@@ -1353,56 +1732,32 @@ export class GoalCoordinator {
                 }
 
                 const approvalScope = request.action.scope ?? "action";
-                if (pendingAction.status === "outcome_unknown" && approvalScope !== "action") {
-                    return this.invalidGoalInput("Unknown Tool outcomes can only be approved for this Action");
+                if (!this.availableApprovalScopes(pendingAction.approvalKind).includes(approvalScope)) {
+                    return this.invalidGoalInput(
+                        `Persistent authorization scope "${approvalScope}" is unavailable for this workspace`,
+                    );
                 }
+
+                const approvalInputId = request.action.approvalInputId
+                    ?? computeApprovalInputId({
+                        actionId: pendingAction.action.actionId,
+                        toolId: pendingAction.action.toolId,
+                        scope: approvalScope,
+                        finalInput: pendingAction.action.input,
+                    });
 
                 let grantId: string | undefined;
                 if (approvalScope !== "action") {
-                    if (pendingAction.approvalKind === "sandbox") {
-                        if (this.sandboxGrantStore === undefined || this.workspaceId === undefined) {
-                            return this.invalidGoalInput("Persistent Sandbox authorization is unavailable for this workspace");
-                        }
-                        const effectiveScope = pendingAction.effectiveSandboxScope ?? { extraFiles: [], network: "none" };
-                        const matcher = createSandboxGrantMatcher(
-                            pendingAction.action.toolId,
-                            pendingAction.action.input,
-                            effectiveScope,
-                        );
-                        const grant = await this.sandboxGrantStore.stage({
-                            scope: approvalScope,
-                            ...(approvalScope === "goal" ? { goalId: goal.id } : {}),
-                            workspaceId: this.workspaceId,
-                            source: { goalId: goal.id, runId: goal.state.run.id, actionId: request.action.actionId },
-                            matcher,
-                        });
-                        grantId = grant.id;
-                    } else {
-                        if (this.toolGrantStore === undefined || this.workspaceId === undefined) {
-                            return this.invalidGoalInput("Persistent Tool authorization is unavailable for this workspace");
-                        }
-                        const registration = this.toolRegistry.get(pendingAction.action.toolId);
-                        if (registration === undefined) {
-                            return this.invalidGoalInput("Cannot authorize an unregistered Tool");
-                        }
-                        const prepared = registration.prepare(pendingAction.action.input, control);
-                        if (!prepared.ok) {
-                            return this.invalidGoalInput("Cannot authorize an Action with invalid Tool input");
-                        }
-                        const matcher = await createToolGrantMatcher(
-                            pendingAction.action.toolId,
-                            prepared.input,
-                            this.workspaceRoot,
-                        );
-                        const grant = await this.toolGrantStore.stage({
-                            scope: approvalScope,
-                            ...(approvalScope === "goal" ? { goalId: goal.id } : {}),
-                            workspaceId: this.workspaceId,
-                            source: { goalId: goal.id, runId: goal.state.run.id, actionId: request.action.actionId },
-                            matcher,
-                        });
-                        grantId = grant.id;
-                    }
+                    const staged = await this.stageApprovalGrant(
+                        goal,
+                        pendingAction,
+                        pendingAction.action.input,
+                        approvalScope,
+                        approvalInputId,
+                        control,
+                    );
+                    if (!staged.ok) return this.invalidGoalInput(staged.message);
+                    grantId = staged.grantId;
                 }
 
                 const approvedRun = transition(goal.state.run, {
@@ -1410,6 +1765,7 @@ export class GoalCoordinator {
                     actionId: request.action.actionId,
                     approvalScope,
                     ...(grantId === undefined ? {} : { grantId }),
+                    approvalInputId,
                 });
 
                 if (!approvedRun.ok) {
@@ -1437,6 +1793,7 @@ export class GoalCoordinator {
                         actionId: request.action.actionId,
                         approvalScope,
                         ...(grantId === undefined ? {} : { grantId }),
+                        approvalInputId,
                     },
                 }, control);
                 await this.saveCheckpoint(approvedGoal, control);
@@ -1453,7 +1810,351 @@ export class GoalCoordinator {
                 return this.afterSchedule(request.ref, scheduled, control);
             }
 
+            if (request.action.kind === "approve_action_revision") {
+                if (pendingAction.status !== "awaiting_approval") {
+                    return this.invalidGoalInput(
+                        "approve_action_revision only applies to a first-time approval wait",
+                    );
+                }
+
+                if (request.action.actionId.trim().length === 0) {
+                    return this.invalidGoalInput("Action ID must not be empty");
+                }
+
+                if (request.action.actionId !== pendingAction.action.actionId) {
+                    return this.invalidGoalInput(
+                        "Approved actionId does not match pendingAction",
+                    );
+                }
+
+                if (request.action.reviewRef.trim().length === 0) {
+                    return this.invalidGoalInput(
+                        "An approval revision requires the review reference it was prepared with",
+                    );
+                }
+
+                const approvalScope = request.action.scope ?? "action";
+                if (!this.availableApprovalScopes(pendingAction.approvalKind).includes(approvalScope)) {
+                    return this.invalidGoalInput(
+                        `Persistent authorization scope "${approvalScope}" is unavailable for this workspace`,
+                    );
+                }
+
+                const prepared = await this.prepareApprovalReview(
+                    pendingAction.action.toolId,
+                    request.action.input,
+                    control,
+                );
+                if (!prepared.ok) {
+                    return this.invalidGoalInput(
+                        `Approval revision cannot be prepared: ${prepared.message}`,
+                    );
+                }
+
+                const reviewRef = computeActionApprovalReviewRef({
+                    actionId: pendingAction.action.actionId,
+                    toolId: pendingAction.action.toolId,
+                    originalInput: pendingAction.action.input,
+                    finalInput: prepared.finalInput,
+                    scope: approvalScope,
+                    capability: prepared.capability,
+                });
+                if (reviewRef !== request.action.reviewRef) {
+                    return this.invalidGoalInput(
+                        "The approval review is no longer current; review the action again before approving",
+                    );
+                }
+
+                const approvalKind = prepared.requiresSandboxApproval
+                    ? "sandbox" as const
+                    : pendingAction.approvalKind;
+
+                const approvalInputId = request.action.approvalInputId
+                    ?? computeApprovalInputId({
+                        actionId: pendingAction.action.actionId,
+                        toolId: pendingAction.action.toolId,
+                        scope: approvalScope,
+                        finalInput: prepared.finalInput,
+                    });
+
+                let grantId: string | undefined;
+                if (approvalScope !== "action") {
+                    const staged = await this.stageApprovalGrant(
+                        goal,
+                        approvalKind === undefined
+                            ? pendingAction
+                            : { ...pendingAction, approvalKind },
+                        prepared.finalInput,
+                        approvalScope,
+                        approvalInputId,
+                        control,
+                    );
+                    if (!staged.ok) return this.invalidGoalInput(staged.message);
+                    grantId = staged.grantId;
+                }
+
+                const executionVersion: ActionExecutionVersion = {
+                    original: {
+                        actionId: pendingAction.action.actionId,
+                        toolId: pendingAction.action.toolId,
+                        input: structuredClone(pendingAction.action.input),
+                    },
+                    input: structuredClone(prepared.finalInput),
+                    reviewRef,
+                    scope: approvalScope,
+                    revision: { source: "user" },
+                };
+
+                const invalidatedBatchActionIds = (goal.state.run.pendingActionBatch?.remaining ?? [])
+                    .map((action) => action.actionId);
+                const approvedRun = transition(goal.state.run, {
+                    kind: "approve_action_revision",
+                    actionId: request.action.actionId,
+                    approvalScope,
+                    ...(grantId === undefined ? {} : { grantId }),
+                    approvalInputId,
+                    executionVersion,
+                    effectiveSandboxScope: prepared.effectiveSandboxScope,
+                    ...(approvalKind === undefined ? {} : { approvalKind }),
+                });
+
+                if (!approvedRun.ok) {
+                    throw new Error(
+                        `GoalCoordinator invariant violated: ${approvedRun.error.message}`,
+                    );
+                }
+
+                // 修订使同批次尚未开始的旧决策失效：模型在知晓实际参数后重新决策。
+                const { pendingActionBatch: _invalidatedBatch, ...runWithoutBatch } = approvedRun.state;
+                const revisedRun: RunState = invalidatedBatchActionIds.length === 0
+                    ? approvedRun.state
+                    : runWithoutBatch;
+                const approvedGoal: Goal = {
+                    ...goal,
+                    state: {
+                        ...goal.state,
+                        run: revisedRun,
+                    },
+                };
+                throwIfAborted(control);
+                const revisionProgram = goal.state.run.pendingProgram;
+                const revisionAssociation = revisionProgram === undefined ? {} : {
+                    executionUnitId: `${revisionProgram.executionUnitId}:call:${revisionProgram.nextCallIndex}`,
+                    programId: revisionProgram.programId,
+                    callIndex: revisionProgram.nextCallIndex,
+                };
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    actionId: request.action.actionId,
+                    ...revisionAssociation,
+                    eventType: "action_revised",
+                    payload: {
+                        type: "action_revised",
+                        actionId: request.action.actionId,
+                        reviewRef,
+                        originalInput: structuredClone(pendingAction.action.input),
+                        finalInput: structuredClone(prepared.finalInput),
+                        approvalScope,
+                        ...(grantId === undefined ? {} : { grantId }),
+                        approvalInputId,
+                        revisionSource: executionVersion.revision?.source ?? "user",
+                        effectiveSandboxScope: structuredClone(prepared.effectiveSandboxScope),
+                        ...(invalidatedBatchActionIds.length === 0
+                            ? {}
+                            : { invalidatedBatchActionIds }),
+                    },
+                }, control);
+                await this.saveCheckpoint(approvedGoal, control);
+                throwIfAborted(control);
+                if (grantId !== undefined) {
+                    await this.activatePendingGrant(approvedGoal);
+                }
+                const scheduled = await this.scheduler.schedule(
+                    request.ref,
+                    { authorizedActionId: request.action.actionId },
+                    control,
+                );
+                throwIfAborted(control);
+                return this.afterSchedule(request.ref, scheduled, control);
+            }
+
+            if (request.action.kind === "retry_unknown_action") {
+                if (pendingAction.status !== "outcome_unknown") {
+                    return this.invalidGoalInput(
+                        "retry_unknown_action only applies to an unknown-outcome wait",
+                    );
+                }
+
+                if (request.action.actionId.trim().length === 0) {
+                    return this.invalidGoalInput("Action ID must not be empty");
+                }
+
+                if (request.action.actionId !== pendingAction.action.actionId) {
+                    return this.invalidGoalInput(
+                        "Retried actionId does not match pendingAction",
+                    );
+                }
+
+                if (resolveActionRecoveryRef(pendingAction) !== request.action.recoveryRef) {
+                    return this.invalidGoalInput(
+                        "The recovery reference no longer matches the current unknown outcome",
+                    );
+                }
+
+                const approvedRun = transition(goal.state.run, {
+                    kind: "retry_unknown_action",
+                    actionId: request.action.actionId,
+                    recoveryRef: request.action.recoveryRef,
+                });
+
+                if (!approvedRun.ok) {
+                    throw new Error(
+                        `GoalCoordinator invariant violated: ${approvedRun.error.message}`,
+                    );
+                }
+
+                const approvedGoal: Goal = {
+                    ...goal,
+                    state: {
+                        ...goal.state,
+                        run: approvedRun.state,
+                    },
+                };
+                throwIfAborted(control);
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    actionId: request.action.actionId,
+                    eventType: "action_reexecution_authorized",
+                    payload: {
+                        type: "action_reexecution_authorized",
+                        actionId: request.action.actionId,
+                        recoveryRef: request.action.recoveryRef,
+                    },
+                }, control);
+                await this.saveCheckpoint(approvedGoal, control);
+                throwIfAborted(control);
+                const scheduled = await this.scheduler.schedule(
+                    request.ref,
+                    { authorizedActionId: request.action.actionId },
+                    control,
+                );
+                throwIfAborted(control);
+                return this.afterSchedule(request.ref, scheduled, control);
+            }
+
+            if (request.action.kind === "decline_unknown_action_retry") {
+                if (pendingAction.status !== "outcome_unknown") {
+                    return this.invalidGoalInput(
+                        "decline_unknown_action_retry only applies to an unknown-outcome wait",
+                    );
+                }
+
+                if (request.action.actionId.trim().length === 0) {
+                    return this.invalidGoalInput("Action ID must not be empty");
+                }
+
+                if (request.action.actionId !== pendingAction.action.actionId) {
+                    return this.invalidGoalInput(
+                        "Declined actionId does not match pendingAction",
+                    );
+                }
+
+                if (resolveActionRecoveryRef(pendingAction) !== request.action.recoveryRef) {
+                    return this.invalidGoalInput(
+                        "The recovery reference no longer matches the current unknown outcome",
+                    );
+                }
+
+                if (request.action.reason.trim().length === 0) {
+                    return this.invalidGoalInput("Declining a retry requires a reason");
+                }
+
+                const declinedRun = transition(goal.state.run, {
+                    kind: "decline_unknown_action_retry",
+                    actionId: request.action.actionId,
+                    recoveryRef: request.action.recoveryRef,
+                    reason: request.action.reason,
+                });
+
+                if (!declinedRun.ok) {
+                    throw new Error(
+                        `GoalCoordinator invariant violated: ${declinedRun.error.message}`,
+                    );
+                }
+
+                const program = goal.state.run.pendingProgram;
+                const declinedObservation = {
+                    kind: "failure" as const,
+                    code: "REEXECUTION_DECLINED",
+                    message: request.action.reason,
+                    retryable: false,
+                };
+                const programAssociation = program === undefined ? {} : {
+                    executionUnitId: `${program.executionUnitId}:call:${program.nextCallIndex}`,
+                    programId: program.programId,
+                    callIndex: program.nextCallIndex,
+                };
+                const updatedRun = program === undefined ? declinedRun.state : {
+                    ...declinedRun.state,
+                    pendingProgram: {
+                        ...declinedRun.state.pendingProgram!,
+                        resultBytes: program.resultBytes + Buffer.byteLength(JSON.stringify({
+                            observation: declinedObservation,
+                            sourceReferences: [0],
+                        })),
+                    },
+                };
+
+                const declinedGoal: Goal = {
+                    ...goal,
+                    state: {
+                        ...goal.state,
+                        run: updatedRun,
+                    },
+                };
+                throwIfAborted(control);
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    actionId: request.action.actionId,
+                    ...programAssociation,
+                    eventType: "action_reexecution_declined",
+                    payload: {
+                        type: "action_reexecution_declined",
+                        actionId: request.action.actionId,
+                        recoveryRef: request.action.recoveryRef,
+                        reason: request.action.reason,
+                    },
+                }, control);
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    actionId: request.action.actionId,
+                    ...programAssociation,
+                    eventType: "observation_recorded",
+                    payload: {
+                        type: "observation_recorded",
+                        actionId: request.action.actionId,
+                        observation: declinedObservation,
+                    },
+                }, control);
+                await this.saveCheckpoint(declinedGoal, control);
+                return this.advance(request.ref, control);
+            }
+
             if (request.action.kind === "reject_action") {
+                if (pendingAction.status !== "awaiting_approval") {
+                    return this.invalidGoalInput(
+                        "reject_action only applies to a first-time approval wait; unknown outcomes require an explicit re-execution decision",
+                    );
+                }
+
                 if (request.action.actionId.trim().length === 0) {
                     return this.invalidGoalInput("Action ID must not be empty");
                 }
@@ -1819,11 +2520,17 @@ export class GoalCoordinator {
         ) {
             throw new Error("Approved Action references an unavailable Grant store");
         }
+        if (pending.approvalInputId === undefined) {
+            throw new Error("Approved Action does not carry its approval decision identity");
+        }
         const source = {
             goalId: goal.id,
             runId: goal.state.run.id,
             actionId: pending.action.actionId,
+            approvalInputId: pending.approvalInputId,
         };
+        // 授权复核必须针对实际获批版本：修订后的最终参数与能力范围。
+        const executionAction = resolveActionExecutionAction(pending);
 
         if (pending.approvalKind === "sandbox") {
             if (this.sandboxGrantStore === undefined) {
@@ -1845,8 +2552,8 @@ export class GoalCoordinator {
             }
             const effectiveScope = pending.effectiveSandboxScope ?? { extraFiles: [], network: "none" };
             const matcher = createSandboxGrantMatcher(
-                pending.action.toolId,
-                pending.action.input,
+                executionAction.toolId,
+                executionAction.input,
                 effectiveScope,
             );
             if (
@@ -1877,11 +2584,11 @@ export class GoalCoordinator {
         ) {
             throw new Error("Approved Action Grant does not match the committed Goal identity");
         }
-        const registration = this.toolRegistry.get(pending.action.toolId);
+        const registration = this.toolRegistry.get(executionAction.toolId);
         if (registration === undefined) throw new Error("Approved Action Tool is no longer registered");
-        const prepared = registration.prepare(pending.action.input);
+        const prepared = registration.prepare(executionAction.input);
         if (!prepared.ok) throw new Error("Approved Action Tool input is no longer valid");
-        const matcher = await createToolGrantMatcher(pending.action.toolId, prepared.input, this.workspaceRoot);
+        const matcher = await createToolGrantMatcher(executionAction.toolId, prepared.input, this.workspaceRoot);
         if (!toolGrantMatchersEqual(grant.matcher, matcher)) {
             throw new Error("Approved Action Grant matcher does not match the committed Tool input");
         }

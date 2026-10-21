@@ -20,11 +20,14 @@ import type {
     BrowserGoalSessionPort,
 } from "./browser-session-port";
 import type {
+    BrowserActionReviewCommand,
+    BrowserActionReviewResult,
     BrowserCreateSessionCommand,
     BrowserSessionInputCommand,
     BrowserSessionInputErrorCode,
     BrowserSessionInteractionResponse,
 } from "../../web-contracts/src/index";
+import { isJsonValue } from "../../web-contracts/src/index";
 import type {
     BrowserProviderProfileInput,
     BrowserProviderProfileTestError,
@@ -192,6 +195,13 @@ export interface BrowserGoalApiPort {
      * 其他 Action 的参数。省略时详情路由返回 500 `interaction_details_unavailable`。
      */
     readInteractionDetails?(goalId: string, runId: string, interactionId: string): Promise<BrowserInteractionDetailResult>;
+    /**
+     * 只读预检同一工具的最终参数与实际权限范围。
+     *
+     * @remarks 预检不保存批准、不暂存或激活授权、不解除等待，也不调用业务工具。
+     * 省略时审批审阅路由返回 500 `review_unavailable`。
+     */
+    reviewActionApproval?(goalId: string, command: BrowserActionReviewCommand): Promise<BrowserActionReviewResult>;
     /** 列出当前 Goal 与 workspace 的授权摘要。 */
     listToolGrants?(goalId: string, runId: string): Promise<BrowserToolGrantResult>;
     /** 撤销当前 Goal 或 workspace 的指定授权。 */
@@ -441,6 +451,26 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
                     : 409;
             return context.json({ error: result.error }, status);
         } catch { return context.json({ error: "interaction_details_unavailable" }, 500); }
+    });
+
+    routes.post("/api/goals/:goalId/action-reviews", async (context) => {
+        if (source.reviewActionApproval === undefined) {
+            return context.json({ error: "review_unavailable" }, 500);
+        }
+        const goalId = context.req.param("goalId");
+        const command = await parseActionReviewCommand(context.req.raw);
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || command === undefined) {
+            return context.json({ error: "invalid_action_review_request" }, 400);
+        }
+        try {
+            const result = await source.reviewActionApproval(goalId, command);
+            if (result.ok) return context.json(result);
+            const status = result.error === "goal_not_found" ? 404
+                : result.error === "stale_run" ? 409
+                    : result.error === "review_unavailable" ? 500
+                        : 422;
+            return context.json(result, status);
+        } catch { return context.json({ error: "review_unavailable" }, 500); }
     });
 
     routes.get("/api/goals/:goalId/grants", async (context) => {
@@ -971,6 +1001,33 @@ function parseInteractionResponse(value: unknown): BrowserSessionInteractionResp
             ? undefined
             : { kind, actionId, scope };
     }
+    if (kind === "approve_action_revision") {
+        if (!hasExactKeys(body, ["kind", "actionId", "input", "reviewRef"], ["scope"])) return undefined;
+        const actionId = readWireText(body.actionId, 256);
+        const reviewRef = readWireText(body.reviewRef, 256);
+        const scope = body.scope ?? "action";
+        if (actionId === undefined || reviewRef === undefined) return undefined;
+        if (scope !== "action" && scope !== "goal" && scope !== "workspace") return undefined;
+        if (body.input === undefined || !isJsonValue(body.input)) return undefined;
+        return { kind, actionId, input: body.input, reviewRef, scope };
+    }
+    if (kind === "retry_unknown_action") {
+        if (!hasExactKeys(body, ["kind", "actionId", "recoveryRef"])) return undefined;
+        const actionId = readWireText(body.actionId, 256);
+        const recoveryRef = readWireText(body.recoveryRef, 256);
+        return actionId === undefined || recoveryRef === undefined
+            ? undefined
+            : { kind, actionId, recoveryRef };
+    }
+    if (kind === "decline_unknown_action_retry") {
+        if (!hasExactKeys(body, ["kind", "actionId", "recoveryRef", "reason"])) return undefined;
+        const actionId = readWireText(body.actionId, 256);
+        const recoveryRef = readWireText(body.recoveryRef, 256);
+        const reason = readWireText(body.reason, MAX_COMMAND_TEXT_LENGTH);
+        return actionId === undefined || recoveryRef === undefined || reason === undefined
+            ? undefined
+            : { kind, actionId, recoveryRef, reason };
+    }
     if (kind === "reject_action") {
         if (!hasExactKeys(body, ["kind", "actionId", "reason"])) return undefined;
         const actionId = readWireText(body.actionId, 256);
@@ -1008,6 +1065,37 @@ async function parsePlanModeCommand(
         return { ok: false, error: "invalid_plan_mode_command", status: 400 };
     }
     return { ok: true, command: { runId: body.runId } };
+}
+
+/**
+ * 解析只读审批预检的严格 wire 命令。
+ *
+ * @remarks 只接受当前 Run、Action、可选拟修订参数与可选授权期限；参数必须是
+ * JSON 值，期限必须是已知范围。解析失败返回 `undefined`，不猜测输入。
+ */
+async function parseActionReviewCommand(
+    request: Request,
+): Promise<BrowserActionReviewCommand | undefined> {
+    const parsedBody = await readJsonBody(request, MAX_SESSION_INPUT_BODY_BYTES);
+    if (!parsedBody.ok) return undefined;
+    const value = parsedBody.value;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    const body = value as Record<string, unknown>;
+    if (!hasExactKeys(body, ["runId", "actionId"], ["input", "scope"])) return undefined;
+    const runId = readWireText(body.runId, 256);
+    const actionId = readWireText(body.actionId, 256);
+    if (runId === undefined || actionId === undefined) return undefined;
+    if (body.input !== undefined && !isJsonValue(body.input)) return undefined;
+    const scope = body.scope;
+    if (scope !== undefined && scope !== "action" && scope !== "goal" && scope !== "workspace") {
+        return undefined;
+    }
+    return {
+        runId,
+        actionId,
+        ...(body.input === undefined ? {} : { input: body.input }),
+        ...(scope === undefined ? {} : { scope }),
+    };
 }
 
 async function parseGrantRevokeCommand(request: Request): Promise<

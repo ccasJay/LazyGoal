@@ -57,6 +57,34 @@ export type BrowserGoalInteractionCommand =
       readonly actionId: string;
       readonly scope?: "action" | "goal" | "workspace";
     }
+  | {
+      /**
+       * 批准同一工具的修订参数版本。
+       *
+       * @remarks 携带预检返回的审阅引用；服务端重新计算后不一致时明确拒绝。
+       */
+      readonly kind: "approve_action_revision";
+      readonly runId: string;
+      readonly actionId: string;
+      readonly input: unknown;
+      readonly reviewRef: string;
+      readonly scope?: "action" | "goal" | "workspace";
+    }
+  | {
+      /** 明确允许结果未知的操作按获批版本再次执行。 */
+      readonly kind: "retry_unknown_action";
+      readonly runId: string;
+      readonly actionId: string;
+      readonly recoveryRef: string;
+    }
+  | {
+      /** 拒绝结果未知的操作再次执行。 */
+      readonly kind: "decline_unknown_action_retry";
+      readonly runId: string;
+      readonly actionId: string;
+      readonly recoveryRef: string;
+      readonly reason: string;
+    }
   | { readonly kind: "reject_action"; readonly runId: string; readonly actionId: string; readonly reason: string };
 
 /** 把页面交互命令映射为统一会话输入的 respond 载荷。 */
@@ -86,6 +114,23 @@ export function toSessionInteractionResponse(
         kind: "approve_action",
         actionId: command.actionId,
         ...(command.scope === undefined ? {} : { scope: command.scope }),
+      };
+    case "approve_action_revision":
+      return {
+        kind: "approve_action_revision",
+        actionId: command.actionId,
+        input: command.input as import("../../../packages/web-contracts/src/index").BrowserJsonValue,
+        reviewRef: command.reviewRef,
+        ...(command.scope === undefined ? {} : { scope: command.scope }),
+      };
+    case "retry_unknown_action":
+      return { kind: "retry_unknown_action", actionId: command.actionId, recoveryRef: command.recoveryRef };
+    case "decline_unknown_action_retry":
+      return {
+        kind: "decline_unknown_action_retry",
+        actionId: command.actionId,
+        recoveryRef: command.recoveryRef,
+        reason: command.reason,
       };
     case "reject_action":
       return { kind: "reject_action", actionId: command.actionId, reason: command.reason };

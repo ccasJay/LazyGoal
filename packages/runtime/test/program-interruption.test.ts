@@ -280,9 +280,11 @@ test("PTC preserves an unknown write before settling a resource stop", {
         trajectoryStore: fixture.trajectoryStore,
         scheduler: new InlineScheduler(runner),
     });
+    const recoveryRef = waiting.state.pendingAction?.recoveryRef;
+    assert.ok(recoveryRef);
     const resumed = await coordinator.resume({
         ref,
-        action: { kind: "reject_action", actionId, reason: "Do not retry" },
+        action: { kind: "decline_unknown_action_retry", actionId, recoveryRef, reason: "Do not retry" },
     });
     assert.equal(resumed.ok, true);
     if (!resumed.ok) return;

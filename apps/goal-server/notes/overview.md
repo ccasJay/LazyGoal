@@ -21,6 +21,12 @@
 
 Headless Composition Root 继续使用同一 Runtime 执行链（Launcher、Coordinator、Runner、共享提交器与工具授权）装配 Benchmark Episode，不迁移默认装配、不重写评分器；会话能力通过同一 Runtime 模块提供，Benchmark 的单次运行与观察边界保持不变。
 
+## 宿主审批预检与恢复决定
+
+无界面宿主通过 `RuntimeComposition.interactions.attach` 注册处理函数。工具审批处理函数会收到只读 `review` 入口：宿主可先对同一工具的拟修订参数调用该入口，取得原参数、最终参数、实际能力范围与审阅引用，再返回绑定该引用的修订决定；宿主不得把未审阅的参数直接交给执行器。`onActionRecovery` 单独处理结果未知的等待，其请求携带本次恢复身份，宿主据此返回明确的重执行或拒绝决定；普通审批处理函数不会收到恢复请求。
+
+注册、读取与预检都不触发历史任务执行，也不创建任何授权。
+
 ## 服务装配与主流程
 
 

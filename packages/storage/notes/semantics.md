@@ -13,3 +13,5 @@
 | 阶段快照 | Goal Snapshot 中 Run 内部活动阶段或最新已接受阶段的可恢复状态。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
 | Plan Run 路线快照 | 获批 Plan Run 的完整有序阶段、修订理由与游标；按 Snapshot 提交边界恢复。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
 | 批次进度指针 | 多调用批次中尚未暂存的业务 Action 及其顺序，与队首共同决定恢复位置。 | [Storage](../README.md) | [Goal Snapshot 协议](../src/goal-snapshot.ts) |
+| 最终执行版本快照 | 已获批 Action 的原请求引用与最终 canonical 参数；获批后不可再编辑，恢复沿用同一版本。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
+| 恢复身份快照 | 结果未知等待的稳定恢复身份；跨重启保留，同一 Action 再次未知时改变。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |

@@ -6,6 +6,7 @@ import {
   isBrowserSessionState,
   isBrowserGoalSession,
   isBrowserInteractionDetailResult,
+  isBrowserActionReviewResult,
   isGoalList,
   isGoalSessionEnvelope,
   isLiveEvent,
@@ -39,6 +40,8 @@ import {
   type BrowserGoalLiveEvent,
   type BrowserGoalPlanModeCommand,
   type BrowserGoalSession,
+  type BrowserActionReviewCommand,
+  type BrowserActionReviewResult,
   type BrowserInteractionDetailResult,
   type BrowserSessionInputCommand,
   type BrowserSessionInputQueryResult,
@@ -258,6 +261,44 @@ export const browserApi = {
     }
     const value: unknown = await response.json();
     if (!isBrowserInteractionDetailResult(value)) throw new Error("invalid_api_response");
+    return value;
+  },
+
+  /**
+   * 只读预检同一工具的最终参数与实际权限范围。
+   *
+   * @remarks 预检不保存批准、不解除等待；失败作为稳定拒绝返回，界面据此保留草稿。
+   */
+  async reviewActionApproval(
+    goalId: string,
+    command: BrowserActionReviewCommand,
+  ): Promise<BrowserActionReviewResult> {
+    const response = await fetch(
+      `/api/goals/${encodeURIComponent(goalId)}/action-reviews`,
+      {
+        method: "POST",
+        headers: authorizedHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify(command),
+      },
+    );
+    if (!response.ok) {
+      const error = await responseError(response);
+      switch (error.code) {
+        case "goal_not_found":
+        case "stale_run":
+        case "action_not_waiting":
+        case "action_id_mismatch":
+        case "tool_not_found":
+        case "invalid_tool_input":
+        case "scope_unavailable":
+        case "sandbox_scope_unavailable":
+          return { ok: false, error: error.code };
+        default:
+          return { ok: false, error: "review_unavailable" };
+      }
+    }
+    const value: unknown = await response.json();
+    if (!isBrowserActionReviewResult(value)) throw new Error("invalid_api_response");
     return value;
   },
 

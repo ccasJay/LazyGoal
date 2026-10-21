@@ -18,7 +18,7 @@ const matcher: SandboxGrantMatcher = {
     },
     version: 1,
 };
-const source = { goalId: "goal-1", runId: "run-1", actionId: "action-1" };
+const source = { goalId: "goal-1", runId: "run-1", actionId: "action-1", approvalInputId: "input-1" };
 
 test("删除 Goal 沙箱授权保留项目授权", async () => {
     const directory = await mkdtemp(join(tmpdir(), "lazygoal-sandbox-grants-"));
@@ -138,4 +138,44 @@ test("损坏账本失败关闭且不会自动覆盖", async () => {
     } finally {
         await rm(directory, { recursive: true, force: true });
     }
+});
+
+test("同一 Action 的不同决定身份各自暂存一条 pending 记录，同一身份复用原记录", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-sandbox-grants-decisions-"));
+    try {
+        const store = new JsonFileSandboxGrantStore(directory);
+        const first = await store.stage({
+            scope: "goal",
+            goalId: "goal-1",
+            workspaceId: "workspace-1",
+            source: { ...source, approvalInputId: "input-first" },
+            matcher,
+        });
+        const sameDecision = await store.stage({
+            scope: "goal",
+            goalId: "goal-1",
+            workspaceId: "workspace-1",
+            source: { ...source, approvalInputId: "input-first" },
+            matcher,
+        });
+        assert.equal(sameDecision.id, first.id);
+
+        const second = await store.stage({
+            scope: "goal",
+            goalId: "goal-1",
+            workspaceId: "workspace-1",
+            source: { ...source, approvalInputId: "input-second" },
+            matcher: { ...matcher, scope: { extraFiles: [], network: "all_outbound" } },
+        });
+        assert.notEqual(second.id, first.id);
+
+        const all = await store.list({ workspaceId: "workspace-1", goalId: "goal-1" });
+        assert.equal(all.length, 2);
+        assert.deepEqual(all.map((grant) => grant.status), ["pending", "pending"]);
+
+        const activated = await store.activate(second.id, second.source);
+        assert.equal(activated.status, "active");
+        const after = await store.list({ workspaceId: "workspace-1", goalId: "goal-1" });
+        assert.equal(after.find((grant) => grant.id === first.id)?.status, "pending");
+    } finally { await rm(directory, { recursive: true, force: true }); }
 });

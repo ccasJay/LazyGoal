@@ -2,7 +2,9 @@ import { useCallback, useEffect, useId, useReducer, useRef, useState } from "rea
 import { Check, CircleHelp, Eye, Loader, Shield, ShieldAlert, X, Zap } from "lucide-react";
 
 import type {
+  BrowserActionReview,
   BrowserAskUserQuestion,
+  BrowserJsonValue,
   BrowserInteractionDetail,
   BrowserInteractionView,
   BrowserPendingAction,
@@ -104,11 +106,38 @@ export type TaskApprovalViewEvent =
 export type ActionViewEvent =
   | { readonly kind: "scope"; readonly scope: "action" | "goal" | "workspace" }
   | { readonly kind: "submit_approve" }
+  | { readonly kind: "edit_toggle"; readonly editing: boolean }
+  | { readonly kind: "edit_text"; readonly value: string }
+  | { readonly kind: "preview" }
+  | { readonly kind: "submit_approve_revision" }
   | { readonly kind: "reject_text"; readonly value: string }
   | { readonly kind: "submit_reject" }
   | { readonly kind: "verify" }
   | { readonly kind: "retry" }
   | { readonly kind: "stop" };
+
+/** 审批审阅结果的稳定错误说明；失败保留草稿与等待。 */
+export function actionReviewErrorText(error: string): string {
+  switch (error) {
+    case "invalid_tool_input":
+      return "These parameters are not valid for this tool. Fix the field and preview again.";
+    case "tool_not_found":
+      return "This tool is no longer available. Approve it unchanged or reject the action.";
+    case "scope_unavailable":
+    case "sandbox_scope_unavailable":
+      return "Ongoing authorization is unavailable for this workspace. Approve the action once instead.";
+    case "action_not_waiting":
+      return "This request is no longer waiting for a decision. The latest saved state is being loaded.";
+    case "action_id_mismatch":
+      return "This request no longer matches the pending action. The latest saved state is being loaded.";
+    case "goal_not_found":
+      return "This Goal is no longer available in the current workspace.";
+    case "stale_run":
+      return "The session changed. The latest saved state is being loaded.";
+    default:
+      return "The proposed parameters could not be reviewed. Retry before making a decision.";
+  }
+}
 
 /** 新交互区域共用的只读展示上下文。 */
 export interface InteractionRegionChrome {
@@ -699,6 +728,11 @@ export function ActionInteractionView({
   summary,
   scope,
   rejection,
+  editing,
+  draftInput,
+  review,
+  reviewError,
+  reviewing,
   submission,
   chrome,
   onEvent,
@@ -707,6 +741,11 @@ export function ActionInteractionView({
   summary: BrowserPendingAction | undefined;
   scope: "action" | "goal" | "workspace";
   rejection: string;
+  editing: boolean;
+  draftInput: string;
+  review: BrowserActionReview | undefined;
+  reviewError: string | undefined;
+  reviewing: boolean;
   submission: InteractionSubmissionState;
   chrome: InteractionRegionChrome;
   onEvent: (event: ActionViewEvent) => void;
@@ -751,6 +790,80 @@ export function ActionInteractionView({
         <label>Tool input</label>
         <pre className="action-input-full">{formatToolInput(detail.input)}</pre>
       </div>
+      {!recovery && (
+        <section className="action-parameter-editor" aria-label="Edit tool parameters">
+          {!editing ? (
+            <button
+              type="button"
+              disabled={chrome.busy || locked}
+              onClick={() => onEvent({ kind: "edit_toggle", editing: true })}
+            >
+              Edit parameters
+            </button>
+          ) : (
+            <>
+              <label htmlFor={`${baseId}-edited-input`}>Edited tool parameters (JSON)</label>
+              <textarea
+                id={`${baseId}-edited-input`}
+                name="edited-tool-input"
+                className="edited-tool-input"
+                value={draftInput}
+                disabled={chrome.busy || locked}
+                onChange={(event) => onEvent({ kind: "edit_text", value: event.target.value })}
+                spellCheck={false}
+              />
+              <div className="action-parameter-editor-actions">
+                <button
+                  type="button"
+                  disabled={chrome.busy || locked || reviewing}
+                  onClick={() => onEvent({ kind: "preview" })}
+                >
+                  {reviewing ? "Reviewing…" : "Preview changes"}
+                </button>
+                <button
+                  type="button"
+                  disabled={chrome.busy || locked}
+                  onClick={() => onEvent({ kind: "edit_toggle", editing: false })}
+                >
+                  Cancel editing
+                </button>
+              </div>
+            </>
+          )}
+        </section>
+      )}
+      {reviewError !== undefined && (
+        <p className="interaction-warning" role="alert">{reviewError}</p>
+      )}
+      {review !== undefined && (
+        <section className="action-review" aria-label="Reviewed changes">
+          <h5>Reviewed changes</h5>
+          <p>Scope: {review.scope === "action" ? "This action only"
+            : review.scope === "goal" ? "This Goal" : "This project"}</p>
+          <p>Network: {review.capability.network === "none" ? "None" : "All outbound"}</p>
+          {review.capability.targetPaths.length > 0 && (
+            <p>Targets: {review.capability.targetPaths.map((target) => <code key={target}>{target}</code>)}</p>
+          )}
+          {review.capability.extraFiles.length > 0 && (
+            <ul>
+              {review.capability.extraFiles.map((file) => (
+                <li key={file.canonicalPath}><code>{file.canonicalPath}</code> · {file.access}</li>
+              ))}
+            </ul>
+          )}
+          {review.requiresSandboxApproval && (
+            <p>This scope needs sandbox permission and must be approved explicitly.</p>
+          )}
+          <details open>
+            <summary>Original parameters</summary>
+            <pre className="action-input-full">{formatToolInput(review.originalInput)}</pre>
+          </details>
+          <details open>
+            <summary>Final parameters</summary>
+            <pre className="action-input-full">{formatToolInput(review.finalInput)}</pre>
+          </details>
+        </section>
+      )}
       {pathAuthorization && (
         <p className="path-permission-note">
           Ongoing permission for <code>{targetPath}</code> also allows later writes to this path with different content.
@@ -821,6 +934,19 @@ export function ActionInteractionView({
               : scope === "workspace" ? "Approve for this project"
                 : "Approve once"}
         </button>
+        {!recovery && review !== undefined && (
+          <button
+            type="button"
+            className="approval-primary"
+            disabled={chrome.busy || locked}
+            onClick={() => onEvent({ kind: "submit_approve_revision" })}
+          >
+            <Check size={13} aria-hidden="true" />
+            {scope === "goal" ? "Approve revision for this Goal"
+              : scope === "workspace" ? "Approve revision for this project"
+                : "Approve revision once"}
+          </button>
+        )}
         <details className="action-rejection">
           <summary>Reject action</summary>
           <div className="feedback-form">
@@ -838,7 +964,7 @@ export function ActionInteractionView({
               disabled={chrome.busy || locked || rejection.trim().length === 0}
               onClick={() => onEvent({ kind: "submit_reject" })}
             >
-              Reject action
+              {recovery ? "Do not run again" : "Reject action"}
             </button>
           </div>
         </details>
@@ -1086,32 +1212,131 @@ export function ActionInteractionRegion({
   const { submission, submitCommand, verifyFrozen } = useInteractionSubmission({ view, onRefreshSession, onDecisionAccepted });
   const [scope, setScope] = useState<"action" | "goal" | "workspace">("action");
   const [rejection, setRejection] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [draftInput, setDraftInput] = useState("");
+  const [review, setReview] = useState<BrowserActionReview | undefined>(undefined);
+  const [reviewError, setReviewError] = useState<string | undefined>(undefined);
+  const [reviewing, setReviewing] = useState(false);
   const identity = `${view.runId}:${view.interactionId}`;
   useEffect(() => {
     setScope("action");
     setRejection("");
+    setEditing(false);
+    setDraftInput("");
+    setReview(undefined);
+    setReviewError(undefined);
   }, [identity]);
+
+  // 再次编辑或更换期限都会让旧审阅结果失效。
+  function invalidateReview(): void {
+    setReview(undefined);
+    setReviewError(undefined);
+  }
 
   function handleEvent(event: ActionViewEvent): void {
     switch (event.kind) {
       case "scope":
         setScope(event.scope);
+        invalidateReview();
         return;
+      case "edit_toggle": {
+        const current = detail.kind === "ready"
+          && (detail.detail.kind === "action_approval" || detail.detail.kind === "action_recovery")
+          ? formatToolInput(detail.detail.input)
+          : "";
+        setEditing(event.editing);
+        setDraftInput(event.editing ? current : "");
+        invalidateReview();
+        return;
+      }
+      case "edit_text":
+        setDraftInput(event.value);
+        invalidateReview();
+        return;
+      case "preview": {
+        if (view.actionId === undefined) return;
+        const parsed = parseEditedInput(draftInput);
+        if (!parsed.ok) {
+          setReviewError(parsed.message);
+          setReview(undefined);
+          return;
+        }
+        setReviewing(true);
+        browserApi.reviewActionApproval(view.goalId, {
+          runId: view.runId,
+          actionId: view.actionId,
+          input: parsed.value as BrowserJsonValue,
+          scope,
+        }).then((result) => {
+          setReviewing(false);
+          if (!result.ok) {
+            setReview(undefined);
+            setReviewError(actionReviewErrorText(result.error));
+            return;
+          }
+          setReviewError(undefined);
+          setReview(result.review);
+        }).catch(() => {
+          setReviewing(false);
+          setReview(undefined);
+          setReviewError(actionReviewErrorText("review_unavailable"));
+        });
+        return;
+      }
+      case "submit_approve_revision": {
+        if (view.actionId === undefined || review === undefined) return;
+        void submitCommand({
+          kind: "approve_action_revision",
+          runId: view.runId,
+          actionId: view.actionId,
+          input: review.finalInput,
+          reviewRef: review.reviewRef,
+          scope,
+        });
+        return;
+      }
       case "reject_text":
         setRejection(event.value);
         return;
       case "submit_approve":
         if (view.actionId === undefined) return;
+        if (view.kind === "action_recovery") {
+          const recoveryRef = detail.kind === "ready" && detail.detail.kind === "action_recovery"
+            ? detail.detail.recoveryRef
+            : undefined;
+          if (recoveryRef === undefined) return;
+          void submitCommand({
+            kind: "retry_unknown_action",
+            runId: view.runId,
+            actionId: view.actionId,
+            recoveryRef,
+          });
+          return;
+        }
         void submitCommand({
           kind: "approve_action",
           runId: view.runId,
           actionId: view.actionId,
-          scope: view.kind === "action_recovery" ? "action" : scope,
+          scope,
         });
         return;
       case "submit_reject": {
         const reason = rejection.trim();
         if (reason.length === 0 || view.actionId === undefined) return;
+        if (view.kind === "action_recovery") {
+          const recoveryRef = detail.kind === "ready" && detail.detail.kind === "action_recovery"
+            ? detail.detail.recoveryRef
+            : undefined;
+          if (recoveryRef === undefined) return;
+          void submitCommand({
+            kind: "decline_unknown_action_retry",
+            runId: view.runId,
+            actionId: view.actionId,
+            recoveryRef,
+            reason,
+          });
+          return;
+        }
         void submitCommand({ kind: "reject_action", runId: view.runId, actionId: view.actionId, reason });
         return;
       }
@@ -1149,11 +1374,35 @@ export function ActionInteractionRegion({
       summary={summary}
       scope={scope}
       rejection={rejection}
+      editing={editing}
+      draftInput={draftInput}
+      review={review}
+      reviewError={reviewError}
+      reviewing={reviewing}
       submission={submission}
       chrome={chrome}
       onEvent={handleEvent}
     />
   );
+}
+
+/** 解析编辑后的 JSON 参数；解析失败给出可定位说明，不静默降级。 */
+export function parseEditedInput(
+  text: string,
+): { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly message: string } {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    return { ok: false, message: "Enter the tool parameters as JSON before previewing." };
+  }
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return { ok: false, message: "Tool parameters must be a JSON object." };
+    }
+    return { ok: true, value: parsed };
+  } catch {
+    return { ok: false, message: "This is not valid JSON. Fix the syntax and preview again." };
+  }
 }
 
 function InteractionLoading() {

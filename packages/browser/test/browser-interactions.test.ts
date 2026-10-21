@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+    computeActionRecoveryRef,
     createGoal,
     type Goal,
     type GoalStore,
@@ -122,7 +123,7 @@ test("会话投影为四种等待提供统一身份、可用决定与截断标�
         kind: "action_approval",
         interactionId: "action_approval:act-1",
         actionId: "act-1",
-        decisions: ["approve_action", "reject_action"],
+        decisions: ["approve_action", "approve_action_revision", "reject_action"],
         truncated: false,
     });
 
@@ -138,7 +139,8 @@ test("会话投影为四种等待提供统一身份、可用决定与截断标�
         kind: "action_recovery",
         interactionId: "action_recovery:act-2",
         actionId: "act-2",
-        decisions: ["retry_action", "reject_action"],
+        recoveryRef: computeActionRecoveryRef("act-2", 1),
+        decisions: ["retry_unknown_action", "decline_unknown_action_retry"],
         truncated: false,
     });
 });
@@ -426,4 +428,155 @@ test("交互详情路由未接线时返回稳定不可用码", async () => {
     );
     assert.equal(response.status, 500);
     assert.deepEqual(await response.json(), { error: "interaction_details_unavailable" });
+});
+
+/** 只挂载审批预检的最小 Goal API。 */
+function actionReviewPort(
+    reviewActionApproval: NonNullable<BrowserGoalApiPort["reviewActionApproval"]>,
+): BrowserGoalApiPort {
+    return {
+        list: async () => [],
+        read: async () => undefined,
+        enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
+        models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+        setModelPreference: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+        selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
+        reviewActionApproval,
+    };
+}
+
+test("审批预检路由只接受严格 wire 请求并返回可审阅内容", async () => {
+    const received: unknown[] = [];
+    const routes = createBrowserGoalRoutes(actionReviewPort(async (goalId, command) => {
+        received.push({ goalId, command });
+        return {
+            ok: true,
+            goalId,
+            runId: command.runId,
+            review: {
+                actionId: command.actionId,
+                toolId: "write_file",
+                originalInput: { path: "a.txt", content: "original" },
+                finalInput: { path: "b.txt", content: "revised" },
+                changed: true,
+                scope: command.scope ?? "action",
+                availableScopes: ["action", "goal", "workspace"],
+                capability: { network: "none", extraFiles: [], targetPaths: ["/workspace/b.txt"] },
+                requiresSandboxApproval: false,
+                reviewRef: "review:0123456789abcdef0123456789abcdef",
+            },
+        };
+    }));
+
+    const response = await routes.request("http://localhost/api/goals/goal-1/action-reviews", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+            runId: "run-1",
+            actionId: "act-1",
+            scope: "action",
+            input: { path: "b.txt", content: "revised" },
+        }),
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json() as { ok: boolean; review: { reviewRef: string } };
+    assert.equal(body.ok, true);
+    assert.equal(body.review.reviewRef, "review:0123456789abcdef0123456789abcdef");
+    assert.deepEqual(received, [{
+        goalId: "goal-1",
+        command: {
+            runId: "run-1",
+            actionId: "act-1",
+            scope: "action",
+            input: { path: "b.txt", content: "revised" },
+        },
+    }]);
+
+    const invalidScope = await routes.request("http://localhost/api/goals/goal-1/action-reviews", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ runId: "run-1", actionId: "act-1", scope: "everything" }),
+    });
+    assert.equal(invalidScope.status, 400);
+    assert.deepEqual(await invalidScope.json(), { error: "invalid_action_review_request" });
+
+    const invalidInput = await routes.request("http://localhost/api/goals/goal-1/action-reviews", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ runId: "run-1", actionId: "act-1", toolId: "write_file" }),
+    });
+    assert.equal(invalidInput.status, 400);
+
+    const malformed = await routes.request("http://localhost/api/goals/goal-1/action-reviews", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{not json",
+    });
+    assert.equal(malformed.status, 400);
+});
+
+test("审批预检路由未接线时返回稳定不可用码", async () => {
+    const routes = createBrowserGoalRoutes({
+        list: async () => [],
+        read: async () => undefined,
+        enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
+        models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+        setModelPreference: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+        selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
+    });
+    const response = await routes.request("http://localhost/api/goals/goal-1/action-reviews", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ runId: "run-1", actionId: "act-1" }),
+    });
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: "review_unavailable" });
+});
+
+test("审批预检服务把 Runtime 拒绝投影为稳定 wire 错误码", async () => {
+    const store = new MemoryStore();
+    const goal = waitingGoal("goal-review-service", {
+        pendingAction: {
+            action: { actionId: "act-9", toolId: "write_file", input: { path: "a.txt", content: "x" } },
+            status: "awaiting_approval",
+        },
+    });
+    await store.save(goal);
+    const service = new BrowserGoalCommandService({
+        store,
+        coordinator: {
+            async enterPlanMode() { throw new Error("plan mode is not used here"); },
+            async reviewActionApproval(request) {
+                assert.equal(request.ref.goalId, goal.id);
+                assert.equal(request.ref.runId, goal.state.run.id);
+                return {
+                    ok: false as const,
+                    code: "INVALID_TOOL_INPUT" as const,
+                    message: "输入无效",
+                    issues: [{ path: ["path"], message: "必须是字符串" }],
+                };
+            },
+        },
+    });
+
+    assert.deepEqual(
+        await service.reviewActionApproval(goal.id, {
+            runId: goal.state.run.id,
+            actionId: "act-9",
+            input: { path: 1 },
+        }),
+        {
+            ok: false,
+            error: "invalid_tool_input",
+            issues: [{ path: ["path"], message: "必须是字符串" }],
+        },
+    );
+    assert.deepEqual(
+        await service.reviewActionApproval(goal.id, { runId: "run-old", actionId: "act-9" }),
+        { ok: false, error: "stale_run" },
+    );
+    assert.deepEqual(
+        await service.reviewActionApproval("goal-missing", { runId: "run-1", actionId: "act-9" }),
+        { ok: false, error: "goal_not_found" },
+    );
 });

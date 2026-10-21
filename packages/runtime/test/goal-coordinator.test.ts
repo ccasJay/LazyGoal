@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import {
+    computeApprovalInputId,
     computeContentHash,
     createGoal as createUnexposedGoal,
     createStepExecutor,
@@ -316,7 +317,6 @@ function createActionRecoveryGoal(): Goal {
         kind: "recover_action",
         actionId: "action-approval",
     });
-
     return {
         ...approval,
         state: { ...approval.state, run: recoveredRun },
@@ -542,6 +542,12 @@ test("saves Action approval before scheduling the matching transient authorizati
             action: waiting.state.run.pendingAction?.action,
             status: "approved",
             approvalScope: "action",
+            approvalInputId: computeApprovalInputId({
+                actionId: "action-approval",
+                toolId: "read_file",
+                scope: "action",
+                finalInput: { path: "README.md" },
+            }),
         });
 
         const observedRun = applyRunTransition(approved.state.run, {
@@ -688,13 +694,13 @@ test("Coordinator lists only the current Goal grants and commits revocation", as
             scope: "goal",
             goalId: waiting.id,
             workspaceId: "workspace-1",
-            source: { goalId: waiting.id, runId: "earlier-run", actionId: "goal-action" },
+            source: { goalId: waiting.id, runId: "earlier-run", actionId: "goal-action", approvalInputId: "input-1" },
             matcher,
         });
         const workspaceGrant = await ledger.stage({
             scope: "workspace",
             workspaceId: "workspace-1",
-            source: { goalId: "another-goal", runId: "another-run", actionId: "workspace-action" },
+            source: { goalId: "another-goal", runId: "another-run", actionId: "workspace-action", approvalInputId: "input-1" },
             matcher,
         });
         await ledger.activate(goalGrant.id, goalGrant.source);
@@ -892,9 +898,19 @@ test("allows re-approval of manual recovery and preserves the Action identity", 
     assert.equal(waiting.kind, "waiting");
     assert.equal(waiting.waitingFor, "action_recovery");
 
-    const result = requireSuccess(await coordinator.resume({
+    // 首次批准命令不再消费未知结果等待；恢复必须显式引用本次恢复身份。
+    const rejected = requireFailure(await coordinator.resume({
         ref: { goalId: recovery.id, runId: recovery.state.run.id },
         action: { kind: "approve_action", actionId: "action-approval" },
+    }));
+    assert.equal(rejected.error.code, "INVALID_GOAL_INPUT");
+
+    const recoveryRef = (await store.restore(recovery.id))?.state.run.pendingAction?.recoveryRef;
+    assert.ok(recoveryRef !== undefined);
+
+    const result = requireSuccess(await coordinator.resume({
+        ref: { goalId: recovery.id, runId: recovery.state.run.id },
+        action: { kind: "retry_unknown_action", actionId: "action-approval", recoveryRef },
     }));
 
     assert.equal(result.kind, "terminal");
@@ -949,9 +965,12 @@ test("Coordinator 与 Runner 协作恢复 manual Action 后等待重新批准", 
     assert.equal(recovery.waitingFor, "action_recovery");
     assert.equal(executedActionId, undefined);
 
+    const recoveryRef = (await store.restore(interrupted.id))?.state.run.pendingAction?.recoveryRef;
+    assert.ok(recoveryRef !== undefined);
+
     const completed = requireSuccess(await coordinator.resume({
         ref,
-        action: { kind: "approve_action", actionId: "action-approval" },
+        action: { kind: "retry_unknown_action", actionId: "action-approval", recoveryRef },
     }));
     assert.equal(completed.kind, "terminal");
     assert.equal(completed.goal.state.run.status, "completed");

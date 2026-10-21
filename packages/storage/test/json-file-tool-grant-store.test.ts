@@ -10,7 +10,7 @@ import type { ToolGrantMatcher } from "../../runtime/src/index";
 const matcher: ToolGrantMatcher = {
     kind: "exact_input", toolId: "bash", version: 1, digest: `sha256:${"a".repeat(64)}`,
 };
-const source = { goalId: "goal-1", runId: "run-1", actionId: "action-1" };
+const source = { goalId: "goal-1", runId: "run-1", actionId: "action-1", approvalInputId: "input-1" };
 
 test("删除 Goal 授权保留项目授权", async () => {
     const directory = await mkdtemp(join(tmpdir(), "lazygoal-tool-grants-"));
@@ -79,5 +79,47 @@ test("损坏账本失败关闭且不会自动覆盖", async () => {
         const store = new JsonFileToolGrantStore(directory);
         await assert.rejects(store.findActiveMatching({ workspaceId: "workspace-1", goalId: "goal-1", matcher }));
         assert.equal(await readFile(filePath, "utf8"), "{not json");
+    } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("同一 Action 的不同决定身份各自暂存一条 pending 记录，同一身份复用原记录", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-tool-grants-decisions-"));
+    try {
+        const store = new JsonFileToolGrantStore(directory);
+        const first = await store.stage({
+            scope: "goal",
+            goalId: "goal-1",
+            workspaceId: "workspace-1",
+            source: { ...source, approvalInputId: "input-first" },
+            matcher,
+        });
+        const sameDecision = await store.stage({
+            scope: "goal",
+            goalId: "goal-1",
+            workspaceId: "workspace-1",
+            source: { ...source, approvalInputId: "input-first" },
+            matcher,
+        });
+        assert.equal(sameDecision.id, first.id);
+
+        const second = await store.stage({
+            scope: "goal",
+            goalId: "goal-1",
+            workspaceId: "workspace-1",
+            source: { ...source, approvalInputId: "input-second" },
+            matcher: { kind: "target_path", toolId: "write_file", version: 1, path: "/workspace/b.txt" },
+        });
+        assert.notEqual(second.id, first.id);
+
+        const all = await store.list({ workspaceId: "workspace-1", goalId: "goal-1" });
+        assert.equal(all.length, 2);
+        assert.deepEqual(all.map((grant) => grant.status), ["pending", "pending"]);
+
+        // 只有被已提交批准引用的一条可以激活；另一条保持 pending。
+        const activated = await store.activate(second.id, second.source);
+        assert.equal(activated.status, "active");
+        const after = await store.list({ workspaceId: "workspace-1", goalId: "goal-1" });
+        assert.equal(after.find((grant) => grant.id === first.id)?.status, "pending");
+        assert.equal(after.find((grant) => grant.id === second.id)?.status, "active");
     } finally { await rm(directory, { recursive: true, force: true }); }
 });

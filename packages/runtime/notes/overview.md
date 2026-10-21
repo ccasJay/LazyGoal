@@ -90,6 +90,16 @@ Runner 和 GoalCoordinator 可通过 [`@lazygoal/execution-stream`](../../execut
 
 模型调用指标使用独立 `MetricsStore` 与覆盖标记 Port：开始/结束事实不进入 Goal、Trajectory 或恢复状态。Agent 在实际适配器请求边界用单调时钟记录端到端请求耗时，并可另行记录流式首文本后的解码耗时；查询投影由 `session-metrics` 根据最新 Goal Snapshot 与指标事实归约。指标写入失败不得改变 Goal 执行结果。
 
+## 工具审批修订与未知结果重执行
+
+[审批修订规则](../src/action-approval.ts) 拥有首次审批与结果未知恢复的两类决定边界。首次审批只接受尚未开始执行的等待：审批者可为同一工具提交最终参数版本，原请求引用与最终 canonical 参数作为同一逻辑 Action 的执行版本一并冻结，获批后不可再编辑；原模型响应、程序请求与 `action_staged` 事实不被覆盖。执行、授权激活、沙箱计划与恢复都从该执行版本取实际参数。
+
+`GoalCoordinator.reviewActionApproval` 是只读预检：它重新准备参数、规划执行准入、权限与沙箱范围并返回原参数、最终参数、实际目标与能力变化以及审阅指纹，不保存批准、不暂存或激活 Grant、不解除等待，也不调用业务工具。确认修订时在同一提交边界重算并比对，内容不一致时明确拒绝并要求重新审阅。
+
+首次批准、修订批准与结果未知的重执行是三条互不消费对方等待的决定分支：首次批准只作用于首次审批等待；重执行绑定本次未知结果等待的恢复身份，只允许按获批版本再次执行，不携带新参数或持续授权期限；拒绝再次执行保留此前效果未知的事实，不把原操作记作未执行、已回滚或成功。同一 Action 再次产生未知结果时恢复身份改变，旧决定不能授权新一轮。
+
+持续授权按最终已验证参数与能力范围生成匹配器，并以来自会话输入的稳定批准身份作为事务来源；同一决定同内容重试复用同一条暂存记录，不同决定的未提交 pending 可以并存，但只有被已提交批准引用的一条会被激活。
+
 ## 实例生命周期与资源所有权
 
 [RuntimeLifecycle](../src/lifecycle/runtime-lifecycle.ts) 的状态为 `open`、`closing` 与 `closed`。首次 `close()` 同步进入 `closing`：拒绝新的 `beginOperation` 受理、冻结 Checkpoint Gate、中止明确交付的实例控制器，然后依次执行正常和强制清理，请求 [ManagedResourceRegistry](../src/lifecycle/managed-resources.ts) 结算资源，并等待已受理操作与已进入保存边界的写入。两个阶段各以 `gracePeriodMs` 为上限，默认各 2 秒。

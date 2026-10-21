@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+    createSandboxGrantMatcher,
     evaluateSandboxAuthorization,
+    matchesSandboxGrantMatcher,
     NETWORK_ALL_OUTBOUND_NOTICE,
     type EffectiveSandboxReview,
+    type EffectiveSandboxScope,
     type SandboxAuthorizationContext,
 } from "../src/index";
 
@@ -76,4 +79,36 @@ test("非 macOS 平台无需内核沙箱能力审批，直接放行", () => {
 
     const decision = evaluateSandboxAuthorization(context);
     assert.deepEqual(decision, { decision: "allow" });
+});
+
+test("扩大沙箱能力范围会重新判定为需要审批，且旧范围的授权不覆盖新范围", () => {
+    const original: EffectiveSandboxScope = { extraFiles: [], network: "none" };
+    const widened: EffectiveSandboxScope = {
+        extraFiles: [{ canonicalPath: "/etc/hosts", access: "read", kind: "file" }],
+        network: "none",
+    };
+
+    assert.equal(evaluateSandboxAuthorization({
+        isSeatbeltSupported: true,
+        workspaceRoot: "/workspace",
+        effectiveScope: original,
+    }).decision, "allow");
+
+    const widenedDecision = evaluateSandboxAuthorization({
+        isSeatbeltSupported: true,
+        workspaceRoot: "/workspace",
+        effectiveScope: widened,
+    });
+    assert.equal(widenedDecision.decision, "approval_required");
+    if (widenedDecision.decision === "approval_required") {
+        assert.deepEqual(widenedDecision.review.extraFiles, widened.extraFiles);
+    }
+
+    // 旧范围派生出的授权匹配器不匹配扩大后的范围，必须重新审批。
+    const originalMatcher = createSandboxGrantMatcher("bash", { command: "cat /etc/hosts" }, original);
+    const widenedMatcher = createSandboxGrantMatcher("bash", { command: "cat /etc/hosts" }, widened);
+    // 旧范围派生出的授权不覆盖扩大后的请求；扩大后的范围也不被窄授权放行。
+    assert.equal(matchesSandboxGrantMatcher(widenedMatcher, originalMatcher), false);
+    assert.equal(matchesSandboxGrantMatcher(originalMatcher, widenedMatcher), true);
+    assert.equal(matchesSandboxGrantMatcher(widenedMatcher, widenedMatcher), true);
 });

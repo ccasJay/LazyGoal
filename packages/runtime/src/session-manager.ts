@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { AgentProfileRegistry } from "./agent-profile";
-import type { GoalModelSelection, Goal, RunMode } from "./domain";
+import type { GoalModelSelection, Goal, JsonValue, RunMode } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type { GoalCoordinator } from "./goal-coordinator";
 import type { GoalProtocolValidator } from "./domain";
@@ -35,6 +35,10 @@ import {
     type SessionInteractionHandlers,
 } from "./interaction-handlers";
 import type { GoalUserAction } from "./goal-coordinator";
+import type {
+    ActionApprovalReviewResult,
+    ActionApprovalScope,
+} from "./action-approval";
 import {
     computeSessionInputDigest,
     findSessionInputRecord,
@@ -108,10 +112,16 @@ export interface SessionCreateRequest {
     readonly modelSelection?: GoalModelSelection | undefined;
 }
 
-/** 把会话交互回答映射为既有 Coordinator 用户操作；不改变安全与授权规则。 */
+/**
+ * 把会话交互回答映射为既有 Coordinator 用户操作；不改变安全与授权规则。
+ *
+ * @remarks 批准类决定携带会话输入身份，作为持续授权的稳定批准身份；同一输入重试
+ * 复用同一条暂存授权，不同输入对应不同决定。
+ */
 function toGoalUserAction(
     response: SessionInteractionResponse,
     requestId: string,
+    approvalInputId?: string,
 ): GoalUserAction {
     switch (response.kind) {
         case "answer_ask_user":
@@ -129,6 +139,29 @@ function toGoalUserAction(
                 kind: "approve_action",
                 actionId: response.actionId,
                 ...(response.scope === undefined ? {} : { scope: response.scope }),
+                ...(approvalInputId === undefined ? {} : { approvalInputId }),
+            };
+        case "approve_action_revision":
+            return {
+                kind: "approve_action_revision",
+                actionId: response.actionId,
+                input: response.input,
+                reviewRef: response.reviewRef,
+                ...(response.scope === undefined ? {} : { scope: response.scope }),
+                ...(approvalInputId === undefined ? {} : { approvalInputId }),
+            };
+        case "retry_unknown_action":
+            return {
+                kind: "retry_unknown_action",
+                actionId: response.actionId,
+                recoveryRef: response.recoveryRef,
+            };
+        case "decline_unknown_action_retry":
+            return {
+                kind: "decline_unknown_action_retry",
+                actionId: response.actionId,
+                recoveryRef: response.recoveryRef,
+                reason: response.reason,
             };
         case "reject_action":
             return { kind: "reject_action", actionId: response.actionId, reason: response.reason };
@@ -281,7 +314,10 @@ export interface SessionManagerDependencies {
     /** 与执行链共享的 Trajectory/Snapshot 提交器。 */
     readonly committer: TrajectoryCheckpointCommitterPort;
     /** 运行 created/running Run 的调度入口与后继 Run 创建入口。 */
-    readonly coordinator: Pick<GoalCoordinator, "advance" | "continue" | "steer" | "interrupt" | "resume">;
+    readonly coordinator: Pick<
+        GoalCoordinator,
+        "advance" | "continue" | "steer" | "interrupt" | "resume" | "reviewActionApproval"
+    >;
     /** 冻结 Profile 解析。 */
     readonly profiles: AgentProfileRegistry;
     /** 新 Run 身份生成器。 */
@@ -351,7 +387,10 @@ export interface SessionManagerDependencies {
 export class SessionManager implements SessionHandlePort {
     private readonly store: GoalStore;
     private readonly committer: TrajectoryCheckpointCommitterPort;
-    private readonly coordinator: Pick<GoalCoordinator, "advance" | "continue" | "steer" | "interrupt" | "resume">;
+    private readonly coordinator: Pick<
+        GoalCoordinator,
+        "advance" | "continue" | "steer" | "interrupt" | "resume" | "reviewActionApproval"
+    >;
     private readonly profiles: AgentProfileRegistry;
     private readonly runIdGenerator: RunIdGenerator;
     private readonly protocolValidator: GoalProtocolValidator | undefined;
@@ -621,6 +660,43 @@ export class SessionManager implements SessionHandlePort {
     }
 
     /**
+     * 只读预检同一工具的最终参数与实际权限范围。
+     *
+     * @remarks
+     * 预检只重新准备参数、规划执行准入、权限与沙箱范围，并返回可审阅结果；它
+     * 不保存批准、不暂存或激活 Grant、不解除等待、不调用业务工具，也不隐式触发
+     * 宿主审批回调。多个客户端各自预检时互不覆盖草稿或持久化候选。
+     *
+     * @param goalId - 目标 Goal。
+     * @param request - 当前 Run、Action、拟修订参数与拟授权期限。
+     * @returns 可审阅结果，或可定位的稳定拒绝。
+     * @throws 快照损坏或读取失败时抛出异常。
+     * @example
+     * ```ts
+     * const review = await sessions.reviewActionApproval("goal-1", {
+     *     runId: "run-1", actionId: "action-1",
+     *     input: { path: "b.txt" }, scope: "action",
+     * });
+     * ```
+     */
+    async reviewActionApproval(
+        goalId: string,
+        request: {
+            readonly runId: string;
+            readonly actionId: string;
+            readonly input?: JsonValue | undefined;
+            readonly scope?: ActionApprovalScope | undefined;
+        },
+    ): Promise<ActionApprovalReviewResult> {
+        return this.coordinator.reviewActionApproval({
+            ref: { goalId, runId: request.runId },
+            actionId: request.actionId,
+            ...(request.input === undefined ? {} : { input: request.input }),
+            ...(request.scope === undefined ? {} : { scope: request.scope }),
+        });
+    }
+
+    /**
      * 受理一条会话输入。
      *
      * @remarks
@@ -731,7 +807,7 @@ export class SessionManager implements SessionHandlePort {
         const identity = this.verifyInteractionIdentity(current, input);
         if (identity !== undefined) return identity;
 
-        const action = toGoalUserAction(input.response, input.requestId);
+        const action = toGoalUserAction(input.response, input.requestId, input.inputId);
         const result = await this.coordinator.resume(
             { ref: { goalId, runId: input.runId }, action },
         );
@@ -908,7 +984,13 @@ export class SessionManager implements SessionHandlePort {
         const pendingInteraction = goal.state.run.pendingInteraction;
         const pendingAction = goal.state.run.pendingAction;
         const response = input.response;
-        if (response.kind === "approve_action" || response.kind === "reject_action") {
+        if (
+            response.kind === "approve_action"
+            || response.kind === "approve_action_revision"
+            || response.kind === "reject_action"
+            || response.kind === "retry_unknown_action"
+            || response.kind === "decline_unknown_action_retry"
+        ) {
             const expectedActionId = pendingAction?.action.actionId;
             if (expectedActionId === undefined || expectedActionId !== response.actionId) {
                 return {
@@ -1241,6 +1323,14 @@ export class SessionManager implements SessionHandlePort {
                     attachment.goalId,
                     ref ?? { runId: view.runId, interactionId: view.interactionId },
                 ),
+                ...(view.kind === "action_approval" ? {
+                    review: (input) => this.reviewActionApproval(attachment.goalId, {
+                        runId: view.runId,
+                        actionId: view.actionId,
+                        ...(input.input === undefined ? {} : { input: input.input }),
+                        ...(input.scope === undefined ? {} : { scope: input.scope }),
+                    }),
+                } : {}),
             });
             if (attachment.detached || result.kind === "unhandled") return;
             // 结果冻结后再核验连接与请求仍然有效；其他响应或 Interrupt 先提交时本结果失效。

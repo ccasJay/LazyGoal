@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { AskUserAnswer } from "../../model-contracts/src/index";
-import type { Goal } from "./domain";
+import type { Goal, JsonValue } from "./domain";
 
 /** 单条会话输入正文允许的最大 UTF-16 code unit 数。 */
 export const MAX_SESSION_INPUT_TEXT_LENGTH = 64_000;
@@ -46,9 +46,48 @@ export type SessionInteractionResponse =
     | { readonly kind: "approve_task" }
     | { readonly kind: "feedback_task"; readonly feedback: string }
     | {
+        /**
+         * 批准首次未执行的工具调用。
+         *
+         * @remarks 只消费首次审批等待；不消费结果未知的恢复等待。
+         */
         readonly kind: "approve_action";
         readonly actionId: string;
         readonly scope?: "action" | "goal" | "workspace";
+    }
+    | {
+        /**
+         * 批准同一工具的修订参数版本。
+         *
+         * @remarks 提交必须携带预检返回的审阅引用；提交边界会重新计算最终参数与
+         * 范围并比对，不一致时明确拒绝并要求重新审阅。
+         */
+        readonly kind: "approve_action_revision";
+        readonly actionId: string;
+        readonly input: JsonValue;
+        readonly reviewRef: string;
+        readonly scope?: "action" | "goal" | "workspace";
+    }
+    | {
+        /**
+         * 明确允许结果未知的操作按获批版本再次执行。
+         *
+         * @remarks 绑定本次未知结果等待身份；不携带新参数或持续授权期限。
+         */
+        readonly kind: "retry_unknown_action";
+        readonly actionId: string;
+        readonly recoveryRef: string;
+    }
+    | {
+        /**
+         * 拒绝结果未知的操作再次执行。
+         *
+         * @remarks 保留此前效果未知的事实，不把原操作记作未执行、已回滚或成功。
+         */
+        readonly kind: "decline_unknown_action_retry";
+        readonly actionId: string;
+        readonly recoveryRef: string;
+        readonly reason: string;
     }
     | { readonly kind: "reject_action"; readonly actionId: string; readonly reason: string };
 
@@ -427,6 +466,27 @@ export function validateSessionInputShape(
             }
             if (input.response.kind === "reject_action" && input.response.reason.trim().length === 0) {
                 return { code: "INVALID_INPUT", message: "Action rejection requires a reason" };
+            }
+            if (input.response.kind === "approve_action_revision") {
+                if (input.response.reviewRef.trim().length === 0) {
+                    return { code: "INVALID_INPUT", message: "Approval revision requires a review reference" };
+                }
+                if (input.response.actionId.trim().length === 0) {
+                    return { code: "INVALID_INPUT", message: "Approval revision requires an action identity" };
+                }
+            }
+            if (
+                (input.response.kind === "retry_unknown_action"
+                    || input.response.kind === "decline_unknown_action_retry")
+                && input.response.recoveryRef.trim().length === 0
+            ) {
+                return { code: "INVALID_INPUT", message: "A re-execution decision requires a recovery reference" };
+            }
+            if (
+                input.response.kind === "decline_unknown_action_retry"
+                && input.response.reason.trim().length === 0
+            ) {
+                return { code: "INVALID_INPUT", message: "Declining a re-execution requires a reason" };
             }
             return undefined;
         }

@@ -36,6 +36,7 @@ const GrantSchema = z.object({
         goalId: z.string().min(1),
         runId: z.string().min(1),
         actionId: z.string().min(1),
+        approvalInputId: z.string().min(1),
     }).strict(),
     matcher: MatcherSchema,
     status: z.enum(["pending", "active", "revoked"]),
@@ -62,7 +63,7 @@ const LedgerSchema = z.object({
             context.addIssue({ code: "custom", path: ["grants", index, "id"], message: "duplicate Grant ID" });
         }
         ids.add(grant.id);
-        const source = `${grant.source.goalId}\0${grant.source.runId}\0${grant.source.actionId}`;
+        const source = `${grant.source.goalId}\0${grant.source.runId}\0${grant.source.actionId}\0${grant.source.approvalInputId}`;
         if (sources.has(source)) {
             context.addIssue({ code: "custom", path: ["grants", index, "source"], message: "duplicate Grant source" });
         }
@@ -237,7 +238,10 @@ export class JsonFileSandboxGrantStore implements SandboxGrantStore {
 }
 
 function sameSource(left: SandboxGrant["source"], right: SandboxGrant["source"]): boolean {
-    return left.goalId === right.goalId && left.runId === right.runId && left.actionId === right.actionId;
+    return left.goalId === right.goalId
+        && left.runId === right.runId
+        && left.actionId === right.actionId
+        && left.approvalInputId === right.approvalInputId;
 }
 
 function sameGrantRequest(left: SandboxGrant, right: Omit<SandboxGrant, "id">): boolean {
