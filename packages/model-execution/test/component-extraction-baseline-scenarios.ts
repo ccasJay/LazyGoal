@@ -69,6 +69,7 @@ import type { DynamicSectionMessage } from "../../prompt-renderer/src/index";
 import { buildStepRequest } from "../../model-request/src/index";
 import type { StepPromptStageContext } from "../../model-request/src/index";
 import { currentProtocols, currentWorkingMemory } from "../../agent/test/current-fixtures";
+import { testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
 
 const BASELINE_PROFILE: AgentProfile = {
     id: "baseline-profile",
@@ -92,12 +93,17 @@ const NATIVE_IDENTITY: NativeConversationIdentity = {
 };
 
 const BASELINE_MESSAGES: readonly GoalMessage[] = [
-    { role: "user", content: "请读取 README 并总结。" },
-    {
-        role: "assistant",
-        assistant: { profileId: BASELINE_PROFILE.id },
-        content: "我先读取 README。",
-    },
+    testUserMessage("请读取 README 并总结。", {
+        runId: "baseline-run",
+        messageId: "msg-baseline-user-1",
+        source: { kind: "user_input", inputId: "input-baseline-1" },
+    }),
+    testAssistantMessage("我先读取 README。", {
+        profileId: BASELINE_PROFILE.id,
+        runId: "baseline-run",
+        messageId: "msg-baseline-assistant-1",
+        source: { kind: "model_text", modelCallId: "call-baseline-1", blockIndex: 0 },
+    }),
 ];
 
 function createBaselineGoal(options: {

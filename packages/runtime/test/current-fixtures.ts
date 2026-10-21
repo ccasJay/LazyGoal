@@ -5,10 +5,16 @@ import type {
 import type { MemoryProtocol } from "../../working-memory/src/index";
 import type {
     AgentDecision,
+    AssistantMessage,
+    AssistantMessagePurpose,
+    GoalMessage,
+    GoalMessageSource,
     StepExecutionInput,
     StepExecutor,
+    UserMessage,
 } from "../src/index";
 import type { Goal } from "../src/index";
+import { createAssistantMessage, createUserMessage } from "../src/goal-message";
 import {
     allocateImmutableEvent,
     type TrajectoryEvent,
@@ -100,8 +106,104 @@ export class InMemoryTrajectoryStore implements TrajectoryStore {
     }
 }
 
+/**
+ * 投影消息数组的稳定轮廓，供断言比较角色、正文与用途。
+ *
+ * @remarks
+ * 轮廓刻意省略 `messageId` 与 `source` 身份，避免断言绑定随机身份；需要验证
+ * 身份与来源时直接断言完整消息对象。
+ *
+ * @param messages - 已提交消息数组。
+ * @returns 只含角色、正文与助手用途的稳定轮廓。
+ * @example
+ * ```ts
+ * assert.deepEqual(messageOutline(goal.state.messages), [
+ *   { role: "assistant", content: "完成", purpose: "answer" },
+ * ]);
+ * ```
+ */
+export function messageOutline(
+    messages: readonly GoalMessage[],
+): readonly {
+    readonly role: "user" | "assistant";
+    readonly content: string;
+    readonly purpose?: AssistantMessagePurpose | undefined;
+}[] {
+    return messages.map((message) => message.role === "user"
+        ? { role: "user", content: message.content }
+        : { role: "assistant", content: message.content, purpose: message.purpose });
+}
+
 const trajectoryStoresByGoalStore = new WeakMap<object, InMemoryTrajectoryStore>();
 
+let fixtureMessageCounter = 0;
+
+/**
+ * 构造带稳定身份与来源的测试用户消息。
+ *
+ * @remarks
+ * 省略 `messageId` 与来源时按调用顺序生成唯一值，满足同一 Goal 内身份与来源
+ * 唯一的不变量；需要固定身份时显式传入。
+ *
+ * @param content - 消息正文。
+ * @param options - 可选的 Run 归属、来源与固定身份。
+ * @returns 满足当前消息契约的只读用户消息。
+ * @example
+ * ```ts
+ * const message = testUserMessage("继续", { runId: "run-1" });
+ * ```
+ */
+export function testUserMessage(
+    content: string,
+    options: {
+        readonly runId?: string | undefined;
+        readonly source?: GoalMessageSource | undefined;
+        readonly messageId?: string | undefined;
+    } = {},
+): UserMessage {
+    fixtureMessageCounter += 1;
+    return createUserMessage({
+        content,
+        runId: options.runId ?? "run-fixture",
+        source: options.source ?? { kind: "user_input", inputId: `input-fixture-${fixtureMessageCounter}` },
+        ...(options.messageId === undefined ? {} : { messageId: options.messageId }),
+    });
+}
+
+/**
+ * 构造带稳定身份、用途与来源的测试助手消息。
+ *
+ * @remarks
+ * 省略 `messageId` 与来源时按调用顺序生成唯一值；需要固定身份时显式传入。
+ *
+ * @param content - 消息正文。
+ * @param options - 可选的 Run 归属、用途、来源、Profile 与固定身份。
+ * @returns 满足当前消息契约的只读助手消息。
+ * @example
+ * ```ts
+ * const message = testAssistantMessage("先检查配置", { purpose: "process" });
+ * ```
+ */
+export function testAssistantMessage(
+    content: string,
+    options: {
+        readonly runId?: string | undefined;
+        readonly purpose?: AssistantMessagePurpose | undefined;
+        readonly source?: GoalMessageSource | undefined;
+        readonly profileId?: string | undefined;
+        readonly messageId?: string | undefined;
+    } = {},
+): AssistantMessage {
+    fixtureMessageCounter += 1;
+    return createAssistantMessage({
+        content,
+        runId: options.runId ?? "run-fixture",
+        purpose: options.purpose ?? "process",
+        source: options.source ?? { kind: "stage_output", executionUnitId: `unit-fixture-${fixtureMessageCounter}`, blockIndex: 0 },
+        profileId: options.profileId ?? "profile-fixture",
+        ...(options.messageId === undefined ? {} : { messageId: options.messageId }),
+    });
+}
 /** Reuses one in-memory Trajectory for all Runner instances sharing a GoalStore. */
 export function trajectoryStoreFor(goalStore: object): InMemoryTrajectoryStore {
     const existing = trajectoryStoresByGoalStore.get(goalStore);

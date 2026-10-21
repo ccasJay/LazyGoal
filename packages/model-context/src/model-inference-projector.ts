@@ -1,5 +1,6 @@
 import {
     type Goal,
+    type GoalMessageSource,
     type ModelContextEpochState,
     type StepRecord,
 } from "../../runtime/src/domain";
@@ -11,6 +12,7 @@ import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type {
     ModelConversationMessage,
     ModelInferenceView,
+    ModelMessageSource,
     ModelWorkingMemory,
     ModelPendingAction,
     ModelProfileView,
@@ -346,13 +348,41 @@ function projectConversation(
     goal: Goal,
 ): readonly ModelConversationMessage[] {
     return goal.state.messages.map((message, sourceMessageIndex) => message.role === "user"
-        ? { role: "user", content: message.content, sourceMessageIndex }
+        ? {
+            role: "user",
+            content: message.content,
+            sourceMessageIndex,
+            source: projectMessageSource(message.source),
+        }
         : {
             role: "assistant",
             assistant: { profileId: message.assistant.profileId },
             content: message.content,
             sourceMessageIndex,
+            source: projectMessageSource(message.source),
         });
+}
+
+/** 把 Runtime 领域来源投影为模型视图的只读来源镜像。 */
+function projectMessageSource(source: GoalMessageSource): ModelMessageSource {
+    switch (source.kind) {
+        case "goal_intent":
+            return { kind: "goal_intent", goalId: source.goalId };
+        case "user_input":
+            return { kind: "user_input", inputId: source.inputId };
+        case "interaction_response":
+            return { kind: "interaction_response", requestId: source.requestId };
+        case "model_text":
+            return { kind: "model_text", modelCallId: source.modelCallId, blockIndex: source.blockIndex };
+        case "stage_output":
+            return { kind: "stage_output", executionUnitId: source.executionUnitId };
+        case "completion_candidate":
+            return { kind: "completion_candidate", candidateId: source.candidateId };
+        case "host_execution":
+            return { kind: "host_execution", actionId: source.actionId };
+        case "runtime_notice":
+            return { kind: "runtime_notice", noticeId: source.noticeId };
+    }
 }
 
 function projectTools(

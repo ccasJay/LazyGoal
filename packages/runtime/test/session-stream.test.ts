@@ -181,8 +181,8 @@ test("a Goal subscription starts with state_sync and survives successor Runs wit
 
     const runIds = new Set(
         events
-            .filter((event) => event.type === "activity" || event.type === "state_sync")
-            .map((event) => event.type === "activity" ? event.event.runId : event.state.runId),
+            .filter((event) => event.type === "generation_event" || event.type === "state_sync")
+            .map((event) => event.type === "generation_event" ? event.event.source.runId : event.state.runId),
     );
     assert.ok(runIds.size >= 2, `expected multiple Runs, got ${JSON.stringify([...runIds])}`);
     assert.equal(stream.closed, false);
@@ -244,14 +244,14 @@ test("buffered handoff drops stale deltas from previous Runs and keeps the curre
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(events[0]?.type, "state_sync");
-    const activities = events.filter((event) => event.type === "activity");
+    const activities = events.filter((event) => event.type === "generation_event");
     assert.deepEqual(
-        activities.map((event) => event.type === "activity" ? event.event.runId : ""),
+        activities.map((event) => event.type === "generation_event" ? event.event.source.runId : ""),
         [currentRunId],
     );
     assert.deepEqual(
-        activities.map((event) => event.type === "activity" ? event.event.kind : ""),
-        ["model_block_delta"],
+        activities.map((event) => event.type === "generation_event" ? event.event.kind : ""),
+        ["text_delta"],
     );
 
     stream.close();
@@ -361,12 +361,14 @@ test("a failing snapshot read reports a sync fault instead of a fabricated resul
 
     failing = true;
     clock.tick();
-    for (let tick = 0; tick < 4 && !events.some((event) => event.type === "sync_error"); tick += 1) {
+    for (let tick = 0; tick < 4 && !events.some((event) => event.type === "stream_fault"); tick += 1) {
         await new Promise((resolve) => setImmediate(resolve));
     }
-    const syncErrors = events.filter((event) => event.type === "sync_error");
+    const syncErrors = events.filter((event) => event.type === "stream_fault");
     assert.ok(syncErrors.length >= 1, JSON.stringify(events.map((event) => event.type)));
-    assert.ok(syncErrors[0]?.type === "sync_error" && syncErrors[0].message.includes("simulated read failure"));
+    assert.ok(syncErrors[0]?.type === "stream_fault"
+        && syncErrors[0].event.kind === "read_failed"
+        && syncErrors[0].event.message.includes("simulated read failure"));
     // 读取故障不会被伪装成业务终态。
     assert.equal(events.some((event) => event.type === "state_sync" && event.state.runStatus === "cancelled"), false);
 

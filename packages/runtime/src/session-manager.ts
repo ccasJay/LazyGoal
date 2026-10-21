@@ -20,6 +20,13 @@ import {
 } from "./session";
 import { SessionInputAdmission, type SessionInputAdmissionDependencies } from "./session-admission";
 import {
+    queryGoalMessages,
+    readGoalMessageBody,
+    type SessionMessageBodyResult,
+    type SessionMessageListResult,
+    type SessionMessageQuery,
+} from "./session-message-query";
+import {
     projectInteractionView,
     readInteractionDetail,
     type GoalInteractionView,
@@ -611,6 +618,55 @@ export class SessionManager implements SessionHandlePort {
     }
 
     /**
+     * 按稳定身份执行有界消息列表读取。
+     *
+     * @remarks
+     * 只读当前快照的正式消息：区间由首批确定的 `throughMessageId` 固定，翻页
+     * 期间新追加的消息不混入既定范围。读取不调用模型或工具、不写任何状态。
+     *
+     * @param goalId - 目标 Goal。
+     * @param query - 追加起点、区间末尾与页大小。
+     * @returns 列表结果，或明确的范围错误。
+     * @throws 快照损坏或读取失败时抛出异常。
+     * @example
+     * ```ts
+     * const page = await sessions.readSessionMessages("goal-1", { limit: 50 });
+     * ```
+     */
+    async readSessionMessages(goalId: string, query: SessionMessageQuery): Promise<SessionMessageListResult> {
+        const goal = await this.store.restore(goalId);
+        if (goal === undefined) {
+            return { ok: false, code: "MESSAGE_RANGE_INVALID", message: `Goal "${goalId}" was not found` };
+        }
+        return queryGoalMessages(goal.state.messages, query);
+    }
+
+    /**
+     * 按稳定身份读取单条消息正文。
+     *
+     * @param goalId - 目标 Goal。
+     * @param messageId - 消息稳定身份。
+     * @param offset - 起始位置（UTF-16 code unit）；省略时从头读取。
+     * @returns 正文结果，或明确的不存在。
+     * @throws 快照损坏或读取失败时抛出异常。
+     * @example
+     * ```ts
+     * const body = await sessions.readSessionMessageBody("goal-1", "msg-1");
+     * ```
+     */
+    async readSessionMessageBody(
+        goalId: string,
+        messageId: string,
+        offset?: number,
+    ): Promise<SessionMessageBodyResult> {
+        const goal = await this.store.restore(goalId);
+        if (goal === undefined) {
+            return { ok: false, code: "MESSAGE_NOT_FOUND", message: `Goal "${goalId}" was not found` };
+        }
+        return readGoalMessageBody(goal.state.messages, messageId, offset);
+    }
+
+    /**
      * 读取指定 Goal 当前已提交等待的类型化交互视图。
      *
      * @remarks 只读取最新快照；重复同步、重连与多客户端读取都得到同一
@@ -928,7 +984,7 @@ export class SessionManager implements SessionHandlePort {
             }
             const resumed = await this.coordinator.resume({
                 ref: { goalId, runId: input.runId },
-                action: { kind: "message", content },
+                action: { kind: "message", content, inputId: input.inputId },
             });
             if (!resumed.ok) {
                 return {

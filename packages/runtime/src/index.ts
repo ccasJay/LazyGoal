@@ -111,6 +111,7 @@ export type {
 } from "./lifecycle";
 export type {
     AssistantMessage,
+    AssistantMessagePurpose,
     AgentDecision,
     CompletionAcceptance,
     CompletionEvidence,
@@ -129,6 +130,8 @@ export type {
     GoalCreationInput,
     GoalDefinition,
     GoalMessage,
+    GoalMessagePosition,
+    GoalMessageSource,
     GoalModelSelection,
     RunMode,
     CompletedRunRecord,
@@ -187,6 +190,24 @@ export type {
     ActionExecutionVersion,
 } from "./action-approval";
 export {
+    appendGoalMessage,
+    createAssistantMessage,
+    createModelTextSource,
+    createRuntimeNoticeSource,
+    createStageOutputSource,
+    createUserMessage,
+    findGoalMessageById,
+    findGoalMessageBySource,
+    goalMessageSourceKey,
+    GoalMessageSourceConflictError,
+} from "./goal-message";
+export type {
+    AppendGoalMessageResult,
+    AssistantMessageDraft,
+    GoalMessageDraft,
+    UserMessageDraft,
+} from "./goal-message";
+export {
     MODEL_CONTEXT_CHECKPOINT_INVALID,
     ModelContextCheckpointError,
     createInitialContextEpoch,
@@ -203,10 +224,12 @@ export type {
 export { createStepExecutor } from "./step-executor";
 export type { StepExecutor } from "./step-executor";
 export type {
+    CompletionCandidatePreview,
     CompletionReviewCandidate,
     CompletionReviewInput,
     DecideStageResult,
     ModelContextFrameForStage,
+    PublicTextBlock,
     StepExecutionInput,
     ThinkExchange,
     ThinkStageResult,
@@ -385,9 +408,11 @@ export type {
     InteractionViewRef,
 } from "./interaction-view";
 export {
+    MAX_SESSION_MESSAGE_RECENT,
     Session,
     SessionDetachedError,
     projectGoalSessionState,
+    projectSessionMessageRange,
 } from "./session";
 export type {
     GoalSessionState,
@@ -395,14 +420,49 @@ export type {
     SessionHandlePort,
     SessionInputConsumptionResult,
     SessionManagerErrorCode,
+    SessionMessageRange,
+    SessionMessageSummary,
     SessionOutputEvent,
     SessionReceipt,
 } from "./session";
 export {
+    MAX_LIVE_TEXT_LENGTH,
+    SESSION_INPUT_RESULT_KIND,
+    classifySessionStreamEvent,
+    readPendingInteraction,
+} from "./session-output";
+export {
+    DEFAULT_MESSAGE_PAGE_SIZE,
+    MAX_MESSAGE_BODY_LENGTH,
+    MAX_MESSAGE_LIST_CONTENT_LENGTH,
+    MAX_MESSAGE_PAGE_SIZE,
+    projectSessionMessageEntry,
+    queryGoalMessages,
+    readGoalMessageBody,
+    sliceWithoutSplittingSurrogate,
+} from "./session-message-query";
+export type {
+    SessionMessageBodyResult,
+    SessionMessageEntry,
+    SessionMessageListResult,
+    SessionMessageQuery,
+} from "./session-message-query";
+export type {
+    SessionActivityBoundaryReason,
+    SessionCommitBoundaryEvent,
+    SessionEventSource,
+    SessionGenerationEvent,
+    SessionInteractionEvent,
+    SessionMessageCommittedEvent,
+    SessionRunResultEvent,
+    SessionRunStatusEvent,
+    SessionStreamFaultEvent,
+    SessionToolActivityEvent,
+} from "./session-output";
+export {
     DEFAULT_RESYNC_INTERVAL_MS,
     GoalRevisionMonitor,
     GoalSessionStream,
-    SESSION_INPUT_RESULT_KIND,
 } from "./session-stream";
 export type {
     GoalRevisionMonitorDependencies,

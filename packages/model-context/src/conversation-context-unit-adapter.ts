@@ -82,11 +82,13 @@ function cloneMessage(
             role: "user",
             content: message.content,
             sourceMessageIndex: message.sourceMessageIndex,
+            source: { ...message.source },
         }
         : {
             role: "assistant",
             assistant: { profileId: message.assistant.profileId },
             content: message.content,
             sourceMessageIndex: message.sourceMessageIndex,
+            source: { ...message.source },
         };
 }

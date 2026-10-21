@@ -30,6 +30,8 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 
 Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按严格 v1 Schema 校验（拒绝多余字段、非法 StepRecord，缺失或非法的 `modelSelection`，以及非法的 Trajectory/Memory/Model Context/Retrieval 组合）再深复制 encode；`restore`/decode 只接受当前 v1。Schema 同时保证 normal Goal 没有 GoalPlan、Plan Mode 必须有 GoalPlan、Todo ID/position/status 与 `Run.todoId` 一致、历史 Run 的消息区间有序且不包含当前 Run。历史 Snapshot、未知版本、缺失 `modelSelection` 的旧开发快照和不完整的当前恢复状态统一在 Codec 边界抛出 `INVALID_GOAL_SNAPSHOT`，不会自动迁移、保存或回写。
 
+每条正式消息在 Snapshot 中保存 `messageId`、所属 `runId`、判别式来源与助手用途（`process`／`answer`／`notice`）。Schema 要求同一 Goal 内 `messageId` 与来源各自唯一；重复身份、重复来源或缺少身份字段的旧结构消息在 Codec 边界 fail-closed，不做兼容解析或迁移。
+
 Plan Run 的 `planRoute` 仅能出现在已有 `approvedTask` 的 Plan Run 上。Schema 校验路线非空、阶段身份唯一、顺序状态与恢复游标一致、已接受阶段有提交序列，且序列不超过 Snapshot 的 `committedThroughSequence`；修订后的路线还必须保存非空理由。普通 Run 和待审批 Run 不能保存完整路线。Codec 对路线及修订理由做深复制往返，旧开发快照不迁移。
 
 待审批 Plan Run 的 `task_approval` 交互必须包含非空阶段和验收条件组成的 `planRouteCandidate`。Snapshot 对候选做严格字段和非空约束校验，Codec 深复制往返；该字段不含 Runtime 身份或执行状态，批准后候选随等待交互清除并由 Runtime 创建正式路线。不迁移缺失字段的旧开发快照。

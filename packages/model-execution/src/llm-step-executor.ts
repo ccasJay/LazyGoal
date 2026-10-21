@@ -47,10 +47,17 @@ import {
     decodeToolCallOutcome,
     nativeResponseMessage,
     normalizeRequestThinkGoal,
+    readPublicTextBlocks,
     type DecideResponseOutcome,
 } from "../../model-response/src/index";
 import type { LLMRequest, LLMResponse, LLMToolDefinition, LLMToolCall } from "../../llm-core/src/index";
 import { toModelStageFeedback } from "./stage-feedback";
+import {
+    COMPLETION_CANDIDATE_TOOL_ID,
+    isCompletionCandidateTool,
+    readCompleteSummaryPreview,
+} from "./summary-preview";
+import type { CompletionCandidatePreview } from "../../runtime/src/step-executor";
 
 /**
  * 创建 {@link LLMStepExecutor} 所需的供应商无关依赖。
@@ -106,6 +113,14 @@ export class LLMStepExecutor implements StepExecutor {
     private readonly metricsRecorder: ModelCallMetricsRecorder | undefined;
     private readonly trajectoryContextAssembler: TrajectoryModelContextAssembler | undefined;
     private readonly modelCapabilities: ModelCapabilities | undefined;
+    /**
+     * 每个执行单元当前仍然有效的候选预览身份。
+     *
+     * @remarks
+     * 只保存进程内的临时观察状态：同一执行单元出现新候选时，旧候选必须先被
+     * 明确作废，消费者才不会被旧预览继续追加。
+     */
+    private readonly activeCandidateIds = new Map<string, string>();
 
     /** @param dependencies - 阶段绑定或单 Adapter Decide 入口、共享 Renderer 与共享裁剪策略。 */
     constructor(dependencies: LLMStepExecutorDependencies) {
@@ -367,6 +382,14 @@ export class LLMStepExecutor implements StepExecutor {
                 modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) },
             };
         }
+        // 混合响应的公开正文：与工具调用同在一次响应内，按块顺序交给 Runtime 保存为过程正文。
+        const publicTextBlocks = readPublicTextBlocks(response);
+        // 完成候选的未确认预览：只读取已声明完成候选工具的顶层 summary 字段值。
+        const candidatePreview = readCompletionCandidatePreview(plan.request, response, callId);
+        // 预览必须在完成审查之前发布：它始终未确认，被拒绝的候选随后由 Runtime 作废。
+        if (candidatePreview !== undefined) {
+            publishCandidatePreview(input, callId, candidatePreview, this.activeCandidateIds);
+        }
         if (classified.kind === "batch") {
             const decisions: DecideOutput[] = [];
             for (const call of classified.calls) {
@@ -375,6 +398,8 @@ export class LLMStepExecutor implements StepExecutor {
             return {
                 kind: "batch",
                 decisions,
+                ...(publicTextBlocks.length === 0 ? {} : { publicTextBlocks }),
+                ...(candidatePreview === undefined ? {} : { candidatePreview }),
                 modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) },
             };
         }
@@ -404,7 +429,13 @@ export class LLMStepExecutor implements StepExecutor {
 
         return output.kind === "request_think"
             ? { kind: "request_think", goal: output.goal, modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) } }
-            : { kind: "decision", decision: output, modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) } };
+            : {
+                kind: "decision",
+                decision: output,
+                ...(publicTextBlocks.length === 0 ? {} : { publicTextBlocks }),
+                ...(candidatePreview === undefined ? {} : { candidatePreview }),
+                modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) },
+            };
     }
 
     /**
@@ -457,4 +488,128 @@ export class LLMStepExecutor implements StepExecutor {
 
 function traceIdentity(goal: Goal): { readonly goalId: string; readonly runId: string } {
     return { goalId: goal.id, runId: goal.state.run.id };
+}
+
+/**
+ * 发布一次未确认的完成候选预览。
+ *
+ * @remarks
+ * 同一执行单元出现新候选时，先明确作废旧候选：新的调用或候选不得继续追加
+ * 旧预览。发布端故障不得改变候选、审查或执行结果；预览只是旁路观察面。
+ *
+ * @param input - 当前 Step 输入；携带可选的执行流发布端口。
+ * @param modelCallId - 产生该候选的模型调用身份。
+ * @param preview - 已提取的未确认预览。
+ * @param activeCandidateIds - 每个执行单元当前有效候选的临时观察状态。
+ */
+function publishCandidatePreview(
+    input: StepExecutionInput,
+    modelCallId: string,
+    preview: CompletionCandidatePreview,
+    activeCandidateIds: Map<string, string>,
+): void {
+    const publisher = input.executionStream;
+    if (publisher === undefined) return;
+    const unitKey = input.executionUnitId ?? modelCallId;
+    const previous = activeCandidateIds.get(unitKey);
+    if (previous !== undefined && previous !== preview.candidateId) {
+        publishCandidateInvalidation(input, previous, "replaced");
+    }
+    activeCandidateIds.set(unitKey, preview.candidateId);
+    try {
+        publisher.publish({
+            goalId: input.goal.id,
+            runId: input.goal.state.run.id,
+            ...(input.executionUnitId === undefined ? {} : { executionUnitId: input.executionUnitId }),
+            kind: "candidate_preview",
+            visibility: "public",
+            durability: "live",
+            delivery: "control",
+            payload: {
+                candidateId: preview.candidateId,
+                modelCallId,
+                blockIndex: preview.blockIndex,
+                text: preview.text,
+                startOffset: 0,
+                truncated: preview.truncated,
+                complete: preview.complete,
+            },
+        });
+    } catch {
+        // 预览发布是旁路：故障只影响观察，不改变候选与审查结果。
+    }
+}
+
+/**
+ * 明确作废一个仍然有效的候选预览。
+ *
+ * @remarks
+ * 作废只影响观察：它不改变候选、审查、重试预算或 Run 状态，也不等同于
+ * Run 失败。
+ *
+ * @param input - 当前 Step 输入；携带可选的执行流发布端口。
+ * @param candidateId - 被作废的候选身份。
+ * @param reason - 作废原因。
+ */
+export function publishCandidateInvalidation(
+    input: StepExecutionInput,
+    candidateId: string,
+    reason: "rejected" | "cancelled" | "failed" | "replaced" | "ambiguous",
+): void {
+    const publisher = input.executionStream;
+    if (publisher === undefined) return;
+    try {
+        publisher.publish({
+            goalId: input.goal.id,
+            runId: input.goal.state.run.id,
+            ...(input.executionUnitId === undefined ? {} : { executionUnitId: input.executionUnitId }),
+            kind: "candidate_invalidated",
+            visibility: "public",
+            durability: "live",
+            delivery: "control",
+            payload: { candidateId, reason },
+        });
+    } catch {
+        // 作废通知是旁路：发布故障不得改变候选与执行结果。
+    }
+}
+
+/**
+ * 从已声明完成候选工具的响应中读取未确认预览。
+ *
+ * @remarks
+ * 只有本次请求实际声明了完成候选工具、且响应中存在身份完全一致的工具调用时
+ * 才返回预览；参数对象的其它字段（Evidence、Memory Patch 等）不进入公开正文。
+ * 整块参数不伪造逐字增量，只提供完整候选。
+ *
+ * @param request - 本次实际发出的模型请求。
+ * @param response - 本次完整响应。
+ * @param modelCallId - 产生该响应的模型调用身份。
+ * @returns 未确认预览；没有可公开的顶层 summary 时返回 `undefined`。
+ */
+export function readCompletionCandidatePreview(
+    request: LLMRequest,
+    response: LLMResponse,
+    modelCallId: string,
+): CompletionCandidatePreview | undefined {
+    const declared = (request.tools ?? []).some((tool) => tool.id === COMPLETION_CANDIDATE_TOOL_ID);
+    if (!declared) return undefined;
+    for (const block of response.blocks) {
+        if (block.type !== "tool_call") continue;
+        if (!isCompletionCandidateTool(block.toolId)) continue;
+        const preview = readCompleteSummaryPreview({
+            toolId: block.toolId,
+            argumentsJson: block.argumentsJson,
+        });
+        if (!preview.matched || preview.ambiguous) return undefined;
+        return {
+            candidateId: modelCallId,
+            modelCallId,
+            blockIndex: block.index,
+            text: preview.text,
+            truncated: preview.truncated,
+            complete: preview.complete,
+        };
+    }
+    return undefined;
 }

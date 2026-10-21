@@ -355,27 +355,106 @@ export type JsonValue =
     | JsonObject;
 
 /**
- * 用户实际发送并需要随 Session 恢复的消息。
+ * 正式消息的稳定来源分类。
+ *
+ * @remarks
+ * 来源描述这条消息**为什么存在**，而不是它的正文：用户消息指向基础输入或交互
+ * 请求，助手消息指向具体模型调用块、被接受的完成候选、宿主执行或 Runtime 通知。
+ * 来源参与提交重试核对与原生历史去重判定；正文相同但来源不同的消息仍是两条
+ * 独立消息。
+ *
  * @example
  * ```ts
- * const message: UserMessage = { role: "user", content: "继续" };
+ * const source: GoalMessageSource = { kind: "user_input", inputId: "input-1" };
+ * ```
+ */
+export type GoalMessageSource =
+    /** 创建 Goal 时的原始意图；它是本 Goal 的第一条用户输入。 */
+    | { readonly kind: "goal_intent"; readonly goalId: string }
+    /** 已受理的会话输入（普通消息或 Steer）。 */
+    | { readonly kind: "user_input"; readonly inputId: string }
+    /** 用户对问答、任务审批或恢复请求的回复。 */
+    | { readonly kind: "interaction_response"; readonly requestId: string }
+    /** 模型公开正文块；指向本次模型调用与内容块。 */
+    | { readonly kind: "model_text"; readonly modelCallId: string; readonly blockIndex: number }
+    /**
+     * Runtime 阶段执行产生的正文。
+     *
+     * @remarks
+     * 只有在执行方没有报告模型调用身份时才使用；此时不得虚构 `modelCallId`
+     * 或 Provider 内容块身份。
+     */
+    | { readonly kind: "stage_output"; readonly executionUnitId: string; readonly blockIndex: number }
+    /** 被现有完成审查接受的最终答复候选。 */
+    | { readonly kind: "completion_candidate"; readonly candidateId: string }
+    /** 宿主执行结果；没有模型来源时使用真实执行来源。 */
+    | { readonly kind: "host_execution"; readonly actionId: string }
+    /** Runtime 自身的等待、失败或中断通知。 */
+    | { readonly kind: "runtime_notice"; readonly noticeId: string };
+
+/**
+ * 助手消息的用途分类。
+ *
+ * @remarks
+ * `process` 是模型在同一次响应中公开的过程正文；`answer` 是被审查接受的最终
+ * 答复；`notice` 是等待、失败等 Runtime 通知。三者用途不同，模型上下文与
+ * Web 消费都必须据此区分“已生成”与“已结算”。
+ *
+ * @example
+ * ```ts
+ * const purpose: AssistantMessagePurpose = "answer";
+ * ```
+ */
+export type AssistantMessagePurpose = "process" | "answer" | "notice";
+
+/**
+ * 用户实际发送并需要随 Session 恢复的消息。
+ *
+ * @remarks
+ * `messageId` 在所属 Runtime 提交边界分配并随快照保存，刷新、重试或切换 Run
+ * 后仍可定位；`runId` 记录归属 Run；`source` 指向产生它的基础输入或交互请求。
+ * 身份不由数组位置或正文哈希推导。
+ *
+ * @example
+ * ```ts
+ * const message: UserMessage = {
+ *   role: "user",
+ *   content: "继续",
+ *   messageId: "msg-1",
+ *   runId: "run-1",
+ *   source: { kind: "user_input", inputId: "input-1" },
+ * };
  * ```
  */
 export interface UserMessage {
     readonly role: "user";
     readonly content: string;
+    /** 该消息在所属 Goal 内稳定且唯一的身份。 */
+    readonly messageId: string;
+    /** 该消息所属的 Run 身份。 */
+    readonly runId: string;
+    /** 产生该消息的真实来源。 */
+    readonly source: GoalMessageSource;
 }
 
 /**
  * Assistant 实际发送并需要随 Session 恢复的消息。
  *
- * @remarks `profileId` 记录消息来源；Working Context 不属于真实消息。
+ * @remarks
+ * `profileId` 记录消息来源；Working Context 不属于真实消息。`purpose` 区分
+ * 过程正文、最终答复与 Runtime 通知；`messageId`、`runId` 与 `source` 与用户
+ * 消息遵守同一身份契约。
+ *
  * @example
  * ```ts
  * const message: AssistantMessage = {
  *   role: "assistant",
  *   assistant: { profileId: "default" },
  *   content: "需要批准后继续",
+ *   messageId: "msg-2",
+ *   runId: "run-1",
+ *   purpose: "notice",
+ *   source: { kind: "runtime_notice", noticeId: "notice-1" },
  * };
  * ```
  */
@@ -383,6 +462,14 @@ export interface AssistantMessage {
     readonly role: "assistant";
     readonly assistant: { readonly profileId: string };
     readonly content: string;
+    /** 该消息在所属 Goal 内稳定且唯一的身份。 */
+    readonly messageId: string;
+    /** 该消息所属的 Run 身份。 */
+    readonly runId: string;
+    /** 该消息的用途分类。 */
+    readonly purpose: AssistantMessagePurpose;
+    /** 产生该消息的真实来源。 */
+    readonly source: GoalMessageSource;
 }
 
 /** 按时间顺序持久化的真实 Session 消息。 */
@@ -1313,11 +1400,21 @@ function cloneProfile(profile: AgentProfile): AgentProfile {
 
 function cloneMessages(messages: readonly GoalMessage[]): readonly GoalMessage[] {
     return messages.map((message) => message.role === "user"
-        ? { role: "user", content: message.content }
+        ? {
+            role: "user",
+            content: message.content,
+            messageId: message.messageId,
+            runId: message.runId,
+            source: { ...message.source },
+        }
         : {
             role: "assistant",
             assistant: { profileId: message.assistant.profileId },
             content: message.content,
+            messageId: message.messageId,
+            runId: message.runId,
+            purpose: message.purpose,
+            source: { ...message.source },
         });
 }
 
@@ -1367,7 +1464,13 @@ export function createGoal(input: GoalCreationInput): Goal {
                 phase: "executing",
             },
             messages: cloneMessages([
-                { role: "user", content: input.intent },
+                {
+                    role: "user",
+                    content: input.intent,
+                    messageId: `msg-intent-${input.id}`,
+                    runId: input.runId,
+                    source: { kind: "goal_intent", goalId: input.id },
+                },
                 ...(input.messages ?? []),
             ]),
             run: createRun(input.runId, mode),

@@ -34,12 +34,8 @@ import {
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import { buildStepRequest } from "../../model-request/src/index";
-import {
-    createCurrentContextAssembler,
-    createInMemoryTrajectoryStore,
-    currentProtocols,
-    currentWorkingMemory,
-} from "../../agent/test/current-fixtures";
+import { createCurrentContextAssembler, createInMemoryTrajectoryStore, currentProtocols, currentWorkingMemory } from "../../agent/test/current-fixtures";
+import { messageOutline, testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
 
 const EMPTY_INPUT_CONTRACT = contract.object({});
 
@@ -216,8 +212,8 @@ function createExecutor(adapter: LLMAdapter): LLMStepExecutor {
 
 test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecision", async () => {
     const currentGoal = createTestGoal("run-1", profile, [
-        { role: "user", content: "已恢复的历史输入" },
-        { role: "assistant", assistant: { profileId: "profile-1" }, content: "已恢复的历史响应" },
+        testUserMessage("已恢复的历史输入"),
+        testAssistantMessage("已恢复的历史响应", { profileId: "profile-1" }),
     ]);
     const responseContent = JSON.stringify({
         result: {
@@ -333,7 +329,11 @@ test("LLMStepExecutor 对不支持流式的 Adapter 保留 generate 回退并发
         { goalId: currentGoal.id, runId: currentGoal.state.run.id },
     );
     const events: string[] = [];
-    subscription.onEvent((event) => events.push(event.kind));
+    const previews: unknown[] = [];
+    subscription.onEvent((event) => {
+        events.push(event.kind);
+        if (event.kind === "candidate_preview") previews.push(event.payload);
+    });
 
     const result = await createExecutor(adapter).execute({
         goal: currentGoal,
@@ -345,12 +345,22 @@ test("LLMStepExecutor 对不支持流式的 Adapter 保留 generate 回退并发
 
     assert.equal(result.kind, "complete");
     assert.equal(adapter.requests.length, 1);
-    assert.deepEqual(events, ["model_started", "model_block_started", "model_block_completed", "model_completed"]);
+    assert.deepEqual(events, [
+        "model_started",
+        "model_block_started",
+        "model_block_completed",
+        "model_completed",
+        "candidate_preview",
+    ]);
+    // 未确认预览只公开顶层 summary 字段值，不公开参数对象其它字段。
+    assert.equal(previews.length, 1);
+    assert.equal((previews[0] as { text: string }).text, "fallback");
+    assert.equal(JSON.stringify(previews[0]).includes("completionEvidence"), false);
 });
 
 test("LLMStepExecutor 不修改传入的 Goal", async () => {
     const baseGoal = createTestGoal("run-2", profile, [
-        { role: "user", content: "已有消息" },
+        testUserMessage("已有消息"),
     ]);
     const currentGoal: Goal = {
         ...baseGoal,
@@ -567,8 +577,8 @@ test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async 
     });
 
     const initialMessages: readonly GoalMessage[] = [
-        { role: "user", content: "恢复后的历史输入" },
-        { role: "assistant", assistant: { profileId: "profile-1" }, content: "恢复后的历史响应" },
+        testUserMessage("恢复后的历史输入"),
+        testAssistantMessage("恢复后的历史响应", { profileId: "profile-1" }),
     ];
     await createStoredGoal(store, "run-loop", profile, initialMessages, {
         ...task,
@@ -598,12 +608,12 @@ test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async 
         adapter.requests[0]?.messages.slice(1, 3),
         initialMessages.map(({ role, content }) => ({ role, content })),
     );
-    assert.deepEqual(persisted?.state.messages, [
-        ...initialMessages,
+    assert.deepEqual(messageOutline(persisted?.state.messages ?? []), [
+        ...messageOutline(initialMessages),
         {
             role: "assistant",
-            assistant: { profileId: "profile-1" },
             content: "完成",
+            purpose: "answer",
         },
     ]);
 });

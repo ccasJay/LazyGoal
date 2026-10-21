@@ -42,6 +42,7 @@ export function collectNativeModelExchanges(
             conversationPosition: response.payload.conversationPosition,
             responseSequence: response.sequence,
             settledThroughSequence: settlement.sequence,
+            modelCallId: response.payload.modelCallId,
             messages: [message, { role: "tool", callId: call.callId, toolId: call.toolId, content: JSON.stringify(settlement.result) }],
         };
         const existing = groups.get(unitId) ?? [];

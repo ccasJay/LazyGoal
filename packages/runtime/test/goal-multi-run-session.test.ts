@@ -126,9 +126,13 @@ test("completed normal Run is archived before a new Run is scheduled", async () 
     assert.ok(persisted);
     assert.equal(persisted.state.run.id, "run-2");
     assert.equal(persisted.state.run.mode, "normal");
-    assert.deepEqual(persisted.state.messages.at(-1), {
-        role: "user",
-        content: "继续处理新的输入",
+    const continuationMessage = persisted.state.messages.at(-1);
+    assert.equal(continuationMessage?.role, "user");
+    assert.equal(continuationMessage?.content, "继续处理新的输入");
+    assert.equal(continuationMessage?.runId, "run-2");
+    assert.deepEqual(continuationMessage?.source, {
+        kind: "user_input",
+        inputId: "continuation:run-2",
     });
     assert.deepEqual(persisted.state.completedRuns, [{
         runId: "run-1",
@@ -176,9 +180,13 @@ test("failed Run can accept a new message while preserving its failure in histor
     assert.equal(persisted.state.run.id, "run-after-failure");
     assert.equal(persisted.state.run.status, "waiting");
     assert.equal(persisted.state.completedRuns?.[0]?.status, "failed");
-    assert.deepEqual(persisted.state.messages.at(-1), {
-        role: "user",
-        content: "重新检查最近的 commit",
+    const retryMessage = persisted.state.messages.at(-1);
+    assert.equal(retryMessage?.role, "user");
+    assert.equal(retryMessage?.content, "重新检查最近的 commit");
+    assert.equal(retryMessage?.runId, "run-after-failure");
+    assert.deepEqual(retryMessage?.source, {
+        kind: "user_input",
+        inputId: "continuation:run-after-failure",
     });
 });
 

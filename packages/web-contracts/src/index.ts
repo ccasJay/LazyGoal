@@ -2,6 +2,8 @@ export {
     type BrowserRunStatus,
     type BrowserExecutionState,
     type BrowserGoalExecution,
+    type BrowserGoalSessionState,
+    type BrowserMessagePosition,
     type BrowserGoalListItem,
     type BrowserSessionMessage,
     type BrowserBashExecutionDetail,
@@ -31,6 +33,27 @@ export {
     type BrowserActionReviewResult,
     type BrowserGoalSession,
 } from "./session";
+
+export {
+    BROWSER_ACTIVITY_EVENT_TYPES,
+} from "./activity";
+export type {
+    BrowserActivityActionContext,
+    BrowserActivityEventType,
+    BrowserActivityFactItem,
+    BrowserActivityGap,
+    BrowserActivityItem,
+    BrowserActivityMessageItem,
+    BrowserActivityPage,
+    BrowserActivityPosition,
+    BrowserActivityQuery,
+    BrowserActivityReadResult,
+    BrowserActivityRunContext,
+    BrowserActivityRunWindow,
+    BrowserActivityStageContext,
+    BrowserActivityThinkItem,
+    BrowserActivityToolState,
+} from "./activity";
 
 export {
     type AcceptedCommand,
@@ -66,6 +89,9 @@ export {
     type BrowserSessionInputStatus,
     type BrowserSessionInteractionResponse,
     type BrowserJsonValue,
+    type BrowserSessionMessageEntry,
+    type BrowserSessionMessageListResult,
+    type BrowserSessionMessageResult,
     type BrowserSessionState,
 } from "./session-input";
 
@@ -146,7 +172,10 @@ export {
     isBrowserActionReviewResult,
     isBrowserInteractionDetailResult,
     isBrowserGoalSession,
+    isBrowserGoalSessionState,
+    isBrowserActivityPage,
     isGoalSessionEnvelope,
+    isGoalSessionStateEnvelope,
     isModelCatalog,
     isModelSelectionAccepted,
     isModelPreferenceAccepted,

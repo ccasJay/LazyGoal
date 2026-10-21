@@ -22,6 +22,7 @@ import { ContractValidationError } from "../../contracts/src/errors";
 import {
     readAssistantText,
     readReasoningText,
+    readTextBlocksWithIndex,
     readToolCalls,
     type LLMResponse,
     type LLMToolCall,
@@ -179,6 +180,39 @@ export function assertNativeResponseIdentity(
  *
  * @param response - Adapter 返回的原始响应。
  * @returns 由完整内容块派生、保留续接数据的 Assistant 消息；无工具块时省略 `toolCalls`。
+ * @example
+ * ```ts
+ * const message = nativeResponseMessage(response);
+ * ```
+ */
+/**
+ * 读取一次响应中的公开正文块。
+ *
+ * @remarks
+ * 只返回 `plain` 格式的文本块：结构化输出模式的 `json` 文本是协议载荷，不属于
+ * 公开过程正文。公开 reasoning 与工具参数分别由 reasoning 块和工具调用块承载，
+ * 也不在此返回。
+ *
+ * @param response - Adapter 返回的原始响应。
+ * @returns 按块顺序排列的公开正文块与块下标；没有公开正文时为空数组。
+ *
+ * @example
+ * ```ts
+ * const blocks = readPublicTextBlocks(response);
+ * ```
+ */
+export function readPublicTextBlocks(
+    response: LLMResponse,
+): readonly { readonly index: number; readonly text: string }[] {
+    return readTextBlocksWithIndex(response, "plain");
+}
+
+/**
+ * 把原生响应投影为可续接的 Assistant 消息。
+ *
+ * @param response - Adapter 返回的原始响应。
+ * @returns 由完整内容块派生、保留续接数据的 Assistant 消息；无工具块时省略 `toolCalls`。
+ *
  * @example
  * ```ts
  * const message = nativeResponseMessage(response);

@@ -453,11 +453,28 @@ test("Browser session input validators accept receipts, queries and state projec
         goalId: "goal-1", runId: "run-1", runStatus: "running", mode: "normal",
         commitRevision: 4, queueRevision: 1, queuePaused: false,
         pendingMessageCount: 1, pendingSteerCount: 0, needsRecovery: false, executionOwner: true,
+        messages: {
+            count: 1,
+            throughMessageId: "msg-1",
+            recent: [{
+                messageId: "msg-1", role: "user", runId: "run-1",
+                sourceKind: "goal_intent", sourceId: "goal-1",
+            }],
+        },
     };
     assert.equal(isBrowserSessionState(state), true);
     assert.equal(isBrowserSessionState({ ...state, waitingFor: "ask_user", queuePaused: true, queuePauseReason: "user_interrupt" }), true);
     assert.equal(isBrowserSessionState({ ...state, pendingMessageCount: -1 }), false);
     assert.equal(isBrowserSessionState({ ...state, queuePauseReason: "unknown" }), false);
+    assert.equal(isBrowserSessionState({
+        ...state,
+        interaction: { interactionId: "question:ask-1", kind: "question", runId: "run-1" },
+    }), true);
+    assert.equal(isBrowserSessionState({ ...state, messages: { count: 1, recent: [] } }), true);
+    assert.equal(isBrowserSessionState({
+        ...state,
+        messages: { count: 1, recent: [{ messageId: "msg-1", role: "user", runId: "run-1", sourceKind: "goal_intent" }] },
+    }), false);
     assert.equal(isBrowserCreateSessionResult({
         ok: true, existing: true, goalId: "goal-1", runId: "run-1", receipt,
     }), true);

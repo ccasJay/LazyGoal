@@ -9,11 +9,7 @@ import type { ToolDefinition } from "../../tool-core/src/index";
 import { goalSnapshotCodec } from "../../storage/src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { buildStepRequest } from "../src/prompt";
-import {
-    currentProtocols,
-    currentWorkingMemory,
-    createInMemoryTrajectoryStore,
-} from "../../agent/test/current-fixtures";
+import { currentProtocols, currentWorkingMemory, createInMemoryTrajectoryStore } from "../../agent/test/current-fixtures";
 import {
     TrajectoryModelContextAssembler,
 } from "../../model-context/src/index";
@@ -21,6 +17,7 @@ import {
     createModelContextBudgetPolicy,
     DropOldestContextCompactor,
 } from "../../context-budget/src/index";
+import { testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
 
 const policy = createModelContextBudgetPolicy({ modelInputBudget: 100_000 });
 const contextCompactor = new DropOldestContextCompactor();
@@ -73,12 +70,8 @@ function createExecutingGoal(options: {
         profile,
         runId: "run-cache-1",
         messages: [
-            { role: "user", content: "请帮我验证前缀缓存对齐" },
-            {
-                role: "assistant",
-                assistant: { profileId: profile.id },
-                content: "好的，我已经规划完毕，正在开始执行任务。",
-            },
+            testUserMessage("请帮我验证前缀缓存对齐"),
+            testAssistantMessage("好的，我已经规划完毕，正在开始执行任务。", { profileId: profile.id }),
         ],
         maxSteps: 50,
     });

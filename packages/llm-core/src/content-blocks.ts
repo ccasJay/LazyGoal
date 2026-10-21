@@ -27,6 +27,28 @@ export function readTextBlocks(response: LLMResponse, format: LLMTextBlockFormat
 }
 
 /**
+ * 按块顺序读取指定格式的文本块及其块索引。
+ *
+ * @param response - Adapter 返回的完整响应。
+ * @param format - 目标正文格式。
+ * @returns 该格式全部文本块的正文与块下标，按块顺序返回；无匹配块时为空数组。
+ *
+ * @example
+ * ```ts
+ * const blocks = readTextBlocksWithIndex(response, "plain");
+ * ```
+ */
+export function readTextBlocksWithIndex(
+    response: LLMResponse,
+    format: LLMTextBlockFormat,
+): readonly { readonly index: number; readonly text: string }[] {
+    return response.blocks.flatMap(block =>
+        block.type === "text" && block.format === format
+            ? [{ index: block.index, text: block.text }]
+            : []);
+}
+
+/**
  * 按块顺序连接全部文本块，作为既有正文读视图。
  *
  * @param response - Adapter 返回的完整响应。

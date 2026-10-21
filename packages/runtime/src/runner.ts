@@ -1,4 +1,4 @@
-import type { ModelContextFrameForStage } from "./step-executor";
+import type { ModelContextFrameForStage, PublicTextBlock } from "./step-executor";
 import {
     findSessionInputRecord,
     nextSessionInputSequence,
@@ -31,7 +31,15 @@ import type {
     PendingInteractionTaskApproval,
     PendingThink,
     PendingModelRepair,
+    AssistantMessagePurpose,
+    GoalMessageSource,
 } from "./domain";
+import {
+    appendGoalMessage,
+    createModelTextSource,
+    createStageOutputSource,
+    createUserMessage,
+} from "./goal-message";
 import { validateAndReduceContextNotes, type RuntimeContextNote, type ContextNoteSource } from "./context-notes";
 import type { ModelContextCheckpointResult } from "./domain";
 import type { GoalStore } from "./goal-store";
@@ -294,6 +302,8 @@ type NormalizedExecution = {
     readonly thought?: string;
     readonly preparedToolAction?: PreparedToolAction;
     readonly acceptedContextNotes?: readonly RuntimeContextNote[];
+    /** 本次 Decide 实际产生的模型调用身份；缺省表示执行方没有报告。 */
+    readonly modelCallId?: string;
 };
 
 function extractExistingContextNotesFromEvents(events: readonly TrajectoryEvent[]): readonly RuntimeContextNote[] {
@@ -1488,14 +1498,19 @@ class RunExecutor {
             };
             const { pendingAction: _pendingAction, pendingProgram: _pendingProgram,
                 pendingThink: _pendingThink, pendingModelRepair: _pendingModelRepair, ...run } = goal.state.run;
-            const nextGoal: Goal = {
-                ...goal,
+            const nextGoal: Goal = appendGoalMessage(goal, {
+                role: "user",
+                content: `The current Run was interrupted while Tool ${toolId} (Action ${actionId}) was executing. Its external effect is unknown. Do not repeat that operation. Use necessary authorized tools only to inspect and safely repair its outcome, then stop.`,
+                runId: goal.state.run.id,
+                source: {
+                    kind: "runtime_notice",
+                    noticeId: `interruption:${interruption.requestId}:${actionId}`,
+                },
+            }).goal;
+            const nextGoalWithRun: Goal = {
+                ...nextGoal,
                 state: {
-                    ...goal.state,
-                    messages: [...goal.state.messages, {
-                        role: "user",
-                        content: `The current Run was interrupted while Tool ${toolId} (Action ${actionId}) was executing. Its external effect is unknown. Do not repeat that operation. Use necessary authorized tools only to inspect and safely repair its outcome, then stop.`,
-                    }],
+                    ...nextGoal.state,
                     run: { ...run, status: "running", interruption: nextInterruption },
                 },
             };
@@ -1525,7 +1540,7 @@ class RunExecutor {
                     },
                 ];
             });
-            const committed = await this.checkpointCommitter.commit(nextGoal, { facts, ...(control === undefined ? {} : { control }) });
+            const committed = await this.checkpointCommitter.commit(nextGoalWithRun, { facts, ...(control === undefined ? {} : { control }) });
             this.publishCommittedEvents(committed);
             this.publishCheckpointCommitted(committed, facts);
             goal = committed.goal;
@@ -2688,7 +2703,11 @@ class RunExecutor {
             const appliedPositions = new Map<string, number>();
             for (const input of pending) {
                 const messageIndex = messages.length;
-                messages.push({ role: "user", content: input.content });
+                messages.push(createUserMessage({
+                    content: input.content,
+                    runId: latest.state.run.id,
+                    source: { kind: "user_input", inputId: input.messageId },
+                }));
                 appliedPositions.set(input.messageId, messageIndex);
                 const index = steerInputs.findIndex(item => item.messageId === input.messageId);
                 steerInputs[index] = { messageId: input.messageId, status: "applied", messageIndex };
@@ -2985,26 +3004,63 @@ class RunExecutor {
     private async commitAssistantMessage(
         goal: Goal,
         result: Extract<DecideStageResult, { readonly kind: "assistant_message" }>,
-        executionUnitId: string | undefined,
+        executionUnitId: string,
         control?: ExecutionControl,
     ): Promise<Goal> {
-        const nextGoal: Goal = {
-            ...goal,
-            state: {
-                ...goal.state,
-                messages: [...goal.state.messages, {
-                    role: "assistant",
-                    assistant: { profileId: goal.definition.profile.id },
-                    content: result.text,
-                }],
-            },
-        };
+        const modelCallId = result.modelCallId ?? result.modelContextFrame?.modelCallId;
+        const nextGoal: Goal = appendGoalMessage(goal, {
+            role: "assistant",
+            content: result.text,
+            runId: goal.state.run.id,
+            purpose: "process",
+            profileId: goal.definition.profile.id,
+            source: modelCallId === undefined
+                ? createStageOutputSource(executionUnitId, 0)
+                : createModelTextSource(modelCallId, 0),
+        }).goal;
         const committed = await this.checkpointCommitter.commit(
             nextGoal,
             { facts: [], ...(control === undefined ? {} : { control }) },
         );
         this.publishCommittedEvents(committed);
         return committed.goal;
+    }
+
+    /**
+     * 把混合工具响应中的公开正文块按块顺序追加为过程消息。
+     *
+     * @remarks
+     * 每条正文保留原块下标与模型调用来源；空白块不产生消息。追加只改变内存中的
+     * Goal，真正落盘由随后的决策提交完成，因此响应失败、参数无效或完成候选被
+     * 审查拒绝时不会留下正式正文。
+     *
+     * @param goal - 当前已提交的 Goal。
+     * @param blocks - 本次响应被接受后应保存的公开正文块。
+     * @param modelCallId - 产生该正文的模型调用身份；缺省时不虚构模型调用。
+     * @param executionUnitId - 当前执行单元身份；仅在没有模型调用身份时作为来源。
+     * @returns 含过程消息的新 Goal；不修改输入对象。
+     */
+    private appendProcessTextMessages(
+        goal: Goal,
+        blocks: readonly PublicTextBlock[],
+        modelCallId: string | undefined,
+        executionUnitId: string,
+    ): Goal {
+        let next = goal;
+        for (const block of blocks) {
+            if (block.text.trim().length === 0) continue;
+            next = appendGoalMessage(next, {
+                role: "assistant",
+                content: block.text,
+                runId: goal.state.run.id,
+                purpose: "process",
+                profileId: goal.definition.profile.id,
+                source: modelCallId === undefined
+                    ? createStageOutputSource(executionUnitId, block.index)
+                    : createModelTextSource(modelCallId, block.index),
+            }).goal;
+        }
+        return next;
     }
 
     private async executeRepairableModelStage<T, U>(
@@ -3077,8 +3133,11 @@ class RunExecutor {
                 if (error.assistantMessageText !== undefined) {
                     currentGoal = await this.commitAssistantMessage(
                         currentGoal,
-                        { kind: "assistant_message", text: error.assistantMessageText },
-                        pending.executionUnitId,
+                        {
+                            kind: "assistant_message",
+                            text: error.assistantMessageText,
+                            ...(error.modelCallId === undefined ? {} : { modelCallId: error.modelCallId }),
+                        },                        pending.executionUnitId,
                         control,
                     );
                 }
@@ -3504,8 +3563,32 @@ class RunExecutor {
         }));
     }
 
-    private publishCommittedEvents(result: TrajectoryCheckpointCommitResult): void {
-        for (const event of result.events) {
+    /**
+     * 明确作废一个仍然有效的完成候选预览。
+     *
+     * @remarks
+     * 作废只影响观察：它不改写候选正文、不改变完成审查、重试预算或 Run 状态，
+     * 也不等同于 Run 失败。
+     *
+     * @param goal - 当前 Goal。
+     * @param candidateId - 被作废的候选身份。
+     * @param reason - 作废原因。
+     */
+    private publishCandidateInvalidated(
+        goal: Goal,
+        candidateId: string,
+        reason: "rejected" | "cancelled" | "failed" | "replaced" | "ambiguous",
+    ): void {
+        this.publishExecutionEvent(goal, {
+            kind: "candidate_invalidated",
+            visibility: "public",
+            durability: "live",
+            delivery: "control",
+            payload: { candidateId, reason },
+        });
+    }
+
+    private publishCommittedEvents(result: TrajectoryCheckpointCommitResult): void {        for (const event of result.events) {
             const executionUnitId = event.executionUnitId;
             const actionId = event.actionId;
             this.publishExecutionEvent(result.goal, {
@@ -4237,8 +4320,13 @@ class RunExecutor {
                 },
             });
 
+            /** 本次执行单元仍然有效的完成候选身份；决策被弃用时必须作废它。 */
+            let pendingCandidateId: string | undefined;
+
             try {
                 let normalized: NormalizedExecution;
+                /** 追加过程正文之前的 Goal；完成候选被审查拒绝时不提交这些正文。 */
+                let goalBeforeProcessText: Goal | undefined;
                 let stepInput!: StepExecutionInput;
                 let pendingThinkRequestCommitted = false;
                 /** 本次 Decide 新建的批次剩余项；来自队列时为 undefined。 */
@@ -4389,7 +4477,7 @@ class RunExecutor {
                                                 message: "Return one declared tool call, or a non-empty text answer.",
                                             }],
                                             constraints: ["A text-only answer is accepted as an assistant message but does not advance the task. Continue the original task with one declared tool call."],
-                                        }), "A text-only answer does not advance the task.", undefined, result.text);
+                                        }), "A text-only answer does not advance the task.", undefined, result.text, result.modelContextFrame?.modelCallId);
                                     }
                                     const queue = result.kind === "batch" ? result.decisions.slice(1) : [];
                                     if (result.kind === "batch" && result.decisions.some(decision => decision.kind !== "tool_call")) {
@@ -4456,6 +4544,12 @@ class RunExecutor {
                                             ...stepInput, goal: activeGoal, candidate, evidence,
                                         });
                                         if (reviewed.kind === "reject") {
+                                            // 审查拒绝的候选必须明确作废：它不是正式答复，也不改变重试预算。
+                                            this.publishCandidateInvalidated(
+                                                activeGoal,
+                                                result.modelContextFrame?.modelCallId ?? executionUnitId,
+                                                "rejected",
+                                            );
                                             throw new ModelStageFeedbackError(createRuntimeFeedback({
                                                 goalId: activeGoal.id, runId: activeGoal.state.run.id,
                                                 executionUnitId, stepOrdinal, stage: "decide",
@@ -4577,6 +4671,9 @@ class RunExecutor {
                             }
                             normalized = {
                                 decision: stageResult.decision,
+                                ...(stageResult.modelContextFrame?.modelCallId === undefined
+                                    ? {}
+                                    : { modelCallId: stageResult.modelContextFrame.modelCallId }),
                                 ...(!("preparedToolAction" in decided.result)
                                     || decided.result.preparedToolAction === undefined
                                     ? {}
@@ -4586,6 +4683,23 @@ class RunExecutor {
                                     ? {}
                                     : { acceptedContextNotes: decided.result.acceptedContextNotes }),
                             };
+                            if (normalized.decision.kind === "complete") {
+                                pendingCandidateId = normalized.modelCallId ?? executionUnitId;
+                            }
+                            // 混合响应被接受后，其公开正文块按块顺序成为过程消息；
+                            // 正文与随后的决策事实一起提交，失败或审查拒绝时不落盘。
+                            goalBeforeProcessText = goal;
+                            const publicTextBlocks = "publicTextBlocks" in stageResult
+                                ? stageResult.publicTextBlocks
+                                : undefined;
+                            if (publicTextBlocks !== undefined && publicTextBlocks.length > 0) {
+                                goal = this.appendProcessTextMessages(
+                                    goal,
+                                    publicTextBlocks,
+                                    normalized.modelCallId,
+                                    executionUnitId,
+                                );
+                            }
                             if (goal.state.run.interruption?.status === "repairing") {
                                 const repairDecision = normalized.decision;
                                 if (repairDecision.kind !== "tool_call") {
@@ -4680,6 +4794,7 @@ class RunExecutor {
                     const nextGoal = this.appendDecisionMessage(
                         this.withRun(goal, nextRun),
                         decision,
+                        executionUnitId,
                     );
 
                     const closedEpochFact = this.contextEpochClosedFact(nextGoal, "run_failed");
@@ -4891,7 +5006,10 @@ class RunExecutor {
                     });
                     const transitionedGoal = this.withRun(goal, nextRun);
                     const formattedContent = this.formatAskUserQuestions(normalizedReq.questions);
-                    const nextGoal = this.appendAssistantContent(transitionedGoal, formattedContent);
+                    const nextGoal = this.appendAssistantContent(transitionedGoal, formattedContent, {
+                        purpose: "notice",
+                        source: { kind: "runtime_notice", noticeId: `ask_user:${normalizedReq.requestId}` },
+                    });
 
                     const decisionFact: TrajectoryEventDraft = {
                         goalId: goal.id,
@@ -4972,6 +5090,10 @@ class RunExecutor {
                         const nextGoal = this.appendAssistantContent(
                             this.withRun(goal, nextRun),
                             this.formatAskUserQuestions(normalizedAsk.questions),
+                            {
+                                purpose: "notice",
+                                source: { kind: "runtime_notice", noticeId: `ask_user:${normalizedAsk.requestId}` },
+                            },
                         );
                         goal = await this.commitDecision(
                             nextGoal,
@@ -5086,7 +5208,10 @@ class RunExecutor {
                         normalized.decision.task,
                         normalized.decision.approvalRequest,
                     );
-                    const nextGoal = this.appendAssistantContent(transitionedGoal, formattedContent);
+                    const nextGoal = this.appendAssistantContent(transitionedGoal, formattedContent, {
+                        purpose: "notice",
+                        source: { kind: "runtime_notice", noticeId: `task_proposal:${requestId}` },
+                    });
 
                     const decisionFact: TrajectoryEventDraft = {
                         goalId: goal.id,
@@ -5588,7 +5713,8 @@ class RunExecutor {
                             stage: rejectedStage,
                             decision: stageDecision,
                         });
-                        const nextGoal = this.withRun(goal, nextRun);
+                        // 被审查拒绝的完成候选不提交其公开正文。
+                        const nextGoal = this.withRun(goalBeforeProcessText ?? goal, nextRun);
                         goal = await this.commitDecision(
                             nextGoal,
                             [
@@ -5733,7 +5859,8 @@ class RunExecutor {
                             stage: rejectedStage,
                             decision: normalized.decision,
                         });
-                        const nextGoal = this.withRun(goal, nextRun);
+                        // 被审查拒绝的完成候选不提交其公开正文。
+                        const nextGoal = this.withRun(goalBeforeProcessText ?? goal, nextRun);
                         goal = await this.commitDecision(
                             nextGoal,
                             [
@@ -5805,9 +5932,11 @@ class RunExecutor {
                 const nextRun = acceptedPlanRoute === undefined
                     ? transitionedRun
                     : { ...transitionedRun, planRoute: acceptedPlanRoute };
-                let nextGoal = this.appendDecisionMessage(
+                const decisionIdentity = normalized.modelCallId ?? executionUnitId;
+                const nextGoal = this.appendDecisionMessage(
                     this.withRun(goal, nextRun),
                     normalized.decision,
+                    decisionIdentity,
                 );
 
                 let terminalFact: TrajectoryEventDraft;
@@ -5830,10 +5959,7 @@ class RunExecutor {
                         payload: { type: "run_waiting", reason: normalized.decision.reason },
                     };
                 } else if (normalized.decision.kind === "fail") {
-                    nextGoal = this.appendDecisionMessage(
-                        this.withRun(goal, nextRun),
-                        normalized.decision,
-                    );
+                    // 失败通知正文已在统一决策提交处追加；此处只补充终态事实。
                     terminalFact = {
                         goalId: goal.id,
                         runId: goal.state.run.id,
@@ -5896,11 +6022,21 @@ class RunExecutor {
                 contextLookupResult = undefined;
                 contextLookupChainCount = 0;
             } catch (error) {
-                if (error instanceof RunInterruptAcceptedError) throw error;
+                if (error instanceof RunInterruptAcceptedError) {
+                    // 已被受理的中断使当前候选失效：它不是正式答复，也不改变收尾规则。
+                    if (pendingCandidateId !== undefined) {
+                        this.publishCandidateInvalidated(goal, pendingCandidateId, "cancelled");
+                    }
+                    throw error;
+                }
                 if (error instanceof InterruptRepairBudgetExhausted) {
                     return this.cancelInterruptedRun(error.goal, control);
                 }
                 if (error instanceof PendingSteerAcceptedError) {
+                    // Steer 到达使旧决策被弃用：对应候选必须先作废。
+                    if (pendingCandidateId !== undefined) {
+                        this.publishCandidateInvalidated(goal, pendingCandidateId, "replaced");
+                    }
                     goal = await this.applyPendingSteers(goal, control);
                     continue;
                 }
@@ -6596,34 +6732,38 @@ class RunExecutor {
                 | { readonly kind: "run_stage_complete" }
                 | { readonly kind: "run_plan_route_update" }
         >,
+        candidateId: string,
     ): Goal {
-        const content = decision.kind === "complete"
-            ? decision.summary
-            : decision.kind === "wait"
-                ? decision.reason
-                : decision.error;
-
-        return this.appendAssistantContent(goal, content);
+        if (decision.kind === "complete") {
+            // 只有 Runtime 真正结算当前 Run 的最终答复才标记为 answer。
+            return this.appendAssistantContent(goal, decision.summary, {
+                purpose: "answer",
+                source: { kind: "completion_candidate", candidateId },
+            });
+        }
+        const content = decision.kind === "wait" ? decision.reason : decision.error;
+        return this.appendAssistantContent(goal, content, {
+            purpose: "notice",
+            source: { kind: "runtime_notice", noticeId: `${decision.kind}:${candidateId}` },
+        });
     }
 
     private appendAssistantContent(
         goal: Goal,
         content: string,
+        identity: {
+            readonly purpose: AssistantMessagePurpose;
+            readonly source: GoalMessageSource;
+        },
     ): Goal {
-        return {
-            ...goal,
-            state: {
-                ...goal.state,
-                messages: [
-                    ...goal.state.messages,
-                    {
-                        role: "assistant",
-                        assistant: { profileId: goal.definition.profile.id },
-                        content,
-                    },
-                ],
-            },
-        };
+        return appendGoalMessage(goal, {
+            role: "assistant",
+            content,
+            runId: goal.state.run.id,
+            purpose: identity.purpose,
+            profileId: goal.definition.profile.id,
+            source: identity.source,
+        }).goal;
     }
 
     private applyTransition(state: RunState, input: RunInput): RunState {
