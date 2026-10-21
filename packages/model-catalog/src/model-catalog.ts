@@ -6,7 +6,7 @@ import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
 
-import type { LLMConfig, LLMProvider } from "../../llm-core/src/index.js";
+import type { LLMConfig, LLMExecutionApi, LLMProvider } from "../../llm-core/src/index.js";
 import {
     ModelCatalogError,
     type ProviderModelFetcher,
@@ -23,13 +23,14 @@ import { DefaultProviderModelFetcher } from "./provider-fetchers.js";
  * @example
  * ```ts
  * const descriptor: LlmModelDescriptor = {
- *   provider: "anthropic",
- *   id: "claude-sonnet-4-5",
- *   displayName: "Claude Sonnet 4.5",
- *   contextWindowTokens: 200000,
- *   maxOutputTokens: 8192,
+ *   provider: "opencode-go",
+ *   id: "minimax-m3.1-flash-free",
+ *   displayName: "MiniMax M3.1 Flash Free",
+ *   contextWindowTokens: 1_000_000,
+ *   maxOutputTokens: 524_288,
+ *   executionApi: "openai-completions",
  *   availabilitySource: "live",
- *   metadataSource: "mixed",
+ *   metadataSource: "execution",
  *   selectable: true,
  * };
  * ```
@@ -45,14 +46,16 @@ export interface LlmModelDescriptor {
     readonly contextWindowTokens?: number | undefined;
     /** 单次补全最大输出 Token 上限；Token 预算模式必需，字符预算模式可缺省。 */
     readonly maxOutputTokens?: number | undefined;
+    /** 由可信目录登记的执行 API；不会作为浏览器模型目录字段返回。 */
+    readonly executionApi?: LLMExecutionApi | undefined;
     /** 模型是否具备原生推理思维链能力。 */
     readonly reasoning?: boolean | undefined;
     /** 模型是否支持图像等视觉输入。 */
     readonly vision?: boolean | undefined;
     /** 可用性验证来源：在线列表查询、内置静态目录或当前启动配置。 */
     readonly availabilitySource: "live" | "catalog" | "configured";
-    /** 元数据字段来源：完全在线、完全静态目录、当前配置或两者混合补全。 */
-    readonly metadataSource: "live" | "catalog" | "configured" | "mixed";
+    /** 元数据字段来源：在线、静态目录、执行登记、当前配置或多来源补全。 */
+    readonly metadataSource: "live" | "catalog" | "execution" | "configured" | "mixed";
     /** 当前运行链路和结构化模式下是否允许被用户选择。 */
     readonly selectable: boolean;
     /** 当 selectable 为 false 时说明不可选的具体原因。 */
@@ -64,7 +67,7 @@ export interface LlmModelDescriptor {
  *
  * @remarks
  * 获取当前 Provider 可用模型列表，支持在线查询、pi-ai Catalog 补全、排序与不可选过滤。
- * OpenCode Go 在线返回但不在已安装 pi-ai 目录中的模型保留展示，并标记不可选，避免保存无法构造的执行绑定。
+ * OpenCode Go 在线返回但不在 pi-ai 静态目录中的模型，只有存在独立执行登记时才可选；未知模型保留展示并标记不可选。
  *
  * @example
  * ```ts
@@ -101,6 +104,59 @@ const STATIC_FACTORIES = {
     deepseek: deepseekProvider,
     "opencode-go": opencodeGoProvider,
 };
+
+/**
+ * OpenCode Go 在线列表没有提供的、经独立资料确认的动态模型执行契约。
+ *
+ * @remarks
+ * 注册项只描述可安全构造 Binding 的非敏感协议与容量。在线目录仍必须同时返回模型 ID，端点固定由 OpenCode Go Provider 所有。
+ *
+ * @example
+ * ```ts
+ * const metadata = resolveOpenCodeGoExecutionMetadata("minimax-m3.1-flash-free");
+ * if (metadata !== undefined) console.log(metadata.executionApi);
+ * ```
+ */
+export interface OpenCodeGoExecutionMetadata {
+    /** 与 OpenCode Go 在线清单匹配的模型 ID。 */
+    readonly modelId: string;
+    /** 请求使用的 API 家族。 */
+    readonly executionApi: LLMExecutionApi;
+    /** 经模型资料登记的上下文窗口 Token 容量。 */
+    readonly contextWindowTokens: number;
+    /** 经模型资料登记的最大输出 Token 容量。 */
+    readonly maxOutputTokens: number;
+    /** 是否支持模型原生推理内容。 */
+    readonly reasoning: boolean;
+    /** 是否支持视觉输入。 */
+    readonly vision: boolean;
+}
+
+const OPENCODE_GO_EXECUTION_METADATA: Readonly<Record<string, OpenCodeGoExecutionMetadata>> = {
+    "minimax-m3.1-flash-free": {
+        modelId: "minimax-m3.1-flash-free",
+        executionApi: "openai-completions",
+        contextWindowTokens: 1_000_000,
+        maxOutputTokens: 524_288,
+        reasoning: true,
+        vision: false,
+    },
+};
+
+/**
+ * 按模型 ID 解析可信的 OpenCode Go 动态执行元数据。
+ *
+ * @param modelId - 在线目录返回或服务端显式配置的模型 ID。
+ * @returns 已登记的执行协议与容量；未登记模型返回 `undefined`。
+ *
+ * @example
+ * ```ts
+ * const metadata = resolveOpenCodeGoExecutionMetadata("minimax-m3.1-flash-free");
+ * ```
+ */
+export function resolveOpenCodeGoExecutionMetadata(modelId: string): OpenCodeGoExecutionMetadata | undefined {
+    return OPENCODE_GO_EXECUTION_METADATA[modelId];
+}
 
 function getStaticPiAiModels() {
     const models = createModels({
@@ -299,6 +355,9 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
             seenIds.add(raw.id);
 
             // 用 pi-ai 静态目录补全
+            const executionMetadata = config.provider === "opencode-go"
+                ? resolveOpenCodeGoExecutionMetadata(raw.id)
+                : undefined;
             const staticModel = config.provider === "openai-compatible"
                 ? undefined
                 : this.piAiModels.getModel(config.provider, raw.id);
@@ -310,12 +369,12 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
             const hasLiveVision = raw.vision !== undefined;
 
             const displayName = raw.displayName ?? staticModel?.name ?? raw.id;
-            const contextWindowTokens = raw.contextWindowTokens ?? staticModel?.contextWindow;
-            const maxOutputTokens = raw.maxOutputTokens ?? staticModel?.maxTokens;
-            const reasoning = raw.reasoning ?? staticModel?.reasoning ?? false;
-            const vision = raw.vision ?? (staticModel?.input.includes("image") ?? false);
+            const contextWindowTokens = raw.contextWindowTokens ?? executionMetadata?.contextWindowTokens ?? staticModel?.contextWindow;
+            const maxOutputTokens = raw.maxOutputTokens ?? executionMetadata?.maxOutputTokens ?? staticModel?.maxTokens;
+            const reasoning = raw.reasoning ?? executionMetadata?.reasoning ?? staticModel?.reasoning ?? false;
+            const vision = raw.vision ?? executionMetadata?.vision ?? (staticModel?.input.includes("image") ?? false);
 
-            let metadataSource: "live" | "catalog" | "configured" | "mixed";
+            let metadataSource: "live" | "catalog" | "execution" | "configured" | "mixed";
             const liveFieldCount =
                 (hasLiveDisplayName ? 1 : 0) +
                 (hasLiveContext ? 1 : 0) +
@@ -323,7 +382,9 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
                 (hasLiveReasoning ? 1 : 0) +
                 (hasLiveVision ? 1 : 0);
 
-            if (liveFieldCount === 5 || (hasLiveDisplayName && hasLiveContext && hasLiveMaxTokens)) {
+            if (executionMetadata !== undefined) {
+                metadataSource = liveFieldCount === 0 ? "execution" : "mixed";
+            } else if (liveFieldCount === 5 || (hasLiveDisplayName && hasLiveContext && hasLiveMaxTokens)) {
                 metadataSource = "live";
             } else if (liveFieldCount === 0) {
                 metadataSource = "catalog";
@@ -331,7 +392,7 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
                 metadataSource = "mixed";
             }
 
-            const { selectable, unavailableReason } = config.provider === "opencode-go" && staticModel === undefined
+            const { selectable, unavailableReason } = config.provider === "opencode-go" && staticModel === undefined && executionMetadata === undefined
                 ? { selectable: false, unavailableReason: "Model is not supported by the installed OpenCode Go adapter." }
                 : determineSelectability(
                 config.provider,
@@ -353,6 +414,7 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
                 displayName,
                 contextWindowTokens,
                 maxOutputTokens,
+                ...(executionMetadata === undefined ? {} : { executionApi: executionMetadata.executionApi }),
                 reasoning,
                 vision,
                 availabilitySource: "live",

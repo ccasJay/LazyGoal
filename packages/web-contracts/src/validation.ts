@@ -931,7 +931,7 @@ export function isModelCatalog(value: unknown): value is BrowserModelCatalog {
             && isNonEmptyString(model.id)
             && isNonEmptyString(model.displayName)
             && ["live", "catalog", "configured"].includes(String(model.availabilitySource))
-            && ["live", "catalog", "configured", "mixed"].includes(String(model.metadataSource))
+            && ["live", "catalog", "execution", "configured", "mixed"].includes(String(model.metadataSource))
             && typeof model.selectable === "boolean"
             && (model.contextWindowTokens === undefined || (Number.isSafeInteger(model.contextWindowTokens) && Number(model.contextWindowTokens) > 0))
             && (model.maxOutputTokens === undefined || (Number.isSafeInteger(model.maxOutputTokens) && Number(model.maxOutputTokens) > 0))

@@ -2,7 +2,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 实现 OpenCode Go 在线目录与独立执行元数据的合并
+- [x] //TODO 1. 实现 OpenCode Go 在线目录与独立执行元数据的合并
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)、[4.3](./spec.md#spec-req-4-3)
   - 实施目标：先扩展 `packages/model-catalog/test/model-catalog.test.ts`，覆盖实时列表包含 `minimax-m3.1-flash-free` 且登记路由时可选择、在线未知 ID 保留展示但不可选择、路由存在但在线列表缺少目标时不增加可选条目，以及离线路径不把路由表当作在线可用性。再在 `model-catalog` 为目标登记 `openai-completions`、OpenCode Go 固定端点族、推理能力、1,000,000 上下文与 524,288 最大输出 Token；扩展 `LlmModelDescriptor` 的执行协议字段、合并规则与中文 TSDoc 示例。保留现有 pi-ai 静态模型路径及其它 Provider 行为。
   - 场景与预期：假模型 Fetcher 返回目标 ID 时，目录描述带独立路由与登记容量且可选择；返回无路由的新 ID 时该条目不可选择；未返回目标 ID 时路由登记本身不产生目标条目。

@@ -337,6 +337,37 @@ test("ModelCatalog: opencode-go 在线新增但适配器未知的模型不可选
     }
 });
 
+test("ModelCatalog: 目标 OpenCode Go 模型用独立执行元数据动态标记可选", async () => {
+    const catalog = createLlmModelCatalog({
+        async fetchModels() {
+            return [{ id: "minimax-m3.1-flash-free" }];
+        },
+    });
+
+    const models = await catalog.list(opencodeGoConfig, { requireTokenCapacity: true });
+    const target = models.find(model => model.id === "minimax-m3.1-flash-free");
+
+    assert.ok(target);
+    assert.equal(target.availabilitySource, "live");
+    assert.equal(target.metadataSource, "execution");
+    assert.equal(target.executionApi, "openai-completions");
+    assert.equal(target.contextWindowTokens, 1_000_000);
+    assert.equal(target.maxOutputTokens, 524_288);
+    assert.equal(target.selectable, true);
+});
+
+test("ModelCatalog: 执行元数据不会将离线 OpenCode Go 模型加入在线结果", async () => {
+    const catalog = createLlmModelCatalog({
+        async fetchModels() {
+            return [{ id: "kimi-k3" }];
+        },
+    });
+
+    const models = await catalog.list(opencodeGoConfig);
+
+    assert.equal(models.some(model => model.id === "minimax-m3.1-flash-free"), false);
+});
+
 test("ModelCatalog: opencode-go 无在线拉取时回退静态目录", async () => {
     const catalog = new DefaultLlmModelCatalog();
     const result = await catalog.list(opencodeGoConfig);

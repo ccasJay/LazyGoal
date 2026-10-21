@@ -14,6 +14,19 @@ export type StructuredOutputMode = "strict" | "prompt_only" | "two_stage";
 /** 本期开放的供应商；兼容端点使用独立标识，不推断协议。 */
 export type LLMProvider = "openai" | "google" | "anthropic" | "openrouter" | "deepseek" | "openai-compatible" | "opencode-go";
 
+/**
+ * Runtime 支持的模型执行 API 家族。
+ *
+ * @remarks
+ * 该值描述请求协议，不包含 Provider 端点或凭据；目前仅登记 OpenCode Go 的 OpenAI Chat Completions 路径。
+ *
+ * @example
+ * ```ts
+ * const executionApi: LLMExecutionApi = "openai-completions";
+ * ```
+ */
+export type LLMExecutionApi = "openai-completions";
+
 type CommonConfig = {
     readonly apiKey: string;
     readonly model: string;
