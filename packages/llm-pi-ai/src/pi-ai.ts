@@ -41,6 +41,9 @@ const factories = {
 /** LazyGoal 自有 User-Agent；缺失版本号时使用纯标识。 */
 const LAZYGOAL_USER_AGENT = "lazygoal";
 
+/** OpenCode Go 的 OpenAI-compatible Chat Completions API 前缀。 */
+const OPENCODE_GO_OPENAI_COMPLETIONS_BASE_URL = "https://opencode.ai/inference/go/openai/v1";
+
 /**
  * 构造 pi-ai 请求 options 中的供应商专属附加项。
  *
@@ -100,7 +103,8 @@ function verifyToolCallArguments(raw: string | undefined, toolCall: { readonly a
  * pi-ai 的单次文本生成边界，固定使用 prompt_only。
  *
  * @remarks
- * 构造时离线解析模型目录；不执行登录、目录刷新或凭据持久化。
+ * 静态模型在构造时从 pi-ai 目录解析；OpenCode Go 动态模型使用服务端传入的执行 API 与容量，端点固定在本适配器。
+ * 不执行登录、目录刷新或凭据持久化。
  * 内部聚合流式输出，只有正常结束的文本交给 Agent。pi-ai usage 无法证明
  * 原始计数是否存在，因此只返回诊断 piUsage，不参与正式用量累计。
  * 工具选择按模型 API 映射：auto/none 使用 simple 入口；required 使用完整 API，
@@ -114,12 +118,16 @@ export class PiAiAdapter implements LLMAdapter {
     private readonly model: Model<Api>;
 
     /**
-     * @param config - 显式 API Key、供应商、模型及可选容量配置。
-     * @throws LLMConfigurationError 模式不匹配、模型不在目录或输出上限超过模型容量。
+     * @param config - 显式 API Key、供应商、模型及可信执行元数据；动态 OpenCode Go 不接受调用方端点。
+     * @throws LLMConfigurationError 模式不匹配、静态模型不在目录、动态协议不受支持或动态容量无效时抛出。
      */
     constructor(private readonly config: LLMConfig) {
         if (config.structuredOutputMode !== "prompt_only") {
             throw new LLMConfigurationError([], "PiAiAdapter only supports prompt_only output");
+        }
+        const executionApi = (config as LLMConfig & { readonly executionApi?: unknown }).executionApi;
+        if (executionApi !== undefined && (config.provider !== "opencode-go" || executionApi !== "openai-completions")) {
+            throw new LLMConfigurationError([], `Unsupported execution API "${String(executionApi)}" for provider "${config.provider}"`);
         }
         if (config.provider === "openai-compatible") {
             this.model = {
@@ -139,6 +147,37 @@ export class PiAiAdapter implements LLMAdapter {
                     resolve: async () => ({ auth: { apiKey: config.apiKey }, source: "explicit" }),
                 } },
             }));
+        } else if (config.provider === "opencode-go" && config.executionApi === "openai-completions") {
+            if (!Number.isSafeInteger(config.contextWindowTokens) || config.contextWindowTokens <= 0
+                || !Number.isSafeInteger(config.maxOutputTokens) || config.maxOutputTokens <= 0
+                || config.maxOutputTokens >= config.contextWindowTokens) {
+                throw new LLMConfigurationError([], `Invalid dynamic model capacity for "${config.model}"`);
+            }
+            const provider = opencodeGoProvider();
+            const completionsTemplate = provider.getModels().find(
+                (candidate): candidate is Model<"openai-completions"> => candidate.api === "openai-completions",
+            );
+            if (completionsTemplate === undefined) {
+                throw new LLMConfigurationError([], "OpenCode Go adapter does not expose the openai-completions API");
+            }
+            const model: Model<"openai-completions"> = {
+                id: config.model,
+                name: config.model,
+                provider: "opencode-go",
+                api: "openai-completions",
+                baseUrl: OPENCODE_GO_OPENAI_COMPLETIONS_BASE_URL,
+                reasoning: config.reasoning,
+                input: ["text"],
+                contextWindow: config.contextWindowTokens,
+                maxTokens: config.maxOutputTokens,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                ...(completionsTemplate.compat === undefined ? {} : { compat: completionsTemplate.compat }),
+            };
+            this.models.setProvider({
+                ...provider,
+                getModels: () => [...provider.getModels(), model],
+            });
+            this.model = model;
         } else {
             this.models.setProvider(factories[config.provider]());
             const model = this.models.getModel(config.provider, config.model);

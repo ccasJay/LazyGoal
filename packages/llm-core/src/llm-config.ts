@@ -40,6 +40,7 @@ type CommonConfig = {
  * @remarks
  * 自定义模型必须声明容量；目录模型只允许覆盖输出上限。
  * OpenAI 与 Google 可覆盖端点；Google baseURL 是包含所需版本路径的完整 API 前缀。
+ * OpenCode Go 动态模型由服务端登记执行 API、容量与推理能力，端点仍由适配器固定拥有。
  * 配置不写入 Goal 或 Diagnostic Trace。
  * 本类型是无 I/O 的数据契约；环境与 TOML/Profile 的读取、合并和校验归 `@lazygoal/config` 的 `readLLMConfig` 与加载器。
  * @example
@@ -48,11 +49,24 @@ type CommonConfig = {
  *     provider: "anthropic", model: "claude-sonnet-4-5",
  *     apiKey: "secret", structuredOutputMode: "prompt_only",
  * };
+ * const dynamic: LLMConfig = {
+ *     provider: "opencode-go", model: "minimax-m3.1-flash-free", apiKey: "secret",
+ *     structuredOutputMode: "prompt_only", executionApi: "openai-completions",
+ *     contextWindowTokens: 1_000_000, maxOutputTokens: 524_288, reasoning: true,
+ * };
  * ```
  */
 export type LLMConfig = CommonConfig & (
     | { readonly provider: "openai" | "google"; readonly baseURL?: string }
-    | { readonly provider: "anthropic" | "openrouter" | "deepseek" | "opencode-go" }
+    | { readonly provider: "anthropic" | "openrouter" | "deepseek" }
+    | { readonly provider: "opencode-go"; readonly executionApi?: undefined }
+    | {
+        readonly provider: "opencode-go";
+        readonly executionApi: LLMExecutionApi;
+        readonly contextWindowTokens: number;
+        readonly maxOutputTokens: number;
+        readonly reasoning: boolean;
+    }
     | { readonly provider: "openai-compatible"; readonly baseURL: string; readonly contextWindowTokens: number; readonly maxOutputTokens: number }
 );
 

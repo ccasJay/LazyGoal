@@ -8,7 +8,7 @@
   - 场景与预期：假模型 Fetcher 返回目标 ID 时，目录描述带独立路由与登记容量且可选择；返回无路由的新 ID 时该条目不可选择；未返回目标 ID 时路由登记本身不产生目标条目。
   - 验证手段：`npx tsx --test packages/model-catalog/test/model-catalog.test.ts packages/model-catalog/test/provider-fetchers.test.ts`；测试不访问真实供应商。
 
-- [ ] //TODO 2. 让 PiAiAdapter 动态执行已登记的 OpenCode Go 模型
+- [x] //TODO 2. 让 PiAiAdapter 动态执行已登记的 OpenCode Go 模型
   - 落实标准：[2.2](./spec.md#spec-req-2-2)、[2.3](./spec.md#spec-req-2-3)、[2.4](./spec.md#spec-req-2-4)、[4.3](./spec.md#spec-req-4-3)
   - 实施目标：先扩展 `packages/llm-pi-ai/test/pi-ai.test.ts`，用本地假传输覆盖目标模型 ID、固定 `/inference/go/openai/v1/chat/completions` 路由、API Key、自有 User-Agent、`x-opencode-session`、文本／推理／工具事件、流式完成及未知协议拒绝。随后扩展 `LLMConfig`，让 `executionApi` 与登记容量到达 `PiAiAdapter`；对已知动态执行协议按 pi-ai `Model` 契约构造目标模型，并复用 OpenCode Go Provider 的 OpenAI Completions API 与会话头包装。静态模型仍使用 `getModel`；不接受客户端 Base URL，不新增 SDK 目录项。同步新增或修改的公开契约中文 TSDoc 与示例。
   - 场景与预期：Adapter 执行目录外目标时，假传输观察到 OpenCode Go Chat Completions URL 和正确请求头，且输出与流式工具语义通过既有 pi-ai 映射；缺失或不支持的 `executionApi` 在发送请求前失败；现有静态 OpenCode Go 与其它 Provider 测试保持通过。

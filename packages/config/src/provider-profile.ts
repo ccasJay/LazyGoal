@@ -236,7 +236,8 @@ export function validateProviderProfileDraft(draft: ProviderProfileDraft): Valid
  *
  * @remarks
  * 输出模式优先取调用方覆盖值，其次取档案声明，最后回退 `prompt_only`；其余字段按档案的供应商分支投影，
- * 端点与容量只在对应供应商允许或必需时出现。档案已通过校验，缺失必需字段时抛出解析错误而非静默补齐。
+ * 端点与容量只在对应供应商允许或必需时出现。OpenCode Go 动态执行协议由服务端目录在模型选择后补入，不来自档案。
+ * 档案已通过校验，缺失必需字段时抛出解析错误而非静默补齐。
  *
  * @param profile - 已校验的 Provider 档案。
  * @param options - 本次解析使用的模型与可选输出模式覆盖。
@@ -279,6 +280,7 @@ export function toLlmConfig(
             maxOutputTokens: profile.maxOutputTokens,
         };
     }
+    if (profile.kind === "opencode-go") return { ...common, provider: profile.kind };
     return { ...common, provider: profile.kind };
 }
 

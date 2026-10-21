@@ -74,5 +74,6 @@ export function readLLMConfig(env: Readonly<Record<string, string | undefined>>)
         return { ...common, provider, baseURL, contextWindowTokens, maxOutputTokens: maxOutputTokens! };
     }
     if (provider === "openai" || provider === "google") return { ...common, provider, ...(baseURL ? { baseURL } : {}) };
-    return { ...common, provider: provider as "anthropic" | "openrouter" | "deepseek" | "opencode-go" };
+    if (provider === "opencode-go") return { ...common, provider };
+    return { ...common, provider: provider as "anthropic" | "openrouter" | "deepseek" };
 }

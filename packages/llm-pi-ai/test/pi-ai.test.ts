@@ -16,6 +16,7 @@ import {
     readReasoningText,
     readToolCalls,
     type LLMRequest,
+    type LLMConfig,
     type LLMStreamEvent,
 } from "../../llm-core/src/index";
 import { ExecutionAbortedError } from "../../execution-control/src/index";
@@ -212,6 +213,84 @@ function completionsBody(finish = "stop"): string {
         { id: "chat-1", object: "chat.completion.chunk", model: "local-model", created: 1, choices: [{ index: 0, delta: {}, finish_reason: finish }], usage: { prompt_tokens: 12, completion_tokens: 4, prompt_tokens_details: { cached_tokens: 2 } } },
     ]) + "data: [DONE]\n\n";
 }
+
+const minimaxDynamicConfig: LLMConfig = {
+    provider: "opencode-go",
+    model: "minimax-m3.1-flash-free",
+    apiKey: "test-explicit-key",
+    structuredOutputMode: "prompt_only",
+    executionApi: "openai-completions",
+    contextWindowTokens: 1_000_000,
+    maxOutputTokens: 524_288,
+    reasoning: true,
+};
+
+test("PiAiAdapter 动态执行 OpenCode Go MiniMax 并沿用官方 Completions 路由与会话头", async () => {
+    const textAndReasoningBody = sse([
+        { id: "chat-1", object: "chat.completion.chunk", model: minimaxDynamicConfig.model, created: 1,
+            choices: [{ index: 0, delta: { role: "assistant", reasoning_content: "private reasoning", content: json }, finish_reason: null }] },
+        { id: "chat-1", object: "chat.completion.chunk", model: minimaxDynamicConfig.model, created: 1,
+            choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+    ]) + "data: [DONE]\n\n";
+    const toolBody = sse([
+        { id: "chat-2", object: "chat.completion.chunk", model: minimaxDynamicConfig.model, created: 1,
+            choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call-1", type: "function", function: { name: "report", arguments: '{"result":"ok"}' } }] }, finish_reason: null }] },
+        { id: "chat-2", object: "chat.completion.chunk", model: minimaxDynamicConfig.model, created: 1,
+            choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },
+    ]) + "data: [DONE]\n\n";
+    const responseBodies = [textAndReasoningBody, toolBody];
+    const captured: { url: URL; headers: Headers; body: Record<string, unknown> }[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+        const outgoing = new Request(input, init);
+        captured.push({ url: new URL(outgoing.url), headers: outgoing.headers, body: JSON.parse(await outgoing.text()) });
+        return new Response(responseBodies.shift(), {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+        });
+    };
+    try {
+        const instance = new PiAiAdapter(minimaxDynamicConfig);
+        const generated = await instance.generate({ ...request, sessionId: "goal-minimax" });
+        assert.equal(readAssistantText(generated), json);
+        assert.equal(readReasoningText(generated), "private reasoning");
+
+        const streamed: LLMStreamEvent[] = [];
+        for await (const event of instance.stream({
+            ...request,
+            sessionId: "goal-minimax",
+            toolChoice: "required",
+            tools: [{ id: "report", description: "Report result", parametersSchema: { type: "object" } }],
+        })) streamed.push(event);
+        const completed = streamed.find(event => event.kind === "completed");
+        assert.ok(completed?.kind === "completed");
+        assert.deepEqual(readToolCalls(completed.response), [{
+            callId: "call-1", toolId: "report", argumentsJson: '{"result":"ok"}',
+        }]);
+        assert.ok(streamed.some(event => event.kind === "content_block_delta" && event.deltaKind === "tool_arguments"));
+
+        assert.equal(captured.length, 2);
+        for (const outgoing of captured) {
+            assert.equal(outgoing.url.origin, "https://opencode.ai");
+            assert.equal(outgoing.url.pathname, "/inference/go/openai/v1/chat/completions");
+            assert.equal(outgoing.headers.get("authorization"), "Bearer test-explicit-key");
+            assert.equal(outgoing.headers.get("user-agent"), "lazygoal");
+            assert.equal(outgoing.headers.get("x-opencode-session"), "goal-minimax");
+            assert.equal(outgoing.body.model, minimaxDynamicConfig.model);
+        }
+        assert.equal(captured[1]?.body.tool_choice, "required");
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+test("PiAiAdapter 在发送前拒绝未支持协议与无效动态容量", () => {
+    const unknownApi = { ...minimaxDynamicConfig, executionApi: "unknown-api" } as unknown as LLMConfig;
+    assert.throws(() => new PiAiAdapter(unknownApi), /Unsupported execution API/);
+
+    const invalidCapacity = { ...minimaxDynamicConfig, maxOutputTokens: 1_000_000 };
+    assert.throws(() => new PiAiAdapter(invalidCapacity), /Invalid dynamic model capacity/);
+});
 
 async function withServer(handler: (req: IncomingMessage, res: ServerResponse) => void, run: (url: string) => Promise<void>) {
     const server = createServer(handler);
