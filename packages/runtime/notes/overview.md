@@ -58,6 +58,8 @@ waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表�
 
 会话模块把交互回答与显式恢复接入同一输入边界：`respond` 先核验 Goal、Run、请求及必要 Action 身份，再委派既有 Coordinator 等待恢复规则；匹配回答只推进对应等待，旧请求、错身份或载荷冲突不解除等待也不写收据。`resume` 必须匹配最新 Run 与当前 Goal 提交修订：等待交互时报告所需交互，队列暂停时拒绝并要求显式继续队列，只有可恢复的当前 Run 或已受理队首才唤醒执行所有者。恢复不会代答，也不会解除失败或 Interrupt 造成的队列暂停。新 Run 启动前后台执行在推进与创建后继 Run 前按最新快照的 `modelSelection` 重新对齐模型 Binding，避免继承另一个 Goal 的进程绑定。
 
+`GoalModelSelection` 为登记的 OpenCode Go 动态模型保存 `executionApi`、上下文容量与输出上限，供进程恢复时重建同一执行协议。浏览器只提交模型 ID 和可选 Provider Profile ID；执行 API 与容量由服务端目录解析。该领域状态不保存 Base URL 或凭据，Adapter 的连接配置由宿主按 Profile 身份重建。
+
 [Session](../src/session.ts) 句柄提供 `read`、`send`、`consume`、`events`、`getInput` 与 `detach`：所有操作委派同一 Runtime 状态所有者，句柄自身不改写快照、不拥有实例关闭权。`consume` 逐条等待持久化受理结果后才读取下一项，不等待业务执行结束；业务拒绝作为输入结果继续消费，保存或受理基础设施失败时停止该来源、不预取后续项并报告原始错误。停止消费或解除句柄后，迟到的 `next()` 结果不再受理，来源资源归宿主；不合作的 `next()`／`return()` 不会阻塞停止或关闭。`sessions.query` 是同一执行链上的单消息封装：等待指定 Run 到达等待或终态后返回真实结果与可恢复身份，等待交互时立即返回，只释放自己的资源，不关闭借用实例。`SessionManager.close` 先停止订阅、输入消费与核对任务，再按可选期限结算后台执行；期限届满时抛出 `SessionManagerCloseError` 并保留未结算的 Goal 身份，不报告安全关闭、不伪造 Run 取消。
 
 会话输出由 [GoalSessionStream](../src/session-stream.ts) 提供：`session.events()` 调用时先向事件 Core 注册 Goal 范围缓冲，再在同一提交协调边界读取一致快照，首项输出 `state_sync` 与 Goal 提交修订，随后按来源顺序交接缓冲。已由同步状态覆盖的旧提交通知去重，旧执行单元的暂时增量被丢弃，当前调用的增量按来源顺序保留；模型或工具分片不会被当作已提交结果。输入受理与拒绝以 `session_input_result` 控制事件发布并按 `inputId` 关联；Run 结束与切换不关闭订阅。

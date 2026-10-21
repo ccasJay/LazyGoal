@@ -122,3 +122,9 @@ Composition Root 在启动时读取 Home 级 Provider 档案并把激活档案�
 设置页的档案管理由浏览器路由端口实现转发到 `providerProfileStore`；连接测试解析目标档案后只做在线模型列表拉取。
 
 Provider 表单在线查询由 Composition Root 校验供应商和端点规则，并在密钥留空时从指定的同类 Provider 档案读取凭据；未提供档案或供应商不匹配时不得借用其它来源。使用在线 Provider Fetcher 查询真实列表，不调用生成、不补静态目录、不保存表单、不刷新或改变激活档案。错误归一为脱敏的稳定分类。
+
+## 模型目录与动态执行恢复
+
+浏览器选模请求只携带模型 ID 和可选 Profile ID。Goal Server 从当前 Provider 的可选择目录描述生成 `GoalModelSelection`；浏览器目录投影不包含 `executionApi`、执行端点或凭据。显式 CLI 默认模型 ID 可由本机执行登记补齐 Adapter 配置，但该配置路径不宣称模型已通过在线可用性检查。
+
+OpenCode Go 的目录外 MiniMax 只有在实时 `/v1/models` 返回该 ID，且 `model-catalog` 存在该模型的执行登记时可选。`GoalModelSelection` 与 Snapshot 保存协议和容量；每次恢复按保存的协议/容量构造 Adapter，并按已保存的 Profile ID 解析当前 API Key。端点由 `llm-pi-ai` 固定，API Key 与 Base URL 不写入 Goal 状态。

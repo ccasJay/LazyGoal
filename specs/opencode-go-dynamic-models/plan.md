@@ -26,7 +26,7 @@
   - 场景与预期：合法目标 ID 经浏览器选择后，快照与进程 Binding 均含相同协议和容量；伪造协议或容量的请求被拒绝且不写快照；重启后仍使用保存的 API 家族和当前 Profile Key；静态模型恢复不变。
   - 验证手段：`npx tsx --test packages/browser/test/browser-model-selection.test.ts packages/browser/test/browser-models.test.ts apps/goal-server/test/composition-root-model-switching.test.ts apps/goal-server/test/runtime-composition.integration.test.ts`；不调用真实模型服务。
 
-- [ ] //TODO 5. 同步架构文档、旧 Spec 范围说明并完成全量验收
+- [x] //TODO 5. 同步架构文档、旧 Spec 范围说明并完成全量验收
   - 落实标准：[4.1](./spec.md#spec-req-4-1)、[4.2](./spec.md#spec-req-4-2)、[4.3](./spec.md#spec-req-4-3)
   - 实施目标：更新 `packages/model-catalog`、`packages/llm-core`、`packages/llm-pi-ai`、`packages/runtime`、`packages/storage` 与 `apps/goal-server` 的模块概览和语义表，记录目录路由数据来源、适配器构造、Goal 恢复与凭据边界；在 `specs/opencode-go-provider/spec.md` 保留原历史内容并追加获批范围修订。随后运行专项回归、`npm run check:docs`、`npm run check:dependencies`、`npm test` 与 `git diff --check`，只修复本功能引入的问题，不改动无关工作区文件。
   - 场景与预期：模块职责与源码实现一致；旧 Spec 明确静态模型原规则及本目标例外；专项行为、依赖方向、文档链接与全量测试均通过。
@@ -46,6 +46,6 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 验证时间：-
-- 验证摘要：尚未开始实现或验证。
+- 状态：通过
+- 验证时间：2026-10-21 16:12 CST
+- 验证摘要：`npm test` 全部通过，包含类型检查、45 个模块／161 份文档检查、274 个源文件依赖边界检查、198 项 GEPA 测试及全部 TS／TSX 与 MJS 回归；`npm run build --prefix apps/goal-server`、`npm run check:docs`、`npm run check:dependencies` 和 `git diff --check` 通过。首次全量回归中 Seatbelt 进程测试一次未读到拒绝 stderr，独立复跑与随后完整回归均通过。

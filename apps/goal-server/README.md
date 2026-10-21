@@ -1,6 +1,6 @@
 # Goal Server
 
-本机 Web 服务 Composition Root，连接 Runtime、Browser、HTTP 与前端。
+本机 Web 服务 Composition Root，连接 Runtime、Browser、HTTP 与前端；模型执行协议由服务端目录解析并随 Goal 安全恢复。
 
 阅读 [模块说明](./notes/overview.md)、[语义表](./notes/semantics.md)。
 
