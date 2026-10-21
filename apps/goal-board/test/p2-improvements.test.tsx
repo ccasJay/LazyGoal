@@ -37,6 +37,7 @@ test("GoalBoard 搜索框包含 id 与 name 属性且在初始状态展示总数
   const html = renderToStaticMarkup(
     React.createElement(GoalBoard, {
       goals: dummyGoals,
+      unreadableCount: 0,
       metricsByGoal: {},
       goalsLoading: false,
       selectedGoalId: null,

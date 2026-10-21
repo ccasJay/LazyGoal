@@ -13,6 +13,7 @@ import {
 
 export function GoalBoard({
   goals,
+  unreadableCount,
   metricsByGoal,
   goalsLoading,
   selectedGoalId,
@@ -28,6 +29,7 @@ export function GoalBoard({
   sessionError,
 }: {
   goals: readonly BrowserGoalListItem[];
+  unreadableCount: number;
   metricsByGoal: Record<string, MetricsState>;
   goalsLoading: boolean;
   selectedGoalId: string | null;
@@ -136,6 +138,12 @@ export function GoalBoard({
           </button>
         </div>
       )}
+      {unreadableCount > 0 && (
+        <div className="list-notice" role="status">
+          {unreadableCount} saved Goal{unreadableCount === 1 ? "" : "s"} could not be read because the
+          local snapshots are not compatible with this version.
+        </div>
+      )}
       {goalsLoading ? (
         <div className="board-empty">
           <span className="loading-mark" />
@@ -144,11 +152,19 @@ export function GoalBoard({
       ) : goals.filter((goal) => goal.archived === archivedView).length === 0 && !sessionError ? (
         <div className="board-empty">
           <InboxIcon />
-          <h2>{archivedView ? "No archived Goals" : "No saved Goals yet"}</h2>
+          <h2>
+            {archivedView
+              ? "No archived Goals"
+              : unreadableCount > 0
+                ? "No readable saved Goals"
+                : "No saved Goals yet"}
+          </h2>
           <p>
             {archivedView
               ? "Archived Goals will appear here."
-              : "Create a Goal to start a real session in this workspace."}
+              : unreadableCount > 0
+                ? "The saved Goals above could not be read; create a Goal to start a new session."
+                : "Create a Goal to start a real session in this workspace."}
           </p>
           {!archivedView && (
             <button
