@@ -1004,17 +1004,18 @@ export interface ModelContextEpochState {
  * 结构化模型选择与执行参数恢复契约。
  *
  * @remarks
- * 记录 Goal 当前绑定的语言模型标识、供应商、结构化输出模式、容量上限与 Token 估算器。
+ * 记录 Goal 当前绑定的语言模型标识、供应商、执行 API、结构化输出模式、容量上限与 Token 估算器。
  * 持久化到 Goal 快照中，用于进程重启后重建完全一致的模型绑定，严禁包含 API Key、baseURL 或凭据。
  *
  * @example
  * ```ts
  * const selection: GoalModelSelection = {
- *   provider: "anthropic",
- *   modelId: "claude-sonnet-4-5",
+ *   provider: "opencode-go",
+ *   modelId: "minimax-m3.1-flash-free",
  *   structuredOutputMode: "prompt_only",
- *   contextWindowTokens: 200000,
- *   maxOutputTokens: 8192,
+ *   executionApi: "openai-completions",
+ *   contextWindowTokens: 1_000_000,
+ *   maxOutputTokens: 524_288,
  *   inputEstimator: { kind: "character-v1" },
  * };
  * ```
@@ -1026,6 +1027,8 @@ export interface GoalModelSelection {
     readonly profileId?: string | undefined;
     /** 模型唯一标识（如 "gpt-4o", "claude-sonnet-4-5"）。 */
     readonly modelId: string;
+    /** 服务端登记的非敏感执行 API；当前仅用于 OpenCode Go 动态模型。 */
+    readonly executionApi?: "openai-completions" | undefined;
     /** 结构化输出模式：原生 strict 约束、prompt_only 提示词约束或 two_stage 双阶段推演。 */
     readonly structuredOutputMode?: "strict" | "prompt_only" | "two_stage" | undefined;
     /** 模型上下文窗口 Token 容量上限。 */
@@ -1448,6 +1451,7 @@ function cloneModelSelection(selection: GoalModelSelection): GoalModelSelection 
         provider: selection.provider,
         ...(selection.profileId === undefined ? {} : { profileId: selection.profileId }),
         modelId: selection.modelId,
+        ...(selection.executionApi === undefined ? {} : { executionApi: selection.executionApi }),
         structuredOutputMode: selection.structuredOutputMode,
         ...(selection.contextWindowTokens !== undefined ? { contextWindowTokens: selection.contextWindowTokens } : {}),
         ...(selection.maxOutputTokens !== undefined ? { maxOutputTokens: selection.maxOutputTokens } : {}),

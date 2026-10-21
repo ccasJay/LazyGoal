@@ -14,7 +14,7 @@
   - 场景与预期：Adapter 执行目录外目标时，假传输观察到 OpenCode Go Chat Completions URL 和正确请求头，且输出与流式工具语义通过既有 pi-ai 映射；缺失或不支持的 `executionApi` 在发送请求前失败；现有静态 OpenCode Go 与其它 Provider 测试保持通过。
   - 验证手段：`npx tsx --test packages/llm-pi-ai/test/pi-ai.test.ts packages/llm-core/test/core-consumption.test.ts`；所有网络调用由测试传输替代。
 
-- [ ] //TODO 3. 持久化动态执行协议并在 Snapshot 编解码中往返保留
+- [x] //TODO 3. 持久化动态执行协议并在 Snapshot 编解码中往返保留
   - 落实标准：[3.1](./spec.md#spec-req-3-1)、[3.3](./spec.md#spec-req-3-3)、[4.3](./spec.md#spec-req-4-3)
   - 实施目标：先扩展 `packages/runtime/test/domain.test.ts`、`packages/runtime/test/goal-model-selection-coordinator.test.ts` 与 `packages/storage/test/goal-snapshot-current.test.ts`，验证执行协议和容量可克隆、可保存／恢复、无效协议被拒绝，且序列化不包含 API Key、认证头或 Base URL。再在 `GoalModelSelection` 与当前 Snapshot v1 DTO／Schema／Codec 中加入非敏感 `executionApi`，更新 `cloneModelSelection` 和模型选择协调器复制逻辑；保留 Snapshot 版本，不添加兼容分支或迁移。
   - 场景与预期：含 `openai-completions`、目标模型 ID、上下文和输出上限的选择编码再解码后逐字段一致；无效执行协议或容量在存储边界失败；快照 JSON 中没有凭据或 Base URL。
