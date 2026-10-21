@@ -879,7 +879,7 @@ function createMockApi() {
       return;
     }
     if (request.url === "/api/goals" && request.method === "GET") {
-      json(response, { goals: currentListItem === null ? [] : [currentListItem] });
+      json(response, { goals: currentListItem === null ? [] : [currentListItem], unreadableCount: 0 });
       return;
     }
     if (request.url === "/api/goals/goal-1/archive" && request.method === "POST") {

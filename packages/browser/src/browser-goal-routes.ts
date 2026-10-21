@@ -1,7 +1,7 @@
 import type { BrowserProviderModelQuery, BrowserProviderModels } from "../../web-contracts/src/index";
 import { Hono } from "hono";
 
-import type { BrowserGoalListItem, BrowserGoalSession } from "./browser-projection";
+import type { BrowserGoalList, BrowserGoalSession } from "../../web-contracts/src/index";
 import type {
     BrowserActivityQuery,
     BrowserActivityReadResult,
@@ -112,7 +112,7 @@ export interface BrowserProviderSettingsPort {
  * @example
  * ```ts
  * const source: BrowserGoalApiPort = {
- *     list: async () => [],
+ *     list: async () => ({ goals: [], unreadableCount: 0 }),
  *     read: async () => undefined,
  *     enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
  *     models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
@@ -125,10 +125,10 @@ export interface BrowserGoalApiPort {
     /**
      * 返回真实 Goal 列表。
      *
-     * @returns 正式工作区的白名单摘要，保持 Catalog 排序。
-     * @throws Catalog 损坏或读取失败时拒绝。
+     * @returns 正式工作区的白名单摘要与无法读取的历史 Goal 数量，保持 Catalog 排序。
+     * @throws Catalog 目录读取失败时拒绝。
      */
-    list(): Promise<readonly BrowserGoalListItem[]>;
+    list(): Promise<BrowserGoalList>;
     /**
      * 受管 Provider 档案管理；省略时不挂载设置路由。
      *
@@ -380,7 +380,7 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
 
     routes.get("/api/goals", async (context) => {
         try {
-            return context.json({ goals: await source.list() });
+            return context.json(await source.list());
         } catch {
             return context.json({ error: "goal_list_unavailable" }, 500);
         }

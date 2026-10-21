@@ -16,6 +16,8 @@ Activity 助手消息必须携带 `process`、`answer` 或 `notice` 用途；用
 
 传输 DTO 不是 Goal Snapshot 的持久化 Schema。运行状态、阶段记录及授权事实由 Runtime 提交，Browser 从已提交状态建立当前视图；前端的瞬时活动不会变成恢复输入。请求入站验证由对应的 Web 边界处理。
 
+`BrowserGoalList` 是 Goal 列表的响应信封：除可读取摘要外还携带 `unreadableCount`，说明有多少历史 Goal 因本地快照与当前协议不兼容而无法读取；该计数只描述列表完整性，不暴露快照内容或文件路径。
+
 Activity 正文摘要最多 4,000 UTF-16 code unit，截断不得拆分代理项；原文按 messageId 从现有详情路由分段读取。文件 Trajectory 存储仍可能整文件扫描，wire 页大小不代表磁盘随机访问有界。`isBrowserActivityPage` 与 `isBrowserGoalSessionState` 校验页上限、历史外置标记和字段白名单，拒绝任意原始 payload 扩展字段。
 
 Provider 表单在线查询使用 `BrowserProviderModelQuery` 与 `BrowserProviderModels`：请求不需要默认模型，响应只返回模型 ID 和名称；`isProviderModels` 验证响应边界。密钥仅存在于请求，不回显或持久化。

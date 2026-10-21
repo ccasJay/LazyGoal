@@ -21,7 +21,7 @@ const CHILD_INTERACTION_ID = `action_approval:${CHILD_ACTION_ID}`;
 /** 构造只承载被测读端口的 Goal API。 */
 function createApi(port: Partial<BrowserGoalApiPort>): BrowserGoalApiPort {
     return {
-        list: async () => [],
+        list: async () => ({ goals: [], unreadableCount: 0 }),
         read: async () => undefined,
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),

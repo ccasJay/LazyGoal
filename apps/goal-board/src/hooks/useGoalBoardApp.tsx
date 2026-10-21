@@ -157,6 +157,7 @@ export function useGoalBoardApp() {
   const goalBoardElement = (
     <GoalBoard
       goals={goalsManager.goals}
+      unreadableCount={goalsManager.unreadableCount}
       metricsByGoal={goalsManager.metricsByGoal}
       goalsLoading={goalsManager.goalsLoading}
       selectedGoalId={sessionManager.selectedGoalId}

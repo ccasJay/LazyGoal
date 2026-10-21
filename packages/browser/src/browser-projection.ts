@@ -20,6 +20,7 @@ import {
 } from "../../permission/src/index";
 import type {
     BrowserBashExecutionDetail,
+    BrowserGoalList,
     BrowserGoalListItem,
     BrowserGoalPlan,
     BrowserGoalSession,
@@ -53,6 +54,7 @@ import { BROWSER_ACTIVITY_EVENT_TYPES, isRecord } from "../../web-contracts/src/
 
 export type {
     BrowserBashExecutionDetail,
+    BrowserGoalList,
     BrowserGoalListItem,
     BrowserGoalPlan,
     BrowserGoalSession,
@@ -138,22 +140,26 @@ export function projectBrowserGoalList(
  * 从真实正式工作区 Catalog 读取看板条目。
  *
  * @param catalog - 仅指向正式 workspace Goals 目录的目录边界。
- * @returns 全部已持久化真实 Goal；Catalog 错误向调用方传播，不伪造空条目。
+ * @returns 全部可读取的真实 Goal 与因本地快照不兼容而无法读取的历史 Goal 数量；
+ * 目录级错误向调用方传播，不伪造空条目。
  * @throws Catalog 未实现全量历史列表或目录读取失败时拒绝，避免静默漏掉终态 Goal。
  * @example
  * ```ts
- * const goals = await listBrowserGoals(root.workspaceGoalStore);
+ * const list = await listBrowserGoals(root.workspaceGoalStore);
  * ```
  */
 export async function listBrowserGoals(
     catalog: GoalCatalog,
     activeGoalId?: string,
-): Promise<readonly BrowserGoalListItem[]> {
+): Promise<BrowserGoalList> {
     if (catalog.listHistory === undefined) {
         throw new Error("Browser Goal listing requires a full Goal history catalog");
     }
-    const entries = await catalog.listHistory();
-    return projectBrowserGoalList(entries, activeGoalId);
+    const scan = await catalog.listHistory();
+    return {
+        goals: projectBrowserGoalList(scan.entries, activeGoalId),
+        unreadableCount: scan.unreadableCount,
+    };
 }
 
 /**

@@ -506,7 +506,7 @@ test("HTTP 事件流是 Goal 范围事件，拒绝 run 绑定参数并在取消�
     }];
     let closeCalls = 0;
     const routes = createBrowserGoalRoutes({
-        async list() { return []; },
+        async list() { return { goals: [], unreadableCount: 0 }; },
         async read() { return undefined; },
         async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
         async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
@@ -567,7 +567,7 @@ test("HTTP 消息入口按稳定身份返回有界列表与正文，并区分不
         truncated: false,
     };
     const routes = createBrowserGoalRoutes({
-        async list() { return []; },
+        async list() { return { goals: [], unreadableCount: 0 }; },
         async read() { return undefined; },
         async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
         async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },

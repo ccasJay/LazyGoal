@@ -5,6 +5,7 @@ export {
     type BrowserGoalSessionState,
     type BrowserMessagePosition,
     type BrowserGoalListItem,
+    type BrowserGoalList,
     type BrowserSessionMessage,
     type BrowserBashExecutionDetail,
     type BrowserSessionStep,

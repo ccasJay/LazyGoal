@@ -20,7 +20,7 @@ import {
 test("Activity 路由校验双向游标并只返回受限页", async () => {
     const calls: Array<{ goalId: string; query: Record<string, unknown> }> = [];
     const api = {
-        async list() { return []; },
+        async list() { return { goals: [], unreadableCount: 0 }; },
         async read() { return undefined; },
         async readActivity(goalId: string, query: Record<string, unknown>) {
             calls.push({ goalId, query });
@@ -92,7 +92,7 @@ test("view=state 返回显式标注历史外置的窄状态，不读取完整会
         },
     };
     const api = {
-        async list() { return []; },
+        async list() { return { goals: [], unreadableCount: 0 }; },
         async read() { fullReads += 1; return { goalId: "goal-1", messages: [], runs: [], historyTruncated: false }; },
         async readState() { stateReads += 1; return state; },
         async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
@@ -395,7 +395,7 @@ test("正式 HTTP 从重建的文件 Store 读取 Activity，并遵守 Snapshot 
         const restoredTrajectory = new JsonFileTrajectoryStore(join(directory, "trajectory"));
         let reads = 0;
         const api = {
-            async list() { return []; },
+            async list() { return { goals: [], unreadableCount: 0 }; },
             async read() { return undefined; },
             readState: (goalId: string) => readBrowserGoalSessionState(goalId, restoredGoals),
             readActivity: async (goalId: string, query: Parameters<typeof readBrowserGoalActivity>[1]) => {
@@ -432,7 +432,7 @@ test("Activity HTTP 访问控制在 Host、Origin 或 Bearer 拒绝时先于任�
     const access = createBrowserSessionAccess();
     let reads = 0;
     const api = {
-        async list() { return []; },
+        async list() { return { goals: [], unreadableCount: 0 }; },
         async read() { return undefined; },
         async readState() { reads += 1; return undefined; },
         async readActivity() { reads += 1; return { ok: false as const, error: "goal_not_found" as const }; },

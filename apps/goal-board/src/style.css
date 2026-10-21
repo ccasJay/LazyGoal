@@ -102,6 +102,7 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .archive-view-toggle:hover, .archive-view-toggle.is-active { color: var(--text); background: var(--surface-raised); }
 .archive-notice { display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--text-secondary); font-size: 12px; }
 .archive-notice button { color: var(--accent-ink); text-decoration: underline; }
+.list-notice { display: flex; align-items: center; gap: 8px; margin: 8px 16px 0; padding: 8px 12px; border: 1px solid var(--warning-border); border-radius: 6px; background: var(--warning-soft); color: var(--warning); font-size: 11px; line-height: 1.6; }
 .manage-error-overlay { position: absolute; top: 8px; left: 50%; z-index: 20; display: flex; gap: 12px; max-width: min(90vw, 500px); padding: 10px 12px; border: 1px solid var(--danger-border); border-radius: 6px; background: var(--surface); color: var(--danger); font-size: 11px; transform: translateX(-50%); }
 .manage-error-overlay button { text-decoration: underline; }
 .goal-card-shell { position: relative; min-width: 0; }

@@ -5,6 +5,7 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | BrowserSessionAccess | 短期授权和请求边界。 | [浏览器服务边界](../README.md) | [模块说明](./overview.md) |
+| Goal 列表响应 | 可读取的 Goal 摘要与因本地快照不兼容而无法读取的历史 Goal 数量；单条不可读快照不使整份列表失败。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
 | BrowserGoalCommandService | 未迁入统一 inputs 入口的管理命令（Plan Mode、模型选择、Action 详情、授权与权限模式、终态管理前置检查）到 Runtime 的适配。 | [浏览器服务边界](../README.md) | [模块说明](./overview.md) |
 | BrowserGoalSessionPort | Browser 委派 Runtime 会话所有者的窄端口：创建、统一输入、收据查询、安全状态与 Goal 事件；Browser 不持有账本、队列、执行名额或后台推进。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
 | Task approval route projection | Plan Run 审批等待点中的完整候选阶段顺序与验收条件。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |

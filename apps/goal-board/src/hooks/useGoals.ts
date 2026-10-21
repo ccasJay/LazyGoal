@@ -11,6 +11,7 @@ export function useGoals({
   onError?: (message: string | null) => void;
 }) {
   const [goals, setGoals] = useState<readonly BrowserGoalListItem[]>([]);
+  const [unreadableCount, setUnreadableCount] = useState(0);
   const [metricsByGoal, setMetricsByGoal] = useState<Record<string, MetricsState>>({});
   const [goalsLoading, setGoalsLoading] = useState(true);
   const [manageBusyId, setManageBusyId] = useState<string | null>(null);
@@ -24,7 +25,8 @@ export function useGoals({
     setGoalsLoading(true);
     try {
       const result = await browserApi.listGoals();
-      setGoals(result);
+      setGoals(result.goals);
+      setUnreadableCount(result.unreadableCount);
       loadedMetricsRef.current.clear();
       onError?.(null);
     } catch (error) {
@@ -44,7 +46,8 @@ export function useGoals({
     void browserApi
       .listGoals(controller.signal)
       .then((result) => {
-        setGoals(result);
+        setGoals(result.goals);
+        setUnreadableCount(result.unreadableCount);
         onError?.(null);
       })
       .catch((error: unknown) => {
@@ -201,6 +204,7 @@ export function useGoals({
   return {
     goals,
     setGoals,
+    unreadableCount,
     metricsByGoal,
     goalsLoading,
     manageBusyId,

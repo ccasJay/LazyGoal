@@ -14,7 +14,7 @@ function makePort(
     models: BrowserGoalApiPort["models"],
 ): BrowserGoalApiPort {
     return {
-        list: async () => [],
+        list: async () => ({ goals: [], unreadableCount: 0 }),
         read: async () => undefined,
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models,

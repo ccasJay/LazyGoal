@@ -114,7 +114,7 @@ test("完整 Action 详情只对当前等待中的 Goal/Run/Action 身份开放"
 /** 只挂载 Action 详情读取的最小 Goal API。 */
 function actionDetailsPort(readActionDetails: NonNullable<BrowserGoalApiPort["readActionDetails"]>): BrowserGoalApiPort {
     return {
-        list: async () => [],
+        list: async () => ({ goals: [], unreadableCount: 0 }),
         read: async () => undefined,
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),

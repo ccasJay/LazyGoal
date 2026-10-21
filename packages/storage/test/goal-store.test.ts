@@ -1079,8 +1079,9 @@ test("JsonFileGoalStore.listHistory returns all goals including completed, faile
         assert.equal(resumable[0]?.goalId, "goal-running");
 
         const history = await store.listHistory();
-        assert.equal(history.length, 4);
-        const goalIds = history.map((entry) => entry.goalId);
+        assert.equal(history.entries.length, 4);
+        assert.equal(history.unreadableCount, 0);
+        const goalIds = history.entries.map((entry) => entry.goalId);
         assert.ok(goalIds.includes("goal-completed"));
         assert.ok(goalIds.includes("goal-failed"));
         assert.ok(goalIds.includes("goal-cancelled"));
@@ -1099,18 +1100,18 @@ test("终态 Goal 归档跨实例持久化，删除移除快照与归档标记",
         assert.equal(await store.setArchived("goal-running", true), false);
         assert.equal(await store.setArchived("goal-terminal", true), true);
         const reopened = new JsonFileGoalStore(directory);
-        assert.equal((await reopened.listHistory()).find((entry) => entry.goalId === "goal-terminal")?.archived, true);
+        assert.equal((await reopened.listHistory()).entries.find((entry) => entry.goalId === "goal-terminal")?.archived, true);
         assert.equal(await reopened.setArchived("goal-terminal", false), true);
-        assert.equal((await store.listHistory()).find((entry) => entry.goalId === "goal-terminal")?.archived, undefined);
+        assert.equal((await store.listHistory()).entries.find((entry) => entry.goalId === "goal-terminal")?.archived, undefined);
         await store.setArchived("goal-terminal", true);
         await store.save(createCatalogGoal("goal-terminal", "running"));
-        assert.equal((await reopened.listHistory()).find((entry) => entry.goalId === "goal-terminal")?.archived, undefined);
+        assert.equal((await reopened.listHistory()).entries.find((entry) => entry.goalId === "goal-terminal")?.archived, undefined);
         await store.save(createCatalogGoal("goal-terminal", "completed"));
         await store.setArchived("goal-terminal", true);
         await assert.rejects(store.deleteTerminal("goal-running"), /goal_not_terminal/);
         assert.equal(await store.deleteTerminal("goal-terminal"), true);
         assert.equal(await reopened.restore("goal-terminal"), undefined);
-        assert.equal((await reopened.listHistory()).some((entry) => entry.goalId === "goal-terminal"), false);
+        assert.equal((await reopened.listHistory()).entries.some((entry) => entry.goalId === "goal-terminal"), false);
         assert.equal((await readdir(directory)).some((name) => name.endsWith(".archived")), false);
     } finally {
         await rm(directory, { recursive: true, force: true });
@@ -1141,6 +1142,35 @@ test("JsonFileGoalStore rejects a damaged formal catalog snapshot", async () => 
             "utf8",
         );
 
+        await assert.rejects(
+            new JsonFileGoalStore(directory).listResumable(),
+            assertProtocolError,
+        );
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("JsonFileGoalStore.listHistory 跳过无法解码的历史快照并上报数量", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-history-legacy-"));
+
+    try {
+        const store = new JsonFileGoalStore(directory);
+        await store.save(createCatalogGoal("goal-readable", "running"));
+
+        // 旧版本快照：JSON 合法但不符合当前快照协议。
+        await writeFile(
+            join(directory, `${Buffer.from("goal-legacy", "utf8").toString("base64url")}.json`),
+            JSON.stringify({ id: "goal-legacy", state: { messages: [] } }),
+            "utf8",
+        );
+
+        const history = await store.listHistory();
+        assert.equal(history.entries.length, 1);
+        assert.equal(history.entries[0]?.goalId, "goal-readable");
+        assert.equal(history.unreadableCount, 1);
+
+        // 可恢复列表保持严格语义：不可解码快照仍然阻止整次查询。
         await assert.rejects(
             new JsonFileGoalStore(directory).listResumable(),
             assertProtocolError,

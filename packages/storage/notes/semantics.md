@@ -10,6 +10,7 @@
 | 消息身份快照 | 每条正式消息持久化 `messageId`、所属 `runId`、Run 内 `position`、判别式来源与助手用途；位置受 Run 边界和 Snapshot 顺序约束。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
 | 提交修订快照 | Goal 级单调提交修订，随每次成功提交递增。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
 | Trajectory | 已提交执行事实记录。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
+| Goal 目录扫描 | 正式快照目录的摘要扫描：可恢复扫描遇损坏快照失败关闭；历史扫描跳过无法解码的快照并计数上报。 | [持久化实现](../README.md) | [Goal Store](../src/goal-store.ts) |
 | 模型调用指标 JSONL | 保存用量、可选请求耗时及覆盖缺口；不参与 Goal 恢复。 | [持久化实现](../README.md) | [指标 Store](../src/json-file-metrics-store.ts) |
 | 阶段快照 | Goal Snapshot 中 Run 内部活动阶段或最新已接受阶段的可恢复状态。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
 | Plan Run 路线快照 | 获批 Plan Run 的完整有序阶段、修订理由与游标；按 Snapshot 提交边界恢复。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |

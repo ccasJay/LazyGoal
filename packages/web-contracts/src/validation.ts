@@ -3,6 +3,7 @@ import type {
     BrowserJsonValue,
     BrowserActionReviewResult,
     BrowserGoalListItem,
+    BrowserGoalList,
     BrowserInteractionDetailResult,
     BrowserInteractionView,
     BrowserGoalPlan,
@@ -316,15 +317,19 @@ export function isGoalListItem(value: unknown): value is BrowserGoalListItem {
  * Goal 列表响应信封守卫。
  *
  * @param value - 待检测值。
- * @returns 是否为包含 goals 数组的列表响应。
+ * @returns 是否为包含 goals 数组与 unreadableCount 计数的列表响应。
  *
  * @example
  * ```ts
- * if (isGoalList(res)) console.log(res.goals.length);
+ * if (isGoalList(res)) console.log(res.goals.length, res.unreadableCount);
  * ```
  */
-export function isGoalList(value: unknown): value is { readonly goals: readonly BrowserGoalListItem[] } {
-    return isRecord(value) && Array.isArray(value.goals) && value.goals.every(isGoalListItem);
+export function isGoalList(value: unknown): value is BrowserGoalList {
+    return isRecord(value)
+        && Array.isArray(value.goals)
+        && value.goals.every(isGoalListItem)
+        && Number.isSafeInteger(value.unreadableCount)
+        && Number(value.unreadableCount) >= 0;
 }
 
 /**

@@ -53,6 +53,7 @@ export {
     readBrowserGoalSession,
     readBrowserGoalSessionState,
     type BrowserGoalListItem,
+    type BrowserGoalList,
     type BrowserGoalPlan,
     type BrowserGoalSession,
     type BrowserGoalSessionState,

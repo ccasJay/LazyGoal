@@ -356,7 +356,7 @@ test("真实 Web 服务恢复保留 Coordinator 接收者、展示活动状态�
         assert.equal(preference.status, 503);
         assert.equal(preference.body.error, "service_shutting_down");
         assert.notEqual(
-            (await root.workspaceGoalStore.listHistory!()).find((goal) => goal.goalId === "archive-target")?.archived,
+            (await root.workspaceGoalStore.listHistory!()).entries.find((goal) => goal.goalId === "archive-target")?.archived,
             true,
         );
         assert.equal(await new JsonFileModelPreferenceStore(root.workspaceHomeDirectory).get(), undefined);

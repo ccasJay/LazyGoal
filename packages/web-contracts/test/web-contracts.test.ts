@@ -74,14 +74,18 @@ test("isGoalListItem and isGoalList validate list items", () => {
         archived: false,
     };
     assert.equal(isGoalListItem(validItem), true);
-    assert.equal(isGoalList({ goals: [validItem] }), true);
+    assert.equal(isGoalList({ goals: [validItem], unreadableCount: 0 }), true);
+    assert.equal(isGoalList({ goals: [validItem], unreadableCount: 3 }), true);
 
     assert.equal(isGoalListItem({ ...validItem, execution: { state: "recoverable", committedThroughSequence: 10 } }), true);
     assert.equal(isGoalListItem({ ...validItem, execution: { state: "unknown", committedThroughSequence: 10 } }), false);
     assert.equal(isGoalListItem({ ...validItem, goalId: "" }), false);
     assert.equal(isGoalListItem({ ...validItem, runStatus: "invalid" }), false);
     assert.equal(isGoalListItem({ ...validItem, archived: "no" }), false);
-    assert.equal(isGoalList({ goals: [{ ...validItem, goalId: "" }] }), false);
+    assert.equal(isGoalList({ goals: [{ ...validItem, goalId: "" }], unreadableCount: 0 }), false);
+    assert.equal(isGoalList({ goals: [validItem] }), false);
+    assert.equal(isGoalList({ goals: [validItem], unreadableCount: -1 }), false);
+    assert.equal(isGoalList({ goals: [validItem], unreadableCount: 1.5 }), false);
     assert.equal(isGoalList({}), false);
 });
 

@@ -18,7 +18,7 @@ class StubCoordinator implements BrowserGoalCoordinator {
 
 function createPort(service: BrowserGoalCommandService): BrowserGoalApiPort {
     return {
-        list: async () => [],
+        list: async () => ({ goals: [], unreadableCount: 0 }),
         read: async () => undefined,
         enterPlanMode: async (gid, cmd) => service.enterPlanMode(gid, cmd),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
@@ -153,7 +153,7 @@ test("POST /api/project/permission-mode 校验非法输入返回 400", async () 
 
 test("服务未配置或异常时返回 500 permissions_unavailable 且无敏感泄露", async () => {
     const emptyPort: BrowserGoalApiPort = {
-        list: async () => [],
+        list: async () => ({ goals: [], unreadableCount: 0 }),
         read: async () => undefined,
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),

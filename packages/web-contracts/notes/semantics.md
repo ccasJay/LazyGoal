@@ -5,6 +5,7 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | BrowserGoalSession | 浏览器会话投影 DTO。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
+| BrowserGoalList | Goal 列表响应信封：可读取摘要与无法读取的历史 Goal 数量。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserGoalSessionState | 只含当前 Run 状态的窄会话 DTO；消息、步骤和阶段历史明确由 Activity 提供。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserActivityPage | 固定水位的白名单 Activity 页；含最多 100 个原子项、双向 cursor 和未加载首尾范围。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
 | BrowserActivityMessageItem.purpose | 必填的助手消息用途：过程、最终答复或公开通知；用户消息省略。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |

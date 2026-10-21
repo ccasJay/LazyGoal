@@ -72,6 +72,26 @@ export interface GoalCatalogEntry {
 }
 
 /**
+ * Goal 目录扫描结果。
+ *
+ * @remarks
+ * `entries` 只包含通过当前快照协议校验的摘要；`unreadableCount` 是被跳过
+ * 的历史快照数量。跳过的快照不进入列表，但仍计数上报，使调用方能够说明
+ * 列表不完整，而不是把不可读数据当作不存在。
+ *
+ * @example
+ * ```ts
+ * const scan: GoalCatalogScan = { entries: [], unreadableCount: 3 };
+ * ```
+ */
+export interface GoalCatalogScan {
+    /** 通过当前快照协议校验的 Goal 摘要，按最近更新时间倒序。 */
+    readonly entries: readonly GoalCatalogEntry[];
+    /** 无法解码、已从 `entries` 中跳过的历史快照数量。 */
+    readonly unreadableCount: number;
+}
+
+/**
  * 查询可恢复 Goal 摘要的目录边界。
  *
  * @remarks
@@ -98,15 +118,18 @@ export interface GoalCatalog {
      *
      * @remarks
      * 供历史复盘与轨迹检查器查看完整历史，不以是否可恢复作为过滤条件。
+     * 单条快照无法解码时跳过该条并计入 {@link GoalCatalogScan.unreadableCount}，
+     * 不让一条历史快照使整份列表不可用；目录级读取失败仍拒绝。
      * 未实现该方法的实现方，调用方可回退至 {@link listResumable}。
      *
-     * @returns 按 `mtime` 降序排列的摘要；相同时间使用 `goalId` 升序。
-     * @throws 正式 JSON 快照损坏或目录读取失败时抛出异常；目录不存在时返回空列表。
+     * @returns 可解码快照的摘要与被跳过的不可解码快照数量；摘要按 `mtime` 降序排列，相同时间使用 `goalId` 升序。
+     * @throws 目录读取失败时抛出异常；目录不存在时返回空列表。
      * @example
      * ```ts
      * const catalog: GoalCatalog = store;
-     * const history = await catalog.listHistory?.();
+     * const scan = await catalog.listHistory?.();
+     * console.log(scan?.entries.length, scan?.unreadableCount);
      * ```
      */
-    listHistory?(): Promise<readonly GoalCatalogEntry[]>;
+    listHistory?(): Promise<GoalCatalogScan>;
 }

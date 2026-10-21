@@ -156,7 +156,7 @@ test("模型提交只接受精确 wire 字段，并隐藏服务端错误内容",
     store.goal = goalFor();
     const service = serviceFor(store);
     const port: BrowserGoalApiPort = {
-        list: async () => [],
+        list: async () => ({ goals: [], unreadableCount: 0 }),
         read: async () => undefined,
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
@@ -179,7 +179,7 @@ test("模型提交只接受精确 wire 字段，并隐藏服务端错误内容",
 test("模型偏好路由严格校验请求并区分不可选与持久化故障", async () => {
     let writes = 0;
     const route = createBrowserGoalRoutes({
-        list: async () => [],
+        list: async () => ({ goals: [], unreadableCount: 0 }),
         read: async () => undefined,
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),

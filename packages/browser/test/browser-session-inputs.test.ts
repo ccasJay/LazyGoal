@@ -26,7 +26,7 @@ function createApi(
     } = {},
 ): BrowserGoalApiPort {
     return {
-        list: async () => [],
+        list: async () => ({ goals: [], unreadableCount: 0 }),
         read: options.read ?? (async (goalId) => (await harness.store.restore(goalId)) === undefined
             ? undefined
             : {

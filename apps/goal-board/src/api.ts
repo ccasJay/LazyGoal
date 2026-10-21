@@ -38,6 +38,7 @@ import {
   type AcceptedCommand,
   type BrowserCreateSessionCommand,
   type BrowserCreateSessionResult,
+  type BrowserGoalList,
   type BrowserGoalListItem,
   type BrowserGoalLiveEvent,
   type BrowserGoalPlanModeCommand,
@@ -92,8 +93,8 @@ export const browserApi = {
     return token.length > 0;
   },
 
-  listGoals(signal?: AbortSignal): Promise<readonly BrowserGoalListItem[]> {
-    return requestJson("/api/goals", isGoalList, signal).then((body) => body.goals);
+  listGoals(signal?: AbortSignal): Promise<BrowserGoalList> {
+    return requestJson("/api/goals", isGoalList, signal);
   },
 
   setGoalArchived(goalId: string, archived: boolean): Promise<{ readonly ok: true }> {
