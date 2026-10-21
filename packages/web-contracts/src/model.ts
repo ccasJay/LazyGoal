@@ -10,7 +10,7 @@
  * const source: BrowserModelMetadataSource = "catalog";
  * ```
  */
-export type BrowserModelMetadataSource = "live" | "catalog" | "configured" | "mixed";
+export type BrowserModelMetadataSource = "live" | "catalog" | "execution" | "configured" | "mixed";
 
 /**
  * 候选模型项的展示属性。

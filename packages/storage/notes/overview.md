@@ -13,7 +13,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 | --- | --- | --- |
 | [AgentProfileFile](../src/agent-profile-file.ts) | Profile 文件 DTO（`schemaVersion: 1`）、严格 Schema 与 `AgentProfileConfigurationError` | 读取文件系统、构造 Runtime Profile |
 | [JsonFileAgentProfileStore](../src/json-file-agent-profile-store.ts) | 实现 Runtime `AgentProfileStore` Port，读取单个 `<profileId>.json` | 扫描其它 Profile、读取 Tool 实例、校验 Tool 注册 |
-| [GoalSnapshotV1 协议](../src/goal-snapshot.ts) | 当前唯一 Snapshot DTO、严格字段与跨字段不变量校验；保存当前 Prompt/Memory/Model Context/Retrieval 组合、模型选择状态（`modelSelection`）、完整消息、`mode`、GoalPlan、`completedRuns`、Run/todo 关系、Run 的唯一 `exposedToolIds`、Context Epoch、内部阶段（`currentStage`）、获批 Plan Run 路线（`planRoute`）、待执行 Action 的授权引用、Goal 提交修订（`commitRevision`）、输入账本（`inputLedger`）与消息队列（`messageQueue`） | 文件系统 I/O、构造 Runtime Goal、迁移历史 Snapshot |
+| [GoalSnapshotV1 协议](../src/goal-snapshot.ts) | 当前唯一 Snapshot DTO、严格字段与跨字段不变量校验；模型选择可保存动态执行 API 与容量；并保存当前 Prompt/Memory/Model Context/Retrieval 组合、完整消息、`mode`、GoalPlan、`completedRuns`、Run/todo 关系、Run 的唯一 `exposedToolIds`、Context Epoch、内部阶段（`currentStage`）、获批 Plan Run 路线（`planRoute`）、待执行 Action 的授权引用、Goal 提交修订（`commitRevision`）、输入账本（`inputLedger`）与消息队列（`messageQueue`） | 文件系统 I/O、构造 Runtime Goal、迁移历史 Snapshot |
 | [GoalSnapshotCodec](../src/goal-snapshot-codec.ts) | Runtime Goal↔v1 Snapshot 的 encode/decode 深复制转换；只接受当前 v1，不迁移或回写历史版本 | 文件系统 I/O、读写 Store |
 | [InMemoryGoalStore](../src/goal-store.ts) | 实现 Runtime `GoalStore` Port：save 经 Codec encode、restore 经 decode | 跨实例或跨进程恢复 |
 | [JsonFileGoalStore](../src/goal-store.ts) | 实现 `GoalStore` 与 `GoalCatalog`：base64url 文件名、临时文件 + rename 原子替换、明确临时故障核对后有界重试、目录扫描摘要 | 跨进程锁、乐观锁、租约或版本冲突检测 |
@@ -31,6 +31,8 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 每次 Profile `load` 只访问 `<directory>/<profileId>.json`：文件缺失返回 `undefined`；不安全 ID、读取失败、非法 JSON、Schema 不匹配或文件内 ID 不一致抛出 `AgentProfileConfigurationError`（稳定错误码 `INVALID_AGENT_PROFILE`）。
 
 Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按严格 v1 Schema 校验（拒绝多余字段、非法 StepRecord，缺失或非法的 `modelSelection`，以及非法的 Trajectory/Memory/Model Context/Retrieval 组合）再深复制 encode；`restore`/decode 只接受当前 v1。Schema 同时保证 normal Goal 没有 GoalPlan、Plan Mode 必须有 GoalPlan、Todo ID/position/status 与 `Run.todoId` 一致、历史 Run 的消息区间有序且不包含当前 Run。历史 Snapshot、未知版本、缺失 `modelSelection` 的旧开发快照和不完整的当前恢复状态统一在 Codec 边界抛出 `INVALID_GOAL_SNAPSHOT`，不会自动迁移、保存或回写。
+
+`modelSelection.executionApi` 当前只允许 `openai-completions`，且必须搭配 OpenCode Go Provider 与有效的上下文、输出容量；Codec 对该字段深复制往返。Snapshot 不保存 Base URL、API Key 或认证头，schemaVersion 仍为 1。
 
 每条正式消息在 Snapshot 中保存 `messageId`、所属 `runId`、判别式来源与助手用途（`process`／`answer`／`notice`）。Schema 要求同一 Goal 内 `messageId` 与来源各自唯一；重复身份、重复来源或缺少身份字段的旧结构消息在 Codec 边界 fail-closed，不做兼容解析或迁移。
 

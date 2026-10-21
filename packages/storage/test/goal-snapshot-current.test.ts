@@ -101,11 +101,12 @@ test("JsonFileGoalStore rejects a historical Snapshot without migration or write
 
 test("GoalSnapshotCodec: 编码与解码严格保持 GoalModelSelection 描述，且序列化不含凭据", () => {
     const customSelection = {
-        provider: "anthropic",
-        modelId: "claude-sonnet-4-5",
+        provider: "opencode-go",
+        modelId: "minimax-m3.1-flash-free",
         structuredOutputMode: "prompt_only" as const,
-        contextWindowTokens: 200000,
-        maxOutputTokens: 8192,
+        executionApi: "openai-completions" as const,
+        contextWindowTokens: 1_000_000,
+        maxOutputTokens: 524_288,
         inputEstimator: { kind: "token-encoding" as const, encoding: "cl100k_base" as const },
     };
 
@@ -120,6 +121,7 @@ test("GoalSnapshotCodec: 编码与解码严格保持 GoalModelSelection 描述�
     });
 
     const encoded = goalSnapshotCodec.encode(goal);
+    assert.equal(encoded.metadata.schemaVersion, 1);
     assert.deepEqual(encoded.state.modelSelection, customSelection);
 
     // 验证 two_stage 模式的编解码一致性
@@ -213,6 +215,35 @@ test("GoalSnapshotCodec: 包含额外敏感字段或非法容量的模型选择�
         () => goalSnapshotCodec.decode(snapshotInvalidCapacity),
         assertProtocolError,
     );
+
+    // 3. 执行 API 必须来自支持的登记值且只适用于 OpenCode Go。
+    const snapshotUnsupportedApi = structuredClone(encoded) as unknown as Record<string, unknown>;
+    const state3 = snapshotUnsupportedApi["state"] as Record<string, unknown>;
+    state3["modelSelection"] = {
+        ...(state3["modelSelection"] as object),
+        executionApi: "unknown-api",
+    };
+    assert.throws(() => goalSnapshotCodec.decode(snapshotUnsupportedApi), assertProtocolError);
+
+    const snapshotWrongProvider = structuredClone(encoded) as unknown as Record<string, unknown>;
+    const state4 = snapshotWrongProvider["state"] as Record<string, unknown>;
+    state4["modelSelection"] = {
+        ...(state4["modelSelection"] as object),
+        executionApi: "openai-completions",
+    };
+    assert.throws(() => goalSnapshotCodec.decode(snapshotWrongProvider), assertProtocolError);
+
+    const snapshotMissingCapacity = structuredClone(encoded) as unknown as Record<string, unknown>;
+    const state5 = snapshotMissingCapacity["state"] as Record<string, unknown>;
+    const missingCapacitySelection: Record<string, unknown> = {
+        ...(state5["modelSelection"] as Record<string, unknown>),
+        provider: "opencode-go",
+        executionApi: "openai-completions",
+    };
+    delete missingCapacitySelection["contextWindowTokens"];
+    delete missingCapacitySelection["maxOutputTokens"];
+    state5["modelSelection"] = missingCapacitySelection;
+    assert.throws(() => goalSnapshotCodec.decode(snapshotMissingCapacity), assertProtocolError);
 });
 
 test("无最终任务的普通只读 Step 可以通过当前 Snapshot 编解码", () => {

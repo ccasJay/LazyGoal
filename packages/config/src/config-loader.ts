@@ -190,6 +190,14 @@ export async function loadRuntimeConfig(options: LoadConfigOptions = {}): Promis
             ...(mergedLlm.base_url ? { baseURL: mergedLlm.base_url } : {}),
             ...(mergedLlm.max_output_tokens ? { maxOutputTokens: mergedLlm.max_output_tokens } : {}),
         };
+    } else if (provider === "opencode-go") {
+        verifiedLlmConfig = {
+            provider,
+            model: mergedLlm.model!,
+            apiKey: mergedLlm.api_key!,
+            structuredOutputMode: mode,
+            ...(mergedLlm.max_output_tokens ? { maxOutputTokens: mergedLlm.max_output_tokens } : {}),
+        };
     } else {
         verifiedLlmConfig = {
             provider,

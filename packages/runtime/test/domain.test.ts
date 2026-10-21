@@ -261,11 +261,12 @@ test("Goal 只接受唯一当前协议组合", () => {
 
 test("createGoal incorporates and isolates explicit modelSelection", () => {
     const customSelection = {
-        provider: "anthropic",
-        modelId: "claude-sonnet-4-5",
+        provider: "opencode-go",
+        modelId: "minimax-m3.1-flash-free",
         structuredOutputMode: "prompt_only" as const,
-        contextWindowTokens: 200000,
-        maxOutputTokens: 8192,
+        executionApi: "openai-completions" as const,
+        contextWindowTokens: 1_000_000,
+        maxOutputTokens: 524_288,
         inputEstimator: { kind: "token-encoding" as const, encoding: "cl100k_base" as const },
     };
 

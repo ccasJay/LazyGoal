@@ -787,11 +787,26 @@ export type GoalSnapshotWorkflowV1 = {
     readonly phase: "executing";
 };
 
-/** Snapshot 中持久化的模型选择状态。 */
+/**
+ * Snapshot v1 中持久化的模型选择与执行协议。
+ *
+ * @remarks
+ * 仅保存重建 Binding 所需的非敏感 API 家族和容量；凭据与 Base URL 不属于快照，本字段扩展不改变 schemaVersion。
+ *
+ * @example
+ * ```ts
+ * const selection: GoalSnapshotModelSelectionV1 = {
+ *   provider: "opencode-go", modelId: "minimax-m3.1-flash-free",
+ *   executionApi: "openai-completions", contextWindowTokens: 1_000_000,
+ *   maxOutputTokens: 524_288, inputEstimator: { kind: "character-v1" },
+ * };
+ * ```
+ */
 export interface GoalSnapshotModelSelectionV1 {
     readonly provider: string;
     readonly profileId?: string | undefined;
     readonly modelId: string;
+    readonly executionApi?: "openai-completions" | undefined;
     readonly structuredOutputMode?: "strict" | "prompt_only" | "two_stage" | undefined;
     readonly contextWindowTokens?: number | undefined;
     readonly maxOutputTokens?: number | undefined;
@@ -1439,6 +1454,7 @@ const ModelSelectionSchema = z.object({
     provider: NonEmptyStringSchema,
     profileId: NonEmptyStringSchema.optional(),
     modelId: NonEmptyStringSchema,
+    executionApi: z.enum(["openai-completions"]).optional(),
     structuredOutputMode: z.enum(["strict", "prompt_only", "two_stage"]).optional(),
     contextWindowTokens: z.number().int().positive().optional(),
     maxOutputTokens: z.number().int().positive().optional(),
@@ -1450,6 +1466,20 @@ const ModelSelectionSchema = z.object({
         }).strict(),
     ]),
 }).strict().superRefine((val, ctx) => {
+    if (val.executionApi !== undefined && val.provider !== "opencode-go") {
+        ctx.addIssue({
+            code: "custom",
+            message: "executionApi is only supported for opencode-go selections",
+            path: ["executionApi"],
+        });
+    }
+    if (val.executionApi !== undefined && (val.contextWindowTokens === undefined || val.maxOutputTokens === undefined)) {
+        ctx.addIssue({
+            code: "custom",
+            message: "executionApi selections require contextWindowTokens and maxOutputTokens",
+            path: ["executionApi"],
+        });
+    }
     if (val.contextWindowTokens !== undefined && val.maxOutputTokens !== undefined) {
         if (val.maxOutputTokens >= val.contextWindowTokens) {
             ctx.addIssue({

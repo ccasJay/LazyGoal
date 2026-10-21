@@ -41,6 +41,7 @@ export {
 export type {
     StructuredOutputMode,
     LLMProvider,
+    LLMExecutionApi,
     LLMConfig,
 } from "./llm-config";
 

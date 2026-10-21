@@ -236,30 +236,22 @@ export async function runServerSession(
                 preference,
                 models,
             );
+            const selectedModel = selected === undefined ? undefined : models.find((model) =>
+                model.provider === target.config.provider && model.id === selected.id && model.selectable);
             return {
                 catalog,
-                selection: selected === undefined ? undefined : {
+                selection: selectedModel === undefined ? undefined : {
                     provider: target.config.provider,
                     ...(target.profileId === undefined ? {} : { profileId: target.profileId }),
-                    modelId: selected.id,
+                    modelId: selectedModel.id,
                     structuredOutputMode: configuredSelection.structuredOutputMode,
-                    ...(selected.contextWindowTokens === undefined ? {} : { contextWindowTokens: selected.contextWindowTokens }),
-                    ...(selected.maxOutputTokens === undefined ? {} : { maxOutputTokens: selected.maxOutputTokens }),
+                    ...(selectedModel.contextWindowTokens === undefined ? {} : { contextWindowTokens: selectedModel.contextWindowTokens }),
+                    ...(selectedModel.maxOutputTokens === undefined ? {} : { maxOutputTokens: selectedModel.maxOutputTokens }),
+                    ...(selectedModel.executionApi === undefined ? {} : { executionApi: selectedModel.executionApi }),
                     inputEstimator: configuredSelection.inputEstimator,
                 },
             };
         };
-        const commandService = new BrowserGoalCommandService({
-            store: root.workspaceGoalStore,
-            coordinator: root.commands,
-            modelSelectionCoordinator: root.goalModelSelectionCoordinator,
-            saveModelPreference: (selection) => preferenceStore.set({
-                ...(selection.profileId === undefined ? {} : { profileId: selection.profileId }),
-                modelId: selection.modelId,
-            }),
-            readActiveGoalId: () => root.sessions.activeGoal,
-            control: { signal: root.abortController.signal },
-        });
         /** 由本机模型目录验证 ID 并构造完整非敏感选择。 */
         const resolveModelSelection = async (
             modelId: string,
@@ -289,9 +281,22 @@ export async function runServerSession(
                 structuredOutputMode: current.structuredOutputMode,
                 ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens }),
                 ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
+                ...(model.executionApi === undefined ? {} : { executionApi: model.executionApi }),
                 inputEstimator: current.inputEstimator,
             };
         };
+        const commandService = new BrowserGoalCommandService({
+            store: root.workspaceGoalStore,
+            coordinator: root.commands,
+            modelSelectionCoordinator: root.goalModelSelectionCoordinator,
+            resolveModelSelection,
+            saveModelPreference: (selection) => preferenceStore.set({
+                ...(selection.profileId === undefined ? {} : { profileId: selection.profileId }),
+                modelId: selection.modelId,
+            }),
+            readActiveGoalId: () => root.sessions.activeGoal,
+            control: { signal: root.abortController.signal },
+        });
         /**
          * 浏览器委派 Runtime 会话所有者的窄端口。
          *

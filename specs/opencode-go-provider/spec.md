@@ -139,3 +139,9 @@ llm.model-catalog.DefaultLlmModelCatalog
   - 不得发送空的 `x-opencode-session`。
   - 鉴权、权限、协议或取消错误禁止触发目录降级；不得用静态目录掩盖凭据故障。
   - pi-ai 升级不得以牺牲既有供应商行为等价为代价换取 opencode-go 可用性。
+
+## 范围修订：OpenCode Go 目录外 MiniMax 模型
+
+2026-10 的 [OpenCode Go 动态模型 Spec](../opencode-go-dynamic-models/spec.md) 为 `minimax-m3.1-flash-free` 增加受限例外，不改写上文原始决策及其历史背景：实时 OpenCode Go `/v1/models` 列表决定模型是否当前可用；`model-catalog` 按精确模型 ID 提供独立的 OpenAI Chat Completions 执行登记和容量。只有在线列表与登记同时命中时，该目录外模型才可选择；未知在线 ID 仍不可执行，登记本身也不会宣称模型在线。
+
+目标模型的 pi-ai Model 在服务端按 `openai-completions` 动态构造，固定使用 OpenCode Go Chat Completions 路径。Goal Snapshot 保存执行 API 与容量以便恢复，不保存 Base URL、API Key 或认证头；浏览器只提交模型 ID／Profile ID。其它 OpenCode Go 模型仍按本文记录的 pi-ai 静态目录路径处理。
