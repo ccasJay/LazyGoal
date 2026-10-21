@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import type { LLMAdapter } from "../../../packages/llm-core/src/index";
+import { toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
 import type { LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import {
     ManagedResourceRegistry,
@@ -27,14 +28,11 @@ import { contract } from "../../../packages/contracts/src/index";
 import { createRuntimeComposition } from "../src/runtime/index";
 
 function wire(toolId: string, args: Record<string, unknown>): LLMResponse {
-    return {
-        content: "",
-        toolCalls: [{
-            callId: `fixture-${toolId}`,
-            toolId,
-            argumentsJson: JSON.stringify(args),
-        }],
-    };
+    return toolCallResponse({
+        callId: `fixture-${toolId}`,
+        toolId,
+        argumentsJson: JSON.stringify(args),
+    });
 }
 
 const askUserWire = (): LLMResponse => wire("ask_user", {

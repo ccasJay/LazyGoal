@@ -29,7 +29,7 @@ Plan Run 的待审批会话 DTO 会投影候选路线中的全部阶段顺序、
 
 `POST /api/goals/:goalId/plan-mode` 只接受当前 `runId`，并由命令服务在转交 Coordinator 前校验 Goal/Run 身份、与其他执行命令串行化。Runtime 允许未启动 Run 进入 Plan Mode，或为已完成或失败 Run 标记下一 Run 使用 Plan Mode；已开始的普通 Run 和其他不允许切换的状态返回稳定错误。命令文本不写入消息或 Step。
 
-`GET /api/goals/:goalId/events?runId=...` 将连接绑定到 Snapshot 中的当前 Run。事件仅投影白名单活动和长度受限的助手文本；reasoning、Tool 输出及未识别载荷不转发。Trajectory/Checkpoint 事件与 Goal 保存只发送刷新通知；队列缺口、Publisher 关闭或连接故障要求页面重新读取，不代表 Run 完成。
+`GET /api/goals/:goalId/events?runId=...` 将连接绑定到 Snapshot 中的当前 Run。事件仅投影白名单活动和长度受限的助手文本：内部块协议中只有公开普通正文增量与整块完成映射为 `assistant_text_delta`，结构化 JSON、Tool 参数、reasoning、调用失败摘要及未识别载荷不转发。Trajectory/Checkpoint 事件与 Goal 保存只发送刷新通知；队列缺口、Publisher 关闭或连接故障要求页面重新读取，不代表 Run 完成。
 
 实时工具活动的安全 DTO 附带 ExecutionStream 自己的 `sourceEventId` 与 `sourceCursor`，并保留跨流调用对齐所需的 `actionId`。这些来源标识不等同于 Trajectory 中同名字段；只有 `actionId` 用于将同一调用的暂时活动与已提交步骤对齐。输入与结果仅允许投影白名单摘要，不发送任意 Tool 参数、原始 Tool 输出或隐藏推理。助手可见回复、等待、阶段变化、终态、失败和未知公开事件投影为活动边界，供 Goal Board 重建活动组；流缺口通知促使前端清空不完整临时数据并刷新。
 

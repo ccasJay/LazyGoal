@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index.js";
+import { blockResponse, textResponse } from "../../../packages/llm-core/test/response-fixtures";
 import {
     runGepaReflectCli,
     parseAndValidateReflectRequest,
@@ -18,7 +19,9 @@ class MockReflectionLLMAdapter implements LLMAdapter {
 
     constructor(
         private readonly implementation: (req: LLMRequest) => Promise<LLMResponse> = async () => ({
-            content: "Reflected mutation candidate",
+            ...blockResponse(
+                { type: "text", format: "plain", text: "Reflected mutation candidate" },
+            ),
             providerMetadata: { usage: { inputTokens: 100, outputTokens: 50 } },
         }),
     ) {}
@@ -276,7 +279,9 @@ test("[Adversarial] 脱敏有效性：stdout 输出中模型复述的敏感密�
 
     // 模拟模型在返回的优化内容中复述了 trace 中的敏感信息
     const leakyAdapter = new MockReflectionLLMAdapter(async () => ({
-        content: `Reflected prompt containing ${leakedKey} and Bearer ${leakedBearer} and ${leakedEnvSecret}`,
+        ...blockResponse(
+            { type: "text", format: "plain", text: `Reflected prompt containing ${leakedKey} and Bearer ${leakedBearer} and ${leakedEnvSecret}` },
+        ),
         providerMetadata: { usage: { inputTokens: 10, outputTokens: 20 } },
     }));
 
@@ -489,7 +494,9 @@ test("[Adversarial] 无工具契约：LLMRequest 中 tools/structuredOutput 必�
         async generate(request) {
             capturedRequest = request;
             return {
-                content: "Done",
+                ...blockResponse(
+                    { type: "text", format: "plain", text: "Done" },
+                ),
                 providerMetadata: { usage: { inputTokens: 5, outputTokens: 5 } },
             };
         },

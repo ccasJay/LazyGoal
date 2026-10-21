@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { blockResponse, textResponse, toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +13,12 @@ test("recovers failed Snapshot and invalid-response usage without terminal ACP m
     const metadata = { instanceId: "astropy__astropy-12907", repo: "astropy/astropy", baseCommit: "a".repeat(40),
         problemStatement: "Fix issue", goalId: "goal-recovery", runId: "run-recovery", maxSteps: 3, structuredOutputMode: "strict" as const };
     const result = await runSwebenchAcpTask({ metadata, workspaceRoot: root, stateRoot: join(root, "state"),
-        llmAdapter: { structuredOutputMode: "strict", generate: async () => ({ content: "{}", providerMetadata: { usage: { inputTokens: 15, outputTokens: 7 } } }) },
+        llmAdapter: { structuredOutputMode: "strict", generate: async () => ({
+            ...blockResponse(
+                { type: "text", format: "json", text: "{}" },
+            ),
+            providerMetadata: { usage: { inputTokens: 15, outputTokens: 7 } },
+        }) },
         renderer: {
             render: () => "system",
             renderDynamicSections: () => [],

@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { contract } from "../../contracts/src/index";
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
+import { toolCallResponse } from "../../llm-core/test/response-fixtures";
 import type { NativeConversationIdentity } from "../../model-contracts/src/index";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal, GoalMessage } from "../../runtime/src/domain";
@@ -254,14 +255,11 @@ class ScriptedDecideAdapter implements LLMAdapter {
 
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.requests.push(request);
-        return {
-            content: "",
-            toolCalls: [{
-                callId: "baseline-call",
-                toolId: "read_file",
-                argumentsJson: JSON.stringify({ path: "README.md" }),
-            }],
-        };
+        return toolCallResponse({
+            callId: "baseline-call",
+            toolId: "read_file",
+            argumentsJson: JSON.stringify({ path: "README.md" }),
+        });
     }
 }
 

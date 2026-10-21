@@ -10,9 +10,29 @@ export type {
     LLMToolDefinition,
     LLMToolCall,
     LLMRequest,
+    LLMTextBlockFormat,
+    LLMTextBlock,
+    LLMReasoningBlock,
+    LLMToolCallBlock,
+    LLMContentBlock,
+    LLMContentDeltaKind,
+    LLMContentDelivery,
     LLMResponse,
     LLMStreamEvent,
 } from "./types";
+
+export {
+    readTextBlocks,
+    readAssistantText,
+    readReasoningText,
+    readToolCalls,
+} from "./content-blocks";
+
+export {
+    LLMStreamProtocolError,
+    createContentBlockStreamTracker,
+} from "./content-block-stream";
+export type { ContentBlockStreamTracker } from "./content-block-stream";
 
 export {
     LLMConfigurationError,

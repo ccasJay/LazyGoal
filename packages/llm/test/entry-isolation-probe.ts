@@ -64,7 +64,7 @@ switch (scenario) {
         const adapter: import("../../llm-core/src/index").LLMAdapter = {
             structuredOutputMode: "prompt_only",
             async generate() {
-                return { content: "probe", providerMetadata: { usage: { inputTokens: 1, outputTokens: 2 } } };
+                return { blocks: [{ index: 0, type: "text", format: "plain", text: "probe" }], providerMetadata: { usage: { inputTokens: 1, outputTokens: 2 } } };
             },
         };
         const response = await adapter.generate({ messages: [{ role: "user", content: "hi" }] });

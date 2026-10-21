@@ -1,4 +1,6 @@
 import { toolResponseFixture } from "../../packages/agent/test/tool-response-fixture";
+import { readToolCalls } from "../../packages/llm-core/src/index";
+import { blockResponse, textResponse, toolCallResponse } from "../../packages/llm-core/test/response-fixtures";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -513,13 +515,11 @@ test("preserves the primary failure when execution and cleanup both fail", async
             trajectory: "memory://fake/trajectory",
         },
     });
-    dependencies.llmAdapter.generate = async () => ({
-        content: JSON.stringify({
+    dependencies.llmAdapter.generate = async () => (blockResponse({ type: "text", format: "json", text: JSON.stringify({
             kind: "complete",
             summary: "done",
             evidenceSequences: [],
-        }),
-    });
+        }) }));
     const root = new HeadlessCompositionRoot(dependencies);
 
     await assert.rejects(
@@ -557,13 +557,11 @@ test("keeps abort semantics and closes an episode exactly once", async () => {
     );
     dependencies.llmAdapter.generate = async () => {
         controller.abort();
-        return {
-            content: JSON.stringify({
+        return blockResponse({ type: "text", format: "json", text: JSON.stringify({
                 kind: "complete",
                 summary: "should not commit",
                 evidenceSequences: [],
-            }),
-        };
+            }) });
     };
     const root = new HeadlessCompositionRoot(dependencies);
 
@@ -604,7 +602,7 @@ test("does not create an Episode or call the model when persistence cannot open"
     let modelCalls = 0;
     dependencies.llmAdapter.generate = async () => {
         modelCalls += 1;
-        return { content: "{}" };
+        return blockResponse({ type: "text", format: "json", text: "{}" });
     };
     const root = new HeadlessCompositionRoot(dependencies);
 
@@ -678,7 +676,7 @@ test("stops before the model when the first Trajectory append fails", async () =
     const dependencies = createDependencies(adapter, trajectoryStore);
     dependencies.llmAdapter.generate = async () => {
         modelCalls += 1;
-        return { content: "{}" };
+        return blockResponse({ type: "text", format: "json", text: "{}" });
     };
     const root = new HeadlessCompositionRoot(dependencies);
 
@@ -993,7 +991,7 @@ test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing
                 : calls === 3
                     ? { kind: "tool_call", action: { actionId: "pi-evidence", toolId: "benchmark_evidence", input: {} }, memoryPatch: null }
                     : calls === 4 ? { kind: "complete", summary: "done", evidenceSequences: [latestObservationSequence(trajectoryStore)], memoryPatch: null, contextNotes: null } : { kind: "accept" };
-        const call = toolResponseFixture(JSON.stringify({ result })).toolCalls![0]!;
+        const call = readToolCalls(toolResponseFixture(JSON.stringify({ result })))[0]!;
         res.setHeader("Content-Type", "text/event-stream");
         res.end(`data: ${JSON.stringify({
             id: "pi-usage", model: "local-model", choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: call.callId, type: "function", function: { name: call.toolId, arguments: call.argumentsJson } }] }, finish_reason: "tool_calls" }],
@@ -1119,8 +1117,12 @@ test("usage recording preserves native identity and committed provider call/resu
             }
             const name = calls === 1 ? "system_find_tools" : "system_fail_goal";
             const args = calls === 1 ? { query: "benchmark evidence" } : { error: "Expected probe end", memoryPatch: null };
-            return { content: "", toolCalls: [{ callId: "provider-call-" + calls, toolId: name, argumentsJson: JSON.stringify(args) }],
-                continuation: { identity, parts: [{ functionCall: { name, args }, thoughtSignature: "signature-" + calls }] } };
+            return {
+                ...blockResponse(
+                    { type: "tool_call", callId: "provider-call-" + calls, toolId: name, argumentsJson: JSON.stringify(args) },
+                ),
+                continuation: { identity, parts: [{ functionCall: { name, args }, thoughtSignature: "signature-" + calls }] },
+            };
         },
     };
     const result = await new HeadlessCompositionRoot({ ...dependencies, llmAdapter: nativeAdapter }).run(null);

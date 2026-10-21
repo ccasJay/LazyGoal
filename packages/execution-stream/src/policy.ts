@@ -4,10 +4,10 @@ import type { ExecutionStreamEvent, StreamVisibility } from "./event";
  * 订阅者的流事件过滤和队列策略。
  *
  * @remarks
- * 默认只接收 `public` 事件且不开放 reasoning。提高 `minimumVisibility` 会
+ * 默认只接收 `public` 事件且不开放受限内容。提高 `minimumVisibility` 会
  * 同时包含更低级别的事件；`includeReasoning` 必须显式设为 `true` 才会接收
- * `reasoning_delta`。队列达到上限时，Publisher 会先尝试合并增量，仍无法
- * 安全保留时关闭慢订阅者，而不是丢弃控制事件。
+ * `restricted` 事件（公开 reasoning 摘要）。队列达到上限时，Publisher 会先
+ * 尝试合并增量，仍无法安全保留时关闭慢订阅者，而不是丢弃控制事件。
  *
  * @example
  * ```ts
@@ -21,7 +21,7 @@ import type { ExecutionStreamEvent, StreamVisibility } from "./event";
 export interface StreamSubscriptionPolicy {
     /** 最低可见性；默认只接收 `public`。 */
     readonly minimumVisibility?: StreamVisibility;
-    /** 是否显式订阅 reasoning 增量；默认关闭。 */
+    /** 是否显式订阅受限内容（公开 reasoning 摘要）；默认关闭。 */
     readonly includeReasoning?: boolean;
     /** 每个订阅者的最大待消费事件数；默认 128。 */
     readonly maxQueueSize?: number;
@@ -46,7 +46,7 @@ export function isStreamEventVisible(
 ): boolean {
     const minimum = policy.minimumVisibility ?? "public";
     if (VISIBILITY_RANK[event.visibility] > VISIBILITY_RANK[minimum]) return false;
-    if (event.kind === "reasoning_delta" && policy.includeReasoning !== true) return false;
+    if (event.visibility === "restricted" && policy.includeReasoning !== true) return false;
     return true;
 }
 

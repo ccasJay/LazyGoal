@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { decisionScenarios, scoreDecision } from "./decision-guidance-fixtures";
+import { blockResponse } from "../../llm-core/test/response-fixtures";
 import { evaluationRenderers, evaluationRequest, evaluateResponse } from "./decision-guidance-eval";
 
 const renderers = await evaluationRenderers();
-const response = (toolId: string, args: unknown) => ({ content: "", toolCalls: [{ callId: "test", toolId, argumentsJson: JSON.stringify(args) }] });
+const response = (toolId: string, args: unknown) => (blockResponse({ type: "tool_call", callId: "test", toolId, argumentsJson: JSON.stringify(args) }));
 
 test("对照请求仅改变模板与系统工具描述，不改变状态、授权、输入 Schema 或判据", () => {
     assert.equal(decisionScenarios.length, 17);
@@ -36,8 +37,8 @@ test("评分器拒绝多调用、非法写入、错误完成和未执行 checkpo
     const checkpointPlan = evaluationRequest(checkpoint, renderers.new, "strict");
     const correct = response("system_context_checkpoint", {});
     assert.equal(evaluateResponse(checkpoint, checkpointPlan, correct).passed, true);
-    assert.equal(evaluateResponse(checkpoint, checkpointPlan, { content: "Done" }).criticalViolation, true);
-    assert.equal(evaluateResponse(checkpoint, checkpointPlan, { ...correct, toolCalls: [...correct.toolCalls, ...correct.toolCalls] }).passed, false);
+    assert.equal(evaluateResponse(checkpoint, checkpointPlan, blockResponse({ type: "text", format: "plain", text: "Done" })).criticalViolation, true);
+    assert.equal(evaluateResponse(checkpoint, checkpointPlan, { blocks: [...correct.blocks, ...correct.blocks].map((block, index) => ({ ...block, index })) }).passed, false);
     const verify = decisionScenarios[5]!;
     const early = evaluateResponse(verify, evaluationRequest(verify, renderers.new, "strict"),
         response("system_complete_task", { summary: "Done", completionEvidence: [{ criterionIndex: 0, evidenceSequences: [2] }] }));
@@ -61,7 +62,7 @@ test("关键参数评分拒绝无效修复、错误对象和伪造完成证据",
 test("非原生文本决策虽可解析，也不算通过原生调用协议", () => {
     const scenario = decisionScenarios[11]!;
     const result = evaluateResponse(scenario, evaluationRequest(scenario, renderers.new, "strict"),
-        { content: JSON.stringify({ result: { kind: "context_checkpoint", memoryPatch: null } }) });
+        blockResponse({ type: "text", format: "json", text: JSON.stringify({ result: { kind: "context_checkpoint", memoryPatch: null } }) }));
     assert.equal(result.passed, false);
     assert.equal(result.protocolValid, false);
 });

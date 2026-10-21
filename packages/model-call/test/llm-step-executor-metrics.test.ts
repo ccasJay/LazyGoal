@@ -1,4 +1,7 @@
 import { toolResponseFixture } from "../../agent/test/tool-response-fixture";
+import { blockResponse } from "../../llm-core/test/response-fixtures";
+import { readToolCalls } from "../../llm-core/src/index";
+import { ExecutionAbortedError } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -108,6 +111,23 @@ function input(): Parameters<LLMStepExecutor["execute"]>[0] {
 
 test("LLMStepExecutor records provider usage, request duration, and first-text-to-completion duration", async () => {
     const metricsStore = new CaptureMetricsStore();
+    const decisionText = JSON.stringify({
+        result: {
+            kind: "complete",
+            summary: "检查完成",
+            completionEvidence: [],
+            memoryPatch: null,
+            contextNotes: null,
+        },
+    });
+    const streamedResponse: LLMResponse = {
+        ...blockResponse(
+            { type: "text", format: "json", text: decisionText },
+            { type: "tool_call", callId: "fixture-call", toolId: "system_complete_task",
+                argumentsJson: JSON.stringify({ summary: "检查完成", completionEvidence: [], memoryPatch: null }) },
+        ),
+        providerMetadata: { usage: { inputTokens: 120, outputTokens: 18, cachedInputTokens: 45 } },
+    };
     const adapter: LLMAdapter = {
         structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> {
@@ -116,15 +136,17 @@ test("LLMStepExecutor records provider usage, request duration, and first-text-t
         async *stream(): AsyncIterable<LLMStreamEvent> {
             yield { kind: "started" };
             await new Promise((resolve) => setTimeout(resolve, 15));
-            yield { kind: "assistant_text_delta", text: "{" };
+            yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "json" };
+            yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: decisionText.slice(0, 5) };
             await new Promise((resolve) => setTimeout(resolve, 2));
-            yield { kind: "assistant_text_delta", text: "}" };
-            yield {
-                kind: "completed",
-                response: completedResponse({
-                    usage: { inputTokens: 120, outputTokens: 18, cachedInputTokens: 45 },
-                }),
-            };
+            yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: decisionText.slice(5) };
+            yield { kind: "content_block_completed", delivery: "incremental", block: { index: 0, type: "text", format: "json", text: decisionText } };
+            yield { kind: "content_block_started", index: 1, blockType: "tool_call", delivery: "incremental" };
+            const argumentsJson = "{\"summary\":\"检查完成\",\"completionEvidence\":[],\"memoryPatch\":null}";
+            yield { kind: "content_block_delta", index: 1, deltaKind: "tool_arguments", delta: argumentsJson };
+            yield { kind: "content_block_completed", delivery: "incremental",
+                block: { index: 1, type: "tool_call", callId: "fixture-call", toolId: "system_complete_task", argumentsJson } };
+            yield { kind: "completed", response: streamedResponse };
         },
     };
 
@@ -224,4 +246,79 @@ test("LLMStepExecutor 以 goal id 作为请求会话身份传给适配器", asyn
     const decision = await executorFor(adapter, new CaptureMetricsStore()).execute(input());
     assert.equal(decision.kind, "complete");
     assert.equal(captured?.sessionId, "goal-metrics");
+});
+
+test("多块流式调用仍只记录一次调用开始与结束，且取消使用 cancelled 结果", async () => {
+    const metricsStore = new CaptureMetricsStore();
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(): Promise<LLMResponse> { throw new Error("stream should be used"); },
+        async *stream(): AsyncIterable<LLMStreamEvent> {
+            const call = readToolCalls(completedResponse())[0]!;
+            yield { kind: "started" };
+            yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "json" };
+            yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: "{" };
+            yield { kind: "content_block_completed", delivery: "incremental", block: { index: 0, type: "text", format: "json", text: "{" } };
+            yield { kind: "content_block_started", index: 1, blockType: "reasoning", delivery: "whole" };
+            yield { kind: "content_block_completed", delivery: "whole", block: { index: 1, type: "reasoning", text: "推演" } };
+            yield { kind: "content_block_started", index: 2, blockType: "tool_call", delivery: "incremental" };
+            yield { kind: "content_block_delta", index: 2, deltaKind: "tool_arguments", delta: call.argumentsJson };
+            yield { kind: "content_block_completed", delivery: "incremental", block: { index: 2, type: "tool_call", ...call } };
+            yield { kind: "completed", response: blockResponse({ type: "text", format: "json", text: "{" }, { type: "reasoning", text: "推演" }, { type: "tool_call", ...call }) };
+        },
+    };
+
+    const decision = await executorFor(adapter, metricsStore).execute(input());
+    assert.equal(decision.kind, "complete");
+    assert.deepEqual(metricsStore.records.map(record => record.recordType), ["call_started", "call_finished"]);
+    const finished = metricsStore.records[1];
+    assert.ok(finished?.recordType === "call_finished");
+    assert.deepEqual(finished.usage, { source: "unavailable" });
+
+    const cancelling = new AbortController();
+    const cancelStore = new CaptureMetricsStore();
+    const cancelledAdapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(): Promise<LLMResponse> { throw new Error("stream should be used"); },
+        async *stream(): AsyncIterable<LLMStreamEvent> {
+            yield { kind: "started" };
+            yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "json" };
+            yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: "partial" };
+            cancelling.abort();
+            yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: "late" };
+        },
+    };
+    await assert.rejects(
+        executorFor(cancelledAdapter, cancelStore).execute({
+            ...input(),
+            control: { signal: cancelling.signal },
+        }),
+        (error: unknown) => error instanceof ExecutionAbortedError,
+    );
+    const cancelled = cancelStore.records.find(record => record.recordType === "call_finished");
+    assert.ok(cancelled?.recordType === "call_finished");
+    assert.equal(cancelled.outcome, "cancelled");
+    assert.deepEqual(cancelled.usage, { source: "unavailable" });
+});
+
+test("整块交付的流不伪造首个正文到完成的解码耗时", async () => {
+    const metricsStore = new CaptureMetricsStore();
+    const call = readToolCalls(completedResponse())[0]!;
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(): Promise<LLMResponse> { throw new Error("stream should be used"); },
+        async *stream(): AsyncIterable<LLMStreamEvent> {
+            yield { kind: "started" };
+            yield { kind: "content_block_started", index: 0, blockType: "tool_call", delivery: "whole" };
+            yield { kind: "content_block_completed", delivery: "whole", block: { index: 0, type: "tool_call", ...call } };
+            yield { kind: "completed", response: blockResponse({ type: "tool_call", ...call }) };
+        },
+    };
+
+    const decision = await executorFor(adapter, metricsStore).execute(input());
+    assert.equal(decision.kind, "complete");
+    const finished = metricsStore.records.find(record => record.recordType === "call_finished");
+    assert.ok(finished?.recordType === "call_finished");
+    assert.equal(finished.decodeDurationMs, undefined, "整块交付不得伪装逐 token 解码速率");
+    assert.ok((finished.requestDurationMs ?? 0) > 0);
 });

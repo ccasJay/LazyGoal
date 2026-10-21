@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import type { LLMAdapter } from "../../../packages/llm-core/src/index";
+import { toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
 import type { LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import type {
     PermissionMode,
@@ -43,32 +44,26 @@ class AskUserAdapter implements LLMAdapter {
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.calls.push(request);
         if (this.calls.length === 1) {
-            return {
-                content: "",
-                toolCalls: [{
-                    callId: "fixture-ask-user",
-                    toolId: "ask_user",
-                    argumentsJson: JSON.stringify({
-                        questions: [
-                            {
-                                header: "继续方式",
-                                question: "Which path should be taken?",
-                                options: [{ label: "Path A" }, { label: "Path B" }],
-                                multiSelect: false,
-                            },
-                        ],
-                    }),
-                }],
-            };
+            return toolCallResponse({
+                callId: "fixture-ask-user",
+                toolId: "ask_user",
+                argumentsJson: JSON.stringify({
+                    questions: [
+                        {
+                            header: "继续方式",
+                            question: "Which path should be taken?",
+                            options: [{ label: "Path A" }, { label: "Path B" }],
+                            multiSelect: false,
+                        },
+                    ],
+                }),
+            });
         }
-        return {
-            content: "",
-            toolCalls: [{
-                callId: "fixture-wait",
-                toolId: "system_wait_for_input",
-                argumentsJson: JSON.stringify({ reason: "等待用户确认" }),
-            }],
-        };
+        return toolCallResponse({
+            callId: "fixture-wait",
+            toolId: "system_wait_for_input",
+            argumentsJson: JSON.stringify({ reason: "等待用户确认" }),
+        });
     }
 }
 

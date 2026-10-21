@@ -153,7 +153,7 @@ test("Worker runtime rejects metadata that could cross task or workspace boundar
             maxSteps: 1,
             structuredOutputMode: "strict",
         },
-        llmAdapter: { structuredOutputMode: "strict", generate: async () => ({ content: "" }) },
+        llmAdapter: { structuredOutputMode: "strict", generate: async () => ({ blocks: [] }) },
         renderer: {
             render: () => "system",
             renderDynamicSections: () => [],

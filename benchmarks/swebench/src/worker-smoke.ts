@@ -61,18 +61,18 @@ export async function runSwebenchWorkerSmoke(): Promise<void> {
             generate: async (request) => {
                 modelCalls += 1;
                 if (modelCalls === 1) {
-                    return { content: JSON.stringify({ result: { kind: "tool_call", memoryPatch: null,
+                    return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ result: { kind: "tool_call", memoryPatch: null,
                         action: { actionId: "worker-smoke-env", toolId: "bash", input: {
                             command: "python -c 'import sys; assert sys.prefix == \"/opt/miniconda3/envs/testbed\"; print(sys.executable)' && python -m pytest --version && pytest --version",
                             timeoutMs: null,
-                        } } } }) };
+                        } } } }) }] };
                 }
                 if (modelCalls === 2) {
-                    return { content: JSON.stringify({ result: {
+                    return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ result: {
                         kind: "tool_call",
                         action: { actionId: "worker-smoke-write", toolId: "write_file", input: { path: "lazygoal-worker-smoke.txt", content: "worker smoke\n" } },
                         memoryPatch: null,
-                    } }) };
+                    } }) }] };
                 }
                 const context = request.messages.at(-1)?.content;
                 if (typeof context !== "string") throw new TypeError("Worker smoke expected serialized execution context");
@@ -80,9 +80,9 @@ export async function runSwebenchWorkerSmoke(): Promise<void> {
                 const sequence = parsed.trajectoryContext?.hot?.flatMap((unit) => unit.events ?? [])
                     .filter((event) => event.eventType === "observation_recorded").at(-1)?.sequence;
                 if (typeof sequence !== "number") throw new Error("Worker smoke did not receive the write observation");
-                return { content: JSON.stringify({ result: {
+                return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ result: {
                     kind: "complete", summary: "Worker smoke completed", completionEvidence: [{ criterionIndex: 0, evidenceSequences: [sequence] }], memoryPatch: null,
-                } }) };
+                } }) }] };
             },
         };
         const metadata = {

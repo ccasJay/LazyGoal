@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { LLMAdapter } from "../../llm-core/src/index";
-import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
+import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
+import { textResponse } from "../../llm-core/test/response-fixtures";
 import {
     createGoal,
     } from "../../runtime/src/index";
@@ -116,13 +117,11 @@ class BlockingAssembler {
 
 test("LLMStepExecutor passes the signal and rejects before parsing after abort", async () => {
     const controller = new AbortController();
-    const adapter = new BlockingAdapter({
-        content: JSON.stringify({
-            kind: "complete",
-            summary: "not persisted",
-            completionEvidence: [],
-        }),
-    });
+    const adapter = new BlockingAdapter(textResponse(JSON.stringify({
+        kind: "complete",
+        summary: "not persisted",
+        completionEvidence: [],
+    }), "json"));
     const executor = new LLMStepExecutor({
         adapter,
         renderer,
@@ -150,4 +149,44 @@ test("LLMStepExecutor passes the signal and rejects before parsing after abort",
         (adapter.controls[0] as { readonly signal?: AbortSignal }).signal,
         controller.signal,
     );
+});
+
+
+test("流式阶段在 chunk 间取消时传播取消错误、关闭本次迭代器且不返回部分响应", async () => {
+    const controller = new AbortController();
+    let released = 0;
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(): Promise<LLMResponse> {
+            throw new Error("stream adapter must not call generate");
+        },
+        async *stream(): AsyncIterable<LLMStreamEvent> {
+            try {
+                yield { kind: "started" };
+                yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "json" };
+                yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: "partial" };
+                controller.abort();
+                yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: "late" };
+            } finally {
+                released += 1;
+            }
+        },
+    };
+    const executor = new LLMStepExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    });
+
+    await assert.rejects(
+        executor.execute({
+            goal: createStepGoal(),
+            authorizedTools: [],
+            workingMemory: currentWorkingMemory,
+            control: { signal: controller.signal },
+        }),
+        (error: unknown) => error instanceof ExecutionAbortedError,
+    );
+    assert.equal(released, 1, "取消后必须释放本次流迭代器");
 });

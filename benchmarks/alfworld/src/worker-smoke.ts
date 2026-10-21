@@ -51,7 +51,7 @@ export async function runAlfworldWorkerSmoke(): Promise<void> {
             generate: async (request) => {
                 calls += 1;
                 if (calls === 1) {
-                    return { content: JSON.stringify({ result: {
+                    return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ result: {
                         kind: "task_proposal",
                         planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                         task: {
@@ -63,14 +63,14 @@ export async function runAlfworldWorkerSmoke(): Promise<void> {
                         },
                         approvalRequest: "Approve the ALFWorld smoke task.",
                         memoryPatch: null,
-                    } }) };
+                    } }) }] };
                 }
                 if (calls === 2) {
-                    return { content: JSON.stringify({ result: {
+                    return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ result: {
                         kind: "tool_call",
                         action: { actionId: "container-smoke-reset", toolId: "alfworld_reset", input: {} },
                         memoryPatch: null,
-                    } }) };
+                    } }) }] };
                 }
                 const context = request.messages.at(-1)?.content;
                 if (typeof context !== "string") throw new Error("ALFWorld smoke expected serialized execution context");
@@ -78,12 +78,12 @@ export async function runAlfworldWorkerSmoke(): Promise<void> {
                 const sequence = parsed.trajectoryContext?.hot?.flatMap((unit) => unit.events ?? [])
                     .filter((event) => event.eventType === "observation_recorded").at(-1)?.sequence;
                 if (typeof sequence !== "number") throw new Error("ALFWorld smoke did not receive the reset observation");
-                return { content: JSON.stringify({ result: {
+                return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ result: {
                     kind: "complete",
                     summary: "container smoke",
                     completionEvidence: [{ criterionIndex: 0, evidenceSequences: [sequence] }],
                     memoryPatch: null,
-                } }) };
+                } }) }] };
             },
         };
         const result = await runAlfworldSupervisor({

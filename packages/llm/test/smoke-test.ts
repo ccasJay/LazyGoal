@@ -1,4 +1,5 @@
 import { createLlmAdapter } from "../src/index";
+import { readAssistantText } from "../../llm-core/src/index";
 import { readLLMConfig } from "../../config/src/index";
 import "dotenv/config";
 
@@ -17,7 +18,7 @@ async function main(): Promise<void> {
         ],
     });
 
-    console.log("Model response:", response.content);
+    console.log("Model response:", readAssistantText(response));
 }
 
 main().catch((error: unknown) => {

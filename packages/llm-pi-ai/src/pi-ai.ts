@@ -1,4 +1,4 @@
-import { createModels, createProvider, hasApi, type StreamOptions, type Model, type Api, type Context, type AssistantMessage, type AssistantMessageEvent } from "@earendil-works/pi-ai";
+import { createModels, createProvider, hasApi, type Api, type AssistantMessage, type AssistantMessageEvent, type Context, type JsonObject, type Model, type StreamOptions } from "@earendil-works/pi-ai";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
@@ -12,10 +12,11 @@ import {
     classifyTransientModelFailure,
     type LLMAdapter,
     type LLMConfig,
+    type LLMContentBlock,
+    type LLMContentDelivery,
     type LLMRequest,
     type LLMResponse,
     type LLMStreamEvent,
-    type LLMToolCall,
 } from "../../llm-core/src/index";
 import { ExecutionAbortedError, throwIfAborted, type ExecutionControl } from "../../execution-control/src/index";
 
@@ -64,6 +65,35 @@ export function buildPiAiRequestOptions(input: {
         ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
         headers: { "User-Agent": LAZYGOAL_USER_AGENT },
     };
+}
+
+/**
+ * 把 pi-ai 的内容块转换为供应商无关的完整响应。
+ *
+ * @remarks
+ * 有原始参数分片时保留其文本；仅在 SDK 只提供解析对象时才使用协议的稳定序列化。
+ */
+function argumentsJsonOf(args: JsonObject | string | undefined): string {
+    return typeof args === "string" ? args : JSON.stringify(args ?? {});
+}
+
+/** 用 SDK 解析后的参数核对原始分片语义；空白与键顺序差异不改写已结束块。 */
+function verifyToolCallArguments(raw: string | undefined, toolCall: { readonly arguments: JsonObject }): void {
+    if (raw === undefined || raw.length === 0) return;
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw);
+    } catch {
+        // 非法 JSON 保留原始文本，由阶段解码拒绝，不在适配器内修复。
+        return;
+    }
+    if (JSON.stringify(parsed) !== JSON.stringify(toolCall.arguments ?? {})) {
+        throw new PiAiProviderError(
+            "pi-ai",
+            "error",
+            "Provider tool call arguments changed after the streamed fragments ended",
+        );
+    }
 }
 
 /**
@@ -165,11 +195,11 @@ export class PiAiAdapter implements LLMAdapter {
     }
 
     /**
-     * 将 pi-ai 的 AssistantMessage 流转换为供应商无关的事件。
+     * 将 pi-ai 的 AssistantMessage 流转换为供应商无关的有序块事件。
      *
      * @param request - 当前模型请求，用于保持与 `generate()` 相同的校验和工具语义。
      * @param control - 当前执行调用的中止控制。
-     * @returns 归一化的增量和最终响应。
+     * @returns 带真实内容索引的块开始、增量、完整结束与唯一成功完成。
      */
     async *stream(
         request: LLMRequest,
@@ -184,6 +214,9 @@ export class PiAiAdapter implements LLMAdapter {
         const context = this.toContext(request);
         yield { kind: "started" };
 
+        // 工具参数只保留原始分片文本；SDK 解析后的对象只用于语义核对，绝不改写已结束块。
+        const toolArguments = new Map<number, string>();
+        const thinkingDelivery = new Map<number, LLMContentDelivery>();
         let completed = false;
         try {
             const options = {
@@ -201,32 +234,118 @@ export class PiAiAdapter implements LLMAdapter {
                     ...options,
                     ...(request.toolChoice === undefined ? {} : { toolChoice: request.toolChoice }),
                 });
-            for await (const event of stream as AsyncIterable<AssistantMessageEvent>) {
-                throwIfAborted(control);
-                if (event.type === "text_delta" && event.delta.length > 0) {
-                    yield { kind: "assistant_text_delta", text: event.delta };
-                } else if (event.type === "thinking_delta" && event.delta.length > 0) {
-                    yield { kind: "reasoning_delta", text: event.delta };
-                } else if (event.type === "toolcall_delta" && event.delta.length > 0) {
-                    yield {
-                        kind: "model_tool_call_delta",
-                        delta: event.delta,
-                        contentIndex: event.contentIndex,
-                    };
-                } else if (event.type === "done") {
-                    completed = true;
-                    yield { kind: "completed", response: this.toResponse(request, event.message) };
-                } else if (event.type === "error") {
-                    if (event.reason === "aborted") throw new ExecutionAbortedError();
-                    const transientFailure = classifyTransientModelFailure(event.error);
-                    if (transientFailure !== undefined) throw transientFailure;
-                    throw new PiAiProviderError(
-                        this.config.provider,
-                        event.reason,
-                        `Provider "${this.config.provider}" did not complete a text response (${event.reason})`,
-                    );
+            let primaryError: unknown;
+            let sdkIterator: AsyncIterator<AssistantMessageEvent> | undefined;
+            try {
+                sdkIterator = (stream as AsyncIterable<AssistantMessageEvent>)[Symbol.asyncIterator]();
+                while (true) {
+                    const next = await sdkIterator.next();
+                    if (next.done === true) break;
+                    const event = next.value;
+                    throwIfAborted(control);
+                    switch (event.type) {
+                    case "text_start":
+                        yield {
+                            kind: "content_block_started", index: event.contentIndex,
+                            blockType: "text", delivery: "incremental", format: "plain",
+                        };
+                        break;
+                    case "text_delta":
+                        if (event.delta.length > 0) {
+                            yield {
+                                kind: "content_block_delta", index: event.contentIndex,
+                                deltaKind: "text", delta: event.delta,
+                            };
+                        }
+                        break;
+                    case "text_end":
+                        yield {
+                            kind: "content_block_completed", delivery: "incremental",
+                            block: { index: event.contentIndex, type: "text", format: "plain", text: event.content },
+                        };
+                        break;
+                    case "thinking_start": {
+                        // 被安全过滤的 thinking 在开始时已完整，明确按整块交付，不伪造增量。
+                        const existing = event.partial.content[event.contentIndex];
+                        const delivery = existing?.type === "thinking" && existing.thinking.length > 0 ? "whole" : "incremental";
+                        thinkingDelivery.set(event.contentIndex, delivery);
+                        yield { kind: "content_block_started", index: event.contentIndex, blockType: "reasoning", delivery };
+                        break;
+                    }
+                    case "thinking_delta":
+                        if (event.delta.length > 0) {
+                            yield {
+                                kind: "content_block_delta", index: event.contentIndex,
+                                deltaKind: "reasoning", delta: event.delta,
+                            };
+                        }
+                        break;
+                    case "thinking_end":
+                        yield {
+                            kind: "content_block_completed",
+                            delivery: thinkingDelivery.get(event.contentIndex) ?? "incremental",
+                            block: { index: event.contentIndex, type: "reasoning", text: event.content },
+                        };
+                        break;
+                    case "toolcall_start":
+                        yield {
+                            kind: "content_block_started", index: event.contentIndex,
+                            blockType: "tool_call", delivery: "incremental",
+                        };
+                        break;
+                    case "toolcall_delta": {
+                        if (event.delta.length === 0) break;
+                        toolArguments.set(event.contentIndex, (toolArguments.get(event.contentIndex) ?? "") + event.delta);
+                        yield {
+                            kind: "content_block_delta", index: event.contentIndex,
+                            deltaKind: "tool_arguments", delta: event.delta,
+                        };
+                        break;
+                    }
+                    case "toolcall_end": {
+                        const raw = toolArguments.get(event.contentIndex);
+                        verifyToolCallArguments(raw, event.toolCall);
+                        yield {
+                            kind: "content_block_completed", delivery: "incremental",
+                            block: {
+                                index: event.contentIndex, type: "tool_call",
+                                callId: event.toolCall.id, toolId: event.toolCall.name,
+                                argumentsJson: raw ?? argumentsJsonOf(event.toolCall.arguments),
+                            },
+                        };
+                        break;
+                    }
+                    case "done":
+                        completed = true;
+                        yield { kind: "completed", response: this.toResponse(request, event.message, toolArguments) };
+                        break;
+                    case "error":
+                        if (event.reason === "aborted") throw new ExecutionAbortedError();
+                        {
+                            const transientFailure = classifyTransientModelFailure(event.error);
+                            if (transientFailure !== undefined) throw transientFailure;
+                            throw new PiAiProviderError(
+                                this.config.provider,
+                                event.reason,
+                                `Provider "${this.config.provider}" did not complete a text response (${event.reason})`,
+                            );
+                        }
+                    }
+                }
+            } catch (error) {
+                primaryError = error;
+            } finally {
+                // 释放本次拥有的迭代器；清理异常不覆盖主失败原因，消费方提前退出同样释放。
+                if (sdkIterator?.return !== undefined) {
+                    try {
+                        await sdkIterator.return();
+                    } catch {
+                        // 迭代清理失败不改变调用方的主错误。
+                    }
                 }
             }
+            if (primaryError !== undefined) throw primaryError;
+
             throwIfAborted(control);
             if (!completed) {
                 throw new PiAiProviderError(
@@ -256,7 +375,11 @@ export class PiAiAdapter implements LLMAdapter {
         throw new LLMRequestModeMismatchError(`PiAiAdapter cannot require tool calls for API "${model.api}"`);
     }
 
-    private toResponse(request: LLMRequest, response: AssistantMessage): LLMResponse {
+    private toResponse(
+        request: LLMRequest,
+        response: AssistantMessage,
+        rawToolArguments?: ReadonlyMap<number, string>,
+    ): LLMResponse {
         const hasTools = request.tools !== undefined && request.tools.length > 0;
         if (response.stopReason === "error") {
             const transientFailure = classifyTransientModelFailure(response);
@@ -279,23 +402,31 @@ export class PiAiAdapter implements LLMAdapter {
         const piUsage = Object.fromEntries(Object.entries({ input, output, cacheRead, cacheWrite, reasoning })
             .filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] >= 0));
 
-        const textBlocks = response.content.flatMap(block => block.type === "text" ? [block.text] : []);
-        const content = textBlocks.join("");
-
-        const toolCalls: LLMToolCall[] = response.content.flatMap(block => {
-            if (block.type === "toolCall") {
-                return [{
-                    callId: block.id,
-                    toolId: block.name,
-                    argumentsJson: typeof block.arguments === "string" ? block.arguments : JSON.stringify(block.arguments ?? {}),
-                }];
+        // pi-ai 内容数组顺序即真实块归属；本适配器不请求图片，未知块类型在协议边界拒绝。
+        const blocks: LLMContentBlock[] = [];
+        for (const block of response.content) {
+            switch (block.type) {
+                case "text":
+                    blocks.push({ index: blocks.length, type: "text", format: "plain", text: block.text });
+                    break;
+                case "thinking":
+                    blocks.push({ index: blocks.length, type: "reasoning", text: block.thinking });
+                    break;
+                case "toolCall":
+                    blocks.push({
+                        index: blocks.length, type: "tool_call", callId: block.id, toolId: block.name,
+                        argumentsJson: rawToolArguments?.get(blocks.length)
+                            ?? (typeof block.arguments === "string" ? block.arguments : argumentsJsonOf(block.arguments)),
+                    });
+                    break;
+                default:
+                    throw new PiAiProviderError(this.config.provider, response.stopReason,
+                        `Provider "${this.config.provider}" returned an unsupported content block`);
             }
-            return [];
-        });
+        }
 
         return {
-            content,
-            ...(toolCalls.length > 0 ? { toolCalls } : {}),
+            blocks,
             providerMetadata: {
                 provider: response.provider, api: response.api, model: response.model,
                 ...(response.responseId === undefined ? {} : { responseId: response.responseId }),

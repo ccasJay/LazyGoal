@@ -19,7 +19,13 @@ import {
     type SystemToolDeclaration,
 } from "../../model-contracts/src/index";
 import { ContractValidationError } from "../../contracts/src/errors";
-import type { LLMResponse, LLMToolCall } from "../../llm-core/src/index";
+import {
+    readAssistantText,
+    readReasoningText,
+    readToolCalls,
+    type LLMResponse,
+    type LLMToolCall,
+} from "../../llm-core/src/index";
 import { LLMResponseProtocolError } from "./errors";
 
 /** Decide 响应的形状分级结果：单调用进入既有决策路径，多调用成为顺序批次，零调用且有正文归为 Assistant 消息。 */
@@ -40,10 +46,11 @@ export type DecideResponseOutcome =
  * ```
  */
 export function classifyDecideResponse(response: LLMResponse): DecideResponseOutcome {
-    const calls = response.toolCalls ?? [];
+    const calls = readToolCalls(response);
     if (calls.length === 1) return { kind: "call", call: calls[0]! };
     if (calls.length > 1) return { kind: "batch", calls };
-    const text = response.content.trim();
+    const content = readAssistantText(response);
+    const text = content.trim();
     if (text.length === 0) {
         throw new LLMResponseProtocolError("Model response contains no usable decision", {
             issues: [{
@@ -53,7 +60,7 @@ export function classifyDecideResponse(response: LLMResponse): DecideResponseOut
             }],
         });
     }
-    return { kind: "assistant_message", text: response.content };
+    return { kind: "assistant_message", text: content };
 }
 
 /**
@@ -68,7 +75,7 @@ export function classifyDecideResponse(response: LLMResponse): DecideResponseOut
  * ```
  */
 export function requireSingleToolCall(response: LLMResponse): LLMToolCall {
-    const calls = response.toolCalls ?? [];
+    const calls = readToolCalls(response);
     if (calls.length !== 1) {
         const code = calls.length === 0 ? "missing_tool_call" : "multiple_tool_calls";
         throw new LLMResponseProtocolError("Model response requires exactly one declared tool call", {
@@ -171,17 +178,19 @@ export function assertNativeResponseIdentity(
  * 把原生响应投影为可续接的 Assistant 消息。
  *
  * @param response - Adapter 返回的原始响应。
- * @returns 保留内容、推理、工具调用与续接数据的 Assistant 消息。
+ * @returns 由完整内容块派生、保留续接数据的 Assistant 消息；无工具块时省略 `toolCalls`。
  * @example
  * ```ts
  * const message = nativeResponseMessage(response);
  * ```
  */
 export function nativeResponseMessage(response: LLMResponse): ModelAssistantMessage {
+    const reasoning = readReasoningText(response);
+    const toolCalls = readToolCalls(response);
     return {
-        role: "assistant", content: response.content,
-        ...(response.reasoning === undefined ? {} : { reasoning: response.reasoning }),
-        ...(response.toolCalls === undefined ? {} : { toolCalls: response.toolCalls }),
+        role: "assistant", content: readAssistantText(response),
+        ...(reasoning === undefined ? {} : { reasoning }),
+        ...(toolCalls.length === 0 ? {} : { toolCalls }),
         ...(response.continuation === undefined ? {} : { continuation: response.continuation }),
     };
 }
@@ -198,10 +207,10 @@ export function nativeResponseMessage(response: LLMResponse): ModelAssistantMess
  * ```
  */
 export function decodeThinkResponse(response: LLMResponse): string {
-    if ((response.toolCalls?.length ?? 0) > 0) {
+    if (readToolCalls(response).length > 0) {
         throw new LLMResponseProtocolError("Think stage must not return tool calls");
     }
-    const output = response.content.trim();
+    const output = readAssistantText(response).trim();
     if (output.length === 0) {
         throw new LLMResponseProtocolError("Think stage returned empty text");
     }

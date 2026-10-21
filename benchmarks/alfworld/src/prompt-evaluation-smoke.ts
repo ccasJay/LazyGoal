@@ -91,7 +91,7 @@ export async function runPromptEvaluationSmoke(): Promise<void> {
             generate: async (request) => {
                 calls += 1;
                 if (calls === 1) {
-                    return { content: JSON.stringify({ result: {
+                    return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ result: {
                         kind: "task_proposal",
                         planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                         task: {
@@ -103,10 +103,10 @@ export async function runPromptEvaluationSmoke(): Promise<void> {
                         },
                         approvalRequest: "Approve the ALFWorld Prompt Evaluation smoke task.",
                         memoryPatch: null,
-                    } }) };
+                    } }) }] };
                 }
                 if (calls === 2) {
-                    return { content: JSON.stringify({ result: {
+                    return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ result: {
                         kind: "tool_call",
                         action: {
                             actionId: "prompt-smoke-reset",
@@ -114,7 +114,7 @@ export async function runPromptEvaluationSmoke(): Promise<void> {
                             input: {},
                         },
                         memoryPatch: null,
-                    } }) };
+                    } }) }] };
                 }
                 const context = request.messages.at(-1)?.content;
                 if (typeof context !== "string") {
@@ -130,12 +130,12 @@ export async function runPromptEvaluationSmoke(): Promise<void> {
                 if (typeof sequence !== "number") {
                     throw new Error("Prompt Evaluation smoke did not receive reset observation");
                 }
-                return { content: JSON.stringify({ result: {
+                return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ result: {
                     kind: "complete",
                     summary: "prompt evaluation container smoke",
                     completionEvidence: [{ criterionIndex: 0, evidenceSequences: [sequence] }],
                     memoryPatch: null,
-                } }) };
+                } }) }] };
             },
         };
         const eventLines: string[] = [];

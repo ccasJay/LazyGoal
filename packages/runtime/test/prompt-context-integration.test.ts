@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { contract } from "../../contracts/src/index";
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
+import { textResponse } from "../../llm-core/test/response-fixtures";
 import {
     createModelExecutionBinding,
     LLMStepExecutor,
@@ -73,7 +74,7 @@ class ScriptedAdapter implements LLMAdapter {
         const reply = this.replies[index];
         if (reply === undefined) throw new Error("scripted adapter responses exhausted");
         const content = typeof reply === "function" ? reply(request, index) : reply;
-        return request.toolChoice === "required" ? toolResponseFixture(content) : { content };
+        return request.toolChoice === "required" ? toolResponseFixture(content) : textResponse(content);
     }
 }
 

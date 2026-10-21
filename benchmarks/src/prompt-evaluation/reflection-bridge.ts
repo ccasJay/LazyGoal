@@ -7,7 +7,7 @@ import type { LLMAdapter, LLMRequest } from "../../../packages/llm-core/src/inde
 import { createLlmAdapter, createReflectionLlmAdapter } from "../../../packages/llm/src/index.js";
 import { loadReflectionRuntimeConfig } from "../../../packages/config/src/index.js";
 import { resolveLazyGoalHomePaths } from "../../../packages/config/src/index.js";
-import { readNormalizedUsage } from "../../../packages/llm-core/src/index.js";
+import { readAssistantText, readNormalizedUsage } from "../../../packages/llm-core/src/index.js";
 
 /** 反思响应文本的最大字符数，避免模型回显撑爆机器协议。 */
 export const GEPA_REFLECTION_OUTPUT_MAX_CHARS = 256 * 1024;
@@ -410,7 +410,7 @@ export async function runGepaReflectCli(
 
         const response = await adapter.generate(llmRequest, { signal });
 
-        const outputText = boundText(redactSensitiveString(response.content, env), GEPA_REFLECTION_OUTPUT_MAX_CHARS);
+        const outputText = boundText(redactSensitiveString(readAssistantText(response), env), GEPA_REFLECTION_OUTPUT_MAX_CHARS);
         const normalizedUsage = readNormalizedUsage(response.providerMetadata) ?? {
             inputTokens: 0,
             outputTokens: 0,

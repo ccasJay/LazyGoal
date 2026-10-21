@@ -3,13 +3,19 @@ import { test } from "node:test";
 import { OpenAICompatible } from "../../llm-openai/src/index";
 import { Gemini } from "../../llm-google/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
+import { readAssistantText, readReasoningText, readToolCalls } from "../../llm-core/src/index";
 
 const tools = [{ id: "read_file", description: "Read", parametersSchema: { type: "object", properties: {}, required: [], additionalProperties: false } }];
 const firstRequest: LLMRequest = { messages: [{ role: "user", content: "Read" }], tools, toolChoice: "required", structuredOutput: { name: "unused", schema: { type: "object" } } };
 
 function nextRequest(first: LLMResponse): LLMRequest {
-    return { messages: [firstRequest.messages[0]!, { role: "assistant", content: first.content, reasoning: first.reasoning!, toolCalls: first.toolCalls!, continuation: first.continuation! }, {
-        role: "tool", callId: first.toolCalls![0]!.callId, toolId: "read_file", content: '{"observation":{"kind":"success","output":"file"}}',
+    const reasoning = readReasoningText(first);
+    const toolCalls = readToolCalls(first);
+    return { messages: [firstRequest.messages[0]!, {
+        role: "assistant", content: readAssistantText(first), toolCalls,
+        ...(reasoning === undefined ? {} : { reasoning }), continuation: first.continuation!,
+    }, {
+        role: "tool", callId: toolCalls[0]!.callId, toolId: "read_file", content: '{"observation":{"kind":"success","output":"file"}}',
     }, { role: "user", content: "Continue" }], tools, toolChoice: "required" };
 }
 
@@ -21,8 +27,8 @@ test("OpenAI two-turn dialogue preserves call IDs and supported reasoning extens
         return { choices: [{ message: { content: "Checking", reasoning_content: "Summary", tool_calls: [{ id: "native-id", type: "function", function: { name: "read_file", arguments: "{}" } }] } }] };
     } } } };
     const first = await adapter.generate(firstRequest);
-    assert.equal(first.content, "Checking");
-    assert.equal(first.reasoning, "Summary");
+    assert.equal(readAssistantText(first), "Checking");
+    assert.equal(readReasoningText(first), "Summary");
     await adapter.generate(nextRequest(first));
     assert.equal(requests[0].parallel_tool_calls, false);
     assert.equal(requests[0].response_format, undefined);
@@ -44,8 +50,8 @@ test("Gemini two-turn dialogue preserves signed parts verbatim and returns exact
         return { candidates: [{ content: { role: "model", parts } }] };
     } } };
     const first = await adapter.generate(firstRequest);
-    assert.equal(first.content, "Checking");
-    assert.equal(first.reasoning, "Summary");
+    assert.equal(readAssistantText(first), "Checking");
+    assert.equal(readReasoningText(first), "Summary");
     await adapter.generate(nextRequest(first));
     assert.equal(requests[0].config.responseSchema, undefined);
     assert.equal(requests[0].config.responseMimeType, undefined);
@@ -63,7 +69,7 @@ test("Gemini locally allocated call ID does not fabricate a provider function ID
     } } };
     const first = await adapter.generate(firstRequest);
     await adapter.generate(nextRequest(first));
-    assert.ok(first.toolCalls![0]!.callId);
+    assert.ok(readToolCalls(first)[0]!.callId);
     assert.equal(requests[1].contents[2].parts[0].functionResponse.id, undefined);
 });
 

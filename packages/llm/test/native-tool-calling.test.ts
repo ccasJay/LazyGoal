@@ -4,6 +4,7 @@ import { OpenAICompatible } from "../../llm-openai/src/index";
 import { Gemini } from "../../llm-google/src/index";
 import { PiAiAdapter } from "../../llm-pi-ai/src/index";
 import type { LLMRequest, LLMToolDefinition } from "../../llm-core/src/index";
+import { readAssistantText, readReasoningText, readToolCalls } from "../../llm-core/src/index";
 
 const mockToolDefinition: LLMToolDefinition = {
     id: "system_complete_task",
@@ -87,12 +88,12 @@ test("OpenAICompatible 原生 Function Calling 挂载 tools、strict: true 与 t
     assert.equal(capturedRequest.tools[0].function.strict, true);
 
     // 2. 验证双通道响应
-    assert.equal(response.content, "我分析了任务，决定调用系统完成函数。");
-    assert.ok(response.toolCalls);
-    assert.equal(response.toolCalls.length, 1);
-    assert.equal(response.toolCalls![0]!.callId, "call_abc123");
-    assert.equal(response.toolCalls![0]!.toolId, "system_complete_task");
-    const parsedArgs = JSON.parse(response.toolCalls![0]!.argumentsJson);
+    assert.equal(readAssistantText(response), "我分析了任务，决定调用系统完成函数。");
+    const toolCalls = readToolCalls(response);
+    assert.equal(toolCalls.length, 1);
+    assert.equal(toolCalls[0]!.callId, "call_abc123");
+    assert.equal(toolCalls[0]!.toolId, "system_complete_task");
+    const parsedArgs = JSON.parse(toolCalls[0]!.argumentsJson);
     assert.equal(parsedArgs.summary, "任务已成功实现");
 });
 
@@ -141,10 +142,10 @@ test("OpenAICompatible 无损捕获原生思考模型 reasoning_content 与工�
         tools: [mockToolDefinition],
     });
 
-    assert.equal(response.content, "");
-    assert.equal(response.reasoning, "逐步逻辑推演：首先确认测试用例均已通过，然后调用完成工具。");
-    assert.equal(response.toolCalls?.length, 1);
-    assert.equal(response.toolCalls?.[0]!.toolId, "system_complete_task");
+    assert.equal(readAssistantText(response), "");
+    assert.equal(readReasoningText(response), "逐步逻辑推演：首先确认测试用例均已通过，然后调用完成工具。");
+    assert.equal(readToolCalls(response).length, 1);
+    assert.equal(readToolCalls(response)[0]!.toolId, "system_complete_task");
 });
 
 test("Gemini 原生 Function Calling 挂载 functionDeclarations 与 ANY 模式并提取双通道数据", async () => {
@@ -209,12 +210,12 @@ test("Gemini 原生 Function Calling 挂载 functionDeclarations 与 ANY 模式�
     assert.equal(capturedParams.config.toolConfig.functionCallingConfig.mode, "ANY");
 
     // 2. 验证双通道内容提取
-    assert.equal(response.content, "");
-    assert.equal(response.reasoning, "这是 Gemini 原生生成的思考过程");
-    assert.ok(response.toolCalls);
-    assert.equal(response.toolCalls.length, 1);
-    assert.equal(response.toolCalls![0]!.toolId, "system_complete_task");
-    const parsedArgs = JSON.parse(response.toolCalls![0]!.argumentsJson);
+    assert.equal(readAssistantText(response), "");
+    assert.equal(readReasoningText(response), "这是 Gemini 原生生成的思考过程");
+    const geminiCalls = readToolCalls(response);
+    assert.equal(geminiCalls.length, 1);
+    assert.equal(geminiCalls[0]!.toolId, "system_complete_task");
+    const parsedArgs = JSON.parse(geminiCalls[0]!.argumentsJson);
     assert.equal(parsedArgs.summary, "Gemini 执行完毕");
 });
 
@@ -264,12 +265,12 @@ test("Gemini 纯 functionCall 响应提取工具调用，content 为空字符串
         toolChoice: "required",
     });
 
-    assert.equal(response.content, "");
+    assert.equal(readAssistantText(response), "");
     assert.equal(textPropertyAccessed, false, "当包含工具调用且无文本时，严禁访问 response.text 避免 SDK 产生告警");
-    assert.ok(response.toolCalls);
-    assert.equal(response.toolCalls.length, 1);
-    assert.equal(response.toolCalls[0]!.toolId, "read_file");
-    assert.ok(response.toolCalls[0]!.callId.startsWith("call_"));
+    const calls = readToolCalls(response);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.toolId, "read_file");
+    assert.ok(calls[0]!.callId.startsWith("call_"));
 });
 
 test("PiAiAdapter 原生挂载 tools、隔离 thinking 并提取 toolCall blocks", async () => {
@@ -316,10 +317,12 @@ test("PiAiAdapter 原生挂载 tools、隔离 thinking 并提取 toolCall blocks
     assert.equal(capturedContext.tools.length, 1);
     assert.equal(capturedContext.tools[0].name, "system_complete_task");
 
-    assert.equal(response.content, "");
-    assert.ok(!JSON.stringify(response).includes("PiAi 思考推演流"));
-    assert.ok(response.toolCalls);
-    assert.equal(response.toolCalls.length, 1);
-    assert.equal(response.toolCalls![0]!.callId, "pi_call_1");
-    assert.equal(response.toolCalls![0]!.toolId, "system_complete_task");
+    assert.equal(readAssistantText(response), "");
+    // thinking 保留为受限 reasoning 块，但绝不混入正文或工具参数。
+    assert.equal(readReasoningText(response), "PiAi 思考推演流");
+    assert.equal(JSON.stringify(readToolCalls(response)).includes("PiAi 思考推演流"), false);
+    const piCalls = readToolCalls(response);
+    assert.equal(piCalls.length, 1);
+    assert.equal(piCalls[0]!.callId, "pi_call_1");
+    assert.equal(piCalls[0]!.toolId, "system_complete_task");
 });

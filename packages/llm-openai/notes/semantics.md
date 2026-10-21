@@ -8,3 +8,4 @@
 | OpenAICompatibleConfig | 显式连接配置：API Key、端点、模型、固定模式与可选输出上限。 | [OpenAI 适配](../README.md) | [实现](../src/openai-compatible.ts) |
 | 原生续接身份 | provider/端点/模型/协议组成的回放身份；`reasoning_content` 随身份回传。 | [OpenAI 适配](../README.md) | [实现](../src/openai-compatible.ts) |
 | OpenAI 用量提取 | Chat Completions `usage` 到归一化用量的包内转换；缺失不补零。 | [OpenAI 适配](../README.md) | [用量提取](../src/usage.ts) |
+| Chat Completions 流 | 真实分片归一化为有序块事件；截断、过滤与异常结束明确拒绝，不降级重发。 | [OpenAI 适配](../README.md) | [实现](../src/openai-compatible.ts) |

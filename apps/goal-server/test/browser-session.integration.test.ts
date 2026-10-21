@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
+import { textResponse, toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
 import { createGoal } from "../../../packages/runtime/src/index";
 import { createBrowserSessionAccess } from "../../../packages/browser/src/index";
 import { JsonFileModelPreferenceStore } from "../../../packages/storage/src/index";
@@ -94,14 +95,11 @@ test("真实服务路径：断连与 SSE 关闭不取消执行，busy/旧 Run �
             modelCallCount += 1;
             modelStarted.resolve(undefined);
             await releaseModel.promise;
-            return {
-                content: "",
-                toolCalls: [{
-                    callId: "fixture-wait",
-                    toolId: "system_wait_for_input",
-                    argumentsJson: JSON.stringify({ reason: "等待用户确认" }),
-                }],
-            };
+            return toolCallResponse({
+                callId: "fixture-wait",
+                toolId: "system_wait_for_input",
+                argumentsJson: JSON.stringify({ reason: "等待用户确认" }),
+            });
         },
     };
 
@@ -265,23 +263,21 @@ test("真实 Web 服务恢复保留 Coordinator 接收者、展示活动状态�
         async generate(_request: LLMRequest): Promise<LLMResponse> {
             modelStarted.resolve(undefined);
             await releaseModel.promise;
-            return {
-                content: JSON.stringify({
-                    result: {
-                        kind: "ask_user",
-                        questions: [{
-                            header: "Source",
-                            question: "Which source should I use?",
-                            options: [
-                                { label: "First", description: null },
-                                { label: "Second", description: null },
-                            ],
-                            multiSelect: false,
-                        }],
-                        memoryPatch: null,
-                    },
-                }),
-            };
+            return textResponse(JSON.stringify({
+                result: {
+                    kind: "ask_user",
+                    questions: [{
+                        header: "Source",
+                        question: "Which source should I use?",
+                        options: [
+                            { label: "First", description: null },
+                            { label: "Second", description: null },
+                        ],
+                        multiSelect: false,
+                    }],
+                    memoryPatch: null,
+                },
+            }), "json");
         },
     };
 
