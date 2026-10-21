@@ -217,6 +217,7 @@ export type SessionQueuePauseReason = "run_failed" | "user_interrupt";
  * @remarks
  * 队列本身是 FIFO；每次有效变更（追加、应用、清空、暂停、继续）都推进
  * `revision`。暂停只约束后继 Run 启动，不阻止新消息追加到队尾。
+ * Run 已结束且队列为空时，新消息受理同时解除暂停；已有积压消息须显式继续。
  *
  * @example
  * ```ts

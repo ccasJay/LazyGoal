@@ -13,13 +13,14 @@ import {
     SessionInputAdmission,
     SessionInputAdmissionError,
     TrajectoryCheckpointCommitter,
+    type AgentDecision,
     type AgentProfile,
     type Goal,
     type GoalStore,
     type StepExecutor,
 } from "../src/index";
 import { InMemoryGoalStore, JsonFileGoalStore } from "../../storage/src/index";
-import { currentProtocols, InMemoryTrajectoryStore, messageOutline, trajectoryStoreFor } from "./current-fixtures";
+import { BaseTestStepExecutor, currentProtocols, InMemoryTrajectoryStore, messageOutline, trajectoryStoreFor } from "./current-fixtures";
 
 const profile: AgentProfile = {
     id: "session-profile",
@@ -330,6 +331,45 @@ test("the item quota rejects new messages but keeps existing items and controls 
     });
     assert.equal(afterClear.ok, true);
     assert.equal(afterClear.ok && afterClear.receipt.sequence, MAX_PENDING_SESSION_INPUTS + 2);
+});
+
+test("new messages only lift an empty queue pause after the Run has ended", async () => {
+    for (const status of ["created", "running", "waiting", "completed", "failed", "cancelled"] as const) {
+        const store = new InMemoryGoalStore();
+        const goal = createSessionGoal();
+        await store.save(goal);
+        if (status === "waiting" || status === "completed" || status === "failed") {
+            const executor = new class extends BaseTestStepExecutor {
+                async execute(): Promise<AgentDecision> {
+                    if (status === "waiting") return { kind: "wait", reason: "Waiting" };
+                    if (status === "completed") return { kind: "complete", summary: "Done", evidenceSequences: [] };
+                    return { kind: "fail", error: "Failed" };
+                }
+            }();
+            const runner = new Runner({ store, trajectoryStore: trajectoryStoreFor(store), executor });
+            assert.equal((await runner.runUntilBlocked({ goalId: goal.id, runId: goal.state.run.id })).ok, true);
+        }
+        const current = (await store.restore(goal.id))!;
+        await store.save({
+            ...current,
+            state: {
+                ...current.state,
+                run: { ...current.state.run, status },
+                messageQueue: { revision: 3, items: [], pause: { reason: "user_interrupt", runId: goal.state.run.id } },
+            },
+        });
+        const { admission } = createAdmission(store);
+        const input = { kind: "message", inputId: "input-after-pause", content: "New task" } as const;
+        assert.equal((await admission.admit(goal.id, input)).ok, true);
+        const saved = (await store.restore(goal.id))!;
+        const terminal = status === "completed" || status === "failed" || status === "cancelled";
+        assert.equal(saved.state.messageQueue?.pause === undefined, terminal, status);
+        assert.equal(saved.state.messageQueue?.revision, terminal ? 5 : 4);
+        assert.equal(saved.state.run.status, status);
+        const repeated = await admission.admit(goal.id, input);
+        assert.equal(repeated.ok && repeated.existing, true);
+        assert.deepEqual(await store.restore(goal.id), saved);
+    }
 });
 
 test("queue controls require the observed revision and a paused queue", async () => {

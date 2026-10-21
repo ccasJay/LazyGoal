@@ -1832,6 +1832,8 @@ export class SessionManager implements SessionHandlePort {
         if (status !== "completed" && status !== "failed" && status !== "cancelled") return;
         if (this.executions.has(goalId)) return;
         if (this.activeGoalId !== undefined && this.activeGoalId !== goalId) return;
+        // 终态上的新受理消息或显式继续已通过持久化暂停门禁，允许创建后继 Run。
+        if (status === "failed" || status === "cancelled") this.explicitContinuations.add(goalId);
         this.startExecution(goalId);
     }
 

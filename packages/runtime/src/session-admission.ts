@@ -59,6 +59,7 @@ function rejection(
  * `inputId` 与规范化载荷摘要判定重复或身份冲突，再校验状态与文本额度，然后
  * 追加输入账本、队列与控制事实。受理成功只表示输入已保存，不表示消息已应用、
  * 工具已停止或 Run 已完成；受理本身不调用模型或工具。
+ * 已结束 Run 的空队列受理新消息时同时解除暂停；已有积压消息时保留暂停与 FIFO。
  *
  * 保存失败或结果不明时抛出 {@link SessionInputAdmissionError}；调用方必须使用
  * 原 `inputId` 查询或重试，不得生成新身份。业务拒绝不写入账本。
@@ -211,12 +212,16 @@ export class SessionInputAdmission {
             case "message": {
                 const quota = this.checkTextQuota(goal, input.content.length);
                 if (quota !== undefined) return { planned: false, result: quota };
+                const queue = goal.state.messageQueue;
+                const status = goal.state.run.status;
+                const startsFreshRun = (status === "completed" || status === "failed" || status === "cancelled")
+                    && (queue?.items.length ?? 0) === 0;
                 const nextGoal: Goal = {
                     ...goal,
                     state: {
                         ...goal.state,
                         inputLedger: [...(goal.state.inputLedger ?? []), baseRecord],
-                        messageQueue: appendQueuedMessage(goal.state.messageQueue, {
+                        messageQueue: appendQueuedMessage(startsFreshRun ? withoutQueuePause(queue) : queue, {
                             inputId: input.inputId,
                             content: input.content,
                             sequence,

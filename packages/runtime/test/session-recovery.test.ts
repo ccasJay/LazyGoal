@@ -258,11 +258,18 @@ test("a persisted ask_user wait survives a rebuild and only a matching response 
 
 test("explicit resume matches the latest Run and commit revision and never lifts queue pauses", async () => {
     const store = new InMemoryGoalStore();
+    const entered = deferred();
+    const release = deferred();
     const harness = createHarness({
         store,
-        decide: (_input, callIndex) => callIndex === 1
-            ? { kind: "fail", error: "首个任务失败" }
-            : { kind: "complete", summary: `后继 ${callIndex}`, evidenceSequences: [] },
+        decide: async (_input, callIndex) => {
+            if (callIndex === 1) {
+                entered.resolve();
+                await release.promise;
+                return { kind: "fail", error: "首个任务失败" };
+            }
+            return { kind: "complete", summary: `后继 ${callIndex}`, evidenceSequences: [] };
+        },
     });
 
     const created = await harness.sessions.create({
@@ -273,12 +280,13 @@ test("explicit resume matches the latest Run and commit revision and never lifts
     });
     assert.equal(created.ok, true);
     if (!created.ok) return;
+    await entered.promise;
+    await created.session.send({ kind: "message", inputId: "input-queued", content: "排队的后续任务" });
+    release.resolve();
     await harness.sessions.waitForIdle();
     const failed = (await store.restore("goal-resume"))!;
     assert.equal(failed.state.run.status, "failed");
     const runId = failed.state.run.id;
-    await created.session.send({ kind: "message", inputId: "input-queued", content: "失败后的任务" });
-    await harness.sessions.waitForIdle();
     const queued = (await store.restore("goal-resume"))!;
 
     // 恢复不会自动解除暂停队列，也不会代答等待。
@@ -326,7 +334,7 @@ test("explicit resume matches the latest Run and commit revision and never lifts
     await harness.sessions.waitForIdle();
     const resumed = (await store.restore("goal-resume"))!;
     assert.equal(resumed.state.messageQueue?.items.length, 0);
-    assert.ok(resumed.state.messages.some((message) => message.role === "user" && message.content === "失败后的任务"));
+    assert.ok(resumed.state.messages.some((message) => message.role === "user" && message.content === "排队的后续任务"));
 });
 
 test("a rebuilt instance requires an explicit matching resume before running again", async () => {

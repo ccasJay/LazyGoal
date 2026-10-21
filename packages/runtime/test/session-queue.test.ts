@@ -362,6 +362,43 @@ test("a waiting Run keeps queued messages without starting successors", async ()
     assert.equal(harness.started(), 1);
 });
 
+test("a fresh message after an idle failed Run starts one successor, including after reconnect", async () => {
+    for (const reconnect of [false, true]) {
+        const store = new InMemoryGoalStore();
+        const harness = createHarness({
+            store,
+            runIdPrefix: "run-idle-failure",
+            decide: () => ({ kind: "fail", error: "Initial failure" }),
+        });
+        const created = await createSession(harness, {
+            goalId: "goal-idle-failure", inputId: "input-first", content: "Initial task",
+        });
+        await harness.sessions.waitForIdle();
+        const firstRunId = (await store.restore("goal-idle-failure"))!.state.run.id;
+        const active = reconnect ? createHarness({
+            store,
+            runIdPrefix: "run-reconnected",
+            decide: () => ({ kind: "complete", summary: "Done", evidenceSequences: [] }),
+        }) : harness;
+        const opened = await active.sessions.open("goal-idle-failure");
+        assert.ok(opened.ok);
+        const input = { kind: "message", inputId: "input-followup", content: "Who are you?" } as const;
+        assert.equal((await opened.session.send(input)).ok, true);
+        await active.sessions.waitForIdle();
+        const saved = (await store.restore("goal-idle-failure"))!;
+        assert.notEqual(saved.state.run.id, firstRunId);
+        assert.equal(saved.state.completedRuns?.length, 1);
+        assert.equal(saved.state.inputLedger?.find(record => record.inputId === input.inputId)?.status, "applied");
+        assert.equal(saved.state.messageQueue?.items.length, 0);
+        const calls = active.started();
+        const repeated = await opened.session.send(input);
+        assert.equal(repeated.ok && repeated.existing, true);
+        await active.sessions.waitForIdle();
+        assert.equal(active.started(), calls);
+        assert.deepEqual(active.failures(), []);
+    }
+});
+
 test("a failed Run pauses the queue, and only an explicit continue restarts from the old head", async () => {
     const store = new InMemoryGoalStore();
     const entered = deferred();
@@ -442,12 +479,19 @@ test("a failed Run pauses the queue, and only an explicit continue restarts from
 
 test("clearing the queue only drops unapplied messages and keeps receipts and runs", async () => {
     const store = new InMemoryGoalStore();
+    const entered = deferred();
+    const release = deferred();
     const harness = createHarness({
         store,
         runIdPrefix: "run-clear",
-        decide: (_input, callIndex) => callIndex === 1
-            ? { kind: "fail", error: "首个任务失败" }
-            : { kind: "complete", summary: `后继 ${callIndex}`, evidenceSequences: [] },
+        decide: async (_input, callIndex) => {
+            if (callIndex === 1) {
+                entered.resolve();
+                await release.promise;
+                return { kind: "fail", error: "首个任务失败" };
+            }
+            return { kind: "complete", summary: `后继 ${callIndex}`, evidenceSequences: [] };
+        },
     });
 
     const created = await createSession(harness, {
@@ -455,9 +499,10 @@ test("clearing the queue only drops unapplied messages and keeps receipts and ru
         inputId: "input-first",
         content: "首个任务",
     });
-    await harness.sessions.waitForIdle();
+    await entered.promise;
     await created.session.send({ kind: "message", inputId: "input-a", content: "任务 A" });
     await created.session.send({ kind: "message", inputId: "input-b", content: "任务 B" });
+    release.resolve();
     await harness.sessions.waitForIdle();
 
     const beforeClear = await store.restore("goal-clear");
@@ -509,20 +554,14 @@ test("clearing the queue only drops unapplied messages and keeps receipts and ru
     assert.equal(hasPendingSessionInputs(afterClear), false);
     assert.equal(hasUnsettledSessionWork(afterClear), false);
 
-    // 清空不会被跳过的旧项：显式继续后只执行清空后新增的消息。
+    // 清空后的新消息启动新 Run，不执行已清空的旧项。
     const next = await created.session.send({ kind: "message", inputId: "input-d", content: "任务 D" });
     assert.equal(next.ok, true);
     await harness.sessions.waitForIdle();
-    assert.equal(harness.started(), 1);
-    const continuing = await created.session.send({
-        kind: "queue_control",
-        inputId: "control-continue",
-        action: "continue",
-        queueRevision: afterClear.state.messageQueue!.revision + 1,
-    });
-    assert.equal(continuing.ok, true);
-    await harness.sessions.waitForIdle();
+    assert.equal(harness.started(), 2);
     const finalGoal = await store.restore("goal-clear");
+    assert.equal(finalGoal?.state.messageQueue?.pause, undefined);
+    assert.equal(finalGoal?.state.run.status, "completed");
     assert.deepEqual(
         finalGoal?.state.messages.filter((message) => message.role === "user").map((message) => message.content),
         ["首个任务", "任务 D"],
@@ -532,7 +571,7 @@ test("clearing the queue only drops unapplied messages and keeps receipts and ru
             .filter((record) => record.status === "applied")
             .map((record) => record.inputId)
             .sort(),
-        ["control-clear", "control-continue", "input-d", "input-first"],
+        ["control-clear", "input-d", "input-first"],
     );
 });
 
