@@ -45,7 +45,7 @@ Snapshot 原样保存 Goal 级 `commitRevision`、`inputLedger` 与 `messageQueu
 
 当前 Snapshot 同时校验 `pendingProgram` 与运行中父 Action、子 `pendingAction` 的身份及调用位置；Codec 原位保存恢复指针和已用结果字节数。PTC 子事实的 `programId/callIndex` 随 Trajectory 严格解析，结果仍以 Snapshot 的提交边界为准。`program_time_reserved` 是例外：它在同一 JSONL 中单独同步到磁盘，恢复时无论 Snapshot 是否纳入该事件都要计入预算，防止崩溃重置额度。Storage 不推断工具是否已经产生外部副作用。
 
-`JsonFileGoalStore.save` 对 Snapshot 只编码一次，并在同一目录写临时文件、同步后原子替换。`EINTR`、`EAGAIN`、`EBUSY` 最多尝试三次；每次重试前核对正式快照是否已成为目标内容，只有未替换时才重写相同快照。替换已成功但调用返回临时错误时继续完成归档标记清理，不重放 Runtime 提交。临时文件损坏或无法核实正式文件时停止。`listResumable` 只扫描正式 `.json` 普通文件并忽略 `.tmp`；任一正式快照损坏都会报告协议错误而非静默跳过；过滤三个终态后按 `mtime` 倒序、`goalId` 升序返回摘要。
+`JsonFileGoalStore.save` 对 Snapshot 只编码一次，并在同一目录写临时文件、同步后原子替换。`EINTR`、`EAGAIN`、`EBUSY` 最多尝试三次；每次重试前核对正式快照是否已成为目标内容，只有未替换时才重写相同快照。替换已成功但调用返回临时错误时继续完成归档标记清理，不重放 Runtime 提交。临时文件损坏或无法核实正式文件时停止。`listResumable` 只扫描正式 `.json` 普通文件并忽略 `.tmp`；任一正式快照损坏都会报告协议错误而非静默跳过；过滤三个终态后按 `mtime` 倒序、`goalId` 升序返回摘要。`listHistory` 面向历史复盘：遇到无法解码的快照时跳过该条并计入 `unreadableCount`，不让一条旧版本快照使整份历史列表不可用；目录级读取失败仍然拒绝。
 
 `JsonFileToolGrantStore` 将当前 workspace 的 Grant 写入私有 `tool-grants.json`；损坏 JSON、Schema 错误、重复 ID/来源或同一来源授权冲突均失败关闭，不会重置账本。只有 active 且 workspace 与操作匹配的 Grant 可被 Runner 查询；goal 范围还必须匹配 `goalId`。pending Grant 仅供 Coordinator 在批准 Snapshot 提交后恢复激活，revoked Grant 不再匹配。Store 实例内写入串行化并原子替换文件，不提供跨进程并发事务。
 

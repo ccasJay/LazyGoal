@@ -8,6 +8,7 @@ import {
     type Goal,
     type GoalCatalog,
     type GoalCatalogEntry,
+    type GoalCatalogScan,
     type GoalStore,
     type TrajectoryEvent,
     type TrajectoryEventDraft,
@@ -19,6 +20,7 @@ import {
     listBrowserGoals,
     readBrowserGoalSession,
     readBrowserGoalSessionState,
+    type BrowserGoalList,
     type BrowserGoalListItem,
 } from "../src/index";
 import type { BrowserCreateSessionCommand } from "../../web-contracts/src/index";
@@ -529,7 +531,10 @@ test("a stopped Run does not leave its unfinished Think in progress", async () =
 });
 
 class TestGoalCatalog implements GoalCatalog {
-    constructor(private readonly entries: readonly GoalCatalogEntry[]) {}
+    constructor(
+        private readonly entries: readonly GoalCatalogEntry[],
+        private readonly unreadableCount = 0,
+    ) {}
 
     async listResumable(): Promise<readonly GoalCatalogEntry[]> {
         return this.entries.filter((entry) => entry.runStatus !== "completed"
@@ -537,8 +542,8 @@ class TestGoalCatalog implements GoalCatalog {
             && entry.runStatus !== "cancelled");
     }
 
-    async listHistory(): Promise<readonly GoalCatalogEntry[]> {
-        return this.entries;
+    async listHistory(): Promise<GoalCatalogScan> {
+        return { entries: this.entries, unreadableCount: this.unreadableCount };
     }
 }
 
@@ -554,20 +559,39 @@ test("看板列表使用正式 Catalog 摘要并投影白名单字段", async ()
     } as GoalCatalogEntry]);
 
     const result = await listBrowserGoals(catalog);
-    assert.deepEqual(result, [{
-        archived: false,
-        goalId: "goal-real-1",
-        runId: "run-real-1",
-        intent: "真实 Goal",
-        workflowPhase: "executing",
-        runStatus: "completed",
-        execution: {
-            state: "inactive",
-            committedThroughSequence: 0,
-        },
-        updatedAt: "2026-09-26T00:00:00.000Z",
-    }]);
+    assert.deepEqual(result, {
+        goals: [{
+            archived: false,
+            goalId: "goal-real-1",
+            runId: "run-real-1",
+            intent: "真实 Goal",
+            workflowPhase: "executing",
+            runStatus: "completed",
+            execution: {
+                state: "inactive",
+                committedThroughSequence: 0,
+            },
+            updatedAt: "2026-09-26T00:00:00.000Z",
+        }],
+        unreadableCount: 0,
+    });
     assert.equal(JSON.stringify(result).includes("must-not-appear"), false);
+});
+
+test("看板列表上报无法读取的历史 Goal 数量且不隐藏可读条目", async () => {
+    const catalog = new TestGoalCatalog([{
+        goalId: "goal-readable",
+        runId: "run-readable",
+        intent: "可读 Goal",
+        workflowPhase: "executing",
+        runStatus: "running",
+        updatedAt: "2026-09-26T00:00:00.000Z",
+    } as GoalCatalogEntry], 3);
+
+    const result = await listBrowserGoals(catalog);
+    assert.equal(result.goals.length, 1);
+    assert.equal(result.goals[0]?.goalId, "goal-readable");
+    assert.equal(result.unreadableCount, 3);
 });
 
 test("会话只返回已提交步骤、真实消息与实际存在的计划", async () => {
@@ -1036,7 +1060,7 @@ test("会话投影保留已归档失败 Run 的状态", async () => {
 
 test("读取 API 区分缺失与读取失败且不泄漏底层错误", async () => {
     const port = {
-        async list(): Promise<readonly BrowserGoalListItem[]> {
+        async list(): Promise<BrowserGoalList> {
             throw new Error("private filesystem path");
         },
         async read(goalId: string) {
@@ -1083,7 +1107,7 @@ test("创建与 Plan Mode 路由拒绝非法 wire 输入并要求稳定身份", 
     const calls: BrowserCreateSessionCommand[] = [];
     const planModes: Array<{ goalId: string; runId: string }> = [];
     const routes = createBrowserGoalRoutes({
-        async list() { return []; },
+        async list() { return { goals: [], unreadableCount: 0 }; },
         async read() { return undefined; },
         async enterPlanMode(goalId, command) {
             planModes.push({ goalId, runId: command.runId });

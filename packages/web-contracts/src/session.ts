@@ -224,6 +224,29 @@ export interface BrowserGoalListItem {
 }
 
 /**
+ * 工作区 Goal 列表响应信封。
+ *
+ * @remarks
+ * `goals` 只包含通过当前快照协议校验的 Goal；`unreadableCount` 是因本地快照
+ * 与当前协议不兼容而无法读取的历史 Goal 数量。看板据此说明列表不完整，
+ * 而不是把不可读数据当作不存在。
+ *
+ * @example
+ * ```ts
+ * const list: BrowserGoalList = {
+ *     goals: [],
+ *     unreadableCount: 2,
+ * };
+ * ```
+ */
+export interface BrowserGoalList {
+    /** 可读取的工作区 Goal 摘要列表。 */
+    readonly goals: readonly BrowserGoalListItem[];
+    /** 无法读取的历史 Goal 数量。 */
+    readonly unreadableCount: number;
+}
+
+/**
  * 会话时间线中的用户或助手文本消息。
  *
  * @remarks

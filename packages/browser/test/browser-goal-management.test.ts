@@ -5,7 +5,7 @@ import { createBrowserGoalRoutes, type BrowserGoalApiPort } from "../src/index";
 
 function port(): BrowserGoalApiPort {
     return {
-        list: async () => [],
+        list: async () => ({ goals: [], unreadableCount: 0 }),
         read: async () => undefined,
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),

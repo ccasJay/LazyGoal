@@ -387,6 +387,7 @@ function createStageMockApi() {
           updatedAt: "2026-10-13T09:00:00.000Z",
           archived: false,
         }],
+        unreadableCount: 0,
       });
       return;
     }

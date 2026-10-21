@@ -300,7 +300,7 @@ function interactionDetailsPort(
     readInteractionDetails: NonNullable<BrowserGoalApiPort["readInteractionDetails"]>,
 ): BrowserGoalApiPort {
     return {
-        list: async () => [],
+        list: async () => ({ goals: [], unreadableCount: 0 }),
         read: async () => undefined,
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
@@ -416,7 +416,7 @@ test("交互详情路由校验身份参数并只返回服务端授权读取结�
 
 test("交互详情路由未接线时返回稳定不可用码", async () => {
     const routes = createBrowserGoalRoutes({
-        list: async () => [],
+        list: async () => ({ goals: [], unreadableCount: 0 }),
         read: async () => undefined,
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
@@ -435,7 +435,7 @@ function actionReviewPort(
     reviewActionApproval: NonNullable<BrowserGoalApiPort["reviewActionApproval"]>,
 ): BrowserGoalApiPort {
     return {
-        list: async () => [],
+        list: async () => ({ goals: [], unreadableCount: 0 }),
         read: async () => undefined,
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
@@ -517,7 +517,7 @@ test("审批预检路由只接受严格 wire 请求并返回可审阅内容", as
 
 test("审批预检路由未接线时返回稳定不可用码", async () => {
     const routes = createBrowserGoalRoutes({
-        list: async () => [],
+        list: async () => ({ goals: [], unreadableCount: 0 }),
         read: async () => undefined,
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),

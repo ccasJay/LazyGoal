@@ -15,6 +15,7 @@ import type {
     Goal,
     GoalCatalog,
     GoalCatalogEntry,
+    GoalCatalogScan,
     GoalStore,
 } from "../../runtime/src/index";
 import { goalSnapshotCodec } from "./goal-snapshot-codec";
@@ -204,24 +205,29 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
      * `GoalSnapshotProtocolError`；目录或文件读取失败时传播文件系统错误。
      */
     async listResumable(): Promise<readonly GoalCatalogEntry[]> {
-        return this.scanEntries(false);
+        const scan = await this.scanEntries(false, false);
+        return scan.entries;
     }
 
     /**
      * 扫描并按最近更新时间倒序返回所有 Goal（包含终态）。
      *
+     * @remarks
+     * 单条快照无法解码时跳过该条并计入 {@link GoalCatalogScan.unreadableCount}，
+     * 使历史列表不因一条旧版本快照整体不可用；目录级读取失败仍拒绝。
+     *
      * @returns 包含 `completed`、`failed`、`cancelled` 在内按最近快照时间倒序
-     * 排列的摘要；同一时间按 `goalId` 升序。`.tmp` 和非普通文件会被忽略。
-     * @throws JSON、Goal Schema 或跨字段不变量损坏时抛出
-     * `GoalSnapshotProtocolError`；目录或文件读取失败时传播文件系统错误。
+     * 排列的摘要与被跳过的不可解码快照数量；同一时间按 `goalId` 升序。
+     * `.tmp` 和非普通文件会被忽略。
+     * @throws 目录读取失败时抛出异常。
      * @example
      * ```ts
      * const store = new JsonFileGoalStore("/path/to/goals");
-     * const history = await store.listHistory();
+     * const scan = await store.listHistory();
      * ```
      */
-    async listHistory(): Promise<readonly GoalCatalogEntry[]> {
-        return this.scanEntries(true);
+    async listHistory(): Promise<GoalCatalogScan> {
+        return this.scanEntries(true, true);
     }
 
     /**
@@ -271,7 +277,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         return true;
     }
 
-    private async scanEntries(includeTerminal: boolean): Promise<readonly GoalCatalogEntry[]> {
+    private async scanEntries(includeTerminal: boolean, tolerateUnreadable: boolean): Promise<GoalCatalogScan> {
         let files;
 
         try {
@@ -281,7 +287,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
                 error instanceof Error
                 && (error as NodeJS.ErrnoException).code === "ENOENT"
             ) {
-                return [];
+                return { entries: [], unreadableCount: 0 };
             }
 
             throw error;
@@ -291,6 +297,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
             readonly entry: GoalCatalogEntry;
             readonly mtimeMs: number;
         }> = [];
+        let unreadableCount = 0;
 
         const snapshotFiles = files
             .filter((file) => file.isFile() && file.name.endsWith(".json"))
@@ -302,16 +309,26 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
 
         for (const file of snapshotFiles) {
             const filePath = join(this.directory, file.name);
-            const content = await readFile(filePath, "utf8");
-            const goal = this.decodeSnapshot(content, file.name);
+            let goal: Goal;
+            let fileStats: Awaited<ReturnType<typeof stat>>;
 
-            if (this.filePath(goal.id) !== filePath) {
-                throw new GoalSnapshotProtocolError(
-                    `Goal snapshot filename does not match Goal ID in "${file.name}"`,
-                );
+            try {
+                const content = await readFile(filePath, "utf8");
+                goal = this.decodeSnapshot(content, file.name);
+
+                if (this.filePath(goal.id) !== filePath) {
+                    throw new GoalSnapshotProtocolError(
+                        `Goal snapshot filename does not match Goal ID in "${file.name}"`,
+                    );
+                }
+
+                fileStats = await stat(filePath);
+            } catch (error) {
+                if (!tolerateUnreadable) throw error;
+                unreadableCount += 1;
+                continue;
             }
 
-            const fileStats = await stat(filePath);
             const runStatus = goal.state.run.status;
 
             if (
@@ -354,7 +371,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
                     : 0;
         });
 
-        return candidates.map(({ entry }) => entry);
+        return { entries: candidates.map(({ entry }) => entry), unreadableCount };
     }
 
     /**

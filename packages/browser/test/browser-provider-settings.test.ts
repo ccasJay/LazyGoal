@@ -25,7 +25,7 @@ function maskedProfile(overrides: Record<string, unknown> = {}) {
 
 function makePort(providerSettings: BrowserProviderSettingsPort): BrowserGoalApiPort {
     return {
-        list: async () => [],
+        list: async () => ({ goals: [], unreadableCount: 0 }),
         read: async () => undefined,
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),

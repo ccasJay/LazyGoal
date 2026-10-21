@@ -13,7 +13,7 @@
 
 `lazygoal` 与 `lazygoal web` 都由独立 `apps/goal-server` 启动 Web 服务。服务创建随机能力令牌，将其放入页面 URL fragment，并在同源 HTTP Host 上提供 API、SSE 与已构建的 Goal Board 静态资源。服务监听 `127.0.0.1` 上的操作系统分配端口；静态页面根文档、favicon 和 `/assets/` 可不带令牌读取。其他请求须匹配精确 Host、同源约束和 Bearer 令牌。静态响应限制来源、禁止 referrer 并禁用缓存。
 
-授权后，`GET /api/goals` 从正式工作区 Catalog 返回真实 Goal 摘要，`GET /api/goals/:goalId` 从正式 Snapshot 和各 Run 的 Trajectory 返回完整会话投影。`GET /api/goals/:goalId?view=state` 返回 Snapshot-only 窄状态，不内嵌消息、步骤和阶段历史；它保留当前 Run、等待与 Action、队列、中断、GoalPlan、Plan 路线及当前会话摘要。看板读取使用 Composition Root 暴露的正式工作区 Store 与 Trajectory 读取器，不经过含 Benchmark 的聚合目录。
+授权后，`GET /api/goals` 从正式工作区 Catalog 返回真实 Goal 摘要，并同时给出 `unreadableCount`：无法解码的旧版本快照按条跳过并计数，看板据此说明列表不完整，而不是把不可读数据当作不存在；只有目录级读取失败才返回 `goal_list_unavailable`。`GET /api/goals/:goalId` 从正式 Snapshot 和各 Run 的 Trajectory 返回完整会话投影。`GET /api/goals/:goalId?view=state` 返回 Snapshot-only 窄状态，不内嵌消息、步骤和阶段历史；它保留当前 Run、等待与 Action、队列、中断、GoalPlan、Plan 路线及当前会话摘要。看板读取使用 Composition Root 暴露的正式工作区 Store 与 Trajectory 读取器，不经过含 Benchmark 的聚合目录。
 
 `GET /api/goals/:goalId/activity` 提供默认 50、最大 100 个原子项的 Activity 窗口，接受可选 Run 过滤和互斥的 `before`／`after` cursor。消息最多返回 4,000 UTF-16 code unit 摘要；截断正文按 messageId 使用既有消息详情读取。事实投影只公开白名单事件类型、稳定身份与必要 Action／阶段关联，不发送事件 payload、原始 Observation、工具参数或模型内部内容。cursor 固定首次窗口内每个 Run 的 messageCount、throughMessageId 和 Snapshot 已提交 Trajectory 序号；后续正文、Observation、后继 Run 与未提交 tail 不进入该窗口。页面给出实际页范围、两侧未加载缺口的准确项数与首尾位置、Run 水位及跨页阶段／Action 组完整性提示。Activity 和窄状态路由均位于 BrowserSessionAccess 之后，Host、Origin 与 Bearer 校验在 Snapshot/Trajectory 读取之前执行。
 

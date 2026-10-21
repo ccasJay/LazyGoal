@@ -219,6 +219,7 @@ export {
 export type {
     GoalCatalog,
     GoalCatalogEntry,
+    GoalCatalogScan,
     GoalStore,
 } from "./goal-store";
 export { createStepExecutor } from "./step-executor";

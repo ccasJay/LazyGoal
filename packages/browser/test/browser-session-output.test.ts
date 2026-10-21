@@ -217,7 +217,7 @@ test("真实 SSE 端点输出单一会话协议事件，不保留第二条旧事
     const publisher = new InMemoryExecutionStreamPublisher();
     const events: BrowserGoalLiveEvent[] = [];
     const routes = createBrowserGoalRoutes({
-        async list() { return []; },
+        async list() { return { goals: [], unreadableCount: 0 }; },
         async read() { return undefined; },
         async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
         async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
