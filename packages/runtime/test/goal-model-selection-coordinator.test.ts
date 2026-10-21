@@ -58,6 +58,7 @@ class FakeGoalStore implements GoalStore {
 
 const targetSelection: GoalModelSelection = {
     provider: "anthropic",
+    profileId: "provider-anthropic",
     modelId: "claude-sonnet-4-5",
     structuredOutputMode: "prompt_only",
     contextWindowTokens: 200000,

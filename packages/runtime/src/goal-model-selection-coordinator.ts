@@ -105,6 +105,7 @@ export function isSafeWaitingPointForModelSwitching(goal: Goal): boolean {
 function cloneModelSelection(selection: GoalModelSelection): GoalModelSelection {
     return {
         provider: selection.provider,
+        ...(selection.profileId === undefined ? {} : { profileId: selection.profileId }),
         modelId: selection.modelId,
         structuredOutputMode: selection.structuredOutputMode,
         ...(selection.contextWindowTokens !== undefined ? { contextWindowTokens: selection.contextWindowTokens } : {}),
