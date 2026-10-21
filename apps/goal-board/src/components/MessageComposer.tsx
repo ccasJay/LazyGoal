@@ -59,7 +59,7 @@ export function MessageComposer({
   onSubmit: (content: string) => Promise<boolean>;
   pendingSteers?: readonly { readonly messageId: string; readonly content: string }[];
   onSteer?: (content: string) => Promise<boolean>;
-  onQueue?: (content: string) => boolean;
+  onQueue?: (content: string) => Promise<boolean>;
   onInterrupt?: () => Promise<void>;
   footerControls?: ReactNode;
   autoFocus?: boolean;
@@ -96,10 +96,10 @@ export function MessageComposer({
     }
   }
 
-  function chooseQueue() {
+  async function chooseQueue(): Promise<void> {
     if (!onQueue || !draft.trim()) return;
     const submittedDraft = draft;
-    if (onQueue(submittedDraft)) {
+    if (await onQueue(submittedDraft)) {
       setDraft((current) => (current === submittedDraft ? "" : current));
       setRunSendOptionsOpen(false);
     }
@@ -196,7 +196,7 @@ export function MessageComposer({
               <button type="button" disabled={busy} onClick={() => void chooseSteer()}>
                 Steer
               </button>
-              <button type="button" disabled={busy} onClick={chooseQueue}>
+              <button type="button" disabled={busy} onClick={() => void chooseQueue()}>
                 Queue
               </button>
             </div>

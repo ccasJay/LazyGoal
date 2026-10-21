@@ -204,6 +204,9 @@ export async function readBrowserGoalSession(
     const pendingSteers = (currentRun.steerInputs ?? [])
         .filter((input): input is Extract<NonNullable<Goal["state"]["run"]["steerInputs"]>[number], { readonly status: "pending" }> => input.status === "pending")
         .map(({ messageId, content }) => ({ messageId, content: boundedText(content, MAX_MESSAGE_LENGTH) }));
+    const queue = goal.state.messageQueue;
+    const pendingMessages = (queue?.items ?? [])
+        .map((item) => ({ inputId: item.inputId, content: boundedText(item.content, MAX_MESSAGE_LENGTH) }));
     const pendingAction = currentRun.pendingAction === undefined
         ? undefined
         : projectPendingAction(currentRun.pendingAction, currentRun.pendingProgram);
@@ -224,6 +227,14 @@ export async function readBrowserGoalSession(
         },
         messages,
         ...(pendingSteers.length === 0 ? {} : { pendingSteers }),
+        ...(pendingMessages.length === 0 ? {} : { pendingMessages }),
+        ...(queue === undefined ? {} : {
+            queue: {
+                revision: queue.revision,
+                paused: queue.pause !== undefined,
+                ...(queue.pause === undefined ? {} : { pauseReason: queue.pause.reason }),
+            },
+        }),
         ...(currentRun.interruption === undefined ? {} : {
             interruption: {
                 requestId: currentRun.interruption.requestId,

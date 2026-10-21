@@ -296,6 +296,7 @@ export type {
 } from "./evidence-gate";
 export {
     TrajectoryCheckpointCommitter,
+    saveGoalWithSessionState,
 } from "./trajectory-checkpoint-committer";
 export type {
     AcceptedMemoryPatchInput,
@@ -305,6 +306,77 @@ export type {
     TrajectoryCheckpointCommitterDependencies,
     TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
+export { withGoalMutationGate } from "./goal-mutation-gate";
+export {
+    MAX_PENDING_SESSION_INPUTS,
+    MAX_PENDING_SESSION_INPUT_TEXT_LENGTH,
+    MAX_SESSION_INPUT_TEXT_LENGTH,
+    SessionInputAdmissionError,
+    appendQueuedMessage,
+    clearQueuedMessages,
+    computeSessionInputDigest,
+    findSessionInputRecord,
+    hasPendingSessionInputs,
+    hasUnsettledSessionWork,
+    measurePendingInputUsage,
+    nextSessionInputSequence,
+    toSessionInputReceipt,
+    validateSessionInputShape,
+    withQueuePause,
+    withoutQueuePause,
+} from "./session-input";
+export type {
+    SessionInput,
+    SessionInputAdmissionResult,
+    SessionInputControl,
+    SessionInputDigest,
+    SessionInputKind,
+    SessionInputQueryResult,
+    SessionInputReceipt,
+    SessionInputRecord,
+    SessionInputRejectionCode,
+    SessionInputStatus,
+    SessionInteractionResponse,
+    SessionMessageQueue,
+    SessionMessageQueueItem,
+    SessionQueuePauseReason,
+} from "./session-input";
+export { SessionInputAdmission } from "./session-admission";
+export type { SessionInputAdmissionDependencies } from "./session-admission";
+export {
+    Session,
+    SessionDetachedError,
+    projectGoalSessionState,
+} from "./session";
+export type {
+    GoalSessionState,
+    GoalSessionStateInput,
+    SessionHandlePort,
+    SessionInputConsumptionResult,
+    SessionManagerErrorCode,
+    SessionOutputEvent,
+    SessionReceipt,
+} from "./session";
+export {
+    DEFAULT_RESYNC_INTERVAL_MS,
+    GoalRevisionMonitor,
+    GoalSessionStream,
+    SESSION_INPUT_RESULT_KIND,
+} from "./session-stream";
+export type {
+    GoalRevisionMonitorDependencies,
+    GoalSessionStreamDependencies,
+    SessionInputOutcome,
+    SessionOutputStream,
+} from "./session-stream";
+export { SessionManager, SessionManagerCloseError } from "./session-manager";
+export type {
+    SessionCreateRequest,
+    SessionCreateResult,
+    SessionManagerDependencies,
+    SessionOpenResult,
+    SessionQueryResult,
+} from "./session-manager";
 export { Runner, type InterruptRunResult, type SteerInputResult } from "./runner";
 export { RunRecoveryReader, type RunRecoveryReaderDependencies } from "./run-recovery-reader";
 export type { RunnerDependencies, RunnerResult, SandboxPlanResolver } from "./runner";
@@ -351,13 +423,16 @@ export type {
     ToolGrantStore,
     UnifiedGrantSummary,
 } from "./tool-grant";
-export { launch } from "./launcher";
+export { launch, createGoalCheckpoint } from "./launcher";
 export type {
+    CreateGoalRequest,
+    CreateGoalResult,
     LauncherDependencies,
     LaunchRequest,
     LaunchResult,
     RunIdGenerator,
 } from "./launcher";
+export type { ContinuationQueueBinding } from "./goal-coordinator";
 export type { RunScheduler } from "./scheduler";
 export { GoalCoordinator } from "./goal-coordinator";
 export type {

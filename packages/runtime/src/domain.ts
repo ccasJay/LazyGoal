@@ -38,6 +38,7 @@ import type {
 } from "./run-stage";
 import type { RuntimeContextNote } from "./context-notes";
 import type { RunPlanRouteState } from "./run-plan";
+import type { SessionInputRecord, SessionMessageQueue } from "./session-input";
 
 import {
     isMemoryProtocol,
@@ -931,6 +932,18 @@ export const DEFAULT_GOAL_MODEL_SELECTION: GoalModelSelection = Object.freeze({
 export interface GoalState {
     /** 已完成 Run 后为下一 Run 保存的一次性 Plan 模式选择。 */
     readonly nextRunMode?: "plan";
+    /**
+     * Goal 级单调提交修订。
+     *
+     * @remarks
+     * 每次成功的 Snapshot 提交递增，跨 Run 保持递增，用于恢复命令、状态同步与
+     * 竞态判定；不复用 Run 内 Trajectory sequence。省略等同 0。
+     */
+    readonly commitRevision?: number;
+    /** 已受理输入的账本；省略表示尚未受理任何输入。 */
+    readonly inputLedger?: readonly SessionInputRecord[];
+    /** 尚未应用的普通消息队列；省略表示空队列。 */
+    readonly messageQueue?: SessionMessageQueue;
     readonly workflow: GoalWorkflowState;
     readonly messages: readonly GoalMessage[];
     readonly run: RunState;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   BrowserGoalSession,
   BrowserModelCatalog,
+  BrowserSessionState,
 } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
 import { committedStepCount, errorMessage } from "../types";
@@ -15,6 +16,7 @@ export function useGoalSession({
 }) {
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
   const [session, setSession] = useState<BrowserGoalSession | null>(null);
+  const [sessionState, setSessionState] = useState<BrowserSessionState | null>(null);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
 
@@ -79,15 +81,16 @@ export function useGoalSession({
     const hasVisibleSession = latestSession.current !== null;
     if (!hasVisibleSession) setSessionLoading(true);
     try {
-      const next = await browserApi.readGoal(selectedGoalId);
+      const next = await browserApi.readGoalSession(selectedGoalId);
       const previous = latestSession.current;
-      latestSession.current = next;
-      setSession(next);
+      latestSession.current = next.goal;
+      setSession(next.goal);
+      setSessionState(next.session ?? null);
       setSessionError(null);
       if (
         previous !== null &&
-        (next.messages.length > previous.messages.length ||
-          committedStepCount(next) > committedStepCount(previous))
+        (next.goal.messages.length > previous.messages.length ||
+          committedStepCount(next.goal) > committedStepCount(previous))
       ) {
         onClearLiveTextRef.current();
       }
@@ -103,6 +106,7 @@ export function useGoalSession({
     if (selectedGoalId === null) {
       latestSession.current = null;
       setSession(null);
+      setSessionState(null);
       setSessionLoading(false);
       if (browserApi.hasAccessToken) setSessionError(null);
       return;
@@ -112,15 +116,17 @@ export function useGoalSession({
     let active = true;
     latestSession.current = null;
     setSession(null);
+    setSessionState(null);
     setSessionLoading(true);
     setSessionError(null);
 
     void browserApi
-      .readGoal(selectedGoalId, controller.signal)
+      .readGoalSession(selectedGoalId, controller.signal)
       .then((next) => {
         if (!active) return;
-        latestSession.current = next;
-        setSession(next);
+        latestSession.current = next.goal;
+        setSession(next.goal);
+        setSessionState(next.session ?? null);
       })
       .catch((error: unknown) => {
         if (active && !controller.signal.aborted) setSessionError(errorMessage(error));
@@ -140,6 +146,7 @@ export function useGoalSession({
     setSelectedGoalId,
     selectGoal,
     session,
+    sessionState,
     setSession,
     latestSession,
     sessionLoading,

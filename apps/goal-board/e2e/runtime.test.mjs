@@ -23,6 +23,7 @@ test("real local service restores and completes one authorized Goal conversation
   let service;
   let chrome;
   let socket;
+  let failure;
 
   try {
     service = await startService({ workspace, data, home, statusPath, runOffset: 0, modelOffset: 0, delayModel: true });
@@ -34,7 +35,7 @@ test("real local service restores and completes one authorized Goal conversation
     const noTokenCreate = await api(first.origin, "/api/goals", {
       method: "POST",
       headers: { "content-type": "application/json", origin: first.origin },
-      body: JSON.stringify({ goalId: "unauthorized-goal", intent: "Must not start" }),
+      body: JSON.stringify({ goalId: "unauthorized-goal", inputId: "unauthorized-input", intent: "Must not start" }),
     });
     assert.equal(noTokenCreate.response.status, 401);
     assert.deepEqual(await readStatus(statusPath), { modelCalls: 0, toolCalls: 0 });
@@ -56,6 +57,10 @@ test("real local service restores and completes one authorized Goal conversation
     socket = await connectCdp(target.webSocketDebuggerUrl);
     await cdp(socket, "Page.enable");
     await cdp(socket, "Runtime.enable");
+    // 显式桌面布局视口：headless 默认宽度会触发移动布局并使桌面断言失效。
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", {
+      width: 1280, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
 
     socket.statusPath = statusPath;
     await navigate(socket, `${first.origin}/`);
@@ -115,14 +120,32 @@ test("real local service restores and completes one authorized Goal conversation
     });
     assert.equal(crossOrigin.response.status, 403);
     assert.deepEqual(crossOrigin.body, { error: "cross_origin_denied" });
-    const plainTextAtAskUser = await api(first.origin, `/api/goals/${goalId}/messages`, {
+    const plainTextAtAskUser = await api(first.origin, `/api/goals/${goalId}/inputs`, {
       token: first.token,
       method: "POST",
       headers: { "content-type": "application/json", origin: first.origin },
-      body: JSON.stringify({ runId: firstRunId, messageId: "e2e-message-1", content: "Use approved notes" }),
+      body: JSON.stringify({ kind: "message", inputId: "e2e-message-1", content: "Use approved notes" }),
     });
-    assert.equal(plainTextAtAskUser.response.status, 409);
-    assert.equal(plainTextAtAskUser.body.error, "structured_interaction_required");
+    // 普通消息进入持久化队列，但不代答结构化等待、不推进当前 Run。
+    assert.equal(plainTextAtAskUser.response.status, 202);
+    assert.equal(plainTextAtAskUser.body.receipt.status, "pending");
+    const queuedAtWait = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages?.length ?? 0) === 1);
+    assert.equal(queuedAtWait.pendingInteraction.kind, "ask_user");
+    assert.deepEqual(await readStatus(statusPath), { modelCalls: 1, toolCalls: 0 });
+    const clearedAtWait = await api(first.origin, `/api/goals/${goalId}/inputs`, {
+      token: first.token,
+      method: "POST",
+      headers: { "content-type": "application/json", origin: first.origin },
+      body: JSON.stringify({ kind: "queue_control", inputId: "e2e-clear-queue", action: "clear", queueRevision: queuedAtWait.queue.revision }),
+    });
+    assert.equal(clearedAtWait.response.status, 202);
+    const afterClearAtWait = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages ?? []).length === 0);
+    assert.equal(afterClearAtWait.pendingInteraction.kind, "ask_user");
+    // 清空保留收据：原身份仍可核验且明确标记为已清空。
+    const clearedReceipt = await api(first.origin, `/api/goals/${goalId}/inputs/e2e-message-1`, { token: first.token });
+    assert.equal(clearedReceipt.response.status, 200);
+    assert.equal(clearedReceipt.body.found, true);
+    assert.equal(clearedReceipt.body.receipt.status, "cleared");
     assert.deepEqual(await readStatus(statusPath), { modelCalls: 1, toolCalls: 0 });
 
     const savedPreference = await api(first.origin, "/api/project/model-preference", {
@@ -183,14 +206,20 @@ test("real local service restores and completes one authorized Goal conversation
     session = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.pendingAction?.status === "awaiting_approval");
     const pendingActionId = session.pendingAction.actionId;
 
-    const staleApproval = await api(restarted.origin, `/api/goals/${goalId}/interactions`, {
+    const staleApproval = await api(restarted.origin, `/api/goals/${goalId}/inputs`, {
       token: restarted.token,
       method: "POST",
       headers: { "content-type": "application/json", origin: restarted.origin },
-      body: JSON.stringify({ kind: "approve_action", runId: session.currentRunId, actionId: "stale-action" }),
+      body: JSON.stringify({
+        kind: "respond",
+        inputId: "e2e-stale-approval",
+        runId: session.currentRunId,
+        requestId: session.pendingAction.actionId,
+        response: { kind: "approve_action", actionId: "stale-action" },
+      }),
     });
     assert.equal(staleApproval.response.status, 409);
-    assert.equal(staleApproval.body.error, "action_not_waiting");
+    assert.equal(staleApproval.body.error, "INTERACTION_MISMATCH");
     assert.deepEqual(await readStatus(statusPath), { modelCalls: 4, toolCalls: 0 });
 
     await cdp(socket, "Runtime.evaluate", {
@@ -473,12 +502,21 @@ test("real local service restores and completes one authorized Goal conversation
     await waitForExpression(socket, "document.querySelector('.queue-paused') !== null", 15_000);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.queue-paused button').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
+  } catch (error) {
+    failure = error;
   } finally {
     socket?.close();
-    if (chrome !== undefined) await stopProcess(chrome, "SIGTERM", 5_000);
-    if (service !== undefined) await stopService(service);
+    try {
+      if (chrome !== undefined) await stopProcess(chrome, "SIGTERM", 5_000);
+      if (service !== undefined) await stopService(service);
+    } catch (cleanupError) {
+      // 收尾失败不能掩盖主体断言的原始故障；无主体故障时仍然失败。
+      if (failure === undefined) failure = cleanupError;
+      else console.error(`Cleanup after the primary failure also failed: ${cleanupError}`);
+    }
     await rm(temporaryRoot, { recursive: true, force: true });
   }
+  if (failure !== undefined) throw failure;
 });
 
 function startService({ workspace, data, home, statusPath, runOffset, modelOffset, delayModel = false }) {
@@ -523,7 +561,8 @@ function startService({ workspace, data, home, statusPath, runOffset, modelOffse
 }
 
 async function stopService(service) {
-  await stopProcess(service.child, "SIGTERM", 1_500, service.logs);
+  // 确定性模型在途时会按 fixture 的人为延迟结算，SIGTERM 必须给它留出收尾窗口。
+  await stopProcess(service.child, "SIGTERM", 30_000, service.logs);
 }
 
 async function stopProcess(child, signal, timeoutMs, logs = "") {

@@ -19,7 +19,8 @@ export type ExecutionStreamListener = (event: ExecutionStreamEvent) => void;
  * }
  * ```
  */
-export interface ExecutionStreamSubscription extends AsyncIterable<ExecutionStreamEvent> {
+export interface ExecutionStreamSubscription
+    extends AsyncIterable<ExecutionStreamEvent>, AsyncIterator<ExecutionStreamEvent> {
     /** 注册事件回调并返回幂等取消函数。 */
     onEvent(listener: ExecutionStreamListener): () => void;
     /** 主动结束订阅。 */

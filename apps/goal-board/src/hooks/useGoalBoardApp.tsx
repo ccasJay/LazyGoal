@@ -59,7 +59,6 @@ export function useGoalBoardApp() {
     await goalsManager.deleteGoal(goal, () => {
       if (sessionManager.selectedGoalId === goal.goalId) sessionManager.setSelectedGoalId(null);
     });
-    queueManager.clearQueue(goal.goalId);
   };
 
   const { workspaceContext, workspaceContextError } = useWorkspaceContext({
@@ -80,10 +79,11 @@ export function useGoalBoardApp() {
     onRefreshSession: sessionManager.refreshSelectedSession,
   });
 
+  // 运行中的文本发送进入持久化队列；等待交互或审批时保持阻止，避免代答。
   const canSendText = sessionManager.session !== null
     && sessionManager.session.pendingInteraction === undefined
     && sessionManager.session.pendingAction === undefined
-    && ["waiting", "completed", "failed", "cancelled"].includes(sessionManager.session.runStatus);
+    && ["running", "waiting", "completed", "failed", "cancelled"].includes(sessionManager.session.runStatus);
 
   const modelSelectionManager = useModelSelection({
     session: sessionManager.session,
@@ -101,6 +101,7 @@ export function useGoalBoardApp() {
 
   const commandsManager = useRunCommands({
     session: sessionManager.session,
+    sessionState: sessionManager.sessionState,
     canSendText,
     draftGoalId: sessionManager.draftGoalId,
     draftPlanMode: sessionManager.draftPlanMode,
@@ -117,7 +118,6 @@ export function useGoalBoardApp() {
 
   const queueManager = useQueue({
     session: sessionManager.session,
-    selectedGoalId: sessionManager.selectedGoalId,
     onRefreshSession: sessionManager.refreshSelectedSession,
     onCommandError: commandsManager.setCommandError,
   });
@@ -239,10 +239,10 @@ export function useGoalBoardApp() {
     setCommandError: commandsManager.setCommandError,
     stoppingRunId: commandsManager.stoppingRunId,
     canSendText,
-    queuedInputs: sessionManager.session ? queueManager.queuedByGoal[sessionManager.session.goalId] ?? [] : [],
-    queuePaused: sessionManager.session ? queueManager.queuePausedByGoal[sessionManager.session.goalId] ?? false : false,
-    onQueueInput: (content) => sessionManager.session ? queueManager.queueInput(sessionManager.session.goalId, content) : false,
+    queuedInputs: queueManager.queuedInputs,
+    queuePaused: queueManager.queuePaused,
     onContinueQueue: queueManager.continueQueue,
+    onClearQueue: queueManager.clearQueue,
     onSubmitMessage: commandsManager.submitMessage,
     onSubmitDraftMessage: commandsManager.submitDraftMessage,
     onSubmitSteer: commandsManager.submitSteer,

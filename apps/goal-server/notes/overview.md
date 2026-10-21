@@ -10,6 +10,17 @@
 
 本模块不替代其依赖模块的协议或持久化职责；具体输入、失败语义与类型以链接的源码契约为准。
 
+## 会话入口
+
+无界面装配在 `RuntimeComposition.sessions` 暴露内部会话操作（`SessionManager`），型号为 `@lazygoal/runtime` 的会话所有者，与命令、Runner、提交器和生命周期共用同一 Store 与提交边界：
+
+- `sessions.create` 先持久化 Goal、首条用户消息、Run 与受理收据，再返回句柄并以被生命周期追踪的后台任务推进首个 Run；返回不等待 Run 完成，首次保存失败不会调用模型或工具。
+- `session.send`／`consume`／`events`／`read`／`getInput`／`detach` 委派同一状态所有者；`sessions.query` 是同一执行链上的单消息封装。
+- `lifecycle.close()` 先停止会话订阅、输入消费与提交核对任务，再按期限结算后台执行与自有资源；未结算时抛出 `SessionManagerCloseError`，不报告安全关闭。
+- 该入口是仓库内调用边界，不是对外稳定的 SDK API；默认装配位置、环境解析、工具与预算语义保持不变。
+
+Headless Composition Root 继续使用同一 Runtime 执行链（Launcher、Coordinator、Runner、共享提交器与工具授权）装配 Benchmark Episode，不迁移默认装配、不重写评分器；会话能力通过同一 Runtime 模块提供，Benchmark 的单次运行与观察边界保持不变。
+
 ## 服务装配与主流程
 
 

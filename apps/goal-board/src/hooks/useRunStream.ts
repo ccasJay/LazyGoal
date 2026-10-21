@@ -77,13 +77,14 @@ export function useRunStream({
     const listen = async () => {
       while (active && !controller.signal.aborted) {
         try {
-          for await (const event of browserApi.events(
-            selectedGoalId,
-            session.currentRunId,
-            controller.signal
-          )) {
+          for await (const event of browserApi.events(selectedGoalId, controller.signal)) {
             if (!active) return;
             setStreamConnected(true);
+            if (event.type === "state_sync" || event.type === "input_result") {
+              // 一致状态与受理结果只用于同步：最新快照由读取接口给出。
+              await refreshLatest();
+              continue;
+            }
             if (event.type === "snapshot_changed" || event.type === "refresh_required") {
               setLiveEvents([]);
               if (event.type === "refresh_required") {

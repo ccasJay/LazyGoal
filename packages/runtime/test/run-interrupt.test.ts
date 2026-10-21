@@ -1,11 +1,22 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createGoal, Runner, type AgentProfile, type StepExecutor } from "../src/index";
+import {
+    createGoal,
+    GoalCoordinator,
+    InlineScheduler,
+    Runner,
+    SessionManager,
+    TrajectoryCheckpointCommitter,
+    type AgentProfile,
+    type AgentProfileRegistry,
+    type StepExecutor,
+} from "../src/index";
 import { ExecutionAbortedError } from "../../execution-control/src/index";
 import { contract } from "../../contracts/src/index";
 import { createToolRegistration, type Tool } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
+import { hasPendingSessionInputs } from "../src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
 
 const profile: AgentProfile = { id: "interrupt-profile", systemPrompt: "test", instructions: [], toolIds: [] };
@@ -175,4 +186,160 @@ test("recovered Interrupt with an exhausted repair budget cancels without anothe
     const latest = await store.restore(initial.id);
     assert.equal(latest?.state.run.status, "cancelled");
     assert.equal(latest?.state.run.interruption?.repairCallsStarted, 3);
+});
+
+function createInterruptSessions(input: {
+    readonly store: InMemoryGoalStore;
+    readonly onDecide: (
+        goal: { readonly state: { readonly messages: readonly { readonly content: string }[]; readonly run: { readonly id: string } } },
+        callIndex: number,
+        control: { readonly signal?: AbortSignal } | undefined,
+    ) => unknown;
+}): { readonly sessions: SessionManager; readonly calls: () => number } {
+    const trajectory = trajectoryStoreFor(input.store);
+    const committer = new TrajectoryCheckpointCommitter({ store: input.store, trajectoryStore: trajectory });
+    let calls = 0;
+    const executor: StepExecutor = {
+        async reviewCompletion() { return { kind: "accept" }; },
+        async decide({ goal, control }) {
+            calls += 1;
+            return input.onDecide(goal, calls, control) as never;
+        },
+        async think() { throw new Error("unexpected Think call"); },
+    };
+    const runner = new Runner({
+        store: input.store,
+        trajectoryStore: trajectory,
+        executor,
+        checkpointCommitter: committer,
+    });
+    const coordinator = new GoalCoordinator({
+        store: input.store,
+        scheduler: new InlineScheduler(runner),
+        checkpointCommitter: committer,
+        runIdGenerator: () => `run-interrupt-session-${calls + 1}`,
+    });
+    const profiles: AgentProfileRegistry = {
+        get: (profileId) => profileId === profile.id ? profile : undefined,
+    };
+    const sessions = new SessionManager({
+        store: input.store,
+        committer,
+        coordinator,
+        profiles,
+        runIdGenerator: () => `run-interrupt-session-${calls + 1}`,
+    });
+    return { sessions, calls: () => calls };
+}
+
+test("session Interrupt persists the receipt and queue pause in one commit and settles as cancelled", async () => {
+    const store = new InMemoryGoalStore();
+    const entered = deferred();
+    const harness = createInterruptSessions({
+        store,
+        onDecide: (_goal, callIndex, control) => new Promise((_resolve, reject) => {
+            if (callIndex !== 1) return reject(new Error("unexpected extra model call"));
+            entered.resolve();
+            const signal = control?.signal;
+            if (signal === undefined) return reject(new Error("missing cancellation signal"));
+            signal.addEventListener("abort", () => reject(new ExecutionAbortedError()), { once: true });
+        }),
+    });
+
+    const created = await harness.sessions.create({
+        goalId: "goal-session-interrupt",
+        inputId: "input-first",
+        content: "需要取消的任务",
+        profileId: profile.id,
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    await entered.promise;
+    await created.session.send({ kind: "message", inputId: "input-queued", content: "中断后保留的任务" });
+    const runId = (await store.restore("goal-session-interrupt"))!.state.run.id;
+
+    const accepted = await created.session.send({
+        kind: "interrupt",
+        inputId: "interrupt-1",
+        runId,
+    });
+    assert.equal(accepted.ok, true);
+    if (!accepted.ok) return;
+    assert.equal(accepted.receipt.status, "applied");
+    assert.equal(accepted.receipt.targetRunId, runId);
+
+    // 受理已在同一提交中暂停队列，且不等待停止完成。
+    const afterAccept = (await store.restore("goal-session-interrupt"))!;
+    assert.equal(afterAccept.state.messageQueue?.pause?.reason, "user_interrupt");
+    assert.equal(afterAccept.state.messageQueue?.pause?.runId, runId);
+    assert.deepEqual(
+        afterAccept.state.inputLedger?.map((record) => [record.inputId, record.status]),
+        [["input-first", "applied"], ["input-queued", "pending"], ["interrupt-1", "applied"]],
+    );
+    const acceptedState = await created.session.read();
+    assert.equal(acceptedState?.interruption?.requestId, "interrupt-1");
+    assert.ok(acceptedState?.interruption?.status === "requested" || acceptedState?.interruption?.status === "finished");
+
+    await harness.sessions.waitForIdle();
+    const cancelled = await store.restore("goal-session-interrupt")!;
+    assert.ok(cancelled);
+    assert.equal(cancelled.state.run.status, "cancelled");
+    assert.deepEqual(cancelled.state.run.interruption, {
+        requestId: "interrupt-1",
+        status: "finished",
+        repairCallsStarted: 0,
+    });
+    const cancelledState = await created.session.read();
+    assert.equal(cancelledState?.runStatus, "cancelled");
+    assert.equal(cancelledState?.interruption?.status, "finished");
+    assert.equal(cancelledState?.queuePaused, true);
+    assert.equal(cancelledState?.pendingMessageCount, 1);
+
+    // 重复身份返回原收据；其他中断请求明确拒绝。
+    const repeated = await created.session.send({
+        kind: "interrupt",
+        inputId: "interrupt-1",
+        runId,
+    });
+    assert.equal(repeated.ok, true);
+    assert.equal(repeated.ok && repeated.existing, true);
+    const conflicting = await created.session.send({
+        kind: "interrupt",
+        inputId: "interrupt-2",
+        runId,
+    });
+    assert.equal(conflicting.ok, false);
+    // 已存在另一条中断记录时返回稳定拒绝，不重置既有收尾预算。
+    assert.equal(conflicting.ok === false && conflicting.code, "INTERRUPT_CONFLICT");
+    const interruptedAgain = await created.session.send({
+        kind: "interrupt",
+        inputId: "interrupt-1",
+        runId,
+    });
+    assert.equal(interruptedAgain.ok && interruptedAgain.existing, true);
+    // 已进入中断／取消的 Run 不再接受 Steer，也不降级为队列消息。
+    const steerAfterInterrupt = await created.session.send({
+        kind: "steer",
+        inputId: "steer-after-interrupt",
+        runId,
+        content: "取消后的补充",
+    });
+    assert.equal(steerAfterInterrupt.ok, false);
+    assert.equal(steerAfterInterrupt.ok === false && steerAfterInterrupt.code, "RUN_NOT_RUNNING");
+    const finalGoal = (await store.restore("goal-session-interrupt"))!;
+    assert.equal(finalGoal.state.messageQueue?.items.length, 1);
+    assert.equal(harness.calls(), 1);
+
+    // 重建实例只读不收尾：不产生新的模型调用，暂停与收据仍然有效。
+    const rebuilt = createInterruptSessions({
+        store,
+        onDecide: () => { throw new Error("rebuilt instance must not settle or call the model"); },
+    });
+    const opened = await rebuilt.sessions.open("goal-session-interrupt");
+    assert.equal(opened.ok, true);
+    assert.equal(opened.ok && opened.state.runStatus, "cancelled");
+    assert.equal(opened.ok && opened.state.queuePaused, true);
+    assert.equal(await rebuilt.calls(), 0);
+    assert.equal(rebuilt.sessions.activeGoal, undefined);
+    assert.equal(hasPendingSessionInputs(finalGoal), true);
 });

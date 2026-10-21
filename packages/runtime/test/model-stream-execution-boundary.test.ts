@@ -210,7 +210,9 @@ test("完整工具块后失败或取消不产生本次响应的工具效果，�
             if (payload.modelCallId !== undefined) publishedCallIds.push(`${event.kind}:${payload.modelCallId}`);
         },
         subscribe() { throw new Error("not used"); },
+        subscribeGoal() { throw new Error("unused"); },
         close() {},
+        closeGoal() {},
         dispose() {},
     };
 

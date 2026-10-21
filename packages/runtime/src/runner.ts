@@ -1,4 +1,11 @@
 import type { ModelContextFrameForStage } from "./step-executor";
+import {
+    findSessionInputRecord,
+    nextSessionInputSequence,
+    withQueuePause,
+    type SessionInputDigest,
+    type SessionInputRecord,
+} from "./session-input";
 import { createHash, randomUUID } from "node:crypto";
 import { ProgramSandboxAbortedError, programWorkerHash, runProgramSandbox } from "../../sandbox/src/index";
 
@@ -178,7 +185,7 @@ import {
     selectLatestConversationStart,
     toEpochRange,
 } from "./context-epoch";
-import { withRunModeSelectionGate } from "./run-mode-selection-gate";
+import { withGoalMutationGate } from "./goal-mutation-gate";
 import { RunRecoveryReader } from "./run-recovery-reader";
 import {
     createSandboxGrantMatcher,
@@ -1227,7 +1234,7 @@ class RunExecutor {
         }
 
         if (goal.state.run.status === "created") {
-            const start = await withRunModeSelectionGate(this.store, goal.id, async () => {
+            const start = await withGoalMutationGate(this.store, goal.id, async () => {
                 throwIfAborted(effectiveControl);
                 const latestGoal = await this.restore(ref, effectiveControl);
                 throwIfAborted(effectiveControl);
@@ -1291,16 +1298,27 @@ class RunExecutor {
     }
 
     /** 持久化受理当前活动 Run 的 Steer；执行器在下一个模型边界应用。 */
-    async steer(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult> {
+    async steer(
+        ref: RunRef,
+        messageId: string,
+        content: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<SteerInputResult> {
         if (messageId.trim().length === 0 || content.trim().length === 0 || content.length > 64_000) {
             return { ok: false, error: "STEER_CONFLICT" };
         }
-        return withRunModeSelectionGate(this.store, ref.goalId, async () => {
+        return withGoalMutationGate(this.store, ref.goalId, async () => {
             const goal = await this.restore(ref);
             if (goal === undefined || goal.state.run.id !== ref.runId) {
                 return { ok: false, error: "RUN_NOT_FOUND" };
             }
             const run = goal.state.run;
+            const ledgerRecord = ledger === undefined
+                ? undefined
+                : findSessionInputRecord(goal, messageId);
+            if (ledgerRecord !== undefined && ledger !== undefined && ledgerRecord.digest !== ledger.digest) {
+                return { ok: false, error: "STEER_CONFLICT" };
+            }
             const existing = (run.steerInputs ?? []).find((input) => input.messageId === messageId);
             if (existing !== undefined) {
                 const existingContent = existing.status === "pending"
@@ -1316,7 +1334,27 @@ class RunExecutor {
                 ...(run.steerInputs ?? []),
                 { messageId, status: "pending", content },
             ];
-            const nextGoal = this.withRun(goal, { ...run, steerInputs });
+            const ledgerEntry: SessionInputRecord | undefined = ledger === undefined || ledgerRecord !== undefined
+                ? undefined
+                : {
+                    inputId: messageId,
+                    kind: "steer",
+                    digest: ledger.digest,
+                    sequence: nextSessionInputSequence(goal),
+                    status: "pending",
+                    admittedAtRevision: (goal.state.commitRevision ?? 0) + 1,
+                    targetRunId: run.id,
+                };
+            const nextGoal: Goal = {
+                ...goal,
+                state: {
+                    ...goal.state,
+                    run: { ...run, steerInputs },
+                    ...(ledgerEntry === undefined
+                        ? {}
+                        : { inputLedger: [...(goal.state.inputLedger ?? []), ledgerEntry] }),
+                },
+            };
             const fact: TrajectoryEventDraft = {
                 goalId: goal.id,
                 runId: run.id,
@@ -1324,16 +1362,23 @@ class RunExecutor {
                 eventType: "steer_input_received",
                 payload: { type: "steer_input_received", messageId },
             };
-            const committed = await this.checkpointCommitter.commit(nextGoal, { facts: [fact] });
+            const committed = await this.checkpointCommitter.commit(nextGoal, {
+                facts: [fact],
+                ...(ledgerEntry === undefined ? {} : { sessionState: "caller" as const }),
+            });
             this.publishCommittedEvents(committed);
             this.publishCheckpointCommitted(committed, [fact]);
             return { ok: true, goalId: goal.id, runId: run.id, messageId, existing: false };
         });
     }
 
-    async interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {
+    async interrupt(
+        ref: RunRef,
+        requestId: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<InterruptRunResult> {
         if (requestId.trim().length === 0) return { ok: false, error: "INTERRUPT_CONFLICT" };
-        const result = await withRunModeSelectionGate(this.store, ref.goalId, async (): Promise<InterruptRunResult> => {
+        const result = await withGoalMutationGate(this.store, ref.goalId, async (): Promise<InterruptRunResult> => {
             const goal = await this.restore(ref);
             if (goal === undefined || goal.state.run.id !== ref.runId) return { ok: false, error: "RUN_NOT_FOUND" };
             const existing = goal.state.run.interruption;
@@ -1345,8 +1390,41 @@ class RunExecutor {
             if (goal.state.run.status !== "running" && goal.state.run.status !== "waiting") {
                 return { ok: false, error: "RUN_NOT_RUNNING" };
             }
+            if (ledger !== undefined) {
+                const existingRecord = findSessionInputRecord(goal, requestId);
+                if (existingRecord !== undefined && existingRecord.digest !== ledger.digest) {
+                    return { ok: false, error: "INTERRUPT_CONFLICT" };
+                }
+            }
             const interruption: RunInterruption = { requestId, status: "requested", repairCallsStarted: 0 };
-            const nextGoal = this.withRun(goal, { ...goal.state.run, interruption });
+            const ledgerEntry: SessionInputRecord | undefined = ledger === undefined
+                ? undefined
+                : {
+                    // 中断意图在同一提交中生效；收据直接记录为已应用。
+                    inputId: requestId,
+                    kind: "interrupt",
+                    digest: ledger.digest,
+                    sequence: nextSessionInputSequence(goal),
+                    status: "applied",
+                    admittedAtRevision: (goal.state.commitRevision ?? 0) + 1,
+                    targetRunId: ref.runId,
+                    appliedRunId: ref.runId,
+                };
+            const nextGoal: Goal = {
+                ...goal,
+                state: {
+                    ...goal.state,
+                    ...(ledgerEntry === undefined
+                        ? {}
+                        : { inputLedger: [...(goal.state.inputLedger ?? []), ledgerEntry] }),
+                    // 中断意图与队列暂停在同一提交边界生效。
+                    messageQueue: withQueuePause(goal.state.messageQueue, {
+                        reason: "user_interrupt",
+                        runId: ref.runId,
+                    }),
+                    run: { ...goal.state.run, interruption },
+                },
+            };
             const fact: TrajectoryEventDraft = {
                 goalId: goal.id,
                 runId: ref.runId,
@@ -1354,7 +1432,10 @@ class RunExecutor {
                 eventType: "run_interrupt_requested",
                 payload: { type: "run_interrupt_requested", requestId },
             };
-            const committed = await this.checkpointCommitter.commit(nextGoal, { facts: [fact] });
+            const committed = await this.checkpointCommitter.commit(nextGoal, {
+                facts: [fact],
+                sessionState: "caller",
+            });
             this.publishCommittedEvents(committed);
             this.publishCheckpointCommitted(committed, [fact]);
             return { ok: true, goalId: goal.id, runId: ref.runId, requestId, existing: false };
@@ -2460,7 +2541,7 @@ class RunExecutor {
             readonly stepIndex?: number;
         },
     ): Promise<Goal> {
-        return withRunModeSelectionGate(this.store, goal.id, async () => {
+        return withGoalMutationGate(this.store, goal.id, async () => {
             const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
             if (latest?.state.run.interruption?.status === "requested") {
                 throw new RunInterruptAcceptedError("Run Interrupt was accepted before the model checkpoint");
@@ -2535,7 +2616,7 @@ class RunExecutor {
         facts: readonly TrajectoryEventDraft[],
         control?: ExecutionControl,
     ): Promise<TrajectoryCheckpointCommitResult> {
-        return withRunModeSelectionGate(this.store, goal.id, async () => {
+        return withGoalMutationGate(this.store, goal.id, async () => {
             const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
             if (latest?.state.run.interruption?.status === "requested") {
                 throw new RunInterruptAcceptedError("Run Interrupt was accepted before a new Tool attempt");
@@ -2569,7 +2650,7 @@ class RunExecutor {
     }
 
     private async applyPendingSteers(goal: Goal, control?: ExecutionControl): Promise<Goal> {
-        return withRunModeSelectionGate(this.store, goal.id, async (): Promise<Goal> => {
+        return withGoalMutationGate(this.store, goal.id, async (): Promise<Goal> => {
             const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
             if (latest === undefined || latest.state.run.status !== "running") return latest ?? goal;
             const pending = (latest.state.run.steerInputs ?? []).filter(
@@ -2592,9 +2673,11 @@ class RunExecutor {
             const messages = [...latest.state.messages];
             const steerInputs = [...(latest.state.run.steerInputs ?? [])];
             const facts: TrajectoryEventDraft[] = [];
+            const appliedPositions = new Map<string, number>();
             for (const input of pending) {
                 const messageIndex = messages.length;
                 messages.push({ role: "user", content: input.content });
+                appliedPositions.set(input.messageId, messageIndex);
                 const index = steerInputs.findIndex(item => item.messageId === input.messageId);
                 steerInputs[index] = { messageId: input.messageId, status: "applied", messageIndex };
                 facts.push({
@@ -2605,9 +2688,21 @@ class RunExecutor {
                     payload: { type: "steer_input_applied", messageId: input.messageId, messageIndex },
                 });
             }
+            // 统一账本同步标记为已应用；没有账本条目的旧路径不凭空创建收据。
+            const inputLedger = latest.state.inputLedger?.map((record) => {
+                const messageIndex = appliedPositions.get(record.inputId);
+                if (messageIndex === undefined || record.status !== "pending") return record;
+                return {
+                    ...record,
+                    status: "applied" as const,
+                    appliedRunId: latest.state.run.id,
+                    messageIndex,
+                };
+            });
             const nextState: GoalState = {
                 ...latest.state,
                 messages,
+                ...(inputLedger === undefined ? {} : { inputLedger }),
                 ...(goal.state.historicalStages !== undefined ? { historicalStages: goal.state.historicalStages } : {}),
                 ...(goal.state.notes !== undefined ? { notes: goal.state.notes } : {}),
                 run: (() => {
@@ -2623,7 +2718,11 @@ class RunExecutor {
                 ...latest,
                 state: nextState,
             };
-            const committed = await this.checkpointCommitter.commit(nextGoal, { facts, ...(control === undefined ? {} : { control }) });
+            const committed = await this.checkpointCommitter.commit(nextGoal, {
+                facts,
+                sessionState: "caller",
+                ...(control === undefined ? {} : { control }),
+            });
             this.publishCommittedEvents(committed);
             this.publishCheckpointCommitted(committed, facts);
             const finalState: GoalState = {
@@ -3833,7 +3932,7 @@ class RunExecutor {
             eventType: "observation_recorded",
             payload: { type: "observation_recorded", actionId: prepared.action.actionId, observation },
         };
-        const committed = await withRunModeSelectionGate(this.store, goal.id, async () => {
+        const committed = await withGoalMutationGate(this.store, goal.id, async () => {
             const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
             if (latest === undefined) throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "Run disappeared before Observation commit");
             const toolFinishedEvent = await this.appendTrajectory({
@@ -6524,8 +6623,9 @@ export class Runner {
      * 同一消息身份与正文的重试幂等，身份复用但正文不同会拒绝。
      *
      * @param ref - 目标 Goal 与 Run 的关联身份。
-     * @param messageId - 客户端为该次发送分配的稳定身份。
+     * @param messageId - 客户端为该次发送分配的稳定身份，同时作为统一输入账本身份。
      * @param content - 非空 Steer 正文。
+     * @param ledger - 提供时在同一提交中写入统一输入账本条目。
      * @returns 已持久化受理、幂等重试或稳定拒绝结果。
      * @throws Snapshot 或 Trajectory 保存失败时传播原始错误；失败时不报告受理。
      * @example
@@ -6533,8 +6633,13 @@ export class Runner {
      * const accepted = await runner.steer({ goalId, runId }, "steer-1", "保留当前 API");
      * ```
      */
-    steer(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult> {
-        return this.executor.steer(ref, messageId, content);
+    steer(
+        ref: RunRef,
+        messageId: string,
+        content: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<SteerInputResult> {
+        return this.executor.steer(ref, messageId, content, ledger);
     }
 
     /**
@@ -6549,7 +6654,11 @@ export class Runner {
      * await runner.interrupt({ goalId, runId }, "interrupt-1");
      * ```
      */
-    interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {
-        return this.executor.interrupt(ref, requestId);
+    interrupt(
+        ref: RunRef,
+        requestId: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<InterruptRunResult> {
+        return this.executor.interrupt(ref, requestId, ledger);
     }
 }

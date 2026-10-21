@@ -216,10 +216,10 @@ export function createExecutionComponents(
             ),
             advance: (ref, control) => coordinator.advance(ref, control),
             resume: (request, control) => coordinator.resume(request, control),
-            continue: (ref, content, control, continuation) =>
-                coordinator.continue(ref, content, control, continuation),
-            steer: (ref, messageId, content) => coordinator.steer(ref, messageId, content),
-            interrupt: (ref, requestId) => coordinator.interrupt(ref, requestId),
+            continue: (ref, content, control, continuation, queueBinding) =>
+                coordinator.continue(ref, content, control, continuation, queueBinding),
+            steer: (ref, messageId, content, ledger) => coordinator.steer(ref, messageId, content, ledger),
+            interrupt: (ref, requestId, ledger) => coordinator.interrupt(ref, requestId, ledger),
             enterPlanMode: (ref, control) => coordinator.enterPlanMode(ref, control),
             listGrants: (ref) => coordinator.listGrants(ref),
             revokeGrant: (request) => coordinator.revokeGrant(request),

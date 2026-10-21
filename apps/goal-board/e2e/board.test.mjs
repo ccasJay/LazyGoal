@@ -50,6 +50,10 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     socket = await connectCdp(target.webSocketDebuggerUrl);
     await cdp(socket, "Page.enable");
     await cdp(socket, "Runtime.enable");
+    // 显式桌面布局视口：headless 默认宽度会触发移动布局并隐藏侧栏初始断言。
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", {
+      width: 1280, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
 
     await navigate(socket, `${webUrl}/`);
     await waitForExpression(socket, "document.body.innerText.includes('lazygoal web')");
@@ -60,6 +64,15 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
       await cdp(socket, "Emulation.setDeviceMetricsOverride", {
         width, height: 900, deviceScaleFactor: 1, mobile: width <= 760,
       });
+      if (width <= 760) {
+        // 移动布局会收起侧栏；显式展开后才能在真实移动视口检查品牌资源与尺寸。
+        await waitForExpression(socket, "document.querySelector('.workspace-sidebar-dialog') !== null || document.querySelector('button[aria-label=\"Expand sidebar\"]') !== null");
+        await cdp(socket, "Runtime.evaluate", {
+          expression: "(() => { const toggle = document.querySelector('button[aria-label=\"Expand sidebar\"]'); if (toggle === null) return false; toggle.click(); return true; })()",
+          returnByValue: true,
+        });
+        await waitForExpression(socket, "document.querySelector('.workspace-sidebar-dialog') !== null");
+      }
       const assetName = width <= 760 ? "mark-on-light" : "logo-on-light";
       await waitForExpression(socket, `(() => { const image = document.querySelector('.brand-logo img'); return image?.complete && image.naturalWidth > 0 && image.currentSrc.includes('${assetName}'); })()`);
       const brand = await value(socket, `(() => {
@@ -78,7 +91,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
 
     await navigate(socket, `${webUrl}/?session=desktop#${token}`);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
-    await waitForExpression(socket, "document.querySelector('.goal-card .card-metrics')?.innerText.includes('call unreported')");
+    await waitForExpression(socket, "document.querySelector('.goal-card .metric-coverage')?.innerText.includes('call unreported')");
     assert.match(await value(socket, "document.querySelector('.goal-card .card-metrics').innerText"), /Output rate/);
     assert.doesNotMatch(await value(socket, "document.querySelector('.goal-card .card-metrics').innerText"), /Generation/);
     assert.equal(await value(socket, "document.querySelector('.sidebar, .view-switch, .filter') === null"), true);
@@ -187,8 +200,8 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')");
     await waitForExpression(socket, "document.querySelector('.composer-area .composer') !== null");
-    const inputBounds = await value(socket, "(() => { const box = document.querySelector('.composer-area .composer').getBoundingClientRect(); return { width: box.width, centerGap: Math.abs((box.left + box.right) / 2 - window.innerWidth / 2) }; })()");
-    assert.ok(inputBounds.width <= 800 && inputBounds.centerGap < 16);
+    const inputBounds = await value(socket, "(() => { const box = document.querySelector('.composer-area .composer').getBoundingClientRect(); const column = document.querySelector('.composer-area').getBoundingClientRect(); const main = document.querySelector('.workspace-main').getBoundingClientRect(); return { width: box.width, columnGap: Math.abs((box.left + box.right - column.left - column.right) / 2), columnAligned: column.left >= main.left && column.right <= main.right && Math.abs((column.left + column.right - main.left - main.right) / 2) < 2, mainWithinViewport: main.left >= 0 && main.right <= window.innerWidth }; })()");
+    assert.ok(inputBounds.width <= 800 && inputBounds.columnGap < 2 && inputBounds.columnAligned && inputBounds.mainWithinViewport, JSON.stringify(inputBounds));
     await waitForExpression(socket, "document.querySelector('.permission-trigger')?.textContent.includes('Default')");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.permission-trigger').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.permission-popover') !== null");
@@ -205,12 +218,21 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.permission-popover') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.session-tabs').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.permission-popover') === null");
-    assert.deepEqual(mock.lastInteraction, {
-      kind: "answer_ask_user",
-      runId: "run-1",
-      requestId: "request-1",
-      answers: [{ questionId: "source", optionIds: ["approved"] }],
-    });
+    assert.equal(typeof mock.lastInteraction.inputId, "string", "the wire command carries a stable input identity");
+    assert.deepEqual(
+      {
+        kind: mock.lastInteraction.kind,
+        runId: mock.lastInteraction.runId,
+        requestId: mock.lastInteraction.requestId,
+        response: mock.lastInteraction.response,
+      },
+      {
+        kind: "respond",
+        runId: "run-1",
+        requestId: "request-1",
+        response: { kind: "answer_ask_user", answers: [{ questionId: "source", optionIds: ["approved"] }] },
+      },
+    );
 
     mock.resetToWaiting();
     await cdp(socket, "Emulation.setDeviceMetricsOverride", {
@@ -299,7 +321,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelector('.message.assistant script, .message.assistant .message-body img') === null"), true);
     await waitForExpression(socket, "document.querySelector('.message.assistant .message-avatar img')?.naturalWidth > 0");
     assert.match(await value(socket, "document.querySelector('.message.assistant .message-avatar img').currentSrc"), /mark-on-light/);
-    assert.equal(mock.lastInteraction.scope, "goal");
+    assert.equal(mock.lastInteraction.response.scope, "goal");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.textContent === 'Trajectory').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('Retry inputs')");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Zoom in timeline\"]').click(); document.querySelector('#trajectory-event-1').click()", returnByValue: true });
@@ -432,8 +454,8 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')");
     assert.equal(await value(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header')[1].click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.tr-empty-guidance')?.textContent.includes('所有步骤已收起，请展开步骤以查看事件')");
-    assert.equal(await value(socket, "document.querySelector('.tr-empty-guidance p')?.textContent"), "所有步骤已收起，请展开步骤以查看事件");
+    await waitForExpression(socket, "document.querySelector('.tr-empty-guidance')?.textContent.includes('All steps are collapsed. Expand a step to see its events.')");
+    assert.equal(await value(socket, "document.querySelector('.tr-empty-guidance p')?.textContent"), "All steps are collapsed. Expand a step to see its events.");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header')[0].click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')");
     assert.equal(await value(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')"), true);
@@ -465,8 +487,10 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.action-rejection summary').click()", returnByValue: true });
     await setText(socket, "#action-reason", "Keep the file unchanged.");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.action-rejection button').click()", returnByValue: true });
-    await waitForLocal(() => mock.lastInteraction.kind === "reject_action");
-    assert.deepEqual(mock.lastInteraction, { kind: "reject_action", runId: "run-1", actionId: "action-1", reason: "Keep the file unchanged." });
+    await waitForLocal(() => mock.lastInteraction?.response?.kind === "reject_action");
+    assert.equal(mock.lastInteraction.kind, "respond");
+    assert.equal(mock.lastInteraction.runId, "run-1");
+    assert.deepEqual(mock.lastInteraction.response, { kind: "reject_action", actionId: "action-1", reason: "Keep the file unchanged." });
     await waitForExpression(socket, "document.querySelector('.action-approval') === null");
 
     mock.resetGrants();
@@ -552,9 +576,9 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Try again with the saved history')");
-    assert.equal(mock.lastMessage.runId, "run-1");
+    assert.equal(typeof mock.lastMessage.inputId, "string");
     assert.equal(mock.lastMessage.content, "Try again with the saved history");
-    assert.equal(typeof mock.lastMessage.messageId, "string");
+    assert.equal("runId" in mock.lastMessage, false, "ordinary messages target the Goal queue, not a Run");
     mock.resetToFailed();
     await navigate(socket, `${webUrl}/?session=escaped#${token}`);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
@@ -565,7 +589,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
     await waitForLocal(() => mock.lastMessage?.content === "/plan");
     assert.equal(mock.planModeRequests, 2, "escaped text does not execute a command");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.header-actions .primary').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"New goal\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.draft-timeline') !== null");
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/model");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
@@ -574,7 +598,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.model-picker') === null");
     assert.equal(mock.preferredModelId, "model-selected", "draft selection is saved before creating a Goal");
     mock.delayNextDraftCatalog();
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close session\"]').click(); document.querySelector('.header-actions .primary').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close session\"]').click(); document.querySelector('button[aria-label=\"New goal\"]').click()", returnByValue: true });
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .current-model-control').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.model-option') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.model-option')].find(button => button.textContent.includes('Selected Model')).click()", returnByValue: true });
@@ -645,11 +669,44 @@ function createMockApi() {
   let inputReads = 0;
   let trajectoryReads = 0;
   let inputDetailReads = 0;
+  let inputSequence = 0;
   const nativeCall = { goalId: "goal-1", runId: "run-1", callId: "call-native", stepIndex: 1, stage: "decide", occurredAt: "2026-08-05T09:00:01.000Z", messages: [
     { role: "tool", source: "native_history", callId: "tool-call", toolId: "read_file", content: "Native tool result" },
     { role: "user", source: "section", content: `[Dynamic section: run_mode; source: Goal.intent]\n${"Follow the current request.\n".repeat(80)}` },
     { role: "user", source: "section", content: "[Dynamic section: authorized_tools; source: Runtime.authorizedTools]\nTools available for this request." },
   ] };
+  /** 统一会话输入收据：序号单调递增，测试只核验形状与状态。 */
+  const sessionInputReceipt = (inputId, kind, status) => {
+    inputSequence += 1;
+    return {
+      goalId: "goal-1",
+      inputId,
+      kind,
+      sequence: inputSequence,
+      status,
+      admittedAtRevision: inputSequence,
+      ...(status === "applied" ? { appliedRunId: "run-1", messageIndex: 0 } : {}),
+    };
+  };
+  /** 订阅首项一致同步所需的公开会话状态。 */
+  const sessionState = () => ({
+    goalId: "goal-1",
+    runId: session.currentRunId,
+    runStatus: session.runStatus,
+    mode: session.currentRunMode === "plan" ? "plan" : "normal",
+    commitRevision: 1,
+    queueRevision: 0,
+    queuePaused: false,
+    pendingMessageCount: 0,
+    pendingSteerCount: 0,
+    needsRecovery: false,
+    executionOwner: true,
+    ...(session.runStatus !== "waiting" ? {} : {
+      waitingFor: session.pendingAction !== undefined
+        ? (session.pendingAction.status === "outcome_unknown" ? "action_recovery" : "action_approval")
+        : "ask_user",
+    }),
+  });
   const server = createServer(async (request, response) => {
     authorizationHeaders.push(request.headers.authorization ?? "");
     if (request.headers.authorization !== `Bearer ${token}`) {
@@ -753,7 +810,13 @@ function createMockApi() {
       let body = "";
       for await (const chunk of request) body += chunk;
       lastCreate = JSON.parse(body);
-      json(response, { goalId: lastCreate.goalId, runId: "new-run", existing: false });
+      json(response, {
+        ok: true,
+        existing: false,
+        goalId: lastCreate.goalId,
+        runId: "new-run",
+        receipt: sessionInputReceipt(lastCreate.inputId, "message", "applied"),
+      }, 202);
       return;
     }
     if (request.url === "/api/goals/goal-1" && request.method === "GET") {
@@ -818,12 +881,13 @@ function createMockApi() {
       json(response, { ok: true, goalId: "goal-1", runId: "run-1", grants: [] });
       return;
     }
-    if (request.url?.startsWith("/api/goals/goal-1/events?") && request.method === "GET") {
+    if (request.url === "/api/goals/goal-1/events" && request.method === "GET") {
       response.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
         connection: "keep-alive",
       });
+      response.write(`data: ${JSON.stringify({ type: "state_sync", goalId: "goal-1", state: sessionState() })}\n\n`);
       if (!liveTransitionSent) {
         liveTransitionSent = true;
         activityResponse = response;
@@ -842,31 +906,34 @@ function createMockApi() {
       }
       return;
     }
-    if (request.url === "/api/goals/goal-1/interactions" && request.method === "POST") {
+    if (request.url === "/api/goals/goal-1/inputs" && request.method === "POST") {
       let body = "";
       for await (const chunk of request) body += chunk;
-      lastInteraction = JSON.parse(body);
-      session = completedSession(session);
-      currentListItem = listItem("completed");
-      json(response, { goalId: "goal-1", runId: "run-1", existing: false });
-      return;
-    }
-    if (request.url === "/api/goals/goal-1/messages" && request.method === "POST") {
-      let body = "";
-      for await (const chunk of request) body += chunk;
-      lastMessage = JSON.parse(body);
-      session = {
-        ...session,
-        currentRunId: "run-2",
-        runStatus: "waiting",
-        messages: [...session.messages, { role: "user", content: lastMessage.content }],
-        runs: [
-          ...session.runs.map((run) => ({ ...run, current: false })),
-          { runId: "run-2", status: "waiting", stepCount: 0, steps: [], current: true },
-        ],
-      };
-      currentListItem = { ...listItem("waiting"), runId: "run-2" };
-      json(response, { goalId: "goal-1", runId: "run-2", existing: false });
+      const command = JSON.parse(body);
+      if (command.kind === "respond") {
+        lastInteraction = command;
+        session = completedSession(session);
+        currentListItem = listItem("completed");
+        json(response, { ok: true, existing: false, receipt: sessionInputReceipt(command.inputId, "respond", "applied") }, 202);
+        return;
+      }
+      if (command.kind === "message") {
+        lastMessage = command;
+        session = {
+          ...session,
+          currentRunId: "run-2",
+          runStatus: "waiting",
+          messages: [...session.messages, { role: "user", content: command.content }],
+          runs: [
+            ...session.runs.map((run) => ({ ...run, current: false })),
+            { runId: "run-2", status: "waiting", stepCount: 0, steps: [], current: true },
+          ],
+        };
+        currentListItem = { ...listItem("waiting"), runId: "run-2" };
+        json(response, { ok: true, existing: false, receipt: sessionInputReceipt(command.inputId, "message", "pending") }, 202);
+        return;
+      }
+      json(response, { ok: false, error: "INVALID_INPUT" }, 400);
       return;
     }
     response.writeHead(404, { "content-type": "application/json" });
@@ -1049,8 +1116,8 @@ function listItem(runStatus) {
   };
 }
 
-function json(response, value) {
-  response.writeHead(200, { "content-type": "application/json" });
+function json(response, value, status = 200) {
+  response.writeHead(status, { "content-type": "application/json" });
   response.end(JSON.stringify(value));
 }
 

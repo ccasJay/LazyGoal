@@ -32,6 +32,7 @@ import {
 } from "../../execution-control/src/index";
 import { transition } from "./transition";
 import { createRunPlanRoute, reviseRunPlanExecution } from "./run-plan";
+import type { SessionInputDigest, SessionInputRecord, SessionMessageQueue } from "./session-input";
 import {
     type DiagnosticTraceSink,
     type TrajectoryEventDraft,
@@ -49,7 +50,7 @@ import {
     type TrajectoryCheckpointCommitResult,
     type TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
-import { withRunModeSelectionGate } from "./run-mode-selection-gate";
+import { withGoalMutationGate } from "./goal-mutation-gate";
 import {
     DefaultPermissionGrantService,
     createSandboxGrantMatcher,
@@ -138,10 +139,31 @@ export type GoalProgressErrorCode =
     | "INVALID_CONTEXT_LOOKUP"
     | "CONTEXT_LOOKUP_CHAIN_LIMIT"
     | "PLAN_MODE_BUSY"
+    | "QUEUE_REVISION_MISMATCH"
     | "TOOL_NOT_AUTHORIZED"
     | "TOOL_NOT_FOUND"
     | "INVALID_TOOL_INPUT"
     | "TOOL_EXECUTION_ERROR";
+
+/**
+ * 由会话队列消费驱动的后继 Run 绑定。
+ *
+ * @remarks
+ * 提供该绑定时，被应用的队首消息、输入账本状态、队列修订与新 Run 创建在
+ * 同一 Snapshot 提交中完成；`newInput` 必须等于队首消息正文，队列修订失配
+ * 时拒绝且不创建 Run。
+ *
+ * @example
+ * ```ts
+ * const binding: ContinuationQueueBinding = { inputId: "input-2", queueRevision: 3 };
+ * ```
+ */
+export interface ContinuationQueueBinding {
+    /** 被应用的队首输入身份。 */
+    readonly inputId: string;
+    /** 调用方观察到的队列修订。 */
+    readonly queueRevision: number;
+}
 
 /**
  * 用户对 Goal 当前交互等待点提交的操作。
@@ -593,7 +615,7 @@ export class GoalCoordinator {
         ref: RunRef,
         control?: ExecutionControl,
     ): Promise<GoalProgressResult> {
-        return withRunModeSelectionGate(this.store, ref.goalId, async () => {
+        return withGoalMutationGate(this.store, ref.goalId, async () => {
             throwIfAborted(control);
             const goal = await this.restore(ref, control);
             throwIfAborted(control);
@@ -758,9 +780,10 @@ export class GoalCoordinator {
         newInput: string,
         control?: ExecutionControl,
         continuation?: { readonly messageId: string },
+        queueBinding?: ContinuationQueueBinding,
     ): Promise<GoalProgressResult> {
         return this.withContinuationGate(ref.goalId, async () => {
-            const preparation = await withRunModeSelectionGate(
+            const preparation = await withGoalMutationGate(
                 this.store,
                 ref.goalId,
                 async (): Promise<
@@ -780,6 +803,59 @@ export class GoalCoordinator {
                     if (goal.state.run.status !== "completed" && goal.state.run.status !== "failed"
                         && goal.state.run.status !== "cancelled") {
                         return { progress: this.goalNotCompleted(ref) };
+                    }
+
+                    let queueState:
+                        | {
+                            readonly inputId: string;
+                            readonly ledger: readonly SessionInputRecord[];
+                            readonly queue: SessionMessageQueue;
+                        }
+                        | undefined;
+                    if (queueBinding !== undefined) {
+                        const queue = goal.state.messageQueue ?? { revision: 0, items: [] };
+                        if (queue.revision !== queueBinding.queueRevision) {
+                            return {
+                                progress: {
+                                    ok: false,
+                                    error: {
+                                        code: "QUEUE_REVISION_MISMATCH",
+                                        message: `queueRevision ${queueBinding.queueRevision} does not match current revision ${queue.revision}`,
+                                    },
+                                },
+                            };
+                        }
+                        const head = queue.items[0];
+                        if (head === undefined || head.inputId !== queueBinding.inputId) {
+                            return {
+                                progress: {
+                                    ok: false,
+                                    error: {
+                                        code: "QUEUE_REVISION_MISMATCH",
+                                        message: `queued head does not match input "${queueBinding.inputId}"`,
+                                    },
+                                },
+                            };
+                        }
+                        if (head.content !== newInput) {
+                            return {
+                                progress: this.invalidGoalInput(
+                                    "Continuation input must match the queued message body",
+                                ),
+                            };
+                        }
+                        queueState = {
+                            inputId: head.inputId,
+                            ledger: (goal.state.inputLedger ?? []).map((record) =>
+                                record.inputId === head.inputId && record.status === "pending"
+                                    ? { ...record, status: "applied" as const }
+                                    : record),
+                            queue: {
+                                revision: queue.revision + 1,
+                                items: queue.items.slice(1),
+                                ...(queue.pause === undefined ? {} : { pause: queue.pause }),
+                            },
+                        };
                     }
 
                     const runId = this.runIdGenerator();
@@ -815,6 +891,7 @@ export class GoalCoordinator {
                     const nextRunMode = goal.state.nextRunMode ?? "normal";
                     const nextRun = createRun(runId, nextRunMode);
                     const { nextRunMode: _consumedNextRunMode, ...stateWithoutNextRunMode } = goal.state;
+                    const messageIndex = priorMessages.length;
                     const nextGoal: Goal = {
                         ...goal,
                         state: {
@@ -825,6 +902,14 @@ export class GoalCoordinator {
                             ],
                             run: nextRun,
                             completedRuns: [...priorHistory, history],
+                            ...(queueState === undefined
+                                ? {}
+                                : {
+                                    inputLedger: queueState.ledger.map((record) => record.inputId === queueState.inputId
+                                        ? { ...record, appliedRunId: runId, messageIndex }
+                                        : record),
+                                    messageQueue: queueState.queue,
+                                }),
                         },
                     };
 
@@ -841,7 +926,22 @@ export class GoalCoordinator {
                                     mode: nextRun.mode,
                                 },
                             },
+                            ...(queueBinding === undefined
+                                ? []
+                                : [{
+                                    goalId: goal.id,
+                                    runId,
+                                    phase: goal.state.workflow.phase,
+                                    eventType: "session_input_applied" as const,
+                                    payload: {
+                                        type: "session_input_applied" as const,
+                                        inputId: queueBinding.inputId,
+                                        runId,
+                                        messageIndex,
+                                    },
+                                }]),
                         ],
+                        ...(queueBinding === undefined ? {} : { sessionState: "caller" as const }),
                         ...(control === undefined ? {} : { control }),
                     });
                     this.publishCommittedEvents(committed, committed.events);
@@ -867,6 +967,7 @@ export class GoalCoordinator {
      * @param ref - 当前 Goal 与 Run 的稳定关联身份。
      * @param messageId - 客户端生成的幂等身份；相同身份与正文可安全重试。
      * @param content - 非空的补充或修正文本。
+     * @param ledger - 提供时在同一提交中写入统一输入账本条目。
      * @returns 持久化受理、幂等重试或稳定拒绝结果。
      * @throws Runner 的 Snapshot 或 Trajectory 提交失败时传播错误。
      * @example
@@ -874,10 +975,15 @@ export class GoalCoordinator {
      * const result = await coordinator.steer({ goalId, runId }, "message-1", "不要修改公开接口");
      * ```
      */
-    steer(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult> {
+    steer(
+        ref: RunRef,
+        messageId: string,
+        content: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<SteerInputResult> {
         return this.scheduler.steer === undefined
             ? Promise.resolve({ ok: false, error: "RUN_CONTROL_UNAVAILABLE" })
-            : this.scheduler.steer(ref, messageId, content);
+            : this.scheduler.steer(ref, messageId, content, ledger);
     }
 
     /**
@@ -885,6 +991,7 @@ export class GoalCoordinator {
      *
      * @param ref - 当前 Goal 与 Run 的稳定身份。
      * @param requestId - 客户端稳定请求身份，用于受理结果重试。
+     * @param ledger - 提供时在同一提交中写入统一输入账本收据并暂停队列。
      * @returns 已保存的终止意图或稳定拒绝；受理不表示收尾已经结束。
      * @throws Snapshot 或 Trajectory 提交失败时传播原始错误。
      * @example
@@ -892,10 +999,14 @@ export class GoalCoordinator {
      * const result = await coordinator.interrupt({ goalId, runId }, "interrupt-1");
      * ```
      */
-    interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {
+    interrupt(
+        ref: RunRef,
+        requestId: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<InterruptRunResult> {
         return this.scheduler.interrupt === undefined
             ? Promise.resolve({ ok: false, error: "INTERRUPT_CONFLICT" })
-            : this.scheduler.interrupt(ref, requestId);
+            : this.scheduler.interrupt(ref, requestId, ledger);
     }
 
     /**

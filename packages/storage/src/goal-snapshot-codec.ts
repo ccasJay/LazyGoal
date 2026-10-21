@@ -21,6 +21,9 @@ import type {
     PendingInteraction,
     PendingThink,
     PendingModelRepair,
+    SessionInputDigest,
+    SessionInputRecord,
+    SessionMessageQueue,
     StepRecord,
     ToolCallAction,
 } from "../../runtime/src/index";
@@ -45,6 +48,8 @@ import {
     type GoalSnapshotPlanRouteStageV1,
     type GoalSnapshotPlanRouteV1,
     type GoalSnapshotProfileV1,
+    type GoalSnapshotSessionInputV1,
+    type GoalSnapshotMessageQueueV1,
     type GoalSnapshotStepRecordV1,
     type GoalSnapshotTaskV1,
     type GoalSnapshotToolCallActionV1,
@@ -459,6 +464,32 @@ function encodeCompletedRun(record: CompletedRunRecord): GoalSnapshotCompletedRu
     };
 }
 
+function encodeSessionInputRecord(record: SessionInputRecord): GoalSnapshotSessionInputV1 {
+    return {
+        inputId: record.inputId,
+        kind: record.kind,
+        digest: record.digest,
+        sequence: record.sequence,
+        status: record.status,
+        admittedAtRevision: record.admittedAtRevision,
+        ...(record.targetRunId === undefined ? {} : { targetRunId: record.targetRunId }),
+        ...(record.appliedRunId === undefined ? {} : { appliedRunId: record.appliedRunId }),
+        ...(record.messageIndex === undefined ? {} : { messageIndex: record.messageIndex }),
+    };
+}
+
+function encodeMessageQueue(queue: SessionMessageQueue): GoalSnapshotMessageQueueV1 {
+    return {
+        revision: queue.revision,
+        items: queue.items.map((item) => ({
+            inputId: item.inputId,
+            content: item.content,
+            sequence: item.sequence,
+        })),
+        ...(queue.pause === undefined ? {} : { pause: { ...queue.pause } }),
+    };
+}
+
 function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
     if (
         goal.definition.promptBundleVersion !== 1
@@ -497,6 +528,13 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
         },
         state: {
             ...(goal.state.nextRunMode === undefined ? {} : { nextRunMode: goal.state.nextRunMode }),
+            ...(goal.state.commitRevision === undefined ? {} : { commitRevision: goal.state.commitRevision }),
+            ...(goal.state.inputLedger === undefined
+                ? {}
+                : { inputLedger: goal.state.inputLedger.map(encodeSessionInputRecord) }),
+            ...(goal.state.messageQueue === undefined
+                ? {}
+                : { messageQueue: encodeMessageQueue(goal.state.messageQueue) }),
             workflow: encodeWorkflow(goal.state.workflow),
             messages: goal.state.messages.map(encodeMessage),
             run: {
@@ -956,6 +994,39 @@ function decodeCompletedRun(record: GoalSnapshotCompletedRunV1): CompletedRunRec
     };
 }
 
+function decodeSessionInputDigest(value: string): SessionInputDigest {
+    if (!/^sha256:[0-9a-f]{64}$/.test(value)) {
+        throw protocolError("Session input digest must be a sha256 digest");
+    }
+    return value as SessionInputDigest;
+}
+
+function decodeSessionInputRecord(record: GoalSnapshotSessionInputV1): SessionInputRecord {
+    return {
+        inputId: record.inputId,
+        kind: record.kind,
+        digest: decodeSessionInputDigest(record.digest),
+        sequence: record.sequence,
+        status: record.status,
+        admittedAtRevision: record.admittedAtRevision,
+        ...(record.targetRunId === undefined ? {} : { targetRunId: record.targetRunId }),
+        ...(record.appliedRunId === undefined ? {} : { appliedRunId: record.appliedRunId }),
+        ...(record.messageIndex === undefined ? {} : { messageIndex: record.messageIndex }),
+    };
+}
+
+function decodeMessageQueue(queue: GoalSnapshotMessageQueueV1): SessionMessageQueue {
+    return {
+        revision: queue.revision,
+        items: queue.items.map((item) => ({
+            inputId: item.inputId,
+            content: item.content,
+            sequence: item.sequence,
+        })),
+        ...(queue.pause === undefined ? {} : { pause: { ...queue.pause } }),
+    };
+}
+
 function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
     const run = snapshot.state.run;
     return {
@@ -971,6 +1042,13 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
         },
         state: {
             ...(snapshot.state.nextRunMode === undefined ? {} : { nextRunMode: snapshot.state.nextRunMode }),
+            ...(snapshot.state.commitRevision === undefined ? {} : { commitRevision: snapshot.state.commitRevision }),
+            ...(snapshot.state.inputLedger === undefined
+                ? {}
+                : { inputLedger: snapshot.state.inputLedger.map(decodeSessionInputRecord) }),
+            ...(snapshot.state.messageQueue === undefined
+                ? {}
+                : { messageQueue: decodeMessageQueue(snapshot.state.messageQueue) }),
             workflow: decodeWorkflow(snapshot.state.workflow),
             messages: snapshot.state.messages.map((message): GoalMessage =>
                 message.role === "user"

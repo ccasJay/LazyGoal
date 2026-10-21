@@ -1,9 +1,6 @@
 import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
-import type {
-  BrowserGoalInteractionCommand,
-} from "../../../../packages/web-contracts/src/index";
-import type { QueuedInput } from "../types";
+import type { BrowserGoalInteractionCommand, QueuedInput } from "../types";
 
 export interface RunControlContextValue {
   readonly commandBusy: boolean;
@@ -13,8 +10,8 @@ export interface RunControlContextValue {
   readonly canSendText: boolean;
   readonly queuedInputs: readonly QueuedInput[];
   readonly queuePaused: boolean;
-  readonly onQueueInput: (content: string) => boolean;
   readonly onContinueQueue: () => Promise<void>;
+  readonly onClearQueue: () => Promise<void>;
   readonly onSubmitMessage: (content: string) => Promise<boolean>;
   readonly onSubmitDraftMessage: (content: string) => Promise<boolean>;
   readonly onSubmitSteer: (content: string) => Promise<boolean>;

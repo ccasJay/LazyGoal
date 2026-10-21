@@ -79,23 +79,16 @@ const chosen: GoalModelSelection = {
 
 function serviceFor(store: Store, resolve = async (modelId: string, current: GoalModelSelection): Promise<GoalModelSelection | undefined> =>
     modelId === "gpt-new" && current.provider === "openai" ? chosen : undefined,
-    restoreModelBinding?: (goal: Goal) => Promise<boolean>,
     saveModelPreference?: (selection: GoalModelSelection) => Promise<void>,
 ): BrowserGoalCommandService {
     return new BrowserGoalCommandService({
         store,
-        saveNotifications: store,
-        profileId: "default",
-        launcher: { async launch() { throw new Error("unused"); } },
         coordinator: {
-            async resume() { throw new Error("unused"); },
-            async continue() { throw new Error("unused"); },
             async enterPlanMode() { throw new Error("unused"); },
         },
         modelSelectionCoordinator: new DefaultGoalModelSelectionCoordinator({ store }),
         resolveModelSelection: resolve,
         ...(saveModelPreference === undefined ? {} : { saveModelPreference }),
-        ...(restoreModelBinding === undefined ? {} : { restoreModelBinding }),
     });
 }
 
@@ -127,7 +120,7 @@ test("Goal 切换成功后偏好写入失败报告部分成功，随后可单独
         if (attempts === 1) throw new Error("disk unavailable");
         preferred = selection.modelId;
     };
-    const service = serviceFor(store, undefined, undefined, save);
+    const service = serviceFor(store, undefined, save);
     assert.deepEqual(await service.selectModel("goal-1", { runId: "run-1", modelId: "gpt-new" }), {
         ok: true, goalId: "goal-1", runId: "run-1", modelId: "gpt-new", defaultModelSaved: false,
     });
@@ -165,14 +158,10 @@ test("模型提交只接受精确 wire 字段，并隐藏服务端错误内容",
     const port: BrowserGoalApiPort = {
         list: async () => [],
         read: async () => undefined,
-        create: async () => ({ ok: false, error: "goal_create_failed" }),
-        interact: async () => ({ ok: false, error: "interaction_failed" }),
-        message: async () => ({ ok: false, error: "message_failed" }),
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
         setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
         selectModel: (goalId, command) => service.selectModel(goalId, command),
-        openStream: async () => ({ ok: false, error: "goal_not_found" }),
     };
     const route = createBrowserGoalRoutes(port);
     const send = (body: unknown) => route.request("http://localhost/api/goals/goal-1/model-selection", {
@@ -192,9 +181,6 @@ test("模型偏好路由严格校验请求并区分不可选与持久化故障",
     const route = createBrowserGoalRoutes({
         list: async () => [],
         read: async () => undefined,
-        create: async () => ({ ok: false, error: "goal_create_failed" }),
-        interact: async () => ({ ok: false, error: "interaction_failed" }),
-        message: async () => ({ ok: false, error: "message_failed" }),
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
         selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
@@ -204,7 +190,6 @@ test("模型偏好路由严格校验请求并区分不可选与持久化故障",
                 : modelId === "missing" ? { ok: false, error: "model_not_selectable" }
                     : { ok: false, error: "model_preference_unavailable" };
         },
-        openStream: async () => ({ ok: false, error: "goal_not_found" }),
     });
     const send = (body: unknown) => route.request("http://localhost/api/project/model-preference", {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
@@ -217,80 +202,3 @@ test("模型偏好路由严格校验请求并区分不可选与持久化故障",
     assert.deepEqual(await (await send({ modelId: "valid" })).json(), { ok: true, modelId: "valid" });
 });
 
-test("终态预选与下一 Run 串行，下一 Run 继承新选择且旧请求被拒绝", async () => {
-    const store = new Store();
-    store.goal = goalFor("completed");
-    let releaseResolution!: () => void;
-    const resolution = new Promise<void>((resolve) => { releaseResolution = resolve; });
-    let resolving = false;
-    const service = new BrowserGoalCommandService({
-        store,
-        saveNotifications: store,
-        profileId: "default",
-        launcher: { async launch() { throw new Error("unused"); } },
-        coordinator: {
-            async resume() { throw new Error("unused"); },
-            async enterPlanMode() { throw new Error("unused"); },
-            async continue(ref, content) {
-                const goal = await store.restore(ref.goalId);
-                assert.ok(goal);
-                assert.equal(goal.state.modelSelection.modelId, "gpt-new");
-                const updated: Goal = {
-                    ...goal,
-                    state: {
-                        ...goal.state,
-                        messages: [...goal.state.messages, { role: "user", content }],
-                        completedRuns: [{
-                            runId: ref.runId,
-                            status: "completed",
-                            stepCount: goal.state.run.stepCount,
-                            committedThroughSequence: goal.state.run.committedThroughSequence,
-                            messageRange: { start: 0, end: goal.state.messages.length },
-                        }],
-                        run: createRun("run-2"),
-                    },
-                };
-                await store.save(updated);
-                return { ok: true as const, kind: "waiting" as const, phase: "executing" as const, waitingFor: "blocked" as const, goal: updated };
-            },
-        },
-        modelSelectionCoordinator: new DefaultGoalModelSelectionCoordinator({ store }),
-        resolveModelSelection: async () => {
-            resolving = true;
-            await resolution;
-            return chosen;
-        },
-    });
-
-    const select = service.selectModel("goal-1", { runId: "run-1", modelId: "gpt-new" });
-    while (!resolving) await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    const next = service.message("goal-1", { runId: "run-1", messageId: "continue-1", content: "Continue" });
-    releaseResolution();
-    assert.equal((await select).ok, true);
-    assert.deepEqual(await next, { ok: true, goalId: "goal-1", runId: "run-2", existing: false });
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    assert.deepEqual(await service.selectModel("goal-1", { runId: "run-1", modelId: "gpt-new" }), {
-        ok: false, error: "stale_run",
-    });
-    assert.equal(store.goal?.state.modelSelection.modelId, "gpt-new");
-});
-
-test("无法重建 Snapshot 模型绑定时不调用 Runtime 推进", async () => {
-    const store = new Store();
-    store.goal = goalFor();
-    const service = serviceFor(store, undefined, async () => false);
-    assert.deepEqual(await service.message("goal-1", { runId: "run-1", messageId: "continue-2", content: "Continue" }), {
-        ok: false, error: "model_restore_failed",
-    });
-    assert.equal(store.saves, 0);
-    assert.equal(store.goal.state.modelSelection.modelId, "gpt-old");
-
-    store.goal = goalFor("waiting", {
-        action: { actionId: "action-1", toolId: "bash", input: { command: "pwd" } },
-        status: "awaiting_approval",
-    } as Goal["state"]["run"]["pendingAction"]);
-    assert.deepEqual(await service.interact("goal-1", {
-        kind: "reject_action", runId: "run-1", actionId: "action-1", reason: "Stop",
-    }), { ok: false, error: "model_restore_failed" });
-    assert.equal(store.saves, 0);
-});

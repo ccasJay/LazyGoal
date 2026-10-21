@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 
 import { contract } from "../../../packages/contracts/src/index";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
-import { textResponse } from "../../../packages/llm-core/test/response-fixtures";
+import { toolResponseFixture } from "../../../packages/agent/test/tool-response-fixture";
 import {
     createToolRegistration,
     InMemoryToolRegistry,
@@ -13,12 +13,12 @@ import {
 import type { AgentProfile, Goal, ToolPolicy } from "../../../packages/runtime/src/index";
 import {
     createBrowserGoalRoutes,
+    createBrowserGoalSessionPort,
     createBrowserTrajectoryRoutes,
     createBrowserModelInputRoutes,
     createBrowserSessionAccess,
     createBrowserStaticRoutes,
     BrowserGoalCommandService,
-    BrowserGoalStreamService,
     listBrowserGoals,
     readBrowserGoalSession,
 } from "../../../packages/browser/src/index";
@@ -44,7 +44,7 @@ class DeterministicAdapter implements LLMAdapter {
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.calls += 1;
         await writeStatus();
-        if (request.tools?.[0]?.id === "system_review_completion") return textResponse(JSON.stringify({ result: { kind: "accept" } }), "json");
+        if (request.tools?.[0]?.id === "system_review_completion") return toolResponseFixture(JSON.stringify({ result: { kind: "accept" } }));
         if (compositionRoot === undefined || activeGoalId === undefined) throw new Error("The fixture needs the active Goal");
         const goal = await compositionRoot.workspaceGoalStore.restore(activeGoalId);
         if (goal === undefined) throw new Error("The active fixture Goal disappeared");
@@ -96,8 +96,11 @@ class DeterministicAdapter implements LLMAdapter {
         await appendFile(`${statusFile}.decisions`, JSON.stringify({ kind: result.kind, call: this.calls, feedback: request.messages.flatMap(message => { try { const data = JSON.parse(message.content); return data.source === "runtime_feedback" ? [{code: data.code, issues: data.issues.map((issue: {code: string; path: unknown}) => ({code: issue.code, path: issue.path}))}] : []; } catch { return []; } }) }) + "\n");
         const isComposerStatusFlow = request.messages.some(message => message.content.includes("Composer status flow:"));
         if (isComposerStatusFlow) await new Promise(resolve => setTimeout(resolve, 1200));
+        const isStreamingSessionFlow = request.messages.some(message => message.content.includes("Streaming session flow:"));
+        if (isStreamingSessionFlow) await new Promise(resolve => setTimeout(resolve, 8000));
         if (process.env.LAZYGOAL_E2E_DELAY_MODEL === "1" && !["run_stage_update", "tool_discovery"].includes(result.kind as string)) await new Promise(resolve => setTimeout(resolve, 5000));
-        return textResponse(JSON.stringify({ result }), "json");
+        // 严格结构化输出以声明工具调用交付决策。
+        return toolResponseFixture(JSON.stringify({ result }));
     }
 }
 
@@ -201,49 +204,48 @@ root.notifyingStore.onSave((goal) => {
 });
 const commands = new BrowserGoalCommandService({
     store: root.workspaceGoalStore,
-    saveNotifications: root.notifyingStore,
-    launcher: root.browserLauncher,
     coordinator: root.commands,
-    defaultModelSelection: root.defaultModelSelection,
+    modelSelectionCoordinator: root.goalModelSelectionCoordinator,
+    readActiveGoalId: () => root.sessions.activeGoal,
     resolveModelSelection: async (modelId) => modelId === root.defaultModelSelection.modelId || modelId === "model-b"
         ? { ...root.defaultModelSelection, modelId } : undefined,
-    profileId: root.profile.id,
     control: { signal: root.abortController.signal },
 });
-const streams = new BrowserGoalStreamService({
-    store: root.workspaceGoalStore,
-    saveNotifications: root.notifyingStore,
-    publisher: root.executionStream,
+/** 确定性 Adapter 需要知道当前受控 Goal；统一输入与事件流都由 Runtime 会话所有者处理。 */
+const sessionPort = createBrowserGoalSessionPort({
+    sessions: root.sessions,
+    profileId: root.profile.id,
+    isShuttingDown: () => root.abortController.signal.aborted,
+    resolveModelSelection: async (command) => {
+        const modelId = command.modelId ?? root.defaultModelSelection.modelId;
+        if (modelId !== root.defaultModelSelection.modelId && modelId !== "model-b") {
+            return { ok: false, error: "model_not_selectable" as const };
+        }
+        activeGoalId = command.goalId;
+        return { ok: true as const, selection: { ...root.defaultModelSelection, modelId } };
+    },
 });
+const browserSession = {
+    ...sessionPort,
+    submit: (goalId: string, input: Parameters<typeof sessionPort.submit>[1]) => {
+        activeGoalId = goalId;
+        return sessionPort.submit(goalId, input);
+    },
+    openEvents: (goalId: string, signal?: AbortSignal) => {
+        activeGoalId = goalId;
+        return sessionPort.openEvents(goalId, signal);
+    },
+};
 const modelPreferenceStore = new JsonFileModelPreferenceStore(root.workspaceHomeDirectory);
 root.httpService.mount("/", createBrowserGoalRoutes({
-    list: () => listBrowserGoals(root.workspaceGoalStore, commands.getActiveGoalId()),
+    list: () => listBrowserGoals(root.workspaceGoalStore, root.sessions.activeGoal),
     read: (goalId) => readBrowserGoalSession(
         goalId,
         root.workspaceGoalStore,
         root.readWorkspaceTrajectory,
-        commands.getActiveGoalId(),
+        root.sessions.activeGoal,
     ),
-    create: (command) => {
-        activeGoalId = command.goalId;
-        return commands.create(command);
-    },
-    interact: (goalId, command) => {
-        activeGoalId = goalId;
-        return commands.interact(goalId, command);
-    },
-    message: (goalId, command) => {
-        activeGoalId = goalId;
-        return commands.message(goalId, command);
-    },
-    steer: (goalId, command) => {
-        activeGoalId = goalId;
-        return commands.steer(goalId, command);
-    },
-    interrupt: (goalId, command) => {
-        activeGoalId = goalId;
-        return commands.interrupt(goalId, command);
-    },
+    session: browserSession,
     enterPlanMode: (goalId, command) => {
         activeGoalId = goalId;
         return commands.enterPlanMode(goalId, command);
@@ -269,11 +271,10 @@ root.httpService.mount("/", createBrowserGoalRoutes({
     } }),
     setModelPreference: async (modelId) => {
         if (modelId !== root.defaultModelSelection.modelId && modelId !== "model-b") return { ok: false, error: "model_not_selectable" };
-        await modelPreferenceStore.set({ provider: root.defaultModelSelection.provider, modelId });
+        await modelPreferenceStore.set({ modelId });
         return { ok: true, modelId };
     },
     selectModel: (goalId, command) => commands.selectModel(goalId, command),
-    openStream: (goalId, runId, signal) => streams.open(goalId, runId, signal),
 }));
 root.httpService.mount("/", createBrowserTrajectoryRoutes(root.workspaceGoalStore, root.readWorkspaceTrajectory));
 root.httpService.mount("/", createBrowserModelInputRoutes(root.workspaceGoalStore, (goalId, runId) => new JsonFileModelInputStore(resolve(dataDirectory, "model-inputs")).read(goalId, runId)));
