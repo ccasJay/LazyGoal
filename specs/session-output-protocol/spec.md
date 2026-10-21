@@ -1,6 +1,7 @@
 ---
-status: proposed
+status: delivered
 created_at: 2026-10-18
+delivered_at: 2026-10-21
 supersedes: []
 superseded_by: null
 ---
