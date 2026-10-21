@@ -8,6 +8,8 @@ import {
     isContextRetrievalProtocol,
 } from "../src/index";
 import type { AgentProfile, GoalMessage } from "../src/index";
+import { testAssistantMessage, testUserMessage } from "./current-fixtures";
+
 
 const profile: AgentProfile = {
     id: "profile-1",
@@ -17,12 +19,8 @@ const profile: AgentProfile = {
 };
 
 const messages: GoalMessage[] = [
-    { role: "user", content: "补充上下文" },
-    {
-        role: "assistant",
-        assistant: { profileId: "profile-1" },
-        content: "我会继续确认",
-    },
+    testUserMessage("补充上下文"),
+    testAssistantMessage("我会继续确认", { profileId: "profile-1" }),
 ];
 
 const currentProtocols = {
@@ -56,8 +54,32 @@ test("createGoal creates an initial executing snapshot with independent IDs", ()
                 phase: "executing",
             },
             messages: [
-                { role: "user", content: "完成最小 Runtime" },
-                ...messages,
+                {
+                    role: "user",
+                    content: "完成最小 Runtime",
+                    messageId: "msg-intent-goal-1",
+                    runId: "run-1",
+                    position: { afterSequence: 0, order: 0 },
+                    source: { kind: "goal_intent", goalId: "goal-1" },
+                },
+                {
+                    role: "user",
+                    content: "补充上下文",
+                    messageId: messages[0]!.messageId,
+                    runId: "run-1",
+                    position: { afterSequence: 0, order: 1 },
+                    source: messages[0]!.source,
+                },
+                {
+                    role: "assistant",
+                    assistant: { profileId: "profile-1" },
+                    content: "我会继续确认",
+                    messageId: messages[1]!.messageId,
+                    runId: "run-1",
+                    position: { afterSequence: 0, order: 2 },
+                    purpose: "process",
+                    source: messages[1]!.source,
+                },
             ],
             run: {
                 id: "run-1",
@@ -90,8 +112,9 @@ test("createGoal isolates frozen definition and real messages from input mutatio
         toolIds: ["read"],
     };
     const mutableMessages: GoalMessage[] = [
-        { role: "user", content: "原始消息" },
+        testUserMessage("原始消息"),
     ];
+    const originalMessage = mutableMessages[0]!;
     const goal = createGoal({
         ...currentProtocols,
         id: "goal-2",
@@ -105,14 +128,25 @@ test("createGoal isolates frozen definition and real messages from input mutatio
 
     mutableProfile.instructions[0] = "修改后的指令";
     mutableProfile.toolIds.push("write");
-    mutableMessages[0] = { role: "user", content: "修改后的消息" };
+    mutableMessages[0] = testUserMessage("修改后的消息");
 
     assert.deepEqual(goal.definition.profile.instructions, ["原始指令"]);
     assert.deepEqual(goal.definition.profile.toolIds, ["read"]);
     assert.deepEqual(goal.definition.executionPolicy, { maxSteps: 5 });
     assert.deepEqual(goal.state.messages, [
-        { role: "user", content: "原始意图" },
-        { role: "user", content: "原始消息" },
+        {
+            role: "user",
+            content: "原始意图",
+            messageId: "msg-intent-goal-2",
+            runId: "run-2",
+            position: { afterSequence: 0, order: 0 },
+            source: { kind: "goal_intent", goalId: "goal-2" },
+        },
+        {
+            ...originalMessage,
+            runId: "run-2",
+            position: { afterSequence: 0, order: 1 },
+        },
     ]);
 });
 

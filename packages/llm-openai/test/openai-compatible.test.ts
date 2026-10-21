@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ExecutionAbortedError } from "../../execution-control/src/index";
-import { OpenAICompatible } from "../src/index";
+import { OpenAICompatible, OpenAIIncompleteResponseError } from "../src/index";
 import {
     LLMRequestModeMismatchError,
+    readAssistantText,
+    readTextBlocks,
     type LLMRequest,
+    type LLMStreamEvent,
 } from "../../llm-core/src/index";
 
 const dummySchema = {
@@ -75,7 +78,8 @@ test("OpenAICompatible in strict mode maps structuredOutput to response_format.j
     const response = await adapter.generate(request);
 
     assert.equal(callCount, 1);
-    assert.equal(response.content, JSON.stringify({ answer: "hello" }));
+    assert.equal(readAssistantText(response), JSON.stringify({ answer: "hello" }));
+    assert.deepEqual(readTextBlocks(response, "json"), [JSON.stringify({ answer: "hello" })]);
     assert.equal(capturedParams.model, "test-model-name");
     assert.deepEqual(capturedParams.response_format, {
         type: "json_schema",
@@ -152,7 +156,8 @@ test("OpenAICompatible in prompt_only mode does not send response_format paramet
     const response = await adapter.generate(request);
 
     assert.equal(callCount, 1);
-    assert.equal(response.content, "plain text response");
+    assert.equal(readAssistantText(response), "plain text response");
+    assert.deepEqual(readTextBlocks(response, "plain"), ["plain text response"]);
     assert.equal(capturedParams.response_format, undefined);
 });
 
@@ -461,4 +466,30 @@ test("OpenAI native adapter applies configured output limit unless request overr
     await adapter.generate(request);
     await adapter.generate({ ...request, maxOutputTokens: 128 });
     assert.deepEqual(limits, [512, 128]);
+});
+
+test("OpenAI native adapter rejects truncated and filtered completions instead of returning partial decisions", async () => {
+    const adapter = new OpenAICompatible({ apiKey: "key", baseURL: "https://example.test/v1", model: "model", structuredOutputMode: "prompt_only" });
+    for (const finishReason of ["length", "content_filter"] as const) {
+        (adapter as any).client = { chat: { completions: { create: async () => ({
+            choices: [{ message: { content: "", tool_calls: [{ id: "call-1", type: "function", function: { name: "read_file", arguments: "{}" } }] }, finish_reason: finishReason }],
+        }) } } };
+        await assert.rejects(
+            adapter.generate({ messages: [{ role: "user", content: "hi" }], tools: [{ id: "read_file", description: "Read", parametersSchema: { type: "object" } }], toolChoice: "required" }),
+            (error: unknown) => error instanceof OpenAIIncompleteResponseError && error.code === "OPENAI_INCOMPLETE_RESPONSE",
+            finishReason,
+        );
+    }
+});
+
+test("OpenAI native stream validates the fixed output mode before dispatch", async () => {
+    const adapter = new OpenAICompatible({ apiKey: "key", baseURL: "https://example.test/v1", model: "model", structuredOutputMode: "strict" });
+    let dispatched = 0;
+    (adapter as any).client = { chat: { completions: { create: async () => { dispatched += 1; throw new Error("must not dispatch"); } } } };
+    const events: LLMStreamEvent[] = [];
+    await assert.rejects(async () => {
+        for await (const event of adapter.stream!({ messages: [{ role: "user", content: "hi" }] })) events.push(event);
+    }, (error: unknown) => error instanceof LLMRequestModeMismatchError);
+    assert.equal(dispatched, 0);
+    assert.deepEqual(events, []);
 });

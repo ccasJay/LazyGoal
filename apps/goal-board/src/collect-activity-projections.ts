@@ -1,37 +1,42 @@
-import type { BrowserGoalLiveEvent, BrowserSessionRun } from "../../../packages/web-contracts/src/index";
+import type {
+  BrowserActivityPage,
+  BrowserGoalLiveEvent,
+} from "../../../packages/web-contracts/src/index";
 import { projectActivityGroups, type ActivityGroup } from "./activity-projector";
 
 /**
  * 一次会话渲染所需的全部 Run 活动组投影集合。
  *
  * @remarks
- * `GoalSession` 每次渲染会对每个 Run 调用 {@link projectActivityGroups}；liveText 高频更新
- * 不得触发其重新计算，因此投影收集收敛在本纯函数内，由调用方按
- * `(goalId, runs, liveEvents)` 记忆化。`liveEvents` 只对 `current` Run 生效：
+ * 活动组只来自当前固定 Activity 页的已提交事实；`liveEvents` 只对 `current` Run 生效：
  * 非当前 Run 的临时活动不会参与投影，这与快照"仅当前 Run 提供未提交临时活动"的边界一致。
+ * 该投影是纯函数，调用方按 `(page, goalId, liveEvents)` 记忆化，正文高频更新不会触发重算。
  *
  * @example
  * ```ts
  * const projections = useMemo(
- *   () => collectActivityProjections(session.runs, session.goalId, liveEvents),
- *   [session.runs, session.goalId, liveEvents],
+ *   () => collectActivityProjections(activityPage, session.goalId, liveEvents),
+ *   [activityPage, session.goalId, liveEvents],
  * );
- * const groups = projections.get(run.runId) ?? [];
+ * const groups = projections.get(runId) ?? [];
  * ```
  */
 export function collectActivityProjections(
-  runs: readonly BrowserSessionRun[],
+  page: BrowserActivityPage,
   goalId: string,
   liveEvents: readonly BrowserGoalLiveEvent[],
 ): ReadonlyMap<string, readonly ActivityGroup[]> {
   const projections = new Map<string, readonly ActivityGroup[]>();
-  for (const run of runs) {
+  for (const run of page.runs) {
     projections.set(
       run.runId,
       projectActivityGroups({
         goalId,
-        run,
+        runId: run.runId,
+        items: page.items,
         liveEvents: run.current ? liveEvents : [],
+        current: run.current,
+        runStatus: run.status,
       }),
     );
   }

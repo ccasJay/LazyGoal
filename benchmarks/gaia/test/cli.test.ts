@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
+import { blockResponse, textResponse } from "../../../packages/llm-core/test/response-fixtures";
 import type { LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index.js";
 import type {
     IsolatedEnvironment,
@@ -32,9 +33,7 @@ const dummyTask: GaiaManifestTask = {
 const dummyAdapter: LLMAdapter = {
     structuredOutputMode: "strict",
     async generate(_request: LLMRequest): Promise<LLMResponse> {
-        return {
-            content: "4",
-        };
+        return blockResponse({ type: "text", format: "plain", text: "4" });
     },
 };
 

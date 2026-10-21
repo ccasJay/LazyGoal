@@ -1,7 +1,6 @@
 import type { JsonSchema202012, JsonValue } from "../../contracts/src/index";
 
 import type {
-    ModelAssistantMessage,
     ModelConversationMessage,
     ModelToolCall,
     ModelContinuation,
@@ -117,12 +116,95 @@ export class LLMRequestModeMismatchError extends Error {
 }
 
 /**
- * 供应商无关的模型响应。
+ * 文本内容块正文的来源格式。
  *
  * @remarks
- * `content` 只包含模型正文，不得拼入 thinking；工具调用通过 `toolCalls` 独立返回。
- * Agent 对 required 工具请求只解码调用参数，不把正文当作替代决策。可选的
- * `providerMetadata` 只供 Diagnostic Trace 使用，不进入 Domain Event、Goal
+ * 由本次请求的结构化输出契约决定，不扫描正文猜测：携带原生结构 Schema 的无工具
+ * 请求返回 `json`，自由文本请求返回 `plain`。格式只说明正文来源，不表示解析结果。
+ *
+ * @example
+ * ```ts
+ * const format: LLMTextBlockFormat = request.structuredOutput === undefined ? "plain" : "json";
+ * ```
+ */
+export type LLMTextBlockFormat = "plain" | "json";
+
+/**
+ * 完整响应中的正文块。
+ *
+ * @remarks
+ * 块索引在本次响应内稳定且唯一，从 0 开始；正文按块内容直接连接，不隐式 trim 或插入换行。
+ *
+ * @example
+ * ```ts
+ * const block: LLMTextBlock = { index: 0, type: "text", format: "plain", text: "检查完成" };
+ * ```
+ */
+export interface LLMTextBlock {
+    /** 本次响应内稳定且唯一的块索引。 */
+    readonly index: number;
+    readonly type: "text";
+    /** 正文来源格式；结构化输出为 `json`。 */
+    readonly format: LLMTextBlockFormat;
+    /** 该块的完整正文。 */
+    readonly text: string;
+}
+
+/**
+ * 完整响应中的公开 reasoning 块。
+ *
+ * @remarks
+ * 只承载供应商实际返回的 reasoning 文本；保持受限，不与签名或最终答复混淆。
+ *
+ * @example
+ * ```ts
+ * const block: LLMReasoningBlock = { index: 1, type: "reasoning", text: "先核对文件差异" };
+ * ```
+ */
+export interface LLMReasoningBlock {
+    /** 本次响应内稳定且唯一的块索引。 */
+    readonly index: number;
+    readonly type: "reasoning";
+    /** 该块的完整 reasoning 文本。 */
+    readonly text: string;
+}
+
+/**
+ * 完整响应中的工具调用块。
+ *
+ * @remarks
+ * `callId` 是模型供应商协议中的调用身份，不替代 Runtime `actionId`；`argumentsJson`
+ * 保留原始或协议规范化后的参数 JSON 文本，其业务 Schema 是否可用由阶段解码判断。
+ *
+ * @example
+ * ```ts
+ * const block: LLMToolCallBlock = {
+ *     index: 0, type: "tool_call", callId: "call-1", toolId: "read_file", argumentsJson: '{"path":"README.md"}',
+ * };
+ * ```
+ */
+export interface LLMToolCallBlock {
+    /** 本次响应内稳定且唯一的块索引。 */
+    readonly index: number;
+    readonly type: "tool_call";
+    /** 供应商工具调用 ID；缺失时由协议规则分配一次本地身份。 */
+    readonly callId: string;
+    /** 模型选择的工具名。 */
+    readonly toolId: string;
+    /** 工具参数 JSON 文本。 */
+    readonly argumentsJson: string;
+}
+
+/** 一次模型响应的有序内容块。 */
+export type LLMContentBlock = LLMTextBlock | LLMReasoningBlock | LLMToolCallBlock;
+
+/**
+ * 供应商无关的完整模型响应。
+ *
+ * @remarks
+ * `blocks` 是正文、工具调用与公开 reasoning 的唯一权威；现有消费者所需的正文、
+ * 推理视图与工具列表由 `llm-core` 的纯投影从块派生，不保存可独立修改的平行字段。
+ * 可选的 `providerMetadata` 只供 Diagnostic Trace 使用，不进入 Domain Event、Goal
  * Snapshot 或模型上下文。调用方应避免把凭据放入 metadata。
  * 原生 OpenAI/Gemini Adapter 在响应携带用量时把归一化 token 计数写入
  * `providerMetadata.usage`（`{ inputTokens, outputTokens, cachedInputTokens? }`），
@@ -132,7 +214,10 @@ export class LLMRequestModeMismatchError extends Error {
  * @example
  * ```ts
  * const response: LLMResponse = {
- *     content: '{"result":{"kind":"complete","summary":"完成","completionEvidence":[],"memoryPatch":null}}',
+ *     blocks: [{
+ *         index: 0, type: "text", format: "json",
+ *         text: '{"result":{"kind":"complete","summary":"完成","completionEvidence":[],"memoryPatch":null}}',
+ *     }],
  *     providerMetadata: {
  *         requestId: "req-1",
  *         usage: { inputTokens: 12, outputTokens: 34, cachedInputTokens: 5 },
@@ -140,42 +225,83 @@ export class LLMRequestModeMismatchError extends Error {
  * };
  * ```
  */
-export interface LLMResponse extends Omit<ModelAssistantMessage, "role"> {
-    /** 正文文本，不包含思考块；原生 Adapter 的公开 reasoning 摘要通过独立字段返回。 */
-    readonly content: string;
-    /** 供应商实际公开的 reasoning 摘要，不进入正文解析。 */
-    readonly reasoning?: string;
+export interface LLMResponse {
+    /** 本次响应的有序完整块；正文、工具调用与公开 reasoning 的唯一来源。 */
+    readonly blocks: readonly LLMContentBlock[];
     /** 可持久化的协议续接字段，不属于诊断 metadata。 */
     readonly continuation?: ModelContinuation;
-    /** 模型发起的工具调用列表。原生双通道下单次单步通常包含 0 个或 1 个工具调用。 */
-    readonly toolCalls?: readonly LLMToolCall[];
     /** 可选供应商诊断字段；不会参与 Runtime 状态转换。 */
     readonly providerMetadata?: JsonValue;
 }
 
 /**
+ * 内容块增量的类型化种类。
+ *
+ * @remarks
+ * 与块类型一一对应：正文、公开 reasoning 与工具参数；不用于任意 JSON merge。
+ *
+ * @example
+ * ```ts
+ * const deltaKind: LLMContentDeltaKind = "text";
+ * ```
+ */
+export type LLMContentDeltaKind = "text" | "reasoning" | "tool_arguments";
+
+/**
+ * 完整块的交付方式。
+ *
+ * @remarks
+ * `incremental` 表示内容通过有序增量到达；`whole` 表示必须收齐或为整块到达，
+ * 由块开始与完整结束表达，不伪造分片。
+ *
+ * @example
+ * ```ts
+ * const delivery: LLMContentDelivery = "whole";
+ * ```
+ */
+export type LLMContentDelivery = "incremental" | "whole";
+
+/**
  * 供应商无关的模型流事件。
  *
  * @remarks
- * `completed` 携带与 `generate()` 相同的最终响应；其它事件只描述生成过程，
- * 不参与 AgentDecision 解析。工具调用参数可能是不完整 JSON，调用方不得直接
- * 将其作为可执行 Action 使用。
+ * 事件顺序为响应开始、块开始、块增量、块完整结束、响应成功完成；`completed`
+ * 必须是 Adapter 的最后一个事件，携带与 `generate()` 相同形状的最终响应，其它
+ * 事件只描述生成过程。块增量不参与 AgentDecision 解析；工具参数增量可能是不完整
+ * JSON，调用方不得直接把它当作可执行参数。块完成后不可再追加内容。
  *
  * @example
  * ```ts
  * const event: LLMStreamEvent = {
- *     kind: "assistant_text_delta",
- *     text: "正在检查文件...",
+ *     kind: "content_block_delta", index: 0, deltaKind: "text", delta: "正在检查文件...",
  * };
  * ```
  */
 export type LLMStreamEvent =
     | { readonly kind: "started" }
-    | { readonly kind: "assistant_text_delta"; readonly text: string }
-    | { readonly kind: "reasoning_delta"; readonly text: string }
     | {
-        readonly kind: "model_tool_call_delta";
+        readonly kind: "content_block_started";
+        /** 本次响应内稳定且唯一的块索引；必须从 0 开始连续。 */
+        readonly index: number;
+        /** 开始的块类型；工具身份可以晚到完整结束。 */
+        readonly blockType: LLMContentBlock["type"];
+        /** 该块的交付方式。 */
+        readonly delivery: LLMContentDelivery;
+        /** 文本块的正文格式；仅 `text` 块携带。 */
+        readonly format?: LLMTextBlockFormat;
+    }
+    | {
+        readonly kind: "content_block_delta";
+        readonly index: number;
+        readonly deltaKind: LLMContentDeltaKind;
+        /** 该种类的原始增量文本；不隐式 trim 或改写。 */
         readonly delta: string;
-        readonly contentIndex?: number;
+    }
+    | {
+        readonly kind: "content_block_completed";
+        /** 该块的最终内容；工具块的名称与调用 ID 此时必须齐备。 */
+        readonly block: LLMContentBlock;
+        /** 与块开始时一致的交付方式；`whole` 块的完成事件是该块内容的唯一来源。 */
+        readonly delivery: LLMContentDelivery;
     }
     | { readonly kind: "completed"; readonly response: LLMResponse };

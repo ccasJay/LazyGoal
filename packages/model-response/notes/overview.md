@@ -1,6 +1,6 @@
 # 模型响应解码
 
-本包把 Adapter 返回的最终响应与本次请求提供的契约/声明解码为阶段输出或稳定协议错误；不调用 Adapter、不读取 Goal 或 Store、不分配 Runtime Action 身份、不生成 RuntimeFeedback。公开入口是 [src/index.ts](../src/index.ts)。
+本包把 Adapter 返回的最终响应与本次请求提供的契约/声明解码为阶段输出或稳定协议错误；正文、推理与工具读视图一律通过 [llm-core 投影](../../llm-core/notes/overview.md) 从完整块派生，不读取平行输出字段。它不调用 Adapter、不读取 Goal 或 Store、不分配 Runtime Action 身份、不生成 RuntimeFeedback。公开入口是 [src/index.ts](../src/index.ts)。
 
 ## 文本解析
 

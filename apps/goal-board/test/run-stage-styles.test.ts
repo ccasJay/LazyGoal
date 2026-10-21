@@ -7,19 +7,21 @@ async function readStyleCss(): Promise<string> {
   return readFile(join(import.meta.dirname, "..", "src", "style.css"), "utf8");
 }
 
-test("run plan stage groups receive committed terminal styles", async () => {
+test("approved plan route and timeline stages keep their committed terminal styles", async () => {
   const style = await readStyleCss();
   for (const selector of [
-    ".run-stages-container",
-    ".run-stage-group",
-    ".run-stage-heading",
-    ".stage-target",
-    ".stage-status",
-    ".stage-revision",
-    ".stage-content",
-    ".stage-steps",
-    ".stage-rejection-feedback",
-    ".run-level-steps",
+    ".plan-route-stage",
+    ".plan-route-stage-heading",
+    ".plan-route-index",
+    ".plan-route-status",
+    ".timeline-stage-target",
+    ".timeline-run-boundary",
+    ".timeline-activity",
+    ".timeline-activity-heading",
+    ".timeline-activity-members",
+    ".timeline-activity-member-label",
+    ".timeline-activity-member-status",
+    ".timeline-terminal",
   ]) {
     assert.match(
       style,
@@ -29,17 +31,18 @@ test("run plan stage groups receive committed terminal styles", async () => {
   }
 });
 
-test("stage status badge distinguishes in-progress, review and accepted states", async () => {
+test("stage and run terminal statuses distinguish their states", async () => {
   const style = await readStyleCss();
-  assert.match(style, /\.stage-status\.in_progress/);
-  assert.match(style, /\.stage-status\.review_pending/);
-  assert.match(style, /\.stage-status\.accepted/);
+  assert.match(style, /\.plan-route-status\.executing/);
+  assert.match(style, /\.plan-route-status\.accepted/);
+  assert.match(style, /\.timeline-terminal\.completed/);
+  assert.match(style, /\.timeline-terminal\.failed/);
+  assert.match(style, /\.timeline-terminal\.cancelled/);
 });
 
-test("review rejection feedback uses the warning surface", async () => {
+test("rejected activity uses the warning surface", async () => {
   const style = await readStyleCss();
-  const match = style.match(/\.stage-rejection-feedback\s*\{([^}]*)\}/);
-  assert.ok(match, ".stage-rejection-feedback rule required");
-  assert.match(match![1]!, /var\(--warning-border\)/);
-  assert.match(match![1]!, /var\(--warning-soft\)/);
+  const match = style.match(/\.timeline-activity-status\.rejected\s*\{([^}]*)\}/);
+  assert.ok(match, ".timeline-activity-status.rejected rule required");
+  assert.match(match![1]!, /var\(--warning\)/);
 });

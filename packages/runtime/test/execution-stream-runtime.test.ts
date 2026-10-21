@@ -143,7 +143,9 @@ test("Runner 发布执行流失败时不改变执行结果", async () => {
         subscribe() {
             throw new Error("not used");
         },
+        subscribeGoal() { throw new Error("unused"); },
         close() {},
+        closeGoal() {},
         dispose() {},
     };
     const runner = new Runner({

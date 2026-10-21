@@ -17,6 +17,7 @@ import type {
     ModelContextEpochState,
 } from "./domain";
 import type { RuntimeFeedback } from "./runtime-feedback";
+import type { SessionInputKind } from "./session-input";
 import type { GoalPlanPatchOperation } from "./goal-plan";
 import { assertValidRunPlanRoute } from "./run-plan";
 import type { RunPlanRouteState } from "./run-plan";
@@ -135,6 +136,23 @@ export type TrajectoryEventPayload =
         readonly intent: string;
     }
     | { readonly type: "run_started" }
+    | {
+        readonly type: "session_input_admitted";
+        readonly inputId: string;
+        readonly kind: SessionInputKind;
+        readonly sequence: number;
+    }
+    | {
+        readonly type: "session_input_applied";
+        readonly inputId: string;
+        readonly runId: string;
+        readonly messageIndex: number;
+    }
+    | {
+        readonly type: "session_input_cleared";
+        readonly inputId: string;
+        readonly queueRevision: number;
+    }
     | { readonly type: "steer_input_received"; readonly messageId: string }
     | { readonly type: "steer_input_applied"; readonly messageId: string; readonly messageIndex: number }
     | { readonly type: "run_interrupt_requested"; readonly requestId: string }
@@ -157,7 +175,12 @@ export type TrajectoryEventPayload =
         readonly answers: readonly AskUserAnswer[];
     }
     | {
-        readonly type: "ask_user_cancelled";
+        readonly type: "ask_user_replied";
+        readonly requestId: string;
+        readonly content: string;
+    }
+    | {
+        readonly type: "ask_user_skipped";
         readonly requestId: string;
     }
     | {
@@ -283,6 +306,51 @@ export type TrajectoryEventPayload =
         readonly actionId: string;
         readonly approvalScope?: "action" | "goal" | "workspace";
         readonly grantId?: string;
+        /** 批准决定的稳定身份；持续授权按该身份暂存与激活。 */
+        readonly approvalInputId?: string;
+    }
+    | {
+        /**
+         * 审批者修订了同一工具的最终参数并获批。
+         *
+         * @remarks 保留原请求参数与最终 canonical 参数的关联；原始暂存事实不被
+         * 覆盖。
+         */
+        readonly type: "action_revised";
+        readonly actionId: string;
+        readonly reviewRef: string;
+        readonly originalInput: JsonValue;
+        readonly finalInput: JsonValue;
+        readonly approvalScope?: "action" | "goal" | "workspace";
+        readonly grantId?: string;
+        /** 批准决定的稳定身份；持续授权按该身份暂存与激活。 */
+        readonly approvalInputId?: string;
+        /** 修订来源；程序结果信封据此重建一致的修订说明。 */
+        readonly revisionSource?: "user" | "host";
+        /** 修订后重新计算的实际权限范围。 */
+        readonly effectiveSandboxScope?: {
+            readonly extraFiles: readonly {
+                readonly canonicalPath: string;
+                readonly access: "read" | "write";
+                readonly kind: "file" | "directory_tree";
+            }[];
+            readonly network: "none" | "all_outbound";
+        };
+        /** 因修订而失效的同批次未开始 Action 身份。 */
+        readonly invalidatedBatchActionIds?: readonly string[];
+    }
+    | {
+        /** 明确允许结果未知的操作按获批版本再次执行。 */
+        readonly type: "action_reexecution_authorized";
+        readonly actionId: string;
+        readonly recoveryRef: string;
+    }
+    | {
+        /** 拒绝结果未知的操作再次执行；此前效果未知的事实保持不变。 */
+        readonly type: "action_reexecution_declined";
+        readonly actionId: string;
+        readonly recoveryRef: string;
+        readonly reason: string;
     }
     | {
         readonly type: "tool_grant_revoked";
@@ -309,6 +377,15 @@ export type TrajectoryEventPayload =
         readonly actionId: string;
         readonly toolId: string;
         readonly input: JsonValue;
+        /**
+         * 实际执行相对原请求的修订说明。
+         *
+         * @remarks 只在审批者修订过参数时存在；`input` 始终是实际执行的最终参数。
+         */
+        readonly revision?: {
+            readonly reviewRef: string;
+            readonly originalInput: JsonValue;
+        };
     }
     | {
         readonly type: "tool_attempt_started";
@@ -806,6 +883,9 @@ export class TrajectoryCommitMarkerError extends Error {
 const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "goal_created",
     "run_started",
+    "session_input_admitted",
+    "session_input_applied",
+    "session_input_cleared",
     "steer_input_received",
     "steer_input_applied",
     "run_interrupt_requested",
@@ -816,7 +896,8 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "plan_mode_entered",
     "goal_plan_updated",
     "ask_user_answered",
-    "ask_user_cancelled",
+    "ask_user_replied",
+    "ask_user_skipped",
     "task_approved",
     "task_feedback_received",
     "decision_received",
@@ -837,6 +918,9 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "program_started",
     "program_settled",
     "action_approved",
+    "action_revised",
+    "action_reexecution_authorized",
+    "action_reexecution_declined",
     "tool_grant_revoked",
     "sandbox_grant_revoked",
     "action_rejected",
@@ -965,7 +1049,7 @@ function assertPayload(payload: unknown, eventType: unknown): void {
     }
 
     if (eventType === "action_approved") {
-        if (Object.keys(payload).some((key) => !["type", "actionId", "approvalScope", "grantId"].includes(key))) {
+        if (Object.keys(payload).some((key) => !["type", "actionId", "approvalScope", "grantId", "approvalInputId"].includes(key))) {
             throw new TrajectoryProtocolError("action_approved contains unknown fields");
         }
         assertNonEmptyString(payload.actionId, "action_approved.actionId");
@@ -983,6 +1067,47 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         if (payload.approvalScope === undefined && payload.grantId !== undefined) {
             throw new TrajectoryProtocolError("action_approved Grant requires an approval scope");
         }
+    }
+    if (eventType === "action_revised") {
+        if (Object.keys(payload).some((key) => ![
+            "type", "actionId", "reviewRef", "originalInput", "finalInput", "approvalScope", "grantId",
+            "approvalInputId", "revisionSource", "effectiveSandboxScope", "invalidatedBatchActionIds",
+        ].includes(key))) {
+            throw new TrajectoryProtocolError("action_revised contains unknown fields");
+        }
+        if (payload.invalidatedBatchActionIds !== undefined
+            && (!Array.isArray(payload.invalidatedBatchActionIds)
+                || !payload.invalidatedBatchActionIds.every((id) => typeof id === "string" && id.length > 0))) {
+            throw new TrajectoryProtocolError("action_revised.invalidatedBatchActionIds is invalid");
+        }
+        assertNonEmptyString(payload.actionId, "action_revised.actionId");
+        assertNonEmptyString(payload.reviewRef, "action_revised.reviewRef");
+        if (payload.approvalScope !== undefined
+            && payload.approvalScope !== "action"
+            && payload.approvalScope !== "goal"
+            && payload.approvalScope !== "workspace") {
+            throw new TrajectoryProtocolError("action_revised.approvalScope is invalid");
+        }
+        if (payload.grantId !== undefined) assertNonEmptyString(payload.grantId, "action_revised.grantId");
+        if (payload.approvalScope !== undefined
+            && ((payload.approvalScope === "action") !== (payload.grantId === undefined))) {
+            throw new TrajectoryProtocolError("action_revised scope and Grant identity are inconsistent");
+        }
+    }
+    if (eventType === "action_reexecution_authorized") {
+        if (Object.keys(payload).some((key) => !["type", "actionId", "recoveryRef"].includes(key))) {
+            throw new TrajectoryProtocolError("action_reexecution_authorized contains unknown fields");
+        }
+        assertNonEmptyString(payload.actionId, "action_reexecution_authorized.actionId");
+        assertNonEmptyString(payload.recoveryRef, "action_reexecution_authorized.recoveryRef");
+    }
+    if (eventType === "action_reexecution_declined") {
+        if (Object.keys(payload).some((key) => !["type", "actionId", "recoveryRef", "reason"].includes(key))) {
+            throw new TrajectoryProtocolError("action_reexecution_declined contains unknown fields");
+        }
+        assertNonEmptyString(payload.actionId, "action_reexecution_declined.actionId");
+        assertNonEmptyString(payload.recoveryRef, "action_reexecution_declined.recoveryRef");
+        assertNonEmptyString(payload.reason, "action_reexecution_declined.reason");
     }
     if (eventType === "tool_grant_revoked" || eventType === "sandbox_grant_revoked") {
         if (Object.keys(payload).some((key) => !["type", "grantId", "scope"].includes(key))) {
@@ -1240,11 +1365,18 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             }
         }
     }
-    if (eventType === "ask_user_cancelled") {
-        if (Object.keys(payload).some((key) => !["type", "requestId"].includes(key))) {
-            throw new TrajectoryProtocolError("ask_user_cancelled contains unknown fields");
+    if (eventType === "ask_user_replied") {
+        if (Object.keys(payload).some((key) => !["type", "requestId", "content"].includes(key))) {
+            throw new TrajectoryProtocolError("ask_user_replied contains unknown fields");
         }
-        assertNonEmptyString(payload.requestId, "ask_user_cancelled.requestId");
+        assertNonEmptyString(payload.requestId, "ask_user_replied.requestId");
+        assertNonEmptyString(payload.content, "ask_user_replied.content");
+    }
+    if (eventType === "ask_user_skipped") {
+        if (Object.keys(payload).some((key) => !["type", "requestId"].includes(key))) {
+            throw new TrajectoryProtocolError("ask_user_skipped contains unknown fields");
+        }
+        assertNonEmptyString(payload.requestId, "ask_user_skipped.requestId");
     }
     if (eventType === "task_approved") {
         if (Object.keys(payload).some((key) => !["type", "requestId", "task"].includes(key))) {
@@ -1276,6 +1408,37 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             assertNonEmptyString(payload.requestId, "run_waiting.requestId");
         } else if (payload.requestId !== undefined) {
             throw new TrajectoryProtocolError("run_waiting.requestId is only valid for ask_user or task_approval");
+        }
+    }
+    if (eventType === "session_input_admitted") {
+        if (Object.keys(payload).some((key) => !["type", "inputId", "kind", "sequence"].includes(key))) {
+            throw new TrajectoryProtocolError("session_input_admitted contains unknown fields");
+        }
+        assertNonEmptyString(payload.inputId, "session_input_admitted.inputId");
+        if (!["message", "steer", "interrupt", "respond", "resume", "queue_control"].includes(payload.kind as string)) {
+            throw new TrajectoryProtocolError("session_input_admitted.kind is invalid");
+        }
+        if (!Number.isSafeInteger(payload.sequence) || (payload.sequence as number) < 1) {
+            throw new TrajectoryProtocolError("session_input_admitted.sequence is invalid");
+        }
+    }
+    if (eventType === "session_input_applied") {
+        if (Object.keys(payload).some((key) => !["type", "inputId", "runId", "messageIndex"].includes(key))) {
+            throw new TrajectoryProtocolError("session_input_applied contains unknown fields");
+        }
+        assertNonEmptyString(payload.inputId, "session_input_applied.inputId");
+        assertNonEmptyString(payload.runId, "session_input_applied.runId");
+        if (!Number.isSafeInteger(payload.messageIndex) || (payload.messageIndex as number) < 0) {
+            throw new TrajectoryProtocolError("session_input_applied.messageIndex is invalid");
+        }
+    }
+    if (eventType === "session_input_cleared") {
+        if (Object.keys(payload).some((key) => !["type", "inputId", "queueRevision"].includes(key))) {
+            throw new TrajectoryProtocolError("session_input_cleared contains unknown fields");
+        }
+        assertNonEmptyString(payload.inputId, "session_input_cleared.inputId");
+        if (!Number.isSafeInteger(payload.queueRevision) || (payload.queueRevision as number) < 0) {
+            throw new TrajectoryProtocolError("session_input_cleared.queueRevision is invalid");
         }
     }
     if (eventType === "steer_input_received") {
@@ -1662,11 +1825,15 @@ export function classifyTrajectoryEvent(
         case "run_resumed":
         case "plan_mode_entered":
         case "ask_user_answered":
-        case "ask_user_cancelled":
+        case "ask_user_replied":
+        case "ask_user_skipped":
         case "task_approved":
         case "task_feedback_received":
         case "steer_input_received":
         case "steer_input_applied":
+        case "session_input_admitted":
+        case "session_input_applied":
+        case "session_input_cleared":
         case "run_interrupt_requested":
         case "run_interrupted_action_unknown":
         case "run_interrupt_repair_started":
@@ -1700,6 +1867,9 @@ export function classifyTrajectoryEvent(
         case "program_started":
         case "program_settled":
         case "action_approved":
+        case "action_revised":
+        case "action_reexecution_authorized":
+        case "action_reexecution_declined":
         case "tool_grant_revoked":
         case "sandbox_grant_revoked":
         case "action_rejected":

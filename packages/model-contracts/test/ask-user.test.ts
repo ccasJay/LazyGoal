@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { safeParse } from "../../contracts/src/index";
 import {
+    AgentDecisionContract,
     AskUserAgentDecisionContract,
     AskUserQuestionInputContract,
+    SystemAskUserDeclaration,
     TaskProposalAgentDecisionContract,
+    decodeWireResult,
     normalizeAskUserRequest,
     validateAskUserAnswers,
     validateModelOutputSemantics,
@@ -272,4 +275,51 @@ test("validateAskUserAnswers 验证单选、多选与 Other 规则并拦截非�
             ]),
         /Option "o-99" is not valid/,
     );
+});
+
+/**
+ * 三种模型协议最终都调用同一 AskUser 解码入口：OpenAI/Gemini 原生调用传入已解析的
+ * 参数对象，OpenAI 的 arguments 是 JSON 字符串，prompt_only 传入文本 envelope。
+ */
+test("三种模型协议的确定性 ask_user 响应解码为同一决策", () => {
+    const questions: readonly AskUserQuestionInput[] = [{
+        header: "Delivery scope",
+        question: "Which delivery scope should be implemented?",
+        options: [{ label: "Minimal" }, { label: "Complete" }],
+        multiSelect: false,
+    }];
+
+    // OpenAI strict：function.arguments 是 JSON 字符串，Adapter 解析后交给声明解码。
+    const openaiArgumentsJson = JSON.stringify({ questions });
+    const openaiDecision = SystemAskUserDeclaration.decode(JSON.parse(openaiArgumentsJson));
+
+    // Gemini strict：functionCall.args 已是对象，Adapter 直接交给同一声明解码。
+    const geminiDecision = SystemAskUserDeclaration.decode({ questions });
+
+    // prompt_only（pi-ai）：文本正文是 wire envelope，经正式 decodeWireResult 解码。
+    const promptOnlyDecision = decodeWireResult(
+        { result: { kind: "ask_user", questions } },
+        AgentDecisionContract,
+    );
+
+    for (const decision of [openaiDecision, geminiDecision, promptOnlyDecision]) {
+        assert.equal(decision.kind, "ask_user");
+        assert.ok(decision.kind === "ask_user");
+        assert.equal(decision.questions.length, 1);
+        assert.equal(decision.questions[0]!.header, "Delivery scope");
+        assert.equal(decision.questions[0]!.question, "Which delivery scope should be implemented?");
+        assert.deepEqual(decision.questions[0]!.options.map((option) => option.label), ["Minimal", "Complete"]);
+        assert.equal(decision.questions[0]!.multiSelect, false);
+        // 问题／选项 id 由 Runtime 在进入等待点时分配；解码层只要求三种协议得到相同内容。
+    }
+
+    // 三种协议共享同一字段约束：缺少问题或选项越界都在解码处拒绝。
+    assert.throws(() => SystemAskUserDeclaration.decode({ questions: [] }));
+    assert.throws(() => SystemAskUserDeclaration.decode({
+        questions: [{ header: "H", question: "Q?", options: [{ label: "Only one" }], multiSelect: false }],
+    }));
+    assert.throws(() => decodeWireResult(
+        { result: { kind: "ask_user", questions: [] } },
+        AgentDecisionContract,
+    ));
 });

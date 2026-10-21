@@ -17,11 +17,11 @@ test("按 user 边界分组并保留前导 assistant 单元", () => {
     const conversation: readonly ModelConversationMessage[] = [
         assistant("先说明", "profile-1", 0),
         assistant("再提问", "profile-1", 1),
-        { role: "user", content: "回答一", sourceMessageIndex: 2 },
+        user("回答一", 2),
         assistant("追问一", "profile-1", 3),
         assistant("追问二", "profile-2", 4),
-        { role: "user", content: "回答二", sourceMessageIndex: 5 },
-        { role: "user", content: "补充", sourceMessageIndex: 6 },
+        user("回答二", 5),
+        user("补充", 6),
     ];
 
     const units = adapter.adapt(conversation);
@@ -43,7 +43,7 @@ test("按 user 边界分组并保留前导 assistant 单元", () => {
 
 test("字符数使用 UTF-16 code unit 且输出不共享输入对象或数组", () => {
     const conversation: ModelConversationMessage[] = [
-        { role: "user", content: "A😀", sourceMessageIndex: 4 },
+        user("A😀", 4),
         assistant("答", "profile-1", 5),
     ];
     const before = structuredClone(conversation);
@@ -61,6 +61,33 @@ test("字符数使用 UTF-16 code unit 且输出不共享输入对象或数组",
     assert.deepEqual(conversation, before);
 });
 
+test("复制后的消息保留来源且不共享来源对象", () => {
+    const conversation: ModelConversationMessage[] = [
+        {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "先检查配置",
+            sourceMessageIndex: 0,
+            source: { kind: "model_text", modelCallId: "call-1", blockIndex: 0 },
+        },
+    ];
+
+    const units = adapter.adapt(conversation);
+    const copied = units[0]?.items[0];
+
+    assert.deepEqual(copied?.source, { kind: "model_text", modelCallId: "call-1", blockIndex: 0 });
+    assert.notEqual(copied?.source, conversation[0]?.source);
+});
+
+function user(content: string, sourceMessageIndex: number): ModelConversationMessage {
+    return {
+        role: "user",
+        content,
+        sourceMessageIndex,
+        source: { kind: "user_input", inputId: `input-${sourceMessageIndex}` },
+    };
+}
+
 function assistant(
     content: string,
     profileId: string,
@@ -71,5 +98,6 @@ function assistant(
         assistant: { profileId },
         content,
         sourceMessageIndex,
+        source: { kind: "stage_output", executionUnitId: `unit-${sourceMessageIndex}` },
     };
 }

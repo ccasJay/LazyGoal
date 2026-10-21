@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import type { LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index.js";
+import { textResponse } from "../../../packages/llm-core/test/response-fixtures";
 import { ExecutionAbortedError } from "../../../packages/execution-control/src/index.js";
 import {
     LlmRpcError,
@@ -26,7 +27,7 @@ const request: LLMRequest = {
 };
 
 function response(content = '{"ok":true}'): LLMResponse {
-    return { content, providerMetadata: { requestId: "host-1", usage: { inputTokens: 2, outputTokens: 3 } } };
+    return { ...textResponse(content, "json"), providerMetadata: { requestId: "host-1", usage: { inputTokens: 2, outputTokens: 3 } } };
 }
 
 function adapter(generate: LLMAdapter["generate"]): LLMAdapter {

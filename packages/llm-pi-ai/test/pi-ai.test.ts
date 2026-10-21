@@ -10,8 +10,13 @@ import { readLLMConfig } from "../../config/src/index";
 import {
     LLMConfigurationError,
     LLMRequestModeMismatchError,
+    createContentBlockStreamTracker,
+    readAssistantText,
     readNormalizedUsage,
+    readReasoningText,
+    readToolCalls,
     type LLMRequest,
+    type LLMStreamEvent,
 } from "../../llm-core/src/index";
 import { ExecutionAbortedError } from "../../execution-control/src/index";
 
@@ -64,13 +69,14 @@ test("PiAiAdapter maps ordered text history and isolates thinking and unverified
         return result({ content: [{ type: "thinking", thinking: "private reasoning" }, { type: "text", text: '{"answer":' }, { type: "text", text: '"ok"}' }], responseId: "response-1" });
     });
     const response = await instance.generate(request, { signal: controller.signal });
-    assert.equal(response.content, json);
+    assert.equal(readAssistantText(response), json);
+    assert.equal(readReasoningText(response), "private reasoning");
     assert.equal(readNormalizedUsage(response.providerMetadata), undefined);
     assert.deepEqual(response.providerMetadata, {
         provider: "openai", api: "openai-responses", model: "gpt-4.1-mini", responseId: "response-1", stopReason: "stop",
         piUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     });
-    assert.ok(!JSON.stringify(response).includes("private reasoning"));
+    assert.equal(response.blocks.some(block => block.type === "reasoning" && block.text.includes("private reasoning")), true);
 });
 
 test("pi-ai keeps thinking out of tool-request text and final responses in both entrypoints", async () => {
@@ -86,9 +92,20 @@ test("pi-ai keeps thinking out of tool-request text and final responses in both 
         const internals = instance as unknown as { models: { stream: () => ReturnType<typeof createAssistantMessageEventStream> } };
         internals.models.stream = () => {
             const stream = createAssistantMessageEventStream();
-            stream.push({ type: "thinking_delta", contentIndex: 0, delta: "PRIVATE_THINKING", partial: message });
-            for (const block of blocks) {
-                if (block.type === "text") stream.push({ type: "text_delta", contentIndex: 1, delta: block.text, partial: message });
+            for (const [contentIndex, block] of blocks.entries()) {
+                if (block.type === "thinking") {
+                    stream.push({ type: "thinking_start", contentIndex, partial: message });
+                    stream.push({ type: "thinking_delta", contentIndex, delta: block.thinking, partial: message });
+                    stream.push({ type: "thinking_end", contentIndex, content: block.thinking, partial: message });
+                } else if (block.type === "text") {
+                    stream.push({ type: "text_start", contentIndex, partial: message });
+                    stream.push({ type: "text_delta", contentIndex, delta: block.text, partial: message });
+                    stream.push({ type: "text_end", contentIndex, content: block.text, partial: message });
+                } else if (block.type === "toolCall") {
+                    stream.push({ type: "toolcall_start", contentIndex, partial: message });
+                    stream.push({ type: "toolcall_delta", contentIndex, delta: JSON.stringify(block.arguments), partial: message });
+                    stream.push({ type: "toolcall_end", contentIndex, toolCall: block, partial: message });
+                }
             }
             stream.push({ type: "done", reason: message.stopReason as "stop" | "toolUse", message });
             return stream;
@@ -101,11 +118,20 @@ test("pi-ai keeps thinking out of tool-request text and final responses in both 
         const completed = events.find(e => e.kind === "completed");
         assert.ok(completed?.kind === "completed");
         assert.deepEqual(completed.response, generated);
-        assert.equal(generated.content, blocks.some(b => b.type === "text") ? json : "");
-        assert.ok(!JSON.stringify(generated).includes("PRIVATE_THINKING"));
-        assert.ok(events.some(e => e.kind === "reasoning_delta" && e.text === "PRIVATE_THINKING"));
+        assert.equal(readAssistantText(generated), blocks.some(b => b.type === "text") ? json : "");
+        // thinking 保留在受限 reasoning 块中，且绝不混入正文或工具参数。
+        assert.equal(readReasoningText(generated), "PRIVATE_THINKING");
+        assert.equal(readAssistantText(generated).includes("PRIVATE_THINKING"), false);
+        assert.ok(events.some(e => e.kind === "content_block_delta" && e.deltaKind === "reasoning" && e.delta === "PRIVATE_THINKING"));
+        // 每个块事件与最终响应同源：块索引、类型与内容逐项一致。
+        for (const event of events) {
+            if (event.kind !== "content_block_completed") continue;
+            assert.deepEqual(generated.blocks[event.block.index], event.block);
+        }
         if (blocks.some(b => b.type === "toolCall")) {
-            assert.deepEqual(generated.toolCalls, [{ callId: "call-preserved", toolId: "report", argumentsJson: '{"result":"ok"}' }]);
+            assert.deepEqual(readToolCalls(generated), [{ callId: "call-preserved", toolId: "report", argumentsJson: '{"result":"ok"}' }]);
+        } else {
+            assert.deepEqual(readToolCalls(generated), []);
         }
     }
 });
@@ -137,7 +163,7 @@ test("incomplete, erroneous and tool responses never return partial JSON", async
 test("empty text stays empty and thrown SDK exceptions preserve identity", async () => {
     const instance = adapter();
     stub(instance, async () => result({ content: [] }));
-    assert.equal((await instance.generate(request)).content, "");
+    assert.equal(readAssistantText(await instance.generate(request)), "");
     const failure = new Error("SDK failure");
     stub(instance, async () => { throw failure; });
     await assert.rejects(instance.generate(request), error => error === failure);
@@ -221,7 +247,7 @@ test("Google factory uses the configured API prefix with the real SDK in both ou
                     ...request,
                     ...(mode === "strict" ? { structuredOutput: { name: "answer", schema } } : {}),
                 });
-                assert.equal(response.content, json);
+                assert.equal(readAssistantText(response), json);
             });
             assert.equal(captured.length, 1);
             const sent = captured[0]!;
@@ -264,7 +290,7 @@ test("real pi-ai SDK maps four wire protocols against local SSE servers", async 
             try {
                 const instance = adapter(provider, model, provider === "openai" || provider === "openai-compatible" ? `${url}/v1` : undefined);
                 const response = await instance.generate(request);
-                assert.equal(response.content, json, provider);
+                assert.equal(readAssistantText(response), json, provider);
                 assert.equal(readNormalizedUsage(response.providerMetadata), undefined);
                 const metadata = response.providerMetadata as Record<string, any>;
                 assert.ok(metadata.piUsage.output > 0, provider);
@@ -295,6 +321,59 @@ test("real pi-ai SDK maps four wire protocols against local SSE servers", async 
         assert.equal(sent.headers["x-opencode-session"], undefined, provider);
         assert.notEqual(sent.headers["user-agent"], "lazygoal", provider);
     }
+});
+
+test("real pi-ai stream maps fragmented tool arguments and preserves the ended block", async () => {
+    const argumentFragments = ['{"res', 'ult":', '"ok"}'];
+    const body = sse([
+        { id: "chat-1", object: "chat.completion.chunk", model: "local-model", created: 1, choices: [{ index: 0, delta: { role: "assistant", content: "先说明" }, finish_reason: null }] },
+        { id: "chat-1", object: "chat.completion.chunk", model: "local-model", created: 1, choices: [{ index: 0, delta: { content: "，再调用。" }, finish_reason: null }] },
+        { id: "chat-1", object: "chat.completion.chunk", model: "local-model", created: 1, choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call-fragment", type: "function", function: { name: "report", arguments: argumentFragments[0] } }] }, finish_reason: null }] },
+        { id: "chat-1", object: "chat.completion.chunk", model: "local-model", created: 1, choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: argumentFragments[1] } }] }, finish_reason: null }] },
+        { id: "chat-1", object: "chat.completion.chunk", model: "local-model", created: 1, choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: argumentFragments[2] } }] }, finish_reason: null }] },
+        { id: "chat-1", object: "chat.completion.chunk", model: "local-model", created: 1, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 7, completion_tokens: 3 } },
+    ]) + "data: [DONE]\n\n";
+
+    await withServer((request, response) => {
+        request.resume();
+        response.writeHead(200, { "Content-Type": "text/event-stream" });
+        response.end(body);
+    }, async url => {
+        const input: LLMRequest = {
+            ...request,
+            tools: [{ id: "report", description: "Report", parametersSchema: { type: "object" } }],
+            toolChoice: "required",
+        };
+        const instance = adapter("openai-compatible", "local-model", `${url}/v1`);
+        const events: LLMStreamEvent[] = [];
+        const tracker = createContentBlockStreamTracker();
+        for await (const event of instance.stream(input)) {
+            tracker.accept(event);
+            events.push(event);
+        }
+        const response = tracker.result();
+
+        // 真实 SDK 分片保留原始参数字节、内容索引与交错完成顺序。
+        assert.equal(events[0]?.kind, "started");
+        assert.equal(events.at(-1)?.kind, "completed");
+        assert.deepEqual(events.filter(event => event.kind === "content_block_started")
+            .map(event => (event.kind === "content_block_started" ? `${event.index}:${event.blockType}:${event.delivery}` : "")),
+        ["0:text:incremental", "1:tool_call:incremental"]);
+        assert.deepEqual(events.filter(event => event.kind === "content_block_completed")
+            .map(event => (event.kind === "content_block_completed" ? event.block.type : "")),
+        ["text", "tool_call"]);
+        assert.deepEqual(events.filter(event => event.kind === "content_block_delta" && event.deltaKind === "tool_arguments")
+            .map(event => (event.kind === "content_block_delta" ? event.delta : "")), argumentFragments);
+        assert.deepEqual(response.blocks.map(block => block.index), [0, 1]);
+        assert.deepEqual(response.blocks.map(block => block.type), ["text", "tool_call"]);
+        assert.equal(readAssistantText(response), "先说明，再调用。");
+        assert.deepEqual(readToolCalls(response), [{
+            callId: "call-fragment", toolId: "report", argumentsJson: argumentFragments.join(""),
+        }]);
+        const completedToolCall = events.filter(event => event.kind === "content_block_completed")
+            .find(event => event.kind === "content_block_completed" && event.block.type === "tool_call");
+        assert.deepEqual(completedToolCall?.block, response.blocks[1]);
+    });
 });
 
 test("pi-ai serializes tool choice for generate and stream across provider protocols", async () => {
@@ -401,12 +480,12 @@ test("opencode-go 注入 LazyGoal UA 与稳定会话头，且仅在提供会话�
                 LLM_STRUCTURED_OUTPUT_MODE: "prompt_only",
             }));
             const withSession = await instance.generate({ ...request, sessionId: "goal-123" });
-            assert.equal(withSession.content, json);
+            assert.equal(readAssistantText(withSession), json);
             assert.equal(captured[0]?.["x-opencode-session"], "goal-123");
             assert.equal(captured[0]?.["user-agent"], "lazygoal");
 
             const withoutSession = await instance.generate({ ...request });
-            assert.equal(withoutSession.content, json);
+            assert.equal(readAssistantText(withoutSession), json);
             assert.equal(captured[1]?.["x-opencode-session"], undefined);
             assert.equal(captured[1]?.["user-agent"], "lazygoal");
         } finally { globalThis.fetch = realFetch; }
@@ -509,13 +588,12 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
                 const selected = decision as any;
                     const toolId = selected.kind === "task_proposal" ? "system_propose_task_plan" : selected.kind === "run_stage_update" ? "system_update_run_stage" : selected.kind === "tool_call" ? "smoke_evidence" : selected.kind === "tool_discovery" ? "system_find_tools" : selected.kind === "accept" ? "system_review_completion" : "system_complete_task";
                     const args = selected.kind === "tool_call" ? {} : selected.kind === "run_stage_update" ? { target: selected.target, acceptanceCriteria: selected.acceptanceCriteria } : selected.kind === "task_proposal" ? { task: selected.task, planRoute: selected.planRoute, approvalRequest: selected.approvalRequest, memoryPatch: null } : selected.kind === "tool_discovery" ? { query: selected.query } : selected.kind === "accept" ? { result: selected } : { summary: selected.summary, completionEvidence: selected.completionEvidence, memoryPatch: null };
-                if (mode === "strict") {
-                    res.setHeader("Content-Type", "application/json");
-                    res.end(JSON.stringify({ id: "smoke-1", model: "local-model", choices: [{ index: 0, message: { role: "assistant", content: "", tool_calls: [{ id: `call-${phases.length}`, type: "function", function: { name: toolId, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] }));
-                } else {
-                    res.setHeader("Content-Type", "text/event-stream");
-                    res.end(sse([{ id: "smoke-1", model: "local-model", choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `call-${phases.length}`, type: "function", function: { name: toolId, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] }]) + "data: [DONE]\n\n");
-                }
+                // 原生适配器提供真实流后，严格与 prompt_only 两种模式都通过 Chat Completions 流交付。
+                res.setHeader("Content-Type", "text/event-stream");
+                res.end(sse([
+                    { id: "smoke-1", model: "local-model", choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `call-${phases.length}`, type: "function", function: { name: toolId, arguments: JSON.stringify(args) } }] }, finish_reason: null }] },
+                    { id: "smoke-1", model: "local-model", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },
+                ]) + "data: [DONE]\n\n");
             });
         }, async url => {
             const report = await runAgentSmoke({
@@ -558,6 +636,49 @@ test("prompt_only 携带工具集合时接受零调用与非空正文", async ()
         tools: [{ id: "bash", description: "Run a command", parametersSchema: { type: "object", properties: {} } }],
         toolChoice: "auto",
     });
-    assert.equal(generated.content, "我先解释现状，再决定下一步。");
-    assert.equal(generated.toolCalls, undefined);
+    assert.equal(readAssistantText(generated), "我先解释现状，再决定下一步。");
+    assert.deepEqual(readToolCalls(generated), []);
+});
+
+test("pi-ai stream releases the supplier iterator without masking the primary failure", async () => {
+    const instance = adapter();
+    let released = 0;
+    const internals = instance as unknown as { models: { stream: () => unknown } };
+    internals.models.stream = () => ({
+        [Symbol.asyncIterator]() {
+            let step = 0;
+            return {
+                async next() {
+                    step += 1;
+                    if (step === 1) {
+                        return { done: false as const, value: {
+                            type: "text_delta", contentIndex: 0, delta: "部分正文",
+                            partial: result({ content: [{ type: "text", text: "部分正文" }] }),
+                        } };
+                    }
+                    throw new Error("stream transport failed");
+                },
+                async return() {
+                    released += 1;
+                    throw new Error("iterator cleanup failed");
+                },
+            };
+        },
+    });
+
+    const input: LLMRequest = { ...request, toolChoice: "required",
+        tools: [{ id: "report", description: "Report", parametersSchema: { type: "object" } }] };
+    const events: LLMStreamEvent[] = [];
+    assert.ok(instance.stream);
+    await assert.rejects(async () => {
+        for await (const event of instance.stream!(input)) events.push(event);
+    }, /stream transport failed/);
+    assert.equal(released, 1);
+    assert.equal(events.some(event => event.kind === "completed"), false);
+
+    released = 0;
+    for await (const event of instance.stream!(input)) {
+        if (event.kind === "content_block_delta") break;
+    }
+    assert.equal(released, 1);
 });

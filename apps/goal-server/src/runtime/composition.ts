@@ -13,8 +13,14 @@ import {
     RuntimeLifecycle,
     DefaultGoalModelSelectionCoordinator,
     TrajectoryCheckpointCommitter,
+    allocateDiagnosticTraceRecord,
     readTrajectoryAtSnapshot,
     launch,
+    SessionManager,
+    type GoalInteractionView,
+    type InteractionHandlerAttachOptions,
+    type InteractionHandlerAttachResult,
+    type SessionInteractionHandlers,
     type AgentProfile,
     type AgentProfileRegistry,
     type GoalCatalog,
@@ -27,6 +33,7 @@ import {
     type TrajectoryStore,
     type ToolPolicy,
     IndexedContextLookupService,
+    hasUnsettledSessionWork,
 } from "../../../../packages/runtime/src/index";
 import type { ProjectPermissionModeStore } from "../../../../packages/permission/src/index";
 import {
@@ -148,6 +155,34 @@ export function createDefaultToolPolicy(options?: {
     };
 }
 
+/**
+ * 会话执行前显式失败使用的模型绑定错误。
+ *
+ * @remarks
+ * Goal 的模型选择无法由本进程提供服务时抛出：不会回退另一个 Provider 或进程
+ * 默认配置，调用方应保持可恢复状态并显式重新选择模型。
+ *
+ * @example
+ * ```ts
+ * throw new ModelBindingUnavailableError("anthropic", "openai");
+ * ```
+ */
+export class ModelBindingUnavailableError extends Error {
+    readonly code = "MODEL_BINDING_UNAVAILABLE" as const;
+
+    /**
+     * @param selectionProvider - Goal 快照中记录的 Provider。
+     * @param availableProvider - 本进程当前可服务的 Provider。
+     */
+    constructor(
+        readonly selectionProvider: string,
+        readonly availableProvider: string,
+    ) {
+        super(`Goal model selection requires provider "${selectionProvider}" but this instance serves "${availableProvider}"`);
+        this.name = "ModelBindingUnavailableError";
+    }
+}
+
 export class ConversationBudgetConfigurationError extends Error {
     readonly code = "INVALID_LLM_CONVERSATION_CHAR_BUDGET" as const;
     readonly variableName = "LLM_CONVERSATION_CHAR_BUDGET" as const;
@@ -250,6 +285,42 @@ export interface RuntimeCompositionOptions {
     readonly providerProfiles?: readonly ProviderProfile[];
 }
 
+/**
+ * 无界面宿主可用的交互接入端口。
+ *
+ * @remarks
+ * `attach` 打开（或复用）指定 Goal 的 Runtime 会话并注册按交互种类分派的处理函数；
+ * 历史等待不会因此被自动回答，只有本实例新产生的等待或宿主显式恢复发现的请求才会
+ * 投递。`read` 只读读取当前等待的类型化视图，不推进状态。解除句柄不取消 Goal。
+ *
+ * @example
+ * ```ts
+ * const attached = await root.interactions.attach("goal-1", { onTaskApproval: async () => ({ kind: "unhandled" }) });
+ * ```
+ */
+export interface RuntimeInteractionPort {
+    /**
+     * 打开 Goal 会话并注册交互处理器。
+     *
+     * @param goalId - 目标 Goal 的稳定标识。
+     * @param handlers - 按交互种类注册的处理函数。
+     * @param options - 可选的故障报告回调。
+     * @returns 已连接句柄，或会话不可用、已有自动所有者时的稳定拒绝。
+     */
+    attach(
+        goalId: string,
+        handlers: SessionInteractionHandlers,
+        options?: InteractionHandlerAttachOptions,
+    ): Promise<InteractionHandlerAttachResult>;
+    /**
+     * 只读读取当前等待的类型化视图。
+     *
+     * @param goalId - 目标 Goal 的稳定标识。
+     * @returns 当前等待视图；Goal 缺失或没有可决定等待时返回 `undefined`。
+     */
+    read(goalId: string): Promise<GoalInteractionView | undefined>;
+}
+
 export interface RuntimeComposition {
     readonly workspaceRoot: string;
     readonly workspaceHomeDirectory: string;
@@ -286,8 +357,8 @@ export interface RuntimeComposition {
     readonly store: GoalStore & GoalCatalog;
     readonly workspaceGoalStore: Pick<GoalStore, "restore"> & GoalCatalog;
     readonly manageGoal: {
-        readonly setArchived: (goalId: string, archived: boolean) => Promise<"ok" | "goal_not_found" | "goal_not_terminal">;
-        readonly delete: (goalId: string) => Promise<"ok" | "goal_not_found" | "goal_not_terminal">;
+        readonly setArchived: (goalId: string, archived: boolean) => Promise<"ok" | "goal_not_found" | "goal_not_terminal" | "goal_has_pending_inputs">;
+        readonly delete: (goalId: string) => Promise<"ok" | "goal_not_found" | "goal_not_terminal" | "goal_has_pending_inputs">;
     };
     readonly notifyingStore: NotifyingGoalStore;
     readonly trajectoryStore: TrajectoryStore;
@@ -314,6 +385,39 @@ export interface RuntimeComposition {
     ): Promise<Readonly<TrajectoryReadResult>>;
     readWorkspaceModelInputs(goalId: string, runId: string): Promise<readonly import("../../../../packages/runtime/src/model-input").ModelInputRecord[]>;
     readonly checkpointStore: CheckpointGateGoalStore;
+    /**
+     * 现有无界面装配暴露的内部会话操作。
+     *
+     * @remarks
+     * 仓库内调用方通过该入口完成创建、流式交互、审批、关闭与重建恢复，不需要启动
+     * HTTP、绑定端口或手工组合 Runner。它不是对外稳定的 SDK API。
+     *
+     * @example
+     * ```ts
+     * const created = await root.sessions.create({
+     *     goalId: "goal-1", inputId: "input-1", content: "实现恢复能力", profileId: "default",
+     * });
+     * if (created.ok) await created.session.send({ kind: "message", inputId: "input-2", content: "继续" });
+     * ```
+     */
+    readonly sessions: SessionManager;
+    /**
+     * 无界面宿主接入会话交互处理器的窄入口。
+     *
+     * @remarks
+     * 只做「打开 Goal 会话 → 注册处理器」与只读等待视图读取，不暴露 SessionManager
+     * 内部对象，也不需要启动 HTTP 或绑定进程信号。处理器结果仍按统一 `send`
+     * 受理，受既有身份、授权与提交规则约束；同一 Goal 只允许一个自动所有者。
+     *
+     * @example
+     * ```ts
+     * const attached = await root.interactions.attach("goal-1", {
+     *     onQuestion: async () => ({ kind: "respond", response: { kind: "skip_question" } }),
+     * });
+     * if (!attached.ok) console.error(attached.code);
+     * ```
+     */
+    readonly interactions: RuntimeInteractionPort;
     readonly resources: ManagedResourceRegistry;
     readonly abortController: AbortController;
     readonly lifecycle: RuntimeLifecycle;
@@ -692,6 +796,23 @@ async function assembleRuntimeComposition(
     };
     const goalIdGenerator = options.goalIdGenerator ?? randomUUID;
     const runIdGenerator = options.runIdGenerator ?? randomUUID;
+    /**
+     * 会话执行前的模型绑定对齐。
+     *
+     * @remarks
+     * 缺失或本进程不可服务的模型选择必须明确失败，而不是回退另一个 Goal 或进程
+     * 默认 Provider 的配置：这里在发布 Binding 前核验 Goal 选择的 provider 与本
+     * 进程真正可用的连接一致。核验失败会中止本次推进，Run 保留真实可恢复状态。
+     */
+    const alignGoalModelBinding = (selection: GoalModelSelection): void => {
+        const expectedProvider = selection.profileId === undefined
+            ? defaultModelSelection.provider
+            : resolveProviderProfileConfig(selection.profileId, selection.modelId).provider;
+        if (selection.provider !== expectedProvider) {
+            throw new ModelBindingUnavailableError(selection.provider, expectedProvider);
+        }
+        alignModelBinding(selection);
+    };
     const executionComponents = createExecutionComponents({
         store: checkpointStore,
         executor: await createAgentExecutor({
@@ -721,6 +842,35 @@ async function assembleRuntimeComposition(
         executionStream,
         runIdGenerator,
     });
+    const sessions = new SessionManager({
+        store: checkpointStore,
+        committer: checkpointCommitter,
+        coordinator: executionComponents.commands,
+        profiles,
+        runIdGenerator,
+        protocolValidator,
+        trajectoryStore,
+        traceSink,
+        alignModelBinding: alignGoalModelBinding,
+        defaultModelSelection,
+        executionStream,
+        onBackgroundFailure: (goalId, error) => {
+            // 后台执行异常已经写入真实恢复状态；这里只保留诊断事实。
+            void traceSink.append(allocateDiagnosticTraceRecord({
+                goalId,
+                runId: "session-execution",
+                kind: "session_execution_failed",
+                payload: { reason: error instanceof Error ? error.message : String(error) },
+            })).catch(() => undefined);
+        },
+        trackBackgroundTask: (label, task) => {
+            const release = lifecycle.beginOperation(label);
+            void task.finally(() => release());
+        },
+    });
+    resources.register({
+        close: () => sessions.close({ timeoutMs: 5000 }),
+    });
     const rawCommands = executionComponents.commands;
     /** 将已受理的写操作纳入同一生命周期边界；读取保持可用，不受关闭阻塞。 */
     const runTrackedOperation = async <T>(label: string, operation: () => Promise<T>): Promise<T> => {
@@ -738,12 +888,12 @@ async function assembleRuntimeComposition(
             runTrackedOperation("advance", () => rawCommands.advance(ref, control)),
         resume: (request, control) =>
             runTrackedOperation("resume", () => rawCommands.resume(request, control)),
-        continue: (ref, content, control, continuation) =>
-            runTrackedOperation("continue", () => rawCommands.continue(ref, content, control, continuation)),
-        steer: (ref, messageId, content) =>
-            runTrackedOperation("steer", () => rawCommands.steer(ref, messageId, content)),
-        interrupt: (ref, requestId) =>
-            runTrackedOperation("interrupt", () => rawCommands.interrupt(ref, requestId)),
+        continue: (ref, content, control, continuation, queueBinding) =>
+            runTrackedOperation("continue", () => rawCommands.continue(ref, content, control, continuation, queueBinding)),
+        steer: (ref, messageId, content, ledger) =>
+            runTrackedOperation("steer", () => rawCommands.steer(ref, messageId, content, ledger)),
+        interrupt: (ref, requestId, ledger) =>
+            runTrackedOperation("interrupt", () => rawCommands.interrupt(ref, requestId, ledger)),
         enterPlanMode: (ref, control) =>
             runTrackedOperation("enter_plan_mode", () => rawCommands.enterPlanMode(ref, control)),
         getPermissionMode: (workspaceId) => rawCommands.getPermissionMode(workspaceId),
@@ -755,6 +905,8 @@ async function assembleRuntimeComposition(
         listToolGrants: (ref) => rawCommands.listToolGrants(ref),
         revokeToolGrant: (request) =>
             runTrackedOperation("revoke_tool_grant", () => rawCommands.revokeToolGrant(request)),
+        reviewActionApproval: (request, control) =>
+            runTrackedOperation("review_action_approval", () => rawCommands.reviewActionApproval(request, control)),
     };
     const launcher = {
         async launch(request: Parameters<typeof launch>[0], control?: Parameters<typeof launch>[2]) {
@@ -832,6 +984,7 @@ async function assembleRuntimeComposition(
                     if (goal === undefined) return "goal_not_found";
                     const status = goal.state.run.status;
                     if (status !== "completed" && status !== "failed" && status !== "cancelled") return "goal_not_terminal";
+                    if (hasUnsettledSessionWork(goal)) return "goal_has_pending_inputs";
                     await primaryGoalStore.setArchived(goalId, archived);
                     return "ok";
                 }),
@@ -841,6 +994,7 @@ async function assembleRuntimeComposition(
                     if (goal === undefined) return "goal_not_found";
                     const status = goal.state.run.status;
                     if (status !== "completed" && status !== "failed" && status !== "cancelled") return "goal_not_terminal";
+                    if (hasUnsettledSessionWork(goal)) return "goal_has_pending_inputs";
                     const encodedGoalId = Buffer.from(goalId, "utf8").toString("base64url");
                     for (const directory of [trajectoriesDirectory, tracesDirectory, metricsDirectory, contextSidecarsDirectory, join(dataDirectory, "model-inputs")]) {
                         await rm(join(directory, encodedGoalId), { recursive: true, force: true });
@@ -867,6 +1021,17 @@ async function assembleRuntimeComposition(
         readWorkspaceTrajectory,
         readWorkspaceModelInputs: (goalId, runId) => new JsonFileModelInputStore(join(workspaceHomePaths.workspaceDirectory, "model-inputs")).read(goalId, runId),
         checkpointStore,
+        sessions,
+        interactions: {
+            attach: async (goalId, handlers, options) => {
+                const opened = await runTrackedOperation("interaction-attach", () => sessions.open(goalId));
+                if (!opened.ok) {
+                    return { ok: false, code: "SESSION_DETACHED", message: opened.error.message };
+                }
+                return opened.session.attachInteractionHandlers(handlers, options);
+            },
+            read: (goalId) => sessions.readSessionInteraction(goalId),
+        },
         resources,
         abortController,
         lifecycle,

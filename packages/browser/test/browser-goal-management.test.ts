@@ -7,14 +7,10 @@ function port(): BrowserGoalApiPort {
     return {
         list: async () => [],
         read: async () => undefined,
-        create: async () => ({ ok: false, error: "goal_create_failed" }),
-        interact: async () => ({ ok: false, error: "interaction_failed" }),
-        message: async () => ({ ok: false, error: "message_failed" }),
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
         setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
         selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
-        openStream: async () => ({ ok: false, error: "goal_not_found" }),
         setArchived: async (goalId, archived) => goalId === "missing" ? { ok: false, error: "goal_not_found" }
             : archived ? { ok: true } : { ok: false, error: "goal_not_terminal" },
         deleteGoal: async (goalId) => goalId === "terminal" ? { ok: true }

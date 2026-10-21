@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+    computeActionRecoveryRef,
     createGoal,
     createRun,
     createStepExecutor,
@@ -26,11 +27,7 @@ import {
 } from "../../contracts/src/index";
 import { BASH_INPUT_CONTRACT } from "../../tools/src/bash";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import {
-    currentProtocols,
-    InMemoryTrajectoryStore,
-    trajectoryStoreFor,
-} from "./current-fixtures";
+import { bindMessagesToRun, currentProtocols, InMemoryTrajectoryStore, messageOutline, trajectoryStoreFor, testUserMessage, testAssistantMessage } from "./current-fixtures";
 import type {
     AgentDecision,
     AgentProfile,
@@ -306,7 +303,7 @@ function createInitialGoal(
                         : ["完成测试"],
                 },
             },
-            messages: [...messages],
+            messages: bindMessagesToRun(messages, runId),
         },
     };
 }
@@ -458,11 +455,11 @@ test("starts a created Goal, saves every transition, and executes until complete
 
     const persisted = await store.peek(initial.id);
     assert.ok(persisted);
-    assert.deepEqual(persisted.state.messages, [
+    assert.deepEqual(messageOutline(persisted.state.messages), [
         {
             role: "assistant",
-            assistant: { profileId: "profile-1" },
             content: "目标完成",
+            purpose: "answer",
         },
     ]);
     assert.deepEqual(executionTask(persisted), executionTask(initial));
@@ -824,7 +821,7 @@ test("stops on blocked and continues an externally resumed Goal", async () => {
             ...waitingGoal.state,
             messages: [
                 ...waitingGoal.state.messages,
-                { role: "user" as const, content: "已批准继续" },
+                testUserMessage("已批准继续", { goal: waitingGoal }),
             ],
             run: resumedRun,
         },
@@ -862,25 +859,25 @@ test("stops on blocked and continues an externally resumed Goal", async () => {
     );
     const persisted = await store.peek(initial.id);
     assert.deepEqual(persisted?.state.run, completed);
-    assert.deepEqual(persisted?.state.messages, [
+    assert.deepEqual(messageOutline(persisted?.state.messages ?? []), [
         {
             role: "assistant",
-            assistant: { profileId: "profile-1" },
             content: "需要破坏性操作批准",
+            purpose: "notice",
         },
         { role: "user", content: "已批准继续" },
         {
             role: "assistant",
-            assistant: { profileId: "profile-1" },
             content: "批准后完成",
+            purpose: "answer",
         },
     ]);
 });
 
 test("从 InMemoryGoalStore 恢复 created 和 running Goal 时保留累计进度", async () => {
     const initialMessages: readonly GoalMessage[] = [
-        { role: "user", content: "已保存的用户输入" },
-        { role: "assistant", assistant: { profileId: "profile-1" }, content: "已保存的模型响应" },
+        testUserMessage("已保存的用户输入"),
+        testAssistantMessage("已保存的模型响应", { profileId: "profile-1" }),
     ];
     const scenarios: ReadonlyArray<{
         readonly label: string;
@@ -943,7 +940,7 @@ test("从 InMemoryGoalStore 恢复 created 和 running Goal 时保留累计进�
         const executor = new FakeStepExecutor([
             (goal) => {
                 assert.equal(goal.state.run.stepCount, scenario.expectedStepCount);
-                assert.deepEqual(goal.state.messages, initialMessages);
+                assert.deepEqual(goal.state.messages, scenario.goal.state.messages);
                 assert.deepEqual(goal.definition.profile, scenario.goal.definition.profile);
                 return {
                     kind: "complete",
@@ -1254,8 +1251,7 @@ test("executor exception fails without committing a fabricated Decision", async 
     assert.equal(state.lastStep, undefined);
     assert.deepEqual((await store.peek(initial.id))?.state.messages, [
         ...initial.state.messages,
-    ]);
-    assert.deepEqual(events.filter((event) => !event.startsWith("restore:")), [
+    ]);    assert.deepEqual(events.filter((event) => !event.startsWith("restore:")), [
         "save:goal-1:running:0",
         "save:goal-1:running:0",
         "execute:running:0",
@@ -1282,11 +1278,11 @@ test("persists an explicit fail decision with a normalized assistant message", a
     const persisted = await store.restore(initial.id);
 
     assert.equal(state.status, "failed");
-    assert.deepEqual(persisted?.state.messages, [
+    assert.deepEqual(messageOutline(persisted?.state.messages ?? []), [
         {
             role: "assistant",
-            assistant: { profileId: "profile-1" },
             content: "无法满足完成条件",
+            purpose: "notice",
         },
     ]);
 });
@@ -2018,7 +2014,7 @@ test("Runner 在 Policy 要求审批时允许匹配的 workspace Grant 放行同
         id: "grant-1",
         scope: "workspace",
         workspaceId: "workspace-1",
-        source: { goalId: "goal-old", runId: "run-old", actionId: "action-old" },
+        source: { goalId: "goal-old", runId: "run-old", actionId: "action-old", approvalInputId: "input-1" },
         matcher,
         status: "active",
     };
@@ -2145,11 +2141,11 @@ test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期",
             },
     });
     assert.equal(state.pendingAction, undefined);
-    assert.deepEqual((await store.peek(initial.id))?.state.messages, [
+    assert.deepEqual(messageOutline((await store.peek(initial.id))?.state.messages ?? []), [
         {
             role: "assistant",
-            assistant: { profileId: "profile-1" },
             content: "目标完成",
+            purpose: "answer",
         },
     ]);
 });
@@ -2565,6 +2561,7 @@ test("Runner 恢复 manual pending Action 时进入 outcome_unknown waiting 而�
     assert.deepEqual(state.pendingAction, {
         action,
         status: "outcome_unknown",
+        recoveryRef: computeActionRecoveryRef("action-manual-replay", 1),
     });
     assert.equal(toolCalls, 0);
     assert.equal(executor.receivedGoals.length, 0);
@@ -2863,7 +2860,9 @@ test("Tool 异常会保存 outcome_unknown execution_error", async () => {
             toolId: "read_file",
             input: { path: "README.md" },
         },
+        attemptsStarted: 1,
         status: "outcome_unknown",
+        recoveryRef: computeActionRecoveryRef("action-tool-error", 1),
     });
     assert.deepEqual(state.stopReason, {
         kind: "execution_error",

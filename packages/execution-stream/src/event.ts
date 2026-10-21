@@ -29,12 +29,12 @@ export type StreamDurability = "live" | "trajectory" | "checkpoint";
  * const draft: ExecutionStreamEventDraft = {
  *     goalId: "goal-1",
  *     runId: "run-1",
- *     kind: "assistant_text_delta",
+ *     kind: "model_block_delta",
  *     visibility: "public",
  *     durability: "live",
  *     delivery: "delta",
- *     coalescingKey: "assistant:step-1",
- *     payload: { text: "Hello" },
+ *     coalescingKey: "model-block:call-1:0",
+ *     payload: { modelCallId: "call-1", blockIndex: 0, deltaKind: "text", delta: "Hello" },
  * };
  * ```
  */

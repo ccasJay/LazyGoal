@@ -4,6 +4,7 @@ import { createGoal } from "../../runtime/src/index";
 import type { TraceRecord } from "../../runtime/src/index";
 import type { ModelInputRecord } from "../../runtime/src/model-input";
 import type { LLMRequest } from "../../llm-core/src/index";
+import { textResponse } from "../../llm-core/test/response-fixtures";
 import { LLMStepExecutor } from "../../model-execution/src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
@@ -22,7 +23,7 @@ test("model input is saved before failed Adapter calls and shares call identity 
         adapter: { structuredOutputMode: "strict", generate: async (request: LLMRequest) => {
             assert.deepEqual(saved.at(-1)!.messages.map(({ role, content }) => ({ role, content })), request.messages);
             if (fail) throw new Error("provider failed");
-            return { content: "Inspect Runtime and Storage ownership." };
+            return textResponse("Inspect Runtime and Storage ownership.");
         } },
     });
     const input = { goal, authorizedTools: [], workingMemory: currentWorkingMemory, executionUnitId: "unit-input", thinkHistory: [] };
@@ -48,7 +49,7 @@ test("configured model input storage failure prevents sending an unrecorded requ
     let calls = 0;
     const executor = new LLMStepExecutor({ renderer, contextCompactor: new DropOldestContextCompactor(), trajectoryContextAssembler: createCurrentContextAssembler(),
         modelInputStore: { append: async () => { throw new Error("storage unavailable"); }, read: async () => [] },
-        adapter: { structuredOutputMode: "strict", generate: async () => { calls++; return { content: "unused" }; } },
+        adapter: { structuredOutputMode: "strict", generate: async () => { calls++; return textResponse("unused"); } },
     });
     await assert.rejects(executor.execute({ goal, authorizedTools: [], workingMemory: currentWorkingMemory }), /storage unavailable/);
     assert.equal(calls, 0);

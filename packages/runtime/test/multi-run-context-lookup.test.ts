@@ -21,6 +21,8 @@ import {
     type TrajectoryStore,
 } from "../src/index";
 import { classifyTrajectoryTail } from "../src/index";
+import { testAssistantMessage, testUserMessage } from "./current-fixtures";
+
 
 const goalId = "goal-multi-run-context";
 const oldRunId = "run-old";
@@ -82,13 +84,9 @@ function createMultiRunGoal(): Goal {
         state: {
             ...goal.state,
             messages: [
-                { role: "user", content: "执行旧 Run" },
-                {
-                    role: "assistant",
-                    assistant: { profileId: profile.id },
-                    content: "归档结果已保存",
-                },
-                { role: "user", content: "继续当前 Run" },
+                testUserMessage("执行旧 Run"),
+                testAssistantMessage("归档结果已保存", { profileId: profile.id }),
+                testUserMessage("继续当前 Run"),
             ],
             completedRuns: [{
                 runId: oldRunId,

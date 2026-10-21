@@ -16,9 +16,11 @@
  * batcher.dispose();       // 流断开时取消已排程帧
  * ```
  */
-export interface TextBatcher {
+export interface TextBatcher<TPayload = string> {
   /** 追加一段增量并确保已安排合并帧；同帧内多次调用只产生一次提交。 */
-  push(text: string): void;
+  push(payload: TPayload): void;
+  /** 立即提交尚未提交的增量；结算边界用它保证尾部不丢。 */
+  flush(): void;
   /** 丢弃尚未提交的全部增量；清除后残留排程帧为空操作，不影响新流。 */
   clear(): void;
   /** 取消已排程的合并帧并清空缓冲；仅用于流关闭或组件卸载。 */
@@ -38,43 +40,47 @@ function defaultScheduler(callback: () => void): () => void {
 }
 
 /**
- * 创建按帧合并的文本增量缓冲。
+ * 创建按帧合并的增量缓冲。
  *
  * @param apply - 每个合并帧的一次提交回调，参数为该帧内按到达顺序拼接的增量。
  * @param schedule - 合并帧调度器，默认 rAF/`setTimeout` 退化；测试可注入手动调度器。
  * @returns 按 {@link TextBatcher} 契约封装的缓冲实例。
  */
-export function createTextBatcher(
-  apply: (delta: string) => void,
+export function createTextBatcher<TPayload = string>(
+  apply: (delta: TPayload) => void,
   schedule: TextBatchScheduler = defaultScheduler,
-): TextBatcher {
-  let buffered = "";
+): TextBatcher<TPayload> {
+  let buffered: TPayload[] = [];
   let frame: number | null = null;
   let cancelled: (() => void) | undefined;
 
   function flush(): void {
     frame = null;
     cancelled = undefined;
-    if (buffered.length === 0) return;
-    const delta = buffered;
-    buffered = "";
-    apply(delta);
+    flushPayloads();
   }
 
   return {
-    push(text: string) {
-      if (text.length === 0) return;
-      buffered += text;
+    push(payload: TPayload) {
+      buffered.push(payload);
       if (frame === null) {
         frame = Number.POSITIVE_INFINITY;
         cancelled = schedule(flush);
       }
     },
+    flush() {
+      if (frame !== null) {
+        cancelled?.();
+        frame = null;
+        cancelled = undefined;
+      }
+      flushPayloads();
+    },
     clear() {
-      buffered = "";
+      buffered = [];
     },
     dispose() {
-      buffered = "";
+      buffered = [];
       if (frame !== null) {
         cancelled?.();
         frame = null;
@@ -82,4 +88,25 @@ export function createTextBatcher(
       }
     },
   };
+
+  function flushPayloads(): void {
+    if (buffered.length === 0) return;
+    const payloads = buffered;
+    buffered = [];
+    apply(mergePayloads(payloads));
+  }
+}
+
+/**
+ * 合并同一帧内的增量载荷。
+ *
+ * @remarks
+ * 字符串载荷按到达顺序拼接；其它载荷按到达顺序合并为一个数组，保持来源身份与次序。
+ */
+function mergePayloads<TPayload>(payloads: readonly TPayload[]): TPayload {
+  if (payloads.length === 1) return payloads[0]!;
+  if (typeof payloads[0] === "string") {
+    return payloads.join("") as TPayload;
+  }
+  return payloads as unknown as TPayload;
 }

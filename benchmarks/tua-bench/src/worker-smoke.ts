@@ -57,8 +57,7 @@ export async function runTuaBenchWorkerSmoke(): Promise<void> {
                 process.stdout.write(`   [LLM Adapter] 收到第 ${stepCount} 次模型调用请求...\n`);
                 if (stepCount === 1) {
                     process.stdout.write("   [Agent Step 1] 提交任务执行方案建议 (task_proposal)...\n");
-                    return {
-                        content: JSON.stringify({
+                    return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({
                             result: {
                                 kind: "task_proposal",
                                 planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
@@ -72,13 +71,11 @@ export async function runTuaBenchWorkerSmoke(): Promise<void> {
                                 approvalRequest: "请批准执行该 TUA-Bench 任务",
                                 memoryPatch: null,
                             },
-                        }),
-                    };
+                        }) }] };
                 }
                 if (stepCount === 2) {
                     process.stdout.write("   [Agent Step 2] 决定调用 bash_exec 修复 /home/agent/report.txt...\n");
-                    return {
-                        content: JSON.stringify({
+                    return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({
                             result: {
                                 kind: "tool_call",
                                 action: {
@@ -92,8 +89,7 @@ export async function runTuaBenchWorkerSmoke(): Promise<void> {
                                 },
                                 memoryPatch: null,
                             },
-                        }),
-                    };
+                        }) }] };
                 }
                 process.stdout.write("   [Agent Step 3] 检查完成，宣告任务目标达成 (complete)...\n");
                 let observationSeq: number | undefined;
@@ -116,8 +112,7 @@ export async function runTuaBenchWorkerSmoke(): Promise<void> {
                     // ignore context parsing error for sequence fallback
                 }
 
-                return {
-                    content: JSON.stringify({
+                return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({
                         result: {
                             kind: "complete",
                             summary: "Successfully updated report.txt to Status: CORRECT",
@@ -127,8 +122,7 @@ export async function runTuaBenchWorkerSmoke(): Promise<void> {
                             }],
                             memoryPatch: null,
                         },
-                    }),
-                };
+                    }) }] };
             },
         };
 

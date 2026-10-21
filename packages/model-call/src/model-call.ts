@@ -12,8 +12,19 @@ import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 
 import type { LLMAdapter } from "../../llm-core/src/index";
-import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
-import { readNormalizedUsage } from "../../llm-core/src/index";
+import type {
+    LLMContentBlock,
+    LLMContentDelivery,
+    LLMRequest,
+    LLMResponse,
+    LLMStreamEvent,
+} from "../../llm-core/src/index";
+import {
+    createContentBlockStreamTracker,
+    readNormalizedUsage,
+    readToolCalls,
+    type ContentBlockStreamTracker,
+} from "../../llm-core/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -170,16 +181,18 @@ export async function callModel(
     let decodeDurationMs: number | undefined;
     let requestStartedAt: number | undefined;
     let requestDurationMs: number | undefined;
+    const observation: ModelStreamObservation = {};
     try {
         if (dependencies.adapter.stream === undefined) {
+            publishModelStarted(dependencies, context, callId);
             requestStartedAt = performance.now();
             response = await dependencies.adapter.generate(providerRequest, control);
             const elapsedMs = performance.now() - requestStartedAt;
             if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
-            publishFallbackModelEvents(dependencies, context, response);
+            publishWholeResponseEvents(dependencies, context, callId, response);
         } else {
             requestStartedAt = performance.now();
-            const streamed = await consumeModelStream(dependencies, providerRequest, context, control);
+            const streamed = await consumeModelStream(dependencies, providerRequest, context, control, callId, observation);
             response = streamed.response;
             decodeDurationMs = streamed.decodeDurationMs;
             const elapsedMs = performance.now() - requestStartedAt;
@@ -191,6 +204,8 @@ export async function callModel(
             const elapsedMs = performance.now() - requestStartedAt;
             if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
         }
+        const cancelled = isExecutionAbortedError(error) || control?.signal?.aborted === true;
+        publishModelTerminated(dependencies, context, callId, cancelled, observation.tracker?.unfinishedIndexes() ?? []);
         await appendModelMetric(dependencies.metricsRecorder, {
             recordType: "call_finished",
             ...metricIdentity,
@@ -218,45 +233,85 @@ export async function callModel(
     return { response, startedAt, callId };
 }
 
+/** 一次流式调用的观察状态；失败或取消后仍可说明哪些块未完成。 */
+interface ModelStreamObservation {
+    tracker?: ContentBlockStreamTracker;
+}
+
 async function consumeModelStream(
     dependencies: ModelCallDependencies,
     request: LLMRequest,
     context: ModelCallContext,
     control: ExecutionControl | undefined,
+    callId: string,
+    observation: ModelStreamObservation,
 ): Promise<{ readonly response: LLMResponse; readonly decodeDurationMs?: number }> {
     if (dependencies.adapter.stream === undefined) {
+        publishModelStarted(dependencies, context, callId);
         const response = await dependencies.adapter.generate(request, control);
-        publishFallbackModelEvents(dependencies, context, response);
+        publishWholeResponseEvents(dependencies, context, callId, response);
         return { response };
     }
 
-    let response: LLMResponse | undefined;
+    const tracker = createContentBlockStreamTracker();
+    observation.tracker = tracker;
     let firstTextDeltaAt: number | undefined;
     let decodeDurationMs: number | undefined;
-    for await (const event of dependencies.adapter.stream.call(dependencies.adapter, request, control)) {
-        throwIfAborted(control);
-        if (event.kind === "assistant_text_delta" && event.text.length > 0 && firstTextDeltaAt === undefined) {
-            firstTextDeltaAt = performance.now();
-        }
-        publishModelStreamEvent(dependencies, context, event);
-        if (event.kind !== "completed") continue;
-        if (response !== undefined) {
-            throw new LLMResponseProtocolError("LLM stream produced multiple completed responses");
-        }
-        response = event.response;
-        if (firstTextDeltaAt !== undefined) {
+    // 借用 Adapter 的迭代器：正常消费到底；异常、取消或提前退出时尝试释放本次拥有的迭代器并保留主失败原因。
+    const iterator = dependencies.adapter.stream.call(dependencies.adapter, request, control)[Symbol.asyncIterator]();
+    try {
+        while (true) {
+            const next = await iterator.next();
+            if (next.done === true) break;
+            const event = next.value;
+            throwIfAborted(control);
+            tracker.accept(event);
+            if (event.kind === "content_block_delta" && event.deltaKind === "text"
+                && event.delta.length > 0 && firstTextDeltaAt === undefined) {
+                firstTextDeltaAt = performance.now();
+            }
+            publishModelStreamEvent(dependencies, context, callId, event);
+            if (event.kind !== "completed" || firstTextDeltaAt === undefined) continue;
             const measuredDurationMs = performance.now() - firstTextDeltaAt;
             if (measuredDurationMs > 0) decodeDurationMs = measuredDurationMs;
         }
+    } finally {
+        await releaseIterator(iterator);
     }
 
-    if (response === undefined) {
-        throw new LLMResponseProtocolError("LLM stream ended without a completed response");
-    }
+    throwIfAborted(control);
+    const response = tracker.result();
     return {
         response,
         ...(decodeDurationMs === undefined ? {} : { decodeDurationMs }),
     };
+}
+
+/** 尽力释放迭代器；清理异常不覆盖调用方的主失败原因。 */
+async function releaseIterator(iterator: AsyncIterator<LLMStreamEvent>): Promise<void> {
+    if (iterator.return === undefined) return;
+    try {
+        await iterator.return();
+    } catch {
+        // 观察通道的清理失败按既有规则隔离，调用结果或主错误保持不变。
+    }
+}
+
+/** 失败或取消时发布安全终止摘要：只带调用身份、结果与未完成块索引，不携带任何块内容。 */
+function publishModelTerminated(
+    dependencies: ModelCallDependencies,
+    context: ModelCallContext,
+    callId: string,
+    cancelled: boolean,
+    unfinishedBlockIndexes: readonly number[],
+): void {
+    publishExecutionEvent(dependencies, context, {
+        kind: cancelled ? "model_cancelled" : "model_failed",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: { modelCallId: callId, unfinishedBlockIndexes: [...unfinishedBlockIndexes] },
+    });
 }
 
 async function appendModelMetric(
@@ -271,90 +326,87 @@ async function appendModelMetric(
     }
 }
 
-function publishFallbackModelEvents(
+function publishModelStarted(
     dependencies: ModelCallDependencies,
     context: ModelCallContext,
-    response: LLMResponse,
+    callId: string,
 ): void {
     publishExecutionEvent(dependencies, context, {
         kind: "model_started",
         visibility: "public",
         durability: "live",
         delivery: "control",
-        payload: {},
+        payload: { modelCallId: callId },
     });
-    if (response.content.length > 0) {
-        publishExecutionEvent(dependencies, context, {
-            kind: "assistant_text_delta",
-            visibility: "public",
-            durability: "live",
-            delivery: "delta",
-            coalescingKey: `assistant:${context.executionUnitId ?? "run"}`,
-            payload: { text: response.content },
-        });
-    }
-    if (response.reasoning !== undefined && response.reasoning.length > 0) {
-        publishExecutionEvent(dependencies, context, {
-            kind: "reasoning_delta", visibility: "restricted", durability: "live", delivery: "delta",
-            coalescingKey: `reasoning:${context.executionUnitId ?? "run"}`, payload: { text: response.reasoning },
-        });
+}
+
+/** 无流式能力的 Adapter 在返回后按整块方式观察；不伪造增量。 */
+function publishWholeResponseEvents(
+    dependencies: ModelCallDependencies,
+    context: ModelCallContext,
+    callId: string,
+    response: LLMResponse,
+): void {
+    for (const block of response.blocks) {
+        publishExecutionEvent(dependencies, context, blockEventDraft(callId, "started", block, "whole"));
+        publishExecutionEvent(dependencies, context, blockEventDraft(callId, "completed", block, "whole"));
     }
     publishExecutionEvent(dependencies, context, {
         kind: "model_completed",
         visibility: "public",
         durability: "live",
         delivery: "control",
-        payload: { hasToolCalls: (response.toolCalls?.length ?? 0) > 0 },
+        payload: { modelCallId: callId, hasToolCalls: readToolCalls(response).length > 0 },
     });
 }
 
 function publishModelStreamEvent(
     dependencies: ModelCallDependencies,
     context: ModelCallContext,
+    callId: string,
     event: LLMStreamEvent,
 ): void {
     switch (event.kind) {
         case "started":
+            publishModelStarted(dependencies, context, callId);
+            return;
+        case "content_block_started":
             publishExecutionEvent(dependencies, context, {
-                kind: "model_started",
-                visibility: "public",
+                kind: "model_block_started",
+                visibility: blockVisibility(event.blockType, event.format),
                 durability: "live",
                 delivery: "control",
-                payload: {},
-            });
-            return;
-        case "assistant_text_delta":
-            publishExecutionEvent(dependencies, context, {
-                kind: event.kind,
-                visibility: "public",
-                durability: "live",
-                delivery: "delta",
-                coalescingKey: `assistant:${context.executionUnitId ?? "run"}`,
-                payload: { text: event.text },
-            });
-            return;
-        case "reasoning_delta":
-            publishExecutionEvent(dependencies, context, {
-                kind: event.kind,
-                visibility: "restricted",
-                durability: "live",
-                delivery: "delta",
-                coalescingKey: `reasoning:${context.executionUnitId ?? "run"}`,
-                payload: { text: event.text },
-            });
-            return;
-        case "model_tool_call_delta":
-            publishExecutionEvent(dependencies, context, {
-                kind: event.kind,
-                visibility: "diagnostic",
-                durability: "live",
-                delivery: "delta",
-                coalescingKey: `model-tool-call:${context.executionUnitId ?? "run"}`,
                 payload: {
-                    delta: event.delta,
-                    ...(event.contentIndex === undefined ? {} : { contentIndex: event.contentIndex }),
+                    modelCallId: callId,
+                    blockIndex: event.index,
+                    blockType: event.blockType,
+                    delivery: event.delivery,
+                    ...(event.format === undefined ? {} : { format: event.format }),
                 },
             });
+            return;
+        case "content_block_delta":
+            publishExecutionEvent(dependencies, context, {
+                kind: "model_block_delta",
+                visibility: blockVisibility(event.deltaKind === "tool_arguments" ? "tool_call" : event.deltaKind),
+                durability: "live",
+                delivery: "delta",
+                coalescingKey: `model-block:${callId}:${event.index}`,
+                payload: {
+                    modelCallId: callId,
+                    blockIndex: event.index,
+                    deltaKind: event.deltaKind,
+                    delta: event.delta,
+                },
+            });
+            return;
+        case "content_block_completed":
+            publishExecutionEvent(dependencies, context, blockEventDraft(
+                callId,
+                "completed",
+                event.block,
+                event.delivery,
+            ));
             return;
         case "completed":
             publishExecutionEvent(dependencies, context, {
@@ -362,10 +414,62 @@ function publishModelStreamEvent(
                 visibility: "public",
                 durability: "live",
                 delivery: "control",
-                payload: { hasToolCalls: (event.response.toolCalls?.length ?? 0) > 0 },
+                payload: { modelCallId: callId, hasToolCalls: readToolCalls(event.response).length > 0 },
             });
             return;
     }
+}
+
+function blockEventDraft(
+    callId: string,
+    phase: "started" | "completed",
+    block: LLMContentBlock,
+    delivery: LLMContentDelivery,
+): Omit<ExecutionStreamEventDraft, "goalId" | "runId"> {
+    const identity = {
+        modelCallId: callId,
+        blockIndex: block.index,
+        blockType: block.type,
+        delivery,
+        ...(block.type === "text" ? { format: block.format } : {}),
+    };
+    if (phase === "started") {
+        return {
+            kind: "model_block_started",
+            visibility: blockVisibility(block.type, block.type === "text" ? block.format : undefined),
+            durability: "live",
+            delivery: "control",
+            payload: identity,
+        };
+    }
+    return {
+        kind: "model_block_completed",
+        visibility: blockVisibility(block.type, block.type === "text" ? block.format : undefined),
+        durability: "live",
+        delivery: "control",
+        // 整块交付没有增量，完整事件携带该块内容；增量块的内容已经发布，不重复发送。
+        payload: delivery === "whole" ? { ...identity, ...blockContent(block) } : identity,
+    };
+}
+
+function blockContent(block: LLMContentBlock): { readonly [key: string]: string } {
+    switch (block.type) {
+        case "text":
+            return { text: block.text };
+        case "reasoning":
+            return { text: block.text };
+        case "tool_call":
+            return { callId: block.callId, toolId: block.toolId, argumentsJson: block.argumentsJson };
+    }
+}
+
+function blockVisibility(
+    blockType: LLMContentBlock["type"],
+    format?: "plain" | "json",
+): "public" | "diagnostic" | "restricted" {
+    if (blockType === "reasoning") return "restricted";
+    if (blockType === "tool_call") return "diagnostic";
+    return format === "json" ? "diagnostic" : "public";
 }
 
 function publishExecutionEvent(

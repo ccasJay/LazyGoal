@@ -5,6 +5,8 @@ import { test } from "node:test";
 
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
+import { readAssistantText, readToolCalls } from "../../llm-core/src/index";
+import { blockResponse, textResponse } from "../../llm-core/test/response-fixtures";
 import type {
     DiagnosticTraceSink,
     Goal,
@@ -75,8 +77,8 @@ class ResponseAdapter implements LLMAdapter {
     constructor(private readonly response: LLMResponse) {}
 
     async generate(_request: LLMRequest): Promise<LLMResponse> {
-        return this.response.toolCalls === undefined
-            ? { ...this.response, ...toolResponseFixture(this.response.content) }
+        return readToolCalls(this.response).length === 0
+            ? { ...this.response, ...toolResponseFixture(readAssistantText(this.response)) }
             : this.response;
     }
 }
@@ -89,7 +91,7 @@ class FailingTraceSink implements DiagnosticTraceSink {
 
 test("LLMStepExecutor records bounded request/response diagnostics with redaction", async () => {
     const response = {
-        content: JSON.stringify({
+        blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({
             result: {
                 kind: "complete",
                 summary: "完成",
@@ -97,7 +99,7 @@ test("LLMStepExecutor records bounded request/response diagnostics with redactio
                 memoryPatch: null,
                 contextNotes: null,
             },
-        }),
+        }) }],
         providerRequestId: "request-1",
         apiKey: "must-not-be-written",
     } as unknown as LLMResponse;
@@ -138,7 +140,7 @@ test("LLMStepExecutor records bounded request/response diagnostics with redactio
 
 test("LLMStepExecutor records providerMetadata.usage in model_response trace without redaction", async () => {
     const response = {
-        content: JSON.stringify({
+        blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({
             result: {
                 kind: "complete",
                 summary: "完成",
@@ -146,7 +148,7 @@ test("LLMStepExecutor records providerMetadata.usage in model_response trace wit
                 memoryPatch: null,
                 contextNotes: null,
             },
-        }),
+        }) }],
         providerMetadata: {
             requestId: "request-usage-1",
             usage: { inputTokens: 120, outputTokens: 34, cachedInputTokens: 50 },
@@ -187,7 +189,7 @@ test("LLMStepExecutor records providerMetadata.usage in model_response trace wit
 
 test("LLMStepExecutor omits usage field in model_response trace when providerMetadata has none", async () => {
     const response = {
-        content: JSON.stringify({
+        blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({
             result: {
                 kind: "complete",
                 summary: "完成",
@@ -195,7 +197,7 @@ test("LLMStepExecutor omits usage field in model_response trace when providerMet
                 memoryPatch: null,
                 contextNotes: null,
             },
-        }),
+        }) }],
         providerMetadata: {
             requestId: "request-usage-2",
         },
@@ -222,8 +224,8 @@ test("LLMStepExecutor omits usage field in model_response trace when providerMet
 });
 
 test("LLM diagnostics apply a total size bound and do not require a working TraceSink", async () => {
-    const longResponse = {
-        content: JSON.stringify({
+    const longResponse = blockResponse({
+        type: "text", format: "json", text: JSON.stringify({
             result: {
                 kind: "complete",
                 summary: "x".repeat(40_000),
@@ -232,7 +234,7 @@ test("LLM diagnostics apply a total size bound and do not require a working Trac
                 contextNotes: null,
             },
         }),
-    };
+    });
     const traceSink = new CaptureTraceSink();
     const result = await new LLMStepExecutor({
         adapter: new ResponseAdapter(longResponse),
@@ -256,7 +258,7 @@ test("LLM diagnostics apply a total size bound and do not require a working Trac
 
     const isolatedResult = await new LLMStepExecutor({
         adapter: new ResponseAdapter({
-            content: JSON.stringify({
+            blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({
                 result: {
                     kind: "complete",
                     summary: "Trace 失败不改变结果",
@@ -264,7 +266,7 @@ test("LLM diagnostics apply a total size bound and do not require a working Trac
                     memoryPatch: null,
                     contextNotes: null,
                 },
-            }),
+            }) }],
         }),
         renderer,
         contextCompactor,
@@ -282,7 +284,7 @@ test("LLMStepExecutor records response parse failures without changing the proto
     const traceSink = new CaptureTraceSink();
     await assert.rejects(
         new LLMStepExecutor({
-            adapter: new ResponseAdapter({ content: "not-json" }),
+            adapter: new ResponseAdapter(textResponse("not-json", "json")),
             renderer,
             contextCompactor,
             traceSink,
@@ -308,7 +310,7 @@ test("invalid native arguments retain correlated response, sent schema and valid
         structuredOutputMode: "strict", nativeConversationIdentity: identity,
         async generate(request) {
             sentRequest = request;
-            return { content: "", toolCalls: [{ callId: "invalid-call", toolId: "system_complete_task", argumentsJson: JSON.stringify(args) }],
+            return { blocks: [{ index: 0, type: "tool_call", callId: "invalid-call", toolId: "system_complete_task", argumentsJson: JSON.stringify(args) }],
                 continuation: { identity, parts: [{ functionCall: { name: "system_complete_task", args, id: "invalid-call" } }] } };
         },
     };
@@ -332,14 +334,14 @@ test("invalid native arguments retain correlated response, sent schema and valid
     const schema = records.find(r => r.kind === "model_tool_schema" && r.payload.toolId === "system_complete_task")!.payload;
     assert.equal(schema.callId, request.callId);
     assert.deepEqual(schema.parametersSchema, sentRequest!.tools!.find(t => t.id === "system_complete_task")!.parametersSchema);
-    assert.equal(response.toolCalls[0].argumentsJson, JSON.stringify(args));
+    assert.equal(response.blocks[0].argumentsJson, JSON.stringify(args));
     assert.ok(error.error.issues.some((issue: any) => issue.code === "extra_field" && issue.path.join(".") === "protocolVersion"));
 });
 
 
 test("malformed JSON and undeclared tools do not produce a declared shape", async () => {
     for (const call of [{ toolId: "system_complete_task", argumentsJson: "not-json" }, { toolId: "unknown_tool", argumentsJson: '{"summary":"PRIVATE_VALUE"}' }]) {
-        const adapter: LLMAdapter = { structuredOutputMode: "strict", generate: async () => ({ content: "", toolCalls: [{ callId: "bad", ...call }] }) };
+        const adapter: LLMAdapter = { structuredOutputMode: "strict", generate: async () => ({ blocks: [{ index: 0, type: "tool_call", callId: "bad", ...call }] }) };
         await assert.rejects(new LLMStepExecutor({ adapter, renderer, contextCompactor,
             trajectoryContextAssembler: createCurrentContextAssembler() }).execute({ goal: createGoalForPhase(), authorizedTools: [], workingMemory: currentWorkingMemory }), error => {
             assert.ok(error instanceof ModelStageFeedbackError);
@@ -350,15 +352,18 @@ test("malformed JSON and undeclared tools do not produce a declared shape", asyn
     }
 });
 
-test("diagnostic metadata does not duplicate tool calls or persist the reasoning channel", async () => {
+test("diagnostic metadata records complete blocks without persisting the reasoning channel", async () => {
     const traceSink = new CaptureTraceSink();
     const goal = createGoalForPhase();
     await recordLlmResponse(traceSink, { goalId: goal.id, runId: goal.state.run.id }, {
-        content: "answer", reasoning: "PRIVATE_REASONING",
-        toolCalls: [{ callId: "call-trace", toolId: "system_complete_task", argumentsJson: '{"summary":"done","completionEvidence":[]}' }],
+        ...blockResponse(
+            { type: "text", text: "answer" },
+            { type: "reasoning", text: "PRIVATE_REASONING" },
+            { type: "tool_call", callId: "call-trace", toolId: "system_complete_task", argumentsJson: '{"summary":"done","completionEvidence":[]}' },
+        ),
     }, 1, "trace-call");
-    const record = traceSink.records[0] as { payload: { providerMetadata?: unknown; toolCalls: unknown[] } };
+    const record = traceSink.records[0] as { payload: { providerMetadata?: unknown; blocks: readonly { readonly type: string }[] } };
     assert.equal(record.payload.providerMetadata, undefined);
-    assert.equal(record.payload.toolCalls.length, 1);
+    assert.deepEqual(record.payload.blocks.map(block => block.type), ["text", "tool_call"]);
     assert.ok(!JSON.stringify(record).includes("PRIVATE_REASONING"));
 });

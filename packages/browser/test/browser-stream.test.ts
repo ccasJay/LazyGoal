@@ -3,15 +3,23 @@ import { test } from "node:test";
 
 import {
     createGoal,
+    GoalSessionStream,
+    projectGoalSessionState,
+    projectInteractionView,
+    readInteractionDetail,
+    Session,
     type Goal,
     type GoalStore,
+    type SessionHandlePort,
+    type SessionOutputStream,
 } from "../../runtime/src/index";
 import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/index";
+import type { LLMAdapter, LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
+import { blockResponse } from "../../llm-core/test/response-fixtures";
 import {
-    BrowserGoalStreamService,
     createBrowserGoalRoutes,
+    createBrowserSessionFeed,
     type BrowserGoalLiveEvent,
-    type BrowserGoalSaveNotifications,
 } from "../src/index";
 
 const protocols = {
@@ -20,22 +28,15 @@ const protocols = {
     contextRetrievalProtocol: { kind: "bm25-lite", version: 1 } as const,
 };
 
-class NotifyingMemoryStore implements GoalStore, BrowserGoalSaveNotifications {
+class MemoryStore implements GoalStore {
     private readonly goals = new Map<string, Goal>();
-    private readonly listeners = new Set<(goal: Goal) => void>();
 
     async save(goal: Goal): Promise<void> {
         this.goals.set(goal.id, goal);
-        for (const listener of this.listeners) listener(goal);
     }
 
     async restore(goalId: string): Promise<Goal | undefined> {
         return this.goals.get(goalId);
-    }
-
-    onSave(listener: (goal: Goal) => void): () => void {
-        this.listeners.add(listener);
-        return () => this.listeners.delete(listener);
     }
 }
 
@@ -54,45 +55,102 @@ function nextEvent<T>(iterator: AsyncIterator<T>): Promise<IteratorResult<T>> {
     return iterator.next();
 }
 
-test("实时流按 Goal/Run 隔离，白名单裁剪载荷并将提交变化转换为刷新通知", async () => {
+/** 打开一个覆盖整个 Goal 的浏览器安全事件流。 */
+function openFeed(store: GoalStore, publisher: InMemoryExecutionStreamPublisher, goalId: string) {
+    const stream = new GoalSessionStream({
+        publisher,
+        goalId,
+        readState: async (target) => {
+            const goal = await store.restore(target);
+            return goal === undefined ? undefined : projectGoalSessionState({ goal, executionOwner: true });
+        },
+    });
+    const port: SessionHandlePort = {
+        readSessionState: async (target) => {
+            const goal = await store.restore(target);
+            return goal === undefined ? undefined : projectGoalSessionState({ goal, executionOwner: true });
+        },
+        readSessionInteraction: async (target) => {
+            const goal = await store.restore(target);
+            return goal === undefined ? undefined : projectInteractionView(goal);
+        },
+        readSessionInteractionDetail: async (target, ref) => {
+            const goal = await store.restore(target);
+            return goal === undefined
+                ? { ok: false, code: "INTERACTION_NOT_WAITING", message: `Goal "${target}" was not found` }
+                : readInteractionDetail(goal, ref);
+        },
+        attachSessionInteractionHandlers: () => ({ ok: false, code: "HANDLER_CONFLICT", message: "unused" }),
+        detachSessionInteractionHandlers: () => undefined,
+        sendSessionInput: async () => ({ ok: false, code: "RUN_CONTROL_UNAVAILABLE", message: "unused" }),
+        querySessionInput: async () => ({ ok: true, found: false }),
+        readSessionMessages: async () => ({ ok: true, messages: [], total: 0 }),
+        readSessionMessageBody: async () => ({ ok: false, code: "MESSAGE_NOT_FOUND" as const, message: "not found" }),
+        openSessionEvents: () => stream,
+        consumeSessionInputs: async () => ({ reason: "completed" }),
+        detachSession: () => undefined,
+    };
+    let detached = false;
+    const session = new Session(goalId, "session-stream-test", {
+        ...port,
+        detachSession: () => { detached = true; },
+    });
+    return {
+        feed: createBrowserSessionFeed(session, stream),
+        detached: () => detached,
+    };
+}
+
+/** 读取若干条事件，直到观察到指定数量的公开活动；同步与刷新通知单独归类。 */
+async function collectActivities(
+    iterator: AsyncIterator<BrowserGoalLiveEvent>,
+    observed: BrowserGoalLiveEvent[],
+    expected: number,
+): Promise<BrowserGoalLiveEvent[]> {
+    const activities: BrowserGoalLiveEvent[] = [];
+    while (activities.length < expected) {
+        const next = await nextEvent(iterator);
+        if (next.done === true) break;
+        observed.push(next.value);
+        if (next.value.type === "activity") activities.push(next.value);
+    }
+    return activities;
+}
+
+test("Goal 范围事件流先同步状态，再按白名单投影活动并覆盖后继 Run", async () => {
     const goal = goalFor("goal-stream-1");
-    const store = new NotifyingMemoryStore();
+    const store = new MemoryStore();
     await store.save(goal);
     const publisher = new InMemoryExecutionStreamPublisher();
-    const streams = new BrowserGoalStreamService({
-        store,
-        saveNotifications: store,
-        publisher,
-    });
-    const opened = await streams.open(goal.id, goal.state.run.id);
-    assert.equal(opened.ok, true);
-    if (!opened.ok) return;
-    const iterator = opened.feed.events[Symbol.asyncIterator]();
-
-    assert.deepEqual((await nextEvent(iterator)).value, {
-        type: "snapshot_changed",
-        goalId: goal.id,
-        runId: goal.state.run.id,
-    });
+    // 订阅建立前发布的旧 Run 暂时增量必须丢弃，不能重放为当前回复。
     publisher.publish({
         goalId: goal.id,
         runId: "old-run",
-        kind: "assistant_text_delta",
+        kind: "model_block_delta",
         visibility: "public",
         durability: "live",
         delivery: "delta",
-        coalescingKey: "assistant:old",
-        payload: { text: "旧 Run" },
+        coalescingKey: "model-block:old:0",
+        payload: { blockIndex: 0, deltaKind: "text", delta: "旧 Run" },
     });
+    const opened = openFeed(store, publisher, goal.id);
+    const iterator = opened.feed.events[Symbol.asyncIterator]();
+
+    const sync = (await nextEvent(iterator)).value;
+    assert.equal(sync?.type, "state_sync");
+    assert.equal(sync?.type === "state_sync" ? sync.state.runId : undefined, goal.state.run.id);
+    assert.equal(sync?.type === "state_sync" ? sync.state.commitRevision : undefined, 0);
+    const observed: BrowserGoalLiveEvent[] = [sync!];
+
     publisher.publish({
         goalId: goal.id,
         runId: goal.state.run.id,
-        kind: "reasoning_delta",
+        kind: "model_block_delta",
         visibility: "restricted",
         durability: "live",
         delivery: "delta",
-        coalescingKey: "reasoning:step",
-        payload: { text: "private reasoning" },
+        coalescingKey: "model-block:step:2",
+        payload: { blockIndex: 2, deltaKind: "reasoning", delta: "private reasoning" },
     });
     publisher.publish({
         goalId: goal.id,
@@ -116,15 +174,34 @@ test("实时流按 Goal/Run 隔离，白名单裁剪载荷并将提交变化转�
     publisher.publish({
         goalId: goal.id,
         runId: goal.state.run.id,
-        kind: "assistant_text_delta",
+        kind: "model_block_delta",
         visibility: "public",
         durability: "live",
         delivery: "delta",
-        coalescingKey: "assistant:step",
-        payload: { text: "x".repeat(2_500), thought: "do not leak" },
+        coalescingKey: "model-block:step:0",
+        payload: { blockIndex: 0, deltaKind: "text", delta: "x".repeat(2_500), thought: "do not leak" },
     });
-    const activity = await nextEvent(iterator);
-    assert.deepEqual(activity.value, {
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "model_block_delta",
+        visibility: "diagnostic",
+        durability: "live",
+        delivery: "delta",
+        coalescingKey: "model-block:step:1",
+        payload: { blockIndex: 1, deltaKind: "text", delta: '{"result":"private"}' },
+    });
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "model_block_completed",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: { blockIndex: 0, blockType: "text", delivery: "whole", format: "plain", text: "整块正文" },
+    });
+    const activities = await collectActivities(iterator, observed, 2);
+    assert.deepEqual(activities, [{
         type: "activity",
         goalId: goal.id,
         runId: goal.state.run.id,
@@ -135,7 +212,20 @@ test("实时流按 Goal/Run 隔离，白名单裁剪载荷并将提交变化转�
             sourceEventId: "event-4",
             sourceCursor: 4,
         },
-    });
+    }, {
+        // 诊断 JSON 增量不产生公开活动；整块交付只呈现一次正文。
+        type: "activity",
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        activity: {
+            kind: "assistant_text_delta",
+            text: "整块正文",
+            truncated: false,
+            sourceEventId: "event-6",
+            sourceCursor: 6,
+        },
+    }]);
+    assert.equal(JSON.stringify(observed).includes("旧 Run"), false);
 
     publisher.publish({
         goalId: goal.id,
@@ -152,35 +242,38 @@ test("实时流按 Goal/Run 隔离，白名单裁剪载荷并将提交变化转�
         runId: goal.state.run.id,
     });
 
-    const completed: Goal = {
-        ...goal,
-        state: { ...goal.state, run: { ...goal.state.run, status: "completed" } },
-    };
-    await store.save(completed);
-    assert.deepEqual((await nextEvent(iterator)).value, {
-        type: "snapshot_changed",
+    // 后继 Run 的公开活动仍由同一个 Goal 订阅覆盖，不关闭、不遗漏。
+    publisher.publish({
         goalId: goal.id,
-        runId: goal.state.run.id,
+        runId: "run-2",
+        kind: "model_started",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: {},
+    });
+    assert.deepEqual((await nextEvent(iterator)).value, {
+        type: "activity",
+        goalId: goal.id,
+        runId: "run-2",
+        activity: { kind: "model_started" },
     });
 
-    publisher.close({ goalId: goal.id, runId: goal.state.run.id }, "publisher_closed");
-    assert.deepEqual((await nextEvent(iterator)).value, {
-        type: "refresh_required",
-        goalId: goal.id,
-        runId: goal.state.run.id,
-    });
-    assert.equal((await nextEvent(iterator)).done, true);
+    publisher.closeGoal(goal.id, "publisher_closed");
+    while (true) {
+        const next = await nextEvent(iterator);
+        if (next.done === true) break;
+        observed.push(next.value);
+    }
+    assert.equal(observed.some((event) => event.type === "refresh_required"), true);
 });
 
 test("实时工具活动携带独立来源身份并仅投影白名单输入摘要", async () => {
     const goal = goalFor("goal-stream-tools");
-    const store = new NotifyingMemoryStore();
+    const store = new MemoryStore();
     await store.save(goal);
     const publisher = new InMemoryExecutionStreamPublisher();
-    const streams = new BrowserGoalStreamService({ store, saveNotifications: store, publisher });
-    const opened = await streams.open(goal.id, goal.state.run.id);
-    assert.equal(opened.ok, true);
-    if (!opened.ok) return;
+    const opened = openFeed(store, publisher, goal.id);
     const iterator = opened.feed.events[Symbol.asyncIterator]();
     await nextEvent(iterator);
 
@@ -241,17 +334,15 @@ test("实时工具活动携带独立来源身份并仅投影白名单输入摘�
         activity: { kind: "tool_finished", sourceEventId: "event-3", sourceCursor: 3, actionId: "action-1", toolId: "read_file", outcome: "success", summary: "Read file" },
     });
     opened.feed.close();
+    assert.equal(opened.detached(), true);
 });
 
 test("实时公开回复、等待、阶段、终态、失败与未知活动映射为分组边界", async () => {
     const goal = goalFor("goal-stream-boundaries");
-    const store = new NotifyingMemoryStore();
+    const store = new MemoryStore();
     await store.save(goal);
     const publisher = new InMemoryExecutionStreamPublisher();
-    const streams = new BrowserGoalStreamService({ store, saveNotifications: store, publisher });
-    const opened = await streams.open(goal.id, goal.state.run.id);
-    assert.equal(opened.ok, true);
-    if (!opened.ok) return;
+    const opened = openFeed(store, publisher, goal.id);
     const iterator = opened.feed.events[Symbol.asyncIterator]();
     await nextEvent(iterator);
 
@@ -281,11 +372,116 @@ test("实时公开回复、等待、阶段、终态、失败与未知活动映�
     opened.feed.close();
 });
 
-test("过期 Run 与缺失 Goal 无法打开实时流，队列缺口要求刷新", async () => {
+test("事件缺口与同步读取失败都只要求刷新，不伪装运行终态", async () => {
     const goal = goalFor("goal-stream-2");
-    const store = new NotifyingMemoryStore();
+    const store = new MemoryStore();
     await store.save(goal);
     const publisher = new InMemoryExecutionStreamPublisher();
+    const opened = openFeed(store, publisher, goal.id);
+    const iterator = opened.feed.events[Symbol.asyncIterator]();
+    await nextEvent(iterator);
+
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "live_gap",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: {},
+    });
+    // 发现缺口时重新读取最新 Snapshot，输出新的同步状态而不是猜测缺失增量。
+    const resynced = (await nextEvent(iterator)).value;
+    assert.equal(resynced?.type, "state_sync");
+    assert.equal(resynced?.type === "state_sync" ? resynced.state.runId : undefined, goal.state.run.id);
+
+    // 同步读取失败报告同步故障，不伪造 Run 终态。
+    const missing = openFeed(store, publisher, "goal-absent");
+    const missingIterator = missing.feed.events[Symbol.asyncIterator]();
+    const event = (await nextEvent(missingIterator)).value;
+    assert.deepEqual(event, { type: "refresh_required", goalId: "goal-absent" });
+    missing.feed.close();
+    opened.feed.close();
+});
+
+test("末次提交通知丢失后仍以权威读取结算等待，公开同步不含决定内容", async () => {
+    const store = new MemoryStore();
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const created = goalFor("goal-stream-settle");
+    const waiting: Goal = {
+        ...created,
+        state: {
+            ...created.state,
+            run: {
+                ...created.state.run,
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "ask-settle-1",
+                    mode: "execution",
+                    questions: [{
+                        id: "source",
+                        header: "Choose a source",
+                        question: "Which notes should I include?",
+                        multiSelect: false,
+                        options: [{ id: "approved", label: "Approved notes" }],
+                    }],
+                },
+            },
+        },
+    };
+    await store.save(waiting);
+    const opened = openFeed(store, publisher, waiting.id);
+    const iterator = opened.feed.events[Symbol.asyncIterator]();
+    const sync = (await nextEvent(iterator)).value;
+    assert.equal(sync?.type, "state_sync");
+    assert.equal(sync?.type === "state_sync" ? sync.state.waitingFor : undefined, "ask_user");
+    // 公开同步只包含等待种类，不镜像问题选项或任何答案内容。
+    assert.equal(JSON.stringify(sync).includes("Approved notes"), false);
+    assert.equal(JSON.stringify(sync).includes("optionIds"), false);
+
+    // 其他客户端结算并提交：通知丢失，只有权威快照变化。
+    const { pendingInteraction: _clearedInteraction, ...settledRun } = waiting.state.run;
+    await store.save({
+        ...waiting,
+        state: { ...waiting.state, run: { ...settledRun, status: "completed" } },
+    });
+    publisher.publish({
+        goalId: waiting.id,
+        runId: waiting.state.run.id,
+        kind: "live_gap",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: {},
+    });
+    const resynced = (await nextEvent(iterator)).value;
+    assert.equal(resynced?.type, "state_sync");
+    assert.equal(resynced?.type === "state_sync" ? resynced.state.runStatus : undefined, "completed");
+    assert.equal(resynced?.type === "state_sync" ? resynced.state.waitingFor : undefined, undefined);
+    // 重新同步只报告真实等待已解除，不宣称工具已完成或镜像已提交内容。
+    assert.equal(JSON.stringify(resynced).includes("Approved notes"), false);
+    opened.feed.close();
+});
+
+test("释放观察只关闭本连接的资源，其它 Goal 订阅不受影响", async () => {
+    const goal = goalFor("goal-stream-successor");
+    const store = new MemoryStore();
+    await store.save(goal);
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const opened = openFeed(store, publisher, goal.id);
+    const iterator = opened.feed.events[Symbol.asyncIterator]();
+    assert.equal((await nextEvent(iterator)).value?.type, "state_sync");
+
+    const other = openFeed(store, publisher, goal.id);
+    const otherIterator = other.feed.events[Symbol.asyncIterator]();
+    assert.equal((await nextEvent(otherIterator)).value?.type, "state_sync");
+
+    // 关闭一个观察只释放它自己的订阅与句柄。
+    opened.feed.close();
+    assert.equal(opened.detached(), true);
+    assert.equal(other.detached(), false);
+
     publisher.publish({
         goalId: goal.id,
         runId: goal.state.run.id,
@@ -295,24 +491,13 @@ test("过期 Run 与缺失 Goal 无法打开实时流，队列缺口要求刷新
         delivery: "control",
         payload: {},
     });
-    const streams = new BrowserGoalStreamService({ store, saveNotifications: store, publisher });
-    assert.deepEqual(await streams.open(goal.id, "stale-run"), { ok: false, error: "stale_run" });
-    assert.deepEqual(await streams.open("missing", "run-1"), { ok: false, error: "goal_not_found" });
-
-    const opened = await streams.open(goal.id, goal.state.run.id);
-    assert.equal(opened.ok, true);
-    if (!opened.ok) return;
-    const iterator = opened.feed.events[Symbol.asyncIterator]();
-    await nextEvent(iterator);
-    assert.deepEqual((await nextEvent(iterator)).value, {
-        type: "refresh_required",
-        goalId: goal.id,
-        runId: goal.state.run.id,
-    });
-    opened.feed.close();
+    const stillObserved = (await nextEvent(otherIterator)).value;
+    assert.equal(stillObserved?.type, "activity");
+    assert.equal(stillObserved?.type === "activity" ? stillObserved.runId : undefined, goal.state.run.id);
+    other.feed.close();
 });
 
-test("HTTP 事件流只接受单一 Goal/Run 身份并关闭时清理订阅", async () => {
+test("HTTP 事件流是 Goal 范围事件，拒绝 run 绑定参数并在取消时清理订阅", async () => {
     const events: BrowserGoalLiveEvent[] = [{
         type: "activity",
         goalId: "goal-stream-3",
@@ -323,32 +508,40 @@ test("HTTP 事件流只接受单一 Goal/Run 身份并关闭时清理订阅", as
     const routes = createBrowserGoalRoutes({
         async list() { return []; },
         async read() { return undefined; },
-        async create() { return { ok: false as const, error: "goal_create_failed" as const }; },
-        async interact() { return { ok: false as const, error: "interaction_failed" as const }; },
-        async message() { return { ok: false as const, error: "message_failed" as const }; },
         async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
         async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
         setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
         async selectModel() { return { ok: false as const, error: "model_selection_failed" as const }; },
-        async openStream() {
-            let index = 0;
-            return {
-                ok: true as const,
-                feed: {
-                    events: {
-                        async *[Symbol.asyncIterator]() {
-                            while (index < events.length) yield events[index++]!;
+        session: {
+            async create() { return { ok: false as const, error: "create_failed" as const }; },
+            async submit() { return { ok: false as const, error: "session_unavailable" as const }; },
+            async readInput() { return { ok: true as const, found: false as const }; },
+            async readState() { return undefined; },
+            async openEvents(goalId: string) {
+                if (goalId !== "goal-stream-3") return { ok: false as const, error: "goal_not_found" as const };
+                return {
+                    ok: true as const,
+                    feed: {
+                        events: {
+                            async *[Symbol.asyncIterator]() {
+                                for (const event of events) yield event;
+                            },
                         },
+                        close() { closeCalls += 1; },
                     },
-                    close() { closeCalls += 1; },
-                },
-            };
+                };
+            },
+            async listMessages() { return { ok: true as const, messages: [], total: 0 }; },
+            async readMessage() { return { ok: false as const, error: "message_not_found" as const }; },
         },
     });
 
-    const invalid = await routes.request("http://localhost/api/goals/goal-stream-3/events?runId=run-1&extra=1");
-    assert.equal(invalid.status, 400);
-    const response = await routes.request("http://localhost/api/goals/goal-stream-3/events?runId=run-1");
+    const bound = await routes.request("http://localhost/api/goals/goal-stream-3/events?runId=run-1");
+    assert.equal(bound.status, 400);
+    const missing = await routes.request("http://localhost/api/goals/goal-not-found/events");
+    assert.equal(missing.status, 404);
+
+    const response = await routes.request("http://localhost/api/goals/goal-stream-3/events");
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-type") ?? "", /text\/event-stream/);
     const reader = response.body?.getReader();
@@ -358,4 +551,124 @@ test("HTTP 事件流只接受单一 Goal/Run 身份并关闭时清理订阅", as
         `event: update\ndata: ${JSON.stringify(events[0])}\n\n`);
     assert.equal((await reader.read()).done, true);
     assert.equal(closeCalls, 1);
+});
+
+test("HTTP 消息入口按稳定身份返回有界列表与正文，并区分不存在与非法参数", async () => {
+    const entry = {
+        messageId: "msg-1",
+        role: "assistant" as const,
+        runId: "run-1",
+        position: { afterSequence: 0, order: 0 },
+        purpose: "answer" as const,
+        sourceKind: "completion_candidate",
+        sourceId: "candidate-1",
+        content: "正式答复",
+        contentLength: 4,
+        truncated: false,
+    };
+    const routes = createBrowserGoalRoutes({
+        async list() { return []; },
+        async read() { return undefined; },
+        async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
+        async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
+        setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
+        async selectModel() { return { ok: false as const, error: "model_selection_failed" as const }; },
+        session: {
+            async create() { return { ok: false as const, error: "create_failed" as const }; },
+            async submit() { return { ok: false as const, error: "session_unavailable" as const }; },
+            async readInput() { return { ok: true as const, found: false as const }; },
+            async readState() { return undefined; },
+            async openEvents() { return { ok: false as const, error: "goal_not_found" as const }; },
+            async listMessages() {
+                return { ok: true as const, messages: [entry], total: 1, throughMessageId: "msg-1" };
+            },
+            async readMessage(_goalId: string, messageId: string) {
+                if (messageId !== "msg-1") return { ok: false as const, error: "message_not_found" as const };
+                return { ok: true as const, message: entry };
+            },
+        },
+    });
+
+    const list = await routes.request("http://localhost/api/goals/goal-1/messages?limit=50");
+    assert.equal(list.status, 200);
+    const listBody = await list.json() as { ok: boolean; messages: unknown[]; total: number };
+    assert.equal(listBody.ok, true);
+    assert.equal(listBody.messages.length, 1);
+    assert.equal(listBody.total, 1);
+
+    const invalidLimit = await routes.request("http://localhost/api/goals/goal-1/messages?limit=1000");
+    assert.equal(invalidLimit.status, 400);
+
+    const detail = await routes.request("http://localhost/api/goals/goal-1/messages/msg-1");
+    assert.equal(detail.status, 200);
+    const detailBody = await detail.json() as { ok: boolean; message: { messageId: string } };
+    assert.equal(detailBody.ok, true);
+    assert.equal(detailBody.message.messageId, "msg-1");
+
+    const missing = await routes.request("http://localhost/api/goals/goal-1/messages/msg-unknown");
+    assert.equal(missing.status, 404);
+});
+
+test("真实模型调用链下的浏览器活动只包含公开正文与调用提示", async () => {    const goal = goalFor("goal-stream-real");
+    const store = new MemoryStore();
+    await store.save(goal);
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const opened = openFeed(store, publisher, goal.id);
+    const iterator = opened.feed.events[Symbol.asyncIterator]();
+    await nextEvent(iterator);
+
+    const PLAIN_MARKER = "PUBLIC_ANSWER";
+    const JSON_MARKER = "PRIVATE_JSON";
+    const ARGUMENT_MARKER = "PRIVATE_ARGUMENT";
+    const REASONING_MARKER = "PRIVATE_REASONING";
+    const METADATA_MARKER = "PRIVATE_METADATA";
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(): Promise<LLMResponse> { throw new Error("stream adapter must not call generate"); },
+        async *stream(): AsyncIterable<LLMStreamEvent> {
+            yield { kind: "started" };
+            yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "plain" };
+            yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: PLAIN_MARKER };
+            yield { kind: "content_block_completed", delivery: "incremental", block: { index: 0, type: "text", format: "plain", text: PLAIN_MARKER } };
+            yield { kind: "content_block_started", index: 1, blockType: "text", delivery: "whole", format: "json" };
+            yield { kind: "content_block_completed", delivery: "whole", block: { index: 1, type: "text", format: "json", text: `{"summary":"${JSON_MARKER}"}` } };
+            yield { kind: "content_block_started", index: 2, blockType: "tool_call", delivery: "whole" };
+            yield { kind: "content_block_completed", delivery: "whole", block: { index: 2, type: "tool_call", callId: "call-1", toolId: "read_file", argumentsJson: `{"path":"${ARGUMENT_MARKER}"}` } };
+            yield { kind: "content_block_started", index: 3, blockType: "reasoning", delivery: "whole" };
+            yield { kind: "content_block_completed", delivery: "whole", block: { index: 3, type: "reasoning", text: REASONING_MARKER } };
+            yield { kind: "completed", response: { ...blockResponse(
+                { type: "text", text: PLAIN_MARKER },
+                { type: "text", format: "json", text: `{"summary":"${JSON_MARKER}"}` },
+                { type: "tool_call", callId: "call-1", toolId: "read_file", argumentsJson: `{"path":"${ARGUMENT_MARKER}"}` },
+                { type: "reasoning", text: REASONING_MARKER },
+            ), providerMetadata: { marker: METADATA_MARKER } } };
+        },
+    };
+
+    const { callModel } = await import("../../model-call/src/index");
+    await callModel({ adapter, executionStream: publisher }, {
+        context: {
+            goalId: goal.id, runId: goal.state.run.id, stepIndex: 1, modelId: "test-model",
+            conversationMessages: [], sections: [],
+        },
+        request: { messages: [{ role: "user", content: "hi" }] },
+        stage: "decide",
+    });
+
+    const activities: BrowserGoalLiveEvent[] = [];
+    while (true) {
+        const next = await nextEvent(iterator);
+        if (next.done === true) break;
+        activities.push(next.value);
+        if (next.value.type === "activity" && next.value.activity.kind === "model_completed") break;
+    }
+    opened.feed.close();
+
+    const projected = activities.filter((event): event is Extract<BrowserGoalLiveEvent, { type: "activity" }> => event.type === "activity");
+    assert.deepEqual(projected.map(event => event.activity.kind), ["model_started", "assistant_text_delta", "model_completed"]);
+    const text = projected.find(event => event.activity.kind === "assistant_text_delta");
+    assert.equal(text?.activity.kind === "assistant_text_delta" ? text.activity.text : undefined, PLAIN_MARKER);
+    for (const marker of [JSON_MARKER, ARGUMENT_MARKER, REASONING_MARKER, METADATA_MARKER]) {
+        assert.equal(JSON.stringify(activities).includes(marker), false, marker);
+    }
 });

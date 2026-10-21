@@ -1,11 +1,16 @@
 import {
   isAcceptedCommand,
-  isBrowserGoalSteerResult,
-  isBrowserGoalInterruptResult,
-  isActionDetailsResult,
+  isBrowserCreateSessionResult,
+  isBrowserSessionInputResult,
+  isBrowserSessionInputQueryResult,
+  isBrowserSessionState,
   isBrowserGoalSession,
+  isBrowserInteractionDetailResult,
+  isBrowserActionReviewResult,
   isGoalList,
+  isBrowserActivityPage,
   isGoalSessionEnvelope,
+  isGoalSessionStateEnvelope,
   isLiveEvent,
   isMetricsSnapshot,
   isModelCatalog,
@@ -31,17 +36,22 @@ import {
   isTrajectoryRuns,
   isWorkspaceContext,
   type AcceptedCommand,
-  type BrowserActionDetailsResult,
-  type BrowserCreateGoalCommand,
-  type BrowserGoalInteractionCommand,
-  type BrowserGoalSteerCommand,
-  type BrowserGoalInterruptCommand,
+  type BrowserCreateSessionCommand,
+  type BrowserCreateSessionResult,
   type BrowserGoalListItem,
   type BrowserGoalLiveEvent,
-  type BrowserGoalMessageCommand,
   type BrowserGoalPlanModeCommand,
   type BrowserGoalSession,
-  type BrowserResumeGoalCommand,
+  type BrowserGoalSessionState,
+  type BrowserActivityPage,
+  type BrowserActivityQuery,
+  type BrowserActionReviewCommand,
+  type BrowserActionReviewResult,
+  type BrowserInteractionDetailResult,
+  type BrowserSessionInputCommand,
+  type BrowserSessionInputQueryResult,
+  type BrowserSessionInputResult,
+  type BrowserSessionState,
   type BrowserModelCatalog,
   type BrowserModelInputDetail,
   type BrowserModelInputSummary,
@@ -95,11 +105,59 @@ export const browserApi = {
   },
 
   readGoal(goalId: string, signal?: AbortSignal): Promise<BrowserGoalSession> {
-    return requestJson(
-      `/api/goals/${encodeURIComponent(goalId)}`,
-      isGoalSessionEnvelope,
-      signal,
-    ).then((body) => body.goal);
+    return this.readGoalSession(goalId, signal).then((body) => body.goal);
+  },
+
+  /** 读取会话视图与 Runtime 安全会话投影（队列、暂停、提交修订、是否需要恢复）。 */
+  async readGoalSession(goalId: string, signal?: AbortSignal): Promise<{ goal: BrowserGoalSession; session?: BrowserSessionState }> {
+    const body = await requestJson(`/api/goals/${encodeURIComponent(goalId)}`, isGoalSessionEnvelope, signal);
+    return {
+      goal: body.goal,
+      ...(body.session === undefined ? {} : { session: body.session }),
+    };
+  },
+
+  /**
+   * 读取不含历史正文、步骤或阶段的窄 Goal 状态及安全 Runtime 会话元数据。
+   *
+   * @param goalId - 要读取的稳定 Goal 标识。
+   * @param signal - 可选取消信号；取消只中止本次浏览器读取。
+   * @returns 窄 Goal 状态及可选的 Runtime 会话元数据，不包含完整历史。
+   * @throws HTTP 请求失败或响应不符合当前 wire 契约时抛出 `BrowserApiError` 或协议错误。
+   * @example
+   * ```ts
+   * const { goal } = await browserApi.readGoalSessionState(goalId, signal);
+   * ```
+   */
+  async readGoalSessionState(goalId: string, signal?: AbortSignal): Promise<{ goal: BrowserGoalSessionState; session?: BrowserSessionState }> {
+    const body = await requestJson(`/api/goals/${encodeURIComponent(goalId)}?view=state`, isGoalSessionStateEnvelope, signal);
+    return {
+      goal: body.goal,
+      ...(body.session === undefined ? {} : { session: body.session }),
+    };
+  },
+
+  /**
+   * 按服务端固定水位读取有界的正文与安全 Activity 来源。
+   *
+   * @param goalId - 要读取的稳定 Goal 标识。
+   * @param query - 可选 Run 筛选、同一窗口的前／后 cursor 与页大小；服务端默认 50、最大 100。
+   * @param signal - 可选取消信号；取消只中止本次浏览器读取。
+   * @returns 一页安全 Activity DTO 及固定水位、范围和后续 cursor；不自动读取其它页。
+   * @throws HTTP 请求失败、cursor 被服务端拒绝或响应不符合当前 wire 契约时抛出错误。
+   * @example
+   * ```ts
+   * const page = await browserApi.readGoalActivity(goalId, { limit: 50 }, signal);
+   * ```
+   */
+  readGoalActivity(goalId: string, query: BrowserActivityQuery = {}, signal?: AbortSignal): Promise<BrowserActivityPage> {
+    const params = new URLSearchParams();
+    if (query.runId !== undefined) params.set("runId", query.runId);
+    if (query.before !== undefined) params.set("before", query.before);
+    if (query.after !== undefined) params.set("after", query.after);
+    if (query.limit !== undefined) params.set("limit", String(query.limit));
+    const suffix = params.size === 0 ? "" : `?${params.toString()}`;
+    return requestJson(`/api/goals/${encodeURIComponent(goalId)}/activity${suffix}`, isBrowserActivityPage, signal);
   },
 
   modelInputs(goalId: string, runId: string, offset = 0, signal?: AbortSignal, query = ""): Promise<{ calls: BrowserModelInputSummary[]; total: number; nextOffset: number | null }> {
@@ -141,8 +199,22 @@ export const browserApi = {
     }
   },
 
-  createGoal(command: BrowserCreateGoalCommand): Promise<AcceptedCommand> {
-    return postJson("/api/goals", command, isAcceptedCommand);
+  createGoal(command: BrowserCreateSessionCommand): Promise<BrowserCreateSessionResult> {
+    return postJson("/api/goals", command, isBrowserCreateSessionResult);
+  },
+
+  /** 受理一条统一会话输入；新受理与既有收据都以收据核验。 */
+  submitInput(goalId: string, input: BrowserSessionInputCommand): Promise<BrowserSessionInputResult> {
+    return postJson(`/api/goals/${encodeURIComponent(goalId)}/inputs`, input, isBrowserSessionInputResult);
+  },
+
+  /** 按身份查询持久化收据；未找到与读取失败明确区分。 */
+  readInputReceipt(goalId: string, inputId: string, signal?: AbortSignal): Promise<BrowserSessionInputQueryResult> {
+    return requestJson(
+      `/api/goals/${encodeURIComponent(goalId)}/inputs/${encodeURIComponent(inputId)}`,
+      isBrowserSessionInputQueryResult,
+      signal,
+    );
   },
 
   listModels(target?: { goalId?: string; runId?: string; providerProfileId?: string }, signal?: AbortSignal): Promise<BrowserModelCatalog> {
@@ -201,36 +273,6 @@ export const browserApi = {
     return requestJson(`/api/providers/${encodeURIComponent(profileId)}/test`, isProviderProfileTestResult, signal, { method: "POST" });
   },
 
-  interact(
-    goalId: string,
-    command: BrowserGoalInteractionCommand,
-  ): Promise<AcceptedCommand> {
-    return postJson(
-      `/api/goals/${encodeURIComponent(goalId)}/interactions`,
-      command,
-      isAcceptedCommand,
-    );
-  },
-
-  sendMessage(
-    goalId: string,
-    command: BrowserGoalMessageCommand,
-  ): Promise<AcceptedCommand> {
-    return postJson(
-      `/api/goals/${encodeURIComponent(goalId)}/messages`,
-      command,
-      isAcceptedCommand,
-    );
-  },
-
-  steer(goalId: string, command: BrowserGoalSteerCommand) {
-    return postJson(`/api/goals/${encodeURIComponent(goalId)}/steer`, command, isBrowserGoalSteerResult);
-  },
-
-  interrupt(goalId: string, command: BrowserGoalInterruptCommand) {
-    return postJson(`/api/goals/${encodeURIComponent(goalId)}/interrupt`, command, isBrowserGoalInterruptResult);
-  },
-
   enterPlanMode(
     goalId: string,
     command: BrowserGoalPlanModeCommand,
@@ -242,22 +284,70 @@ export const browserApi = {
     );
   },
 
-  resumeGoal(
-    goalId: string,
-    command: BrowserResumeGoalCommand,
-  ): Promise<AcceptedCommand> {
-    return postJson(
-      `/api/goals/${encodeURIComponent(goalId)}/resume`,
-      command,
-      isAcceptedCommand,
+  /**
+   * 按稳定交互引用读取完整审阅内容；读取失败与过期引用不改变等待。
+   *
+   * @remarks 稳定拒绝（旧 Goal／Run／引用、详情不可用）作为读取结果返回，使界面能区分
+   * 「请求已变化」与网络失败；只有违反 wire 契约的响应才抛错。
+   */
+  async readInteractionDetail(goalId: string, runId: string, interactionId: string): Promise<BrowserInteractionDetailResult> {
+    const response = await fetch(
+      `/api/goals/${encodeURIComponent(goalId)}/interaction-details?runId=${encodeURIComponent(runId)}&interactionId=${encodeURIComponent(interactionId)}`,
+      { headers: authorizedHeaders() },
     );
+    if (!response.ok) {
+      const error = await responseError(response);
+      switch (error.code) {
+        case "goal_not_found":
+        case "stale_run":
+        case "interaction_not_waiting":
+        case "interaction_mismatch":
+          return { ok: false, error: error.code };
+        default:
+          return { ok: false, error: "interaction_details_unavailable" };
+      }
+    }
+    const value: unknown = await response.json();
+    if (!isBrowserInteractionDetailResult(value)) throw new Error("invalid_api_response");
+    return value;
   },
 
-  readActionDetails(goalId: string, runId: string, actionId: string): Promise<BrowserActionDetailsResult> {
-    return requestJson(
-      `/api/goals/${encodeURIComponent(goalId)}/actions/${encodeURIComponent(actionId)}?runId=${encodeURIComponent(runId)}`,
-      isActionDetailsResult,
+  /**
+   * 只读预检同一工具的最终参数与实际权限范围。
+   *
+   * @remarks 预检不保存批准、不解除等待；失败作为稳定拒绝返回，界面据此保留草稿。
+   */
+  async reviewActionApproval(
+    goalId: string,
+    command: BrowserActionReviewCommand,
+  ): Promise<BrowserActionReviewResult> {
+    const response = await fetch(
+      `/api/goals/${encodeURIComponent(goalId)}/action-reviews`,
+      {
+        method: "POST",
+        headers: authorizedHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify(command),
+      },
     );
+    if (!response.ok) {
+      const error = await responseError(response);
+      switch (error.code) {
+        case "goal_not_found":
+        case "stale_run":
+        case "action_not_waiting":
+        case "action_id_mismatch":
+        case "tool_not_found":
+        case "invalid_tool_input":
+        case "scope_unavailable":
+        case "sandbox_scope_unavailable":
+          return { ok: false, error: error.code };
+        default:
+          return { ok: false, error: "review_unavailable" };
+      }
+    }
+    const value: unknown = await response.json();
+    if (!isBrowserActionReviewResult(value)) throw new Error("invalid_api_response");
+    return value;
   },
 
   listToolGrants(goalId: string, runId: string): Promise<BrowserToolGrantResult> {
@@ -292,13 +382,13 @@ export const browserApi = {
     return postJson("/api/project/permission-mode", command, isPermissionModeResult);
   },
 
+  /** 订阅覆盖整个 Goal 的安全事件流；Run 切换不关闭订阅。 */
   async *events(
     goalId: string,
-    runId: string,
     signal: AbortSignal,
   ): AsyncGenerator<BrowserGoalLiveEvent> {
     const response = await fetch(
-      `/api/goals/${encodeURIComponent(goalId)}/events?runId=${encodeURIComponent(runId)}`,
+      `/api/goals/${encodeURIComponent(goalId)}/events`,
       {
         headers: authorizedHeaders({ accept: "text/event-stream" }),
         signal,

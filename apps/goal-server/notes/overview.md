@@ -10,6 +10,23 @@
 
 本模块不替代其依赖模块的协议或持久化职责；具体输入、失败语义与类型以链接的源码契约为准。
 
+## 会话入口
+
+无界面装配在 `RuntimeComposition.sessions` 暴露内部会话操作（`SessionManager`），型号为 `@lazygoal/runtime` 的会话所有者，与命令、Runner、提交器和生命周期共用同一 Store 与提交边界：
+
+- `sessions.create` 先持久化 Goal、首条用户消息、Run 与受理收据，再返回句柄并以被生命周期追踪的后台任务推进首个 Run；返回不等待 Run 完成，首次保存失败不会调用模型或工具。
+- `session.send`／`consume`／`events`／`read`／`getInput`／`detach` 委派同一状态所有者；`sessions.query` 是同一执行链上的单消息封装。
+- `lifecycle.close()` 先停止会话订阅、输入消费与提交核对任务，再按期限结算后台执行与自有资源；未结算时抛出 `SessionManagerCloseError`，不报告安全关闭。
+- 该入口是仓库内调用边界，不是对外稳定的 SDK API；默认装配位置、环境解析、工具与预算语义保持不变。
+
+Headless Composition Root 继续使用同一 Runtime 执行链（Launcher、Coordinator、Runner、共享提交器与工具授权）装配 Benchmark Episode，不迁移默认装配、不重写评分器；会话能力通过同一 Runtime 模块提供，Benchmark 的单次运行与观察边界保持不变。
+
+## 宿主审批预检与恢复决定
+
+无界面宿主通过 `RuntimeComposition.interactions.attach` 注册处理函数。工具审批处理函数会收到只读 `review` 入口：宿主可先对同一工具的拟修订参数调用该入口，取得原参数、最终参数、实际能力范围与审阅引用，再返回绑定该引用的修订决定；宿主不得把未审阅的参数直接交给执行器。`onActionRecovery` 单独处理结果未知的等待，其请求携带本次恢复身份，宿主据此返回明确的重执行或拒绝决定；普通审批处理函数不会收到恢复请求。
+
+注册、读取与预检都不触发历史任务执行，也不创建任何授权。
+
 ## 服务装配与主流程
 
 
@@ -57,6 +74,8 @@ flowchart LR
 4. `ask_user` 与 Plan Run 的 `task_proposal` 都保存为可恢复的 `pendingInteraction`。提案等待期间不继续模型或 Tool 调用；用户回答、批准或反馈持久化后，Coordinator 恢复同一 Run。completed 或 failed 输入先归档历史及终态，再提交新 Run。
 5. 获批 Plan Run 可通过受模式能力授权的计划 Tool 更新 GoalPlan。一个 Run 可依次更新多个 Todo；标记 Todo 完成必须引用当前 Run 已提交 Observation。Run 终态独立于未完成 Todo，后者保留原状态且不会自动创建下一 Run。
 6. 每个事实、Memory Patch、消息、Action/Observation 和 Snapshot 都遵守“提交成功后才继续”的边界。非 YOLO 工具审批可按单次、当前 Goal 或 workspace 授权；持续授权在 Goal 批准快照提交后才激活。Web 看板从已提交的 Goal、Run 与计划状态投影会话和交互面板。
+
+`RuntimeComposition.interactions` 暴露无界面宿主的窄交互接入：`attach` 打开 Goal 会话并注册按交互种类分派的处理函数，`read` 只读返回当前等待的类型化视图；两者都不需要 HTTP、进程信号或前端，决定仍经统一 `send` 与既有身份、授权和提交规则受理。注册处理器只做一致同步：连接之前已有的历史等待不会被自动回答，宿主显式 `resume` 发现仍需交互时只解锁该请求并把结果交给已注册的处理函数；同一 Goal 已有自动所有者时第二次连接被明确拒绝，解除句柄不取消 Goal。可运行示例见 [headless-interaction-handlers.ts](../examples/headless-interaction-handlers.ts)（`npx tsx apps/goal-server/examples/headless-interaction-handlers.ts`）。
 
 实时事件通过独立的 `execution-stream` Core 旁路发送：它只分配 Goal/Run 内 cursor、执行可见性过滤、增量合并和慢订阅者关闭，不拥有 Goal 状态转换、Trajectory 写入、Provider/Tool 调用或 UI 渲染。Runtime 负责把生命周期和提交边界映射成领域事件；Agent/LLM 负责把模型流归一化后发布；Tool 可选地发布输出分片；Web 服务把事件适配为同源 SSE，前端维护瞬时活动视图，恢复仍以 Snapshot/Trajectory 为准。
 

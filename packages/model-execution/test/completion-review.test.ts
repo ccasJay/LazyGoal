@@ -8,11 +8,19 @@ import { allocateImmutableEvent, CompletionReviewInputBudgetError, createGoal, M
 import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/index";
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
+import { blockResponse, textResponse, toolCallResponse } from "../../llm-core/test/response-fixtures";
 import { LLMStepExecutor } from "../src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import type { CompletionReviewInput } from "../../runtime/src/step-executor";
 import { currentProtocols } from "../../agent/test/current-fixtures";
+import { testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
+
+
+/** 评审接受响应的统一夹具：完整工具块携带原始参数。 */
+function reviewAcceptResponse(callId: string): LLMResponse {
+    return toolCallResponse({ callId, toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' });
+}
 
 const renderer = await createDefaultPromptBundleRenderer();
 function input(): CompletionReviewInput {
@@ -51,8 +59,13 @@ for (const mode of ["strict", "prompt_only"] as const) {
             assert.deepEqual(content.candidate, reviewInput.candidate);
             assert.deepEqual(content.committedEvidence, []);
             assert.deepEqual(content.conversation, reviewInput.goal.state.messages);
-            return { content: "Internal review text.", toolCalls: [{ callId: "review-result", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' }],
-                providerMetadata: { usage: { inputTokens: 20, outputTokens: 5 } } };
+            return {
+                ...blockResponse(
+                    { type: "text", text: "Internal review text." },
+                    { type: "tool_call", callId: "review-result", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' },
+                ),
+                providerMetadata: { usage: { inputTokens: 20, outputTokens: 5 } },
+            };
         } };
         const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor(),
             modelInputStore: { async append(record) { records.push(record); }, async read() { return records; } },
@@ -69,11 +82,13 @@ for (const mode of ["strict", "prompt_only"] as const) {
 }
 
 for (const [name, response] of Object.entries({
-    malformed: { content: "{broken" },
-    blank: { content: '{"result":{"kind":"reject","feedback":" "}}' },
-    businessDecision: { content: '{"result":{"kind":"complete","summary":"done"}}' },
-    undeclaredTool: { content: "", toolCalls: [{ callId: "bad", toolId: "bash", argumentsJson: "{}" }] },
-    multipleResults: { content: "", toolCalls: [1, 2].map(index => ({ callId: String(index), toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' })) },
+    malformed: textResponse("{broken", "json"),
+    blank: textResponse('{"result":{"kind":"reject","feedback":" "}}', "json"),
+    businessDecision: textResponse('{"result":{"kind":"complete","summary":"done"}}', "json"),
+    undeclaredTool: toolCallResponse({ callId: "bad", toolId: "bash", argumentsJson: "{}" }),
+    multipleResults: blockResponse(
+        ...[1, 2].map(index => ({ type: "tool_call" as const, callId: String(index), toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' })),
+    ),
 } satisfies Record<string, LLMResponse>)) {
     test(`invalid review ${name} goes through Decide correction`, async () => {
         const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate() { return response; } };
@@ -85,10 +100,10 @@ for (const [name, response] of Object.entries({
 
 test("required review input overflow is rejected before any model call", async () => {
     let calls = 0;
-    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate() { calls++; return { content: "", toolCalls: [{ callId: "review", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' }] }; } };
+    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate() { calls++; return reviewAcceptResponse("review"); } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
     const review = input();
-    const large = { ...review, goal: { ...review.goal, state: { ...review.goal.state, messages: [{ role: "user" as const, content: "source".repeat(40_000) }] } } };
+    const large = { ...review, goal: { ...review.goal, state: { ...review.goal.state, messages: [testUserMessage("source".repeat(40_000))] } } };
     await assert.rejects(executor.reviewCompletion(large), error => error instanceof CompletionReviewInputBudgetError
         && error.code === "COMPLETION_REVIEW_INPUT_TOO_LARGE");
     assert.equal(calls, 0);
@@ -120,8 +135,7 @@ test("review retains cited source observations once when many files are read", a
         assert.equal(content.committedEvidence.filter((event: TrajectoryEvent) => event.eventType === "tool_finished").length, 0);
         assert.equal(content.committedEvidence.filter((event: TrajectoryEvent) => event.eventType === "observation_recorded").length, 20);
         assert.ok(request.messages[1]!.content.includes("docs/source-19.md:source"));
-        return { content: "", toolCalls: [{ callId: "review-result", toolId: "system_review_completion",
-            argumentsJson: '{"result":{"kind":"accept"}}' }] };
+        return reviewAcceptResponse("review-result");
     } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
     const review = input();
@@ -140,10 +154,23 @@ test("streaming review text, reasoning and result arguments stay outside the pub
         async generate() { throw new Error("Expected streaming review"); },
         async *stream(): AsyncIterable<LLMStreamEvent> {
             yield { kind: "started" };
-            yield { kind: "assistant_text_delta", text: "Internal review" };
-            yield { kind: "reasoning_delta", text: "Internal reasoning" };
-            yield { kind: "model_tool_call_delta", delta: '{"result":{"kind":"accept"}}' };
-            yield { kind: "completed", response: { content: "", toolCalls: [{ callId: "native-review", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' }] } };
+            yield { kind: "content_block_started", index: 0, blockType: "text", delivery: "incremental", format: "plain" };
+            yield { kind: "content_block_delta", index: 0, deltaKind: "text", delta: "Internal review" };
+            yield { kind: "content_block_completed", delivery: "incremental", block: { index: 0, type: "text", format: "plain", text: "Internal review" } };
+            yield { kind: "content_block_started", index: 1, blockType: "reasoning", delivery: "incremental" };
+            yield { kind: "content_block_delta", index: 1, deltaKind: "reasoning", delta: "Internal reasoning" };
+            yield { kind: "content_block_completed", delivery: "incremental", block: { index: 1, type: "reasoning", text: "Internal reasoning" } };
+            yield { kind: "content_block_started", index: 2, blockType: "tool_call", delivery: "incremental" };
+            yield { kind: "content_block_delta", index: 2, deltaKind: "tool_arguments", delta: '{"result":{"kind":"accept"}}' };
+            yield { kind: "content_block_completed", delivery: "incremental", block: { index: 2, type: "tool_call", callId: "native-review", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' } };
+            yield {
+                kind: "completed",
+                response: blockResponse(
+                    { type: "text", text: "Internal review" },
+                    { type: "reasoning", text: "Internal reasoning" },
+                    { type: "tool_call", callId: "native-review", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' },
+                ),
+            };
         },
     };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
@@ -156,7 +183,7 @@ test("streaming review text, reasoning and result arguments stay outside the pub
 test("review receives the actual source request and scoped lookup without an optional Patch", async () => {
     const fixture = input();
     const request = "Read project memory files, select a real historical decision and propose a reversal condition.";
-    const goal = { ...fixture.goal, state: { ...fixture.goal.state, messages: [{ role: "user" as const, content: request }] } };
+    const goal = { ...fixture.goal, state: { ...fixture.goal.state, messages: [testUserMessage(request)] } };
     const candidate = { kind: "complete" as const, summary: "A generic example is to split a monolith into microservices.", evidenceSequences: [] };
     const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
         const content = JSON.parse(modelRequest.messages[1]!.content);
@@ -165,7 +192,7 @@ test("review receives the actual source request and scoped lookup without an opt
         assert.equal(content.historicalLookup.sourceScope, "goal_history");
         assert.match(content.historicalLookup.limitations, /not searched/);
         assert.deepEqual(content.committedEvidence, []);
-        return { content: "", toolCalls: [{ callId: "review", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"reject","feedback":"Read the requested repository files and identify a documented real decision."}}' }] };
+        return toolCallResponse({ callId: "review", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"reject","feedback":"Read the requested repository files and identify a documented real decision."}}' });
     } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
     const reviewed = await executor.reviewCompletion({ ...fixture, goal, candidate, contextLookupResult: { status: "not_found", lookupId: "query", reason: "no_context_match" } });
@@ -206,7 +233,7 @@ test("deduplicates paired tool output text while preserving action identity and 
     let recordedContent: any = null;
     const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
         recordedContent = JSON.parse(modelRequest.messages[1]!.content);
-        return { content: "", toolCalls: [{ callId: "c1", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' }] };
+        return reviewAcceptResponse("c1");
     } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
     await executor.reviewCompletion({ ...fixture, evidence: events });
@@ -245,7 +272,7 @@ test("review request includes current stage and supports run_stage_complete cand
     let recordedContent: any = null;
     const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
         recordedContent = JSON.parse(modelRequest.messages[1]!.content);
-        return { content: "", toolCalls: [{ callId: "c1", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' }] };
+        return reviewAcceptResponse("c1");
     } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
     await executor.reviewCompletion({ ...fixture, candidate, currentStage });
@@ -272,7 +299,7 @@ test("review request includes historical accepted stage evidence for overall ver
     let recordedContent: any = null;
     const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
         recordedContent = JSON.parse(modelRequest.messages[1]!.content);
-        return { content: "", toolCalls: [{ callId: "c1", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' }] };
+        return reviewAcceptResponse("c1");
     } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
     await executor.reviewCompletion({ ...fixture, historicalAcceptedEvidence: [histEvent] });
@@ -287,10 +314,10 @@ test("review request includes historical accepted stage evidence for overall ver
 test("review omits unrelated assistant history while retaining original user constraints and source positions", async () => {
     const fixture = input();
     const messages = [
-        { role: "user" as const, content: "Keep the public API unchanged." },
-        { role: "assistant" as const, assistant: { profileId: "review" }, content: "irrelevant-history".repeat(40_000) },
-        { role: "assistant" as const, assistant: { profileId: "review" }, content: "Which result should I verify?" },
-        { role: "user" as const, content: "Now verify the final result." },
+        testUserMessage("Keep the public API unchanged."),
+        testAssistantMessage("irrelevant-history".repeat(40_000), { profileId: "review" }),
+        testAssistantMessage("Which result should I verify?", { profileId: "review" }),
+        testUserMessage("Now verify the final result."),
     ];
     let called = false;
     const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(request) {
@@ -301,7 +328,7 @@ test("review omits unrelated assistant history while retaining original user con
         assert.equal(content.originalIntent, fixture.goal.definition.intent);
         assert.deepEqual(content.profile, fixture.goal.definition.profile);
         assert.deepEqual(content.candidate, fixture.candidate);
-        return { content: "", toolCalls: [{ callId: "review", toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' }] };
+        return reviewAcceptResponse("review");
     } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
     await executor.reviewCompletion({ ...fixture, goal: { ...fixture.goal, state: { ...fixture.goal.state, messages } } });
@@ -310,8 +337,8 @@ test("review omits unrelated assistant history while retaining original user con
 
 for (const mode of ["strict", "prompt_only"] as const) {
     for (const [response, code] of [
-        [{ content: '{"result":{"kind":"accept"}}' }, "missing_tool_call"],
-        [{ content: "", toolCalls: [1, 2].map(i => ({ callId: String(i), toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' })) }, "multiple_tool_calls"],
+        [textResponse('{"result":{"kind":"accept"}}', "json"), "missing_tool_call"],
+        [blockResponse(...[1, 2].map(i => ({ type: "tool_call" as const, callId: String(i), toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' }))), "multiple_tool_calls"],
     ] as const) {
         test(`${mode} review reports ${code} without parsing text decisions`, async () => {
             const adapter: LLMAdapter = { structuredOutputMode: mode, async generate(request) {

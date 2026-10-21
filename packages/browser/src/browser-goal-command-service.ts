@@ -1,44 +1,32 @@
-import type { ExecutionControl } from "../../execution-control/src/index";
 import type {
     Goal,
     GoalModelSelection,
     GoalModelSelectionCoordinator,
     GoalCoordinator,
     GoalStore,
-    GoalUserAction,
     JsonValue,
-    LaunchRequest,
-    LaunchResult,
-    ResumeGoalRequest,
-    RunRef,
-    ToolGrant,
+} from "../../runtime/src/index";
+import {
+    readInteractionDetail,
+    type ActionApprovalReviewErrorCode,
+    type InteractionDetail,
 } from "../../runtime/src/index";
 import {
     PermissionModeConflictError,
-    type EffectiveExtraFile,
     type PermissionMode,
-    type UnifiedGrantSummary,
 } from "../../permission/src/index";
 import type {
     BrowserActionDetailsResult,
-    BrowserCreateGoalCommand,
-    BrowserCreateGoalResult,
-    BrowserGoalInteractionCommand,
-    BrowserGoalInteractionResult,
-    BrowserGoalMessageCommand,
-    BrowserGoalMessageResult,
-    BrowserGoalSteerCommand,
-    BrowserGoalSteerResult,
-    BrowserGoalInterruptCommand,
-    BrowserGoalInterruptResult,
+    BrowserActionReviewCommand,
+    BrowserActionReviewResult,
     BrowserGoalPlanModeCommand,
     BrowserGoalPlanModeResult,
+    BrowserInteractionDetail,
+    BrowserInteractionDetailResult,
     BrowserModelSelectionCommand,
     BrowserModelSelectionResult,
     BrowserPermissionModeCommand,
     BrowserPermissionModeResult,
-    BrowserResumeGoalCommand,
-    BrowserResumeGoalResult,
     BrowserToolGrantResult,
     BrowserToolGrantRevokeCommand,
     BrowserToolGrantSummary,
@@ -46,175 +34,41 @@ import type {
 
 export type {
     BrowserActionDetailsResult,
-    BrowserCreateGoalCommand,
-    BrowserCreateGoalResult,
-    BrowserGoalInteractionCommand,
-    BrowserGoalInteractionResult,
-    BrowserGoalMessageCommand,
-    BrowserGoalMessageResult,
-    BrowserGoalSteerCommand,
-    BrowserGoalSteerResult,
-    BrowserGoalInterruptCommand,
-    BrowserGoalInterruptResult,
+    BrowserActionReviewCommand,
+    BrowserActionReviewResult,
     BrowserGoalPlanModeCommand,
     BrowserGoalPlanModeResult,
+    BrowserInteractionDetail,
+    BrowserInteractionDetailResult,
     BrowserModelSelectionCommand,
     BrowserModelSelectionResult,
     BrowserPermissionModeCommand,
     BrowserPermissionModeResult,
-    BrowserResumeGoalCommand,
-    BrowserResumeGoalResult,
     BrowserToolGrantResult,
     BrowserToolGrantRevokeCommand,
     BrowserToolGrantSummary,
 };
 
 /**
- * 供浏览器创建服务调用的 Runtime Launcher。
+ * 浏览器管理命令使用的最小 GoalCoordinator 适配边界。
  *
  * @remarks
- * Launcher 拥有 Goal 初始化快照保存和自动推进；浏览器服务只在正式快照通知到达后
- * 返回受理，并在进程内跟踪 Launcher 生命周期。
- *
- * @example
- * ```ts
- * const launcher: BrowserGoalLauncher = {
- *     launch: (request, control) => launch(request, dependencies, control),
- * };
- * ```
- */
-export interface BrowserGoalLauncher {
-    /**
-     * 创建并推进一个 Goal。
-     *
-     * @param request - Goal 身份、意图与本机 Profile 身份。
-     * @param control - 与本机关闭流程共享的可选中止控制。
-     * @returns 首个等待点/终态或稳定业务错误。
-     * @throws 持久化、调度、模型或 Tool 基础设施失败时拒绝。
-     */
-    launch(request: LaunchRequest, control?: ExecutionControl): Promise<LaunchResult>;
-}
-
-/**
- * Goal 成功保存通知的最小边界。
- *
- * @remarks
- * 通知必须在正式 Snapshot 写入成功后触发。浏览器创建服务用它确认 Launcher
- * 已产生真实 Goal，而不轮询文件或把命令响应当作持久化结果。
- *
- * @example
- * ```ts
- * const notifications: BrowserGoalSaveNotifications = {
- *     onSave: (listener) => goalStore.onSave(listener),
- * };
- * ```
- */
-export interface BrowserGoalSaveNotifications {
-    /**
-     * 订阅 Goal 快照成功保存事件。
-     *
-     * @param listener - 收到已保存的不可变 Goal 快照时调用。
-     * @returns 取消订阅函数。
-     */
-    onSave(listener: (goal: Goal) => void): () => void;
-}
-
-/**
- * 浏览器可提交到当前结构化等待点的操作。
- *
- * @remarks
- * 交互命令携带当前 Run 身份；回答、取消询问与任务审批还必须匹配对应 requestId，Action
- * 审批必须匹配 actionId。取消询问仅适用于 AskUser 等待。普通消息不能绕过 Runtime 校验。
- *
- * @example
- * ```ts
- * const command: BrowserGoalInteractionCommand = {
- *     kind: "approve_task", runId: "run-1", requestId: "proposal-1",
- * };
- * ```
- */
-
-
-/**
- * 浏览器命令使用的最小 GoalCoordinator 适配边界。
+ * 只覆盖仍保留独立入口的管理操作：Plan Mode 选择与授权查询／撤销。普通消息、
+ * Steer、Interrupt、交互回答与恢复统一走会话 inputs 入口，不再经过本服务。
  *
  * @example
  * ```ts
  * const coordinator: BrowserGoalCoordinator = {
- *     resume: (request, control) => goalCoordinator.resume(request, control),
- *     continue: (ref, input, control) => goalCoordinator.continue(ref, input, control),
  *     enterPlanMode: (ref, control) => goalCoordinator.enterPlanMode(ref, control),
  * };
  * ```
  */
 export interface BrowserGoalCoordinator {
-    /**
-     * 将已匹配当前等待点的操作交给 Runtime。
-     *
-     * @param request - 当前 Goal/Run 与类型化用户操作。
-     * @param control - 本机关闭协调使用的取消信号。
-     * @returns 最新等待点、执行终态或稳定业务错误。
-     * @throws Store、Trajectory、Scheduler 或执行依赖失败时拒绝。
-     */
-    resume(request: ResumeGoalRequest, control?: ExecutionControl): ReturnType<GoalCoordinator["resume"]>;
-
-    /**
-     * 为已完成 Run 启动同一 Goal 的后续 Run。
-     *
-     * @param ref - 当前已完成 Run 的 Goal/Run 身份。
-     * @param newInput - 追加到会话的非空新任务文本。
-     * @param control - 本机关闭协调使用的取消信号。
-     * @returns 新 Run 自动推进到等待点或终态后的结果。
-     * @throws Store、Trajectory、Scheduler 或执行依赖失败时拒绝。
-     */
-    continue(
-        ref: Parameters<GoalCoordinator["continue"]>[0],
-        newInput: string,
-        control?: ExecutionControl,
-        continuation?: Parameters<GoalCoordinator["continue"]>[3],
-    ): ReturnType<GoalCoordinator["continue"]>;
-
-    /**
-     * 通过 Runtime 当前执行所有者受理 Steer。
-     *
-     * @param ref - 当前 Goal 与 Run 身份。
-     * @param messageId - 客户端生成的稳定幂等身份。
-     * @param content - 非空 Steer 正文。
-     * @returns 持久化受理或稳定拒绝；受理不表示模型已应用。
-     * @throws Snapshot 或 Trajectory 提交失败时传播错误。
-     */
-    steer?(ref: RunRef, messageId: string, content: string): ReturnType<GoalCoordinator["steer"]>;
-
-    /**
-     * 持久化当前 Run 的 Interrupt 意图并中止其活动执行。
-     * @param ref - 当前 Goal 与 Run 的稳定身份。
-     * @param requestId - 可重试的稳定请求身份。
-     * @returns 已保存的请求或稳定拒绝。
-     * @throws Snapshot 或 Trajectory 提交失败时拒绝。
-     * @example
-     * ```ts
-     * await coordinator.interrupt?.({ goalId: "goal-1", runId: "run-1" }, "interrupt-1");
-     * ```
-     */
-    interrupt?(ref: RunRef, requestId: string): ReturnType<GoalCoordinator["interrupt"]>;
-
     /** 依据当前 Goal/Run 身份选择 Plan Mode，并遵守 Runtime 的 Run 状态限制。 */
     enterPlanMode(
         ref: Parameters<GoalCoordinator["enterPlanMode"]>[0],
-        control?: ExecutionControl,
+        control?: Parameters<GoalCoordinator["enterPlanMode"]>[1],
     ): ReturnType<GoalCoordinator["enterPlanMode"]>;
-
-    /**
-     * 显式推进中断的未终态 Run。
-     *
-     * @param ref - 目标 Goal/Run 身份。
-     * @param control - 本机关闭协调使用的取消信号。
-     * @returns 自动推进到等待点或终态后的结果。
-     */
-    advance?(
-        ref: RunRef,
-        control?: ExecutionControl,
-    ): ReturnType<GoalCoordinator["advance"]>;
 
     /** 当前 Goal 下列出 goal 与 workspace 授权。 */
     listToolGrants?(ref: Parameters<GoalCoordinator["listToolGrants"]>[0]): ReturnType<GoalCoordinator["listToolGrants"]>;
@@ -228,25 +82,35 @@ export interface BrowserGoalCoordinator {
     getPermissionMode?(workspaceId?: string): ReturnType<GoalCoordinator["getPermissionMode"]>;
     /** 设置项目权限执行模式。 */
     setPermissionMode?(mode: PermissionMode, expectedRevision: number, workspaceId?: string): ReturnType<GoalCoordinator["setPermissionMode"]>;
+    /**
+     * 只读预检同一工具的最终参数与实际权限范围。
+     *
+     * @remarks 省略时审批审阅路由返回 500 `review_unavailable`，不提供替代路径。
+     */
+    reviewActionApproval?(
+        request: Parameters<GoalCoordinator["reviewActionApproval"]>[0],
+        control?: Parameters<GoalCoordinator["reviewActionApproval"]>[1],
+    ): ReturnType<GoalCoordinator["reviewActionApproval"]>;
 }
 
 /**
- * 浏览器 Goal 创建服务所需依赖。
+ * 浏览器管理命令所需依赖。
+ *
+ * @remarks
+ * 本服务不再持有执行预约、内存受理去重或后台推进：会话执行所有权属于 Runtime
+ * 会话所有者，`readActiveGoalId` 只用于读取该唯一事实并拒绝与其他 Goal 并发。
  *
  * @example
  * ```ts
  * const dependencies: BrowserGoalCommandDependencies = {
- *     store, saveNotifications, launcher, coordinator, profileId: "default",
+ *     store, coordinator, profileId: "default",
+ *     readActiveGoalId: () => sessions.activeGoal,
  * };
  * ```
  */
 export interface BrowserGoalCommandDependencies {
     /** 只指向正式工作区 Goal 文件的 Snapshot 读取端口。 */
     readonly store: Pick<GoalStore, "restore">;
-    /** 正式 Checkpoint 保存成功后的通知。 */
-    readonly saveNotifications: BrowserGoalSaveNotifications;
-    /** 复用本机 Runtime Launcher；浏览器不提供替代执行路径。 */
-    readonly launcher: BrowserGoalLauncher;
     /** 复用本机 GoalCoordinator；浏览器不能直接修改 Goal Snapshot。 */
     readonly coordinator: BrowserGoalCoordinator;
     /** 由本机模型目录验证 ID 并构造完整非敏感选择。 */
@@ -257,117 +121,36 @@ export interface BrowserGoalCommandDependencies {
     ) => Promise<GoalModelSelection | undefined>;
     /** 在安全等待点持久化已验证的模型选择。 */
     readonly modelSelectionCoordinator?: GoalModelSelectionCoordinator;
-    /** 推进前按 Goal 快照重建当前进程模型绑定。 */
-    readonly restoreModelBinding?: (goal: Goal) => Promise<boolean>;
-    /** 浏览器创建使用的进程默认模型选择。 */
-    readonly defaultModelSelection?: GoalModelSelection;
-    /** Web 创建省略模型时解析当前工作区偏好；失败必须拒绝创建。 */
-    readonly resolveDefaultModelSelection?: () => Promise<GoalModelSelection | undefined>;
     /** Goal 模型提交后保存 Web 工作区偏好；失败不会撤销已提交选择。 */
     readonly saveModelPreference?: (selection: GoalModelSelection) => Promise<void>;
-    /** 本机 Composition Root 已验证并加载的 Profile ID。 */
-    readonly profileId: string;
+    /** 读取 Runtime 会话所有者的当前活动 Goal；用于 busy 判定。 */
+    readonly readActiveGoalId?: () => string | undefined;
     /** 与宿主关闭共享的可选信号；中止后拒绝尚未开始的写命令。 */
-    readonly control?: ExecutionControl;
+    readonly control?: { readonly signal?: AbortSignal };
 }
-
-interface InFlightCreate {
-    readonly intent: string;
-    readonly mode: "normal" | "plan";
-    readonly modelId: string | undefined;
-    readonly accepted: Promise<BrowserCreateGoalResult>;
-}
-
-interface InFlightPlanMode {
-    readonly accepted: Promise<BrowserGoalPlanModeResult>;
-}
-
-interface InFlightInteraction {
-    readonly fingerprint: string;
-    readonly accepted: Promise<BrowserGoalInteractionResult>;
-}
-
-interface InFlightMessage {
-    readonly messageId: string;
-    readonly content: string;
-    readonly accepted: Promise<BrowserGoalMessageResult>;
-}
-
-interface InFlightResume {
-    readonly runId: string;
-    readonly expectedCommittedThroughSequence: number;
-    readonly accepted: Promise<BrowserResumeGoalResult>;
-}
-
-type Reservation =
-    | { readonly kind: "result"; readonly result: BrowserCreateGoalResult }
-    | { readonly kind: "in_flight"; readonly accepted: Promise<BrowserCreateGoalResult> };
 
 /**
- * 单进程浏览器会话的 Goal 创建受理器。
+ * 单进程浏览器会话的管理命令受理器。
  *
  * @remarks
- * 每个稳定 Goal ID 最多启动一次 Launcher；不同 Goal 的创建在初次 Goal 正在执行时
- * 返回 `goal_busy`。创建受理通过保存通知确认，HTTP 客户端断开不会取消 Launcher。
- * Launcher 到达等待点或终态后释放活动锁；页面读取或切换 Goal 不调用此服务。
+ * 只保留未迁入统一 inputs 入口的管理写入：显式 Plan Mode、模型选择、Action 详情、
+ * 授权与权限模式，以及终态 Goal 的归档／删除前置检查。会话创建、消息、Steer、
+ * Interrupt、交互回答与恢复都由 Runtime 会话所有者在同一提交边界内完成。
  *
  * @example
  * ```ts
  * const commands = new BrowserGoalCommandService(dependencies);
- * const result = await commands.create({ goalId: "goal-1", intent: "检查项目" });
+ * const result = await commands.selectModel("goal-1", { runId: "run-1", modelId: "gpt-4.1" });
  * ```
  */
 export class BrowserGoalCommandService {
-    private readonly inFlight = new Map<string, InFlightCreate>();
-    private readonly inFlightInteractions = new Map<string, InFlightInteraction>();
-    private readonly inFlightMessages = new Map<string, InFlightMessage>();
-    private readonly inFlightPlanModes = new Map<string, InFlightPlanMode>();
-    private readonly inFlightResumes = new Map<string, InFlightResume>();
-    private activeGoalId: string | undefined;
-    private readonly activityListeners = new Set<(goalId: string, active: boolean) => void>();
-    private reservationTail: Promise<void> = Promise.resolve();
-
     /**
-     * @param dependencies - 正式 Snapshot 读取、保存通知、本机 Launcher、Coordinator 与 Profile。
+     * @param dependencies - 正式 Snapshot 读取、管理 Coordinator 与 Runtime 活动事实读取。
      */
     constructor(private readonly dependencies: BrowserGoalCommandDependencies) {}
 
     /**
-     * 获取当前服务进程正在执行的 Goal ID（若有）。
-     */
-    getActiveGoalId(): string | undefined {
-        return this.activeGoalId;
-    }
-
-    /**
-     * 订阅进程内 Goal 活动执行状态变更。
-     *
-     * @param listener - 当 Goal 开始执行或结束执行时通知。
-     * @returns 取消订阅函数。
-     */
-    onGoalActivityChanged(listener: (goalId: string, active: boolean) => void): () => void {
-        this.activityListeners.add(listener);
-        return () => { this.activityListeners.delete(listener); };
-    }
-
-    private setActiveGoalId(goalId: string | undefined): void {
-        const previous = this.activeGoalId;
-        if (previous === goalId) return;
-        this.activeGoalId = goalId;
-        if (previous !== undefined) {
-            for (const listener of this.activityListeners) {
-                try { listener(previous, false); } catch {}
-            }
-        }
-        if (goalId !== undefined) {
-            for (const listener of this.activityListeners) {
-                try { listener(goalId, true); } catch {}
-            }
-        }
-    }
-
-    /**
-     * 在浏览器命令预约锁内管理终态 Goal，避免与新 Run 或模型切换并发。
+     * 在终态 Goal 上执行归档或删除，拒绝仍持有会话工作的 Goal。
      *
      * @param goalId - 要管理的 Goal 身份。
      * @param operation - 已验证终态后执行的持久化操作。
@@ -378,17 +161,15 @@ export class BrowserGoalCommandService {
      * ```
      */
     async manageTerminalGoal(goalId: string, operation: () => Promise<void>): Promise<"ok" | "goal_not_found" | "goal_not_terminal" | "service_shutting_down"> {
-        return this.withReservationLock(async () => {
-            if (this.isShuttingDown()) return "service_shutting_down";
-            if (this.activeGoalId !== undefined) return "goal_not_terminal";
-            const goal = await this.dependencies.store.restore(goalId);
-            if (goal === undefined) return "goal_not_found";
-            const status = goal.state.run.status;
-            if (status !== "completed" && status !== "failed" && status !== "cancelled") return "goal_not_terminal";
-            if (this.isShuttingDown()) return "service_shutting_down";
-            await operation();
-            return "ok";
-        });
+        if (this.isShuttingDown()) return "service_shutting_down";
+        const goal = await this.dependencies.store.restore(goalId);
+        if (goal === undefined) return "goal_not_found";
+        const status = goal.state.run.status;
+        if (status !== "completed" && status !== "failed" && status !== "cancelled") return "goal_not_terminal";
+        if (this.dependencies.readActiveGoalId?.() === goalId) return "goal_not_terminal";
+        if (this.isShuttingDown()) return "service_shutting_down";
+        await operation();
+        return "ok";
     }
 
     /**
@@ -399,195 +180,88 @@ export class BrowserGoalCommandService {
      * @returns 保存成功后的身份，或关闭、身份与模型校验失败等稳定拒绝码。
      */
     async selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<BrowserModelSelectionResult> {
-        return this.withReservationLock(async () => {
-            if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
-            if (this.activeGoalId !== undefined) return { ok: false, error: "goal_busy" };
-            const goal = await this.dependencies.store.restore(goalId);
-            if (goal === undefined) return { ok: false, error: "goal_not_found" };
-            if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
-            if (this.dependencies.resolveModelSelection === undefined || this.dependencies.modelSelectionCoordinator === undefined) {
-                return { ok: false, error: "model_catalog_unavailable" };
-            }
-            const status = goal.state.run.status;
-            if (
-                status !== "completed" && status !== "failed"
-                && (status !== "waiting" || goal.state.run.pendingAction !== undefined || goal.state.run.stopReason !== undefined)
-            ) {
-                return { ok: false, error: "model_switch_not_allowed" };
-            }
-            let selection: GoalModelSelection | undefined;
+        if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
+        const active = this.dependencies.readActiveGoalId?.();
+        if (active !== undefined && active !== goalId) return { ok: false, error: "goal_busy" };
+        const goal = await this.dependencies.store.restore(goalId);
+        if (goal === undefined) return { ok: false, error: "goal_not_found" };
+        if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
+        if (this.dependencies.resolveModelSelection === undefined || this.dependencies.modelSelectionCoordinator === undefined) {
+            return { ok: false, error: "model_catalog_unavailable" };
+        }
+        const status = goal.state.run.status;
+        if (
+            status !== "completed" && status !== "failed"
+            && (status !== "waiting" || goal.state.run.pendingAction !== undefined || goal.state.run.stopReason !== undefined)
+        ) {
+            return { ok: false, error: "model_switch_not_allowed" };
+        }
+        let selection: GoalModelSelection | undefined;
+        try {
+            selection = await this.dependencies.resolveModelSelection(
+                command.modelId,
+                goal.state.modelSelection,
+                command.providerProfileId,
+            );
+        } catch {
+            return { ok: false, error: "model_catalog_unavailable" };
+        }
+        if (selection === undefined) return { ok: false, error: "model_not_selectable" };
+        if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
+        const saved = await this.dependencies.modelSelectionCoordinator.updateModelSelection({
+            ref: { goalId, runId: command.runId }, selection,
+        }, this.dependencies.control);
+        if (!saved.ok) {
+            const error = saved.error.code === "RUN_MISMATCH" ? "stale_run"
+                : saved.error.code === "GOAL_NOT_FOUND" ? "goal_not_found"
+                    : saved.error.code === "GOAL_NOT_WAITING" ? "model_switch_not_allowed"
+                        : "model_selection_failed";
+            return { ok: false, error };
+        }
+        let defaultModelSaved = false;
+        if (this.dependencies.saveModelPreference !== undefined && !this.isShuttingDown()) {
             try {
-                selection = await this.dependencies.resolveModelSelection(
-                    command.modelId,
-                    goal.state.modelSelection,
-                    command.providerProfileId,
-                );
+                await this.dependencies.saveModelPreference(selection);
+                defaultModelSaved = true;
             } catch {
-                return { ok: false, error: "model_catalog_unavailable" };
+                // Goal 模型已提交；偏好失败通过结果字段单独报告。
             }
-            if (selection === undefined) return { ok: false, error: "model_not_selectable" };
-            if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
-            const saved = await this.dependencies.modelSelectionCoordinator.updateModelSelection({
-                ref: { goalId, runId: command.runId }, selection,
-            }, this.dependencies.control);
-            if (!saved.ok) {
-                const error = saved.error.code === "RUN_MISMATCH" ? "stale_run"
-                    : saved.error.code === "GOAL_NOT_FOUND" ? "goal_not_found"
-                        : saved.error.code === "GOAL_NOT_WAITING" ? "model_switch_not_allowed"
-                            : "model_selection_failed";
-                return { ok: false, error };
-            }
-            let defaultModelSaved = false;
-            if (this.dependencies.saveModelPreference !== undefined && !this.isShuttingDown()) {
-                try {
-                    await this.dependencies.saveModelPreference(selection);
-                    defaultModelSaved = true;
-                } catch {
-                    // Goal 模型已提交；偏好失败通过结果字段单独报告。
-                }
-            }
-            return { ok: true, goalId, runId: command.runId, modelId: selection.modelId, defaultModelSaved };
-        });
+        }
+        return { ok: true, goalId, runId: command.runId, modelId: selection.modelId, defaultModelSaved };
     }
 
     /**
-     * 按稳定 ID 受理一个 Goal 创建。
-     *
-     * @param command - 已通过 HTTP wire 校验的 Goal ID 和用户意图。
-     * @returns 快照提交后的受理结果；同 ID/同意图的重试返回同一受理结果。
-     * @throws 正式 Store 读取失败时拒绝；不会生成虚构 Goal 列表项。
-     */
-    async create(command: BrowserCreateGoalCommand): Promise<BrowserCreateGoalResult> {
-        const reservation = await this.withReservationLock(async (): Promise<Reservation> => {
-            if (this.isShuttingDown()) {
-                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
-            }
-            const current = this.inFlight.get(command.goalId);
-            if (current !== undefined) {
-                if (current.intent !== command.intent || current.mode !== (command.mode ?? "normal") || current.modelId !== command.modelId) {
-                    return { kind: "result", result: { ok: false, error: "goal_id_conflict" } };
-                }
-                return {
-                    kind: "in_flight",
-                    accepted: current.accepted.then((result) => result.ok
-                        ? { ...result, existing: true }
-                        : result),
-                };
-            }
-
-            const existing = await this.dependencies.store.restore(command.goalId);
-            if (existing !== undefined) {
-                return existing.definition.intent === command.intent
-                    && existing.state.run.mode === (command.mode ?? "normal")
-                    && (command.modelId === undefined || existing.state.modelSelection.modelId === command.modelId)
-                    ? {
-                        kind: "result",
-                        result: {
-                            ok: true,
-                            goalId: existing.id,
-                            runId: existing.state.run.id,
-                            existing: true,
-                        },
-                    }
-                    : { kind: "result", result: { ok: false, error: "goal_id_conflict" } };
-            }
-
-            if (this.activeGoalId !== undefined) {
-                return { kind: "result", result: { ok: false, error: "goal_busy" } };
-            }
-
-            const defaultSelection = this.dependencies.defaultModelSelection;
-            let modelSelection = defaultSelection;
-            if (command.modelId === undefined && this.dependencies.resolveDefaultModelSelection !== undefined) {
-                try {
-                    modelSelection = await this.dependencies.resolveDefaultModelSelection();
-                } catch {
-                    return { kind: "result", result: { ok: false, error: "model_catalog_unavailable" } };
-                }
-                if (modelSelection === undefined) {
-                    return { kind: "result", result: { ok: false, error: "model_not_selectable" } };
-                }
-            }
-            if (command.modelId !== undefined) {
-                if (defaultSelection === undefined || this.dependencies.resolveModelSelection === undefined) {
-                    return { kind: "result", result: { ok: false, error: "model_catalog_unavailable" } };
-                }
-                try {
-                    modelSelection = await this.dependencies.resolveModelSelection(command.modelId, defaultSelection);
-                } catch {
-                    return { kind: "result", result: { ok: false, error: "model_catalog_unavailable" } };
-                }
-                if (modelSelection === undefined) {
-                    return { kind: "result", result: { ok: false, error: "model_not_selectable" } };
-                }
-            }
-            if (this.isShuttingDown()) {
-                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
-            }
-            this.setActiveGoalId(command.goalId);
-            const accepted = this.start(command, modelSelection);
-            this.inFlight.set(command.goalId, {
-                intent: command.intent,
-                mode: command.mode ?? "normal",
-                modelId: command.modelId,
-                accepted,
-            });
-            return { kind: "in_flight", accepted };
-        });
-
-        return reservation.kind === "result" ? reservation.result : reservation.accepted;
-    }
-
-    /**
-     * 将显式 Plan Mode 命令交给 Runtime，并在同一服务实例内串行化执行推进。
+     * 将显式 Plan Mode 命令交给 Runtime。
      *
      * @param goalId - 路径中的 Goal 稳定身份。
      * @param command - 带当前 Run 身份的模式选择。
-     * @returns Runtime 提交完成后的受理结果；相同在途请求复用受理。
+     * @returns Runtime 提交完成后的受理结果或稳定拒绝码。
      * @throws 正式 Snapshot 读取或协调器持久化失败时拒绝。
      */
     async enterPlanMode(
         goalId: string,
         command: BrowserGoalPlanModeCommand,
     ): Promise<BrowserGoalPlanModeResult> {
-        const key = `${goalId}\u0000${command.runId}`;
-        const reservation = await this.withReservationLock(async (): Promise<
-            | { readonly kind: "result"; readonly result: BrowserGoalPlanModeResult }
-            | { readonly kind: "in_flight"; readonly accepted: Promise<BrowserGoalPlanModeResult> }
-        > => {
-            if (this.isShuttingDown()) {
-                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
-            }
-            const current = this.inFlightPlanModes.get(key);
-            if (current !== undefined) {
-                return {
-                    kind: "in_flight",
-                    accepted: current.accepted.then((result) => result.ok
-                        ? { ...result, existing: true }
-                        : result),
+        if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
+        const active = this.dependencies.readActiveGoalId?.();
+        if (active !== undefined && active !== goalId) return { ok: false, error: "goal_busy" };
+        const goal = await this.dependencies.store.restore(goalId);
+        if (goal === undefined) return { ok: false, error: "goal_not_found" };
+        if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
+        if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
+        try {
+            const result = await this.dependencies.coordinator.enterPlanMode({ goalId, runId: command.runId });
+            return result.ok
+                ? { ok: true, goalId, runId: command.runId, existing: false }
+                : {
+                    ok: false,
+                    error: result.error.code === "RUN_NOT_FOUND" ? "stale_run"
+                        : result.error.code === "PLAN_MODE_BUSY" ? "plan_mode_busy"
+                            : "plan_mode_failed",
                 };
-            }
-            if (this.activeGoalId !== undefined) {
-                return { kind: "result", result: { ok: false, error: "goal_busy" } };
-            }
-            const goal = await this.dependencies.store.restore(goalId);
-            if (goal === undefined) {
-                return { kind: "result", result: { ok: false, error: "goal_not_found" } };
-            }
-            if (goal.state.run.id !== command.runId) {
-                return { kind: "result", result: { ok: false, error: "stale_run" } };
-            }
-
-            if (this.isShuttingDown()) {
-                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
-            }
-            this.setActiveGoalId(goalId);
-            const accepted = this.startPlanMode(goalId, command);
-            this.inFlightPlanModes.set(key, { accepted });
-            return { kind: "in_flight", accepted };
-        });
-
-        return reservation.kind === "result" ? reservation.result : reservation.accepted;
+        } catch {
+            return { ok: false, error: "plan_mode_failed" };
+        }
     }
 
     /**
@@ -618,6 +292,119 @@ export class BrowserGoalCommandService {
             actionId,
             toolId: pending.action.toolId,
             input: structuredClone(pending.action.input),
+        };
+    }
+
+    /**
+     * 按当前 Goal/Run/交互身份读取完整审阅内容。
+     *
+     * @param goalId - 路径中的 Goal 身份。
+     * @param runId - 当前 Run 身份。
+     * @param interactionId - 当前等待的稳定交互引用。
+     * @returns 完整问题／任务范围／Action 输入；引用过期或不再等待时返回稳定错误。
+     * @remarks 读取不推进等待，也不返回其他 Action 的参数。
+     */
+    async readInteractionDetails(
+        goalId: string,
+        runId: string,
+        interactionId: string,
+    ): Promise<BrowserInteractionDetailResult> {
+        let goal: Goal | undefined;
+        try { goal = await this.dependencies.store.restore(goalId); }
+        catch { return { ok: false, error: "interaction_details_unavailable" }; }
+        if (goal === undefined) return { ok: false, error: "goal_not_found" };
+        if (goal.state.run.id !== runId) return { ok: false, error: "stale_run" };
+        const result = readInteractionDetail(goal, { runId, interactionId });
+        if (!result.ok) {
+            return {
+                ok: false,
+                error: result.code === "INTERACTION_NOT_WAITING" ? "interaction_not_waiting" : "interaction_mismatch",
+            };
+        }
+        return {
+            ok: true,
+            goalId,
+            runId,
+            interactionId,
+            detail: toBrowserInteractionDetail(result.detail),
+        };
+    }
+
+    /**
+     * 只读预检同一工具的最终参数与实际权限范围。
+     *
+     * @remarks
+     * 预检只重新准备参数、规划执行准入、权限与沙箱范围，并返回可审阅结果；它
+     * 不保存批准、不暂存或激活授权、不解除等待，也不调用业务工具。多个客户端
+     * 各自预检时互不覆盖草稿或持久化候选。
+     *
+     * @param goalId - 路径中的 Goal 身份。
+     * @param command - 当前 Run、Action、拟修订参数与拟授权期限。
+     * @returns 可审阅结果，或可定位的稳定拒绝。
+     * @throws Snapshot 读取或预检失败时返回稳定错误，不抛出到 wire 层。
+     * @example
+     * ```ts
+     * const result = await service.reviewActionApproval("goal-1", {
+     *     runId: "run-1", actionId: "action-1", scope: "action",
+     *     input: { path: "b.txt" },
+     * });
+     * ```
+     */
+    async reviewActionApproval(
+        goalId: string,
+        command: BrowserActionReviewCommand,
+    ): Promise<BrowserActionReviewResult> {
+        const coordinator = this.dependencies.coordinator;
+        if (coordinator.reviewActionApproval === undefined) {
+            return { ok: false, error: "review_unavailable" };
+        }
+        let goal: Goal | undefined;
+        try { goal = await this.dependencies.store.restore(goalId); }
+        catch { return { ok: false, error: "review_unavailable" }; }
+        if (goal === undefined) return { ok: false, error: "goal_not_found" };
+        if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
+
+        let result: Awaited<ReturnType<NonNullable<typeof coordinator.reviewActionApproval>>>;
+        try {
+            result = await coordinator.reviewActionApproval({
+                ref: { goalId, runId: command.runId },
+                actionId: command.actionId,
+                ...(command.input === undefined ? {} : { input: command.input as JsonValue }),
+                ...(command.scope === undefined ? {} : { scope: command.scope }),
+            });
+        } catch { return { ok: false, error: "review_unavailable" }; }
+
+        if (!result.ok) {
+            return {
+                ok: false,
+                error: toBrowserReviewError(result.code),
+                ...(result.issues === undefined ? {} : { issues: result.issues.map((issue) => ({ path: [...issue.path], message: issue.message })) }),
+            };
+        }
+        return {
+            ok: true,
+            goalId,
+            runId: command.runId,
+            review: {
+                actionId: result.review.actionId,
+                toolId: result.review.toolId,
+                originalInput: result.review.originalInput,
+                finalInput: result.review.finalInput,
+                changed: result.review.changed,
+                scope: result.review.scope,
+                availableScopes: [...result.review.availableScopes],
+                capability: {
+                    network: result.review.capability.network,
+                    extraFiles: result.review.capability.extraFiles.map((file) => ({
+                        canonicalPath: file.canonicalPath,
+                        access: file.access,
+                        kind: file.kind,
+                    })),
+                    targetPaths: [...result.review.capability.targetPaths],
+                },
+                requiresSandboxApproval: result.review.requiresSandboxApproval,
+                reviewRef: result.review.reviewRef,
+            },
         };
     }
 
@@ -683,13 +470,7 @@ export class BrowserGoalCommandService {
      * ```
      */
     async revokeToolGrant(goalId: string, command: BrowserToolGrantRevokeCommand): Promise<BrowserToolGrantResult> {
-        return this.withReservationLock(async () => {
-            if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
-            return this.revokeToolGrantWhileOpen(goalId, command);
-        });
-    }
-
-    private async revokeToolGrantWhileOpen(goalId: string, command: BrowserToolGrantRevokeCommand): Promise<BrowserToolGrantResult> {
+        if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
         const coordinator = this.dependencies.coordinator;
         if (coordinator.revokeGrant === undefined && coordinator.revokeToolGrant === undefined) {
             return { ok: false, error: "permissions_unavailable" };
@@ -754,13 +535,7 @@ export class BrowserGoalCommandService {
      * ```
      */
     async setPermissionMode(command: BrowserPermissionModeCommand): Promise<BrowserPermissionModeResult> {
-        return this.withReservationLock(async () => {
-            if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
-            return this.setPermissionModeWhileOpen(command);
-        });
-    }
-
-    private async setPermissionModeWhileOpen(command: BrowserPermissionModeCommand): Promise<BrowserPermissionModeResult> {
+        if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
         const coordinator = this.dependencies.coordinator;
         if (coordinator.setPermissionMode === undefined) {
             return { ok: false, error: "permissions_unavailable" };
@@ -776,633 +551,78 @@ export class BrowserGoalCommandService {
         }
     }
 
-    /**
-     * 将一个带当前 Run 身份的结构化操作交给 Runtime 当前等待点。
-     *
-     * @param goalId - 路径中的 Goal 稳定身份。
-     * @param command - 带 Run 与 request/action 身份的已验证 wire 操作。
-     * @returns 匹配的变更保存后受理；旧身份、错配等待点、忙碌或执行故障返回稳定错误。
-     * @throws 正式工作区 Snapshot 读取失败时拒绝。
-     */
-    async interact(
-        goalId: string,
-        command: BrowserGoalInteractionCommand,
-    ): Promise<BrowserGoalInteractionResult> {
-        const key = interactionKey(goalId, command);
-        const fingerprint = JSON.stringify(command);
-        const reservation = await this.withReservationLock(async (): Promise<
-            | { readonly kind: "result"; readonly result: BrowserGoalInteractionResult }
-            | { readonly kind: "in_flight"; readonly accepted: Promise<BrowserGoalInteractionResult> }
-        > => {
-            if (this.isShuttingDown()) {
-                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
-            }
-            const current = this.inFlightInteractions.get(key);
-            if (current !== undefined) {
-                if (current.fingerprint !== fingerprint) {
-                    return { kind: "result", result: { ok: false, error: "invalid_interaction" } };
-                }
-                return {
-                    kind: "in_flight",
-                    accepted: current.accepted.then((result) => result.ok
-                        ? { ...result, existing: true }
-                        : result),
-                };
-            }
-
-            if (this.activeGoalId !== undefined) {
-                return { kind: "result", result: { ok: false, error: "goal_busy" } };
-            }
-            const goal = await this.dependencies.store.restore(goalId);
-            if (goal === undefined) {
-                return { kind: "result", result: { ok: false, error: "goal_not_found" } };
-            }
-            const mismatch = validateInteractionTarget(goal, command);
-            if (mismatch !== undefined) {
-                return { kind: "result", result: { ok: false, error: mismatch } };
-            }
-
-            if (this.isShuttingDown()) {
-                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
-            }
-            if (this.dependencies.restoreModelBinding !== undefined) {
-                let restored = false;
-                try { restored = await this.dependencies.restoreModelBinding(goal); } catch { restored = false; }
-                if (!restored) return { kind: "result", result: { ok: false, error: "model_restore_failed" } };
-            }
-
-            if (this.isShuttingDown()) {
-                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
-            }
-            this.setActiveGoalId(goalId);
-            const accepted = this.startInteraction(goalId, command);
-            this.inFlightInteractions.set(key, { fingerprint, accepted });
-            return { kind: "in_flight", accepted };
-        });
-
-        return reservation.kind === "result" ? reservation.result : reservation.accepted;
-    }
-
-    /**
-     * 根据当前 Run 状态恢复等待会话或创建后续 Run。
-     *
-     * @param goalId - 路径中的 Goal 稳定身份。
-     * @param command - 当前 Run 身份与非空普通文本。
-     * @returns 消息与状态变更成功保存后的受理结果，或稳定拒绝码。
-     * @throws 正式工作区 Snapshot 读取失败时拒绝。
-     */
-    async message(
-        goalId: string,
-        command: BrowserGoalMessageCommand,
-    ): Promise<BrowserGoalMessageResult> {
-        const key = `${goalId}\u0000${command.runId}`;
-        const reservation = await this.withReservationLock(async (): Promise<
-            | { readonly kind: "result"; readonly result: BrowserGoalMessageResult }
-            | { readonly kind: "in_flight"; readonly accepted: Promise<BrowserGoalMessageResult> }
-        > => {
-            if (this.isShuttingDown()) {
-                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
-            }
-            const current = this.inFlightMessages.get(key);
-            if (current !== undefined) {
-                if (current.messageId !== command.messageId || current.content !== command.content) {
-                    return { kind: "result", result: { ok: false, error: "message_conflict" } };
-                }
-                return {
-                    kind: "in_flight",
-                    accepted: current.accepted.then((result) => result.ok
-                        ? { ...result, existing: true }
-                        : result),
-                };
-            }
-            if (this.activeGoalId !== undefined) {
-                return { kind: "result", result: { ok: false, error: "goal_busy" } };
-            }
-            if (command.content.trim().length === 0) {
-                return { kind: "result", result: { ok: false, error: "invalid_message" } };
-            }
-            const goal = await this.dependencies.store.restore(goalId);
-            if (goal === undefined) {
-                return { kind: "result", result: { ok: false, error: "goal_not_found" } };
-            }
-            const receipt = (goal.state.completedRuns ?? []).find((run) => run.runId === command.runId)?.continuation;
-            if (receipt !== undefined) {
-                if (receipt.messageId !== command.messageId || receipt.content !== command.content) {
-                    return { kind: "result", result: { ok: false, error: "message_conflict" } };
-                }
-                return { kind: "result", result: {
-                    ok: true,
-                    goalId,
-                    runId: receipt.nextRunId,
-                    existing: true,
-                } };
-            }
-            if (goal.state.run.id !== command.runId) {
-                return { kind: "result", result: { ok: false, error: "stale_run" } };
-            }
-            const status = goal.state.run.status;
-            if (status === "waiting") {
-                if (goal.state.run.pendingInteraction !== undefined || goal.state.run.pendingAction !== undefined) {
-                    return {
-                        kind: "result",
-                        result: { ok: false, error: "structured_interaction_required" },
-                    };
-                }
-            } else if (status !== "completed" && status !== "failed" && status !== "cancelled") {
-                return { kind: "result", result: { ok: false, error: "goal_not_waiting" } };
-            }
-
-            if (this.isShuttingDown()) {
-                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
-            }
-            if (this.dependencies.restoreModelBinding !== undefined) {
-                let restored = false;
-                try { restored = await this.dependencies.restoreModelBinding(goal); } catch { restored = false; }
-                if (!restored) return { kind: "result", result: { ok: false, error: "model_restore_failed" } };
-            }
-
-            if (this.isShuttingDown()) {
-                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
-            }
-            this.setActiveGoalId(goalId);
-            const accepted = this.startMessage(goal, command);
-            this.inFlightMessages.set(key, { messageId: command.messageId, content: command.content, accepted });
-            return { kind: "in_flight", accepted };
-        });
-
-        return reservation.kind === "result" ? reservation.result : reservation.accepted;
-    }
-
-    /**
-     * 向当前运行中的 Run 受理 Steer 命令。
-     *
-     * @param goalId - URL 中的 Goal 身份。
-     * @param command - 当前 Run、稳定消息身份和正文。
-     * @returns Runtime 持久化受理状态；失败时调用方保留草稿。
-     * @throws Snapshot 读取或 Runtime 持久化失败时拒绝。
-     */
-    async steer(goalId: string, command: BrowserGoalSteerCommand): Promise<BrowserGoalSteerResult> {
-        if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
-        if (this.activeGoalId !== undefined && this.activeGoalId !== goalId) {
-            return { ok: false, error: "goal_busy" };
-        }
-        if (this.dependencies.coordinator.steer === undefined) {
-            return { ok: false, error: "steer_failed" };
-        }
-        if (command.content.trim().length === 0) return { ok: false, error: "steer_conflict" };
-        const goal = await this.dependencies.store.restore(goalId);
-        if (goal === undefined) return { ok: false, error: "goal_not_found" };
-        if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
-        if (goal.state.run.status !== "running") return { ok: false, error: "goal_not_running" };
-        if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
-        try {
-            const result = await this.dependencies.coordinator.steer(
-                { goalId, runId: command.runId }, command.messageId, command.content,
-            );
-            if (result.ok) return result;
-            return { ok: false, error: result.error === "RUN_NOT_FOUND" ? "goal_not_found"
-                : result.error === "RUN_NOT_RUNNING" ? "goal_not_running"
-                    : result.error === "STEER_CONFLICT" ? "steer_conflict" : "steer_failed" };
-        } catch {
-            return { ok: false, error: "steer_failed" };
-        }
-    }
-
-    /** 按当前 Goal/Run 身份受理用户终止请求。 */
-    async interrupt(goalId: string, command: BrowserGoalInterruptCommand): Promise<BrowserGoalInterruptResult> {
-        if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
-        if (this.activeGoalId !== undefined && this.activeGoalId !== goalId) {
-            return { ok: false, error: "goal_busy" };
-        }
-        if (this.dependencies.coordinator.interrupt === undefined) {
-            return { ok: false, error: "interrupt_failed" };
-        }
-        const goal = await this.dependencies.store.restore(goalId);
-        if (goal === undefined) return { ok: false, error: "goal_not_found" };
-        if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
-        if (goal.state.run.status !== "running" && goal.state.run.status !== "waiting") {
-            return { ok: false, error: "goal_not_running" };
-        }
-        if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
-        try {
-            const result = await this.dependencies.coordinator.interrupt(
-                { goalId, runId: command.runId }, command.requestId,
-            );
-            if (result.ok) return result;
-            return { ok: false, error: result.error === "RUN_NOT_FOUND" ? "goal_not_found"
-                : result.error === "RUN_NOT_RUNNING" ? "goal_not_running" : "interrupt_conflict" };
-        } catch {
-            return { ok: false, error: "interrupt_failed" };
-        }
-    }
-
-    /**
-     * 显式恢复一个处于中断或未终态的 Run。
-     *
-     * @param goalId - 目标 Goal 标识。
-     * @param command - 目标 Run 标识与页面读取的已提交序列号边界。
-     * @returns 新快照确认保存后的受理结果或稳定拒绝码；等待预约锁期间进入关闭时不推进。
-     */
-    async resume(
-        goalId: string,
-        command: BrowserResumeGoalCommand,
-    ): Promise<BrowserResumeGoalResult> {
-        if (this.dependencies.control?.signal?.aborted === true) {
-            return { ok: false, error: "service_shutting_down" };
-        }
-        const key = `${goalId}\u0000${command.runId}`;
-        const reservation = await this.withReservationLock(async (): Promise<
-            | { readonly kind: "result"; readonly result: BrowserResumeGoalResult }
-            | { readonly kind: "in_flight"; readonly accepted: Promise<BrowserResumeGoalResult> }
-        > => {
-            if (this.dependencies.control?.signal?.aborted === true) {
-                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
-            }
-            const current = this.inFlightResumes.get(key);
-            if (current !== undefined) {
-                if (current.expectedCommittedThroughSequence !== command.expectedCommittedThroughSequence) {
-                    return { kind: "result", result: { ok: false, error: "stale_recovery" } };
-                }
-                return {
-                    kind: "in_flight",
-                    accepted: current.accepted.then((result) => result.ok
-                        ? { ...result, existing: true }
-                        : result),
-                };
-            }
-            if (this.activeGoalId !== undefined) {
-                return { kind: "result", result: { ok: false, error: "goal_busy" } };
-            }
-
-            const goal = await this.dependencies.store.restore(goalId);
-            if (goal === undefined) {
-                return { kind: "result", result: { ok: false, error: "goal_not_found" } };
-            }
-            if (goal.state.run.id !== command.runId) {
-                return { kind: "result", result: { ok: false, error: "stale_run" } };
-            }
-            const status = goal.state.run.status;
-            if (status !== "created" && status !== "running") {
-                return { kind: "result", result: { ok: false, error: "resume_not_allowed" } };
-            }
-            const actualCommittedBoundary = goal.state.run.committedThroughSequence ?? 0;
-            if (actualCommittedBoundary !== command.expectedCommittedThroughSequence) {
-                return { kind: "result", result: { ok: false, error: "stale_recovery" } };
-            }
-
-            if (this.isShuttingDown()) {
-                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
-            }
-            this.setActiveGoalId(goalId);
-
-            if (this.dependencies.restoreModelBinding !== undefined) {
-                let restored = false;
-                try { restored = await this.dependencies.restoreModelBinding(goal); } catch { restored = false; }
-                if (!restored) {
-                    this.setActiveGoalId(undefined);
-                    return { kind: "result", result: { ok: false, error: "model_restore_failed" } };
-                }
-            }
-
-            if (this.isShuttingDown()) {
-                this.setActiveGoalId(undefined);
-                return { kind: "result", result: { ok: false, error: "service_shutting_down" } };
-            }
-            const accepted = this.startResume(goal, command);
-            this.inFlightResumes.set(key, {
-                runId: command.runId,
-                expectedCommittedThroughSequence: command.expectedCommittedThroughSequence,
-                accepted,
-            });
-            return { kind: "in_flight", accepted };
-        });
-
-        return reservation.kind === "result" ? reservation.result : reservation.accepted;
-    }
-
-    private async startResume(
-        initialGoal: Goal,
-        command: BrowserResumeGoalCommand,
-    ): Promise<BrowserResumeGoalResult> {
-        let settleAcceptance!: (result: BrowserResumeGoalResult) => void;
-        let accepted = false;
-        const acceptance = new Promise<BrowserResumeGoalResult>((resolve) => {
-            settleAcceptance = resolve;
-        });
-        const goalId = initialGoal.id;
-        const runId = initialGoal.state.run.id;
-        const key = `${goalId}\u0000${runId}`;
-
-        const unsubscribe = this.dependencies.saveNotifications.onSave((goal) => {
-            if (goal.id !== goalId || goal.state.run.id !== runId || accepted) return;
-            const newCommittedSequence = goal.state.run.committedThroughSequence ?? 0;
-            if (newCommittedSequence <= command.expectedCommittedThroughSequence && goal.state.run.status === initialGoal.state.run.status) {
-                return;
-            }
-            accepted = true;
-            settleAcceptance({
-                ok: true,
-                goalId,
-                runId,
-                existing: false,
-            });
-        });
-
-        const advanceFn = this.dependencies.coordinator.advance;
-        const progress = Promise.resolve().then(() => this.dependencies.coordinator.advance !== undefined
-            ? this.dependencies.coordinator.advance({ goalId, runId }, this.dependencies.control)
-            : Promise.reject(new Error("Coordinator advance is not implemented")));
-
-        void progress
-            .then(() => {
-                if (!accepted) {
-                    settleAcceptance({ ok: false, error: "resume_failed" });
-                }
-            }, () => {
-                if (!accepted) {
-                    settleAcceptance({ ok: false, error: "resume_failed" });
-                }
-            })
-            .finally(() => {
-                unsubscribe();
-                if (this.activeGoalId === goalId) this.setActiveGoalId(undefined);
-                this.inFlightResumes.delete(key);
-            });
-
-        return acceptance;
-    }
-
-    private async start(command: BrowserCreateGoalCommand, modelSelection?: GoalModelSelection): Promise<BrowserCreateGoalResult> {
-        let settleAcceptance!: (result: BrowserCreateGoalResult) => void;
-        let accepted = false;
-        const acceptance = new Promise<BrowserCreateGoalResult>((resolve) => {
-            settleAcceptance = resolve;
-        });
-
-        const unsubscribe = this.dependencies.saveNotifications.onSave((goal) => {
-            if (goal.id !== command.goalId || accepted) return;
-            accepted = true;
-            settleAcceptance(goal.definition.intent === command.intent
-                ? {
-                    ok: true,
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    existing: false,
-                }
-                : { ok: false, error: "goal_id_conflict" });
-        });
-
-        void Promise.resolve()
-            .then(() => this.dependencies.launcher.launch({
-                goalId: command.goalId,
-                intent: command.intent,
-                profileId: this.dependencies.profileId,
-                ...(command.mode === undefined ? {} : { mode: command.mode }),
-                ...(modelSelection === undefined ? {} : { modelSelection }),
-            }, this.dependencies.control))
-            .then(() => {
-                if (!accepted) {
-                    settleAcceptance({ ok: false, error: "goal_create_failed" });
-                }
-            }, () => {
-                if (!accepted) {
-                    settleAcceptance({ ok: false, error: "goal_create_failed" });
-                }
-            })
-            .finally(() => {
-                unsubscribe();
-                if (this.activeGoalId === command.goalId) this.setActiveGoalId(undefined);
-                this.inFlight.delete(command.goalId);
-            });
-
-        return acceptance;
-    }
-
-    private async startPlanMode(
-        goalId: string,
-        command: BrowserGoalPlanModeCommand,
-    ): Promise<BrowserGoalPlanModeResult> {
-        const key = `${goalId}\u0000${command.runId}`;
-        try {
-            const result = await this.dependencies.coordinator.enterPlanMode(
-                { goalId, runId: command.runId },
-                this.dependencies.control,
-            );
-            return result.ok
-                ? { ok: true, goalId, runId: command.runId, existing: false }
-                : {
-                    ok: false,
-                    error: result.error.code === "RUN_NOT_FOUND" ? "stale_run"
-                        : result.error.code === "PLAN_MODE_BUSY" ? "plan_mode_busy"
-                            : "plan_mode_failed",
-                };
-        } finally {
-            if (this.activeGoalId === goalId) this.setActiveGoalId(undefined);
-            this.inFlightPlanModes.delete(key);
-        }
-    }
-
-    private async startInteraction(
-        goalId: string,
-        command: BrowserGoalInteractionCommand,
-    ): Promise<BrowserGoalInteractionResult> {
-        let settleAcceptance!: (result: BrowserGoalInteractionResult) => void;
-        let accepted = false;
-        const acceptance = new Promise<BrowserGoalInteractionResult>((resolve) => {
-            settleAcceptance = resolve;
-        });
-        const key = interactionKey(goalId, command);
-        const unsubscribe = this.dependencies.saveNotifications.onSave((goal) => {
-            if (goal.id !== goalId || goal.state.run.id !== command.runId || accepted) return;
-            accepted = true;
-            settleAcceptance({
-                ok: true,
-                goalId,
-                runId: goal.state.run.id,
-                existing: false,
-            });
-        });
-
-        void Promise.resolve()
-            .then(() => this.dependencies.coordinator.resume({
-                ref: { goalId, runId: command.runId },
-                action: toRuntimeAction(command),
-            }, this.dependencies.control))
-            .then((result) => {
-                if (!accepted) {
-                    settleAcceptance({
-                        ok: false,
-                        error: result.ok ? "interaction_failed" : "invalid_interaction",
-                    });
-                }
-            }, () => {
-                if (!accepted) settleAcceptance({ ok: false, error: "interaction_failed" });
-            })
-            .finally(() => {
-                unsubscribe();
-                if (this.activeGoalId === goalId) this.setActiveGoalId(undefined);
-                this.inFlightInteractions.delete(key);
-            });
-
-        return acceptance;
-    }
-
-    private async startMessage(
-        initialGoal: Goal,
-        command: BrowserGoalMessageCommand,
-    ): Promise<BrowserGoalMessageResult> {
-        let settleAcceptance!: (result: BrowserGoalMessageResult) => void;
-        let accepted = false;
-        const acceptance = new Promise<BrowserGoalMessageResult>((resolve) => {
-            settleAcceptance = resolve;
-        });
-        const goalId = initialGoal.id;
-        const runId = initialGoal.state.run.id;
-        const initialMessageCount = initialGoal.state.messages.length;
-        const startsNewRun = initialGoal.state.run.status === "completed" || initialGoal.state.run.status === "failed" || initialGoal.state.run.status === "cancelled";
-        const key = `${goalId}\u0000${runId}`;
-        const unsubscribe = this.dependencies.saveNotifications.onSave((goal) => {
-            if (goal.id !== goalId || accepted) return;
-            const submittedMessage = goal.state.messages[initialMessageCount];
-            if (submittedMessage?.role !== "user" || submittedMessage.content !== command.content) return;
-            if (startsNewRun) {
-                if (
-                    goal.state.run.id === runId
-                    || !(goal.state.completedRuns ?? []).some((run) => run.runId === runId)
-                ) return;
-            } else if (goal.state.run.id !== runId) {
-                return;
-            }
-            accepted = true;
-            settleAcceptance({
-                ok: true,
-                goalId,
-                runId: goal.state.run.id,
-                existing: false,
-            });
-        });
-
-        const progress = Promise.resolve().then(() => startsNewRun
-            ? this.dependencies.coordinator.continue({ goalId, runId }, command.content, this.dependencies.control, {
-                messageId: command.messageId,
-            })
-            : this.dependencies.coordinator.resume({
-                ref: { goalId, runId },
-                action: { kind: "message", content: command.content },
-            }, this.dependencies.control));
-        void progress.then((result) => {
-            if (!accepted) {
-                settleAcceptance({
-                    ok: false,
-                    error: result.ok ? "message_failed" : messageProgressError(result.error.code),
-                });
-            }
-        }, () => {
-            if (!accepted) settleAcceptance({ ok: false, error: "message_failed" });
-        }).finally(() => {
-            unsubscribe();
-            if (this.activeGoalId === goalId) this.setActiveGoalId(undefined);
-            this.inFlightMessages.delete(key);
-        });
-
-        return acceptance;
-    }
-
-    private async withReservationLock<T>(operation: () => Promise<T>): Promise<T> {
-        const previous = this.reservationTail;
-        let release!: () => void;
-        this.reservationTail = new Promise<void>((resolve) => { release = resolve; });
-        await previous;
-        try {
-            return await operation();
-        } finally {
-            release();
-        }
-    }
-
     private isShuttingDown(): boolean {
         return this.dependencies.control?.signal?.aborted === true;
     }
 }
 
-function interactionKey(goalId: string, command: BrowserGoalInteractionCommand): string {
-    const interactionId = "requestId" in command ? command.requestId : command.actionId;
-    return `${goalId}\u0000${command.runId}\u0000${command.kind}\u0000${interactionId}`;
-}
-
-function validateInteractionTarget(
-    goal: Goal,
-    command: BrowserGoalInteractionCommand,
-): Extract<BrowserGoalInteractionResult, { readonly ok: false }>["error"] | undefined {
-    if (goal.state.run.id !== command.runId) return "stale_run";
-    if (goal.state.run.status !== "waiting") return "goal_not_waiting";
-
-    const interaction = goal.state.run.pendingInteraction;
-    if (command.kind === "cancel_ask_user") {
-        return interaction?.kind === "ask_user" && interaction.requestId === command.requestId
-            ? undefined
-            : "stale_request";
-    }
-    if (command.kind === "answer_ask_user") {
-        return interaction?.kind === "ask_user" && interaction.requestId === command.requestId
-            ? undefined
-            : "stale_request";
-    }
-    if (command.kind === "approve_task" || command.kind === "feedback_task") {
-        return interaction?.kind === "task_approval" && interaction.requestId === command.requestId
-            ? undefined
-            : "stale_request";
-    }
-
-    const pendingAction = goal.state.run.pendingAction;
-    if (
-        interaction !== undefined
-        || pendingAction === undefined
-        || pendingAction.action.actionId !== command.actionId
-        || (pendingAction.status !== "awaiting_approval" && pendingAction.status !== "outcome_unknown")
-    ) {
-        return "action_not_waiting";
-    }
-    return undefined;
-}
-
-function toRuntimeAction(command: BrowserGoalInteractionCommand): GoalUserAction {
-    switch (command.kind) {
-        case "cancel_ask_user":
-            return { kind: "cancel_ask_user", requestId: command.requestId };
-        case "answer_ask_user":
-            return {
-                kind: "answer_ask_user",
-                requestId: command.requestId,
-                answers: command.answers,
-            };
-        case "approve_task":
-            return { kind: "approve_task", requestId: command.requestId };
-        case "feedback_task":
-            return {
-                kind: "feedback_task",
-                requestId: command.requestId,
-                feedback: command.feedback,
-            };
-        case "approve_action":
-            return { kind: "approve_action", actionId: command.actionId, scope: command.scope ?? "action" };
-        case "reject_action":
-            return {
-                kind: "reject_action",
-                actionId: command.actionId,
-                reason: command.reason,
-            };
-    }
-}
-
-function messageProgressError(
-    code: string,
-): Extract<BrowserGoalMessageResult, { readonly ok: false }>["error"] {
+/** 把 Runtime 审批预检拒绝码投影为 wire 稳定错误码。 */
+function toBrowserReviewError(
+    code: ActionApprovalReviewErrorCode,
+): Extract<BrowserActionReviewResult, { readonly ok: false }>["error"] {
     switch (code) {
-        case "RUN_NOT_FOUND": return "stale_run";
-        case "GOAL_NOT_WAITING": return "goal_not_waiting";
-        case "GOAL_NOT_COMPLETED": return "goal_not_completed";
-        case "INVALID_GOAL_INPUT": return "invalid_message";
-        default: return "message_failed";
+        case "ACTION_NOT_AWAITING_APPROVAL": return "action_not_waiting";
+        case "ACTION_ID_MISMATCH": return "action_id_mismatch";
+        case "TOOL_NOT_FOUND": return "tool_not_found";
+        case "INVALID_TOOL_INPUT": return "invalid_tool_input";
+        case "SCOPE_UNAVAILABLE": return "scope_unavailable";
+        case "SANDBOX_SCOPE_UNAVAILABLE": return "sandbox_scope_unavailable";
+        case "REVIEW_UNAVAILABLE": return "review_unavailable";
+    }
+}
+
+/** 把 Runtime 完整审阅内容投影为 wire DTO；阶段只保留目标与验收条件。 */
+function toBrowserInteractionDetail(detail: InteractionDetail): BrowserInteractionDetail {
+    switch (detail.kind) {
+        case "question":
+            return {
+                kind: "question",
+                mode: detail.mode,
+                questions: detail.questions.map((question) => ({
+                    id: question.id,
+                    header: question.header,
+                    question: question.question,
+                    multiSelect: question.multiSelect,
+                    options: question.options.map((option) => ({
+                        id: option.id,
+                        label: option.label,
+                        ...(option.description === undefined ? {} : { description: option.description }),
+                    })),
+                })),
+                ...(detail.routeRevision === undefined ? {} : {
+                    routeRevision: {
+                        baseRevision: detail.routeRevision.baseRevision,
+                        reason: detail.routeRevision.reason,
+                        approvalRequest: detail.routeRevision.approvalRequest,
+                        approvalOptionId: detail.routeRevision.approvalOptionId,
+                        stages: detail.routeRevision.stages.map((stage) => ({
+                            target: stage.target,
+                            acceptanceCriteria: [...stage.acceptanceCriteria],
+                        })),
+                    },
+                }),
+            };
+        case "task_approval":
+            return {
+                kind: "task_approval",
+                objective: detail.objective,
+                approvalRequest: detail.approvalRequest,
+                completionCriteria: [...detail.completionCriteria],
+                stages: detail.stages.map((stage) => ({
+                    target: stage.target,
+                    acceptanceCriteria: [...stage.acceptanceCriteria],
+                })),
+            };
+        case "action_approval":
+        case "action_recovery":
+            return {
+                kind: detail.kind,
+                actionId: detail.actionId,
+                toolId: detail.toolId,
+                ...(detail.approvalKind === undefined ? {} : { approvalKind: detail.approvalKind }),
+                input: detail.input,
+                ...(detail.recoveryRef === undefined ? {} : { recoveryRef: detail.recoveryRef }),
+                ...(detail.parentProgram === undefined ? {} : { parentProgram: detail.parentProgram }),
+            };
     }
 }

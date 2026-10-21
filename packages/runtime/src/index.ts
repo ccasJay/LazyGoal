@@ -111,6 +111,7 @@ export type {
 } from "./lifecycle";
 export type {
     AssistantMessage,
+    AssistantMessagePurpose,
     AgentDecision,
     CompletionAcceptance,
     CompletionEvidence,
@@ -129,6 +130,8 @@ export type {
     GoalCreationInput,
     GoalDefinition,
     GoalMessage,
+    GoalMessagePosition,
+    GoalMessageSource,
     GoalModelSelection,
     RunMode,
     CompletedRunRecord,
@@ -169,6 +172,42 @@ export type {
 } from "./domain";
 export { transition } from "./transition";
 export {
+    computeActionApprovalReviewRef,
+    computeActionRecoveryRef,
+    computeApprovalInputId,
+    isRevisablePendingAction,
+    projectSandboxTargetPaths,
+    resolveActionExecutionAction,
+    resolveActionRecoveryRef,
+} from "./action-approval";
+export type {
+    ActionApprovalCapability,
+    ActionApprovalReview,
+    ActionApprovalReviewErrorCode,
+    ActionApprovalReviewRequest,
+    ActionApprovalReviewResult,
+    ActionApprovalScope,
+    ActionExecutionVersion,
+} from "./action-approval";
+export {
+    appendGoalMessage,
+    createAssistantMessage,
+    createModelTextSource,
+    createRuntimeNoticeSource,
+    createStageOutputSource,
+    createUserMessage,
+    findGoalMessageById,
+    findGoalMessageBySource,
+    goalMessageSourceKey,
+    GoalMessageSourceConflictError,
+} from "./goal-message";
+export type {
+    AppendGoalMessageResult,
+    AssistantMessageDraft,
+    GoalMessageDraft,
+    UserMessageDraft,
+} from "./goal-message";
+export {
     MODEL_CONTEXT_CHECKPOINT_INVALID,
     ModelContextCheckpointError,
     createInitialContextEpoch,
@@ -185,10 +224,12 @@ export type {
 export { createStepExecutor } from "./step-executor";
 export type { StepExecutor } from "./step-executor";
 export type {
+    CompletionCandidatePreview,
     CompletionReviewCandidate,
     CompletionReviewInput,
     DecideStageResult,
     ModelContextFrameForStage,
+    PublicTextBlock,
     StepExecutionInput,
     ThinkExchange,
     ThinkStageResult,
@@ -296,6 +337,7 @@ export type {
 } from "./evidence-gate";
 export {
     TrajectoryCheckpointCommitter,
+    saveGoalWithSessionState,
 } from "./trajectory-checkpoint-committer";
 export type {
     AcceptedMemoryPatchInput,
@@ -305,6 +347,137 @@ export type {
     TrajectoryCheckpointCommitterDependencies,
     TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
+export { withGoalMutationGate } from "./goal-mutation-gate";
+export {
+    MAX_PENDING_SESSION_INPUTS,
+    MAX_PENDING_SESSION_INPUT_TEXT_LENGTH,
+    MAX_SESSION_INPUT_TEXT_LENGTH,
+    SessionInputAdmissionError,
+    appendQueuedMessage,
+    clearQueuedMessages,
+    computeSessionInputDigest,
+    findSessionInputRecord,
+    hasPendingSessionInputs,
+    hasUnsettledSessionWork,
+    measurePendingInputUsage,
+    nextSessionInputSequence,
+    toSessionInputReceipt,
+    validateSessionInputShape,
+    withQueuePause,
+    withoutQueuePause,
+} from "./session-input";
+export type {
+    SessionInput,
+    SessionInputAdmissionResult,
+    SessionInputControl,
+    SessionInputDigest,
+    SessionInputKind,
+    SessionInputQueryResult,
+    SessionInputReceipt,
+    SessionInputRecord,
+    SessionInputRejectionCode,
+    SessionInputStatus,
+    SessionInteractionResponse,
+    SessionMessageQueue,
+    SessionMessageQueueItem,
+    SessionQueuePauseReason,
+} from "./session-input";
+export { SessionInputAdmission } from "./session-admission";
+export type { SessionInputAdmissionDependencies } from "./session-admission";
+export { handlerNameFor } from "./interaction-handlers";
+export type {
+    InteractionHandlerAttachOptions,
+    InteractionHandlerAttachResult,
+    InteractionHandlerCall,
+    InteractionHandlerFailure,
+    InteractionHandlerHandle,
+    InteractionHandlerResult,
+    SessionInteractionHandlers,
+} from "./interaction-handlers";
+export {
+    formatInteractionId,
+    projectInteractionView,
+    readInteractionDetail,
+} from "./interaction-view";
+export type {
+    GoalInteractionView,
+    InteractionDecision,
+    InteractionDetail,
+    InteractionDetailResult,
+    InteractionViewKind,
+    InteractionViewRef,
+} from "./interaction-view";
+export {
+    MAX_SESSION_MESSAGE_RECENT,
+    Session,
+    SessionDetachedError,
+    projectGoalSessionState,
+    projectSessionMessageRange,
+} from "./session";
+export type {
+    GoalSessionState,
+    GoalSessionStateInput,
+    SessionHandlePort,
+    SessionInputConsumptionResult,
+    SessionManagerErrorCode,
+    SessionMessageRange,
+    SessionMessageSummary,
+    SessionOutputEvent,
+    SessionReceipt,
+} from "./session";
+export {
+    MAX_LIVE_TEXT_LENGTH,
+    SESSION_INPUT_RESULT_KIND,
+    classifySessionStreamEvent,
+    readPendingInteraction,
+} from "./session-output";
+export {
+    DEFAULT_MESSAGE_PAGE_SIZE,
+    MAX_MESSAGE_BODY_LENGTH,
+    MAX_MESSAGE_LIST_CONTENT_LENGTH,
+    MAX_MESSAGE_PAGE_SIZE,
+    projectSessionMessageEntry,
+    queryGoalMessages,
+    readGoalMessageBody,
+    sliceWithoutSplittingSurrogate,
+} from "./session-message-query";
+export type {
+    SessionMessageBodyResult,
+    SessionMessageEntry,
+    SessionMessageListResult,
+    SessionMessageQuery,
+} from "./session-message-query";
+export type {
+    SessionActivityBoundaryReason,
+    SessionCommitBoundaryEvent,
+    SessionEventSource,
+    SessionGenerationEvent,
+    SessionInteractionEvent,
+    SessionMessageCommittedEvent,
+    SessionRunResultEvent,
+    SessionRunStatusEvent,
+    SessionStreamFaultEvent,
+    SessionToolActivityEvent,
+} from "./session-output";
+export {
+    DEFAULT_RESYNC_INTERVAL_MS,
+    GoalRevisionMonitor,
+    GoalSessionStream,
+} from "./session-stream";
+export type {
+    GoalRevisionMonitorDependencies,
+    GoalSessionStreamDependencies,
+    SessionInputOutcome,
+    SessionOutputStream,
+} from "./session-stream";
+export { SessionManager, SessionManagerCloseError } from "./session-manager";
+export type {
+    SessionCreateRequest,
+    SessionCreateResult,
+    SessionManagerDependencies,
+    SessionOpenResult,
+    SessionQueryResult,
+} from "./session-manager";
 export { Runner, type InterruptRunResult, type SteerInputResult } from "./runner";
 export { RunRecoveryReader, type RunRecoveryReaderDependencies } from "./run-recovery-reader";
 export type { RunnerDependencies, RunnerResult, SandboxPlanResolver } from "./runner";
@@ -351,13 +524,16 @@ export type {
     ToolGrantStore,
     UnifiedGrantSummary,
 } from "./tool-grant";
-export { launch } from "./launcher";
+export { launch, createGoalCheckpoint } from "./launcher";
 export type {
+    CreateGoalRequest,
+    CreateGoalResult,
     LauncherDependencies,
     LaunchRequest,
     LaunchResult,
     RunIdGenerator,
 } from "./launcher";
+export type { ContinuationQueueBinding } from "./goal-coordinator";
 export type { RunScheduler } from "./scheduler";
 export { GoalCoordinator } from "./goal-coordinator";
 export type {

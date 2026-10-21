@@ -47,8 +47,7 @@ export async function runGaiaWorkerSmoke(): Promise<void> {
             generate: async (request) => {
                 calls += 1;
                 if (calls === 1) {
-                    return {
-                        content: JSON.stringify({
+                    return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({
                             result: {
                                 kind: "task_proposal",
                                 planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
@@ -62,12 +61,10 @@ export async function runGaiaWorkerSmoke(): Promise<void> {
                                 approvalRequest: "Approve the GAIA smoke task.",
                                 memoryPatch: null,
                             },
-                        }),
-                    };
+                        }) }] };
                 }
                 if (calls === 2) {
-                    return {
-                        content: JSON.stringify({
+                    return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({
                             result: {
                                 kind: "tool_call",
                                 action: {
@@ -77,8 +74,7 @@ export async function runGaiaWorkerSmoke(): Promise<void> {
                                 },
                                 memoryPatch: null,
                             },
-                        }),
-                    };
+                        }) }] };
                 }
                 const context = request.messages.at(-1)?.content;
                 if (typeof context !== "string") {
@@ -94,16 +90,14 @@ export async function runGaiaWorkerSmoke(): Promise<void> {
                 if (typeof sequence !== "number") {
                     throw new Error("GAIA smoke did not receive submit_answer observation");
                 }
-                return {
-                    content: JSON.stringify({
+                return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({
                         result: {
                             kind: "complete",
                             summary: "Submitted answer 2",
                             completionEvidence: [{ criterionIndex: 0, evidenceSequences: [sequence] }],
                             memoryPatch: null,
                         },
-                    }),
-                };
+                    }) }] };
             },
         };
 

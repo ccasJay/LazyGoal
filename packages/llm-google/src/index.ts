@@ -1,2 +1,2 @@
-export { Gemini } from "./gemini";
+export { Gemini, GeminiIncompleteResponseError } from "./gemini";
 export type { GeminiConfig } from "./gemini";

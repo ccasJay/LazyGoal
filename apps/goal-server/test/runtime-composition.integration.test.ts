@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import type { LLMAdapter } from "../../../packages/llm-core/src/index";
+import { toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
 import type { LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import type {
     PermissionMode,
@@ -43,32 +44,59 @@ class AskUserAdapter implements LLMAdapter {
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.calls.push(request);
         if (this.calls.length === 1) {
-            return {
-                content: "",
-                toolCalls: [{
-                    callId: "fixture-ask-user",
-                    toolId: "ask_user",
-                    argumentsJson: JSON.stringify({
-                        questions: [
-                            {
-                                header: "继续方式",
-                                question: "Which path should be taken?",
-                                options: [{ label: "Path A" }, { label: "Path B" }],
-                                multiSelect: false,
-                            },
-                        ],
-                    }),
-                }],
-            };
+            return toolCallResponse({
+                callId: "fixture-ask-user",
+                toolId: "ask_user",
+                argumentsJson: JSON.stringify({
+                    questions: [
+                        {
+                            header: "继续方式",
+                            question: "Which path should be taken?",
+                            options: [{ label: "Path A" }, { label: "Path B" }],
+                            multiSelect: false,
+                        },
+                    ],
+                }),
+            });
         }
-        return {
-            content: "",
-            toolCalls: [{
-                callId: "fixture-wait",
-                toolId: "system_wait_for_input",
-                argumentsJson: JSON.stringify({ reason: "等待用户确认" }),
-            }],
-        };
+        return toolCallResponse({
+            callId: "fixture-wait",
+            toolId: "system_wait_for_input",
+            argumentsJson: JSON.stringify({ reason: "等待用户确认" }),
+        });
+    }
+}
+
+/** 连续提出三张问卷，之后进入 blocked 等待；用于交互处理端口用例。 */
+class RepeatingAskUserAdapter implements LLMAdapter {
+    readonly provider = "openai";
+    readonly structuredOutputMode = "strict" as const;
+    modelId = "model-runtime-composition";
+    readonly calls: LLMRequest[] = [];
+
+    async generate(request: LLMRequest): Promise<LLMResponse> {
+        this.calls.push(request);
+        if (this.calls.length <= 3) {
+            return toolCallResponse({
+                callId: "fixture-ask-user",
+                toolId: "ask_user",
+                argumentsJson: JSON.stringify({
+                    questions: [
+                        {
+                            header: `继续方式 ${this.calls.length}`,
+                            question: "Which path should be taken?",
+                            options: [{ label: "Path A" }, { label: "Path B" }],
+                            multiSelect: false,
+                        },
+                    ],
+                }),
+            });
+        }
+        return toolCallResponse({
+            callId: "fixture-wait",
+            toolId: "system_wait_for_input",
+            argumentsJson: JSON.stringify({ reason: "等待用户确认" }),
+        });
     }
 }
 
@@ -366,3 +394,303 @@ test("在途权限、模型与归档删除操作参与关闭结算，关闭后�
         await fixture.cleanup();
     }
 });
+
+test("目录入口的交互端口完成程序化决定、真人接手与重建后显式恢复", async () => {
+    const fixture = await setupFixture();
+    const adapter = new RepeatingAskUserAdapter();
+    const runtime = await createRuntimeComposition({
+        cwd: fixture.workspace,
+        env: { LAZYGOAL_HOME: fixture.home } as NodeJS.ProcessEnv,
+        dataDirectory: fixture.dataDirectory,
+        adapter,
+        profile,
+        toolRegistry: new InMemoryToolRegistry([]),
+    });
+    const goalId = "goal-interaction-port";
+
+    try {
+        const created = await runtime.sessions.create({
+            goalId,
+            inputId: "port-input-1",
+            content: "通过交互端口处理问答",
+            profileId: profile.id,
+        });
+        assert.equal(created.ok, true);
+        // 等待第一个问卷成为已提交的历史等待。
+        await waitForCondition(async () => (await runtime.interactions.read(goalId))?.kind === "question");
+        await runtime.sessions.waitForIdle();
+        assert.equal((await runtime.interactions.read(goalId))?.kind, "question");
+
+        // 连接前已有的历史等待不会被自动回答。
+        const handledIds: string[] = [];
+        const attached = await runtime.interactions.attach(goalId, {
+            onQuestion: async ({ request, readDetail }) => {
+                handledIds.push(request.interactionId);
+                if (handledIds.length > 1 || request.kind !== "question") return { kind: "unhandled" };
+                const detail = await readDetail();
+                if (!detail.ok || detail.detail.kind !== "question") return { kind: "unhandled" };
+                return {
+                    kind: "respond",
+                    response: {
+                        kind: "answer_ask_user",
+                        answers: detail.detail.questions.map((question) => ({
+                            questionId: question.id,
+                            optionIds: [question.options[0]!.id],
+                        })),
+                    },
+                };
+            },
+        });
+        assert.equal(attached.ok, true);
+        if (!attached.ok) return;
+        await runtime.sessions.waitForIdle();
+        assert.deepEqual(handledIds, [], "attaching never answers a historical wait");
+        assert.equal(adapter.calls.length, 1);
+
+        // 显式恢复只解锁当前历史请求，不代替真人回答；处理函数随后按统一 send 提交。
+        const opened = await runtime.sessions.open(goalId);
+        assert.equal(opened.ok, true);
+        if (!opened.ok) return;
+        const resumed = await opened.session.send({
+            kind: "resume",
+            inputId: "port-resume-1",
+            runId: opened.state.runId,
+            commitRevision: opened.state.commitRevision,
+        });
+        assert.equal(resumed.ok, false);
+        assert.equal(resumed.ok ? undefined : resumed.code, "INTERACTION_REQUIRED");
+        await waitForCondition(() => handledIds.length === 1 && adapter.calls.length === 2);
+        await runtime.sessions.waitForIdle();
+        assert.equal(handledIds.length, 1, "explicit resume unlocks exactly the current wait");
+        assert.equal(adapter.calls.length, 2, "the programmatic decision continues the same Run");
+
+        await waitForCondition(async () => (await runtime.workspaceGoalStore.restore(goalId))?.state.run.status === "waiting");
+        const saved = await runtime.workspaceGoalStore.restore(goalId);
+        assert.ok(saved);
+        assert.equal(saved.state.run.status, "waiting");
+        assert.equal(
+            saved.state.messages.some((message) => message.role === "user" && message.content.includes("Answer: Path A")),
+            true,
+            "the handler decision is committed as a real model-visible answer",
+        );
+
+        // 真人接手：第二个等待由宿主显式响应，处理函数不重复调用。
+        await waitForCondition(async () => (await runtime.interactions.read(goalId))?.kind === "question");
+        const waiting = await runtime.interactions.read(goalId);
+        assert.equal(waiting?.kind, "question");
+        if (waiting === undefined || waiting.kind !== "question") return;
+        const human = await opened.session.send({
+            kind: "respond",
+            inputId: "port-human-1",
+            runId: waiting.runId,
+            requestId: waiting.requestId,
+            response: { kind: "skip_question" },
+        });
+        assert.equal(human.ok, true);
+        // 每个等待至多投递一次；同一请求不会因未处理结果反复调用。
+        assert.equal(new Set(handledIds).size, handledIds.length, "each wait is delivered to the handler at most once");
+        await waitForCondition(async () => {
+            const next = await runtime.interactions.read(goalId);
+            return next !== undefined && next.interactionId !== waiting.interactionId;
+        });
+        const nextWait = await runtime.interactions.read(goalId);
+        assert.notEqual(nextWait?.interactionId, waiting.interactionId, "the settled wait is never re-delivered");
+        assert.equal(new Set(handledIds).size, handledIds.length);
+        await waitForCondition(async () => (await runtime.workspaceGoalStore.restore(goalId))?.state.messages
+            .some((message) => message.role === "user" && message.content.includes("did not answer")) === true);
+        const afterHuman = await runtime.workspaceGoalStore.restore(goalId);
+        assert.equal(
+            afterHuman?.state.messages.some((message) => message.role === "user" && message.content.includes("did not answer")),
+            true,
+            "the human skip is committed as an explicit control message",
+        );
+
+        // 第二次连接同一 Goal 被拒绝；解除后可以重新连接。
+        const conflict = await runtime.interactions.attach(goalId, {});
+        assert.deepEqual(conflict.ok ? undefined : conflict.code, "HANDLER_CONFLICT");
+        attached.handle.detach();
+        assert.equal(attached.handle.detached, true);
+        const reattached = await runtime.interactions.attach(goalId, {});
+        assert.equal(reattached.ok, true);
+        reattached.ok && reattached.handle.detach();
+    } finally {
+        await runtime.lifecycle.close();
+    }
+
+    // 重建实例：只读连接不推进，显式恢复才允许已注册处理器处理历史等待。
+    const rebuiltAdapter = new RepeatingAskUserAdapter();
+    const rebuilt = await createRuntimeComposition({
+        cwd: fixture.workspace,
+        env: { LAZYGOAL_HOME: fixture.home } as NodeJS.ProcessEnv,
+        dataDirectory: fixture.dataDirectory,
+        adapter: rebuiltAdapter,
+        profile,
+        toolRegistry: new InMemoryToolRegistry([]),
+    });
+    try {
+        let rebuiltHandled = 0;
+        const attached = await rebuilt.interactions.attach(goalId, {
+            onQuestion: async ({ readDetail }) => {
+                rebuiltHandled += 1;
+                const detail = await readDetail();
+                if (!detail.ok || detail.detail.kind !== "question") return { kind: "unhandled" };
+                return {
+                    kind: "respond",
+                    response: {
+                        kind: "answer_ask_user",
+                        answers: detail.detail.questions.map((question) => ({
+                            questionId: question.id,
+                            optionIds: [question.options[0]!.id],
+                        })),
+                    },
+                };
+            },
+        });
+        assert.equal(attached.ok, true);
+        if (!attached.ok) return;
+        assert.equal(rebuiltAdapter.calls.length, 0, "打开与注册不调用模型");
+        assert.equal(rebuiltHandled, 0, "重建后的历史等待不会被自动回答");
+        const opened = await rebuilt.sessions.open(goalId);
+        assert.equal(opened.ok, true);
+        if (!opened.ok) return;
+        const resumed = await opened.session.send({
+            kind: "resume",
+            inputId: "port-resume-2",
+            runId: opened.state.runId,
+            commitRevision: opened.state.commitRevision,
+        });
+        assert.equal(resumed.ok ? undefined : resumed.code, "INTERACTION_REQUIRED");
+        await waitForCondition(() => rebuiltHandled === 1);
+        await rebuilt.sessions.waitForIdle();
+        assert.equal(rebuiltHandled, 1, "显式恢复后重新投递仍未结算的历史等待");
+        attached.handle.detach();
+    } finally {
+        await rebuilt.lifecycle.close();
+    }
+    await fixture.cleanup();
+});
+
+test("目录入口暴露的 sessions 完成创建、流式交互、问答、关闭与重建恢复", async () => {
+    const fixture = await setupFixture();
+    const adapter = new AskUserAdapter();
+    const runtime = await createRuntimeComposition({
+        cwd: fixture.workspace,
+        env: { LAZYGOAL_HOME: fixture.home } as NodeJS.ProcessEnv,
+        dataDirectory: fixture.dataDirectory,
+        adapter,
+        profile,
+        toolRegistry: new InMemoryToolRegistry([]),
+    });
+
+    // 创建：先持久化 Goal、首条消息、Run 与收据，再返回句柄；不启动 HTTP。
+    const created = await runtime.sessions.create({
+        goalId: "goal-session-entry",
+        inputId: "input-first",
+        content: "通过目录入口创建会话",
+        profileId: profile.id,
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    assert.equal(created.existing, false);
+    assert.equal(created.receipt.status, "applied");
+    assert.equal((runtime as { httpService?: unknown }).httpService, undefined);
+
+    // 流式交互：等待问答后以匹配身份回答，同一 Run 继续并在无输入时进入等待。
+    await runtime.sessions.waitForIdle();
+    const waiting = await created.session.read();
+    assert.equal(waiting?.runStatus, "waiting");
+    assert.equal(waiting?.waitingFor, "ask_user");
+    const saved = await runtime.workspaceGoalStore.restore("goal-session-entry");
+    assert.ok(saved);
+    const answer = answersFor(saved);
+    const runId = saved.state.run.id;
+    const responded = await created.session.send({
+        kind: "respond",
+        inputId: "respond-1",
+        runId,
+        requestId: answer.requestId,
+        response: {
+            kind: "answer_ask_user",
+            answers: [{ questionId: answer.questionId, optionIds: [answer.optionId] }],
+        },
+    });
+    assert.equal(responded.ok, true);
+    await runtime.sessions.waitForIdle();
+    const afterAnswer = await runtime.workspaceGoalStore.restore("goal-session-entry");
+    assert.equal(afterAnswer?.state.run.id, runId);
+    assert.equal(afterAnswer?.state.run.status, "waiting");
+
+    // 订阅输出：首项是一致状态同步，其后包含输入结果。
+    const events: unknown[] = [];
+    const stream = created.session.events();
+    const consumed = (async () => {
+        for await (const event of stream) events.push(event);
+    })();
+    for (let tick = 0; tick < 50 && events.length === 0; tick += 1) {
+        await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.equal((events[0] as { type?: string }).type, "state_sync");
+    const queued = await created.session.send({ kind: "message", inputId: "input-queued", content: "等待后的后续任务" });
+    assert.equal(queued.ok, true);
+    for (let tick = 0; tick < 50 && !events.some((event) => (event as { type?: string }).type === "input_result"); tick += 1) {
+        await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.ok(events.some((event) => (event as { type?: string }).type === "input_result"));
+    stream.close();
+    await consumed;
+
+    // 关闭实例：会话订阅、输入消费与自有资源参与关闭结算。
+    await runtime.lifecycle.close();
+
+    // 重建实例：只读连接不推进、不调用模型；显式恢复继续已受理工作。
+    const adapterAfterRestart = new AskUserAdapter();
+    const rebuilt = await createRuntimeComposition({
+        cwd: fixture.workspace,
+        env: { LAZYGOAL_HOME: fixture.home } as NodeJS.ProcessEnv,
+        dataDirectory: fixture.dataDirectory,
+        adapter: adapterAfterRestart,
+        profile,
+        toolRegistry: new InMemoryToolRegistry([]),
+    });
+    try {
+        const opened = await rebuilt.sessions.open("goal-session-entry");
+        assert.equal(opened.ok, true);
+        if (!opened.ok) return;
+        assert.equal(adapterAfterRestart.calls.length, 0);
+        assert.equal(opened.state.pendingMessageCount, 1);
+        const resumed = await opened.session.send({
+            kind: "resume",
+            inputId: "resume-1",
+            runId: opened.state.runId,
+            commitRevision: opened.state.commitRevision,
+            content: "继续执行已受理任务",
+        });
+        assert.equal(resumed.ok, true);
+        await rebuilt.sessions.waitForIdle();
+        // 显式恢复只推进当前 Run：恢复文本成为真实用户消息，模型恰好被调用一次。
+        assert.equal(adapterAfterRestart.calls.length, 1);
+        const finished = await rebuilt.workspaceGoalStore.restore("goal-session-entry");
+        assert.equal(finished?.state.run.id, opened.state.runId);
+        assert.equal(finished?.state.run.status, "waiting");
+        assert.ok(
+            finished?.state.messages.some((message) => message.role === "user" && message.content === "继续执行已受理任务"),
+        );
+        assert.equal(
+            finished?.state.inputLedger?.find((record) => record.inputId === "resume-1")?.status,
+            "applied",
+        );
+        // blocked 等待不消费队列：已受理的普通消息保留到显式继续。
+        assert.deepEqual(finished?.state.messageQueue?.items.map((item) => item.inputId), ["input-queued"]);
+    } finally {
+        await rebuilt.lifecycle.close();
+    }
+    await fixture.cleanup();
+});
+
+/** 有界等待宿主处理函数完成；处理调用在提交 Gate 外异步运行。 */
+async function waitForCondition(predicate: () => boolean | Promise<boolean>, timeoutMs = 5_000): Promise<void> {
+    const startedAt = Date.now();
+    while (!(await predicate()) && Date.now() - startedAt < timeoutMs) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+}

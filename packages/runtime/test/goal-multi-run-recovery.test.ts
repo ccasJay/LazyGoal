@@ -183,9 +183,13 @@ test("JSON Snapshot survives Scheduler failure and a restarted Coordinator resum
         assert.ok(savedAfterFailure);
         assert.equal(savedAfterFailure.state.run.id, "run-2");
         assert.equal(savedAfterFailure.state.run.status, "created");
-        assert.deepEqual(savedAfterFailure.state.messages.at(-1), {
-            role: "user",
-            content: "恢复后继续执行",
+        const continuationMessage = savedAfterFailure.state.messages.at(-1);
+        assert.equal(continuationMessage?.role, "user");
+        assert.equal(continuationMessage?.content, "恢复后继续执行");
+        assert.equal(continuationMessage?.runId, "run-2");
+        assert.deepEqual(continuationMessage?.source, {
+            kind: "user_input",
+            inputId: "continuation:run-2",
         });
         assert.deepEqual(savedAfterFailure.state.completedRuns, [{
             runId: "run-1",

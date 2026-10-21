@@ -22,10 +22,7 @@ import {
     Runner,
     transition,
 } from "../../runtime/src/index";
-import {
-    currentProtocols,
-    trajectoryStoreFor,
-} from "../../runtime/test/current-fixtures";
+import { currentProtocols, messageOutline, trajectoryStoreFor, testUserMessage, testAssistantMessage } from "../../runtime/test/current-fixtures";
 import {
     GoalSnapshotProtocolError,
     goalSnapshotCodec,
@@ -50,8 +47,8 @@ const profile: AgentProfile = {
 };
 
 const messages: GoalMessage[] = [
-    { role: "user", content: "请开始执行" },
-    { role: "assistant", assistant: { profileId: "profile-1" }, content: "我会先检查输入" },
+    testUserMessage("请开始执行"),
+    testAssistantMessage("我会先检查输入", { profileId: "profile-1" }),
 ];
 
 function createExecutingGoal(input: {
@@ -388,11 +385,7 @@ test("GoalSnapshotCodec restores the complete Runtime State for every phase", ()
             },
             messages: [
                 ...planning.state.messages,
-                {
-                    role: "assistant",
-                    assistant: { profileId: "profile-1" },
-                    content: "请批准任务",
-                },
+                testAssistantMessage("请批准任务", { profileId: "profile-1", goal: planning }),
             ],
             run: {
                 ...planning.state.run,
@@ -674,8 +667,16 @@ test("InMemoryGoalStore keeps only the latest complete snapshot", async () => {
             ...initial.state,
             messages: [
                 ...initial.state.messages,
-                { role: "user", content: "继续执行" },
+                testUserMessage("继续执行", { runId: "run-2", position: { afterSequence: 0, order: 0 } }),
             ],
+            // 新 Run 接管前，旧 Run 必须留在已归档 Run 列表里。
+            completedRuns: [{
+                runId: "run-1",
+                status: "completed",
+                stepCount: initial.state.run.stepCount,
+                committedThroughSequence: initial.state.run.committedThroughSequence,
+                messageRange: { start: 0, end: initial.state.messages.length },
+            }],
             run: {
                 ...initial.state.run,
                 id: "run-2",
@@ -697,10 +698,10 @@ test("InMemoryGoalStore keeps only the latest complete snapshot", async () => {
 
     assert.deepEqual(await store.restore("goal-1"), latest);
     assert.deepEqual((await store.restore("goal-1"))?.definition.profile, profile);
-    assert.deepEqual((await store.restore("goal-1"))?.state.messages, [
+    assert.deepEqual(messageOutline((await store.restore("goal-1"))?.state.messages ?? []), [
         { role: "user", content: "完成快照存储" },
         { role: "user", content: "请开始执行" },
-        { role: "assistant", assistant: { profileId: "profile-1" }, content: "我会先检查输入" },
+        { role: "assistant", content: "我会先检查输入", purpose: "process" },
         { role: "user", content: "继续执行" },
     ]);
 });
@@ -722,11 +723,11 @@ test("InMemoryGoalStore clones on save and restore", async () => {
     }
 
     (first.definition.profile.instructions as string[]).push("恢复结果修改");
-    (first.state.messages as GoalMessage[]).push({
-        role: "assistant",
-        assistant: { profileId: "profile-1" },
-        content: "不应写回 Store",
-    });
+    (first.state.messages as GoalMessage[]).push(testAssistantMessage("不应写回 Store", {
+        profileId: "profile-1",
+        runId: "run-1",
+        position: { afterSequence: 0, order: first.state.messages.length },
+    }));
 
     assert.deepEqual(await store.restore("goal-1"), createSnapshot());
 });
@@ -905,8 +906,16 @@ test("JsonFileGoalStore overwrites the previous snapshot for the same Goal", asy
                 ...initial.state,
                 messages: [
                     ...initial.state.messages,
-                    { role: "user", content: "恢复后继续执行" },
+                    testUserMessage("恢复后继续执行", { runId: "run-latest", position: { afterSequence: 0, order: 0 } }),
                 ],
+                // 新 Run 接管前，旧 Run 必须留在已归档 Run 列表里。
+                completedRuns: [{
+                    runId: "run-old",
+                    status: "completed",
+                    stepCount: initial.state.run.stepCount,
+                    committedThroughSequence: initial.state.run.committedThroughSequence,
+                    messageRange: { start: 0, end: initial.state.messages.length },
+                }],
                 run: {
                     ...initial.state.run,
                     id: "run-latest",
@@ -1324,7 +1333,7 @@ test("a cross-process waiting Goal resumes with its run and latest snapshot", as
                 ...goal.state,
                 messages: [
                     ...goal.state.messages,
-                    { role: "user", content: "恢复后的输入" },
+                    testUserMessage("恢复后的输入", { goal }),
                 ],
                 run: { ...goal.state.run, status: "running" },
             },
@@ -1345,13 +1354,13 @@ test("a cross-process waiting Goal resumes with its run and latest snapshot", as
         const latest = await new JsonFileGoalStore(directory).restore(goal.id);
         assert.deepEqual(latest?.state.workflow, goal.state.workflow);
         assert.deepEqual(latest?.definition.profile, goal.definition.profile);
-        assert.deepEqual(latest?.state.messages, [
-            ...goal.state.messages,
+        assert.deepEqual(messageOutline(latest?.state.messages ?? []), [
+            ...messageOutline(goal.state.messages),
             { role: "user", content: "恢复后的输入" },
             {
                 role: "assistant",
-                assistant: { profileId: "profile-1" },
                 content: "跨进程恢复后完成",
+                purpose: "answer",
             },
         ]);
         assert.deepEqual(latest?.state.run, resumed.state);

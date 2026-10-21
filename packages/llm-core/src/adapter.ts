@@ -25,7 +25,7 @@ import type { ExecutionControl } from "../../execution-control/src/index";
  * const adapter: LLMAdapter = {
  *   structuredOutputMode: "strict",
  *   async generate(request) {
- *     return { content: await callProvider(request) };
+ *     return { blocks: [{ index: 0, type: "text", format: "json", text: await callProvider(request) }] };
  *   },
  * };
  * ```
@@ -43,7 +43,7 @@ export interface LLMAdapter {
      * @param request - 已按模型消费顺序组装的消息列表，且其 structuredOutput 必须与 structuredOutputMode 一致。
      * @param control - 当前 Goal 推进调用共享的中止控制；适配器应将信号传给
      *   供应商请求，并在响应返回后再次检查。
-     * @returns 模型生成的原始文本及可选供应商诊断 metadata。
+     * @returns 模型生成的有序完整内容块及可选供应商诊断 metadata。
      * @throws 供应商调用、网络或鉴权失败时传播对应异常（包括 pi-ai 返回状态的适配异常）；中止时抛出
      *   `TransientModelRequestFailure`（仅限已分类的暂时故障）；`ExecutionAbortedError`；
      *   请求参数与固定模式不一致时抛出 `LLMRequestModeMismatchError`。

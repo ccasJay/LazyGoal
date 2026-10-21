@@ -70,13 +70,68 @@ export interface GoalSnapshotTaskV1 {
     readonly completionCriteria: readonly GoalSnapshotCompletionCriterionV1[];
 }
 
+/**
+ * Snapshot 中保存的消息来源。
+ *
+ * @remarks
+ * 来源描述消息为什么存在；它参与提交重试核对与原生历史去重判定，不参与正文比较。
+ * 同文不同来源仍是两条独立消息。
+ *
+ * @example
+ * ```ts
+ * const source: GoalSnapshotMessageSourceV1 = { kind: "user_input", inputId: "input-1" };
+ * ```
+ */
+export type GoalSnapshotMessageSourceV1 =
+    | { readonly kind: "goal_intent"; readonly goalId: string }
+    | { readonly kind: "user_input"; readonly inputId: string }
+    | { readonly kind: "interaction_response"; readonly requestId: string }
+    | { readonly kind: "model_text"; readonly modelCallId: string; readonly blockIndex: number }
+    | { readonly kind: "stage_output"; readonly executionUnitId: string; readonly blockIndex: number }
+    | { readonly kind: "completion_candidate"; readonly candidateId: string }
+    | { readonly kind: "host_execution"; readonly actionId: string }
+    | { readonly kind: "runtime_notice"; readonly noticeId: string };
+
+/**
+ * Snapshot 中的 Run 内消息位置。
+ *
+ * @remarks
+ * `afterSequence` 指同一 Run 中消息之前最后一条已提交事实；`order` 按 Snapshot
+ * 顺序标识共享锚点的消息。此位置不表示墙钟时间或执行 Step。
+ *
+ * @example
+ * ```ts
+ * const position: GoalSnapshotMessagePositionV1 = { afterSequence: 12, order: 0 };
+ * ```
+ */
+export interface GoalSnapshotMessagePositionV1 {
+    /** 消息之前的最后一条已提交事实序列。 */
+    readonly afterSequence: number;
+    /** 同一 Run、同一锚点内的 Snapshot 次序，从零开始。 */
+    readonly order: number;
+}
+
 /** Snapshot 中按时间顺序保存的真实会话消息。 */
 export type GoalSnapshotMessageV1 =
-    | { readonly role: "user"; readonly content: string }
+    | {
+        readonly role: "user";
+        readonly content: string;
+        readonly messageId: string;
+        readonly runId: string;
+        /** 消息之前最后一条已提交 Run 事实及同锚点 Snapshot 次序。 */
+        readonly position: GoalSnapshotMessagePositionV1;
+        readonly source: GoalSnapshotMessageSourceV1;
+    }
     | {
         readonly role: "assistant";
         readonly assistant: { readonly profileId: string };
         readonly content: string;
+        readonly messageId: string;
+        readonly runId: string;
+        /** 消息之前最后一条已提交 Run 事实及同锚点 Snapshot 次序。 */
+        readonly position: GoalSnapshotMessagePositionV1;
+        readonly purpose: "process" | "answer" | "notice";
+        readonly source: GoalSnapshotMessageSourceV1;
     };
 
 /** Snapshot 中的 Tool Action。 */
@@ -306,6 +361,24 @@ export interface GoalSnapshotPendingActionBatchV1 {
     readonly remaining: readonly GoalSnapshotToolCallActionV1[];
 }
 
+/** Snapshot 中已获批 Action 的最终执行版本。 */
+export interface GoalSnapshotExecutionVersionV1 {
+    /** 原请求的稳定引用与原始参数；不被修订覆盖。 */
+    readonly original: {
+        readonly actionId: string;
+        readonly toolId: string;
+        readonly input: SnapshotJsonValue;
+    };
+    /** 最终 canonical 执行参数。 */
+    readonly input: SnapshotJsonValue;
+    /** 绑定的审阅指纹。 */
+    readonly reviewRef: string;
+    /** 实际获批的授权期限。 */
+    readonly scope: "action" | "goal" | "workspace";
+    /** 修订来源；未修订的批准省略。 */
+    readonly revision?: { readonly source: "user" | "host" };
+}
+
 /** Snapshot 中的未完成 Action。 */
 export interface GoalSnapshotPendingActionV1 {
     readonly action: GoalSnapshotToolCallActionV1;
@@ -322,6 +395,12 @@ export interface GoalSnapshotPendingActionV1 {
         }[];
         readonly network: "none" | "all_outbound";
     };
+    /** 批准该 Action 的稳定决定身份；持续授权按该身份暂存与激活。 */
+    readonly approvalInputId?: string;
+    /** 已获批 Action 的最终执行版本；未修订的批准省略。 */
+    readonly executionVersion?: GoalSnapshotExecutionVersionV1;
+    /** 结果未知等待的恢复身份；跨重启稳定。 */
+    readonly recoveryRef?: string;
 }
 
 /**
@@ -736,12 +815,74 @@ export interface GoalSnapshotModelSelectionV1 {
  */
 export interface GoalSnapshotStateV1 {
     readonly nextRunMode?: "plan" | undefined;
+    /** Goal 级单调提交修订；省略等同 0。 */
+    readonly commitRevision?: number | undefined;
+    /** 已受理输入账本；省略表示尚未受理输入。 */
+    readonly inputLedger?: readonly GoalSnapshotSessionInputV1[] | undefined;
+    /** 待处理普通消息队列；省略表示空队列。 */
+    readonly messageQueue?: GoalSnapshotMessageQueueV1 | undefined;
     readonly workflow: GoalSnapshotWorkflowV1;
     readonly messages: readonly GoalSnapshotMessageV1[];
     readonly run: GoalSnapshotRunStateV1;
     readonly modelSelection: GoalSnapshotModelSelectionV1;
     readonly goalPlan?: GoalSnapshotGoalPlanV1 | undefined;
     readonly completedRuns: readonly GoalSnapshotCompletedRunV1[];
+}
+
+/**
+ * Snapshot 中一条已受理输入的账本记录。
+ *
+ * @remarks 记录不复制正文；正文只保存在队列项、Run 内 Steer 记录或 Goal 消息中。
+ *
+ * @example
+ * ```ts
+ * const record: GoalSnapshotSessionInputV1 = {
+ *   inputId: "input-1", kind: "message", digest: "sha256:abc",
+ *   sequence: 1, status: "pending", admittedAtRevision: 1,
+ * };
+ * ```
+ */
+export interface GoalSnapshotSessionInputV1 {
+    readonly inputId: string;
+    readonly kind: "message" | "steer" | "interrupt" | "respond" | "resume" | "queue_control";
+    readonly digest: string;
+    readonly sequence: number;
+    readonly status: "pending" | "applied" | "cleared";
+    readonly admittedAtRevision: number;
+    readonly targetRunId?: string | undefined;
+    readonly appliedRunId?: string | undefined;
+    readonly messageIndex?: number | undefined;
+}
+
+/**
+ * Snapshot 中队列内一条尚未应用的普通消息。
+ *
+ * @example
+ * ```ts
+ * const item: GoalSnapshotSessionQueueItemV1 = { inputId: "input-2", content: "继续", sequence: 2 };
+ * ```
+ */
+export interface GoalSnapshotSessionQueueItemV1 {
+    readonly inputId: string;
+    readonly content: string;
+    readonly sequence: number;
+}
+
+/**
+ * Snapshot 中的待处理消息队列、修订与暂停状态。
+ *
+ * @example
+ * ```ts
+ * const queue: GoalSnapshotMessageQueueV1 = { revision: 1, items: [] };
+ * ```
+ */
+export interface GoalSnapshotMessageQueueV1 {
+    readonly revision: number;
+    readonly items: readonly GoalSnapshotSessionQueueItemV1[];
+    readonly pause?: {
+        readonly reason: "run_failed" | "user_interrupt";
+        readonly runId: string;
+    } | undefined;
 }
 
 /** 当前唯一支持的 Goal Snapshot DTO。 */
@@ -779,12 +920,48 @@ const GoalSnapshotTaskSchema = z.object({
     completionCriteria: z.array(GoalSnapshotCompletionCriterionSchema),
 }).strict();
 
+const GoalSnapshotMessageSourceSchema = z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("goal_intent"), goalId: NonEmptyStringSchema }).strict(),
+    z.object({ kind: z.literal("user_input"), inputId: NonEmptyStringSchema }).strict(),
+    z.object({ kind: z.literal("interaction_response"), requestId: NonEmptyStringSchema }).strict(),
+    z.object({
+        kind: z.literal("model_text"),
+        modelCallId: NonEmptyStringSchema,
+        blockIndex: z.number().int().nonnegative(),
+    }).strict(),
+    z.object({
+        kind: z.literal("stage_output"),
+        executionUnitId: NonEmptyStringSchema,
+        blockIndex: z.number().int().nonnegative(),
+    }).strict(),
+    z.object({ kind: z.literal("completion_candidate"), candidateId: NonEmptyStringSchema }).strict(),
+    z.object({ kind: z.literal("host_execution"), actionId: NonEmptyStringSchema }).strict(),
+    z.object({ kind: z.literal("runtime_notice"), noticeId: NonEmptyStringSchema }).strict(),
+]);
+
+const GoalSnapshotMessagePositionSchema = z.object({
+    afterSequence: z.number().int().nonnegative(),
+    order: z.number().int().nonnegative(),
+}).strict();
+
 const GoalSnapshotMessageSchema = z.discriminatedUnion("role", [
-    z.object({ role: z.literal("user"), content: z.string() }).strict(),
+    z.object({
+        role: z.literal("user"),
+        content: z.string(),
+        messageId: NonEmptyStringSchema,
+        runId: NonEmptyStringSchema,
+        position: GoalSnapshotMessagePositionSchema,
+        source: GoalSnapshotMessageSourceSchema,
+    }).strict(),
     z.object({
         role: z.literal("assistant"),
         assistant: z.object({ profileId: NonEmptyStringSchema }).strict(),
         content: z.string(),
+        messageId: NonEmptyStringSchema,
+        runId: NonEmptyStringSchema,
+        position: GoalSnapshotMessagePositionSchema,
+        purpose: z.enum(["process", "answer", "notice"]),
+        source: GoalSnapshotMessageSourceSchema,
     }).strict(),
 ]);
 
@@ -1026,6 +1203,20 @@ const StepRecordSchema = z.discriminatedUnion("kind", [
     }).strict(),
 ]);
 
+const ExecutionVersionSchema = z.object({
+    original: z.object({
+        actionId: NonEmptyStringSchema,
+        toolId: NonEmptyStringSchema,
+        input: JsonValueSchema,
+    }).strict(),
+    input: JsonValueSchema,
+    reviewRef: NonEmptyStringSchema,
+    scope: z.enum(["action", "goal", "workspace"]),
+    revision: z.object({
+        source: z.enum(["user", "host"]),
+    }).strict().optional(),
+}).strict();
+
 const PendingActionSchema = z.object({
     action: ToolCallActionSchema,
     status: z.enum(["approved", "awaiting_approval", "outcome_unknown"]),
@@ -1041,6 +1232,9 @@ const PendingActionSchema = z.object({
         }).strict()),
         network: z.enum(["none", "all_outbound"]),
     }).strict().optional(),
+    approvalInputId: NonEmptyStringSchema.optional(),
+    executionVersion: ExecutionVersionSchema.optional(),
+    recoveryRef: NonEmptyStringSchema.optional(),
 }).strict().superRefine((pending, context) => {
     if (pending.status !== "approved" && (pending.approvalScope !== undefined || pending.grantId !== undefined)) {
         context.addIssue({ code: "custom", path: ["approvalScope"], message: "unapproved Action cannot retain authorization" });
@@ -1295,6 +1489,31 @@ const CompletedRunSchema = z.object({
     }).strict().optional(),
 }).strict();
 
+const SessionInputRecordSchema = z.object({
+    inputId: NonEmptyStringSchema,
+    kind: z.enum(["message", "steer", "interrupt", "respond", "resume", "queue_control"]),
+    digest: NonEmptyStringSchema.regex(/^sha256:[0-9a-f]{64}$/),
+    sequence: z.number().int().positive(),
+    status: z.enum(["pending", "applied", "cleared"]),
+    admittedAtRevision: z.number().int().nonnegative(),
+    targetRunId: NonEmptyStringSchema.optional(),
+    appliedRunId: NonEmptyStringSchema.optional(),
+    messageIndex: z.number().int().nonnegative().optional(),
+}).strict();
+
+const SessionMessageQueueSchema = z.object({
+    revision: z.number().int().nonnegative(),
+    items: z.array(z.object({
+        inputId: NonEmptyStringSchema,
+        content: NonEmptyStringSchema,
+        sequence: z.number().int().positive(),
+    }).strict()),
+    pause: z.object({
+        reason: z.enum(["run_failed", "user_interrupt"]),
+        runId: NonEmptyStringSchema,
+    }).strict().optional(),
+}).strict();
+
 const GoalSnapshotV1BaseSchema = z.object({
     id: NonEmptyStringSchema,
     metadata: z.object({ schemaVersion: z.literal(1) }).strict(),
@@ -1320,6 +1539,9 @@ const GoalSnapshotV1BaseSchema = z.object({
     }).strict(),
     state: z.object({
         nextRunMode: z.literal("plan").optional(),
+        commitRevision: z.number().int().nonnegative().optional(),
+        inputLedger: z.array(SessionInputRecordSchema).optional(),
+        messageQueue: SessionMessageQueueSchema.optional(),
         workflow: WorkflowSchema,
         messages: z.array(GoalSnapshotMessageSchema),
         run: z.object({
@@ -1370,6 +1592,41 @@ function addInvariantIssue(
     path: PropertyKey[] = [],
 ): void {
     context.addIssue({ code: "custom", message, path });
+}
+
+/**
+ * 计算持久化消息来源的稳定比较键。
+ *
+ * @remarks
+ * 键只由来源自身的判别字段组成，不包含正文或数组位置；同文不同来源因此得到
+ * 不同键。本文件不得依赖 Runtime 包，故在持久化形态上独立实现同一规则。
+ *
+ * @param source - 持久化消息来源。
+ * @returns 该来源在同一 Goal 内的稳定比较键。
+ * @example
+ * ```ts
+ * const key = snapshotMessageSourceKey({ kind: "user_input", inputId: "input-1" });
+ * ```
+ */
+function snapshotMessageSourceKey(source: GoalSnapshotMessageSourceV1): string {
+    switch (source.kind) {
+        case "goal_intent":
+            return `goal_intent:${source.goalId}`;
+        case "user_input":
+            return `user_input:${source.inputId}`;
+        case "interaction_response":
+            return `interaction_response:${source.requestId}`;
+        case "model_text":
+            return `model_text:${source.modelCallId}:${source.blockIndex}`;
+        case "stage_output":
+            return `stage_output:${source.executionUnitId}:${source.blockIndex}`;
+        case "completion_candidate":
+            return `completion_candidate:${source.candidateId}`;
+        case "host_execution":
+            return `host_execution:${source.actionId}`;
+        case "runtime_notice":
+            return `runtime_notice:${source.noticeId}`;
+    }
 }
 
 function validateSnapshotInvariants(
@@ -1464,6 +1721,33 @@ function validateSnapshotInvariants(
         }
         previousRunEnd = Math.max(previousRunEnd, history.messageRange.end);
     }
+    const messageRunBoundaries = new Map<string, number>([
+        ...goal.state.completedRuns.map((history) => [history.runId, history.committedThroughSequence] as const),
+        [run.id, run.committedThroughSequence],
+    ]);
+    const lastMessageSequenceByRun = new Map<string, number>();
+    const nextMessageOrderByAnchor = new Map<string, number>();
+    for (const [index, message] of goal.state.messages.entries()) {
+        const boundary = messageRunBoundaries.get(message.runId);
+        if (boundary === undefined) {
+            addInvariantIssue(context, "Goal message must reference the current or a completed Run", ["state", "messages", index, "runId"]);
+            continue;
+        }
+        if (message.position.afterSequence > boundary) {
+            addInvariantIssue(context, "Goal message position exceeds its Run committed boundary", ["state", "messages", index, "position", "afterSequence"]);
+        }
+        const previousSequence = lastMessageSequenceByRun.get(message.runId);
+        if (previousSequence !== undefined && message.position.afterSequence < previousSequence) {
+            addInvariantIssue(context, "Goal message positions must follow Snapshot order within each Run", ["state", "messages", index, "position", "afterSequence"]);
+        }
+        lastMessageSequenceByRun.set(message.runId, Math.max(previousSequence ?? 0, message.position.afterSequence));
+        const anchor = `${message.runId}\u0000${message.position.afterSequence}`;
+        const expectedOrder = nextMessageOrderByAnchor.get(anchor) ?? 0;
+        if (message.position.order !== expectedOrder) {
+            addInvariantIssue(context, "Goal message order must be contiguous within a Run fact anchor", ["state", "messages", index, "position", "order"]);
+        }
+        nextMessageOrderByAnchor.set(anchor, expectedOrder + 1);
+    }
     const steerIds = new Set<string>();
     for (const [index, steer] of (run.steerInputs ?? []).entries()) {
         if (steerIds.has(steer.messageId)) {
@@ -1474,6 +1758,63 @@ function validateSnapshotInvariants(
             && (steer.messageIndex >= goal.state.messages.length
                 || goal.state.messages[steer.messageIndex]?.role !== "user")) {
             addInvariantIssue(context, "Applied Steer must point to a real user message", ["state", "run", "steerInputs", index, "messageIndex"]);
+        }
+    }
+    const inputIds = new Set<string>();
+    let previousInputSequence = 0;
+    for (const [index, record] of (goal.state.inputLedger ?? []).entries()) {
+        if (inputIds.has(record.inputId)) {
+            addInvariantIssue(context, "session input IDs must be unique within the Goal", ["state", "inputLedger", index, "inputId"]);
+        }
+        inputIds.add(record.inputId);
+        if (record.sequence <= previousInputSequence) {
+            addInvariantIssue(context, "session input sequences must increase in ledger order", ["state", "inputLedger", index, "sequence"]);
+        }
+        previousInputSequence = record.sequence;
+        if (record.status === "applied") {
+            if (record.appliedRunId === undefined) {
+                addInvariantIssue(context, "applied session input requires its applied Run", ["state", "inputLedger", index, "appliedRunId"]);
+            }
+            if (record.messageIndex !== undefined
+                && (record.messageIndex >= goal.state.messages.length
+                    || goal.state.messages[record.messageIndex]?.role !== "user")) {
+                addInvariantIssue(context, "applied session input must point to a real user message", ["state", "inputLedger", index, "messageIndex"]);
+            }
+        } else if (record.appliedRunId !== undefined || record.messageIndex !== undefined) {
+            addInvariantIssue(context, "only applied session inputs may reference an applied Run or message", ["state", "inputLedger", index]);
+        }
+    }
+    const messageIds = new Set<string>();
+    const messageSourceKeys = new Set<string>();
+    for (const [index, message] of goal.state.messages.entries()) {
+        if (messageIds.has(message.messageId)) {
+            addInvariantIssue(context, "Goal message IDs must be unique within the Goal", ["state", "messages", index, "messageId"]);
+        }
+        messageIds.add(message.messageId);
+        const sourceKey = snapshotMessageSourceKey(message.source);
+        if (messageSourceKeys.has(sourceKey)) {
+            addInvariantIssue(context, "Goal message sources must be unique within the Goal", ["state", "messages", index, "source"]);
+        }
+        messageSourceKeys.add(sourceKey);
+    }
+    const messageQueue = goal.state.messageQueue;
+    const queuedInputIds = new Set<string>();
+    for (const [index, item] of (messageQueue?.items ?? []).entries()) {
+        if (queuedInputIds.has(item.inputId)) {
+            addInvariantIssue(context, "queued message IDs must be unique", ["state", "messageQueue", "items", index, "inputId"]);
+        }
+        queuedInputIds.add(item.inputId);
+        const record = (goal.state.inputLedger ?? []).find((candidate) => candidate.inputId === item.inputId);
+        if (record === undefined
+            || record.kind !== "message"
+            || record.status !== "pending"
+            || record.sequence !== item.sequence) {
+            addInvariantIssue(context, "queued message must match a pending message input record", ["state", "messageQueue", "items", index]);
+        }
+    }
+    for (const [index, record] of (goal.state.inputLedger ?? []).entries()) {
+        if (record.kind === "message" && record.status === "pending" && !queuedInputIds.has(record.inputId)) {
+            addInvariantIssue(context, "pending message input requires a queued item", ["state", "inputLedger", index]);
         }
     }
     const step = run.lastStep;

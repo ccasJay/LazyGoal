@@ -4,8 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import {
     BrowserGoalCommandService,
-    BrowserGoalStreamService,
     createBrowserGoalRoutes,
+    createBrowserGoalSessionPort,
     createBrowserModelInputRoutes,
     createBrowserSessionAccess,
     createBrowserStaticRoutes,
@@ -13,7 +13,9 @@ import {
     createBrowserWorkspaceRoutes,
     listBrowserGoals,
     projectBrowserModelCatalog,
+    readBrowserGoalActivity,
     readBrowserGoalSession,
+    readBrowserGoalSessionState,
     resolveBrowserDraftModelCatalog,
     type BrowserModelCatalog,
     type BrowserSessionAccess,
@@ -249,76 +251,77 @@ export async function runServerSession(
         };
         const commandService = new BrowserGoalCommandService({
             store: root.workspaceGoalStore,
-            saveNotifications: root.notifyingStore,
-            launcher: root.browserLauncher,
             coordinator: root.commands,
             modelSelectionCoordinator: root.goalModelSelectionCoordinator,
-            defaultModelSelection: root.defaultModelSelection,
-            resolveDefaultModelSelection: async () => (await readDraftModel()).selection,
             saveModelPreference: (selection) => preferenceStore.set({
                 ...(selection.profileId === undefined ? {} : { profileId: selection.profileId }),
                 modelId: selection.modelId,
             }),
-            restoreModelBinding: async (goal) => {
-                const selection = goal.state.modelSelection;
-                if (selection.profileId === undefined) {
-                    const provider = root.llmConfig?.provider ?? root.defaultModelSelection.provider;
-                    if (selection.provider !== provider) return false;
-                } else {
+            readActiveGoalId: () => root.sessions.activeGoal,
+            control: { signal: root.abortController.signal },
+        });
+        /** 由本机模型目录验证 ID 并构造完整非敏感选择。 */
+        const resolveModelSelection = async (
+            modelId: string,
+            current: GoalModelSelection,
+            providerProfileId?: string,
+        ): Promise<GoalModelSelection | undefined> => {
+            const targetProfileId = providerProfileId ?? current.profileId;
+            let config = root.llmConfig;
+            if (targetProfileId !== undefined) {
+                try {
+                    config = root.resolveProviderProfileConfig(targetProfileId, current.modelId);
+                } catch {
+                    return undefined;
+                }
+            }
+            if (config === undefined) return undefined;
+            const models = await root.modelCatalog.list(
+                { ...config, model: current.modelId },
+                { requireTokenCapacity: current.inputEstimator.kind === "token-encoding" },
+            );
+            const model = models.find((entry) => entry.provider === config.provider && entry.id === modelId && entry.selectable);
+            if (model === undefined) return undefined;
+            return {
+                provider: config.provider,
+                ...(targetProfileId === undefined ? {} : { profileId: targetProfileId }),
+                modelId: model.id,
+                structuredOutputMode: current.structuredOutputMode,
+                ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens }),
+                ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
+                inputEstimator: current.inputEstimator,
+            };
+        };
+        /**
+         * 浏览器委派 Runtime 会话所有者的窄端口。
+         *
+         * @remarks 创建、统一输入、收据查询、状态与 Goal 事件全部委派 `root.sessions`；
+         * Browser 不持有输入账本、队列、执行名额或后台推进。
+         */
+        const browserSessionPort = createBrowserGoalSessionPort({
+            sessions: root.sessions,
+            profileId: root.profile.id,
+            isShuttingDown: () => root.abortController.signal.aborted,
+            resolveModelSelection: async (command) => {
+                if (command.modelId === undefined) {
                     try {
-                        if (root.resolveProviderProfileConfig(selection.profileId, selection.modelId).provider !== selection.provider) {
-                            return false;
-                        }
+                        return { ok: true, selection: (await readDraftModel()).selection ?? root.defaultModelSelection };
                     } catch {
-                        return false;
+                        return { ok: false, error: "model_catalog_unavailable" };
                     }
                 }
                 try {
-                    root.alignModelBinding(selection);
-                    return true;
+                    const resolved = await resolveModelSelection(command.modelId, root.defaultModelSelection);
+                    return resolved === undefined ? { ok: false, error: "model_not_selectable" } : { ok: true, selection: resolved };
                 } catch {
-                    return false;
+                    return { ok: false, error: "model_catalog_unavailable" };
                 }
             },
-            resolveModelSelection: async (modelId, current, providerProfileId) => {
-                const targetProfileId = providerProfileId ?? current.profileId;
-                let config = root.llmConfig;
-                if (targetProfileId !== undefined) {
-                    try {
-                        config = root.resolveProviderProfileConfig(targetProfileId, current.modelId);
-                    } catch {
-                        return undefined;
-                    }
-                }
-                if (config === undefined) return undefined;
-                const models = await root.modelCatalog.list(
-                    { ...config, model: current.modelId },
-                    { requireTokenCapacity: current.inputEstimator.kind === "token-encoding" },
-                );
-                const model = models.find((entry) => entry.provider === config.provider && entry.id === modelId && entry.selectable);
-                if (model === undefined) return undefined;
-                return {
-                    provider: config.provider,
-                    ...(targetProfileId === undefined ? {} : { profileId: targetProfileId }),
-                    modelId: model.id,
-                    structuredOutputMode: current.structuredOutputMode,
-                    ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens }),
-                    ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
-                    inputEstimator: current.inputEstimator,
-                };
-            },
-            profileId: root.profile.id,
-            control: { signal: root.abortController.signal },
         });
-        const streamService = new BrowserGoalStreamService({
-            store: root.workspaceGoalStore,
-            saveNotifications: root.notifyingStore,
-            publisher: root.executionStream,
-            onGoalActivityChanged: (listener) => commandService.onGoalActivityChanged(listener),
-        });
+        const readActiveGoalId = (): string | undefined => root.sessions.activeGoal;
         root.httpService.mount("/", createBrowserWorkspaceRoutes(root.workspaceRoot));
         root.httpService.mount("/", createBrowserGoalRoutes({
-            list: () => listBrowserGoals(root.workspaceGoalStore, commandService.getActiveGoalId()),
+            list: () => listBrowserGoals(root.workspaceGoalStore, readActiveGoalId()),
             setArchived: async (goalId, archived) => {
                 const result = await commandService.manageTerminalGoal(goalId, async () => {
                     await root.manageGoal.setArchived(goalId, archived);
@@ -335,13 +338,20 @@ export async function runServerSession(
                 goalId,
                 root.workspaceGoalStore,
                 root.readWorkspaceTrajectory,
-                commandService.getActiveGoalId(),
+                readActiveGoalId(),
             ),
-            create: (command) => commandService.create(command),
-            interact: (goalId, command) => commandService.interact(goalId, command),
-            message: (goalId, command) => commandService.message(goalId, command),
-            interrupt: (goalId, command) => commandService.interrupt(goalId, command),
-            resume: (goalId, command) => commandService.resume(goalId, command),
+            readState: (goalId) => readBrowserGoalSessionState(
+                goalId,
+                root.workspaceGoalStore,
+                readActiveGoalId(),
+            ),
+            readActivity: (goalId, query) => readBrowserGoalActivity(
+                goalId,
+                query,
+                root.workspaceGoalStore,
+                root.readWorkspaceTrajectory,
+            ),
+            session: browserSessionPort,
             enterPlanMode: (goalId, command) => commandService.enterPlanMode(goalId, command),
             selectModel: (goalId, command) => commandService.selectModel(goalId, command),
             providerSettings: {
@@ -548,11 +558,12 @@ export async function runServerSession(
                 }
             },
             readActionDetails: (goalId, runId, actionId) => commandService.readActionDetails(goalId, runId, actionId),
+            readInteractionDetails: (goalId, runId, interactionId) => commandService.readInteractionDetails(goalId, runId, interactionId),
             listToolGrants: (goalId, runId) => commandService.listToolGrants(goalId, runId),
             revokeToolGrant: (goalId, command) => commandService.revokeToolGrant(goalId, command),
+            reviewActionApproval: (goalId, command) => commandService.reviewActionApproval(goalId, command),
             getPermissionMode: () => commandService.getPermissionMode(),
             setPermissionMode: (command) => commandService.setPermissionMode(command),
-            openStream: (goalId, runId, signal) => streamService.open(goalId, runId, signal),
         }));
         root.httpService.mount("/", createBrowserTrajectoryRoutes(root.workspaceGoalStore, root.readWorkspaceTrajectory));
         root.httpService.mount("/", createBrowserModelInputRoutes(root.workspaceGoalStore, root.readWorkspaceModelInputs));

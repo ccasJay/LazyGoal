@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 import { readLLMConfig } from "../../config/src/index";
 import { createLlmAdapter } from "../src/index";
 import type { LLMMessage } from "../../llm-core/src/index";
+import { readAssistantText, readReasoningText, readToolCalls } from "../../llm-core/src/index";
 import type { ExecutionControl } from "../../execution-control/src/index";
 
 /**
@@ -25,12 +26,14 @@ export async function runNativeDialogueSmoke(env: Readonly<Record<string, string
     const tools = [{ id: "smoke_evidence", description: "Return fixed test evidence. Use empty arguments.", parametersSchema: { type: "object", properties: {}, required: [], additionalProperties: false } }];
     for (let turn = 0; turn < 2; turn++) {
         const response = await adapter.generate({ messages, tools, toolChoice: "required", maxOutputTokens: Math.min(config.maxOutputTokens ?? 1024, 1024) }, control);
-        const call = response.toolCalls?.[0];
-        if (response.toolCalls?.length !== 1 || call?.toolId !== "smoke_evidence" || !call.callId || response.continuation === undefined
+        const toolCalls = readToolCalls(response);
+        const call = toolCalls[0];
+        if (toolCalls.length !== 1 || call?.toolId !== "smoke_evidence" || !call.callId || response.continuation === undefined
             || JSON.stringify(JSON.parse(call.argumentsJson)) !== "{}") throw new Error("Invalid native smoke tool response");
-        messages.push({ role: "assistant", content: response.content,
-            ...(response.reasoning === undefined ? {} : { reasoning: response.reasoning }),
-            toolCalls: response.toolCalls, continuation: response.continuation });
+        const reasoning = readReasoningText(response);
+        messages.push({ role: "assistant", content: readAssistantText(response),
+            ...(reasoning === undefined ? {} : { reasoning: reasoning }),
+            toolCalls, continuation: response.continuation });
         messages.push({ role: "tool", callId: call.callId, toolId: call.toolId, content: JSON.stringify({ kind: "success", output: { evidence: `smoke-${turn + 1}` } }) });
         if (turn === 0) messages.push({ role: "user", content: "The first result is recorded. Call smoke_evidence once more with empty arguments." });
     }

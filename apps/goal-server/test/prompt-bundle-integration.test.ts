@@ -7,7 +7,6 @@ import { test } from "node:test";
 
 import { createGoal, type Goal } from "../../../packages/runtime/src/index";
 import { currentProtocols } from "../../../packages/runtime/test/current-fixtures";
-import { BrowserGoalCommandService } from "../../../packages/browser/src/index";
 import { createCompositionRoot } from "../src/composition-root";
 import { writeDefaultProfile } from "./profile-fixture";
 
@@ -79,11 +78,54 @@ function nativeFixtureMessage(content: string, id: string) {
     } }] };
 }
 
-async function waitForCommandIdle(commands: BrowserGoalCommandService): Promise<void> {
-    for (let attempt = 0; attempt < 750 && commands.getActiveGoalId() !== undefined; attempt++) {
+/** 单个 Chat Completions 流式数据帧。 */
+function chatChunk(id: string, delta: Record<string, unknown>, finishReason: string | null = null) {
+    return {
+        id, object: "chat.completion.chunk", created: 0, model: "test-model",
+        choices: [{ index: 0, delta, finish_reason: finishReason }],
+    };
+}
+
+/** 把统一的 conversation fixture 消息编码为真实 Chat Completions SSE 响应。 */
+function sseCompletion(
+    message: { readonly content: string; readonly tool_calls?: unknown },
+    id: string,
+): string {
+    const calls = Array.isArray(message.tool_calls)
+        ? message.tool_calls as readonly { readonly id: string; readonly function: { readonly name: string; readonly arguments: string } }[]
+        : [];
+    const frames: unknown[] = [];
+    if (message.content.length > 0) {
+        frames.push(chatChunk(id, { role: "assistant", content: message.content }));
+    }
+    for (const [index, call] of calls.entries()) {
+        frames.push(chatChunk(id, { tool_calls: [{
+            index, id: call.id, type: "function",
+            function: { name: call.function.name, arguments: call.function.arguments },
+        }] }));
+    }
+    frames.push(chatChunk(id, {}, "stop"));
+    return `${frames.map(frame => `data: ${JSON.stringify(frame)}\n\n`).join("")}data: [DONE]\n\n`;
+}
+
+/** 等待指定 Goal 的当前 Run 进入等待点或终态集合；受理不等待执行。 */
+async function waitForInFlightRun(
+    root: { workspaceGoalStore: { restore(goalId: string): Promise<Goal | undefined> } },
+    goalId: string,
+): Promise<void> {
+    for (let attempt = 0; attempt < 750; attempt += 1) {
+        const goal = await root.workspaceGoalStore.restore(goalId);
+        if (goal !== undefined && goal.state.run.status === "waiting") return;
         await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    assert.equal(commands.getActiveGoalId(), undefined, "Expected the previous Run reservation to be released");
+    assert.fail(`Goal ${goalId} did not reach a waiting Run`);
+}
+
+async function waitForSessionIdle(root: { sessions: { activeGoal: string | undefined } }): Promise<void> {
+    for (let attempt = 0; attempt < 750 && root.sessions.activeGoal !== undefined; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(root.sessions.activeGoal, undefined, "Expected the session execution slot to be released");
 }
 
 test("Composition Root carries Memory through task approval into Executing", { timeout: 120_000 }, async () => {
@@ -228,18 +270,8 @@ test("Composition Root carries Memory through task approval into Executing", { t
                 responseContent = JSON.stringify(proposal);
             }
             requests.push(capturedRequest);
-            response.setHeader("Content-Type", "application/json");
-            response.end(JSON.stringify({
-                id: `completion-${requests.length}`,
-                object: "chat.completion",
-                created: 0,
-                model: "test-model",
-                choices: [{
-                    index: 0,
-                    message: nativeFixtureMessage(responseContent, `call-${requests.length}`),
-                    finish_reason: "stop",
-                }],
-            }));
+            response.setHeader("Content-Type", "text/event-stream");
+            response.end(sseCompletion(nativeFixtureMessage(responseContent, `call-${requests.length}`), `completion-${requests.length}`));
         });
     });
     const port = await listen(server);
@@ -259,23 +291,13 @@ test("Composition Root carries Memory through task approval into Executing", { t
             runIdGenerator: () => "run-current",
         });
 
-        const commands = new BrowserGoalCommandService({
-            store: root.workspaceGoalStore,
-            saveNotifications: root.notifyingStore,
-            profileId: "default",
-            launcher: root.browserLauncher,
-            coordinator: root.commands,
-            defaultModelSelection: root.defaultModelSelection,
-            restoreModelBinding: async (g) => {
-                if (root === undefined || g.state.modelSelection.provider !== root.defaultModelSelection.provider) return false;
-                try { root.alignModelBinding(g.state.modelSelection); return true; } catch { return false; }
-            },
-        });
-
-        const createRes = await commands.create({
+        const createRes = await root.sessions.create({
             goalId: "goal-current",
-            intent: "Verify the current workflow",
+            inputId: "input-current-1",
+            content: "Verify the current workflow",
+            profileId: "default",
             mode: "plan",
+            modelSelection: root.defaultModelSelection,
         });
         assert.equal(createRes.ok, true, `create should succeed, got ${JSON.stringify(createRes)}`);
 
@@ -290,15 +312,19 @@ test("Composition Root carries Memory through task approval into Executing", { t
         const askUserInteraction = initialGoal.state.run.pendingInteraction;
         assert.ok(askUserInteraction && askUserInteraction.kind === "ask_user");
 
-        await waitForCommandIdle(commands);
-        const answer = await commands.interact("goal-current", {
+        await waitForInFlightRun(root, "goal-current");
+        const answer = await root.sessions.sendSessionInput("goal-current", {
+            kind: "respond",
+            inputId: "input-current-answer",
             runId: initialGoal.state.run.id,
-            kind: "answer_ask_user",
             requestId: askUserInteraction.requestId,
-            answers: [{
-                questionId: askUserInteraction.questions[0]!.id,
-                optionIds: [askUserInteraction.questions[0]!.options[0]!.id],
-            }],
+            response: {
+                kind: "answer_ask_user",
+                answers: [{
+                    questionId: askUserInteraction.questions[0]!.id,
+                    optionIds: [askUserInteraction.questions[0]!.options[0]!.id],
+                }],
+            },
         });
         assert.equal(answer.ok, true, JSON.stringify(answer));
 
@@ -312,12 +338,13 @@ test("Composition Root carries Memory through task approval into Executing", { t
         assert.ok(taskInteraction && taskInteraction.kind === "task_approval", `Expected task approval, got ${JSON.stringify(taskInteraction)}`);
         assert.equal(taskInteraction.proposal.objective, "Initial proposal");
 
-        await waitForCommandIdle(commands);
-        const feedback = await commands.interact("goal-current", {
+        await waitForInFlightRun(root, "goal-current");
+        const feedback = await root.sessions.sendSessionInput("goal-current", {
+            kind: "respond",
+            inputId: "input-current-feedback",
             runId: taskGoal.state.run.id,
-            kind: "feedback_task",
             requestId: taskInteraction.requestId,
-            feedback: "Please use the approved wording.",
+            response: { kind: "feedback_task", feedback: "Please use the approved wording." },
         });
         assert.equal(feedback.ok, true, JSON.stringify(feedback));
 
@@ -349,11 +376,13 @@ test("Composition Root carries Memory through task approval into Executing", { t
         }
         assertCurrentDefinition(snapshot.definition);
 
-        await waitForCommandIdle(commands);
-        const approval = await commands.interact("goal-current", {
+        await waitForInFlightRun(root, "goal-current");
+        const approval = await root.sessions.sendSessionInput("goal-current", {
+            kind: "respond",
+            inputId: "input-current-approve",
             runId: revisedGoal.state.run.id,
-            kind: "approve_task",
             requestId: revisedInteraction.requestId,
+            response: { kind: "approve_task" },
         });
         assert.equal(approval.ok, true, JSON.stringify(approval));
 
@@ -542,18 +571,8 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
                 return;
             }
             requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as CapturedRequest);
-            response.setHeader("Content-Type", "application/json");
-            response.end(JSON.stringify({
-                id: `completion-${requests.length}`,
-                object: "chat.completion",
-                created: 0,
-                model: "test-model",
-                choices: [{
-                    index: 0,
-                    message: nativeFixtureMessage(responseContent, `call-${requests.length}`),
-                    finish_reason: "stop",
-                }],
-            }));
+            response.setHeader("Content-Type", "text/event-stream");
+            response.end(sseCompletion(nativeFixtureMessage(responseContent, `call-${requests.length}`), `completion-${requests.length}`));
         });
     });
     const port = await listen(server);
@@ -573,23 +592,13 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
             runIdGenerator: () => "run-invalid-wire",
         });
 
-        const commands = new BrowserGoalCommandService({
-            store: root.workspaceGoalStore,
-            saveNotifications: root.notifyingStore,
-            profileId: "default",
-            launcher: root.browserLauncher,
-            coordinator: root.commands,
-            defaultModelSelection: root.defaultModelSelection,
-            restoreModelBinding: async (g) => {
-                if (root === undefined || g.state.modelSelection.provider !== root.defaultModelSelection.provider) return false;
-                try { root.alignModelBinding(g.state.modelSelection); return true; } catch { return false; }
-            },
-        });
-
-        await commands.create({
+        await root.sessions.create({
             goalId: "goal-invalid-wire",
-            intent: "Test invalid wire response handling",
+            inputId: "input-invalid-wire-1",
+            content: "Test invalid wire response handling",
+            profileId: "default",
             mode: "plan",
+            modelSelection: root.defaultModelSelection,
         });
 
         let initialGoal = await root.workspaceGoalStore.restore("goal-invalid-wire");
@@ -601,11 +610,13 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
         const proposalInteraction = initialGoal.state.run.pendingInteraction;
         assert.ok(proposalInteraction && proposalInteraction.kind === "task_approval");
 
-        await waitForCommandIdle(commands);
-        const approval = await commands.interact("goal-invalid-wire", {
+        await waitForInFlightRun(root, "goal-invalid-wire");
+        const approval = await root.sessions.sendSessionInput("goal-invalid-wire", {
+            kind: "respond",
+            inputId: "input-invalid-wire-approve",
             runId: initialGoal.state.run.id,
-            kind: "approve_task",
             requestId: proposalInteraction.requestId,
+            response: { kind: "approve_task" },
         });
         assert.equal(approval.ok, true, JSON.stringify(approval));
 

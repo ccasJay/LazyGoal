@@ -1,4 +1,5 @@
 import type { AgentProfile } from "./agent-profile";
+import { randomUUID } from "node:crypto";
 import type {
     AgentDecision,
     BlockerCreate,
@@ -38,6 +39,7 @@ import type {
 } from "./run-stage";
 import type { RuntimeContextNote } from "./context-notes";
 import type { RunPlanRouteState } from "./run-plan";
+import type { SessionInputRecord, SessionMessageQueue } from "./session-input";
 
 import {
     isMemoryProtocol,
@@ -354,27 +356,129 @@ export type JsonValue =
     | JsonObject;
 
 /**
- * 用户实际发送并需要随 Session 恢复的消息。
+ * 正式消息的稳定来源分类。
+ *
+ * @remarks
+ * 来源描述这条消息**为什么存在**，而不是它的正文：用户消息指向基础输入或交互
+ * 请求，助手消息指向具体模型调用块、被接受的完成候选、宿主执行或 Runtime 通知。
+ * 来源参与提交重试核对与原生历史去重判定；正文相同但来源不同的消息仍是两条
+ * 独立消息。
+ *
  * @example
  * ```ts
- * const message: UserMessage = { role: "user", content: "继续" };
+ * const source: GoalMessageSource = { kind: "user_input", inputId: "input-1" };
+ * ```
+ */
+export type GoalMessageSource =
+    /** 创建 Goal 时的原始意图；它是本 Goal 的第一条用户输入。 */
+    | { readonly kind: "goal_intent"; readonly goalId: string }
+    /** 已受理的会话输入（普通消息或 Steer）。 */
+    | { readonly kind: "user_input"; readonly inputId: string }
+    /** 用户对问答、任务审批或恢复请求的回复。 */
+    | { readonly kind: "interaction_response"; readonly requestId: string }
+    /** 模型公开正文块；指向本次模型调用与内容块。 */
+    | { readonly kind: "model_text"; readonly modelCallId: string; readonly blockIndex: number }
+    /**
+     * Runtime 阶段执行产生的正文。
+     *
+     * @remarks
+     * 只有在执行方没有报告模型调用身份时才使用；此时不得虚构 `modelCallId`
+     * 或 Provider 内容块身份。
+     */
+    | { readonly kind: "stage_output"; readonly executionUnitId: string; readonly blockIndex: number }
+    /** 被现有完成审查接受的最终答复候选。 */
+    | { readonly kind: "completion_candidate"; readonly candidateId: string }
+    /** 宿主执行结果；没有模型来源时使用真实执行来源。 */
+    | { readonly kind: "host_execution"; readonly actionId: string }
+    /** Runtime 自身的等待、失败或中断通知。 */
+    | { readonly kind: "runtime_notice"; readonly noticeId: string };
+
+/**
+ * 助手消息的用途分类。
+ *
+ * @remarks
+ * `process` 是模型在同一次响应中公开的过程正文；`answer` 是被审查接受的最终
+ * 答复；`notice` 是等待、失败等 Runtime 通知。三者用途不同，模型上下文与
+ * Web 消费都必须据此区分“已生成”与“已结算”。
+ *
+ * @example
+ * ```ts
+ * const purpose: AssistantMessagePurpose = "answer";
+ * ```
+ */
+export type AssistantMessagePurpose = "process" | "answer" | "notice";
+
+/**
+ * 正式消息在所属 Run 的已提交轨迹中的位置。
+ *
+ * @remarks
+ * `afterSequence` 指消息之前最后一条已提交事实；Run 首条事实之前为 `0`。
+ * 同一事实锚点上的消息按 Snapshot 顺序使用从 `0` 开始的 `order`，不代表时间或 Step。
+ *
+ * @example
+ * ```ts
+ * const position: GoalMessagePosition = { afterSequence: 12, order: 0 };
+ * ```
+ */
+export interface GoalMessagePosition {
+    /** 消息之前的最后一条已提交 Run 事实序列。 */
+    readonly afterSequence: number;
+    /** 同一 Run、同一事实锚点内按 Snapshot 顺序排列的零基序号。 */
+    readonly order: number;
+}
+
+/**
+ * 用户实际发送并需要随 Session 恢复的消息。
+ *
+ * @remarks
+ * `messageId` 在所属 Runtime 提交边界分配并随快照保存，刷新、重试或切换 Run
+ * 后仍可定位；`runId` 记录归属 Run；`source` 指向产生它的基础输入或交互请求；
+ * `position` 以该 Run 的已提交事实与同锚点 Snapshot 次序定位消息。身份不由正文推导。
+ *
+ * @example
+ * ```ts
+ * const message: UserMessage = {
+ *   role: "user",
+ *   content: "继续",
+ *   messageId: "msg-1",
+ *   runId: "run-1",
+ *   position: { afterSequence: 0, order: 0 },
+ *   source: { kind: "user_input", inputId: "input-1" },
+ * };
  * ```
  */
 export interface UserMessage {
     readonly role: "user";
     readonly content: string;
+    /** 该消息在所属 Goal 内稳定且唯一的身份。 */
+    readonly messageId: string;
+    /** 该消息所属的 Run 身份。 */
+    readonly runId: string;
+    /** 该消息在所属 Run 已提交事实流中的稳定位置。 */
+    readonly position: GoalMessagePosition;
+    /** 产生该消息的真实来源。 */
+    readonly source: GoalMessageSource;
 }
 
 /**
  * Assistant 实际发送并需要随 Session 恢复的消息。
  *
- * @remarks `profileId` 记录消息来源；Working Context 不属于真实消息。
+ * @remarks
+ * `profileId` 记录消息来源；Working Context 不属于真实消息。`purpose` 区分
+ * 过程正文、最终答复与 Runtime 通知；`messageId`、`runId`、`position` 与 `source`
+ * 与用户消息遵守同一身份契约。
+ *
  * @example
  * ```ts
  * const message: AssistantMessage = {
  *   role: "assistant",
  *   assistant: { profileId: "default" },
  *   content: "需要批准后继续",
+ *   messageId: "msg-2",
+ *   runId: "run-1",
+ *   position: { afterSequence: 4, order: 0 },
+ *   purpose: "notice",
+ *   source: { kind: "runtime_notice", noticeId: "notice-1" },
  * };
  * ```
  */
@@ -382,6 +486,16 @@ export interface AssistantMessage {
     readonly role: "assistant";
     readonly assistant: { readonly profileId: string };
     readonly content: string;
+    /** 该消息在所属 Goal 内稳定且唯一的身份。 */
+    readonly messageId: string;
+    /** 该消息所属的 Run 身份。 */
+    readonly runId: string;
+    /** 该消息在所属 Run 已提交事实流中的稳定位置。 */
+    readonly position: GoalMessagePosition;
+    /** 该消息的用途分类。 */
+    readonly purpose: AssistantMessagePurpose;
+    /** 产生该消息的真实来源。 */
+    readonly source: GoalMessageSource;
 }
 
 /** 按时间顺序持久化的真实 Session 消息。 */
@@ -630,6 +744,27 @@ export interface PendingAction {
     readonly approvalKind?: "tool" | "sandbox";
     /** 获批或待审的规范化沙箱范围。 */
     readonly effectiveSandboxScope?: EffectiveSandboxScope;
+    /**
+     * 已获批 Action 的最终执行版本。
+     *
+     * @remarks 未修订的批准省略该字段，直接使用原请求参数；修订批准保存原请求
+     * 引用与最终 canonical 参数的关联，获批后不可再编辑。
+     */
+    readonly executionVersion?: import("./action-approval").ActionExecutionVersion;
+    /**
+     * 批准该 Action 的稳定决定身份。
+     *
+     * @remarks 与持续授权账本的 Grant 来源使用同一身份；只有被该批准引用的一条
+     * 暂存授权会被激活。
+     */
+    readonly approvalInputId?: string;
+    /**
+     * 结果未知等待的恢复身份。
+     *
+     * @remarks 由本次已提交尝试派生，跨重启稳定；同一 Action 再次产生未知结果时
+     * 身份改变，旧恢复决定不能授权新一轮重执行。
+     */
+    readonly recoveryRef?: string;
 }
 
 /**
@@ -931,6 +1066,18 @@ export const DEFAULT_GOAL_MODEL_SELECTION: GoalModelSelection = Object.freeze({
 export interface GoalState {
     /** 已完成 Run 后为下一 Run 保存的一次性 Plan 模式选择。 */
     readonly nextRunMode?: "plan";
+    /**
+     * Goal 级单调提交修订。
+     *
+     * @remarks
+     * 每次成功的 Snapshot 提交递增，跨 Run 保持递增，用于恢复命令、状态同步与
+     * 竞态判定；不复用 Run 内 Trajectory sequence。省略等同 0。
+     */
+    readonly commitRevision?: number;
+    /** 已受理输入的账本；省略表示尚未受理任何输入。 */
+    readonly inputLedger?: readonly SessionInputRecord[];
+    /** 尚未应用的普通消息队列；省略表示空队列。 */
+    readonly messageQueue?: SessionMessageQueue;
     readonly workflow: GoalWorkflowState;
     readonly messages: readonly GoalMessage[];
     readonly run: RunState;
@@ -1142,10 +1289,57 @@ export type RunInput =
         readonly reason: string;
     }
     | {
+        /**
+         * 批准首次未执行的工具调用；不消费结果未知的恢复等待。
+         *
+         * @remarks 批准范围与 Grant 身份必须一致；单次批准不产生持久化授权。
+         */
         readonly kind: "approve_action";
         readonly actionId: string;
         readonly approvalScope?: "action" | "goal" | "workspace";
         readonly grantId?: string;
+        /** 批准决定的稳定身份；省略时由 Coordinator 按批准内容派生。 */
+        readonly approvalInputId?: string;
+    }
+    | {
+        /**
+         * 批准同一工具的修订参数版本。
+         *
+         * @remarks 只接受首次未执行审批；最终执行版本与审阅引用由调用方在提交
+         * 边界冻结，获批后不可再编辑。
+         */
+        readonly kind: "approve_action_revision";
+        readonly actionId: string;
+        readonly approvalScope?: "action" | "goal" | "workspace";
+        readonly grantId?: string;
+        /** 批准决定的稳定身份；省略时由 Coordinator 按批准内容派生。 */
+        readonly approvalInputId?: string;
+        readonly executionVersion: import("./action-approval").ActionExecutionVersion;
+        /** 修订后重新计算的规范化沙箱范围；省略时沿用暂存时的范围。 */
+        readonly effectiveSandboxScope?: EffectiveSandboxScope;
+        /** 修订后实际的审批类别；省略时沿用暂存时的类别。 */
+        readonly approvalKind?: "tool" | "sandbox";
+    }
+    | {
+        /**
+         * 明确允许结果未知的操作按获批版本再次执行。
+         *
+         * @remarks 绑定本次未知结果等待身份；不携带新参数或持续授权期限。
+         */
+        readonly kind: "retry_unknown_action";
+        readonly actionId: string;
+        readonly recoveryRef: string;
+    }
+    | {
+        /**
+         * 拒绝结果未知的操作再次执行。
+         *
+         * @remarks 保留此前效果未知的事实，不把原操作记作未执行、已回滚或成功。
+         */
+        readonly kind: "decline_unknown_action_retry";
+        readonly actionId: string;
+        readonly recoveryRef: string;
+        readonly reason: string;
     }
     | {
         readonly kind: "recover_action";
@@ -1169,6 +1363,40 @@ export type TransitionResult<TState extends RunState = RunState> =
             readonly code: "INVALID_TRANSITION";
             readonly message: string;
         };
+    };
+
+/**
+ * createGoal 接受的初始消息草稿。
+ *
+ * @remarks
+ * 草稿只描述正文、身份、来源与用途；Run 归属和 Run 内位置由 {@link createGoal}
+ * 在创建边界统一分配，因此调用方不能自行指定。
+ *
+ * @example
+ * ```ts
+ * const draft: GoalInitialMessageDraft = {
+ *     role: "user",
+ *     content: "补充上下文",
+ *     source: { kind: "user_input", inputId: "input-1" },
+ * };
+ * ```
+ */
+export type GoalInitialMessageDraft =
+    | {
+        readonly role: "user";
+        readonly content: string;
+        /** 可选的消息身份；省略时由创建边界分配。 */
+        readonly messageId?: string | undefined;
+        readonly source: GoalMessageSource;
+    }
+    | {
+        readonly role: "assistant";
+        readonly content: string;
+        /** 可选的消息身份；省略时由创建边界分配。 */
+        readonly messageId?: string | undefined;
+        readonly source: GoalMessageSource;
+        readonly purpose: AssistantMessagePurpose;
+        readonly assistant: { readonly profileId: string };
     };
 
 /**
@@ -1203,7 +1431,14 @@ export interface GoalCreationInput {
     /** 首个 Run 的模式；未提供时直接执行。 */
     readonly mode?: RunMode;
     readonly maxSteps?: number;
-    readonly messages?: readonly GoalMessage[];
+    /**
+     * 创建时随 Goal 一并提交的初始消息。
+     *
+     * @remarks
+     * 这些消息一律归属 {@link GoalCreationInput.runId}，并按初始次序获得
+     * `afterSequence: 0` 的连续 `order`；调用方提供的 Run 归属与位置不生效。
+     */
+    readonly messages?: readonly GoalInitialMessageDraft[];
     /** 可选的模型选择状态；未提供时使用 DEFAULT_GOAL_MODEL_SELECTION。 */
     readonly modelSelection?: GoalModelSelection | undefined;
 }
@@ -1232,11 +1467,66 @@ function cloneProfile(profile: AgentProfile): AgentProfile {
 
 function cloneMessages(messages: readonly GoalMessage[]): readonly GoalMessage[] {
     return messages.map((message) => message.role === "user"
-        ? { role: "user", content: message.content }
+        ? {
+            role: "user",
+            content: message.content,
+            messageId: message.messageId,
+            runId: message.runId,
+            position: { ...message.position },
+            source: { ...message.source },
+        }
         : {
             role: "assistant",
             assistant: { profileId: message.assistant.profileId },
             content: message.content,
+            messageId: message.messageId,
+            runId: message.runId,
+            position: { ...message.position },
+            purpose: message.purpose,
+            source: { ...message.source },
+        });
+}
+
+/**
+ * 组装 Goal 创建边界上的初始消息集。
+ *
+ * @remarks
+ * 创建时只存在首个 Run，因此初始消息一律归属该 Run；首条 Run 事实之前使用
+ * `afterSequence: 0`，同一锚点内按初始次序连续编号 `order`。这保证创建出的
+ * Goal 天然满足 Snapshot 的 Run 归属与位置不变量。
+ *
+ * @param input - Goal 创建输入。
+ * @returns 归属创建 Run、位置连续的初始消息集。
+ */
+function initialGoalMessages(input: GoalCreationInput): readonly GoalMessage[] {
+    const drafts: readonly GoalInitialMessageDraft[] = [
+        {
+            role: "user",
+            content: input.intent,
+            messageId: `msg-intent-${input.id}`,
+            source: { kind: "goal_intent", goalId: input.id },
+        },
+        ...(input.messages ?? []),
+    ];
+
+    return drafts.map((draft, index) => draft.role === "user"
+        ? {
+            role: "user",
+            content: draft.content,
+            messageId: draft.messageId ?? `msg-${randomUUID()}`,
+            runId: input.runId,
+            position: { afterSequence: 0, order: index },
+            source: { ...draft.source },
+        }
+        : {
+            role: "assistant",
+            assistant: { profileId: draft.assistant.profileId },
+            content: draft.content,
+            messageId: draft.messageId ?? `msg-${randomUUID()}`,
+            runId: input.runId,
+            position: { afterSequence: 0, order: index },
+            purpose: draft.purpose,
+            source: { ...draft.source },
         });
 }
 
@@ -1285,10 +1575,7 @@ export function createGoal(input: GoalCreationInput): Goal {
             workflow: {
                 phase: "executing",
             },
-            messages: cloneMessages([
-                { role: "user", content: input.intent },
-                ...(input.messages ?? []),
-            ]),
+            messages: initialGoalMessages(input),
             run: createRun(input.runId, mode),
             modelSelection: cloneModelSelection(input.modelSelection ?? DEFAULT_GOAL_MODEL_SELECTION),
             completedRuns: [],

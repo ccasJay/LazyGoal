@@ -148,8 +148,10 @@ test("PTC restores committed reads and waits for a write with an unknown result"
         assert.equal(resumedModelCalls, 0);
         const actionId = waiting.state.pendingAction?.action.actionId;
         assert.ok(actionId);
+        const recoveryRef = waiting.state.pendingAction?.recoveryRef;
+        assert.ok(recoveryRef);
         const approved = transition(waiting.state, {
-            kind: "approve_action", actionId, approvalScope: "action",
+            kind: "retry_unknown_action", actionId, recoveryRef,
         });
         assert.equal(approved.ok, true);
         if (!approved.ok) return;

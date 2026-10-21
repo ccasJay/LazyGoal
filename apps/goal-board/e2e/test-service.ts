@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 
 import { contract } from "../../../packages/contracts/src/index";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
+import { toolResponseFixture } from "../../../packages/agent/test/tool-response-fixture";
 import {
     createToolRegistration,
     InMemoryToolRegistry,
@@ -12,14 +13,16 @@ import {
 import type { AgentProfile, Goal, ToolPolicy } from "../../../packages/runtime/src/index";
 import {
     createBrowserGoalRoutes,
+    createBrowserGoalSessionPort,
     createBrowserTrajectoryRoutes,
     createBrowserModelInputRoutes,
     createBrowserSessionAccess,
     createBrowserStaticRoutes,
+    readBrowserGoalActivity,
     BrowserGoalCommandService,
-    BrowserGoalStreamService,
     listBrowserGoals,
     readBrowserGoalSession,
+    readBrowserGoalSessionState,
 } from "../../../packages/browser/src/index";
 import { createCompositionRoot } from "../../goal-server/src/composition-root";
 
@@ -43,17 +46,23 @@ class DeterministicAdapter implements LLMAdapter {
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.calls += 1;
         await writeStatus();
-        if (request.tools?.[0]?.id === "system_review_completion") return { content: JSON.stringify({ result: { kind: "accept" } }) };
+        if (request.tools?.[0]?.id === "system_review_completion") return toolResponseFixture(JSON.stringify({ result: { kind: "accept" } }));
         if (compositionRoot === undefined || activeGoalId === undefined) throw new Error("The fixture needs the active Goal");
         const goal = await compositionRoot.workspaceGoalStore.restore(activeGoalId);
         if (goal === undefined) throw new Error("The active fixture Goal disappeared");
         const trajectory = await compositionRoot.readWorkspaceTrajectory({ goalId: goal.id, runId: goal.state.run.id });
         const answered = trajectory.committed.some(event => event.eventType === "ask_user_answered");
-        const cancelled = trajectory.committed.some(event => event.eventType === "ask_user_cancelled");
+        const cancelled = trajectory.committed.some(event => event.eventType === "ask_user_skipped");
         const observed = trajectory.committed.some(event => event.eventType === "observation_recorded");
         const lastUser = goal.state.messages.filter(message => message.role === "user").at(-1)?.content ?? "";
         const cancellationFlow = goal.definition.intent.includes("Cancellation flow:");
         const needsQuestion = cancellationFlow ? !cancelled : goal.definition.intent.includes("Collect approved notes") && !lastUser.includes("follow-up") && !answered;
+        // 人机交互验收流程：同一问卷覆盖逐题回答、整体回复、跳过与等待中停止，回答后按普通收尾继续。
+        const humanFlow = goal.definition.intent.includes("Human interaction flow:");
+        const humanResolved = trajectory.committed.some(event =>
+            event.eventType === "ask_user_answered"
+            || event.eventType === "ask_user_replied"
+            || event.eventType === "ask_user_skipped");
         let result: Record<string, unknown>;
         if (goal.state.run.mode === "plan" && goal.state.run.approvedTask === undefined) {
             result = {
@@ -61,6 +70,25 @@ class DeterministicAdapter implements LLMAdapter {
                 planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
                 task: { objective: "Finish the controlled plan-flow check", completionCriteria: [{ text: "Plan Run completed", acceptance: null }] },
                 approvalRequest: "Approve the deterministic plan-flow task?",
+                memoryPatch: null,
+            };
+        } else if (humanFlow) {
+            result = humanResolved ? await completedDecision() : {
+                kind: "ask_user",
+                questions: [
+                    {
+                        header: "Choose a source",
+                        question: "Which notes should I include?",
+                        options: [{ label: "Approved notes", description: null }, { label: "All notes", description: null }],
+                        multiSelect: false,
+                    },
+                    {
+                        header: "Choose sections",
+                        question: "Which sections should I include?",
+                        options: [{ label: "Summary", description: null }, { label: "Details", description: null }, { label: "Appendix", description: null }],
+                        multiSelect: true,
+                    },
+                ],
                 memoryPatch: null,
             };
         } else if (needsQuestion) {
@@ -95,8 +123,11 @@ class DeterministicAdapter implements LLMAdapter {
         await appendFile(`${statusFile}.decisions`, JSON.stringify({ kind: result.kind, call: this.calls, feedback: request.messages.flatMap(message => { try { const data = JSON.parse(message.content); return data.source === "runtime_feedback" ? [{code: data.code, issues: data.issues.map((issue: {code: string; path: unknown}) => ({code: issue.code, path: issue.path}))}] : []; } catch { return []; } }) }) + "\n");
         const isComposerStatusFlow = request.messages.some(message => message.content.includes("Composer status flow:"));
         if (isComposerStatusFlow) await new Promise(resolve => setTimeout(resolve, 1200));
+        const isStreamingSessionFlow = request.messages.some(message => message.content.includes("Streaming session flow:"));
+        if (isStreamingSessionFlow) await new Promise(resolve => setTimeout(resolve, 8000));
         if (process.env.LAZYGOAL_E2E_DELAY_MODEL === "1" && !["run_stage_update", "tool_discovery"].includes(result.kind as string)) await new Promise(resolve => setTimeout(resolve, 5000));
-        return { content: JSON.stringify({ result }) };
+        // 严格结构化输出以声明工具调用交付决策。
+        return toolResponseFixture(JSON.stringify({ result }));
     }
 }
 
@@ -170,7 +201,8 @@ const controlledTool: Tool<typeof fixtureInput> = {
     },
 };
 const toolPolicy: ToolPolicy = {
-    evaluate: () => "require_approval",
+    // 验收场景默认等待人工审批；只读验收可用 LAZYGOAL_E2E_TOOL_POLICY=allow 跳过审批。
+    evaluate: () => process.env.LAZYGOAL_E2E_TOOL_POLICY === "allow" ? "allow" : "require_approval",
 };
 const access = createBrowserSessionAccess();
 const root = await createCompositionRoot({
@@ -200,49 +232,59 @@ root.notifyingStore.onSave((goal) => {
 });
 const commands = new BrowserGoalCommandService({
     store: root.workspaceGoalStore,
-    saveNotifications: root.notifyingStore,
-    launcher: root.browserLauncher,
     coordinator: root.commands,
-    defaultModelSelection: root.defaultModelSelection,
+    modelSelectionCoordinator: root.goalModelSelectionCoordinator,
+    readActiveGoalId: () => root.sessions.activeGoal,
     resolveModelSelection: async (modelId) => modelId === root.defaultModelSelection.modelId || modelId === "model-b"
         ? { ...root.defaultModelSelection, modelId } : undefined,
-    profileId: root.profile.id,
     control: { signal: root.abortController.signal },
 });
-const streams = new BrowserGoalStreamService({
-    store: root.workspaceGoalStore,
-    saveNotifications: root.notifyingStore,
-    publisher: root.executionStream,
+/** 确定性 Adapter 需要知道当前受控 Goal；统一输入与事件流都由 Runtime 会话所有者处理。 */
+const sessionPort = createBrowserGoalSessionPort({
+    sessions: root.sessions,
+    profileId: root.profile.id,
+    isShuttingDown: () => root.abortController.signal.aborted,
+    resolveModelSelection: async (command) => {
+        const modelId = command.modelId ?? root.defaultModelSelection.modelId;
+        if (modelId !== root.defaultModelSelection.modelId && modelId !== "model-b") {
+            return { ok: false, error: "model_not_selectable" as const };
+        }
+        activeGoalId = command.goalId;
+        return { ok: true as const, selection: { ...root.defaultModelSelection, modelId } };
+    },
 });
+const browserSession = {
+    ...sessionPort,
+    submit: (goalId: string, input: Parameters<typeof sessionPort.submit>[1]) => {
+        activeGoalId = goalId;
+        return sessionPort.submit(goalId, input);
+    },
+    openEvents: (goalId: string, signal?: AbortSignal) => {
+        activeGoalId = goalId;
+        return sessionPort.openEvents(goalId, signal);
+    },
+};
 const modelPreferenceStore = new JsonFileModelPreferenceStore(root.workspaceHomeDirectory);
 root.httpService.mount("/", createBrowserGoalRoutes({
-    list: () => listBrowserGoals(root.workspaceGoalStore, commands.getActiveGoalId()),
+    list: () => listBrowserGoals(root.workspaceGoalStore, root.sessions.activeGoal),
     read: (goalId) => readBrowserGoalSession(
         goalId,
         root.workspaceGoalStore,
         root.readWorkspaceTrajectory,
-        commands.getActiveGoalId(),
+        root.sessions.activeGoal,
     ),
-    create: (command) => {
-        activeGoalId = command.goalId;
-        return commands.create(command);
-    },
-    interact: (goalId, command) => {
-        activeGoalId = goalId;
-        return commands.interact(goalId, command);
-    },
-    message: (goalId, command) => {
-        activeGoalId = goalId;
-        return commands.message(goalId, command);
-    },
-    steer: (goalId, command) => {
-        activeGoalId = goalId;
-        return commands.steer(goalId, command);
-    },
-    interrupt: (goalId, command) => {
-        activeGoalId = goalId;
-        return commands.interrupt(goalId, command);
-    },
+    readState: (goalId) => readBrowserGoalSessionState(
+        goalId,
+        root.workspaceGoalStore,
+        root.sessions.activeGoal,
+    ),
+    readActivity: (goalId, query) => readBrowserGoalActivity(
+        goalId,
+        query,
+        root.workspaceGoalStore,
+        root.readWorkspaceTrajectory,
+    ),
+    session: browserSession,
     enterPlanMode: (goalId, command) => {
         activeGoalId = goalId;
         return commands.enterPlanMode(goalId, command);
@@ -268,11 +310,12 @@ root.httpService.mount("/", createBrowserGoalRoutes({
     } }),
     setModelPreference: async (modelId) => {
         if (modelId !== root.defaultModelSelection.modelId && modelId !== "model-b") return { ok: false, error: "model_not_selectable" };
-        await modelPreferenceStore.set({ provider: root.defaultModelSelection.provider, modelId });
+        await modelPreferenceStore.set({ modelId });
         return { ok: true, modelId };
     },
     selectModel: (goalId, command) => commands.selectModel(goalId, command),
-    openStream: (goalId, runId, signal) => streams.open(goalId, runId, signal),
+    readInteractionDetails: (goalId, runId, interactionId) => commands.readInteractionDetails(goalId, runId, interactionId),
+    reviewActionApproval: (goalId, command) => commands.reviewActionApproval(goalId, command),
 }));
 root.httpService.mount("/", createBrowserTrajectoryRoutes(root.workspaceGoalStore, root.readWorkspaceTrajectory));
 root.httpService.mount("/", createBrowserModelInputRoutes(root.workspaceGoalStore, (goalId, runId) => new JsonFileModelInputStore(resolve(dataDirectory, "model-inputs")).read(goalId, runId)));

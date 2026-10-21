@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -17,6 +17,7 @@ import {
     type JsonValue,
     type StepExecutionInput,
     type StepExecutor,
+    type GoalStore,
 } from "../src/index";
 import {
     createToolRegistration,
@@ -31,7 +32,12 @@ import {
     InMemoryGoalStore,
     JsonFileSandboxGrantStore,
 } from "../../storage/src/index";
-import { currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import { bindMessagesToRun, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import {
+    createApprovalCoordinator,
+    createApprovalFixture,
+    createAwaitingApprovalGoal,
+} from "./action-approval-fixtures";
 
 const TEST_INPUT_CONTRACT = contract.object({
     command: contract.string(),
@@ -345,6 +351,8 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
                     exposedToolIds: [...TEST_PROFILE.toolIds],
                     ...(initialGoal.state.run.currentStage !== undefined ? { currentStage: initialGoal.state.run.currentStage } : {}),
                 },
+                // 新 Run 接管当前 Goal 的全部消息归属与 Run 内位置。
+                messages: bindMessagesToRun(initialGoal.state.messages, "run-2"),
             },
         };
         await store.save(goalWithRun2);
@@ -408,6 +416,8 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
                     exposedToolIds: [...TEST_PROFILE.toolIds],
                     ...(initialGoal.state.run.currentStage !== undefined ? { currentStage: initialGoal.state.run.currentStage } : {}),
                 },
+                // 新 Run 接管当前 Goal 的全部消息归属与 Run 内位置。
+                messages: bindMessagesToRun(initialGoal.state.messages, "run-3"),
             },
         };
         await store.save(goalWithRun3);
@@ -419,5 +429,222 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
         assert.equal(executedCommands.length, 1); // 依然没有启动受限命令
     } finally {
         await rm(tempDir, { recursive: true, force: true });
+    }
+});
+
+/** 只在指定次数的保存上失败的 GoalStore，用于确定性验证批准事务边界。 */
+class FailingSaveGoalStore implements GoalStore {
+    private readonly delegate = new InMemoryGoalStore();
+    private remainingFailures: number;
+
+    constructor(failures: number) {
+        this.remainingFailures = failures;
+    }
+
+    async seed(goal: Goal): Promise<void> {
+        await this.delegate.save(goal);
+    }
+
+    async save(goal: Goal): Promise<void> {
+        if (this.remainingFailures > 0) {
+            this.remainingFailures -= 1;
+            throw new Error("snapshot save failed");
+        }
+        await this.delegate.save(goal);
+    }
+
+    async restore(goalId: string): Promise<Goal | undefined> {
+        return this.delegate.restore(goalId);
+    }
+}
+
+test("修订参数后选择 Goal 授权：matcher 与最终版本一致，单次批准不产生 Grant", async () => {
+    const fixture = await createApprovalFixture();
+    try {
+        const goal = createAwaitingApprovalGoal();
+        await fixture.store.save(goal);
+        const { coordinator } = createApprovalCoordinator(fixture);
+        const ref = { goalId: goal.id, runId: goal.state.run.id };
+
+        const review = await coordinator.reviewActionApproval({
+            ref,
+            actionId: "action-approval",
+            input: { path: "b.txt", content: "revised" },
+            scope: "goal",
+        });
+        assert.equal(review.ok, true);
+        if (!review.ok) return;
+
+        const resumed = await coordinator.resume({
+            ref,
+            action: {
+                kind: "approve_action_revision",
+                actionId: "action-approval",
+                input: { path: "b.txt", content: "revised" },
+                reviewRef: review.review.reviewRef,
+                scope: "goal",
+            },
+        });
+        assert.equal(resumed.ok, true);
+
+        const grants = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        assert.equal(grants.length, 1);
+        const grant = grants[0];
+        assert.equal(grant?.status, "active");
+        assert.equal(grant?.scope, "goal");
+        assert.equal(grant?.matcher.kind, "target_path");
+        // 匹配器来自最终获批参数，而不是原请求。
+        assert.equal(
+            grant?.matcher.kind === "target_path" ? grant.matcher.path : "",
+            `${await realpath(fixture.workspaceRoot)}/b.txt`,
+        );
+        assert.equal(grant?.source.actionId, "action-approval");
+        assert.ok((grant?.source.approvalInputId ?? "").length > 0);
+
+        // 获批事实保存同一批准身份。
+        const events = await trajectoryStoreFor(fixture.store).read({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+        });
+        const revised = events.find((event) => event.eventType === "action_revised");
+        assert.ok(revised !== undefined);
+        if (revised?.eventType === "action_revised") {
+            assert.equal(revised.payload.approvalInputId, grant?.source.approvalInputId);
+        }
+    } finally {
+        await fixture.dispose();
+    }
+});
+
+test("单次批准不产生持续授权", async () => {
+    const fixture = await createApprovalFixture();
+    try {
+        const goal = createAwaitingApprovalGoal();
+        await fixture.store.save(goal);
+        const { coordinator } = createApprovalCoordinator(fixture);
+        const ref = { goalId: goal.id, runId: goal.state.run.id };
+
+        const resumed = await coordinator.resume({
+            ref,
+            action: { kind: "approve_action", actionId: "action-approval" },
+        });
+        assert.equal(resumed.ok, true);
+        assert.deepEqual(await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id }), []);
+    } finally {
+        await fixture.dispose();
+    }
+});
+
+test("授权暂存后批准保存失败：新决定可以继续，旧 pending 永不激活", async () => {
+    const fixture = await createApprovalFixture();
+    try {
+        const goal = createAwaitingApprovalGoal();
+        const store = new FailingSaveGoalStore(1);
+        await store.seed(goal);
+        const { coordinator } = createApprovalCoordinator(fixture, { store });
+        const ref = { goalId: goal.id, runId: goal.state.run.id };
+
+        const review = await coordinator.reviewActionApproval({
+            ref,
+            actionId: "action-approval",
+            input: { path: "b.txt", content: "revised" },
+            scope: "goal",
+        });
+        assert.equal(review.ok, true);
+        if (!review.ok) return;
+
+        // 第一次决定：授权已暂存，但批准快照保存失败。
+        await assert.rejects(
+            coordinator.resume({
+                ref,
+                action: {
+                    kind: "approve_action_revision",
+                    actionId: "action-approval",
+                    input: { path: "b.txt", content: "revised" },
+                    reviewRef: review.review.reviewRef,
+                    scope: "goal",
+                    approvalInputId: "input-first",
+                },
+            }),
+            /snapshot save failed/,
+        );
+        const afterFailure = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        assert.equal(afterFailure.length, 1);
+        assert.equal(afterFailure[0]?.status, "pending");
+
+        // 第二次决定：更换参数与决定身份，不被旧 pending 阻塞。
+        const secondReview = await coordinator.reviewActionApproval({
+            ref,
+            actionId: "action-approval",
+            input: { path: "c.txt", content: "second" },
+            scope: "workspace",
+        });
+        assert.equal(secondReview.ok, true);
+        if (!secondReview.ok) return;
+        const second = await coordinator.resume({
+            ref,
+            action: {
+                kind: "approve_action_revision",
+                actionId: "action-approval",
+                input: { path: "c.txt", content: "second" },
+                reviewRef: secondReview.review.reviewRef,
+                scope: "workspace",
+                approvalInputId: "input-second",
+            },
+        });
+        assert.equal(second.ok, true);
+
+        const goalGrants = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        const workspaceGrants = await fixture.toolGrantStore.list({ workspaceId: "ws-1" });
+        const grants = [...new Map(
+            [...goalGrants, ...workspaceGrants].map((grant) => [grant.id, grant]),
+        ).values()];
+        assert.equal(grants.length, 2);
+        const stale = grants.find((grant) => grant.source.approvalInputId === "input-first");
+        const active = grants.find((grant) => grant.source.approvalInputId === "input-second");
+        assert.equal(stale?.status, "pending");
+        assert.equal(active?.status, "active");
+        assert.equal(active?.scope, "workspace");
+        assert.equal(
+            active?.matcher.kind === "target_path" ? active.matcher.path : "",
+            `${await realpath(fixture.workspaceRoot)}/c.txt`,
+        );
+    } finally {
+        await fixture.dispose();
+    }
+});
+
+test("同一决定身份重复暂存复用同一条授权记录", async () => {
+    const fixture = await createApprovalFixture();
+    try {
+        const goal = createAwaitingApprovalGoal();
+        await fixture.store.save(goal);
+        const { coordinator } = createApprovalCoordinator(fixture);
+        const ref = { goalId: goal.id, runId: goal.state.run.id };
+
+        const review = await coordinator.reviewActionApproval({
+            ref,
+            actionId: "action-approval",
+            input: { path: "b.txt", content: "revised" },
+            scope: "goal",
+        });
+        assert.equal(review.ok, true);
+        if (!review.ok) return;
+
+        const action = {
+            kind: "approve_action_revision" as const,
+            actionId: "action-approval",
+            input: { path: "b.txt", content: "revised" },
+            reviewRef: review.review.reviewRef,
+            scope: "goal" as const,
+            approvalInputId: "input-stable",
+        };
+        const first = await coordinator.resume({ ref, action });
+        assert.equal(first.ok, true);
+        const grants = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        assert.equal(grants.length, 1);
+        assert.equal(grants[0]?.status, "active");
+    } finally {
+        await fixture.dispose();
     }
 });

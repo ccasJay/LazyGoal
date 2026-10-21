@@ -58,89 +58,80 @@ test("Web goal session presents run stages, revisions, rejection feedback, and c
       returnByValue: true,
     });
 
-    await waitForExpression(socket, "document.querySelector('.session .run-stages-container') !== null");
+    await waitForExpression(socket, "document.querySelector('.session .timeline-run-boundary') !== null");
 
-    // 1. 验证 Run 级控制活动
-    const hasRunLevelSteps = await value(socket, "document.querySelector('.run-level-steps') !== null");
-    assert.equal(hasRunLevelSteps, true);
-    assert.match(await value(socket, "document.querySelector('.run-level-steps').innerText"), /Run-level activity/);
+    // 1. 验证 Run 分界与当前 Run 标识
+    assert.match(await value(socket, "document.querySelector('.session .timeline-run-boundary').innerText"), /Run 1/);
+    assert.match(await value(socket, "document.querySelector('.session .timeline-run-boundary').innerText"), /Current/);
 
-    // 2. 验证阶段分组数量
-    const stageGroupsCount = await value(socket, "document.querySelectorAll('.run-stage-group').length");
+    // 2. 验证获批 Plan 路线阶段数量
+    const stageGroupsCount = await value(socket, "document.querySelectorAll('.plan-route-stage').length");
     assert.equal(stageGroupsCount, 2);
 
     // 3. 验证 Stage 1: Accepted 状态，不展示阶段结果摘要或 Run completed
-    const stage1Target = await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelector('.stage-target').textContent");
+    const stage1Target = await value(socket, "document.querySelectorAll('.plan-route-stage')[0].querySelector('.plan-route-stage-heading strong').textContent");
     assert.equal(stage1Target, "Alpha Setup");
-    const stage1Status = await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelector('.stage-status').textContent");
+    const stage1Status = await value(socket, "document.querySelectorAll('.plan-route-stage')[0].querySelector('.plan-route-status').textContent");
     assert.equal(stage1Status, "Accepted");
-    assert.doesNotMatch(await value(socket, "document.querySelectorAll('.run-stage-group')[0].innerText"), /Alpha completed successfully/);
+    assert.doesNotMatch(await value(socket, "document.querySelectorAll('.plan-route-stage')[0].innerText"), /Alpha completed successfully/);
     assert.doesNotMatch(await value(socket, "document.querySelector('.session').innerText"), /Run completed/);
 
-    // 4. 验证 Stage 2: 修订版本、In progress 状态与审查拒绝反馈
-    const stage2Target = await value(socket, "document.querySelectorAll('.run-stage-group')[1].querySelector('.stage-target').textContent");
+    // 4. 验证 Stage 2: 路线修订、In progress 状态与审查拒绝反馈
+    const stage2Target = await value(socket, "document.querySelectorAll('.plan-route-stage')[1].querySelector('.plan-route-stage-heading strong').textContent");
     assert.equal(stage2Target, "Beta Implementation");
-    const stage2Status = await value(socket, "document.querySelectorAll('.run-stage-group')[1].querySelector('.stage-status').textContent");
+    const stage2Status = await value(socket, "document.querySelectorAll('.plan-route-stage')[1].querySelector('.plan-route-status').textContent");
     assert.equal(stage2Status, "In progress");
-    const stage2Rev = await value(socket, "document.querySelectorAll('.run-stage-group')[1].querySelector('.stage-revision').textContent");
-    assert.equal(stage2Rev, "Rev 2");
-    assert.match(await value(socket, "document.querySelectorAll('.run-stage-group')[1].innerText"), /Review feedback:/);
-    assert.match(await value(socket, "document.querySelectorAll('.run-stage-group')[1].innerText"), /Missing error handling/);
+    assert.match(await value(socket, "document.querySelector('.plan-route-heading').innerText"), /Revision 2/);
+    assert.match(await value(socket, "document.querySelector('.plan-route-reason').innerText"), /Missing error handling/);
 
-    // 5. 验证所属 Steps 存在且可展开
-    const stage1StepsCount = await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelectorAll('.activity-group').length");
-    assert.equal(stage1StepsCount, 1);
-    assert.match(await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelector('.activity-group > summary').innerText"), /Edited 2 files/);
-    assert.equal(await value(socket, "document.querySelectorAll('.run-stage-group')[0].querySelectorAll('.activity-member').length"), 2);
-    const stage2StepsCount = await value(socket, "document.querySelectorAll('.run-stage-group')[1].querySelectorAll('.activity-group').length");
-    assert.equal(stage2StepsCount, 1);
+    // 5. 阶段标题在时间线上按真实事实位置保留
+    const stageTitles = await value(socket, "[...document.querySelectorAll('.timeline-fact.run_stage_declared .timeline-stage-target')].map(node => node.textContent)");
+    assert.deepEqual(stageTitles, ["Alpha Setup", "Beta Implementation"]);
+    assert.match(await value(socket, "document.querySelector('.timeline-fact.run_stage_rejected').innerText"), /Stage revised/);
 
-    // 6. 样式呈现断言：类名存在但 CSS 缺失时在此回归（spec-req-1-3）
-    const headingStyle = JSON.parse(await value(socket, `JSON.stringify((() => {
-      const style = getComputedStyle(document.querySelector('.run-stage-heading'));
-      return { display: style.display, alignItems: style.alignItems, minHeight: style.minHeight };
-    })())`));
-    assert.equal(headingStyle.display, "flex");
-    assert.equal(headingStyle.alignItems, "center");
+    // 6. 验证所属 Steps 按阶段与类别归组且默认折叠
+    const stage1StepsCount = await value(socket, "document.querySelectorAll('.timeline-activity').length");
+    assert.equal(stage1StepsCount, 5);
+    const editGroupSummary = await value(socket, "[...document.querySelectorAll('.timeline-activity-heading > strong')].map(node => node.textContent).find(text => text.includes('Edited'))");
+    assert.equal(editGroupSummary, "Edited 2 files");
+    assert.equal(await value(socket, "document.querySelectorAll('.timeline-activity-heading[aria-expanded=\"false\"]').length"), 5);
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "[...document.querySelectorAll('.timeline-activity-heading')].find(button => button.textContent.includes('Edited 2 files')).click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelectorAll('.timeline-activity-members > li').length === 2");
+    const memberLabels = await value(socket, "[...document.querySelectorAll('.timeline-activity-members > li .timeline-activity-member-label')].map(node => node.textContent)");
+    assert.deepEqual(memberLabels, ["Edited src/index.ts", "Wrote src/index.test.ts"]);
 
-    const containerDisplay = await value(socket, "getComputedStyle(document.querySelector('.run-stages-container')).display");
-    assert.match(containerDisplay, /grid/);
-
-    const containerMargin = await value(socket, "getComputedStyle(document.querySelector('.run-stages-container')).marginLeft");
-    assert.notEqual(String(containerMargin), "0px");
-
-    const levelStepsDisplay = await value(socket, "getComputedStyle(document.querySelector('.run-level-steps')).display");
-    assert.equal(levelStepsDisplay, "block");
-
-    const contentBorder = await value(socket, "getComputedStyle(document.querySelector('.stage-content')).borderLeftWidth");
-    assert.equal(contentBorder, "1px");
-
-    const feedbackBackground = await value(socket, "getComputedStyle(document.querySelector('.stage-rejection-feedback')).backgroundColor");
-    assert.ok(
-      feedbackBackground && feedbackBackground !== "rgba(0, 0, 0, 0)",
-      `stage rejection feedback must draw the warning surface, got ${feedbackBackground}`,
-    );
-
-    await waitForExpression(socket, "document.querySelectorAll('.activity-group.think').length === 2");
-    await value(socket, "document.querySelectorAll('.activity-group.think').forEach(group => { group.open = true; })");
-    assert.match(await value(socket, "document.querySelector('.activity-group.think').innerText"), /Compare recovery paths/);
-    assert.match(await value(socket, "document.querySelector('.activity-group.think strong').textContent"), /Thinking/);
-    assert.match(await value(socket, "document.querySelector('.activity-group.think [aria-label=\"Think analysis\"] strong').textContent"), /Use the committed checkpoint/);
-    assert.match(await value(socket, "document.querySelectorAll('.activity-group.think')[1].innerText"), /Waiting for the saved Think output/);
-    assert.match(await value(socket, "document.querySelectorAll('.activity-group.think')[1].querySelector('summary').innerText"), /In progress/);
+    // 7. 显式 Think 保留获准摘要、状态与详情入口
+    await waitForExpression(socket, "document.querySelectorAll('[data-group-id^=\"think:\"]').length === 2");
+    const thinkGroups = "[...document.querySelectorAll('[data-group-id^=\"think:\"]')]";
+    await cdp(socket, "Runtime.evaluate", {
+      expression: `${thinkGroups}.forEach(group => group.querySelector('.timeline-activity-heading').click())`,
+      returnByValue: true,
+    });
+    assert.match(await value(socket, `${thinkGroups}[0].innerText`), /Compare recovery paths/);
+    assert.match(await value(socket, `${thinkGroups}[0].innerText`), /Use the committed checkpoint/);
+    assert.match(await value(socket, `${thinkGroups}[0].querySelector('.timeline-activity-member-status').textContent`), /Completed/);
+    assert.match(await value(socket, `${thinkGroups}[1].innerText`), /Check remaining uncertainty/);
+    assert.match(await value(socket, `${thinkGroups}[1].querySelector('.timeline-activity-member-status').textContent`), /Running/);
+    assert.doesNotMatch(await value(socket, `${thinkGroups}[1].innerText`), /Use the committed checkpoint/);
     mock.completeThink();
-    await waitForExpression(socket, "document.querySelectorAll('.activity-group.think')[1].classList.contains('completed')");
-    assert.equal(await value(socket, "document.querySelectorAll('.activity-group.think').length"), 2);
-    await value(socket, "document.querySelectorAll('.activity-group.think')[1].open = true");
-    assert.match(await value(socket, "document.querySelectorAll('.activity-group.think')[1].innerText"), /Remaining uncertainty is resolved/);
+    await waitForExpression(socket, `document.querySelectorAll('[data-group-id^="think:"]')[1].classList.contains('completed')`);
+    assert.equal(await value(socket, "document.querySelectorAll('[data-group-id^=\"think:\"]').length"), 2);
+    assert.match(await value(socket, `${thinkGroups}[1].innerText`), /Remaining uncertainty is resolved/);
 
     await navigate(socket, "about:blank");
     await navigate(socket, `${webUrl}/?session=desktop#${token}`);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
     await value(socket, "document.querySelector('.goal-card').click()");
-    await waitForExpression(socket, "document.querySelectorAll('.activity-group.think').length === 2");
-    await value(socket, "document.querySelector('.activity-group.think').open = true");
-    await value(socket, "document.querySelector('.activity-group.think .trajectory-link button').click()");
+    await waitForExpression(socket, "document.querySelectorAll('[data-group-id^=\"think:\"]').length === 2");
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "[...document.querySelectorAll('[data-group-id^=\"think:\"]')][0].querySelector('.timeline-activity-heading').click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('[data-group-id^=\"think:\"] .timeline-activity-trajectory') !== null");
+    await value(socket, "document.querySelector('[data-group-id^=\"think:\"] .timeline-activity-trajectory').click()");
     await waitForExpression(socket, "document.querySelector('.ct-badge.thinking') !== null");
     await value(socket, "document.querySelector('#trajectory-event-6').click()");
     await waitForExpression(socket, "document.querySelector('.tr-detail-body [aria-label=\"Think analysis\"]') !== null");
@@ -168,7 +159,7 @@ function createStageMockApi() {
     currentRunId: "run-1",
     runStatus: "running",
     currentRunMode: "normal",
-    messages: [{ role: "user", content: "Exercise run stage presentation" }],
+    messages: [{ role: "user", content: "Exercise run stage presentation", messageId: "msg-intent", runId: "run-1", position: { afterSequence: 0, order: 0 } }],
     runs: [{
       runId: "run-1",
       status: "running",
@@ -266,6 +257,93 @@ function createStageMockApi() {
     historyTruncated: false,
   };
 
+  // 窄状态：只提供当前阶段路线与等待状态，历史正文与步骤显式外置。
+  const stateEnvelope = () => ({
+    goalId: session.goalId,
+    intent: session.intent,
+    currentRunId: session.currentRunId,
+    runStatus: session.runStatus,
+    currentRunMode: "plan",
+    currentRunStepCount: 4,
+    currentPlanRoute: {
+      revision: 2,
+      revisionReason: "Missing error handling",
+      nextStageIndex: 1,
+      stages: [
+        { stageId: "stage-alpha", revision: 1, status: "accepted", target: "Alpha Setup", acceptanceCriteria: ["Files created"], acceptedSequence: 5 },
+        { stageId: "stage-beta", revision: 2, status: "executing", target: "Beta Implementation", acceptanceCriteria: ["Tests pass"] },
+      ],
+    },
+    history: {
+      messages: { included: false, source: "activity" },
+      steps: { included: false, source: "activity" },
+      stages: { included: false, source: "activity" },
+    },
+  });
+
+  const activityPosition = (sequence, itemKind = "fact") => ({ runId: "run-1", runOrder: 0, sequence, itemKind, order: 0 });
+  const stageFact = (eventId, sequence, eventType, extra) => ({
+    type: "fact", itemId: `event:${eventId}`, eventId, runId: "run-1",
+    position: activityPosition(sequence), eventType, title: extra.title, ...extra,
+  });
+  const toolFact = (eventId, sequence, actionId, toolId, inputSummary, summary, stageId) => ({
+    type: "fact", itemId: `event:${eventId}`, eventId, runId: "run-1",
+    position: activityPosition(sequence), eventType: "tool_started", title: "Tool started",
+    actionId, executionUnitId: `unit-${actionId}`,
+    ...(stageId === undefined ? {} : { stageId }),
+    tool: { toolId, status: "completed", actionStatus: "approved", inputSummary, summary },
+  });
+  const thinkFact = (eventId, sequence, goal, output, executionUnitId) => ({
+    type: "think", itemId: `think:${eventId}`, runId: "run-1",
+    position: activityPosition(sequence), executionUnitId,
+    think: { goal, ...(output === undefined ? {} : { output }) },
+  });
+
+  // 固定水位的 Activity 页：阶段事实、工具动作与显式 Think 按真实来源交错。
+  const activityEnvelope = () => ({
+    goalId: session.goalId,
+    limit: 50,
+    items: [
+      {
+        type: "message", itemId: "message:msg-intent", messageId: "msg-intent", role: "user", runId: "run-1",
+        position: activityPosition(0, "message"),
+        content: "Exercise run stage presentation", contentLength: 35, truncated: false,
+      },
+      toolFact("event-read-1", 1, "action-read-1", "read_file", "config.json", "Read initial config", undefined),
+      stageFact("event-stage-alpha", 2, "run_stage_declared", {
+        title: "Stage started", stageId: "stage-alpha", stageRevision: 1, stageTarget: "Alpha Setup",
+      }),
+      toolFact("event-edit-1", 3, "action-edit-1", "edit_file", "src/index.ts", "Edited source file", "stage-alpha"),
+      toolFact("event-edit-2", 4, "action-edit-2", "write_file", "src/index.test.ts", "Wrote test file", "stage-alpha"),
+      stageFact("event-stage-alpha-accepted", 5, "run_stage_accepted", {
+        title: "Stage accepted", stageId: "stage-alpha", stageRevision: 1,
+      }),
+      stageFact("event-stage-beta", 6, "run_stage_declared", {
+        title: "Stage started", stageId: "stage-beta", stageRevision: 2, stageTarget: "Beta Implementation",
+      }),
+      toolFact("event-bash-1", 7, "action-bash-1", "bash", "npm test", "Ran tests", "stage-beta"),
+      stageFact("event-stage-beta-rejected", 8, "run_stage_rejected", {
+        title: "Stage revised", stageId: "stage-beta", stageRevision: 2,
+      }),
+      thinkFact("event-think-1", 9, "Compare recovery paths", "**Use the committed checkpoint**\n\nThe saved observation supports this choice.", "think-unit"),
+      thinkFact("event-think-2", 10, "Check remaining uncertainty", session.runs[0].steps[1].think.output, "pending-think-unit"),
+    ],
+    runs: [{ runId: "run-1", status: "running", current: true, runOrder: 0, committedThroughSequence: 10 }],
+    window: [{ runId: "run-1", messageCount: 1, throughMessageId: "msg-intent", committedThroughSequence: 10 }],
+    gaps: [],
+    range: { olderAvailable: false, newerAvailable: false },
+    stages: [
+      { runId: "run-1", stageId: "stage-alpha", revision: 1, status: "accepted", firstSequence: 2, lastSequence: 5, completeWithinPage: true },
+      { runId: "run-1", stageId: "stage-beta", revision: 2, status: "rejected", firstSequence: 6, lastSequence: 8, completeWithinPage: true },
+    ],
+    actionGroups: [
+      { runId: "run-1", actionId: "action-read-1", firstSequence: 1, lastSequence: 1, completeWithinPage: true },
+      { runId: "run-1", actionId: "action-edit-1", firstSequence: 3, lastSequence: 3, completeWithinPage: true },
+      { runId: "run-1", actionId: "action-edit-2", firstSequence: 4, lastSequence: 4, completeWithinPage: true },
+      { runId: "run-1", actionId: "action-bash-1", firstSequence: 7, lastSequence: 7, completeWithinPage: true },
+    ],
+  });
+
   const server = createServer(async (request, response) => {
     if (request.headers.authorization !== `Bearer ${token}`) {
       response.writeHead(401, { "content-type": "application/json" });
@@ -310,6 +388,14 @@ function createStageMockApi() {
           archived: false,
         }],
       });
+      return;
+    }
+    if (request.url === "/api/goals/goal-stage-1?view=state" && request.method === "GET") {
+      json(response, { goal: stateEnvelope() });
+      return;
+    }
+    if (request.url?.startsWith("/api/goals/goal-stage-1/activity") && request.method === "GET") {
+      json(response, activityEnvelope());
       return;
     }
     if (request.url === "/api/goals/goal-stage-1" && request.method === "GET") {

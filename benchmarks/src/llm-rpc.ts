@@ -355,9 +355,23 @@ function validateMode(mode: StructuredOutputMode, request: LLMRequest, native = 
 }
 
 function validateLlmResponse(response: LLMResponse): void {
-    if (!isRecord(response) || typeof response.content !== "string") {
+    if (!isRecord(response) || !Array.isArray(response.blocks)
+        || !response.blocks.every(isLlmContentBlock)) {
         throw new LlmRpcError("Invalid LLM response", "protocol");
     }
+}
+
+function isLlmContentBlock(value: unknown): boolean {
+    if (!isRecord(value) || !Number.isSafeInteger(value.index) || (value.index as number) < 0) return false;
+    if (value.type === "text") {
+        return (value.format === "plain" || value.format === "json") && typeof value.text === "string";
+    }
+    if (value.type === "reasoning") return typeof value.text === "string";
+    if (value.type === "tool_call") {
+        return typeof value.callId === "string" && value.callId.length > 0
+            && typeof value.toolId === "string" && typeof value.argumentsJson === "string";
+    }
+    return false;
 }
 
 function parseLlmRpcMessage(value: unknown): LlmRpcMessage {

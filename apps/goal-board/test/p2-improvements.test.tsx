@@ -61,33 +61,23 @@ test("GoalBoard 搜索框包含 id 与 name 属性且在初始状态展示总数
 
 test("任务批准卡片在批准按钮前展示完整有序阶段路线", async () => {
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { WaitingInteraction } = await import("../src/panels");
-  const session = {
-    goalId: "goal-1",
-    intent: "Implement a feature",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    archived: false,
-    runStatus: "waiting",
-    currentRunId: "run-1",
-    messages: [],
-    runs: [],
-    pendingInteraction: {
+  const { TaskApprovalInteractionView } = await import("../src/interaction-panel");
+  const { createInteractionSubmissionState } = await import("../src/interaction-state");
+  const html = renderToStaticMarkup(React.createElement(TaskApprovalInteractionView, {
+    detail: {
       kind: "task_approval",
-      requestId: "proposal-1",
       objective: "Implement the feature",
       approvalRequest: "Review the complete plan",
       completionCriteria: ["All checks pass"],
-      planRoute: [
+      stages: [
         { target: "Inspect current behavior", acceptanceCriteria: ["Find the entry point"] },
         { target: "Implement the change", acceptanceCriteria: ["Feature works", "Regression checks pass"] },
       ],
     },
-  } as any;
-  const html = renderToStaticMarkup(React.createElement(WaitingInteraction, {
-    session,
-    busy: false,
-    onSubmit: () => {},
+    submission: createInteractionSubmissionState(),
+    feedback: "",
+    chrome: { label: "task_approval", stopping: false, busy: false },
+    onEvent: () => {},
   }));
 
   const firstStage = html.indexOf("Inspect current behavior");
@@ -101,29 +91,13 @@ test("任务批准卡片在批准按钮前展示完整有序阶段路线", async
 test("路线扩展 AskUser 卡片展示审批理由和完整候选阶段", async () => {
   const React = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { WaitingInteraction } = await import("../src/panels");
-  const session = {
-    goalId: "goal-route-revision",
-    intent: "Repair a feature",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    archived: false,
-    runStatus: "waiting",
-    currentRunId: "run-route-revision",
-    messages: [],
-    runs: [],
-    pendingInteraction: {
-      kind: "ask_user",
-      requestId: "route-revision-approval",
+  const { QuestionInteractionView } = await import("../src/interaction-panel");
+  const { createInteractionSubmissionState, createQuestionDraft } = await import("../src/interaction-state");
+  const html = renderToStaticMarkup(React.createElement(QuestionInteractionView, {
+    interactionId: "question:route-revision-approval",
+    detail: {
+      kind: "question",
       mode: "execution",
-      routeRevision: {
-        approvalRequest: "Approve adding this report to the task?",
-        reason: "New evidence adds a promised deliverable",
-        route: [
-          { target: "Repair the feature", acceptanceCriteria: ["Behavior works"] },
-          { target: "Write compatibility report", acceptanceCriteria: ["Report covers affected callers"] },
-        ],
-      },
       questions: [{
         id: "q-1",
         header: "Plan route revision",
@@ -134,14 +108,25 @@ test("路线扩展 AskUser 卡片展示审批理由和完整候选阶段", async
           { id: "o-2", label: "Keep current route" },
         ],
       }],
+      routeRevision: {
+        baseRevision: 1,
+        reason: "New evidence adds a promised deliverable",
+        approvalRequest: "Approve adding this report to the task?",
+        approvalOptionId: "o-1",
+        stages: [
+          { target: "Repair the feature", acceptanceCriteria: ["Behavior works"] },
+          { target: "Write compatibility report", acceptanceCriteria: ["Report covers affected callers"] },
+        ],
+      },
     },
-  } as any;
-  const html = renderToStaticMarkup(React.createElement(WaitingInteraction, {
-    session,
-    busy: false,
-    onSubmit: () => {},
+    draft: createQuestionDraft(),
+    submission: createInteractionSubmissionState(),
+    chrome: { label: "Question", stopping: false, busy: false },
+    skipConfirmOpen: false,
+    onEvent: () => {},
   }));
   assert.match(html, /New evidence adds a promised deliverable/);
+  assert.match(html, /Approve adding this report to the task\?/);
   assert.match(html, /Write compatibility report/);
   assert.match(html, /Report covers affected callers/);
 });
@@ -171,6 +156,237 @@ test("Activity 独立展示完整 Plan Run 路线，不依赖执行步骤是否�
   assert.match(html, /Accepted/);
   assert.match(html, /In progress/);
   assert.match(html, /Pending/);
+});
+
+test("SessionTimeline 保留真实来源身份并按交错顺序渲染消息、事实和终态", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { SessionTimeline } = await import("../src/components/SessionTimeline");
+  const position = (sequence: number, itemKind: "fact" | "message" = "fact", order = 0) => ({
+    runId: "run-1", runOrder: 0, sequence, itemKind, order,
+  });
+  const html = renderToStaticMarkup(React.createElement(SessionTimeline, {
+    projection: {
+      currentPlanRoute: {
+        revision: 1,
+        nextStageIndex: 1,
+        nextStageOrdinal: 2,
+        stages: [{
+          stageId: "stage-1", revision: 1, status: "accepted", target: "Review the saved evidence",
+          acceptanceCriteria: ["Use stable source positions"], acceptedSequence: 2,
+        }],
+      },
+      items: [
+        { kind: "run", itemId: "run:run-1", runId: "run-1", status: "completed", position: position(0) },
+        { kind: "message", itemId: "message:user", runId: "run-1", role: "user", content: "Start review", position: position(0, "message") },
+        { kind: "fact", itemId: "event:tool", runId: "run-1", title: "Tool started", eventType: "tool_started", position: position(1) },
+        { kind: "message", itemId: "message:steer", runId: "run-1", role: "user", content: "Keep it short", position: position(2, "message") },
+        { kind: "message", itemId: "message:progress", runId: "run-1", role: "assistant", purpose: "process", content: "Checking the source", position: position(3, "message") },
+        { kind: "message", itemId: "message:answer", runId: "run-1", role: "assistant", purpose: "answer", content: "Review complete", position: position(4, "message") },
+        { kind: "terminal", itemId: "terminal:run-1:completed", runId: "run-1", status: "completed", position: position(4) },
+      ],
+    },
+    currentRunId: "run-1",
+    runStatus: "completed",
+    olderAvailable: true,
+    showExecutionFacts: true,
+    liveActivity: null,
+    streamConnected: false,
+    brandMark: "/logo.svg",
+    candidatePresentation: { candidates: [], settledCandidates: [], discardedDrafts: [], unavailableDraftCount: 0 } as any,
+    onExpandCandidate: () => {},
+    onReleaseCandidate: () => {},
+  }));
+
+  const orderedIds = ["run:run-1", "message:user", "event:tool", "message:steer", "message:progress", "message:answer", "terminal:run-1:completed"];
+  const positions = orderedIds.map((id) => html.indexOf(`data-item-id="${id}"`));
+  assert.ok(positions.every((position) => position >= 0));
+  assert.deepEqual(positions, [...positions].sort((left, right) => left - right));
+  assert.match(html, /Earlier activity is outside this fixed page/);
+  assert.match(html, /Review the saved evidence/);
+  assert.match(html, /Progress/);
+  assert.match(html, /Run completed/);
+});
+
+test("SessionTimeline 把真实工具活动呈现为可展开活动组，并保留成员身份与 Trajectory 定位入口", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { SessionTimeline, ActivityGroupRow } = await import("../src/components/SessionTimeline");
+  const position = (sequence: number, itemKind: "fact" | "message" = "fact", order = 0) => ({
+    runId: "run-1", runOrder: 0, sequence, itemKind, order,
+  });
+  const group = {
+    id: "action:run-1:a1",
+    runId: "run-1",
+    category: "explore" as const,
+    status: "completed" as const,
+    summary: "Explored 1 item",
+    position: position(1),
+    members: [{
+      id: "action:run-1:a1",
+      runId: "run-1",
+      category: "explore" as const,
+      label: "Read src/app.ts",
+      status: "completed" as const,
+      isCommitted: true,
+      attempts: ["Tool retry 1 failed: temporary failure"],
+      actionId: "a1",
+      executionUnitId: "unit-1",
+      inputSummary: "src/app.ts",
+      summary: "Read succeeded",
+      parentActionId: "parent-action",
+      revisionRef: "review-1",
+      recoveryRef: "recovery-1",
+      sourceItemId: "fact:tool",
+      position: position(1),
+    }],
+  };
+  const html = renderToStaticMarkup(React.createElement(SessionTimeline, {
+    projection: {
+      currentPlanRoute: undefined,
+      items: [
+        { kind: "run", itemId: "run:run-1", runId: "run-1", status: "running", position: position(0) },
+        { kind: "activity", itemId: "activity:action:run-1:a1", runId: "run-1", group, position: position(1) },
+        { kind: "message", itemId: "message:answer", runId: "run-1", role: "assistant", purpose: "answer", content: "Review complete", position: position(2, "message") },
+      ],
+    },
+    currentRunId: "run-1",
+    runStatus: "running",
+    olderAvailable: false,
+    showExecutionFacts: true,
+    liveActivity: null,
+    streamConnected: false,
+    brandMark: "/logo.svg",
+    candidatePresentation: { candidates: [], settledCandidates: [], discardedDrafts: [], unavailableDraftCount: 0 } as any,
+    onExpandCandidate: () => {},
+    onReleaseCandidate: () => {},
+  }));
+
+  assert.match(html, /data-group-id="action:run-1:a1"/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.match(html, /Explored 1 item/);
+  assert.match(html, /Completed/);
+  // 折叠状态下不渲染成员详情，避免未展开即占用阅读空间。
+  assert.equal(html.includes("Read src/app.ts"), false);
+
+  const expandedHtml = renderToStaticMarkup(React.createElement(ActivityGroupRow, {
+    itemId: "activity:action:run-1:a1",
+    runId: "run-1",
+    group: group as any,
+    expanded: true,
+    onToggle: () => {},
+    onOpenTrajectory: () => {},
+  }));
+  assert.match(expandedHtml, /aria-expanded="true"/);
+  assert.match(expandedHtml, /data-member-id="action:run-1:a1"/);
+  assert.match(expandedHtml, /data-action-id="a1"/);
+  assert.match(expandedHtml, /Read src\/app\.ts/);
+  assert.match(expandedHtml, /Read succeeded/);
+  assert.match(expandedHtml, /Tool retry 1 failed: temporary failure/);
+  assert.match(expandedHtml, /Child of parent-action/);
+  assert.match(expandedHtml, /Revised as review-1/);
+  assert.match(expandedHtml, /Recovery recovery-1/);
+  assert.match(expandedHtml, /View trajectory/);
+});
+
+test("SessionTimeline 保留显式 Think 的获准摘要、已提交输出与详情入口", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { ActivityGroupRow } = await import("../src/components/SessionTimeline");
+  const position = (sequence: number) => ({
+    runId: "run-1", runOrder: 0, sequence, itemKind: "fact" as const, order: 0,
+  });
+  const group = {
+    id: "think:run-1:think:event-1",
+    runId: "run-1",
+    category: "think" as const,
+    status: "completed" as const,
+    summary: "Thinking · Compare evidence",
+    position: position(4),
+    members: [{
+      id: "think:run-1:think:event-1",
+      runId: "run-1",
+      category: "think" as const,
+      label: "Thinking",
+      status: "completed" as const,
+      isCommitted: true,
+      attempts: [],
+      executionUnitId: "unit-think",
+      think: { goal: "Compare evidence", output: "Use the observed result.", truncated: true },
+      sourceItemId: "think:event-1",
+      position: position(4),
+    }],
+  };
+
+  const html = renderToStaticMarkup(React.createElement(ActivityGroupRow, {
+    itemId: "activity:think:run-1:think:event-1",
+    runId: "run-1",
+    group: group as any,
+    expanded: true,
+    onToggle: () => {},
+    onOpenTrajectory: () => {},
+  }));
+
+  assert.match(html, /Thinking · Compare evidence/);
+  assert.match(html, /Compare evidence/);
+  assert.match(html, /Use the observed result\./);
+  assert.match(html, /Some Think content is omitted\. View the complete event in trajectory\./);
+  // 详情入口依赖执行单元定位引用，缺失时无法回到 Trajectory 的完整事件。
+  assert.match(html, /View trajectory/);
+  assert.match(html, /aria-label="Open trajectory for Thinking"/);
+});
+
+test("关闭 Execution steps 只隐藏活动主体，正文与 Run 边界仍然保留", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { SessionTimeline } = await import("../src/components/SessionTimeline");
+  const position = (sequence: number, itemKind: "fact" | "message" = "fact", order = 0) => ({
+    runId: "run-1", runOrder: 0, sequence, itemKind, order,
+  });
+  const group = {
+    id: "action:run-1:a1",
+    runId: "run-1",
+    category: "explore" as const,
+    status: "completed" as const,
+    summary: "Explored 1 item",
+    position: position(1),
+    members: [{
+      id: "action:run-1:a1",
+      runId: "run-1",
+      category: "explore" as const,
+      label: "Read src/app.ts",
+      status: "completed" as const,
+      isCommitted: true,
+      attempts: [],
+      sourceItemId: "fact:tool",
+      position: position(1),
+    }],
+  };
+  const html = renderToStaticMarkup(React.createElement(SessionTimeline, {
+    projection: {
+      currentPlanRoute: undefined,
+      items: [
+        { kind: "run", itemId: "run:run-1", runId: "run-1", status: "running", position: position(0) },
+        { kind: "activity", itemId: "activity:action:run-1:a1", runId: "run-1", group, position: position(1) },
+        { kind: "message", itemId: "message:answer", runId: "run-1", role: "assistant", purpose: "answer", content: "Review complete", position: position(2, "message") },
+      ],
+    },
+    currentRunId: "run-1",
+    runStatus: "running",
+    olderAvailable: false,
+    showExecutionFacts: false,
+    liveActivity: null,
+    streamConnected: false,
+    brandMark: "/logo.svg",
+    candidatePresentation: { candidates: [], settledCandidates: [], discardedDrafts: [], unavailableDraftCount: 0 } as any,
+    onExpandCandidate: () => {},
+    onReleaseCandidate: () => {},
+  }));
+
+  assert.equal(html.includes("Explored 1 item"), false);
+  assert.match(html, /data-item-id="run:run-1"/);
+  assert.match(html, /data-item-id="message:answer"/);
+  assert.match(html, /Review complete/);
 });
 
 test("PermissionControl 单选框包含 id 和 name 属性并正确关联 label", async () => {

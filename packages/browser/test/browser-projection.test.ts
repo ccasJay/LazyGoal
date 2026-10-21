@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+    computeActionRecoveryRef,
     createGoal,
     createRunPlanRoute,
     type Goal,
@@ -17,10 +18,12 @@ import {
     createBrowserGoalRoutes,
     listBrowserGoals,
     readBrowserGoalSession,
-    type BrowserCreateGoalCommand,
-    type BrowserGoalInteractionCommand,
+    readBrowserGoalSessionState,
     type BrowserGoalListItem,
 } from "../src/index";
+import type { BrowserCreateSessionCommand } from "../../web-contracts/src/index";
+import { testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
+
 
 const protocols = {
     memoryProtocol: { kind: "structured", version: 1 } as const,
@@ -102,10 +105,176 @@ test("Plan task approval projection preserves the complete ordered route", async
     const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
         committed: [], uncommittedTail: [],
     }));
-    assert.deepEqual(session?.pendingInteraction?.kind === "task_approval" ? session.pendingInteraction.planRoute : undefined, [
-        { target: "Inspect existing behavior", acceptanceCriteria: ["Identify the current entry point"] },
-        { target: "Implement the change", acceptanceCriteria: ["The feature behaves as requested", "Regression coverage passes"] },
-    ]);
+    assert.equal(session?.interaction?.kind, "task_approval");
+    assert.equal(session?.interaction?.interactionId, "task_approval:proposal-1");
+    assert.equal(session?.interaction?.requestId, "proposal-1");
+    assert.deepEqual(session?.interaction?.decisions, ["approve_task", "send_task_feedback"]);
+    // 完整有序路线不再复制到会话摘要；它由显式详情读取按同一引用提供。
+    assert.equal(session?.interaction?.truncated, false);
+});
+
+test("Browser session messages preserve stable identity and persisted Run position", async () => {
+    const initial = createTestGoal();
+    const assistant = testAssistantMessage("已保存正文", {
+        runId: initial.state.run.id,
+        profileId: "private-profile-id",
+        position: { afterSequence: 4, order: 0 },
+    });
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: { ...initial.state.run, committedThroughSequence: 4 },
+            messages: [...initial.state.messages, assistant],
+        },
+    };
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.deepEqual(session?.messages[1], {
+        messageId: assistant.messageId,
+        role: "assistant",
+        content: "已保存正文",
+        runId: goal.state.run.id,
+        position: { afterSequence: 4, order: 0 },
+    });
+});
+
+test("narrow Browser state retains current Plan route, waiting decision, and server queue metadata", async () => {
+    const initial = createTestGoal();
+    const planRoute = createRunPlanRoute({
+        stages: [{ target: "Inspect the source", acceptanceCriteria: ["Find the current route"] }],
+    });
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            messageQueue: { revision: 9, items: [{ inputId: "queued-1", content: "continue later", sequence: 4 }] },
+            run: {
+                ...initial.state.run,
+                mode: "plan",
+                status: "waiting",
+                stepCount: 3,
+                planRoute,
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "ask-1",
+                    mode: "execution",
+                    questions: [{ id: "q-1", header: "Scope", question: "Continue?", multiSelect: false, options: [{ id: "yes", label: "Yes" }] }],
+                },
+            },
+        },
+    };
+    const state = await readBrowserGoalSessionState(goal.id, new TestGoalStore(goal));
+    assert.equal(state?.runStatus, "waiting");
+    assert.equal(state?.currentRunStepCount, 3);
+    assert.deepEqual(state?.currentPlanRoute?.stages.map((stage) => stage.stageId), planRoute.stages.map((stage) => stage.stageId));
+    assert.equal(state?.interaction?.kind, "question");
+    assert.deepEqual(state?.pendingMessages, [{ inputId: "queued-1", content: "continue later" }]);
+    assert.equal(state?.history.messages.included, false);
+    assert.equal("messages" in (state ?? {}), false);
+    assert.equal("runs" in (state ?? {}), false);
+});
+
+test("session projection exposes the typed interaction identity and truncation flag", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: {
+                ...initial.state.run,
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "ask-1",
+                    mode: "execution",
+                    questions: [{
+                        id: "q-1",
+                        header: "Scope",
+                        question: "q".repeat(2_500),
+                        multiSelect: false,
+                        options: [{ id: "o-1", label: "All" }],
+                    }],
+                },
+            },
+        },
+    };
+    const store = new TestGoalStore(goal);
+    const session = await readBrowserGoalSession(goal.id, store, async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.deepEqual(session?.interaction, {
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "question",
+        interactionId: "question:ask-1",
+        requestId: "ask-1",
+        decisions: ["answer_questions", "reply_to_question", "skip_question"],
+        truncated: true,
+    });
+    const repeated = await readBrowserGoalSession(goal.id, store, async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.equal(repeated?.interaction?.interactionId, "question:ask-1");
+
+    const untruncated: Goal = {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: {
+                ...goal.state.run,
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "ask-1",
+                    mode: "execution",
+                    questions: [{
+                        id: "q-1",
+                        header: "Scope",
+                        question: "Which scope?",
+                        multiSelect: false,
+                        options: [{ id: "o-1", label: "All" }],
+                    }],
+                },
+            },
+        },
+    };
+    const clean = await readBrowserGoalSession(goal.id, new TestGoalStore(untruncated), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.equal(clean?.interaction?.truncated, false);
+});
+
+test("action approval projection flags the typed view without exposing another Action", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: {
+                ...initial.state.run,
+                status: "waiting",
+                pendingAction: {
+                    action: { actionId: "act-1", toolId: "bash", input: { command: "npm test" } },
+                    status: "outcome_unknown",
+                },
+            },
+        },
+    };
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.deepEqual(session?.interaction, {
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "action_recovery",
+        interactionId: "action_recovery:act-1",
+        actionId: "act-1",
+        recoveryRef: computeActionRecoveryRef("act-1", 1),
+        decisions: ["retry_unknown_action", "decline_unknown_action_retry"],
+        truncated: false,
+    });
+    assert.equal(session?.pendingAction?.inputPreview.includes("npm test"), true);
 });
 
 test("Plan Run session projection includes the authoritative complete route only when present", async () => {
@@ -192,14 +361,11 @@ test("Plan route revision approval projection includes reason and full candidate
     const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
         committed: [], uncommittedTail: [],
     }));
-    assert.deepEqual(session?.pendingInteraction?.kind === "ask_user" ? session.pendingInteraction.routeRevision : undefined, {
-        approvalRequest: "Approve this additional outcome?",
-        reason: "New evidence adds a deliverable outside the approved scope",
-        route: [
-            { target: "Repair", acceptanceCriteria: ["Behavior works"] },
-            { target: "Write report", acceptanceCriteria: ["Report is reviewed"] },
-        ],
-    });
+    // 路线扩展的完整候选路线由详情读取提供；摘要只保留身份、种类与可决定操作。
+    assert.equal(session?.interaction?.kind, "question");
+    assert.equal(session?.interaction?.interactionId, "question:route-approval-1");
+    assert.deepEqual(session?.interaction?.decisions, ["answer_questions", "reply_to_question", "skip_question"]);
+    assert.equal(session?.interaction?.truncated, false);
 });
 
 function event(
@@ -411,8 +577,15 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
         state: {
             ...initial.state,
             messages: [
-                { role: "user", content: "检查项目" },
-                { role: "assistant", assistant: { profileId: "private-profile-id" }, content: "会话已完成" },
+                testUserMessage("检查项目", {
+                    runId: initial.state.run.id,
+                    position: { afterSequence: 0, order: 0 },
+                }),
+                testAssistantMessage("会话已完成", {
+                    runId: initial.state.run.id,
+                    profileId: "private-profile-id",
+                    position: { afterSequence: 4, order: 0 },
+                }),
             ],
             goalPlan: {
                 revision: 1,
@@ -437,8 +610,16 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
 
     assert.ok(session);
     assert.deepEqual(session.messages, [
-        { role: "user", content: "检查项目", runId: "run-real-1" },
-        { role: "assistant", content: "会话已完成", runId: "run-real-1" },
+        {
+            messageId: goal.state.messages[0]!.messageId,
+            role: "user", content: "检查项目", runId: "run-real-1",
+            position: { afterSequence: 0, order: 0 },
+        },
+        {
+            messageId: goal.state.messages[1]!.messageId,
+            role: "assistant", content: "会话已完成", runId: "run-real-1",
+            position: { afterSequence: 4, order: 0 },
+        },
     ]);
     assert.equal(session.currentRunMode, "normal");
     assert.equal(session.nextRunMode, undefined);
@@ -510,7 +691,7 @@ test("会话保留完整的常规长答复，并标记超出消息上限的正�
         ...initial,
         state: {
             ...initial.state,
-            messages: [{ role: "assistant", assistant: { profileId: "private-profile-id" }, content }],
+            messages: [testAssistantMessage(content, { profileId: "private-profile-id" })],
         },
     }), async () => ({ committed: [], uncommittedTail: [] }));
 
@@ -898,32 +1079,12 @@ test("读取 API 区分缺失与读取失败且不泄漏底层错误", async () 
     assert.deepEqual(await listFailure.json(), { error: "goal_list_unavailable" });
 });
 
-test("创建与交互路由拒绝非法 wire 输入并要求稳定身份", async () => {
-    const calls: BrowserCreateGoalCommand[] = [];
-    const interactions: Array<{ goalId: string; command: BrowserGoalInteractionCommand }> = [];
+test("创建与 Plan Mode 路由拒绝非法 wire 输入并要求稳定身份", async () => {
+    const calls: BrowserCreateSessionCommand[] = [];
     const planModes: Array<{ goalId: string; runId: string }> = [];
     const routes = createBrowserGoalRoutes({
         async list() { return []; },
         async read() { return undefined; },
-        async create(command) {
-            calls.push(command);
-            return {
-                ok: true as const,
-                goalId: command.goalId,
-                runId: "run-created-1",
-                existing: false,
-            };
-        },
-        async interact(goalId, command) {
-            interactions.push({ goalId, command });
-            if ("requestId" in command && command.requestId === "old-request") {
-                return { ok: false as const, error: "stale_request" as const };
-            }
-            return { ok: true as const, goalId, runId: command.runId, existing: false };
-        },
-        async message(goalId, command) {
-            return { ok: true as const, goalId, runId: command.runId, existing: false };
-        },
         async enterPlanMode(goalId, command) {
             planModes.push({ goalId, runId: command.runId });
             return { ok: true as const, goalId, runId: command.runId, existing: false };
@@ -933,8 +1094,26 @@ test("创建与交互路由拒绝非法 wire 输入并要求稳定身份", async
         },
         setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
         async selectModel() { return { ok: false as const, error: "model_selection_failed" as const }; },
-        async openStream() {
-            return { ok: false as const, error: "goal_not_found" as const };
+        session: {
+            async create(command) {
+                calls.push(command);
+                return {
+                    ok: true as const,
+                    existing: false,
+                    goalId: command.goalId,
+                    runId: "run-created-1",
+                    receipt: {
+                        goalId: command.goalId, inputId: command.inputId, kind: "message" as const,
+                        sequence: 1, status: "applied" as const, admittedAtRevision: 1,
+                    },
+                };
+            },
+            async submit() { return { ok: false as const, error: "session_unavailable" as const }; },
+            async readInput() { return { ok: true as const, found: false as const }; },
+            async readState() { return undefined; },
+            async openEvents() { return { ok: false as const, error: "goal_not_found" as const }; },
+            async listMessages() { return { ok: true as const, messages: [], total: 0 }; },
+            async readMessage() { return { ok: false as const, error: "message_not_found" as const }; },
         },
     });
     const send = (body: string) => routes.request("http://localhost/api/goals", {
@@ -943,30 +1122,37 @@ test("创建与交互路由拒绝非法 wire 输入并要求稳定身份", async
         body,
     });
 
-    const extraField = await send(JSON.stringify({ goalId: "goal-create-1", intent: "检查", profileId: "admin" }));
+    const extraField = await send(JSON.stringify({ goalId: "goal-create-1", inputId: "input-1", intent: "检查", profileId: "admin" }));
     assert.equal(extraField.status, 400);
     assert.deepEqual(await extraField.json(), { error: "invalid_goal_input" });
-    const emptyIntent = await send(JSON.stringify({ goalId: "goal-create-1", intent: "  " }));
+    const emptyIntent = await send(JSON.stringify({ goalId: "goal-create-1", inputId: "input-1", intent: "  " }));
     assert.equal(emptyIntent.status, 400);
-    const invalidId = await send(JSON.stringify({ goalId: "goal with spaces", intent: "检查" }));
+    const missingInputId = await send(JSON.stringify({ goalId: "goal-create-1", intent: "检查" }));
+    assert.equal(missingInputId.status, 400);
+    const invalidId = await send(JSON.stringify({ goalId: "goal with spaces", inputId: "input-1", intent: "检查" }));
     assert.equal(invalidId.status, 400);
     const malformed = await send("{invalid json");
     assert.equal(malformed.status, 400);
     assert.equal(calls.length, 0);
 
-    const accepted = await send(JSON.stringify({ goalId: "goal-create-1", intent: "检查当前项目" }));
+    const accepted = await send(JSON.stringify({ goalId: "goal-create-1", inputId: "input-1", intent: "检查当前项目" }));
     assert.equal(accepted.status, 202);
     assert.deepEqual(await accepted.json(), {
+        ok: true,
+        existing: false,
         goalId: "goal-create-1",
         runId: "run-created-1",
-        existing: false,
+        receipt: {
+            goalId: "goal-create-1", inputId: "input-1", kind: "message",
+            sequence: 1, status: "applied", admittedAtRevision: 1,
+        },
     });
-    assert.deepEqual(calls, [{ goalId: "goal-create-1", intent: "检查当前项目" }]);
+    assert.deepEqual(calls, [{ goalId: "goal-create-1", inputId: "input-1", intent: "检查当前项目" }]);
 
-    const acceptedPlan = await send(JSON.stringify({ goalId: "goal-create-2", intent: "显式计划", mode: "plan" }));
+    const acceptedPlan = await send(JSON.stringify({ goalId: "goal-create-2", inputId: "input-2", intent: "显式计划", mode: "plan" }));
     assert.equal(acceptedPlan.status, 202);
-    assert.deepEqual(calls[1], { goalId: "goal-create-2", intent: "显式计划", mode: "plan" });
-    const unsupportedMode = await send(JSON.stringify({ goalId: "goal-create-3", intent: "普通模式", mode: "normal" }));
+    assert.deepEqual(calls[1], { goalId: "goal-create-2", inputId: "input-2", intent: "显式计划", mode: "plan" });
+    const unsupportedMode = await send(JSON.stringify({ goalId: "goal-create-3", inputId: "input-3", intent: "普通模式", mode: "normal" }));
     assert.equal(unsupportedMode.status, 400);
     assert.equal(calls.length, 2);
 
@@ -985,83 +1171,14 @@ test("创建与交互路由拒绝非法 wire 输入并要求稳定身份", async
     assert.equal(invalidPlanCommand.status, 400);
     assert.equal(planModes.length, 1);
 
-    const interaction = await routes.request("http://localhost/api/goals/goal-create-1/interactions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-            kind: "answer_ask_user",
-            runId: "run-1",
-            requestId: "ask-1",
-            answers: [{ questionId: "q-1", optionIds: ["o-2"] }],
-        }),
-    });
-    assert.equal(interaction.status, 202);
-    assert.deepEqual(interactions, [{
-        goalId: "goal-create-1",
-        command: {
-            kind: "answer_ask_user",
-            runId: "run-1",
-            requestId: "ask-1",
-            answers: [{ questionId: "q-1", optionIds: ["o-2"] }],
-        },
-    }]);
-    const stale = await routes.request("http://localhost/api/goals/goal-create-1/interactions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind: "approve_task", runId: "run-1", requestId: "old-request" }),
-    });
-    assert.equal(stale.status, 409);
-    assert.deepEqual(await stale.json(), { error: "stale_request", refresh: true });
-    assert.equal(interactions.length, 2);
-    const plainTextMessage = await routes.request("http://localhost/api/goals/goal-create-1/interactions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind: "message", runId: "run-1", content: "approve plan" }),
-    });
-    assert.equal(plainTextMessage.status, 400);
-    assert.equal(interactions.length, 2);
-
     const unsupportedMedia = await routes.request("http://localhost/api/goals", {
         method: "POST",
-        body: JSON.stringify({ goalId: "goal-create-3", intent: "检查" }),
+        body: JSON.stringify({ goalId: "goal-create-3", inputId: "input-3", intent: "检查" }),
     });
     assert.equal(unsupportedMedia.status, 415);
-    const tooLarge = await send(JSON.stringify({ goalId: "goal-create-2", intent: "x".repeat(20_000) }));
+    const tooLarge = await send(JSON.stringify({ goalId: "goal-create-2", inputId: "input-2", intent: "x".repeat(20_000) }));
     assert.equal(tooLarge.status, 413);
     assert.equal(calls.length, 2);
-});
-
-test("Interrupt 路由校验稳定身份并返回持久化受理", async () => {
-    const received: Array<{ goalId: string; runId: string; requestId: string }> = [];
-    const routes = createBrowserGoalRoutes({
-        async list() { return []; },
-        async read() { return undefined; },
-        async create() { return { ok: false as const, error: "goal_create_failed" as const }; },
-        async interact() { return { ok: false as const, error: "interaction_failed" as const }; },
-        async message() { return { ok: false as const, error: "message_failed" as const }; },
-        async interrupt(goalId, command) {
-            received.push({ goalId, runId: command.runId, requestId: command.requestId });
-            return { ok: true as const, goalId, runId: command.runId, requestId: command.requestId, existing: false };
-        },
-        async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
-        async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
-        async setModelPreference() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
-        async selectModel() { return { ok: false as const, error: "model_selection_failed" as const }; },
-        async openStream() { return { ok: false as const, error: "goal_not_found" as const }; },
-    });
-    const send = (body: unknown) => routes.request("http://localhost/api/goals/goal-1/interrupt", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-    });
-    const invalid = await send({ runId: "run-1", requestId: "interrupt-1", extra: true });
-    assert.equal(invalid.status, 400);
-    const accepted = await send({ runId: "run-1", requestId: "interrupt-1" });
-    assert.equal(accepted.status, 202);
-    assert.deepEqual(await accepted.json(), {
-        ok: true, goalId: "goal-1", runId: "run-1", requestId: "interrupt-1", existing: false,
-    });
-    assert.deepEqual(received, [{ goalId: "goal-1", runId: "run-1", requestId: "interrupt-1" }]);
 });
 
 test("readBrowserGoalSession 正确投影阶段分组与 Step 的 stageId 归属", async () => {

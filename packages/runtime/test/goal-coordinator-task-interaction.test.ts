@@ -238,7 +238,7 @@ test("统一执行生命周期: 新 Goal 直接推进，ask_user 请求进入等
     assert.equal(saved?.state.run.pendingInteraction?.kind, "ask_user");
 });
 
-test("取消 AskUser 询问后保留当前 Run 并继续执行", async () => {
+test("跳过 AskUser 询问后保留当前 Run 并继续执行", async () => {
     const { store, trajectoryStore, stepExecutor, coordinator, goal, ref } = createCoordinatorTestRig();
     await store.save(goal);
     stepExecutor.enqueue({
@@ -265,29 +265,39 @@ test("取消 AskUser 询问后保留当前 Run 并继续执行", async () => {
     const pending = waiting.goal.state.run.pendingInteraction;
     assert.ok(pending?.kind === "ask_user");
     if (pending?.kind !== "ask_user") assert.fail("Expected AskUser request");
+    const waitingNotice = waiting.goal.state.messages.find((message) =>
+        message.role === "assistant"
+        && message.source.kind === "runtime_notice"
+        && message.source.noticeId === `ask_user:${pending.requestId}`);
+    const waitingFact = trajectoryStore.events.find((event) =>
+        event.runId === ref.runId && event.payload.type === "run_waiting" && event.payload.requestId === pending.requestId);
+    assert.ok(waitingNotice);
+    assert.ok(waitingFact);
+    assert.equal(waitingNotice.runId, ref.runId);
+    assert.deepEqual(waitingNotice.position, { afterSequence: waitingFact.sequence, order: 0 });
     const resumed = await coordinator.resume({
         ref,
-        action: { kind: "cancel_ask_user", requestId: pending.requestId },
+        action: { kind: "skip_question", requestId: pending.requestId },
     });
     assert.equal(resumed.ok, true);
     if (!resumed.ok || resumed.kind !== "waiting") assert.fail("Expected the same Run to continue to its next wait point");
     assert.equal(resumed.goal.state.run.status, "waiting");
     assert.equal(resumed.goal.state.run.pendingInteraction?.kind, "task_approval");
-    assert.equal(resumed.goal.state.messages.some((message) => message.content.includes("I cancelled this question")), true);
+    assert.equal(resumed.goal.state.messages.some((message) => message.content.includes("did not answer this question")), true);
 
     const saved = await store.restore(goal.id);
     assert.equal(saved?.state.run.status, "waiting");
     assert.equal(saved?.state.run.id, ref.runId);
     assert.equal(saved?.state.run.pendingInteraction?.kind, "task_approval");
     const events = await trajectoryStore.read(ref);
-    assert.ok(events.some((event) => event.eventType === "ask_user_cancelled"
-        && event.payload.type === "ask_user_cancelled"
+    assert.ok(events.some((event) => event.eventType === "ask_user_skipped"
+        && event.payload.type === "ask_user_skipped"
         && event.payload.requestId === pending.requestId));
     assert.equal(events.some((event) => event.eventType === "run_cancelled"), false);
 });
 
 test("ask_user 恢复: 校验 requestId 与 answers，合法提交后追加用户消息并推进下一轮", async () => {
-    const { store, stepExecutor, coordinator, goal, ref } = createCoordinatorTestRig();
+    const { store, trajectoryStore, stepExecutor, coordinator, goal, ref } = createCoordinatorTestRig();
     await store.save(goal);
 
     stepExecutor.enqueue({
@@ -384,6 +394,10 @@ test("ask_user 恢复: 校验 requestId 与 answers，合法提交后追加用�
         (m) => m.role === "user" && m.content.includes("PostgreSQL"),
     );
     assert.ok(userMsg);
+    const answeredFact = trajectoryStore.events.find((event) =>
+        event.runId === ref.runId && event.payload.type === "ask_user_answered" && event.payload.requestId === reqId);
+    assert.ok(answeredFact);
+    assert.deepEqual(userMsg.position, { afterSequence: answeredFact.sequence, order: 0 });
 });
 
 test("Plan 提案前拒绝写工具，再持久化完整路线提案等待", async () => {
@@ -485,6 +499,12 @@ test("任务提案反馈: feedback_task 使旧提案失效，追加反馈消息�
     const messages = feedbackResult.goal.state.messages;
     const userFeedback = messages.find((m) => m.content === "请不要使用外部依赖，改为原生实现");
     assert.ok(userFeedback);
+    const feedbackFact = trajectoryStore.events.find((event) =>
+        event.runId === ref.runId
+        && event.payload.type === "task_feedback_received"
+        && event.payload.requestId === proposalReqId);
+    assert.ok(feedbackFact);
+    assert.deepEqual(userFeedback.position, { afterSequence: feedbackFact.sequence, order: 0 });
     const revisedRequestId = feedbackResult.goal.state.run.pendingInteraction?.kind === "task_approval"
         ? feedbackResult.goal.state.run.pendingInteraction.requestId
         : undefined;

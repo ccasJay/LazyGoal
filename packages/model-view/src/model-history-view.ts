@@ -20,9 +20,13 @@ export type ModelTrajectoryEventType =
     | "action_approved"
     | "action_recovered"
     | "action_rejected"
+    | "action_revised"
+    | "action_reexecution_authorized"
+    | "action_reexecution_declined"
     | "action_staged"
     | "ask_user_answered"
-    | "ask_user_cancelled"
+    | "ask_user_replied"
+    | "ask_user_skipped"
     | "context_epoch_advanced"
     | "context_epoch_closed"
     | "context_lookup_completed"
@@ -61,6 +65,9 @@ export type ModelTrajectoryEventType =
     | "run_started"
     | "run_waiting"
     | "sandbox_grant_revoked"
+    | "session_input_admitted"
+    | "session_input_applied"
+    | "session_input_cleared"
     | "state_committed"
     | "steer_input_applied"
     | "steer_input_received"
@@ -157,6 +164,14 @@ export interface NativeModelExchange {
     readonly conversationPosition: number;
     readonly responseSequence: number;
     readonly settledThroughSequence: number;
+    /**
+     * 产生该交换的模型调用身份。
+     *
+     * @remarks
+     * 该身份与 Runtime 保存的过程正文来源对应：请求实际包含本交换时，同一模型
+     * 调用产生的过程正文不再重复进入对话。
+     */
+    readonly modelCallId: string;
     readonly messages: readonly ModelConversationMessage[];
 }
 

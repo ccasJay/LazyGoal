@@ -4,6 +4,7 @@ import { contract } from "../../contracts/src/index";
 import { validateModelOutputSemantics } from "../../model-contracts/src/index";
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
+import { blockResponse, textResponse } from "../../llm-core/test/response-fixtures";
 import { createGoal, ModelStageFeedbackError } from "../../runtime/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import type { Goal, GoalTask } from "../../runtime/src/domain";
@@ -94,20 +95,19 @@ test("LLMStepExecutor 的兼容 execute 入口单次 Decide 返回 AgentDecision
             assert.ok(req.tools.some(t => t.id === "system_complete_task"));
             assert.ok(req.tools.some(t => t.id === "system_wait_for_input"));
 
-            return {
-                content: "思考推演：已确认目标达成，调用完成动作。",
-                toolCalls: [
-                    {
-                        callId: "call-1",
-                        toolId: "system_complete_task",
-                        argumentsJson: JSON.stringify({
-                            summary: "执行完毕且通过检验",
-                            completionEvidence: [],
-                            memoryPatch: null,
-                        }),
-                    },
-                ],
-            };
+            return blockResponse(
+                { type: "text", text: "思考推演：已确认目标达成，调用完成动作。" },
+                {
+                    type: "tool_call",
+                    callId: "call-1",
+                    toolId: "system_complete_task",
+                    argumentsJson: JSON.stringify({
+                        summary: "执行完毕且通过检验",
+                        completionEvidence: [],
+                        memoryPatch: null,
+                    }),
+                },
+            );
         },
     };
 
@@ -141,16 +141,15 @@ test("LLMStepExecutor 单步调用业务工具生成非空合规 actionId 并通
     const adapter: LLMAdapter = {
         structuredOutputMode: "strict",
         async generate(req: LLMRequest): Promise<LLMResponse> {
-            return {
-                content: "分析需要执行 ls 命令查看目录",
-                toolCalls: [
-                    {
-                        callId: "call-bash-1",
-                        toolId: "bash",
-                        argumentsJson: JSON.stringify({ command: "ls -la" }),
-                    },
-                ],
-            };
+            return blockResponse(
+                { type: "text", text: "分析需要执行 ls 命令查看目录" },
+                {
+                    type: "tool_call",
+                    callId: "call-bash-1",
+                    toolId: "bash",
+                    argumentsJson: JSON.stringify({ command: "ls -la" }),
+                },
+            );
         },
     };
 
@@ -182,9 +181,7 @@ test("LLMStepExecutor 当模型缺失工具调用且非结构化文本时抛出 
     const adapter: LLMAdapter = {
         structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> {
-            return {
-                content: "我正在思考，但我没有返回任何工具调用！",
-            };
+            return textResponse("我正在思考，但我没有返回任何工具调用！");
         },
     };
 

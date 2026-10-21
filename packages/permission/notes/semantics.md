@@ -6,3 +6,4 @@
 | --- | --- | --- | --- |
 | ToolGrant | 工具调用授权事实。 | [授权判断](../README.md) | [模块说明](./overview.md) |
 | SandboxAuthorizationDecision | 沙箱访问判定。 | [授权判断](../README.md) | [模块说明](./overview.md) |
+| 批准决定身份 | 授权来源中的稳定批准身份；同一 Action 的不同决定各自暂存，只有被已提交批准引用的一条会激活。 | [授权判断](../README.md) | [授权类型](../src/types.ts) |

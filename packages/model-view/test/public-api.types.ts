@@ -46,6 +46,7 @@ const conversationMessage: ModelConversationMessage = {
     role: "user",
     content: "hello",
     sourceMessageIndex: 0,
+    source: { kind: "user_input", inputId: "input-1" },
 };
 
 const conversationMap: VisibleConversationMessageMapEntry = {
@@ -101,6 +102,7 @@ const nativeExchange: NativeModelExchange = {
     conversationPosition: 1,
     responseSequence: 2,
     settledThroughSequence: 5,
+    modelCallId: "call-1",
     messages: [conversationMessage],
 };
 

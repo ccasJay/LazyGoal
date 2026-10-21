@@ -7,7 +7,7 @@
  * 也不拥有 Adapter、Store 或流资源的生命周期。
  */
 
-export { LLMStepExecutor } from "./llm-step-executor";
+export { LLMStepExecutor, readCompletionCandidatePreview } from "./llm-step-executor";
 export type {
     LLMStepExecutorDependencies,
 } from "./llm-step-executor";
@@ -21,3 +21,17 @@ export type {
     ModelExecutionBinding,
     ModelExecutionBindingProvider,
 } from "./model-execution-binding";
+
+export {
+    COMPLETION_CANDIDATE_TOOL_ID,
+    MAX_SUMMARY_PREVIEW_LENGTH,
+    SUMMARY_PREVIEW_FIELD,
+    SummaryPreviewExtractor,
+    isCompletionCandidateTool,
+    readCompleteSummaryPreview,
+} from "./summary-preview";
+export type {
+    CompleteSummaryPreview,
+    SummaryPreview,
+    SummaryPreviewIncrement,
+} from "./summary-preview";

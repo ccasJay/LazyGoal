@@ -13,3 +13,14 @@ export type {
     ExecutionComponentDependencies,
     ExecutionComponents,
 } from "./execution-composition";
+export type {
+    SessionCreateRequest,
+    SessionCreateResult,
+    SessionOpenResult,
+    SessionQueryResult,
+    SessionManagerDependencies,
+    SessionOutputEvent,
+    SessionOutputStream,
+    GoalSessionState,
+} from "../../../../packages/runtime/src/index";
+export { SessionManager, SessionManagerCloseError } from "../../../../packages/runtime/src/index";

@@ -4,6 +4,8 @@ import { test } from "node:test";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal } from "../../runtime/src/domain";
 import type { LLMAdapter } from "../../llm-core/src/index";
+import type { LLMResponse } from "../../llm-core/src/index";
+import { toolCallResponse } from "../../llm-core/test/response-fixtures";
 import type { LLMRequest } from "../../llm-core/src/index";
 import type { ModelInputRecord } from "../../runtime/src/model-input";
 import {
@@ -50,15 +52,12 @@ function executingGoal(id = "agent-factory-goal"): Goal {
     };
 }
 
-function failDecisionResponse() {
-    return {
-        content: "",
-        toolCalls: [{
-            callId: "call-1",
-            toolId: "system_fail_goal",
-            argumentsJson: JSON.stringify({ error: "stop", memoryPatch: null }),
-        }],
-    };
+function failDecisionResponse(): LLMResponse {
+    return toolCallResponse({
+        callId: "call-1",
+        toolId: "system_fail_goal",
+        argumentsJson: JSON.stringify({ error: "stop", memoryPatch: null }),
+    });
 }
 
 class CountingAdapter implements LLMAdapter {

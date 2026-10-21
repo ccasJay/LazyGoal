@@ -9,8 +9,11 @@ import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/ind
 import {
     createGoal,
     createStepExecutor,
+    GoalSessionStream,
+    projectGoalSessionState,
     readTrajectoryAtSnapshot,
     Runner,
+    Session,
     transition,
 } from "../../runtime/src/index";
 import {
@@ -28,12 +31,14 @@ import type {
 import { JsonFileGoalStore, JsonFileTrajectoryStore } from "../../storage/src/index";
 import {
     BrowserGoalCommandService,
-    BrowserGoalStreamService,
     createBrowserGoalRoutes,
+    createBrowserSessionFeed,
     listBrowserGoals,
+    projectSessionState,
     readBrowserGoalSession,
-    type BrowserGoalSaveNotifications,
 } from "../src/index";
+import { bindMessagesToRun, testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
+
 
 const protocols = {
     memoryProtocol: { kind: "structured", version: 1 } as const,
@@ -49,9 +54,6 @@ const profile: AgentProfile = {
 };
 
 const inputContract = contract.record(contract.string());
-const saveNotifications: BrowserGoalSaveNotifications = {
-    onSave() { return () => undefined; },
-};
 
 test("recreated browser services restore committed messages, steps, wait, and plan", async () => {
     const directory = await mkdtemp(join(tmpdir(), "lazygoal-browser-recovery-view-"));
@@ -85,8 +87,9 @@ test("recreated browser services restore committed messages, steps, wait, and pl
         ]);
         assert.equal(afterRestart.currentRunId, goal.state.run.id);
         assert.equal(afterRestart.runStatus, "waiting");
-        assert.equal(afterRestart.pendingInteraction?.kind, "ask_user");
-        assert.equal(afterRestart.pendingInteraction?.requestId, "request-recovery-1");
+        assert.equal(afterRestart.interaction?.kind, "question");
+        assert.equal(afterRestart.interaction?.requestId, "request-recovery-1");
+        assert.equal(afterRestart.interaction?.interactionId, "question:request-recovery-1");
         assert.deepEqual(afterRestart.goalPlan?.items.map((item) => item.content), ["Review saved notes"]);
         assert.equal(afterRestart.runs[0]?.steps.length, 1);
         assert.equal(afterRestart.runs[0]?.steps[0]?.status, "completed");
@@ -167,13 +170,15 @@ test("manual Tool result recovered after restart stays unknown and stream reconn
         assert.equal(JSON.stringify(recoveredSession).includes("PRIVATE_UNSAVED_ACTION_RESULT"), false);
 
         const stream = await api.request(
-            `http://localhost/api/goals/${interrupted.id}/events?runId=${interrupted.state.run.id}`,
+            `http://localhost/api/goals/${interrupted.id}/events`,
         );
         assert.equal(stream.status, 200);
         const reader = stream.body?.getReader();
         assert.ok(reader);
         const firstEvent = await reader.read();
-        assert.equal(new TextDecoder().decode(firstEvent.value).includes("snapshot_changed"), true);
+        const payload = new TextDecoder().decode(firstEvent.value);
+        assert.equal(payload.includes("state_sync"), true);
+        assert.equal(payload.includes('"runStatus":"waiting"'), true);
         await reader.cancel();
         assert.equal(toolCalls, 1);
     } finally {
@@ -243,11 +248,11 @@ async function saveWaitingSession(
         state: {
             ...initial.state,
             workflow: { phase: "executing" },
-            messages: [
-                { role: "user", content: "Collect approved notes" },
-                { role: "assistant", assistant: { profileId: profile.id }, content: "I found three notes." },
-                { role: "assistant", assistant: { profileId: profile.id }, content: "Which source should I use?" },
-            ],
+            messages: bindMessagesToRun([
+                testUserMessage("Collect approved notes"),
+                testAssistantMessage("I found three notes.", { profileId: profile.id }),
+                testAssistantMessage("Which source should I use?", { profileId: profile.id }),
+            ], initial.state.run.id),
             goalPlan: {
                 revision: 1,
                 items: [{ id: "plan-review", content: "Review saved notes", position: 0, status: "in_progress" }],
@@ -330,21 +335,9 @@ function historyFacts(goalId: string, runId: string): readonly TrajectoryEventDr
 function createApi(store: JsonFileGoalStore, trajectory: JsonFileTrajectoryStore) {
     const commands = new BrowserGoalCommandService({
         store,
-        saveNotifications,
-        profileId: profile.id,
-        launcher: {
-            async launch() { throw new Error("Browser reads must not launch a Goal"); },
-        },
         coordinator: {
-            async resume() { throw new Error("Browser reads must not resume a Goal"); },
-            async continue() { throw new Error("Browser reads must not continue a Goal"); },
             async enterPlanMode() { throw new Error("Browser reads must not change a Goal mode"); },
         },
-    });
-    const streams = new BrowserGoalStreamService({
-        store,
-        saveNotifications,
-        publisher: new InMemoryExecutionStreamPublisher(),
     });
     return createBrowserGoalRoutes({
         list: () => listBrowserGoals(store),
@@ -353,14 +346,56 @@ function createApi(store: JsonFileGoalStore, trajectory: JsonFileTrajectoryStore
             store,
             (query) => readTrajectoryAtSnapshot(store, trajectory, query),
         ),
-        create: (command) => commands.create(command),
-        interact: (goalId, command) => commands.interact(goalId, command),
-        message: (goalId, command) => commands.message(goalId, command),
+        session: {
+            async create() { return { ok: false as const, error: "create_failed" as const }; },
+            async submit() { return { ok: false as const, error: "session_unavailable" as const }; },
+            async readInput() { return { ok: true as const, found: false as const }; },
+            async readState(goalId) {
+                const goal = await store.restore(goalId);
+                return goal === undefined ? undefined : projectSessionState(goalId, projectGoalSessionState({ goal, executionOwner: false }));
+            },
+            async openEvents(goalId, signal) {
+                const goal = await store.restore(goalId);
+                if (goal === undefined) return { ok: false as const, error: "goal_not_found" as const };
+                const stream = new GoalSessionStream({
+                    publisher: new InMemoryExecutionStreamPublisher(),
+                    goalId,
+                    readState: async (target) => {
+                        const current = await store.restore(target);
+                        return current === undefined ? undefined : projectGoalSessionState({ goal: current, executionOwner: false });
+                    },
+                });
+                const session = new Session(goalId, "recovery-handle", {
+                    readSessionState: async () => undefined,
+                    readSessionInteraction: async () => undefined,
+                    readSessionInteractionDetail: async () => ({
+                        ok: false,
+                        code: "INTERACTION_NOT_WAITING",
+                        message: "unused",
+                    }),
+                    sendSessionInput: async () => ({ ok: false, code: "RUN_CONTROL_UNAVAILABLE", message: "unused" }),
+                    querySessionInput: async () => ({ ok: true, found: false }),
+                    readSessionMessages: async () => ({ ok: true, messages: [], total: 0 }),
+                    readSessionMessageBody: async () => ({ ok: false, code: "MESSAGE_NOT_FOUND" as const, message: "not found" }),
+                    openSessionEvents: () => stream,
+                    attachSessionInteractionHandlers: () => ({
+                        ok: false,
+                        code: "SESSION_DETACHED",
+                        message: "unused",
+                    }),
+                    detachSessionInteractionHandlers: () => undefined,
+                    consumeSessionInputs: async () => ({ reason: "completed" }),
+                    detachSession: () => undefined,
+                });
+                return { ok: true as const, feed: createBrowserSessionFeed(session, stream, signal) };
+            },
+            async listMessages() { return { ok: true as const, messages: [], total: 0 }; },
+            async readMessage() { return { ok: false as const, error: "message_not_found" as const }; },
+        },
         enterPlanMode: (goalId, command) => commands.enterPlanMode(goalId, command),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
         setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
         selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
-        openStream: (goalId, runId, signal) => streams.open(goalId, runId, signal),
     });
 }
 

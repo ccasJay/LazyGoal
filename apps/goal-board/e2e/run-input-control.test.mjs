@@ -17,7 +17,7 @@ test("Run input controls persist Steer and deduplicate continuation retries", as
   const home = join(temporaryRoot, "home");
   const statusPath = join(temporaryRoot, "status.json");
   await Promise.all([mkdir(workspace), mkdir(data), mkdir(home)]);
-  const launchService = () => spawn(process.execPath, ["--import", "tsx/esm", serviceEntry], {
+  const launchService = (runCounter = 0) => spawn(process.execPath, ["--import", "tsx/esm", serviceEntry], {
     cwd: repositoryRoot,
     env: {
       ...process.env,
@@ -25,7 +25,7 @@ test("Run input controls persist Steer and deduplicate continuation retries", as
       LAZYGOAL_E2E_DATA: data,
       LAZYGOAL_E2E_HOME: home,
       LAZYGOAL_E2E_STATUS: statusPath,
-      LAZYGOAL_E2E_RUN_COUNTER: "0",
+      LAZYGOAL_E2E_RUN_COUNTER: String(runCounter),
       LAZYGOAL_E2E_MODEL_OFFSET: "20",
       LAZYGOAL_E2E_DELAY_MODEL: "1",
     },
@@ -42,55 +42,84 @@ test("Run input controls persist Steer and deduplicate continuation retries", as
     const ready = await waitReady(child, () => output, () => stderr);
     const created = await request(ready, "/api/goals", {
       method: "POST",
-      body: { goalId: "goal-input-e2e", intent: "Composer status flow: exercise persisted controls" },
+      body: { goalId: "goal-input-e2e", inputId: "input-e2e-first", intent: "Composer status flow: exercise persisted controls" },
     });
     assert.equal(created.response.status, 202);
     const goalId = created.body.goalId;
     const runId = created.body.runId;
     await waitForSession(ready, goalId, (session) => session.runStatus === "running");
 
-    const steer = await request(ready, `/api/goals/${goalId}/steer`, {
+    const steer = await request(ready, `/api/goals/${goalId}/inputs`, {
       method: "POST",
-      body: { runId, messageId: "steer-e2e-1", content: "Keep the same Run" },
+      body: { kind: "steer", inputId: "steer-e2e-1", runId, content: "Keep the same Run" },
     });
     assert.equal(steer.response.status, 202);
-    assert.equal(steer.body.runId, runId);
-    assert.equal(steer.body.messageId, "steer-e2e-1");
+    assert.equal(steer.body.receipt.kind, "steer");
+    assert.equal(steer.body.receipt.targetRunId, runId);
+    assert.equal(steer.body.receipt.inputId, "steer-e2e-1");
 
-    const interrupted = await request(ready, `/api/goals/${goalId}/interrupt`, {
+    const interrupted = await request(ready, `/api/goals/${goalId}/inputs`, {
       method: "POST",
-      body: { runId, requestId: "interrupt-e2e-1" },
+      body: { kind: "interrupt", inputId: "interrupt-e2e-1", runId },
     });
     assert.equal(interrupted.response.status, 202);
     const cancelled = await waitForSession(ready, goalId, (session) => session.runStatus === "cancelled");
     assert.equal(cancelled.currentRunId, runId);
+    const pausedSession = await sessionBody(ready, goalId);
+    assert.equal(pausedSession.queue.paused, true);
+    assert.equal(pausedSession.queue.pauseReason, "user_interrupt");
 
-    const followUp = { runId, messageId: "queue-e2e-1", content: "Start the queued follow-up" };
-    const first = await request(ready, `/api/goals/${goalId}/messages`, { method: "POST", body: followUp });
+    const followUp = { kind: "message", inputId: "queue-e2e-1", content: "Start the queued follow-up" };
+    const first = await request(ready, `/api/goals/${goalId}/inputs`, { method: "POST", body: followUp });
     assert.equal(first.response.status, 202);
-    assert.notEqual(first.body.runId, runId);
-    const retry = await request(ready, `/api/goals/${goalId}/messages`, { method: "POST", body: followUp });
-    assert.equal(retry.body.runId, first.body.runId);
+    assert.equal(first.body.receipt.status, "pending");
+    // 结果不明时的核验路径：按原身份读取持久化收据，不生成新身份。
+    const receipt = await request(ready, `/api/goals/${goalId}/inputs/${followUp.inputId}`);
+    assert.equal(receipt.response.status, 200);
+    assert.equal(receipt.body.found, true);
+    assert.equal(receipt.body.receipt.inputId, followUp.inputId);
+    assert.equal(receipt.body.receipt.kind, "message");
+    const unknownReceipt = await request(ready, `/api/goals/${goalId}/inputs/never-accepted-input`);
+    assert.equal(unknownReceipt.response.status, 200);
+    assert.equal(unknownReceipt.body.found, false);
+    const queued = await waitForSessionBody(ready, goalId, (session) => session.pendingMessages?.length === 1);
+    assert.equal(queued.queue.paused, true);
+    // 暂停期间新消息只追加到队尾：显式继续才解除暂停。
+    const retry = await request(ready, `/api/goals/${goalId}/inputs`, { method: "POST", body: followUp });
+    assert.equal(retry.response.status, 200);
     assert.equal(retry.body.existing, true);
+    assert.equal(retry.body.receipt.inputId, "queue-e2e-1");
     child.kill("SIGTERM");
     await once(child, "close");
     output = "";
     stderr = "";
-    child = launchService();
+    child = launchService(1);
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => { output += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     const restarted = await waitReady(child, () => output, () => stderr);
-    const restartedRetry = await request(restarted, `/api/goals/${goalId}/messages`, { method: "POST", body: followUp });
-    assert.equal(restartedRetry.body.runId, first.body.runId);
-    assert.equal(restartedRetry.body.existing, true);
-    const conflict = await request(restarted, `/api/goals/${goalId}/messages`, {
+    const restartedRetry = await request(restarted, `/api/goals/${goalId}/inputs`, { method: "POST", body: followUp });
+    assert.equal(restartedRetry.response.status, 200);
+    assert.equal(restartedRetry.body.receipt.inputId, "queue-e2e-1");
+    // 重启后只恢复和展示状态：队列顺序与暂停仍来自持久化真源。
+    const restored = await waitForSessionBody(restarted, goalId, (session) => session.pendingMessages?.length === 1);
+    assert.equal(restored.queue.paused, true);
+    assert.equal(restored.pendingMessages[0].content, "Start the queued follow-up");
+    const conflict = await request(restarted, `/api/goals/${goalId}/inputs`, {
       method: "POST",
       body: { ...followUp, content: "Changed after acceptance" },
     });
     assert.equal(conflict.response.status, 409);
-    assert.equal(conflict.body.error, "message_conflict");
+    assert.equal(conflict.body.error, "INPUT_CONFLICT");
+    // 显式继续队列：从原队首启动后继 Run 并解除暂停。
+    const continued = await request(restarted, `/api/goals/${goalId}/inputs`, {
+      method: "POST",
+      body: { kind: "queue_control", inputId: "queue-continue-e2e", action: "continue", queueRevision: restored.queue.revision },
+    });
+    assert.equal(continued.response.status, 202);
+    const resumedRun = await waitForSessionBody(restarted, goalId, (session) => session.currentRunId !== runId && session.queue.paused === false);
+    assert.equal((resumedRun.pendingMessages ?? []).length, 0);
   } finally {
     if (child.exitCode === null) {
       child.kill("SIGTERM");
@@ -99,6 +128,23 @@ test("Run input controls persist Steer and deduplicate continuation retries", as
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 });
+
+async function sessionBody(ready, goalId) {
+  const session = await request(ready, `/api/goals/${goalId}`);
+  assert.equal(session.response.status, 200);
+  return session.body.goal;
+}
+
+async function waitForSessionBody(ready, goalId, predicate) {
+  const end = Date.now() + 20_000;
+  let session = await sessionBody(ready, goalId);
+  while (Date.now() < end && !predicate(session)) {
+    await delay(25);
+    session = await sessionBody(ready, goalId);
+  }
+  assert.equal(predicate(session), true, JSON.stringify(session));
+  return session;
+}
 
 async function waitReady(child, readOutput, readError) {
   const end = Date.now() + 15_000;

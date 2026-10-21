@@ -5,8 +5,14 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | Snapshot | Goal 最新完整持久化状态。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
+| 输入账本快照 | 每条已受理输入的稳定身份、载荷摘要、受理序号与状态；不复制正文。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
+| 消息队列快照 | 尚未应用的普通消息 FIFO、队列修订与暂停原因。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
+| 消息身份快照 | 每条正式消息持久化 `messageId`、所属 `runId`、Run 内 `position`、判别式来源与助手用途；位置受 Run 边界和 Snapshot 顺序约束。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
+| 提交修订快照 | Goal 级单调提交修订，随每次成功提交递增。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
 | Trajectory | 已提交执行事实记录。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
 | 模型调用指标 JSONL | 保存用量、可选请求耗时及覆盖缺口；不参与 Goal 恢复。 | [持久化实现](../README.md) | [指标 Store](../src/json-file-metrics-store.ts) |
 | 阶段快照 | Goal Snapshot 中 Run 内部活动阶段或最新已接受阶段的可恢复状态。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
 | Plan Run 路线快照 | 获批 Plan Run 的完整有序阶段、修订理由与游标；按 Snapshot 提交边界恢复。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
 | 批次进度指针 | 多调用批次中尚未暂存的业务 Action 及其顺序，与队首共同决定恢复位置。 | [Storage](../README.md) | [Goal Snapshot 协议](../src/goal-snapshot.ts) |
+| 最终执行版本快照 | 已获批 Action 的原请求引用与最终 canonical 参数；获批后不可再编辑，恢复沿用同一版本。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
+| 恢复身份快照 | 结果未知等待的稳定恢复身份；跨重启保留，同一 Action 再次未知时改变。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |

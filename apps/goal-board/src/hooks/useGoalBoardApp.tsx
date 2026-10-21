@@ -44,6 +44,7 @@ export function useGoalBoardApp() {
   const streamManager = useRunStream({
     selectedGoalId: sessionManager.selectedGoalId,
     session: sessionManager.session,
+    activityPage: sessionManager.activityPage,
     sessionLoading: sessionManager.sessionLoading,
     onRefresh: sessionManager.refreshSelectedSession,
   });
@@ -59,7 +60,6 @@ export function useGoalBoardApp() {
     await goalsManager.deleteGoal(goal, () => {
       if (sessionManager.selectedGoalId === goal.goalId) sessionManager.setSelectedGoalId(null);
     });
-    queueManager.clearQueue(goal.goalId);
   };
 
   const { workspaceContext, workspaceContextError } = useWorkspaceContext({
@@ -80,10 +80,10 @@ export function useGoalBoardApp() {
     onRefreshSession: sessionManager.refreshSelectedSession,
   });
 
+  // 运行中的文本发送进入持久化队列；等待交互时普通消息同样只排队（界面单独标注用途），
+  // 不会代答当前请求。
   const canSendText = sessionManager.session !== null
-    && sessionManager.session.pendingInteraction === undefined
-    && sessionManager.session.pendingAction === undefined
-    && ["waiting", "completed", "failed", "cancelled"].includes(sessionManager.session.runStatus);
+    && ["running", "waiting", "completed", "failed", "cancelled"].includes(sessionManager.session.runStatus);
 
   const modelSelectionManager = useModelSelection({
     session: sessionManager.session,
@@ -101,6 +101,7 @@ export function useGoalBoardApp() {
 
   const commandsManager = useRunCommands({
     session: sessionManager.session,
+    sessionState: sessionManager.sessionState,
     canSendText,
     draftGoalId: sessionManager.draftGoalId,
     draftPlanMode: sessionManager.draftPlanMode,
@@ -117,7 +118,6 @@ export function useGoalBoardApp() {
 
   const queueManager = useQueue({
     session: sessionManager.session,
-    selectedGoalId: sessionManager.selectedGoalId,
     onRefreshSession: sessionManager.refreshSelectedSession,
     onCommandError: commandsManager.setCommandError,
   });
@@ -186,6 +186,14 @@ export function useGoalBoardApp() {
   const sessionContextValue: GoalSessionContextValue = {
     selectedGoalId: sessionManager.selectedGoalId,
     session: sessionManager.session,
+    activityPage: sessionManager.activityPage,
+    activityWindow: sessionManager.activityWindow,
+    loadEarlierActivity: sessionManager.loadEarlierActivity,
+    loadNewerActivity: sessionManager.loadNewerActivity,
+    jumpToLatestActivity: sessionManager.jumpToLatestActivity,
+    fullSession: sessionManager.fullSession,
+    fullSessionLoading: sessionManager.fullSessionLoading,
+    fullSessionError: sessionManager.fullSessionError,
     sessionLoading: sessionManager.sessionLoading,
     sessionError: sessionManager.sessionError,
     workspaceContext,
@@ -206,8 +214,13 @@ export function useGoalBoardApp() {
     revokingGrantId: permissionsManager.revokingGrantId,
     liveText: streamManager.liveText,
     liveActivity: streamManager.liveActivity,
+    candidatePresentation: streamManager.candidatePresentation,
+    expandCandidateDraft: streamManager.expandCandidateDraft,
+    releaseCandidateDraft: streamManager.releaseCandidateDraft,
     liveEvents: streamManager.liveEvents,
     streamConnected: streamManager.streamConnected,
+    stateStale: streamManager.stateStale,
+    streamSynced: streamManager.streamSynced,
     metricsByGoal: goalsManager.metricsByGoal,
     currentModelCatalog: modelSelectionManager.currentModelCatalog,
     currentModelName,
@@ -219,6 +232,7 @@ export function useGoalBoardApp() {
     retryModelPreference: modelSelectionManager.retryModelPreference,
     onModelCatalogRefresh: modelSelectionManager.refreshModelCatalog,
     refreshSelectedSession: sessionManager.refreshSelectedSession,
+    loadFullSession: sessionManager.loadFullSession,
     selectGoal: sessionManager.selectGoal,
     closeSession: sessionManager.closeSession,
     openNewGoalDraft: sessionManager.openNewGoalDraft,
@@ -239,16 +253,19 @@ export function useGoalBoardApp() {
     setCommandError: commandsManager.setCommandError,
     stoppingRunId: commandsManager.stoppingRunId,
     canSendText,
-    queuedInputs: sessionManager.session ? queueManager.queuedByGoal[sessionManager.session.goalId] ?? [] : [],
-    queuePaused: sessionManager.session ? queueManager.queuePausedByGoal[sessionManager.session.goalId] ?? false : false,
-    onQueueInput: (content) => sessionManager.session ? queueManager.queueInput(sessionManager.session.goalId, content) : false,
+    queuedInputs: queueManager.queuedInputs,
+    queuePaused: queueManager.queuePaused,
     onContinueQueue: queueManager.continueQueue,
+    onClearQueue: queueManager.clearQueue,
     onSubmitMessage: commandsManager.submitMessage,
     onSubmitDraftMessage: commandsManager.submitDraftMessage,
     onSubmitSteer: commandsManager.submitSteer,
     onInterrupt: commandsManager.interruptCurrentRun,
-    onSubmitInteraction: commandsManager.submitInteraction,
     onSubmitResume: commandsManager.submitResume,
+    unverifiedSubmissions: commandsManager.unverifiedSubmissions,
+    onVerifySubmission: commandsManager.verifySubmission,
+    onRetrySubmission: commandsManager.retrySubmission,
+    onDiscardSubmission: commandsManager.discardSubmission,
   };
 
   return {

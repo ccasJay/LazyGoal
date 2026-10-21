@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createRun, transition } from "../src/index";
+import { computeActionRecoveryRef, createRun, transition } from "../src/index";
 import type {
     RunInput,
     RunState,
@@ -293,12 +293,21 @@ test("recover_action moves an approved Action to manual recovery without consumi
     assert.deepEqual(recovered.pendingAction, {
         action: staged.pendingAction?.action,
         status: "outcome_unknown",
+        recoveryRef: computeActionRecoveryRef("action-recover", 1),
     });
+
+    // 首次批准命令不再消费未知结果等待；重执行必须显式引用本次恢复身份。
+    const rejected = transition(recovered, {
+        kind: "approve_action",
+        actionId: "action-recover",
+    });
+    assert.equal(rejected.ok, false);
 
     const reapproved = requireSuccessfulState(
         transition(recovered, {
-            kind: "approve_action",
+            kind: "retry_unknown_action",
             actionId: "action-recover",
+            recoveryRef: computeActionRecoveryRef("action-recover", 1),
         }),
     );
     assert.equal(reapproved.status, "running");
@@ -443,6 +452,7 @@ test("execution_error stops without counting a Step and preserves unknown outcom
             input: { path: "README.md" },
         },
         status: "outcome_unknown",
+        recoveryRef: computeActionRecoveryRef("action-error", 1),
     });
     assert.deepEqual(nextState.stopReason, {
         kind: "execution_error",
@@ -621,3 +631,87 @@ for (const terminalState of terminalStates) {
         assert.strictEqual(result.state, terminalState);
     });
 }
+
+test("approve_action_revision freezes the final execution version and rejects mismatched identities", () => {
+    const staged = requireSuccessfulState(
+        transition(createRunningState(), {
+            kind: "stage_action",
+            status: "awaiting_approval",
+            action: {
+                actionId: "action-revise",
+                toolId: "write_file",
+                input: { path: "a.txt" },
+            },
+        }),
+    );
+
+    const executionVersion = {
+        original: { actionId: "action-revise", toolId: "write_file", input: { path: "a.txt" } },
+        input: { path: "b.txt" },
+        reviewRef: "review:0123456789abcdef0123456789abcdef",
+        scope: "action" as const,
+        revision: { source: "user" as const },
+    };
+
+    const approved = requireSuccessfulState(
+        transition(staged, {
+            kind: "approve_action_revision",
+            actionId: "action-revise",
+            executionVersion,
+        }),
+    );
+    assert.equal(approved.status, "running");
+    assert.equal(approved.stepCount, 0);
+    assert.deepEqual(approved.pendingAction?.executionVersion, executionVersion);
+    // 原请求不被覆盖。
+    assert.deepEqual(approved.pendingAction?.action.input, { path: "a.txt" });
+
+    const wrongTool = transition(staged, {
+        kind: "approve_action_revision",
+        actionId: "action-revise",
+        executionVersion: {
+            ...executionVersion,
+            original: { ...executionVersion.original, toolId: "other_tool" },
+        },
+    });
+    assert.equal(wrongTool.ok, false);
+
+    const wrongAction = transition(staged, {
+        kind: "approve_action_revision",
+        actionId: "action-other",
+        executionVersion,
+    });
+    assert.equal(wrongAction.ok, false);
+});
+
+test("approve_action_revision does not consume an unknown-outcome wait", () => {
+    const staged = requireSuccessfulState(
+        transition(createRunningState(), {
+            kind: "stage_action",
+            status: "awaiting_approval",
+            action: {
+                actionId: "action-revise",
+                toolId: "write_file",
+                input: { path: "a.txt" },
+            },
+        }),
+    );
+    const approved = requireSuccessfulState(
+        transition(staged, { kind: "approve_action", actionId: "action-revise" }),
+    );
+    const unknown = requireSuccessfulState(
+        transition(approved, { kind: "recover_action", actionId: "action-revise" }),
+    );
+
+    const rejected = transition(unknown, {
+        kind: "approve_action_revision",
+        actionId: "action-revise",
+        executionVersion: {
+            original: { actionId: "action-revise", toolId: "write_file", input: { path: "a.txt" } },
+            input: { path: "b.txt" },
+            reviewRef: "review:0123456789abcdef0123456789abcdef",
+            scope: "action",
+        },
+    });
+    assert.equal(rejected.ok, false);
+});

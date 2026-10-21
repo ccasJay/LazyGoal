@@ -333,6 +333,74 @@ test("快照不变量: 任务未批准时允许普通 Step 与 pendingAction", (
     );
 });
 
+test("快照往返保留已获批 Action 的最终执行版本与恢复身份", () => {
+    const goal = createBaseGoal();
+    const revisedGoal: Goal = {
+        ...goal,
+        state: {
+            ...goal.state,
+            workflow: { phase: "executing" },
+            run: {
+                ...goal.state.run,
+                status: "running",
+                pendingAction: {
+                    action: { actionId: "act-1", toolId: "read_file", input: { path: "a.txt" } },
+                    status: "approved",
+                    approvalScope: "action",
+                    executionVersion: {
+                        original: {
+                            actionId: "act-1",
+                            toolId: "read_file",
+                            input: { path: "a.txt" },
+                        },
+                        input: { path: "b.txt" },
+                        reviewRef: "review:0123456789abcdef0123456789abcdef",
+                        scope: "action",
+                        revision: { source: "user" },
+                    },
+                },
+            },
+        },
+    };
+    const decoded = goalSnapshotCodec.decode(goalSnapshotCodec.encode(revisedGoal));
+    assert.deepEqual(decoded.state.run.pendingAction?.executionVersion, {
+        original: {
+            actionId: "act-1",
+            toolId: "read_file",
+            input: { path: "a.txt" },
+        },
+        input: { path: "b.txt" },
+        reviewRef: "review:0123456789abcdef0123456789abcdef",
+        scope: "action",
+        revision: { source: "user" },
+    });
+    // 原请求引用保持不变，原始暂存事实不被覆盖。
+    assert.deepEqual(decoded.state.run.pendingAction?.action.input, { path: "a.txt" });
+
+    const unknownGoal: Goal = {
+        ...goal,
+        state: {
+            ...goal.state,
+            workflow: { phase: "executing" },
+            run: {
+                ...goal.state.run,
+                status: "waiting",
+                pendingAction: {
+                    action: { actionId: "act-1", toolId: "read_file", input: { path: "a.txt" } },
+                    status: "outcome_unknown",
+                    attemptsStarted: 1,
+                    recoveryRef: "recovery:0123456789abcdef0123456789abcdef",
+                },
+            },
+        },
+    };
+    const decodedUnknown = goalSnapshotCodec.decode(goalSnapshotCodec.encode(unknownGoal));
+    assert.equal(
+        decodedUnknown.state.run.pendingAction?.recoveryRef,
+        "recovery:0123456789abcdef0123456789abcdef",
+    );
+});
+
 test("历史 Preparation 快照在 decode 时 fail-closed 拒绝", () => {
     const validGoal = createBaseGoal();
     const encoded = goalSnapshotCodec.encode(validGoal);

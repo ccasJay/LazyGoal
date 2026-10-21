@@ -1,6 +1,7 @@
 import type {
   BrowserGoalListItem,
   BrowserGoalSession,
+  BrowserGoalSessionState,
   BrowserSessionMessage,
   BrowserSessionStep,
   BrowserToolGrantSummary,
@@ -22,6 +23,120 @@ export type GoalStatus = "Ready" | "Running" | "Needs input" | "Completed" | "St
 export type SessionTab = "Board" | "Activity" | "Plan" | "Trajectory";
 export type MetricsState = { readonly kind: "ready"; readonly value: SessionMetricsSnapshot } | { readonly kind: "error" };
 export type QueuedInput = { readonly messageId: string; readonly content: string };
+
+/**
+ * 页面层交互提交：携带当前 Run 与等待身份，由 useRunCommands 映射为统一 respond 输入。
+ */
+export type BrowserGoalInteractionCommand =
+  | { readonly kind: "skip_question"; readonly runId: string; readonly requestId: string }
+  | {
+      readonly kind: "reply_to_question";
+      readonly runId: string;
+      readonly requestId: string;
+      readonly content: string;
+    }
+  | {
+      readonly kind: "answer_ask_user";
+      readonly runId: string;
+      readonly requestId: string;
+      readonly answers: readonly {
+        readonly questionId: string;
+        readonly optionIds: readonly string[];
+        readonly otherText?: string;
+      }[];
+    }
+  | { readonly kind: "approve_task"; readonly runId: string; readonly requestId: string }
+  | {
+      readonly kind: "feedback_task";
+      readonly runId: string;
+      readonly requestId: string;
+      readonly feedback: string;
+    }
+  | {
+      readonly kind: "approve_action";
+      readonly runId: string;
+      readonly actionId: string;
+      readonly scope?: "action" | "goal" | "workspace";
+    }
+  | {
+      /**
+       * 批准同一工具的修订参数版本。
+       *
+       * @remarks 携带预检返回的审阅引用；服务端重新计算后不一致时明确拒绝。
+       */
+      readonly kind: "approve_action_revision";
+      readonly runId: string;
+      readonly actionId: string;
+      readonly input: unknown;
+      readonly reviewRef: string;
+      readonly scope?: "action" | "goal" | "workspace";
+    }
+  | {
+      /** 明确允许结果未知的操作按获批版本再次执行。 */
+      readonly kind: "retry_unknown_action";
+      readonly runId: string;
+      readonly actionId: string;
+      readonly recoveryRef: string;
+    }
+  | {
+      /** 拒绝结果未知的操作再次执行。 */
+      readonly kind: "decline_unknown_action_retry";
+      readonly runId: string;
+      readonly actionId: string;
+      readonly recoveryRef: string;
+      readonly reason: string;
+    }
+  | { readonly kind: "reject_action"; readonly runId: string; readonly actionId: string; readonly reason: string };
+
+/** 把页面交互命令映射为统一会话输入的 respond 载荷。 */
+export function toSessionInteractionResponse(
+  command: BrowserGoalInteractionCommand,
+): import("../../../packages/web-contracts/src/index").BrowserSessionInteractionResponse {
+  switch (command.kind) {
+    case "skip_question":
+      return { kind: "skip_question" };
+    case "reply_to_question":
+      return { kind: "reply_to_question", content: command.content };
+    case "answer_ask_user":
+      return {
+        kind: "answer_ask_user",
+        answers: command.answers.map((answer) => ({
+          questionId: answer.questionId,
+          optionIds: answer.optionIds,
+          ...(answer.otherText === undefined ? {} : { otherText: answer.otherText }),
+        })),
+      };
+    case "approve_task":
+      return { kind: "approve_task" };
+    case "feedback_task":
+      return { kind: "feedback_task", feedback: command.feedback };
+    case "approve_action":
+      return {
+        kind: "approve_action",
+        actionId: command.actionId,
+        ...(command.scope === undefined ? {} : { scope: command.scope }),
+      };
+    case "approve_action_revision":
+      return {
+        kind: "approve_action_revision",
+        actionId: command.actionId,
+        input: command.input as import("../../../packages/web-contracts/src/index").BrowserJsonValue,
+        reviewRef: command.reviewRef,
+        ...(command.scope === undefined ? {} : { scope: command.scope }),
+      };
+    case "retry_unknown_action":
+      return { kind: "retry_unknown_action", actionId: command.actionId, recoveryRef: command.recoveryRef };
+    case "decline_unknown_action_retry":
+      return {
+        kind: "decline_unknown_action_retry",
+        actionId: command.actionId,
+        recoveryRef: command.recoveryRef,
+        reason: command.reason,
+      };
+    case "reject_action":
+      return { kind: "reject_action", actionId: command.actionId, reason: command.reason };
+  }
+}
 
 export const statuses: readonly GoalStatus[] = [
   "Ready",
@@ -85,11 +200,11 @@ export function cardStatusPresentation(status: BrowserGoalListItem["runStatus"])
 /**
  * 计算会话详情页顶部状态的指示样式。
  */
-export function sessionStatusTone(session: BrowserGoalSession): string {
+export function sessionStatusTone(session: BrowserGoalSessionState): string {
   if (
     session.pendingAction?.status === "outcome_unknown" ||
     session.pendingAction?.status === "awaiting_approval" ||
-    session.pendingInteraction
+    session.interaction !== undefined
   ) {
     return "needs-input attention";
   }
@@ -111,12 +226,12 @@ export function sessionStatusTone(session: BrowserGoalSession): string {
   }
 }
 
-export function sessionStatus(session: BrowserGoalSession): string {
+export function sessionStatus(session: BrowserGoalSessionState): string {
   if (session.pendingAction?.status === "outcome_unknown") return "Outcome needs review";
   if (session.pendingAction?.status === "awaiting_approval") return "Awaiting approval";
   if (session.pendingAction?.status === "approved") return "Action accepted";
-  if (session.pendingInteraction?.kind === "task_approval") return "Awaiting task approval";
-  if (session.pendingInteraction) return "Awaiting your response";
+  if (session.interaction?.kind === "task_approval") return "Awaiting task approval";
+  if (session.interaction !== undefined) return "Awaiting your response";
   if (session.runStatus === "cancelled") return "Stopped";
   return session.runStatus.charAt(0).toUpperCase() + session.runStatus.slice(1);
 }

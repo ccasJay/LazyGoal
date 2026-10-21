@@ -50,6 +50,10 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     socket = await connectCdp(target.webSocketDebuggerUrl);
     await cdp(socket, "Page.enable");
     await cdp(socket, "Runtime.enable");
+    // 显式桌面布局视口：headless 默认宽度会触发移动布局并隐藏侧栏初始断言。
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", {
+      width: 1280, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
 
     await navigate(socket, `${webUrl}/`);
     await waitForExpression(socket, "document.body.innerText.includes('lazygoal web')");
@@ -60,6 +64,15 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
       await cdp(socket, "Emulation.setDeviceMetricsOverride", {
         width, height: 900, deviceScaleFactor: 1, mobile: width <= 760,
       });
+      if (width <= 760) {
+        // 移动布局会收起侧栏；显式展开后才能在真实移动视口检查品牌资源与尺寸。
+        await waitForExpression(socket, "document.querySelector('.workspace-sidebar-dialog') !== null || document.querySelector('button[aria-label=\"Expand sidebar\"]') !== null");
+        await cdp(socket, "Runtime.evaluate", {
+          expression: "(() => { const toggle = document.querySelector('button[aria-label=\"Expand sidebar\"]'); if (toggle === null) return false; toggle.click(); return true; })()",
+          returnByValue: true,
+        });
+        await waitForExpression(socket, "document.querySelector('.workspace-sidebar-dialog') !== null");
+      }
       const assetName = width <= 760 ? "mark-on-light" : "logo-on-light";
       await waitForExpression(socket, `(() => { const image = document.querySelector('.brand-logo img'); return image?.complete && image.naturalWidth > 0 && image.currentSrc.includes('${assetName}'); })()`);
       const brand = await value(socket, `(() => {
@@ -78,7 +91,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
 
     await navigate(socket, `${webUrl}/?session=desktop#${token}`);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
-    await waitForExpression(socket, "document.querySelector('.goal-card .card-metrics')?.innerText.includes('call unreported')");
+    await waitForExpression(socket, "document.querySelector('.goal-card .metric-coverage')?.innerText.includes('call unreported')");
     assert.match(await value(socket, "document.querySelector('.goal-card .card-metrics').innerText"), /Output rate/);
     assert.doesNotMatch(await value(socket, "document.querySelector('.goal-card .card-metrics').innerText"), /Generation/);
     assert.equal(await value(socket, "document.querySelector('.sidebar, .view-switch, .filter') === null"), true);
@@ -93,13 +106,13 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.match(await value(socket, "document.querySelector('.session').innerText"), /Live response/);
     assert.match(await value(socket, "document.querySelector('.session').innerText"), /Not saved yet/);
     assert.doesNotMatch(await value(socket, "document.querySelector('.session').innerText"), /Run completed/);
-    await waitForExpression(socket, "[...document.querySelectorAll('.activity-group')].some(group => group.querySelector('.step-status.running')?.textContent === 'In progress')");
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.activity-group')].find(group => group.querySelector('.step-status.running'))?.querySelector('summary').click()", returnByValue: true });
-    assert.match(await value(socket, "[...document.querySelectorAll('.activity-group')].find(group => group.querySelector('.step-status.running')).innerText"), /Temporary activity · Not saved yet/);
+    await waitForExpression(socket, "[...document.querySelectorAll('.timeline-activity-status')].some(node => node.textContent === 'Running')");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.timeline-activity-heading')].find(button => button.querySelector('.timeline-activity-status')?.textContent === 'Running').click()", returnByValue: true });
+    assert.match(await value(socket, "[...document.querySelectorAll('.timeline-activity')].find(group => group.querySelector('.timeline-activity-status')?.textContent === 'Running').innerText"), /Not saved yet/);
     mock.advanceReviewActivity();
     await waitForExpression(socket, "document.querySelector('.transient-message h1')?.textContent === 'Reviewing result…'");
-    assert.equal(await value(socket, "document.querySelectorAll('.activity-group').length"), 4);
-    assert.match(await value(socket, "[...document.querySelectorAll('.activity-group')].find(group => group.textContent.includes('Temporary activity'))?.textContent ?? ''"), /Temporary activity · Not saved yet/);
+    assert.equal(await value(socket, "document.querySelectorAll('.timeline-activity').length"), 3);
+    assert.match(await value(socket, "[...document.querySelectorAll('.timeline-activity')].find(group => group.innerText.includes('Not saved yet'))?.innerText ?? ''"), /Not saved yet/);
     assert.doesNotMatch(await value(socket, "document.querySelector('.transient-message').innerText"), /Checking saved notes/);
     mock.commitWaitingActivity();
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which source should I use?')");
@@ -107,16 +120,24 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null && document.querySelector('.session') === null");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which source should I use?')");
-    const conversationBounds = await value(socket, "(() => { const timeline = document.querySelector('.run-timeline').getBoundingClientRect(); const composer = document.querySelector('.composer-area .approval').getBoundingClientRect(); return { timelineWidth: timeline.width, composerWidth: composer.width, centerGap: Math.abs((timeline.left + timeline.right - composer.left - composer.right) / 2) }; })()");
+    const conversationBounds = await value(socket, "(() => { const timeline = document.querySelector('.session .timeline > *').getBoundingClientRect(); const composer = document.querySelector('.composer-area .approval').getBoundingClientRect(); return { timelineWidth: timeline.width, composerWidth: composer.width, centerGap: Math.abs((timeline.left + timeline.right - composer.left - composer.right) / 2) }; })()");
     assert.ok(conversationBounds.timelineWidth <= 800 && conversationBounds.composerWidth <= 800);
     assert.ok(conversationBounds.centerGap < 16);
-    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.activity-member-heading .tool-activity-label')].map(label => label.textContent)"), ["Searched for approved notes", "Read README.md", "Ran npm test"]);
-    assert.equal(await value(socket, "document.querySelector('.activity-member .step-status.completed') === null"), true);
-    assert.equal(await value(socket, "document.querySelector('.step-status.failed')?.textContent"), "failed");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.run-steps-heading').click()", returnByValue: true });
-    assert.equal(await value(socket, "document.querySelector('.activity-group').checkVisibility()"), false);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.run-steps-heading').click(); [...document.querySelectorAll('.activity-group')].find(group => group.querySelector('.tool-activity-label')?.textContent.includes('Ran npm test')).querySelector('summary').click()", returnByValue: true });
-    assert.match(await value(socket, "[...document.querySelectorAll('.activity-group[open]')].find(group => group.querySelector('.tool-activity-label')?.textContent.includes('Ran npm test')).innerText"), /npm test|Exit code|Test failed/);
+    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.timeline-activity-heading')].map(button => button.querySelector('strong').textContent)"), ["Explored 2 items", "Ran npm test"]);
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.timeline-activity-heading')].forEach(button => button.click())", returnByValue: true });
+    await waitForExpression(socket, "document.querySelectorAll('.timeline-activity-members > li').length === 3");
+    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.timeline-activity-members > li .timeline-activity-member-label')].map(label => label.textContent)"), ["Searched for approved notes", "Read README.md", "Ran npm test"]);
+    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.timeline-activity-members > li .timeline-activity-member-status')].map(status => status.textContent)"), ["Completed", "Completed", "Failed"]);
+    assert.match(await value(socket, "[...document.querySelectorAll('.timeline-activity')].find(group => group.innerText.includes('Ran npm test')).innerText"), /npm test|Test failed/);
+
+    // 关闭 Execution steps 只隐藏活动主体，正文与 Run 边界仍然保留。
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#filter-execution-steps').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.timeline-activity') === null");
+    assert.equal(await value(socket, "document.querySelector('.timeline-run-boundary') !== null"), true);
+    assert.match(await value(socket, "document.querySelector('.session').innerText"), /Which source should I use\?/);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#filter-execution-steps').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.timeline-activity') !== null");
+
     assert.equal(await value(socket, "document.querySelector('.session-header') === null"), true);
     assert.equal(await value(socket, "document.querySelector('.task-state').textContent"), "Awaiting your response");
     await waitForExpression(socket, "document.querySelector('.session-metrics') !== null");
@@ -182,13 +203,13 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "[...document.querySelectorAll('label.answer-option')].find(label => label.innerText.includes('Approved notes')).querySelector('input').checked"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close model picker\"]').click()", returnByValue: true });
     await cdp(socket, "Runtime.evaluate", {
-      expression: "[...document.querySelectorAll('button')].find(button => button.textContent.includes('Submit answer')).click()",
+      expression: "[...document.querySelectorAll('button')].find(button => button.textContent.includes('Send answers')).click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')");
     await waitForExpression(socket, "document.querySelector('.composer-area .composer') !== null");
-    const inputBounds = await value(socket, "(() => { const box = document.querySelector('.composer-area .composer').getBoundingClientRect(); return { width: box.width, centerGap: Math.abs((box.left + box.right) / 2 - window.innerWidth / 2) }; })()");
-    assert.ok(inputBounds.width <= 800 && inputBounds.centerGap < 16);
+    const inputBounds = await value(socket, "(() => { const box = document.querySelector('.composer-area .composer').getBoundingClientRect(); const column = document.querySelector('.composer-area').getBoundingClientRect(); const main = document.querySelector('.workspace-main').getBoundingClientRect(); return { width: box.width, columnGap: Math.abs((box.left + box.right - column.left - column.right) / 2), columnAligned: column.left >= main.left && column.right <= main.right && Math.abs((column.left + column.right - main.left - main.right) / 2) < 2, mainWithinViewport: main.left >= 0 && main.right <= window.innerWidth }; })()");
+    assert.ok(inputBounds.width <= 800 && inputBounds.columnGap < 2 && inputBounds.columnAligned && inputBounds.mainWithinViewport, JSON.stringify(inputBounds));
     await waitForExpression(socket, "document.querySelector('.permission-trigger')?.textContent.includes('Default')");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.permission-trigger').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.permission-popover') !== null");
@@ -205,12 +226,21 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.permission-popover') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.session-tabs').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.permission-popover') === null");
-    assert.deepEqual(mock.lastInteraction, {
-      kind: "answer_ask_user",
-      runId: "run-1",
-      requestId: "request-1",
-      answers: [{ questionId: "source", optionIds: ["approved"] }],
-    });
+    assert.equal(typeof mock.lastInteraction.inputId, "string", "the wire command carries a stable input identity");
+    assert.deepEqual(
+      {
+        kind: mock.lastInteraction.kind,
+        runId: mock.lastInteraction.runId,
+        requestId: mock.lastInteraction.requestId,
+        response: mock.lastInteraction.response,
+      },
+      {
+        kind: "respond",
+        runId: "run-1",
+        requestId: "request-1",
+        response: { kind: "answer_ask_user", answers: [{ questionId: "source", optionIds: ["approved"] }] },
+      },
+    );
 
     mock.resetToWaiting();
     await cdp(socket, "Emulation.setDeviceMetricsOverride", {
@@ -230,7 +260,29 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which source should I use?')");
     assert.equal(await value(socket, "getComputedStyle(document.querySelector('.session')).position"), "relative");
     assert.equal(await value(socket, "document.documentElement.scrollWidth <= window.innerWidth"), true);
-    assert.equal(await value(socket, "document.querySelector('.run-timeline').getBoundingClientRect().width <= window.innerWidth - 32"), true);
+    assert.equal(await value(socket, "document.querySelector('.session .timeline > *').getBoundingClientRect().width <= window.innerWidth - 32"), true);
+
+    // 详情读取失败只限制当前请求：明确报告可重试，不把会话拖入 Failed，也不禁用无关输入。
+    mock.failNextInteractionDetails("interaction_details_unavailable");
+    await navigate(socket, `${webUrl}/?session=details-unavailable#${token}`);
+    await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.interaction-region')?.innerText.includes('The request could not be loaded')");
+    assert.equal(await value(socket, "document.querySelector('.task-state')?.textContent"), "Awaiting your response");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Queue next task\"]')?.disabled"), false, "an unrelated queue input stays available");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.interaction-region button')].find(button => button.textContent.includes('Retry loading')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.question-nav-item') !== null");
+
+    // 旧引用（409）同样只报告限制，可重试后恢复问卷。
+    mock.failNextInteractionDetails("interaction_not_waiting");
+    await navigate(socket, `${webUrl}/?session=details-stale#${token}`);
+    await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.interaction-region')?.innerText.includes('latest saved state')");
+    assert.equal(await value(socket, "document.querySelector('.task-state')?.textContent"), "Awaiting your response");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.interaction-region button')].find(button => button.textContent.includes('Retry loading')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.question-nav-item') !== null");
+
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.permission-trigger').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.permission-popover') !== null");
     assert.equal(await value(socket, "(() => { const menu = document.querySelector('.permission-popover').getBoundingClientRect(); return menu.left >= 0 && menu.right <= window.innerWidth; })()"), true);
@@ -252,7 +304,9 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Action result needs review')");
     assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') === null"), true);
-    assert.equal(await value(socket, "[...document.querySelectorAll('.approval button')].some(button => button.textContent.includes('Approve action'))"), true);
+    assert.equal(await value(socket, "[...document.querySelectorAll('.approval button')].some(button => button.textContent.includes('Retry action'))"), true);
+    assert.equal(await value(socket, "document.querySelector('.interaction-warning')?.innerText.includes('may already have run')"), true);
+    assert.equal(await value(socket, "document.querySelector('.approval-scopes') === null"), true, "an unknown outcome never offers ongoing permission");
 
     mock.resetToAction();
     await navigate(socket, `${webUrl}/?session=approval#${token}`);
@@ -269,24 +323,21 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelector('.action-rejection button').disabled"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.action-rejection summary').click()", returnByValue: true });
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
-    assert.equal(await value(socket, "(() => { const panel = document.querySelector('.action-approval').getBoundingClientRect(); const timeline = document.querySelector('.run-timeline').getBoundingClientRect(); return panel.width === timeline.width && Math.abs((panel.left + panel.right - timeline.left - timeline.right) / 2) < 2; })()"), true);
+    assert.equal(await value(socket, "(() => { const panel = document.querySelector('.action-approval').getBoundingClientRect(); const timeline = document.querySelector('.session .timeline > *').getBoundingClientRect(); return panel.width === timeline.width && Math.abs((panel.left + panel.right - timeline.left - timeline.right) / 2) < 2; })()"), true);
     assert.equal(await value(socket, "getComputedStyle(document.querySelector('.approval-scopes')).gridTemplateColumns.split(' ').length"), 3);
     assert.equal(await value(socket, "document.querySelector('.action-summary').textContent"), "write_file");
-    assert.equal(await value(socket, "[...document.querySelectorAll('.approval-scopes label')].find(label => label.innerText.includes('This Goal')).querySelector('input').disabled"), true);
-    assert.equal(await value(socket, "document.querySelector('.path-permission-note')?.innerText.includes('src/file.ts')"), true);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.action-details-toggle').click()", returnByValue: true });
+    // 完整 canonical 输入在决定前可审阅；持续授权因此可用，但默认仍是单次。
     await waitForExpression(socket, "document.querySelector('.action-input-full')?.innerText.includes('Complete private body')");
+    assert.equal(await value(socket, "document.querySelector('.path-permission-note')?.innerText.includes('src/file.ts')"), true);
     assert.equal(await value(socket, "[...document.querySelectorAll('.approval-scopes label')].find(label => label.innerText.includes('This Goal')).querySelector('input').disabled"), false);
+    assert.equal(await value(socket, "document.querySelector('.approval-scopes input').checked"), true);
     await cdp(socket, "Runtime.evaluate", {
       expression: "[...document.querySelectorAll('.approval-scopes label')].find(label => label.innerText.includes('This Goal')).querySelector('input').click()",
       returnByValue: true,
     });
     assert.equal(await value(socket, "document.querySelector('.approval-primary').innerText"), "Approve for this Goal");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.action-details-toggle').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.approval-scopes label')].find(label => label.innerText.includes('Once')).querySelector('input').click()", returnByValue: true });
     assert.equal(await value(socket, "document.querySelector('.approval-primary').innerText"), "Approve once");
-    assert.equal(await value(socket, "document.querySelector('.approval-scopes input').checked"), true);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.action-details-toggle').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.action-input-full') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.approval-scopes label')].find(label => label.innerText.includes('This Goal')).querySelector('input').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.approval-primary')?.textContent.includes('Approve for this Goal')");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.approval-primary').click()", returnByValue: true });
@@ -299,7 +350,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelector('.message.assistant script, .message.assistant .message-body img') === null"), true);
     await waitForExpression(socket, "document.querySelector('.message.assistant .message-avatar img')?.naturalWidth > 0");
     assert.match(await value(socket, "document.querySelector('.message.assistant .message-avatar img').currentSrc"), /mark-on-light/);
-    assert.equal(mock.lastInteraction.scope, "goal");
+    assert.equal(mock.lastInteraction.response.scope, "goal");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.textContent === 'Trajectory').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('Retry inputs')");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Zoom in timeline\"]').click(); document.querySelector('#trajectory-event-1').click()", returnByValue: true });
@@ -346,6 +397,8 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.mi-message.is-selected')?.dataset.messageIndex === '2'");
     assert.equal(await value(socket, "document.querySelectorAll('.tr-inspector').length"), 1);
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    // 视口切换后移动布局（收起侧栏）异步生效；等单列布局稳定再核验轨迹面板几何。
+    await waitForExpression(socket, "document.querySelector('.session').getBoundingClientRect().width >= window.innerWidth - 32");
     await waitForExpression(socket, "(() => { const message = document.querySelector('.mi-message.is-selected').getBoundingClientRect(); const body = document.querySelector('.mi-inspector .tr-detail-body').getBoundingClientRect(); return message.top >= body.top && message.top < body.bottom; })()");
     assert.equal(await value(socket, "(() => { const inspector = document.querySelector('.mi-inspector').getBoundingClientRect(); const ledger = document.querySelector('.tr-ledger').getBoundingClientRect(); const overview = document.querySelector('.tr-overview').getBoundingClientRect(); return inspector.top >= overview.bottom && inspector.bottom <= ledger.top + 1 && ledger.height >= 180 && document.querySelector('.mi-inspector .tr-detail-body').getBoundingClientRect().height >= 100 && document.documentElement.scrollWidth <= window.innerWidth; })()"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close prompt details\"]').click()", returnByValue: true });
@@ -432,8 +485,8 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')");
     assert.equal(await value(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header')[1].click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.tr-empty-guidance')?.textContent.includes('所有步骤已收起，请展开步骤以查看事件')");
-    assert.equal(await value(socket, "document.querySelector('.tr-empty-guidance p')?.textContent"), "所有步骤已收起，请展开步骤以查看事件");
+    await waitForExpression(socket, "document.querySelector('.tr-empty-guidance')?.textContent.includes('All steps are collapsed. Expand a step to see its events.')");
+    assert.equal(await value(socket, "document.querySelector('.tr-empty-guidance p')?.textContent"), "All steps are collapsed. Expand a step to see its events.");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header')[0].click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')");
     assert.equal(await value(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')"), true);
@@ -465,8 +518,10 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.action-rejection summary').click()", returnByValue: true });
     await setText(socket, "#action-reason", "Keep the file unchanged.");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.action-rejection button').click()", returnByValue: true });
-    await waitForLocal(() => mock.lastInteraction.kind === "reject_action");
-    assert.deepEqual(mock.lastInteraction, { kind: "reject_action", runId: "run-1", actionId: "action-1", reason: "Keep the file unchanged." });
+    await waitForLocal(() => mock.lastInteraction?.response?.kind === "reject_action");
+    assert.equal(mock.lastInteraction.kind, "respond");
+    assert.equal(mock.lastInteraction.runId, "run-1");
+    assert.deepEqual(mock.lastInteraction.response, { kind: "reject_action", actionId: "action-1", reason: "Keep the file unchanged." });
     await waitForExpression(socket, "document.querySelector('.action-approval') === null");
 
     mock.resetGrants();
@@ -487,7 +542,8 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
       expression: "document.querySelector('.goal-card').click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('This Run failed')");
+    await waitForExpression(socket, "document.querySelector('.timeline-terminal.failed') !== null");
+    assert.match(await value(socket, "document.querySelector('.timeline-terminal.failed').innerText"), /Run failed/);
     await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null");
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/unknown");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
@@ -552,9 +608,9 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Try again with the saved history')");
-    assert.equal(mock.lastMessage.runId, "run-1");
+    assert.equal(typeof mock.lastMessage.inputId, "string");
     assert.equal(mock.lastMessage.content, "Try again with the saved history");
-    assert.equal(typeof mock.lastMessage.messageId, "string");
+    assert.equal("runId" in mock.lastMessage, false, "ordinary messages target the Goal queue, not a Run");
     mock.resetToFailed();
     await navigate(socket, `${webUrl}/?session=escaped#${token}`);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
@@ -565,7 +621,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
     await waitForLocal(() => mock.lastMessage?.content === "/plan");
     assert.equal(mock.planModeRequests, 2, "escaped text does not execute a command");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.header-actions .primary').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"New goal\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.draft-timeline') !== null");
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/model");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
@@ -574,7 +630,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.model-picker') === null");
     assert.equal(mock.preferredModelId, "model-selected", "draft selection is saved before creating a Goal");
     mock.delayNextDraftCatalog();
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close session\"]').click(); document.querySelector('.header-actions .primary').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close session\"]').click(); document.querySelector('button[aria-label=\"New goal\"]').click()", returnByValue: true });
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .current-model-control').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.model-option') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.model-option')].find(button => button.textContent.includes('Selected Model')).click()", returnByValue: true });
@@ -645,11 +701,120 @@ function createMockApi() {
   let inputReads = 0;
   let trajectoryReads = 0;
   let inputDetailReads = 0;
+  let inputSequence = 0;
+  const inputReceipts = new Map();
+  let nextInteractionDetailsFailure;
   const nativeCall = { goalId: "goal-1", runId: "run-1", callId: "call-native", stepIndex: 1, stage: "decide", occurredAt: "2026-08-05T09:00:01.000Z", messages: [
     { role: "tool", source: "native_history", callId: "tool-call", toolId: "read_file", content: "Native tool result" },
     { role: "user", source: "section", content: `[Dynamic section: run_mode; source: Goal.intent]\n${"Follow the current request.\n".repeat(80)}` },
     { role: "user", source: "section", content: "[Dynamic section: authorized_tools; source: Runtime.authorizedTools]\nTools available for this request." },
   ] };
+  /** 统一会话输入收据：序号单调递增，测试只核验形状与状态。 */
+  const sessionInputReceipt = (inputId, kind, status) => {
+    inputSequence += 1;
+    return {
+      goalId: "goal-1",
+      inputId,
+      kind,
+      sequence: inputSequence,
+      status,
+      admittedAtRevision: inputSequence,
+      ...(status === "applied" ? { appliedRunId: "run-1", messageIndex: 0 } : {}),
+    };
+  };
+  /** 订阅首项一致同步所需的公开会话状态。 */
+  const sessionState = () => ({
+    goalId: "goal-1",
+    runId: session.currentRunId,
+    runStatus: session.runStatus,
+    mode: session.currentRunMode === "plan" ? "plan" : "normal",
+    commitRevision: 1,
+    queueRevision: 0,
+    queuePaused: false,
+    pendingMessageCount: 0,
+    pendingSteerCount: 0,
+    needsRecovery: false,
+    executionOwner: true,
+    ...(session.runStatus !== "waiting" ? {} : {
+      waitingFor: session.pendingAction !== undefined
+        ? (session.pendingAction.status === "outcome_unknown" ? "action_recovery" : "action_approval")
+        : "ask_user",
+    }),
+  });
+  /** 窄状态投影：只给出当前状态与等待点，历史正文和步骤显式外置。 */
+  const goalState = () => ({
+    goalId: "goal-1",
+    intent: "Collect approved notes from the current workspace",
+    currentRunId: session.currentRunId,
+    runStatus: session.runStatus,
+    currentRunMode: "normal",
+    currentRunStepCount: session.runs[0]?.stepCount ?? 0,
+    ...(session.interaction === undefined ? {} : { interaction: session.interaction }),
+    ...(session.pendingAction === undefined ? {} : { pendingAction: session.pendingAction }),
+    history: {
+      messages: { included: false, source: "activity" },
+      steps: { included: false, source: "activity" },
+      stages: { included: false, source: "activity" },
+    },
+  });
+  /** 已提交的真实工具事实；Activity 页按同一来源顺序呈现。 */
+  const committedFacts = [
+    { eventId: "event-grep", sequence: 1, actionId: "action-1", toolId: "grep", inputSummary: "approved notes", summary: "Found three approved notes.", status: "completed" },
+    { eventId: "event-read", sequence: 2, actionId: "action-2", toolId: "read_file", inputSummary: "README.md", summary: "Project notes.", status: "completed" },
+    { eventId: "event-bash", sequence: 3, actionId: "action-3", toolId: "bash", inputSummary: "npm test", summary: "Test failed", status: "failed" },
+  ];
+  /** 固定水位的 Activity 页：正文消息与已提交工具事实按真实位置交错。 */
+  const activityPage = () => {
+    const messages = session.messages.map((message) => ({
+      type: "message",
+      itemId: `message:${message.messageId}`,
+      messageId: message.messageId,
+      role: message.role,
+      ...(message.role === "assistant" ? { purpose: message.purpose ?? "process" } : {}),
+      runId: message.runId,
+      position: {
+        runId: message.runId,
+        runOrder: 0,
+        sequence: message.position.afterSequence,
+        itemKind: "message",
+        order: message.position.order,
+      },
+      content: message.content,
+      contentLength: message.content.length,
+      truncated: false,
+    }));
+    const facts = committedFacts.map((fact) => ({
+      type: "fact",
+      itemId: `event:${fact.eventId}`,
+      eventId: fact.eventId,
+      runId: "run-1",
+      position: { runId: "run-1", runOrder: 0, sequence: fact.sequence, itemKind: "fact", order: 0 },
+      eventType: "tool_started",
+      title: "Tool started",
+      actionId: fact.actionId,
+      executionUnitId: `unit-${fact.actionId}`,
+      tool: {
+        toolId: fact.toolId,
+        status: fact.status,
+        actionStatus: "approved",
+        inputSummary: fact.inputSummary,
+        summary: fact.summary,
+      },
+    }));
+    return {
+      goalId: "goal-1",
+      limit: 50,
+      items: [...messages, ...facts],
+      runs: [{ runId: "run-1", status: session.runStatus, current: true, runOrder: 0, committedThroughSequence: 3 }],
+      window: [{ runId: "run-1", messageCount: session.messages.length, committedThroughSequence: 3 }],
+      gaps: [],
+      range: { olderAvailable: false, newerAvailable: false },
+      stages: [],
+      actionGroups: committedFacts.map((fact) => ({
+        runId: "run-1", actionId: fact.actionId, firstSequence: fact.sequence, lastSequence: fact.sequence, completeWithinPage: true,
+      })),
+    };
+  };
   const server = createServer(async (request, response) => {
     authorizationHeaders.push(request.headers.authorization ?? "");
     if (request.headers.authorization !== `Bearer ${token}`) {
@@ -680,12 +845,15 @@ function createMockApi() {
       return;
     }
     if (request.url === "/goals/goal-1/metrics/stream" && request.method === "GET") {
+      // 新订阅取代旧订阅：结束旧响应，模拟服务端不会无限保留同一客户端的陈旧流。
+      if (metricsStreamResponse !== undefined && !metricsStreamResponse.writableEnded) metricsStreamResponse.end();
       response.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
         connection: "keep-alive",
       });
       metricsStreamResponse = response;
+      response.on("close", () => { if (metricsStreamResponse === response) metricsStreamResponse = undefined; });
       response.write(`event: snapshot\ndata: ${JSON.stringify(currentMetrics)}\n\n`);
       return;
     }
@@ -753,11 +921,25 @@ function createMockApi() {
       let body = "";
       for await (const chunk of request) body += chunk;
       lastCreate = JSON.parse(body);
-      json(response, { goalId: lastCreate.goalId, runId: "new-run", existing: false });
+      json(response, {
+        ok: true,
+        existing: false,
+        goalId: lastCreate.goalId,
+        runId: "new-run",
+        receipt: sessionInputReceipt(lastCreate.inputId, "message", "applied"),
+      }, 202);
       return;
     }
     if (request.url === "/api/goals/goal-1" && request.method === "GET") {
       json(response, { goal: session });
+      return;
+    }
+    if (request.url === "/api/goals/goal-1?view=state" && request.method === "GET") {
+      json(response, { goal: goalState() });
+      return;
+    }
+    if (request.url?.startsWith("/api/goals/goal-1/activity") && request.method === "GET") {
+      json(response, activityPage());
       return;
     }
     if (request.url === "/api/goals/goal-1/models?runId=run-1" && request.method === "GET") {
@@ -806,6 +988,43 @@ function createMockApi() {
       json(response, { goalId: "goal-1", runId: "run-1", existing: planModeRequests > 1 });
       return;
     }
+    if (request.url?.startsWith("/api/goals/goal-1/interaction-details?") && request.method === "GET") {
+      if (nextInteractionDetailsFailure !== undefined) {
+        const failure = nextInteractionDetailsFailure;
+        nextInteractionDetailsFailure = undefined;
+        json(response, { ok: false, error: failure }, failure === "interaction_not_waiting" ? 409 : 500);
+        return;
+      }
+      const query = new URL(request.url, "http://localhost").searchParams;
+      const interactionId = query.get("interactionId");
+      if (query.get("runId") !== "run-1" || session.interaction === undefined
+        || interactionId !== session.interaction.interactionId) {
+        json(response, { ok: false, error: "interaction_not_waiting" }, 409);
+        return;
+      }
+      if (session.interaction.kind === "question") {
+        json(response, { ok: true, goalId: "goal-1", runId: "run-1", interactionId, detail: questionInteractionDetail });
+        return;
+      }
+      if (session.pendingAction === undefined) {
+        json(response, { ok: false, error: "interaction_not_waiting" }, 409);
+        return;
+      }
+      json(response, {
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId,
+        detail: {
+          kind: session.interaction.kind,
+          actionId: session.interaction.actionId,
+          toolId: session.pendingAction.toolId,
+          approvalKind: "tool",
+          input: { path: "src/file.ts", content: "Complete private body" },
+        },
+      });
+      return;
+    }
     if (request.url === "/api/goals/goal-1/actions/action-1?runId=run-1" && request.method === "GET") {
       json(response, { ok: true, goalId: "goal-1", runId: "run-1", actionId: "action-1", toolId: "write_file", input: { path: "src/file.ts", content: "Complete private body" } });
       return;
@@ -818,15 +1037,19 @@ function createMockApi() {
       json(response, { ok: true, goalId: "goal-1", runId: "run-1", grants: [] });
       return;
     }
-    if (request.url?.startsWith("/api/goals/goal-1/events?") && request.method === "GET") {
+    if (request.url === "/api/goals/goal-1/events" && request.method === "GET") {
+      // 新订阅取代旧订阅：结束旧响应，避免测试客户端在多次导航后耗尽同源连接配额。
+      if (activityResponse !== undefined && !activityResponse.writableEnded) activityResponse.end();
       response.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
         connection: "keep-alive",
       });
+      activityResponse = response;
+      response.on("close", () => { if (activityResponse === response) activityResponse = undefined; });
+      response.write(`data: ${JSON.stringify({ type: "state_sync", goalId: "goal-1", state: sessionState() })}\n\n`);
       if (!liveTransitionSent) {
         liveTransitionSent = true;
-        activityResponse = response;
         response.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "model_started" } })}\n\n`);
         response.write(`data: ${JSON.stringify({
           goalId: "goal-1",
@@ -842,31 +1065,47 @@ function createMockApi() {
       }
       return;
     }
-    if (request.url === "/api/goals/goal-1/interactions" && request.method === "POST") {
-      let body = "";
-      for await (const chunk of request) body += chunk;
-      lastInteraction = JSON.parse(body);
-      session = completedSession(session);
-      currentListItem = listItem("completed");
-      json(response, { goalId: "goal-1", runId: "run-1", existing: false });
+    if (request.url?.startsWith("/api/goals/goal-1/inputs/") && request.method === "GET") {
+      const inputId = decodeURIComponent(new URL(request.url, "http://localhost").pathname.split("/").at(-1));
+      const receipt = inputReceipts.get(inputId);
+      json(response, receipt === undefined ? { ok: true, found: false } : { ok: true, found: true, receipt });
       return;
     }
-    if (request.url === "/api/goals/goal-1/messages" && request.method === "POST") {
+    if (request.url === "/api/goals/goal-1/inputs" && request.method === "POST") {
       let body = "";
       for await (const chunk of request) body += chunk;
-      lastMessage = JSON.parse(body);
-      session = {
-        ...session,
-        currentRunId: "run-2",
-        runStatus: "waiting",
-        messages: [...session.messages, { role: "user", content: lastMessage.content }],
-        runs: [
-          ...session.runs.map((run) => ({ ...run, current: false })),
-          { runId: "run-2", status: "waiting", stepCount: 0, steps: [], current: true },
-        ],
-      };
-      currentListItem = { ...listItem("waiting"), runId: "run-2" };
-      json(response, { goalId: "goal-1", runId: "run-2", existing: false });
+      const command = JSON.parse(body);
+      if (command.kind === "respond") {
+        const existing = inputReceipts.get(command.inputId);
+        if (existing !== undefined) {
+          json(response, { ok: true, existing: true, receipt: existing }, 200);
+          return;
+        }
+        lastInteraction = command;
+        session = completedSession(session);
+        currentListItem = listItem("completed");
+        const receipt = sessionInputReceipt(command.inputId, "respond", "applied");
+        inputReceipts.set(command.inputId, receipt);
+        json(response, { ok: true, existing: false, receipt }, 202);
+        return;
+      }
+      if (command.kind === "message") {
+        lastMessage = command;
+        session = {
+          ...session,
+          currentRunId: "run-2",
+          runStatus: "waiting",
+          messages: [...session.messages, savedMessage("msg-queued", "user", command.content, 3, 3)],
+          runs: [
+            ...session.runs.map((run) => ({ ...run, current: false })),
+            { runId: "run-2", status: "waiting", stepCount: 0, steps: [], current: true },
+          ],
+        };
+        currentListItem = { ...listItem("waiting"), runId: "run-2" };
+        json(response, { ok: true, existing: false, receipt: sessionInputReceipt(command.inputId, "message", "pending") }, 202);
+        return;
+      }
+      json(response, { ok: false, error: "INVALID_INPUT" }, 400);
       return;
     }
     response.writeHead(404, { "content-type": "application/json" });
@@ -903,6 +1142,7 @@ function createMockApi() {
     get lastCreate() { return lastCreate; },
     get preferredModelId() { return preferredModelId; },
     delayNextDraftCatalog() { delayNextDraftCatalog = true; },
+    failNextInteractionDetails(error = "interaction_details_unavailable") { nextInteractionDetailsFailure = error; },
     failNextDefaultSave() { failNextDefaultSave = true; },
     get planModeRequests() { return planModeRequests; },
     get permissionMode() { return permissionMode; },
@@ -919,7 +1159,15 @@ function createMockApi() {
     resetToUnknownAction() {
       session = {
         ...interactionSession(),
-        pendingInteraction: undefined,
+        interaction: {
+          goalId: "goal-1",
+          runId: "run-1",
+          kind: "action_recovery",
+          interactionId: "action_recovery:action-unknown",
+          actionId: "action-unknown",
+          decisions: ["retry_unknown_action", "decline_unknown_action_retry"],
+          truncated: false,
+        },
         pendingAction: {
           actionId: "action-unknown",
           toolId: "write_file",
@@ -935,7 +1183,15 @@ function createMockApi() {
     resetToAction() {
       session = {
         ...interactionSession(),
-        pendingInteraction: undefined,
+        interaction: {
+          goalId: "goal-1",
+          runId: "run-1",
+          kind: "action_approval",
+          interactionId: "action_approval:action-1",
+          actionId: "action-1",
+          decisions: ["approve_action", "approve_action_revision", "reject_action"],
+          truncated: false,
+        },
         pendingAction: {
           actionId: "action-1",
           toolId: "write_file",
@@ -972,7 +1228,7 @@ function waitingSession() {
     currentRunId: "run-1",
     runStatus: "running",
     currentRunMode: "normal",
-    messages: [{ role: "user", content: "Collect approved notes from the current workspace" }],
+    messages: [savedMessage("msg-intent", "user", "Collect approved notes from the current workspace", 0, 0)],
     runs: [{
       runId: "run-1",
       status: "running",
@@ -1000,25 +1256,35 @@ function waitingSession() {
   };
 }
 
+/** 当前问题等待的完整详情；与 interaction 视图使用同一 request 身份。 */
+const questionInteractionDetail = {
+  kind: "question",
+  mode: "execution",
+  questions: [{
+    id: "source",
+    header: "Choose a source",
+    question: "Which notes should be included?",
+    multiSelect: false,
+    options: [
+      { id: "approved", label: "Approved notes" },
+      { id: "all", label: "All notes" },
+    ],
+  }],
+};
+
 function interactionSession() {
   const session = waitingSession();
   session.runStatus = "waiting";
   session.runs = session.runs.map((run) => ({ ...run, status: "waiting" }));
-  session.messages = [...session.messages, { role: "assistant", content: "Which source should I use?" }];
-  session.pendingInteraction = {
-    kind: "ask_user",
+  session.messages = [...session.messages, savedMessage("msg-question", "assistant", "Which source should I use?", 3, 0, "process")];
+  session.interaction = {
+    goalId: "goal-1",
+    runId: "run-1",
+    kind: "question",
+    interactionId: "question:request-1",
     requestId: "request-1",
-    mode: "execution",
-    questions: [{
-      id: "source",
-      header: "Choose a source",
-      question: "Which notes should be included?",
-      multiSelect: false,
-      options: [
-        { id: "approved", label: "Approved notes" },
-        { id: "all", label: "All notes" },
-      ],
-    }],
+    decisions: ["answer_questions", "reply_to_question", "skip_question"],
+    truncated: false,
   };
   return session;
 }
@@ -1027,13 +1293,25 @@ function completedSession(previous) {
   return {
     ...previous,
     runStatus: "completed",
-    pendingInteraction: undefined,
+    interaction: undefined,
     messages: [
       ...previous.messages,
-      { role: "user", content: "Approved notes" },
-      { role: "assistant", content: "# I collected the approved notes.\n\n| Field | Value |\n| --- | --- |\n| Source | Approved notes |\n\n- **Verified** output\n\n```text\nrun-1\n```\n\n<script>window.markdownInjected = true</script>\n\n![Remote image](https://example.com/image.png)" },
+      savedMessage("msg-approved", "user", "Approved notes", 3, 1),
+      savedMessage("msg-answer", "assistant", "# I collected the approved notes.\n\n| Field | Value |\n| --- | --- |\n| Source | Approved notes |\n\n- **Verified** output\n\n```text\nrun-1\n```\n\n<script>window.markdownInjected = true</script>\n\n![Remote image](https://example.com/image.png)", 3, 2, "answer"),
     ],
     runs: previous.runs.map((run) => ({ ...run, status: "completed" })),
+  };
+}
+
+/** 正式消息的稳定身份与 Run 内位置；窄状态与 Activity 页共用同一份来源。 */
+function savedMessage(messageId, role, content, afterSequence, order, purpose) {
+  return {
+    role,
+    content,
+    messageId,
+    runId: "run-1",
+    position: { afterSequence, order },
+    ...(purpose === undefined ? {} : { purpose }),
   };
 }
 
@@ -1049,8 +1327,8 @@ function listItem(runStatus) {
   };
 }
 
-function json(response, value) {
-  response.writeHead(200, { "content-type": "application/json" });
+function json(response, value, status = 200) {
+  response.writeHead(status, { "content-type": "application/json" });
   response.end(JSON.stringify(value));
 }
 
@@ -1155,6 +1433,8 @@ async function cdp(socket, method, params = {}) {
 }
 
 async function navigate(socket, url) {
+  // 先离开当前文档，确保上一个页面的 SSE 连接被关闭，避免同源连接配额累积。
+  await cdp(socket, "Page.navigate", { url: "about:blank" });
   await cdp(socket, "Page.navigate", { url });
   await waitForExpression(socket, "document.readyState === 'complete'");
 }

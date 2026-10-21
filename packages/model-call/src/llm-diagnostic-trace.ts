@@ -109,7 +109,7 @@ export async function recordLlmRequest(
     }
 }
 
-/** 记录 Adapter 返回的有界响应、工具原始参数和 metadata；callId 与请求及校验错误关联。 */
+/** 记录 Adapter 返回的有界完整块、原始工具参数和 metadata；callId 与请求及校验错误关联。 */
 export function recordLlmResponse(
     sink: DiagnosticTraceSink | undefined,
     identity: LlmTraceIdentity,
@@ -125,10 +125,8 @@ export function recordLlmResponse(
         kind: "model_response",
         payload: {
             ...(callId === undefined ? {} : { callId }),
-            content: response.content,
-            ...(response.toolCalls !== undefined && response.toolCalls.length > 0
-                ? { toolCalls: response.toolCalls }
-                : {}),
+            // reasoning 属于受限内容，不进入诊断记录；其余完整块保留原始参数与格式。
+            blocks: response.blocks.filter(block => block.type !== "reasoning"),
             ...(providerMetadata === undefined ? {} : { providerMetadata }),
             durationMs,
         },
@@ -204,7 +202,7 @@ function readProviderMetadata(response: unknown): unknown {
     }
 
     const metadata = Object.fromEntries(
-        Object.entries(response).filter(([key]) => !["content", "reasoning", "toolCalls", "continuation"].includes(key)),
+        Object.entries(response).filter(([key]) => !["blocks", "continuation"].includes(key)),
     );
 
     return Object.keys(metadata).length === 0 ? undefined : metadata;

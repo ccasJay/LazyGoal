@@ -63,6 +63,7 @@ import type { ContextCompactor } from "../../context-budget/src/index";
 import { ModelInferenceProjector } from "../../model-context/src/index";
 import type { TrajectoryModelContextAssemblyInput } from "../../model-context/src/index";
 import { currentProtocols, currentWorkingMemory } from "../../agent/test/current-fixtures";
+import { messageOutline, testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();
@@ -246,12 +247,8 @@ async function executingRequest(
 
 test("请求按固定 system、真实历史、动态 section、本轮 Working Context 排列", async () => {
     const messages: readonly GoalMessage[] = [
-        { role: "user", content: "补充的真实输入" },
-        {
-            role: "assistant",
-            assistant: { profileId: "profile-1" },
-            content: "真实响应",
-        },
+        testUserMessage("补充的真实输入"),
+        testAssistantMessage("真实响应", { profileId: "profile-1" }),
     ];
     const goal = createExecutingGoal({ messages });
     const request = await stepRequest(goal);
@@ -540,17 +537,9 @@ test("下一轮请求把已提交 Lookup Result 作为历史瞬时输入传给�
 test("Context Epoch 按 Conversation 原始索引过滤，而不是按裁剪后位置过滤", async () => {
     const base = createExecutingGoal({
         messages: [
-            {
-                role: "assistant",
-                assistant: { profileId: "profile-1" },
-                content: "旧阶段响应",
-            },
-            { role: "user", content: "当前阶段输入" },
-            {
-                role: "assistant",
-                assistant: { profileId: "profile-1" },
-                content: "当前阶段响应",
-            },
+            testAssistantMessage("旧阶段响应", { profileId: "profile-1" }),
+            testUserMessage("当前阶段输入"),
+            testAssistantMessage("当前阶段响应", { profileId: "profile-1" }),
         ],
     });
     const goal: Goal = {
@@ -613,12 +602,8 @@ test("Plan 未批准时仅投影 Runtime 提供的只读 ToolDefinition", async 
 test("Trajectory Assembler 只替换当前调用的分层 Context，不写入真实消息", async () => {
     const goal = createExecutingGoal({
         messages: [
-            { role: "user", content: "补充输入" },
-            {
-                role: "assistant",
-                assistant: { profileId: "profile-1" },
-                content: "真实响应",
-            },
+            testUserMessage("补充输入"),
+            testAssistantMessage("真实响应", { profileId: "profile-1" }),
         ],
         pendingAction: {
             status: "approved",
@@ -644,12 +629,8 @@ test("保存恢复后真实消息及 assistant 来源不变，控制消息不进
     const store = new InMemoryGoalStore();
     const goal = createExecutingGoal({
         messages: [
-            {
-                role: "assistant",
-                assistant: { profileId: "profile-1" },
-                content: "需要补充部署环境",
-            },
-            { role: "user", content: "部署到 Linux" },
+            testAssistantMessage("需要补充部署环境", { profileId: "profile-1" }),
+            testUserMessage("部署到 Linux"),
         ],
     });
     await store.save(goal);
@@ -662,10 +643,10 @@ test("保存恢复后真实消息及 assistant 来源不变，控制消息不进
 
     assert.deepEqual(restored.state.messages, goal.state.messages);
     assert.equal(JSON.stringify(restored.state.messages), messagesBeforeRequest);
-    assert.deepEqual(restored.state.messages[1], {
+    assert.deepEqual(messageOutline(restored.state.messages)[1], {
         role: "assistant",
-        assistant: { profileId: "profile-1" },
         content: "需要补充部署环境",
+        purpose: "process",
     });
     assert.equal(
         restored.state.messages.some(({ content }) => content === controlContent),
@@ -768,16 +749,14 @@ test("会话历史被预算裁剪时，请求计划单向切换为 checkpoint Bu
     // 构造一个会话历史很多、预算很小的场景触发 TokenBudgetPlanner 裁剪
     const longMessages: GoalMessage[] = Array.from({ length: 20 }, (_, i) => {
         if (i % 2 === 0) {
-            return {
-                role: "user" as const,
-                content: `这是很长的一段历史消息内容，用于超出模型输入上下文预算，消息编号为 ${i}，包含大量冗余字符测试文本。`.repeat(100),
-            };
+            return testUserMessage(
+                `这是很长的一段历史消息内容，用于超出模型输入上下文预算，消息编号为 ${i}，包含大量冗余字符测试文本。`.repeat(100),
+            );
         }
-        return {
-            role: "assistant" as const,
-            assistant: { profileId: profile.id },
-            content: `这是很长的一段助手回复内容，用于超出模型输入上下文预算，消息编号为 ${i}，包含大量冗余字符测试文本。`.repeat(100),
-        };
+        return testAssistantMessage(
+            `这是很长的一段助手回复内容，用于超出模型输入上下文预算，消息编号为 ${i}，包含大量冗余字符测试文本。`.repeat(100),
+            { profileId: profile.id },
+        );
     });
     const executingGoal = createExecutingGoal({ messages: longMessages });
 

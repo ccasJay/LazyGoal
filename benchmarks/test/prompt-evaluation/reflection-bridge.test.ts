@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index.js";
+import { blockResponse, textResponse } from "../../../packages/llm-core/test/response-fixtures";
 import {
     runGepaReflectCli,
     parseAndValidateReflectRequest,
@@ -19,7 +20,9 @@ class MockReflectionLLMAdapter implements LLMAdapter {
 
     constructor(
         private readonly implementation: (req: LLMRequest) => Promise<LLMResponse> = async () => ({
-            content: "Reflected mutation candidate\nwith newline",
+            ...blockResponse(
+                { type: "text", format: "plain", text: "Reflected mutation candidate\nwith newline" },
+            ),
             providerMetadata: { usage: { inputTokens: 120, outputTokens: 80 } },
         }),
     ) {}
@@ -244,7 +247,7 @@ test("runGepaReflectCli 拒绝与实际 Reflection Profile 不一致的 configId
             structuredOutputMode: "prompt_only",
             async generate() {
                 called = true;
-                return { content: "should not run" };
+                return blockResponse({ type: "text", format: "plain", text: "should not run" });
             },
         },
         writeOutput: assert.fail,
@@ -265,7 +268,7 @@ test("runGepaReflectCli 对模型输出和诊断设置明确上限", async (t) =
         reflectionAdapter: {
             structuredOutputMode: "prompt_only",
             async generate() {
-                return { content: "x".repeat(GEPA_REFLECTION_OUTPUT_MAX_CHARS + 100) };
+                return blockResponse({ type: "text", format: "plain", text: "x".repeat(GEPA_REFLECTION_OUTPUT_MAX_CHARS + 100) });
             },
         },
         writeOutput: (line) => output.push(line),
@@ -347,7 +350,9 @@ api_key = "sk-reflection-key"
     let interceptedRequestModel: string | undefined;
     const trackingAdapter = new MockReflectionLLMAdapter(async (req) => {
         return {
-            content: "Mock reflection response",
+            ...blockResponse(
+                { type: "text", format: "plain", text: "Mock reflection response" },
+            ),
             providerMetadata: { usage: { inputTokens: 10, outputTokens: 5 } },
         };
     });
@@ -493,7 +498,9 @@ test("runGepaReflectCli 成功对 stdout 输出中模型复述的敏感密钥与
     await writeFile(reqFile, JSON.stringify({ prompt: "Reflect trace" }));
 
     const mockAdapter = new MockReflectionLLMAdapter(async () => ({
-        content: "Reflected text with sk-1234567890abcdef and Bearer secret-token-xyz and my-env-secret-value",
+        ...blockResponse(
+            { type: "text", format: "plain", text: "Reflected text with sk-1234567890abcdef and Bearer secret-token-xyz and my-env-secret-value" },
+        ),
         providerMetadata: { usage: { inputTokens: 50, outputTokens: 25 } },
     }));
 

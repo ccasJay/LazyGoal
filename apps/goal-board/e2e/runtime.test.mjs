@@ -23,6 +23,7 @@ test("real local service restores and completes one authorized Goal conversation
   let service;
   let chrome;
   let socket;
+  let failure;
 
   try {
     service = await startService({ workspace, data, home, statusPath, runOffset: 0, modelOffset: 0, delayModel: true });
@@ -34,7 +35,7 @@ test("real local service restores and completes one authorized Goal conversation
     const noTokenCreate = await api(first.origin, "/api/goals", {
       method: "POST",
       headers: { "content-type": "application/json", origin: first.origin },
-      body: JSON.stringify({ goalId: "unauthorized-goal", intent: "Must not start" }),
+      body: JSON.stringify({ goalId: "unauthorized-goal", inputId: "unauthorized-input", intent: "Must not start" }),
     });
     assert.equal(noTokenCreate.response.status, 401);
     assert.deepEqual(await readStatus(statusPath), { modelCalls: 0, toolCalls: 0 });
@@ -56,6 +57,10 @@ test("real local service restores and completes one authorized Goal conversation
     socket = await connectCdp(target.webSocketDebuggerUrl);
     await cdp(socket, "Page.enable");
     await cdp(socket, "Runtime.enable");
+    // 显式桌面布局视口：headless 默认宽度会触发移动布局并使桌面断言失效。
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", {
+      width: 1280, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
 
     socket.statusPath = statusPath;
     await navigate(socket, `${first.origin}/`);
@@ -99,12 +104,12 @@ test("real local service restores and completes one authorized Goal conversation
 
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which notes should I include?')", 15_000);
     await waitForStatus(statusPath, (status) => status.modelCalls === 1 && status.toolCalls === 0);
-    let session = await waitForSession(first.origin, first.token, (candidate) => candidate.pendingInteraction?.kind === "ask_user");
+    let session = await waitForSession(first.origin, first.token, (candidate) => candidate.interaction?.kind === "question");
     const goalId = session.goalId;
     const firstRunId = session.currentRunId;
     const createdModel = await api(first.origin, `/api/goals/${goalId}/models?runId=${firstRunId}`, { token: first.token });
     assert.equal(createdModel.body.currentModelId, draftModel.body.currentModelId, "created Goal uses the displayed draft model");
-    const firstRequestId = session.pendingInteraction.requestId;
+    const firstRequestId = session.interaction.requestId;
     assert.equal(session.intent, "Collect approved notes and store one source record");
     assert.equal(session.runStatus, "waiting");
     assert.equal(session.currentRunMode, "normal");
@@ -115,14 +120,32 @@ test("real local service restores and completes one authorized Goal conversation
     });
     assert.equal(crossOrigin.response.status, 403);
     assert.deepEqual(crossOrigin.body, { error: "cross_origin_denied" });
-    const plainTextAtAskUser = await api(first.origin, `/api/goals/${goalId}/messages`, {
+    const plainTextAtAskUser = await api(first.origin, `/api/goals/${goalId}/inputs`, {
       token: first.token,
       method: "POST",
       headers: { "content-type": "application/json", origin: first.origin },
-      body: JSON.stringify({ runId: firstRunId, messageId: "e2e-message-1", content: "Use approved notes" }),
+      body: JSON.stringify({ kind: "message", inputId: "e2e-message-1", content: "Use approved notes" }),
     });
-    assert.equal(plainTextAtAskUser.response.status, 409);
-    assert.equal(plainTextAtAskUser.body.error, "structured_interaction_required");
+    // 普通消息进入持久化队列，但不代答结构化等待、不推进当前 Run。
+    assert.equal(plainTextAtAskUser.response.status, 202);
+    assert.equal(plainTextAtAskUser.body.receipt.status, "pending");
+    const queuedAtWait = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages?.length ?? 0) === 1);
+    assert.equal(queuedAtWait.interaction.kind, "question");
+    assert.deepEqual(await readStatus(statusPath), { modelCalls: 1, toolCalls: 0 });
+    const clearedAtWait = await api(first.origin, `/api/goals/${goalId}/inputs`, {
+      token: first.token,
+      method: "POST",
+      headers: { "content-type": "application/json", origin: first.origin },
+      body: JSON.stringify({ kind: "queue_control", inputId: "e2e-clear-queue", action: "clear", queueRevision: queuedAtWait.queue.revision }),
+    });
+    assert.equal(clearedAtWait.response.status, 202);
+    const afterClearAtWait = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages ?? []).length === 0);
+    assert.equal(afterClearAtWait.interaction.kind, "question");
+    // 清空保留收据：原身份仍可核验且明确标记为已清空。
+    const clearedReceipt = await api(first.origin, `/api/goals/${goalId}/inputs/e2e-message-1`, { token: first.token });
+    assert.equal(clearedReceipt.response.status, 200);
+    assert.equal(clearedReceipt.body.found, true);
+    assert.equal(clearedReceipt.body.receipt.status, "cleared");
     assert.deepEqual(await readStatus(statusPath), { modelCalls: 1, toolCalls: 0 });
 
     const savedPreference = await api(first.origin, "/api/project/model-preference", {
@@ -141,7 +164,7 @@ test("real local service restores and completes one authorized Goal conversation
     assert.ok(await value(socket, "document.querySelector('.structured-form') !== null"), "disconnect preserves the saved answer form");
     await waitForExpression(socket, "document.querySelector('.session [role=alert]') !== null");
     assert.equal(await value(socket, "document.querySelector('.other-answer input').value"), "Saved answer draft");
-    assert.equal(await value(socket, "document.querySelector('.structured-form button[type=submit]').disabled"), true);
+    assert.equal(await value(socket, "document.querySelector('.ask-user-actions .interaction-skip').disabled"), true, "offline state disables the questionnaire controls");
 
     service = await startService({ workspace, data, home, statusPath, runOffset: 1, modelOffset: 1, delayModel: true });
     const restarted = await service.ready;
@@ -162,10 +185,10 @@ test("real local service restores and completes one authorized Goal conversation
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Which notes should I include?')", 10_000);
-    session = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.pendingInteraction?.kind === "ask_user");
+    session = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.interaction?.kind === "question");
     assert.equal(session.goalId, goalId);
     assert.equal(session.currentRunId, firstRunId);
-    assert.equal(session.pendingInteraction.requestId, firstRequestId);
+    assert.equal(session.interaction.requestId, firstRequestId);
 
     await cdp(socket, "Runtime.evaluate", {
       expression: "[...document.querySelectorAll('label.answer-option')].find(label => label.innerText.includes('Approved notes')).querySelector('input').click()",
@@ -173,9 +196,9 @@ test("real local service restores and completes one authorized Goal conversation
     });
     await setText(socket, ".other-answer input", "暂停");
     assert.equal(await value(socket, "document.querySelector('label.answer-option input:checked') === null"), true, "Other answer clears a single-choice radio selection");
-    assert.equal(await value(socket, "document.querySelector('.ask-user-actions .approval-cancel')?.textContent.includes('Cancel question')"), true, "AskUser exposes a cancel control beside Submit answer");
+    assert.equal(await value(socket, "document.querySelector('.ask-user-actions .interaction-skip')?.textContent.includes('Skip questionnaire')"), true, "the questionnaire exposes an explicit skip control beside Send answers");
     await cdp(socket, "Runtime.evaluate", {
-      expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Submit answer')).click()",
+      expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Send answers')).click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Your approval is needed')", 15_000);
@@ -183,14 +206,20 @@ test("real local service restores and completes one authorized Goal conversation
     session = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.pendingAction?.status === "awaiting_approval");
     const pendingActionId = session.pendingAction.actionId;
 
-    const staleApproval = await api(restarted.origin, `/api/goals/${goalId}/interactions`, {
+    const staleApproval = await api(restarted.origin, `/api/goals/${goalId}/inputs`, {
       token: restarted.token,
       method: "POST",
       headers: { "content-type": "application/json", origin: restarted.origin },
-      body: JSON.stringify({ kind: "approve_action", runId: session.currentRunId, actionId: "stale-action" }),
+      body: JSON.stringify({
+        kind: "respond",
+        inputId: "e2e-stale-approval",
+        runId: session.currentRunId,
+        requestId: session.pendingAction.actionId,
+        response: { kind: "approve_action", actionId: "stale-action" },
+      }),
     });
     assert.equal(staleApproval.response.status, 409);
-    assert.equal(staleApproval.body.error, "action_not_waiting");
+    assert.equal(staleApproval.body.error, "INTERACTION_MISMATCH");
     assert.deepEqual(await readStatus(statusPath), { modelCalls: 4, toolCalls: 0 });
 
     await cdp(socket, "Runtime.evaluate", {
@@ -219,8 +248,10 @@ test("real local service restores and completes one authorized Goal conversation
     assert.equal(fullDetail.response.status, 200);
     assert.equal(fullDetail.body.observationConfirmed, true);
     assert.ok(JSON.stringify(fullDetail.body.result).includes("PRIVATE_CONTROLLED_TOOL_OUTPUT"));
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.activity-group')].find(group => group.querySelector('.tool-activity-label')?.textContent.includes('browser_fixture_write')).querySelector('summary').click()", returnByValue: true });
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.activity-member')].find(step => step.querySelector('.tool-activity-label')?.textContent.includes('browser_fixture_write')).querySelector('.trajectory-link button').click()", returnByValue: true });
+    // 活动组先展开，成员标签才可见；随后按成员身份打开其 Trajectory 详情。
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.timeline-activity-heading')].forEach(button => button.click())", returnByValue: true });
+    await waitForExpression(socket, "[...document.querySelectorAll('.timeline-activity-member-label')].some(label => label.textContent.includes('browser_fixture_write'))");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.timeline-activity-members > li')].find(member => member.querySelector('.timeline-activity-member-label')?.textContent.includes('browser_fixture_write')).querySelector('.timeline-activity-trajectory').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.trajectory-view .ct-record-body[aria-pressed=\"true\"]') !== null");
     await waitForExpression(socket, "document.querySelector('.tr-detail-body pre') !== null");
     assert.equal(await value(socket, "document.activeElement?.id"), `trajectory-event-${trajectory.body.locatedSequence}`);
@@ -341,7 +372,7 @@ test("real local service restores and completes one authorized Goal conversation
     const planSession = await waitForSession(
       restarted.origin,
       restarted.token,
-      (candidate) => candidate.pendingInteraction?.kind === "task_approval",
+      (candidate) => candidate.interaction?.kind === "task_approval",
     );
     assert.equal(planSession.currentRunMode, "plan");
     assert.ok(planSession.messages.some((message) => message.role === "user" && message.content === "Plan flow: inspect and complete the acceptance path"));
@@ -374,12 +405,12 @@ test("real local service restores and completes one authorized Goal conversation
     assert.equal(completedPlanRun.planRoute.stages.length, 1);
     assert.equal(completedPlanRun.planRoute.stages[0].status, "accepted");
     await waitForExpression(socket, "document.querySelector('.plan-route-list') !== null");
-    assert.equal(await value(socket, "document.querySelectorAll('.activity-group').length > 0"), true);
+    assert.equal(await value(socket, "document.querySelectorAll('.timeline-activity').length > 0"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#filter-execution-steps').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.activity-group') === null");
+    await waitForExpression(socket, "document.querySelector('.timeline-activity') === null");
     assert.equal(await value(socket, "document.querySelector('.plan-route-list') !== null"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#filter-execution-steps').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.activity-group') !== null");
+    await waitForExpression(socket, "document.querySelector('.timeline-activity') !== null");
     const completedList = await api(restarted.origin, "/api/goals", { token: restarted.token });
     assert.equal(completedList.response.status, 200, JSON.stringify(completedList.body));
     const planCompleted = completedList.body.goals.some((goal) => goal.intent.includes("Plan flow") && goal.runStatus === "completed");
@@ -429,18 +460,23 @@ test("real local service restores and completes one authorized Goal conversation
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Should this Run continue?')", 15_000);
-    let cancellationSession = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.intent.includes("Cancellation flow") && candidate.pendingInteraction?.kind === "ask_user");
-    assert.equal(await value(socket, "document.querySelector('.ask-user-actions button.approval-primary + button.approval-cancel')?.textContent.includes('Cancel question')"), true);
+    let cancellationSession = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.intent.includes("Cancellation flow") && candidate.interaction?.kind === "question");
+    assert.equal(await value(socket, "document.querySelector('.ask-user-actions .interaction-skip')?.textContent.includes('Skip questionnaire')"), true);
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('.ask-user-actions .approval-cancel').click()",
+      expression: "document.querySelector('.interaction-skip').click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('.skip-confirm') !== null");
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "document.querySelector('.skip-confirm .approval-cancel').click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 10_000);
     cancellationSession = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.intent.includes("Cancellation flow") && candidate.runStatus === "completed");
-    assert.equal(cancellationSession.pendingInteraction, undefined);
+    assert.equal(cancellationSession.interaction, undefined);
     const cancellationTrajectory = await api(restarted.origin, `/api/goals/${cancellationSession.goalId}/trajectory?runId=${cancellationSession.currentRunId}`, { token: restarted.token });
     assert.equal(cancellationTrajectory.response.status, 200);
-    assert.ok(cancellationTrajectory.body.entries.some((event) => event.eventType === "ask_user_cancelled"));
+    assert.ok(cancellationTrajectory.body.entries.some((event) => event.eventType === "ask_user_skipped"));
 
     await cdp(socket, "Runtime.evaluate", {
       expression: "[...document.querySelectorAll('button.primary')].find(button => button.textContent.includes('New goal')).click()",
@@ -453,32 +489,38 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Interrupt Run\"]') !== null", 10_000);
+    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Stop run\"]') !== null", 10_000);
     assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled"), false, "the composer remains editable while the Run is active");
-    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Interrupt Run\"]')?.textContent.includes('Running')"), true, "the empty run button offers Interrupt");
+    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Stop run\"]')?.textContent.includes('Stop run')"), true, "the empty run button offers an independent Stop");
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Steer this active Run");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('textarea[aria-label=\\\"Message the Goal\\\"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.run-send-options') !== null");
-    assert.equal(await value(socket, "document.querySelector('.run-send-options').innerText.includes('Steer') && document.querySelector('.run-send-options').innerText.includes('Queue')"), true);
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.run-send-options button')].find(button => button.textContent === 'Steer').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.pending-steers')?.innerText.includes('Steer this active Run') && document.querySelector('.run-send-options') === null && document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled === false");
+    // 显式 Steer 是独立按钮；Enter 与发送按钮只做普通排队。
+    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Steer the current Run with this message\"]') !== null"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Steer the current Run with this message\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.pending-steers')?.innerText.includes('Steer this active Run') && document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled === false");
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Queue follow-up task");
-    await waitForExpression(socket, "document.querySelector('.composer-area .send.is-running')?.getAttribute('aria-label') === 'Choose Steer or Queue'");
+    await waitForExpression(socket, "document.querySelector('.composer-area .send.is-running')?.getAttribute('aria-label') === 'Send message'");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .send.is-running').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.run-send-options') !== null");
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.run-send-options button')].find(button => button.textContent === 'Queue').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.queued-inputs')?.innerText.includes('Queue follow-up task')");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\\\"Interrupt Run\\\"]').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Stop run\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('button[aria-label=\\\"Stopping Run\\\"]') !== null || document.querySelector('.queue-paused') !== null", 10_000);
     await waitForExpression(socket, "document.querySelector('.queue-paused') !== null", 15_000);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.queue-paused button').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
+  } catch (error) {
+    failure = error;
   } finally {
     socket?.close();
-    if (chrome !== undefined) await stopProcess(chrome, "SIGTERM", 5_000);
-    if (service !== undefined) await stopService(service);
+    try {
+      if (chrome !== undefined) await stopProcess(chrome, "SIGTERM", 5_000);
+      if (service !== undefined) await stopService(service);
+    } catch (cleanupError) {
+      // 收尾失败不能掩盖主体断言的原始故障；无主体故障时仍然失败。
+      if (failure === undefined) failure = cleanupError;
+      else console.error(`Cleanup after the primary failure also failed: ${cleanupError}`);
+    }
     await rm(temporaryRoot, { recursive: true, force: true });
   }
+  if (failure !== undefined) throw failure;
 });
 
 function startService({ workspace, data, home, statusPath, runOffset, modelOffset, delayModel = false }) {
@@ -523,7 +565,8 @@ function startService({ workspace, data, home, statusPath, runOffset, modelOffse
 }
 
 async function stopService(service) {
-  await stopProcess(service.child, "SIGTERM", 1_500, service.logs);
+  // 确定性模型在途时会按 fixture 的人为延迟结算，SIGTERM 必须给它留出收尾窗口。
+  await stopProcess(service.child, "SIGTERM", 30_000, service.logs);
 }
 
 async function stopProcess(child, signal, timeoutMs, logs = "") {

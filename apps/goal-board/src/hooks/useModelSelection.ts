@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
-  BrowserGoalSession,
+  BrowserGoalSessionState,
   BrowserModelCatalog,
   BrowserModelOption,
 } from "../../../../packages/web-contracts/src/index";
@@ -20,7 +20,7 @@ export function useModelSelection({
   onRefreshSession,
   onSetCommandError,
 }: {
-  session: BrowserGoalSession | null;
+  session: BrowserGoalSessionState | null;
   draftGoalId: React.MutableRefObject<string | null>;
   draftGeneration: React.MutableRefObject<number>;
   draftLoadVersion: React.MutableRefObject<number>;

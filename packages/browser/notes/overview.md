@@ -1,9 +1,11 @@
 # 浏览器服务边界
 
-本机浏览器会话的访问检查、Goal 命令与投影路由；不拥有前端视图。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。
+本机浏览器会话的访问检查、Goal 命令、历史读取与投影路由；不拥有前端视图。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。
 
 
 ## 职责
+
+正式消息投影保留 Snapshot 中的稳定消息身份、所属 Run 和事实锚点位置；窄状态摘要、Activity 历史、消息读取与 SSE 提交通知复用同一位置，不依据连接到达时间排序。
 
 [`@lazygoal/browser`](../src/index.ts) 负责本机浏览器入口的短期能力令牌、Host/Origin 检查、安全响应头、静态资源路由、正式工作区 Goal 投影、类型化命令和实时事件。它不拥有 Goal 状态或持久化。
 
@@ -11,13 +13,19 @@
 
 `lazygoal` 与 `lazygoal web` 都由独立 `apps/goal-server` 启动 Web 服务。服务创建随机能力令牌，将其放入页面 URL fragment，并在同源 HTTP Host 上提供 API、SSE 与已构建的 Goal Board 静态资源。服务监听 `127.0.0.1` 上的操作系统分配端口；静态页面根文档、favicon 和 `/assets/` 可不带令牌读取。其他请求须匹配精确 Host、同源约束和 Bearer 令牌。静态响应限制来源、禁止 referrer 并禁用缓存。
 
-授权后，`GET /api/goals` 从正式工作区 Catalog 返回真实 Goal 摘要，`GET /api/goals/:goalId` 从正式 Snapshot 和各 Run 的 Trajectory 返回会话视图。看板读取使用 Composition Root 暴露的正式工作区 Store 与 Trajectory 读取器，不经过含 Benchmark 的聚合目录。会话投影只纳入 Snapshot 提交边界内的事件，限制历史数量、消息正文长度（每条最多 64,000 字符）及其他预览文本，并省略 Profile、模型配置、供应商隐藏推理、原始事件及完整 Tool 输入/输出。内置文件、搜索和网页工具仅投影有界路径或查询摘要，用于 Activity 操作标题；写入正文和其他参数仍不投影。Bash 步骤按 Action 身份合并模型决定与执行事件；展开后只显示限长命令，以及已提交 Observation 中的成功输出白名单字段或失败说明，整个会话最多投影 100 组 Bash 详情。步骤可显示已提交的模型纠错和模型/Tool 重试摘要；Run 终态显示稳定失败原因或等待原因。终态 `complete` 决策由 Run 状态显示，不另生成一条步骤。Tool 结果只有在 Snapshot 纳入 `observation_recorded` 后才显示为已完成步骤；恢复后被纳入的新提交边界可能包含旧的 `tool_finished`，单独该事件不会确认结果。缺失 Goal 与不可读数据分别返回 404 和稳定的 500 错误码。在包含内部阶段的 Run 中，服务端从已提交轨迹事件聚合阶段分组（`stages`），按首次声明顺序保留阶段身份，聚合同一阶段的多轮修订、验收条件、阶段生命周期状态、审查拒绝反馈与接受后的结果摘要；归属于阶段的步骤关联 `stageId` 并在看板中按阶段折叠展示，首个阶段声明前的控制活动保留在 Run 级展示。中间阶段接受不标记 Run 完成，审查拒绝后阶段维持进行中并展示具体缺口原因；刷新或重连后均保持一致的稳定身份投影。
+授权后，`GET /api/goals` 从正式工作区 Catalog 返回真实 Goal 摘要，`GET /api/goals/:goalId` 从正式 Snapshot 和各 Run 的 Trajectory 返回完整会话投影。`GET /api/goals/:goalId?view=state` 返回 Snapshot-only 窄状态，不内嵌消息、步骤和阶段历史；它保留当前 Run、等待与 Action、队列、中断、GoalPlan、Plan 路线及当前会话摘要。看板读取使用 Composition Root 暴露的正式工作区 Store 与 Trajectory 读取器，不经过含 Benchmark 的聚合目录。
 
-看板列表包含持久化的归档标记。卡片菜单仅允许对已完成、失败或取消的 Goal 归档与删除；归档保留 Snapshot 和运行记录，从默认看板移到 Archived 视图，可恢复到默认看板。`POST /api/goals/:goalId/archive` 设置或清除归档标记。`DELETE /api/goals/:goalId` 清理该 Goal 的 Snapshot、Trajectory、模型输入、指标、诊断 Trace、检索 Sidecar 和 Goal 级授权，保留 Workspace 级授权与工作区文件。浏览器命令预约锁阻止这些操作与正在推进的 Goal 并发；删除先清理附属数据、最后删除快照，清理失败时可重试。两条路由都受会话令牌保护，缺失返回 404，非终态返回 409。
+`GET /api/goals/:goalId/activity` 提供默认 50、最大 100 个原子项的 Activity 窗口，接受可选 Run 过滤和互斥的 `before`／`after` cursor。消息最多返回 4,000 UTF-16 code unit 摘要；截断正文按 messageId 使用既有消息详情读取。事实投影只公开白名单事件类型、稳定身份与必要 Action／阶段关联，不发送事件 payload、原始 Observation、工具参数或模型内部内容。cursor 固定首次窗口内每个 Run 的 messageCount、throughMessageId 和 Snapshot 已提交 Trajectory 序号；后续正文、Observation、后继 Run 与未提交 tail 不进入该窗口。页面给出实际页范围、两侧未加载缺口的准确项数与首尾位置、Run 水位及跨页阶段／Action 组完整性提示。Activity 和窄状态路由均位于 BrowserSessionAccess 之后，Host、Origin 与 Bearer 校验在 Snapshot/Trajectory 读取之前执行。
 
-`POST /api/goals` 只接受有界 JSON 中的稳定 Goal ID、非空意图、可选 `mode: "plan"` 与可选 `modelId`；省略模式时由 Runtime 使用 Normal Mode，省略模型时解析当前工作区 Web 模型偏好。模型 ID 由服务端目录重新验证；Profile 和执行策略仍由本机决定。同 ID、同意图、同初始模式及同显式模型 ID 的重试复用在途受理或已有快照；省略模型的重试不因偏好随后变化而冲突。另一个 Goal 正在运行时拒绝新建。浏览器 Launcher 在初始快照保存前对齐请求模型的执行绑定；保存前失败则重建先前绑定。受理仅在初始 Snapshot 成功保存后返回，执行继续由现有 Launcher 推进到等待点或终态；页面断开不会取消已受理的执行。
+Activity 助手消息附带 Runtime 明确写入的 `process`、`answer` 或 `notice` 用途，用户消息不带此字段。只有来源为已保存 `completion_candidate` 的正式助手答复映射 `previewId`；它只关联先前公开的候选身份，不携带候选正文。`run_stage_declared` 事实可额外带最多 1,000 字符的声明目标；其他事件不能携带该字段。前端按 Activity position 交错显示消息、白名单事实与 Run 边界；Run 完成状态仍取自 Snapshot 状态，不由阶段接受或过程正文推断。
 
-`POST /api/goals/:goalId/interactions` 只接受回答、提案批准/反馈或 Action 批准/拒绝，并要求当前 `runId` 与相应 `requestId`/`actionId` 匹配最新等待 Snapshot。Action 批准可限定本次 Action、当前 Goal 或当前 Workspace；服务端在转交 Coordinator 前再次检查等待类型和身份。每次只允许一个 Goal 执行推进，同一在途交互的相同重试复用受理结果，旧身份或错配等待点不调用 Runtime。
+Activity 响应项数有界；当前文件 JSONL 读取器仍可扫描整个 Run 文件，接口不承诺磁盘随机访问或 I/O 成本有界。完整会话投影仍限制历史数量、消息正文长度（每条最多 64,000 字符）及其他预览文本，并省略 Profile、模型配置、供应商隐藏推理、原始事件及完整 Tool 输入/输出。内置文件、搜索和网页工具仅投影有界路径或查询摘要，用于 Activity 操作标题；写入正文和其他参数仍不投影。Bash 步骤按 Action 身份合并模型决定与执行事件；展开后只显示限长命令，以及已提交 Observation 中的成功输出白名单字段或失败说明，整个会话最多投影 100 组 Bash 详情。步骤可显示已提交的模型纠错和模型/Tool 重试摘要；Run 终态显示稳定失败原因或等待原因。终态 `complete` 决策由 Run 状态显示，不另生成一条步骤。Tool 结果只有在 Snapshot 纳入 `observation_recorded` 后才显示为已完成步骤；恢复后被纳入的新提交边界可能包含旧的 `tool_finished`，单独该事件不会确认结果。缺失 Goal 与不可读数据分别返回 404 和稳定的 500 错误码。在包含内部阶段的 Run 中，完整会话投影仍可从已提交轨迹事件聚合阶段上下文（`stages`），按首次声明顺序保留阶段身份及修订、验收条件、生命周期状态和审查反馈，步骤携带其 `stageId`。Activity 页则逐项呈现安全事实和有界阶段声明目标；当前 Plan 路线来自窄状态 DTO，展示在当前 Run 边界。中间阶段接受不标记 Run 完成，审查拒绝后的阶段维持进行中；刷新或重连后来源身份保持稳定。
+
+看板列表包含持久化的归档标记。卡片菜单仅允许对已完成、失败或取消的 Goal 归档与删除；归档保留 Snapshot 和运行记录，从默认看板移到 Archived 视图，可恢复到默认看板。`POST /api/goals/:goalId/archive` 设置或清除归档标记。`DELETE /api/goals/:goalId` 清理该 Goal 的 Snapshot、Trajectory、模型输入、指标、诊断 Trace、检索 Sidecar 和 Goal 级授权，保留 Workspace 级授权与工作区文件。终态管理拒绝仍有未处理输入或未完成收尾的 Goal；删除先清理附属数据、最后删除快照，清理失败时可重试。两条路由都受会话令牌保护，缺失返回 404，非终态返回 409。
+
+`POST /api/goals` 只接受有界 JSON 中的稳定 Goal ID、稳定首条 `inputId`、非空意图、可选 `mode: "plan"` 与可选 `modelId`，并委派现有无界面装配的会话所有者创建 Session。省略模型时解析当前工作区 Web 模型偏好，也可由装配提供进程默认选择；模型 ID 由服务端目录重新验证，Profile 和执行策略仍由本机决定。受理仅在 Goal、首条用户消息、Run 与受理收据成功保存后返回，执行由 Runtime 会话所有者在后台推进；同身份同载荷的重试返回既有收据与原 Goal，异载荷返回身份冲突。另一个 Goal 持有实例执行名额时拒绝新建。页面断开不会取消已受理的执行。
+
+`POST /api/goals/:goalId/inputs` 受理统一会话输入联合：`message`、`steer`、`interrupt`、`respond`、`resume` 与 `queue_control`，每项都携带 Goal 内稳定 `inputId`。Browser 只做严格 wire 校验与安全投影，受理、去重、队列、执行所有权与恢复判定全部委派 Runtime 会话所有者：新受理返回 202，同身份同载荷的既有收据返回 200，业务拒绝返回稳定错误码（字段错误 400、文本超限 413、Goal 缺失 404、身份／状态／容量冲突与 busy 409、关闭或保存结果不明 503）。`respond` 携带当前 `runId`、`requestId` 与回答、提案批准/反馈或 Action 批准/拒绝载荷，由 Runtime 再次校验等待类型与身份；旧身份、错配等待点或载荷冲突不写入收据，普通文本也不能代答结构化等待。`GET /api/goals/:goalId/inputs/:inputId` 按身份返回持久化收据及应用关联，未找到与读取失败分别返回明确结果。
 
 Plan Run 的待审批会话 DTO 会投影候选路线中的全部阶段顺序、目标和验收条件，文本受有界投影处理。普通会话不返回路线字段；候选仍属于待审批 Snapshot，不代表 Runtime 已批准或正在执行的阶段。
 
@@ -25,17 +33,17 @@ Plan Run 的待审批会话 DTO 会投影候选路线中的全部阶段顺序、
 
 `GET /api/goals/:goalId/actions/:actionId?runId=...` 仅在该 Goal/Run 仍处于对应 Action 审批等待时返回完整 canonical Tool 输入。常规会话投影只携带限长输入预览；写入类 Tool 额外投影目标路径。`GET /api/goals/:goalId/grants?runId=...` 只列出当前 Goal 与 Workspace 的授权摘要，不暴露精确输入摘要；`DELETE /api/goals/:goalId/grants/:grantId` 按授权层级撤销并返回更新后的列表。三个端点均受 BrowserSessionAccess 保护，并在服务层重验当前 Run 身份。
 
-`POST /api/goals/:goalId/messages` 接受当前 `runId`、稳定 `messageId` 与非空普通文本。普通 blocked 等待恢复同一 Run；已完成、失败或取消的 Run 调用 Coordinator 创建后继 Run，并保留旧 Run 的真实终态；后继创建时将消息身份、正文和新 Run ID 一起保存为归档收据，因此服务重启后相同重试返回既有 Run，身份或正文冲突则拒绝。提问、提案、Action 等结构化等待以及其他 Run 状态拒绝普通文本。成功受理前确认新增用户消息及对应 Run 变更已保存。 `POST /api/goals/:goalId/steer` 只接受当前 running Run、稳定 `messageId` 与非空正文，并委托 Runtime 持久化；重复身份与相同正文幂等，身份冲突或旧 Run 明确拒绝。会话投影按顺序公开已受理、尚未应用的 Steer，应用后它作为真实用户消息出现在会话历史。 `POST /api/goals/:goalId/interrupt` 按当前 Run 与稳定 requestId 持久化终止意图，并投影停止/收尾进度；重复请求返回既有受理，不重复中止。用户终止只影响目标 Run，最终以 cancelled 结算；普通服务关闭不生成该意图。
+普通 `message` 不绑定发送时的旧 Run：运行中或等待交互时按受理顺序进入该 Goal 的持久化队列，Goal 处于可启动终态且无恢复或队列暂停约束时由 Runtime 为队首创建后继 Run。终止态或 Interrupt 暂停保留队列与暂停原因，只有显式 `queue_control` 继续才解除。`steer` 只面向当前 running Run，受理不取消在途调用，应用发生在既有模型安全边界并写入真实用户消息；旧 Run、已进入中断或非 running 目标明确拒绝，不会静默降级为普通队列消息。`interrupt` 按目标 Run 与稳定身份在同一提交内保存中断意图并暂停队列，随后委派既有中止与有限收尾，重复请求返回同一收据。用户终止只影响目标 Run，最终以 cancelled 结算；普通服务关闭或断连不生成该意图。会话投影按顺序公开已受理、尚未应用的 Steer，并区分队列、暂停、提交修订、中断阶段与是否需要显式恢复。
 
-`POST /api/goals/:goalId/plan-mode` 只接受当前 `runId`，并由命令服务在转交 Coordinator 前校验 Goal/Run 身份、与其他执行命令串行化。Runtime 允许未启动 Run 进入 Plan Mode，或为已完成或失败 Run 标记下一 Run 使用 Plan Mode；已开始的普通 Run 和其他不允许切换的状态返回稳定错误。命令文本不写入消息或 Step。
+`POST /api/goals/:goalId/plan-mode` 只接受当前 `runId`，并由管理命令服务在转交 Coordinator 前校验 Goal/Run 身份与实例活动名额。Runtime 允许未启动 Run 进入 Plan Mode，或为已完成或失败 Run 标记下一 Run 使用 Plan Mode；已开始的普通 Run 和其他不允许切换的状态返回稳定错误。命令文本不写入消息或 Step。
 
-`GET /api/goals/:goalId/events?runId=...` 将连接绑定到 Snapshot 中的当前 Run。事件仅投影白名单活动和长度受限的助手文本；reasoning、Tool 输出及未识别载荷不转发。Trajectory/Checkpoint 事件与 Goal 保存只发送刷新通知；队列缺口、Publisher 关闭或连接故障要求页面重新读取，不代表 Run 完成。
+`GET /api/goals/:goalId/events` 订阅整个 Goal，不再要求客户端绑定单一当前 Run，也不接受 `runId` 查询参数。首项是一致 `state_sync` 安全会话状态，其后按来源顺序输出 `input_result`（按 `inputId` 关联受理与拒绝）和公开执行活动；后继 Run 开始不关闭订阅、不遗漏开始事件。事件仅投影白名单活动和长度受限的助手文本：内部块协议中只有公开普通正文增量与整块完成映射为 `assistant_text_delta`，结构化 JSON、Tool 参数、reasoning、调用失败摘要及未识别载荷不转发。Trajectory/Checkpoint 事件与 Goal 保存只发送刷新通知；订阅缺口、同步读取失败、背压关闭或连接故障要求页面重新读取，不代表 Run 完成。
 
 实时工具活动的安全 DTO 附带 ExecutionStream 自己的 `sourceEventId` 与 `sourceCursor`，并保留跨流调用对齐所需的 `actionId`。这些来源标识不等同于 Trajectory 中同名字段；只有 `actionId` 用于将同一调用的暂时活动与已提交步骤对齐。输入与结果仅允许投影白名单摘要，不发送任意 Tool 参数、原始 Tool 输出或隐藏推理。助手可见回复、等待、阶段变化、终态、失败和未知公开事件投影为活动边界，供 Goal Board 重建活动组；流缺口通知促使前端清空不完整临时数据并刷新。
 
 SIGINT 通过 Runtime 已有关闭协调器冻结检查点、取消执行并关闭 HTTP Host。关闭信号生效后，HTTP Host 拒绝新的写请求；已排队的命令在预约锁释放后返回 `service_shutting_down`，不再进入 Runtime 或持久化操作。
 
-恢复路由 `POST /api/goals/:goalId/resume` 要求页面提交当前 Run 与 `committedThroughSequence`。服务端重新读取 Snapshot 并委托真实 `GoalCoordinator.advance`，只有新的对应 Snapshot 保存后才确认受理。列表和会话的 `execution.state` 结合 Snapshot 与当前服务进程预约投影；进程活动状态不写入 Goal。
+`resume` 输入要求页面提交当前 Run 与页面读取到的 `commitRevision`，由 Runtime 会话所有者重新读取 Snapshot 并核验修订；重建实例、只读连接与新普通消息都不会自动恢复旧工作，匹配修订才推进当前 Run 或已受理队首，等待交互时报告所需交互并保持等待。无问答与审批的 blocked 等待必须显式携带文本指令，恢复不代答。列表和会话的 `execution.state` 结合 Snapshot 与会话所有者的活动名额投影；进程活动状态不写入 Goal。
 
 ## 轨迹查看
 
@@ -59,7 +67,7 @@ PTC 子操作沿用普通 Action 的审批入口；待审视图额外展示父�
 
 `GET /api/models` 从工作区私有偏好和当前 Provider 目录解析草稿实际默认模型，必要时返回 Provider 改变或模型不可用的回退原因；读取故障返回错误，不清除偏好。`GET /api/goals/:goalId/models?runId=...` 先核对最新 Goal/Run，再返回该 Goal 自身保存的选择。Composition Root 使用现有模型目录服务获取在线结果或离线目录兜底。浏览器边界仅投影模型标识、展示名、容量、能力和可用性来源。鉴权、权限、协议及目录不可用故障返回稳定错误码，不传递凭据或 Provider 原始响应。
 `POST /api/project/model-preference` 验证当前 Provider 下的模型可选后保存工作区默认偏好。`POST /api/goals/:goalId/model-selection` 接收当前 Run 身份与模型 ID；浏览器命令服务在受理锁内核对安全等待状态或已完成、失败终态，服务端重新读取当前 Provider 目录并检查可选性，再由 Runtime 模型选择协调器保存完整非敏感选择。终态选择与下一 Run 消息共享浏览器受理锁；先保存的选择由下一 Run 继承，新 Run 已提交时旧 Run 请求被拒绝。Goal 选择提交后再写偏好，写入失败仅以 `defaultModelSaved: false` 报告，不回滚 Goal。旧 Run、Action 审批、忙碌与不可选模型不会改写快照或偏好。
-浏览器命令服务在恢复等待交互或提交后续 Run 前，从正式 Snapshot 读取目标 Goal 的模型选择并重建执行 Binding。创建和推进期间持有单 Goal 执行预约；无法匹配当前 Provider 或构建 Binding 失败时返回稳定错误且不调用 Runtime。进程重启或多个 Goal 交替使用时，每次推进均以对应 Snapshot 为准，不继承上一个 Goal 的进程全局 Binding。
+模型选择在安全等待点由 Runtime 模型选择协调器提交。执行前由装配按最新 Goal 快照重新对齐模型 Binding：无法由本进程服务的 Provider 明确失败并中止本次推进，不回退其他 Goal 或进程默认配置。进程重启或多个 Goal 交替使用时，每次推进均以对应 Snapshot 为准，不继承上一个 Goal 的进程全局 Binding。
 
 ## 受管 Provider 设置
 

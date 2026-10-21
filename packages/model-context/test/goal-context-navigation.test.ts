@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { contract } from "../../contracts/src/index";
 import { createGoal } from "../../runtime/src/domain";
-import type { Goal, RunStageState } from "../../runtime/src/domain";
+import type { Goal, GoalMessage, RunStageState } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../tool-core/src/index";
 import { createEmptyWorkingMemory } from "../../working-memory/src/index";
 import {
@@ -29,6 +29,7 @@ import {
     buildGoalContextNavigation,
     type GoalContextNavigationBuildOptions,
 } from "../src/goal-context-navigation";
+import { testUserMessage } from "../../runtime/test/current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const compactor = new DropOldestContextCompactor();
@@ -47,7 +48,7 @@ const sampleTool: ToolDefinition = {
 
 function createRunningGoal(options: {
     currentStage?: RunStageState;
-    messages?: readonly { readonly role: "user"; readonly content: string }[];
+    messages?: readonly GoalMessage[];
 } = {}): Goal {
     const base = createGoal({
         ...currentProtocols,
@@ -58,7 +59,7 @@ function createRunningGoal(options: {
         profile: sampleProfile,
         maxSteps: 50,
         messages: options.messages ?? [
-            { role: "user", content: "请实现用户配置存储并保留向后兼容" },
+            testUserMessage("请实现用户配置存储并保留向后兼容"),
         ],
     });
     return {
@@ -159,7 +160,7 @@ test("TODO 5.2: 保留原始用户意图、有效 Profile、当前 Run 已应用
     const goal = createRunningGoal({
         currentStage,
         messages: [
-            { role: "user", content: "绝对必须保留 API 字段名称为 configPath" },
+            testUserMessage("绝对必须保留 API 字段名称为 configPath"),
         ],
     });
 

@@ -8,6 +8,8 @@
 
 `createStageMessages` 生成带 `source` 标记的临时阶段消息：Think 历史、Think 目标、工具发现结果与 Runtime 反馈；反馈始终移动到请求末尾，且不进入真实 Conversation。
 
+[过程正文去重](../src/process-message-dedup.ts) 在分层组装之后、预算裁剪之前生效：只有本次请求实际包含的同身份已结算原生交换可以覆盖同源过程正文，覆盖以模型调用身份关联而不是比较正文字符串，因此同文的用户消息、其他调用与独立答案都不受影响。交换未结算、被预算淘汰、协议身份切换或不存在时，过程正文按原顺序继续参与预算与裁剪。
+
 Decide 挂载工具时设置 `toolChoice: "required"` 且不携带顶层结构化 Schema；`prompt_only` 模式在请求内提供 `responseShapeGuide`；Think 不挂载工具与结构化输出。原生路径（`nativeConversationIdentity`）由执行器传入，动态授权 Section 的 schema 去重规则由 Renderer/默认 Bundle 决定。
 
 当提供 `modelCapabilities` 时，候选请求把原生工具声明与单调用指令计入硬预算；按 Warm → 旧 Conversation → Hot 顺序回退，必要时把契约切换为 `context_checkpoint_result` 并在请求中标记 `checkpointRequired`；必需输入仍超限时在调用模型前抛出 `MODEL_CONTEXT_HARD_OVERFLOW`。

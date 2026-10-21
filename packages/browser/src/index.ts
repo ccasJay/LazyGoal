@@ -21,14 +21,8 @@ export {
 } from "./browser-model-catalog";
 export {
     BrowserGoalCommandService,
-    type BrowserCreateGoalCommand,
-    type BrowserCreateGoalResult,
     type BrowserGoalCommandDependencies,
     type BrowserGoalCoordinator,
-    type BrowserGoalInteractionCommand,
-    type BrowserGoalInteractionResult,
-    type BrowserGoalMessageCommand,
-    type BrowserGoalMessageResult,
     type BrowserGoalPlanModeCommand,
     type BrowserGoalPlanModeResult,
     type BrowserModelSelectionCommand,
@@ -39,33 +33,35 @@ export {
     type BrowserToolGrantRevokeCommand,
     type BrowserPermissionModeCommand,
     type BrowserPermissionModeResult,
-    type BrowserGoalLauncher,
-    type BrowserGoalSaveNotifications,
 } from "./browser-goal-command-service";
+export type { BrowserGoalLiveEvent } from "../../web-contracts/src/index";
+export {
+    createBrowserGoalSessionPort,
+    createBrowserSessionFeed,
+    projectInputOutcome,
+    projectSessionInputReceipt,
+    projectSessionState,
+    type BrowserGoalLiveFeed,
+    type BrowserGoalSessionPort,
+    type BrowserGoalSessionPortDependencies,
+    type BrowserSessionEventsResult,
+} from "./browser-session-port";
 export {
     listBrowserGoals,
     projectBrowserGoalList,
+    readBrowserGoalActivity,
     readBrowserGoalSession,
+    readBrowserGoalSessionState,
     type BrowserGoalListItem,
     type BrowserGoalPlan,
     type BrowserGoalSession,
+    type BrowserGoalSessionState,
     type BrowserBashExecutionDetail,
-    type BrowserPendingInteraction,
     type BrowserSessionMessage,
     type BrowserSessionRun,
     type BrowserSessionStep,
     type BrowserRunStageGroup,
 } from "./browser-projection";
-export {
-    BrowserGoalStreamService,
-    type BrowserGoalExecutionEvent,
-    type BrowserGoalExecutionStream,
-    type BrowserGoalExecutionSubscription,
-    type BrowserGoalLiveEvent,
-    type BrowserGoalLiveFeed,
-    type BrowserGoalStreamDependencies,
-    type BrowserGoalStreamOpenResult,
-} from "./browser-goal-stream";
 
 export { createBrowserTrajectoryRoutes, type BrowserTrajectoryRun, type BrowserTrajectoryEntry, type BrowserTrajectoryPage, type BrowserTrajectoryDetail } from "./browser-trajectory";
 

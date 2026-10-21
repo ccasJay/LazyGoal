@@ -1,6 +1,8 @@
 import type { ModelContextFrameForStage } from "./step-executor";
 import type {
     Goal,
+    GoalMessage,
+    GoalMessagePosition,
     MemoryPatchAcceptedPayload,
 } from "./domain";
 import type {
@@ -8,6 +10,7 @@ import type {
     MemoryRevision,
 } from "../../working-memory/src/index";
 import type { GoalStore } from "./goal-store";
+import { withGoalMutationGate } from "./goal-mutation-gate";
 import {
     isExecutionAbortedError,
     throwIfAborted,
@@ -90,8 +93,70 @@ export interface TrajectoryCheckpointCommitRequest {
         readonly executionUnitId?: string;
         readonly stepIndex?: number;
     };
+    /**
+     * 会话输入账本与消息队列的写入权威。
+     *
+     * @remarks
+     * 省略或传 `latest` 时，本次保存沿用最新快照的会话状态，避免基于旧快照的
+     * 执行提交覆盖并发受理；只有已完成最新读取的会话受理与队列写入才传 `caller`。
+     */
+    readonly sessionState?: "latest" | "caller";
     /** 当前调用级中止控制。 */
     readonly control?: ExecutionControl;
+}
+
+function withLatestSessionState(goal: Goal, latest: Goal): Goal {
+    const { inputLedger: _inputLedger, messageQueue: _messageQueue, commitRevision: _commitRevision, ...rest } = goal.state;
+    return {
+        ...goal,
+        state: {
+            ...rest,
+            ...(latest.state.inputLedger === undefined ? {} : { inputLedger: latest.state.inputLedger }),
+            ...(latest.state.messageQueue === undefined ? {} : { messageQueue: latest.state.messageQueue }),
+        },
+    };
+}
+
+/**
+ * 按共享提交边界保存 Goal，维护 Goal 提交修订与会话状态所有权。
+ *
+ * @remarks
+ * 写入必须在同一 Store 实例的短 mutation Gate 内完成：本函数重新读取最新快照，
+ * 把 `commitRevision` 推进为 `max(本地, 最新) + 1`，并在未声明会话权威时沿用
+ * 最新快照的输入账本与消息队列。边界内不含模型、工具或人工等待。
+ *
+ * @param store - Goal 快照存储。
+ * @param goal - 本次业务转换后的 Goal；不会被原地修改。
+ * @param options - 会话状态写入权威；省略时沿用最新快照。
+ * @returns 实际写入的 Goal 副本，含本次提交修订。
+ * @throws Store 读取或写入失败时传播原始异常。
+ * @example
+ * ```ts
+ * const saved = await saveGoalWithSessionState(store, goal);
+ * ```
+ */
+export async function saveGoalWithSessionState(
+    store: GoalStore,
+    goal: Goal,
+    options?: { readonly sessionState?: "latest" | "caller" },
+): Promise<Goal> {
+    return withGoalMutationGate(store, goal.id, async () => {
+        const baseRevision = goal.state.commitRevision ?? 0;
+        const latest = await store.restore(goal.id);
+        const latestRevision = latest?.state.commitRevision ?? 0;
+        const merged = latest !== undefined && options?.sessionState !== "caller" && latestRevision > baseRevision
+            ? withLatestSessionState(goal, latest)
+            : goal;
+        const checkpoint: Goal = {
+            ...merged,
+            state: {
+                ...merged.state,
+                commitRevision: Math.max(baseRevision, latestRevision) + 1,
+            },
+        };
+        await store.save(checkpoint);
+        return checkpoint;
+    });
 }
 
 /**
@@ -166,6 +231,121 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function trajectoryKey(goal: Pick<Goal, "id" | "state">): string {
     return `${goal.id}\u0000${goal.state.run.id}`;
+}
+
+/**
+ * 取指定事实类型在候选事件中的最新序列。
+ *
+ * @remarks
+ * 同一 Run 可能多次恢复；恢复输入必须锚定最近一次恢复事实，取最早一次会让
+ * 后继消息的位置回退到旧锚点，破坏 Run 内位置的单调性。
+ *
+ * @param candidates - 同一 Run 的候选事件。
+ * @param payloadType - 目标事实负载类型。
+ * @returns 最新一条匹配事实的序列；没有匹配事实时返回 `undefined`。
+ */
+function latestEventSequence(
+    candidates: readonly Readonly<TrajectoryEvent>[],
+    payloadType: "run_resumed",
+): number | undefined {
+    let latest: number | undefined;
+    for (const event of candidates) {
+        if (event.payload.type !== payloadType) continue;
+        if (latest === undefined || event.sequence > latest) latest = event.sequence;
+    }
+    return latest;
+}
+
+function messageFactSequence(
+    message: GoalMessage,
+    events: readonly Readonly<TrajectoryEvent>[],
+): number | undefined {
+    const candidates = events.filter((event) => event.runId === message.runId);
+    const source = message.source;
+    switch (source.kind) {
+        case "goal_intent":
+            return 0;
+        case "user_input": {
+            const applied = candidates.find((event) => event.payload.type === "session_input_applied"
+                && event.payload.inputId === source.inputId
+                && event.payload.runId === message.runId);
+            if (applied !== undefined) return applied.sequence;
+            const steered = candidates.find((event) => event.payload.type === "steer_input_applied"
+                && event.payload.messageId === source.inputId);
+            if (steered !== undefined) return steered.sequence;
+            // 恢复输入归属最近一次恢复事实；取最早的一次会把后继消息锚回旧位置。
+            const resumed = latestEventSequence(candidates, "run_resumed");
+            if (resumed !== undefined) return resumed;
+            const created = candidates.find((event) => event.payload.type === "run_created");
+            return created?.sequence;
+        }
+        case "interaction_response": {
+            const applied = candidates.find((event) => (
+                event.payload.type === "ask_user_answered"
+                || event.payload.type === "ask_user_replied"
+                || event.payload.type === "ask_user_skipped"
+                || event.payload.type === "task_approved"
+                || event.payload.type === "task_feedback_received"
+            ) && event.payload.requestId === source.requestId);
+            return applied?.sequence;
+        }
+        case "model_text":
+            return candidates.find((event) => event.payload.type === "model_response_received"
+                && event.payload.modelCallId === source.modelCallId)?.sequence;
+        case "stage_output":
+            return candidates.find((event) => event.payload.type === "decision_received"
+                && event.executionUnitId === source.executionUnitId)?.sequence;
+        case "completion_candidate":
+            return candidates.find((event) => event.payload.type === "run_completed")?.sequence
+                ?? candidates.find((event) => event.payload.type === "decision_received")?.sequence;
+        case "host_execution":
+            return candidates.find((event) => event.payload.type === "observation_recorded"
+                && event.payload.actionId === source.actionId)?.sequence;
+        case "runtime_notice": {
+            const [, requestId] = /^(?:ask_user|task_proposal):(.+)$/.exec(source.noticeId) ?? [];
+            if (requestId !== undefined) {
+                const waiting = candidates.find((event) => event.payload.type === "run_waiting"
+                    && event.payload.requestId === requestId);
+                if (waiting !== undefined) return waiting.sequence;
+            }
+            const terminal = [...candidates].reverse().find((event) =>
+                event.payload.type === "run_waiting"
+                || event.payload.type === "run_failed"
+                || event.payload.type === "run_completed");
+            return terminal?.sequence;
+        }
+    }
+}
+
+function positionMessages(
+    goal: Goal,
+    persisted: Goal | undefined,
+    events: readonly Readonly<TrajectoryEvent>[],
+): readonly GoalMessage[] {
+    const persistedById = new Map((persisted?.state.messages ?? []).map((message) => [message.messageId, message]));
+    const positionsByAnchor = new Map<string, number>();
+    const positioned: GoalMessage[] = [];
+    for (const message of goal.state.messages) {
+        const previous = persistedById.get(message.messageId);
+        let position: GoalMessagePosition;
+        if (previous !== undefined) {
+            position = previous.position;
+        } else {
+            const completedRun = goal.state.completedRuns?.find((run) => run.runId === message.runId);
+            const boundary = message.runId === goal.state.run.id
+                ? goal.state.run.committedThroughSequence ?? 0
+                : completedRun?.committedThroughSequence ?? 0;
+            position = {
+                afterSequence: messageFactSequence(message, events) ?? boundary,
+                order: 0,
+            };
+        }
+        const anchorKey = `${message.runId}\u0000${position.afterSequence}`;
+        const order = positionsByAnchor.get(anchorKey) ?? 0;
+        positionsByAnchor.set(anchorKey, order + 1);
+        positioned.push({ ...message, position: { afterSequence: position.afterSequence, order } });
+    }
+    return positioned;
 }
 
 function normalizeProducers(
@@ -301,6 +481,13 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
         goal: Goal,
         request: TrajectoryCheckpointCommitRequest = {},
     ): Promise<TrajectoryCheckpointCommitResult> {
+        return withGoalMutationGate(this.store, goal.id, () => this.commitWithinGate(goal, request));
+    }
+
+    private async commitWithinGate(
+        goal: Goal,
+        request: TrajectoryCheckpointCommitRequest,
+    ): Promise<TrajectoryCheckpointCommitResult> {
         throwIfAborted(request.control);
 
         if (!this.trajectoryEnabled) {
@@ -309,9 +496,19 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
                     "accepted Memory Patch and model context frames require an enabled Trajectory sink",
                 );
             }
-            await this.store.save(goal);
+            const persisted = await this.store.restore(goal.id);
+            const positionedGoal: Goal = {
+                ...goal,
+                state: {
+                    ...goal.state,
+                    messages: positionMessages(goal, persisted, []),
+                },
+            };
+            const saved = await saveGoalWithSessionState(this.store, positionedGoal, {
+                ...(request.sessionState === undefined ? {} : { sessionState: request.sessionState }),
+            });
             throwIfAborted(request.control);
-            return { goal, events: [] };
+            return { goal: saved, events: [] };
         }
 
         if (request.modelContextFrame !== undefined) {
@@ -423,21 +620,46 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
                 : { committedThroughSequence }),
             ...(revision === undefined ? {} : { memoryRevision: revision }),
         };
-        const checkpoint: Goal = {
+        const persisted = await this.store.restore(goal.id);
+        const persistedMessageIds = new Set((persisted?.state.messages ?? []).map((message) => message.messageId));
+        const newMessageRunIds = new Set(goal.state.messages
+            .filter((message) => !persistedMessageIds.has(message.messageId))
+            .map((message) => message.runId));
+        const positioningEvents: Readonly<TrajectoryEvent>[] = [...events];
+        for (const messageRunId of newMessageRunIds) {
+            const messageBoundary = messageRunId === goal.state.run.id
+                ? committedThroughSequence
+                : goal.state.completedRuns?.find((history) => history.runId === messageRunId)?.committedThroughSequence ?? 0;
+            const messageEvents = await this.trajectoryStore!.readWithBoundary(
+                { goalId: goal.id, runId: messageRunId },
+                messageBoundary,
+            );
+            positioningEvents.push(...messageEvents.committed);
+        }
+        const checkpointBase: Goal = {
             ...goal,
             state: {
                 ...goal.state,
                 run,
             },
         };
+        const checkpoint: Goal = {
+            ...checkpointBase,
+            state: {
+                ...checkpointBase.state,
+                messages: positionMessages(checkpointBase, persisted, positioningEvents),
+            },
+        };
 
-        await this.store.save(checkpoint);
+        const saved = await saveGoalWithSessionState(this.store, checkpoint, {
+            ...(request.sessionState === undefined ? {} : { sessionState: request.sessionState }),
+        });
         throwIfAborted(request.control);
         try {
             await this.append({
-                goalId: checkpoint.id,
-                runId: checkpoint.state.run.id,
-                phase: checkpoint.state.workflow.phase,
+                goalId: saved.id,
+                runId: saved.state.run.id,
+                phase: saved.state.workflow.phase,
                 eventType: "state_committed",
                 payload: {
                     type: "state_committed",
@@ -446,7 +668,7 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
             }, request.control, false);
         } catch (error) {
             if (isExecutionAbortedError(error)) throw error;
-            await this.recordMarkerDiagnostic(checkpoint, error);
+            await this.recordMarkerDiagnostic(saved, error);
             throw new TrajectoryCommitMarkerError(
                 error instanceof Error ? error.message : String(error),
                 { cause: error },
@@ -454,7 +676,7 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
         }
 
         return {
-            goal: checkpoint,
+            goal: saved,
             events: Object.freeze(events),
             ...(memoryPatchEvent === undefined ? {} : { memoryPatchEvent }),
             ...(modelContextFrameEvent === undefined ? {} : { modelContextFrameEvent }),

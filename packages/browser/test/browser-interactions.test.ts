@@ -2,16 +2,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+    computeActionRecoveryRef,
     createGoal,
     type Goal,
     type GoalStore,
-    type ResumeGoalRequest,
 } from "../../runtime/src/index";
 import {
     BrowserGoalCommandService,
-    type BrowserGoalInteractionCommand,
-    type BrowserGoalSaveNotifications,
     createBrowserGoalRoutes,
+    readBrowserGoalSession,
+    type BrowserGoalApiPort,
+    type BrowserGoalSession,
 } from "../src/index";
 
 const protocols = {
@@ -20,476 +21,562 @@ const protocols = {
     contextRetrievalProtocol: { kind: "bm25-lite", version: 1 } as const,
 };
 
-class NotifyingMemoryStore implements GoalStore, BrowserGoalSaveNotifications {
+class MemoryStore implements GoalStore {
     private readonly goals = new Map<string, Goal>();
-    private readonly listeners = new Set<(goal: Goal) => void>();
 
     async save(goal: Goal): Promise<void> {
         this.goals.set(goal.id, goal);
-        for (const listener of this.listeners) listener(goal);
     }
 
     async restore(goalId: string): Promise<Goal | undefined> {
         return this.goals.get(goalId);
     }
-
-    onSave(listener: (goal: Goal) => void): () => void {
-        this.listeners.add(listener);
-        return () => this.listeners.delete(listener);
-    }
 }
 
-function goalFor(goalId: string, intent: string): Goal {
+function baseGoal(goalId: string): Goal {
     return createGoal({
         ...protocols,
         id: goalId,
-        intent,
+        intent: "需要人工决定",
         promptBundleVersion: 1,
         profile: { id: "default", systemPrompt: "test", instructions: [], toolIds: [] },
         runId: `run-${goalId}`,
     });
 }
 
-function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
-    let resolve!: (value: T) => void;
-    const promise = new Promise<T>((done) => { resolve = done; });
-    return { promise, resolve };
+/** 用空轨迹投影一个已保存 Goal 的安全会话视图。 */
+async function project(goal: Goal, store: MemoryStore): Promise<BrowserGoalSession> {
+    await store.save(goal);
+    const session = await readBrowserGoalSession(goal.id, store, async () => ({
+        committed: [],
+        uncommittedTail: [],
+    }));
+    assert.ok(session !== undefined);
+    return session;
 }
 
-type WaitPoint = "ask_user" | "task_approval" | "action_approval";
-
-function goalAtWaitPoint(goalId: string, waitPoint: WaitPoint): Goal {
-    const initial = goalFor(goalId, "等待用户操作");
-    const run = { ...initial.state.run, status: "waiting" as const };
-    if (waitPoint === "ask_user") {
-        return {
-            ...initial,
-            state: {
-                ...initial.state,
-                run: {
-                    ...run,
-                    pendingInteraction: {
-                        kind: "ask_user",
-                        requestId: "ask-1",
-                        mode: "execution",
-                        questions: [{
-                            id: "q-1",
-                            header: "选择方案",
-                            question: "选哪一个？",
-                            options: [{ id: "o-1", label: "方案 A" }, { id: "o-2", label: "方案 B" }],
-                            multiSelect: false,
-                        }],
-                    },
-                },
-            },
-        };
-    }
-    if (waitPoint === "task_approval") {
-        return {
-            ...initial,
-            state: {
-                ...initial.state,
-                run: {
-                    ...run,
-                    pendingInteraction: {
-                        kind: "task_approval",
-                        planRouteCandidate: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
-                        requestId: "proposal-1",
-                        proposal: { objective: "执行任务", completionCriteria: [{ text: "通过检查" }] },
-                        approvalRequest: "请批准",
-                    },
-                },
-            },
-        };
-    }
+function waitingGoal(goalId: string, patch: Partial<Goal["state"]["run"]>): Goal {
+    const goal = baseGoal(goalId);
     return {
-        ...initial,
-        state: {
-            ...initial.state,
-            run: {
-                ...run,
-                pendingAction: {
-                    action: { actionId: "action-1", toolId: "write_file", input: { path: "a.txt" } },
-                    status: "awaiting_approval",
-                },
-            },
-        },
+        ...goal,
+        state: { ...goal.state, run: { ...goal.state.run, status: "waiting", ...patch } },
     };
 }
 
-const interactionCases: readonly {
-    readonly name: string;
-    readonly waitPoint: WaitPoint;
-    readonly command: Exclude<BrowserGoalInteractionCommand, { readonly kind: "cancel_ask_user" }>;
-    readonly expectedAction: ResumeGoalRequest["action"]["kind"];
-}[] = [
-    {
-        name: "AskUser 回答",
-        waitPoint: "ask_user",
-        command: {
-            kind: "answer_ask_user",
-            runId: "run-goal-interaction-1",
+test("会话投影为四种等待提供统一身份、可用决定与截断标记", async () => {
+    const store = new MemoryStore();
+    const question = waitingGoal("goal-interaction-question", {
+        pendingInteraction: {
+            kind: "ask_user",
             requestId: "ask-1",
-            answers: [{ questionId: "q-1", optionIds: ["o-1"] }],
+            mode: "execution",
+            questions: [{
+                id: "q-1",
+                header: "Scope",
+                question: "Which scope?",
+                multiSelect: false,
+                options: [{ id: "o-1", label: "All" }],
+            }],
         },
-        expectedAction: "answer_ask_user",
-    },
-    {
-        name: "任务提案批准",
-        waitPoint: "task_approval",
-        command: { kind: "approve_task", runId: "run-goal-interaction-1", requestId: "proposal-1" },
-        expectedAction: "approve_task",
-    },
-    {
-        name: "任务提案反馈",
-        waitPoint: "task_approval",
-        command: {
-            kind: "feedback_task",
-            runId: "run-goal-interaction-1",
-            requestId: "proposal-1",
-            feedback: "缩小任务范围",
-        },
-        expectedAction: "feedback_task",
-    },
-    {
-        name: "Tool Action 批准",
-        waitPoint: "action_approval",
-        command: { kind: "approve_action", runId: "run-goal-interaction-1", actionId: "action-1" },
-        expectedAction: "approve_action",
-    },
-    {
-        name: "Tool Action 拒绝",
-        waitPoint: "action_approval",
-        command: {
-            kind: "reject_action",
-            runId: "run-goal-interaction-1",
-            actionId: "action-1",
-            reason: "不允许修改此文件",
-        },
-        expectedAction: "reject_action",
-    },
-];
-
-for (const scenario of interactionCases) {
-    test(`${scenario.name} 只恢复匹配等待点并在同一在途请求上幂等`, async () => {
-        const goal = goalAtWaitPoint("goal-interaction-1", scenario.waitPoint);
-        const store = new NotifyingMemoryStore();
-        await store.save(goal);
-        const releaseCoordinator = deferred<void>();
-        const coordinatorRequests: ResumeGoalRequest[] = [];
-        const service = new BrowserGoalCommandService({
-            store,
-            saveNotifications: store,
-            profileId: "default",
-            launcher: { async launch() { throw new Error("Launcher is not used here"); } },
-            coordinator: {
-                async resume(request) {
-                    coordinatorRequests.push(request);
-                    const current = await store.restore(goal.id);
-                    assert.ok(current);
-                    const {
-                        pendingInteraction: _pendingInteraction,
-                        pendingAction: _pendingAction,
-                        ...runWithoutPending
-                    } = current.state.run;
-                    const updated: Goal = {
-                        ...current,
-                        state: {
-                            ...current.state,
-                            run: { ...runWithoutPending, status: "completed" },
-                        },
-                    };
-                    await store.save(updated);
-                    await releaseCoordinator.promise;
-                    return { ok: true as const, kind: "terminal" as const, phase: "executing" as const, goal: updated };
-                },
-                async continue() { throw new Error("continuation is not used here"); },
-                async enterPlanMode() { throw new Error("plan mode is not used here"); },
-            },
-        });
-
-        const acceptedPromise = service.interact(goal.id, scenario.command);
-        const accepted = await acceptedPromise;
-        assert.deepEqual(accepted, {
-            ok: true,
-            goalId: goal.id,
-            runId: goal.state.run.id,
-            existing: false,
-        });
-        assert.equal(coordinatorRequests.length, 1);
-        assert.equal(coordinatorRequests[0]?.ref.goalId, goal.id);
-        assert.equal(coordinatorRequests[0]?.ref.runId, scenario.command.runId);
-        assert.equal(coordinatorRequests[0]?.action.kind, scenario.expectedAction);
-        assert.deepEqual(await service.interact(goal.id, scenario.command), { ...accepted, existing: true });
-        const conflictingCommand: BrowserGoalInteractionCommand = "requestId" in scenario.command
-            ? { ...scenario.command, requestId: "another-request" }
-            : { ...scenario.command, actionId: "another-action" };
-        assert.deepEqual(await service.interact(goal.id, conflictingCommand), {
-            ok: false,
-            error: "goal_busy",
-        });
-
-        releaseCoordinator.resolve();
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
-        assert.deepEqual(await service.interact(goal.id, scenario.command), {
-            ok: false,
-            error: "goal_not_waiting",
-        });
-        assert.equal(coordinatorRequests.length, 1);
     });
+    const questionView = (await project(question, store)).interaction;
+    assert.equal(questionView?.kind, "question");
+    assert.deepEqual(questionView, {
+        goalId: "goal-interaction-question",
+        runId: "run-goal-interaction-question",
+        kind: "question",
+        interactionId: "question:ask-1",
+        requestId: "ask-1",
+        decisions: ["answer_questions", "reply_to_question", "skip_question"],
+        truncated: false,
+    });
+
+    const proposal = waitingGoal("goal-interaction-proposal", {
+        pendingInteraction: {
+            kind: "task_approval",
+            requestId: "proposal-1",
+            proposal: { objective: "实现导入", completionCriteria: [{ text: "导入成功" }] },
+            planRouteCandidate: { stages: [{ target: "解析", acceptanceCriteria: ["覆盖主要格式"] }] },
+            approvalRequest: "请确认任务目标",
+        },
+    });
+    assert.deepEqual((await project(proposal, store)).interaction, {
+        goalId: "goal-interaction-proposal",
+        runId: "run-goal-interaction-proposal",
+        kind: "task_approval",
+        interactionId: "task_approval:proposal-1",
+        requestId: "proposal-1",
+        decisions: ["approve_task", "send_task_feedback"],
+        truncated: false,
+    });
+
+    const approval = waitingGoal("goal-interaction-approval", {
+        pendingAction: {
+            action: { actionId: "act-1", toolId: "bash", input: { command: "npm test" } },
+            status: "awaiting_approval",
+            approvalKind: "sandbox",
+        },
+    });
+    assert.deepEqual((await project(approval, store)).interaction, {
+        goalId: "goal-interaction-approval",
+        runId: "run-goal-interaction-approval",
+        kind: "action_approval",
+        interactionId: "action_approval:act-1",
+        actionId: "act-1",
+        decisions: ["approve_action", "approve_action_revision", "reject_action"],
+        truncated: false,
+    });
+
+    const recovery = waitingGoal("goal-interaction-recovery", {
+        pendingAction: {
+            action: { actionId: "act-2", toolId: "write_file", input: { path: "a.txt", content: "x" } },
+            status: "outcome_unknown",
+        },
+    });
+    assert.deepEqual((await project(recovery, store)).interaction, {
+        goalId: "goal-interaction-recovery",
+        runId: "run-goal-interaction-recovery",
+        kind: "action_recovery",
+        interactionId: "action_recovery:act-2",
+        actionId: "act-2",
+        recoveryRef: computeActionRecoveryRef("act-2", 1),
+        decisions: ["retry_unknown_action", "decline_unknown_action_retry"],
+        truncated: false,
+    });
+});
+
+test("重复投影与未提交等待不产生新交互，超过上限的展示标记为截断", async () => {
+    const store = new MemoryStore();
+    const goal = waitingGoal("goal-interaction-stable", {
+        pendingInteraction: {
+            kind: "ask_user",
+            requestId: "ask-2",
+            mode: "execution",
+            questions: [{
+                id: "q-1",
+                header: "Scope",
+                question: "q".repeat(2_500),
+                multiSelect: false,
+                options: [{ id: "o-1", label: "All" }],
+            }],
+        },
+    });
+    const first = (await project(goal, store)).interaction;
+    const second = (await project(goal, store)).interaction;
+    assert.deepEqual(first, second);
+    assert.equal(first?.truncated, true);
+
+    const running: Goal = {
+        ...goal,
+        state: { ...goal.state, run: { ...goal.state.run, status: "running" } },
+    };
+    assert.equal((await project(running, store)).interaction, undefined);
+
+    const approved = waitingGoal("goal-interaction-approved", {
+        pendingAction: {
+            action: { actionId: "act-3", toolId: "bash", input: { command: "ls" } },
+            status: "approved",
+        },
+    });
+    assert.equal((await project(approved, store)).interaction, undefined);
+});
+
+test("交互详情按当前身份返回完整问题、任务范围与 Action 输入", async () => {
+    const store = new MemoryStore();
+    const service = new BrowserGoalCommandService({
+        store,
+        coordinator: { async enterPlanMode() { throw new Error("plan mode is not used here"); } },
+    });
+
+    const question = waitingGoal("goal-detail-question", {
+        pendingInteraction: {
+            kind: "ask_user",
+            requestId: "ask-3",
+            mode: "plan",
+            questions: [{
+                id: "q-1",
+                header: "Scope",
+                question: "q".repeat(2_500),
+                multiSelect: true,
+                options: [{ id: "o-1", label: "All", description: "Everything" }],
+            }],
+            routeRevision: {
+                baseRevision: 1,
+                candidate: { stages: [{ target: "扩展阶段", acceptanceCriteria: ["报告完整"] }] },
+                reason: "范围扩大",
+                approvalRequest: "是否批准扩展？",
+                approvalOptionId: "o-1",
+            },
+        },
+    });
+    await store.save(question);
+    const questionDetail = await service.readInteractionDetails(
+        question.id,
+        question.state.run.id,
+        "question:ask-3",
+    );
+    assert.ok(questionDetail.ok);
+    assert.equal(questionDetail.detail.kind, "question");
+    assert.ok(questionDetail.detail.kind === "question");
+    assert.equal(questionDetail.detail.questions[0]!.question.length, 2_500);
+    assert.equal(questionDetail.detail.routeRevision?.approvalOptionId, "o-1");
+    assert.deepEqual(
+        questionDetail.detail.routeRevision?.stages.map((stage) => stage.target),
+        ["扩展阶段"],
+    );
+
+    const approval = waitingGoal("goal-detail-approval", {
+        pendingAction: {
+            action: { actionId: "act-4", toolId: "bash", input: { command: "npm test", env: { TOKEN: "secret" } } },
+            status: "awaiting_approval",
+            approvalKind: "tool",
+        },
+    });
+    await store.save(approval);
+    const actionDetail = await service.readInteractionDetails(
+        approval.id,
+        approval.state.run.id,
+        "action_approval:act-4",
+    );
+    assert.deepEqual(actionDetail, {
+        ok: true,
+        goalId: approval.id,
+        runId: approval.state.run.id,
+        interactionId: "action_approval:act-4",
+        detail: {
+            kind: "action_approval",
+            actionId: "act-4",
+            toolId: "bash",
+            approvalKind: "tool",
+            input: { command: "npm test", env: { TOKEN: "secret" } },
+        },
+    });
+});
+
+test("交互详情拒绝过期 Run、错引用与其他 Action，且不改变快照", async () => {
+    const store = new MemoryStore();
+    const service = new BrowserGoalCommandService({
+        store,
+        coordinator: { async enterPlanMode() { throw new Error("plan mode is not used here"); } },
+    });
+    const goal = waitingGoal("goal-detail-refusals", {
+        pendingAction: {
+            action: { actionId: "act-current", toolId: "write_file", input: { path: "a.txt", content: "x" } },
+            status: "awaiting_approval",
+        },
+    });
+    await store.save(goal);
+
+    assert.deepEqual(
+        await service.readInteractionDetails(goal.id, "run-other", "action_approval:act-current"),
+        { ok: false, error: "stale_run" },
+    );
+    assert.deepEqual(
+        await service.readInteractionDetails(goal.id, goal.state.run.id, "action_approval:act-other"),
+        { ok: false, error: "interaction_mismatch" },
+    );
+    assert.deepEqual(
+        await service.readInteractionDetails("goal-missing", "run-1", "action_approval:act-1"),
+        { ok: false, error: "goal_not_found" },
+    );
+
+    await store.save({
+        ...goal,
+        state: { ...goal.state, run: { ...goal.state.run, status: "running" } },
+    });
+    assert.deepEqual(
+        await service.readInteractionDetails(goal.id, goal.state.run.id, "action_approval:act-current"),
+        { ok: false, error: "interaction_not_waiting" },
+    );
+
+    await store.save(goal);
+    const before = JSON.stringify(await store.restore(goal.id));
+    await service.readInteractionDetails(goal.id, goal.state.run.id, "action_approval:act-current");
+    assert.equal(JSON.stringify(await store.restore(goal.id)), before);
+});
+
+/** 只挂载交互详情读取的最小 Goal API。 */
+function interactionDetailsPort(
+    readInteractionDetails: NonNullable<BrowserGoalApiPort["readInteractionDetails"]>,
+): BrowserGoalApiPort {
+    return {
+        list: async () => [],
+        read: async () => undefined,
+        enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
+        models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+        setModelPreference: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+        selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
+        readInteractionDetails,
+    };
 }
 
-test("cancel_ask_user 转为 Runtime 询问取消操作并等待快照保存", async () => {
-    const goal = goalAtWaitPoint("goal-cancel-run-1", "ask_user");
-    const store = new NotifyingMemoryStore();
-    await store.save(goal);
-    const requestsSeen: ResumeGoalRequest[] = [];
-    const service = new BrowserGoalCommandService({
-        store,
-        saveNotifications: store,
-        profileId: "default",
-        launcher: { async launch() { throw new Error("Launcher is not used here"); } },
-        coordinator: {
-            async resume(request) {
-                requestsSeen.push(request);
-                const current = await store.restore(goal.id);
-                assert.ok(current);
-                const { pendingInteraction: _pendingInteraction, ...runWithoutPending } = current.state.run;
-                const resumed: Goal = {
-                    ...current,
-                    state: {
-                        ...current.state,
-                        messages: [
-                            ...current.state.messages,
-                            {
-                                role: "user",
-                                content: "I cancelled this question. Continue the current task without relying on an answer to it.",
-                            },
-                        ],
-                        run: { ...runWithoutPending, status: "running" as const },
-                    },
-                };
-                await store.save(resumed);
-                return { ok: true as const, kind: "waiting" as const, phase: "executing" as const, waitingFor: "blocked" as const, goal: resumed };
-            },
-            async continue() { throw new Error("continuation is not used here"); },
-            async enterPlanMode() { throw new Error("plan mode is not used here"); },
+test("结算后的重复投影不再产生可操作交互，旧引用也不会读到新等待", async () => {
+    const goal = waitingGoal("goal-settled", {
+        pendingInteraction: {
+            kind: "ask_user",
+            requestId: "ask-settled-1",
+            mode: "execution",
+            questions: [{
+                id: "source",
+                header: "Choose a source",
+                question: "Which notes should I include?",
+                multiSelect: false,
+                options: [{ id: "approved", label: "Approved notes" }],
+            }],
         },
     });
+    const store = new MemoryStore();
+    const projected = await project(goal, store);
+    assert.equal(projected.interaction?.interactionId, "question:ask-settled-1");
 
-    const stale = await service.interact(goal.id, {
-        kind: "cancel_ask_user",
-        runId: goal.state.run.id,
-        requestId: "old-ask",
-    });
-    assert.deepEqual(stale, { ok: false, error: "stale_request" });
-    assert.equal(requestsSeen.length, 0);
-
-    const result = await service.interact(goal.id, {
-        kind: "cancel_ask_user",
-        runId: goal.state.run.id,
-        requestId: "ask-1",
-    });
-    assert.deepEqual(result, {
-        ok: true,
-        goalId: goal.id,
-        runId: goal.state.run.id,
-        existing: false,
-    });
-    assert.deepEqual(requestsSeen[0]?.action, { kind: "cancel_ask_user", requestId: "ask-1" });
-    const resumed = await store.restore(goal.id);
-    assert.equal(resumed?.state.run.status, "running");
-    assert.equal(resumed?.state.run.pendingInteraction, undefined);
-    assert.equal(resumed?.state.messages.some((message) => message.content.includes("I cancelled this question")), true);
-});
-
-test("过期 Run 或请求身份在 Coordinator 调用前被拒绝", async () => {
-    const goal = goalAtWaitPoint("goal-stale-1", "ask_user");
-    const store = new NotifyingMemoryStore();
-    await store.save(goal);
-    let coordinatorCalls = 0;
-    const service = new BrowserGoalCommandService({
-        store,
-        saveNotifications: store,
-        profileId: "default",
-        launcher: { async launch() { throw new Error("Launcher is not used here"); } },
-        coordinator: {
-            async resume() {
-                coordinatorCalls += 1;
-                return { ok: true as const, kind: "terminal" as const, phase: "executing" as const, goal };
-            },
-            async continue() { throw new Error("continuation is not used here"); },
-            async enterPlanMode() { throw new Error("plan mode is not used here"); },
-        },
-    });
-
-    const command: BrowserGoalInteractionCommand = {
-        kind: "answer_ask_user",
-        runId: goal.state.run.id,
-        requestId: "ask-1",
-        answers: [{ questionId: "q-1", optionIds: ["o-1"] }],
-    };
-    assert.deepEqual(await service.interact(goal.id, { ...command, runId: "old-run" }), {
-        ok: false,
-        error: "stale_run",
-    });
-    assert.deepEqual(await service.interact(goal.id, { ...command, requestId: "old-request" }), {
-        ok: false,
-        error: "stale_request",
-    });
-    assert.deepEqual(await store.restore(goal.id), goal);
-    assert.equal(coordinatorCalls, 0);
-});
-
-test("完整 Action 详情只对当前等待中的 Goal/Run/Action 身份开放", async () => {
-    const goal = goalAtWaitPoint("goal-action-details-1", "action_approval");
-    const fullInput = { path: "a.txt", content: "private complete content", metadata: { mode: 0o600 } };
-    const waitingGoal: Goal = {
+    // 另一客户端提交决定：快照结算，等待清除。
+    const { pendingInteraction: _settledInteraction, ...settledRun } = goal.state.run;
+    const settled: Goal = {
         ...goal,
         state: {
             ...goal.state,
-            run: {
-                ...goal.state.run,
-                pendingAction: {
-                    action: { actionId: "action-1", toolId: "write_file", input: fullInput },
-                    status: "awaiting_approval",
-                },
-            },
+            run: { ...settledRun, status: "completed" },
         },
     };
-    const store = new NotifyingMemoryStore();
-    await store.save(waitingGoal);
+    const afterSettlement = await project(settled, store);
+    assert.equal(afterSettlement.interaction, undefined, "a settled request no longer exposes a decision");
+    assert.equal(afterSettlement.pendingAction, undefined);
+
+    // 第二次结算同一引用不产生新交互；旧引用也无法读到已结算的等待。
     const service = new BrowserGoalCommandService({
         store,
-        saveNotifications: store,
-        profileId: "default",
-        launcher: { async launch() { throw new Error("Launcher is not used here"); } },
         coordinator: {
-            async resume() { throw new Error("resume is not used here"); },
-            async continue() { throw new Error("continue is not used here"); },
-            async enterPlanMode() { throw new Error("plan mode is not used here"); },
+            resume: async () => ({ ok: false as const, error: { code: "GOAL_NOT_WAITING", message: "no wait" } }),
         },
-    });
-
-    assert.deepEqual(await service.readActionDetails(
-        waitingGoal.id,
-        waitingGoal.state.run.id,
-        "action-1",
-    ), {
-        ok: true,
-        goalId: waitingGoal.id,
-        runId: waitingGoal.state.run.id,
-        actionId: "action-1",
-        toolId: "write_file",
-        input: fullInput,
-    });
-    assert.deepEqual(await service.readActionDetails(waitingGoal.id, "stale-run", "action-1"), {
-        ok: false,
-        error: "stale_run",
-    });
-    assert.deepEqual(await service.readActionDetails(waitingGoal.id, waitingGoal.state.run.id, "stale-action"), {
-        ok: false,
-        error: "action_not_waiting",
-    });
-
-    await store.save({
-        ...waitingGoal,
-        state: { ...waitingGoal.state, run: { ...waitingGoal.state.run, status: "running" } },
-    });
-    assert.deepEqual(await service.readActionDetails(waitingGoal.id, waitingGoal.state.run.id, "action-1"), {
-        ok: false,
-        error: "action_not_waiting",
-    });
-});
-
-test("浏览器交互路由传递审批与取消命令并拒绝非法字段", async () => {
-    const interactions: BrowserGoalInteractionCommand[] = [];
-    const routes = createBrowserGoalRoutes({
-        async list() { return []; },
-        async read() { return undefined; },
-        async create() { return { ok: false as const, error: "goal_create_failed" as const }; },
-        async interact(_goalId, command) {
-            interactions.push(command);
-            return { ok: true as const, goalId: "goal-1", runId: command.runId, existing: false };
-        },
-        async message() { return { ok: false as const, error: "message_failed" as const }; },
-        async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
-        async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
-        setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
-        async selectModel() { return { ok: false as const, error: "model_selection_failed" as const }; },
-        async openStream() { return { ok: false as const, error: "goal_not_found" as const }; },
-    });
-    const approve = (scope: string) => routes.request("http://localhost/api/goals/goal-1/interactions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind: "approve_action", runId: "run-1", actionId: "action-1", scope }),
-    });
-
-    assert.equal((await approve("workspace")).status, 202);
-    assert.deepEqual(interactions, [{
-        kind: "approve_action",
-        runId: "run-1",
-        actionId: "action-1",
-        scope: "workspace",
-    }]);
-    assert.equal((await approve("unbounded")).status, 400);
-    assert.equal(interactions.length, 1);
-
-    const cancelQuestion = (extra: Record<string, unknown> = {}) => routes.request(
-        "http://localhost/api/goals/goal-1/interactions",
-        {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ kind: "cancel_ask_user", runId: "run-1", requestId: "ask-1", ...extra }),
-        },
+    } as never);
+    assert.deepEqual(
+        await service.readInteractionDetails(settled.id, settled.state.run.id, "question:ask-settled-1"),
+        { ok: false, error: "interaction_not_waiting" },
     );
-    assert.equal((await cancelQuestion()).status, 202);
-    assert.deepEqual(interactions[1], { kind: "cancel_ask_user", runId: "run-1", requestId: "ask-1" });
-    assert.equal((await cancelQuestion({ reason: "unexpected" })).status, 400);
-    assert.equal(interactions.length, 2);
+    const reparsed = await project(settled, store);
+    assert.equal(reparsed.interaction, undefined, "repeat projection stays settled without a new interaction");
 });
 
-test("Action 详情路由验证身份参数并只返回服务端授权读取结果", async () => {
+test("交互详情路由校验身份参数并只返回服务端授权读取结果", async () => {
     const requests: string[] = [];
-    const routes = createBrowserGoalRoutes({
-        async list() { return []; },
-        async read() { return undefined; },
-        async create() { return { ok: false as const, error: "goal_create_failed" as const }; },
-        async interact() { return { ok: false as const, error: "interaction_failed" as const }; },
-        async message() { return { ok: false as const, error: "message_failed" as const }; },
-        async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
-        async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
-        setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
-        async selectModel() { return { ok: false as const, error: "model_selection_failed" as const }; },
-        async openStream() { return { ok: false as const, error: "goal_not_found" as const }; },
-        async readActionDetails(goalId, runId, actionId) {
-            requests.push(`${goalId}:${runId}:${actionId}`);
-            return runId === "run-old"
-                ? { ok: false as const, error: "stale_run" as const }
-                : {
-                    ok: true as const,
-                    goalId,
-                    runId,
-                    actionId,
-                    toolId: "write_file",
-                    input: { path: "src/a.ts", content: "private" },
-                };
-        },
-    });
+    const routes = createBrowserGoalRoutes(interactionDetailsPort(async (goalId, runId, interactionId) => {
+        requests.push(`${goalId}:${runId}:${interactionId}`);
+        if (runId === "run-old") return { ok: false, error: "stale_run" };
+        return {
+            ok: true,
+            goalId,
+            runId,
+            interactionId,
+            detail: {
+                kind: "task_approval",
+                objective: "实现导入",
+                approvalRequest: "请确认任务目标",
+                completionCriteria: ["导入成功"],
+                stages: [{ target: "解析", acceptanceCriteria: ["覆盖主要格式"] }],
+            },
+        };
+    }));
 
-    const details = await routes.request("http://localhost/api/goals/goal-1/actions/action-1?runId=run-1");
-    assert.equal(details.status, 200);
-    assert.deepEqual(await details.json(), {
+    const response = await routes.request(
+        "http://localhost/api/goals/goal-1/interaction-details?runId=run-1&interactionId=task_approval%3Aproposal-1",
+    );
+    assert.equal(response.status, 200);
+    // 详情读取保留完整审阅内容：身份、完整目标、验收条件与有序候选阶段。
+    assert.deepEqual(await response.json(), {
         ok: true,
         goalId: "goal-1",
         runId: "run-1",
-        actionId: "action-1",
-        toolId: "write_file",
-        input: { path: "src/a.ts", content: "private" },
+        interactionId: "task_approval:proposal-1",
+        detail: {
+            kind: "task_approval",
+            objective: "实现导入",
+            approvalRequest: "请确认任务目标",
+            completionCriteria: ["导入成功"],
+            stages: [{ target: "解析", acceptanceCriteria: ["覆盖主要格式"] }],
+        },
     });
-    const stale = await routes.request("http://localhost/api/goals/goal-1/actions/action-1?runId=run-old");
+
+    const stale = await routes.request(
+        "http://localhost/api/goals/goal-1/interaction-details?runId=run-old&interactionId=task_approval%3Aproposal-1",
+    );
     assert.equal(stale.status, 409);
-    const invalid = await routes.request("http://localhost/api/goals/goal%20bad/actions/action-1?runId=run-1");
+    assert.deepEqual(await stale.json(), { error: "stale_run" });
+
+    const invalid = await routes.request(
+        "http://localhost/api/goals/goal%20bad/interaction-details?runId=run-1&interactionId=task_approval%3Aproposal-1",
+    );
     assert.equal(invalid.status, 400);
-    assert.deepEqual(requests, ["goal-1:run-1:action-1", "goal-1:run-old:action-1"]);
+    assert.deepEqual(await invalid.json(), { error: "invalid_interaction_details_request" });
+
+    assert.deepEqual(requests, [
+        "goal-1:run-1:task_approval:proposal-1",
+        "goal-1:run-old:task_approval:proposal-1",
+    ]);
+});
+
+test("交互详情路由未接线时返回稳定不可用码", async () => {
+    const routes = createBrowserGoalRoutes({
+        list: async () => [],
+        read: async () => undefined,
+        enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
+        models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+        setModelPreference: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+        selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
+    });
+    const response = await routes.request(
+        "http://localhost/api/goals/goal-1/interaction-details?runId=run-1&interactionId=question%3Aask-1",
+    );
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: "interaction_details_unavailable" });
+});
+
+/** 只挂载审批预检的最小 Goal API。 */
+function actionReviewPort(
+    reviewActionApproval: NonNullable<BrowserGoalApiPort["reviewActionApproval"]>,
+): BrowserGoalApiPort {
+    return {
+        list: async () => [],
+        read: async () => undefined,
+        enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
+        models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+        setModelPreference: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+        selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
+        reviewActionApproval,
+    };
+}
+
+test("审批预检路由只接受严格 wire 请求并返回可审阅内容", async () => {
+    const received: unknown[] = [];
+    const routes = createBrowserGoalRoutes(actionReviewPort(async (goalId, command) => {
+        received.push({ goalId, command });
+        return {
+            ok: true,
+            goalId,
+            runId: command.runId,
+            review: {
+                actionId: command.actionId,
+                toolId: "write_file",
+                originalInput: { path: "a.txt", content: "original" },
+                finalInput: { path: "b.txt", content: "revised" },
+                changed: true,
+                scope: command.scope ?? "action",
+                availableScopes: ["action", "goal", "workspace"],
+                capability: { network: "none", extraFiles: [], targetPaths: ["/workspace/b.txt"] },
+                requiresSandboxApproval: false,
+                reviewRef: "review:0123456789abcdef0123456789abcdef",
+            },
+        };
+    }));
+
+    const response = await routes.request("http://localhost/api/goals/goal-1/action-reviews", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+            runId: "run-1",
+            actionId: "act-1",
+            scope: "action",
+            input: { path: "b.txt", content: "revised" },
+        }),
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json() as { ok: boolean; review: { reviewRef: string } };
+    assert.equal(body.ok, true);
+    assert.equal(body.review.reviewRef, "review:0123456789abcdef0123456789abcdef");
+    assert.deepEqual(received, [{
+        goalId: "goal-1",
+        command: {
+            runId: "run-1",
+            actionId: "act-1",
+            scope: "action",
+            input: { path: "b.txt", content: "revised" },
+        },
+    }]);
+
+    const invalidScope = await routes.request("http://localhost/api/goals/goal-1/action-reviews", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ runId: "run-1", actionId: "act-1", scope: "everything" }),
+    });
+    assert.equal(invalidScope.status, 400);
+    assert.deepEqual(await invalidScope.json(), { error: "invalid_action_review_request" });
+
+    const invalidInput = await routes.request("http://localhost/api/goals/goal-1/action-reviews", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ runId: "run-1", actionId: "act-1", toolId: "write_file" }),
+    });
+    assert.equal(invalidInput.status, 400);
+
+    const malformed = await routes.request("http://localhost/api/goals/goal-1/action-reviews", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{not json",
+    });
+    assert.equal(malformed.status, 400);
+});
+
+test("审批预检路由未接线时返回稳定不可用码", async () => {
+    const routes = createBrowserGoalRoutes({
+        list: async () => [],
+        read: async () => undefined,
+        enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
+        models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+        setModelPreference: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+        selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
+    });
+    const response = await routes.request("http://localhost/api/goals/goal-1/action-reviews", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ runId: "run-1", actionId: "act-1" }),
+    });
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: "review_unavailable" });
+});
+
+test("审批预检服务把 Runtime 拒绝投影为稳定 wire 错误码", async () => {
+    const store = new MemoryStore();
+    const goal = waitingGoal("goal-review-service", {
+        pendingAction: {
+            action: { actionId: "act-9", toolId: "write_file", input: { path: "a.txt", content: "x" } },
+            status: "awaiting_approval",
+        },
+    });
+    await store.save(goal);
+    const service = new BrowserGoalCommandService({
+        store,
+        coordinator: {
+            async enterPlanMode() { throw new Error("plan mode is not used here"); },
+            async reviewActionApproval(request) {
+                assert.equal(request.ref.goalId, goal.id);
+                assert.equal(request.ref.runId, goal.state.run.id);
+                return {
+                    ok: false as const,
+                    code: "INVALID_TOOL_INPUT" as const,
+                    message: "输入无效",
+                    issues: [{ path: ["path"], message: "必须是字符串" }],
+                };
+            },
+        },
+    });
+
+    assert.deepEqual(
+        await service.reviewActionApproval(goal.id, {
+            runId: goal.state.run.id,
+            actionId: "act-9",
+            input: { path: 1 },
+        }),
+        {
+            ok: false,
+            error: "invalid_tool_input",
+            issues: [{ path: ["path"], message: "必须是字符串" }],
+        },
+    );
+    assert.deepEqual(
+        await service.reviewActionApproval(goal.id, { runId: "run-old", actionId: "act-9" }),
+        { ok: false, error: "stale_run" },
+    );
+    assert.deepEqual(
+        await service.reviewActionApproval("goal-missing", { runId: "run-1", actionId: "act-9" }),
+        { ok: false, error: "goal_not_found" },
+    );
 });

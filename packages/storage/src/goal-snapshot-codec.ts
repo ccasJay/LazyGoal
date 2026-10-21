@@ -21,6 +21,9 @@ import type {
     PendingInteraction,
     PendingThink,
     PendingModelRepair,
+    SessionInputDigest,
+    SessionInputRecord,
+    SessionMessageQueue,
     StepRecord,
     ToolCallAction,
 } from "../../runtime/src/index";
@@ -37,6 +40,7 @@ import {
     type GoalSnapshotMessageV1,
     type GoalSnapshotModelSelectionV1,
     type GoalSnapshotObservationV1,
+    type GoalSnapshotExecutionVersionV1,
     type GoalSnapshotPendingActionV1,
     type GoalSnapshotPendingProgramV1,
     type GoalSnapshotPendingInteractionV1,
@@ -45,6 +49,8 @@ import {
     type GoalSnapshotPlanRouteStageV1,
     type GoalSnapshotPlanRouteV1,
     type GoalSnapshotProfileV1,
+    type GoalSnapshotSessionInputV1,
+    type GoalSnapshotMessageQueueV1,
     type GoalSnapshotStepRecordV1,
     type GoalSnapshotTaskV1,
     type GoalSnapshotToolCallActionV1,
@@ -383,11 +389,23 @@ function encodeStep(step: StepRecord): GoalSnapshotStepRecordV1 {
 
 function encodeMessage(message: GoalMessage): GoalSnapshotMessageV1 {
     return message.role === "user"
-        ? { role: "user", content: message.content }
+        ? {
+            role: "user",
+            content: message.content,
+            messageId: message.messageId,
+            runId: message.runId,
+            position: { ...message.position },
+            source: { ...message.source },
+        }
         : {
             role: "assistant",
             assistant: { profileId: message.assistant.profileId },
             content: message.content,
+            messageId: message.messageId,
+            runId: message.runId,
+            position: { ...message.position },
+            purpose: message.purpose,
+            source: { ...message.source },
         };
 }
 
@@ -459,6 +477,32 @@ function encodeCompletedRun(record: CompletedRunRecord): GoalSnapshotCompletedRu
     };
 }
 
+function encodeSessionInputRecord(record: SessionInputRecord): GoalSnapshotSessionInputV1 {
+    return {
+        inputId: record.inputId,
+        kind: record.kind,
+        digest: record.digest,
+        sequence: record.sequence,
+        status: record.status,
+        admittedAtRevision: record.admittedAtRevision,
+        ...(record.targetRunId === undefined ? {} : { targetRunId: record.targetRunId }),
+        ...(record.appliedRunId === undefined ? {} : { appliedRunId: record.appliedRunId }),
+        ...(record.messageIndex === undefined ? {} : { messageIndex: record.messageIndex }),
+    };
+}
+
+function encodeMessageQueue(queue: SessionMessageQueue): GoalSnapshotMessageQueueV1 {
+    return {
+        revision: queue.revision,
+        items: queue.items.map((item) => ({
+            inputId: item.inputId,
+            content: item.content,
+            sequence: item.sequence,
+        })),
+        ...(queue.pause === undefined ? {} : { pause: { ...queue.pause } }),
+    };
+}
+
 function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
     if (
         goal.definition.promptBundleVersion !== 1
@@ -497,6 +541,13 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
         },
         state: {
             ...(goal.state.nextRunMode === undefined ? {} : { nextRunMode: goal.state.nextRunMode }),
+            ...(goal.state.commitRevision === undefined ? {} : { commitRevision: goal.state.commitRevision }),
+            ...(goal.state.inputLedger === undefined
+                ? {}
+                : { inputLedger: goal.state.inputLedger.map(encodeSessionInputRecord) }),
+            ...(goal.state.messageQueue === undefined
+                ? {}
+                : { messageQueue: encodeMessageQueue(goal.state.messageQueue) }),
             workflow: encodeWorkflow(goal.state.workflow),
             messages: goal.state.messages.map(encodeMessage),
             run: {
@@ -570,6 +621,15 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                             ...(run.pendingAction.effectiveSandboxScope === undefined
                                 ? {}
                                 : { effectiveSandboxScope: structuredClone(run.pendingAction.effectiveSandboxScope) }),
+                            ...(run.pendingAction.approvalInputId === undefined
+                                ? {}
+                                : { approvalInputId: run.pendingAction.approvalInputId }),
+                            ...(run.pendingAction.executionVersion === undefined
+                                ? {}
+                                : { executionVersion: encodeExecutionVersion(run.pendingAction.executionVersion) }),
+                            ...(run.pendingAction.recoveryRef === undefined
+                                ? {}
+                                : { recoveryRef: run.pendingAction.recoveryRef }),
                         },
                     }),
                 ...(run.pendingActionBatch === undefined
@@ -871,6 +931,40 @@ function decodeStep(step: GoalSnapshotStepRecordV1): StepRecord {
         : { kind: "decision", result: decodeDecision(step.result) };
 }
 
+/** 编码已获批 Action 的最终执行版本；原请求引用与最终参数同时保留。 */
+function encodeExecutionVersion(
+    version: NonNullable<PendingAction["executionVersion"]>,
+): GoalSnapshotExecutionVersionV1 {
+    return {
+        original: {
+            actionId: version.original.actionId,
+            toolId: version.original.toolId,
+            input: structuredClone(version.original.input),
+        },
+        input: structuredClone(version.input),
+        reviewRef: version.reviewRef,
+        scope: version.scope,
+        ...(version.revision === undefined ? {} : { revision: { source: version.revision.source } }),
+    };
+}
+
+/** 解码已获批 Action 的最终执行版本。 */
+function decodeExecutionVersion(
+    version: GoalSnapshotExecutionVersionV1,
+): NonNullable<PendingAction["executionVersion"]> {
+    return {
+        original: {
+            actionId: version.original.actionId,
+            toolId: version.original.toolId,
+            input: structuredClone(version.original.input),
+        },
+        input: structuredClone(version.input),
+        reviewRef: version.reviewRef,
+        scope: version.scope,
+        ...(version.revision === undefined ? {} : { revision: { source: version.revision.source } }),
+    };
+}
+
 function decodePendingAction(pendingAction: GoalSnapshotPendingActionV1): PendingAction {
     return {
         action: decodeAction(pendingAction.action),
@@ -880,6 +974,9 @@ function decodePendingAction(pendingAction: GoalSnapshotPendingActionV1): Pendin
         ...(pendingAction.grantId === undefined ? {} : { grantId: pendingAction.grantId }),
         ...(pendingAction.approvalKind === undefined ? {} : { approvalKind: pendingAction.approvalKind }),
         ...(pendingAction.effectiveSandboxScope === undefined ? {} : { effectiveSandboxScope: structuredClone(pendingAction.effectiveSandboxScope) }),
+        ...(pendingAction.approvalInputId === undefined ? {} : { approvalInputId: pendingAction.approvalInputId }),
+        ...(pendingAction.executionVersion === undefined ? {} : { executionVersion: decodeExecutionVersion(pendingAction.executionVersion) }),
+        ...(pendingAction.recoveryRef === undefined ? {} : { recoveryRef: pendingAction.recoveryRef }),
     };
 }
 
@@ -956,6 +1053,39 @@ function decodeCompletedRun(record: GoalSnapshotCompletedRunV1): CompletedRunRec
     };
 }
 
+function decodeSessionInputDigest(value: string): SessionInputDigest {
+    if (!/^sha256:[0-9a-f]{64}$/.test(value)) {
+        throw protocolError("Session input digest must be a sha256 digest");
+    }
+    return value as SessionInputDigest;
+}
+
+function decodeSessionInputRecord(record: GoalSnapshotSessionInputV1): SessionInputRecord {
+    return {
+        inputId: record.inputId,
+        kind: record.kind,
+        digest: decodeSessionInputDigest(record.digest),
+        sequence: record.sequence,
+        status: record.status,
+        admittedAtRevision: record.admittedAtRevision,
+        ...(record.targetRunId === undefined ? {} : { targetRunId: record.targetRunId }),
+        ...(record.appliedRunId === undefined ? {} : { appliedRunId: record.appliedRunId }),
+        ...(record.messageIndex === undefined ? {} : { messageIndex: record.messageIndex }),
+    };
+}
+
+function decodeMessageQueue(queue: GoalSnapshotMessageQueueV1): SessionMessageQueue {
+    return {
+        revision: queue.revision,
+        items: queue.items.map((item) => ({
+            inputId: item.inputId,
+            content: item.content,
+            sequence: item.sequence,
+        })),
+        ...(queue.pause === undefined ? {} : { pause: { ...queue.pause } }),
+    };
+}
+
 function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
     const run = snapshot.state.run;
     return {
@@ -971,14 +1101,33 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
         },
         state: {
             ...(snapshot.state.nextRunMode === undefined ? {} : { nextRunMode: snapshot.state.nextRunMode }),
+            ...(snapshot.state.commitRevision === undefined ? {} : { commitRevision: snapshot.state.commitRevision }),
+            ...(snapshot.state.inputLedger === undefined
+                ? {}
+                : { inputLedger: snapshot.state.inputLedger.map(decodeSessionInputRecord) }),
+            ...(snapshot.state.messageQueue === undefined
+                ? {}
+                : { messageQueue: decodeMessageQueue(snapshot.state.messageQueue) }),
             workflow: decodeWorkflow(snapshot.state.workflow),
             messages: snapshot.state.messages.map((message): GoalMessage =>
                 message.role === "user"
-                    ? { role: "user", content: message.content }
+                    ? {
+                        role: "user",
+                        content: message.content,
+                        messageId: message.messageId,
+                        runId: message.runId,
+                        position: { ...message.position },
+                        source: { ...message.source },
+                    }
                     : {
                         role: "assistant",
                         assistant: { profileId: message.assistant.profileId },
                         content: message.content,
+                        messageId: message.messageId,
+                        runId: message.runId,
+                        position: { ...message.position },
+                        purpose: message.purpose,
+                        source: { ...message.source },
                     }
             ),
             run: {

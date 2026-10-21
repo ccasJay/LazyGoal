@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
-  BrowserGoalSession,
+  BrowserGoalSessionState,
   BrowserToolGrantSummary,
 } from "../../../../packages/web-contracts/src/index";
 import { BrowserApiError, browserApi } from "../api";
@@ -13,7 +13,7 @@ export function useToolGrants({
   onRefreshSession,
 }: {
   enabled: boolean;
-  session: BrowserGoalSession | null;
+  session: BrowserGoalSessionState | null;
   selectedGoalId: string | null;
   onRefreshSession: () => Promise<void>;
 }) {

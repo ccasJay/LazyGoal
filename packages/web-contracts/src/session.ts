@@ -1,3 +1,5 @@
+import type { BrowserJsonValue } from "./session-input";
+
 /**
  * Web 会话与看板投影的数据传输对象 (DTO)。
  *
@@ -5,6 +7,110 @@
  * 仅包含经安全白名单过滤后的只读投影事实，不直接暴露 Runtime Snapshot、
  * 凭据、私有 Prompt 或内部执行对象。
  */
+
+/**
+ * 只读审批预检的 wire 请求。
+ *
+ * @remarks
+ * 预检只返回可审阅内容，不保存批准、不暂存或激活授权、不解除等待，也不调用
+ * 业务工具。省略 `input` 表示按原样审阅当前请求。
+ *
+ * @example
+ * ```ts
+ * const command: BrowserActionReviewCommand = {
+ *     runId: "run-1", actionId: "action-1", scope: "action",
+ *     input: { path: "b.txt" },
+ * };
+ * ```
+ */
+export interface BrowserActionReviewCommand {
+    /** 当前 Run 身份。 */
+    readonly runId: string;
+    /** 当前待审批 Action 身份。 */
+    readonly actionId: string;
+    /** 拟审阅的最终参数；省略表示原样审阅。 */
+    readonly input?: BrowserJsonValue;
+    /** 拟申请的授权期限；省略表示单次放行。 */
+    readonly scope?: "action" | "goal" | "workspace";
+}
+
+/**
+ * 只读审批预检返回的可审阅内容。
+ *
+ * @remarks
+ * `reviewRef` 是内容一致性引用而非认证令牌；确认时必须原样带回并重新计算比对。
+ *
+ * @example
+ * ```ts
+ * const review: BrowserActionReview = {
+ *     actionId: "action-1", toolId: "write_file",
+ *     originalInput: { path: "a.txt" }, finalInput: { path: "b.txt" },
+ *     changed: true, scope: "action", availableScopes: ["action"],
+ *     capability: { network: "none", extraFiles: [], targetPaths: [] },
+ *     requiresSandboxApproval: false, reviewRef: "review:0123456789abcdef",
+ * };
+ * ```
+ */
+export interface BrowserActionReview {
+    /** 当前待审批 Action 身份。 */
+    readonly actionId: string;
+    /** 被审阅的 Tool 身份。 */
+    readonly toolId: string;
+    /** 原请求参数。 */
+    readonly originalInput: BrowserJsonValue;
+    /** 重新准备后的最终 canonical 参数。 */
+    readonly finalInput: BrowserJsonValue;
+    /** 最终参数是否与原请求不同。 */
+    readonly changed: boolean;
+    /** 本次审阅对应的授权期限。 */
+    readonly scope: "action" | "goal" | "workspace";
+    /** 当前真正可用的授权期限。 */
+    readonly availableScopes: readonly ("action" | "goal" | "workspace")[];
+    /** 重新计算出的实际能力范围。 */
+    readonly capability: {
+        readonly network: "none" | "all_outbound";
+        readonly extraFiles: readonly BrowserToolGrantExtraFile[];
+        readonly targetPaths: readonly string[];
+    };
+    /** 最终范围是否超出默认沙箱，需要沙箱能力审批。 */
+    readonly requiresSandboxApproval: boolean;
+    /** 审阅指纹；确认时必须原样带回。 */
+    readonly reviewRef: string;
+}
+
+/**
+ * 只读审批预检的 wire 结果。
+ *
+ * @remarks 失败时保留当前等待与调用方本地草稿，不裁剪参数、不降级权限，也不执行
+ * 原操作作为补偿。
+ *
+ * @example
+ * ```ts
+ * const result: BrowserActionReviewResult = { ok: false, error: "action_not_waiting" };
+ * ```
+ */
+export type BrowserActionReviewResult =
+    | {
+        readonly ok: true;
+        readonly goalId: string;
+        readonly runId: string;
+        readonly review: BrowserActionReview;
+    }
+    | {
+        readonly ok: false;
+        readonly error:
+            | "goal_not_found"
+            | "stale_run"
+            | "action_not_waiting"
+            | "action_id_mismatch"
+            | "tool_not_found"
+            | "invalid_tool_input"
+            | "scope_unavailable"
+            | "sandbox_scope_unavailable"
+            | "review_unavailable";
+        /** 可定位的字段级问题。 */
+        readonly issues?: readonly { readonly path: readonly (string | number)[]; readonly message: string }[];
+    };
 
 /**
  * Run 生命周期状态。
@@ -60,6 +166,25 @@ export interface BrowserGoalExecution {
 }
 
 /**
+ * 浏览器可读的 Run 内消息位置。
+ *
+ * @remarks
+ * `afterSequence` 对应消息前最后一条已提交 Run 事实，`order` 保持同锚点消息的
+ * Snapshot 次序；该值不表示墙钟时间或执行 Step。
+ *
+ * @example
+ * ```ts
+ * const position: BrowserMessagePosition = { afterSequence: 12, order: 0 };
+ * ```
+ */
+export interface BrowserMessagePosition {
+    /** 消息之前的最后一条已提交事实序列。 */
+    readonly afterSequence: number;
+    /** 同一 Run、同一事实锚点内的零基 Snapshot 次序。 */
+    readonly order: number;
+}
+
+/**
  * 工作区 Goal 列表项的安全传输对象。
  *
  * @remarks
@@ -102,24 +227,30 @@ export interface BrowserGoalListItem {
  * 会话时间线中的用户或助手文本消息。
  *
  * @remarks
- * 仅包含角色、有界文本及所属 Run 标识；超出长度限制的正文会在服务端截断。
+ * 包含稳定身份、来源、Run 内位置及有界正文；超出长度限制的正文会在服务端截断。
  *
  * @example
  * ```ts
  * const msg: BrowserSessionMessage = {
+ *     messageId: "msg-1",
  *     role: "user",
  *     content: "请检查代码质量",
  *     runId: "run-1",
+ *     position: { afterSequence: 0, order: 0 },
  * };
  * ```
  */
 export interface BrowserSessionMessage {
+    /** 消息稳定身份。 */
+    readonly messageId: string;
     /** 消息角色。 */
     readonly role: "user" | "assistant";
     /** 消息正文。 */
     readonly content: string;
-    /** 消息所属的 Run 标识；历史无归属时省略。 */
-    readonly runId?: string;
+    /** 消息所属的 Run 标识；每条正式消息必须关联到真实 Run。 */
+    readonly runId: string;
+    /** 消息在所属 Run 已提交事实流中的稳定位置。 */
+    readonly position: BrowserMessagePosition;
 }
 
 /**
@@ -460,46 +591,6 @@ export interface BrowserPlanRouteStage {
 }
 
 /**
- * 当前等待人工交互的请求视图。
- *
- * @remarks
- * 支持 AskUser 问卷及 TaskApproval 任务提案两种交互类型。
- *
- * @example
- * ```ts
- * const interaction: BrowserPendingInteraction = {
- *     kind: "task_approval",
- *     requestId: "req-1",
- *     objective: "完成重构",
- *     approvalRequest: "是否批准执行？",
- *     completionCriteria: ["测试全部通过"],
- *     planRoute: [{ target: "调查", acceptanceCriteria: ["定位入口"] }],
- * };
- * ```
- */
-export type BrowserPendingInteraction =
-    | {
-        readonly kind: "ask_user";
-        readonly requestId: string;
-        readonly mode: "plan" | "execution";
-        readonly questions: readonly BrowserAskUserQuestion[];
-        readonly routeRevision?: {
-            readonly approvalRequest: string;
-            readonly reason: string;
-            readonly route: readonly BrowserPlanRouteStage[];
-        };
-    }
-    | {
-        readonly kind: "task_approval";
-        readonly requestId: string;
-        readonly objective: string;
-        readonly approvalRequest: string;
-        readonly completionCriteria: readonly string[];
-        /** Plan Run 一次审批覆盖的完整有序候选路线。 */
-        readonly planRoute: readonly BrowserPlanRouteStage[];
-    };
-
-/**
  * 目标拆解计划中的条目。
  *
  * @example
@@ -623,6 +714,174 @@ export interface BrowserPendingAction {
 }
 
 /**
+ * 当前交互视图的种类。
+ *
+ * @remarks
+ * `question` 是模型发起的结构化问卷；`task_approval` 是 Plan 任务提案审批；
+ * `action_approval` 是工具／沙箱审批；`action_recovery` 是结果未知的恢复等待。
+ *
+ * @example
+ * ```ts
+ * const kind: BrowserInteractionKind = "action_recovery";
+ * ```
+ */
+export type BrowserInteractionKind =
+    | "question"
+    | "task_approval"
+    | "action_approval"
+    | "action_recovery";
+
+/**
+ * 当前交互允许的决定。
+ *
+ * @remarks
+ * 只描述响应种类；Interrupt 是独立的 Run 级输入，不在该列表中。恢复等待只
+ * 允许 `retry_unknown_action` 与 `decline_unknown_action_retry`。
+ *
+ * @example
+ * ```ts
+ * const decisions: readonly BrowserInteractionDecision[] = ["approve_task", "send_task_feedback"];
+ * ```
+ */
+export type BrowserInteractionDecision =
+    | "answer_questions"
+    | "reply_to_question"
+    | "skip_question"
+    | "approve_task"
+    | "send_task_feedback"
+    | "approve_action"
+    | "approve_action_revision"
+    | "reject_action"
+    | "retry_unknown_action"
+    | "decline_unknown_action_retry";
+
+/**
+ * 当前已提交等待的类型化交互视图摘要。
+ *
+ * @remarks
+ * 身份来自与已提交等待相同的快照：重复同步、
+ * 重连与其他客户端读取得到同一 `interactionId`。`truncated` 为真表示有界摘要
+ * 省略了决定所需内容，必须先完成详情读取再提交依赖完整范围的批准。
+ *
+ * @example
+ * ```ts
+ * const view: BrowserInteractionView = {
+ *     goalId: "goal-1",
+ *     runId: "run-1",
+ *     kind: "question",
+ *     interactionId: "question:ask-1",
+ *     requestId: "ask-1",
+ *     decisions: ["answer_questions", "reply_to_question", "skip_question"],
+ *     truncated: false,
+ * };
+ * ```
+ */
+export interface BrowserInteractionView {
+    /** Goal 稳定标识。 */
+    readonly goalId: string;
+    /** 等待所属的 Run 身份。 */
+    readonly runId: string;
+    /** 交互种类。 */
+    readonly kind: BrowserInteractionKind;
+    /** 由种类与等待身份构成的稳定引用。 */
+    readonly interactionId: string;
+    /** 问答与任务审批的请求身份。 */
+    readonly requestId?: string;
+    /** 工具／沙箱审批与恢复等待的 Action 身份。 */
+    readonly actionId?: string;
+    /**
+     * 本次未知结果等待的恢复身份。
+     *
+     * @remarks 仅恢复等待提供；重执行决定必须原样带回该引用。
+     */
+    readonly recoveryRef?: string;
+    /** 当前等待允许的决定。 */
+    readonly decisions: readonly BrowserInteractionDecision[];
+    /** 有界摘要是否省略了决定所需内容。 */
+    readonly truncated: boolean;
+}
+
+/**
+ * 当前交互的完整审阅内容。
+ *
+ * @remarks
+ * 只包含身份匹配的当前等待：问题的完整正文与选项、任务提案的完整目标／验收／
+ * 有序路线，或待审 Action 的完整 canonical 输入。读取不推进等待。
+ *
+ * @example
+ * ```ts
+ * const detail: BrowserInteractionDetail = {
+ *     kind: "task_approval", objective: "实现导入", approvalRequest: "请确认",
+ *     completionCriteria: ["导入成功"], stages: [],
+ * };
+ * ```
+ */
+export type BrowserInteractionDetail =
+    | {
+        readonly kind: "question";
+        readonly mode: "plan" | "execution";
+        readonly questions: readonly BrowserAskUserQuestion[];
+        readonly routeRevision?: {
+            readonly baseRevision: number;
+            readonly reason: string;
+            readonly approvalRequest: string;
+            readonly approvalOptionId: string;
+            readonly stages: readonly BrowserPlanRouteStage[];
+        };
+    }
+    | {
+        readonly kind: "task_approval";
+        readonly objective: string;
+        readonly approvalRequest: string;
+        readonly completionCriteria: readonly string[];
+        readonly stages: readonly BrowserPlanRouteStage[];
+    }
+    | {
+        readonly kind: "action_approval" | "action_recovery";
+        readonly actionId: string;
+        readonly toolId: string;
+        readonly approvalKind?: "tool" | "sandbox";
+        /** 完整 canonical Tool 输入。 */
+        readonly input: unknown;
+        /** 本次未知结果等待的恢复身份；仅恢复等待提供。 */
+        readonly recoveryRef?: string;
+        readonly parentProgram?: {
+            readonly actionId: string;
+            readonly callNumber: number;
+        };
+    };
+
+/**
+ * 当前交互完整详情读取的结果。
+ *
+ * @remarks
+ * 引用必须同时匹配当前 Run 与当前等待身份；过期引用返回稳定错误，不返回其他
+ * Action 的参数，也不触发执行。读取失败保留等待，依赖完整范围的批准保持禁用。
+ *
+ * @example
+ * ```ts
+ * const result: BrowserInteractionDetailResult = { ok: false, error: "interaction_mismatch" };
+ * ```
+ */
+export type BrowserInteractionDetailResult =
+    | {
+        readonly ok: true;
+        readonly goalId: string;
+        readonly runId: string;
+        readonly interactionId: string;
+        readonly detail: BrowserInteractionDetail;
+    }
+    | {
+        readonly ok: false;
+        readonly error:
+            | "goal_not_found"
+            | "stale_run"
+            | "interaction_not_waiting"
+            | "interaction_mismatch"
+            | "interaction_details_unavailable";
+    };
+
+/**
  * 完整 Goal 会话详情的传输对象。
  *
  * @remarks
@@ -661,6 +920,14 @@ export interface BrowserGoalSession {
     readonly messages: readonly BrowserSessionMessage[];
     /** 已受理且尚未进入模型输入的 Steer 消息，按受理顺序排列。 */
     readonly pendingSteers?: readonly { readonly messageId: string; readonly content: string }[];
+    /** 已受理、尚未应用的普通消息；Runtime 队列是唯一真源。 */
+    readonly pendingMessages?: readonly { readonly inputId: string; readonly content: string }[];
+    /** 队列修订与暂停事实；省略表示修订 0 且未暂停。 */
+    readonly queue?: {
+        readonly revision: number;
+        readonly paused: boolean;
+        readonly pauseReason?: "run_failed" | "user_interrupt";
+    };
     /** 已受理的用户终止及自动收尾进度。 */
     readonly interruption?: {
         readonly requestId: string;
@@ -672,10 +939,63 @@ export interface BrowserGoalSession {
     readonly runs: readonly BrowserSessionRun[];
     /** 任务计划。 */
     readonly goalPlan?: BrowserGoalPlan;
-    /** 等待人工交互。 */
-    readonly pendingInteraction?: BrowserPendingInteraction;
+    /** 当前已提交等待的类型化交互视图；没有可决定等待时省略。 */
+    readonly interaction?: BrowserInteractionView;
     /** 等待人工审批的 Action。 */
     readonly pendingAction?: BrowserPendingAction;
     /** 历史是否因达到上限被截断。 */
     readonly historyTruncated: boolean;
+}
+
+/**
+ * 初始读取和分页使用的窄 Goal 状态。
+ *
+ * @remarks
+ * 不内嵌消息、步骤或历史阶段；`history` 明确指向 Activity 窗口。当前 Run、Plan
+ * 路线、队列、等待、交互与待审批 Action 仍保留在此状态中。
+ *
+ * @example
+ * ```ts
+ * const state: BrowserGoalSessionState = {
+ *     goalId: "goal-1", intent: "检查仓库", currentRunId: "run-1",
+ *     runStatus: "running", currentRunMode: "normal",
+ *     history: {
+ *         messages: { included: false, source: "activity" },
+ *         steps: { included: false, source: "activity" },
+ *         stages: { included: false, source: "activity" },
+ *     },
+ * };
+ * ```
+ */
+export interface BrowserGoalSessionState {
+    readonly goalId: string;
+    readonly intent: string;
+    readonly currentRunId: string;
+    readonly runStatus: BrowserRunStatus;
+    readonly currentRunMode: "normal" | "plan";
+    readonly nextRunMode?: "plan";
+    readonly currentRunStepCount: number;
+    readonly currentPlanRoute?: BrowserPlanRoute;
+    readonly execution?: BrowserGoalExecution;
+    readonly pendingSteers?: readonly { readonly messageId: string; readonly content: string }[];
+    readonly pendingMessages?: readonly { readonly inputId: string; readonly content: string }[];
+    readonly queue?: {
+        readonly revision: number;
+        readonly paused: boolean;
+        readonly pauseReason?: "run_failed" | "user_interrupt";
+    };
+    readonly interruption?: {
+        readonly requestId: string;
+        readonly status: "requested" | "repairing" | "finished";
+        readonly repairCallsStarted: number;
+        readonly outcomeUnknown?: boolean;
+    };
+    readonly goalPlan?: BrowserGoalPlan;
+    readonly interaction?: BrowserInteractionView;
+    readonly pendingAction?: BrowserPendingAction;
+    readonly history: {
+        readonly messages: { readonly included: false; readonly source: "activity" };
+        readonly steps: { readonly included: false; readonly source: "activity" };
+        readonly stages: { readonly included: false; readonly source: "activity" };
+    };
 }

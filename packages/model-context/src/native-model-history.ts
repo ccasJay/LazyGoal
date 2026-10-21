@@ -36,12 +36,13 @@ export function collectNativeModelExchanges(
         const call = message.toolCalls?.[0];
         if (call === undefined) throw new ModelContextSourceError("Committed Decide response has no native tool call");
         const unitEvents = events.filter(event => event.executionUnitId === unitId);
-        const settlement = settle(message, response.sequence, unitEvents, projector);
+        const settlement = settle(message, response.sequence, unitEvents, projector, events);
         if (settlement === undefined) continue;
         const exchange: NativeModelExchange = {
             conversationPosition: response.payload.conversationPosition,
             responseSequence: response.sequence,
             settledThroughSequence: settlement.sequence,
+            modelCallId: response.payload.modelCallId,
             messages: [message, { role: "tool", callId: call.callId, toolId: call.toolId, content: JSON.stringify(settlement.result) }],
         };
         const existing = groups.get(unitId) ?? [];
@@ -51,11 +52,22 @@ export function collectNativeModelExchanges(
     return groups;
 }
 
+/** 模型可见的修订说明上限；超出部分明确截断。 */
+const MODEL_REVISION_SUMMARY_LIMIT = 512;
+
+function boundedRevisionSummary(value: unknown): { readonly text: string; readonly truncated: boolean } {
+    const text = JSON.stringify(value) ?? "null";
+    return text.length <= MODEL_REVISION_SUMMARY_LIMIT
+        ? { text, truncated: false }
+        : { text: `${text.slice(0, MODEL_REVISION_SUMMARY_LIMIT - 3)}...`, truncated: true };
+}
+
 function settle(
     message: ModelAssistantMessage,
     responseSequence: number,
     events: readonly TrajectoryEvent[],
     projector: TrajectoryEventProjector,
+    allEvents: readonly TrajectoryEvent[],
 ): { sequence: number; result: unknown } | undefined {
     const call = message.toolCalls![0]!;
     if (call.toolId === "system_request_think") {
@@ -76,7 +88,29 @@ function settle(
         const observation = events.find(event => event.eventType === "observation_recorded" && event.payload.actionId === decision.action.actionId);
         if (observation?.eventType !== "observation_recorded") return undefined;
         const projected = projector.project(observation).payload as { observation: unknown };
-        return { sequence: observation.sequence, result: { actionId: decision.action.actionId, sourceSequence: observation.sequence, observation: projected.observation } };
+        // 实际执行的参数与原请求差异随结果一起给出；原生调用本身保持原文。
+        const started = events.find(event => event.eventType === "tool_started"
+            && event.payload.actionId === decision.action.actionId);
+        const revision = started?.eventType === "tool_started" ? started.payload.revision : undefined;
+        const programRevisions = collectProgramRevisions(events, allEvents);
+        return {
+            sequence: observation.sequence,
+            result: {
+                actionId: decision.action.actionId,
+                sourceSequence: observation.sequence,
+                observation: projected.observation,
+                ...(revision === undefined ? {} : {
+                    revision: {
+                        reviewRef: revision.reviewRef,
+                        originalInput: boundedRevisionSummary(revision.originalInput),
+                        executedInput: boundedRevisionSummary(
+                            started?.eventType === "tool_started" ? started.payload.input : undefined,
+                        ),
+                    },
+                }),
+                ...(programRevisions.length === 0 ? {} : { programRevisions }),
+            },
+        };
     }
     if (decision.kind === "context_lookup") {
         const request = events.find(event => event.eventType === "context_lookup_requested");
@@ -92,4 +126,34 @@ function settle(
         kind: "decision_accepted", decisionKind: decision.kind,
         ...(terminal === undefined ? {} : { state: terminal.eventType }),
     } };
+}
+
+
+/**
+ * 收集程序子调用的有界修订说明。
+ *
+ * @remarks 程序未显式返回修订元数据时，父程序结果仍提供一次有界说明；只包含
+ * 修订身份、最终参数摘要与事实引用，不展开完整输入。
+ */
+function collectProgramRevisions(
+    unitEvents: readonly TrajectoryEvent[],
+    allEvents: readonly TrajectoryEvent[],
+): readonly {
+    readonly actionId: string;
+    readonly reviewRef: string;
+    readonly finalInput: { readonly text: string; readonly truncated: boolean };
+    readonly sourceSequence: number;
+}[] {
+    const program = unitEvents.find(event => event.eventType === "program_started");
+    if (program?.eventType !== "program_started") return [];
+    return allEvents
+        .filter(event => event.eventType === "action_revised"
+            && event.programId === program.payload.programId)
+        .map(event => event.eventType === "action_revised" ? {
+            actionId: event.payload.actionId,
+            reviewRef: event.payload.reviewRef,
+            finalInput: boundedRevisionSummary(event.payload.finalInput),
+            sourceSequence: event.sequence,
+        } : undefined)
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined);
 }

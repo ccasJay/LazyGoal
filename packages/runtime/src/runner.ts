@@ -1,4 +1,11 @@
-import type { ModelContextFrameForStage } from "./step-executor";
+import type { ModelContextFrameForStage, PublicTextBlock } from "./step-executor";
+import {
+    findSessionInputRecord,
+    nextSessionInputSequence,
+    withQueuePause,
+    type SessionInputDigest,
+    type SessionInputRecord,
+} from "./session-input";
 import { createHash, randomUUID } from "node:crypto";
 import { ProgramSandboxAbortedError, programWorkerHash, runProgramSandbox } from "../../sandbox/src/index";
 
@@ -24,7 +31,14 @@ import type {
     PendingInteractionTaskApproval,
     PendingThink,
     PendingModelRepair,
+    AssistantMessagePurpose,
+    GoalMessageSource,
 } from "./domain";
+import {
+    appendGoalMessage,
+    createModelTextSource,
+    createStageOutputSource,
+} from "./goal-message";
 import { validateAndReduceContextNotes, type RuntimeContextNote, type ContextNoteSource } from "./context-notes";
 import type { ModelContextCheckpointResult } from "./domain";
 import type { GoalStore } from "./goal-store";
@@ -121,6 +135,12 @@ import {
     type RuntimeFeedbackIssue,
 } from "./runtime-feedback";
 import { transition } from "./transition";
+import {
+    createProgramCallEnvelope,
+    resolveActionExecutionAction,
+    resolveProgramCallRevision,
+    type ProgramCallRevision,
+} from "./action-approval";
 import { findTools, type ToolDiscoveryResult } from "./tool-discovery";
 import {
     createInitialRunStage,
@@ -178,7 +198,7 @@ import {
     selectLatestConversationStart,
     toEpochRange,
 } from "./context-epoch";
-import { withRunModeSelectionGate } from "./run-mode-selection-gate";
+import { withGoalMutationGate } from "./goal-mutation-gate";
 import { RunRecoveryReader } from "./run-recovery-reader";
 import {
     createSandboxGrantMatcher,
@@ -281,6 +301,8 @@ type NormalizedExecution = {
     readonly thought?: string;
     readonly preparedToolAction?: PreparedToolAction;
     readonly acceptedContextNotes?: readonly RuntimeContextNote[];
+    /** 本次 Decide 实际产生的模型调用身份；缺省表示执行方没有报告。 */
+    readonly modelCallId?: string;
 };
 
 function extractExistingContextNotesFromEvents(events: readonly TrajectoryEvent[]): readonly RuntimeContextNote[] {
@@ -1208,7 +1230,13 @@ class RunExecutor {
             return this.runNotFound(ref);
         }
 
-        if (goal.state.run.interruption !== undefined) {
+        if (goal.state.run.interruption !== undefined && options.authorizedActionId === undefined) {
+            // 收尾阶段的新审批请求已被批准：先执行该 Action 再继续收尾，
+            // 否则已批准的真实操作会被收尾分支静默丢弃。
+            if (goal.state.run.interruption.status === "repairing"
+                && goal.state.run.pendingAction?.status === "approved") {
+                return this.recoverPendingAction(goal, effectiveControl);
+            }
             return this.resumeInterruptedRun(goal, control);
         }
 
@@ -1227,7 +1255,7 @@ class RunExecutor {
         }
 
         if (goal.state.run.status === "created") {
-            const start = await withRunModeSelectionGate(this.store, goal.id, async () => {
+            const start = await withGoalMutationGate(this.store, goal.id, async () => {
                 throwIfAborted(effectiveControl);
                 const latestGoal = await this.restore(ref, effectiveControl);
                 throwIfAborted(effectiveControl);
@@ -1291,16 +1319,27 @@ class RunExecutor {
     }
 
     /** 持久化受理当前活动 Run 的 Steer；执行器在下一个模型边界应用。 */
-    async steer(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult> {
+    async steer(
+        ref: RunRef,
+        messageId: string,
+        content: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<SteerInputResult> {
         if (messageId.trim().length === 0 || content.trim().length === 0 || content.length > 64_000) {
             return { ok: false, error: "STEER_CONFLICT" };
         }
-        return withRunModeSelectionGate(this.store, ref.goalId, async () => {
+        return withGoalMutationGate(this.store, ref.goalId, async () => {
             const goal = await this.restore(ref);
             if (goal === undefined || goal.state.run.id !== ref.runId) {
                 return { ok: false, error: "RUN_NOT_FOUND" };
             }
             const run = goal.state.run;
+            const ledgerRecord = ledger === undefined
+                ? undefined
+                : findSessionInputRecord(goal, messageId);
+            if (ledgerRecord !== undefined && ledger !== undefined && ledgerRecord.digest !== ledger.digest) {
+                return { ok: false, error: "STEER_CONFLICT" };
+            }
             const existing = (run.steerInputs ?? []).find((input) => input.messageId === messageId);
             if (existing !== undefined) {
                 const existingContent = existing.status === "pending"
@@ -1316,7 +1355,27 @@ class RunExecutor {
                 ...(run.steerInputs ?? []),
                 { messageId, status: "pending", content },
             ];
-            const nextGoal = this.withRun(goal, { ...run, steerInputs });
+            const ledgerEntry: SessionInputRecord | undefined = ledger === undefined || ledgerRecord !== undefined
+                ? undefined
+                : {
+                    inputId: messageId,
+                    kind: "steer",
+                    digest: ledger.digest,
+                    sequence: nextSessionInputSequence(goal),
+                    status: "pending",
+                    admittedAtRevision: (goal.state.commitRevision ?? 0) + 1,
+                    targetRunId: run.id,
+                };
+            const nextGoal: Goal = {
+                ...goal,
+                state: {
+                    ...goal.state,
+                    run: { ...run, steerInputs },
+                    ...(ledgerEntry === undefined
+                        ? {}
+                        : { inputLedger: [...(goal.state.inputLedger ?? []), ledgerEntry] }),
+                },
+            };
             const fact: TrajectoryEventDraft = {
                 goalId: goal.id,
                 runId: run.id,
@@ -1324,16 +1383,23 @@ class RunExecutor {
                 eventType: "steer_input_received",
                 payload: { type: "steer_input_received", messageId },
             };
-            const committed = await this.checkpointCommitter.commit(nextGoal, { facts: [fact] });
+            const committed = await this.checkpointCommitter.commit(nextGoal, {
+                facts: [fact],
+                ...(ledgerEntry === undefined ? {} : { sessionState: "caller" as const }),
+            });
             this.publishCommittedEvents(committed);
             this.publishCheckpointCommitted(committed, [fact]);
             return { ok: true, goalId: goal.id, runId: run.id, messageId, existing: false };
         });
     }
 
-    async interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {
+    async interrupt(
+        ref: RunRef,
+        requestId: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<InterruptRunResult> {
         if (requestId.trim().length === 0) return { ok: false, error: "INTERRUPT_CONFLICT" };
-        const result = await withRunModeSelectionGate(this.store, ref.goalId, async (): Promise<InterruptRunResult> => {
+        const result = await withGoalMutationGate(this.store, ref.goalId, async (): Promise<InterruptRunResult> => {
             const goal = await this.restore(ref);
             if (goal === undefined || goal.state.run.id !== ref.runId) return { ok: false, error: "RUN_NOT_FOUND" };
             const existing = goal.state.run.interruption;
@@ -1345,8 +1411,41 @@ class RunExecutor {
             if (goal.state.run.status !== "running" && goal.state.run.status !== "waiting") {
                 return { ok: false, error: "RUN_NOT_RUNNING" };
             }
+            if (ledger !== undefined) {
+                const existingRecord = findSessionInputRecord(goal, requestId);
+                if (existingRecord !== undefined && existingRecord.digest !== ledger.digest) {
+                    return { ok: false, error: "INTERRUPT_CONFLICT" };
+                }
+            }
             const interruption: RunInterruption = { requestId, status: "requested", repairCallsStarted: 0 };
-            const nextGoal = this.withRun(goal, { ...goal.state.run, interruption });
+            const ledgerEntry: SessionInputRecord | undefined = ledger === undefined
+                ? undefined
+                : {
+                    // 中断意图在同一提交中生效；收据直接记录为已应用。
+                    inputId: requestId,
+                    kind: "interrupt",
+                    digest: ledger.digest,
+                    sequence: nextSessionInputSequence(goal),
+                    status: "applied",
+                    admittedAtRevision: (goal.state.commitRevision ?? 0) + 1,
+                    targetRunId: ref.runId,
+                    appliedRunId: ref.runId,
+                };
+            const nextGoal: Goal = {
+                ...goal,
+                state: {
+                    ...goal.state,
+                    ...(ledgerEntry === undefined
+                        ? {}
+                        : { inputLedger: [...(goal.state.inputLedger ?? []), ledgerEntry] }),
+                    // 中断意图与队列暂停在同一提交边界生效。
+                    messageQueue: withQueuePause(goal.state.messageQueue, {
+                        reason: "user_interrupt",
+                        runId: ref.runId,
+                    }),
+                    run: { ...goal.state.run, interruption },
+                },
+            };
             const fact: TrajectoryEventDraft = {
                 goalId: goal.id,
                 runId: ref.runId,
@@ -1354,7 +1453,10 @@ class RunExecutor {
                 eventType: "run_interrupt_requested",
                 payload: { type: "run_interrupt_requested", requestId },
             };
-            const committed = await this.checkpointCommitter.commit(nextGoal, { facts: [fact] });
+            const committed = await this.checkpointCommitter.commit(nextGoal, {
+                facts: [fact],
+                sessionState: "caller",
+            });
             this.publishCommittedEvents(committed);
             this.publishCheckpointCommitted(committed, [fact]);
             return { ok: true, goalId: goal.id, runId: ref.runId, requestId, existing: false };
@@ -1395,14 +1497,19 @@ class RunExecutor {
             };
             const { pendingAction: _pendingAction, pendingProgram: _pendingProgram,
                 pendingThink: _pendingThink, pendingModelRepair: _pendingModelRepair, ...run } = goal.state.run;
-            const nextGoal: Goal = {
-                ...goal,
+            const nextGoal: Goal = appendGoalMessage(goal, {
+                role: "user",
+                content: `The current Run was interrupted while Tool ${toolId} (Action ${actionId}) was executing. Its external effect is unknown. Do not repeat that operation. Use necessary authorized tools only to inspect and safely repair its outcome, then stop.`,
+                runId: goal.state.run.id,
+                source: {
+                    kind: "runtime_notice",
+                    noticeId: `interruption:${interruption.requestId}:${actionId}`,
+                },
+            }).goal;
+            const nextGoalWithRun: Goal = {
+                ...nextGoal,
                 state: {
-                    ...goal.state,
-                    messages: [...goal.state.messages, {
-                        role: "user",
-                        content: `The current Run was interrupted while Tool ${toolId} (Action ${actionId}) was executing. Its external effect is unknown. Do not repeat that operation. Use necessary authorized tools only to inspect and safely repair its outcome, then stop.`,
-                    }],
+                    ...nextGoal.state,
                     run: { ...run, status: "running", interruption: nextInterruption },
                 },
             };
@@ -1432,7 +1539,7 @@ class RunExecutor {
                     },
                 ];
             });
-            const committed = await this.checkpointCommitter.commit(nextGoal, { facts, ...(control === undefined ? {} : { control }) });
+            const committed = await this.checkpointCommitter.commit(nextGoalWithRun, { facts, ...(control === undefined ? {} : { control }) });
             this.publishCommittedEvents(committed);
             this.publishCheckpointCommitted(committed, facts);
             goal = committed.goal;
@@ -2460,7 +2567,7 @@ class RunExecutor {
             readonly stepIndex?: number;
         },
     ): Promise<Goal> {
-        return withRunModeSelectionGate(this.store, goal.id, async () => {
+        return withGoalMutationGate(this.store, goal.id, async () => {
             const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
             if (latest?.state.run.interruption?.status === "requested") {
                 throw new RunInterruptAcceptedError("Run Interrupt was accepted before the model checkpoint");
@@ -2535,7 +2642,7 @@ class RunExecutor {
         facts: readonly TrajectoryEventDraft[],
         control?: ExecutionControl,
     ): Promise<TrajectoryCheckpointCommitResult> {
-        return withRunModeSelectionGate(this.store, goal.id, async () => {
+        return withGoalMutationGate(this.store, goal.id, async () => {
             const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
             if (latest?.state.run.interruption?.status === "requested") {
                 throw new RunInterruptAcceptedError("Run Interrupt was accepted before a new Tool attempt");
@@ -2569,7 +2676,7 @@ class RunExecutor {
     }
 
     private async applyPendingSteers(goal: Goal, control?: ExecutionControl): Promise<Goal> {
-        return withRunModeSelectionGate(this.store, goal.id, async (): Promise<Goal> => {
+        return withGoalMutationGate(this.store, goal.id, async (): Promise<Goal> => {
             const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
             if (latest === undefined || latest.state.run.status !== "running") return latest ?? goal;
             const pending = (latest.state.run.steerInputs ?? []).filter(
@@ -2589,12 +2696,23 @@ class RunExecutor {
                     state: nextState,
                 };
             }
-            const messages = [...latest.state.messages];
+            let messages = latest.state.messages;
             const steerInputs = [...(latest.state.run.steerInputs ?? [])];
             const facts: TrajectoryEventDraft[] = [];
+            const appliedPositions = new Map<string, number>();
             for (const input of pending) {
                 const messageIndex = messages.length;
-                messages.push({ role: "user", content: input.content });
+                const appended = appendGoalMessage({
+                    ...latest,
+                    state: { ...latest.state, messages },
+                }, {
+                    role: "user",
+                    content: input.content,
+                    runId: latest.state.run.id,
+                    source: { kind: "user_input", inputId: input.messageId },
+                });
+                messages = appended.goal.state.messages;
+                appliedPositions.set(input.messageId, messageIndex);
                 const index = steerInputs.findIndex(item => item.messageId === input.messageId);
                 steerInputs[index] = { messageId: input.messageId, status: "applied", messageIndex };
                 facts.push({
@@ -2605,9 +2723,21 @@ class RunExecutor {
                     payload: { type: "steer_input_applied", messageId: input.messageId, messageIndex },
                 });
             }
+            // 统一账本同步标记为已应用；没有账本条目的旧路径不凭空创建收据。
+            const inputLedger = latest.state.inputLedger?.map((record) => {
+                const messageIndex = appliedPositions.get(record.inputId);
+                if (messageIndex === undefined || record.status !== "pending") return record;
+                return {
+                    ...record,
+                    status: "applied" as const,
+                    appliedRunId: latest.state.run.id,
+                    messageIndex,
+                };
+            });
             const nextState: GoalState = {
                 ...latest.state,
                 messages,
+                ...(inputLedger === undefined ? {} : { inputLedger }),
                 ...(goal.state.historicalStages !== undefined ? { historicalStages: goal.state.historicalStages } : {}),
                 ...(goal.state.notes !== undefined ? { notes: goal.state.notes } : {}),
                 run: (() => {
@@ -2623,7 +2753,11 @@ class RunExecutor {
                 ...latest,
                 state: nextState,
             };
-            const committed = await this.checkpointCommitter.commit(nextGoal, { facts, ...(control === undefined ? {} : { control }) });
+            const committed = await this.checkpointCommitter.commit(nextGoal, {
+                facts,
+                sessionState: "caller",
+                ...(control === undefined ? {} : { control }),
+            });
             this.publishCommittedEvents(committed);
             this.publishCheckpointCommitted(committed, facts);
             const finalState: GoalState = {
@@ -2874,26 +3008,63 @@ class RunExecutor {
     private async commitAssistantMessage(
         goal: Goal,
         result: Extract<DecideStageResult, { readonly kind: "assistant_message" }>,
-        executionUnitId: string | undefined,
+        executionUnitId: string,
         control?: ExecutionControl,
     ): Promise<Goal> {
-        const nextGoal: Goal = {
-            ...goal,
-            state: {
-                ...goal.state,
-                messages: [...goal.state.messages, {
-                    role: "assistant",
-                    assistant: { profileId: goal.definition.profile.id },
-                    content: result.text,
-                }],
-            },
-        };
+        const modelCallId = result.modelCallId ?? result.modelContextFrame?.modelCallId;
+        const nextGoal: Goal = appendGoalMessage(goal, {
+            role: "assistant",
+            content: result.text,
+            runId: goal.state.run.id,
+            purpose: "process",
+            profileId: goal.definition.profile.id,
+            source: modelCallId === undefined
+                ? createStageOutputSource(executionUnitId, 0)
+                : createModelTextSource(modelCallId, 0),
+        }).goal;
         const committed = await this.checkpointCommitter.commit(
             nextGoal,
             { facts: [], ...(control === undefined ? {} : { control }) },
         );
         this.publishCommittedEvents(committed);
         return committed.goal;
+    }
+
+    /**
+     * 把混合工具响应中的公开正文块按块顺序追加为过程消息。
+     *
+     * @remarks
+     * 每条正文保留原块下标与模型调用来源；空白块不产生消息。追加只改变内存中的
+     * Goal，真正落盘由随后的决策提交完成，因此响应失败、参数无效或完成候选被
+     * 审查拒绝时不会留下正式正文。
+     *
+     * @param goal - 当前已提交的 Goal。
+     * @param blocks - 本次响应被接受后应保存的公开正文块。
+     * @param modelCallId - 产生该正文的模型调用身份；缺省时不虚构模型调用。
+     * @param executionUnitId - 当前执行单元身份；仅在没有模型调用身份时作为来源。
+     * @returns 含过程消息的新 Goal；不修改输入对象。
+     */
+    private appendProcessTextMessages(
+        goal: Goal,
+        blocks: readonly PublicTextBlock[],
+        modelCallId: string | undefined,
+        executionUnitId: string,
+    ): Goal {
+        let next = goal;
+        for (const block of blocks) {
+            if (block.text.trim().length === 0) continue;
+            next = appendGoalMessage(next, {
+                role: "assistant",
+                content: block.text,
+                runId: goal.state.run.id,
+                purpose: "process",
+                profileId: goal.definition.profile.id,
+                source: modelCallId === undefined
+                    ? createStageOutputSource(executionUnitId, block.index)
+                    : createModelTextSource(modelCallId, block.index),
+            }).goal;
+        }
+        return next;
     }
 
     private async executeRepairableModelStage<T, U>(
@@ -2966,8 +3137,11 @@ class RunExecutor {
                 if (error.assistantMessageText !== undefined) {
                     currentGoal = await this.commitAssistantMessage(
                         currentGoal,
-                        { kind: "assistant_message", text: error.assistantMessageText },
-                        pending.executionUnitId,
+                        {
+                            kind: "assistant_message",
+                            text: error.assistantMessageText,
+                            ...(error.modelCallId === undefined ? {} : { modelCallId: error.modelCallId }),
+                        },                        pending.executionUnitId,
                         control,
                     );
                 }
@@ -3393,8 +3567,32 @@ class RunExecutor {
         }));
     }
 
-    private publishCommittedEvents(result: TrajectoryCheckpointCommitResult): void {
-        for (const event of result.events) {
+    /**
+     * 明确作废一个仍然有效的完成候选预览。
+     *
+     * @remarks
+     * 作废只影响观察：它不改写候选正文、不改变完成审查、重试预算或 Run 状态，
+     * 也不等同于 Run 失败。
+     *
+     * @param goal - 当前 Goal。
+     * @param candidateId - 被作废的候选身份。
+     * @param reason - 作废原因。
+     */
+    private publishCandidateInvalidated(
+        goal: Goal,
+        candidateId: string,
+        reason: "rejected" | "cancelled" | "failed" | "replaced" | "ambiguous",
+    ): void {
+        this.publishExecutionEvent(goal, {
+            kind: "candidate_invalidated",
+            visibility: "public",
+            durability: "live",
+            delivery: "control",
+            payload: { candidateId, reason },
+        });
+    }
+
+    private publishCommittedEvents(result: TrajectoryCheckpointCommitResult): void {        for (const event of result.events) {
             const executionUnitId = event.executionUnitId;
             const actionId = event.actionId;
             this.publishExecutionEvent(result.goal, {
@@ -3484,7 +3682,7 @@ class RunExecutor {
         try {
             validated = prepareToolAction(
                 goal,
-                pendingAction.action,
+                resolveActionExecutionAction(pendingAction),
                 this.toolRegistry,
                 this.toolPolicy,
                 false,
@@ -3665,13 +3863,21 @@ class RunExecutor {
         plan?: SandboxExecutionPlan,
         program?: { readonly programId: string; readonly callIndex: number },
     ): Promise<
-        | { readonly kind: "observed"; readonly goal: Goal; readonly observation: ToolObservation; readonly sourceSequence?: number }
+        | {
+            readonly kind: "observed";
+            readonly goal: Goal;
+            readonly observation: ToolObservation;
+            readonly sourceSequence?: number;
+            readonly revision?: ProgramCallRevision | undefined;
+        }
         | { readonly kind: "stopped"; readonly result: RunnerResult }
     > {
         const association = program === undefined ? {} : {
             programId: program.programId,
             callIndex: program.callIndex,
         };
+        // 修订说明在执行前从已获批版本派生：实际执行的参数与原请求同时可见。
+        const revision = resolveProgramCallRevision(goal.state.run.pendingAction);
         let observation: ToolObservation | undefined;
         const replaySafe = prepared.registration.replayPolicy === "safe"
             && (program === undefined || prepared.registration.definition.isReadOnly);
@@ -3725,6 +3931,12 @@ class RunExecutor {
                         actionId: prepared.action.actionId,
                         toolId: prepared.action.toolId,
                         input: prepared.action.input,
+                        ...(revision === undefined ? {} : {
+                            revision: {
+                                reviewRef: revision.reviewRef,
+                                originalInput: revision.originalInput,
+                            },
+                        }),
                     },
                 }, control);
                 const rawObservation = prepared.stream === undefined
@@ -3811,10 +4023,9 @@ class RunExecutor {
         if (program !== undefined) {
             const current = goal.state.run.pendingProgram;
             if (current === undefined) throw new Error("PTC_REPLAY_MISMATCH");
-            const bytes = Buffer.byteLength(JSON.stringify({
-                observation,
-                sourceReferences: [0],
-            }));
+            const bytes = Buffer.byteLength(JSON.stringify(
+                createProgramCallEnvelope(observation, 0, revision),
+            ));
             if (bytes > 16 * 1024 * 1024) throw new ProgramResourceError("PTC_FRAME_LIMIT");
             if (current.resultBytes + bytes > 256 * 1024 * 1024) {
                 throw new ProgramResourceError("PTC_LOG_LIMIT");
@@ -3833,7 +4044,7 @@ class RunExecutor {
             eventType: "observation_recorded",
             payload: { type: "observation_recorded", actionId: prepared.action.actionId, observation },
         };
-        const committed = await withRunModeSelectionGate(this.store, goal.id, async () => {
+        const committed = await withGoalMutationGate(this.store, goal.id, async () => {
             const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
             if (latest === undefined) throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "Run disappeared before Observation commit");
             const toolFinishedEvent = await this.appendTrajectory({
@@ -3882,6 +4093,7 @@ class RunExecutor {
             && event.actionId === prepared.action.actionId)?.sequence;
         return {
             kind: "observed",
+            ...(revision === undefined ? {} : { revision }),
             goal: checkpoint,
             observation,
             ...(sourceSequence === undefined ? {} : { sourceSequence }),
@@ -3975,6 +4187,8 @@ class RunExecutor {
                     );
                 }
 
+                const executionAction = resolveActionExecutionAction(pendingAction);
+
                 let effectivePlan: SandboxExecutionPlan | undefined = undefined;
                 if (
                     transientSandboxPlan !== undefined
@@ -3985,7 +4199,7 @@ class RunExecutor {
                 } else if (this.sandboxPlanResolver !== undefined && this.workspaceRoot !== undefined) {
                     effectivePlan = await this.sandboxPlanResolver({
                         workspaceRoot: this.workspaceRoot,
-                        action: pendingAction.action,
+                        action: executionAction,
                         effectiveScope: pendingAction.effectiveSandboxScope,
                     });
                 }
@@ -3996,7 +4210,7 @@ class RunExecutor {
                     validated = preparedAction === undefined
                         ? prepareToolAction(
                             goal,
-                            pendingAction.action,
+                            executionAction,
                             this.toolRegistry,
                             this.toolPolicy,
                             false,
@@ -4110,8 +4324,13 @@ class RunExecutor {
                 },
             });
 
+            /** 本次执行单元仍然有效的完成候选身份；决策被弃用时必须作废它。 */
+            let pendingCandidateId: string | undefined;
+
             try {
                 let normalized: NormalizedExecution;
+                /** 追加过程正文之前的 Goal；完成候选被审查拒绝时不提交这些正文。 */
+                let goalBeforeProcessText: Goal | undefined;
                 let stepInput!: StepExecutionInput;
                 let pendingThinkRequestCommitted = false;
                 /** 本次 Decide 新建的批次剩余项；来自队列时为 undefined。 */
@@ -4262,7 +4481,7 @@ class RunExecutor {
                                                 message: "Return one declared tool call, or a non-empty text answer.",
                                             }],
                                             constraints: ["A text-only answer is accepted as an assistant message but does not advance the task. Continue the original task with one declared tool call."],
-                                        }), "A text-only answer does not advance the task.", undefined, result.text);
+                                        }), "A text-only answer does not advance the task.", undefined, result.text, result.modelContextFrame?.modelCallId);
                                     }
                                     const queue = result.kind === "batch" ? result.decisions.slice(1) : [];
                                     if (result.kind === "batch" && result.decisions.some(decision => decision.kind !== "tool_call")) {
@@ -4329,6 +4548,12 @@ class RunExecutor {
                                             ...stepInput, goal: activeGoal, candidate, evidence,
                                         });
                                         if (reviewed.kind === "reject") {
+                                            // 审查拒绝的候选必须明确作废：它不是正式答复，也不改变重试预算。
+                                            this.publishCandidateInvalidated(
+                                                activeGoal,
+                                                result.modelContextFrame?.modelCallId ?? executionUnitId,
+                                                "rejected",
+                                            );
                                             throw new ModelStageFeedbackError(createRuntimeFeedback({
                                                 goalId: activeGoal.id, runId: activeGoal.state.run.id,
                                                 executionUnitId, stepOrdinal, stage: "decide",
@@ -4450,6 +4675,9 @@ class RunExecutor {
                             }
                             normalized = {
                                 decision: stageResult.decision,
+                                ...(stageResult.modelContextFrame?.modelCallId === undefined
+                                    ? {}
+                                    : { modelCallId: stageResult.modelContextFrame.modelCallId }),
                                 ...(!("preparedToolAction" in decided.result)
                                     || decided.result.preparedToolAction === undefined
                                     ? {}
@@ -4459,6 +4687,23 @@ class RunExecutor {
                                     ? {}
                                     : { acceptedContextNotes: decided.result.acceptedContextNotes }),
                             };
+                            if (normalized.decision.kind === "complete") {
+                                pendingCandidateId = normalized.modelCallId ?? executionUnitId;
+                            }
+                            // 混合响应被接受后，其公开正文块按块顺序成为过程消息；
+                            // 正文与随后的决策事实一起提交，失败或审查拒绝时不落盘。
+                            goalBeforeProcessText = goal;
+                            const publicTextBlocks = "publicTextBlocks" in stageResult
+                                ? stageResult.publicTextBlocks
+                                : undefined;
+                            if (publicTextBlocks !== undefined && publicTextBlocks.length > 0) {
+                                goal = this.appendProcessTextMessages(
+                                    goal,
+                                    publicTextBlocks,
+                                    normalized.modelCallId,
+                                    executionUnitId,
+                                );
+                            }
                             if (goal.state.run.interruption?.status === "repairing") {
                                 const repairDecision = normalized.decision;
                                 if (repairDecision.kind !== "tool_call") {
@@ -4553,6 +4798,7 @@ class RunExecutor {
                     const nextGoal = this.appendDecisionMessage(
                         this.withRun(goal, nextRun),
                         decision,
+                        executionUnitId,
                     );
 
                     const closedEpochFact = this.contextEpochClosedFact(nextGoal, "run_failed");
@@ -4764,7 +5010,10 @@ class RunExecutor {
                     });
                     const transitionedGoal = this.withRun(goal, nextRun);
                     const formattedContent = this.formatAskUserQuestions(normalizedReq.questions);
-                    const nextGoal = this.appendAssistantContent(transitionedGoal, formattedContent);
+                    const nextGoal = this.appendAssistantContent(transitionedGoal, formattedContent, {
+                        purpose: "notice",
+                        source: { kind: "runtime_notice", noticeId: `ask_user:${normalizedReq.requestId}` },
+                    });
 
                     const decisionFact: TrajectoryEventDraft = {
                         goalId: goal.id,
@@ -4845,6 +5094,10 @@ class RunExecutor {
                         const nextGoal = this.appendAssistantContent(
                             this.withRun(goal, nextRun),
                             this.formatAskUserQuestions(normalizedAsk.questions),
+                            {
+                                purpose: "notice",
+                                source: { kind: "runtime_notice", noticeId: `ask_user:${normalizedAsk.requestId}` },
+                            },
                         );
                         goal = await this.commitDecision(
                             nextGoal,
@@ -4959,7 +5212,10 @@ class RunExecutor {
                         normalized.decision.task,
                         normalized.decision.approvalRequest,
                     );
-                    const nextGoal = this.appendAssistantContent(transitionedGoal, formattedContent);
+                    const nextGoal = this.appendAssistantContent(transitionedGoal, formattedContent, {
+                        purpose: "notice",
+                        source: { kind: "runtime_notice", noticeId: `task_proposal:${requestId}` },
+                    });
 
                     const decisionFact: TrajectoryEventDraft = {
                         goalId: goal.id,
@@ -5461,7 +5717,8 @@ class RunExecutor {
                             stage: rejectedStage,
                             decision: stageDecision,
                         });
-                        const nextGoal = this.withRun(goal, nextRun);
+                        // 被审查拒绝的完成候选不提交其公开正文。
+                        const nextGoal = this.withRun(goalBeforeProcessText ?? goal, nextRun);
                         goal = await this.commitDecision(
                             nextGoal,
                             [
@@ -5606,7 +5863,8 @@ class RunExecutor {
                             stage: rejectedStage,
                             decision: normalized.decision,
                         });
-                        const nextGoal = this.withRun(goal, nextRun);
+                        // 被审查拒绝的完成候选不提交其公开正文。
+                        const nextGoal = this.withRun(goalBeforeProcessText ?? goal, nextRun);
                         goal = await this.commitDecision(
                             nextGoal,
                             [
@@ -5678,9 +5936,11 @@ class RunExecutor {
                 const nextRun = acceptedPlanRoute === undefined
                     ? transitionedRun
                     : { ...transitionedRun, planRoute: acceptedPlanRoute };
-                let nextGoal = this.appendDecisionMessage(
+                const decisionIdentity = normalized.modelCallId ?? executionUnitId;
+                const nextGoal = this.appendDecisionMessage(
                     this.withRun(goal, nextRun),
                     normalized.decision,
+                    decisionIdentity,
                 );
 
                 let terminalFact: TrajectoryEventDraft;
@@ -5703,10 +5963,7 @@ class RunExecutor {
                         payload: { type: "run_waiting", reason: normalized.decision.reason },
                     };
                 } else if (normalized.decision.kind === "fail") {
-                    nextGoal = this.appendDecisionMessage(
-                        this.withRun(goal, nextRun),
-                        normalized.decision,
-                    );
+                    // 失败通知正文已在统一决策提交处追加；此处只补充终态事实。
                     terminalFact = {
                         goalId: goal.id,
                         runId: goal.state.run.id,
@@ -5769,11 +6026,21 @@ class RunExecutor {
                 contextLookupResult = undefined;
                 contextLookupChainCount = 0;
             } catch (error) {
-                if (error instanceof RunInterruptAcceptedError) throw error;
+                if (error instanceof RunInterruptAcceptedError) {
+                    // 已被受理的中断使当前候选失效：它不是正式答复，也不改变收尾规则。
+                    if (pendingCandidateId !== undefined) {
+                        this.publishCandidateInvalidated(goal, pendingCandidateId, "cancelled");
+                    }
+                    throw error;
+                }
                 if (error instanceof InterruptRepairBudgetExhausted) {
                     return this.cancelInterruptedRun(error.goal, control);
                 }
                 if (error instanceof PendingSteerAcceptedError) {
+                    // Steer 到达使旧决策被弃用：对应候选必须先作废。
+                    if (pendingCandidateId !== undefined) {
+                        this.publishCandidateInvalidated(goal, pendingCandidateId, "replaced");
+                    }
                     goal = await this.applyPendingSteers(goal, control);
                     continue;
                 }
@@ -5972,10 +6239,24 @@ class RunExecutor {
                 || staged[0]!.sequence >= result.sequence) {
                 throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
             }
-            committedResultBytes += Buffer.byteLength(JSON.stringify({
-                observation: result.payload.observation,
-                sourceReferences: [0],
-            }));
+            const revised = committed.find((event) => event.eventType === "action_revised"
+                && event.actionId === actionId
+                && event.programId === program.programId
+                && event.callIndex === index);
+            committedResultBytes += Buffer.byteLength(JSON.stringify(
+                createProgramCallEnvelope(
+                    result.payload.observation,
+                    0,
+                    revised?.eventType === "action_revised"
+                        ? {
+                            reviewRef: revised.payload.reviewRef,
+                            originalInput: revised.payload.originalInput,
+                            finalInput: revised.payload.finalInput,
+                            source: revised.payload.revisionSource ?? "user",
+                        }
+                        : undefined,
+                ),
+            ));
         }
         if (committedResultBytes !== program.resultBytes) {
             throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
@@ -6063,10 +6344,24 @@ class RunExecutor {
                             || JSON.stringify(stage.payload.action.input) !== JSON.stringify(prepared.action.input)) {
                             throw new Error("PTC_REPLAY_MISMATCH");
                         }
-                        return {
-                            observation: result.payload.observation,
-                            sourceReferences: [result.sequence],
-                        };
+                        // 已结算子调用只返回保存结果；修订说明与首次执行保持一致。
+                        const revised = committed.find((event) => event.eventType === "action_revised"
+                            && event.actionId === actionId
+                            && event.programId === program.programId
+                            && event.callIndex === callIndex);
+                        const revision = revised?.eventType === "action_revised"
+                            ? {
+                                reviewRef: revised.payload.reviewRef,
+                                originalInput: revised.payload.originalInput,
+                                finalInput: revised.payload.finalInput,
+                                source: revised.payload.revisionSource ?? "user",
+                            }
+                            : undefined;
+                        return createProgramCallEnvelope(
+                            result.payload.observation,
+                            result.sequence,
+                            revision,
+                        );
                     }
                     if (callIndex !== goal.state.run.pendingProgram!.nextCallIndex) {
                         throw new Error("PTC_REPLAY_MISMATCH");
@@ -6108,11 +6403,25 @@ class RunExecutor {
                         if (authorization.requiresApproval) throw new ProgramWaitingError();
                     }
                     if (pending?.status !== "approved") throw new ProgramWaitingError();
+                    const childExecutionAction = resolveActionExecutionAction(pending);
+                    if (JSON.stringify(childExecutionAction.input) !== JSON.stringify(prepared.action.input)) {
+                        prepared = prepareToolAction(
+                            goal,
+                            childExecutionAction,
+                            this.toolRegistry,
+                            this.toolPolicy,
+                            false,
+                            toolControl,
+                        );
+                        if (prepared.registration.kind === "program") {
+                            throw new Error("PTC_INVALID_TOOL_CALL");
+                        }
+                    }
                     let plan: SandboxExecutionPlan | undefined;
                     if (this.sandboxPlanResolver !== undefined && this.workspaceRoot !== undefined) {
                         plan = await this.sandboxPlanResolver({
                             workspaceRoot: this.workspaceRoot,
-                            action: prepared.action,
+                            action: childExecutionAction,
                             effectiveScope: pending.effectiveSandboxScope,
                         });
                     }
@@ -6133,10 +6442,11 @@ class RunExecutor {
                         throw new ProgramWaitingError();
                     }
                     goal = outcome.goal;
-                    return {
-                        observation: outcome.observation,
-                        sourceReferences: outcome.sourceSequence === undefined ? [] : [outcome.sourceSequence],
-                    };
+                    return createProgramCallEnvelope(
+                        outcome.observation,
+                        outcome.sourceSequence ?? 0,
+                        outcome.revision,
+                    );
                 },
             });
             observation = { kind: "success", output: value as JsonValue, summary: "Program returned a result." };
@@ -6426,34 +6736,38 @@ class RunExecutor {
                 | { readonly kind: "run_stage_complete" }
                 | { readonly kind: "run_plan_route_update" }
         >,
+        candidateId: string,
     ): Goal {
-        const content = decision.kind === "complete"
-            ? decision.summary
-            : decision.kind === "wait"
-                ? decision.reason
-                : decision.error;
-
-        return this.appendAssistantContent(goal, content);
+        if (decision.kind === "complete") {
+            // 只有 Runtime 真正结算当前 Run 的最终答复才标记为 answer。
+            return this.appendAssistantContent(goal, decision.summary, {
+                purpose: "answer",
+                source: { kind: "completion_candidate", candidateId },
+            });
+        }
+        const content = decision.kind === "wait" ? decision.reason : decision.error;
+        return this.appendAssistantContent(goal, content, {
+            purpose: "notice",
+            source: { kind: "runtime_notice", noticeId: `${decision.kind}:${candidateId}` },
+        });
     }
 
     private appendAssistantContent(
         goal: Goal,
         content: string,
+        identity: {
+            readonly purpose: AssistantMessagePurpose;
+            readonly source: GoalMessageSource;
+        },
     ): Goal {
-        return {
-            ...goal,
-            state: {
-                ...goal.state,
-                messages: [
-                    ...goal.state.messages,
-                    {
-                        role: "assistant",
-                        assistant: { profileId: goal.definition.profile.id },
-                        content,
-                    },
-                ],
-            },
-        };
+        return appendGoalMessage(goal, {
+            role: "assistant",
+            content,
+            runId: goal.state.run.id,
+            purpose: identity.purpose,
+            profileId: goal.definition.profile.id,
+            source: identity.source,
+        }).goal;
     }
 
     private applyTransition(state: RunState, input: RunInput): RunState {
@@ -6524,8 +6838,9 @@ export class Runner {
      * 同一消息身份与正文的重试幂等，身份复用但正文不同会拒绝。
      *
      * @param ref - 目标 Goal 与 Run 的关联身份。
-     * @param messageId - 客户端为该次发送分配的稳定身份。
+     * @param messageId - 客户端为该次发送分配的稳定身份，同时作为统一输入账本身份。
      * @param content - 非空 Steer 正文。
+     * @param ledger - 提供时在同一提交中写入统一输入账本条目。
      * @returns 已持久化受理、幂等重试或稳定拒绝结果。
      * @throws Snapshot 或 Trajectory 保存失败时传播原始错误；失败时不报告受理。
      * @example
@@ -6533,8 +6848,13 @@ export class Runner {
      * const accepted = await runner.steer({ goalId, runId }, "steer-1", "保留当前 API");
      * ```
      */
-    steer(ref: RunRef, messageId: string, content: string): Promise<SteerInputResult> {
-        return this.executor.steer(ref, messageId, content);
+    steer(
+        ref: RunRef,
+        messageId: string,
+        content: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<SteerInputResult> {
+        return this.executor.steer(ref, messageId, content, ledger);
     }
 
     /**
@@ -6549,7 +6869,11 @@ export class Runner {
      * await runner.interrupt({ goalId, runId }, "interrupt-1");
      * ```
      */
-    interrupt(ref: RunRef, requestId: string): Promise<InterruptRunResult> {
-        return this.executor.interrupt(ref, requestId);
+    interrupt(
+        ref: RunRef,
+        requestId: string,
+        ledger?: { readonly digest: SessionInputDigest },
+    ): Promise<InterruptRunResult> {
+        return this.executor.interrupt(ref, requestId, ledger);
     }
 }

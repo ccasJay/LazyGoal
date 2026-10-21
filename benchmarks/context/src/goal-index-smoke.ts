@@ -135,15 +135,13 @@ export async function runGoalIndexSmoke(configPath?: string, output?: string, si
                         memoryPatch: null,
                         contextNotes: null,
                     };
-            return { content: JSON.stringify({ result }) };
+            return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ result }) }] };
         },
     };
 
     const judge: LLMAdapter = {
         structuredOutputMode: "prompt_only",
-        generate: async () => ({
-            content: JSON.stringify({ score: 1, rationale: "Database updated", evidence: ["output"] }),
-        }),
+        generate: async () => ({ blocks: [{ index: 0, type: "text", format: "plain", text: JSON.stringify({ score: 1, rationale: "Database updated", evidence: ["output"] }) }] }),
     };
 
     const candidate = await captureScenario(scenario, worker, { id: "offline-index-capture", adapter }, join(directory, "capture"));
