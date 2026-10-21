@@ -263,6 +263,7 @@ export class GoalSessionStream implements SessionOutputStream {
                         },
                         messageId: message.messageId,
                         role: message.role,
+                        position: message.position,
                         ...(message.purpose === undefined ? {} : { purpose: message.purpose }),
                         runId: message.runId,
                         commitRevision: state.commitRevision,

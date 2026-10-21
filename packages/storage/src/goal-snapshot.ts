@@ -92,6 +92,25 @@ export type GoalSnapshotMessageSourceV1 =
     | { readonly kind: "host_execution"; readonly actionId: string }
     | { readonly kind: "runtime_notice"; readonly noticeId: string };
 
+/**
+ * Snapshot 中的 Run 内消息位置。
+ *
+ * @remarks
+ * `afterSequence` 指同一 Run 中消息之前最后一条已提交事实；`order` 按 Snapshot
+ * 顺序标识共享锚点的消息。此位置不表示墙钟时间或执行 Step。
+ *
+ * @example
+ * ```ts
+ * const position: GoalSnapshotMessagePositionV1 = { afterSequence: 12, order: 0 };
+ * ```
+ */
+export interface GoalSnapshotMessagePositionV1 {
+    /** 消息之前的最后一条已提交事实序列。 */
+    readonly afterSequence: number;
+    /** 同一 Run、同一锚点内的 Snapshot 次序，从零开始。 */
+    readonly order: number;
+}
+
 /** Snapshot 中按时间顺序保存的真实会话消息。 */
 export type GoalSnapshotMessageV1 =
     | {
@@ -99,6 +118,8 @@ export type GoalSnapshotMessageV1 =
         readonly content: string;
         readonly messageId: string;
         readonly runId: string;
+        /** 消息之前最后一条已提交 Run 事实及同锚点 Snapshot 次序。 */
+        readonly position: GoalSnapshotMessagePositionV1;
         readonly source: GoalSnapshotMessageSourceV1;
     }
     | {
@@ -107,6 +128,8 @@ export type GoalSnapshotMessageV1 =
         readonly content: string;
         readonly messageId: string;
         readonly runId: string;
+        /** 消息之前最后一条已提交 Run 事实及同锚点 Snapshot 次序。 */
+        readonly position: GoalSnapshotMessagePositionV1;
         readonly purpose: "process" | "answer" | "notice";
         readonly source: GoalSnapshotMessageSourceV1;
     };
@@ -916,12 +939,18 @@ const GoalSnapshotMessageSourceSchema = z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("runtime_notice"), noticeId: NonEmptyStringSchema }).strict(),
 ]);
 
+const GoalSnapshotMessagePositionSchema = z.object({
+    afterSequence: z.number().int().nonnegative(),
+    order: z.number().int().nonnegative(),
+}).strict();
+
 const GoalSnapshotMessageSchema = z.discriminatedUnion("role", [
     z.object({
         role: z.literal("user"),
         content: z.string(),
         messageId: NonEmptyStringSchema,
         runId: NonEmptyStringSchema,
+        position: GoalSnapshotMessagePositionSchema,
         source: GoalSnapshotMessageSourceSchema,
     }).strict(),
     z.object({
@@ -930,6 +959,7 @@ const GoalSnapshotMessageSchema = z.discriminatedUnion("role", [
         content: z.string(),
         messageId: NonEmptyStringSchema,
         runId: NonEmptyStringSchema,
+        position: GoalSnapshotMessagePositionSchema,
         purpose: z.enum(["process", "answer", "notice"]),
         source: GoalSnapshotMessageSourceSchema,
     }).strict(),
@@ -1690,6 +1720,33 @@ function validateSnapshotInvariants(
             addInvariantIssue(context, "completedRuns message ranges must be ordered and non-overlapping", ["state", "completedRuns", index, "messageRange"]);
         }
         previousRunEnd = Math.max(previousRunEnd, history.messageRange.end);
+    }
+    const messageRunBoundaries = new Map<string, number>([
+        ...goal.state.completedRuns.map((history) => [history.runId, history.committedThroughSequence] as const),
+        [run.id, run.committedThroughSequence],
+    ]);
+    const lastMessageSequenceByRun = new Map<string, number>();
+    const nextMessageOrderByAnchor = new Map<string, number>();
+    for (const [index, message] of goal.state.messages.entries()) {
+        const boundary = messageRunBoundaries.get(message.runId);
+        if (boundary === undefined) {
+            addInvariantIssue(context, "Goal message must reference the current or a completed Run", ["state", "messages", index, "runId"]);
+            continue;
+        }
+        if (message.position.afterSequence > boundary) {
+            addInvariantIssue(context, "Goal message position exceeds its Run committed boundary", ["state", "messages", index, "position", "afterSequence"]);
+        }
+        const previousSequence = lastMessageSequenceByRun.get(message.runId);
+        if (previousSequence !== undefined && message.position.afterSequence < previousSequence) {
+            addInvariantIssue(context, "Goal message positions must follow Snapshot order within each Run", ["state", "messages", index, "position", "afterSequence"]);
+        }
+        lastMessageSequenceByRun.set(message.runId, Math.max(previousSequence ?? 0, message.position.afterSequence));
+        const anchor = `${message.runId}\u0000${message.position.afterSequence}`;
+        const expectedOrder = nextMessageOrderByAnchor.get(anchor) ?? 0;
+        if (message.position.order !== expectedOrder) {
+            addInvariantIssue(context, "Goal message order must be contiguous within a Run fact anchor", ["state", "messages", index, "position", "order"]);
+        }
+        nextMessageOrderByAnchor.set(anchor, expectedOrder + 1);
     }
     const steerIds = new Set<string>();
     for (const [index, steer] of (run.steerInputs ?? []).entries()) {

@@ -265,6 +265,16 @@ test("跳过 AskUser 询问后保留当前 Run 并继续执行", async () => {
     const pending = waiting.goal.state.run.pendingInteraction;
     assert.ok(pending?.kind === "ask_user");
     if (pending?.kind !== "ask_user") assert.fail("Expected AskUser request");
+    const waitingNotice = waiting.goal.state.messages.find((message) =>
+        message.role === "assistant"
+        && message.source.kind === "runtime_notice"
+        && message.source.noticeId === `ask_user:${pending.requestId}`);
+    const waitingFact = trajectoryStore.events.find((event) =>
+        event.runId === ref.runId && event.payload.type === "run_waiting" && event.payload.requestId === pending.requestId);
+    assert.ok(waitingNotice);
+    assert.ok(waitingFact);
+    assert.equal(waitingNotice.runId, ref.runId);
+    assert.deepEqual(waitingNotice.position, { afterSequence: waitingFact.sequence, order: 0 });
     const resumed = await coordinator.resume({
         ref,
         action: { kind: "skip_question", requestId: pending.requestId },
@@ -287,7 +297,7 @@ test("跳过 AskUser 询问后保留当前 Run 并继续执行", async () => {
 });
 
 test("ask_user 恢复: 校验 requestId 与 answers，合法提交后追加用户消息并推进下一轮", async () => {
-    const { store, stepExecutor, coordinator, goal, ref } = createCoordinatorTestRig();
+    const { store, trajectoryStore, stepExecutor, coordinator, goal, ref } = createCoordinatorTestRig();
     await store.save(goal);
 
     stepExecutor.enqueue({
@@ -384,6 +394,10 @@ test("ask_user 恢复: 校验 requestId 与 answers，合法提交后追加用�
         (m) => m.role === "user" && m.content.includes("PostgreSQL"),
     );
     assert.ok(userMsg);
+    const answeredFact = trajectoryStore.events.find((event) =>
+        event.runId === ref.runId && event.payload.type === "ask_user_answered" && event.payload.requestId === reqId);
+    assert.ok(answeredFact);
+    assert.deepEqual(userMsg.position, { afterSequence: answeredFact.sequence, order: 0 });
 });
 
 test("Plan 提案前拒绝写工具，再持久化完整路线提案等待", async () => {
@@ -485,6 +499,12 @@ test("任务提案反馈: feedback_task 使旧提案失效，追加反馈消息�
     const messages = feedbackResult.goal.state.messages;
     const userFeedback = messages.find((m) => m.content === "请不要使用外部依赖，改为原生实现");
     assert.ok(userFeedback);
+    const feedbackFact = trajectoryStore.events.find((event) =>
+        event.runId === ref.runId
+        && event.payload.type === "task_feedback_received"
+        && event.payload.requestId === proposalReqId);
+    assert.ok(feedbackFact);
+    assert.deepEqual(userFeedback.position, { afterSequence: feedbackFact.sequence, order: 0 });
     const revisedRequestId = feedbackResult.goal.state.run.pendingInteraction?.kind === "task_approval"
         ? feedbackResult.goal.state.run.pendingInteraction.requestId
         : undefined;

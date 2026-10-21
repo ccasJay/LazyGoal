@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { ArrowUp, ChevronDown, Folder } from "lucide-react";
 import { slashCommands } from "../types";
+import { resolveComposerKey, steerActionState } from "../session-controls";
 
 export function InboxIcon() {
   return (
@@ -48,8 +49,8 @@ export function MessageComposer({
   onSubmit,
   pendingSteers = [],
   onSteer,
-  onQueue,
   onInterrupt,
+  steerDisabled = false,
   autoFocus = false,
   showHint = true,
 }: {
@@ -65,8 +66,9 @@ export function MessageComposer({
   onSubmit: (content: string) => Promise<boolean>;
   pendingSteers?: readonly { readonly messageId: string; readonly content: string }[];
   onSteer?: (content: string) => Promise<boolean>;
-  onQueue?: (content: string) => Promise<boolean>;
   onInterrupt?: () => Promise<void>;
+  /** 状态可能过期时禁止依赖最新状态的 Steer 决定。 */
+  steerDisabled?: boolean;
   footerControls?: ReactNode;
   autoFocus?: boolean;
   showHint?: boolean;
@@ -74,17 +76,13 @@ export function MessageComposer({
   const [draft, setDraft] = useState("");
   const [selectedCommand, setSelectedCommand] = useState(0);
   const [commandMenuClosed, setCommandMenuClosed] = useState(false);
-  const [runSendOptionsOpen, setRunSendOptionsOpen] = useState(false);
   const inspection = slashCommands.inspect(draft);
   const candidates = !running && inspection.kind === "candidates" && !commandMenuClosed ? inspection.candidates : [];
   const activeCandidate = candidates[Math.min(selectedCommand, candidates.length - 1)];
+  const steer = steerActionState({ busy, stale: steerDisabled, hasDraft: draft.trim().length > 0 });
 
   async function submit(content = draft) {
     if (busy || !content.trim()) return;
-    if (running) {
-      setRunSendOptionsOpen(true);
-      return;
-    }
     const submittedDraft = draft;
     if (await onSubmit(content)) {
       setDraft((current) => (current === submittedDraft ? "" : current));
@@ -94,20 +92,10 @@ export function MessageComposer({
   }
 
   async function chooseSteer() {
-    if (!onSteer || busy || !draft.trim()) return;
+    if (!onSteer || !steer.enabled || !draft.trim()) return;
     const submittedDraft = draft;
     if (await onSteer(submittedDraft)) {
       setDraft((current) => (current === submittedDraft ? "" : current));
-      setRunSendOptionsOpen(false);
-    }
-  }
-
-  async function chooseQueue(): Promise<void> {
-    if (!onQueue || !draft.trim()) return;
-    const submittedDraft = draft;
-    if (await onQueue(submittedDraft)) {
-      setDraft((current) => (current === submittedDraft ? "" : current));
-      setRunSendOptionsOpen(false);
     }
   }
 
@@ -144,6 +132,11 @@ export function MessageComposer({
           ))}
         </div>
       )}
+      {running && (
+        <p className="composer-run-note" id="composer-run-note">
+          Sending normally queues the next task. Steer modifies the current task instead.
+        </p>
+      )}
       <form
         className="composer"
         onSubmit={(event) => {
@@ -157,11 +150,11 @@ export function MessageComposer({
           aria-label={textareaLabel}
           aria-describedby={describedBy}
           aria-keyshortcuts="Enter Shift+Enter"
-          title={running ? "This Run is in progress." : "Enter to send · Shift + Enter for a new line"}
+          title="Enter to send · Shift + Enter for a new line"
           placeholder={placeholder}
           autoFocus={autoFocus}
           value={draft}
-          disabled={busy || (running && stopping)}
+          disabled={busy}
           onChange={(event) => {
             setDraft(event.target.value);
             setSelectedCommand(0);
@@ -185,12 +178,12 @@ export function MessageComposer({
               setCommandMenuClosed(true);
               return;
             }
-            if (event.key === "Escape" && runSendOptionsOpen) {
-              event.preventDefault();
-              setRunSendOptionsOpen(false);
-              return;
-            }
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            const outcome = resolveComposerKey({
+              key: event.key,
+              shiftKey: event.shiftKey,
+              isComposing: event.nativeEvent.isComposing,
+            });
+            if (outcome.kind === "submit") {
               event.preventDefault();
               void submit();
             }
@@ -198,58 +191,45 @@ export function MessageComposer({
         />
         <div className="composer-tools">
           <div className="composer-controls">{footerControls}</div>
-          {running && runSendOptionsOpen && draft.trim() ? (
-            <div className="run-send-options" role="group" aria-label="Choose message action">
-              <button type="button" disabled={busy} onClick={() => void chooseSteer()}>
+          <div className="composer-actions">
+            {onInterrupt !== undefined && (
+              <button
+                type="button"
+                className={`stop-run${stopping ? " is-stopping" : ""}`}
+                aria-label={stopping ? "Stopping Run" : "Stop run"}
+                title={stopping ? "This Run is being stopped" : "Stop this Run"}
+                disabled={stopping}
+                onClick={() => void onInterrupt()}
+              >
+                {stopping ? "Stopping" : "Stop run"}
+              </button>
+            )}
+            {onSteer !== undefined && (
+              <button
+                type="button"
+                className="steer-send"
+                aria-label="Steer the current Run with this message"
+                aria-describedby="composer-run-note"
+                title="Steer modifies the current task instead of queuing the next task."
+                disabled={!steer.enabled}
+                onClick={() => void chooseSteer()}
+              >
                 Steer
               </button>
-              <button type="button" disabled={busy} onClick={() => void chooseQueue()}>
-                Queue
-              </button>
-            </div>
-          ) : (
+            )}
             <button
-              type={running ? "button" : "submit"}
-              className={`send ${running ? "is-running" : ""} ${running && stopping ? "is-stopping" : ""}`}
-              aria-label={
-                running
-                  ? stopping
-                    ? "Stopping Run"
-                    : draft.trim()
-                    ? "Choose Steer or Queue"
-                    : "Interrupt Run"
-                  : busy
-                  ? "Sending message"
-                  : "Send message"
-              }
-              title={
-                running
-                  ? stopping
-                    ? "Stopping Run"
-                    : draft.trim()
-                    ? "Choose Steer or Queue"
-                    : "Interrupt this Run"
-                  : undefined
-              }
-              disabled={busy || (running && stopping) || sendDisabled || (!running && !draft.trim())}
-              onClick={running ? () => (draft.trim() ? setRunSendOptionsOpen(true) : void onInterrupt?.()) : undefined}
+              type="submit"
+              className={`send${running ? " is-running" : ""}`}
+              aria-label={busy ? "Sending message" : "Send message"}
+              disabled={busy || sendDisabled || !draft.trim()}
             >
-              {running ? (
-                <>
-                  {stopping ? (
-                    <span className="run-spinner stopping" aria-hidden="true" />
-                  ) : (
-                    <span className="run-spinner" aria-hidden="true" />
-                  )}
-                  {stopping ? "Stopping" : "Running"}
-                </>
-              ) : busy ? (
+              {busy ? (
                 <span className="loading-mark small" />
               ) : (
                 <ArrowUp size={16} />
               )}
             </button>
-          )}
+          </div>
         </div>
       </form>
       {showHint && <div className="composer-hint">Enter to send · Shift + Enter for a new line</div>}

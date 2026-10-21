@@ -6,7 +6,8 @@
 | --- | --- | --- | --- |
 | Goal | 可恢复的会话聚合。 | [Goal Runtime](../README.md) | [模块说明](./overview.md) |
 | Run | Goal 内的一次执行边界。 | [Goal Runtime](../README.md) | [模块说明](./overview.md) |
-| 正式消息身份 | 每条已保存消息在所属 Runtime 提交边界分配的 `messageId` 与所属 `runId`；刷新、重试或切换 Run 后仍可定位，不由数组位置或正文哈希推导。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |
+| 正式消息身份 | 每条已保存消息有稳定 `messageId`、所属 `runId` 和持久化 `position`；同源提交重试复用身份与位置，不从正文推导。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |
+| Run 内消息位置 | `afterSequence` 指消息前最后一条已提交事实，首事实前为 0；同锚点 `order` 按 Snapshot 顺序从 0 连续编号。 | [Goal Runtime](../README.md) | [统一提交边界](../src/trajectory-checkpoint-committer.ts) |
 | 消息来源 | 描述消息为什么存在的判别式来源：基础输入、交互回复、模型正文块、被接受的完成候选、宿主执行或 Runtime 通知；参与提交重试核对与原生历史去重。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |
 | 助手消息用途 | `process` 是模型公开过程正文，`answer` 是被审查接受的最终答复，`notice` 是等待、失败等 Runtime 通知。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |
 | 同源幂等提交 | 同一来源重试返回已提交的原消息身份，不追加第二条；同一来源正文不一致时明确失败，不覆盖已提交正文。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |

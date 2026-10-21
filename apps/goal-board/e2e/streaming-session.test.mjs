@@ -63,29 +63,25 @@ test("streaming session keeps one runtime queue across Steer, Interrupt, tabs an
     const firstRunId = session.currentRunId;
     await waitForExpression(socket, "document.querySelector('.composer-area') !== null", 15_000);
 
-    // 运行中默认 Queue：默认发送只持久化受理，不取消在途调用。
+    // 运行中默认 Queue：Enter 直接排队，只持久化受理，不取消在途调用。
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Queued while running");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('textarea[aria-label=\\\"Message the Goal\\\"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.run-send-options') !== null", 10_000);
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.run-send-options button')].find(button => button.textContent === 'Queue').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.queued-inputs')?.innerText.includes('Queued while running')", 15_000);
         session = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages?.length ?? 0) === 1);
     assert.equal(session.currentRunId, firstRunId);
     assert.equal(session.queue.paused, false);
     const queueRevision = session.queue.revision;
 
-    // 显式 Steer 面向当前 Run，出现在待应用列表。
+    // 显式 Steer 面向当前 Run，出现在待应用列表；Steer 是独立按钮，不再经过弹出菜单。
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Steer this active Run");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('textarea[aria-label=\\\"Message the Goal\\\"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.run-send-options') !== null", 10_000);
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.run-send-options button')].find(button => button.textContent === 'Steer').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\\\"Steer the current Run with this message\\\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.pending-steers')?.innerText.includes('Steer this active Run')", 15_000);
     session = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingSteers?.length ?? 0) === 1);
     assert.equal(session.currentRunId, firstRunId);
     assert.equal(session.pendingSteers[0].content, "Steer this active Run");
 
     // 显式 Interrupt：停止阶段可观察，最终以 cancelled 结算并暂停队列。
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Interrupt Run\"]').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Stop run\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('button[aria-label=\"Stopping Run\"]') !== null || document.querySelector('.queue-paused') !== null", 10_000);
     const paused = await waitForSession(first.origin, first.token, (candidate) => candidate.queue?.paused === true);
     assert.equal(paused.queue.pauseReason, "user_interrupt");

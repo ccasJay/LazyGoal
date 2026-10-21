@@ -31,6 +31,7 @@ function userMessage(goal: Goal, index: number, content = `消息 ${index}`): Go
         content,
         runId: goal.state.run.id,
         source: { kind: "user_input", inputId: `input-${index}` },
+        position: { afterSequence: 0, order: index },
     });
 }
 

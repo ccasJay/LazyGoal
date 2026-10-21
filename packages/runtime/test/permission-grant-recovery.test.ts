@@ -32,7 +32,7 @@ import {
     InMemoryGoalStore,
     JsonFileSandboxGrantStore,
 } from "../../storage/src/index";
-import { currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import { bindMessagesToRun, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 import {
     createApprovalCoordinator,
     createApprovalFixture,
@@ -351,6 +351,8 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
                     exposedToolIds: [...TEST_PROFILE.toolIds],
                     ...(initialGoal.state.run.currentStage !== undefined ? { currentStage: initialGoal.state.run.currentStage } : {}),
                 },
+                // 新 Run 接管当前 Goal 的全部消息归属与 Run 内位置。
+                messages: bindMessagesToRun(initialGoal.state.messages, "run-2"),
             },
         };
         await store.save(goalWithRun2);
@@ -414,6 +416,8 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
                     exposedToolIds: [...TEST_PROFILE.toolIds],
                     ...(initialGoal.state.run.currentStage !== undefined ? { currentStage: initialGoal.state.run.currentStage } : {}),
                 },
+                // 新 Run 接管当前 Goal 的全部消息归属与 Run 内位置。
+                messages: bindMessagesToRun(initialGoal.state.messages, "run-3"),
             },
         };
         await store.save(goalWithRun3);

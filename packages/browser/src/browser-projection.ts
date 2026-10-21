@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+
 import type {
     Goal,
     GoalCatalog,
@@ -21,6 +23,22 @@ import type {
     BrowserGoalListItem,
     BrowserGoalPlan,
     BrowserGoalSession,
+    BrowserGoalSessionState,
+    BrowserActivityActionContext,
+    BrowserActivityEventType,
+    BrowserActivityFactItem,
+    BrowserActivityGap,
+    BrowserActivityItem,
+    BrowserActivityMessageItem,
+    BrowserActivityPage,
+    BrowserActivityPosition,
+    BrowserActivityQuery,
+    BrowserActivityReadResult,
+    BrowserActivityRunContext,
+    BrowserActivityRunWindow,
+    BrowserActivityStageContext,
+    BrowserActivityThinkItem,
+    BrowserActivityToolState,
     BrowserInteractionView,
     BrowserPendingAction,
     BrowserSessionMessage,
@@ -31,12 +49,14 @@ import type {
     BrowserPlanRoute,
     BrowserPlanRouteStage,
 } from "../../web-contracts/src/index";
+import { BROWSER_ACTIVITY_EVENT_TYPES, isRecord } from "../../web-contracts/src/index";
 
 export type {
     BrowserBashExecutionDetail,
     BrowserGoalListItem,
     BrowserGoalPlan,
     BrowserGoalSession,
+    BrowserGoalSessionState,
     BrowserInteractionView,
     BrowserPendingAction,
     BrowserSessionMessage,
@@ -58,6 +78,26 @@ const MAX_STEP_SUMMARY_LENGTH = 1_000;
 const MAX_BASH_EXECUTION_DETAILS = 100;
 const MAX_BASH_COMMAND_LENGTH = 2_000;
 const MAX_BASH_OUTPUT_LENGTH = 4_000;
+const MAX_ACTIVITY_CURSOR_LENGTH = 65_536;
+const DEFAULT_ACTIVITY_PAGE_SIZE = 50;
+const MAX_ACTIVITY_PAGE_SIZE = 100;
+
+interface ActivityCursor {
+    readonly version: 1;
+    readonly goalId: string;
+    readonly runFilter?: string;
+    readonly window: readonly BrowserActivityRunWindow[];
+    readonly anchor: BrowserActivityPosition;
+}
+
+interface ActivityRunSnapshot {
+    readonly runId: string;
+    readonly status: Goal["state"]["run"]["status"];
+    readonly current: boolean;
+    readonly runOrder: number;
+    readonly messages: readonly Goal["state"]["messages"][number][];
+    readonly committedThroughSequence: number;
+}
 
 /**
  * 将正式 Goal Catalog 摘要投影为看板白名单条目。
@@ -185,16 +225,13 @@ export async function readBrowserGoalSession(
     const allMessages = goal.state.messages;
     if (allMessages.length > MAX_MESSAGES) historyTruncated = true;
     const firstMessageIndex = Math.max(0, allMessages.length - MAX_MESSAGES);
-    const currentMessageStart = completedRuns.at(-1)?.messageRange.end ?? 0;
-    const messages = allMessages.slice(firstMessageIndex).map((message, offset) => {
-        const messageIndex = firstMessageIndex + offset;
-        const completedRun = findCompletedRunForMessage(completedRuns, messageIndex);
-        const runId = completedRun?.runId
-            ?? (messageIndex >= currentMessageStart ? currentRun.id : undefined);
+    const messages = allMessages.slice(firstMessageIndex).map((message) => {
         return {
+            messageId: message.messageId,
             role: message.role,
             content: boundedText(message.content, MAX_MESSAGE_LENGTH),
-            ...(runId === undefined ? {} : { runId }),
+            runId: message.runId,
+            position: { ...message.position },
         };
     });
     if (allMessages.some((message) => message.content.length > MAX_MESSAGE_LENGTH)) {
@@ -252,6 +289,725 @@ export async function readBrowserGoalSession(
         ...(pendingAction === undefined ? {} : { pendingAction }),
         historyTruncated,
     };
+}
+
+/**
+ * 只从最新 Snapshot 投影当前 Goal 状态，不读取消息历史或任何 Run Trajectory。
+ *
+ * @param goalId - 要恢复的 Goal 稳定标识。
+ * @param store - 正式工作区 Snapshot 读取端口。
+ * @param activeGoalId - 当前服务正持有活动执行预约的 Goal；省略时按 Snapshot 推断。
+ * @returns 明确把消息、步骤和阶段历史指向 Activity 的窄状态；Goal 不存在时返回 `undefined`。
+ * @throws Snapshot 损坏或底层读取失败时拒绝。
+ * @example
+ * ```ts
+ * const state = await readBrowserGoalSessionState(goalId, root.workspaceGoalStore);
+ * ```
+ */
+export async function readBrowserGoalSessionState(
+    goalId: string,
+    store: Pick<GoalStore, "restore">,
+    activeGoalId?: string,
+): Promise<BrowserGoalSessionState | undefined> {
+    const goal = await store.restore(goalId);
+    if (goal === undefined) return undefined;
+
+    const currentRun = goal.state.run;
+    const isActive = activeGoalId !== undefined && goal.id === activeGoalId;
+    const executionState = isActive ? "active"
+        : (currentRun.status === "created" || currentRun.status === "running") ? "recoverable"
+            : "inactive";
+    const pendingAction = currentRun.pendingAction === undefined
+        ? undefined
+        : projectPendingAction(currentRun.pendingAction, currentRun.pendingProgram);
+    const interaction = projectBrowserInteractionView(goal, pendingInteractionDisplayTruncated(currentRun.pendingInteraction)
+        || (pendingAction?.inputPreviewTruncated ?? false));
+    const queue = goal.state.messageQueue;
+    const pendingSteers = (currentRun.steerInputs ?? [])
+        .filter((input): input is Extract<NonNullable<Goal["state"]["run"]["steerInputs"]>[number], { readonly status: "pending" }> => input.status === "pending")
+        .map(({ messageId, content }) => ({ messageId, content: boundedText(content, MAX_MESSAGE_LENGTH) }));
+    const pendingMessages = (queue?.items ?? [])
+        .map((item) => ({ inputId: item.inputId, content: boundedText(item.content, MAX_MESSAGE_LENGTH) }));
+    const goalPlan = goal.state.goalPlan === undefined ? undefined : projectGoalPlan(goal.state.goalPlan);
+    const planRoute = currentRun.planRoute === undefined ? undefined : projectBrowserPlanRoute(currentRun.planRoute);
+
+    return {
+        goalId: goal.id,
+        intent: boundedText(goal.definition.intent, MAX_TEXT_LENGTH),
+        currentRunId: currentRun.id,
+        runStatus: currentRun.status,
+        currentRunMode: currentRun.mode,
+        ...(goal.state.nextRunMode === undefined ? {} : { nextRunMode: goal.state.nextRunMode }),
+        currentRunStepCount: currentRun.stepCount,
+        ...(planRoute === undefined ? {} : { currentPlanRoute: planRoute }),
+        execution: {
+            state: executionState,
+            committedThroughSequence: currentRun.committedThroughSequence ?? 0,
+        },
+        ...(pendingSteers.length === 0 ? {} : { pendingSteers }),
+        ...(pendingMessages.length === 0 ? {} : { pendingMessages }),
+        ...(queue === undefined ? {} : {
+            queue: {
+                revision: queue.revision,
+                paused: queue.pause !== undefined,
+                ...(queue.pause === undefined ? {} : { pauseReason: queue.pause.reason }),
+            },
+        }),
+        ...(currentRun.interruption === undefined ? {} : {
+            interruption: {
+                requestId: currentRun.interruption.requestId,
+                status: currentRun.interruption.status,
+                repairCallsStarted: currentRun.interruption.repairCallsStarted,
+                ...(currentRun.interruption.outcomeUnknown === undefined ? {} : { outcomeUnknown: currentRun.interruption.outcomeUnknown }),
+            },
+        }),
+        ...(goalPlan === undefined ? {} : { goalPlan }),
+        ...(interaction === undefined ? {} : { interaction }),
+        ...(pendingAction === undefined ? {} : { pendingAction }),
+        history: {
+            messages: { included: false, source: "activity" },
+            steps: { included: false, source: "activity" },
+            stages: { included: false, source: "activity" },
+        },
+    };
+}
+
+/**
+ * 按固定 Snapshot 水位组合有界 Activity 页；已提交事实之外的 Trajectory tail 不会投影。
+ *
+ * @param goalId - 正式工作区 Goal 身份。
+ * @param query - 可选 Run 过滤、互斥双向 cursor 与页大小。
+ * @param store - 正式工作区 Goal Snapshot 读取边界。
+ * @param readTrajectory - 按 Snapshot 提交边界分类的正式工作区读取器。
+ * @returns 最多 100 项的白名单 Activity 页，或稳定的 Goal、Run、cursor 拒绝。
+ * @throws Snapshot 或轨迹读取失败时拒绝；文件 JSONL 读取可扫描完整 Run 文件，不承诺磁盘随机访问有界。
+ * @example
+ * ```ts
+ * const page = await readBrowserGoalActivity(goalId, { limit: 50 }, root.workspaceGoalStore, root.readWorkspaceTrajectory);
+ * ```
+ */
+export async function readBrowserGoalActivity(
+    goalId: string,
+    query: BrowserActivityQuery,
+    store: Pick<GoalStore, "restore">,
+    readTrajectory: (query: TrajectoryReadQuery) => Promise<Readonly<TrajectoryReadResult>>,
+): Promise<BrowserActivityReadResult> {
+    const goal = await store.restore(goalId);
+    if (goal === undefined) return { ok: false, error: "goal_not_found" };
+    const limit = query.limit ?? DEFAULT_ACTIVITY_PAGE_SIZE;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_ACTIVITY_PAGE_SIZE) {
+        return { ok: false, error: "activity_cursor_invalid" };
+    }
+
+    const runSnapshots = projectActivityRunSnapshots(goal);
+    const runById = new Map(runSnapshots.map((run) => [run.runId, run]));
+    if (query.runId !== undefined && !runById.has(query.runId)) return { ok: false, error: "run_not_found" };
+
+    let window: readonly BrowserActivityRunWindow[];
+    let anchor: BrowserActivityPosition | undefined;
+    let direction: "before" | "after" | undefined;
+    const cursorToken = query.before ?? query.after;
+    if (cursorToken !== undefined) {
+        const cursor = decodeActivityCursor(cursorToken);
+        if (cursor === undefined || cursor.goalId !== goalId || cursor.runFilter !== query.runId) {
+            return { ok: false, error: "activity_cursor_invalid" };
+        }
+        if (!isActivityCursorValid(cursor, runById)) return { ok: false, error: "activity_cursor_invalid" };
+        window = cursor.window;
+        anchor = cursor.anchor;
+        direction = query.before === undefined ? "after" : "before";
+    } else {
+        const selectedRuns = query.runId === undefined ? runSnapshots : runSnapshots.filter((run) => run.runId === query.runId);
+        window = selectedRuns.map((run) => {
+            const runMessages = run.messages;
+            const lastMessage = runMessages.at(-1);
+            return {
+                runId: run.runId,
+                messageCount: runMessages.length,
+                ...(lastMessage === undefined ? {} : { throughMessageId: lastMessage.messageId }),
+                committedThroughSequence: run.committedThroughSequence,
+            };
+        });
+    }
+
+    const windowByRun = new Map(window.map((item) => [item.runId, item]));
+    const selectedRuns = window.map((item) => runById.get(item.runId)!);
+    const activity: BrowserActivityItem[] = [];
+    for (const run of selectedRuns) {
+        const runWindow = windowByRun.get(run.runId)!;
+        const boundedMessages = run.messages.slice(0, runWindow.messageCount);
+        if (runWindow.messageCount > 0 && boundedMessages.at(-1)?.messageId !== runWindow.throughMessageId) {
+            return { ok: false, error: "activity_cursor_invalid" };
+        }
+        for (const message of boundedMessages) {
+            if (message.position.afterSequence > runWindow.committedThroughSequence) {
+                return { ok: false, error: "activity_cursor_invalid" };
+            }
+            activity.push(projectActivityMessage(message, run));
+        }
+        const result = await readTrajectory({ goalId, runId: run.runId });
+        const toolStates = projectActivityToolStates(result.committed);
+        for (const event of result.committed) {
+            if (event.sequence > runWindow.committedThroughSequence || !isBrowserActivityFact(event.eventType)) continue;
+            activity.push(projectActivityFact(event, run, toolStates.get(event.eventId)));
+        }
+        for (const think of projectActivityThinkItems(run.runId, run.runOrder, result.committed)) {
+            if (think.position.sequence > runWindow.committedThroughSequence) continue;
+            activity.push(think);
+        }
+    }
+    activity.sort(compareActivityPosition);
+
+    const anchorIndex = anchor === undefined ? undefined : findActivityAnchor(activity, anchor);
+    if (anchor !== undefined && (anchorIndex === undefined || anchorIndex < 0)) {
+        return { ok: false, error: "activity_cursor_invalid" };
+    }
+    const startIndex = anchorIndex === undefined ? Math.max(0, activity.length - limit)
+        : direction === "before" ? Math.max(0, anchorIndex - limit) : anchorIndex + 1;
+    const endIndex = anchorIndex === undefined ? activity.length
+        : direction === "before" ? anchorIndex : Math.min(activity.length, startIndex + limit);
+    const pageItems = activity.slice(startIndex, endIndex);
+    const pageStart = pageItems[0];
+    const pageEnd = pageItems.at(-1);
+    const gaps: BrowserActivityGap[] = [];
+    const olderItems = activity.slice(0, startIndex);
+    const olderFirst = olderItems[0];
+    const olderLast = olderItems.at(-1);
+    if (olderFirst !== undefined && olderLast !== undefined) {
+        gaps.push({
+            direction: "older",
+            itemCount: olderItems.length,
+            first: olderFirst.position,
+            last: olderLast.position,
+        });
+    }
+    const newerItems = activity.slice(endIndex);
+    const newerFirst = newerItems[0];
+    const newerLast = newerItems.at(-1);
+    if (newerFirst !== undefined && newerLast !== undefined) {
+        gaps.push({
+            direction: "newer",
+            itemCount: newerItems.length,
+            first: newerFirst.position,
+            last: newerLast.position,
+        });
+    }
+    const olderAvailable = gaps.some((gap) => gap.direction === "older");
+    const newerAvailable = gaps.some((gap) => gap.direction === "newer");
+    const runs: BrowserActivityRunContext[] = selectedRuns.map((run) => ({
+        runId: run.runId,
+        status: run.status,
+        current: run.current,
+        runOrder: run.runOrder,
+        committedThroughSequence: windowByRun.get(run.runId)!.committedThroughSequence,
+    }));
+    const { stages, actionGroups } = projectActivityContexts(activity, pageItems);
+    const page: BrowserActivityPage = {
+        goalId,
+        ...(query.runId === undefined ? {} : { runFilter: query.runId }),
+        limit,
+        items: pageItems,
+        runs,
+        window,
+        gaps,
+        range: {
+            ...(pageStart === undefined ? {} : { first: pageStart.position }),
+            ...(pageEnd === undefined ? {} : { last: pageEnd.position }),
+            olderAvailable,
+            newerAvailable,
+        },
+        stages,
+        actionGroups,
+        ...(olderAvailable && pageStart !== undefined ? { beforeCursor: encodeActivityCursor({
+            version: 1, goalId, ...(query.runId === undefined ? {} : { runFilter: query.runId }), window,
+            anchor: pageStart.position,
+        }) } : {}),
+        ...(newerAvailable && pageEnd !== undefined ? { afterCursor: encodeActivityCursor({
+            version: 1, goalId, ...(query.runId === undefined ? {} : { runFilter: query.runId }), window,
+            anchor: pageEnd.position,
+        }) } : {}),
+    };
+    return { ok: true, page };
+}
+
+function projectActivityRunSnapshots(goal: Goal): ActivityRunSnapshot[] {
+    const messagesByRun = new Map<string, Goal["state"]["messages"][number][]>();
+    for (const message of goal.state.messages) {
+        const messages = messagesByRun.get(message.runId) ?? [];
+        messages.push(message);
+        messagesByRun.set(message.runId, messages);
+    }
+    const completed = goal.state.completedRuns ?? [];
+    const snapshots: ActivityRunSnapshot[] = completed.map((run, runOrder) => ({
+        runId: run.runId,
+        status: run.status,
+        current: false,
+        runOrder,
+        messages: messagesByRun.get(run.runId) ?? [],
+        committedThroughSequence: run.committedThroughSequence,
+    }));
+    snapshots.push({
+        runId: goal.state.run.id,
+        status: goal.state.run.status,
+        current: true,
+        runOrder: snapshots.length,
+        messages: messagesByRun.get(goal.state.run.id) ?? [],
+        committedThroughSequence: goal.state.run.committedThroughSequence ?? 0,
+    });
+    return snapshots;
+}
+
+function projectActivityMessage(
+    message: Goal["state"]["messages"][number],
+    run: ActivityRunSnapshot,
+): BrowserActivityMessageItem {
+    const summary = boundedActivityMessage(message.content, 4_000);
+    return {
+        type: "message",
+        itemId: `message:${message.messageId}`,
+        messageId: message.messageId,
+        role: message.role,
+        ...(message.role === "assistant" ? { purpose: message.purpose } : {}),
+        ...(message.role === "assistant" && message.purpose === "answer" && message.source.kind === "completion_candidate"
+            ? { previewId: message.source.candidateId }
+            : {}),
+        runId: run.runId,
+        position: {
+            runId: run.runId,
+            runOrder: run.runOrder,
+            sequence: message.position.afterSequence,
+            itemKind: "message",
+            order: message.position.order,
+        },
+        content: summary.content,
+        contentLength: message.content.length,
+        truncated: summary.truncated,
+    };
+}
+
+function projectActivityFact(
+    event: TrajectoryEvent,
+    run: ActivityRunSnapshot,
+    tool: BrowserActivityToolState | undefined,
+): BrowserActivityFactItem {
+    const payload = event.payload;
+    const stageId = payload.type === "run_stage_declared" || payload.type === "run_stage_accepted" || payload.type === "run_stage_rejected"
+        ? payload.stageId : undefined;
+    const stageRevision = payload.type === "run_stage_declared" || payload.type === "run_stage_accepted" || payload.type === "run_stage_rejected"
+        ? payload.revision : undefined;
+    const stageTarget = payload.type === "run_stage_declared" ? boundedText(payload.target, 1_000) : undefined;
+    const actionId = trajectoryActionId(event);
+    return {
+        type: "fact",
+        itemId: `event:${event.eventId}`,
+        eventId: event.eventId,
+        runId: run.runId,
+        position: {
+            runId: run.runId,
+            runOrder: run.runOrder,
+            sequence: event.sequence,
+            itemKind: "fact",
+            order: 0,
+        },
+        eventType: event.eventType as BrowserActivityEventType,
+        title: activityEventTitle(event.eventType as BrowserActivityEventType),
+        ...(event.executionUnitId === undefined ? {} : { executionUnitId: event.executionUnitId }),
+        ...(actionId === undefined ? {} : { actionId }),
+        ...(stageId === undefined ? {} : { stageId }),
+        ...(stageRevision === undefined ? {} : { stageRevision }),
+        ...(stageTarget === undefined ? {} : { stageTarget }),
+        ...(tool === undefined ? {} : { tool }),
+    };
+}
+
+/**
+ * 从已提交 Trajectory 投影显式 Think 摘要。
+ *
+ * @remarks
+ * 只保留既有获准摘要与已提交输出；未提交的思考不进入窗口。输出超长时按既有上限截断并
+ * 标记，完整事件仍可从 Trajectory 读取。Think 不产生新的工具事实，也不改变 Step 计数。
+ *
+ * @param runId - Think 所属 Run 身份。
+ * @param runOrder - Run 在 Goal 中的稳定顺序。
+ * @param committedEvents - 当前 Run 已提交的轨迹事件。
+ * @returns 显式 Think 摘要项。
+ */
+function projectActivityThinkItems(
+    runId: string,
+    runOrder: number,
+    committedEvents: readonly TrajectoryEvent[],
+): readonly BrowserActivityThinkItem[] {
+    const sorted = [...committedEvents].sort((left, right) => left.sequence - right.sequence);
+    const items: BrowserActivityThinkItem[] = [];
+    for (const request of sorted) {
+        if (request.eventType !== "think_requested" || request.executionUnitId === undefined) continue;
+        const completed = sorted.find((event) => event.eventType === "think_completed"
+            && event.payload.requestId === request.payload.requestId
+            && event.executionUnitId === request.executionUnitId);
+        const output = completed?.eventType === "think_completed" ? completed.payload.output : undefined;
+        const goal = boundedText(request.payload.goal, MAX_TEXT_LENGTH);
+        items.push({
+            type: "think",
+            itemId: `think:${request.eventId}`,
+            runId,
+            position: {
+                runId,
+                runOrder,
+                sequence: request.sequence,
+                itemKind: "fact",
+                order: 0,
+            },
+            executionUnitId: request.executionUnitId,
+            think: {
+                goal,
+                ...(output === undefined ? {} : { output: boundedText(output, MAX_MESSAGE_LENGTH) }),
+                ...(request.payload.goal.length > MAX_TEXT_LENGTH || (output?.length ?? 0) > MAX_MESSAGE_LENGTH
+                    ? { truncated: true as const }
+                    : {}),
+            },
+        });
+    }
+    return items;
+}
+
+/**
+ * 从已提交 Trajectory 事实投影每个白名单事件所属动作的工具状态。
+ *
+ * @remarks
+ * 状态只来自已提交的 `action_staged`、`tool_started`、`observation_recorded` 等事实；
+ * 实时返回不会进入该投影。原始工具参数与 Observation 正文不进入结果，只保留既有白名单
+ * 输入摘要与结果摘要。PTC 子调用按其真实父程序身份归组。
+ *
+ * @param committedEvents - 当前 Run 已提交的轨迹事件。
+ * @returns 以事件 ID 索引的已提交工具状态。
+ */
+function projectActivityToolStates(
+    committedEvents: readonly TrajectoryEvent[],
+): ReadonlyMap<string, BrowserActivityToolState> {
+    const sorted = [...committedEvents].sort((left, right) => left.sequence - right.sequence);
+    const unitStageMap = new Map<string, string>();
+    let currentStageId: string | undefined;
+    for (const event of sorted) {
+        if (event.payload.type === "run_stage_declared") currentStageId = event.payload.stageId;
+        if (event.executionUnitId !== undefined && currentStageId !== undefined && !unitStageMap.has(event.executionUnitId)) {
+            unitStageMap.set(event.executionUnitId, currentStageId);
+        }
+    }
+
+    const parentActionByProgram = new Map<string, string>();
+    for (const event of sorted) {
+        if (event.payload.type === "program_started") {
+            parentActionByProgram.set(event.payload.programId, event.payload.parentActionId);
+        }
+    }
+
+    interface MutableToolAction {
+        readonly actionId?: string;
+        readonly executionUnitId?: string;
+        readonly stageId?: string;
+        readonly parentActionId?: string;
+        firstSequence: number;
+        lastSequence: number;
+        toolId: string | undefined;
+        status: "recorded" | "pending-result" | "completed" | "failed" | "rejected";
+        actionStatus: "awaiting_approval" | "approved" | "rejected" | undefined;
+        inputSummary: string | undefined;
+        summary: string | undefined;
+        attempts: string[];
+        revisionRef: string | undefined;
+        recoveryRef: string | undefined;
+        eventIds: string[];
+    }
+
+    const actions = new Map<string, MutableToolAction>();
+    for (const event of sorted) {
+        const actionId = trajectoryActionId(event);
+        const key = actionId !== undefined
+            ? `action:${actionId}`
+            : event.executionUnitId !== undefined ? `unit:${event.executionUnitId}` : undefined;
+        if (key === undefined) continue;
+        let action = actions.get(key);
+        if (action === undefined) {
+            const stageId = event.executionUnitId === undefined ? undefined : unitStageMap.get(event.executionUnitId);
+            const parentActionId = event.programId === undefined ? undefined : parentActionByProgram.get(event.programId);
+            action = {
+                ...(actionId !== undefined ? { actionId } : {}),
+                ...(event.executionUnitId !== undefined ? { executionUnitId: event.executionUnitId } : {}),
+                ...(stageId === undefined ? {} : { stageId }),
+                ...(parentActionId === undefined ? {} : { parentActionId }),
+                firstSequence: event.sequence,
+                lastSequence: event.sequence,
+                toolId: undefined,
+                status: "recorded",
+                actionStatus: undefined,
+                inputSummary: undefined,
+                summary: undefined,
+                attempts: [],
+                revisionRef: undefined,
+                recoveryRef: undefined,
+                eventIds: [],
+            };
+            actions.set(key, action);
+        }
+        action.lastSequence = event.sequence;
+        action.eventIds.push(event.eventId);
+
+        const payload = event.payload;
+        if (payload.type === "decision_received") {
+            if (payload.decision.kind === "tool_call") action.toolId = payload.decision.action.toolId;
+        } else if (payload.type === "action_staged") {
+            action.toolId = payload.action.toolId;
+            action.inputSummary = projectToolInputSummary(payload.action.toolId, payload.action.input);
+            action.actionStatus = payload.approvalStatus;
+        } else if (payload.type === "action_approved") {
+            action.actionStatus = "approved";
+        } else if (payload.type === "action_revised") {
+            action.actionStatus = "approved";
+            action.revisionRef = payload.reviewRef;
+        } else if (payload.type === "action_rejected") {
+            action.actionStatus = "rejected";
+            action.status = "rejected";
+        } else if (payload.type === "action_reexecution_authorized") {
+            action.recoveryRef = payload.recoveryRef;
+        } else if (payload.type === "action_reexecution_declined") {
+            action.recoveryRef = payload.recoveryRef;
+        } else if (payload.type === "tool_started") {
+            action.toolId = payload.toolId;
+            action.inputSummary = projectToolInputSummary(payload.toolId, payload.input) ?? action.inputSummary;
+            if (payload.revision !== undefined) action.revisionRef = payload.revision.reviewRef;
+        } else if (payload.type === "tool_attempt_started") {
+            action.attempts.push(`Tool attempt ${payload.attempt}`);
+        } else if (payload.type === "tool_attempt_failed") {
+            action.attempts.push(`Tool retry ${payload.attempt} failed: ${boundedText(payload.reason, 160)}`);
+        } else if (payload.type === "tool_finished") {
+            action.toolId = payload.toolId;
+            // 工具已返回但 Observation 尚未提交：结果待保存，不等于已保存成功。
+            if (action.status === "recorded") action.status = "pending-result";
+        } else if (payload.type === "observation_recorded") {
+            if (payload.observation.kind === "success") {
+                action.status = "completed";
+                action.summary = boundedText(payload.observation.summary, MAX_STEP_SUMMARY_LENGTH);
+            } else if (payload.observation.kind === "failure") {
+                action.status = "failed";
+                action.summary = boundedText(payload.observation.message, MAX_STEP_SUMMARY_LENGTH);
+            } else {
+                action.status = "rejected";
+            }
+        }
+    }
+
+    const toolActions = [...actions.values()]
+        .filter((action) => action.toolId !== undefined)
+        .sort((left, right) => left.firstSequence - right.firstSequence);
+    const eventById = new Map(sorted.map((event) => [event.eventId, event]));
+    const boundaryEventIds = new Set<string>();
+    for (const action of toolActions) {
+        for (const eventId of action.eventIds) {
+            const event = eventById.get(eventId);
+            if (event !== undefined && isActivityBoundaryEvent(event)) boundaryEventIds.add(eventId);
+        }
+    }
+
+    const states = new Map<string, BrowserActivityToolState>();
+    let previous: { readonly lastSequence: number; readonly stageId?: string } | undefined;
+    for (const action of toolActions) {
+        const hasBoundaryInAction = action.eventIds.some((eventId) => boundaryEventIds.has(eventId));
+        const boundaryBefore = previous !== undefined
+            && (hasBoundaryInAction || previous.stageId !== action.stageId
+                || !hasVerifiedActivityBridge(previous.lastSequence, action.firstSequence, sorted));
+        const state: BrowserActivityToolState = {
+            toolId: action.toolId!,
+            status: action.status,
+            ...(action.actionStatus === undefined ? {} : { actionStatus: action.actionStatus }),
+            ...(action.inputSummary === undefined ? {} : { inputSummary: action.inputSummary }),
+            ...(action.summary === undefined ? {} : { summary: action.summary }),
+            ...(action.attempts.length === 0 ? {} : { attempts: [...action.attempts] }),
+            ...(action.revisionRef === undefined ? {} : { revisionRef: action.revisionRef }),
+            ...(action.recoveryRef === undefined ? {} : { recoveryRef: action.recoveryRef }),
+            ...(action.parentActionId === undefined ? {} : { parentActionId: action.parentActionId }),
+            ...(boundaryBefore ? { activityBoundaryBefore: true as const } : {}),
+        };
+        for (const eventId of action.eventIds) states.set(eventId, state);
+        previous = {
+            lastSequence: action.lastSequence,
+            ...(action.stageId === undefined ? {} : { stageId: action.stageId }),
+        };
+    }
+    return states;
+}
+
+function activityEventTitle(eventType: BrowserActivityEventType): string {
+    const titles: Record<BrowserActivityEventType, string> = {
+        run_created: "Run created",
+        run_started: "Run started",
+        run_waiting: "Waiting for input",
+        run_completed: "Run completed",
+        run_failed: "Run failed",
+        run_cancelled: "Run cancelled",
+        run_stage_declared: "Stage started",
+        run_stage_accepted: "Stage accepted",
+        run_stage_rejected: "Stage revised",
+        decision_received: "Decision received",
+        action_staged: "Action staged",
+        action_approved: "Action approved",
+        action_revised: "Action revised",
+        action_rejected: "Action rejected",
+        tool_started: "Tool started",
+        tool_attempt_started: "Tool retry started",
+        tool_attempt_failed: "Tool attempt failed",
+        tool_finished: "Tool finished",
+        observation_recorded: "Observation recorded",
+        ask_user_answered: "Question answered",
+        ask_user_replied: "Reply submitted",
+        ask_user_skipped: "Question skipped",
+        task_approved: "Task approved",
+        task_feedback_received: "Plan feedback received",
+        session_input_applied: "Queued input applied",
+        steer_input_applied: "Steer applied",
+    };
+    return titles[eventType];
+}
+
+function isBrowserActivityFact(eventType: string): eventType is BrowserActivityEventType {
+    return (BROWSER_ACTIVITY_EVENT_TYPES as readonly string[]).includes(eventType);
+}
+
+function compareActivityPosition(left: BrowserActivityItem, right: BrowserActivityItem): number {
+    return left.position.runOrder - right.position.runOrder
+        || left.position.sequence - right.position.sequence
+        || (left.position.itemKind === right.position.itemKind ? 0 : left.position.itemKind === "fact" ? -1 : 1)
+        || left.position.order - right.position.order;
+}
+
+function findActivityAnchor(items: readonly BrowserActivityItem[], anchor: BrowserActivityPosition): number {
+    return items.findIndex((item) => comparePosition(item.position, anchor) === 0);
+}
+
+function comparePosition(left: BrowserActivityPosition, right: BrowserActivityPosition): number {
+    return left.runOrder - right.runOrder
+        || left.sequence - right.sequence
+        || (left.itemKind === right.itemKind ? 0 : left.itemKind === "fact" ? -1 : 1)
+        || left.order - right.order;
+}
+
+function encodeActivityCursor(cursor: ActivityCursor): string {
+    return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function decodeActivityCursor(token: string): ActivityCursor | undefined {
+    if (token.length === 0 || token.length > MAX_ACTIVITY_CURSOR_LENGTH || !/^[A-Za-z0-9_-]+$/.test(token)) return undefined;
+    try {
+        const parsed: unknown = JSON.parse(Buffer.from(token, "base64url").toString("utf8"));
+        if (!isRecord(parsed) || parsed.version !== 1 || typeof parsed.goalId !== "string"
+            || (parsed.runFilter !== undefined && typeof parsed.runFilter !== "string")
+            || !Array.isArray(parsed.window) || !isBrowserActivityPosition(parsed.anchor)) return undefined;
+        if (!parsed.window.every(isBrowserActivityRunWindow)) return undefined;
+        return {
+            version: 1,
+            goalId: parsed.goalId,
+            ...(parsed.runFilter === undefined ? {} : { runFilter: parsed.runFilter }),
+            window: parsed.window,
+            anchor: parsed.anchor,
+        };
+    } catch {
+        return undefined;
+    }
+}
+
+function isBrowserActivityRunWindow(value: unknown): value is BrowserActivityRunWindow {
+    return isRecord(value)
+        && typeof value.runId === "string"
+        && Number.isSafeInteger(value.messageCount) && Number(value.messageCount) >= 0
+        && (value.throughMessageId === undefined || typeof value.throughMessageId === "string")
+        && Number.isSafeInteger(value.committedThroughSequence) && Number(value.committedThroughSequence) >= 0;
+}
+
+function isBrowserActivityPosition(value: unknown): value is BrowserActivityPosition {
+    return isRecord(value)
+        && typeof value.runId === "string"
+        && Number.isSafeInteger(value.runOrder) && Number(value.runOrder) >= 0
+        && Number.isSafeInteger(value.sequence) && Number(value.sequence) >= 0
+        && (value.itemKind === "fact" || value.itemKind === "message")
+        && Number.isSafeInteger(value.order) && Number(value.order) >= 0;
+}
+
+function isActivityCursorValid(cursor: ActivityCursor, runs: ReadonlyMap<string, ActivityRunSnapshot>): boolean {
+    let previousRunOrder = -1;
+    const runIds = new Set<string>();
+    for (const bound of cursor.window) {
+        const run = runs.get(bound.runId);
+        if (run === undefined || runIds.has(bound.runId) || run.runOrder <= previousRunOrder
+            || bound.messageCount > run.messages.length
+            || bound.committedThroughSequence > run.committedThroughSequence
+            || (bound.messageCount === 0 && bound.throughMessageId !== undefined)
+            || (bound.messageCount > 0 && run.messages[bound.messageCount - 1]?.messageId !== bound.throughMessageId)) return false;
+        previousRunOrder = run.runOrder;
+        runIds.add(bound.runId);
+    }
+    if (cursor.window.length === 0 || (cursor.runFilter !== undefined
+        && (cursor.window.length !== 1 || cursor.window[0]?.runId !== cursor.runFilter))) return false;
+    const anchorRun = runs.get(cursor.anchor.runId);
+    const anchorWindow = cursor.window.find((item) => item.runId === cursor.anchor.runId);
+    return anchorRun !== undefined && anchorWindow !== undefined
+        && cursor.anchor.runOrder === anchorRun.runOrder
+        && cursor.anchor.sequence <= anchorWindow.committedThroughSequence
+        && (cursor.anchor.itemKind !== "message" || cursor.anchor.order < anchorWindow.messageCount);
+}
+
+function projectActivityContexts(
+    allItems: readonly BrowserActivityItem[],
+    pageItems: readonly BrowserActivityItem[],
+): { readonly stages: readonly BrowserActivityStageContext[]; readonly actionGroups: readonly BrowserActivityActionContext[] } {
+    const stageKey = (item: BrowserActivityFactItem): string | undefined => item.stageId === undefined
+        ? undefined : `${item.runId}\u0000${item.stageId}`;
+    const actionKey = (item: BrowserActivityFactItem): string | undefined => item.actionId === undefined
+        ? undefined : `${item.runId}\u0000${item.actionId}`;
+    const stageItems = allItems.filter((item): item is BrowserActivityFactItem => item.type === "fact" && stageKey(item) !== undefined);
+    const actionItems = allItems.filter((item): item is BrowserActivityFactItem => item.type === "fact" && actionKey(item) !== undefined);
+    const pageStageItems = pageItems.filter((item): item is BrowserActivityFactItem => item.type === "fact" && stageKey(item) !== undefined);
+    const pageActionItems = pageItems.filter((item): item is BrowserActivityFactItem => item.type === "fact" && actionKey(item) !== undefined);
+    const stages: BrowserActivityStageContext[] = [];
+    for (const key of new Set(pageStageItems.map(stageKey).filter((value): value is string => value !== undefined))) {
+        const members = stageItems.filter((item) => stageKey(item) === key);
+        const visible = pageStageItems.filter((item) => stageKey(item) === key);
+        const first = members[0]!;
+        const last = members.at(-1)!;
+        const lastEvent = last.eventType;
+        stages.push({
+            runId: first.runId,
+            stageId: first.stageId!,
+            revision: last.stageRevision ?? first.stageRevision ?? 1,
+            status: lastEvent === "run_stage_accepted" ? "accepted" : lastEvent === "run_stage_rejected" ? "rejected" : "executing",
+            firstSequence: first.position.sequence,
+            ...(last.position.sequence === first.position.sequence ? {} : { lastSequence: last.position.sequence }),
+            completeWithinPage: visible.length === members.length,
+        });
+    }
+    const actionGroups: BrowserActivityActionContext[] = [];
+    for (const key of new Set(pageActionItems.map(actionKey).filter((value): value is string => value !== undefined))) {
+        const members = actionItems.filter((item) => actionKey(item) === key);
+        const visible = pageActionItems.filter((item) => actionKey(item) === key);
+        const first = members[0]!;
+        const last = members.at(-1)!;
+        actionGroups.push({
+            runId: first.runId,
+            actionId: first.actionId!,
+            firstSequence: first.position.sequence,
+            lastSequence: last.position.sequence,
+            completeWithinPage: visible.length === members.length,
+        });
+    }
+    return { stages, actionGroups };
+}
+
+function boundedActivityMessage(value: string, maxLength: number): { readonly content: string; readonly truncated: boolean } {
+    let end = Math.min(value.length, maxLength);
+    if (end < value.length && end > 0) {
+        const previous = value.charCodeAt(end - 1);
+        const next = value.charCodeAt(end);
+        if (previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end -= 1;
+    }
+    return { content: value.slice(0, end), truncated: end < value.length };
 }
 
 function projectBrowserPlanRoute(route: NonNullable<Goal["state"]["run"]["planRoute"]>): BrowserPlanRoute {
@@ -853,24 +1609,6 @@ function projectBashExecution(
     };
 }
 
-
-function findCompletedRunForMessage(
-    completedRuns: Goal["state"]["completedRuns"],
-    messageIndex: number,
-): NonNullable<Goal["state"]["completedRuns"]>[number] | undefined {
-    const records = completedRuns ?? [];
-    let low = 0;
-    let high = records.length - 1;
-    while (low <= high) {
-        const middle = Math.floor((low + high) / 2);
-        const record = records[middle];
-        if (record === undefined) return undefined;
-        if (messageIndex < record.messageRange.start) high = middle - 1;
-        else if (messageIndex >= record.messageRange.end) low = middle + 1;
-        else return record;
-    }
-    return undefined;
-}
 
 function boundedText(value: string, maxLength: number): string {
     if (value.length <= maxLength) return value;

@@ -1,4 +1,5 @@
 import type { AgentProfile } from "./agent-profile";
+import { randomUUID } from "node:crypto";
 import type {
     AgentDecision,
     BlockerCreate,
@@ -408,12 +409,31 @@ export type GoalMessageSource =
 export type AssistantMessagePurpose = "process" | "answer" | "notice";
 
 /**
+ * 正式消息在所属 Run 的已提交轨迹中的位置。
+ *
+ * @remarks
+ * `afterSequence` 指消息之前最后一条已提交事实；Run 首条事实之前为 `0`。
+ * 同一事实锚点上的消息按 Snapshot 顺序使用从 `0` 开始的 `order`，不代表时间或 Step。
+ *
+ * @example
+ * ```ts
+ * const position: GoalMessagePosition = { afterSequence: 12, order: 0 };
+ * ```
+ */
+export interface GoalMessagePosition {
+    /** 消息之前的最后一条已提交 Run 事实序列。 */
+    readonly afterSequence: number;
+    /** 同一 Run、同一事实锚点内按 Snapshot 顺序排列的零基序号。 */
+    readonly order: number;
+}
+
+/**
  * 用户实际发送并需要随 Session 恢复的消息。
  *
  * @remarks
  * `messageId` 在所属 Runtime 提交边界分配并随快照保存，刷新、重试或切换 Run
- * 后仍可定位；`runId` 记录归属 Run；`source` 指向产生它的基础输入或交互请求。
- * 身份不由数组位置或正文哈希推导。
+ * 后仍可定位；`runId` 记录归属 Run；`source` 指向产生它的基础输入或交互请求；
+ * `position` 以该 Run 的已提交事实与同锚点 Snapshot 次序定位消息。身份不由正文推导。
  *
  * @example
  * ```ts
@@ -422,6 +442,7 @@ export type AssistantMessagePurpose = "process" | "answer" | "notice";
  *   content: "继续",
  *   messageId: "msg-1",
  *   runId: "run-1",
+ *   position: { afterSequence: 0, order: 0 },
  *   source: { kind: "user_input", inputId: "input-1" },
  * };
  * ```
@@ -433,6 +454,8 @@ export interface UserMessage {
     readonly messageId: string;
     /** 该消息所属的 Run 身份。 */
     readonly runId: string;
+    /** 该消息在所属 Run 已提交事实流中的稳定位置。 */
+    readonly position: GoalMessagePosition;
     /** 产生该消息的真实来源。 */
     readonly source: GoalMessageSource;
 }
@@ -442,8 +465,8 @@ export interface UserMessage {
  *
  * @remarks
  * `profileId` 记录消息来源；Working Context 不属于真实消息。`purpose` 区分
- * 过程正文、最终答复与 Runtime 通知；`messageId`、`runId` 与 `source` 与用户
- * 消息遵守同一身份契约。
+ * 过程正文、最终答复与 Runtime 通知；`messageId`、`runId`、`position` 与 `source`
+ * 与用户消息遵守同一身份契约。
  *
  * @example
  * ```ts
@@ -453,6 +476,7 @@ export interface UserMessage {
  *   content: "需要批准后继续",
  *   messageId: "msg-2",
  *   runId: "run-1",
+ *   position: { afterSequence: 4, order: 0 },
  *   purpose: "notice",
  *   source: { kind: "runtime_notice", noticeId: "notice-1" },
  * };
@@ -466,6 +490,8 @@ export interface AssistantMessage {
     readonly messageId: string;
     /** 该消息所属的 Run 身份。 */
     readonly runId: string;
+    /** 该消息在所属 Run 已提交事实流中的稳定位置。 */
+    readonly position: GoalMessagePosition;
     /** 该消息的用途分类。 */
     readonly purpose: AssistantMessagePurpose;
     /** 产生该消息的真实来源。 */
@@ -1340,6 +1366,40 @@ export type TransitionResult<TState extends RunState = RunState> =
     };
 
 /**
+ * createGoal 接受的初始消息草稿。
+ *
+ * @remarks
+ * 草稿只描述正文、身份、来源与用途；Run 归属和 Run 内位置由 {@link createGoal}
+ * 在创建边界统一分配，因此调用方不能自行指定。
+ *
+ * @example
+ * ```ts
+ * const draft: GoalInitialMessageDraft = {
+ *     role: "user",
+ *     content: "补充上下文",
+ *     source: { kind: "user_input", inputId: "input-1" },
+ * };
+ * ```
+ */
+export type GoalInitialMessageDraft =
+    | {
+        readonly role: "user";
+        readonly content: string;
+        /** 可选的消息身份；省略时由创建边界分配。 */
+        readonly messageId?: string | undefined;
+        readonly source: GoalMessageSource;
+    }
+    | {
+        readonly role: "assistant";
+        readonly content: string;
+        /** 可选的消息身份；省略时由创建边界分配。 */
+        readonly messageId?: string | undefined;
+        readonly source: GoalMessageSource;
+        readonly purpose: AssistantMessagePurpose;
+        readonly assistant: { readonly profileId: string };
+    };
+
+/**
  * createGoal 所需的确定性输入。
  *
  * @remarks intent 同时写入冻结定义和首条 user 消息；maxSteps 默认 0；
@@ -1371,7 +1431,14 @@ export interface GoalCreationInput {
     /** 首个 Run 的模式；未提供时直接执行。 */
     readonly mode?: RunMode;
     readonly maxSteps?: number;
-    readonly messages?: readonly GoalMessage[];
+    /**
+     * 创建时随 Goal 一并提交的初始消息。
+     *
+     * @remarks
+     * 这些消息一律归属 {@link GoalCreationInput.runId}，并按初始次序获得
+     * `afterSequence: 0` 的连续 `order`；调用方提供的 Run 归属与位置不生效。
+     */
+    readonly messages?: readonly GoalInitialMessageDraft[];
     /** 可选的模型选择状态；未提供时使用 DEFAULT_GOAL_MODEL_SELECTION。 */
     readonly modelSelection?: GoalModelSelection | undefined;
 }
@@ -1405,6 +1472,7 @@ function cloneMessages(messages: readonly GoalMessage[]): readonly GoalMessage[]
             content: message.content,
             messageId: message.messageId,
             runId: message.runId,
+            position: { ...message.position },
             source: { ...message.source },
         }
         : {
@@ -1413,8 +1481,52 @@ function cloneMessages(messages: readonly GoalMessage[]): readonly GoalMessage[]
             content: message.content,
             messageId: message.messageId,
             runId: message.runId,
+            position: { ...message.position },
             purpose: message.purpose,
             source: { ...message.source },
+        });
+}
+
+/**
+ * 组装 Goal 创建边界上的初始消息集。
+ *
+ * @remarks
+ * 创建时只存在首个 Run，因此初始消息一律归属该 Run；首条 Run 事实之前使用
+ * `afterSequence: 0`，同一锚点内按初始次序连续编号 `order`。这保证创建出的
+ * Goal 天然满足 Snapshot 的 Run 归属与位置不变量。
+ *
+ * @param input - Goal 创建输入。
+ * @returns 归属创建 Run、位置连续的初始消息集。
+ */
+function initialGoalMessages(input: GoalCreationInput): readonly GoalMessage[] {
+    const drafts: readonly GoalInitialMessageDraft[] = [
+        {
+            role: "user",
+            content: input.intent,
+            messageId: `msg-intent-${input.id}`,
+            source: { kind: "goal_intent", goalId: input.id },
+        },
+        ...(input.messages ?? []),
+    ];
+
+    return drafts.map((draft, index) => draft.role === "user"
+        ? {
+            role: "user",
+            content: draft.content,
+            messageId: draft.messageId ?? `msg-${randomUUID()}`,
+            runId: input.runId,
+            position: { afterSequence: 0, order: index },
+            source: { ...draft.source },
+        }
+        : {
+            role: "assistant",
+            assistant: { profileId: draft.assistant.profileId },
+            content: draft.content,
+            messageId: draft.messageId ?? `msg-${randomUUID()}`,
+            runId: input.runId,
+            position: { afterSequence: 0, order: index },
+            purpose: draft.purpose,
+            source: { ...draft.source },
         });
 }
 
@@ -1463,16 +1575,7 @@ export function createGoal(input: GoalCreationInput): Goal {
             workflow: {
                 phase: "executing",
             },
-            messages: cloneMessages([
-                {
-                    role: "user",
-                    content: input.intent,
-                    messageId: `msg-intent-${input.id}`,
-                    runId: input.runId,
-                    source: { kind: "goal_intent", goalId: input.id },
-                },
-                ...(input.messages ?? []),
-            ]),
+            messages: initialGoalMessages(input),
             run: createRun(input.runId, mode),
             modelSelection: cloneModelSelection(input.modelSelection ?? DEFAULT_GOAL_MODEL_SELECTION),
             completedRuns: [],

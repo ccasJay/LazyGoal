@@ -35,7 +35,7 @@ import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import { buildStepRequest } from "../../model-request/src/index";
 import { createCurrentContextAssembler, createInMemoryTrajectoryStore, currentProtocols, currentWorkingMemory } from "../../agent/test/current-fixtures";
-import { messageOutline, testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
+import { bindMessagesToRun, messageOutline, testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
 
 const EMPTY_INPUT_CONTRACT = contract.object({});
 
@@ -83,7 +83,7 @@ function createExecutingGoal(
                 approvedTask: runTask,
                 exposedToolIds: [...runProfile.toolIds],
             },
-            messages: [...messages],
+            messages: bindMessagesToRun(messages, runId),
         },
     };
 }

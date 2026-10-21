@@ -26,6 +26,8 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 
 ## 生命周期与错误
 
+正式消息的 Snapshot 位置由当前或完成 Run 的事实边界约束；Schema 同时拒绝未知 Run、越界序列、Run 内逆序和同锚点不连续的次序。
+
 每次 Profile `load` 只访问 `<directory>/<profileId>.json`：文件缺失返回 `undefined`；不安全 ID、读取失败、非法 JSON、Schema 不匹配或文件内 ID 不一致抛出 `AgentProfileConfigurationError`（稳定错误码 `INVALID_AGENT_PROFILE`）。
 
 Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按严格 v1 Schema 校验（拒绝多余字段、非法 StepRecord，缺失或非法的 `modelSelection`，以及非法的 Trajectory/Memory/Model Context/Retrieval 组合）再深复制 encode；`restore`/decode 只接受当前 v1。Schema 同时保证 normal Goal 没有 GoalPlan、Plan Mode 必须有 GoalPlan、Todo ID/position/status 与 `Run.todoId` 一致、历史 Run 的消息区间有序且不包含当前 Run。历史 Snapshot、未知版本、缺失 `modelSelection` 的旧开发快照和不完整的当前恢复状态统一在 Codec 边界抛出 `INVALID_GOAL_SNAPSHOT`，不会自动迁移、保存或回写。

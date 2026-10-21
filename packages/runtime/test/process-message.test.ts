@@ -82,6 +82,7 @@ function nativeResponse(...drafts: readonly ContentBlockDraft[]): LLMResponse {
 interface Harness {
     readonly runner: Runner;
     readonly store: InMemoryGoalStore;
+    readonly trajectoryStore: ReturnType<typeof trajectoryStoreFor>;
     readonly requests: LLMRequest[];
 }
 
@@ -148,7 +149,7 @@ function createHarness(options: {
         toolRegistry: registry,
         toolPolicy: { evaluate: () => (options.requireApproval === true ? "require_approval" : "allow") },
     });
-    return { runner, store, requests };
+    return { runner, store, trajectoryStore, requests };
 }
 
 test("混合工具响应的公开正文块按顺序保存为过程消息", async () => {
@@ -193,6 +194,16 @@ test("混合工具响应的公开正文块按顺序保存为过程消息", async
         processMessages[0]?.source.kind === "model_text" ? processMessages[0].source.modelCallId : "",
         processMessages[1]?.source.kind === "model_text" ? processMessages[1].source.modelCallId : "",
     );
+    const modelCallId = processMessages[0]?.source.kind === "model_text"
+        ? processMessages[0].source.modelCallId
+        : "";
+    const responseFact = harness.trajectoryStore.events.find((event) =>
+        event.payload.type === "model_response_received" && event.payload.modelCallId === modelCallId);
+    assert.ok(responseFact);
+    assert.deepEqual(processMessages.map((message) => message.position), [
+        { afterSequence: responseFact.sequence, order: 0 },
+        { afterSequence: responseFact.sequence, order: 1 },
+    ]);
 });
 
 test("过程消息不推进 Step，也不新增模型调用或工具执行", async () => {
@@ -338,6 +349,19 @@ test("零工具正文沿用既有单条消息行为，不按块重复保存", as
     const modelCallIds = new Set(processMessages.map((message) =>
         message.source.kind === "model_text" ? message.source.modelCallId : ""));
     assert.equal(modelCallIds.size, 3);
+    for (const message of processMessages) {
+        assert.equal(message.runId, persisted.state.run.id);
+        assert.ok(message.source.kind === "model_text");
+        const modelCallId = message.source.modelCallId;
+        assert.equal(harness.trajectoryStore.events.some((event) =>
+            event.payload.type === "model_response_received" && event.payload.modelCallId === modelCallId), false);
+        const latestFact = harness.trajectoryStore.events
+            .filter((event) => event.runId === message.runId
+                && event.sequence <= message.position.afterSequence
+                && event.payload.type !== "state_committed")
+            .at(-1);
+        assert.equal(message.position.afterSequence, latestFact?.sequence ?? 0);
+    }
 });
 
 test("过程消息不进入模型可见的协议 JSON，也不包含工具参数", async () => {

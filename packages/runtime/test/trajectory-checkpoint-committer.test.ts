@@ -302,6 +302,7 @@ test("committer 严格保证 facts -> save Snapshot -> append state_committed �
 
     assert.deepEqual(callOrder, [
         "trajectory.append:observation_recorded",
+        "trajectory.readWithBoundary",
         "store.save",
         "trajectory.append:state_committed",
     ]);

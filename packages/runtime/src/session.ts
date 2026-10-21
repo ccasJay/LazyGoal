@@ -1,5 +1,6 @@
 import type {
     Goal,
+    GoalMessagePosition,
     RunMode,
     RunStatus,
 } from "./domain";
@@ -62,13 +63,13 @@ export type { SessionOutputEvent } from "./session-output";
  * 已提交消息的公开摘要。
  *
  * @remarks
- * 摘要只包含身份、角色、Run 归属、用途与来源判别式，不包含正文；正文由按
+ * 摘要只包含身份、角色、Run 归属、稳定位置、用途与来源判别式，不包含正文；正文由按
  * `messageId` 的只读查询提供。
  *
  * @example
  * ```ts
  * const summary: SessionMessageSummary = {
- *   messageId: "msg-1", role: "assistant", runId: "run-1", purpose: "answer", sourceKind: "completion_candidate",
+ *   messageId: "msg-1", role: "assistant", runId: "run-1", position: { afterSequence: 8, order: 0 }, purpose: "answer", sourceKind: "completion_candidate",
  * };
  * ```
  */
@@ -79,6 +80,8 @@ export interface SessionMessageSummary {
     readonly role: "user" | "assistant";
     /** 消息所属 Run。 */
     readonly runId: string;
+    /** 消息在所属 Run 已提交事实流中的稳定位置。 */
+    readonly position: GoalMessagePosition;
     /** 助手消息用途；用户消息省略。 */
     readonly purpose?: "process" | "answer" | "notice" | undefined;
     /** 来源判别式。 */
@@ -609,6 +612,7 @@ export function projectSessionMessageRange(goal: Goal): SessionMessageRange {
         messageId: message.messageId,
         role: message.role,
         runId: message.runId,
+        position: { ...message.position },
         ...(message.role === "assistant" ? { purpose: message.purpose } : {}),
         sourceKind: message.source.kind,
         sourceId: projectMessageSourceId(message.source),

@@ -28,6 +28,7 @@ test("会话输出 wire 守卫接受新的类型化事件", () => {
             role: "assistant",
             runId: "run-1",
             purpose: "answer",
+            position: { afterSequence: 3, order: 0 },
             commitRevision: 4,
             previewId: "candidate-1",
         },

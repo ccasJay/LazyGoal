@@ -244,13 +244,14 @@ export interface SessionRunResultEvent {
  * 已保存正式消息的通知。
  *
  * @remarks
- * 只在消息保存成功后发布，携带稳定 `messageId`、来源、用途与所属提交修订；
+ * 只在消息保存成功后发布，携带稳定 `messageId`、Run 内位置、来源、用途与所属提交修订；
  * 重复通知按 `messageId` 归并，不追加第二份正文。
  *
  * @example
  * ```ts
  * const event: SessionMessageCommittedEvent = {
- *   source, messageId: "msg-1", role: "assistant", purpose: "answer", commitRevision: 7,
+ *   source, messageId: "msg-1", role: "assistant", runId: "run-1",
+ *   position: { afterSequence: 8, order: 0 }, purpose: "answer", commitRevision: 7,
  * };
  * ```
  */
@@ -265,6 +266,8 @@ export interface SessionMessageCommittedEvent {
     readonly purpose?: "process" | "answer" | "notice" | undefined;
     /** 消息所属 Run。 */
     readonly runId: string;
+    /** 消息在所属 Run 已提交事实流中的稳定位置。 */
+    readonly position: import("./domain").GoalMessagePosition;
     /** 保存该消息时的 Goal 提交修订。 */
     readonly commitRevision: number;
     /** 被该正式消息替换的预览身份；没有预览时省略。 */
@@ -347,6 +350,8 @@ const NON_PUBLIC_EVENT_KINDS: ReadonlySet<string> = new Set([
     "model_request_retry_recorded",
     "action_staged",
     "action_approved",
+    "action_revised",
+    "action_reexecution_authorized",
     "action_recovered",
     "observation_recorded",
     "state_committed",
@@ -693,6 +698,11 @@ function readCandidateInvalidation(event: ExecutionStreamEvent): SessionGenerati
 function readMessageCommitted(event: ExecutionStreamEvent): SessionMessageCommittedEvent | undefined {    const payload = event.payload;
     if (!isRecord(payload)) return undefined;
     if (typeof payload.messageId !== "string") return undefined;
+    if (!isRecord(payload.position)
+        || !Number.isSafeInteger(payload.position.afterSequence)
+        || Number(payload.position.afterSequence) < 0
+        || !Number.isSafeInteger(payload.position.order)
+        || Number(payload.position.order) < 0) return undefined;
     const role = payload.role === "assistant" ? "assistant" : payload.role === "user" ? "user" : undefined;
     if (role === undefined) return undefined;
     const purpose = payload.purpose === "process" || payload.purpose === "answer" || payload.purpose === "notice"
@@ -705,6 +715,10 @@ function readMessageCommitted(event: ExecutionStreamEvent): SessionMessageCommit
         role,
         ...(purpose === undefined ? {} : { purpose }),
         runId: typeof payload.runId === "string" ? payload.runId : event.runId,
+        position: {
+            afterSequence: Number(payload.position.afterSequence),
+            order: Number(payload.position.order),
+        },
         commitRevision,
         ...(typeof payload.previewId === "string" ? { previewId: payload.previewId } : {}),
     };

@@ -27,7 +27,7 @@ import {
 } from "../../contracts/src/index";
 import { BASH_INPUT_CONTRACT } from "../../tools/src/bash";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import { currentProtocols, InMemoryTrajectoryStore, messageOutline, trajectoryStoreFor, testUserMessage, testAssistantMessage } from "./current-fixtures";
+import { bindMessagesToRun, currentProtocols, InMemoryTrajectoryStore, messageOutline, trajectoryStoreFor, testUserMessage, testAssistantMessage } from "./current-fixtures";
 import type {
     AgentDecision,
     AgentProfile,
@@ -303,7 +303,7 @@ function createInitialGoal(
                         : ["完成测试"],
                 },
             },
-            messages: [...messages],
+            messages: bindMessagesToRun(messages, runId),
         },
     };
 }
@@ -821,7 +821,7 @@ test("stops on blocked and continues an externally resumed Goal", async () => {
             ...waitingGoal.state,
             messages: [
                 ...waitingGoal.state.messages,
-                testUserMessage("已批准继续"),
+                testUserMessage("已批准继续", { goal: waitingGoal }),
             ],
             run: resumedRun,
         },
@@ -940,7 +940,7 @@ test("从 InMemoryGoalStore 恢复 created 和 running Goal 时保留累计进�
         const executor = new FakeStepExecutor([
             (goal) => {
                 assert.equal(goal.state.run.stepCount, scenario.expectedStepCount);
-                assert.deepEqual(goal.state.messages, initialMessages);
+                assert.deepEqual(goal.state.messages, scenario.goal.state.messages);
                 assert.deepEqual(goal.definition.profile, scenario.goal.definition.profile);
                 return {
                     kind: "complete",

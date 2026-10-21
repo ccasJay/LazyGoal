@@ -45,18 +45,21 @@ function committedEvent(messageId: string): BrowserGoalLiveEvent {
 test("未确认候选只进入临时显示，不被当作正式消息", () => {
   const display = applySessionOutputEvent(EMPTY_SESSION_OUTPUT_DISPLAY, previewEvent("候选正文"));
   assert.ok(display !== undefined);
-  assert.equal(display.liveText, "候选正文");
+  assert.equal(display.candidates[0]?.content, "候选正文");
+  assert.equal(display.liveText, "");
   assert.equal(display.unconfirmed, true);
   assert.match(display.liveActivity, /not saved/);
 });
 
-test("正式消息替换未确认预览，正文不会追加两次", () => {
+test("正式消息通知只标记候选等待 Snapshot 核验", () => {
   const preview = applySessionOutputEvent(EMPTY_SESSION_OUTPUT_DISPLAY, previewEvent("候选正文"));
   assert.ok(preview !== undefined);
   const committed = applySessionOutputEvent(preview, committedEvent("msg-1"));
   assert.ok(committed !== undefined);
   assert.equal(committed.liveText, "");
-  assert.equal(committed.unconfirmed, false);
+  assert.equal(committed.unconfirmed, true);
+  assert.equal(committed.candidates[0]?.status, "pending-verification");
+  assert.equal(committed.discardedDrafts.length, 0);
   assert.equal(committed.liveText.includes("候选正文"), false);
 });
 
@@ -69,7 +72,7 @@ test("重复的正式消息通知不产生第二份正文", () => {
   assert.equal(second.unconfirmed, false);
 });
 
-test("候选作废后临时正文被清空，不保留旧候选", () => {
+test("候选确定作废后转入可折叠的只读旧稿", () => {
   const preview = applySessionOutputEvent(EMPTY_SESSION_OUTPUT_DISPLAY, previewEvent("候选正文"));
   assert.ok(preview !== undefined);
   const invalidated = applySessionOutputEvent(preview, {
@@ -87,10 +90,12 @@ test("候选作废后临时正文被清空，不保留旧候选", () => {
   assert.ok(invalidated !== undefined);
   assert.equal(invalidated.liveText, "");
   assert.equal(invalidated.unconfirmed, false);
+  assert.equal(invalidated.candidates.length, 0);
+  assert.equal(invalidated.discardedDrafts[0]?.content, "候选正文");
 });
 
 test("等待交互只更新提示，不伪造完成结果", () => {
-  const display: SessionOutputDisplay = { liveText: "临时正文", liveActivity: "生成中", unconfirmed: true };
+  const display: SessionOutputDisplay = { ...EMPTY_SESSION_OUTPUT_DISPLAY, liveText: "临时正文", liveActivity: "生成中", unconfirmed: true };
   const next = applySessionOutputEvent(display, {
     type: "interaction_required",
     goalId: "goal-1",
@@ -103,7 +108,7 @@ test("等待交互只更新提示，不伪造完成结果", () => {
 });
 
 test("与候选无关的事件不改变显示状态", () => {
-  const display: SessionOutputDisplay = { liveText: "临时正文", liveActivity: "生成中", unconfirmed: true };
+  const display: SessionOutputDisplay = { ...EMPTY_SESSION_OUTPUT_DISPLAY, liveText: "临时正文", liveActivity: "生成中", unconfirmed: true };
   assert.equal(applySessionOutputEvent(display, {
     type: "refresh_required",
     goalId: "goal-1",

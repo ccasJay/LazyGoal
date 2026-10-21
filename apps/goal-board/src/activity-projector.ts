@@ -1,36 +1,47 @@
 import type {
+  BrowserActivityItem,
+  BrowserActivityPosition,
+  BrowserActivityToolState,
   BrowserGoalLiveEvent,
-  BrowserSessionRun,
-  BrowserSessionStep,
+  BrowserRunStatus,
 } from "../../../packages/web-contracts/src/index";
 
 /** 活动组根据工具语义划分的展示类别。 */
 export type ActivityGroupCategory = "explore" | "execute" | "edit" | "think" | "single";
 
-/** 单个活动成员在当前投影中的状态。 */
-export type ActivityMemberStatus = "running" | "completed" | "failed" | "rejected";
+/**
+ * 单个活动成员在当前投影中的状态。
+ *
+ * @remarks
+ * `pending-result` 表示工具已返回但结果尚未提交为已保存 Observation；它不能被当作
+ * 已保存成功。`retrying` 只来自实时重试事实，不改变已提交终态。
+ */
+export type ActivityMemberStatus = "running" | "retrying" | "pending-result" | "completed" | "failed" | "rejected";
 
 /**
- * 活动组中的一个真实工具调用或显式 Think 阶段。
+ * 活动组中的一个真实工具调用。
  *
  * @remarks
  * `isCommitted` 表示调用身份有已提交 Trajectory 来源；实时信息只覆盖其当前状态，
- * 不会把未提交输出伪装成历史详情。
+ * 不会把未提交输出伪装成历史详情。成员只承载既有安全摘要，不含原始参数、
+ * Observation 正文或隐藏推理。
  *
  * @example
  * ```ts
  * const member: ActivityGroupMember = {
- *   id: "action:run-1:a1", category: "explore", label: "Read src/index.ts",
- *   status: "completed", isCommitted: true, attempts: [],
+ *   id: "action:run-1:a1", runId: "run-1", category: "explore", label: "Read src/index.ts",
+ *   status: "completed", isCommitted: true, attempts: [], position,
  * };
  * ```
  */
 export interface ActivityGroupMember {
-  /** 在同一 Run 内稳定的成员身份；优先由 Action ID 派生。 */
+  /** 在同一 Run 内稳定的成员身份；由 Action 身份派生。 */
   readonly id: string;
+  /** 所属 Run 稳定标识。 */
+  readonly runId: string;
   /** 所属阶段；Run 级调用省略。 */
   readonly stageId?: string;
-  /** 经工具白名单归类的活动类别，或独立 Think 类别。 */
+  /** 经工具白名单归类的活动类别。 */
   readonly category: ActivityGroupCategory;
   /** 简短操作描述，不含原始工具输入或隐藏推理。 */
   readonly label: string;
@@ -50,21 +61,32 @@ export interface ActivityGroupMember {
   readonly summary?: string;
   /** 已记录的重试失败信息；不单独决定最终状态。 */
   readonly attempts: readonly string[];
-  /** 完整的安全会话步骤，仅来自已提交 Trajectory。 */
-  readonly step?: BrowserSessionStep;
+  /** PTC 子调用的父程序 Action 身份。 */
+  readonly parentActionId?: string;
+  /** 审批者修订后的实际版本引用。 */
+  readonly revisionRef?: string;
+  /** 结果未知重执行的恢复引用。 */
+  readonly recoveryRef?: string;
+  /** 显式 Think 的目标与已提交输出。 */
+  readonly think?: { readonly goal: string; readonly output?: string; readonly truncated?: true };
+  /** 成员首个来源事实在 Activity 页中的项身份。 */
+  readonly sourceItemId: string;
+  /** 成员在 Activity 时间线中的真实来源位置。 */
+  readonly position: BrowserActivityPosition;
 }
 
 /**
  * 由实际操作派生的可展开活动组。
  *
  * @remarks
- * 组 ID 由首个成员身份导出，不持久化，也不参与 Runtime 调度、授权或评测。
+ * 组 ID 由首个成员身份导出，不持久化，也不参与 Runtime 调度、授权或评测。组只合并
+ * 同 Run、同阶段、同白名单类别且在完整交错时间线上相邻的成员。
  *
  * @example
  * ```ts
  * const group: ActivityGroup = {
  *   id: "action:run-1:a1", runId: "run-1", category: "explore",
- *   status: "running", summary: "Explored 2 items", members: [],
+ *   status: "running", summary: "Explored 2 items", members: [], position,
  * };
  * ```
  */
@@ -83,62 +105,149 @@ export interface ActivityGroup {
   readonly summary: string;
   /** 依来源顺序排列的调用成员。 */
   readonly members: readonly ActivityGroupMember[];
+  /** 组在 Activity 时间线中的首个成员位置；实时活动组没有已提交位置。 */
+  readonly position?: BrowserActivityPosition;
+  /** 是否为尚未提交的实时活动组。 */
+  readonly live?: true;
+}
+
+interface MutableMember {
+  id: string;
+  runId: string;
+  stageId?: string;
+  category: ActivityGroupCategory;
+  label: string;
+  status: ActivityMemberStatus;
+  isCommitted: boolean;
+  hasLiveUpdate?: boolean;
+  actionId?: string;
+  executionUnitId?: string;
+  inputSummary?: string;
+  summary?: string;
+  attempts: string[];
+  parentActionId?: string;
+  revisionRef?: string;
+  recoveryRef?: string;
+  think?: { readonly goal: string; readonly output?: string; readonly truncated?: true };
+  sourceItemId: string;
+  position: BrowserActivityPosition;
+  breaksBefore: boolean;
 }
 
 /**
- * 从已提交步骤和当前 Run 的安全实时事件重建活动组。
+ * 从固定 Activity 页和当前 Run 的安全实时事件重建活动组。
  *
  * @remarks
- * 历史活动只来自会话 DTO 中的已提交步骤；实时事件按 ExecutionStream 的事件 ID/cursor
- * 独立去重，再按 `actionId` 与历史协调。只合并具有 Action 身份、同类别、同阶段且
- * 来源相邻的调用。助手可见回复、等待、阶段变更、终态失败及未知事件会切断实时组。
+ * 活动成员只来自服务端已提交的 Activity 事实及其安全工具状态，不再依赖完整会话步骤。
+ * 断组由完整交错来源决定：用户／助手正文、交互、未知事实、阶段边界与未加载缺口都会
+ * 断开相邻成员；隐藏正文或关闭 Execution steps 筛选不改变该判定。实时事件按 Action
+ * 身份与已提交成员协调，只覆盖当前状态，不把未提交返回标为已保存成功。
  *
- * @param input - 当前 Goal、Run 的已提交步骤及本地短期安全实时事件。
- * @returns 按历史顺序后接未提交实时活动的只读展示投影。
+ * @param input - 当前 Goal、Run 的 Activity 页事实与本地短期安全实时事件。
+ * @returns 按来源顺序排列的只读活动组。
  * @example
  * ```ts
- * const groups = projectActivityGroups({ goalId, run, liveEvents });
+ * const groups = projectActivityGroups({ goalId, runId, items, liveEvents });
  * ```
  */
 export function projectActivityGroups(input: {
   readonly goalId: string;
-  readonly run: BrowserSessionRun;
+  readonly runId: string;
+  readonly items: readonly BrowserActivityItem[];
   readonly liveEvents: readonly BrowserGoalLiveEvent[];
+  readonly current: boolean;
+  readonly runStatus: BrowserRunStatus;
 }): readonly ActivityGroup[] {
-  const durable = input.run.steps
-    .slice()
-    .sort((left, right) => left.sequence - right.sequence)
-    .map((step) => durableMember(input.run.runId, step));
-  const durableByAction = new Map<string, MutableMember>();
-  for (const member of durable) {
-    if (member.actionId !== undefined) durableByAction.set(member.actionId, member);
+  const items = input.items
+    .filter((item) => item.runId === input.runId)
+    .sort((left, right) => comparePositions(left.position, right.position));
+
+  const members: MutableMember[] = [];
+  const memberByKey = new Map<string, MutableMember>();
+  let previous: MutableMember | undefined;
+  let adjacencyBroken = true;
+
+  for (const item of items) {
+    if (item.type === "message") {
+      adjacencyBroken = true;
+      previous = undefined;
+      continue;
+    }
+    if (item.type === "think") {
+      const member: MutableMember = {
+        id: `think:${input.runId}:${item.itemId}`,
+        runId: input.runId,
+        category: "think",
+        label: "Thinking",
+        status: item.think.output === undefined ? "running" : "completed",
+        isCommitted: true,
+        attempts: [],
+        think: item.think,
+        ...(item.executionUnitId === undefined ? {} : { executionUnitId: item.executionUnitId }),
+        sourceItemId: item.itemId,
+        position: item.position,
+        breaksBefore: true,
+      };
+      members.push(member);
+      memberByKey.set(item.itemId, member);
+      previous = undefined;
+      adjacencyBroken = true;
+      continue;
+    }
+    const tool = item.tool;
+    if (tool === undefined) {
+      adjacencyBroken = true;
+      previous = undefined;
+      continue;
+    }
+    const key = item.actionId ?? `event:${item.eventId}`;
+    const existing = memberByKey.get(key);
+    if (existing !== undefined) {
+      applyToolState(existing, tool);
+      continue;
+    }
+    const member = createMember(input.runId, key, item, tool);
+    const hasActionIdentity = item.actionId !== undefined;
+    member.breaksBefore = adjacencyBroken
+      || !hasActionIdentity
+      || tool.activityBoundaryBefore === true
+      || (previous !== undefined
+        && (previous.category !== member.category || previous.stageId !== member.stageId));
+    members.push(member);
+    memberByKey.set(key, member);
+    previous = member;
+    // 没有 Action 身份的活动无法证明相邻关系，其后成员也必须断组。
+    adjacencyBroken = !hasActionIdentity;
   }
 
-  const liveMembers = input.run.current && input.run.status === "running"
-    ? projectLiveMembers(input.goalId, input.run, input.liveEvents)
-    : { members: [], boundaryBefore: new Set<string>() };
-  const reconciledLive: MutableMember[] = [];
-  for (const live of liveMembers.members) {
-    const saved = durableByAction.get(live.actionId!);
+  const live = input.current && input.runStatus === "running"
+    ? projectLiveMembers(input.goalId, input.runId, input.liveEvents)
+    : { members: [] as readonly MutableMember[] };
+  let liveOnlyCount = 0;
+  for (const liveMember of live.members) {
+    const saved = liveMember.actionId === undefined
+      ? undefined
+      : memberByKey.get(liveMember.actionId);
     if (saved === undefined) {
-      reconciledLive.push(live);
+      // 实时活动组永远与已提交内容断开；组内只在没有实时边界时相邻合并。
+      liveMember.breaksBefore = liveOnlyCount === 0 ? true : liveMember.breaksBefore;
+      liveOnlyCount += 1;
+      members.push(liveMember);
       continue;
     }
     if (isTerminal(saved.status)) continue;
-    saved.status = live.status;
-    saved.summary = live.summary ?? saved.summary;
-    saved.attempts = uniqueAttempts([...saved.attempts, ...live.attempts]);
+    saved.status = liveMember.status;
+    saved.summary = liveMember.summary ?? saved.summary;
+    saved.attempts = uniqueAttempts([...saved.attempts, ...liveMember.attempts]);
     saved.hasLiveUpdate = true;
   }
 
-  const durableGroups = groupAdjacent(input.run.runId, durable);
-  const liveGroups = groupAdjacent(input.run.runId, reconciledLive, liveMembers.boundaryBefore);
-  return [...durableGroups, ...liveGroups];
+  return groupAdjacent(members);
 }
 
 /** 生成用于摘要行的类别数量文案。 */
 export function summarizeActivityGroup(category: ActivityGroupCategory, members: readonly ActivityGroupMember[]): string {
-  if (category === "think") return `Thinking · ${members[0]?.step?.think?.goal ?? "Analysis"}`;
+  if (category === "think") return `Thinking · ${members[0]?.think?.goal ?? "Analysis"}`;
   if (category === "single") return members[0]?.label ?? "Activity";
   const count = members.length;
   if (category === "explore") return `Explored ${count} ${count === 1 ? "item" : "items"}`;
@@ -153,59 +262,59 @@ export function summarizeActivityGroup(category: ActivityGroupCategory, members:
   return `Edited ${count} ${count === 1 ? "file" : "files"}`;
 }
 
-interface MutableMember {
-  id: string;
-  runId: string;
-  stageId?: string;
-  category: ActivityGroupCategory;
-  label: string;
-  status: ActivityMemberStatus;
-  isCommitted: boolean;
-  actionId?: string;
-  executionUnitId?: string;
-  inputSummary?: string;
-  summary?: string;
-  attempts: string[];
-  step?: BrowserSessionStep;
-  hasLiveUpdate?: boolean;
-  sourceEventId?: string;
-  sourceCursor?: number;
-}
-
-function durableMember(runId: string, step: BrowserSessionStep): MutableMember {
-  const category = step.think === undefined ? categorizeTool(step.toolId) : "think";
-  const status: ActivityMemberStatus = step.status === "completed" ? "completed"
-    : step.status === "failed" ? "failed"
-      : step.status === "rejected" ? "rejected" : "running";
-  return {
-    id: step.actionId === undefined ? `trajectory:${runId}:${step.sourceEventId ?? step.executionUnitId}:${step.sequence}` : `action:${runId}:${step.actionId}`,
+function createMember(
+  runId: string,
+  key: string,
+  item: Extract<BrowserActivityItem, { readonly type: "fact" }>,
+  tool: BrowserActivityToolState,
+): MutableMember {
+  const status = committedMemberStatus(tool.status);
+  const member: MutableMember = {
+    id: `action:${runId}:${key}`,
     runId,
-    ...(step.stageId === undefined ? {} : { stageId: step.stageId }),
-    category,
-    label: step.think === undefined ? labelForTool(step.toolId, step.inputSummary ?? step.bashExecution?.command, step.status) : "Thinking",
+    category: categorizeTool(tool.toolId),
+    label: labelForTool(tool.toolId, tool.inputSummary, status),
     status,
     isCommitted: true,
-    ...(step.actionId === undefined ? {} : { actionId: step.actionId }),
-    executionUnitId: step.executionUnitId,
-    ...(step.inputSummary === undefined ? {} : { inputSummary: step.inputSummary }),
-    ...(step.summary === undefined ? {} : { summary: step.summary }),
-    attempts: [...(step.recoveryAttempts ?? [])],
-    ...(step.sourceEventId === undefined ? {} : { sourceEventId: step.sourceEventId }),
-    step,
+    attempts: [...(tool.attempts ?? [])],
+    sourceItemId: item.itemId,
+    position: item.position,
+    breaksBefore: false,
   };
+  applyToolState(member, tool);
+  if (item.stageId !== undefined) member.stageId = item.stageId;
+  if (item.executionUnitId !== undefined) member.executionUnitId = item.executionUnitId;
+  if (item.actionId !== undefined) member.actionId = item.actionId;
+  return member;
+}
+
+function applyToolState(member: MutableMember, tool: BrowserActivityToolState): void {
+  if (tool.inputSummary !== undefined) member.inputSummary = tool.inputSummary;
+  if (tool.summary !== undefined) member.summary = tool.summary;
+  if (tool.revisionRef !== undefined) member.revisionRef = tool.revisionRef;
+  if (tool.recoveryRef !== undefined) member.recoveryRef = tool.recoveryRef;
+  if (tool.parentActionId !== undefined) member.parentActionId = tool.parentActionId;
+  if (tool.attempts !== undefined) member.attempts = uniqueAttempts([...member.attempts, ...tool.attempts]);
+  if (!isTerminal(member.status)) member.status = committedMemberStatus(tool.status);
+}
+
+function committedMemberStatus(status: BrowserActivityToolState["status"]): ActivityMemberStatus {
+  if (status === "pending-result") return "pending-result";
+  if (status === "recorded") return "running";
+  return status;
 }
 
 function projectLiveMembers(
   goalId: string,
-  run: BrowserSessionRun,
+  runId: string,
   events: readonly BrowserGoalLiveEvent[],
-): { readonly members: readonly MutableMember[]; readonly boundaryBefore: ReadonlySet<string> } {
+): { readonly members: readonly MutableMember[] } {
   const latestByIdentity = new Map<string, {
     readonly event: Extract<BrowserGoalLiveEvent, { readonly type: "activity" }>;
     readonly cursor: number;
   }>();
   for (const event of events) {
-    if (event.type !== "activity" || event.goalId !== goalId || event.runId !== run.runId) continue;
+    if (event.type !== "activity" || event.goalId !== goalId || event.runId !== runId) continue;
     const activity = event.activity;
     if (!("sourceEventId" in activity) || !("sourceCursor" in activity)) continue;
     latestByIdentity.set(`${activity.sourceCursor}\u0000${activity.sourceEventId}`, {
@@ -218,9 +327,7 @@ function projectLiveMembers(
     .map(({ event }) => event);
   const mutable = new Map<string, MutableMember>();
   const insertionOrder: string[] = [];
-  const boundaryBefore = new Set<string>();
-  const currentStageId = currentStage(run);
-  let breakBeforeNext = false;
+  let breakBeforeNext = true;
 
   for (const event of ordered) {
     if (event.type !== "activity") continue;
@@ -230,90 +337,98 @@ function projectLiveMembers(
       continue;
     }
     if (activity.kind === "tool_started") {
-      const id = `action:${run.runId}:${activity.actionId}`;
+      const id = `action:${runId}:${activity.actionId}`;
       if (mutable.has(id)) continue;
       const member: MutableMember = {
         id,
-        runId: run.runId,
-        ...(currentStageId === undefined ? {} : { stageId: currentStageId }),
+        runId,
         category: categorizeTool(activity.toolId),
-        label: labelForTool(activity.toolId, activity.inputSummary, "recorded"),
+        label: labelForTool(activity.toolId, activity.inputSummary, "running"),
         status: "running",
         isCommitted: false,
         actionId: activity.actionId,
         executionUnitId: activity.executionUnitId,
-        sourceEventId: activity.sourceEventId,
-        sourceCursor: activity.sourceCursor,
-        ...(activity.inputSummary === undefined ? {} : { inputSummary: activity.inputSummary }),
         attempts: [],
+        position: livePosition(runId, activity.sourceCursor),
+        sourceItemId: `live:${runId}:${activity.sourceEventId}`,
+        breaksBefore: breakBeforeNext,
       };
+      if (activity.inputSummary !== undefined) member.inputSummary = activity.inputSummary;
       mutable.set(id, member);
       insertionOrder.push(id);
-      if (breakBeforeNext) boundaryBefore.add(id);
       breakBeforeNext = false;
       continue;
     }
     if (activity.kind === "tool_attempt_started" || activity.kind === "tool_attempt_failed" || activity.kind === "tool_finished") {
-      const member = mutable.get(`action:${run.runId}:${activity.actionId}`);
+      const member = mutable.get(`action:${runId}:${activity.actionId}`);
       if (member === undefined) continue;
       if (activity.kind === "tool_attempt_failed") {
         member.attempts.push(`Attempt ${activity.attempt} failed: ${activity.reason}`);
+        if (!isTerminal(member.status)) member.status = "retrying";
+      } else if (activity.kind === "tool_attempt_started") {
+        if (!isTerminal(member.status)) member.status = "running";
       } else if (activity.kind === "tool_finished") {
-        member.status = activity.outcome === "failure" ? "failed" : "completed";
+        // 实时返回不是已保存结果；已提交 Observation 才能确定终态。
+        if (!isTerminal(member.status)) member.status = "pending-result";
         if (activity.summary !== undefined) member.summary = activity.summary;
       }
     }
   }
-  return { members: insertionOrder.map((id) => mutable.get(id)!), boundaryBefore };
+  return { members: insertionOrder.map((id) => mutable.get(id)!) };
 }
 
-function groupAdjacent(
-  runId: string,
-  members: readonly MutableMember[],
-  boundaryBefore: ReadonlySet<string> = new Set(),
-): ActivityGroup[] {
+function groupAdjacent(members: readonly MutableMember[]): ActivityGroup[] {
   const groups: ActivityGroup[] = [];
   let current: MutableMember[] = [];
-  let previous: MutableMember | undefined;
 
   const flush = () => {
     if (current.length === 0) return;
     const first = current[0]!;
     const projectedMembers = current.map(toPublicMember);
-    const failed = projectedMembers.some((member) => member.status === "failed" || member.status === "rejected");
-    const status: ActivityMemberStatus = projectedMembers.some((member) => member.status === "running")
-      ? "running" : failed ? (projectedMembers.some((member) => member.status === "failed") ? "failed" : "rejected") : "completed";
+    const live = current.every((member) => !member.isCommitted);
     groups.push({
       id: first.id,
-      runId,
+      runId: first.runId,
       ...(first.stageId === undefined ? {} : { stageId: first.stageId }),
       category: first.category,
-      status,
+      status: groupStatus(projectedMembers),
       summary: summarizeActivityGroup(first.category, projectedMembers),
       members: projectedMembers,
+      ...(live ? { live: true as const } : { position: first.position }),
     });
     current = [];
   };
 
   for (const member of members) {
-    const mergeable = isMergeable(member);
-    const previousMergeable = previous !== undefined && isMergeable(previous);
-    const sameGroup = current.length > 0 && previousMergeable && mergeable
-      && previous?.category === member.category
-      && previous?.stageId === member.stageId
-      && !boundaryBefore.has(member.id)
-      && previous?.status !== "failed" && previous?.status !== "rejected";
+    const previous = current.at(-1);
+    const sameGroup = current.length > 0
+      && previous !== undefined
+      && !member.breaksBefore
+      && previous.category !== "single"
+      && member.category !== "single"
+      && previous.category === member.category
+      && previous.stageId === member.stageId
+      && previous.status !== "failed"
+      && previous.status !== "rejected";
     if (!sameGroup) flush();
     current.push(member);
-    previous = member;
   }
   flush();
   return groups;
 }
 
+function groupStatus(members: readonly ActivityGroupMember[]): ActivityMemberStatus {
+  if (members.some((member) => member.status === "running" || member.status === "retrying")) return "running";
+  if (members.some((member) => member.status === "pending-result")) return "pending-result";
+  if (members.some((member) => member.status === "failed")) return "failed";
+  if (members.some((member) => member.status === "rejected")) return "rejected";
+  return "completed";
+}
+
 function toPublicMember(member: MutableMember): ActivityGroupMember {
   return {
     id: member.id,
+    runId: member.runId,
     ...(member.stageId === undefined ? {} : { stageId: member.stageId }),
     category: member.category,
     label: member.label,
@@ -325,7 +440,12 @@ function toPublicMember(member: MutableMember): ActivityGroupMember {
     ...(member.inputSummary === undefined ? {} : { inputSummary: member.inputSummary }),
     ...(member.summary === undefined ? {} : { summary: member.summary }),
     attempts: member.attempts,
-    ...(member.step === undefined ? {} : { step: member.step }),
+    ...(member.parentActionId === undefined ? {} : { parentActionId: member.parentActionId }),
+    ...(member.revisionRef === undefined ? {} : { revisionRef: member.revisionRef }),
+    ...(member.recoveryRef === undefined ? {} : { recoveryRef: member.recoveryRef }),
+    ...(member.think === undefined ? {} : { think: member.think }),
+    sourceItemId: member.sourceItemId,
+    position: member.position,
   };
 }
 
@@ -336,7 +456,7 @@ function categorizeTool(toolId?: string): ActivityGroupCategory {
   return "single";
 }
 
-function labelForTool(toolId: string | undefined, target: string | undefined, status: BrowserSessionStep["status"] | "recorded"): string {
+function labelForTool(toolId: string | undefined, target: string | undefined, status: ActivityMemberStatus): string {
   const completed = status === "completed" || status === "failed";
   const value = target?.trim();
   if (toolId === "read_file") return `Read ${value || "a file"}`;
@@ -350,16 +470,14 @@ function labelForTool(toolId: string | undefined, target: string | undefined, st
   return toolId ?? "Activity";
 }
 
-function currentStage(run: BrowserSessionRun): string | undefined {
-  const planned = run.planRoute?.stages.find((stage) => stage.status === "executing");
-  if (planned !== undefined) return planned.stageId;
-  return run.stages?.find((stage) => stage.status === "in_progress")?.stageId;
-}
-
-function isMergeable(member: MutableMember): boolean {
-  return member.category !== "single"
-    && member.actionId !== undefined
-    && member.sourceEventId !== undefined;
+function livePosition(runId: string, cursor: number): BrowserActivityPosition {
+  return {
+    runId,
+    runOrder: Number.MAX_SAFE_INTEGER,
+    sequence: cursor,
+    itemKind: "fact",
+    order: 0,
+  };
 }
 
 function isTerminal(status: ActivityMemberStatus): boolean {
@@ -375,4 +493,11 @@ function uniqueAttempts(values: readonly string[]): string[] {
     seen.add(key);
     return true;
   });
+}
+
+function comparePositions(left: BrowserActivityPosition, right: BrowserActivityPosition): number {
+  return left.runOrder - right.runOrder
+    || left.sequence - right.sequence
+    || (left.itemKind === right.itemKind ? 0 : left.itemKind === "fact" ? -1 : 1)
+    || left.order - right.order;
 }

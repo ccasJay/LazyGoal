@@ -44,6 +44,7 @@ export function useGoalBoardApp() {
   const streamManager = useRunStream({
     selectedGoalId: sessionManager.selectedGoalId,
     session: sessionManager.session,
+    activityPage: sessionManager.activityPage,
     sessionLoading: sessionManager.sessionLoading,
     onRefresh: sessionManager.refreshSelectedSession,
   });
@@ -185,6 +186,14 @@ export function useGoalBoardApp() {
   const sessionContextValue: GoalSessionContextValue = {
     selectedGoalId: sessionManager.selectedGoalId,
     session: sessionManager.session,
+    activityPage: sessionManager.activityPage,
+    activityWindow: sessionManager.activityWindow,
+    loadEarlierActivity: sessionManager.loadEarlierActivity,
+    loadNewerActivity: sessionManager.loadNewerActivity,
+    jumpToLatestActivity: sessionManager.jumpToLatestActivity,
+    fullSession: sessionManager.fullSession,
+    fullSessionLoading: sessionManager.fullSessionLoading,
+    fullSessionError: sessionManager.fullSessionError,
     sessionLoading: sessionManager.sessionLoading,
     sessionError: sessionManager.sessionError,
     workspaceContext,
@@ -205,8 +214,13 @@ export function useGoalBoardApp() {
     revokingGrantId: permissionsManager.revokingGrantId,
     liveText: streamManager.liveText,
     liveActivity: streamManager.liveActivity,
+    candidatePresentation: streamManager.candidatePresentation,
+    expandCandidateDraft: streamManager.expandCandidateDraft,
+    releaseCandidateDraft: streamManager.releaseCandidateDraft,
     liveEvents: streamManager.liveEvents,
     streamConnected: streamManager.streamConnected,
+    stateStale: streamManager.stateStale,
+    streamSynced: streamManager.streamSynced,
     metricsByGoal: goalsManager.metricsByGoal,
     currentModelCatalog: modelSelectionManager.currentModelCatalog,
     currentModelName,
@@ -218,6 +232,7 @@ export function useGoalBoardApp() {
     retryModelPreference: modelSelectionManager.retryModelPreference,
     onModelCatalogRefresh: modelSelectionManager.refreshModelCatalog,
     refreshSelectedSession: sessionManager.refreshSelectedSession,
+    loadFullSession: sessionManager.loadFullSession,
     selectGoal: sessionManager.selectGoal,
     closeSession: sessionManager.closeSession,
     openNewGoalDraft: sessionManager.openNewGoalDraft,
@@ -247,6 +262,10 @@ export function useGoalBoardApp() {
     onSubmitSteer: commandsManager.submitSteer,
     onInterrupt: commandsManager.interruptCurrentRun,
     onSubmitResume: commandsManager.submitResume,
+    unverifiedSubmissions: commandsManager.unverifiedSubmissions,
+    onVerifySubmission: commandsManager.verifySubmission,
+    onRetrySubmission: commandsManager.retrySubmission,
+    onDiscardSubmission: commandsManager.discardSubmission,
   };
 
   return {

@@ -248,8 +248,10 @@ test("real local service restores and completes one authorized Goal conversation
     assert.equal(fullDetail.response.status, 200);
     assert.equal(fullDetail.body.observationConfirmed, true);
     assert.ok(JSON.stringify(fullDetail.body.result).includes("PRIVATE_CONTROLLED_TOOL_OUTPUT"));
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.activity-group')].find(group => group.querySelector('.tool-activity-label')?.textContent.includes('browser_fixture_write')).querySelector('summary').click()", returnByValue: true });
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.activity-member')].find(step => step.querySelector('.tool-activity-label')?.textContent.includes('browser_fixture_write')).querySelector('.trajectory-link button').click()", returnByValue: true });
+    // 活动组先展开，成员标签才可见；随后按成员身份打开其 Trajectory 详情。
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.timeline-activity-heading')].forEach(button => button.click())", returnByValue: true });
+    await waitForExpression(socket, "[...document.querySelectorAll('.timeline-activity-member-label')].some(label => label.textContent.includes('browser_fixture_write'))");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.timeline-activity-members > li')].find(member => member.querySelector('.timeline-activity-member-label')?.textContent.includes('browser_fixture_write')).querySelector('.timeline-activity-trajectory').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.trajectory-view .ct-record-body[aria-pressed=\"true\"]') !== null");
     await waitForExpression(socket, "document.querySelector('.tr-detail-body pre') !== null");
     assert.equal(await value(socket, "document.activeElement?.id"), `trajectory-event-${trajectory.body.locatedSequence}`);
@@ -403,12 +405,12 @@ test("real local service restores and completes one authorized Goal conversation
     assert.equal(completedPlanRun.planRoute.stages.length, 1);
     assert.equal(completedPlanRun.planRoute.stages[0].status, "accepted");
     await waitForExpression(socket, "document.querySelector('.plan-route-list') !== null");
-    assert.equal(await value(socket, "document.querySelectorAll('.activity-group').length > 0"), true);
+    assert.equal(await value(socket, "document.querySelectorAll('.timeline-activity').length > 0"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#filter-execution-steps').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.activity-group') === null");
+    await waitForExpression(socket, "document.querySelector('.timeline-activity') === null");
     assert.equal(await value(socket, "document.querySelector('.plan-route-list') !== null"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#filter-execution-steps').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.activity-group') !== null");
+    await waitForExpression(socket, "document.querySelector('.timeline-activity') !== null");
     const completedList = await api(restarted.origin, "/api/goals", { token: restarted.token });
     assert.equal(completedList.response.status, 200, JSON.stringify(completedList.body));
     const planCompleted = completedList.body.goals.some((goal) => goal.intent.includes("Plan flow") && goal.runStatus === "completed");
@@ -487,22 +489,19 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Interrupt Run\"]') !== null", 10_000);
+    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Stop run\"]') !== null", 10_000);
     assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled"), false, "the composer remains editable while the Run is active");
-    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Interrupt Run\"]')?.textContent.includes('Running')"), true, "the empty run button offers Interrupt");
+    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Stop run\"]')?.textContent.includes('Stop run')"), true, "the empty run button offers an independent Stop");
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Steer this active Run");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('textarea[aria-label=\\\"Message the Goal\\\"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.run-send-options') !== null");
-    assert.equal(await value(socket, "document.querySelector('.run-send-options').innerText.includes('Steer') && document.querySelector('.run-send-options').innerText.includes('Queue')"), true);
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.run-send-options button')].find(button => button.textContent === 'Steer').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.pending-steers')?.innerText.includes('Steer this active Run') && document.querySelector('.run-send-options') === null && document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled === false");
+    // 显式 Steer 是独立按钮；Enter 与发送按钮只做普通排队。
+    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Steer the current Run with this message\"]') !== null"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Steer the current Run with this message\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.pending-steers')?.innerText.includes('Steer this active Run') && document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled === false");
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Queue follow-up task");
-    await waitForExpression(socket, "document.querySelector('.composer-area .send.is-running')?.getAttribute('aria-label') === 'Choose Steer or Queue'");
+    await waitForExpression(socket, "document.querySelector('.composer-area .send.is-running')?.getAttribute('aria-label') === 'Send message'");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .send.is-running').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.run-send-options') !== null");
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.run-send-options button')].find(button => button.textContent === 'Queue').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.queued-inputs')?.innerText.includes('Queue follow-up task')");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\\\"Interrupt Run\\\"]').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Stop run\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('button[aria-label=\\\"Stopping Run\\\"]') !== null || document.querySelector('.queue-paused') !== null", 10_000);
     await waitForExpression(socket, "document.querySelector('.queue-paused') !== null", 15_000);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.queue-paused button').click()", returnByValue: true });

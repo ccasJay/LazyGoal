@@ -371,6 +371,8 @@ export interface BrowserSessionState {
             readonly messageId: string;
             readonly role: "user" | "assistant";
             readonly runId: string;
+            /** 消息之前最后一条已提交 Run 事实及同锚点 Snapshot 次序。 */
+            readonly position: { readonly afterSequence: number; readonly order: number };
             readonly purpose?: "process" | "answer" | "notice";
             readonly sourceKind: string;
             readonly sourceId: string;
@@ -392,13 +394,14 @@ export interface BrowserSessionState {
  * 会话消息的公开条目。
  *
  * @remarks
- * 只包含身份、角色、Run 归属、用途、来源与有界正文摘要；正文超限时明确标记
- * 截断，完整原文按 `messageId` 另行读取。
+ * 只包含身份、角色、Run 归属、稳定位置、用途、来源与有界正文摘要；正文超限时
+ * 明确标记截断，完整原文按 `messageId` 另行读取。
  *
  * @example
  * ```ts
  * const entry: BrowserSessionMessageEntry = {
  *   messageId: "msg-1", role: "assistant", runId: "run-1",
+ *   position: { afterSequence: 8, order: 0 },
  *   purpose: "answer", sourceKind: "completion_candidate", sourceId: "c1",
  *   content: "已完成", contentLength: 3, truncated: false,
  * };
@@ -411,6 +414,8 @@ export interface BrowserSessionMessageEntry {
     readonly role: "user" | "assistant";
     /** 消息所属 Run。 */
     readonly runId: string;
+    /** 消息在所属 Run 已提交事实流中的稳定位置。 */
+    readonly position: { readonly afterSequence: number; readonly order: number };
     /** 助手消息用途；用户消息省略。 */
     readonly purpose?: "process" | "answer" | "notice";
     /** 来源判别式。 */

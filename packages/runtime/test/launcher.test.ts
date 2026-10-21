@@ -194,6 +194,7 @@ test("launch saves an initial executing Goal before Coordinator.advance", async 
                     content: "  Build a resumable workflow  ",
                     messageId: "msg-intent-goal-1",
                     runId: "run-1",
+                    position: { afterSequence: 0, order: 0 },
                     source: { kind: "goal_intent", goalId: "goal-1" },
                 },
             ],

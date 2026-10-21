@@ -9,6 +9,8 @@ import {
     isBrowserSessionInputResult,
     isBrowserSessionState,
     isBrowserGoalSession,
+    isBrowserGoalSessionState,
+    isBrowserActivityPage,
     isBrowserInteractionDetailResult,
     isBrowserInteractionView,
     isBrowserRun,
@@ -44,6 +46,8 @@ import {
     isWorkspaceContext,
     type BrowserGoalListItem,
     type BrowserGoalSession,
+    type BrowserGoalSessionState,
+    type BrowserActivityPage,
     type SessionMetricsSnapshot,
 } from "../src/index";
 
@@ -88,7 +92,10 @@ test("isBrowserGoalSession validates complete and malformed sessions", () => {
         currentRunId: "run-1",
         runStatus: "waiting",
         currentRunMode: "normal",
-        messages: [{ role: "user", content: "hello", runId: "run-1" }],
+        messages: [{
+            messageId: "msg-1", role: "user", content: "hello", runId: "run-1",
+            position: { afterSequence: 0, order: 0 },
+        }],
         runs: [
             {
                 runId: "run-1",
@@ -123,8 +130,102 @@ test("isBrowserGoalSession validates complete and malformed sessions", () => {
     }
 
     assert.equal(isBrowserGoalSession({ ...validSession, currentRunMode: "other" }), false);
+    assert.equal(isBrowserGoalSession({
+        ...validSession,
+        messages: [{ ...validSession.messages[0]!, position: { afterSequence: -1, order: 0 } }],
+    }), false);
     assert.equal(isBrowserGoalSession({ ...validSession, runs: "not-array" }), false);
     assert.equal(isGoalSessionEnvelope({ goal: null }), false);
+});
+
+test("Activity 与窄状态 wire guards 接受有界安全 DTO 并拒绝原始载荷或内嵌历史", () => {
+    const position = { runId: "run-1", runOrder: 0, sequence: 2, itemKind: "message" as const, order: 0 };
+    const page: BrowserActivityPage = {
+        goalId: "goal-1",
+        limit: 1,
+        items: [{
+            type: "message", itemId: "message:msg-1", messageId: "msg-1", role: "assistant", purpose: "answer", runId: "run-1",
+            position, content: "saved", contentLength: 5, truncated: false,
+        }],
+        runs: [{ runId: "run-1", status: "running", current: true, runOrder: 0, committedThroughSequence: 2 }],
+        window: [{ runId: "run-1", messageCount: 1, throughMessageId: "msg-1", committedThroughSequence: 2 }],
+        gaps: [{ direction: "older", itemCount: 3, first: position, last: position }],
+        range: { first: position, last: position, olderAvailable: true, newerAvailable: false },
+        stages: [],
+        actionGroups: [],
+    };
+    assert.equal(isBrowserActivityPage(page), true);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        items: [{ ...page.items[0]!, previewId: "candidate-1" }],
+    }), true);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        items: [{ ...page.items[0]!, purpose: "process", previewId: "candidate-1" }],
+    }), false);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        items: [{ ...page.items[0]!, role: "user", purpose: undefined, previewId: "candidate-1" }],
+    }), false);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        items: [{ ...page.items[0]!, previewId: "x".repeat(201) }],
+    }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], payload: { secret: "raw" } }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], content: "x".repeat(4_001), contentLength: 4_001 }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], purpose: undefined }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], role: "user", purpose: "answer" }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, limit: 101 }), false);
+    assert.equal(isBrowserActivityPage({ ...page, gaps: [{ direction: "older", itemCount: 0, first: position, last: position }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, gaps: [{ direction: "sideways", itemCount: 1, first: position, last: position }] }), false);
+    const { gaps: _gaps, ...missingGaps } = page;
+    assert.equal(isBrowserActivityPage(missingGaps), false);
+
+    const stageFact = {
+        type: "fact" as const,
+        itemId: "event:stage-declared",
+        eventId: "stage-declared",
+        runId: "run-1",
+        position: { ...position, itemKind: "fact" as const },
+        eventType: "run_stage_declared" as const,
+        title: "Stage declared",
+        stageId: "stage-1",
+        stageRevision: 1,
+        stageTarget: "Summarize verified findings",
+    };
+    assert.equal(isBrowserActivityPage({ ...page, items: [stageFact] }), true);
+    const { stageTarget: _stageTarget, ...missingStageTarget } = stageFact;
+    assert.equal(isBrowserActivityPage({ ...page, items: [missingStageTarget] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...stageFact, eventType: "tool_started" }] }), false);
+
+    const thinkItem = {
+        type: "think" as const,
+        itemId: "think:event-1",
+        runId: "run-1",
+        position: { ...position, itemKind: "fact" as const },
+        executionUnitId: "unit-think",
+        think: { goal: "Compare evidence", output: "Committed analysis" },
+    };
+    assert.equal(isBrowserActivityPage({ ...page, items: [thinkItem] }), true);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, executionUnitId: "" }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, executionUnitId: "x".repeat(201) }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, payload: { secret: "raw" } }] }), false);
+    // 未知字段必须被拒绝：白名单守卫在 Think 项上曾经反向取值，导致合法项被误拒。
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, reviewNotes: "private" }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, think: { ...thinkItem.think, privateReasoning: "x" } }] }), false);
+
+    const state: BrowserGoalSessionState = {
+        goalId: "goal-1", intent: "inspect", currentRunId: "run-1", runStatus: "running",
+        currentRunMode: "normal", currentRunStepCount: 1,
+        history: {
+            messages: { included: false, source: "activity" },
+            steps: { included: false, source: "activity" },
+            stages: { included: false, source: "activity" },
+        },
+    };
+    assert.equal(isBrowserGoalSessionState(state), true);
+    assert.equal(isBrowserGoalSessionState({ ...state, messages: [] }), false);
+    assert.equal(isBrowserGoalSessionState({ ...state, history: { ...state.history, messages: { included: true, source: "activity" } } }), false);
 });
 
 
@@ -251,6 +352,27 @@ test("isLiveEvent validates activity identities without conflating trajectory ID
     assert.equal(isLiveEvent({
         type: "activity", goalId: "goal-1", runId: "run-1",
         activity: { kind: "activity_boundary", sourceEventId: "event-2", sourceCursor: 2, reason: "private_reasoning" },
+    }), false);
+});
+
+test("message committed live events require a valid persisted Run position", () => {
+    const event = {
+        type: "message_committed",
+        goalId: "goal-1",
+        runId: "run-1",
+        message: {
+            messageId: "msg-1",
+            role: "assistant",
+            runId: "run-1",
+            position: { afterSequence: 8, order: 0 },
+            purpose: "answer",
+            commitRevision: 3,
+        },
+    };
+    assert.equal(isLiveEvent(event), true);
+    assert.equal(isLiveEvent({
+        ...event,
+        message: { ...event.message, position: { afterSequence: 8, order: -1 } },
     }), false);
 });
 
@@ -458,6 +580,7 @@ test("Browser session input validators accept receipts, queries and state projec
             throughMessageId: "msg-1",
             recent: [{
                 messageId: "msg-1", role: "user", runId: "run-1",
+                position: { afterSequence: 0, order: 0 },
                 sourceKind: "goal_intent", sourceId: "goal-1",
             }],
         },

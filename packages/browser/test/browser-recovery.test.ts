@@ -37,7 +37,7 @@ import {
     projectSessionState,
     readBrowserGoalSession,
 } from "../src/index";
-import { testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
+import { bindMessagesToRun, testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
 
 
 const protocols = {
@@ -248,11 +248,11 @@ async function saveWaitingSession(
         state: {
             ...initial.state,
             workflow: { phase: "executing" },
-            messages: [
+            messages: bindMessagesToRun([
                 testUserMessage("Collect approved notes"),
                 testAssistantMessage("I found three notes.", { profileId: profile.id }),
                 testAssistantMessage("Which source should I use?", { profileId: profile.id }),
-            ],
+            ], initial.state.run.id),
             goalPlan: {
                 revision: 1,
                 items: [{ id: "plan-review", content: "Review saved notes", position: 0, status: "in_progress" }],

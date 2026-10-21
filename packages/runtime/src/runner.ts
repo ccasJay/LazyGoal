@@ -38,7 +38,6 @@ import {
     appendGoalMessage,
     createModelTextSource,
     createStageOutputSource,
-    createUserMessage,
 } from "./goal-message";
 import { validateAndReduceContextNotes, type RuntimeContextNote, type ContextNoteSource } from "./context-notes";
 import type { ModelContextCheckpointResult } from "./domain";
@@ -2697,17 +2696,22 @@ class RunExecutor {
                     state: nextState,
                 };
             }
-            const messages = [...latest.state.messages];
+            let messages = latest.state.messages;
             const steerInputs = [...(latest.state.run.steerInputs ?? [])];
             const facts: TrajectoryEventDraft[] = [];
             const appliedPositions = new Map<string, number>();
             for (const input of pending) {
                 const messageIndex = messages.length;
-                messages.push(createUserMessage({
+                const appended = appendGoalMessage({
+                    ...latest,
+                    state: { ...latest.state, messages },
+                }, {
+                    role: "user",
                     content: input.content,
                     runId: latest.state.run.id,
                     source: { kind: "user_input", inputId: input.messageId },
-                }));
+                });
+                messages = appended.goal.state.messages;
                 appliedPositions.set(input.messageId, messageIndex);
                 const index = steerInputs.findIndex(item => item.messageId === input.messageId);
                 steerInputs[index] = { messageId: input.messageId, status: "applied", messageIndex };

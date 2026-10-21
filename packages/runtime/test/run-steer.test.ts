@@ -10,6 +10,7 @@ import {
     TrajectoryCheckpointCommitter,
     type AgentProfile,
     type AgentProfileRegistry,
+    type GoalMessage,
     type StepExecutor,
 } from "../src/index";
 import { contract } from "../../contracts/src/index";
@@ -83,6 +84,11 @@ test("Steer is durably accepted during a model call and applied once in order on
     assert.ok(saved);
     assert.equal(saved.state.run.id, initial.state.run.id);
     assert.deepEqual(saved.state.messages.map((message) => message.content), ["test steer", "first steer", "second steer", "test terminal"]);
+    const failedNotice = saved.state.messages.at(-1);
+    const failedFact = trajectory.events.find((event) => event.payload.type === "run_failed");
+    assert.ok(failedNotice?.role === "assistant" && failedNotice.purpose === "notice");
+    assert.ok(failedFact);
+    assert.deepEqual(failedNotice.position, { afterSequence: failedFact.sequence, order: 0 });
     assert.deepEqual(saved.state.run.steerInputs, [
         { messageId: "steer-1", status: "applied", messageIndex: 1 },
         { messageId: "steer-2", status: "applied", messageIndex: 2 },
@@ -90,6 +96,18 @@ test("Steer is durably accepted during a model call and applied once in order on
     assert.deepEqual(trajectory.events.filter((event) => event.eventType.startsWith("steer_input_")).map((event) => event.eventType), [
         "steer_input_received", "steer_input_received", "steer_input_applied", "steer_input_applied",
     ]);
+
+    for (const steerId of ["steer-1", "steer-2"]) {
+        const appliedFact = trajectory.events.find((event) =>
+            event.payload.type === "steer_input_applied" && event.payload.messageId === steerId);
+        assert.ok(appliedFact?.payload.type === "steer_input_applied");
+        const steerMessage: GoalMessage | undefined = saved.state.messages[appliedFact.payload.messageIndex];
+        assert.equal(steerMessage?.runId, initial.state.run.id);
+        assert.equal(steerMessage?.role, "user");
+        assert.ok(steerMessage?.source.kind === "user_input");
+        assert.equal(steerMessage.source.inputId, steerId);
+        assert.deepEqual(steerMessage?.position, { afterSequence: appliedFact.sequence, order: 0 });
+    }
 
     assert.deepEqual(await runner.steer({ goalId: initial.id, runId: initial.state.run.id }, "steer-1", "first steer"), {
         ok: true, goalId: initial.id, runId: initial.state.run.id, messageId: "steer-1", existing: true,
@@ -344,6 +362,8 @@ test("session Steer writes a durable receipt, keeps the run alive and never dupl
     assert.deepEqual(afterAccept.state.run.steerInputs, [
         { messageId: "steer-1", status: "pending", content: "补充约束" },
     ]);
+    assert.equal(afterAccept.state.messages.some((message) =>
+        message.source.kind === "user_input" && message.source.inputId === "steer-1"), false);
     assert.deepEqual(
         afterAccept.state.inputLedger?.map((record) => [record.inputId, record.kind, record.status]),
         [["input-first", "message", "applied"], ["steer-1", "steer", "pending"]],

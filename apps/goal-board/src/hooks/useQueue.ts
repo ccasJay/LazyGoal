@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import type { BrowserGoalSession } from "../../../../packages/web-contracts/src/index";
+import type { BrowserGoalSessionState } from "../../../../packages/web-contracts/src/index";
 import { BrowserApiError, browserApi } from "../api";
 import { type QueuedInput, errorMessage } from "../types";
 
@@ -15,7 +15,7 @@ export function useQueue({
   onRefreshSession,
   onCommandError,
 }: {
-  session: BrowserGoalSession | null;
+  session: BrowserGoalSessionState | null;
   onRefreshSession: () => Promise<void>;
   onCommandError: (message: string | null) => void;
 }) {

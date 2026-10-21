@@ -2,6 +2,11 @@ import type { BrowserProviderModelQuery, BrowserProviderModels } from "../../web
 import { Hono } from "hono";
 
 import type { BrowserGoalListItem, BrowserGoalSession } from "./browser-projection";
+import type {
+    BrowserActivityQuery,
+    BrowserActivityReadResult,
+} from "../../web-contracts/src/index";
+import type { BrowserGoalSessionState } from "../../web-contracts/src/index";
 import type { BrowserModelCatalogReadResult } from "./browser-model-catalog";
 import type {
     BrowserGoalPlanModeCommand,
@@ -151,6 +156,23 @@ export interface BrowserGoalApiPort {
      * @throws Snapshot 或 Trajectory 损坏、底层读取失败时拒绝。
      */
     read(goalId: string): Promise<BrowserGoalSession | undefined>;
+    /**
+     * 读取不含历史消息、步骤或阶段明细的当前状态；实现必须仅从 Snapshot 投影。
+     *
+     * @param goalId - Goal 的稳定标识。
+     * @returns 窄状态；Goal 不存在时返回 `undefined`。
+     * @throws Snapshot 损坏或底层读取失败时拒绝。
+     */
+    readState?(goalId: string): Promise<BrowserGoalSessionState | undefined>;
+    /**
+     * 读取固定消息与已提交轨迹上界内的有界 Activity 页。
+     *
+     * @param goalId - Goal 的稳定标识。
+     * @param query - 已验证的 Run 过滤、方向 cursor 与页大小。
+     * @returns 安全 Activity 页，或稳定的 Goal、Run、cursor 错误。
+     * @throws Snapshot 或 Trajectory 读取失败时拒绝。
+     */
+    readActivity?(goalId: string, query: BrowserActivityQuery): Promise<BrowserActivityReadResult>;
     /**
      * Runtime 会话委派端口；创建、统一输入、收据查询、状态与 Goal 事件均走该入口。
      *
@@ -403,6 +425,21 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
     routes.get("/api/goals/:goalId", async (context) => {
         const goalId = context.req.param("goalId");
         if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) return context.json({ error: "invalid_goal_id" }, 400);
+        const params = new URL(context.req.url).searchParams;
+        if (params.size > 0) {
+            if (params.size !== 1 || params.getAll("view").length !== 1 || params.get("view") !== "state") {
+                return context.json({ error: "invalid_goal_view" }, 400);
+            }
+            if (source.readState === undefined) return context.json({ error: "session_state_unavailable" }, 503);
+            try {
+                const state = await source.readState(goalId);
+                if (state === undefined) return context.json({ error: "goal_not_found" }, 404);
+                const session = source.session === undefined ? undefined : await source.session.readState(goalId);
+                return context.json({ goal: state, ...(session === undefined ? {} : { session }) });
+            } catch {
+                return context.json({ error: "goal_read_failed" }, 500);
+            }
+        }
         try {
             const goal = await source.read(goalId);
             if (goal === undefined) {
@@ -415,12 +452,60 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         }
     });
 
+    routes.get("/api/goals/:goalId/activity", async (context) => {
+        if (source.readActivity === undefined) return context.json({ error: "activity_unavailable" }, 503);
+        const goalId = context.req.param("goalId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) return context.json({ error: "invalid_goal_id" }, 400);
+        const params = new URL(context.req.url).searchParams;
+        const allowed = new Set(["runId", "before", "after", "limit"]);
+        if ([...params.keys()].some((key) => !allowed.has(key)) || params.size > allowed.size) {
+            return context.json({ error: "invalid_activity_query" }, 400);
+        }
+        const runIds = params.getAll("runId");
+        const beforeCursors = params.getAll("before");
+        const afterCursors = params.getAll("after");
+        const limits = params.getAll("limit");
+        const runId = runIds[0];
+        const before = beforeCursors[0];
+        const after = afterCursors[0];
+        const rawLimit = limits[0];
+        if (runIds.length > 1 || beforeCursors.length > 1 || afterCursors.length > 1 || limits.length > 1
+            || (runId !== undefined && !isWireId(runId, 256))
+            || (before !== undefined && !isWireCursor(before))
+            || (after !== undefined && !isWireCursor(after))
+            || (before !== undefined && after !== undefined)) {
+            return context.json({ error: "invalid_activity_query" }, 400);
+        }
+        let limit: number | undefined;
+        if (rawLimit !== undefined) {
+            const parsed = Number(rawLimit);
+            if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 100) {
+                return context.json({ error: "invalid_activity_query" }, 400);
+            }
+            limit = parsed;
+        }
+        const query: BrowserActivityQuery = {
+            ...(runId === undefined ? {} : { runId }),
+            ...(before === undefined ? {} : { before }),
+            ...(after === undefined ? {} : { after }),
+            ...(limit === undefined ? {} : { limit }),
+        };
+        try {
+            const result = await source.readActivity(goalId, query);
+            if (result.ok) return context.json(result.page);
+            const status = result.error === "goal_not_found" || result.error === "run_not_found" ? 404 : 409;
+            return context.json({ error: result.error }, status);
+        } catch {
+            return context.json({ error: "activity_read_failed" }, 500);
+        }
+    });
+
     routes.get("/api/goals/:goalId/actions/:actionId", async (context) => {
         if (source.readActionDetails === undefined) return context.json({ error: "action_details_unavailable" }, 500);
         const goalId = context.req.param("goalId");
         const actionId = context.req.param("actionId");
         const runId = context.req.query("runId");
-        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || !isWireId(actionId, 256) || !isWireId(runId, 256)) {
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || !isWireActionIdentity(actionId, 256) || !isWireId(runId, 256)) {
             return context.json({ error: "invalid_action_details_request" }, 400);
         }
         try {
@@ -988,9 +1073,13 @@ async function parseSessionInputCommand(
     if (kind === "respond") {
         if (!hasExactKeys(body, ["kind", "inputId", "runId", "requestId", "response"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
         const response = parseInteractionResponse(body.response);
-        return !isWireId(body.runId, 256) || !isWireId(body.requestId, 256) || response === undefined
+        // Action 类决定以当前 Action 身份作为请求引用；PTC 子操作身份包含分隔符。
+        const requestId = response !== undefined && ACTION_RESPONSE_KINDS.has(response.kind)
+            ? (isWireActionIdentity(body.requestId, 256) ? body.requestId : undefined)
+            : (isWireId(body.requestId, 256) ? body.requestId : undefined);
+        return !isWireId(body.runId, 256) || requestId === undefined || response === undefined
             ? { ok: false, error: "INVALID_INPUT", status: 400 }
-            : { ok: true, command: { kind, inputId: body.inputId, runId: body.runId, requestId: body.requestId, response } };
+            : { ok: true, command: { kind, inputId: body.inputId, runId: body.runId, requestId, response } };
     }
 
     if (kind === "resume") {
@@ -1024,6 +1113,19 @@ async function parseSessionInputCommand(
 
     return { ok: false, error: "INVALID_INPUT", status: 400 };
 }
+
+/**
+ * 以 Action 身份作为请求引用的交互决定种类。
+ *
+ * @remarks 这些决定不引用问答请求身份，只引用当前待决 Action 的真实身份。
+ */
+const ACTION_RESPONSE_KINDS: ReadonlySet<string> = new Set([
+    "approve_action",
+    "approve_action_revision",
+    "reject_action",
+    "retry_unknown_action",
+    "decline_unknown_action_retry",
+]);
 
 function parseInteractionResponse(value: unknown): BrowserSessionInteractionResponse | undefined {
     if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
@@ -1334,12 +1436,46 @@ function isWireId(value: unknown, maximumLength: number): value is string {
         && /^[A-Za-z0-9_-]+$/.test(value);
 }
 
-/** 交互引用是 `种类:等待身份` 的稳定键：种类与身份各自受限于 wire id 字符集。 */
+function isWireCursor(value: unknown): value is string {
+    return typeof value === "string"
+        && value.length > 0
+        && value.length <= 65_536
+        && /^[A-Za-z0-9_-]+$/.test(value);
+}
+
+/**
+ * Action 身份是普通 wire id，或 PTC 子操作身份 `父程序身份:调用序号`。
+ *
+ * @remarks
+ * PTC 子调用以父程序身份加调用序号作为自身 Action 身份；wire 必须原样承载这一
+ * 真实身份，不能把它截断成父程序身份，也不能因为包含分隔符而拒绝该引用。
+ *
+ * @param value - 待检测值。
+ * @param maximumLength - 允许的最大长度。
+ * @returns 是否为合法 Action 身份。
+ *
+ * @example
+ * ```ts
+ * if (isWireActionIdentity("program-1:0", 256)) console.log("valid");
+ * ```
+ */
+function isWireActionIdentity(value: unknown, maximumLength: number): value is string {
+    return typeof value === "string"
+        && value.length > 0
+        && value.length <= maximumLength
+        && /^[A-Za-z0-9_:-]+$/.test(value);
+}
+
+/**
+ * 交互引用是 `种类:等待身份` 的稳定键：种类与身份各自受限于 wire id 字符集。
+ *
+ * @remarks 等待身份可能是 PTC 子操作身份，因此按 Action 身份字符集校验。
+ */
 function isWireInteractionId(value: unknown, maximumLength: number): value is string {
     if (typeof value !== "string" || value.length === 0 || value.length > maximumLength) return false;
     const separator = value.indexOf(":");
     if (separator <= 0 || separator === value.length - 1) return false;
-    return isWireId(value.slice(0, separator), 64) && isWireId(value.slice(separator + 1), 256);
+    return isWireId(value.slice(0, separator), 64) && isWireActionIdentity(value.slice(separator + 1), 256);
 }
 
 function createEventStreamResponse(

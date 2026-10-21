@@ -40,6 +40,7 @@ function assistantMessage(
     options: {
         readonly messageId: string;
         readonly runId: string;
+        readonly order: number;
         readonly purpose: "process" | "answer" | "notice";
         readonly source: GoalMessage["source"];
     },
@@ -50,6 +51,7 @@ function assistantMessage(
         content,
         messageId: options.messageId,
         runId: options.runId,
+        position: { afterSequence: 0, order: options.order },
         purpose: options.purpose,
         source: options.source,
     };
@@ -66,18 +68,21 @@ test("Snapshot 编解码保留消息身份、Run 归属、用途与来源", () =
                 assistantMessage("先检查配置", {
                     messageId: "msg-process-1",
                     runId: "run-codec",
+                    order: 1,
                     purpose: "process",
                     source: { kind: "model_text", modelCallId: "call-1", blockIndex: 0 },
                 }),
                 assistantMessage("完成", {
                     messageId: "msg-answer-1",
                     runId: "run-codec",
+                    order: 2,
                     purpose: "answer",
                     source: { kind: "completion_candidate", candidateId: "candidate-1" },
                 }),
                 assistantMessage("需要批准", {
                     messageId: "msg-notice-1",
                     runId: "run-codec",
+                    order: 3,
                     purpose: "notice",
                     source: { kind: "runtime_notice", noticeId: "notice-1" },
                 }),
@@ -169,6 +174,7 @@ test("重复的消息身份或重复来源在快照边界被拒绝", () => {
                     content: "另一条",
                     messageId: "msg-duplicate",
                     runId: "run-duplicate",
+                    position: { afterSequence: 0, order: 2 },
                     source: { kind: "user_input", inputId: "input-2" },
                 },
             ],
@@ -190,6 +196,7 @@ test("重复的消息身份或重复来源在快照边界被拒绝", () => {
                     content: "另一条",
                     messageId: "msg-other",
                     runId: "run-duplicate",
+                    position: { afterSequence: 0, order: 2 },
                     source: { kind: "user_input", inputId: "input-1" },
                 },
             ],

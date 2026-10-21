@@ -130,6 +130,8 @@ export type BrowserGoalLiveEvent =
             readonly messageId: string;
             readonly role: "user" | "assistant";
             readonly runId: string;
+            /** 消息之前最后一条已提交 Run 事实及同锚点 Snapshot 次序。 */
+            readonly position: { readonly afterSequence: number; readonly order: number };
             readonly purpose?: "process" | "answer" | "notice";
             readonly commitRevision: number;
             readonly previewId?: string;

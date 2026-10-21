@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type {
-  BrowserGoalSession,
+  BrowserGoalSessionState,
   BrowserSessionState,
 } from "../../../../packages/web-contracts/src/index";
 import { BrowserApiError, browserApi } from "../api";
@@ -9,6 +9,28 @@ import {
   dispatchBrowserInput,
   errorMessage,
 } from "../types";
+import {
+  classifySubmissionAttempt,
+  reduceUnverifiedSubmissions,
+  type FrozenSubmission,
+} from "../session-controls";
+
+/**
+ * 受理结果不明的一条会话输入。
+ *
+ * @remarks
+ * 保留原 `inputId` 与冻结载荷，使页面可以核验收据或以同一身份重试；不换用新身份
+ * 重复发送，也不把未确认项显示为已受理。
+ *
+ * @example
+ * ```ts
+ * const pending: UnverifiedSubmission = {
+ *   inputId: "input-1", goalId: "goal-1", runId: "run-1",
+ *   kind: "message", content: "Continue the review",
+ * };
+ * ```
+ */
+export type UnverifiedSubmission = FrozenSubmission;
 
 export function useRunCommands({
   session,
@@ -23,7 +45,7 @@ export function useRunCommands({
   onRefreshSession,
   onRefreshGoals,
 }: {
-  session: BrowserGoalSession | null;
+  session: BrowserGoalSessionState | null;
   sessionState?: BrowserSessionState | null;
   canSendText: boolean;
   draftGoalId: React.MutableRefObject<string | null>;
@@ -38,6 +60,7 @@ export function useRunCommands({
   const [commandBusy, setCommandBusy] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [stoppingRunId, setStoppingRunId] = useState<string | null>(null);
+  const [unverifiedSubmissions, setUnverifiedSubmissions] = useState<readonly UnverifiedSubmission[]>([]);
   const interruptInFlight = useRef(false);
 
   const submitDraftMessage = useCallback(
@@ -144,18 +167,37 @@ export function useRunCommands({
       if (!session || !trimmed || !canSendText || commandBusy) return false;
       setCommandBusy(true);
       setCommandError(null);
+      const submission: FrozenSubmission = {
+        inputId: crypto.randomUUID(),
+        goalId: session.goalId,
+        runId: session.currentRunId,
+        kind: "message",
+        content: trimmed,
+      };
       try {
-        const accepted = await browserApi.submitInput(session.goalId, {
+        const accepted = await browserApi.submitInput(submission.goalId, {
           kind: "message",
-          inputId: crypto.randomUUID(),
-          content: trimmed,
+          inputId: submission.inputId,
+          content: submission.content,
         });
-        if (!accepted.ok) throw new BrowserApiError(accepted.error, 409, true);
+        const outcome = classifySubmissionAttempt(accepted);
+        if (outcome.kind === "rejected") {
+          setCommandError(outcome.code);
+          await onRefreshSession();
+          return false;
+        }
         await onRefreshSession();
         return true;
       } catch (error) {
-        setCommandError(errorMessage(error));
-        if (error instanceof BrowserApiError && error.refresh) await onRefreshSession();
+        // 明确拒绝保留可编辑草稿；结果不明则保留原身份等待核验。
+        const outcome = classifySubmissionAttempt(undefined, error);
+        if (outcome.kind === "rejected") {
+          setCommandError(outcome.code);
+          await onRefreshSession();
+          return false;
+        }
+        setUnverifiedSubmissions((current) => reduceUnverifiedSubmissions(current, { kind: "record", submission }));
+        setCommandError("The message result is unknown. Verify it before sending it again.");
         return false;
       } finally {
         setCommandBusy(false);
@@ -169,14 +211,104 @@ export function useRunCommands({
       if (!session || session.runStatus !== "running" || !content.trim() || commandBusy) return false;
       setCommandBusy(true);
       setCommandError(null);
+      const submission: FrozenSubmission = {
+        inputId: crypto.randomUUID(),
+        goalId: session.goalId,
+        runId: session.currentRunId,
+        kind: "steer",
+        content: content.trim(),
+      };
       try {
-        const accepted = await browserApi.submitInput(session.goalId, {
+        const accepted = await browserApi.submitInput(submission.goalId, {
           kind: "steer",
-          inputId: crypto.randomUUID(),
-          runId: session.currentRunId,
-          content: content.trim(),
+          inputId: submission.inputId,
+          runId: submission.runId,
+          content: submission.content,
         });
+        const outcome = classifySubmissionAttempt(accepted);
+        if (outcome.kind === "rejected") {
+          setCommandError(outcome.code);
+          await onRefreshSession();
+          return false;
+        }
+        await onRefreshSession();
+        return true;
+      } catch (error) {
+        // 明确拒绝保留草稿且不降级为普通排队；结果不明保留原身份等待核验。
+        const outcome = classifySubmissionAttempt(undefined, error);
+        if (outcome.kind === "rejected") {
+          setCommandError(outcome.code);
+          await onRefreshSession();
+          return false;
+        }
+        setUnverifiedSubmissions((current) => reduceUnverifiedSubmissions(current, { kind: "record", submission }));
+        setCommandError("The Steer result is unknown. Verify it before sending it again.");
+        return false;
+      } finally {
+        setCommandBusy(false);
+      }
+    },
+    [session, sessionState, commandBusy, onRefreshSession]
+  );
+
+  /**
+   * 按原身份核验一条结果不明的输入。
+   *
+   * @remarks
+   * 只读取持久化收据：已受理则清除不确定状态，未找到则保留原身份允许重试；读取失败
+   * 不改写为“未受理”，也不触发新的提交。
+   */
+  const verifySubmission = useCallback(
+    async (inputId: string): Promise<void> => {
+      const target = unverifiedSubmissions.find((item) => item.inputId === inputId);
+      if (target === undefined) return;
+      try {
+        const receipt = await browserApi.readInputReceipt(target.goalId, inputId);
+        if (receipt.ok && receipt.found) {
+          setUnverifiedSubmissions((current) => reduceUnverifiedSubmissions(current, { kind: "settled", inputId }));
+          setCommandError(null);
+          await onRefreshSession();
+          return;
+        }
+        if (receipt.ok) {
+          setCommandError("The Runtime has no receipt for this input. Retry with the same identity or edit it.");
+          return;
+        }
+        setCommandError("Could not read the input receipt. Try the verification again.");
+      } catch (error) {
+        setCommandError(errorMessage(error));
+      }
+    },
+    [unverifiedSubmissions, onRefreshSession]
+  );
+
+  /**
+   * 以原身份与冻结载荷重试一条结果不明的输入。
+   *
+   * @remarks
+   * 重试不生成新的 `inputId`；服务端对同一身份返回既有收据，因此不会重复受理。
+   */
+  const retrySubmission = useCallback(
+    async (inputId: string): Promise<boolean> => {
+      const target = unverifiedSubmissions.find((item) => item.inputId === inputId);
+      if (target === undefined) return false;
+      setCommandBusy(true);
+      try {
+        const accepted = target.kind === "steer"
+          ? await browserApi.submitInput(target.goalId, {
+            kind: "steer",
+            inputId: target.inputId,
+            runId: target.runId,
+            content: target.content,
+          })
+          : await browserApi.submitInput(target.goalId, {
+            kind: "message",
+            inputId: target.inputId,
+            content: target.content,
+          });
         if (!accepted.ok) throw new BrowserApiError(accepted.error, 409, true);
+        setUnverifiedSubmissions((current) => reduceUnverifiedSubmissions(current, { kind: "settled", inputId: target.inputId }));
+        setCommandError(null);
         await onRefreshSession();
         return true;
       } catch (error) {
@@ -187,8 +319,13 @@ export function useRunCommands({
         setCommandBusy(false);
       }
     },
-    [session, sessionState, commandBusy, onRefreshSession]
+    [unverifiedSubmissions, onRefreshSession]
   );
+
+  /** 放弃一条结果不明的输入；其原身份不再重发。 */
+  const discardSubmission = useCallback((inputId: string): void => {
+    setUnverifiedSubmissions((current) => reduceUnverifiedSubmissions(current, { kind: "settled", inputId }));
+  }, []);
 
   const interruptCurrentRun = useCallback(async (): Promise<void> => {
     // 停止使用独立输入身份与在途标记：等待中的回答提交不能锁住停止入口。
@@ -246,6 +383,10 @@ export function useRunCommands({
     submitSteer,
     interruptCurrentRun,
     submitResume,
+    unverifiedSubmissions,
+    verifySubmission,
+    retrySubmission,
+    discardSubmission,
   };
 }
 

@@ -166,6 +166,25 @@ export interface BrowserGoalExecution {
 }
 
 /**
+ * 浏览器可读的 Run 内消息位置。
+ *
+ * @remarks
+ * `afterSequence` 对应消息前最后一条已提交 Run 事实，`order` 保持同锚点消息的
+ * Snapshot 次序；该值不表示墙钟时间或执行 Step。
+ *
+ * @example
+ * ```ts
+ * const position: BrowserMessagePosition = { afterSequence: 12, order: 0 };
+ * ```
+ */
+export interface BrowserMessagePosition {
+    /** 消息之前的最后一条已提交事实序列。 */
+    readonly afterSequence: number;
+    /** 同一 Run、同一事实锚点内的零基 Snapshot 次序。 */
+    readonly order: number;
+}
+
+/**
  * 工作区 Goal 列表项的安全传输对象。
  *
  * @remarks
@@ -208,24 +227,30 @@ export interface BrowserGoalListItem {
  * 会话时间线中的用户或助手文本消息。
  *
  * @remarks
- * 仅包含角色、有界文本及所属 Run 标识；超出长度限制的正文会在服务端截断。
+ * 包含稳定身份、来源、Run 内位置及有界正文；超出长度限制的正文会在服务端截断。
  *
  * @example
  * ```ts
  * const msg: BrowserSessionMessage = {
+ *     messageId: "msg-1",
  *     role: "user",
  *     content: "请检查代码质量",
  *     runId: "run-1",
+ *     position: { afterSequence: 0, order: 0 },
  * };
  * ```
  */
 export interface BrowserSessionMessage {
+    /** 消息稳定身份。 */
+    readonly messageId: string;
     /** 消息角色。 */
     readonly role: "user" | "assistant";
     /** 消息正文。 */
     readonly content: string;
-    /** 消息所属的 Run 标识；历史无归属时省略。 */
-    readonly runId?: string;
+    /** 消息所属的 Run 标识；每条正式消息必须关联到真实 Run。 */
+    readonly runId: string;
+    /** 消息在所属 Run 已提交事实流中的稳定位置。 */
+    readonly position: BrowserMessagePosition;
 }
 
 /**
@@ -920,4 +945,57 @@ export interface BrowserGoalSession {
     readonly pendingAction?: BrowserPendingAction;
     /** 历史是否因达到上限被截断。 */
     readonly historyTruncated: boolean;
+}
+
+/**
+ * 初始读取和分页使用的窄 Goal 状态。
+ *
+ * @remarks
+ * 不内嵌消息、步骤或历史阶段；`history` 明确指向 Activity 窗口。当前 Run、Plan
+ * 路线、队列、等待、交互与待审批 Action 仍保留在此状态中。
+ *
+ * @example
+ * ```ts
+ * const state: BrowserGoalSessionState = {
+ *     goalId: "goal-1", intent: "检查仓库", currentRunId: "run-1",
+ *     runStatus: "running", currentRunMode: "normal",
+ *     history: {
+ *         messages: { included: false, source: "activity" },
+ *         steps: { included: false, source: "activity" },
+ *         stages: { included: false, source: "activity" },
+ *     },
+ * };
+ * ```
+ */
+export interface BrowserGoalSessionState {
+    readonly goalId: string;
+    readonly intent: string;
+    readonly currentRunId: string;
+    readonly runStatus: BrowserRunStatus;
+    readonly currentRunMode: "normal" | "plan";
+    readonly nextRunMode?: "plan";
+    readonly currentRunStepCount: number;
+    readonly currentPlanRoute?: BrowserPlanRoute;
+    readonly execution?: BrowserGoalExecution;
+    readonly pendingSteers?: readonly { readonly messageId: string; readonly content: string }[];
+    readonly pendingMessages?: readonly { readonly inputId: string; readonly content: string }[];
+    readonly queue?: {
+        readonly revision: number;
+        readonly paused: boolean;
+        readonly pauseReason?: "run_failed" | "user_interrupt";
+    };
+    readonly interruption?: {
+        readonly requestId: string;
+        readonly status: "requested" | "repairing" | "finished";
+        readonly repairCallsStarted: number;
+        readonly outcomeUnknown?: boolean;
+    };
+    readonly goalPlan?: BrowserGoalPlan;
+    readonly interaction?: BrowserInteractionView;
+    readonly pendingAction?: BrowserPendingAction;
+    readonly history: {
+        readonly messages: { readonly included: false; readonly source: "activity" };
+        readonly steps: { readonly included: false; readonly source: "activity" };
+        readonly stages: { readonly included: false; readonly source: "activity" };
+    };
 }

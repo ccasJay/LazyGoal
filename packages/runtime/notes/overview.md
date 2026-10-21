@@ -18,7 +18,7 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 | [RunExecutor](../src/runner.ts) | 持有单次活动执行的最新已提交 Goal，负责模型决策、Tool 授权、Action/Observation、PTC、Evidence 和 Run 转换；恢复历史经只读 reader 获取，检查点经共享提交器写入 | 供应商协议和 UI |
 | [RunRecoveryReader](../src/run-recovery-reader.ts) | 按 Goal/Run 身份恢复最新快照，按 Snapshot 提交边界读取 Trajectory | 推进 Run 或写入持久化 |
 | [WorkingMemorySession](../src/working-memory-session.ts) | 按 Snapshot 边界重建临时 Working Memory，校验 Patch/Evidence | 保存 Memory 内容到 Snapshot |
-| [TrajectoryCheckpointCommitter](../src/trajectory-checkpoint-committer.ts) | 统一事实、Patch、Snapshot 和提交 marker 的顺序；维护 Goal 提交修订并在未声明会话权威时保留最新会话状态 | 业务分支和模型调用 |
+| [TrajectoryCheckpointCommitter](../src/trajectory-checkpoint-committer.ts) | 统一事实、Patch、Snapshot 和提交 marker 的顺序；在保存前按原提交事实确定新消息位置；维护 Goal 提交修订并在未声明会话权威时保留最新会话状态 | 业务分支和模型调用 |
 | [SessionInputAdmission](../src/session-admission.ts) | 在共享短提交边界内持久化受理会话输入、按 `inputId` 与载荷摘要去重、维护输入账本与待处理消息队列、返回稳定收据 | 推进 Run、调用模型或工具、调度后继 Run |
 | [SessionManager](../src/session-manager.ts) | 创建/只读连接长期 Session、单活动 Goal 执行名额、被追踪的后台执行与安全状态投影 | 复制执行循环、直接执行 Tool、跨进程租约 |
 | [Session](../src/session.ts) | Goal 句柄：读取安全状态、受理输入、查询收据、解除连接 | 拥有实例关闭权、改写 Goal 快照 |
@@ -36,6 +36,8 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 | [Context Retrieval](../src/context-retrieval.ts) | 历史查询校验、边界门禁及向 `@lazygoal/context-retrieval` 委托的适配层 | 读取当前 Workspace/Environment |
 
 ## 状态与推进
+
+正式消息保存稳定身份、来源、所属 Run 和 Run 内位置。位置锚定消息原始提交边界中最后一条已提交事实；首条事实前为 0，同一锚点按 Snapshot 顺序编号。恢复与会话摘要复用已保存位置，不从到达时间、Step 或未提交 Trajectory tail 推断。Goal 创建时只存在首个 Run，因此创建路径把初始消息集统一归属该 Run，并按初始次序分配 `afterSequence: 0` 的连续 `order`；调用方不能在创建时指定消息的 Run 归属或位置。恢复输入按最近一次恢复事实锚定，不会回退到更早的恢复事实。
 
 Goal workflow 只有 `phase: "executing"`。Goal 是可持续恢复的会话聚合，保存完整 messages、独立 GoalPlan、可选的一次性 `nextRunMode` 和 `completedRuns`；Run 是一次执行边界，保存自己的 `mode`、可选 `approvedTask`、Plan Run 可选的 `planRoute`、`status`、`stepCount`、最新 Step、等待点、Context Epoch、Trajectory 提交边界和 Working Memory revision。`planRoute` 只在获批 Plan Run 上保存完整有序阶段、状态和恢复游标；普通 Run 与待审批 Run 不包含该状态。GoalPlan Todo 不绑定 Run；同一 Run 可依次更新多个 Todo，结束时未完成项保留原状态。
 

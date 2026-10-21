@@ -18,6 +18,7 @@ import {
     createBrowserGoalRoutes,
     listBrowserGoals,
     readBrowserGoalSession,
+    readBrowserGoalSessionState,
     type BrowserGoalListItem,
 } from "../src/index";
 import type { BrowserCreateSessionCommand } from "../../web-contracts/src/index";
@@ -110,6 +111,69 @@ test("Plan task approval projection preserves the complete ordered route", async
     assert.deepEqual(session?.interaction?.decisions, ["approve_task", "send_task_feedback"]);
     // 完整有序路线不再复制到会话摘要；它由显式详情读取按同一引用提供。
     assert.equal(session?.interaction?.truncated, false);
+});
+
+test("Browser session messages preserve stable identity and persisted Run position", async () => {
+    const initial = createTestGoal();
+    const assistant = testAssistantMessage("已保存正文", {
+        runId: initial.state.run.id,
+        profileId: "private-profile-id",
+        position: { afterSequence: 4, order: 0 },
+    });
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: { ...initial.state.run, committedThroughSequence: 4 },
+            messages: [...initial.state.messages, assistant],
+        },
+    };
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.deepEqual(session?.messages[1], {
+        messageId: assistant.messageId,
+        role: "assistant",
+        content: "已保存正文",
+        runId: goal.state.run.id,
+        position: { afterSequence: 4, order: 0 },
+    });
+});
+
+test("narrow Browser state retains current Plan route, waiting decision, and server queue metadata", async () => {
+    const initial = createTestGoal();
+    const planRoute = createRunPlanRoute({
+        stages: [{ target: "Inspect the source", acceptanceCriteria: ["Find the current route"] }],
+    });
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            messageQueue: { revision: 9, items: [{ inputId: "queued-1", content: "continue later", sequence: 4 }] },
+            run: {
+                ...initial.state.run,
+                mode: "plan",
+                status: "waiting",
+                stepCount: 3,
+                planRoute,
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "ask-1",
+                    mode: "execution",
+                    questions: [{ id: "q-1", header: "Scope", question: "Continue?", multiSelect: false, options: [{ id: "yes", label: "Yes" }] }],
+                },
+            },
+        },
+    };
+    const state = await readBrowserGoalSessionState(goal.id, new TestGoalStore(goal));
+    assert.equal(state?.runStatus, "waiting");
+    assert.equal(state?.currentRunStepCount, 3);
+    assert.deepEqual(state?.currentPlanRoute?.stages.map((stage) => stage.stageId), planRoute.stages.map((stage) => stage.stageId));
+    assert.equal(state?.interaction?.kind, "question");
+    assert.deepEqual(state?.pendingMessages, [{ inputId: "queued-1", content: "continue later" }]);
+    assert.equal(state?.history.messages.included, false);
+    assert.equal("messages" in (state ?? {}), false);
+    assert.equal("runs" in (state ?? {}), false);
 });
 
 test("session projection exposes the typed interaction identity and truncation flag", async () => {
@@ -513,8 +577,15 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
         state: {
             ...initial.state,
             messages: [
-                testUserMessage("检查项目"),
-                testAssistantMessage("会话已完成", { profileId: "private-profile-id" }),
+                testUserMessage("检查项目", {
+                    runId: initial.state.run.id,
+                    position: { afterSequence: 0, order: 0 },
+                }),
+                testAssistantMessage("会话已完成", {
+                    runId: initial.state.run.id,
+                    profileId: "private-profile-id",
+                    position: { afterSequence: 4, order: 0 },
+                }),
             ],
             goalPlan: {
                 revision: 1,
@@ -539,8 +610,16 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
 
     assert.ok(session);
     assert.deepEqual(session.messages, [
-        { role: "user", content: "检查项目", runId: "run-real-1" },
-        { role: "assistant", content: "会话已完成", runId: "run-real-1" },
+        {
+            messageId: goal.state.messages[0]!.messageId,
+            role: "user", content: "检查项目", runId: "run-real-1",
+            position: { afterSequence: 0, order: 0 },
+        },
+        {
+            messageId: goal.state.messages[1]!.messageId,
+            role: "assistant", content: "会话已完成", runId: "run-real-1",
+            position: { afterSequence: 4, order: 0 },
+        },
     ]);
     assert.equal(session.currentRunMode, "normal");
     assert.equal(session.nextRunMode, undefined);

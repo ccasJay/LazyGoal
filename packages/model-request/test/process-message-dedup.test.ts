@@ -21,6 +21,7 @@ import {
     DropOldestContextCompactor,
 } from "../../context-budget/src/index";
 import {
+    bindMessagesToGoal,
     currentProtocols,
     testAssistantMessage,
     testUserMessage,
@@ -113,21 +114,23 @@ function createGoalWithProcessMessage(modelCallId = "call-0"): Goal {
             ...goal.state,
             messages: [
                 ...goal.state.messages,
-                testAssistantMessage(PROCESS_BODY, {
-                    profileId: profile.id,
-                    runId: "dedup-run",
-                    source: { kind: "model_text", modelCallId, blockIndex: 0 },
-                }),
-                testUserMessage(SAME_TEXT, {
-                    runId: "dedup-run",
-                    source: { kind: "user_input", inputId: "input-same-text" },
-                }),
-                testAssistantMessage(SAME_TEXT, {
-                    profileId: profile.id,
-                    runId: "dedup-run",
-                    purpose: "answer",
-                    source: { kind: "completion_candidate", candidateId: "candidate-same-text" },
-                }),
+                ...bindMessagesToGoal(goal, [
+                    testAssistantMessage(PROCESS_BODY, {
+                        profileId: profile.id,
+                        runId: "dedup-run",
+                        source: { kind: "model_text", modelCallId, blockIndex: 0 },
+                    }),
+                    testUserMessage(SAME_TEXT, {
+                        runId: "dedup-run",
+                        source: { kind: "user_input", inputId: "input-same-text" },
+                    }),
+                    testAssistantMessage(SAME_TEXT, {
+                        profileId: profile.id,
+                        runId: "dedup-run",
+                        purpose: "answer",
+                        source: { kind: "completion_candidate", candidateId: "candidate-same-text" },
+                    }),
+                ], "dedup-run"),
             ],
             run: {
                 ...goal.state.run,
