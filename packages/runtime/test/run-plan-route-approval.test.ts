@@ -96,7 +96,7 @@ async function createRouteExpansionRig() {
     const registry = new InMemoryToolRegistry([]);
     const runner = new Runner({ store, trajectoryStore: trajectory, executor: new RouteExpansionExecutor(), toolRegistry: registry });
     const coordinator = new GoalCoordinator({ store, trajectoryStore: trajectory, toolRegistry: registry, scheduler: new InlineScheduler(runner) });
-    return { store, trajectory, goal, coordinator, ref: { goalId: goal.id, runId: goal.state.run.id } };
+    return { store, trajectory, goal, runner, coordinator, ref: { goalId: goal.id, runId: goal.state.run.id } };
 }
 
 test("范围扩展先等待用户决定；批准后原子修订路线并在同一 Run 继续", async () => {
@@ -222,4 +222,46 @@ test("路线修订审批检查点失败时不开始后续阶段", async () => {
     const unchanged = await backingStore.restore(goal.id);
     assert.equal(unchanged?.state.run.planRoute?.revision, 1);
     assert.equal(unchanged?.state.run.pendingInteraction?.kind, "ask_user");
+});
+
+test("路线审批等待中的停止不批准候选，迟到的批准与整体回复都不再生效", async () => {
+    const { store, runner, coordinator, ref } = await createRouteExpansionRig();
+    const proposed = await coordinator.advance(ref);
+    assert.equal(proposed.ok, true);
+    if (!proposed.ok || proposed.kind !== "waiting" || proposed.goal.state.run.pendingInteraction?.kind !== "task_approval") {
+        assert.fail("Expected initial task approval");
+    }
+    const taskApproval = proposed.goal.state.run.pendingInteraction;
+    const waiting = await coordinator.resume({
+        ref,
+        action: { kind: "approve_task", requestId: taskApproval.requestId },
+    });
+    assert.equal(waiting.ok, true);
+    if (!waiting.ok || waiting.kind !== "waiting" || waiting.goal.state.run.pendingInteraction?.kind !== "ask_user") {
+        assert.fail("Expected route expansion approval wait");
+    }
+    const pending = waiting.goal.state.run.pendingInteraction;
+    const approvalOptionId = pending.routeRevision!.approvalOptionId;
+
+    const interrupted = await runner.interrupt(ref, "interrupt-route-approval");
+    assert.equal(interrupted.ok, true);
+    await runner.runUntilBlocked(ref).catch(() => undefined);
+
+    const afterInterrupt = (await store.restore(ref.goalId))!;
+    assert.equal(afterInterrupt.state.run.pendingInteraction, undefined, "被停止的路线审批等待立即失效");
+    assert.equal(afterInterrupt.state.run.planRoute?.revision, 1, "候选路线不因停止被批准");
+    assert.equal(afterInterrupt.state.run.status, "cancelled");
+
+    for (const action of [
+        { kind: "answer_ask_user" as const, requestId: pending.requestId, answers: [{ questionId: pending.questions[0]!.id, optionIds: [approvalOptionId] }] },
+        { kind: "reply_to_question" as const, requestId: pending.requestId, content: "我批准扩展后的路线" },
+        { kind: "skip_question" as const, requestId: pending.requestId },
+    ]) {
+        const late = await coordinator.resume({ ref, action });
+        assert.equal(late.ok, false, "停止后旧路线审批引用不可复活");
+    }
+    const final = (await store.restore(ref.goalId))!;
+    assert.equal(final.state.run.planRoute?.revision, 1);
+    assert.equal(final.state.run.status, "cancelled");
+    assert.deepEqual(final.state.run.pendingInteraction, undefined);
 });

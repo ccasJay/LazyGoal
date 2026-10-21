@@ -19,6 +19,21 @@ import {
     type SessionManagerErrorCode,
 } from "./session";
 import { SessionInputAdmission, type SessionInputAdmissionDependencies } from "./session-admission";
+import {
+    projectInteractionView,
+    readInteractionDetail,
+    type GoalInteractionView,
+    type InteractionDetailResult,
+    type InteractionViewRef,
+} from "./interaction-view";
+import {
+    handlerNameFor,
+    type InteractionHandlerAttachOptions,
+    type InteractionHandlerAttachResult,
+    type InteractionHandlerFailure,
+    type InteractionHandlerHandle,
+    type SessionInteractionHandlers,
+} from "./interaction-handlers";
 import type { GoalUserAction } from "./goal-coordinator";
 import {
     computeSessionInputDigest,
@@ -101,8 +116,10 @@ function toGoalUserAction(
     switch (response.kind) {
         case "answer_ask_user":
             return { kind: "answer_ask_user", requestId, answers: response.answers };
-        case "cancel_ask_user":
-            return { kind: "cancel_ask_user", requestId };
+        case "reply_to_question":
+            return { kind: "reply_to_question", requestId, content: response.content };
+        case "skip_question":
+            return { kind: "skip_question", requestId };
         case "approve_task":
             return { kind: "approve_task", requestId };
         case "feedback_task":
@@ -116,6 +133,13 @@ function toGoalUserAction(
         case "reject_action":
             return { kind: "reject_action", actionId: response.actionId, reason: response.reason };
     }
+}
+
+/** 交互视图的等待身份：问答与任务审批用 requestId，Action 用 actionId。 */
+function interactionLocalId(view: GoalInteractionView): string {
+    return view.kind === "question" || view.kind === "task_approval"
+        ? view.requestId
+        : view.actionId;
 }
 
 /** 把收据投影为可发布的 JSON 对象；不包含队列正文或隐藏推理。 */
@@ -158,6 +182,25 @@ export class SessionManagerCloseError extends Error {
 
 /** 停止消费用的可等待信号。 */
 const STOPPED = Symbol("stopped");
+
+/** 一个 Goal 的自动处理器连接状态；同一 Goal 同时只允许一个自动所有者。 */
+interface SessionInteractionAttachment {
+    readonly goalId: string;
+    readonly handlers: SessionInteractionHandlers;
+    readonly onFailure: ((failure: InteractionHandlerFailure) => void) | undefined;
+    /** 连接之前已经存在的等待身份；不会被自动回答。 */
+    readonly baselineInteractionId: string | undefined;
+    /** 已经启动过处理的交互身份；同一请求至多启动一次调用。 */
+    readonly invoked: Set<string>;
+    /** 本地在途调用与其交互身份。 */
+    readonly pending: Map<AbortController, string>;
+    /** 宿主显式恢复后允许投递的历史等待身份。 */
+    readonly unlocked: Set<string>;
+    detached: boolean;
+    unsubscribe: () => void;
+    /** 幂等释放该连接并中止在途调用。 */
+    detach: () => void;
+}
 
 function deferredSignal(): { readonly promise: typeof STOPPED extends never ? never : Promise<typeof STOPPED>; resolve: () => void } {
     let resolve!: () => void;
@@ -322,6 +365,7 @@ export class SessionManager implements SessionHandlePort {
     private readonly revisionMonitor: GoalRevisionMonitor;
     private readonly sessionStreams = new Map<string, Set<GoalSessionStream>>();
     private readonly sessionConsumers = new Map<string, Set<{ readonly stopped: boolean; stop: () => void }>>();
+    private readonly interactionAttachments = new Map<string, SessionInteractionAttachment>();
     private readonly pendingWakes = new Set<string>();
     private readonly admission: SessionInputAdmission;
     private readonly executions = new Map<string, Promise<void>>();
@@ -525,6 +569,55 @@ export class SessionManager implements SessionHandlePort {
         const goal = await this.store.restore(goalId);
         if (goal === undefined) return undefined;
         return projectGoalSessionState({ goal, executionOwner: this.activeGoalId === goalId });
+    }
+
+    /**
+     * 读取指定 Goal 当前已提交等待的类型化交互视图。
+     *
+     * @remarks 只读取最新快照；重复同步、重连与多客户端读取都得到同一
+     * `interactionId`，不会因读取创建交互或推进执行。
+     *
+     * @param goalId - 目标 Goal。
+     * @returns 类型化交互视图；没有可决定等待或 Goal 不存在时返回 `undefined`。
+     * @throws 快照损坏或读取失败时抛出异常。
+     * @example
+     * ```ts
+     * const view = await sessions.readSessionInteraction("goal-1");
+     * ```
+     */
+    async readSessionInteraction(goalId: string): Promise<GoalInteractionView | undefined> {
+        const goal = await this.store.restore(goalId);
+        return goal === undefined ? undefined : projectInteractionView(goal);
+    }
+
+    /**
+     * 按稳定引用读取当前交互的完整审阅内容。
+     *
+     * @remarks 引用必须同时匹配当前 Run 与当前等待身份；过期引用返回稳定拒绝，
+     * 读取不推进等待、不调用模型或工具、也不返回其他 Action 的输入。
+     *
+     * @param goalId - 目标 Goal。
+     * @param ref - 调用方保存的 Run 与交互引用。
+     * @returns 完整审阅内容，或引用不匹配的稳定拒绝。
+     * @throws 快照损坏或读取失败时抛出异常。
+     * @example
+     * ```ts
+     * const detail = await sessions.readSessionInteractionDetail("goal-1", ref);
+     * ```
+     */
+    async readSessionInteractionDetail(
+        goalId: string,
+        ref: InteractionViewRef,
+    ): Promise<InteractionDetailResult> {
+        const goal = await this.store.restore(goalId);
+        if (goal === undefined) {
+            return {
+                ok: false,
+                code: "INTERACTION_NOT_WAITING",
+                message: `Goal "${goalId}" was not found`,
+            };
+        }
+        return readInteractionDetail(goal, ref);
     }
 
     /**
@@ -733,6 +826,15 @@ export class SessionManager implements SessionHandlePort {
             const waiting = current.state.run.pendingInteraction !== undefined
                 || current.state.run.pendingAction !== undefined;
             if (waiting) {
+                // 显式恢复发现仍需交互时不代答，但允许已注册处理器处理该历史请求。
+                const unlocked = projectInteractionView(current);
+                if (unlocked !== undefined) {
+                    this.interactionAttachments.get(goalId)?.unlocked.add(unlocked.interactionId);
+                    void this.dispatchInteractionHandlers(
+                        goalId,
+                        this.interactionAttachments.get(goalId)!,
+                    );
+                }
                 return {
                     ok: false,
                     code: "INTERACTION_REQUIRED",
@@ -824,7 +926,9 @@ export class SessionManager implements SessionHandlePort {
                 message: `requestId "${input.requestId}" is not the current pending interaction`,
             };
         }
-        if (response.kind === "answer_ask_user" || response.kind === "cancel_ask_user") {
+        if (response.kind === "answer_ask_user"
+            || response.kind === "reply_to_question"
+            || response.kind === "skip_question") {
             return pendingInteraction.kind === "ask_user"
                 ? undefined
                 : {
@@ -964,6 +1068,224 @@ export class SessionManager implements SessionHandlePort {
     /** @param goalId - 目标 Goal。 @param inputId - 输入身份。 @returns 持久化收据或稳定失败。 */
     querySessionInput(goalId: string, inputId: string): Promise<SessionInputQueryResult> {
         return this.admission.query(goalId, inputId);
+    }
+
+    /**
+     * 连接按交互种类分派的自动处理器。
+     *
+     * @remarks
+     * 同一 Goal 只允许一个自动所有者，重复连接返回稳定冲突且不替换原处理器。
+     * 连接先按最新快照做一致同步：连接之前已经存在的等待被记为历史请求，不会自动
+     * 回答；只有本实例随后产生的新等待，或宿主显式恢复发现的历史等待才允许投递。
+     * 处理函数在短提交 Gate 外运行，结果只通过统一 `send` 受理。
+     * @param goalId - 目标 Goal。
+     * @param sessionId - 建立连接的句柄身份。
+     * @param handlers - 按种类注册的处理函数。
+     * @returns 可解除的句柄，或已有自动所有者的稳定冲突。
+     */
+    attachSessionInteractionHandlers(
+        goalId: string,
+        sessionId: string,
+        handlers: SessionInteractionHandlers,
+        options?: InteractionHandlerAttachOptions,
+    ): InteractionHandlerAttachResult {
+        const existing = this.interactionAttachments.get(goalId);
+        if (existing !== undefined && !existing.detached) {
+            return {
+                ok: false,
+                code: "HANDLER_CONFLICT",
+                message: `Goal "${goalId}" already has an attached interaction handler owner`,
+            };
+        }
+        const attachment: SessionInteractionAttachment = {
+            goalId,
+            handlers,
+            onFailure: options?.onFailure,
+            baselineInteractionId: undefined,
+            invoked: new Set(),
+            pending: new Map(),
+            unlocked: new Set(),
+            detached: false,
+            unsubscribe: () => undefined,
+            detach: () => undefined,
+        };
+        attachment.detach = () => {
+            if (attachment.detached) return;
+            attachment.detached = true;
+            for (const controller of [...attachment.pending.keys()]) controller.abort();
+            attachment.pending.clear();
+            attachment.unsubscribe();
+            if (this.interactionAttachments.get(goalId) === attachment) {
+                this.interactionAttachments.delete(goalId);
+            }
+        };
+        this.interactionAttachments.set(goalId, attachment);
+        void sessionId;
+        const attachmentHandle: InteractionHandlerHandle = {
+            goalId,
+            get detached() { return attachment.detached; },
+            detach: () => attachment.detach(),
+        };
+        attachment.unsubscribe = this.revisionMonitor.observe(goalId, () => {
+            void this.dispatchInteractionHandlers(goalId, attachment);
+        });
+        void this.dispatchInteractionHandlers(goalId, attachment, { attachSync: true });
+        return { ok: true, handle: attachmentHandle };
+    }
+
+    /** 释放指定句柄建立的自动处理器连接；其他句柄与 Goal 保持原状。 */
+    detachSessionInteractionHandlers(goalId: string, _sessionId: string): void {
+        this.interactionAttachments.get(goalId)?.detach();
+    }
+
+    /** 处理结果提交结果不明：按冻结身份核验收据；收据不存在时才报告未提交。 */
+    private async reportUnknownAdmission(
+        attachment: SessionInteractionAttachment,
+        view: GoalInteractionView,
+        inputId: string,
+        error: unknown,
+    ): Promise<void> {
+        let settled = false;
+        try {
+            const queried = await this.querySessionInput(attachment.goalId, inputId);
+            settled = queried.ok && queried.found;
+        } catch {
+            settled = false;
+        }
+        if (settled) return;
+        this.reportHandlerFailure(attachment, {
+            goalId: attachment.goalId,
+            interactionId: view.interactionId,
+            kind: view.kind,
+            phase: "admission",
+            code: "ADMISSION_UNKNOWN",
+            message: error instanceof Error ? error.message : String(error),
+            inputId,
+        });
+    }
+
+    /** 向宿主与后台观察者报告可定位的处理故障；等待保持不变。 */
+    private reportHandlerFailure(
+        attachment: SessionInteractionAttachment,
+        failure: InteractionHandlerFailure,
+    ): void {
+        try {
+            attachment.onFailure?.(failure);
+        } catch (error) {
+            this.onBackgroundFailure?.(attachment.goalId, error);
+        }
+        this.onBackgroundFailure?.(
+            attachment.goalId,
+            new Error(`${failure.phase}:${failure.code}:${failure.message}`),
+        );
+    }
+
+    /**
+     * 按最新快照投递当前等待到匹配的处理函数。
+     *
+     * @remarks
+     * 每次投递前重新读取快照：等待已变化、Run 已终态或处理器缺少对应函数时不投递。
+     * 同一交互身份至多启动一次调用；在途调用不再匹配当前等待时被中止。
+     * @param goalId - 目标 Goal。
+     * @param attachment - 自动所有者连接状态。
+     * @param options - `attachSync` 时记录连接基线，不投递历史等待。
+     */
+    private async dispatchInteractionHandlers(
+        goalId: string,
+        attachment: SessionInteractionAttachment,
+        options?: { readonly attachSync?: boolean },
+    ): Promise<void> {
+        if (attachment.detached) return;
+        let goal: Goal | undefined;
+        try {
+            goal = await this.store.restore(goalId);
+        } catch (error) {
+            this.onBackgroundFailure?.(goalId, error);
+            return;
+        }
+        const view = goal === undefined ? undefined : projectInteractionView(goal);
+        if (options?.attachSync === true) {
+            // 连接时的一致同步：当前等待是历史请求，只有显式恢复才解锁。
+            Object.assign(attachment, { baselineInteractionId: view?.interactionId });
+            return;
+        }
+        for (const [controller, interactionId] of [...attachment.pending]) {
+            if (view === undefined || view.interactionId !== interactionId) controller.abort();
+        }
+        if (view === undefined || attachment.invoked.has(view.interactionId)) return;
+        if (view.interactionId === attachment.baselineInteractionId
+            && !attachment.unlocked.has(view.interactionId)) {
+            return;
+        }
+        const handlerName = handlerNameFor(view);
+        const handler = attachment.handlers[handlerName];
+        attachment.invoked.add(view.interactionId);
+        if (handler === undefined) return;
+        await this.invokeInteractionHandler(attachment, view, handler);
+    }
+
+    /** 在短提交 Gate 外调用宿主函数，并把合法结果作为统一 `send` 受理。 */
+    private async invokeInteractionHandler(
+        attachment: SessionInteractionAttachment,
+        view: GoalInteractionView,
+        handler: NonNullable<SessionInteractionHandlers[keyof SessionInteractionHandlers]>,
+    ): Promise<void> {
+        const controller = new AbortController();
+        attachment.pending.set(controller, view.interactionId);
+        const inputId = `handler-${randomUUID()}`;
+        try {
+            const result = await handler({
+                request: view,
+                signal: controller.signal,
+                readDetail: (ref) => this.readSessionInteractionDetail(
+                    attachment.goalId,
+                    ref ?? { runId: view.runId, interactionId: view.interactionId },
+                ),
+            });
+            if (attachment.detached || result.kind === "unhandled") return;
+            // 结果冻结后再核验连接与请求仍然有效；其他响应或 Interrupt 先提交时本结果失效。
+            const latest = await this.store.restore(attachment.goalId);
+            const current = latest === undefined ? undefined : projectInteractionView(latest);
+            if (attachment.detached || current?.interactionId !== view.interactionId) return;
+            let admitted: SessionInputAdmissionResult;
+            try {
+                admitted = await this.sendSessionInput(attachment.goalId, {
+                    kind: "respond",
+                    inputId,
+                    runId: view.runId,
+                    requestId: interactionLocalId(view),
+                    response: result.response,
+                });
+            } catch (error) {
+                // 提交结果不明：查询原输入收据确定是否提交，不伪造收据也不重调函数。
+                await this.reportUnknownAdmission(attachment, view, inputId, error);
+                return;
+            }
+            if (!admitted.ok) {
+                this.reportHandlerFailure(attachment, {
+                    goalId: attachment.goalId,
+                    interactionId: view.interactionId,
+                    kind: view.kind,
+                    phase: "admission",
+                    code: "ADMISSION_REJECTED",
+                    message: `Handler decision for "${view.interactionId}" was rejected: ${admitted.code} ${admitted.message}`,
+                    inputId,
+                });
+            }
+        } catch (error) {
+            if (!attachment.detached) {
+                this.reportHandlerFailure(attachment, {
+                    goalId: attachment.goalId,
+                    interactionId: view.interactionId,
+                    kind: view.kind,
+                    phase: "handler",
+                    code: "HANDLER_FAILED",
+                    message: error instanceof Error ? error.message : String(error),
+                });
+            }
+        } finally {
+            attachment.pending.delete(controller);
+        }
     }
 
     /** @param sessionId - 需要释放的句柄身份。 @remarks 解除连接只释放该句柄的订阅与来源。 */
@@ -1233,6 +1555,14 @@ export class SessionManager implements SessionHandlePort {
             for (const consumer of consumers) consumer.stop();
         }
         this.sessionConsumers.clear();
+        // 不合作的宿主 Promise 不得拖住有界关闭：中止本地调用但不等待其完成。
+        for (const attachment of this.interactionAttachments.values()) {
+            attachment.detached = true;
+            for (const controller of [...attachment.pending.keys()]) controller.abort();
+            attachment.pending.clear();
+            attachment.unsubscribe();
+        }
+        this.interactionAttachments.clear();
         this.revisionMonitor.dispose();
 
         const timeoutMs = options?.timeoutMs;

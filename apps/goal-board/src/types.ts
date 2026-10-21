@@ -27,7 +27,13 @@ export type QueuedInput = { readonly messageId: string; readonly content: string
  * 页面层交互提交：携带当前 Run 与等待身份，由 useRunCommands 映射为统一 respond 输入。
  */
 export type BrowserGoalInteractionCommand =
-  | { readonly kind: "cancel_ask_user"; readonly runId: string; readonly requestId: string }
+  | { readonly kind: "skip_question"; readonly runId: string; readonly requestId: string }
+  | {
+      readonly kind: "reply_to_question";
+      readonly runId: string;
+      readonly requestId: string;
+      readonly content: string;
+    }
   | {
       readonly kind: "answer_ask_user";
       readonly runId: string;
@@ -58,8 +64,10 @@ export function toSessionInteractionResponse(
   command: BrowserGoalInteractionCommand,
 ): import("../../../packages/web-contracts/src/index").BrowserSessionInteractionResponse {
   switch (command.kind) {
-    case "cancel_ask_user":
-      return { kind: "cancel_ask_user" };
+    case "skip_question":
+      return { kind: "skip_question" };
+    case "reply_to_question":
+      return { kind: "reply_to_question", content: command.content };
     case "answer_ask_user":
       return {
         kind: "answer_ask_user",
@@ -150,7 +158,7 @@ export function sessionStatusTone(session: BrowserGoalSession): string {
   if (
     session.pendingAction?.status === "outcome_unknown" ||
     session.pendingAction?.status === "awaiting_approval" ||
-    session.pendingInteraction
+    session.interaction !== undefined
   ) {
     return "needs-input attention";
   }
@@ -176,8 +184,8 @@ export function sessionStatus(session: BrowserGoalSession): string {
   if (session.pendingAction?.status === "outcome_unknown") return "Outcome needs review";
   if (session.pendingAction?.status === "awaiting_approval") return "Awaiting approval";
   if (session.pendingAction?.status === "approved") return "Action accepted";
-  if (session.pendingInteraction?.kind === "task_approval") return "Awaiting task approval";
-  if (session.pendingInteraction) return "Awaiting your response";
+  if (session.interaction?.kind === "task_approval") return "Awaiting task approval";
+  if (session.interaction !== undefined) return "Awaiting your response";
   if (session.runStatus === "cancelled") return "Stopped";
   return session.runStatus.charAt(0).toUpperCase() + session.runStatus.slice(1);
 }

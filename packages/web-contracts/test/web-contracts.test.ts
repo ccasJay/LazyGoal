@@ -9,6 +9,8 @@ import {
     isBrowserSessionInputResult,
     isBrowserSessionState,
     isBrowserGoalSession,
+    isBrowserInteractionDetailResult,
+    isBrowserInteractionView,
     isBrowserRun,
     isGoalList,
     isGoalListItem,
@@ -31,7 +33,6 @@ import {
     isProviderProfileTestResult,
     isOkResponse,
     isPendingAction,
-    isPendingInteraction,
     isPermissionModeResult,
     isRunStatus,
     isToolGrantResult,
@@ -126,6 +127,92 @@ test("isBrowserGoalSession validates complete and malformed sessions", () => {
     assert.equal(isGoalSessionEnvelope({ goal: null }), false);
 });
 
+
+test("isBrowserInteractionView validates identity, decisions and truncation flags", () => {
+    const question = {
+        goalId: "goal-1",
+        runId: "run-1",
+        kind: "question",
+        interactionId: "question:ask-1",
+        requestId: "ask-1",
+        decisions: ["answer_questions", "reply_to_question", "skip_question"],
+        truncated: false,
+    };
+    assert.equal(isBrowserInteractionView(question), true);
+    assert.equal(isBrowserInteractionView({ ...question, truncated: "no" }), false);
+    assert.equal(isBrowserInteractionView({ ...question, interactionId: "" }), false);
+    assert.equal(isBrowserInteractionView({ ...question, decisions: [] }), false);
+    assert.equal(isBrowserInteractionView({ ...question, decisions: ["approve_task"] }), false);
+    assert.equal(isBrowserInteractionView({ ...question, actionId: "act-1" }), false);
+
+    const recovery = {
+        goalId: "goal-1",
+        runId: "run-1",
+        kind: "action_recovery",
+        interactionId: "action_recovery:act-1",
+        actionId: "act-1",
+        decisions: ["retry_action", "reject_action"],
+        truncated: true,
+    };
+    assert.equal(isBrowserInteractionView(recovery), true);
+    assert.equal(isBrowserInteractionView({ ...recovery, kind: "action_approval", decisions: ["approve_action", "reject_action"] }), true);
+    assert.equal(isBrowserInteractionView({ ...recovery, decisions: ["approve_action"] }), false);
+    assert.equal(isBrowserInteractionView({ ...recovery, kind: "other" }), false);
+
+    const session = {
+        goalId: "goal-1", intent: "Test goal", currentRunId: "run-1", runStatus: "waiting" as const,
+        currentRunMode: "normal" as const, messages: [], runs: [], historyTruncated: false,
+    };
+    assert.equal(isBrowserGoalSession({ ...session, interaction: question }), true);
+    assert.equal(isBrowserGoalSession({ ...session, interaction: recovery }), true);
+    assert.equal(isBrowserGoalSession({ ...session, interaction: { ...question, decisions: ["unknown"] } }), false);
+});
+
+test("isBrowserInteractionDetailResult validates full review content results", () => {
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "question:ask-1",
+        detail: {
+            kind: "question",
+            mode: "plan",
+            questions: [{
+                id: "q-1", header: "Scope", question: "Which scope?", multiSelect: false,
+                options: [{ id: "o-1", label: "All" }],
+            }],
+            routeRevision: {
+                baseRevision: 1, reason: "Scope grew", approvalRequest: "Approve expansion?",
+                approvalOptionId: "o-1", stages: [{ target: "Extend", acceptanceCriteria: ["Report complete"] }],
+            },
+        },
+    }), true);
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "action_approval:act-1",
+        detail: { kind: "action_approval", actionId: "act-1", toolId: "bash", input: { command: "ls" }, approvalKind: "tool" },
+    }), true);
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "task_approval:proposal-1",
+        detail: { kind: "task_approval", objective: "Ship it", approvalRequest: "Confirm", completionCriteria: ["Checks pass"], stages: [] },
+    }), true);
+    assert.equal(isBrowserInteractionDetailResult({ ok: false, error: "stale_run" }), true);
+    assert.equal(isBrowserInteractionDetailResult({ ok: false, error: "action_not_waiting" }), false);
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true, goalId: "goal-1", runId: "run-1", interactionId: "question:ask-1",
+        detail: { kind: "question", mode: "other", questions: [] },
+    }), false);
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true, goalId: "goal-1", runId: "run-1", interactionId: "action_approval:act-1",
+        detail: { kind: "action_approval", actionId: "act-1", toolId: "bash", input: undefined },
+    }), false);
+});
+
 test("isBrowserRun validates complete Plan Run route states", () => {
     const route = {
         revision: 2,
@@ -166,43 +253,34 @@ test("isLiveEvent validates activity identities without conflating trajectory ID
     }), false);
 });
 
-test("isPendingInteraction validates ask_user and task_approval", () => {
-    assert.equal(
-        isPendingInteraction({
+test("isBrowserInteractionDetailResult validates complete review content", () => {
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "task_approval:proposal-1",
+        detail: {
             kind: "task_approval",
-            planRoute: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }],
-            requestId: "req-1",
             objective: "Do task",
             approvalRequest: "Approve?",
             completionCriteria: ["Criterion 1"],
-        }),
-        true,
-    );
-    assert.equal(isPendingInteraction({
-        kind: "task_approval",
-        requestId: "req-1",
-        objective: "Do task",
-        approvalRequest: "Approve?",
-        completionCriteria: [],
-        planRoute: [],
-    }), false);
-    assert.equal(isPendingInteraction({
-        kind: "task_approval",
-        requestId: "req-1",
-        objective: "Do task",
-        approvalRequest: "Approve?",
-        completionCriteria: [],
-        planRoute: [{ target: " ", acceptanceCriteria: ["criterion"] }],
-    }), false);
-    assert.equal(
-        isPendingInteraction({
-            kind: "ask_user",
-            requestId: "req-2",
-            mode: "plan",
+            stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }],
+        },
+    }), true);
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "question:ask-1",
+        detail: {
+            kind: "question",
+            mode: "execution",
             routeRevision: {
+                baseRevision: 2,
                 approvalRequest: "Approve the added outcome?",
                 reason: "New evidence adds a deliverable outside the approved scope",
-                route: [{ target: "Write a report", acceptanceCriteria: ["The report is reviewed"] }],
+                approvalOptionId: "opt-approve",
+                stages: [{ target: "Write a report", acceptanceCriteria: ["The report is reviewed"] }],
             },
             questions: [
                 {
@@ -213,18 +291,46 @@ test("isPendingInteraction validates ask_user and task_approval", () => {
                     options: [{ id: "opt-1", label: "Option 1" }],
                 },
             ],
-        }),
-        true,
-    );
-    assert.equal(isPendingInteraction({
-        kind: "ask_user",
-        requestId: "req-3",
-        mode: "execution",
-        routeRevision: { approvalRequest: "Approve?", reason: "New evidence", route: [] },
-        questions: [],
+        },
+    }), true);
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "action_approval:act-1",
+        detail: {
+            kind: "action_approval",
+            actionId: "act-1",
+            toolId: "write_file",
+            approvalKind: "sandbox",
+            input: { path: "src/file.ts" },
+            parentProgram: { actionId: "act-0", callNumber: 2 },
+        },
+    }), true);
+    assert.equal(isBrowserInteractionDetailResult({ ok: false, error: "stale_run" }), true);
+    assert.equal(isBrowserInteractionDetailResult({ ok: false, error: "unknown_error" }), false);
+    // 结构守卫只检查形状：空问卷仍按结构接受，业务最小数量由模型契约负责。
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "question:ask-1",
+        detail: { kind: "question", mode: "execution", questions: [] },
+    }), true);
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "question:ask-1",
+        detail: { kind: "question", mode: "other", questions: [] },
     }), false);
-    assert.equal(isPendingInteraction({ kind: "unknown", requestId: "r" }), false);
-    assert.equal(isPendingInteraction({ kind: "task_approval", requestId: "" }), false);
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "action_recovery:act-1",
+        detail: { kind: "action_recovery", actionId: "act-1", toolId: "bash", input: {} },
+    }), true);
 });
 
 test("isMetricsSnapshot validates metrics", () => {

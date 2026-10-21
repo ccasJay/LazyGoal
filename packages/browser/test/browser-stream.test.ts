@@ -5,6 +5,8 @@ import {
     createGoal,
     GoalSessionStream,
     projectGoalSessionState,
+    projectInteractionView,
+    readInteractionDetail,
     Session,
     type Goal,
     type GoalStore,
@@ -68,6 +70,18 @@ function openFeed(store: GoalStore, publisher: InMemoryExecutionStreamPublisher,
             const goal = await store.restore(target);
             return goal === undefined ? undefined : projectGoalSessionState({ goal, executionOwner: true });
         },
+        readSessionInteraction: async (target) => {
+            const goal = await store.restore(target);
+            return goal === undefined ? undefined : projectInteractionView(goal);
+        },
+        readSessionInteractionDetail: async (target, ref) => {
+            const goal = await store.restore(target);
+            return goal === undefined
+                ? { ok: false, code: "INTERACTION_NOT_WAITING", message: `Goal "${target}" was not found` }
+                : readInteractionDetail(goal, ref);
+        },
+        attachSessionInteractionHandlers: () => ({ ok: false, code: "HANDLER_CONFLICT", message: "unused" }),
+        detachSessionInteractionHandlers: () => undefined,
         sendSessionInput: async () => ({ ok: false, code: "RUN_CONTROL_UNAVAILABLE", message: "unused" }),
         querySessionInput: async () => ({ ok: true, found: false }),
         openSessionEvents: () => stream,
@@ -385,6 +399,66 @@ test("事件缺口与同步读取失败都只要求刷新，不伪装运行终�
     const event = (await nextEvent(missingIterator)).value;
     assert.deepEqual(event, { type: "refresh_required", goalId: "goal-absent" });
     missing.feed.close();
+    opened.feed.close();
+});
+
+test("末次提交通知丢失后仍以权威读取结算等待，公开同步不含决定内容", async () => {
+    const store = new MemoryStore();
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const created = goalFor("goal-stream-settle");
+    const waiting: Goal = {
+        ...created,
+        state: {
+            ...created.state,
+            run: {
+                ...created.state.run,
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "ask-settle-1",
+                    mode: "execution",
+                    questions: [{
+                        id: "source",
+                        header: "Choose a source",
+                        question: "Which notes should I include?",
+                        multiSelect: false,
+                        options: [{ id: "approved", label: "Approved notes" }],
+                    }],
+                },
+            },
+        },
+    };
+    await store.save(waiting);
+    const opened = openFeed(store, publisher, waiting.id);
+    const iterator = opened.feed.events[Symbol.asyncIterator]();
+    const sync = (await nextEvent(iterator)).value;
+    assert.equal(sync?.type, "state_sync");
+    assert.equal(sync?.type === "state_sync" ? sync.state.waitingFor : undefined, "ask_user");
+    // 公开同步只包含等待种类，不镜像问题选项或任何答案内容。
+    assert.equal(JSON.stringify(sync).includes("Approved notes"), false);
+    assert.equal(JSON.stringify(sync).includes("optionIds"), false);
+
+    // 其他客户端结算并提交：通知丢失，只有权威快照变化。
+    const { pendingInteraction: _clearedInteraction, ...settledRun } = waiting.state.run;
+    await store.save({
+        ...waiting,
+        state: { ...waiting.state, run: { ...settledRun, status: "completed" } },
+    });
+    publisher.publish({
+        goalId: waiting.id,
+        runId: waiting.state.run.id,
+        kind: "live_gap",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: {},
+    });
+    const resynced = (await nextEvent(iterator)).value;
+    assert.equal(resynced?.type, "state_sync");
+    assert.equal(resynced?.type === "state_sync" ? resynced.state.runStatus : undefined, "completed");
+    assert.equal(resynced?.type === "state_sync" ? resynced.state.waitingFor : undefined, undefined);
+    // 重新同步只报告真实等待已解除，不宣称工具已完成或镜像已提交内容。
+    assert.equal(JSON.stringify(resynced).includes("Approved notes"), false);
     opened.feed.close();
 });
 

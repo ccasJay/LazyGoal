@@ -283,7 +283,7 @@ test("POST inputs rejects control commands with the runtime rejection codes and 
 
     const mismatch = await postInputs(api, "goal-reject", {
         kind: "respond", inputId: "input-respond", runId, requestId: "request-missing",
-        response: { kind: "cancel_ask_user" },
+        response: { kind: "skip_question" },
     });
     assert.equal(mismatch.status, 409);
     assert.equal(((await mismatch.json()) as { error: string }).error, "INTERACTION_MISMATCH");

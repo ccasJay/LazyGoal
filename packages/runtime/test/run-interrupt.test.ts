@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
     createGoal,
+    type Goal,
     GoalCoordinator,
     InlineScheduler,
     Runner,
@@ -15,7 +16,7 @@ import {
 import { ExecutionAbortedError } from "../../execution-control/src/index";
 import { contract } from "../../contracts/src/index";
 import { createToolRegistration, type Tool } from "../../tool-core/src/index";
-import { InMemoryGoalStore } from "../../storage/src/index";
+import { InMemoryGoalStore, goalSnapshotCodec } from "../../storage/src/index";
 import { hasPendingSessionInputs } from "../src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
 
@@ -231,6 +232,72 @@ function createInterruptSessions(input: {
     });
     return { sessions, calls: () => calls };
 }
+
+
+test("已受理但尚未处理的停止使旧等待失效，迟到回答不再被接受", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectory = trajectoryStoreFor(store);
+    const committer = new TrajectoryCheckpointCommitter({ store, trajectoryStore: trajectory });
+    const goalId = "goal-interrupt-pending-wait";
+    const base = createGoal({ ...currentProtocols, promptBundleVersion: 1, id: goalId, intent: "interrupt pending wait", profile, runId: "run-interrupt-pending-wait" });
+    // 真实持久化的中间状态：停止已受理但收尾尚未开始。
+    const interruptedWaiting: Goal = {
+        ...base,
+        state: {
+            ...base.state,
+            messageQueue: { revision: 1, items: [], pause: { reason: "user_interrupt", runId: base.state.run.id } },
+            run: {
+                ...base.state.run,
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "ask-pending",
+                    mode: "execution",
+                    questions: [{
+                        id: "q-1",
+                        header: "继续吗",
+                        question: "是否继续执行？",
+                        options: [{ id: "o-1", label: "是" }, { id: "o-2", label: "否" }],
+                        multiSelect: false,
+                    }],
+                },
+                interruption: { requestId: "interrupt-pending", status: "requested", repairCallsStarted: 0 },
+            },
+        },
+    };
+    // 手写状态必须是当前协议下的合法快照。
+    const restored = goalSnapshotCodec.decode(goalSnapshotCodec.encode(interruptedWaiting));
+    await store.save(restored);
+
+    const runner = new Runner({
+        store,
+        trajectoryStore: trajectory,
+        executor: { async reviewCompletion() { return { kind: "accept" }; }, async decide() { throw new Error("late response must not call the model"); }, async think() { throw new Error("unexpected Think call"); } },
+    });
+    const coordinator = new GoalCoordinator({
+        store,
+        scheduler: new InlineScheduler(runner),
+        checkpointCommitter: committer,
+        runIdGenerator: () => "run-unused",
+    });
+    const ref = { goalId, runId: restored.state.run.id };
+    const answered = await coordinator.resume({
+        ref,
+        action: { kind: "answer_ask_user", requestId: "ask-pending", answers: [{ questionId: "q-1", optionIds: ["o-1"] }] },
+    });
+    assert.equal(answered.ok, false);
+    assert.equal(answered.ok === false && answered.error.code, "INVALID_GOAL_INPUT");
+    const replied = await coordinator.resume({
+        ref,
+        action: { kind: "reply_to_question", requestId: "ask-pending", content: "迟到的整体回复" },
+    });
+    assert.equal(replied.ok, false);
+    const skipped = await coordinator.resume({ ref, action: { kind: "skip_question", requestId: "ask-pending" } });
+    assert.equal(skipped.ok, false);
+
+    const saved = await store.restore(goalId);
+    assert.deepEqual(saved, restored, "失效响应不改变已持久化的等待与停止事实");
+});
 
 test("session Interrupt persists the receipt and queue pause in one commit and settles as cancelled", async () => {
     const store = new InMemoryGoalStore();

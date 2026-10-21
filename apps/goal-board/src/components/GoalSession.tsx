@@ -22,6 +22,7 @@ import type {
   BrowserToolGrantSummary,
 } from "../../../../packages/web-contracts/src/index";
 import { GoalDetails, WaitingInteraction } from "../panels";
+import type { AcceptedDecisionSummary } from "../interaction-panel";
 import brandMark from "../assets/lazygoal/mark-on-light.svg?no-inline";
 import { Trajectory } from "../trajectory";
 import { resolveCurrentWindow, resolveExpandedWindow, resolveInitialWindow } from "../session-window";
@@ -140,7 +141,6 @@ export function GoalSession({
     onSubmitDraftMessage,
     onSubmitSteer,
     onInterrupt,
-    onSubmitInteraction,
     onSubmitResume,
   } = useRunControlContext();
 
@@ -148,6 +148,7 @@ export function GoalSession({
   const followFrame = useRef<number | null>(null);
   const currentRun = session?.runs.find((run) => run.current);
   const [draftNoticeDismissed, setDraftNoticeDismissed] = useState(false);
+  const [decisionSummaries, setDecisionSummaries] = useState<readonly AcceptedDecisionSummary[]>([]);
 
   const projectionGoalKey = session?.goalId ?? null;
   const [expandedRunCount, setExpandedRunCount] = useState<number | null>(null);
@@ -155,6 +156,11 @@ export function GoalSession({
   useEffect(() => {
     setDraftNoticeDismissed(false);
   }, [draftModelCatalog?.defaultModelNotice]);
+
+  // 切换 Goal 时清空页面级决定摘要：新会话不复用旧请求的决定记录。
+  useEffect(() => {
+    setDecisionSummaries([]);
+  }, [projectionGoalKey]);
 
   const initialWindow = useMemo(
     () =>
@@ -198,7 +204,7 @@ export function GoalSession({
   const isWaitingApprovalOrInput =
     session !== null &&
     session.runStatus === "waiting" &&
-    (session.pendingInteraction !== undefined ||
+    (session.interaction !== undefined ||
       session.pendingAction?.status === "awaiting_approval" ||
       session.pendingAction?.status === "outcome_unknown");
 
@@ -459,9 +465,9 @@ export function GoalSession({
                   >
                     <AlertCircle size={14} aria-hidden="true" />
                     <span>
-                      {session.pendingInteraction?.kind === "task_approval"
+                      {session.interaction?.kind === "task_approval"
                         ? "Awaiting task approval · Click to review"
-                        : session.pendingAction?.status === "awaiting_approval"
+                        : session.interaction?.kind === "action_approval" || session.interaction?.kind === "action_recovery"
                         ? "Awaiting action approval · Click to review"
                         : "Awaiting your response · Click to reply"}
                     </span>
@@ -769,6 +775,15 @@ export function GoalSession({
 
           {sessionTab !== "Board" && (
             <div className="composer-area">
+              {sessionTab === "Activity" && decisionSummaries.length > 0 && (
+                <div className="decision-summaries" aria-label="Saved interaction decisions">
+                  {decisionSummaries.map((entry) => (
+                    <div className="decision-summary" key={`${entry.runId}:${entry.interactionId}`}>
+                      <Check size={13} aria-hidden="true" /> {entry.summary}
+                    </div>
+                  ))}
+                </div>
+              )}
               {queuedInputs.length > 0 && (
                 <div className="queued-inputs" aria-label="Accepted queue">
                   <div className="queued-inputs-heading">Accepted queue · next Run order</div>
@@ -801,7 +816,7 @@ export function GoalSession({
                 </div>
               )}
               {session.runStatus === "waiting" &&
-                (session.pendingInteraction !== undefined || session.pendingAction !== undefined ? (
+                (session.interaction !== undefined || session.pendingAction !== undefined ? (
                   <>
                     <div className="composer-extra-controls">
                       {renderPermissionControl(true)}
@@ -820,8 +835,36 @@ export function GoalSession({
                     <WaitingInteraction
                       session={session}
                       busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
-                      onSubmit={(command) => void onSubmitInteraction(command)}
+                      stopping={
+                        stoppingRunId === session.currentRunId ||
+                        (session.interruption !== undefined && session.interruption.status !== "finished")
+                      }
+                      onInterrupt={onInterrupt}
+                      onRefreshSession={refreshSelectedSession}
+                      onDecisionAccepted={(summary) => {
+                        setDecisionSummaries((current) =>
+                          current.some((entry) => entry.interactionId === summary.interactionId && entry.runId === summary.runId)
+                            ? current
+                            : [...current, summary]);
+                      }}
                     />
+                    {session.interaction !== undefined && (
+                      <div className="queue-composer">
+                        <p className="queue-note" id="queue-next-task-note">
+                          Messages sent while this request is waiting are queued as the next task. They do not answer the
+                          current request.
+                        </p>
+                        <MessageComposer
+                          key={`${session.currentRunId}:queue`}
+                          textareaLabel="Queue next task"
+                          describedBy="queue-next-task-note"
+                          showHint={true}
+                          placeholder="Queue next task…"
+                          busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
+                          onSubmit={onSubmitMessage}
+                        />
+                      </div>
+                    )}
                   </>
                 ) : (
                   <MessageComposer
@@ -860,7 +903,7 @@ export function GoalSession({
                 (session.runStatus === "completed" ||
                   session.runStatus === "failed" ||
                   session.runStatus === "cancelled") &&
-                session.pendingInteraction === undefined &&
+                session.interaction === undefined &&
                 session.pendingAction === undefined && (
                   <MessageComposer
                     key={`${session.currentRunId}:continue`}
@@ -979,7 +1022,7 @@ export function GoalSession({
                   </>
                 ))}
               {session.runStatus === "waiting" &&
-                session.pendingInteraction === undefined &&
+                session.interaction === undefined &&
                 session.pendingAction !== undefined &&
                 session.pendingAction.status === "approved" && (
                   <>

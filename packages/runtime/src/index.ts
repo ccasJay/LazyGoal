@@ -343,6 +343,29 @@ export type {
 } from "./session-input";
 export { SessionInputAdmission } from "./session-admission";
 export type { SessionInputAdmissionDependencies } from "./session-admission";
+export { handlerNameFor } from "./interaction-handlers";
+export type {
+    InteractionHandlerAttachOptions,
+    InteractionHandlerAttachResult,
+    InteractionHandlerCall,
+    InteractionHandlerFailure,
+    InteractionHandlerHandle,
+    InteractionHandlerResult,
+    SessionInteractionHandlers,
+} from "./interaction-handlers";
+export {
+    formatInteractionId,
+    projectInteractionView,
+    readInteractionDetail,
+} from "./interaction-view";
+export type {
+    GoalInteractionView,
+    InteractionDecision,
+    InteractionDetail,
+    InteractionDetailResult,
+    InteractionViewKind,
+    InteractionViewRef,
+} from "./interaction-view";
 export {
     Session,
     SessionDetachedError,

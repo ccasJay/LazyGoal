@@ -85,8 +85,9 @@ test("recreated browser services restore committed messages, steps, wait, and pl
         ]);
         assert.equal(afterRestart.currentRunId, goal.state.run.id);
         assert.equal(afterRestart.runStatus, "waiting");
-        assert.equal(afterRestart.pendingInteraction?.kind, "ask_user");
-        assert.equal(afterRestart.pendingInteraction?.requestId, "request-recovery-1");
+        assert.equal(afterRestart.interaction?.kind, "question");
+        assert.equal(afterRestart.interaction?.requestId, "request-recovery-1");
+        assert.equal(afterRestart.interaction?.interactionId, "question:request-recovery-1");
         assert.deepEqual(afterRestart.goalPlan?.items.map((item) => item.content), ["Review saved notes"]);
         assert.equal(afterRestart.runs[0]?.steps.length, 1);
         assert.equal(afterRestart.runs[0]?.steps[0]?.status, "completed");
@@ -364,9 +365,21 @@ function createApi(store: JsonFileGoalStore, trajectory: JsonFileTrajectoryStore
                 });
                 const session = new Session(goalId, "recovery-handle", {
                     readSessionState: async () => undefined,
+                    readSessionInteraction: async () => undefined,
+                    readSessionInteractionDetail: async () => ({
+                        ok: false,
+                        code: "INTERACTION_NOT_WAITING",
+                        message: "unused",
+                    }),
                     sendSessionInput: async () => ({ ok: false, code: "RUN_CONTROL_UNAVAILABLE", message: "unused" }),
                     querySessionInput: async () => ({ ok: true, found: false }),
                     openSessionEvents: () => stream,
+                    attachSessionInteractionHandlers: () => ({
+                        ok: false,
+                        code: "SESSION_DETACHED",
+                        message: "unused",
+                    }),
+                    detachSessionInteractionHandlers: () => undefined,
                     consumeSessionInputs: async () => ({ reason: "completed" }),
                     detachSession: () => undefined,
                 });

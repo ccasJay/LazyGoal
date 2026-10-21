@@ -78,7 +78,8 @@ Runner 将调度契约委派给 RunExecutor；RunExecutor 按当前 Run 模式�
 - 默认本机 Profile 授权 `execute_program` 时，模型可显式选择程序调用；Runner 将程序作为一个父 Step，在独立 Seatbelt worker 内运行 JavaScript。每个内部业务 Tool 调用重新经过冻结 Profile、输入 Contract、Policy、Grant 和原有审批路径；程序入口的许可不授予内部操作。子调用按顺序提交，模型只收到父程序的显式返回或失败。
 - Policy 要求人工审批的 Action 可获准一次、当前 Goal 或当前 workspace。Goal/workspace Grant 支持 Tool Grant 与通用 Sandbox Grant：Sandbox Grant 泛化为 `{ toolId, inputDigest, scope, version: 1 }`，绑定规范化输入摘要与沙箱能力范围，不再硬编码仅限 bash。持续授权始终在 Profile、输入与 Policy 校验之后查询；YOLO 自动批准不生成持续 Grant。
 - Runner 调度 Tool 时注入可信的 `ToolExecutionContext: { goalId, runId }`；Tool 可选实现 `resolveSandboxAccess`，在准备完成、授权之前派生真实资源范围。显式 Profile 与冻结 Profile 保持工具集合不变，默认 Profile 使用统一的默认工具集同源入口。
-- `ask_user` 进入带 request ID、模式和问题列表的等待点；答案先写入真实消息与回答事实，再恢复 Runner。
+- `ask_user` 进入带 request ID、模式和问题列表的等待点；完整逐题答案、非空整体回复与显式跳过是互斥响应，都在同一提交内写入真实用户消息、响应事实与输入收据后恢复 Runner。整体回复与跳过不被解释为结构化批准，带路线扩展的问卷仍只认既有批准选项。等待点同时暴露只读的类型化交互视图：由种类与既有请求身份派生稳定 `interactionId`，公开可用决定与字段级截断标记；完整问题、任务范围与 Action 输入经按引用核验的详情读取返回，读取不推进等待。
+- 会话边界提供 `attachInteractionHandlers`：同一 Goal 只允许一个自动所有者，按请求引用去重并在提交 Gate 外调用宿主函数；连接只做一致同步，历史等待须宿主显式 `resume` 解锁才投递。处理函数故障、业务拒绝、提交不明（先按冻结 `inputId` 核验收据）、迟到结果、解除连接与有界关闭都不会默认批准或拒绝，也不撤销已经受理的决定。
 - 阶段化 Executor 在单个 Step 内由 Runner 管理 Decide/Think 循环。每次 `request_think` 先和 Decide frame 提交；Think 输出和 Think frame 另存为已提交事实后，Runner 才再次 Decide。Think 不增加 `stepCount`，不执行 Tool；只有最终有效 `AgentDecision` 进入既有转换、授权和证据校验。
 
 中间阶段完成候选与 Run 最终完成候选均须先经过协议、语义、阶段状态和 Evidence 引用校验，再调用必需的 `StepExecutor.reviewCompletion`。输入包含当前阶段说明、修订及同一 Run 前序已接受阶段的历史原始证据，消除成对 Observation 重复正文；最终完成审查在同一次调用中兼顾局部阶段与用户整体交付。审查接受后才提交对应阶段结果或最终完成；无效候选在调用审查前被确定性门禁拦截。该审查不替代工具授权、任务批准或 Benchmark 环境评分。

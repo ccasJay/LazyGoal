@@ -545,6 +545,7 @@ export async function runServerSession(
                 }
             },
             readActionDetails: (goalId, runId, actionId) => commandService.readActionDetails(goalId, runId, actionId),
+            readInteractionDetails: (goalId, runId, interactionId) => commandService.readInteractionDetails(goalId, runId, interactionId),
             listToolGrants: (goalId, runId) => commandService.listToolGrants(goalId, runId),
             revokeToolGrant: (goalId, command) => commandService.revokeToolGrant(goalId, command),
             getPermissionMode: () => commandService.getPermissionMode(),

@@ -535,7 +535,8 @@ function projectLiveActivity(
         case "task_approved":
         case "task_feedback_received":
         case "ask_user_answered":
-        case "ask_user_cancelled":
+        case "ask_user_replied":
+        case "ask_user_skipped":
             return projectActivityBoundary(identity, "user_wait");
         case "run_stage_declared":
         case "run_stage_accepted":

@@ -79,10 +79,9 @@ export function useGoalBoardApp() {
     onRefreshSession: sessionManager.refreshSelectedSession,
   });
 
-  // 运行中的文本发送进入持久化队列；等待交互或审批时保持阻止，避免代答。
+  // 运行中的文本发送进入持久化队列；等待交互时普通消息同样只排队（界面单独标注用途），
+  // 不会代答当前请求。
   const canSendText = sessionManager.session !== null
-    && sessionManager.session.pendingInteraction === undefined
-    && sessionManager.session.pendingAction === undefined
     && ["running", "waiting", "completed", "failed", "cancelled"].includes(sessionManager.session.runStatus);
 
   const modelSelectionManager = useModelSelection({
@@ -247,7 +246,6 @@ export function useGoalBoardApp() {
     onSubmitDraftMessage: commandsManager.submitDraftMessage,
     onSubmitSteer: commandsManager.submitSteer,
     onInterrupt: commandsManager.interruptCurrentRun,
-    onSubmitInteraction: commandsManager.submitInteraction,
     onSubmitResume: commandsManager.submitResume,
   };
 

@@ -28,10 +28,12 @@ export type BrowserSessionInputKind =
  *
  * @remarks
  * 与当前等待的 `requestId` 一起提交；Action 审批必须携带真实 `actionId`。
+ * `answer_ask_user` 提交逐题答案，`reply_to_question` 以非空整体回复替代整份
+ * 问卷，`skip_question` 表示未回答并要求继续；三者互斥。
  *
  * @example
  * ```ts
- * const response: BrowserSessionInteractionResponse = { kind: "cancel_ask_user" };
+ * const response: BrowserSessionInteractionResponse = { kind: "skip_question" };
  * ```
  */
 export type BrowserSessionInteractionResponse =
@@ -43,7 +45,8 @@ export type BrowserSessionInteractionResponse =
             readonly otherText?: string;
         }[];
     }
-    | { readonly kind: "cancel_ask_user" }
+    | { readonly kind: "reply_to_question"; readonly content: string }
+    | { readonly kind: "skip_question" }
     | { readonly kind: "approve_task" }
     | { readonly kind: "feedback_task"; readonly feedback: string }
     | {

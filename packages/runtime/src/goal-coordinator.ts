@@ -6,6 +6,7 @@ import type {
     GoalTask,
     GoalProtocolValidator,
     JsonValue,
+    PendingInteractionAskUser,
     RunRef,
     AskUserAnswer,
     AskUserQuestion,
@@ -98,6 +99,10 @@ function cloneTask(task: GoalTask): GoalTask {
     };
 }
 
+/** 用户跳过整份问卷时写入模型可见历史的明确控制语义。 */
+const ASK_USER_SKIP_MESSAGE =
+    "The user did not answer this question and asked to continue the current task without an answer to it.";
+
 function formatAskUserAnswers(
     questions: readonly AskUserQuestion[],
     answers: readonly AskUserAnswer[],
@@ -174,7 +179,8 @@ export interface ContinuationQueueBinding {
  * - `approve_task`: 携带当前提案的 `requestId` 批准任务并推进执行；
  * - `feedback_task`: 携带当前提案的 `requestId` 提供反馈，使旧提案失效并重新规划；
  * - `answer_ask_user`: 回答 Agent 发起的 `ask_user` 结构化问卷；
- * - `cancel_ask_user`: 取消匹配的 `ask_user` 询问，不提供答案并继续当前 Run；
+ * - `reply_to_question`: 以非空整体回复替代整份问卷，原文作为真实用户消息继续当前 Run；
+ * - `skip_question`: 提交“未回答并要求继续”的控制语义并继续当前 Run，不等同于取消 Run；
  * - `approve_action`: 批准待审批的工具调用（附带一次性授权）；
  * - `reject_action`: 拒绝待审批的工具调用并记录原因；
  * 兼容分支 `approve` 与 `approve_task` 行为一致，且同样必须携带当前提案的 `requestId`。
@@ -196,7 +202,8 @@ export type GoalUserAction =
         readonly requestId: string;
         readonly answers: readonly AskUserAnswer[];
     }
-    | { readonly kind: "cancel_ask_user"; readonly requestId: string }
+    | { readonly kind: "reply_to_question"; readonly requestId: string; readonly content: string }
+    | { readonly kind: "skip_question"; readonly requestId: string }
     | { readonly kind: "approve_action"; readonly actionId: string; readonly scope?: "action" | ToolGrantScope }
     | {
         readonly kind: "reject_action";
@@ -1054,65 +1061,29 @@ export class GoalCoordinator {
             return this.goalNotWaiting(request.ref);
         }
 
+        // 已受理但尚未处理的停止先于本次决定：旧等待的回答与批准都必须失效。
+        if (goal.state.run.interruption?.status === "requested") {
+            return this.invalidGoalInput(
+                `Run "${request.ref.runId}" was interrupted by "${goal.state.run.interruption.requestId}"; the previous wait can no longer be answered`,
+            );
+        }
+
         const pendingInteraction = goal.state.run.pendingInteraction;
         if (pendingInteraction !== undefined) {
             if (pendingInteraction.kind === "ask_user") {
-                if (request.action.kind === "cancel_ask_user") {
-                    if (request.action.requestId !== pendingInteraction.requestId) {
-                        return this.invalidGoalInput(
-                            `Submitted requestId "${request.action.requestId}" does not match pendingInteraction requestId "${pendingInteraction.requestId}"`,
-                        );
-                    }
-
-                    const resumedRun = transition(goal.state.run, {
-                        kind: "resolve_interaction",
-                        interactionKind: "ask_user",
-                    });
-                    if (!resumedRun.ok) {
-                        throw new Error(
-                            `GoalCoordinator invariant violated: ${resumedRun.error.message}`,
-                        );
-                    }
-                    const resumedGoal: Goal = {
-                        ...goal,
-                        state: {
-                            ...goal.state,
-                            messages: [
-                                ...goal.state.messages,
-                                {
-                                    role: "user",
-                                    content: "I cancelled this question. Continue the current task without relying on an answer to it.",
-                                },
-                            ],
-                            run: resumedRun.state,
-                        },
-                    };
-
-                    throwIfAborted(control);
-                    await this.appendTrajectory({
-                        goalId: goal.id,
-                        runId: goal.state.run.id,
-                        phase: "executing",
-                        eventType: "run_resumed",
-                        payload: { type: "run_resumed" },
-                    }, control);
-                    await this.appendTrajectory({
-                        goalId: goal.id,
-                        runId: goal.state.run.id,
-                        phase: "executing",
-                        eventType: "ask_user_cancelled",
-                        payload: {
-                            type: "ask_user_cancelled",
-                            requestId: pendingInteraction.requestId,
-                        },
-                    }, control);
-                    await this.saveCheckpoint(resumedGoal, control);
-                    return this.advance(request.ref, control);
+                if (request.action.kind === "skip_question" || request.action.kind === "reply_to_question") {
+                    return this.resolveAskUserWithoutAnswers(
+                        goal,
+                        pendingInteraction,
+                        request.action,
+                        request.ref,
+                        control,
+                    );
                 }
 
                 if (request.action.kind !== "answer_ask_user") {
                     return this.invalidGoalInput(
-                        "ask_user interaction requires an answer_ask_user or cancel_ask_user action",
+                        "ask_user interaction requires an answer_ask_user, reply_to_question or skip_question action",
                     );
                 }
 
@@ -1363,7 +1334,6 @@ export class GoalCoordinator {
         }
 
         const pendingAction = goal.state.run.pendingAction;
-
         if (pendingAction !== undefined) {
             if (
                 request.action.kind === "approve_action"
@@ -1610,6 +1580,87 @@ export class GoalCoordinator {
         }, control);
         await this.saveCheckpoint(resumedGoal, control);
         return this.advance(request.ref, control);
+    }
+
+    /**
+     * 结算问答等待的整体回复与跳过分支。
+     *
+     * @remarks
+     * 两种分支都不伪造逐题选择、不应用路线候选、也不把 Run 标记为 cancelled：
+     * 它们在同一提交中解除问答等待并追加真实用户消息，`reply_to_question` 使用
+     * 用户原文，`skip_question` 使用明确的“未回答并要求继续”控制语义。
+     */
+    private async resolveAskUserWithoutAnswers(
+        goal: Goal,
+        pending: PendingInteractionAskUser,
+        action: Extract<GoalUserAction, { readonly kind: "reply_to_question" | "skip_question" }>,
+        ref: RunRef,
+        control?: ExecutionControl,
+    ): Promise<GoalProgressResult> {
+        if (action.requestId !== pending.requestId) {
+            return this.invalidGoalInput(
+                `Submitted requestId "${action.requestId}" does not match pendingInteraction requestId "${pending.requestId}"`,
+            );
+        }
+        if (action.kind === "reply_to_question" && action.content.trim().length === 0) {
+            return this.invalidGoalInput("Question reply must not be empty");
+        }
+
+        const resolvedRun = transition(goal.state.run, {
+            kind: "resolve_interaction",
+            interactionKind: "ask_user",
+        });
+        if (!resolvedRun.ok) {
+            throw new Error(
+                `GoalCoordinator invariant violated: ${resolvedRun.error.message}`,
+            );
+        }
+
+        const resumedGoal: Goal = {
+            ...goal,
+            state: {
+                ...goal.state,
+                messages: [
+                    ...goal.state.messages,
+                    {
+                        role: "user",
+                        content: action.kind === "reply_to_question"
+                            ? action.content
+                            : ASK_USER_SKIP_MESSAGE,
+                    },
+                ],
+                run: resolvedRun.state,
+            },
+        };
+
+        throwIfAborted(control);
+        await this.appendTrajectory({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            eventType: "run_resumed",
+            payload: { type: "run_resumed" },
+        }, control);
+        if (action.kind === "reply_to_question") {
+            await this.appendTrajectory({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: "executing",
+                eventType: "ask_user_replied",
+                payload: { type: "ask_user_replied", requestId: pending.requestId, content: action.content },
+            }, control);
+        } else {
+            await this.appendTrajectory({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: "executing",
+                eventType: "ask_user_skipped",
+                payload: { type: "ask_user_skipped", requestId: pending.requestId },
+            }, control);
+        }
+
+        await this.saveCheckpoint(resumedGoal, control);
+        return this.advance(ref, control);
     }
 
     private advanceGoalContextEpoch(

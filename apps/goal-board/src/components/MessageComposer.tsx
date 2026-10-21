@@ -42,6 +42,8 @@ export function MessageComposer({
   stopping = false,
   sendDisabled = false,
   placeholder,
+  textareaLabel = "Message the Goal",
+  describedBy,
   footerControls,
   onSubmit,
   pendingSteers = [],
@@ -56,6 +58,10 @@ export function MessageComposer({
   stopping?: boolean;
   sendDisabled?: boolean;
   placeholder: string;
+  /** 文本框的可访问名称；等待交互时的队列输入使用明确的排队用途。 */
+  textareaLabel?: string;
+  /** 文本框的补充说明元素 id；用于关联“不会回答当前请求”等说明。 */
+  describedBy?: string;
   onSubmit: (content: string) => Promise<boolean>;
   pendingSteers?: readonly { readonly messageId: string; readonly content: string }[];
   onSteer?: (content: string) => Promise<boolean>;
@@ -148,7 +154,8 @@ export function MessageComposer({
         <textarea
           id="message-composer-draft"
           name="message"
-          aria-label="Message the Goal"
+          aria-label={textareaLabel}
+          aria-describedby={describedBy}
           aria-keyshortcuts="Enter Shift+Enter"
           title={running ? "This Run is in progress." : "Enter to send · Shift + Enter for a new line"}
           placeholder={placeholder}

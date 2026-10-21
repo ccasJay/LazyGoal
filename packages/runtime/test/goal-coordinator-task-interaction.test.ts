@@ -238,7 +238,7 @@ test("统一执行生命周期: 新 Goal 直接推进，ask_user 请求进入等
     assert.equal(saved?.state.run.pendingInteraction?.kind, "ask_user");
 });
 
-test("取消 AskUser 询问后保留当前 Run 并继续执行", async () => {
+test("跳过 AskUser 询问后保留当前 Run 并继续执行", async () => {
     const { store, trajectoryStore, stepExecutor, coordinator, goal, ref } = createCoordinatorTestRig();
     await store.save(goal);
     stepExecutor.enqueue({
@@ -267,21 +267,21 @@ test("取消 AskUser 询问后保留当前 Run 并继续执行", async () => {
     if (pending?.kind !== "ask_user") assert.fail("Expected AskUser request");
     const resumed = await coordinator.resume({
         ref,
-        action: { kind: "cancel_ask_user", requestId: pending.requestId },
+        action: { kind: "skip_question", requestId: pending.requestId },
     });
     assert.equal(resumed.ok, true);
     if (!resumed.ok || resumed.kind !== "waiting") assert.fail("Expected the same Run to continue to its next wait point");
     assert.equal(resumed.goal.state.run.status, "waiting");
     assert.equal(resumed.goal.state.run.pendingInteraction?.kind, "task_approval");
-    assert.equal(resumed.goal.state.messages.some((message) => message.content.includes("I cancelled this question")), true);
+    assert.equal(resumed.goal.state.messages.some((message) => message.content.includes("did not answer this question")), true);
 
     const saved = await store.restore(goal.id);
     assert.equal(saved?.state.run.status, "waiting");
     assert.equal(saved?.state.run.id, ref.runId);
     assert.equal(saved?.state.run.pendingInteraction?.kind, "task_approval");
     const events = await trajectoryStore.read(ref);
-    assert.ok(events.some((event) => event.eventType === "ask_user_cancelled"
-        && event.payload.type === "ask_user_cancelled"
+    assert.ok(events.some((event) => event.eventType === "ask_user_skipped"
+        && event.payload.type === "ask_user_skipped"
         && event.payload.requestId === pending.requestId));
     assert.equal(events.some((event) => event.eventType === "run_cancelled"), false);
 });

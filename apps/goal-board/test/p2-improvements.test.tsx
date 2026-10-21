@@ -61,33 +61,23 @@ test("GoalBoard 搜索框包含 id 与 name 属性且在初始状态展示总数
 
 test("任务批准卡片在批准按钮前展示完整有序阶段路线", async () => {
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { WaitingInteraction } = await import("../src/panels");
-  const session = {
-    goalId: "goal-1",
-    intent: "Implement a feature",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    archived: false,
-    runStatus: "waiting",
-    currentRunId: "run-1",
-    messages: [],
-    runs: [],
-    pendingInteraction: {
+  const { TaskApprovalInteractionView } = await import("../src/interaction-panel");
+  const { createInteractionSubmissionState } = await import("../src/interaction-state");
+  const html = renderToStaticMarkup(React.createElement(TaskApprovalInteractionView, {
+    detail: {
       kind: "task_approval",
-      requestId: "proposal-1",
       objective: "Implement the feature",
       approvalRequest: "Review the complete plan",
       completionCriteria: ["All checks pass"],
-      planRoute: [
+      stages: [
         { target: "Inspect current behavior", acceptanceCriteria: ["Find the entry point"] },
         { target: "Implement the change", acceptanceCriteria: ["Feature works", "Regression checks pass"] },
       ],
     },
-  } as any;
-  const html = renderToStaticMarkup(React.createElement(WaitingInteraction, {
-    session,
-    busy: false,
-    onSubmit: () => {},
+    submission: createInteractionSubmissionState(),
+    feedback: "",
+    chrome: { label: "task_approval", stopping: false, busy: false },
+    onEvent: () => {},
   }));
 
   const firstStage = html.indexOf("Inspect current behavior");
@@ -101,29 +91,13 @@ test("任务批准卡片在批准按钮前展示完整有序阶段路线", async
 test("路线扩展 AskUser 卡片展示审批理由和完整候选阶段", async () => {
   const React = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { WaitingInteraction } = await import("../src/panels");
-  const session = {
-    goalId: "goal-route-revision",
-    intent: "Repair a feature",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    archived: false,
-    runStatus: "waiting",
-    currentRunId: "run-route-revision",
-    messages: [],
-    runs: [],
-    pendingInteraction: {
-      kind: "ask_user",
-      requestId: "route-revision-approval",
+  const { QuestionInteractionView } = await import("../src/interaction-panel");
+  const { createInteractionSubmissionState, createQuestionDraft } = await import("../src/interaction-state");
+  const html = renderToStaticMarkup(React.createElement(QuestionInteractionView, {
+    interactionId: "question:route-revision-approval",
+    detail: {
+      kind: "question",
       mode: "execution",
-      routeRevision: {
-        approvalRequest: "Approve adding this report to the task?",
-        reason: "New evidence adds a promised deliverable",
-        route: [
-          { target: "Repair the feature", acceptanceCriteria: ["Behavior works"] },
-          { target: "Write compatibility report", acceptanceCriteria: ["Report covers affected callers"] },
-        ],
-      },
       questions: [{
         id: "q-1",
         header: "Plan route revision",
@@ -134,14 +108,25 @@ test("路线扩展 AskUser 卡片展示审批理由和完整候选阶段", async
           { id: "o-2", label: "Keep current route" },
         ],
       }],
+      routeRevision: {
+        baseRevision: 1,
+        reason: "New evidence adds a promised deliverable",
+        approvalRequest: "Approve adding this report to the task?",
+        approvalOptionId: "o-1",
+        stages: [
+          { target: "Repair the feature", acceptanceCriteria: ["Behavior works"] },
+          { target: "Write compatibility report", acceptanceCriteria: ["Report covers affected callers"] },
+        ],
+      },
     },
-  } as any;
-  const html = renderToStaticMarkup(React.createElement(WaitingInteraction, {
-    session,
-    busy: false,
-    onSubmit: () => {},
+    draft: createQuestionDraft(),
+    submission: createInteractionSubmissionState(),
+    chrome: { label: "Question", stopping: false, busy: false },
+    skipConfirmOpen: false,
+    onEvent: () => {},
   }));
   assert.match(html, /New evidence adds a promised deliverable/);
+  assert.match(html, /Approve adding this report to the task\?/);
   assert.match(html, /Write compatibility report/);
   assert.match(html, /Report covers affected callers/);
 });

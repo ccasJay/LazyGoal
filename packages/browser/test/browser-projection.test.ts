@@ -101,10 +101,112 @@ test("Plan task approval projection preserves the complete ordered route", async
     const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
         committed: [], uncommittedTail: [],
     }));
-    assert.deepEqual(session?.pendingInteraction?.kind === "task_approval" ? session.pendingInteraction.planRoute : undefined, [
-        { target: "Inspect existing behavior", acceptanceCriteria: ["Identify the current entry point"] },
-        { target: "Implement the change", acceptanceCriteria: ["The feature behaves as requested", "Regression coverage passes"] },
-    ]);
+    assert.equal(session?.interaction?.kind, "task_approval");
+    assert.equal(session?.interaction?.interactionId, "task_approval:proposal-1");
+    assert.equal(session?.interaction?.requestId, "proposal-1");
+    assert.deepEqual(session?.interaction?.decisions, ["approve_task", "send_task_feedback"]);
+    // 完整有序路线不再复制到会话摘要；它由显式详情读取按同一引用提供。
+    assert.equal(session?.interaction?.truncated, false);
+});
+
+test("session projection exposes the typed interaction identity and truncation flag", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: {
+                ...initial.state.run,
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "ask-1",
+                    mode: "execution",
+                    questions: [{
+                        id: "q-1",
+                        header: "Scope",
+                        question: "q".repeat(2_500),
+                        multiSelect: false,
+                        options: [{ id: "o-1", label: "All" }],
+                    }],
+                },
+            },
+        },
+    };
+    const store = new TestGoalStore(goal);
+    const session = await readBrowserGoalSession(goal.id, store, async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.deepEqual(session?.interaction, {
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "question",
+        interactionId: "question:ask-1",
+        requestId: "ask-1",
+        decisions: ["answer_questions", "reply_to_question", "skip_question"],
+        truncated: true,
+    });
+    const repeated = await readBrowserGoalSession(goal.id, store, async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.equal(repeated?.interaction?.interactionId, "question:ask-1");
+
+    const untruncated: Goal = {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: {
+                ...goal.state.run,
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "ask-1",
+                    mode: "execution",
+                    questions: [{
+                        id: "q-1",
+                        header: "Scope",
+                        question: "Which scope?",
+                        multiSelect: false,
+                        options: [{ id: "o-1", label: "All" }],
+                    }],
+                },
+            },
+        },
+    };
+    const clean = await readBrowserGoalSession(goal.id, new TestGoalStore(untruncated), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.equal(clean?.interaction?.truncated, false);
+});
+
+test("action approval projection flags the typed view without exposing another Action", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: {
+                ...initial.state.run,
+                status: "waiting",
+                pendingAction: {
+                    action: { actionId: "act-1", toolId: "bash", input: { command: "npm test" } },
+                    status: "outcome_unknown",
+                },
+            },
+        },
+    };
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.deepEqual(session?.interaction, {
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "action_recovery",
+        interactionId: "action_recovery:act-1",
+        actionId: "act-1",
+        decisions: ["retry_action", "reject_action"],
+        truncated: false,
+    });
+    assert.equal(session?.pendingAction?.inputPreview.includes("npm test"), true);
 });
 
 test("Plan Run session projection includes the authoritative complete route only when present", async () => {
@@ -191,14 +293,11 @@ test("Plan route revision approval projection includes reason and full candidate
     const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
         committed: [], uncommittedTail: [],
     }));
-    assert.deepEqual(session?.pendingInteraction?.kind === "ask_user" ? session.pendingInteraction.routeRevision : undefined, {
-        approvalRequest: "Approve this additional outcome?",
-        reason: "New evidence adds a deliverable outside the approved scope",
-        route: [
-            { target: "Repair", acceptanceCriteria: ["Behavior works"] },
-            { target: "Write report", acceptanceCriteria: ["Report is reviewed"] },
-        ],
-    });
+    // 路线扩展的完整候选路线由详情读取提供；摘要只保留身份、种类与可决定操作。
+    assert.equal(session?.interaction?.kind, "question");
+    assert.equal(session?.interaction?.interactionId, "question:route-approval-1");
+    assert.deepEqual(session?.interaction?.decisions, ["answer_questions", "reply_to_question", "skip_question"]);
+    assert.equal(session?.interaction?.truncated, false);
 });
 
 function event(

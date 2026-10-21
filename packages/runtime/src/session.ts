@@ -12,6 +12,17 @@ import type {
     SessionQueuePauseReason,
 } from "./session-input";
 import type { SessionInputOutcome, SessionOutputStream } from "./session-stream";
+import type {
+    GoalInteractionView,
+    InteractionDetailResult,
+    InteractionViewRef,
+} from "./interaction-view";
+import type {
+    InteractionHandlerAttachOptions,
+    InteractionHandlerAttachResult,
+    InteractionHandlerHandle,
+    SessionInteractionHandlers,
+} from "./interaction-handlers";
 
 /**
  * 一个输入来源的消费结果。
@@ -87,7 +98,13 @@ export interface GoalSessionState {
     readonly pendingMessageCount: number;
     /** 尚未应用的 Steer 数量。 */
     readonly pendingSteerCount: number;
-    /** 当前等待的交互类型；运行中或终态时省略。 */
+    /**
+     * 当前等待的交互类型；运行中或终态时省略。
+     *
+     * @remarks
+     * 只描述等待点自己的请求：Interrupt 收尾阶段提出的新审批请求仍然报告为对应
+     * 种类，不会被未结算的中断事实覆盖；未结算的停止状态由 `interruption` 表达。
+     */
     readonly waitingFor?:
         | "ask_user"
         | "task_approval"
@@ -135,12 +152,28 @@ export interface GoalSessionState {
 export interface SessionHandlePort {
     /** 读取 Goal 的最新安全会话投影。 */
     readSessionState(goalId: string): Promise<GoalSessionState | undefined>;
+    /** 按最新快照派生当前类型化交互视图。 */
+    readSessionInteraction(goalId: string): Promise<GoalInteractionView | undefined>;
+    /** 按稳定引用读取当前交互的完整审阅内容。 */
+    readSessionInteractionDetail(
+        goalId: string,
+        ref: InteractionViewRef,
+    ): Promise<InteractionDetailResult>;
     /** 受理解析一条会话输入。 */
     sendSessionInput(goalId: string, input: SessionInput): Promise<SessionInputAdmissionResult>;
     /** 按身份查询持久化输入收据。 */
     querySessionInput(goalId: string, inputId: string): Promise<SessionInputQueryResult>;
     /** 建立该句柄对整个 Goal 的输出订阅。 */
     openSessionEvents(goalId: string, sessionId: string): SessionOutputStream;
+    /** 连接按交互种类分派的自动处理器；同一 Goal 只允许一个自动所有者。 */
+    attachSessionInteractionHandlers(
+        goalId: string,
+        sessionId: string,
+        handlers: SessionInteractionHandlers,
+        options?: InteractionHandlerAttachOptions,
+    ): InteractionHandlerAttachResult;
+    /** 释放该句柄持有的自动处理器连接；不影响其他句柄与 Goal。 */
+    detachSessionInteractionHandlers(goalId: string, sessionId: string): void;
     /** 顺序消费一个宿主拥有的异步输入来源。 */
     consumeSessionInputs(
         goalId: string,
@@ -174,6 +207,7 @@ export class Session {
     readonly sessionId: string;
     private readonly port: SessionHandlePort;
     private readonly streams = new Set<SessionOutputStream>();
+    private readonly handlers = new Set<InteractionHandlerHandle>();
     private detachedState = false;
 
     /**
@@ -208,6 +242,40 @@ export class Session {
     }
 
     /**
+     * 读取当前已提交等待的类型化交互视图。
+     *
+     * @remarks 只读取最新快照派生的身份、种类与可用决定，不触发执行；重复同步
+     * 或重连得到相同 `interactionId`。
+     *
+     * @returns 当前交互视图；没有可决定等待时返回 `undefined`。
+     * @throws 句柄已解除连接或快照读取失败时抛出异常。
+     * @example
+     * ```ts
+     * const view = await session.interaction();
+     * ```
+     */
+    async interaction(): Promise<GoalInteractionView | undefined> {
+        this.assertAttached();
+        return this.port.readSessionInteraction(this.goalId);
+    }
+
+    /**
+     * 按稳定引用读取当前交互的完整审阅内容。
+     *
+     * @param ref - 调用方保存的 Run 与交互引用。
+     * @returns 完整内容，或引用与当前等待不匹配的稳定拒绝。
+     * @throws 句柄已解除连接或快照读取失败时抛出异常。
+     * @example
+     * ```ts
+     * const detail = await session.interactionDetail({ runId: "run-1", interactionId: "question:ask-1" });
+     * ```
+     */
+    async interactionDetail(ref: InteractionViewRef): Promise<InteractionDetailResult> {
+        this.assertAttached();
+        return this.port.readSessionInteractionDetail(this.goalId, ref);
+    }
+
+    /**
      * 受理一条会话输入。
      *
      * @param input - 带稳定 `inputId` 的会话输入。
@@ -238,6 +306,33 @@ export class Session {
     async getInput(inputId: string): Promise<SessionInputQueryResult> {
         this.assertAttached();
         return this.port.querySessionInput(this.goalId, inputId);
+    }
+
+    /**
+     * 连接按交互种类分派的自动处理器。
+     *
+     * @remarks
+     * 同一 Goal 只允许一个自动所有者：已有连接时返回稳定冲突，不替换原处理器。
+     * 连接先做一致同步，再核验当前等待是否允许自动投递；本次连接之前已经存在的
+     * 历史等待不会因此被程序化回答，只有本实例新产生的等待或宿主显式恢复发现的
+     * 请求才会被投递。处理函数在短提交 Gate 外运行，结果仍作为统一 `send` 受理。
+     *
+     * @param handlers - 按种类注册的处理函数；缺少对应函数时保持等待。
+     * @returns 可解除的处理器句柄，或稳定冲突。
+     * @throws 句柄已解除连接时拒绝。
+     * @example
+     * ```ts
+     * const attached = session.attachInteractionHandlers({ onQuestion: async () => ({ kind: "unhandled" }) });
+     * ```
+     */
+    attachInteractionHandlers(
+        handlers: SessionInteractionHandlers,
+        options?: InteractionHandlerAttachOptions,
+    ): InteractionHandlerAttachResult {
+        this.assertAttached();
+        const result = this.port.attachSessionInteractionHandlers(this.goalId, this.sessionId, handlers, options);
+        if (result.ok) this.handlers.add(result.handle);
+        return result;
     }
 
     /**
@@ -296,6 +391,8 @@ export class Session {
         this.detachedState = true;
         for (const stream of [...this.streams]) stream.close();
         this.streams.clear();
+        for (const handle of [...this.handlers]) handle.detach();
+        this.handlers.clear();
         this.port.detachSession(this.sessionId);
     }
 
@@ -370,9 +467,8 @@ export function projectGoalSessionState(input: GoalSessionStateInput): GoalSessi
 
 function resolveWaitingFor(goal: Goal): GoalSessionState["waitingFor"] {
     const run = goal.state.run;
-    if (run.interruption !== undefined && run.interruption.status !== "finished") {
-        return "action_recovery";
-    }
+    // 当前等待自己的请求优先：Interrupt 收尾阶段提出的新审批请求仍然有效，
+    // 不能被未结算的中断事实误报为普通恢复等待。
     if (run.pendingInteraction?.kind === "ask_user") return "ask_user";
     if (run.pendingInteraction?.kind === "task_approval") return "task_approval";
     if (run.pendingAction?.status === "awaiting_approval") return "action_approval";
