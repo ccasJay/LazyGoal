@@ -170,6 +170,16 @@ test("模型提交只接受精确 wire 字段，并隐藏服务端错误内容",
     const invalid = await send({ runId: "run-1", modelId: "gpt-new", provider: "google" });
     assert.equal(invalid.status, 400);
     assert.equal(store.saves, 0);
+    for (const field of [
+        { executionApi: "openai-completions" },
+        { baseURL: "https://attacker.invalid/v1" },
+        { contextWindowTokens: 1_000_000 },
+        { maxOutputTokens: 524_288 },
+    ]) {
+        const forged = await send({ runId: "run-1", modelId: "gpt-new", ...field });
+        assert.equal(forged.status, 400, `rejects client-supplied ${Object.keys(field)[0]}`);
+    }
+    assert.equal(store.saves, 0, "forged execution metadata never reaches Snapshot persistence");
     store.failSave = true;
     const failed = await send({ runId: "run-1", modelId: "gpt-new" });
     assert.equal(failed.status, 503);
@@ -196,6 +206,14 @@ test("模型偏好路由严格校验请求并区分不可选与持久化故障",
     });
     assert.equal((await send({ modelId: "valid", provider: "openai" })).status, 400);
     assert.equal((await send({ modelId: null })).status, 400);
+    for (const field of [
+        { executionApi: "openai-completions" },
+        { baseURL: "https://attacker.invalid/v1" },
+        { contextWindowTokens: 1_000_000 },
+        { maxOutputTokens: 524_288 },
+    ]) {
+        assert.equal((await send({ modelId: "valid", ...field })).status, 400);
+    }
     assert.equal(writes, 0);
     assert.equal((await send({ modelId: "missing" })).status, 409);
     assert.equal((await send({ modelId: "write-failure" })).status, 503);

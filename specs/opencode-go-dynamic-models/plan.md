@@ -20,7 +20,7 @@
   - 场景与预期：含 `openai-completions`、目标模型 ID、上下文和输出上限的选择编码再解码后逐字段一致；无效执行协议或容量在存储边界失败；快照 JSON 中没有凭据或 Base URL。
   - 验证手段：`npx tsx --test packages/runtime/test/domain.test.ts packages/runtime/test/goal-model-selection-coordinator.test.ts packages/storage/test/goal-snapshot-current.test.ts`。
 
-- [ ] //TODO 4. 从服务端目录生成模型选择并恢复相同 Binding
+- [x] //TODO 4. 从服务端目录生成模型选择并恢复相同 Binding
   - 落实标准：[2.1](./spec.md#spec-req-2-1)、[3.2](./spec.md#spec-req-3-2)、[3.4](./spec.md#spec-req-3-4)、[4.3](./spec.md#spec-req-4-3)
   - 实施目标：先扩展 `packages/browser/test/browser-model-selection.test.ts`、`packages/browser/test/browser-models.test.ts` 与 `apps/goal-server/test/composition-root-model-switching.test.ts`，证明浏览器只提交模型 ID／Profile ID，额外提交协议、Base URL 或容量会被 wire 边界拒绝，服务端从可选择目录描述生成 `GoalModelSelection`，并在新进程恢复时用快照协议／容量和当前 Profile 凭据构造相同目标 Binding。随后更新 `apps/goal-server/src/runtime/composition.ts` 的目录解析、初始配置与恢复装配，使显式 CLI 配置模型 ID 也只能由服务端执行元数据解析协议；CLI 配置不据此宣称模型已通过实时可用性验证。浏览器模型目录响应继续只投影展示／能力字段，不暴露执行协议、固定路由或凭据。
   - 场景与预期：合法目标 ID 经浏览器选择后，快照与进程 Binding 均含相同协议和容量；伪造协议或容量的请求被拒绝且不写快照；重启后仍使用保存的 API 家族和当前 Profile Key；静态模型恢复不变。

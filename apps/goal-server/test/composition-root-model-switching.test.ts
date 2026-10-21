@@ -5,9 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import type { LLMAdapter } from "../../../packages/llm-core/src/index";
+import type { LLMAdapter, LLMConfig } from "../../../packages/llm-core/src/index";
 import type { LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import type { LlmModelCatalog, LlmModelDescriptor } from "../../../packages/model-catalog/src/index";
+import { createBrowserSessionAccess } from "../../../packages/browser/src/index";
 import {
     createGoal,
     type GoalModelSelection,
@@ -17,6 +18,7 @@ import {
     createCompositionRoot,
     createDefaultToolPolicy,
 } from "../src/composition-root";
+import { runServerSession } from "../src/cli";
 
 class FakeAdapter implements LLMAdapter {
     readonly provider = "openai";
@@ -55,9 +57,12 @@ class FakeAdapter implements LLMAdapter {
 }
 
 class FakeCatalog implements LlmModelCatalog {
+    readonly requests: LLMConfig[] = [];
+
     constructor(private readonly models: readonly LlmModelDescriptor[]) {}
 
-    async list(): Promise<readonly LlmModelDescriptor[]> {
+    async list(config: LLMConfig): Promise<readonly LlmModelDescriptor[]> {
+        this.requests.push(config);
         return this.models;
     }
 }
@@ -77,6 +82,40 @@ function createDescriptor(
         contextWindowTokens: 128_000,
         maxOutputTokens: 4096,
     };
+}
+
+function createOpenCodeGoDynamicDescriptor(): LlmModelDescriptor {
+    return {
+        provider: "opencode-go",
+        id: "minimax-m3.1-flash-free",
+        displayName: "MiniMax M3.1 Flash Free",
+        contextWindowTokens: 1_000_000,
+        maxOutputTokens: 524_288,
+        executionApi: "openai-completions",
+        reasoning: true,
+        vision: false,
+        availabilitySource: "live",
+        metadataSource: "execution",
+        selectable: true,
+    };
+}
+
+function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => { resolve = done; });
+    return { promise, resolve };
+}
+
+async function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(message)), 5_000); }),
+        ]);
+    } finally {
+        if (timer !== undefined) clearTimeout(timer);
+    }
 }
 
 async function setupTestWorkspace(): Promise<{ workspace: string; dataDirectory: string; cleanup: () => Promise<void> }> {
@@ -133,6 +172,237 @@ test("Intent 阶段选择模型后，创建新 Goal 使用所选模型并冻结�
         assert.equal(savedGoal?.state.modelSelection.modelId, "model-upgraded");
         assert.equal(root.modelBinding.current().selection.modelId, "model-upgraded");
     } finally {
+        await cleanup();
+    }
+});
+
+test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go 执行契约", async () => {
+    const { workspace, dataDirectory, cleanup } = await setupTestWorkspace();
+    const access = createBrowserSessionAccess();
+    const ready = deferred<string>();
+    let root: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
+    let serving: Promise<number> | undefined;
+    const alignedSelections: GoalModelSelection[] = [];
+    const catalog = new FakeCatalog([createOpenCodeGoDynamicDescriptor()]);
+    try {
+        root = await createCompositionRoot({
+            cwd: workspace,
+            dataDirectory,
+            env: {
+                LAZYGOAL_HOME: join(workspace, "home"),
+                LLM_PROVIDER: "opencode-go",
+                LLM_MODEL: "kimi-k3",
+                LLM_API_KEY: "sk-server-only",
+            },
+            profile: { id: "default", systemPrompt: "System prompt", instructions: [], toolIds: [] },
+            modelCatalog: catalog,
+            adapterFactory: (selection) => {
+                alignedSelections.push(selection);
+                return new FakeAdapter(selection.modelId);
+            },
+            exitPort: { exit() {} },
+        });
+        assert.equal(root.llmConfig?.provider, "opencode-go");
+        assert.equal(root.defaultModelSelection.profileId, undefined);
+        const base = createGoal({
+            ...currentProtocols,
+            id: "goal-dynamic-browser",
+            intent: "Select a registered dynamic model",
+            promptBundleVersion: 1,
+            profile: root.profile,
+            runId: "run-dynamic-browser",
+            modelSelection: root.defaultModelSelection,
+        });
+        await root.checkpointStore.save({
+            ...base,
+            state: {
+                ...base.state,
+                run: {
+                    ...base.state.run,
+                    status: "completed",
+                    committedThroughSequence: 0,
+                    stepCount: 1,
+                    lastStep: {
+                        kind: "decision",
+                        result: { kind: "complete", summary: "Fixture complete", evidenceSequences: [] },
+                    },
+                },
+            },
+        });
+
+        serving = runServerSession(root, access, (url) => ready.resolve(url));
+        const launchUrl = new URL(await withTimeout(ready.promise, "Web server did not start"));
+        const token = launchUrl.hash.slice(1);
+        const request = async (body: unknown) => fetch(`${launchUrl.origin}/api/goals/goal-dynamic-browser/model-selection`, {
+            method: "POST",
+            headers: {
+                authorization: `Bearer ${token}`,
+                origin: launchUrl.origin,
+                "content-type": "application/json",
+            },
+            body: JSON.stringify(body),
+        });
+        for (const forged of [
+            { executionApi: "openai-completions" },
+            { baseURL: "https://attacker.invalid/v1" },
+            { contextWindowTokens: 1_000_000 },
+            { maxOutputTokens: 524_288 },
+        ]) {
+            const response = await request({ runId: "run-dynamic-browser", modelId: "minimax-m3.1-flash-free", ...forged });
+            assert.equal(response.status, 400);
+        }
+        assert.equal((await root.workspaceGoalStore.restore("goal-dynamic-browser"))?.state.modelSelection.modelId, "kimi-k3");
+
+        const selected = await request({ runId: "run-dynamic-browser", modelId: "minimax-m3.1-flash-free" });
+        assert.ok(catalog.requests.length > 0, "selection resolves its model from the injected server catalog");
+        assert.equal(selected.status, 200, await selected.clone().text());
+        assert.deepEqual(await selected.json(), {
+            ok: true,
+            goalId: "goal-dynamic-browser",
+            runId: "run-dynamic-browser",
+            modelId: "minimax-m3.1-flash-free",
+            defaultModelSaved: true,
+        });
+        const saved = await root.workspaceGoalStore.restore("goal-dynamic-browser");
+        assert.deepEqual(saved?.state.modelSelection, {
+            provider: "opencode-go",
+            modelId: "minimax-m3.1-flash-free",
+            structuredOutputMode: "prompt_only",
+            contextWindowTokens: 1_000_000,
+            maxOutputTokens: 524_288,
+            executionApi: "openai-completions",
+            inputEstimator: { kind: "character-v1" },
+        });
+        assert.doesNotMatch(JSON.stringify(saved?.state.modelSelection), /sk-server-only|baseURL|apiKey|endpoint/i);
+        root.alignModelBinding(saved!.state.modelSelection);
+        assert.ok(alignedSelections.some((selection) =>
+            selection.modelId === "minimax-m3.1-flash-free"
+            && selection.executionApi === "openai-completions"
+            && selection.contextWindowTokens === 1_000_000
+            && selection.maxOutputTokens === 524_288));
+    } finally {
+        if (serving !== undefined) {
+            process.emit("SIGINT");
+            await serving.catch(() => undefined);
+        } else if (root !== undefined) {
+            await root.resources.closeAll().catch(() => undefined);
+        }
+        await cleanup();
+    }
+});
+
+test("显式 CLI 配置的登记模型使用服务端执行元数据构造动态默认 Binding", async () => {
+    const { workspace, dataDirectory, cleanup } = await setupTestWorkspace();
+    let root: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
+    try {
+        root = await createCompositionRoot({
+            cwd: workspace,
+            dataDirectory,
+            env: {
+                LAZYGOAL_HOME: join(workspace, "home"),
+                LLM_PROVIDER: "opencode-go",
+                LLM_MODEL: "minimax-m3.1-flash-free",
+                LLM_API_KEY: "sk-explicit-config",
+            },
+            profile: { id: "default", systemPrompt: "System prompt", instructions: [], toolIds: [] },
+            toolPolicy: createDefaultToolPolicy(),
+        });
+        assert.equal(root.defaultModelSelection.provider, "opencode-go");
+        assert.equal(root.defaultModelSelection.modelId, "minimax-m3.1-flash-free");
+        assert.equal(root.defaultModelSelection.executionApi, "openai-completions");
+        assert.equal(root.defaultModelSelection.contextWindowTokens, 1_000_000);
+        assert.equal(root.defaultModelSelection.maxOutputTokens, 524_288);
+        assert.equal("availabilitySource" in root.defaultModelSelection, false, "configured ID is not represented as an online availability claim");
+
+        const adapterConfig = (root.modelBinding.current().decideAdapter as unknown as {
+            readonly config: { readonly apiKey: string; readonly model: string; readonly executionApi?: string };
+        }).config;
+        assert.equal(adapterConfig.apiKey, "sk-explicit-config");
+        assert.equal(adapterConfig.model, "minimax-m3.1-flash-free");
+        assert.equal(adapterConfig.executionApi, "openai-completions");
+    } finally {
+        await root?.resources.closeAll();
+        await cleanup();
+    }
+});
+
+test("新进程从 Snapshot 恢复动态模型 API 与容量，并使用当前 Provider Key", async () => {
+    const { workspace, cleanup } = await setupTestWorkspace();
+    const dataDirectory = join(workspace, "restart-dynamic-data");
+    const home = join(workspace, "home");
+    const agentProfile = { id: "default", systemPrompt: "System prompt", instructions: [], toolIds: [] };
+    let firstRoot: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
+    let restoredRoot: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
+    const originalFetch = globalThis.fetch;
+    const transport = deferred<{ readonly url: string; readonly headers: Headers }>();
+    try {
+        const firstEnv = {
+            LAZYGOAL_HOME: home,
+            LLM_PROVIDER: "opencode-go",
+            LLM_MODEL: "kimi-k3",
+            LLM_API_KEY: "sk-old-provider-key",
+        };
+        firstRoot = await createCompositionRoot({
+            cwd: workspace,
+            dataDirectory,
+            env: firstEnv,
+            profile: agentProfile,
+            adapter: new CompleteAdapter("kimi-k3"),
+            adapterFactory: (selection, stage) => new CompleteAdapter(selection.modelId, stage === "think" ? "prompt_only" : "strict"),
+        });
+        const savedSelection: GoalModelSelection = {
+            ...firstRoot.defaultModelSelection,
+            modelId: "minimax-m3.1-flash-free",
+            executionApi: "openai-completions",
+            contextWindowTokens: 1_000_000,
+            maxOutputTokens: 524_288,
+        };
+        const created = await firstRoot.browserLauncher.launch({
+            goalId: "goal-dynamic-after-restart",
+            intent: "Persist dynamic execution metadata",
+            profileId: "default",
+            modelSelection: savedSelection,
+        });
+        assert.equal(created.ok, true);
+        await waitForCompletedRun(firstRoot.workspaceGoalStore, "goal-dynamic-after-restart");
+        await firstRoot.resources.closeAll();
+        firstRoot = undefined;
+
+        globalThis.fetch = async (input, init) => {
+            transport.resolve({
+                url: typeof input === "string" ? input : input.toString(),
+                headers: new Headers(init?.headers),
+            });
+            throw new Error("Blocked test transport after request capture");
+        };
+        restoredRoot = await createCompositionRoot({
+            cwd: workspace,
+            dataDirectory,
+            env: { ...firstEnv, LLM_API_KEY: "sk-current-provider-key" },
+            profile: agentProfile,
+        });
+        const savedGoal = await restoredRoot.workspaceGoalStore.restore("goal-dynamic-after-restart");
+        assert.ok(savedGoal);
+        assert.deepEqual(savedGoal.state.modelSelection, savedSelection);
+        const accepted = await restoredRoot.sessions.sendSessionInput(savedGoal.id, {
+            kind: "message",
+            inputId: "continue-dynamic-after-restart",
+            content: "Continue with the saved model",
+        });
+        assert.equal(accepted.ok, true);
+        const request = await withTimeout(transport.promise, "Restored dynamic binding did not call its transport");
+        assert.equal(request.url, "https://opencode.ai/inference/go/openai/v1/chat/completions");
+        assert.equal(request.headers.get("authorization"), "Bearer sk-current-provider-key");
+        assert.equal(request.headers.get("user-agent"), "lazygoal");
+        assert.ok(request.headers.get("x-opencode-session"));
+        assert.equal(restoredRoot.modelBinding.current().selection.executionApi, "openai-completions");
+        assert.equal(restoredRoot.modelBinding.current().selection.contextWindowTokens, 1_000_000);
+        assert.equal(restoredRoot.modelBinding.current().selection.maxOutputTokens, 524_288);
+        await waitForSessionIdle(restoredRoot);
+    } finally {
+        globalThis.fetch = originalFetch;
+        await firstRoot?.resources.closeAll().catch(() => undefined);
+        await restoredRoot?.resources.closeAll().catch(() => undefined);
         await cleanup();
     }
 });

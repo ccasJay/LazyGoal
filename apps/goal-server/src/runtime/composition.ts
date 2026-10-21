@@ -105,6 +105,7 @@ import { createLlmStageAdapters, type LlmStageAdapters } from "../../../../packa
 import type { LLMAdapter } from "../../../../packages/llm-core/src/index";
 import {
     createLlmModelCatalog,
+    resolveOpenCodeGoExecutionMetadata,
     type LlmModelCatalog,
 } from "../../../../packages/model-catalog/src/index";
 import {
@@ -247,6 +248,19 @@ export function readModelCapabilities(
             ? estimator
             : resolveTokenEstimatorEncoding(encoding!),
     });
+}
+
+/** 为服务端明确配置的登记 OpenCode Go 模型补齐 Adapter 执行契约。 */
+function configuredModelAdapterConfig(config: LLMConfig): LLMConfig {
+    if (config.provider !== "opencode-go") return config;
+    const metadata = resolveOpenCodeGoExecutionMetadata(config.model);
+    return metadata === undefined ? config : {
+        ...config,
+        executionApi: metadata.executionApi,
+        contextWindowTokens: metadata.contextWindowTokens,
+        maxOutputTokens: metadata.maxOutputTokens,
+        reasoning: metadata.reasoning,
+    };
 }
 
 export interface RuntimeCompositionOptions {
@@ -512,7 +526,7 @@ async function assembleRuntimeComposition(
         adapter = options.adapter;
         try {
             llmConfig = readLLMConfig(env);
-            configuredStageAdapters = createLlmStageAdapters(llmConfig);
+            configuredStageAdapters = createLlmStageAdapters(configuredModelAdapterConfig(llmConfig));
         } catch {
             llmConfig = undefined;
             configuredStageAdapters = undefined;
@@ -542,7 +556,7 @@ async function assembleRuntimeComposition(
                 }
             }
         }
-        configuredStageAdapters = createLlmStageAdapters(llmConfig);
+        configuredStageAdapters = createLlmStageAdapters(configuredModelAdapterConfig(llmConfig));
         adapter = configuredStageAdapters.decideAdapter;
     }
     const conversationCharBudget = readConversationCharBudget(env);
@@ -731,12 +745,19 @@ async function assembleRuntimeComposition(
     const executionStream = new InMemoryExecutionStreamPublisher();
     resources.register({ close: () => executionStream.dispose() });
     const toolPolicy = options.toolPolicy ?? createDefaultToolPolicy();
+    const defaultExecutionMetadata = llmConfig?.provider === "opencode-go"
+        ? resolveOpenCodeGoExecutionMetadata(llmConfig.model)
+        : undefined;
     const defaultModelSelection: GoalModelSelection = options.modelBinding?.current().selection ?? {
         provider: llmConfig?.provider ?? ((adapter as { readonly provider?: string }).provider as GoalModelSelection["provider"] | undefined) ?? "openai",
         ...(bootConfigFromProfile && activeProviderProfile !== undefined ? { profileId: activeProviderProfile.id } : {}),
         modelId: llmConfig?.model ?? (adapter as { readonly modelId?: string }).modelId ?? "default-model",
         structuredOutputMode: llmConfig?.structuredOutputMode ?? adapter.structuredOutputMode ?? "prompt_only",
-        ...(modelCapabilities === undefined ? {} : {
+        ...(defaultExecutionMetadata === undefined ? {} : { executionApi: defaultExecutionMetadata.executionApi }),
+        ...(defaultExecutionMetadata !== undefined ? {
+            contextWindowTokens: defaultExecutionMetadata.contextWindowTokens,
+            maxOutputTokens: defaultExecutionMetadata.maxOutputTokens,
+        } : modelCapabilities === undefined ? {} : {
             contextWindowTokens: modelCapabilities.contextWindowTokens,
             maxOutputTokens: modelCapabilities.maxOutputTokens,
         }),
@@ -765,11 +786,36 @@ async function assembleRuntimeComposition(
                 decideAdapter: options.adapterFactory(selection, "decide"),
             });
         }
-        const selectionConfig = selection.profileId === undefined
+        const baseConfig = selection.profileId === undefined
             ? llmConfig
             : resolveProviderProfileConfig(selection.profileId, selection.modelId);
-        if (selectionConfig !== undefined) {
-            return createLlmStageAdapters({ ...selectionConfig, model: selection.modelId });
+        if (baseConfig !== undefined) {
+            let selectionConfig: LLMConfig = { ...baseConfig, model: selection.modelId };
+            if (selection.executionApi !== undefined) {
+                const metadata = resolveOpenCodeGoExecutionMetadata(selection.modelId);
+                if (baseConfig.provider !== "opencode-go") {
+                    throw new LLMConfigurationError([], `Saved execution metadata requires OpenCode Go for model "${selection.modelId}"`);
+                }
+                if (metadata?.executionApi !== selection.executionApi
+                    || selection.contextWindowTokens === undefined
+                    || selection.maxOutputTokens === undefined) {
+                    throw new LLMConfigurationError([], `Saved execution metadata is unavailable for model "${selection.modelId}"`);
+                }
+                selectionConfig = {
+                    provider: "opencode-go",
+                    model: selection.modelId,
+                    apiKey: baseConfig.apiKey,
+                    structuredOutputMode: baseConfig.structuredOutputMode,
+                    executionApi: selection.executionApi,
+                    contextWindowTokens: selection.contextWindowTokens,
+                    maxOutputTokens: selection.maxOutputTokens,
+                    reasoning: metadata.reasoning,
+                };
+            }
+            return createLlmStageAdapters(selectionConfig);
+        }
+        if (selection.executionApi !== undefined) {
+            throw new LLMConfigurationError([], `Provider configuration is unavailable for dynamic model "${selection.modelId}"`);
         }
         return Object.freeze({ thinkAdapter: adapter, decideAdapter: adapter });
     };

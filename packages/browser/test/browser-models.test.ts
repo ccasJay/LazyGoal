@@ -84,6 +84,40 @@ test("模型目录需要会话授权，响应仅包含当前 Provider 的白名�
     });
 });
 
+test("执行登记模型仅投影展示能力，不泄漏执行协议、路由或凭据", () => {
+    const dynamic = {
+        provider: "opencode-go",
+        id: "minimax-m3.1-flash-free",
+        displayName: "MiniMax M3.1 Flash Free",
+        contextWindowTokens: 1_000_000,
+        maxOutputTokens: 524_288,
+        reasoning: true,
+        vision: false,
+        executionApi: "openai-completions",
+        baseURL: "https://opencode.ai/inference/go/openai/v1",
+        apiKey: "DO_NOT_SEND_KEY",
+        availabilitySource: "live" as const,
+        metadataSource: "execution" as const,
+        selectable: true,
+    };
+    const projected = projectBrowserModelCatalog("opencode-go", dynamic.id, [dynamic]);
+    assert.deepEqual(projected, {
+        provider: "opencode-go",
+        currentModelId: dynamic.id,
+        models: [{
+            id: dynamic.id,
+            displayName: "MiniMax M3.1 Flash Free",
+            contextWindowTokens: 1_000_000,
+            maxOutputTokens: 524_288,
+            reasoning: true,
+            vision: false,
+            availabilitySource: "live",
+            metadataSource: "execution",
+            selectable: true,
+        }],
+    });
+});
+
 test("在线目录、离线兜底和鉴权故障保持不同分类", async () => {
     const results: BrowserModelCatalogReadResult[] = [
         { ok: true, catalog },
