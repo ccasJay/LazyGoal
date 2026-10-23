@@ -505,7 +505,16 @@ export function GoalSession({
             </div>
           )}
 
-          {sessionTab !== "Board" && (
+          {sessionTab === "Trajectory" && canSendText && (
+            <button
+              className="trajectory-message-link"
+              onClick={() => setSessionTab("Activity")}
+            >
+              Message this Goal from Activity <ChevronRight size={14} />
+            </button>
+          )}
+
+          {sessionTab !== "Board" && sessionTab !== "Trajectory" && (
             <div className="composer-area">
               {sessionTab === "Activity" && decisionSummaries.length > 0 && (
                 <div className="decision-summaries" aria-label="Saved interaction decisions">
@@ -674,18 +683,9 @@ export function GoalSession({
                     onSubmit={onSubmitMessage}
                   />
                 ))}
-              {sessionTab === "Trajectory" && canSendText && (
-                <button
-                  className="trajectory-message-link"
-                  onClick={() => setSessionTab("Activity")}
-                >
-                  Message this Goal from Activity <ChevronRight size={14} />
-                </button>
-              )}
-              {sessionTab !== "Trajectory" &&
-                (session.runStatus === "completed" ||
-                  session.runStatus === "failed" ||
-                  session.runStatus === "cancelled") &&
+              {(session.runStatus === "completed" ||
+                session.runStatus === "failed" ||
+                session.runStatus === "cancelled") &&
                 session.interaction === undefined &&
                 session.pendingAction === undefined && (
                   <MessageComposer

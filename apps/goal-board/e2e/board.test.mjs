@@ -353,7 +353,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(mock.lastInteraction.response.scope, "goal");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.textContent === 'Trajectory').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('Retry inputs')");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Zoom in timeline\"]').click(); document.querySelector('#trajectory-event-1').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "(() => { document.querySelector('#trajectory-event-1').click(); const plot = document.querySelector('.tr-timeline .tr-plot'); const bounds = plot.getBoundingClientRect(); plot.dispatchEvent(new WheelEvent('wheel', { deltaY: -160, clientX: bounds.left + bounds.width * .6, clientY: bounds.top + 20, bubbles: true, cancelable: true })); return true; })()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent !== '1×'");
     const retainedZoom = await value(socket, "document.querySelector('.tr-zoom-level').textContent");
     assert.notEqual(retainedZoom, "1×");
@@ -365,24 +365,24 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await setText(socket, "input[aria-label='Search trajectory']", "native");
     await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('1 / 1 saved model inputs')");
     assert.equal(await value(socket, "document.querySelector('.mi-input-status [role=alert]') === null"), true);
-    assert.equal(await value(socket, "[...document.querySelectorAll('.ct-record')].some(row => row.textContent.includes('Native tool result'))"), true);
-    assert.equal(await value(socket, "[...document.querySelectorAll('.ct-record')].find(row => row.textContent.includes('Native tool result')).querySelector('.ct-badge').textContent"), "Tool");
-    assert.equal(await value(socket, "(() => { const row = [...document.querySelectorAll('.ct-record')].find(item => item.textContent.includes('Native tool result')); const body = row.querySelector('.ct-record-body'); const preview = row.querySelector('.ct-preview'); const bounds = row.getBoundingClientRect(); return getComputedStyle(row).display === 'flex' && getComputedStyle(body).display === 'flex' && preview.getBoundingClientRect().right <= bounds.right && preview.getBoundingClientRect().height <= bounds.height; })()"), true);
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.ct-record')].find(row => row.textContent.includes('Native tool result')).querySelector('.ct-record-body').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.mi-message summary')?.textContent.includes('Tool result')");
+    assert.equal(await value(socket, "[...document.querySelectorAll('.ct-record')].some(row => row.textContent.includes('Prompt'))"), true);
+    assert.equal(await value(socket, "[...document.querySelectorAll('.ct-record')].find(row => row.textContent.includes('Prompt')).querySelector('.ct-badge').textContent"), "Prompt");
+    assert.equal(await value(socket, "(() => { const row = [...document.querySelectorAll('.ct-record')].find(item => item.textContent.includes('Prompt')); const body = row.querySelector('.ct-record-body'); const preview = row.querySelector('.ct-preview'); const bounds = row.getBoundingClientRect(); return getComputedStyle(row).display === 'flex' && getComputedStyle(body).display === 'flex' && preview.getBoundingClientRect().right <= bounds.right && preview.getBoundingClientRect().height <= bounds.height; })()"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.ct-record')].find(row => row.textContent.includes('Prompt')).querySelector('.ct-record-body').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.mi-inspector') !== null");
+    await waitForExpression(socket, "document.querySelectorAll('.mi-message').length === 3");
+    assert.equal(await value(socket, "document.querySelector('.mi-inspector h3')?.textContent"), "Model request");
     assert.equal(await value(socket, "document.querySelector('.mi-inspector [role=alert]') === null"), true);
     assert.equal(await value(socket, "document.querySelectorAll('.tr-inspector').length"), 1);
     assert.equal(await value(socket, "document.querySelector('.tr-ledger-layout > .mi-inspector') !== null"), true);
-    assert.equal(await value(socket, "document.querySelector('.mi-inspector').getBoundingClientRect().top >= document.querySelector('.tr-overview').getBoundingClientRect().bottom"), true);
+    assert.equal(await value(socket, "document.querySelector('.mi-inspector').getBoundingClientRect().top >= document.querySelector('.tr-timeline').getBoundingClientRect().bottom"), true);
     const detailReads = mock.inputDetailReads();
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.ct-record-body')].find(row => row.textContent.includes('Run mode')).click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.mi-message.is-selected')?.dataset.messageIndex === '1'");
-    assert.equal(await value(socket, "document.querySelector('.mi-inspector h3').textContent"), "Run mode");
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.ct-record-body')].find(row => row.textContent.includes('Authorized tools')).click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.mi-message.is-selected')?.dataset.messageIndex === '2'");
-    assert.equal(mock.inputDetailReads(), detailReads, "message selection reuses the loaded model request");
-    assert.equal(await value(socket, "document.querySelector('.mi-message[data-message-index=\"1\"]').open"), false);
-    assert.equal(await value(socket, "(() => { const message = document.querySelector('.mi-message.is-selected').getBoundingClientRect(); const body = document.querySelector('.mi-inspector .tr-detail-body').getBoundingClientRect(); return message.top >= body.top && message.top < body.bottom; })()"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.mi-message summary')].find(row => row.textContent.includes('Run mode')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.mi-message[data-message-index=\"1\"]').open === false");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.mi-message summary')].find(row => row.textContent.includes('Authorized tools')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.mi-message[data-message-index=\"2\"]').open === false");
+    assert.equal(mock.inputDetailReads(), detailReads, "message disclosure reuses the loaded model request");
+    assert.equal(await value(socket, "document.querySelector('.mi-message[data-message-index=\"0\"]').open"), true);
     if (await value(socket, "document.querySelector('.tr-zoom-level')?.textContent !== '1×'")) {
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Reset timeline zoom\"]').click()", returnByValue: true });
     }
@@ -393,15 +393,16 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await cdp(socket, "Input.dispatchMouseEvent", { type: "mouseReleased", x: timelinePoint.x, y: timelinePoint.y, button: "left", clickCount: 1 });
     await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #2')");
     assert.equal(await value(socket, "document.querySelector('.mi-inspector') === null && document.querySelectorAll('.tr-inspector').length === 1"), true);
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.ct-record-body')].find(row => row.textContent.includes('Authorized tools')).click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.mi-message.is-selected')?.dataset.messageIndex === '2'");
-    assert.equal(await value(socket, "document.querySelectorAll('.tr-inspector').length"), 1);
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     // 视口切换后移动布局（收起侧栏）异步生效；等单列布局稳定再核验轨迹面板几何。
     await waitForExpression(socket, "document.querySelector('.session').getBoundingClientRect().width >= window.innerWidth - 32");
-    await waitForExpression(socket, "(() => { const message = document.querySelector('.mi-message.is-selected').getBoundingClientRect(); const body = document.querySelector('.mi-inspector .tr-detail-body').getBoundingClientRect(); return message.top >= body.top && message.top < body.bottom; })()");
-    assert.equal(await value(socket, "(() => { const inspector = document.querySelector('.mi-inspector').getBoundingClientRect(); const ledger = document.querySelector('.tr-ledger').getBoundingClientRect(); const overview = document.querySelector('.tr-overview').getBoundingClientRect(); return inspector.top >= overview.bottom && inspector.bottom <= ledger.top + 1 && ledger.height >= 180 && document.querySelector('.mi-inspector .tr-detail-body').getBoundingClientRect().height >= 100 && document.documentElement.scrollWidth <= window.innerWidth; })()"), true);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close prompt details\"]').click()", returnByValue: true });
+    const mobileGeometry = await value(socket, "(() => { const inspector = document.querySelector('.tr-inspector'); const layout = document.querySelector('.tr-ledger-layout'); const timeline = document.querySelector('.tr-timeline'); const body = document.querySelector('.tr-detail-body'); const i = inspector.getBoundingClientRect(); const l = layout.getBoundingClientRect(); const t = timeline.getBoundingClientRect(); const b = body.getBoundingClientRect(); return { position: getComputedStyle(inspector).position, top: Math.round(i.top), timelineBottom: Math.round(t.bottom), width: Math.round(i.width), layoutWidth: Math.round(l.width), bodyHeight: Math.round(b.height), scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }; })()");
+    assert.equal(mobileGeometry.position, "absolute", JSON.stringify(mobileGeometry));
+    assert.ok(mobileGeometry.top >= mobileGeometry.timelineBottom - 1, JSON.stringify(mobileGeometry));
+    assert.ok(Math.abs(mobileGeometry.width - mobileGeometry.layoutWidth) < 2, JSON.stringify(mobileGeometry));
+    assert.ok(mobileGeometry.bodyHeight >= 100, JSON.stringify(mobileGeometry));
+    assert.ok(mobileGeometry.scrollWidth <= mobileGeometry.innerWidth, JSON.stringify(mobileGeometry));
+    assert.equal(await value(socket, "(() => { document.querySelector('button[aria-label=\"Close trajectory details\"]').click(); return true; })()"), true);
     assert.equal(await value(socket, "document.querySelector('.tr-inspector') === null"), true);
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
 
@@ -410,9 +411,9 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelector('.ct-record-list')?.getAttribute('role')"), "listbox");
     assert.equal(await value(socket, "document.querySelectorAll('button[aria-selected]').length"), 0);
 
-    // 2. 时间轴滚轮缩放与倍率封顶紧凑化修复验证：
-    // (a) 垂直滚轮在时间轴上直接生效并拦截默认页面滚动
-    const wheelDefaultPrevented = await value(socket, "(() => { const plot = document.querySelector('.tr-plot'); const ev = new WheelEvent('wheel', { deltaY: -100, cancelable: true, bubbles: true }); plot.dispatchEvent(ev); return ev.defaultPrevented; })()");
+    // 2. 时间轴滚轮缩放与 Sequence 紧凑标记：
+    // (a) 垂直滚轮在时间轴上生效并拦截默认页面滚动
+    const wheelDefaultPrevented = await value(socket, "(() => { const plot = document.querySelector('.tr-timeline .tr-plot'); const ev = new WheelEvent('wheel', { deltaY: -100, cancelable: true, bubbles: true }); plot.dispatchEvent(ev); return ev.defaultPrevented; })()");
     assert.equal(wheelDefaultPrevented, true, "vertical wheel on timeline is intercepted for zooming");
 
     // (b) 滚轮向上滚动触发放大（> 1x）
@@ -420,29 +421,29 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     const zoomedInLevel = await value(socket, "document.querySelector('.tr-zoom-level')?.textContent");
     assert.match(zoomedInLevel, /^[1-9]\d*(\.\d+)?×$/, "zoom level increases after scrolling up");
 
-    // (c) 点击 Reset 恢复 1×
+    // (c) Fit 恢复 1×
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Reset timeline zoom\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent === '1×'");
 
-    // (d) 最低倍率紧凑化验证：向下缩小至 0.5x，所有事件收拢，Zoom out 按钮禁用
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Zoom out timeline\"]').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent === '0.5×'");
-    assert.equal(await value(socket, "document.querySelector('.tr-zoom-level')?.textContent"), "0.5×");
-    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Zoom out timeline\"]').disabled"), true);
+    // (d) Compact 只收窄事件标记，不缩小轨道宽度，也不产生右侧空白
+    await waitForExpression(socket, "Math.abs(document.querySelector('.tr-timeline-track').getBoundingClientRect().width - document.querySelector('.tr-timeline .tr-plot').clientWidth) < 2");
+    const compactBefore = await value(socket, "(() => { const plot = document.querySelector('.tr-timeline .tr-plot'); const span = document.querySelector('.tr-timeline .tr-span'); return { plot: plot.clientWidth, track: document.querySelector('.tr-timeline-track').getBoundingClientRect().width, span: span.getBoundingClientRect().width }; })()");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.tr-compact-toggle').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-compact-toggle').getAttribute('aria-pressed') === 'true' && Math.abs(document.querySelector('.tr-timeline-track').getBoundingClientRect().width - document.querySelector('.tr-timeline .tr-plot').clientWidth) < 2");
+    const compactAfter = await value(socket, "(() => { const plot = document.querySelector('.tr-timeline .tr-plot'); const span = document.querySelector('.tr-timeline .tr-span'); return { plot: plot.clientWidth, track: document.querySelector('.tr-timeline-track').getBoundingClientRect().width, span: span.getBoundingClientRect().width }; })()");
+    assert.equal(Math.round(compactAfter.track), Math.round(compactBefore.track), "compact keeps the full track width");
+    assert.equal(Math.round(compactAfter.span), 8, "compact uses narrow event marks");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.tr-compact-toggle').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-compact-toggle').getAttribute('aria-pressed') === 'false'");
 
-    // (e) 再次 Reset 恢复 1×
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Reset timeline zoom\"]').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent === '1×'");
-
-    // (f) 最高倍率封顶验证：放大至 25x 封顶，不再是 1000x，Zoom in 按钮禁用
-    for (let i = 0; i < 6; i += 1) {
-      await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Zoom in timeline\"]:not(:disabled)')?.click()", returnByValue: true });
+    // (e) 滚轮放大封顶 4×
+    for (let i = 0; i < 8; i += 1) {
+      await cdp(socket, "Runtime.evaluate", { expression: "(() => { const plot = document.querySelector('.tr-timeline .tr-plot'); const bounds = plot.getBoundingClientRect(); plot.dispatchEvent(new WheelEvent('wheel', { deltaY: -240, clientX: bounds.left + bounds.width * .5, clientY: bounds.top + 20, bubbles: true, cancelable: true })); return true; })()", returnByValue: true });
     }
-    await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent === '25×'");
-    assert.equal(await value(socket, "document.querySelector('.tr-zoom-level')?.textContent"), "25×");
-    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Zoom in timeline\"]').disabled"), true);
+    await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent === '4×'");
+    assert.equal(await value(socket, "document.querySelector('.tr-zoom-level')?.textContent"), "4×");
 
-    // (g) Reset 回到 1×
+    // (f) Fit 回到 1×
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Reset timeline zoom\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent === '1×'");
 
@@ -450,7 +451,8 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await setText(socket, "input[aria-label='Search trajectory']", "started");
     await waitForExpression(socket, "document.querySelector('button[aria-label=\"Locate trajectory event 2\"].dimmed') !== null");
     const dimmedOpacity = await value(socket, "getComputedStyle(document.querySelector('button[aria-label=\"Locate trajectory event 2\"].dimmed')).opacity");
-    assert.equal(dimmedOpacity, "0.25");
+    const dimDiagnostics = await value(socket, "(() => { const el = document.querySelector('button[aria-label=\"Locate trajectory event 2\"]'); const matched = []; for (const sheet of document.styleSheets) { try { for (const rule of sheet.cssRules) { if (rule.selectorText && rule.style && rule.style.opacity && el.matches(rule.selectorText)) matched.push(rule.selectorText + ':' + rule.style.opacity); } } catch {} } return { className: el.className, opacity: getComputedStyle(el).opacity, matched }; })()");
+    assert.equal(dimmedOpacity, "0.25", JSON.stringify(dimDiagnostics));
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Locate trajectory event 2\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #2')");
     assert.equal(await value(socket, "document.querySelector('input[aria-label=\"Search trajectory\"]').value"), "started");

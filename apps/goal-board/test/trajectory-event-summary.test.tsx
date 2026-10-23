@@ -40,3 +40,12 @@ test("rejected output shows every field correction while keeping event metadata 
   assert.match(html, /View Raw/);
   assert.doesNotMatch(html, /<pre>/);
 });
+
+test("model attempts summarize the stage instead of repeating the raw payload", () => {
+  const event = { payload: { type: "model_repair_attempt_started", stage: "decide", attempt: 2 } } as BrowserTrajectoryDetail["event"];
+  const html = renderToStaticMarkup(<EventSummary event={event}/>);
+  assert.match(html, /decide attempt 2 started/);
+  assert.match(html, /View Raw/);
+  assert.doesNotMatch(html, /Recorded payload/);
+  assert.doesNotMatch(html, /<pre>/);
+});

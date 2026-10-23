@@ -36,10 +36,22 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
   const rejectedCalls = new Map(calls.filter(call => results.get(call.callId)?.status === "rejected").map(call => [results.get(call.callId)!.entry!.sequence, call]));
   const displaySteps = displayStepBySequence(entries);
   for (const call of visibleCalls) {
-    if (call.firstSystem || call.systemChanged) rows.push({ id: `${call.callId}:system`, role: "System", text: call.firstSystem ? "Initial system prompt" : "System prompt updated", result: call.systemVersion.slice(0, 8), time: call.occurredAt, step: call.stepIndex, call, tab: call.firstSystem ? "System Prompt" : "Diff" });
-    for (const message of call.messages) rows.push({ id: `${call.callId}:${message.index}`, role: message.role === "assistant" ? "Assistant" : message.role === "tool" ? "Tool" : message.source === "conversation" || message.source === "native_history" && message.role === "user" ? "User" : "Context", text: message.source === "working_context" ? "Working context updated" : contextPreview(message.preview), time: call.occurredAt, step: call.stepIndex, call, messageIndex: message.index });
-    rows.push({ id: `${call.callId}:request`, role: "Request", text: `${call.stage} · ${results.get(call.callId)!.label}`, time: call.occurredAt, step: call.stepIndex, call, request: true, status: results.get(call.callId)!.status });
-    if (call.omittedMessageCount > 0) rows.push({ id: `${call.callId}:more`, role: "Context", text: `${call.omittedMessageCount} more input messages · Open complete request`, time: call.occurredAt, step: call.stepIndex, call });
+    const result = results.get(call.callId)!;
+    const messageCount = call.messages.length + call.omittedMessageCount;
+    rows.push({
+      id: `${call.callId}:prompt`,
+      role: "Prompt",
+      text: `${call.stage} · ${messageCount} message${messageCount === 1 ? "" : "s"} · ${result.label}`,
+      result: call.firstSystem
+        ? "Initial system prompt"
+        : call.systemChanged ? "System prompt updated" : `System ${call.systemVersion.slice(0, 8)}`,
+      time: call.occurredAt,
+      step: call.stepIndex,
+      call,
+      tab: "Messages",
+      request: true,
+      status: result.status,
+    });
   }
   for (const entry of entries) {
     if (entry.sequence !== selectedSequence && entry.eventType === "model_context_frame" && visibleCalls.some(call => call.callId === entry.modelCallId)) continue;
@@ -103,7 +115,7 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
     };
     return <div role="option" aria-selected={selected} className={`ct-record ${row.status ?? ""} ${selected ? "selected" : ""} ${row.entry?.parentActionId !== undefined && row.entry.callIndex !== undefined ? "child" : ""}`} key={row.id} onClick={handleSelect}>
       <div className="ct-gutter"><span className="ct-sequence">{row.entry?.sequence ?? "·"}</span>{showRequests && row.request && <button className="ct-request-dot" aria-label={row.entry ? `View prompt for event ${row.entry.sequence}` : `Inspect model request ${row.call!.callId}`} onClick={(event) => { event.stopPropagation(); selectInput({ callId: row.call?.callId ?? row.promptCallId ?? row.entry?.modelCallId ?? null, tab: "Messages" }); }}/>}</div>
-      <button id={row.entry ? `trajectory-event-${row.entry.sequence}` : undefined} className="ct-record-body" aria-pressed={selected} onClick={(event) => { event.stopPropagation(); handleSelect(); }}>
+      <button id={row.entry ? `trajectory-event-${row.entry.sequence}` : undefined} className="ct-record-body" aria-pressed={selected} aria-label={row.call ? `Inspect model request ${row.call.callId}` : undefined} onClick={(event) => { event.stopPropagation(); handleSelect(); }}>
         <span className="ct-preview"><span className={`ct-badge ${row.role.toLowerCase()}`}>{row.role}</span><span className="ct-event-text"><strong>{row.text}</strong>{row.entry?.parentActionId !== undefined && row.entry.callIndex !== undefined && <small title={`Program ${row.entry.parentActionId}`}>Program call {row.entry.callIndex + 1}</small>}</span></span>
         <time className="ct-time" dateTime={row.time} title={row.time}>{formatEventTime(row.time)}</time>
         <span className="ct-detail">{row.entry?.resultPreview ?? row.result ?? row.entry?.inputPreview ?? row.input ?? row.entry?.preview ?? ""}</span>
@@ -198,21 +210,12 @@ function eventLabel(entry: BrowserTrajectoryEntry): string {
   if (entry.eventType === "think_completed") return "Think completed";
   if (entry.eventType === "tool_started") return entry.title.replace(/^tool_started: /, "");
   if (entry.eventType === "run_completed") return "Run completed";
-  return entry.eventType.replaceAll("_", " ");
+  const label = entry.title || entry.eventType;
+  if (!label.includes("_")) return label;
+  return label.replaceAll("_", " ").replace(/^./, character => character.toUpperCase());
 }
 
 function formatEventTime(value: string): string {
   const time = Date.parse(value);
   return Number.isFinite(time) ? new Date(time).toLocaleTimeString("en-GB", { hour12: false }) : "—";
-}
-
-function contextPreview(preview: string): string {
-  if (preview.startsWith('{"source":"runtime_feedback"')) {
-    const attempt = /"attempt":(\d+)/.exec(preview)?.[1];
-    return `Output correction${attempt ? ` after attempt ${attempt}` : ""} · Open prompt for details`;
-  }
-  const section = /^\[Dynamic section(?: update)?: ([^;]+);/.exec(preview);
-  if (!section) return preview;
-  const labels: Record<string, string> = { run_mode: "Run mode", authorized_tools: "Authorized tools", working_memory: "Working memory" };
-  return `${labels[section[1]!] ?? section[1]} · ${preview.startsWith("[Dynamic section update:") ? "Updated instructions" : "Instructions"}`;
 }

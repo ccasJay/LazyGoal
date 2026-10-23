@@ -37,5 +37,8 @@
 | Provider 设置页 | 受管 Provider 紧凑列表与按需展开表单；区分凭据已保存、激活与目录检查状态，不回显已保存密钥。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx) |
 | 来源两级选择 | 模型选择器先选 Provider 来源再选模型，结果写入对应偏好或 Goal 选择。 | [Goal Board](../README.md) | [ModelPicker](../src/components/ModelPicker.tsx) |
 | Fetch models | 用当前表单查询在线模型并填入默认模型，不保存档案。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx) |
+| 轨迹概览轨道 | 50px 三轨 Sequence／Time 投影；始终填满可视宽度，Sequence 滚轮缩放不低于 Fit，右键平移、拖拽选择范围，Compact 只收窄事件标记。 | [Goal Board](../README.md) | [TrajectoryTimeline](../src/trajectory-timeline.tsx)、[投影](../src/trajectory-timeline-model.ts) |
+| Prompt 记录 | 模型输入按调用折叠为一条记录，消息正文只在模型输入检查器中展开，不进入主事件流。 | [Goal Board](../README.md) | [TrajectoryRecords](../src/trajectory-records.tsx) |
+| 轨迹详情覆盖层 | 窄屏下详情覆盖记录列表，列表保持全宽；Trajectory 页不渲染输入区。 | [Goal Board](../README.md) | [Trajectory](../src/trajectory.tsx)、[样式](../src/trajectory.css) |
 | Think activity | 同一 Step 内独立展示的显式思考目标、进行状态及已提交分析；可定位原轨迹。 | [Goal Board](../README.md) | [活动投影](../src/activity-projector.ts)、[轨迹详情](../src/trajectory-event-summary.tsx) |
 | 审批参数编辑与审阅 | 同一工具的 JSON 参数编辑、只读预检与原／最终参数差异确认；再次编辑使旧审阅失效。 | [Goal Board](../README.md) | [交互面板](../src/interaction-panel.tsx) |

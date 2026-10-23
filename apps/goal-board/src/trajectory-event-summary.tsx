@@ -1,6 +1,7 @@
 import React from "react";
 import type {
   BrowserTrajectoryDetail,
+  BrowserModelRepairAttemptStartedPayload,
   BrowserModelRepairFeedbackRecordedPayload,
   BrowserExecutionErrorPayload,
 } from "../../../packages/web-contracts/src/index";
@@ -25,6 +26,14 @@ export function EventSummary({ event }: { event: BrowserTrajectoryDetail["event"
       </li>)}</ul>
       <dl><div><dt>Reason</dt><dd>{feedbackPayload.feedback.code}</dd></div><div><dt>Validation</dt><dd>{feedbackPayload.feedback.origin.replaceAll("_", " ")}</dd></div></dl>
       {feedbackPayload.feedback.constraints?.length ? <details><summary>Correction instructions</summary>{feedbackPayload.feedback.constraints.map((constraint, index) => <p key={index}>{constraint}</p>)}</details> : null}
+      <p className="tr-summary-note">View Raw for the complete saved event.</p>
+    </section>;
+  }
+  if (payload.type === "model_repair_attempt_started") {
+    const attemptPayload = payload as BrowserModelRepairAttemptStartedPayload;
+    return <section className="tr-feedback-summary" aria-label="Model attempt">
+      <p>{attemptPayload.stage ?? "model"} attempt {attemptPayload.attempt} started. Output validation and the next decision are recorded in later events.</p>
+      <dl><div><dt>Stage</dt><dd>{attemptPayload.stage ?? "Unavailable"}</dd></div><div><dt>Attempt</dt><dd>{attemptPayload.attempt}</dd></div></dl>
       <p className="tr-summary-note">View Raw for the complete saved event.</p>
     </section>;
   }
