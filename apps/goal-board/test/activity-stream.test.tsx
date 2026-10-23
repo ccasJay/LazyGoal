@@ -278,3 +278,38 @@ test("an incomplete Action keeps the loading note visible while collapsed", () =
   assert.doesNotMatch(render([entry], { actionGroups: [{ ...context, runId: "other-run" }] }), /Details not fully loaded/);
   assert.doesNotMatch(render([entry], { actionGroups: [{ ...context, completeWithinPage: true }] }), /Details not fully loaded/);
 });
+
+test("execution details filtering retains successful and running tool summaries with their normal defaults", () => {
+  const completed = render([activity("completed")], { showExecutionFacts: false });
+  assert.match(completed, /Run tests/);
+  assert.match(completed, /aria-expanded="false"/);
+  assert.doesNotMatch(completed, /timeline-activity-members/);
+  const running = render([activity("recorded")], { showExecutionFacts: false, running: true });
+  assert.match(running, /Run tests/);
+  assert.match(running, /aria-expanded="true"/);
+});
+
+test("technical records with detail obey the filter while failures and rejection stay visible", () => {
+  const fact = (eventType: string, sequence: number): SessionTimelineEntry => ({ kind: "fact", itemId: `fact:${eventType}`,
+    runId: "run-1", eventType, title: eventType, detail: `Detail for ${eventType}`, position: position(sequence) });
+  const technical = ["action_staged", "action_approved", "action_revised", "tool_started", "tool_attempt_started", "tool_finished", "observation_recorded", "model_request_retry_recorded"];
+  const failures = ["action_rejected", "tool_attempt_failed", "context_lookup_failed"];
+  const items = [...technical, ...failures].map(fact);
+  const hidden = render(items, { showExecutionFacts: false });
+  for (const event of technical) assert.doesNotMatch(hidden, new RegExp(`data-item-id="fact:${event}"`));
+  for (const event of failures) {
+    assert.match(hidden, new RegExp(`data-item-id="fact:${event}"`));
+    assert.match(hidden, new RegExp(`Detail for ${event}`));
+  }
+  const visible = render(items, { showExecutionFacts: true });
+  for (const event of technical) assert.match(visible, new RegExp(`data-item-id="fact:${event}"`));
+});
+
+test("successful permission lifecycle stays inside its collapsed tool summary when details are filtered", () => {
+  const entry = activity("completed");
+  const group = { ...entry.group, members: entry.group.members.map(member => ({ ...member,
+    lifecycle: [{ kind: "approval" as const, title: "Permission granted" }, { kind: "result" as const, title: "Result saved" }] })) };
+  const html = render([{ ...entry, group }], { showExecutionFacts: false });
+  assert.match(html, /Run tests/);
+  assert.doesNotMatch(html, /Permission granted|Result saved/);
+});

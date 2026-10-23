@@ -88,7 +88,7 @@ export interface SessionTimelineProps {
   readonly runStatus: BrowserRunStatus;
   /** 固定窗口之前是否还有可按 cursor 读取的来源。 */
   readonly olderAvailable: boolean;
-  /** 是否显示工具与操作事实；阶段、Run 与终态边界始终保留。 */
+  /** 是否显示独立技术事实与 Think；工具和检索摘要、异常及 Run／阶段边界始终保留，组内详情仍可展开。 */
   readonly showExecutionFacts: boolean;
   /** 当前安全状态摘要；不从未提交工具参数生成文案。 */
   readonly liveActivity: string | null;
@@ -112,17 +112,21 @@ export interface SessionTimelineProps {
   readonly unreadCount?: number;
 }
 
-const executionEventTypes = new Set([
+const technicalEventTypes = new Set([
   "action_staged",
   "action_approved",
   "action_revised",
-  "action_rejected",
   "tool_started",
   "tool_attempt_started",
-  "tool_attempt_failed",
   "tool_finished",
   "observation_recorded",
+  "model_request_retry_recorded",
+  "context_lookup_requested",
+  "context_lookup_completed",
+  "context_lookup_not_found",
 ]);
+
+const failureEventTypes = new Set(["action_rejected", "tool_attempt_failed", "context_lookup_failed", "run_stage_rejected"]);
 
 function ActivitySnake({ className }: { readonly className?: string }) {
   return (
@@ -146,8 +150,8 @@ function ActivitySnake({ className }: { readonly className?: string }) {
  * 不改变 Run 状态。Plan 路线只显示在当前 Run 边界，旧页缺口仍明确提示。工具活动以真实
  * 动作组呈现，成功默认折叠，运行、失败与等待组默认展开。同一 Action 的授权、执行、重试
  * 与结果记录随成员详情折叠；等待审批的组仍显示明确的 `Awaiting approval`。真实阶段按服务端阶段上下文、声明
- * 或当前路线关联，不从工具类别生成阶段；阶段折叠与 Execution steps 筛选仍保留异常活动。手动开合状态按组身份保存，
- * 追加内容、结算和 Execution steps 筛选不覆盖用户选择；重新进入会话时恢复默认值。
+ * 或当前路线关联，不从工具类别生成阶段；阶段折叠与 Execution details 筛选仍保留异常活动。手动开合状态按组身份保存，
+ * 追加内容、结算和 Execution details 筛选不覆盖用户选择；重新进入会话时恢复默认值。
  * 同一历史检索只显示一条可展开活动，未命中与失败分别标注；展开内容只用安全请求摘要、
  * 固定结果说明和白名单错误码。阶段及 Action 来源未全部加载时，折叠状态仍保留完整性提示。
  * 公开进度在匹配事件或工具步骤的折叠内容中显示；尚无已保存节点的真实执行单元形成临时步骤，
@@ -449,7 +453,7 @@ function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions)
 
   if (item.kind === "activity") {
     const attention = item.group.members.some(member => needsAttention(member.status));
-    if (!options.showExecutionFacts && !attention) return null;
+    if (!options.showExecutionFacts && item.group.category === "think") return null;
     const expanded = options.expandedGroups.get(item.group.id) ?? (attention || isActive(item.group.status));
     return (
       <ActivityGroupRow
@@ -516,9 +520,9 @@ function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions)
 
   if (item.kind === "fact") {
     if (["run_created", "run_started", "run_completed", "run_failed", "run_cancelled", "decision_received"].includes(item.eventType)) return null;
-    if (!options.showExecutionFacts && executionEventTypes.has(item.eventType) && item.detail === undefined) return null;
+    if (!options.showExecutionFacts && technicalEventTypes.has(item.eventType)) return null;
     return (
-      <TraceCollapsible className={cn("timeline-fact", item.eventType)} key={item.itemId} data-item-id={item.itemId} data-run-id={item.runId} title="Saved activity">
+      <TraceCollapsible defaultOpen={failureEventTypes.has(item.eventType)} className={cn("timeline-fact", item.eventType)} key={item.itemId} data-item-id={item.itemId} data-run-id={item.runId} title="Saved activity">
         <TraceCollapsibleTrigger className="timeline-step-trigger">
           <TraceLine><TraceIcon><span className="timeline-fact-dot" /></TraceIcon><TraceTitle>{item.title}</TraceTitle></TraceLine>
         </TraceCollapsibleTrigger>

@@ -383,7 +383,7 @@ test("SessionTimeline 保留显式 Think 的获准摘要、已提交输出与详
   assert.match(html, /aria-label="Open trajectory for Thinking"/);
 });
 
-test("关闭 Execution steps 只隐藏活动主体，正文与 Run 边界仍然保留", async () => {
+test("关闭 Execution details 保留工具摘要、正文与 Run 边界", async () => {
   const React = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { SessionTimeline } = await import("../src/components/SessionTimeline");
@@ -428,7 +428,7 @@ test("关闭 Execution steps 只隐藏活动主体，正文与 Run 边界仍然�
     brandMark: "/logo.svg",
   }));
 
-  assert.equal(html.includes("Read src/app.ts"), false);
+  assert.equal(html.includes("Read src/app.ts"), true);
   assert.match(html, /data-item-id="run:run-1"/);
   assert.match(html, /data-item-id="message:answer"/);
   assert.match(html, /Review complete/);

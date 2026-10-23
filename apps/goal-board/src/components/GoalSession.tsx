@@ -420,14 +420,14 @@ export function GoalSession({
           ) : (
             <>
               <div className="activity-filter">
-                <Label htmlFor="filter-execution-steps">
+                <Label htmlFor="filter-execution-steps" title="Show thinking and standalone execution records. Tool summaries and important states remain visible.">
                   <Checkbox
                     id="filter-execution-steps"
                     name="showTools"
                     checked={showTools}
                     onCheckedChange={checked => setShowTools(checked === true)}
                   />
-                  Execution steps
+                  Execution details
                 </Label>
                 <span>{activityPage?.items.filter((item) => item.type === "message").length ?? 0} messages in this page</span>
               </div>

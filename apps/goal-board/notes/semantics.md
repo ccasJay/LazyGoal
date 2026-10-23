@@ -55,3 +55,4 @@
 | 执行过程回看 | 终态保留本次连接日志；刷新从 Activity 恢复已提交的诊断、工具生命周期和审批记录。 | [Goal Board](../README.md) | [时间线](../src/components/SessionTimeline.tsx) |
 | 跨页活动上下文 | 按 Run 及阶段恢复标题，阶段／Action 来源未全部加载时保留完整性提示；相邻页合并后更新。 | [Goal Board](../README.md) | [时间线投影](../src/session-timeline.ts)、[Activity 窗口](../src/activity-page-window.ts) |
 | Bash 活动标题 | 简单命令按确定性规则显示 Git 或测试操作；复杂／未知调用显示通用 Shell 标题。归组组合不同操作，命令摘要与结果留在展开详情。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts)、[SessionTimeline](../src/components/SessionTimeline.tsx) |
+| Activity 技术详情筛选 | 工具／检索摘要及重要状态始终保留；Think 和独立授权／执行等技术事实受开关控制，不因带有详情而例外。活动详情可独立展开。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx) |
