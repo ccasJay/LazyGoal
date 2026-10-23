@@ -5,6 +5,7 @@ import type {
     GoalCatalog,
     GoalCatalogEntry,
     GoalStore,
+    ContextLookupRequest,
     JsonObject,
     JsonValue,
     Observation,
@@ -622,6 +623,13 @@ function projectActivityFact(
     const stageTarget = payload.type === "run_stage_declared" ? boundedText(payload.target, 1_000) : undefined;
     const actionId = trajectoryActionId(event);
     const detail = activityEventDetail(event);
+    const lookupId = payload.type === "context_lookup_requested" || payload.type === "context_lookup_completed"
+        || payload.type === "context_lookup_not_found" || payload.type === "context_lookup_failed" ? payload.lookupId : undefined;
+    const lookupRequest = payload.type === "context_lookup_requested" ? activityLookupRequest(payload.request) : undefined;
+    const lookupErrorCode = payload.type === "context_lookup_failed" && [
+        "INVALID_CONTEXT_LOOKUP", "CONTEXT_LOOKUP_CHAIN_LIMIT", "CONTEXT_LOOKUP_UNAVAILABLE",
+        "CONTEXT_LOOKUP_FAILED", "INVALID_CONTEXT_LOOKUP_RESULT",
+    ].includes(payload.code) ? payload.code : undefined;
     return {
         type: "fact",
         itemId: `event:${event.eventId}`,
@@ -638,6 +646,9 @@ function projectActivityFact(
         title: payload.type === "action_staged" && payload.approvalStatus === "awaiting_approval"
             ? "Waiting for permission" : activityEventTitle(event.eventType as BrowserActivityEventType),
         ...(detail === undefined ? {} : { detail }),
+        ...(lookupId === undefined ? {} : { lookupId }),
+        ...(lookupRequest === undefined ? {} : { lookupRequest }),
+        ...(lookupErrorCode === undefined ? {} : { lookupErrorCode }),
         ...(event.executionUnitId === undefined ? {} : { executionUnitId: event.executionUnitId }),
         ...(actionId === undefined ? {} : { actionId }),
         ...(stageId === undefined ? {} : { stageId }),
@@ -646,6 +657,19 @@ function projectActivityFact(
         ...(tool === undefined || payload.type === "decision_received" || payload.type === "action_approved" || payload.type === "action_revised"
             || payload.type === "action_staged" && payload.approvalStatus === "awaiting_approval" ? {} : { tool }),
     };
+}
+
+function activityLookupRequest(request: ContextLookupRequest): string {
+    const operations: Record<NonNullable<ContextLookupRequest["operation"]>, string> = {
+        history_search: "History search", directory_browse: "Browse history directory",
+        directory_search: "Search history directory", source_expand: "Expand history source",
+    };
+    const needs: Record<NonNullable<ContextLookupRequest["need"]>, string> = {
+        conversation_history: "Conversation history", historical_execution: "Historical execution",
+        decision_rationale: "Decision rationale",
+    };
+    return [operations[request.operation ?? "history_search"], request.need === undefined ? undefined : needs[request.need]]
+        .filter((part) => part !== undefined).join(" · ");
 }
 
 /**

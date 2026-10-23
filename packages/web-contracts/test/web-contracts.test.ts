@@ -202,6 +202,19 @@ test("Activity 与窄状态 wire guards 接受有界安全 DTO 并拒绝原始�
     assert.equal(isBrowserActivityPage({ ...page, items: [missingStageTarget] }), false);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...stageFact, eventType: "tool_started" }] }), false);
 
+    const lookupFact = {
+        type: "fact" as const, itemId: "event:lookup-1", eventId: "lookup-1", runId: "run-1",
+        position: { ...position, itemKind: "fact" as const }, eventType: "context_lookup_requested" as const,
+        title: "Looking up history", lookupId: "lookup-1", lookupRequest: "History search · Historical execution",
+    };
+    assert.equal(isBrowserActivityPage({ ...page, items: [lookupFact] }), true);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, lookupId: "" }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, lookupRequest: "x".repeat(201) }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, eventType: "context_lookup_failed", lookupRequest: undefined }] }), true);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, eventType: "context_lookup_failed", lookupRequest: undefined,
+        lookupErrorCode: "PRIVATE_CODE" }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, eventType: "tool_started" }] }), false);
+
     const thinkItem = {
         type: "think" as const,
         itemId: "think:event-1",

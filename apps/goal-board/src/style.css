@@ -192,6 +192,8 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .timeline-fact.model_repair_feedback_recorded .timeline-fact-dot,
 .timeline-fact.model_request_retry_recorded .timeline-fact-dot,
 .timeline-fact.context_lookup_failed .timeline-fact-dot { border-color: var(--warning); background: var(--warning-soft); }
+.timeline-lookup.failed .timeline-fact-dot { border-color: var(--warning); background: var(--warning-soft); }
+.timeline-lookup.not_found .timeline-fact-dot { border-color: var(--control-border); background: var(--surface-wash); }
 .timeline-fact-content { display: grid; min-width: 0; gap: 2px; }
 .timeline-stage-target { color: var(--text); overflow-wrap: anywhere; }
 .timeline-terminal { display: flex; align-items: center; gap: 8px; margin: 8px auto 20px; padding: 4px 0 6px 18px; color: var(--muted); font-size: 12px; }

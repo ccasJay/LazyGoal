@@ -147,6 +147,8 @@ function ActivitySnake({ className }: { readonly className?: string }) {
  * 动作组呈现，成功默认折叠，运行、失败与等待组默认展开。真实阶段只按声明或当前路线关联，
  * 不从工具类别生成阶段；阶段折叠与 Execution steps 筛选仍保留异常活动。手动开合状态按组身份保存，
  * 追加内容、结算和 Execution steps 筛选不覆盖用户选择；重新进入会话时恢复默认值。
+ * 同一历史检索只显示一条可展开活动，未命中与失败分别标注；展开内容只用安全请求摘要、
+ * 固定结果说明和白名单错误码。
  * 公开进度在匹配事件或工具步骤的折叠内容中显示；尚无已保存节点的真实执行单元形成临时步骤，
  * 不显示独立进度面板，未提供执行身份的事件不按相邻位置归属。
  *
@@ -186,7 +188,7 @@ export function SessionTimeline({
     });
   }, []);
   const savedContentCount = projection.items
-    .filter((item) => item.kind === "message" || item.kind === "fact" || item.kind === "activity")
+    .filter((item) => item.kind === "message" || item.kind === "fact" || item.kind === "activity" || item.kind === "lookup")
     .length;
   const progressByItem = new Map<string, ExecutionProgressEntry[]>();
   const pendingSteps = new Map<string, ExecutionProgressEntry[]>();
@@ -356,7 +358,8 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
     const outcome = stageOutcomes.get(`${entries[0]?.runId}:${stageId}:${revision ?? ""}`);
     const accepted = routeStage?.status === "accepted" || outcome === "run_stage_accepted";
     const attention = entries.filter((entry) => entry.kind === "activity" ? entry.group.members.some(member => needsAttention(member.status))
-      : !accepted && entry.kind === "fact" && entry.eventType === "run_stage_rejected" && outcome === "run_stage_rejected");
+      : entry.kind === "lookup" ? entry.status === "failed"
+        : !accepted && entry.kind === "fact" && entry.eventType === "run_stage_rejected" && outcome === "run_stage_rejected");
     const running = !accepted && entries[0]?.runId === options.currentRunId && options.runStatus === "running"
       && (routeStage?.status === "executing" || activities.some((entry) => isActive(entry.group.status)));
     const status = attention.length > 0 ? "attention" : accepted ? "completed" : running ? "running" : "recorded";
@@ -392,7 +395,8 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
   };
 
   for (const entry of items) {
-    const stageId = entry.kind === "activity" ? entry.group.stageId : entry.kind === "fact" ? entry.stageId : undefined;
+    const stageId = entry.kind === "activity" ? entry.group.stageId
+      : entry.kind === "fact" || entry.kind === "lookup" ? entry.stageId : undefined;
     const stageKey = stageId === undefined ? undefined : `${entry.runId}:${stageId}`;
     if (entry.kind === "fact" && entry.eventType === "run_stage_declared" && stageKey !== undefined && entry.stageTarget !== undefined) {
       flush();
@@ -463,6 +467,39 @@ function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions)
         <small>Reply below</small>
       </article>
     );
+  }
+
+  if (item.kind === "lookup") {
+    const expanded = options.expandedGroups.get(item.itemId) ?? item.status === "failed";
+    const status = item.status === "not_found" ? "Not found"
+      : item.status === "failed" ? "Failed" : item.status === "completed" ? "Completed" : "Requested";
+    const summary = item.status === "not_found" ? "No matching records"
+      : item.status === "failed" ? "The lookup could not be completed"
+        : item.status === "completed" ? "Matching history found" : "Result not in loaded history";
+    const detailId = `lookup-detail-${encodeURIComponent(item.itemId)}`;
+    return <TraceCollapsible key={item.itemId} open={expanded} onOpenChange={open => options.onToggleGroup(item.itemId, open)}
+      className={cn("timeline-fact", "timeline-lookup", item.status)} data-item-id={item.itemId} data-run-id={item.runId}>
+      <TraceCollapsibleTrigger className="timeline-step-trigger" aria-expanded={expanded} aria-controls={detailId}>
+        <TraceLine status={item.status === "failed" ? "error" : undefined}>
+          <TraceIcon><span className="timeline-fact-dot" /></TraceIcon>
+          <TraceTitle>Look up history</TraceTitle>
+          <TraceDescription>{summary}</TraceDescription>
+          <TraceDescription>{status}</TraceDescription>
+        </TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent id={detailId}>
+        <div className="timeline-fact-content">
+          <span>Request: {item.request ?? (item.requestDetail === undefined ? "Request is outside the loaded history" : item.requestDetail)}</span>
+          <span>Result: {status}</span>
+          {item.resultDetail !== undefined && <span className="timeline-fact-detail">{item.resultDetail}</span>}
+          {item.errorCode !== undefined && <code>{item.errorCode}</code>}
+          {options.onOpenTrajectory !== undefined && item.executionUnitId !== undefined && <Button variant="ghost" size="sm"
+            type="button" onClick={() => options.onOpenTrajectory?.({ runId: item.runId, executionUnitId: item.executionUnitId! })}>
+            <ArrowUpRight data-icon="inline-start" aria-hidden="true" />View trajectory
+          </Button>}
+        </div>
+      </TraceCollapsibleContent>
+    </TraceCollapsible>;
   }
 
   if (item.kind === "fact") {

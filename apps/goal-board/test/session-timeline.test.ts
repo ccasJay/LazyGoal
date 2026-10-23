@@ -13,6 +13,53 @@ import type { BrowserActivityPage, BrowserGoalSessionState } from "../../../pack
 import { projectSessionTimeline } from "../src/session-timeline";
 import { collectActivityProjections } from "../src/collect-activity-projections";
 
+test("history lookups fold by lookupId while not found and failure remain distinct", async () => {
+  const initial = createGoal({
+    id: "lookup-timeline-goal", intent: "Find prior evidence", promptBundleVersion: 1,
+    memoryProtocol: { kind: "structured", version: 1 },
+    modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+    contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+    profile: { id: "profile", systemPrompt: "private", instructions: [], toolIds: [] },
+    runId: "run-1",
+  });
+  const goal: Goal = { ...initial, state: { ...initial.state, run: { ...initial.state.run, committedThroughSequence: 4 } } };
+  const event = (sequence: number, payload: TrajectoryEventDraft["payload"]) => allocateImmutableEvent({
+    goalId: goal.id, runId: "run-1", phase: "executing", eventType: payload.type, payload,
+  } as TrajectoryEventDraft, sequence);
+  const committed: readonly TrajectoryEvent[] = [
+    event(1, { type: "context_lookup_requested", lookupId: "missing", request: { kind: "context_lookup", need: "historical_execution", question: "PRIVATE_QUERY" } }),
+    event(2, { type: "context_lookup_requested", lookupId: "broken", request: { kind: "context_lookup", operation: "directory_search", query: "PRIVATE_DIRECTORY" } }),
+    event(3, { type: "context_lookup_not_found", lookupId: "missing", result: { status: "not_found", lookupId: "missing" } }),
+    event(4, { type: "context_lookup_failed", lookupId: "broken", code: "CONTEXT_LOOKUP_FAILED", message: "PRIVATE_ERROR" }),
+  ];
+  const store = { restore: async () => goal };
+  const [activity, state] = await Promise.all([
+    readBrowserGoalActivity(goal.id, {}, store, async () => ({ committed, uncommittedTail: [] })),
+    readBrowserGoalSessionState(goal.id, store),
+  ]);
+  assert.equal(activity.ok, true);
+  assert.ok(state);
+  if (!activity.ok || state === undefined) return;
+  assert.equal(JSON.stringify(activity.page).includes("PRIVATE_"), false);
+  const projection = projectSessionTimeline(activity.page, state, collectActivityProjections(activity.page, goal.id, []));
+  const lookups = projection.items.filter((item) => item.kind === "lookup");
+  assert.deepEqual(lookups.map((item) => [item.itemId, item.status, item.position.sequence]), [
+    ["lookup:run-1:missing", "not_found", 1], ["lookup:run-1:broken", "failed", 2],
+  ]);
+  assert.equal(lookups[0]?.kind === "lookup" ? lookups[0].request : undefined, "History search · Historical execution");
+  assert.equal(lookups[1]?.kind === "lookup" ? lookups[1].errorCode : undefined, "CONTEXT_LOOKUP_FAILED");
+  assert.equal(projection.items.some((item) => item.kind === "fact" && item.eventType.startsWith("context_lookup_")), false);
+  const reordered = projectSessionTimeline({ ...activity.page, items: [...activity.page.items].reverse() }, state, new Map());
+  assert.deepEqual(reordered.items.filter((item) => item.kind === "lookup").map((item) => [item.itemId, item.status, item.position.sequence]),
+    lookups.map((item) => [item.itemId, item.status, item.position.sequence]));
+  const resultOnly = projectSessionTimeline({ ...activity.page, items: activity.page.items.filter((item) =>
+    item.type === "fact" && item.eventType === "context_lookup_not_found") }, state, new Map());
+  const partial = resultOnly.items.find((item) => item.kind === "lookup");
+  assert.equal(partial?.itemId, "lookup:run-1:missing");
+  assert.equal(partial?.kind === "lookup" ? partial.status : undefined, "not_found");
+  assert.equal(partial?.kind === "lookup" ? partial.request : undefined, undefined);
+});
+
 test("saved multi-Run activity keeps stable source order across duplicate sync and refresh", async () => {
   const initial = createGoal({
     id: "timeline-goal",

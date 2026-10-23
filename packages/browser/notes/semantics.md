@@ -31,6 +31,7 @@
 | 当前 Run 错误摘要 | 窄状态中的已保存失败原因；只属于当前 Run，不读取历史或暴露供应商原始响应。 | [浏览器服务边界](../README.md) | [模块说明](./overview.md) |
 | 实时模型进度 | SSE 公开模型开始的真实来源时间和已知调用元数据；Bash 活动只附带有界命令摘要。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts)、[Session Projection](../src/browser-projection.ts) |
 | 执行诊断摘要 | 已提交纠错、请求失败、检索和审批事实的白名单摘要；工具保留真实 Stage 关联及审批后执行顺序，可跨刷新读取。 | [Browser](../README.md) | [Activity 投影](../src/browser-projection.ts) |
+| 历史检索关联 | 四种已提交检索事实携带共同 `lookupId`，请求只公开枚举生成的类别，失败只公开白名单错误码；不复制查询、命中或原始错误消息。 | [Browser](../README.md) | [Activity 投影](../src/browser-projection.ts) |
 
 | Activity Run 终态摘要 | 按所属 Run 与固定提交水位投影受限代码和固定说明，不公开原始异常，原因缺失时省略。 | [Browser](../README.md) | [Activity 投影](../src/browser-projection.ts) |
 | 用户中断状态 | 已受理到取消结算的两阶段记录及未知工具效果，不含模型收尾。 | [Goal Runtime](../../runtime/README.md) | [Runtime 中断语义](../../runtime/notes/overview.md) |

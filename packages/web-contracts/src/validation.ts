@@ -817,11 +817,19 @@ function isBrowserActivityItem(value: unknown): boolean {
     }
     if (value.type !== "fact") return value.type === "think" && isActivityThinkItem(value);
     const isStageDeclaration = value.eventType === "run_stage_declared";
-    return !Object.keys(value).some((key) => !["type", "itemId", "eventId", "runId", "position", "eventType", "title", "detail", "executionUnitId", "actionId", "stageId", "stageRevision", "stageTarget", "tool"].includes(key))
+    const isLookup = ["context_lookup_requested", "context_lookup_completed", "context_lookup_not_found", "context_lookup_failed"].includes(String(value.eventType));
+    return !Object.keys(value).some((key) => !["type", "itemId", "eventId", "runId", "position", "eventType", "title", "detail", "lookupId", "lookupRequest", "lookupErrorCode", "executionUnitId", "actionId", "stageId", "stageRevision", "stageTarget", "tool"].includes(key))
         && isNonEmptyString(value.eventId)
         && (BROWSER_ACTIVITY_EVENT_TYPES as readonly string[]).includes(String(value.eventType))
         && typeof value.title === "string"
         && (value.detail === undefined || typeof value.detail === "string" && value.detail.length <= 500)
+        && (isLookup ? isNonEmptyString(value.lookupId) && value.lookupId.length <= 200 : value.lookupId === undefined)
+        && (value.eventType === "context_lookup_requested"
+            ? value.lookupRequest === undefined || typeof value.lookupRequest === "string" && value.lookupRequest.length <= 200
+            : value.lookupRequest === undefined)
+        && (value.eventType === "context_lookup_failed"
+            ? value.lookupErrorCode === undefined || ["INVALID_CONTEXT_LOOKUP", "CONTEXT_LOOKUP_CHAIN_LIMIT", "CONTEXT_LOOKUP_UNAVAILABLE", "CONTEXT_LOOKUP_FAILED", "INVALID_CONTEXT_LOOKUP_RESULT"].includes(String(value.lookupErrorCode))
+            : value.lookupErrorCode === undefined)
         && (value.executionUnitId === undefined || isNonEmptyString(value.executionUnitId))
         && (value.actionId === undefined || isNonEmptyString(value.actionId))
         && (value.stageId === undefined || isNonEmptyString(value.stageId))

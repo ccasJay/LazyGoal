@@ -23,6 +23,7 @@
 | 提案阶段路线 | 批准前显示 Plan Run 的完整候选阶段及各自验收条件。 | [Goal Board](../README.md) | [任务审批视图](../src/interaction-panel.tsx) |
 | 获批 Run 路线 | Activity 时间线上独立呈现 Plan Run 当前完整阶段顺序、状态与验收条件。 | [Goal Board](../README.md) | [PlanRouteList](../src/components/PlanRouteList.tsx) |
 | ActivityGroup | 从固定 Activity 页的已提交事实与安全实时事件派生的纯展示分组，只压缩同阶段内连续同工具调用，不代表 Runtime 阶段；断组由完整交错来源决定，正文、交互、未知事实与阶段边界都会断开相邻成员，隐藏正文不改变该判定。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
+| 历史检索活动 | 同 Run 的请求与结果仅按 `lookupId` 归并为一条时间线活动；未命中与失败独立显示，展开详情只使用安全请求类别、固定状态说明与白名单错误码。分页缺少一侧时保留稳定身份。 | [Goal Board](../README.md) | [时间线投影](../src/session-timeline.ts)、[SessionTimeline](../src/components/SessionTimeline.tsx) |
 | 活动成员状态 | 区分执行中、重试、审批等待、结果待保存、已提交失败／成功与已拒绝；组的运行状态与异常计数独立显示，结算后区分全部失败与部分失败；实时返回不标为已保存成功，已提交 Observation 才决定终态。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
 | 活动组展开状态 | 标题单行显示动作描述与真实调用次数，混合失败组保留成功和失败计数；完整命令与结果计数在展开详情中显示。连续步骤使用 shadcn Trace，消息断开步骤组；成功默认折叠，运行、失败、拒绝与审批等待默认展开。手动开合在追加、结算与筛选时保留，异常摘要不随折叠或筛选隐藏。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx)、[ActivityProjector](../src/activity-projector.ts) |
 | 真实阶段展示 | 只按已提交声明或当前路线的真实阶段标题、身份与修订收拢连续活动；已接受阶段默认折叠，工作中与需处理的阶段展开，正文与交互仍在原来源位置。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx)、[时间线投影](../src/session-timeline.ts) |

@@ -4,6 +4,8 @@
 
 `BrowserGoalSessionState` 明确把消息、步骤和阶段历史标记为 Activity 外置，同时保留当前 Run、Plan 路线、等待、队列、中断和既有当前状态。`currentRunTerminalDetail` 只携带当前失败 Run 已保存的有界错误摘要，不包含供应商原始响应。`BrowserActivityPage` 只包含白名单事实摘要和有界正文，默认页大小为 50、上限为 100；Run 内事实序号与 Snapshot 保存的消息位置决定稳定顺序。cursor 绑定 Goal、筛选与每个相关 Run 的首次消息/轨迹水位，双向读取不吸收窗口之后追加的内容；`gaps` 给出页首尾尚未加载范围的准确项数和首尾位置。事实白名单包含模型纠错、请求失败和历史检索状态；可选 `detail` 最多 500 字符，只含固定状态文案、尝试次数及安全 HTTP 状态，不携带原始反馈或检索内容。DTO 不把原始事件 payload 或完整工具／Observation 载荷暴露给浏览器。
 
+四种检索事实必须携带有界 `lookupId`，仅请求事实可携带枚举生成的 `lookupRequest`，仅失败事实可携带已知 `lookupErrorCode`。wire guard 拒绝非检索事件上的这些字段、未知错误码以及原始查询或错误正文。
+
 统一输入命令中的 `queue_control.remove` 必须携带观察到的队列修订与目标消息身份；排队消息转为当前 Run 的 Steer 时，`steer.queueBinding` 携带同一来源绑定。wire parser 校验这两个边界字段，Runtime 再按持久化状态拒绝过期修订或不匹配的消息。
 
 Activity 助手消息必须携带 `process`、`answer` 或 `notice` 用途；用户消息不带助手用途。正式完成候选答复可带稳定 `previewId`，仅用于关联先前公开预览，不包含候选正文；wire guard 只接受非空且有界的助手答复关联。只有 `run_stage_declared` 事实可以携带最多 1,000 字符的 `stageTarget`，值只来自已提交声明。wire guard 拒绝缺失或无效的助手用途，以及放在其他事件类型上的阶段目标。

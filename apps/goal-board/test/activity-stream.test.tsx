@@ -55,17 +55,35 @@ test("a stage identity without a real title stays a flat activity", () => {
   assert.match(html, /Ran npm test/);
 });
 
-test("saved correction and lookup nodes retain collapsed diagnostics after the run ends", () => {
+test("saved correction and lookup activities retain collapsed diagnostics after the run ends", () => {
   const html = render([
     { kind: "fact", itemId: "correction", runId: "run-1", eventType: "model_repair_feedback_recorded",
       title: "Correcting model output", detail: "Tool input did not satisfy the current contract. Correction 2 of 3.", position: position(3) },
-    { kind: "fact", itemId: "lookup", runId: "run-1", eventType: "context_lookup_not_found",
-      title: "History lookup found no matches", detail: "No matching history was found.", position: position(4) },
+    { kind: "lookup", itemId: "lookup:run-1:missing", runId: "run-1", lookupId: "missing",
+      status: "not_found", request: "History search", resultDetail: "No matching history was found.", position: position(4) },
   ], { showExecutionFacts: false });
   assert.match(html, /Correcting model output/);
-  assert.match(html, /History lookup found no matches/);
+  assert.match(html, /Look up history/);
+  assert.match(html, /Not found/);
   assert.match(html, /aria-expanded="false"/);
   assert.doesNotMatch(html, /Correction 2 of 3|No matching history was found/);
+});
+
+test("one lookup row shows a distinct not-found state and expands failure diagnostics", () => {
+  const html = render([
+    { kind: "lookup", itemId: "lookup:run-1:missing", runId: "run-1", lookupId: "missing",
+      status: "not_found", request: "History search · Historical execution",
+      resultDetail: "No matching history was found.", position: position(1) },
+    { kind: "lookup", itemId: "lookup:run-1:broken", runId: "run-1", lookupId: "broken",
+      status: "failed", request: "Search history directory", errorCode: "CONTEXT_LOOKUP_FAILED",
+      resultDetail: "The history lookup could not be completed.", position: position(2) },
+  ], { showExecutionFacts: false });
+  assert.equal((html.match(/Look up history/g) ?? []).length, 2);
+  assert.match(html, /No matching records/);
+  assert.match(html, /Not found/);
+  assert.match(html, /The lookup could not be completed/);
+  assert.match(html, /CONTEXT_LOOKUP_FAILED/);
+  assert.doesNotMatch(html, /Looking up history|History lookup failed/);
 });
 
 test("a later acceptance resolves a prior stage rejection of the same revision", () => {

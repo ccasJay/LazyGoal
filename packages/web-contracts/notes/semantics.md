@@ -29,6 +29,7 @@
 | 当前 Run 错误摘要 | 窄状态中的已保存失败原因；只属于当前 Run，不读取历史或暴露供应商原始响应。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
 | 模型阶段元数据 | model_started 的可选调用阶段、身份、执行单元与来源时间；wire 拒绝未知阶段、无效时间及超长身份。 | [Web 传输契约](../README.md) | [事件 DTO](../src/events.ts)、[验证](../src/validation.ts) |
 | Activity 诊断说明 | 事实可携带最多 500 字符的安全状态说明，不含原始反馈或检索内容。 | [Web Contracts](../README.md) | [Activity DTO](../src/activity.ts) |
+| BrowserActivityFactItem 检索字段 | `lookupId` 关联同 Run 的请求与结果；`lookupRequest` 只描述枚举类别，`lookupErrorCode` 只接受已知失败码，不暴露原始查询与错误消息。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts)、[Wire 校验](../src/validation.ts) |
 
 | BrowserActivityRunContext.terminalDetail | 所属 Run 固定提交水位内的安全失败摘要；可缺失，不承载原始异常。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts)、[Wire 校验](../src/validation.ts) |
 | 用户中断状态 | 已受理到取消结算的两阶段记录及未知工具效果，不含模型收尾。 | [Goal Runtime](../../runtime/README.md) | [Runtime 中断语义](../../runtime/notes/overview.md) |

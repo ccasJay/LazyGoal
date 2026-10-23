@@ -154,6 +154,8 @@ export interface BrowserActivityToolState {
  * Prompt 或模型内部推理。阶段标题仅取自已提交 `run_stage_declared.target`，并按公开
  * 文本上限截断；其他事件不携带阶段标题。`tool` 只在事实属于某个已提交工具动作时
  * 提供，用于在不读取完整会话的情况下恢复活动组。
+ * 检索事实仅携带同 Run 内的 `lookupId`、枚举生成的请求摘要和白名单错误码，
+ * 不公开查询正文或原始错误消息。
  *
  * @example
  * ```ts
@@ -179,6 +181,12 @@ export interface BrowserActivityFactItem {
     readonly title: string;
     /** 最多 500 字符的白名单状态说明；不含原始模型反馈、检索内容或审批表单。 */
     readonly detail?: string;
+    /** 历史检索的稳定关联身份；仅四种检索事实提供。 */
+    readonly lookupId?: string;
+    /** 由请求操作和需求枚举生成的安全摘要；仅请求事实提供。 */
+    readonly lookupRequest?: string;
+    /** 已知的检索失败代码；未知代码及原始错误消息不公开。 */
+    readonly lookupErrorCode?: string;
     /** 存在时只用于关联真实 Runtime 活动。 */
     readonly executionUnitId?: string;
     readonly actionId?: string;

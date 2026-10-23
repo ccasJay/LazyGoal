@@ -18,6 +18,7 @@ import type { ActivityGroup } from "./activity-projector";
  * 各持久化项使用 Activity `itemId` 与位置；Run 终态只由 Goal/Run 状态构造，临时正文身份
  * 仅在当前 Run 内有效，不能作为已保存消息提交或恢复。工具活动以真实动作组呈现，组的
  * 位置取其首个成员，组内成员保持各自来源身份。
+ * 同 Run 的历史检索事实按 `lookupId` 归入一条活动，缺失的分页侧不从相邻事实推断。
  * 事实保留真实 executionUnitId，供公开进度关联；缺少身份时不按相邻位置推断。
  * 当前失败 Run 的错误摘要只取同 Run 的窄状态，不附到历史 Run 或尚未结算的 Run。
  *
@@ -33,6 +34,20 @@ export type SessionTimelineEntry =
   | { readonly kind: "run"; readonly itemId: string; readonly runId: string; readonly status: string; readonly detail?: BrowserGoalSessionState["currentRunTerminalDetail"]; readonly position: BrowserActivityPosition }
   | { readonly kind: "message"; readonly itemId: string; readonly presentationKey: string; readonly runId: string; readonly role: "user" | "assistant"; readonly purpose?: "process" | "answer" | "notice"; readonly content: string; readonly position: BrowserActivityPosition; readonly previewIssue?: "official-text-differs" | "preview-incomplete" }
   | { readonly kind: "activity"; readonly itemId: string; readonly runId: string; readonly group: ActivityGroup; readonly position?: BrowserActivityPosition }
+  | {
+      readonly kind: "lookup";
+      readonly itemId: string;
+      readonly runId: string;
+      readonly lookupId: string;
+      readonly status: "requested" | "completed" | "not_found" | "failed";
+      readonly request?: string;
+      readonly requestDetail?: string;
+      readonly resultDetail?: string;
+      readonly errorCode?: string;
+      readonly executionUnitId?: string;
+      readonly stageId?: string;
+      readonly position: BrowserActivityPosition;
+    }
   | { readonly kind: "interaction"; readonly itemId: string; readonly runId: string; readonly interactionId: string; readonly interactionKind: string; readonly position: BrowserActivityPosition }
   | { readonly kind: "fact"; readonly itemId: string; readonly runId: string; readonly title: string; readonly detail?: string; readonly eventType: string; readonly executionUnitId?: string; readonly stageId?: string; readonly stageRevision?: number; readonly stageTarget?: string; readonly position: BrowserActivityPosition }
   | { readonly kind: "terminal"; readonly itemId: string; readonly runId: string; readonly status: "completed" | "failed" | "cancelled"; readonly detail?: BrowserGoalSessionState["currentRunTerminalDetail"]; readonly position: BrowserActivityPosition }
@@ -64,6 +79,7 @@ export interface SessionTimelineProjection {
  * 已保存项只按服务端位置排序并按稳定身份去重；当前候选与临时正文排在已保存来源之后。
  * Run 完成状态只来自状态投影，不从模型正文、过程提交或阶段事实推断。工具事实按真实动作
  * 归入活动组，组出现在其首个成员的位置；实时活动组没有已提交位置，排在当前 Run 末尾。
+ * 检索请求与结果按 `lookupId` 关联，未命中和失败保持不同状态。
  *
  * @param page - 服务端固定水位 Activity 页。
  * @param state - 不含历史正文的当前 Goal 状态。
@@ -94,7 +110,7 @@ export function projectSessionTimeline(
   }
 
   for (const run of page.runs) {
-    const runItems = byRun.get(run.runId) ?? [];
+    const runItems = [...(byRun.get(run.runId) ?? [])].sort((left, right) => comparePositions(left.position, right.position));
     const first = runItems.reduce<BrowserActivityPosition | undefined>(
       (earliest, item) => earliest === undefined || comparePositions(item.position, earliest) < 0 ? item.position : earliest,
       undefined,
@@ -121,6 +137,14 @@ export function projectSessionTimeline(
       if (!groupBySourceItem.has(first.sourceItemId)) groupBySourceItem.set(first.sourceItemId, group);
     }
     const emittedGroups = new Set<string>();
+    const lookupFacts = new Map<string, Extract<BrowserActivityItem, { readonly type: "fact" }>[]>();
+    for (const item of runItems) {
+      if (item.type !== "fact" || item.lookupId === undefined) continue;
+      const events = lookupFacts.get(item.lookupId) ?? [];
+      events.push(item);
+      lookupFacts.set(item.lookupId, events);
+    }
+    const emittedLookups = new Set<string>();
 
     for (const item of runItems) {
       if (item.type === "message") {
@@ -151,6 +175,28 @@ export function projectSessionTimeline(
             ...(group.position === undefined ? {} : { position: group.position }),
           });
         }
+        continue;
+      }
+      if (item.lookupId !== undefined) {
+        if (emittedLookups.has(item.lookupId)) continue;
+        emittedLookups.add(item.lookupId);
+        const events = lookupFacts.get(item.lookupId)!;
+        const request = events.find((event) => event.eventType === "context_lookup_requested");
+        const result = events.find((event) => event.eventType !== "context_lookup_requested");
+        const first = events.reduce((earliest, event) => comparePositions(event.position, earliest.position) < 0 ? event : earliest);
+        const status = result?.eventType === "context_lookup_failed" ? "failed"
+          : result?.eventType === "context_lookup_not_found" ? "not_found"
+            : result?.eventType === "context_lookup_completed" ? "completed" : "requested";
+        items.push({
+          kind: "lookup", itemId: `lookup:${run.runId}:${item.lookupId}`, runId: run.runId,
+          lookupId: item.lookupId, status, position: first.position,
+          ...(request?.lookupRequest === undefined ? {} : { request: request.lookupRequest }),
+          ...(request?.detail === undefined ? {} : { requestDetail: request.detail }),
+          ...(result?.detail === undefined ? {} : { resultDetail: result.detail }),
+          ...(result?.lookupErrorCode === undefined ? {} : { errorCode: result.lookupErrorCode }),
+          ...(first.executionUnitId === undefined ? {} : { executionUnitId: first.executionUnitId }),
+          ...(first.stageId === undefined ? {} : { stageId: first.stageId }),
+        });
         continue;
       }
       if (item.tool !== undefined) {
@@ -284,7 +330,7 @@ function kindRank(entry: SessionTimelineEntry): number {
   if (entry.kind === "run") return 0;
   if (entry.kind === "terminal" || entry.kind === "interaction") return 2;
   if (entry.kind === "activity") return entry.position === undefined ? 3 : 1;
-  if (entry.kind === "message" || entry.kind === "fact") return 1;
+  if (entry.kind === "message" || entry.kind === "fact" || entry.kind === "lookup") return 1;
   return 4;
 }
 
