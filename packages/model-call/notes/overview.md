@@ -6,6 +6,8 @@
 
 [`callModel`](../src/model-call.ts) 接收 [`ModelCallContext`](../src/model-call.ts)（Goal/Run 身份、Step 序号、模型标识、真实 Conversation、执行单元、Section 正文与阶段输出）与已准备请求。顺序固定为：取消检查 → 输入记录（失败阻止 Adapter 调用）→ 请求诊断 → `call_started` 指标 → Adapter 调用或流消费 → 取消检查 → `call_finished` 指标与响应诊断。
 
+`model_started` 公开调用阶段（decide、think、completion_review）与调用身份，供观察者区分下一步选择、显式分析和完成审查；阶段不是工作流 Stage。
+
 `generate` 路径发布一次性 `model_started`、文本/推理增量与 `model_completed` 事件；`stream` 路径逐事件映射到同一可见性分类，必须收到唯一 `completed` 响应，缺失或重复都抛 `LLMResponseProtocolError`。指标失败与诊断失败被隔离，不改变调用结果；取消在 Adapter 调用前、调用期间与流消费中均生效，并抛出 `ExecutionAbortedError`。
 
 ## 记录与来源
@@ -16,4 +18,4 @@
 
 ## 限制
 
-调用依赖均为借用：本包不注册进程信号、不创建 Goal、不提交状态、不实现模型选择或会话切换。完成审查等私有调用由调用方决定不传入执行流通道，从而不公开模型文本或函数参数。
+调用依赖均为借用：本包不注册进程信号、不创建 Goal、不提交状态、不实现模型选择或会话切换。完成审查阶段只发布 model_started/model_completed 生命周期，整块与增量内容均不进入执行流；模型文本、推理和函数参数保持私有。

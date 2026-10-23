@@ -97,7 +97,16 @@ export type SessionActivityBoundaryReason =
  * ```
  */
 export type SessionGenerationEvent =
-    | { readonly kind: "model_call_started"; readonly source: SessionEventSource }
+    | {
+        readonly kind: "model_call_started";
+        readonly source: SessionEventSource;
+        /** 调用公开的协议阶段，不是工作流 Stage 或隐藏推理；发布方未提供时省略。 */
+        readonly stage?: "think" | "decide" | "completion_review";
+        /** 发布方提供的模型调用身份；只用于观察与详情关联。 */
+        readonly modelCallId?: string;
+        /** 该调用所属的真实执行单元，缺失时不推断。 */
+        readonly executionUnitId?: string;
+    }
     | { readonly kind: "model_call_completed"; readonly source: SessionEventSource }
     | { readonly kind: "step_started"; readonly source: SessionEventSource }
     | {
@@ -414,7 +423,7 @@ function classifySemanticEvent(event: ExecutionStreamEvent): SessionOutputEvent 
     const source = toSource(event);
     switch (event.kind) {
         case "model_started":
-            return { type: "generation_event", event: { kind: "model_call_started", source } };
+            return { type: "generation_event", event: { kind: "model_call_started", source, ...readModelProgress(event) } };
         case "model_completed":
             return { type: "generation_event", event: { kind: "model_call_completed", source } };
         case "step_started":
@@ -553,6 +562,17 @@ function classifySemanticEvent(event: ExecutionStreamEvent): SessionOutputEvent 
     }
 }
 
+function readModelProgress(event: ExecutionStreamEvent): Pick<Extract<SessionGenerationEvent, { kind: "model_call_started" }>, "stage" | "modelCallId" | "executionUnitId"> {
+    const payload = event.payload;
+    if (!isRecord(payload)) return {};
+    const stage = payload.stage;
+    return {
+        ...(stage === "think" || stage === "decide" || stage === "completion_review" ? { stage } : {}),
+        ...(typeof payload.modelCallId === "string" ? { modelCallId: payload.modelCallId.slice(0, 200) } : {}),
+        ...(event.executionUnitId === undefined ? {} : { executionUnitId: event.executionUnitId }),
+    };
+}
+
 /**
  * 读取会话状态投影中的等待交互引用。
  *
@@ -612,7 +632,7 @@ function projectSafeToolInputSummary(toolId: string, input: unknown): string | u
     const key = toolId === "read_file" || toolId === "write_file" || toolId === "edit_file" ? "path"
         : toolId === "grep" ? "pattern"
             : toolId === "web_search" ? "query"
-                : toolId === "web_fetch" ? "url" : undefined;
+                : toolId === "web_fetch" ? "url" : toolId === "bash" ? "command" : undefined;
     const value = key === undefined ? undefined : input[key];
     return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 240) : undefined;
 }

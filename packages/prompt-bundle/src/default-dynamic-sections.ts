@@ -28,6 +28,7 @@ export function createDefaultDynamicSectionRegistry(): DynamicSectionRegistry {
                 goalPlanWritable: view.dynamicContext.goalPlanWritable,
                 checkpointRequired: view.contextEpoch.control.status === "checkpoint_required",
                 allowedSystemTools: getAllowedSystemToolIds(view),
+                stageStatus: view.workingContext.execution.currentStage?.status ?? "none",
             }),
         },
         {
@@ -105,8 +106,12 @@ function getAllowedSystemToolIds(view: ModelInferenceView): readonly string[] {
         "system_context_lookup",
         "ask_user",
         "system_find_tools",
-        "system_update_run_stage",
-        "system_complete_run_stage",
+        ...(view.workingContext.execution.currentStage?.status === "executing"
+            ? ["system_revise_run_stage", "system_complete_run_stage"]
+            : view.dynamicContext.planRoute !== undefined
+                && view.dynamicContext.planRoute.nextStageIndex >= view.dynamicContext.planRoute.stages.length
+                ? []
+                : ["system_start_run_stage"]),
         ...(runMode === "plan" && task !== undefined ? ["system_update_plan_route"] : []),
         ...(goalPlanWritable ? ["system_update_goal_plan"] : []),
     ];

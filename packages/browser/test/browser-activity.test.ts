@@ -7,6 +7,7 @@ import { test } from "node:test";
 
 import { allocateImmutableEvent, createGoal, readTrajectoryAtSnapshot, type Goal, type TrajectoryEvent } from "../../runtime/src/index";
 import { testAssistantMessage } from "../../runtime/test/current-fixtures";
+import { isBrowserActivityPage } from "../../web-contracts/src/index";
 import { createHttpService } from "../../http/src/index";
 import { JsonFileGoalStore, JsonFileTrajectoryStore } from "../../storage/src/index";
 import {
@@ -289,6 +290,10 @@ test("Activity 事实携带最小已提交工具状态白名单，并按真实�
     for (const fact of firstToolFacts) {
         assert.equal(fact.type, "fact");
         if (fact.type !== "fact") continue;
+        if (fact.eventType === "decision_received") {
+            assert.equal(fact.tool, undefined);
+            continue;
+        }
         assert.equal(fact.tool?.toolId, "read_file");
         assert.equal(fact.tool?.status, "completed");
         assert.equal(fact.tool?.actionStatus, "approved");
@@ -298,7 +303,7 @@ test("Activity 事实携带最小已提交工具状态白名单，并按真实�
     }
     const secondToolFacts = facts.filter((item) => item.type === "fact" && item.actionId === "action-2");
     assert.equal(secondToolFacts.length, 3);
-    assert.equal(secondToolFacts[0]?.type === "fact" ? secondToolFacts[0].tool?.activityBoundaryBefore : undefined, true);
+    assert.equal(secondToolFacts.find((item) => item.type === "fact" && item.eventType === "action_staged")?.tool?.activityBoundaryBefore, true);
     assert.equal(JSON.stringify(result.page).includes("PRIVATE_RAW_TOOL_OUTPUT"), false);
 });
 
@@ -480,3 +485,92 @@ function createTestGoal(): Goal {
         runId: "run-current",
     });
 }
+
+test("Activity 的历史失败摘要按 Run 和提交边界关联且不公开异常正文", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = { ...initial, state: { ...initial.state,
+        completedRuns: [
+            { runId: "old-failed", status: "failed", stepCount: 0, committedThroughSequence: 2, messageRange: { start: 0, end: 0 } },
+            { runId: "old-missing", status: "failed", stepCount: 0, committedThroughSequence: 1, messageRange: { start: 0, end: 0 } },
+        ],
+        run: { ...initial.state.run, status: "running", committedThroughSequence: 0 },
+    } };
+    const failure = (runId: string, sequence: number, code: string) => allocateImmutableEvent({
+        goalId: goal.id, runId, phase: "executing", eventType: "run_failed",
+        payload: { type: "run_failed", code, message: "PRIVATE_EXCEPTION_PARAMETERS" },
+    }, sequence);
+    const result = await readBrowserGoalActivity(goal.id, {}, { restore: async () => goal }, async ({ runId }) => ({
+        committed: runId === "old-failed" ? [failure(runId, 2, "INVALID_AGENT_DECISION"), failure(runId, 3, "PRIVATE_TAIL")]
+            : runId === "old-missing" ? [failure(runId, 2, "PRIVATE_TAIL")] : [],
+        uncommittedTail: [],
+    }));
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(isBrowserActivityPage(result.page), true);
+    assert.deepEqual(result.page.runs[0]?.terminalDetail, { code: "INVALID_AGENT_DECISION", message: "The model response did not satisfy the required format." });
+    assert.equal(result.page.runs[1]?.terminalDetail, undefined);
+    assert.equal(result.page.runs[2]?.terminalDetail, undefined);
+    assert.doesNotMatch(JSON.stringify(result.page), /PRIVATE_EXCEPTION|PRIVATE_TAIL/);
+    assert.equal(isBrowserActivityPage({ ...result.page, runs: [{ ...result.page.runs[0], terminalDetail: { message: "Safe", raw: "PRIVATE" } }] }), false);
+});
+
+test("Activity 从已提交轨迹恢复纠错、请求故障、检索失败与审批，不泄漏内部反馈", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = { ...initial, state: { ...initial.state, run: { ...initial.state.run, status: "failed", committedThroughSequence: 4 } } };
+    const committed: TrajectoryEvent[] = [
+        allocateImmutableEvent({ goalId: goal.id, runId: goal.state.run.id, phase: "executing", executionUnitId: "unit-1",
+            eventType: "model_repair_feedback_recorded", payload: { type: "model_repair_feedback_recorded", stage: "decide", attempt: 2,
+                feedback: { goalId: goal.id, runId: goal.state.run.id, executionUnitId: "unit-1", stepOrdinal: 1, stage: "decide", origin: "tool_input", code: "INVALID_TOOL_INPUT", attempt: 2,
+                    issues: [{ code: "invalid_semantics", path: [], message: "PRIVATE_MODEL_FEEDBACK" }], constraints: ["PRIVATE_CONSTRAINT"] } } }, 1),
+        allocateImmutableEvent({ goalId: goal.id, runId: goal.state.run.id, phase: "executing", eventType: "model_request_retry_recorded",
+            payload: { type: "model_request_retry_recorded", stage: "decide", attempt: 1, reason: "rate_limited", status: 429 } }, 2),
+        allocateImmutableEvent({ goalId: goal.id, runId: goal.state.run.id, phase: "executing", eventType: "context_lookup_failed",
+            payload: { type: "context_lookup_failed", lookupId: "lookup-1", code: "INVALID_CONTEXT_LOOKUP_RESULT", message: "PRIVATE_LOOKUP_RESULT" } }, 3),
+        allocateImmutableEvent({ goalId: goal.id, runId: goal.state.run.id, phase: "executing", actionId: "action-1", eventType: "action_approved",
+            payload: { type: "action_approved", actionId: "action-1", approvalScope: "action" } }, 4),
+    ];
+    const read = () => readBrowserGoalActivity(goal.id, {}, { restore: async () => goal }, async () => ({ committed, uncommittedTail: [] }));
+    const result = await read();
+    assert.ok(result.ok);
+    assert.equal(isBrowserActivityPage(result.page), true);
+    assert.equal(result.page.items.filter((item) => item.type === "fact").length, 4);
+    const wire = JSON.stringify(result.page);
+    assert.match(wire, /Correction 2 of 3/);
+    assert.match(wire, /HTTP 429/);
+    assert.match(wire, /History lookup failed/);
+    assert.match(wire, /Permission granted/);
+    assert.doesNotMatch(wire, /PRIVATE_/);
+    const approved = result.page.items.at(-1);
+    assert.ok(approved?.type === "fact");
+    assert.equal(approved.tool, undefined);
+    assert.deepEqual(await read(), result);
+    assert.equal(isBrowserActivityPage({ ...result.page, items: [{ ...result.page.items[0], detail: "x".repeat(501) }] }), false);
+});
+
+test("审批等待与批准保留在实际执行之前，不提前投影最终工具结果", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = { ...initial, state: { ...initial.state, run: { ...initial.state.run, committedThroughSequence: 5 } } };
+    const action = { actionId: "approved-action", toolId: "bash", input: { command: "pwd" } };
+    const committed: TrajectoryEvent[] = [
+        allocateImmutableEvent({ goalId: goal.id, runId: goal.state.run.id, phase: "executing", executionUnitId: "stage-unit",
+            eventType: "run_stage_declared", payload: { type: "run_stage_declared", stageId: "read-stage", revision: 1, target: "Read the workspace", acceptanceCriteria: ["Read workspace facts"] } }, 1),
+        allocateImmutableEvent({ goalId: goal.id, runId: goal.state.run.id, phase: "executing", executionUnitId: "unit-1", actionId: action.actionId,
+            eventType: "decision_received", payload: { type: "decision_received", decision: { kind: "tool_call", action } } }, 2),
+        allocateImmutableEvent({ goalId: goal.id, runId: goal.state.run.id, phase: "executing", executionUnitId: "unit-1", actionId: action.actionId,
+            eventType: "action_staged", payload: { type: "action_staged", action, approvalStatus: "awaiting_approval" } }, 3),
+        allocateImmutableEvent({ goalId: goal.id, runId: goal.state.run.id, phase: "executing", actionId: action.actionId,
+            eventType: "action_approved", payload: { type: "action_approved", actionId: action.actionId, approvalScope: "action" } }, 4),
+        allocateImmutableEvent({ goalId: goal.id, runId: goal.state.run.id, phase: "executing", executionUnitId: "unit-2", actionId: action.actionId,
+            eventType: "tool_started", payload: { type: "tool_started", actionId: action.actionId, toolId: "bash", input: action.input } }, 5),
+    ];
+    const result = await readBrowserGoalActivity(goal.id, {}, { restore: async () => goal }, async () => ({ committed, uncommittedTail: [] }));
+    assert.ok(result.ok);
+    assert.equal(isBrowserActivityPage(result.page), true);
+    const facts = result.page.items.filter((item) => item.type === "fact").filter((item) => item.actionId === action.actionId);
+    assert.deepEqual(facts.map((item) => item.title), ["Decision received", "Waiting for permission", "Permission granted", "Tool started"]);
+    assert.equal(facts[0]?.tool, undefined);
+    assert.equal(facts[1]?.tool, undefined);
+    assert.equal(facts[2]?.tool, undefined);
+    assert.equal(facts[3]?.tool?.toolId, "bash");
+    assert.deepEqual(facts.map((item) => item.stageId), ["read-stage", "read-stage", "read-stage", "read-stage"]);
+});

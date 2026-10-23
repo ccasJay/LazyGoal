@@ -11,3 +11,4 @@
 | 流收集 | 唯一 completed 响应、块身份事件映射与最终一致性核验。 | [模型调用](../README.md) | [调用实现](../src/model-call.ts) |
 | 调用终止摘要 | 失败／取消的安全摘要，只带调用身份与未完成块索引。 | [模型调用](../README.md) | [调用实现](../src/model-call.ts) |
 | 调用诊断 | 有界脱敏的请求、响应与错误 Trace。 | [模型调用](../README.md) | [诊断实现](../src/llm-diagnostic-trace.ts) |
+| 模型公开生命周期 | 模型开始事件携带真实协议阶段与调用身份；完成审查只发布无正文生命周期。 | [模型调用](../README.md) | [调用实现](../src/model-call.ts) |

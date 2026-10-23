@@ -238,8 +238,10 @@ export class GrepTool implements Tool<typeof GREP_INPUT_CONTRACT> {
             };
         }
 
-        const includeMatcher = input.include !== undefined ? picomatch(input.include, { dot: true }) : undefined;
-        const excludeMatcher = input.exclude !== undefined ? picomatch(input.exclude, { dot: true }) : undefined;
+        const include = input.include?.trim() === "" ? undefined : input.include;
+        const exclude = input.exclude?.trim() === "" ? undefined : input.exclude;
+        const includeMatcher = include !== undefined ? picomatch(include, { dot: true }) : undefined;
+        const excludeMatcher = exclude !== undefined ? picomatch(exclude, { dot: true }) : undefined;
 
         const normalizedRootRel = (requestedRoot === "" || requestedRoot === ".")
             ? ""
@@ -249,8 +251,8 @@ export class GrepTool implements Tool<typeof GREP_INPUT_CONTRACT> {
             pattern: input.pattern,
             path: normalizedRootRel,
             ignoreCase: input.ignoreCase,
-            include: input.include,
-            exclude: input.exclude,
+            include,
+            exclude,
             contextLines: input.contextLines,
         });
 

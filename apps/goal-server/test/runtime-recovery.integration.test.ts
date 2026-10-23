@@ -26,6 +26,7 @@ import {
 } from "../../../packages/tool-core/src/index";
 import { contract } from "../../../packages/contracts/src/index";
 import { createRuntimeComposition } from "../src/runtime/index";
+import { BashTool } from "../../../packages/tools/src/bash";
 
 function wire(toolId: string, args: Record<string, unknown>): LLMResponse {
     return toolCallResponse({
@@ -44,7 +45,7 @@ const askUserWire = (): LLMResponse => wire("ask_user", {
     }],
 });
 
-const stageUpdateWire = (): LLMResponse => wire("system_update_run_stage", {
+const stageUpdateWire = (): LLMResponse => wire("system_start_run_stage", {
     target: "完成任务",
     acceptanceCriteria: ["事实已提交"],
 });
@@ -146,6 +147,51 @@ function requireSuccess(result: GoalProgressResult): Extract<GoalProgressResult,
     if (!result.ok) assert.fail(`${result.error.code}: ${result.error.message}`);
     return result;
 }
+
+test("重建服务后，沙箱审批为真实 Bash 调用恢复绑定 Action 的执行计划", async () => {
+    const fixture = await setupFixture();
+    const target = join(fixture.home, "approved.txt");
+    await writeFile(target, "approved read");
+    // 只验证宿主审批接线与 Bash 的计划检查；OS 沙箱行为由 sandbox 测试覆盖。
+    const registry = () => new InMemoryToolRegistry([createToolRegistration(new BashTool(fixture.workspace, { enableSeatbelt: false }))]);
+    const options = {
+        cwd: fixture.workspace,
+        env: { LAZYGOAL_HOME: fixture.home } as NodeJS.ProcessEnv,
+        dataDirectory: fixture.dataDirectory,
+        profile: { ...baseProfile, toolIds: ["bash"] },
+        toolPolicy: { evaluate: () => "allow" as const },
+    };
+    const first = await createRuntimeComposition({ ...options, toolRegistry: registry(), adapter: new ScriptedAdapter([
+        stageUpdateWire(),
+        discoveryWire("bash"),
+        wire("bash", { command: `cat '${target}'`, timeoutMs: null,
+            sandboxAccess: { files: [{ path: target, access: "read", kind: "file", purpose: "Read the approved fixture" }], network: null } }),
+    ]) });
+    try {
+        const waiting = requireSuccess(await first.commands.launch({ goalId: "sandbox-recovery", intent: "Read the fixture", profileId: baseProfile.id }));
+        assert.equal(waiting.kind, "waiting", JSON.stringify(waiting.goal.state.run.stopReason));
+        const pending = waiting.goal.state.run.pendingAction;
+        assert.equal(pending?.approvalKind, "sandbox");
+        assert.ok(pending);
+        await first.lifecycle.close();
+        const second = await createRuntimeComposition({ ...options, toolRegistry: registry(), adapter: new ScriptedAdapter([waitWire()]) });
+        try {
+            const resumed = requireSuccess(await second.commands.resume({
+                ref: { goalId: waiting.goal.id, runId: waiting.goal.state.run.id },
+                action: { kind: "approve_action", actionId: pending.action.actionId },
+            }));
+            assert.equal(resumed.kind, "waiting");
+            const trajectory = await second.readWorkspaceTrajectory({ goalId: waiting.goal.id, runId: waiting.goal.state.run.id });
+            const finished = trajectory.committed.find((event) => event.eventType === "tool_finished");
+            assert.ok(finished?.eventType === "tool_finished");
+            assert.equal(finished.payload.observation.kind, "success");
+            assert.match(JSON.stringify(finished.payload.observation), /approved read/);
+        } finally { await second.lifecycle.close(); }
+    } finally {
+        await first.lifecycle.close();
+        await fixture.cleanup();
+    }
+});
 
 test("重建实例后恢复同一 Run：匹配交互身份、累计 Step、轨迹与工具调用次数", async () => {
     const fixture = await setupFixture();

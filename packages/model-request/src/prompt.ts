@@ -377,6 +377,10 @@ export async function buildStepRequest<Result extends DecideOutput = AgentDecisi
             planMode,
             goalPlanWritable,
             stage === "decide" && stageContext?.allowThink === true,
+            {
+                ...(goal.state.run.currentStage === undefined ? {} : { currentStage: goal.state.run.currentStage }),
+                ...(goal.state.run.planRoute === undefined ? {} : { planRoute: goal.state.run.planRoute }),
+            },
         );
 
     return renderFinalRequest(

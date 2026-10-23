@@ -19,7 +19,7 @@ import {
     type LLMConfig,
     type LLMStreamEvent,
 } from "../../llm-core/src/index";
-import { ExecutionAbortedError } from "../../execution-control/src/index";
+import { ExecutionAbortedError, ModelRequestFailure } from "../../execution-control/src/index";
 
 const json = '{"answer":"ok"}';
 const request: LLMRequest = { messages: [
@@ -55,6 +55,17 @@ function stub(instance: PiAiAdapter, complete: (context: Context, options: Simpl
     };
     internals.models.completeSimple = (_model, context, options) => complete(context, options);
 }
+
+test("provider HTTP failures retain only a safe status and a typed request failure", async () => {
+    const instance = adapter();
+    stub(instance, async () => result({ stopReason: "error", errorMessage: "403 Forbidden: PRIVATE_PROVIDER_BODY test-explicit-key" }));
+    await assert.rejects(instance.generate(request), (error: unknown) => {
+        assert.ok(error instanceof ModelRequestFailure);
+        assert.match(error.message, /HTTP 403/);
+        assert.doesNotMatch(error.message, /PRIVATE_PROVIDER_BODY|test-explicit-key/);
+        return true;
+    });
+});
 
 test("PiAiAdapter maps ordered text history and isolates thinking and unverified usage", async () => {
     const instance = adapter();
@@ -167,6 +178,32 @@ test("invalid request mode, system placement and output cap fail before dispatch
     await assert.rejects(instance.generate({ ...request, structuredOutput: { name: "test", schema: {} } }), LLMRequestModeMismatchError);
     await assert.rejects(instance.generate({ messages: [{ role: "user", content: "hi" }, { role: "system", content: "late" }] }), /System messages must precede/);
     await assert.rejects(instance.generate({ ...request, maxOutputTokens: 999999999 }), LLMConfigurationError);
+});
+
+test("OpenCode Go subscription errors use safe guidance for complete and streamed failures", async () => {
+    for (const streaming of [false, true]) {
+        const instance = adapter("opencode-go", "longcat-2.5-preview-free");
+        const message = result({ stopReason: "error", errorMessage: "403 An active OpenCode Go subscription is required to use Go models. test-explicit-key private body" });
+        if (streaming) {
+            const internals = instance as unknown as { models: { streamSimple: () => ReturnType<typeof createAssistantMessageEventStream> } };
+            internals.models.streamSimple = () => {
+                const stream = createAssistantMessageEventStream();
+                stream.push({ type: "error", reason: "error", error: message });
+                stream.end();
+                return stream;
+            };
+        } else stub(instance, async () => message);
+        await assert.rejects(async () => {
+            if (streaming) { for await (const _event of instance.stream(request)) {} }
+            else await instance.generate(request);
+        }, (error: unknown) => {
+            assert.ok(error instanceof PiAiProviderError);
+            assert.equal(error.message, "OpenCode Go requires an active subscription for this request. Check your subscription or choose another provider in Settings.");
+            assert.equal(error.message.includes("test-explicit-key"), false);
+            assert.equal(error.message.includes("private body"), false);
+            return true;
+        });
+    }
 });
 
 test("incomplete, erroneous and tool responses never return partial JSON", async () => {
@@ -303,6 +340,36 @@ test("PiAiAdapter 动态执行 OpenCode Go MiniMax 并沿用官方 Completions �
             assert.equal(outgoing.body.model, minimaxDynamicConfig.model);
         }
         assert.equal(captured[1]?.body.tool_choice, "required");
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+test("PiAiAdapter 动态执行 OpenCode Go Beam Free", async () => {
+    const config: LLMConfig = {
+        ...minimaxDynamicConfig,
+        model: "beam-free",
+        contextWindowTokens: 1_048_576,
+        maxOutputTokens: 131_072,
+    };
+    let captured: Request | undefined;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+        captured = new Request(input, init);
+        return new Response(completionsBody(), {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+        });
+    };
+    try {
+        const generated = await new PiAiAdapter(config).generate({ ...request, sessionId: "goal-beam" });
+        assert.equal(readAssistantText(generated), json);
+        assert.ok(captured);
+        assert.equal(new URL(captured.url).pathname, "/inference/go/openai/v1/chat/completions");
+        assert.equal(captured.headers.get("authorization"), "Bearer test-explicit-key");
+        assert.equal(captured.headers.get("user-agent"), "lazygoal");
+        assert.equal(captured.headers.get("x-opencode-session"), "goal-beam");
+        assert.deepEqual(JSON.parse(await captured.clone().text()).model, "beam-free");
     } finally {
         globalThis.fetch = realFetch;
     }
@@ -721,8 +788,8 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
                         : { kind: "complete", summary: "Smoke passed", completionEvidence: [{ criterionIndex: 0, evidenceSequences: [observation?.sequence ?? JSON.parse(nativeObservation.content).sourceSequence] }], memoryPatch: null, contextNotes: null };
                 }
                 const selected = decision as any;
-                    const toolId = selected.kind === "task_proposal" ? "system_propose_task_plan" : selected.kind === "run_stage_update" ? "system_update_run_stage" : selected.kind === "tool_call" ? "smoke_evidence" : selected.kind === "tool_discovery" ? "system_find_tools" : selected.kind === "accept" ? "system_review_completion" : "system_complete_task";
-                    const args = selected.kind === "tool_call" ? {} : selected.kind === "run_stage_update" ? { target: selected.target, acceptanceCriteria: selected.acceptanceCriteria } : selected.kind === "task_proposal" ? { task: selected.task, planRoute: selected.planRoute, approvalRequest: selected.approvalRequest, memoryPatch: null } : selected.kind === "tool_discovery" ? { query: selected.query } : selected.kind === "accept" ? { result: selected } : { summary: selected.summary, completionEvidence: selected.completionEvidence, memoryPatch: null };
+                    const toolId = selected.kind === "task_proposal" ? "system_propose_task_plan" : selected.kind === "run_stage_update" ? "system_start_run_stage" : selected.kind === "tool_call" ? "smoke_evidence" : selected.kind === "tool_discovery" ? "system_find_tools" : selected.kind === "accept" ? "system_review_completion" : "system_complete_task";
+                    const args = selected.kind === "tool_call" ? {} : selected.kind === "run_stage_update" ? {} : selected.kind === "task_proposal" ? { task: selected.task, planRoute: selected.planRoute, approvalRequest: selected.approvalRequest, memoryPatch: null } : selected.kind === "tool_discovery" ? { query: selected.query } : selected.kind === "accept" ? { result: selected } : { summary: selected.summary, completionEvidence: selected.completionEvidence, memoryPatch: null };
                 // 原生适配器提供真实流后，严格与 prompt_only 两种模式都通过 Chat Completions 流交付。
                 res.setHeader("Content-Type", "text/event-stream");
                 res.end(sse([

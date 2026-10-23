@@ -314,7 +314,7 @@ test("集成：审批等待按 action_approval 领域身份发布，修订后按
                 // 执行前必须先声明当前阶段。
                 return toolCallResponse({
                     callId: "call-stage",
-                    toolId: "system_update_run_stage",
+                    toolId: "system_start_run_stage",
                     argumentsJson: JSON.stringify({ target: "写入受控文件", acceptanceCriteria: ["事实已提交"] }),
                 });
             }
@@ -462,7 +462,7 @@ test("集成：结果未知按 action_recovery 领域身份发布，恢复引用
                 // 执行前必须先声明当前阶段。
                 return toolCallResponse({
                     callId: "call-stage",
-                    toolId: "system_update_run_stage",
+                    toolId: "system_start_run_stage",
                     argumentsJson: JSON.stringify({ target: "写入受控文件", acceptanceCriteria: ["事实已提交"] }),
                 });
             }
@@ -593,7 +593,7 @@ test("集成：PTC 子操作工具活动保留子操作身份，父程序身份�
             if (decideCalls === 1) {
                 return toolCallResponse({
                     callId: "call-stage",
-                    toolId: "system_update_run_stage",
+                    toolId: "system_start_run_stage",
                     argumentsJson: JSON.stringify({ target: "执行 PTC 程序", acceptanceCriteria: ["程序已执行"] }),
                 });
             }

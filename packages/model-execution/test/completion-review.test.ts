@@ -47,9 +47,9 @@ for (const mode of ["strict", "prompt_only"] as const) {
         const records: ModelInputRecord[] = [];
         const metrics: ModelCallMetricRecord[] = [];
         const stream = new InMemoryExecutionStreamPublisher();
-        let published = 0;
+        const published: { readonly kind: string; readonly payload: unknown }[] = [];
         const subscription = stream.subscribe({ goalId: "review-goal", runId: "review-run" });
-        subscription.onEvent(() => { published++; });
+        subscription.onEvent(event => { published.push(event); });
         const reviewInput = input();
         const adapter: LLMAdapter = { structuredOutputMode: mode, async generate(request) {
             assert.deepEqual(request.tools?.map(tool => tool.id), ["system_review_completion"]);
@@ -75,7 +75,9 @@ for (const mode of ["strict", "prompt_only"] as const) {
         assert.equal(records[0]!.stage, "completion_review");
         assert.equal(metrics.length, 2);
         assert.ok(metrics.every(record => record.callId === records[0]!.callId));
-        assert.equal(published, 0);
+        assert.deepEqual(published.map(event => event.kind), ["model_started", "model_completed"]);
+        assert.equal((published[0]!.payload as { stage: string }).stage, "completion_review");
+        assert.doesNotMatch(JSON.stringify(published), /Internal review|Internal reasoning|system_review_completion|argumentsJson|PRIVATE_/);
         subscription.close();
         stream.dispose();
     });
@@ -147,8 +149,8 @@ test("review retains cited source observations once when many files are read", a
 test("streaming review text, reasoning and result arguments stay outside the public stream", async () => {
     const stream = new InMemoryExecutionStreamPublisher();
     const subscription = stream.subscribe({ goalId: "review-goal", runId: "review-run" });
-    let published = 0;
-    subscription.onEvent(() => { published++; });
+    const published: { readonly kind: string; readonly payload: unknown }[] = [];
+    subscription.onEvent(event => { published.push(event); });
     const adapter: LLMAdapter = {
         structuredOutputMode: "strict",
         async generate() { throw new Error("Expected streaming review"); },
@@ -175,7 +177,9 @@ test("streaming review text, reasoning and result arguments stay outside the pub
     };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
     assert.deepEqual(await executor.reviewCompletion({ ...input(), executionStream: stream }), { kind: "accept" });
-    assert.equal(published, 0);
+    assert.deepEqual(published.map(event => event.kind), ["model_started", "model_completed"]);
+    assert.equal((published[0]!.payload as { stage: string }).stage, "completion_review");
+    assert.doesNotMatch(JSON.stringify(published), /Internal review|Internal reasoning|system_review_completion|argumentsJson|PRIVATE_/);
     subscription.close();
     stream.dispose();
 });

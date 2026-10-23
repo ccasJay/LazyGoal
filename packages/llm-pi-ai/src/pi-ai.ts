@@ -18,15 +18,27 @@ import {
     type LLMResponse,
     type LLMStreamEvent,
 } from "../../llm-core/src/index";
-import { ExecutionAbortedError, throwIfAborted, type ExecutionControl } from "../../execution-control/src/index";
+import { ExecutionAbortedError, ModelRequestFailure, throwIfAborted, type ExecutionControl } from "../../execution-control/src/index";
 
 /** pi-ai 返回的失败状态；不包含部分输出、凭据或 SDK 响应对象。 */
-export class PiAiProviderError extends Error {
+export class PiAiProviderError extends ModelRequestFailure {
     readonly code = "PI_AI_PROVIDER_ERROR";
     constructor(readonly provider: string, readonly stopReason: string, message: string) {
         super(message);
         this.name = "PiAiProviderError";
     }
+}
+
+function providerFailureMessage(provider: string, stopReason: string, errorMessage?: string): string {
+    if (provider === "opencode-go" && stopReason === "error"
+        && errorMessage?.toLowerCase().includes("active opencode go subscription is required")) {
+        return "OpenCode Go requires an active subscription for this request. Check your subscription or choose another provider in Settings.";
+    }
+    const status = errorMessage?.match(/(?:^\s*|\bHTTP\s+|\bstatus(?:\s+code)?[\s:=]+)([45]\d{2})\b/i)?.[1];
+    if (status !== undefined) {
+        return `Provider "${provider}" rejected the model request (HTTP ${status}). Check provider access and service status.`;
+    }
+    return `Provider "${provider}" did not complete a text response (${stopReason})`;
 }
 
 const factories = {
@@ -366,7 +378,7 @@ export class PiAiAdapter implements LLMAdapter {
                             throw new PiAiProviderError(
                                 this.config.provider,
                                 event.reason,
-                                `Provider "${this.config.provider}" did not complete a text response (${event.reason})`,
+                                providerFailureMessage(this.config.provider, event.reason, event.error.errorMessage),
                             );
                         }
                     }
@@ -428,13 +440,13 @@ export class PiAiAdapter implements LLMAdapter {
             if (response.stopReason !== "stop" || response.content.some(block => block.type === "toolCall")) {
                 // Provider messages may echo request credentials; do not copy arbitrary SDK text into Runtime errors.
                 throw new PiAiProviderError(this.config.provider, response.stopReason,
-                    `Provider "${this.config.provider}" did not complete a text response (${response.stopReason})`);
+                    providerFailureMessage(this.config.provider, response.stopReason, response.errorMessage));
             }
         } else {
             const validStop = response.stopReason === "stop" || response.stopReason === "toolUse";
             if (!validStop && !response.content.some(block => block.type === "toolCall")) {
                 throw new PiAiProviderError(this.config.provider, response.stopReason,
-                    `Provider "${this.config.provider}" did not complete a text response (${response.stopReason})`);
+                    providerFailureMessage(this.config.provider, response.stopReason, response.errorMessage));
             }
         }
         const { input, output, cacheRead, cacheWrite, reasoning } = response.usage;

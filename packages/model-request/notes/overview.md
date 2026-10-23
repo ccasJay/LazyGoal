@@ -4,7 +4,7 @@
 
 ## 单轮请求
 
-[`buildStepRequest`](../src/prompt.ts) 在一次调用内完成：按 `exposedToolIds` 与授权目录交集筛选可见工具；投影 [模型视图](../../model-view/README.md)；按 [上下文预算](../../context-budget/README.md) 的 Conversation 裁剪或分层组装组装固定输入；渲染固定 system、动态 section 与 Working Context；并返回 `{ request, bundle, toolDeclarations, modelContextFrame }`。请求契约与 `toolDeclarations` 由同一组可见工具、任务批准状态与输出模式生成，确保解析端与请求端一致。
+[`buildStepRequest`](../src/prompt.ts) 在一次调用内完成：按 `exposedToolIds` 与授权目录交集筛选可见工具；投影 [模型视图](../../model-view/README.md)；按 [上下文预算](../../context-budget/README.md) 的 Conversation 裁剪或分层组装组装固定输入；渲染固定 system、动态 section 与 Working Context；并返回 `{ request, bundle, toolDeclarations, modelContextFrame }`。请求契约与 `toolDeclarations` 由同一组可见工具、任务批准状态与输出模式生成，确保解析端与请求端一致。阶段声明额外绑定本次 Goal 快照中的当前阶段和 Plan 路线，由该请求独有的声明闭包解码；strict 与 prompt_only 使用同一组工具参数契约，模型不回填身份或版本。
 
 `createStageMessages` 生成带 `source` 标记的临时阶段消息：Think 历史、Think 目标、工具发现结果与 Runtime 反馈；反馈始终移动到请求末尾，且不进入真实 Conversation。
 

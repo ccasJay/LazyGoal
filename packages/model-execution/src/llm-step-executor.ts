@@ -231,7 +231,7 @@ export class LLMStepExecutor implements StepExecutor {
     }
 
     /**
-     * 使用当前 Decide 模型独立核查完成候选，不发布公开模型文本或调用参数。
+     * 使用当前 Decide 模型独立核查完成候选；只公开调用生命周期，不公开模型文本或调用参数。
      * @param input - Runtime 已校验的候选与完整提交事实。
      * @returns 从唯一 system_review_completion 调用解码的接受或具体缺口反馈；不改写候选、不提交状态。
      * @throws 调用或预算失败原样抛出；协议错误交由 Decide 纠错链处理。
@@ -247,9 +247,8 @@ export class LLMStepExecutor implements StepExecutor {
                 modelContextPolicy: binding.modelContextPolicy,
                 ...(binding.modelCapabilities === undefined ? {} : { modelCapabilities: binding.modelCapabilities }),
             });
-            const { executionStream: _stream, ...privateInput } = input;
             const { response } = await this.callModelForStage(
-                binding.decideAdapter, request, privateInput, binding.modelCapabilities, "completion_review", [], [],
+                binding.decideAdapter, request, input, binding.modelCapabilities, "completion_review", [], [],
             );
             return decodeCompletionReviewResponse(response);
         } catch (error) {

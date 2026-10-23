@@ -98,6 +98,7 @@ export type SessionInteractionResponse =
  * 每项都携带 Goal 内稳定 `inputId`；相同身份与规范化载荷重试返回原收据。
  * 普通 `message` 面向 Goal 的后续队列；`steer`、`interrupt`、`respond` 与
  * `resume` 必须携带目标 `runId`；`queue_control` 携带被观察到的队列修订。
+ * `steer.queueBinding` 将同一已排队消息原子地转为当前 Run 的 Steer。
  * 正文只接受非空文本，会话不猜测隐含的消息种类。
  *
  * @example
@@ -112,6 +113,8 @@ export type SessionInput =
         readonly inputId: string;
         readonly runId: string;
         readonly content: string;
+        /** 提供时将一条匹配修订的排队消息原子转为本 Steer。 */
+        readonly queueBinding?: { readonly messageId: string; readonly queueRevision: number };
     }
     | { readonly kind: "interrupt"; readonly inputId: string; readonly runId: string }
     | {
@@ -137,8 +140,10 @@ export type SessionInput =
     | {
         readonly kind: "queue_control";
         readonly inputId: string;
-        readonly action: "continue" | "clear";
+        readonly action: "continue" | "clear" | "remove";
         readonly queueRevision: number;
+        /** `remove` 时指定要删除的待处理消息。 */
+        readonly messageId?: string;
     };
 
 /** 目标 Run 明确的控制类输入；普通消息与队列控制不在此列。 */
@@ -294,6 +299,7 @@ export type SessionInputRejectionCode =
     | "TEXT_TOO_LARGE"
     | "QUEUE_NOT_PAUSED"
     | "QUEUE_REVISION_MISMATCH"
+    | "QUEUED_MESSAGE_NOT_FOUND"
     | "RUN_NOT_FOUND"
     | "RUN_NOT_RUNNING"
     | "RUN_CONTROL_UNAVAILABLE";
@@ -431,6 +437,13 @@ export function validateSessionInputShape(
             if (input.kind === "steer" && (typeof input.runId !== "string" || input.runId.trim().length === 0)) {
                 return { code: "INVALID_INPUT", message: "Steer input requires a target runId" };
             }
+            if (input.kind === "steer" && input.queueBinding !== undefined
+                && (typeof input.queueBinding.messageId !== "string"
+                    || input.queueBinding.messageId.trim().length === 0
+                    || !Number.isSafeInteger(input.queueBinding.queueRevision)
+                    || input.queueBinding.queueRevision < 0)) {
+                return { code: "INVALID_INPUT", message: "Queued Steer requires a valid messageId and queueRevision" };
+            }
             return undefined;
         }
         case "interrupt":
@@ -492,11 +505,17 @@ export function validateSessionInputShape(
             return undefined;
         }
         case "queue_control": {
-            if (input.action !== "continue" && input.action !== "clear") {
-                return { code: "INVALID_INPUT", message: "queue_control action must be continue or clear" };
+            if (input.action !== "continue" && input.action !== "clear" && input.action !== "remove") {
+                return { code: "INVALID_INPUT", message: "queue_control action must be continue, clear, or remove" };
             }
             if (!Number.isSafeInteger(input.queueRevision) || input.queueRevision < 0) {
                 return { code: "INVALID_INPUT", message: "queue_control requires a non-negative queueRevision" };
+            }
+            if (input.action === "remove" && (typeof input.messageId !== "string" || input.messageId.trim().length === 0)) {
+                return { code: "INVALID_INPUT", message: "Removing a queued message requires a messageId" };
+            }
+            if (input.action !== "remove" && input.messageId !== undefined) {
+                return { code: "INVALID_INPUT", message: "Only remove accepts a messageId" };
             }
             return undefined;
         }

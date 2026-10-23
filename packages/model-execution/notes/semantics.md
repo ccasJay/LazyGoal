@@ -10,6 +10,8 @@
 | 动作身份分配 | 原生/供应商/契约 actionId 的既有优先级。 | [模型执行协调](../README.md) | [执行器](../src/llm-step-executor.ts) |
 | 阶段 frame | 关联 modelCallId 与原生响应的阶段结果元数据。 | [模型执行协调](../README.md) | [执行器](../src/llm-step-executor.ts) |
 | 公开正文块结果 | 混合响应中被接受后应保存为过程正文的公开正文块与块下标。 | [模型执行协调](../README.md) | [执行器](../src/llm-step-executor.ts) |
-| 阶段反馈转换 | 协议错误到有界 RuntimeFeedback 的转换。 | [模型执行协调](../README.md) | [反馈转换](../src/stage-feedback.ts) |
+| 阶段反馈转换 | 协议错误到有界 RuntimeFeedback 的转换；固定类型诊断保留期望 JSON 类型，不回传参数值或任意错误正文。 | [模型执行协调](../README.md) | [反馈转换](../src/stage-feedback.ts) |
 | 完成候选预览 | 只在请求实际声明完成候选工具时，读取其顶层 `summary` 字段值形成的未确认预览；参数对象其它字段不公开。 | [模型执行协调](../README.md) | [候选预览提取](../src/summary-preview.ts) |
 | 候选预览解析 | 跨片段按 JSON 字符串状态解码字段值，处理转义、Unicode 与代理项；同名嵌套字段不参与，重复顶层键视为歧义。 | [模型执行协调](../README.md) | [候选预览提取](../src/summary-preview.ts) |
+| 完成审查观察 | 借用既有执行流通道，仅通过调用层公开开始／结束，文本、推理和函数参数不公开。 | [模型执行协调](../README.md) | [执行器](../src/llm-step-executor.ts)、[调用层](../../model-call/src/model-call.ts) |
+| 字面量纠错提示 | 保留 Schema 期望值及 JSON 类型的有界反馈。 | [模型执行协调](../README.md) | [反馈转换](../src/stage-feedback.ts) |

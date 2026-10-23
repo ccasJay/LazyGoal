@@ -12,3 +12,4 @@
 | 完成审查请求 | 只声明审查工具的不可裁剪证据请求。 | [模型请求准备](../README.md) | [审查构造](../src/completion-review.ts) |
 | 请求检查 | 只读判断最终控制消息是否要求检查点。 | [模型请求准备](../README.md) | [请求检查](../src/request-inspection.ts) |
 | Working Context | 本轮控制消息的最小动态负载。 | [模型请求准备](../README.md) | [消息渲染](../src/render.ts) |
+| 阶段请求绑定 | 使用该次 Run 快照生成工具与对应解码闭包。 | [模型请求准备](../README.md) | [请求构造](../src/prompt.ts) |

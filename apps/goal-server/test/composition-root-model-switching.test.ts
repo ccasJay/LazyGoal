@@ -183,7 +183,13 @@ test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go �
     let root: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
     let serving: Promise<number> | undefined;
     const alignedSelections: GoalModelSelection[] = [];
-    const catalog = new FakeCatalog([createOpenCodeGoDynamicDescriptor()]);
+    const beamDescriptor: LlmModelDescriptor = {
+        ...createOpenCodeGoDynamicDescriptor(),
+        id: "beam-free",
+        displayName: "Beam Free",
+        maxOutputTokens: 131_072,
+    };
+    const catalog = new FakeCatalog([createOpenCodeGoDynamicDescriptor(), beamDescriptor]);
     try {
         root = await createCompositionRoot({
             cwd: workspace,
@@ -280,6 +286,25 @@ test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go �
             && selection.executionApi === "openai-completions"
             && selection.contextWindowTokens === 1_000_000
             && selection.maxOutputTokens === 524_288));
+
+        const beamSelected = await request({ runId: "run-dynamic-browser", modelId: "beam-free" });
+        assert.equal(beamSelected.status, 200, await beamSelected.clone().text());
+        const beamSaved = await root.workspaceGoalStore.restore("goal-dynamic-browser");
+        assert.deepEqual(beamSaved?.state.modelSelection, {
+            provider: "opencode-go",
+            modelId: "beam-free",
+            structuredOutputMode: "prompt_only",
+            contextWindowTokens: 1_000_000,
+            maxOutputTokens: 131_072,
+            executionApi: "openai-completions",
+            inputEstimator: { kind: "character-v1" },
+        });
+        root.alignModelBinding(beamSaved!.state.modelSelection);
+        assert.ok(alignedSelections.some((selection) =>
+            selection.modelId === "beam-free"
+            && selection.executionApi === "openai-completions"
+            && selection.contextWindowTokens === 1_000_000
+            && selection.maxOutputTokens === 131_072));
     } finally {
         if (serving !== undefined) {
             process.emit("SIGINT");

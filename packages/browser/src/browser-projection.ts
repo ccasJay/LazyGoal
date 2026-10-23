@@ -320,6 +320,7 @@ export async function readBrowserGoalSessionState(
 
     const currentRun = goal.state.run;
     const isActive = activeGoalId !== undefined && goal.id === activeGoalId;
+    const terminalDetail = projectRunTerminalDetail([], currentRun.status, currentRun.stopReason).terminalDetail;
     const executionState = isActive ? "active"
         : (currentRun.status === "created" || currentRun.status === "running") ? "recoverable"
             : "inactive";
@@ -345,6 +346,7 @@ export async function readBrowserGoalSessionState(
         currentRunMode: currentRun.mode,
         ...(goal.state.nextRunMode === undefined ? {} : { nextRunMode: goal.state.nextRunMode }),
         currentRunStepCount: currentRun.stepCount,
+        ...(terminalDetail === undefined ? {} : { currentRunTerminalDetail: terminalDetail }),
         ...(planRoute === undefined ? {} : { currentPlanRoute: planRoute }),
         execution: {
             state: executionState,
@@ -439,6 +441,7 @@ export async function readBrowserGoalActivity(
     const windowByRun = new Map(window.map((item) => [item.runId, item]));
     const selectedRuns = window.map((item) => runById.get(item.runId)!);
     const activity: BrowserActivityItem[] = [];
+    const terminalByRun = new Map<string, NonNullable<BrowserActivityRunContext["terminalDetail"]>>();
     for (const run of selectedRuns) {
         const runWindow = windowByRun.get(run.runId)!;
         const boundedMessages = run.messages.slice(0, runWindow.messageCount);
@@ -452,7 +455,20 @@ export async function readBrowserGoalActivity(
             activity.push(projectActivityMessage(message, run));
         }
         const result = await readTrajectory({ goalId, runId: run.runId });
-        const toolStates = projectActivityToolStates(result.committed);
+        const committed = result.committed.filter(event => event.sequence <= runWindow.committedThroughSequence);
+        if (run.status === "failed") {
+            const failed = [...committed].reverse().find(event => event.payload.type === "run_failed" || event.payload.type === "execution_error");
+            if (failed !== undefined && (failed.payload.type === "run_failed" || failed.payload.type === "execution_error")) {
+                const rawCode = String(failed.payload.code);
+                const code = /^[A-Z][A-Z0-9_]{0,79}$/.test(rawCode) ? rawCode : undefined;
+                terminalByRun.set(run.runId, {
+                    ...(code === undefined ? {} : { code }),
+                    message: code === "INVALID_AGENT_DECISION" ? "The model response did not satisfy the required format."
+                        : "Execution failed. Open the trajectory to inspect the recorded cause.",
+                });
+            }
+        }
+        const toolStates = projectActivityToolStates(committed);
         for (const event of result.committed) {
             if (event.sequence > runWindow.committedThroughSequence || !isBrowserActivityFact(event.eventType)) continue;
             activity.push(projectActivityFact(event, run, toolStates.get(event.eventId)));
@@ -506,6 +522,7 @@ export async function readBrowserGoalActivity(
         current: run.current,
         runOrder: run.runOrder,
         committedThroughSequence: windowByRun.get(run.runId)!.committedThroughSequence,
+        ...(terminalByRun.has(run.runId) ? { terminalDetail: terminalByRun.get(run.runId)! } : {}),
     }));
     const { stages, actionGroups } = projectActivityContexts(activity, pageItems);
     const page: BrowserActivityPage = {
@@ -591,18 +608,22 @@ function projectActivityMessage(
     };
 }
 
+type ActivityToolContext = { readonly state: BrowserActivityToolState; readonly stageId?: string };
+
 function projectActivityFact(
     event: TrajectoryEvent,
     run: ActivityRunSnapshot,
-    tool: BrowserActivityToolState | undefined,
+    toolContext: ActivityToolContext | undefined,
 ): BrowserActivityFactItem {
     const payload = event.payload;
+    const tool = toolContext?.state;
     const stageId = payload.type === "run_stage_declared" || payload.type === "run_stage_accepted" || payload.type === "run_stage_rejected"
-        ? payload.stageId : undefined;
+        ? payload.stageId : toolContext?.stageId;
     const stageRevision = payload.type === "run_stage_declared" || payload.type === "run_stage_accepted" || payload.type === "run_stage_rejected"
         ? payload.revision : undefined;
     const stageTarget = payload.type === "run_stage_declared" ? boundedText(payload.target, 1_000) : undefined;
     const actionId = trajectoryActionId(event);
+    const detail = activityEventDetail(event);
     return {
         type: "fact",
         itemId: `event:${event.eventId}`,
@@ -616,13 +637,16 @@ function projectActivityFact(
             order: 0,
         },
         eventType: event.eventType as BrowserActivityEventType,
-        title: activityEventTitle(event.eventType as BrowserActivityEventType),
+        title: payload.type === "action_staged" && payload.approvalStatus === "awaiting_approval"
+            ? "Waiting for permission" : activityEventTitle(event.eventType as BrowserActivityEventType),
+        ...(detail === undefined ? {} : { detail }),
         ...(event.executionUnitId === undefined ? {} : { executionUnitId: event.executionUnitId }),
         ...(actionId === undefined ? {} : { actionId }),
         ...(stageId === undefined ? {} : { stageId }),
         ...(stageRevision === undefined ? {} : { stageRevision }),
         ...(stageTarget === undefined ? {} : { stageTarget }),
-        ...(tool === undefined ? {} : { tool }),
+        ...(tool === undefined || payload.type === "decision_received" || payload.type === "action_approved" || payload.type === "action_revised"
+            || payload.type === "action_staged" && payload.approvalStatus === "awaiting_approval" ? {} : { tool }),
     };
 }
 
@@ -689,7 +713,7 @@ function projectActivityThinkItems(
  */
 function projectActivityToolStates(
     committedEvents: readonly TrajectoryEvent[],
-): ReadonlyMap<string, BrowserActivityToolState> {
+): ReadonlyMap<string, ActivityToolContext> {
     const sorted = [...committedEvents].sort((left, right) => left.sequence - right.sequence);
     const unitStageMap = new Map<string, string>();
     let currentStageId: string | undefined;
@@ -814,7 +838,7 @@ function projectActivityToolStates(
         }
     }
 
-    const states = new Map<string, BrowserActivityToolState>();
+    const states = new Map<string, ActivityToolContext>();
     let previous: { readonly lastSequence: number; readonly stageId?: string } | undefined;
     for (const action of toolActions) {
         const hasBoundaryInAction = action.eventIds.some((eventId) => boundaryEventIds.has(eventId));
@@ -833,13 +857,38 @@ function projectActivityToolStates(
             ...(action.parentActionId === undefined ? {} : { parentActionId: action.parentActionId }),
             ...(boundaryBefore ? { activityBoundaryBefore: true as const } : {}),
         };
-        for (const eventId of action.eventIds) states.set(eventId, state);
+        for (const eventId of action.eventIds) states.set(eventId, {
+            state,
+            ...(action.stageId === undefined ? {} : { stageId: action.stageId }),
+        });
         previous = {
             lastSequence: action.lastSequence,
             ...(action.stageId === undefined ? {} : { stageId: action.stageId }),
         };
     }
     return states;
+}
+
+function activityEventDetail(event: TrajectoryEvent): string | undefined {
+    const payload = event.payload;
+    switch (payload.type) {
+        case "model_repair_feedback_recorded": {
+            const origin = payload.feedback.origin;
+            const subject = origin === "tool_input" ? "Tool input"
+                : origin === "memory_patch" ? "Memory update" : "Model output";
+            return `${subject} did not satisfy the current contract. Correction ${payload.attempt} of 3.`;
+        }
+        case "model_request_retry_recorded":
+            return `${payload.reason.replaceAll("_", " ")} · attempt ${payload.attempt} of 3${payload.status === undefined ? "" : ` · HTTP ${payload.status}`}`;
+        case "context_lookup_requested": return "Searching committed execution history.";
+        case "context_lookup_completed": return "Matching history was found.";
+        case "context_lookup_not_found": return "No matching history was found. The agent must gather evidence another way.";
+        case "context_lookup_failed": return "The history lookup could not be completed.";
+        case "action_approved": return "The approved action may now execute within its authorized scope.";
+        case "action_staged": return payload.approvalStatus === "awaiting_approval"
+            ? "Execution is paused until permission is granted." : undefined;
+        default: return undefined;
+    }
 }
 
 function activityEventTitle(eventType: BrowserActivityEventType): string {
@@ -854,8 +903,14 @@ function activityEventTitle(eventType: BrowserActivityEventType): string {
         run_stage_accepted: "Stage accepted",
         run_stage_rejected: "Stage revised",
         decision_received: "Decision received",
+        model_repair_feedback_recorded: "Correcting model output",
+        model_request_retry_recorded: "Model request failed",
+        context_lookup_requested: "Looking up history",
+        context_lookup_completed: "History lookup completed",
+        context_lookup_not_found: "History lookup found no matches",
+        context_lookup_failed: "History lookup failed",
         action_staged: "Action staged",
-        action_approved: "Action approved",
+        action_approved: "Permission granted",
         action_revised: "Action revised",
         action_rejected: "Action rejected",
         tool_started: "Tool started",
@@ -1578,7 +1633,7 @@ function projectToolInputSummary(toolId: string, input: JsonValue): string | und
     const key = toolId === "read_file" || toolId === "write_file" || toolId === "edit_file" ? "path"
         : toolId === "grep" ? "pattern"
             : toolId === "web_search" ? "query"
-                : toolId === "web_fetch" ? "url" : undefined;
+                : toolId === "web_fetch" ? "url" : toolId === "bash" ? "command" : undefined;
     const value = key === undefined ? undefined : input[key];
     return typeof value === "string" ? boundedText(value.replace(/\s+/g, " ").trim(), 240) : undefined;
 }

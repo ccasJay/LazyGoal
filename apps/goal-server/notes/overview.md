@@ -93,7 +93,7 @@ Home 与数据目录上装配模型、存储、工具与上下文默认实现，
 `RuntimeLifecycle`，并使用同一 Checkpoint Gate、实例控制器与受理边界。它返回执行与
 控制命令、只读恢复与查询 Port、`manageGoal`、模型选择协调器以及生命周期与资源集合，
 不创建 HTTP 服务、不注册进程信号；`runTrackedOperation` 供宿主把已受理的写操作纳入
-同一关闭结算边界。借用依赖不被接管，装配失败时只结算本层自有的受管资源并保留初始故障。
+同一关闭结算边界。装配同时注入沙箱计划解析器：仅从已核准的 `effectiveScope` 为当前工作区和 Action 重建进程内执行计划，服务重建后的审批恢复使用同一路径，不重新授权或扩大范围。借用依赖不被接管，装配失败时只结算本层自有的受管资源并保留初始故障。
 
 `composition-root.ts` 是无界面装配之上的 HTTP 宿主：创建 HTTP 服务、挂载指标路由与
 浏览器访问控制、追加关闭准入中间件，并构造宿主退出协调器。
@@ -127,4 +127,4 @@ Provider 表单在线查询由 Composition Root 校验供应商和端点规则�
 
 浏览器选模请求只携带模型 ID 和可选 Profile ID。Goal Server 从当前 Provider 的可选择目录描述生成 `GoalModelSelection`；浏览器目录投影不包含 `executionApi`、执行端点或凭据。显式 CLI 默认模型 ID 可由本机执行登记补齐 Adapter 配置，但该配置路径不宣称模型已通过在线可用性检查。
 
-OpenCode Go 的目录外 MiniMax 只有在实时 `/v1/models` 返回该 ID，且 `model-catalog` 存在该模型的执行登记时可选。`GoalModelSelection` 与 Snapshot 保存协议和容量；每次恢复按保存的协议/容量构造 Adapter，并按已保存的 Profile ID 解析当前 API Key。端点由 `llm-pi-ai` 固定，API Key 与 Base URL 不写入 Goal 状态。
+OpenCode Go 的目录外 Beam Free 与 MiniMax 只有在实时 `/v1/models` 返回对应 ID，且 `model-catalog` 存在该模型的执行登记时可选。`GoalModelSelection` 与 Snapshot 保存协议和容量；每次恢复按保存的协议/容量构造 Adapter，并按已保存的 Profile ID 解析当前 API Key。端点由 `llm-pi-ai` 固定，API Key 与 Base URL 不写入 Goal 状态。

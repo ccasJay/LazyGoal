@@ -228,6 +228,11 @@ test("Activity 与窄状态 wire guards 接受有界安全 DTO 并拒绝原始�
         },
     };
     assert.equal(isBrowserGoalSessionState(state), true);
+    const failure = { ...state, runStatus: "failed", currentRunTerminalDetail: { code: "MODEL_REQUEST_FAILED", message: "Provider rejected the request" } };
+    assert.equal(isBrowserGoalSessionState(failure), true);
+    assert.equal(isBrowserGoalSessionState({ ...failure, runStatus: "running" }), false);
+    assert.equal(isBrowserGoalSessionState({ ...failure, currentRunTerminalDetail: { message: 403 } }), false);
+    assert.equal(isBrowserGoalSessionState({ ...failure, currentRunTerminalDetail: { ...failure.currentRunTerminalDetail, rawResponse: "private" } }), false);
     assert.equal(isBrowserGoalSessionState({ ...state, messages: [] }), false);
     assert.equal(isBrowserGoalSessionState({ ...state, history: { ...state.history, messages: { included: true, source: "activity" } } }), false);
 });
@@ -332,6 +337,16 @@ test("isBrowserRun validates complete Plan Run route states", () => {
     assert.equal(isBrowserRun({ runId: "run-1", status: "running", stepCount: 2, steps: [], current: true, planRoute: route }), true);
     assert.equal(isBrowserRun({ runId: "run-1", status: "running", stepCount: 2, steps: [], current: true, planRoute: { ...route, nextStageIndex: 8 } }), false);
     assert.equal(isBrowserRun({ runId: "run-1", status: "running", stepCount: 2, steps: [], current: true, planRoute: { ...route, stages: [{ ...route.stages[0], status: "pending" }, route.stages[1]] } }), false);
+});
+
+test("model progress only accepts known public stages and real timestamps", () => {
+    const event = { type: "activity", goalId: "goal-1", runId: "run-1", activity: {
+        kind: "model_started", stage: "completion_review", modelCallId: "call-1", executionUnitId: "unit-1", occurredAt: "2026-10-22T00:00:00.000Z",
+    } };
+    assert.equal(isLiveEvent(event), true);
+    assert.equal(isLiveEvent({ ...event, activity: { ...event.activity, stage: "hidden_reasoning" } }), false);
+    assert.equal(isLiveEvent({ ...event, activity: { ...event.activity, occurredAt: "not-a-date" } }), false);
+    assert.equal(isLiveEvent({ ...event, activity: { ...event.activity, modelCallId: "x".repeat(201) } }), false);
 });
 
 test("isLiveEvent validates activity identities without conflating trajectory IDs", () => {
@@ -569,6 +584,7 @@ test("Browser session input validators accept receipts, queries and state projec
     assert.equal(isBrowserSessionInputReceipt({ ...receipt, sequence: 0 }), false);
     assert.equal(isBrowserSessionInputResult({ ok: true, existing: false, receipt }), true);
     assert.equal(isBrowserSessionInputResult({ ok: false, error: "QUEUE_PAUSED" }), true);
+    assert.equal(isBrowserSessionInputResult({ ok: false, error: "QUEUED_MESSAGE_NOT_FOUND" }), true);
     assert.equal(isBrowserSessionInputResult({ ok: false, error: "goal_not_running" }), false);
     assert.equal(isBrowserSessionInputQueryResult({ ok: true, found: false }), true);
     assert.equal(isBrowserSessionInputQueryResult({ ok: true, found: true, receipt }), true);

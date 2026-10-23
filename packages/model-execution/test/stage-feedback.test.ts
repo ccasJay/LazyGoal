@@ -1,12 +1,42 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createGoal, ModelStageFeedbackError } from "../../runtime/src/index";
-import { LLMResponseProtocolError } from "../../model-response/src/index";
+import { LLMResponseProtocolError, decodeToolCallOutcome } from "../../model-response/src/index";
+import { SystemCompleteRunDeclaration, SystemStartRunStageDeclaration } from "../../model-contracts/src/index";
 import { toModelStageFeedback } from "../src/stage-feedback";
 import { currentProtocols } from "../../agent/test/current-fixtures";
 
 const goal = createGoal({ ...currentProtocols, id: "feedback", runId: "run-1", intent: "Inspect repository", promptBundleVersion: 1,
     profile: { id: "test", systemPrompt: "Inspect sources", instructions: [], toolIds: [] } });
+
+test("Schema literal feedback preserves the expected number and excludes the rejected private value", () => {
+    let failure: unknown;
+    try {
+        decodeToolCallOutcome({ callId: "literal", toolId: "system_complete_task", argumentsJson: JSON.stringify({
+            summary: "PRIVATE_SUMMARY", evidenceSequences: [], memoryPatch: { protocolVersion: "PRIVATE_VALUE", operations: [] },
+        }) }, [SystemCompleteRunDeclaration], []);
+    } catch (error) { failure = error; }
+    const mapped = toModelStageFeedback(failure, { goal }, "decide");
+    assert.ok(mapped instanceof ModelStageFeedbackError);
+    assert.match(mapped.feedback.issues[0]!.message, /exactly 1 as JSON.*JSON type/);
+    assert.equal(JSON.stringify(mapped.feedback).includes("PRIVATE"), false);
+});
+
+test("Original stage failure reports extra fields and a corrected call is accepted", () => {
+    let failure: unknown;
+    const input = { target: "Inspect architecture", acceptanceCriteria: ["Read source"] };
+    try {
+        decodeToolCallOutcome({ callId: "stage", toolId: "system_start_run_stage", argumentsJson: JSON.stringify({
+            ...input, stageId: "PRIVATE_ID", memoryPatch: { protocolVersion: "1", operations: [] },
+        }) }, [SystemStartRunStageDeclaration], []);
+    } catch (error) { failure = error; }
+    const mapped = toModelStageFeedback(failure, { goal }, "decide");
+    assert.ok(mapped instanceof ModelStageFeedbackError);
+    assert.deepEqual(mapped.feedback.issues.map(issue => issue.path), [["memoryPatch"], ["stageId"]]);
+    assert.ok(mapped.feedback.issues.every(issue => /Remove/.test(issue.message)));
+    assert.equal(JSON.stringify(mapped.feedback).includes("PRIVATE"), false);
+    assert.deepEqual(SystemStartRunStageDeclaration.decode(input), { kind: "run_stage_update", ...input });
+});
 
 test("字段反馈按 code 生成纠正提示，保留混合问题并过滤原始异常文本", () => {
     const codes = ["missing_field", "extra_field", "invalid_type", "union_no_match"];
@@ -44,6 +74,22 @@ test("Memory-only native parsing errors use the canonical Patch path", () => {
     assert.equal(mapped.feedback.origin, "memory_patch");
     assert.deepEqual(mapped.feedback.issues[0]!.path, ["result", "memoryPatch", "operations", 0, "fact", "value"]);
     assert.ok(!JSON.stringify(mapped.feedback).includes("PRIVATE"));
+});
+
+test("Memory 字段类型反馈保留期望的 JSON 类型且不回传任意诊断正文", () => {
+    for (const [message, expected] of [
+        ["Expected an array", /JSON array/],
+        ["Expected a finite number", /JSON number/],
+        ["Expected an array; PRIVATE_INPUT", /type required/],
+    ] as const) {
+        const mapped = toModelStageFeedback(new LLMResponseProtocolError("PRIVATE", {
+            issues: [{ code: "invalid_type", path: ["arguments", "memoryPatch", "operations", 0, "fact", "evidenceSequences"], message }],
+        }), { goal }, "decide");
+        assert.ok(mapped instanceof ModelStageFeedbackError);
+        assert.equal(mapped.feedback.origin, "memory_patch");
+        assert.match(mapped.feedback.issues[0]!.message, expected);
+        assert.equal(JSON.stringify(mapped.feedback).includes("PRIVATE"), false);
+    }
 });
 
 

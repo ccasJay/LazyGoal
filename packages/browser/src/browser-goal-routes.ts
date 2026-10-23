@@ -1056,11 +1056,24 @@ async function parseSessionInputCommand(
     }
 
     if (kind === "steer") {
-        if (!hasExactKeys(body, ["kind", "inputId", "runId", "content"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
+        if (!hasExactKeys(body, ["kind", "inputId", "runId", "content"], ["queueBinding"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
         const content = readSessionText(body.content);
+        const queueBinding = body.queueBinding === undefined
+            ? undefined
+            : parseQueueBinding(body.queueBinding);
         return !isWireId(body.runId, 256) || content === undefined
+            || (body.queueBinding !== undefined && queueBinding === undefined)
             ? { ok: false, error: "INVALID_INPUT", status: 400 }
-            : { ok: true, command: { kind, inputId: body.inputId, runId: body.runId, content } };
+            : {
+                ok: true,
+                command: {
+                    kind,
+                    inputId: body.inputId,
+                    runId: body.runId,
+                    content,
+                    ...(queueBinding === undefined ? {} : { queueBinding }),
+                },
+            };
     }
 
     if (kind === "interrupt") {
@@ -1103,15 +1116,39 @@ async function parseSessionInputCommand(
     }
 
     if (kind === "queue_control") {
-        if (!hasExactKeys(body, ["kind", "inputId", "action", "queueRevision"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
+        if (!hasExactKeys(body, ["kind", "inputId", "action", "queueRevision"], ["messageId"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
         const action = body.action;
-        if ((action !== "continue" && action !== "clear") || !isNonNegativeInteger(body.queueRevision)) {
+        if (
+            (action !== "continue" && action !== "clear" && action !== "remove")
+            || !isNonNegativeInteger(body.queueRevision)
+            || (action === "remove" ? !isWireId(body.messageId, 256) : body.messageId !== undefined)
+        ) {
             return { ok: false, error: "INVALID_INPUT", status: 400 };
         }
-        return { ok: true, command: { kind, inputId: body.inputId, action, queueRevision: body.queueRevision } };
+        return {
+            ok: true,
+            command: {
+                kind,
+                inputId: body.inputId,
+                action,
+                queueRevision: body.queueRevision,
+                ...(action === "remove" ? { messageId: body.messageId as string } : {}),
+            },
+        };
     }
 
     return { ok: false, error: "INVALID_INPUT", status: 400 };
+}
+
+function parseQueueBinding(value: unknown): { readonly messageId: string; readonly queueRevision: number } | undefined {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    const binding = value as Record<string, unknown>;
+    if (
+        !hasExactKeys(binding, ["messageId", "queueRevision"])
+        || !isWireId(binding.messageId, 256)
+        || !isNonNegativeInteger(binding.queueRevision)
+    ) return undefined;
+    return { messageId: binding.messageId, queueRevision: binding.queueRevision };
 }
 
 /**

@@ -20,8 +20,8 @@ Tool 调用解码后按原规则分配业务动作身份：原生会话使用新
 
 [`ModelExecutionBinding`](../src/model-execution-binding.ts) 将同一 provider/model 的 Think/Decide Adapter、模型能力、预算策略与组装器作为一个 generation 原子发布；`MutableModelBinding` 提供当前绑定读取。构造期校验 provider 与输入估算器、能力与预算配置。
 
-[`toModelStageFeedback`](../src/stage-feedback.ts) 把协议错误转换为带稳定来源、路径、有界字段形状与安全提示的 `ModelStageFeedbackError`；它不携带参数值，不改变 strict 或 prompt_only 接受条件，由 Runtime 提交为 `runtime_feedback`。
+[`toModelStageFeedback`](../src/stage-feedback.ts) 把协议错误转换为带稳定来源、路径、有界字段形状与安全提示的 `ModelStageFeedbackError`；Contract 固定类型诊断保留期望的 JSON 类型；字面量提示使用请求 Schema 提供的有界期望值，未知诊断仍使用通用提示。阶段工具中的非法 Memory Patch 字段按实际工具参数路径报告删除，不伪装成合法记忆更新。它不携带参数值或任意错误正文，不改变 strict 或 prompt_only 接受条件，由 Runtime 提交为 `runtime_feedback`。
 
 ## 限制
 
-执行器不实现阶段循环、重试预算、检查点提交或恢复决策；不关闭 Adapter、Store 或执行流。完成审查调用不传入执行流通道，不公开模型文本或函数参数；指标与诊断失败被隔离。
+执行器不实现阶段循环、重试预算、检查点提交或恢复决策；不关闭 Adapter、Store 或执行流。完成审查通过模型调用层只发布无正文的调用生命周期，不公开模型文本、推理或函数参数；指标与诊断失败被隔离。

@@ -26,7 +26,17 @@ export type BrowserGoalActivityEvent =
         readonly sourceEventId: string;
         readonly sourceCursor: number;
     }
-    | { readonly kind: "model_started" }
+    | {
+        readonly kind: "model_started";
+        /** 真实调用阶段；非工作流 Stage，不包含隐藏推理。来源未提供时省略。 */
+        readonly stage?: "think" | "decide" | "completion_review";
+        /** 来源模型调用身份，仅供当前观察与详情关联。 */
+        readonly modelCallId?: string;
+        /** 模型调用所属的真实执行单元。 */
+        readonly executionUnitId?: string;
+        /** 开始事件的来源时间；不从浏览器连接时间推断调用开始。 */
+        readonly occurredAt?: string;
+    }
     | { readonly kind: "model_completed" }
     | { readonly kind: "step_started" }
     | {

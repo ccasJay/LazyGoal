@@ -108,7 +108,7 @@ test("经正式无界面装配的真实 Chat Completions 流：屏障前无工�
 
             if (requests.length === 2) {
                 response.end(frames([
-                    chatChunk({ tool_calls: [{ index: 0, id: "call-stage-1", type: "function", function: { name: "system_update_run_stage", arguments: JSON.stringify({ target: "取证并完成", acceptanceCriteria: ["事实已提交"], stageId: null, baseRevision: null, reason: null, memoryPatch: null }) } }] }),
+                    chatChunk({ tool_calls: [{ index: 0, id: "call-stage-1", type: "function", function: { name: "system_start_run_stage", arguments: JSON.stringify({ target: "取证并完成", acceptanceCriteria: ["事实已提交"] }) } }] }),
                     chatChunk({}, "tool_calls"),
                 ]) + DONE);
                 return;

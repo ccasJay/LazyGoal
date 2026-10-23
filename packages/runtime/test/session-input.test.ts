@@ -403,6 +403,43 @@ test("queue controls require the observed revision and a paused queue", async ()
     assert.equal(saved?.state.inputLedger?.length, 1);
 });
 
+test("remove deletes one queued message and rejects a stale queue revision", async () => {
+    const store = new InMemoryGoalStore();
+    const goal = createSessionGoal();
+    await store.save(goal);
+    const { admission } = createAdmission(store);
+
+    for (const [inputId, content] of [["input-1", "保留一"], ["input-2", "删除这条"], ["input-3", "保留三"]] as const) {
+        assert.equal((await admission.admit(goal.id, { kind: "message", inputId, content })).ok, true);
+    }
+
+    const stale = await admission.admit(goal.id, {
+        kind: "queue_control",
+        inputId: "remove-stale",
+        action: "remove",
+        messageId: "input-2",
+        queueRevision: 2,
+    });
+    assert.equal(stale.ok, false);
+    assert.equal(stale.ok === false && stale.code, "QUEUE_REVISION_MISMATCH");
+
+    const removed = await admission.admit(goal.id, {
+        kind: "queue_control",
+        inputId: "remove-input-2",
+        action: "remove",
+        messageId: "input-2",
+        queueRevision: 3,
+    });
+    assert.equal(removed.ok, true);
+    const saved = (await store.restore(goal.id))!;
+    assert.equal(saved.state.messageQueue?.revision, 4);
+    assert.deepEqual(saved.state.messageQueue?.items.map((item) => item.inputId), ["input-1", "input-3"]);
+    assert.deepEqual(
+        saved.state.inputLedger?.map((record) => [record.inputId, record.status]),
+        [["input-1", "pending"], ["input-2", "cleared"], ["input-3", "pending"], ["remove-input-2", "applied"]],
+    );
+});
+
 test("missing Goals are reported without writing anything", async () => {
     const store = new InMemoryGoalStore();
     const { admission, trajectory } = createAdmission(store);

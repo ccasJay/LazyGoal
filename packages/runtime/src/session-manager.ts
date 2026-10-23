@@ -909,9 +909,9 @@ export class SessionManager implements SessionHandlePort {
      * 受理显式恢复命令。
      *
      * @remarks
-     * 必须匹配最新 Run 与当前 Goal 提交修订；等待交互、暂停队列或没有可恢复
-     * 工作时返回稳定拒绝。恢复不会代答等待，也不会解除失败／Interrupt 造成的
-     * 队列暂停，但会重新唤醒执行所有者推进当前 Run 或已受理队首。
+     * 必须匹配最新 Run 与当前 Goal 提交修订；等待交互、失败暂停队列或没有可恢复
+     * 工作时返回稳定拒绝。恢复不会代答等待，也不会解除队列暂停；若 Interrupt
+     * 已受理但安全收尾中断，则只重新唤醒该 Run 完成收尾与取消结算。
      */
     private async admitResume(
         goalId: string,
@@ -1000,7 +1000,10 @@ export class SessionManager implements SessionHandlePort {
             this.continueQueueIfEligible(goalId);
             return { ok: true, existing: false, receipt: toSessionInputReceipt(goalId, resumedRecord) };
         }
-        if (current.state.messageQueue?.pause !== undefined) {
+        const interruptionNeedsSettlement = status === "running"
+            && current.state.run.interruption !== undefined
+            && current.state.run.interruption.status !== "finished";
+        if (current.state.messageQueue?.pause !== undefined && !interruptionNeedsSettlement) {
             return {
                 ok: false,
                 code: "QUEUE_PAUSED",
@@ -1178,7 +1181,10 @@ export class SessionManager implements SessionHandlePort {
             { goalId, runId: input.runId },
             input.inputId,
             input.content,
-            { digest },
+            {
+                digest,
+                ...(input.queueBinding === undefined ? {} : { queueBinding: input.queueBinding }),
+            },
         );
         if (!result.ok) {
             return {

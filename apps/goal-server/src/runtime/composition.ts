@@ -879,6 +879,9 @@ async function assembleRuntimeComposition(
         permissionModeStore,
         workspaceId: workspaceHomePaths.workspaceId,
         workspaceRoot,
+        sandboxPlanResolver: ({ workspaceRoot, action, effectiveScope }) => effectiveScope === undefined
+            ? undefined
+            : { actionId: action.actionId, workspaceRoot, scope: effectiveScope },
         trajectoryStore,
         traceSink,
         workingMemoryLimits,

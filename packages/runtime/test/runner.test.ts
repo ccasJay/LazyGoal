@@ -1,4 +1,4 @@
-import { ExecutionAbortedError, TransientModelRequestFailure } from "../../execution-control/src/index";
+import { ExecutionAbortedError, ModelRequestFailure, TransientModelRequestFailure } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -758,6 +758,29 @@ test("records stable causes and stops after three transient model request failur
         [2, "rate_limited", 429],
         [3, "service_unavailable", 503],
     ]);
+});
+
+test("provider request failures stop without protocol correction or transient retry", async () => {
+    const initial = createInitialGoal("provider-failed-run", "provider-failed-goal", profile);
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    let calls = 0;
+    const executor: StepExecutor = {
+        async execute() { assert.fail("Use the staged executor"); },
+        async decide() { calls += 1; throw new ModelRequestFailure("Provider rejected the request (HTTP 403)"); },
+        async think() { assert.fail("No Think was requested"); },
+        async reviewCompletion() { assert.fail("No completion was proposed"); },
+    };
+    const trajectory = trajectoryStoreFor(store);
+    const runner = new Runner({ store, executor, trajectoryStore: trajectory });
+    assert.equal(requireSuccessfulState(await runner.runUntilBlocked(createRef(initial))).status, "failed");
+    assert.equal(calls, 1);
+    const persisted = await store.restore(initial.id);
+    const reason = persisted?.state.run.stopReason;
+    assert.equal(reason?.kind, "execution_error");
+    if (reason?.kind === "execution_error") assert.equal(reason.code, "MODEL_REQUEST_FAILED");
+    const events = await trajectory.read({ goalId: initial.id, runId: initial.state.run.id });
+    assert.equal(events.some((event) => event.eventType === "model_repair_feedback_recorded" || event.eventType === "model_request_retry_recorded"), false);
 });
 
 test("cancelling model backoff prevents the next model request", async () => {

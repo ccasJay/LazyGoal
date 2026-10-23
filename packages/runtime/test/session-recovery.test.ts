@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+    createGoal,
+    computeSessionInputDigest,
     GoalCoordinator,
     InlineScheduler,
     Runner,
@@ -10,6 +12,7 @@ import {
     type AgentDecision,
     type AgentProfile,
     type AgentProfileRegistry,
+    type Goal,
     type GoalModelSelection,
     type StepExecutionInput,
     type StepExecutor,
@@ -114,6 +117,68 @@ function createHarness(options: {
         failures: () => [...failures],
     };
 }
+
+test("explicit recovery finishes an accepted interruption without unpausing the message queue", async () => {
+    const store = new InMemoryGoalStore();
+    const created = createGoal({
+        ...currentProtocols,
+        promptBundleVersion: 1,
+        id: "goal-interruption-recovery",
+        intent: "finish an accepted stop after process recovery",
+        profile,
+        runId: "run-interruption-recovery",
+    });
+    const interrupted: Goal = {
+        ...created,
+        state: {
+            ...created.state,
+            commitRevision: 2,
+            inputLedger: [{
+                inputId: "queued-follow-up",
+                kind: "message",
+                digest: computeSessionInputDigest({ kind: "message", inputId: "queued-follow-up", content: "Keep this queued" }),
+                sequence: 1,
+                status: "pending",
+                admittedAtRevision: 2,
+            }],
+            run: {
+                ...created.state.run,
+                status: "running",
+                interruption: { requestId: "interrupt-before-recovery", status: "requested", repairCallsStarted: 0 },
+            },
+            messageQueue: {
+                revision: 1,
+                items: [{ inputId: "queued-follow-up", content: "Keep this queued", sequence: 1 }],
+                pause: { reason: "user_interrupt", runId: created.state.run.id },
+            },
+        },
+    };
+    await store.save(interrupted);
+
+    const harness = createHarness({ store, decide: () => {
+        throw new Error("A recovered interruption without unknown effects must not call the model");
+    } });
+    const opened = await harness.sessions.open(created.id);
+    assert.equal(opened.ok, true);
+    if (!opened.ok) return;
+    assert.equal(opened.state.needsRecovery, true);
+
+    const resumed = await opened.session.send({
+        kind: "resume",
+        inputId: "resume-stop-recovery",
+        runId: created.state.run.id,
+        commitRevision: opened.state.commitRevision,
+    });
+    assert.equal(resumed.ok, true);
+    await harness.sessions.waitForIdle();
+
+    const settled = (await store.restore(created.id))!;
+    assert.equal(settled.state.run.status, "cancelled");
+    assert.equal(settled.state.run.interruption?.status, "finished");
+    assert.equal(settled.state.messageQueue?.pause?.reason, "user_interrupt");
+    assert.deepEqual(settled.state.messageQueue?.items.map((item) => item.content), ["Keep this queued"]);
+    assert.equal(harness.calls(), 0);
+});
 
 test("a persisted ask_user wait survives a rebuild and only a matching response resumes the same Run", async () => {
     const store = new InMemoryGoalStore();

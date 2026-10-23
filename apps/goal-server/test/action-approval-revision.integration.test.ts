@@ -25,7 +25,7 @@ class ScriptedAdapter implements LLMAdapter {
     async generate(_request: LLMRequest): Promise<LLMResponse> {
         this.calls += 1;
         const script: readonly { readonly toolId: string; readonly args: Record<string, unknown> }[] = [
-            { toolId: "system_update_run_stage", args: { target: "写入受控文件", acceptanceCriteria: ["事实已提交"] } },
+            { toolId: "system_start_run_stage", args: { target: "写入受控文件", acceptanceCriteria: ["事实已提交"] } },
             { toolId: "system_find_tools", args: { query: "controlled_write" } },
             { toolId: "controlled_write", args: { value: "original" } },
             { toolId: "system_complete_goal", args: { summary: "done" } },

@@ -17,15 +17,15 @@
 | 单活动执行名额 | 一个实例同时只运行一个 Goal；其他 Goal 的执行、交互推进与输入受理返回 busy，不进入隐式调度队列。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 后台执行任务 | 受理返回后由被追踪的后台 Promise 推进 Run；异常被观察并保留真实恢复状态。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 输入账本 | Goal 内按受理序号保存的输入身份、种类、载荷摘要与 pending／applied／cleared 状态。 | [Goal Runtime](../README.md) | [输入契约](../src/session-input.ts) |
-| 消息队列 | 尚未应用的普通消息 FIFO、队列修订与暂停原因；变更推进修订。 | [Goal Runtime](../README.md) | [输入契约](../src/session-input.ts) |
+| 消息队列 | 尚未应用的普通消息 FIFO、队列修订与暂停原因；追加、单条删除、清空和队列消息转 Steer 都在对应持久化边界推进修订。 | [Goal Runtime](../README.md) | [输入契约](../src/session-input.ts) |
 | 队列暂停 | Run 失败或用户 Interrupt 后保留待处理消息；有积压时须显式继续，Run 已结束且队列为空时新消息解除暂停并启动后继 Run。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
-| 会话 Steer 受理 | 目标 running Run 的补充输入与 Run 内待应用记录、账本收据在同一提交生效；拒绝不写收据也不降级为队列消息。 | [Goal Runtime](../README.md) | [输入受理边界](../src/session-admission.ts) |
+| 会话 Steer 受理 | 目标 running Run 的补充输入与 Run 内待应用记录、账本收据在同一提交生效；可通过队列修订绑定原子消费一条待处理消息，过期或错配时拒绝且不写收据。 | [Goal Runtime](../README.md) | [输入受理边界](../src/session-admission.ts)、[Runner](../src/runner.ts) |
 | 交互回答受理 | 匹配当前等待身份的回答通过既有 Coordinator 规则推进对应等待并写入收据；旧请求与错身份不解除等待。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 交互视图 | 由当前已提交等待派生的类型化请求：种类、Goal／Run 与请求身份、可用决定；不复制可变请求正文。 | [Goal Runtime](../README.md) | [交互视图](../src/interaction-view.ts) |
 | 交互详情读取 | 按稳定引用返回当前等待的完整问题、任务范围或 Action 输入；引用过期时拒绝且不推进等待。 | [Goal Runtime](../README.md) | [交互视图](../src/interaction-view.ts) |
 | 交互处理器 | 会话边界按种类分派的宿主处理函数入口：单一自动所有者、按引用去重、Gate 外调用；故障、迟到结果、解除与关闭都不默认决定。 | [Goal Runtime](../README.md) | [交互处理器](../src/interaction-handlers.ts) |
 | 问答响应分支 | 逐题答案、整体回复与跳过三种互斥分支；整体回复保留用户原文，跳过提交未回答并要求继续的控制语义，都不伪造选项。 | [Goal Runtime](../README.md) | [输入契约](../src/session-input.ts) |
-| 显式恢复 | 匹配最新 Run 与提交修订的恢复命令唤醒执行所有者或已受理队首；不代答等待，也不解除队列暂停。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
+| 显式恢复 | 匹配最新 Run 与提交修订的恢复命令唤醒执行所有者或已受理队首；已受理 Interrupt 的安全收尾可恢复并结算取消，但不解除队列暂停或代答等待。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 异步输入消费 | `consume` 逐条等待持久化受理；业务拒绝继续，基础设施失败停止来源，迟到项不受理。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 单消息封装 | 等待指定 Run 的等待或终态结果并返回可恢复身份；只释放自己的资源。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 有界关闭 | 停止接受与订阅后按期限结算；未结算时保留类型化错误，不伪造取消。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
@@ -54,6 +54,7 @@
 | Memory proposal 纠错 | 模型记忆提议在副作用前校验，拒绝进入同一 Decide 预算。 | [Goal Runtime](../README.md) | [阶段反馈](../src/runtime-feedback.ts) |
 | Run 阶段 | Run 内模型自主组织的阶段说明与完成条件；业务执行需活动阶段，最终审查拒绝后可重新打开已接受阶段。 | [Goal Runtime](../README.md) | [阶段规则](../src/run-stage.ts) |
 | Plan Run 路线 | 仅已批准 Plan Run 持有的完整有序阶段、状态、修订理由和 Runtime 恢复游标；范围内修订保留已接受结果。 | [Goal Runtime](../README.md) | [路线规则](../src/run-plan.ts) |
+| PTC 回放不匹配 | 恢复时程序身份或轨迹不符合回放契约会明确失败当前 Run；宿主关闭和中断仍可恢复。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 批次顺序执行 | 一次 Decide 返回的多个业务 Action 按模型返回顺序逐个暂存与执行。 | [Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 批次恢复点 | `pendingAction` 与 `pendingActionBatch` 共同构成"从第一个未产生结果的 Action 继续"的指针。 | [Runtime](../README.md) | [Goal 领域模型](../src/domain.ts) |
 | 不推进类预算 | 零调用正文与无可用结果的独立有界计数，与协议类纠错预算互不占用。 | [Runtime](../README.md) | [Runner](../src/runner.ts) |
@@ -61,3 +62,6 @@
 | 审批只读预检 | 重新准备参数、规划执行准入、权限与沙箱范围并返回可审阅结果；不保存批准、不暂存授权、不解除等待。 | [Goal Runtime](../README.md) | [审批修订规则](../src/action-approval.ts) |
 | 未知结果重执行决定 | 明确允许或拒绝结果未知的操作按获批版本再次执行；绑定本次恢复身份，旧决定不能授权新一轮。 | [Goal Runtime](../README.md) | [审批修订规则](../src/action-approval.ts) |
 | 批准决定身份 | 批准决定的稳定身份；持续授权按该身份暂存与激活，同一决定重试复用同一条记录。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts) |
+| 模型公开进度 | 从模型开始来源保留白名单调用阶段、调用身份与执行单元，不推断缺失元数据。 | [Goal Runtime](../README.md) | [会话输出分类器](../src/session-output.ts) |
+| 模型请求失败 | 适配边界确认的请求错误以 `MODEL_REQUEST_FAILED` 结算，不进入协议纠错。 | [Goal Runtime](../README.md) | [错误分类](../src/runner.ts) |
+| 阶段请求状态核对 | 在接受与提交前核对请求的阶段和路线版本，拒绝过期结果并重新决策。 | [Goal Runtime](../README.md) | [执行循环](../src/runner.ts) |

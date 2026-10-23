@@ -14,7 +14,7 @@
 
 ## 阶段控制声明
 
-`system_update_run_stage` 与 `system_complete_run_stage` 分别声明 Run 内部阶段的新建/修订提议及阶段完成候选提交。系统工具声明包含参数校验契约并编译为结构化 Provider Schema，由 Runtime 统一分配 stageId 与管理执行流转。
+阶段模型入口由 `createRunStageToolDeclarations` 按请求快照生成：无执行中阶段时提供 `system_start_run_stage`，执行中提供 `system_revise_run_stage` 与 `system_complete_run_stage`。普通开始只接受目标和条件；获批 Plan 开始只接受空对象并复用下一待执行阶段的获批内容。三个工具不接受身份、版本或 Memory Patch；解码闭包绑定请求中的当前身份和修订，转换为 Runtime 内部命令。阶段完成必须提交证据数组，既有证据规则继续决定其有效性。
 
 `RunPlanRouteCandidateContract` 校验 Plan Run 阶段路线候选中的有序目标与验收条件。候选作为 `task_proposal` 的一部分提交，与任务范围及总体验收条件共用一次审批；候选不包含由 Runtime 管理的阶段身份、状态或恢复游标。
 

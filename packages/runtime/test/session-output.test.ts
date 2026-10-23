@@ -153,6 +153,12 @@ test("私有阶段输出与工具参数不进入公开会话输出", () => {
     const serialized = JSON.stringify(tool);
     assert.equal(serialized.includes("never expose"), false);
     assert.equal(serialized.includes("src/a.ts"), true);
+    const command = classifySessionStreamEvent(streamEvent({
+        kind: "tool_started", actionId: "action-command", executionUnitId: "unit-command",
+        payload: { toolId: "bash", input: { command: "git  status\n --short", env: { TOKEN: "never expose" } } },
+    }, source));
+    assert.equal(command?.type === "tool_activity" && command.event.kind === "started" ? command.event.inputSummary : undefined, "git status --short");
+    assert.equal(JSON.stringify(command).includes("never expose"), false);
 });
 
 test("提交边界与流故障保持各自语义，不伪装业务终态", () => {

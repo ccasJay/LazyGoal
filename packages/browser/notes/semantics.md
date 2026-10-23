@@ -28,3 +28,8 @@
 | Provider model preview | 受同源授权保护的未保存连接查询，不写入档案。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
 | Think session projection | 从已提交请求与完成事实配对的独立 Think 展示成员，保留原 Step 序号与有界分析。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Approval review route | 受保护的只读审批预检接口；返回原／最终参数与能力范围，不保存批准也不解除等待。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
+| 当前 Run 错误摘要 | 窄状态中的已保存失败原因；只属于当前 Run，不读取历史或暴露供应商原始响应。 | [浏览器服务边界](../README.md) | [模块说明](./overview.md) |
+| 实时模型进度 | SSE 公开模型开始的真实来源时间和已知调用元数据；Bash 活动只附带有界命令摘要。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts)、[Session Projection](../src/browser-projection.ts) |
+| 执行诊断摘要 | 已提交纠错、请求失败、检索和审批事实的白名单摘要；工具保留真实 Stage 关联及审批后执行顺序，可跨刷新读取。 | [Browser](../README.md) | [Activity 投影](../src/browser-projection.ts) |
+
+| Activity Run 终态摘要 | 按所属 Run 与固定提交水位投影受限代码和固定说明，不公开原始异常，原因缺失时省略。 | [Browser](../README.md) | [Activity 投影](../src/browser-projection.ts) |

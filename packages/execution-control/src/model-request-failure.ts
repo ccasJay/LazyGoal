@@ -1,3 +1,23 @@
+/**
+ * 适配边界已确认、不可由协议纠错解决的模型请求失败。
+ *
+ * @remarks
+ * 消息必须是可公开的诊断，不包含供应商响应正文、凭据或请求内容；不授予重试资格。
+ * Runtime 将其归为请求失败，不作为模型决策格式错误反馈。
+ *
+ * @example
+ * ```ts
+ * throw new ModelRequestFailure("Provider rejected the model request (HTTP 403)");
+ * ```
+ */
+export class ModelRequestFailure extends Error {
+    /** @param message - 适配器生成的安全诊断摘要。 */
+    constructor(message: string) {
+        super(message);
+        this.name = "ModelRequestFailure";
+    }
+}
+
 /** 跨层可识别的暂时性模型请求故障类型。 */
 export type TransientModelFailureReason =
     | "rate_limited"

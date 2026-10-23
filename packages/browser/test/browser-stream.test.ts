@@ -243,21 +243,26 @@ test("Goal 范围事件流先同步状态，再按白名单投影活动并覆盖
     });
 
     // 后继 Run 的公开活动仍由同一个 Goal 订阅覆盖，不关闭、不遗漏。
+    let modelStartedAt: string | undefined;
+    const rawModel = publisher.subscribe({ goalId: goal.id, runId: "run-2" });
+    rawModel.onEvent(event => { modelStartedAt = event.occurredAt; });
     publisher.publish({
         goalId: goal.id,
         runId: "run-2",
+        executionUnitId: "model-unit-2",
         kind: "model_started",
         visibility: "public",
         durability: "live",
         delivery: "control",
-        payload: {},
+        payload: { stage: "completion_review", modelCallId: "model-call-2", privatePrompt: "PRIVATE_MODEL_PROMPT" },
     });
     assert.deepEqual((await nextEvent(iterator)).value, {
         type: "activity",
         goalId: goal.id,
         runId: "run-2",
-        activity: { kind: "model_started" },
+        activity: { kind: "model_started", occurredAt: modelStartedAt, stage: "completion_review", modelCallId: "model-call-2", executionUnitId: "model-unit-2" },
     });
+    rawModel.close();
 
     publisher.closeGoal(goal.id, "publisher_closed");
     while (true) {

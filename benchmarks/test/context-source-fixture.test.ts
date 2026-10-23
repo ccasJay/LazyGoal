@@ -12,7 +12,7 @@ test("engineering fixture obeys stage native tool and discover-before-invoke con
     assert.equal(role.kind, "scripted");
     assert.equal(role.configuration?.actualModelCalls, 0);
     const first = await role.adapter.generate({ messages: [{ role: "user", content: JSON.stringify({ phase: "executing", execution: {} }) }] });
-    assert.equal(readToolCalls(first)[0]?.toolId, "system_update_run_stage");
+    assert.equal(readToolCalls(first)[0]?.toolId, "system_start_run_stage");
     const messages = [{ role: "user" as const, content: JSON.stringify({ phase: "executing", execution: { currentStage: { stageId: "stage" } } }) }];
     const discovery = await role.adapter.generate({ messages });
     assert.equal(parseModelOutput(readAssistantText(discovery), createModelOutputContractBundle({ kind: "executing" })).kind, "tool_discovery");

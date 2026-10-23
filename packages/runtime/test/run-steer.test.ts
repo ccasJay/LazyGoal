@@ -432,6 +432,82 @@ test("session Steer writes a durable receipt, keeps the run alive and never dupl
     assert.equal(rebuilt.calls(), 0);
 });
 
+test("converting a queued message to Steer atomically consumes its queue entry", async () => {
+    const store = new InMemoryGoalStore();
+    const entered = deferred();
+    const release = deferred();
+    const harness = createSteerSessions({
+        store,
+        onDecide: async (_goal, callIndex) => {
+            if (callIndex === 1) {
+                entered.resolve();
+                await release.promise;
+            }
+            return { kind: "decision", decision: { kind: "fail", error: `terminal ${callIndex}` } };
+        },
+    });
+
+    const created = await harness.sessions.create({
+        goalId: "goal-session-queued-steer",
+        inputId: "input-first",
+        content: "首个任务",
+        profileId: profile.id,
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    await entered.promise;
+    const runId = (await store.restore("goal-session-queued-steer"))!.state.run.id;
+
+    const queued = await created.session.send({
+        kind: "message",
+        inputId: "queued-message",
+        content: "转入当前 Run",
+    });
+    assert.equal(queued.ok, true);
+    const queuedGoal = (await store.restore("goal-session-queued-steer"))!;
+    const queueRevision = queuedGoal.state.messageQueue!.revision;
+    assert.deepEqual(queuedGoal.state.messageQueue?.items.map((item) => item.inputId), ["queued-message"]);
+
+    const stale = await created.session.send({
+        kind: "steer",
+        inputId: "steer-stale",
+        runId,
+        content: "转入当前 Run",
+        queueBinding: { messageId: "queued-message", queueRevision: queueRevision - 1 },
+    });
+    assert.equal(stale.ok, false);
+    assert.equal(stale.ok === false && stale.code, "QUEUE_REVISION_MISMATCH");
+    assert.deepEqual((await store.restore("goal-session-queued-steer"))!.state.messageQueue?.items.map((item) => item.inputId), ["queued-message"]);
+
+    const steered = await created.session.send({
+        kind: "steer",
+        inputId: "steer-from-queue",
+        runId,
+        content: "转入当前 Run",
+        queueBinding: { messageId: "queued-message", queueRevision },
+    });
+    assert.equal(steered.ok, true);
+    if (!steered.ok) return;
+    const converted = (await store.restore("goal-session-queued-steer"))!;
+    assert.equal(converted.state.messageQueue?.revision, queueRevision + 1);
+    assert.deepEqual(converted.state.messageQueue?.items, []);
+    assert.deepEqual(converted.state.run.steerInputs, [
+        { messageId: "steer-from-queue", status: "pending", content: "转入当前 Run" },
+    ]);
+    assert.deepEqual(
+        converted.state.inputLedger?.map((record) => [record.inputId, record.kind, record.status]),
+        [["input-first", "message", "applied"], ["queued-message", "message", "cleared"], ["steer-from-queue", "steer", "pending"]],
+    );
+
+    release.resolve();
+    await harness.sessions.waitForIdle();
+    const finished = (await store.restore("goal-session-queued-steer"))!;
+    assert.deepEqual(finished.state.messages.filter((message) => message.role === "user").map((message) => message.content), [
+        "首个任务",
+        "转入当前 Run",
+    ]);
+});
+
 test("session Steer rejects stale or non-running targets without queueing the message", async () => {
     const store = new InMemoryGoalStore();
     const harness = createSteerSessions({

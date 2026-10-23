@@ -147,6 +147,33 @@ test("GrepTool 支持 include 与 exclude 模式过滤", async () => {
     }
 });
 
+test("GrepTool 将空白 include 与 exclude 视为未设置过滤", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-grep-"));
+
+    try {
+        await writeFile(join(workspaceRoot, "a.ts"), "export const value = 1;\n", "utf8");
+        const tool = new GrepTool(workspaceRoot);
+        const result = await tool.execute({
+            actionId: "act-empty-filter",
+            input: {
+                pattern: "export",
+                include: "  ",
+                exclude: "",
+            },
+        });
+
+        assert.equal(result.kind, "success");
+        if (result.kind === "success") {
+            const output = result.output as unknown as GrepOutput;
+            assert.deepEqual(output.matches, [
+                { path: "a.ts", lineNumber: 1, lineText: "export const value = 1;" },
+            ]);
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
 test("GrepTool 支持 contextLines 上下文行提取及文件边界处理", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-grep-"));
 

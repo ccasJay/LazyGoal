@@ -9,3 +9,4 @@
 | 默认动态 Section | run_mode、任务、GoalPlan、工具、Memory 与导航的投影定义。 | [Prompt Bundle](../README.md) | [默认 Section](../src/default-dynamic-sections.ts) |
 | 默认协议适配 | 只接受 structured@1 + trajectory-layered@1 + bm25-lite@1 + v1。 | [Prompt Bundle](../README.md) | [默认装配](../src/default-bundles.ts) |
 | 默认 Renderer | 显式加载当前资产并装配注册机制的工厂。 | [Prompt Bundle](../README.md) | [默认装配](../src/default-bundles.ts) |
+| 阶段操作提示 | 明示阶段状态，按当前状态提示开始、修订或完成。 | [Prompt Bundle](../README.md) | [动态 Section](../src/default-dynamic-sections.ts) |

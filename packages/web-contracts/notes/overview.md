@@ -2,7 +2,9 @@
 
 正式消息 DTO 保留 Snapshot 中的稳定消息身份、所属 Run 和 Run 内事实位置，供历史窗口和实时提交通知使用。
 
-`BrowserGoalSessionState` 明确把消息、步骤和阶段历史标记为 Activity 外置，同时保留当前 Run、Plan 路线、等待、队列、中断和既有当前状态。`BrowserActivityPage` 只包含白名单事实摘要和有界正文，默认页大小为 50、上限为 100；Run 内事实序号与 Snapshot 保存的消息位置决定稳定顺序。cursor 绑定 Goal、筛选与每个相关 Run 的首次消息/轨迹水位，双向读取不吸收窗口之后追加的内容；`gaps` 给出页首尾尚未加载范围的准确项数和首尾位置。DTO 不把原始事件 payload 或完整工具／Observation 载荷暴露给浏览器。
+`BrowserGoalSessionState` 明确把消息、步骤和阶段历史标记为 Activity 外置，同时保留当前 Run、Plan 路线、等待、队列、中断和既有当前状态。`currentRunTerminalDetail` 只携带当前失败 Run 已保存的有界错误摘要，不包含供应商原始响应。`BrowserActivityPage` 只包含白名单事实摘要和有界正文，默认页大小为 50、上限为 100；Run 内事实序号与 Snapshot 保存的消息位置决定稳定顺序。cursor 绑定 Goal、筛选与每个相关 Run 的首次消息/轨迹水位，双向读取不吸收窗口之后追加的内容；`gaps` 给出页首尾尚未加载范围的准确项数和首尾位置。事实白名单包含模型纠错、请求失败和历史检索状态；可选 `detail` 最多 500 字符，只含固定状态文案、尝试次数及安全 HTTP 状态，不携带原始反馈或检索内容。DTO 不把原始事件 payload 或完整工具／Observation 载荷暴露给浏览器。
+
+统一输入命令中的 `queue_control.remove` 必须携带观察到的队列修订与目标消息身份；排队消息转为当前 Run 的 Steer 时，`steer.queueBinding` 携带同一来源绑定。wire parser 校验这两个边界字段，Runtime 再按持久化状态拒绝过期修订或不匹配的消息。
 
 Activity 助手消息必须携带 `process`、`answer` 或 `notice` 用途；用户消息不带助手用途。正式完成候选答复可带稳定 `previewId`，仅用于关联先前公开预览，不包含候选正文；wire guard 只接受非空且有界的助手答复关联。只有 `run_stage_declared` 事实可以携带最多 1,000 字符的 `stageTarget`，值只来自已提交声明。wire guard 拒绝缺失或无效的助手用途，以及放在其他事件类型上的阶段目标。
 
@@ -11,6 +13,8 @@ Activity 助手消息必须携带 `process`、`answer` 或 `notice` 用途；用
 会话指标 DTO 的 `tokensPerSecond` 表示应用观察到的端到端 Provider 请求输出速率；其分子使用 Provider 确认的输出 token，时间语义和测量覆盖由 [指标投影模块](../../session-metrics/notes/overview.md)定义。
 
 `BrowserSessionStep.sourceEventId` 指向已提交 Trajectory 事件，并可携带 Action 身份和已验证的相邻边界；`BrowserGoalActivityEvent.sourceEventId/sourceCursor` 属于独立的 ExecutionStream 来源。不同来源即使字符串相同也不得互相去重；`actionId` 是前端将同一调用的实时状态和历史步骤协调起来的稳定身份。实时 DTO 只含有界、白名单的输入/结果摘要和公开边界类型，不含隐藏推理、任意工具载荷或输出正文。该身份形状服务于可重建 UI，不作为持久化 ActivityGroup Schema。
+
+`model_started` 可带真实来源时间、模型调用身份、执行单元与已知协议阶段；阶段仅允许 decide、think、completion_review，不代表工作流 Stage。wire guard 校验元数据长度与时间有效性；未提供的字段不由浏览器推断。
 
 ## 所有权
 
@@ -23,3 +27,5 @@ Activity 正文摘要最多 4,000 UTF-16 code unit，截断不得拆分代理项
 Provider 表单在线查询使用 `BrowserProviderModelQuery` 与 `BrowserProviderModels`：请求不需要默认模型，响应只返回模型 ID 和名称；`isProviderModels` 验证响应边界。密钥仅存在于请求，不回显或持久化。
 
 `BrowserSessionStep.think` 携带显式 Think 目标及可选的已提交分析；无输出表示尚无完成事实，`truncated` 表示有界正文被省略。多个 Think 成员可以共享同一个 Runtime Step 序号，成员数量不等于 `stepCount`。Think 正文通过受保护的会话 HTTP 响应提供，实时通知仍只触发检查点重读；供应商隐藏推理不进入该 DTO。
+
+`BrowserActivityRunContext.terminalDetail` 是可选的安全终态摘要：消息最多 500 字符、代码最多 80 字符，只允许这两个字段。来源缺失时省略；消费者不得借用其它 Run 的错误。它属于展示 DTO，不改变 Runtime 终态或持久化格式。

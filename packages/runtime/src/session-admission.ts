@@ -265,6 +265,33 @@ export class SessionInputAdmission {
                     return { planned: true, goal: nextGoal, record: controlRecord };
                 }
 
+                if (input.action === "remove") {
+                    const queuedMessage = queue.items.find((item) => item.inputId === input.messageId);
+                    if (queuedMessage === undefined) {
+                        return {
+                            planned: false,
+                            result: rejection("QUEUED_MESSAGE_NOT_FOUND", `Queued message "${input.messageId}" was not found`),
+                        };
+                    }
+                    const ledger = (goal.state.inputLedger ?? []).map((record) =>
+                        record.inputId === queuedMessage.inputId && record.status === "pending"
+                            ? { ...record, status: "cleared" as const }
+                            : record);
+                    const nextGoal: Goal = {
+                        ...goal,
+                        state: {
+                            ...goal.state,
+                            inputLedger: [...ledger, controlRecord],
+                            messageQueue: {
+                                revision: queue.revision + 1,
+                                items: queue.items.filter((item) => item.inputId !== queuedMessage.inputId),
+                                ...(queue.pause === undefined ? {} : { pause: queue.pause }),
+                            },
+                        },
+                    };
+                    return { planned: true, goal: nextGoal, record: controlRecord };
+                }
+
                 const cleared = new Set(queue.items.map((item) => item.inputId));
                 const ledger = (goal.state.inputLedger ?? []).map((record) =>
                     record.status === "pending" && cleared.has(record.inputId)

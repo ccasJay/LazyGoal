@@ -177,9 +177,9 @@ export {
     SystemAskUserDeclaration,
     SystemUpdateGoalPlanDeclaration,
     SystemRequestThinkDeclaration,
-    SystemUpdateRunStageDeclaration,
+    SystemStartRunStageDeclaration,
+    createRunStageToolDeclarations,
     SystemUpdatePlanRouteDeclaration,
-    SystemCompleteRunStageDeclaration,
     createExecutingToolDeclarations,
     createUnifiedToolDeclarations,
     createCheckpointToolDeclarations,
@@ -190,12 +190,14 @@ export type {
     AskUserTool,
     SystemToolDeclaration,
     SystemFindToolsInput,
+    RunStageToolContext,
 } from "./model-output/system-tools";
 
 export {
     SystemFindToolsInputContract,
     SystemUpdateGoalPlanInputContract,
-    SystemUpdateRunStageInputContract,
+    SystemStartRunStageInputContract,
+    SystemReviseRunStageInputContract,
     SystemUpdatePlanRouteInputContract,
     SystemCompleteRunStageInputContract,
 } from "./model-output/system-tools";

@@ -6,8 +6,8 @@ import {
     AgentDecisionContract,
     RunStageUpdateAgentDecisionContract,
     RunStageCompleteAgentDecisionContract,
-    SystemUpdateRunStageDeclaration,
-    SystemCompleteRunStageDeclaration,
+    SystemStartRunStageDeclaration,
+    createRunStageToolDeclarations,
 } from "../src/index";
 
 test("1.1: RunStageUpdateAgentDecision contract decodes valid stage declaration and revision", () => {
@@ -108,7 +108,7 @@ test("3.1: RunStageCompleteAgentDecision contract decodes valid stage completion
 });
 
 test("Native system tools declarations decode correctly", () => {
-    const decodedUpdate = SystemUpdateRunStageDeclaration.decode({
+    const decodedUpdate = SystemStartRunStageDeclaration.decode({
         target: "新阶段目标",
         acceptanceCriteria: ["条件 A"],
     });
@@ -118,8 +118,7 @@ test("Native system tools declarations decode correctly", () => {
         assert.deepEqual(decodedUpdate.acceptanceCriteria, ["条件 A"]);
     }
 
-    const decodedComplete = SystemCompleteRunStageDeclaration.decode({
-        stageId: "stage-1",
+    const decodedComplete = createRunStageToolDeclarations({ currentStage: { stageId: "stage-1", revision: 1, status: "executing" } })[1]!.decode({
         summary: "阶段完成摘要",
         evidenceSequences: [1, 2],
     });
@@ -132,11 +131,53 @@ test("Native system tools declarations decode correctly", () => {
 });
 
 test("Provider schema has strict JSON schema definition", () => {
-    assert.equal(SystemUpdateRunStageDeclaration.parametersSchema.type, "object");
-    assert.equal(SystemUpdateRunStageDeclaration.parametersSchema.additionalProperties, false);
-    assert.ok(Array.isArray(SystemUpdateRunStageDeclaration.parametersSchema.required));
+    for (const declaration of [...createRunStageToolDeclarations({}), ...createRunStageToolDeclarations({ currentStage: { stageId: "stage-1", revision: 1, status: "executing" } })]) {
+        assert.equal(declaration.parametersSchema.type, "object");
+        assert.equal(declaration.parametersSchema.additionalProperties, false);
+        assert.ok(Array.isArray(declaration.parametersSchema.required));
+    }
+});
 
-    assert.equal(SystemCompleteRunStageDeclaration.parametersSchema.type, "object");
-    assert.equal(SystemCompleteRunStageDeclaration.parametersSchema.additionalProperties, false);
-    assert.ok(Array.isArray(SystemCompleteRunStageDeclaration.parametersSchema.required));
+test("Stage tools expose only work parameters and bind the request's active stage", () => {
+    const currentStage = { stageId: "stage-7", revision: 3, status: "executing" as const };
+    const declarations = createRunStageToolDeclarations({ currentStage });
+    assert.deepEqual(declarations.map(tool => tool.id), ["system_revise_run_stage", "system_complete_run_stage"]);
+    currentStage.revision = 4;
+    currentStage.stageId = "stage-8";
+    const revised = declarations[0]!.decode({ target: "Inspect", acceptanceCriteria: ["Evidence"], reason: "New evidence" });
+    assert.deepEqual(revised, { kind: "run_stage_update", stageId: "stage-7", baseRevision: 3,
+        target: "Inspect", acceptanceCriteria: ["Evidence"], reason: "New evidence" });
+    assert.deepEqual(declarations[1]!.decode({ summary: "Inspected", evidenceSequences: [7] }), {
+        kind: "run_stage_complete", stageId: "stage-7", summary: "Inspected", evidenceSequences: [7],
+    });
+    for (const tool of [SystemStartRunStageDeclaration, ...declarations]) {
+        const properties = tool.parametersSchema.properties as Record<string, unknown>;
+        for (const key of ["stageId", "baseRevision", "memoryPatch"]) assert.equal(key in properties, false);
+    }
+    assert.throws(() => declarations[1]!.decode({ summary: "Done" }));
+});
+
+test("Plan start uses an empty object and captures the next approved stage", () => {
+    const stage = { target: "Approved investigation", acceptanceCriteria: ["Read source"], status: "pending" as const };
+    const route = { revision: 2, nextStageIndex: 0, stages: [stage] };
+    const tools = createRunStageToolDeclarations({ planRoute: route });
+    assert.deepEqual(tools.map(tool => tool.id), ["system_start_run_stage"]);
+    stage.target = "Changed later";
+    stage.acceptanceCriteria.push("Changed later");
+    assert.deepEqual(tools[0]!.decode({}), { kind: "run_stage_update", target: "Approved investigation", acceptanceCriteria: ["Read source"] });
+    assert.throws(() => tools[0]!.decode({ target: "Skip approval" }));
+    assert.deepEqual(createRunStageToolDeclarations({ planRoute: { ...route, nextStageIndex: 1 } }), []);
+    assert.deepEqual(createRunStageToolDeclarations({ currentStage: { stageId: "stage-1", revision: 1, status: "accepted" } }).map(tool => tool.id), ["system_start_run_stage"]);
+});
+
+test("Stage start rejects fabricated identity, unrelated memory, and blank work descriptions", () => {
+    const input = { target: "Investigate", acceptanceCriteria: ["Read sources"] };
+    for (const extra of [{ stageId: "arch-audit" }, { baseRevision: 1 }, { memoryPatch: { protocolVersion: "1", operations: [] } }]) {
+        assert.throws(() => SystemStartRunStageDeclaration.decode({ ...input, ...extra }));
+    }
+    for (const invalid of [{ ...input, target: "  " }, { ...input, acceptanceCriteria: [] }, { ...input, acceptanceCriteria: [" "] }]) {
+        assert.throws(() => SystemStartRunStageDeclaration.decode(invalid));
+    }
+    const revise = createRunStageToolDeclarations({ currentStage: { stageId: "stage-1", revision: 1, status: "executing" } })[0]!;
+    assert.throws(() => revise.decode({ ...input, reason: " " }));
 });

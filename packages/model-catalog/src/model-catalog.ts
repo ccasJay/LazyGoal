@@ -106,14 +106,14 @@ const STATIC_FACTORIES = {
 };
 
 /**
- * OpenCode Go 在线列表没有提供的、经独立资料确认的动态模型执行契约。
+ * pi-ai 静态目录未登记、但已从可信资料确认的 OpenCode Go 动态模型执行契约。
  *
  * @remarks
  * 注册项只描述可安全构造 Binding 的非敏感协议与容量。在线目录仍必须同时返回模型 ID，端点固定由 OpenCode Go Provider 所有。
  *
  * @example
  * ```ts
- * const metadata = resolveOpenCodeGoExecutionMetadata("minimax-m3.1-flash-free");
+ * const metadata = resolveOpenCodeGoExecutionMetadata("beam-free");
  * if (metadata !== undefined) console.log(metadata.executionApi);
  * ```
  */
@@ -133,6 +133,14 @@ export interface OpenCodeGoExecutionMetadata {
 }
 
 const OPENCODE_GO_EXECUTION_METADATA: Readonly<Record<string, OpenCodeGoExecutionMetadata>> = {
+    "beam-free": {
+        modelId: "beam-free",
+        executionApi: "openai-completions",
+        contextWindowTokens: 1_048_576,
+        maxOutputTokens: 131_072,
+        reasoning: true,
+        vision: false,
+    },
     "minimax-m3.1-flash-free": {
         modelId: "minimax-m3.1-flash-free",
         executionApi: "openai-completions",
@@ -151,7 +159,7 @@ const OPENCODE_GO_EXECUTION_METADATA: Readonly<Record<string, OpenCodeGoExecutio
  *
  * @example
  * ```ts
- * const metadata = resolveOpenCodeGoExecutionMetadata("minimax-m3.1-flash-free");
+ * const metadata = resolveOpenCodeGoExecutionMetadata("beam-free");
  * ```
  */
 export function resolveOpenCodeGoExecutionMetadata(modelId: string): OpenCodeGoExecutionMetadata | undefined {

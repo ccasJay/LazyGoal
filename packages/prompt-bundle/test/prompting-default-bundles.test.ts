@@ -168,7 +168,7 @@ test("Run mode section keeps its exact tool list aligned with the active output 
             assert.match(text, /Approved Plan route \(revision 2, next stage index 1\)/);
             assert.match(text, /1\. ACCEPTED — Inspect/);
             assert.match(text, /2\. PENDING — Implement/);
-            assert.match(text, /declare only the next pending stage/i);
+            assert.match(text, /start only the next pending stage.*empty object/i);
             assert.match(text, /Do not complete the Run until every route stage is accepted/);
             assert.match(text, /system_update_plan_route/);
         } else {

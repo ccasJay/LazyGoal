@@ -133,11 +133,11 @@ test("无 Adapter 与 Binding 即可获得 Decide 请求、绑定契约与 frame
     assert.equal(plan.bundle.name, "plan_mode_approved_executing_agent_decision");
     assert.deepEqual(
         plan.toolDeclarations.map((declaration) => declaration.id).sort(),
-        ["ask_user", "read_file", "system_complete_run_stage", "system_complete_task", "system_context_lookup", "system_fail_goal", "system_find_tools", "system_update_goal_plan", "system_update_plan_route", "system_update_run_stage", "system_wait_for_input"],
+        ["ask_user", "read_file", "system_complete_task", "system_context_lookup", "system_fail_goal", "system_find_tools", "system_start_run_stage", "system_update_goal_plan", "system_update_plan_route", "system_wait_for_input"],
     );
     assert.deepEqual(
         plan.request.tools?.map((tool) => tool.id).sort(),
-        ["ask_user", "read_file", "system_complete_run_stage", "system_complete_task", "system_context_lookup", "system_fail_goal", "system_find_tools", "system_update_goal_plan", "system_update_plan_route", "system_update_run_stage", "system_wait_for_input"],
+        ["ask_user", "read_file", "system_complete_task", "system_context_lookup", "system_fail_goal", "system_find_tools", "system_start_run_stage", "system_update_goal_plan", "system_update_plan_route", "system_wait_for_input"],
     );
     assert.equal(plan.request.toolChoice, "required");
     assert.equal(plan.request.structuredOutput, undefined);

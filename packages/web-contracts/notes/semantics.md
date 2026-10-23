@@ -7,6 +7,7 @@
 | BrowserGoalSession | 浏览器会话投影 DTO。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
 | BrowserGoalList | Goal 列表响应信封：可读取摘要与无法读取的历史 Goal 数量。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserGoalSessionState | 只含当前 Run 状态的窄会话 DTO；消息、步骤和阶段历史明确由 Activity 提供。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
+| BrowserSessionInputCommand | 统一输入 wire 命令；队列删除与 Steer 来源转换均绑定客户端读取的队列修订，Runtime 负责最终原子校验。 | [Web 传输契约](../README.md) | [输入命令 DTO](../src/session-input.ts)、[入站解析](../../browser/src/browser-goal-routes.ts) |
 | BrowserActivityPage | 固定水位的白名单 Activity 页；含最多 100 个原子项、双向 cursor 和未加载首尾范围。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
 | BrowserActivityMessageItem.purpose | 必填的助手消息用途：过程、最终答复或公开通知；用户消息省略。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
 | BrowserActivityMessageItem.previewId | 已保存完成候选答复关联的公开候选身份；不包含临时预览正文。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
@@ -25,3 +26,8 @@
 | Provider model query | 未保存连接参数与仅含模型 ID/名称的响应。 | [Web 传输契约](../README.md) | [Provider DTO](../src/provider-settings.ts) |
 | BrowserSessionStep.think | 显式 Think 的有界目标、可选已提交输出及截断标记；不计为新增 Runtime Step。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserActionReview | 只读审批预检的 wire 载荷与稳定拒绝码。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
+| 当前 Run 错误摘要 | 窄状态中的已保存失败原因；只属于当前 Run，不读取历史或暴露供应商原始响应。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
+| 模型阶段元数据 | model_started 的可选调用阶段、身份、执行单元与来源时间；wire 拒绝未知阶段、无效时间及超长身份。 | [Web 传输契约](../README.md) | [事件 DTO](../src/events.ts)、[验证](../src/validation.ts) |
+| Activity 诊断说明 | 事实可携带最多 500 字符的安全状态说明，不含原始反馈或检索内容。 | [Web Contracts](../README.md) | [Activity DTO](../src/activity.ts) |
+
+| BrowserActivityRunContext.terminalDetail | 所属 Run 固定提交水位内的安全失败摘要；可缺失，不承载原始异常。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts)、[Wire 校验](../src/validation.ts) |

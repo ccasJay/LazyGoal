@@ -108,7 +108,7 @@ export interface ModelCallInput {
     readonly context: ModelCallContext;
     /** 已准备完成的最终请求。 */
     readonly request: LLMRequest;
-    /** 调用所属阶段，用于输入记录与指标。 */
+    /** 调用所属阶段，用于输入记录、指标和公开生命周期；completion_review 不发布任何内容块。 */
     readonly stage: ModelInputRecord["stage"];
     /** 可选的供应商输出上限；省略时不透传。 */
     readonly maxOutputTokens?: number;
@@ -133,7 +133,7 @@ export async function callModel(
     dependencies: ModelCallDependencies,
     input: ModelCallInput,
 ): Promise<{ readonly response: LLMResponse; readonly startedAt: number; readonly callId: string }> {
-    const { context, control } = input;
+    const { context, control, stage } = input;
     throwIfAborted(control);
     const startedAt = Date.now();
     const callId = randomUUID();
@@ -184,15 +184,15 @@ export async function callModel(
     const observation: ModelStreamObservation = {};
     try {
         if (dependencies.adapter.stream === undefined) {
-            publishModelStarted(dependencies, context, callId);
+            publishModelStarted(dependencies, context, callId, stage);
             requestStartedAt = performance.now();
             response = await dependencies.adapter.generate(providerRequest, control);
             const elapsedMs = performance.now() - requestStartedAt;
             if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
-            publishWholeResponseEvents(dependencies, context, callId, response);
+            publishWholeResponseEvents(dependencies, context, callId, response, stage);
         } else {
             requestStartedAt = performance.now();
-            const streamed = await consumeModelStream(dependencies, providerRequest, context, control, callId, observation);
+            const streamed = await consumeModelStream(dependencies, providerRequest, context, control, callId, observation, stage);
             response = streamed.response;
             decodeDurationMs = streamed.decodeDurationMs;
             const elapsedMs = performance.now() - requestStartedAt;
@@ -245,11 +245,12 @@ async function consumeModelStream(
     control: ExecutionControl | undefined,
     callId: string,
     observation: ModelStreamObservation,
+    stage: ModelCallInput["stage"],
 ): Promise<{ readonly response: LLMResponse; readonly decodeDurationMs?: number }> {
     if (dependencies.adapter.stream === undefined) {
-        publishModelStarted(dependencies, context, callId);
+        publishModelStarted(dependencies, context, callId, stage);
         const response = await dependencies.adapter.generate(request, control);
-        publishWholeResponseEvents(dependencies, context, callId, response);
+        publishWholeResponseEvents(dependencies, context, callId, response, stage);
         return { response };
     }
 
@@ -270,7 +271,7 @@ async function consumeModelStream(
                 && event.delta.length > 0 && firstTextDeltaAt === undefined) {
                 firstTextDeltaAt = performance.now();
             }
-            publishModelStreamEvent(dependencies, context, callId, event);
+            publishModelStreamEvent(dependencies, context, callId, event, stage);
             if (event.kind !== "completed" || firstTextDeltaAt === undefined) continue;
             const measuredDurationMs = performance.now() - firstTextDeltaAt;
             if (measuredDurationMs > 0) decodeDurationMs = measuredDurationMs;
@@ -330,13 +331,14 @@ function publishModelStarted(
     dependencies: ModelCallDependencies,
     context: ModelCallContext,
     callId: string,
+    stage: ModelCallInput["stage"],
 ): void {
     publishExecutionEvent(dependencies, context, {
         kind: "model_started",
         visibility: "public",
         durability: "live",
         delivery: "control",
-        payload: { modelCallId: callId },
+        payload: { modelCallId: callId, stage },
     });
 }
 
@@ -346,8 +348,9 @@ function publishWholeResponseEvents(
     context: ModelCallContext,
     callId: string,
     response: LLMResponse,
+    stage: ModelCallInput["stage"],
 ): void {
-    for (const block of response.blocks) {
+    for (const block of stage === "completion_review" ? [] : response.blocks) {
         publishExecutionEvent(dependencies, context, blockEventDraft(callId, "started", block, "whole"));
         publishExecutionEvent(dependencies, context, blockEventDraft(callId, "completed", block, "whole"));
     }
@@ -365,10 +368,12 @@ function publishModelStreamEvent(
     context: ModelCallContext,
     callId: string,
     event: LLMStreamEvent,
+    stage: ModelCallInput["stage"],
 ): void {
+    if (stage === "completion_review" && event.kind !== "started" && event.kind !== "completed") return;
     switch (event.kind) {
         case "started":
-            publishModelStarted(dependencies, context, callId);
+            publishModelStarted(dependencies, context, callId, stage);
             return;
         case "content_block_started":
             publishExecutionEvent(dependencies, context, {

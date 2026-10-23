@@ -51,6 +51,8 @@ test("Profile Store: 创建多份同 kind 档案、按 id 读取与更新时省�
 
     const rotated = await store.update(first.id, { apiKey: "sk-canary-openai-rotated" });
     assert.equal(rotated.apiKey, "sk-canary-openai-rotated", "显式提供 apiKey 必须替换");
+    const reloaded = await new JsonFileProviderProfileStore(home).list();
+    assert.equal(reloaded.find(profile => profile.id === first.id)?.apiKey, "sk-canary-openai-rotated", "新 Store 必须读取替换后已落盘的凭据");
 
     const stored = JSON.parse(await readFile(join(home.homeDirectory, PROFILE_FILE), "utf8")) as { version: number };
     assert.equal(stored.version, 1);

@@ -12,3 +12,4 @@
 | 原生身份检查 | 续接数据与期望会话身份的校验。 | [模型响应解码](../README.md) | [阶段检查](../src/stage-response.ts) |
 | Think 文本检查 | 拒绝工具调用与空文本，返回去除空白文本。 | [模型响应解码](../README.md) | [阶段检查](../src/stage-response.ts) |
 | 完成审查输出检查 | 唯一审查调用与接受/拒绝解码。 | [模型响应解码](../README.md) | [阶段检查](../src/stage-response.ts) |
+| Schema 期望值 | 字面量反馈所用的有界可信常量，不包含模型原始值。 | [模型响应解码](../README.md) | [工具解码](../src/stage-response.ts) |

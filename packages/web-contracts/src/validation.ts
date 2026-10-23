@@ -281,7 +281,7 @@ const SESSION_INPUT_ERROR_CODES: ReadonlySet<string> = new Set([
     "INVALID_INPUT", "INPUT_CONFLICT", "INPUT_NOT_FOUND", "GOAL_NOT_FOUND", "BUSY", "STEER_CONFLICT",
     "INTERRUPT_CONFLICT", "STALE_REVISION", "INTERACTION_MISMATCH", "INTERACTION_REQUIRED", "QUEUE_PAUSED",
     "RUN_NOT_RESUMABLE", "QUEUE_FULL", "QUEUE_TEXT_TOO_LARGE", "TEXT_TOO_LARGE", "QUEUE_NOT_PAUSED",
-    "QUEUE_REVISION_MISMATCH", "RUN_NOT_FOUND", "RUN_NOT_RUNNING", "RUN_CONTROL_UNAVAILABLE",
+    "QUEUE_REVISION_MISMATCH", "QUEUED_MESSAGE_NOT_FOUND", "RUN_NOT_FOUND", "RUN_NOT_RUNNING", "RUN_CONTROL_UNAVAILABLE",
     "input_admission_failed", "session_unavailable",
 ]);
 
@@ -676,7 +676,7 @@ export function isBrowserGoalSession(value: unknown): value is BrowserGoalSessio
  */
 export function isBrowserGoalSessionState(value: unknown): value is BrowserGoalSessionState {
     if (!isRecord(value)
-        || Object.keys(value).some((key) => !["goalId", "intent", "currentRunId", "runStatus", "currentRunMode", "nextRunMode", "currentRunStepCount", "currentPlanRoute", "execution", "pendingSteers", "pendingMessages", "queue", "interruption", "goalPlan", "interaction", "pendingAction", "history"].includes(key))
+        || Object.keys(value).some((key) => !["goalId", "intent", "currentRunId", "runStatus", "currentRunMode", "nextRunMode", "currentRunStepCount", "currentRunTerminalDetail", "currentPlanRoute", "execution", "pendingSteers", "pendingMessages", "queue", "interruption", "goalPlan", "interaction", "pendingAction", "history"].includes(key))
         || !isNonEmptyString(value.goalId)
         || typeof value.intent !== "string"
         || !isNonEmptyString(value.currentRunId)
@@ -689,6 +689,11 @@ export function isBrowserGoalSessionState(value: unknown): value is BrowserGoalS
         || !isActivityHistoryMarker(value.history.steps)
         || !isActivityHistoryMarker(value.history.stages)) return false;
     if (value.currentPlanRoute !== undefined && !isBrowserPlanRoute(value.currentPlanRoute)) return false;
+    if (value.currentRunTerminalDetail !== undefined && (value.runStatus !== "failed"
+        || !isRecord(value.currentRunTerminalDetail)
+        || Object.keys(value.currentRunTerminalDetail).some((key) => key !== "code" && key !== "message")
+        || typeof value.currentRunTerminalDetail.message !== "string"
+        || (value.currentRunTerminalDetail.code !== undefined && typeof value.currentRunTerminalDetail.code !== "string"))) return false;
     if (value.execution !== undefined && !(isRecord(value.execution)
         && ["active", "recoverable", "inactive"].includes(String(value.execution.state))
         && Number.isSafeInteger(value.execution.committedThroughSequence)
@@ -732,7 +737,11 @@ export function isBrowserActivityPage(value: unknown): value is BrowserActivityP
         || !Array.isArray(value.runs) || !value.runs.every((run) => isRecord(run)
             && isNonEmptyString(run.runId) && isRunStatus(run.status) && typeof run.current === "boolean"
             && Number.isSafeInteger(run.runOrder) && Number(run.runOrder) >= 0
-            && Number.isSafeInteger(run.committedThroughSequence) && Number(run.committedThroughSequence) >= 0)
+            && Number.isSafeInteger(run.committedThroughSequence) && Number(run.committedThroughSequence) >= 0
+            && (run.terminalDetail === undefined || (isRecord(run.terminalDetail)
+                && Object.keys(run.terminalDetail).every(key => key === "code" || key === "message")
+                && typeof run.terminalDetail.message === "string" && run.terminalDetail.message.length <= 500
+                && (run.terminalDetail.code === undefined || (typeof run.terminalDetail.code === "string" && run.terminalDetail.code.length <= 80)))))
         || !Array.isArray(value.window) || !value.window.every((window) => isRecord(window)
             && isNonEmptyString(window.runId)
             && Number.isSafeInteger(window.messageCount) && Number(window.messageCount) >= 0
@@ -813,10 +822,11 @@ function isBrowserActivityItem(value: unknown): boolean {
     }
     if (value.type !== "fact") return value.type === "think" && isActivityThinkItem(value);
     const isStageDeclaration = value.eventType === "run_stage_declared";
-    return !Object.keys(value).some((key) => !["type", "itemId", "eventId", "runId", "position", "eventType", "title", "executionUnitId", "actionId", "stageId", "stageRevision", "stageTarget", "tool"].includes(key))
+    return !Object.keys(value).some((key) => !["type", "itemId", "eventId", "runId", "position", "eventType", "title", "detail", "executionUnitId", "actionId", "stageId", "stageRevision", "stageTarget", "tool"].includes(key))
         && isNonEmptyString(value.eventId)
         && (BROWSER_ACTIVITY_EVENT_TYPES as readonly string[]).includes(String(value.eventType))
         && typeof value.title === "string"
+        && (value.detail === undefined || typeof value.detail === "string" && value.detail.length <= 500)
         && (value.executionUnitId === undefined || isNonEmptyString(value.executionUnitId))
         && (value.actionId === undefined || isNonEmptyString(value.actionId))
         && (value.stageId === undefined || isNonEmptyString(value.stageId))
@@ -1243,7 +1253,13 @@ export function isLiveEvent(value: unknown): value is BrowserGoalLiveEvent {
             && activity.sourceEventId.length <= 200
             && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0;
     }
-    if (["model_started", "model_completed", "step_started"].includes(String(activity.kind))) return true;
+    if (activity.kind === "model_started") {
+        return (activity.stage === undefined || ["think", "decide", "completion_review"].includes(String(activity.stage)))
+            && (activity.modelCallId === undefined || (isNonEmptyString(activity.modelCallId) && activity.modelCallId.length <= 200))
+            && (activity.executionUnitId === undefined || (isNonEmptyString(activity.executionUnitId) && activity.executionUnitId.length <= 200))
+            && (activity.occurredAt === undefined || (typeof activity.occurredAt === "string" && activity.occurredAt.length <= 40 && Number.isFinite(Date.parse(activity.occurredAt))));
+    }
+    if (["model_completed", "step_started"].includes(String(activity.kind))) return true;
     if (activity.kind === "tool_started") {
         return isNonEmptyString(activity.sourceEventId)
             && activity.sourceEventId.length <= 200

@@ -12,6 +12,12 @@ export const BROWSER_ACTIVITY_EVENT_TYPES = [
     "run_stage_accepted",
     "run_stage_rejected",
     "decision_received",
+    "model_repair_feedback_recorded",
+    "model_request_retry_recorded",
+    "context_lookup_requested",
+    "context_lookup_completed",
+    "context_lookup_not_found",
+    "context_lookup_failed",
     "action_staged",
     "action_approved",
     "action_revised",
@@ -171,6 +177,8 @@ export interface BrowserActivityFactItem {
     readonly eventType: BrowserActivityEventType;
     /** 不含 payload 的短展示标签。 */
     readonly title: string;
+    /** 最多 500 字符的白名单状态说明；不含原始模型反馈、检索内容或审批表单。 */
+    readonly detail?: string;
     /** 存在时只用于关联真实 Runtime 活动。 */
     readonly executionUnitId?: string;
     readonly actionId?: string;
@@ -244,6 +252,8 @@ export interface BrowserActivityRunContext {
     readonly current: boolean;
     readonly runOrder: number;
     readonly committedThroughSequence: number;
+    /** 本 Run 已提交终态的安全摘要；不包含原始异常、参数或工具输出，缺失时不得借用其它 Run。 */
+    readonly terminalDetail?: { readonly code?: string; readonly message: string };
 }
 
 /**

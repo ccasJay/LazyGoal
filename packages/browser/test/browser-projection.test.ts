@@ -178,6 +178,20 @@ test("narrow Browser state retains current Plan route, waiting decision, and ser
     assert.equal("runs" in (state ?? {}), false);
 });
 
+test("narrow state exposes the current committed failure without reading trajectory history", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = { ...initial, state: { ...initial.state, run: {
+        ...initial.state.run, status: "failed",
+        stopReason: { kind: "execution_error", code: "MODEL_REQUEST_FAILED", message: "x".repeat(1200) },
+    } } };
+    const state = await readBrowserGoalSessionState(goal.id, new TestGoalStore(goal));
+    assert.equal(state?.currentRunTerminalDetail?.code, "MODEL_REQUEST_FAILED");
+    assert.equal(state?.currentRunTerminalDetail?.message, `${"x".repeat(1000)}…`);
+    assert.equal("runs" in state!, false);
+    const running: Goal = { ...initial, state: { ...initial.state, run: { ...initial.state.run, status: "running" } } };
+    assert.equal((await readBrowserGoalSessionState(goal.id, new TestGoalStore(running)))?.currentRunTerminalDetail, undefined);
+});
+
 test("session projection exposes the typed interaction identity and truncation flag", async () => {
     const initial = createTestGoal();
     const goal: Goal = {
@@ -1000,6 +1014,7 @@ test("Bash 决定与跨 execution unit 的执行合并为一行，complete 决�
 test("操作标题只投影有界目标，不暴露正文、额外参数或未提交输入", async () => {
     const goal = createTestGoal();
     const actions = [
+        { toolId: "bash", input: { command: "git status --short", environment: "private-env" }, expected: "git status --short" },
         { toolId: "write_file", input: { path: "notes.md", content: "private-content" }, expected: "notes.md" },
         { toolId: "edit_file", input: { path: "src/app.ts", oldString: "private-old", newString: "private-new" }, expected: "src/app.ts" },
         { toolId: "grep", input: { pattern: "TODO", path: "private-root" }, expected: "TODO" },

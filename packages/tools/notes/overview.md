@@ -5,3 +5,5 @@
 ## 执行边界
 
 文件工具的路径须通过 [Workspace Sandbox](../../sandbox/README.md) 限定，Shell 执行受超时与输出上限控制。Tool 的 Observation 是执行结果，只有 Runtime 成功提交后才能成为当前 Run 的证据。权限授予和恢复重放由 [Runtime](../../runtime/README.md) 管理，不由工具实现决定。
+
+Grep 的空白 `include` 与 `exclude` 按未设置过滤处理；非空模式才用于匹配文件路径。

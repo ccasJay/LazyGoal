@@ -42,14 +42,21 @@ export interface RunScheduler {
      * @param ref - 目标 Goal 与 Run 的关联身份。
      * @param messageId - 客户端分配的幂等消息身份，同时作为统一输入账本身份。
      * @param content - 非空消息正文。
-     * @param ledger - 提供时在同一提交中写入统一输入账本条目。
+     * @param ledger - 提供时在同一提交中写入统一输入账本条目；queueBinding 会原子消费匹配的队列消息。
      * @returns 已受理或稳定拒绝结果。
+     * @example
+     * ```ts
+     * await scheduler.steer?.({ goalId: "goal-1", runId: "run-1" }, "steer-1", "聚焦当前任务");
+     * ```
      */
     steer?(
         ref: RunRef,
         messageId: string,
         content: string,
-        ledger?: { readonly digest: SessionInputDigest },
+        ledger?: {
+            readonly digest: SessionInputDigest;
+            readonly queueBinding?: { readonly messageId: string; readonly queueRevision: number };
+        },
     ): Promise<SteerInputResult>;
 
     /**

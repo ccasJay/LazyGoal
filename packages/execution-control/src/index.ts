@@ -7,6 +7,7 @@ export {
 } from "./execution-control";
 
 export {
+    ModelRequestFailure,
     TransientModelRequestFailure,
     type TransientModelFailureReason,
 } from "./model-request-failure";

@@ -27,6 +27,47 @@ const profile: AgentProfile = {
     toolIds: ["sample_tool"],
 };
 
+for (const duringReview of [false, true]) {
+test(`A stage changed during ${duringReview ? "review" : "Decide"} is never overwritten by the old request`, async () => {
+    const store = new InMemoryGoalStore();
+    const trajectory = trajectoryStoreFor(store);
+    const created = createGoal({ ...currentProtocols, id: `stage-conflict-${duringReview}`, runId: "run-1", intent: "Inspect", promptBundleVersion: 1, profile });
+    const initial: Goal = { ...created, state: { ...created.state, run: { ...created.state.run,
+        currentStage: { stageId: "stage-1", revision: 1, status: "executing", target: "Original", acceptanceCriteria: ["Evidence"] },
+    } } };
+    await store.save(initial);
+    let calls = 0;
+    async function changeStage() {
+        const latest = (await store.restore(initial.id))!;
+        await store.save({ ...latest, state: { ...latest.state, run: { ...latest.state.run,
+            currentStage: { ...latest.state.run.currentStage!, revision: 2, target: "New authoritative stage" },
+        } } });
+    }
+    const executor: StepExecutor = {
+        async decide({ goal }) {
+            if (++calls === 1) {
+                if (duringReview) return { kind: "decision", decision: { kind: "run_stage_complete", stageId: "stage-1", summary: "Old result", evidenceSequences: [] } };
+                await changeStage();
+                return { kind: "decision", decision: { kind: "run_stage_update", stageId: "stage-1", baseRevision: 1,
+                    reason: "Old request", target: "Must not apply", acceptanceCriteria: ["Old"] } };
+            }
+            assert.equal(goal.state.run.currentStage?.revision, 2);
+            return { kind: "decision", decision: { kind: "wait", reason: "Await new input" } };
+        },
+        async think() { throw new Error("Unexpected Think"); },
+        async reviewCompletion() { await changeStage(); return { kind: "accept" }; },
+    };
+    const runner = new Runner({ store, trajectoryStore: trajectory, executor, toolRegistry: createTestToolRegistry(), toolPolicy: { evaluate: () => "allow" } });
+    const result = await runner.runUntilBlocked({ goalId: initial.id, runId: "run-1" });
+    assert.equal(result.ok, true);
+    assert.equal(calls, 2);
+    const saved = (await store.restore(initial.id))!;
+    assert.equal(saved.state.run.currentStage?.target, "New authoritative stage");
+    assert.equal(saved.state.run.currentStage?.status, "executing");
+    assert.equal(trajectory.events.some(event => event.eventType === "run_stage_accepted" || event.eventType === "run_stage_declared"), false);
+});
+}
+
 function createTestToolRegistry(onExecute?: () => void): ToolRegistry {
     const reg = createToolRegistration({
         definition: sampleTool,

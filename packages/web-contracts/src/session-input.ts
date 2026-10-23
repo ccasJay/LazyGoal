@@ -121,6 +121,7 @@ export type BrowserSessionInteractionResponse =
  * 每个变体都携带 Goal 内稳定 `inputId`；同身份同载荷重试返回原收据，异载荷返回
  * 身份冲突。`steer`／`interrupt`／`respond`／`resume` 面向明确 `runId`；
  * `resume` 携带页面读取到的提交修订；`queue_control` 携带被观察到的队列修订。
+ * 排队消息转为 Steer 时，`queueBinding` 绑定原消息与其观察到的队列修订。
  * 普通 `message` 面向 Goal 的后续队列，不绑定发送时的旧 Run。
  *
  * @example
@@ -137,6 +138,7 @@ export type BrowserSessionInputCommand =
         readonly inputId: string;
         readonly runId: string;
         readonly content: string;
+        readonly queueBinding?: { readonly messageId: string; readonly queueRevision: number };
     }
     | { readonly kind: "interrupt"; readonly inputId: string; readonly runId: string }
     | {
@@ -156,8 +158,9 @@ export type BrowserSessionInputCommand =
     | {
         readonly kind: "queue_control";
         readonly inputId: string;
-        readonly action: "continue" | "clear";
+        readonly action: "continue" | "clear" | "remove";
         readonly queueRevision: number;
+        readonly messageId?: string;
     };
 
 /**
@@ -232,6 +235,7 @@ export type BrowserSessionInputErrorCode =
     | "TEXT_TOO_LARGE"
     | "QUEUE_NOT_PAUSED"
     | "QUEUE_REVISION_MISMATCH"
+    | "QUEUED_MESSAGE_NOT_FOUND"
     | "RUN_NOT_FOUND"
     | "RUN_NOT_RUNNING"
     | "RUN_CONTROL_UNAVAILABLE"

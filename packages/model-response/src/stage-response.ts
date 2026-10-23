@@ -137,6 +137,7 @@ export function decodeToolCallOutcome(
                             ? ["action", "input", ...i.path]
                             : i.path,
                         message: i.message,
+                        ...schemaLiteralHint(declaration?.parametersSchema, i.path),
                     })),
                     cause: error,
                     ...(declaration === undefined || rawArgs === null || typeof rawArgs !== "object" || Array.isArray(rawArgs) ? {} : {
@@ -151,6 +152,23 @@ export function decodeToolCallOutcome(
             )
             : error;
     }
+}
+
+function schemaLiteralHint(schema: unknown, path: readonly (string | number)[]): { expectedValues?: readonly (string | number | boolean | null)[] } {
+    const expectedValues = schemaLiteralsAtPath(schema, path);
+    return expectedValues.length === 0 ? {} : { expectedValues };
+}
+
+function schemaLiteralsAtPath(schema: unknown, path: readonly (string | number)[]): readonly (string | number | boolean | null)[] {
+    if (typeof schema !== "object" || schema === null) return [];
+    const node = schema as { anyOf?: unknown[]; enum?: unknown[]; properties?: Record<string, unknown>; items?: unknown };
+    if (node.anyOf !== undefined) return node.anyOf.flatMap(branch => schemaLiteralsAtPath(branch, path)).slice(0, 8);
+    if (path.length > 0) {
+        const [head, ...tail] = path;
+        return schemaLiteralsAtPath(typeof head === "number" ? node.items : node.properties?.[head!], tail);
+    }
+    return (node.enum ?? []).filter((value): value is string | number | boolean | null =>
+        value === null || typeof value === "number" || typeof value === "boolean" || (typeof value === "string" && value.length <= 80)).slice(0, 8);
 }
 
 /**

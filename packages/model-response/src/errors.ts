@@ -22,6 +22,8 @@ export interface LLMResponseProtocolIssue {
     readonly path: readonly (string | number)[];
     /** 面向诊断的英文错误描述。 */
     readonly message: string;
+    /** 从本次请求的可信 Schema 提取的有界字面量；不来自模型参数或异常正文。 */
+    readonly expectedValues?: readonly (string | number | boolean | null)[];
 }
 
 /**

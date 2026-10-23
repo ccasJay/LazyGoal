@@ -13,7 +13,7 @@
 
 `lazygoal` 与 `lazygoal web` 都由独立 `apps/goal-server` 启动 Web 服务。服务创建随机能力令牌，将其放入页面 URL fragment，并在同源 HTTP Host 上提供 API、SSE 与已构建的 Goal Board 静态资源。服务监听 `127.0.0.1` 上的操作系统分配端口；静态页面根文档、favicon 和 `/assets/` 可不带令牌读取。其他请求须匹配精确 Host、同源约束和 Bearer 令牌。静态响应限制来源、禁止 referrer 并禁用缓存。
 
-授权后，`GET /api/goals` 从正式工作区 Catalog 返回真实 Goal 摘要，并同时给出 `unreadableCount`：无法解码的旧版本快照按条跳过并计数，看板据此说明列表不完整，而不是把不可读数据当作不存在；只有目录级读取失败才返回 `goal_list_unavailable`。`GET /api/goals/:goalId` 从正式 Snapshot 和各 Run 的 Trajectory 返回完整会话投影。`GET /api/goals/:goalId?view=state` 返回 Snapshot-only 窄状态，不内嵌消息、步骤和阶段历史；它保留当前 Run、等待与 Action、队列、中断、GoalPlan、Plan 路线及当前会话摘要。看板读取使用 Composition Root 暴露的正式工作区 Store 与 Trajectory 读取器，不经过含 Benchmark 的聚合目录。
+授权后，`GET /api/goals` 从正式工作区 Catalog 返回真实 Goal 摘要，并同时给出 `unreadableCount`：无法解码的旧版本快照按条跳过并计数，看板据此说明列表不完整，而不是把不可读数据当作不存在；只有目录级读取失败才返回 `goal_list_unavailable`。`GET /api/goals/:goalId` 从正式 Snapshot 和各 Run 的 Trajectory 返回完整会话投影。`GET /api/goals/:goalId?view=state` 返回 Snapshot-only 窄状态，不内嵌消息、步骤和阶段历史；当前失败 Run 的错误摘要从 Snapshot stopReason 投影到 `currentRunTerminalDetail`，无需读取 Trajectory；它保留当前 Run、等待与 Action、队列、中断、GoalPlan、Plan 路线及当前会话摘要。看板读取使用 Composition Root 暴露的正式工作区 Store 与 Trajectory 读取器，不经过含 Benchmark 的聚合目录。
 
 `GET /api/goals/:goalId/activity` 提供默认 50、最大 100 个原子项的 Activity 窗口，接受可选 Run 过滤和互斥的 `before`／`after` cursor。消息最多返回 4,000 UTF-16 code unit 摘要；截断正文按 messageId 使用既有消息详情读取。事实投影只公开白名单事件类型、稳定身份与必要 Action／阶段关联，不发送事件 payload、原始 Observation、工具参数或模型内部内容。cursor 固定首次窗口内每个 Run 的 messageCount、throughMessageId 和 Snapshot 已提交 Trajectory 序号；后续正文、Observation、后继 Run 与未提交 tail 不进入该窗口。页面给出实际页范围、两侧未加载缺口的准确项数与首尾位置、Run 水位及跨页阶段／Action 组完整性提示。Activity 和窄状态路由均位于 BrowserSessionAccess 之后，Host、Origin 与 Bearer 校验在 Snapshot/Trajectory 读取之前执行。
 
@@ -39,7 +39,7 @@ Plan Run 的待审批会话 DTO 会投影候选路线中的全部阶段顺序、
 
 `GET /api/goals/:goalId/events` 订阅整个 Goal，不再要求客户端绑定单一当前 Run，也不接受 `runId` 查询参数。首项是一致 `state_sync` 安全会话状态，其后按来源顺序输出 `input_result`（按 `inputId` 关联受理与拒绝）和公开执行活动；后继 Run 开始不关闭订阅、不遗漏开始事件。事件仅投影白名单活动和长度受限的助手文本：内部块协议中只有公开普通正文增量与整块完成映射为 `assistant_text_delta`，结构化 JSON、Tool 参数、reasoning、调用失败摘要及未识别载荷不转发。Trajectory/Checkpoint 事件与 Goal 保存只发送刷新通知；订阅缺口、同步读取失败、背压关闭或连接故障要求页面重新读取，不代表 Run 完成。
 
-实时工具活动的安全 DTO 附带 ExecutionStream 自己的 `sourceEventId` 与 `sourceCursor`，并保留跨流调用对齐所需的 `actionId`。这些来源标识不等同于 Trajectory 中同名字段；只有 `actionId` 用于将同一调用的暂时活动与已提交步骤对齐。输入与结果仅允许投影白名单摘要，不发送任意 Tool 参数、原始 Tool 输出或隐藏推理。助手可见回复、等待、阶段变化、终态、失败和未知公开事件投影为活动边界，供 Goal Board 重建活动组；流缺口通知促使前端清空不完整临时数据并刷新。
+模型开始事件投影真实来源时间，以及来源提供的调用阶段、调用身份和执行单元；不复制模型输入或输出。Bash 的实时及已提交活动输入摘要只公开至多 240 字符的命令，不带环境或其它参数。实时工具活动的安全 DTO 附带 ExecutionStream 自己的 `sourceEventId` 与 `sourceCursor`，并保留跨流调用对齐所需的 `actionId`。这些来源标识不等同于 Trajectory 中同名字段；只有 `actionId` 用于将同一调用的暂时活动与已提交步骤对齐。输入与结果仅允许投影白名单摘要，不发送任意 Tool 参数、原始 Tool 输出或隐藏推理。助手可见回复、等待、阶段变化、终态、失败和未知公开事件投影为活动边界，供 Goal Board 重建活动组；流缺口通知促使前端清空不完整临时数据并刷新。
 
 SIGINT 通过 Runtime 已有关闭协调器冻结检查点、取消执行并关闭 HTTP Host。关闭信号生效后，HTTP Host 拒绝新的写请求；已排队的命令在预约锁释放后返回 `service_shutting_down`，不再进入 Runtime 或持久化操作。
 
@@ -78,3 +78,7 @@ PTC 子操作沿用普通 Action 的审批入口；待审视图额外展示父�
 `POST /api/providers/models` 接受未保存的 Provider 连接参数，经字段白名单、长度及可选档案 ID 校验后调用只读模型查询端口；沿用同源 Origin 与 Bearer 授权，不保存输入。响应仅含模型 ID/名称或稳定错误分类，不包含凭据与供应商原始响应。
 
 会话步骤按已提交的 `think_requested` 请求身份独立投影显式 Think，配对同执行单元的 `think_completed` 输出；请求和完成保持同一来源身份。目标最多 4,000 字符，输出最多 64,000 字符，超限标记 `think.truncated`，完整事件通过轨迹详情读取。未提交输出不进入会话；只有请求时保留未完成状态，后续 Run 失败或取消事实使未完成 Think 显示失败。Think 与同执行单元的最终 Action 分开显示，保持实际先后顺序与原 Step 序号，不修改 Runtime 的 Step 计数。
+
+Activity 白名单同时投影已提交的模型纠错、请求失败、历史检索与审批状态。诊断说明只由来源枚举、尝试次数和安全 HTTP 状态生成，不复制原始反馈、约束或检索内容；审批等待与批准作为独立事实保留，不被最终工具分组吞并；工具活动从实际尝试开始定位，保持等待、批准、执行的来源顺序。已计算的 Action 阶段关联进入外层事实 `stageId`，供前端将工具放回真实 Stage。实时私有事件仍不公开，前端经提交通知刷新同一持久化 Activity 页。
+
+Activity 页的 Run 上下文可带安全终态摘要，仅从该 Run 固定提交水位内的失败事实生成。公开受限错误代码与固定说明，不复制异常正文；未记录原因时省略，不能借用当前 Run 的错误。工具状态也按同一提交水位构建。该摘要仅服务历史折叠行，不产生第二份 Runtime 状态。

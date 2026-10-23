@@ -8,7 +8,10 @@ import {
 import type { Goal } from "../../runtime/src/domain";
 import { LLMResponseProtocolError } from "../../model-response/src/index";
 
-/** 将 Agent 的结构化解析异常转换成不含响应正文的 Runtime 阶段反馈。 */
+/**
+ * 将 Agent 的结构化解析异常转换成不含响应正文的 Runtime 阶段反馈。
+ * @remarks 期望类型只从 Contract 的固定诊断白名单映射；未知诊断使用通用提示，不回传原始错误正文。
+ */
 export function toModelStageFeedback(
     error: unknown,
     input: { readonly goal: Goal; readonly executionUnitId?: string },
@@ -18,10 +21,12 @@ export function toModelStageFeedback(
 
     const issues = error.issues?.slice(0, 8).map((issue) => ({
         code: issue.code,
-        path: issue.path.includes("memoryPatch")
+        path: issue.path.includes("memoryPatch") && (error.toolCallShape === undefined || error.toolCallShape.allowedFields.includes("memoryPatch"))
             ? ["result", ...issue.path.slice(issue.path.indexOf("memoryPatch"))]
             : issue.path,
-        message: safeIssueMessage(issue.code),
+        message: (issue.code === "invalid_literal" || issue.code === "invalid_enum_value") && issue.expectedValues?.length
+            ? `Use exactly ${issue.expectedValues.map(value => JSON.stringify(value)).join(" or ")} as JSON at this path; preserve its JSON type.`
+            : safeIssueMessage(issue.code, issue.message),
     })) ?? [{
         code: error.code,
         path: [],
@@ -77,13 +82,24 @@ function classifyOrigin(codes: readonly string[], stage: RuntimeFeedbackStage): 
     return "output_contract";
 }
 
-function safeIssueMessage(code: string): string {
+function safeIssueMessage(code: string, diagnosticMessage?: string): string {
     switch (code) {
         case "missing_tool_call": return "Call exactly one declared tool using its parameter schema. Do not return a text JSON decision.";
         case "multiple_tool_calls": return "Return exactly one declared tool call, not multiple calls.";
         case "missing_field": return "Supply this required field using the current schema.";
         case "extra_field": return "Remove this field; the current schema does not allow it.";
-        case "invalid_type": return "Use the type required by the current schema at this path.";
+        case "string_min_length": return "Use a non-blank string at this path.";
+        case "invalid_type": {
+            switch (diagnosticMessage) {
+                case "Expected an array": return "Use a JSON array at this path, with element types matching the current schema.";
+                case "Expected a finite number": return "Use a finite JSON number at this path.";
+                case "Expected a JSON object": return "Use a JSON object at this path, following the current schema.";
+                case "Expected a string": return "Use a JSON string at this path.";
+                case "Expected a boolean": return "Use a JSON boolean at this path.";
+                case "Expected null": return "Use JSON null at this path.";
+            }
+            return "Use the type required by the current schema at this path.";
+        }
         case "invalid_literal":
         case "invalid_enum_value":
         case "unknown_discriminator": return "Use a value declared by the current schema at this path.";

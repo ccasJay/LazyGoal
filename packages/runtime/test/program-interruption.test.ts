@@ -321,6 +321,57 @@ test("PTC shutdown leaves a resumable program without a fabricated failure", {
     assert.equal(saved?.state.run.stepCount, 0);
 });
 
+test("PTC replay mismatch settles the still-running Run as failed", {
+    skip: !isSeatbeltSupported(),
+}, async () => {
+    const fixture = setup("while (true) {};");
+    await fixture.store.save(fixture.goal);
+    const controller = new AbortController();
+    setTimeout(() => controller.abort("shutdown"), 100);
+    const runner = new Runner({
+        store: fixture.store,
+        trajectoryStore: fixture.trajectoryStore,
+        executor: fixture.executor,
+        toolRegistry: fixture.registry,
+    });
+    await assert.rejects(runner.run({ goalId: fixture.goal.id, runId: fixture.goal.state.run.id },
+        { signal: controller.signal }), ExecutionAbortedError);
+
+    const saved = await fixture.store.restore(fixture.goal.id);
+    assert.ok(saved?.state.run.pendingProgram);
+    const pendingProgram = saved.state.run.pendingProgram;
+    await fixture.store.save({
+        ...saved,
+        state: {
+            ...saved.state,
+            run: {
+                ...saved.state.run,
+                pendingProgram: {
+                    ...pendingProgram,
+                    workerHash: `${pendingProgram.workerHash[0] === "0" ? "1" : "0"}${pendingProgram.workerHash.slice(1)}`,
+                },
+            },
+        },
+    });
+
+    const result = await runner.run({ goalId: fixture.goal.id, runId: fixture.goal.state.run.id });
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+        assert.equal(result.state.status, "failed");
+        assert.equal(result.state.pendingProgram, undefined);
+        assert.deepEqual(result.state.stopReason, {
+            kind: "execution_error",
+            code: "TOOL_EXECUTION_ERROR",
+            message: "PTC_REPLAY_MISMATCH",
+        });
+    }
+    assert.ok(fixture.trajectoryStore.events.some((event) =>
+        event.eventType === "execution_error"
+            && event.payload.code === "TOOL_EXECUTION_ERROR"
+            && event.payload.message === "PTC_REPLAY_MISMATCH"));
+});
+
 test("PTC user cancellation settles one parent failure", {
     skip: !isSeatbeltSupported(),
 }, async () => {

@@ -318,21 +318,25 @@ test("ModelCatalog: opencode-go 在线结果用静态目录补全元数据", asy
     assert.equal(glm.metadataSource, "mixed");
 });
 
-test("ModelCatalog: opencode-go 在线新增但适配器未知的模型不可选", async () => {
+test("ModelCatalog: OpenCode Go Beam Free 使用登记的执行元数据", async () => {
     const catalog = createLlmModelCatalog({
         async fetchModels() {
             return [
-                { id: "beam-free", contextWindowTokens: 128000, maxOutputTokens: 8192 },
+                { id: "beam-free" },
                 { id: "longcat-2.5-preview-free" },
             ];
         },
     });
     for (const requireTokenCapacity of [false, true]) {
         const models = await catalog.list(opencodeGoConfig, { requireTokenCapacity });
-        const unknown = models.find(model => model.id === "beam-free")!;
-        assert.equal(unknown.availabilitySource, "live");
-        assert.equal(unknown.selectable, false);
-        assert.equal(unknown.unavailableReason, "Model is not supported by the installed OpenCode Go adapter.");
+        const beam = models.find(model => model.id === "beam-free")!;
+        assert.equal(beam.availabilitySource, "live");
+        assert.equal(beam.metadataSource, "execution");
+        assert.equal(beam.executionApi, "openai-completions");
+        assert.equal(beam.contextWindowTokens, 1_048_576);
+        assert.equal(beam.maxOutputTokens, 131_072);
+        assert.equal(beam.reasoning, true);
+        assert.equal(beam.selectable, true);
         assert.equal(models.find(model => model.id === "longcat-2.5-preview-free")?.selectable, true);
     }
 });
@@ -366,6 +370,7 @@ test("ModelCatalog: 执行元数据不会将离线 OpenCode Go 模型加入在�
     const models = await catalog.list(opencodeGoConfig);
 
     assert.equal(models.some(model => model.id === "minimax-m3.1-flash-free"), false);
+    assert.equal(models.some(model => model.id === "beam-free"), false);
 });
 
 test("ModelCatalog: opencode-go 无在线拉取时回退静态目录", async () => {

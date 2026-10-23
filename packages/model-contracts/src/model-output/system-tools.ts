@@ -288,21 +288,22 @@ export const SystemUpdateGoalPlanInputContract = contract.object({
 });
 
 /** 阶段更新工具参数契约。 */
-export const SystemUpdateRunStageInputContract = contract.object({
-    stageId: contract.optional(contract.string()),
-    baseRevision: contract.optional(contract.integer({ minimum: 1 })),
-    reason: contract.optional(contract.string()),
+export const SystemStartRunStageInputContract = contract.object({
     target: contract.string(),
     acceptanceCriteria: contract.array(contract.string(), { minItems: 1 }),
-    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+});
+
+/** 当前阶段修订的模型参数；身份和版本来自请求绑定。 */
+export const SystemReviseRunStageInputContract = contract.object({
+    target: contract.string(),
+    acceptanceCriteria: contract.array(contract.string(), { minItems: 1 }),
+    reason: contract.string(),
 });
 
 /** 阶段完成候选工具参数契约。 */
 export const SystemCompleteRunStageInputContract = contract.object({
-    stageId: contract.string(),
     summary: contract.string(),
-    evidenceSequences: contract.optional(contract.array(contract.integer({ minimum: 0 }))),
-    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+    evidenceSequences: contract.array(contract.integer({ minimum: 0 })),
 });
 
 /** Plan Run 获批后的完整路线修订输入契约。 */
@@ -527,33 +528,80 @@ export const SystemUpdateGoalPlanDeclaration: SystemToolDeclaration<AgentDecisio
     }),
 );
 
-export const SystemUpdateRunStageDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
-    "system_update_run_stage",
-    "Declare a new internal stage or revise the current active stage. When declaring, provide target and acceptanceCriteria. When revising, specify stageId, baseRevision, and reason.",
-    SystemUpdateRunStageInputContract,
-    (args: { target: string; acceptanceCriteria: string[]; stageId?: string; baseRevision?: number; reason?: string; memoryPatch?: unknown }): AgentDecision => ({
+export const SystemStartRunStageDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
+    "system_start_run_stage",
+    "Start a stage with a non-blank target and non-empty, verifiable acceptance criteria. Runtime allocates its identity and version. Do not supply stageId, baseRevision, reason, or memoryPatch.",
+    SystemStartRunStageInputContract,
+    (args: { target: string; acceptanceCriteria: string[] }): AgentDecision => ({
         kind: "run_stage_update",
-        target: args.target,
-        acceptanceCriteria: args.acceptanceCriteria,
-        ...(args.stageId !== undefined ? { stageId: args.stageId } : {}),
-        ...(args.baseRevision !== undefined ? { baseRevision: args.baseRevision } : {}),
-        ...(args.reason !== undefined ? { reason: args.reason } : {}),
-        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
+        ...validateStageDescription(args),
     }),
 );
 
-export const SystemCompleteRunStageDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
-    "system_complete_run_stage",
-    "Submit a completion candidate for the current active stage to trigger review. Requires stageId and summary.",
-    SystemCompleteRunStageInputContract,
-    (args: { stageId: string; summary: string; evidenceSequences?: number[]; memoryPatch?: unknown }): AgentDecision => ({
-        kind: "run_stage_complete",
-        stageId: args.stageId,
-        summary: args.summary,
-        ...(args.evidenceSequences !== undefined ? { evidenceSequences: args.evidenceSequences } : {}),
-        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
-    }),
-);
+function validateStageDescription<T extends { target: string; acceptanceCriteria: string[]; reason?: string }>(args: T): T {
+    const issues: { code: "string_min_length"; path: (string | number)[]; message: string }[] = [];
+    if (args.target.trim().length === 0) issues.push({ code: "string_min_length", path: ["target"], message: "Use a non-blank target." });
+    args.acceptanceCriteria.forEach((criterion, index) => {
+        if (criterion.trim().length === 0) issues.push({ code: "string_min_length", path: ["acceptanceCriteria", index], message: "Use a non-blank acceptance criterion." });
+    });
+    if (args.reason !== undefined && args.reason.trim().length === 0) issues.push({ code: "string_min_length", path: ["reason"], message: "Use a non-blank revision reason." });
+    if (issues.length > 0) throw new ContractValidationError(issues, false);
+    return args;
+}
+
+/**
+ * 本次请求可操作的阶段状态，不向模型要求回填身份或版本。
+ * @remarks 调用方从权威 Run 快照投影；工具解码闭包固定使用该次请求的值，不读取更新后的状态。
+ * @example `createRunStageToolDeclarations({ currentStage: { stageId: "stage-1", revision: 1, status: "executing" } });`
+ */
+export interface RunStageToolContext {
+    /** 请求构造时的阶段身份、版本及状态；accepted 阶段允许开始下一阶段。 */
+    readonly currentStage?: { readonly stageId: string; readonly revision: number; readonly status: "executing" | "accepted" };
+    /** 已批准的完整路线；开始操作只激活游标对应的 pending 阶段。 */
+    readonly planRoute?: {
+        readonly revision: number;
+        readonly nextStageIndex: number;
+        readonly stages: readonly { readonly target: string; readonly acceptanceCriteria: readonly string[]; readonly status: "pending" | "executing" | "accepted" }[];
+    };
+}
+
+/**
+ * 按请求快照生成唯一合法的阶段工具集合。
+ * @param context - 当前阶段和获批路线；闭包捕获标量及条件副本。
+ * @returns 无执行中阶段时提供开始；执行中提供修订、完成；路线结束时不提供开始。
+ * @example `const tools = createRunStageToolDeclarations({});`
+ */
+export function createRunStageToolDeclarations(context: RunStageToolContext): readonly SystemToolDeclaration<AgentDecision>[] {
+    const current = context.currentStage;
+    if (current?.status === "executing") {
+        const { stageId, revision } = current;
+        return [
+            buildDeclaration("system_revise_run_stage",
+                "Replace the current stage target and all acceptance criteria, with a non-blank reason. Runtime binds the current identity and version. Do not supply stageId, baseRevision, or memoryPatch. Preserve the user's requirements.",
+                SystemReviseRunStageInputContract,
+                (args: { target: string; acceptanceCriteria: string[]; reason: string }): AgentDecision => ({
+                    kind: "run_stage_update", stageId, baseRevision: revision, ...validateStageDescription(args),
+                })),
+            buildDeclaration("system_complete_run_stage",
+                "Submit a completion candidate for the current stage for review. Provide the summary and committed evidenceSequences (an array). This does not finish the Run. Do not supply stageId, baseRevision, or memoryPatch.",
+                SystemCompleteRunStageInputContract,
+                (args: { summary: string; evidenceSequences: number[] }): AgentDecision => ({
+                    kind: "run_stage_complete", stageId, ...args,
+                })),
+        ];
+    }
+    if (context.planRoute !== undefined) {
+        const next = context.planRoute.stages[context.planRoute.nextStageIndex];
+        if (next?.status !== "pending") return [];
+        const target = next.target;
+        const acceptanceCriteria = [...next.acceptanceCriteria];
+        return [buildDeclaration("system_start_run_stage",
+            "Start the next pending stage of the approved Plan route. Pass an empty object; Runtime supplies its approved target, criteria, identity, and version.",
+            contract.object({}),
+            (): AgentDecision => ({ kind: "run_stage_update", target, acceptanceCriteria: [...acceptanceCriteria] }))];
+    }
+    return [SystemStartRunStageDeclaration];
+}
 
 /**
  * Decide 阶段的 Think 控制声明。
@@ -625,6 +673,7 @@ export function createExecutingBusinessToolDeclaration(
  * 构造 Executing 阶段完整的工具声明集合。
  *
  * @param authorizedTools - 当前 Goal 授权的业务工具列表。
+ * @param stageContext - 本次请求的阶段和获批路线快照，用于生成与解码当前合法的阶段操作。
  * @returns 包含业务工具、工具发现与系统执行决策的完整声明列表。
  *
  * @example
@@ -634,6 +683,7 @@ export function createExecutingBusinessToolDeclaration(
  */
 export function createExecutingToolDeclarations(
     authorizedTools: readonly AuthorizedToolContract[],
+    stageContext: RunStageToolContext = {},
 ): readonly SystemToolDeclaration<AgentDecision>[] {
     const businessTools = authorizedTools.map(t => createExecutingBusinessToolDeclaration(t));
     return [
@@ -644,8 +694,7 @@ export function createExecutingToolDeclarations(
         SystemContextLookupDeclaration as SystemToolDeclaration<AgentDecision>,
         SystemFindToolsDeclaration,
         SystemAskUserDeclaration,
-        SystemUpdateRunStageDeclaration,
-        SystemCompleteRunStageDeclaration,
+        ...createRunStageToolDeclarations(stageContext),
     ];
 }
 
@@ -664,6 +713,7 @@ export function createExecutingToolDeclarations(
  * @param planMode - 是否处于当前 Run 的 Plan Mode 任务提案生命周期。
  * @param goalPlanWritable - 当前 Run 模式是否获授权更新 GoalPlan。
  * @param allowThink - 是否向 Decide 暴露独立的 `request_think` 控制声明。
+ * @param stageContext - 固定本次请求可操作的阶段，Plan 未批准时不提供阶段工具。
  * @returns 对应状态下的工具声明列表。
  *
  * @example
@@ -677,6 +727,7 @@ export function createUnifiedToolDeclarations(
     planMode?: boolean,
     goalPlanWritable?: boolean,
     allowThink?: false,
+    stageContext?: RunStageToolContext,
 ): readonly SystemToolDeclaration<AgentDecision>[];
 export function createUnifiedToolDeclarations(
     authorizedTools: readonly AuthorizedToolContract[],
@@ -684,6 +735,7 @@ export function createUnifiedToolDeclarations(
     planMode: boolean,
     goalPlanWritable: boolean,
     allowThink: true,
+    stageContext?: RunStageToolContext,
 ): readonly SystemToolDeclaration<DecideOutput>[];
 export function createUnifiedToolDeclarations(
     authorizedTools: readonly AuthorizedToolContract[],
@@ -691,6 +743,7 @@ export function createUnifiedToolDeclarations(
     planMode: boolean,
     goalPlanWritable: boolean,
     allowThink: boolean,
+    stageContext?: RunStageToolContext,
 ): readonly SystemToolDeclaration<DecideOutput>[];
 export function createUnifiedToolDeclarations(
     authorizedTools: readonly AuthorizedToolContract[],
@@ -698,6 +751,7 @@ export function createUnifiedToolDeclarations(
     planMode = false,
     goalPlanWritable = planMode,
     allowThink = false,
+    stageContext: RunStageToolContext = {},
 ): readonly SystemToolDeclaration<DecideOutput>[] {
     const thinkDeclaration = allowThink ? [SystemRequestThinkDeclaration] : [];
     if (!planMode) {
@@ -710,8 +764,7 @@ export function createUnifiedToolDeclarations(
             SystemContextLookupDeclaration as SystemToolDeclaration<AgentDecision>,
             SystemFindToolsDeclaration,
             SystemAskUserDeclaration,
-            SystemUpdateRunStageDeclaration,
-            SystemCompleteRunStageDeclaration,
+            ...createRunStageToolDeclarations(stageContext),
             ...(goalPlanWritable ? [SystemUpdateGoalPlanDeclaration] : []),
             ...thinkDeclaration,
         ];
@@ -731,7 +784,7 @@ export function createUnifiedToolDeclarations(
     }
 
     return [
-        ...createExecutingToolDeclarations(authorizedTools),
+        ...createExecutingToolDeclarations(authorizedTools, stageContext),
         SystemUpdatePlanRouteDeclaration,
         ...(goalPlanWritable ? [SystemUpdateGoalPlanDeclaration] : []),
         ...thinkDeclaration,

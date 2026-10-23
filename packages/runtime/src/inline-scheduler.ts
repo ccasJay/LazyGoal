@@ -52,15 +52,22 @@ export class InlineScheduler implements RunScheduler {
      * @param ref - 当前 Goal 与 Run 身份。
      * @param messageId - 稳定幂等消息身份，同时作为统一输入账本身份。
      * @param content - 非空消息正文。
-     * @param ledger - 提供时在同一提交中写入统一输入账本条目。
+     * @param ledger - 提供时在同一提交中写入统一输入账本条目；queueBinding 会原子消费匹配的队列消息。
      * @returns 持久化受理或 Runner 返回的稳定拒绝。
      * @throws Snapshot 或 Trajectory 保存失败时传播原始错误。
+     * @example
+     * ```ts
+     * await scheduler.steer({ goalId: "goal-1", runId: "run-1" }, "steer-1", "聚焦当前任务");
+     * ```
      */
     steer(
         ref: RunRef,
         messageId: string,
         content: string,
-        ledger?: { readonly digest: SessionInputDigest },
+        ledger?: {
+            readonly digest: SessionInputDigest;
+            readonly queueBinding?: { readonly messageId: string; readonly queueRevision: number };
+        },
     ): Promise<SteerInputResult> {
         return this.runner.steer === undefined
             ? Promise.resolve({ ok: false, error: "RUN_CONTROL_UNAVAILABLE" })

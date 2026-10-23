@@ -11,6 +11,7 @@ import { createCompositionRoot } from "../src/composition-root";
 import { writeDefaultProfile } from "./profile-fixture";
 
 type CapturedRequest = {
+    readonly tools?: readonly { readonly function: { readonly name: string; readonly parameters: { readonly properties?: Record<string, unknown> } } }[];
     readonly messages: ReadonlyArray<{
         readonly role: string;
         readonly content: string;
@@ -59,7 +60,7 @@ function controlPayload(request: CapturedRequest): Record<string, any> {
     return JSON.parse(control.content) as Record<string, any>;
 }
 
-function nativeFixtureMessage(content: string, id: string) {
+function nativeFixtureMessage(content: string, id: string, request: CapturedRequest) {
     const wire = JSON.parse(content) as { result?: Record<string, any> };
     if (wire.result === undefined) return { role: "assistant", content };
     const { kind, ...args } = wire.result;
@@ -67,13 +68,14 @@ function nativeFixtureMessage(content: string, id: string) {
         : kind === "ask_user" ? "ask_user"
         : kind === "task_proposal" ? "system_propose_task_plan"
         : kind === "tool_discovery" ? "system_find_tools"
-        : kind === "run_stage_update" ? "system_update_run_stage"
+        : kind === "run_stage_update" ? "system_start_run_stage"
         : kind === "accept" ? "system_review_completion" : "system_complete_task";
     return { role: "assistant", content: "", tool_calls: [{ id, type: "function", function: {
         name,
         arguments: JSON.stringify(kind === "tool_call" ? args.action.input
             : kind === "tool_discovery" ? { query: args.query }
-            : kind === "run_stage_update" ? { target: args.target, acceptanceCriteria: args.acceptanceCriteria }
+            : kind === "run_stage_update" ? (Object.keys(request.tools?.find(tool => tool.function.name === name)?.function.parameters.properties ?? {}).length === 0
+                ? {} : { target: args.target, acceptanceCriteria: args.acceptanceCriteria })
             : kind === "accept" ? { result: { kind } } : args),
     } }] };
 }
@@ -271,7 +273,7 @@ test("Composition Root carries Memory through task approval into Executing", { t
             }
             requests.push(capturedRequest);
             response.setHeader("Content-Type", "text/event-stream");
-            response.end(sseCompletion(nativeFixtureMessage(responseContent, `call-${requests.length}`), `completion-${requests.length}`));
+            response.end(sseCompletion(nativeFixtureMessage(responseContent, `call-${requests.length}`, requests.at(-1)!), `completion-${requests.length}`));
         });
     });
     const port = await listen(server);
@@ -572,7 +574,7 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
             }
             requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as CapturedRequest);
             response.setHeader("Content-Type", "text/event-stream");
-            response.end(sseCompletion(nativeFixtureMessage(responseContent, `call-${requests.length}`), `completion-${requests.length}`));
+            response.end(sseCompletion(nativeFixtureMessage(responseContent, `call-${requests.length}`, requests.at(-1)!), `completion-${requests.length}`));
         });
     });
     const port = await listen(server);

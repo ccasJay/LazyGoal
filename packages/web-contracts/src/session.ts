@@ -998,6 +998,8 @@ export interface BrowserGoalSessionState {
     readonly currentRunMode: "normal" | "plan";
     readonly nextRunMode?: "plan";
     readonly currentRunStepCount: number;
+    /** 当前失败 Run 已保存的错误摘要；不包含供应商原始响应，不读取历史步骤。 */
+    readonly currentRunTerminalDetail?: BrowserSessionRun["terminalDetail"];
     readonly currentPlanRoute?: BrowserPlanRoute;
     readonly execution?: BrowserGoalExecution;
     readonly pendingSteers?: readonly { readonly messageId: string; readonly content: string }[];

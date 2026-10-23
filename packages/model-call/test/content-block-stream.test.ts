@@ -95,6 +95,7 @@ test("交错块、晚到工具身份与整块 reasoning 在同一流中同源，
 
     assert.deepEqual(result.response, response);
     assert.equal(adapter.generateCalls, 0);
+    assert.equal((publicEvents.find(event => event.kind === "model_started")?.payload as { stage?: string }).stage, "decide");
     // 公开订阅只看到普通正文与安全生命周期。
     assert.deepEqual(publicEvents.map(event => event.kind), [
         "model_started",
@@ -306,6 +307,7 @@ test("只实现 generate 的 Adapter 在返回前发布开始状态，并按整�
     const pending = callModel({ adapter, executionStream: publisher }, { context: context(), request: REQUEST, stage: "decide" });
     await new Promise(resolve => setTimeout(resolve, 20));
     assert.deepEqual(drafts.map(draft => draft.kind), ["model_started"], "generate 返回前必须已发布开始状态");
+    assert.equal((drafts[0]?.payload as { stage?: string }).stage, "decide");
     release();
     const result = await pending;
 

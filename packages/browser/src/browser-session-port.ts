@@ -501,7 +501,12 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
         const source = event.source;
         switch (event.kind) {
             case "model_call_started":
-                this.push({ type: "activity", goalId, runId: source.runId, activity: { kind: "model_started" } });
+                this.push({ type: "activity", goalId, runId: source.runId, activity: {
+                    kind: "model_started", occurredAt: source.occurredAt,
+                    ...(event.stage === undefined ? {} : { stage: event.stage }),
+                    ...(event.modelCallId === undefined ? {} : { modelCallId: event.modelCallId }),
+                    ...(event.executionUnitId === undefined ? {} : { executionUnitId: event.executionUnitId }),
+                } });
                 return;
             case "model_call_completed":
                 this.push({ type: "activity", goalId, runId: source.runId, activity: { kind: "model_completed" } });

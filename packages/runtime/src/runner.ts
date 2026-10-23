@@ -119,6 +119,7 @@ import {
     isExecutionAbortedError,
     throwIfAborted,
     TransientModelRequestFailure,
+    ModelRequestFailure,
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import {
@@ -258,6 +259,20 @@ class ProgramResourceError extends Error {
 }
 
 class PendingSteerAcceptedError extends Error {}
+class StaleStageRequestError extends Error {
+    constructor(readonly goal: Goal) {
+        super("Stage state changed while the model request was in flight; the call was not applied.");
+    }
+}
+
+function stageRequestKey(goal: Goal): string {
+    const { id, currentStage, planRoute } = goal.state.run;
+    return JSON.stringify({
+        runId: id,
+        stage: currentStage === undefined ? null : [currentStage.stageId, currentStage.revision, currentStage.status],
+        route: planRoute === undefined ? null : [planRoute.revision, planRoute.nextStageIndex],
+    });
+}
 class RunInterruptAcceptedError extends Error {}
 
 class InterruptRepairBudgetExhausted extends Error {
@@ -275,7 +290,16 @@ class InterruptRepairBudgetExhausted extends Error {
  */
 export type SteerInputResult =
     | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly messageId: string; readonly existing: boolean }
-    | { readonly ok: false; readonly error: "RUN_NOT_FOUND" | "RUN_NOT_RUNNING" | "STEER_CONFLICT" | "RUN_CONTROL_UNAVAILABLE" };
+    | {
+        readonly ok: false;
+        readonly error:
+            | "RUN_NOT_FOUND"
+            | "RUN_NOT_RUNNING"
+            | "STEER_CONFLICT"
+            | "QUEUE_REVISION_MISMATCH"
+            | "QUEUED_MESSAGE_NOT_FOUND"
+            | "RUN_CONTROL_UNAVAILABLE";
+    };
 
 /** Run Interrupt 命令已持久化受理或被明确拒绝的结果。 */
 export type InterruptRunResult =
@@ -414,6 +438,7 @@ function createThinkInputBoundary(
             stepCount: goal.state.run.stepCount,
             lastStep: goal.state.run.lastStep,
             contextEpoch: goal.state.run.contextEpoch,
+            stageBinding: stageRequestKey(goal),
         },
         modelSelection: goal.state.modelSelection,
         goalPlan: goal.state.goalPlan,
@@ -605,7 +630,7 @@ function toStableExecutionError(error: unknown): RunnerExecutionError | undefine
         );
     }
 
-    if (error instanceof ModelRequestRetriesExhaustedError) {
+    if (error instanceof ModelRequestRetriesExhaustedError || error instanceof ModelRequestFailure) {
         return new RunnerExecutionError("MODEL_REQUEST_FAILED", error.message);
     }
 
@@ -1318,12 +1343,31 @@ class RunExecutor {
         );
     }
 
-    /** 持久化受理当前活动 Run 的 Steer；执行器在下一个模型边界应用。 */
+    /**
+     * 持久化受理当前活动 Run 的 Steer；执行器在下一个模型边界应用。
+     *
+     * @remarks
+     * 提供 `ledger.queueBinding` 时，同一提交会验证并消费指定队列消息，再写入
+     * Steer；队列修订过期、消息不存在或正文不同会明确拒绝。
+     *
+     * @param ref - 目标 Goal 与 Run 的稳定关联身份。
+     * @param messageId - 新 Steer 的幂等身份。
+     * @param content - 非空的补充或修正文本。
+     * @param ledger - 可选去重摘要及原队列消息绑定。
+     * @returns 已持久化受理、幂等重试或稳定拒绝结果。
+     * @example
+     * ```ts
+     * await runner.steer({ goalId, runId }, "steer-1", "聚焦这一项");
+     * ```
+     */
     async steer(
         ref: RunRef,
         messageId: string,
         content: string,
-        ledger?: { readonly digest: SessionInputDigest },
+        ledger?: {
+            readonly digest: SessionInputDigest;
+            readonly queueBinding?: { readonly messageId: string; readonly queueRevision: number };
+        },
     ): Promise<SteerInputResult> {
         if (messageId.trim().length === 0 || content.trim().length === 0 || content.length > 64_000) {
             return { ok: false, error: "STEER_CONFLICT" };
@@ -1351,6 +1395,24 @@ class RunExecutor {
             }
             if (run.status !== "running") return { ok: false, error: "RUN_NOT_RUNNING" };
             if (run.interruption !== undefined) return { ok: false, error: "RUN_NOT_RUNNING" };
+
+            const queueBinding = ledger?.queueBinding;
+            const queue = goal.state.messageQueue ?? { revision: 0, items: [] };
+            const queuedMessage = queueBinding === undefined
+                ? undefined
+                : queue.items.find((item) => item.inputId === queueBinding.messageId);
+            if (queueBinding !== undefined && queue.revision !== queueBinding.queueRevision) {
+                return { ok: false, error: "QUEUE_REVISION_MISMATCH" };
+            }
+            if (queueBinding !== undefined && (
+                queuedMessage === undefined
+                || queuedMessage.content !== content
+                || findSessionInputRecord(goal, queueBinding.messageId)?.status !== "pending"
+            )) {
+                return { ok: false, error: queuedMessage !== undefined && queuedMessage.content !== content
+                    ? "STEER_CONFLICT"
+                    : "QUEUED_MESSAGE_NOT_FOUND" };
+            }
             const steerInputs: readonly RunSteerInput[] = [
                 ...(run.steerInputs ?? []),
                 { messageId, status: "pending", content },
@@ -1366,14 +1428,30 @@ class RunExecutor {
                     admittedAtRevision: (goal.state.commitRevision ?? 0) + 1,
                     targetRunId: run.id,
                 };
+            const inputLedger = (goal.state.inputLedger ?? []).map((record) =>
+                queueBinding !== undefined
+                    && record.inputId === queueBinding.messageId
+                    && record.status === "pending"
+                    ? { ...record, status: "cleared" as const }
+                    : record);
+            const nextInputLedger = queueBinding === undefined && ledgerEntry === undefined
+                ? undefined
+                : [...inputLedger, ...(ledgerEntry === undefined ? [] : [ledgerEntry])];
             const nextGoal: Goal = {
                 ...goal,
                 state: {
                     ...goal.state,
                     run: { ...run, steerInputs },
-                    ...(ledgerEntry === undefined
+                    ...(queueBinding === undefined || queuedMessage === undefined
                         ? {}
-                        : { inputLedger: [...(goal.state.inputLedger ?? []), ledgerEntry] }),
+                        : {
+                            messageQueue: {
+                                revision: queue.revision + 1,
+                                items: queue.items.filter((item) => item.inputId !== queueBinding.messageId),
+                                ...(queue.pause === undefined ? {} : { pause: queue.pause }),
+                            },
+                        }),
+                    ...(nextInputLedger === undefined ? {} : { inputLedger: nextInputLedger }),
                 },
             };
             const fact: TrajectoryEventDraft = {
@@ -2162,7 +2240,11 @@ class RunExecutor {
                             path: ["result"],
                             message: error.message,
                         }],
-                        constraints: ["Provide valid stage parameters or match the current active stage revision."],
+                        constraints: [goal.state.run.currentStage?.status === "executing"
+                            ? "The call was not applied. Use system_revise_run_stage with target, acceptanceCriteria and reason, or system_complete_run_stage with summary and evidenceSequences. Runtime binds the active stage."
+                            : goal.state.run.planRoute !== undefined
+                                ? "The call was not applied. Start only the next pending approved stage with system_start_run_stage and an empty object. If no stage remains, complete the Run under its completion contract."
+                                : "The call was not applied. No executing stage exists. Use system_start_run_stage with target and acceptanceCriteria; Runtime allocates its identity. Do not supply stageId, baseRevision or memoryPatch."],
                     }), error.message);
                 }
                 throw error;
@@ -2248,7 +2330,7 @@ class RunExecutor {
                         path: ["result", "stageId"],
                         message: `stageId mismatch: active stage is "${goal.state.run.currentStage.stageId}", got "${decision.stageId}"`,
                     }],
-                    constraints: ["Use the current active stageId."],
+                    constraints: ["Use the declared system_complete_run_stage with summary and evidenceSequences. Runtime binds the active stage; do not supply stageId."],
                 }), "stageId mismatch in stage completion candidate");
             }
             return {
@@ -2306,9 +2388,9 @@ class RunExecutor {
                     issues: [{
                         code: "STAGE_DECLARATION_REQUIRED",
                         path: ["result"],
-                        message: "Declare an executing stage using system_update_run_stage before executing business actions.",
+                        message: "Declare an executing stage using system_start_run_stage before executing business actions.",
                     }],
-                    constraints: ["Declare a stage with target and acceptanceCriteria using system_update_run_stage before executing business tools."],
+                    constraints: ["Declare a stage with target and acceptanceCriteria using system_start_run_stage before executing business tools."],
                 }), "Stage declaration required before executing business tools");
             }
         }
@@ -2566,9 +2648,13 @@ class RunExecutor {
             readonly executionUnitId?: string;
             readonly stepIndex?: number;
         },
+        expectedStageKey?: string,
     ): Promise<Goal> {
         return withGoalMutationGate(this.store, goal.id, async () => {
             const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
+            if (expectedStageKey !== undefined && latest !== undefined && stageRequestKey(latest) !== expectedStageKey) {
+                throw new StaleStageRequestError(latest);
+            }
             if (latest?.state.run.interruption?.status === "requested") {
                 throw new RunInterruptAcceptedError("Run Interrupt was accepted before the model checkpoint");
             }
@@ -2780,6 +2866,7 @@ class RunExecutor {
             readonly executionUnitId?: string;
             readonly stepIndex?: number;
         },
+        expectedStageKey?: string,
     ): Promise<Goal> {
         try {
             if (this.trajectoryStore === undefined
@@ -2792,9 +2879,11 @@ class RunExecutor {
                 undefined,
                 control,
                 modelContextFrame,
+                expectedStageKey,
             );
         } catch (error) {
             if (isExecutionAbortedError(error)) throw error;
+            if (error instanceof StaleStageRequestError) throw error;
             throw new StageCheckpointFailure(error);
         }
     }
@@ -3118,6 +3207,7 @@ class RunExecutor {
                 if (isExecutionAbortedError(error)) throw error;
                 if (error instanceof InterruptRepairBudgetExhausted) throw error;
                 if (error instanceof StageCheckpointFailure) throw error;
+                if (error instanceof StaleStageRequestError) throw error;
                 if (!(error instanceof ModelStageFeedbackError)) throw new StageExecutionFailure(error);
                 if (error.feedback.stage !== stage
                     || error.feedback.goalId !== currentGoal.id
@@ -4170,7 +4260,33 @@ class RunExecutor {
         while (goal.state.run.status === "running") {
             throwIfAborted(control);
             if (goal.state.run.pendingProgram !== undefined) {
-                goal = await this.continueProgram(goal, control);
+                const pendingProgram = goal.state.run.pendingProgram;
+                try {
+                    goal = await this.continueProgram(goal, control);
+                } catch (error) {
+                    if (!(error instanceof Error) || error.message !== "PTC_REPLAY_MISMATCH") {
+                        throw error;
+                    }
+                    const latest = await this.restore(
+                        { goalId: goal.id, runId: goal.state.run.id },
+                        control,
+                    );
+                    if (latest === undefined) throw error;
+                    if (latest.state.run.status !== "running") {
+                        return { ok: true, state: latest.state.run };
+                    }
+                    if (latest.state.run.pendingProgram?.programId !== pendingProgram.programId) {
+                        goal = latest;
+                        continue;
+                    }
+                    return this.stopWithExecutionError(
+                        latest,
+                        error instanceof RunnerExecutionError
+                            ? error
+                            : new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH"),
+                        control,
+                    );
+                }
                 if (control?.signal?.aborted && control.signal.reason === "user_cancel_program"
                     && goal.state.run.pendingProgram === undefined) {
                     return { ok: true, state: goal.state.run };
@@ -4326,6 +4442,7 @@ class RunExecutor {
 
             /** 本次执行单元仍然有效的完成候选身份；决策被弃用时必须作废它。 */
             let pendingCandidateId: string | undefined;
+            let expectedStageKey: string | undefined;
 
             try {
                 let normalized: NormalizedExecution;
@@ -4441,6 +4558,13 @@ class RunExecutor {
                                 },
                                 async (activeGoal, operationResult: { readonly result: DecideStageResult; readonly fromBatch?: boolean }) => {
                                     const result = operationResult.result;
+                                    if (result.kind === "decision" && (result.decision.kind === "run_stage_update" || result.decision.kind === "run_stage_complete")) {
+                                        expectedStageKey = stageRequestKey(activeGoal);
+                                        const latest = await this.restore({ goalId: activeGoal.id, runId: activeGoal.state.run.id }, control);
+                                        if (latest !== undefined && stageRequestKey(latest) !== expectedStageKey) {
+                                            throw new StaleStageRequestError(latest);
+                                        }
+                                    }
                                     const fromBatch = operationResult.fromBatch === true;
                                     if (result.modelContextFrame !== undefined
                                         && result.modelContextFrame.stage !== "decide") {
@@ -4485,17 +4609,12 @@ class RunExecutor {
                                     }
                                     const queue = result.kind === "batch" ? result.decisions.slice(1) : [];
                                     if (result.kind === "batch" && result.decisions.some(decision => decision.kind !== "tool_call")) {
-                                        // 批次与控制请求混排的顺序语义尚未定义（R1-6）；响亮拒绝，不静默丢弃或重排。
-                                        throw createRunnerFeedbackError(
-                                            new RunnerExecutionError(
-                                                "INVALID_AGENT_DECISION",
-                                                "A Decide batch that mixes control requests with tool calls is not supported",
-                                            ),
-                                            activeGoal,
-                                            executionUnitId,
-                                            "decide",
-                                            "output_contract",
-                                        );
+                                        throw new ModelStageFeedbackError(createRuntimeFeedback({
+                                            goalId: activeGoal.id, runId: activeGoal.state.run.id, executionUnitId,
+                                            stepOrdinal, stage: "decide", origin: "output_contract", code: "INVALID_AGENT_DECISION", attempt: 1,
+                                            issues: [{ code: "multiple_tool_calls", path: ["toolCalls"], message: "This batch was not applied. Call exactly one declared system tool, such as one system_find_tools query, then wait for its result." }],
+                                            constraints: ["System control calls cannot be batched. Continue the original task with one declared tool call."],
+                                        }), "System calls cannot be batched");
                                     }
                                     const businessQueue = queue.flatMap(decision => decision.kind === "tool_call" ? [decision.action] : []);
                                     const normalizedDecision = this.validateDecisionForStage(
@@ -4671,6 +4790,7 @@ class RunExecutor {
                                         executionUnitId,
                                         stepIndex: stepOrdinal,
                                     },
+                                    expectedStageKey,
                                 );
                             }
                             normalized = {
@@ -4729,6 +4849,7 @@ class RunExecutor {
                     if (error instanceof StageCheckpointFailure) {
                         throw error.original;
                     }
+                    if (error instanceof StaleStageRequestError) throw error;
 
                     throwIfAborted(control);
 
@@ -5466,6 +5587,10 @@ class RunExecutor {
                             stageOrdinal,
                             previousStage,
                         );
+                        if (nextPlanRoute !== undefined) {
+                            const plannedStage = nextPlanRoute.stages[nextPlanRoute.nextStageIndex]!;
+                            nextStage = { ...nextStage, stageId: plannedStage.stageId, revision: plannedStage.revision };
+                        }
                     } else {
                         nextStage = reviseRunStage(
                             goal.state.run.currentStage!,
@@ -5542,6 +5667,8 @@ class RunExecutor {
                         ],
                         acceptedPatch,
                         control,
+                        undefined,
+                        expectedStageKey,
                     );
                     contextLookupResult = undefined;
                     contextLookupChainCount = 0;
@@ -5750,6 +5877,8 @@ class RunExecutor {
                             ],
                             undefined,
                             control,
+                            undefined,
+                            expectedStageKey,
                         );
                         contextLookupResult = undefined;
                         contextLookupChainCount = 0;
@@ -5805,6 +5934,8 @@ class RunExecutor {
                         ],
                         acceptedPatch,
                         control,
+                        undefined,
+                        expectedStageKey,
                     );
                     contextLookupResult = undefined;
                     contextLookupChainCount = 0;
@@ -6026,6 +6157,13 @@ class RunExecutor {
                 contextLookupResult = undefined;
                 contextLookupChainCount = 0;
             } catch (error) {
+                if (error instanceof StaleStageRequestError) {
+                    const { pendingModelRepair: _repair, pendingThink: _think, ...run } = error.goal.state.run;
+                    goal = await this.commitStageCheckpoint(this.withRun(error.goal, run), [], control);
+                    contextLookupResult = undefined;
+                    toolDiscoveryResult = undefined;
+                    continue;
+                }
                 if (error instanceof RunInterruptAcceptedError) {
                     // 已被受理的中断使当前候选失效：它不是正式答复，也不改变收尾规则。
                     if (pendingCandidateId !== undefined) {

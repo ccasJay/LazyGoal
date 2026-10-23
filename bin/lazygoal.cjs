@@ -4,6 +4,7 @@ const { spawnSync } = require("node:child_process");
 const { resolve } = require("node:path");
 
 const argv = process.argv.slice(2);
+const isBrowserCommand = argv.length === 0 || (argv.length === 1 && argv[0] === "web");
 const isAlfworldEval = argv[0] === "eval" && argv[1] === "alfworld";
 const isSwebenchEval = argv[0] === "eval" && argv[1] === "swebench";
 const isGaiaEval = argv[0] === "eval" && argv[1] === "gaia";
@@ -54,11 +55,14 @@ const source = isContextEval ? resolve(__dirname, "../benchmarks/context-cli.ts"
 const tsxLoader = require.resolve("tsx/esm", { paths: [__dirname] });
 
 const nodeArgs = ["--import", tsxLoader];
+const nodeEnv = isBrowserCommand && process.allowedNodeEnvironmentFlags.has("--use-env-proxy")
+    ? { ...process.env, NODE_USE_ENV_PROXY: "1" }
+    : process.env;
 
 const result = spawnSync(
     process.execPath,
     [...nodeArgs, source, ...argv],
-    { stdio: "inherit" },
+    { stdio: "inherit", env: nodeEnv },
 );
 
 if (result.error !== undefined) {

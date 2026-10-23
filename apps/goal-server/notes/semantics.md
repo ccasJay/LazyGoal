@@ -9,6 +9,7 @@
 | Provider profile resolution | 启动与选择期的受管档案解析、优先级与不可解析时的显式失败；档案变更后刷新解析视图。 | [Goal Server](../README.md) | [Composition Root](../src/composition-root.ts) |
 | Provider model preview | 校验表单连接并只读查询在线模型，不保存或激活档案。 | [Goal Server](../README.md) | [CLI 装配](../src/cli.ts) |
 | 动态模型选择与恢复 | 服务端按在线可选目录解析协议，Goal 保存执行契约并按当前 Profile 凭据恢复 Adapter。 | [Goal Server](../README.md) | [运行时装配](../src/runtime/composition.ts) |
+| 沙箱计划恢复 | 从核准范围重建绑定当前 Action 与工作区的进程内计划。 | [Goal Server](../README.md) | [运行时装配](../src/runtime/composition.ts) |
 | 执行装配 | 注入现有 Port 组合 Launcher/Runner/Coordinator，只暴露命令 Port，不创建具体模型或文件存储。 | [Goal Server](../README.md) | [执行装配](../src/runtime/execution-composition.ts) |
 | 会话入口 | `RuntimeComposition.sessions` 暴露内部会话操作：创建、流式输入、审批、关闭与重建恢复，复用同一 Store／提交边界与生命周期。 | [Goal Server](../README.md) | [运行时装配](../src/runtime/composition.ts) |
 | 交互接入端口 | `RuntimeComposition.interactions` 的 `attach`／`read`：程序化决定、真人接手与显式恢复都复用同一 Runtime 会话边界。 | [Goal Server](../README.md) | [运行时装配](../src/runtime/composition.ts)、[宿主示例](../examples/headless-interaction-handlers.ts) |

@@ -71,6 +71,48 @@ class PlannedRouteExecutor extends BaseTestStepExecutor {
 
 }
 
+test("Plan stage start rejects a stale route and reuses the approved identity and revision", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectory = trajectoryStoreFor(store);
+    const created = createGoal({ ...currentProtocols, id: "plan-stage-binding", runId: "run-1", intent: "Inspect", promptBundleVersion: 1,
+        profile: { id: "plan-stage-binding", systemPrompt: "Inspect", instructions: [], toolIds: [] } });
+    const initial = { ...created, state: { ...created.state, run: { ...created.state.run, mode: "plan" as const,
+        approvedTask: { objective: "Inspect", completionCriteria: [] },
+        planRoute: { revision: 4, revisionReason: "Reordered pending work", nextStageIndex: 0, nextStageOrdinal: 5,
+            stages: [{ stageId: "stage-4", revision: 2, status: "pending" as const, target: "Approved inspection", acceptanceCriteria: ["Read sources"] }],
+        },
+    } } };
+    await store.save(initial);
+    let calls = 0;
+    const executor: StepExecutor = {
+        async decide({ goal }) {
+            calls += 1;
+            if (calls === 1) {
+                const latest = (await store.restore(initial.id))!;
+                await store.save({ ...latest, state: { ...latest.state, run: { ...latest.state.run,
+                    planRoute: { ...latest.state.run.planRoute!, revision: 5 },
+                } } });
+            } else {
+                assert.equal(goal.state.run.planRoute?.revision, 5);
+            }
+            return { kind: "decision", decision: calls <= 2
+                ? { kind: "run_stage_update", target: "Approved inspection", acceptanceCriteria: ["Read sources"] }
+                : { kind: "wait", reason: "Await input" } };
+        },
+        async think() { throw new Error("Unexpected Think"); },
+        async reviewCompletion() { throw new Error("Unexpected review"); },
+    };
+    const runner = new Runner({ store, trajectoryStore: trajectory, executor, toolRegistry: new InMemoryToolRegistry([]), toolPolicy: { evaluate: () => "allow" } });
+    const result = await runner.runUntilBlocked({ goalId: initial.id, runId: "run-1" });
+    assert.equal(result.ok, true);
+    assert.equal(calls, 3);
+    const saved = (await store.restore(initial.id))!;
+    assert.equal(saved.state.run.currentStage?.stageId, "stage-4");
+    assert.equal(saved.state.run.currentStage?.revision, 2);
+    assert.equal(saved.state.run.planRoute?.stages[0]?.status, "executing");
+    assert.equal(trajectory.events.filter(event => event.eventType === "run_stage_declared").length, 1);
+});
+
 test("approve_task installs the approved route and advances its stages in order in the same Run", async () => {
     const store = new InMemoryGoalStore();
     const trajectory = trajectoryStoreFor(store);

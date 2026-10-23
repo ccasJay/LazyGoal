@@ -569,10 +569,12 @@ export function transition(
                     );
                 }
 
+                const interrupted = clearPendingThink(clearPendingInteraction(currentState));
+                const { pendingProgram: _pendingProgram, ...failedState } = interrupted;
                 return {
                     ok: true,
                     state: {
-                        ...clearPendingThink(clearPendingInteraction(currentState)),
+                        ...failedState,
                         status: "failed",
                         ...(pendingAction === undefined
                             ? {}

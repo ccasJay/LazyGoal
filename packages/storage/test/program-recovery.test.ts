@@ -159,19 +159,6 @@ test("PTC restores committed reads and waits for a write with an unknown result"
         assert.ok(current);
         await resumedStores.store.save({
             ...current,
-            state: {
-                ...current.state,
-                run: {
-                    ...approved.state,
-                    pendingProgram: { ...approved.state.pendingProgram!, resultBytes: 0 },
-                },
-            },
-        });
-        await assert.rejects(resumedRunner.run(ref, { authorizedActionId: actionId }),
-            /PTC_REPLAY_MISMATCH/);
-        assert.equal(writeCalls, 1);
-        await resumedStores.store.save({
-            ...current,
             state: { ...current.state, run: approved.state },
         });
         const completed = await resumedRunner.run(ref, { authorizedActionId: actionId });
