@@ -168,6 +168,7 @@ test("SessionTimeline 保留真实来源身份并按交错顺序渲染消息、�
   });
   const html = renderToStaticMarkup(React.createElement(SessionTimeline, {
     projection: {
+      stages: [], actionGroups: [],
       currentPlanRoute: {
         revision: 1,
         nextStageIndex: 1,
@@ -242,7 +243,7 @@ test("SessionTimeline 把真实工具活动呈现为可展开活动组，并保�
   };
   const html = renderToStaticMarkup(React.createElement(SessionTimeline, {
     projection: {
-      currentPlanRoute: undefined,
+      stages: [], actionGroups: [], currentPlanRoute: undefined,
       items: [
         { kind: "run", itemId: "run:run-1", runId: "run-1", status: "running", position: position(0) },
         { kind: "activity", itemId: "activity:action:run-1:a1", runId: "run-1", group, position: position(1) },
@@ -314,7 +315,7 @@ test("当前执行中的工具组自动展开，并在 Activity Run 状态显示
   };
   const html = renderToStaticMarkup(React.createElement(SessionTimeline, {
     projection: {
-      currentPlanRoute: undefined,
+      stages: [], actionGroups: [], currentPlanRoute: undefined,
       items: [
         { kind: "run", itemId: "run:run-1", runId: "run-1", status: "running", position: { ...position, sequence: 0 } },
         { kind: "activity", itemId: "activity:action:run-1:a1", runId: "run-1", group, position },
@@ -411,7 +412,7 @@ test("关闭 Execution steps 只隐藏活动主体，正文与 Run 边界仍然�
   };
   const html = renderToStaticMarkup(React.createElement(SessionTimeline, {
     projection: {
-      currentPlanRoute: undefined,
+      stages: [], actionGroups: [], currentPlanRoute: undefined,
       items: [
         { kind: "run", itemId: "run:run-1", runId: "run-1", status: "running", position: position(0) },
         { kind: "activity", itemId: "activity:action:run-1:a1", runId: "run-1", group, position: position(1) },

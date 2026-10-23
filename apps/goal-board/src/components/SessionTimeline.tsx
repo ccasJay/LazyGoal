@@ -144,11 +144,12 @@ function ActivitySnake({ className }: { readonly className?: string }) {
  * @remarks
  * 消息、事实和临时正文保留各自的稳定来源身份；状态为终态的 Run 才显示终态行，阶段事实
  * 不改变 Run 状态。Plan 路线只显示在当前 Run 边界，旧页缺口仍明确提示。工具活动以真实
- * 动作组呈现，成功默认折叠，运行、失败与等待组默认展开。真实阶段只按声明或当前路线关联，
- * 不从工具类别生成阶段；阶段折叠与 Execution steps 筛选仍保留异常活动。手动开合状态按组身份保存，
+ * 动作组呈现，成功默认折叠，运行、失败与等待组默认展开。同一 Action 的授权、执行、重试
+ * 与结果记录随成员详情折叠；等待审批的组仍显示明确的 `Awaiting approval`。真实阶段按服务端阶段上下文、声明
+ * 或当前路线关联，不从工具类别生成阶段；阶段折叠与 Execution steps 筛选仍保留异常活动。手动开合状态按组身份保存，
  * 追加内容、结算和 Execution steps 筛选不覆盖用户选择；重新进入会话时恢复默认值。
  * 同一历史检索只显示一条可展开活动，未命中与失败分别标注；展开内容只用安全请求摘要、
- * 固定结果说明和白名单错误码。
+ * 固定结果说明和白名单错误码。阶段及 Action 来源未全部加载时，折叠状态仍保留完整性提示。
  * 公开进度在匹配事件或工具步骤的折叠内容中显示；尚无已保存节点的真实执行单元形成临时步骤，
  * 不显示独立进度面板，未提供执行身份的事件不按相邻位置归属。
  *
@@ -208,7 +209,7 @@ export function SessionTimeline({
     target.set(key, [...(target.get(key) ?? []), entry]);
   }
   const options = {
-    currentRunId, currentPlanRoute: projection.currentPlanRoute, runStatus, liveActivity,
+    currentRunId, currentPlanRoute: projection.currentPlanRoute, stages: projection.stages, actionGroups: projection.actionGroups, runStatus, liveActivity,
     streamConnected, showExecutionFacts, brandMark, expandedGroups, progressByItem,
     latestProgressId: progress.at(-1)?.id,
     onToggleGroup: toggleGroup, onOpenTrajectory,
@@ -314,6 +315,8 @@ function StepProgressDetails({ entries, active, streamConnected, onOpenTrajector
 type TimelineRenderOptions = {
     readonly currentRunId: string;
     readonly currentPlanRoute: BrowserPlanRoute | undefined;
+    readonly stages: SessionTimelineProjection["stages"];
+    readonly actionGroups: SessionTimelineProjection["actionGroups"];
     readonly runStatus: SessionTimelineProps["runStatus"];
     readonly liveActivity: string | null;
     readonly streamConnected: boolean;
@@ -347,6 +350,9 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
   for (const stage of options.currentPlanRoute?.stages ?? []) {
     stages.set(`${options.currentRunId}:${stage.stageId}`, { title: stage.target, revision: stage.revision });
   }
+  for (const stage of options.stages) {
+    if (stage.target !== undefined) stages.set(`${stage.runId}:${stage.stageId}`, { title: stage.target, revision: stage.revision });
+  }
   let section: { key: string; title: string; stageId: string; revision?: number; entries: SessionTimelineEntry[] } | undefined;
   const flush = () => {
     if (section === undefined) return;
@@ -356,13 +362,16 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
       ? options.currentPlanRoute?.stages.find((stage) => stage.stageId === stageId && stage.revision === revision)
       : undefined;
     const outcome = stageOutcomes.get(`${entries[0]?.runId}:${stageId}:${revision ?? ""}`);
-    const accepted = routeStage?.status === "accepted" || outcome === "run_stage_accepted";
+    const context = options.stages.find(stage => stage.runId === entries[0]?.runId && stage.stageId === stageId);
+    const contextStatus = context !== undefined && context.revision === revision ? context.status : undefined;
+    const incomplete = context?.completeWithinPage === false;
+    const accepted = contextStatus === "accepted" || routeStage?.status === "accepted" || outcome === "run_stage_accepted";
     const attention = entries.filter((entry) => entry.kind === "activity" ? entry.group.members.some(member => needsAttention(member.status))
       : entry.kind === "lookup" ? entry.status === "failed"
         : !accepted && entry.kind === "fact" && entry.eventType === "run_stage_rejected" && outcome === "run_stage_rejected");
     const running = !accepted && entries[0]?.runId === options.currentRunId && options.runStatus === "running"
-      && (routeStage?.status === "executing" || activities.some((entry) => isActive(entry.group.status)));
-    const status = attention.length > 0 ? "attention" : accepted ? "completed" : running ? "running" : "recorded";
+      && (contextStatus === "executing" || routeStage?.status === "executing" || activities.some((entry) => isActive(entry.group.status)));
+    const status = attention.length > 0 || !accepted && contextStatus === "rejected" ? "attention" : accepted ? "completed" : running ? "running" : "recorded";
     const expanded = options.expandedGroups.get(key) ?? (running || attention.length > 0);
     const detailId = `stage-detail-${encodeURIComponent(key)}`;
     const details = entries.filter((entry) => entry.kind !== "fact"
@@ -376,6 +385,7 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
       <TraceTitle title={title}>{title}</TraceTitle>
       {activityCount > 0 && <TraceDescription>{activityCount} {activityCount === 1 ? "activity" : "activities"}</TraceDescription>}
       <TraceDescription>{status === "attention" ? "Needs attention" : accepted ? "Accepted" : running ? "In progress" : "Recorded"}</TraceDescription>
+      {incomplete && <TraceDescription>Details not fully loaded</TraceDescription>}
     </TraceLine>;
     rendered.push(
       <TraceCollapsible key={key} open={expanded} onOpenChange={open => options.onToggleGroup(key, open)} className={cn("timeline-stage", status)} data-stage-id={stageId}
@@ -447,6 +457,8 @@ function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions)
         itemId={item.itemId}
         runId={item.runId}
         group={item.group}
+        incomplete={item.group.members.some(member => options.actionGroups.some(context => context.runId === item.runId
+          && context.actionId === member.actionId && !context.completeWithinPage))}
         expanded={expanded}
         onToggle={() => options.onToggleGroup(item.group.id, !expanded)}
         onOpenTrajectory={options.onOpenTrajectory}
@@ -559,7 +571,8 @@ function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions)
  * @remarks
  * 展开状态由调用方按组身份保存。运行与重试状态提供轻微动画，遵循系统减少动态效果设置；
  * 已完成状态以图标呈现并保留可访问名称。成员只显示既有安全摘要与真实来源身份，原始
- * 参数与 Observation 不进入此处。
+ * 参数与 Observation 不进入此处。同一 Action 的授权、执行、重试与结果记录只在展开
+ * 详情中显示；历史组保持折叠，等待审批的组保留醒目的 `Awaiting approval` 状态。
  *
  * @param props - 活动组身份、展开状态、可选的同组实时进度、连接状态与 Trajectory 定位回调。
  * @returns 一个可展开的活动组行。
@@ -578,7 +591,10 @@ export function ActivityGroupRow({
   progress,
   progressActive = false,
   streamConnected = false,
+  incomplete = false,
 }: {
+  /** 已加载成员只覆盖 Action 的部分来源；折叠时仍提示详情不完整。 */
+  readonly incomplete?: boolean;
   readonly progress?: readonly ExecutionProgressEntry[];
   readonly progressActive?: boolean;
   readonly streamConnected?: boolean;
@@ -606,6 +622,7 @@ export function ActivityGroupRow({
         <Badge variant="outline" className={cn("timeline-activity-status", group.status)}>{activityStatusLabel(group.status)}</Badge>
         {group.live === true && <span className="sr-only">Not saved yet</span>}
       </TraceCollapsibleTrigger>
+      {incomplete && <p className="timeline-activity-outcome">Details not fully loaded</p>}
       {!expanded && group.members.some(member => needsAttention(member.status)) && (
         <p className="timeline-activity-alert">{group.members.find((member) => needsAttention(member.status))?.summary ?? activityStatusLabel(group.status)}</p>
       )}
@@ -618,6 +635,9 @@ export function ActivityGroupRow({
           {group.live === true && <span>Not saved yet</span>}
         </p>
         {progress !== undefined && <StepProgressDetails entries={progress} active={progressActive} streamConnected={streamConnected} onOpenTrajectory={onOpenTrajectory} />}
+        {group.members.some(member => member.lifecycle !== undefined && member.lifecycle.length > 0) && (
+          <p className="timeline-activity-details-heading">Execution details</p>
+        )}
         <ul className="timeline-activity-members" id={detailId}>
           {group.members.map((member) => (
             <li key={member.id} data-member-id={member.id} data-action-id={member.actionId ?? ""}>
@@ -632,6 +652,16 @@ export function ActivityGroupRow({
                 {member.status === "completed" && <Check size={12} aria-hidden="true" />}
                 <span>{activityStatusLabel(member.status)}</span>
               </span>
+              {member.lifecycle !== undefined && member.lifecycle.length > 0 && (
+                <ol className="timeline-activity-member-lifecycle" aria-label="Execution details">
+                  {member.lifecycle.map((lifecycle, index) => (
+                    <li key={`${member.id}:lifecycle:${index}`} data-kind={lifecycle.kind}>
+                      <span>{lifecycle.title}</span>
+                      {lifecycle.detail !== undefined && <small>{lifecycle.detail}</small>}
+                    </li>
+                  ))}
+                </ol>
+              )}
               {member.think?.output !== undefined && (
                 <div className="message-body markdown-body timeline-activity-member-think">
                   <AssistantMarkdown content={member.think.output} />
@@ -649,7 +679,7 @@ export function ActivityGroupRow({
               {member.recoveryRef !== undefined && (
                 <small className="timeline-activity-member-origin">Recovery {member.recoveryRef}</small>
               )}
-              {member.attempts.map((attempt) => (
+              {member.lifecycle === undefined && member.attempts.map((attempt) => (
                 <small className="timeline-activity-member-attempt" key={attempt}>{attempt}</small>
               ))}
               {onOpenTrajectory !== undefined && member.executionUnitId !== undefined && (

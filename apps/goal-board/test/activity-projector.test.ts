@@ -27,6 +27,7 @@ function toolFact(options: {
   readonly inputSummary?: string;
   readonly summary?: string;
   readonly attempts?: readonly string[];
+  readonly lifecycle?: BrowserActivityToolState["lifecycle"];
   readonly activityBoundaryBefore?: true;
   readonly executionUnitId?: string;
   readonly parentActionId?: string;
@@ -55,6 +56,7 @@ function toolFact(options: {
       ...(options.inputSummary === undefined ? {} : { inputSummary: options.inputSummary }),
       ...(options.summary === undefined ? {} : { summary: options.summary }),
       ...(options.attempts === undefined ? {} : { attempts: options.attempts }),
+      ...(options.lifecycle === undefined ? {} : { lifecycle: options.lifecycle }),
       ...(options.parentActionId === undefined ? {} : { parentActionId: options.parentActionId }),
       ...(options.revisionRef === undefined ? {} : { revisionRef: options.revisionRef }),
       ...(options.recoveryRef === undefined ? {} : { recoveryRef: options.recoveryRef }),
@@ -192,6 +194,30 @@ test("approval waits are visible even alongside a running call", () => {
   ]);
   assert.equal(groups[0]?.status, "waiting");
   assert.deepEqual(groups[0]?.members.map((member) => member.status), ["running", "waiting"]);
+});
+
+test("permission and execution facts for one action fold into one member with ordered lifecycle", () => {
+  const lifecycle: NonNullable<BrowserActivityToolState["lifecycle"]> = [
+    { kind: "approval", title: "Permission requested", detail: "Execution is paused until permission is granted." },
+    { kind: "approval", title: "Permission granted" },
+    { kind: "execution", title: "Tool started" },
+    { kind: "result", title: "Result saved" },
+  ];
+  const groups = project([
+    toolFact({ actionId: "a1", sequence: 1, toolId: "bash", status: "recorded", actionStatus: "awaiting_approval", lifecycle: lifecycle.slice(0, 1) }),
+    toolFact({ actionId: "a1", sequence: 2, toolId: "bash", status: "recorded", actionStatus: "approved", lifecycle: lifecycle.slice(0, 2) }),
+    toolFact({ actionId: "a1", sequence: 3, toolId: "bash", status: "recorded", actionStatus: "approved", lifecycle: lifecycle.slice(0, 3) }),
+    toolFact({ actionId: "a1", sequence: 4, toolId: "bash", status: "completed", summary: "Workspace clean", lifecycle }),
+  ]);
+
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0]?.members.length, 1);
+  assert.equal(groups[0]?.members[0]?.actionId, "a1");
+  assert.equal(groups[0]?.members[0]?.status, "completed");
+  assert.deepEqual(groups[0]?.members[0]?.lifecycle?.map((entry) => entry.title), [
+    "Permission requested", "Permission granted", "Tool started", "Result saved",
+  ]);
+  assert.equal(groups[0]?.members[0]?.lifecycle?.[0]?.detail, "Execution is paused until permission is granted.");
 });
 
 test("a running call stays visible alongside a failed member", () => {

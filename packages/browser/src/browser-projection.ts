@@ -40,6 +40,7 @@ import type {
     BrowserActivityRunWindow,
     BrowserActivityStageContext,
     BrowserActivityThinkItem,
+    BrowserActivityToolLifecycleEntry,
     BrowserActivityToolState,
     BrowserInteractionView,
     BrowserPendingAction,
@@ -458,13 +459,7 @@ export async function readBrowserGoalActivity(
         if (run.status === "failed") {
             const failed = [...committed].reverse().find(event => event.payload.type === "run_failed" || event.payload.type === "execution_error");
             if (failed !== undefined && (failed.payload.type === "run_failed" || failed.payload.type === "execution_error")) {
-                const rawCode = String(failed.payload.code);
-                const code = /^[A-Z][A-Z0-9_]{0,79}$/.test(rawCode) ? rawCode : undefined;
-                terminalByRun.set(run.runId, {
-                    ...(code === undefined ? {} : { code }),
-                    message: code === "INVALID_AGENT_DECISION" ? "The model response did not satisfy the required format."
-                        : "Execution failed. Open the trajectory to inspect the recorded cause.",
-                });
+                terminalByRun.set(run.runId, projectActivityTerminalDetail(committed, failed.payload, failed.sequence));
             }
         }
         const toolStates = projectActivityToolStates(committed);
@@ -630,6 +625,9 @@ function projectActivityFact(
         "INVALID_CONTEXT_LOOKUP", "CONTEXT_LOOKUP_CHAIN_LIMIT", "CONTEXT_LOOKUP_UNAVAILABLE",
         "CONTEXT_LOOKUP_FAILED", "INVALID_CONTEXT_LOOKUP_RESULT",
     ].includes(payload.code) ? payload.code : undefined;
+    // 只有决策事实而没有后续生命周期时，不伪造一个仍在运行的工具活动。
+    const attachTool = tool !== undefined
+        && !(payload.type === "decision_received" && (tool.lifecycle === undefined || tool.lifecycle.length === 0));
     return {
         type: "fact",
         itemId: `event:${event.eventId}`,
@@ -643,8 +641,10 @@ function projectActivityFact(
             order: 0,
         },
         eventType: event.eventType as BrowserActivityEventType,
-        title: payload.type === "action_staged" && payload.approvalStatus === "awaiting_approval"
-            ? "Waiting for permission" : activityEventTitle(event.eventType as BrowserActivityEventType),
+        title: payload.type === "model_repair_feedback_recorded"
+            ? activityRepairTitle(payload.feedback.origin, payload.feedback.stepOrdinal)
+            : payload.type === "action_staged" && payload.approvalStatus === "awaiting_approval"
+                ? "Waiting for permission" : activityEventTitle(event.eventType as BrowserActivityEventType),
         ...(detail === undefined ? {} : { detail }),
         ...(lookupId === undefined ? {} : { lookupId }),
         ...(lookupRequest === undefined ? {} : { lookupRequest }),
@@ -654,8 +654,7 @@ function projectActivityFact(
         ...(stageId === undefined ? {} : { stageId }),
         ...(stageRevision === undefined ? {} : { stageRevision }),
         ...(stageTarget === undefined ? {} : { stageTarget }),
-        ...(tool === undefined || payload.type === "decision_received" || payload.type === "action_approved" || payload.type === "action_revised"
-            || payload.type === "action_staged" && payload.approvalStatus === "awaiting_approval" ? {} : { tool }),
+        ...(attachTool ? { tool } : {}),
     };
 }
 
@@ -766,6 +765,7 @@ function projectActivityToolStates(
         inputSummary: string | undefined;
         summary: string | undefined;
         attempts: string[];
+        lifecycle: BrowserActivityToolLifecycleEntry[];
         revisionRef: string | undefined;
         recoveryRef: string | undefined;
         eventIds: string[];
@@ -795,6 +795,7 @@ function projectActivityToolStates(
                 inputSummary: undefined,
                 summary: undefined,
                 attempts: [],
+                lifecycle: [],
                 revisionRef: undefined,
                 recoveryRef: undefined,
                 eventIds: [],
@@ -846,6 +847,8 @@ function projectActivityToolStates(
                 action.status = "rejected";
             }
         }
+        const lifecycleEntry = activityToolLifecycleEntry(event);
+        if (lifecycleEntry !== undefined) action.lifecycle.push(lifecycleEntry);
     }
 
     const toolActions = [...actions.values()]
@@ -874,6 +877,7 @@ function projectActivityToolStates(
             ...(action.inputSummary === undefined ? {} : { inputSummary: action.inputSummary }),
             ...(action.summary === undefined ? {} : { summary: action.summary }),
             ...(action.attempts.length === 0 ? {} : { attempts: [...action.attempts] }),
+            ...(action.lifecycle.length === 0 ? {} : { lifecycle: [...action.lifecycle] }),
             ...(action.revisionRef === undefined ? {} : { revisionRef: action.revisionRef }),
             ...(action.recoveryRef === undefined ? {} : { recoveryRef: action.recoveryRef }),
             ...(action.parentActionId === undefined ? {} : { parentActionId: action.parentActionId }),
@@ -891,14 +895,68 @@ function projectActivityToolStates(
     return states;
 }
 
+/**
+ * 将同一 Action 的授权、执行、重试与结果事实投影为一条安全生命周期记录。
+ *
+ * @remarks
+ * 只使用固定标签、尝试序号与既有有界说明；返回 `undefined` 表示该事实不属于工具动作
+ * 生命周期。记录按 Trajectory 序号顺序由调用方收集。
+ *
+ * @param event - 已提交的轨迹事实。
+ * @returns 生命周期记录；非生命周期事实返回 `undefined`。
+ */
+function activityToolLifecycleEntry(event: TrajectoryEvent): BrowserActivityToolLifecycleEntry | undefined {
+    const payload = event.payload;
+    switch (payload.type) {
+        case "action_staged": {
+            const detail = activityEventDetail(event);
+            return payload.approvalStatus === "awaiting_approval"
+                ? { kind: "approval", title: "Permission requested", ...(detail === undefined ? {} : { detail }) }
+                : { kind: "approval", title: "Action approved" };
+        }
+        case "action_approved": {
+            const detail = activityEventDetail(event);
+            return { kind: "approval", title: "Permission granted", ...(detail === undefined ? {} : { detail }) };
+        }
+        case "action_revised": return { kind: "approval", title: "Action revised" };
+        case "action_rejected": return { kind: "approval", title: "Action rejected" };
+        case "tool_started": return { kind: "execution", title: "Tool started" };
+        case "tool_attempt_started":
+            return { kind: "retry", title: `Tool attempt ${payload.attempt} started` };
+        case "tool_attempt_failed":
+            return {
+                kind: "retry",
+                title: `Tool attempt ${payload.attempt} failed`,
+                detail: boundedText(payload.reason, 160),
+            };
+        case "observation_recorded":
+            return {
+                kind: "result",
+                title: payload.observation.kind === "success" ? "Result saved"
+                    : payload.observation.kind === "failure" ? "Failure recorded" : "Result rejected",
+            };
+        default: return undefined;
+    }
+}
+
 function activityEventDetail(event: TrajectoryEvent): string | undefined {
     const payload = event.payload;
     switch (payload.type) {
         case "model_repair_feedback_recorded": {
-            const origin = payload.feedback.origin;
-            const subject = origin === "tool_input" ? "Tool input"
-                : origin === "memory_patch" ? "Memory update" : "Model output";
-            return `${subject} did not satisfy the current contract. Correction ${payload.attempt} of 3.`;
+            const feedback = payload.feedback;
+            const attempt = `Correction ${payload.attempt} of 3 (step ${feedback.stepOrdinal}).`;
+            if (feedback.origin === "completion_review") {
+                return `Completion review rejected the answer. ${attempt}`;
+            }
+            if (feedback.origin === "output_contract" && feedback.issues.some((issue) => issue.code === "multiple_tool_calls")) {
+                return `System control calls cannot be batched. ${attempt}`;
+            }
+            if (feedback.origin === "output_contract" || feedback.origin === "response_parse") {
+                return `Model output did not satisfy the required format. ${attempt}`;
+            }
+            const subject = feedback.origin === "tool_input" ? "Tool input"
+                : feedback.origin === "memory_patch" ? "Memory update" : "Model output";
+            return `${subject} did not satisfy the current contract. ${attempt}`;
         }
         case "model_request_retry_recorded":
             return `${payload.reason.replaceAll("_", " ")} · attempt ${payload.attempt} of 3${payload.status === undefined ? "" : ` · HTTP ${payload.status}`}`;
@@ -911,6 +969,15 @@ function activityEventDetail(event: TrajectoryEvent): string | undefined {
             ? "Execution is paused until permission is granted." : undefined;
         default: return undefined;
     }
+}
+
+function activityRepairTitle(origin: string, stepOrdinal: number): string {
+    const subject = origin === "completion_review" ? "Completion review rejected the answer"
+        : origin === "tool_input" ? "Tool input rejected"
+            : origin === "memory_patch" ? "Memory update rejected"
+                : origin === "output_contract" || origin === "response_parse" ? "Model output rejected"
+                    : "Correcting model output";
+    return `${subject} (step ${stepOrdinal})`;
 }
 
 function activityEventTitle(eventType: BrowserActivityEventType): string {
@@ -1056,10 +1123,12 @@ function projectActivityContexts(
         const first = members[0]!;
         const last = members.at(-1)!;
         const lastEvent = last.eventType;
+        const declaration = [...members].reverse().find((item) => item.eventType === "run_stage_declared");
         stages.push({
             runId: first.runId,
             stageId: first.stageId!,
             revision: last.stageRevision ?? first.stageRevision ?? 1,
+            ...(declaration?.stageTarget === undefined ? {} : { target: boundedActivityMessage(declaration.stageTarget, 1_000).content }),
             status: lastEvent === "run_stage_accepted" ? "accepted" : lastEvent === "run_stage_rejected" ? "rejected" : "executing",
             firstSequence: first.position.sequence,
             ...(last.position.sequence === first.position.sequence ? {} : { lastSequence: last.position.sequence }),
@@ -1547,6 +1616,49 @@ export function projectBrowserRunStages(
             steps: stageStepsMap.get(id) ?? [],
         };
     });
+}
+
+/**
+ * 从已提交纠错事实生成 Activity 终态摘要。
+ *
+ * @remarks
+ * 只使用来源、尝试次数与稳定分类；不复制反馈正文，避免把内部约束或模型原文带到浏览器。
+ */
+function projectActivityTerminalDetail(
+    committed: readonly TrajectoryEvent[],
+    failed: Extract<TrajectoryEvent["payload"], { readonly type: "run_failed" | "execution_error" }>,
+    failedSequence: number,
+): NonNullable<BrowserActivityRunContext["terminalDetail"]> {
+    const rawCode = String(failed.code);
+    const code = /^[A-Z][A-Z0-9_]{0,79}$/.test(rawCode) ? rawCode : undefined;
+    if (code === "INVALID_AGENT_DECISION") {
+        const lastRepair = [...committed].reverse().find((event) =>
+            event.sequence <= failedSequence
+            && event.payload.type === "model_repair_feedback_recorded"
+            && event.payload.feedback.stage === "decide");
+        if (lastRepair?.payload.type === "model_repair_feedback_recorded") {
+            const feedback = lastRepair.payload.feedback;
+            const attempts = feedback.attempt;
+            const attemptLabel = attempts === 1 ? "correction attempt" : "correction attempts";
+            if (feedback.origin === "completion_review") {
+                return {
+                    ...(code === undefined ? {} : { code }),
+                    message: `The model's answer was rejected by completion review after ${attempts} ${attemptLabel}.`,
+                };
+            }
+            if (feedback.origin === "output_contract" || feedback.origin === "response_parse") {
+                return {
+                    ...(code === undefined ? {} : { code }),
+                    message: `The model output did not satisfy the required format after ${attempts} ${attemptLabel}.`,
+                };
+            }
+        }
+    }
+    return {
+        ...(code === undefined ? {} : { code }),
+        message: code === "INVALID_AGENT_DECISION" ? "The model response did not satisfy the required format."
+            : "Execution failed. Open the trajectory to inspect the recorded cause.",
+    };
 }
 
 function projectRunTerminalDetail(

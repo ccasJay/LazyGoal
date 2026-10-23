@@ -170,7 +170,7 @@ export function GoalSession({
 
   const timelineProjection = useMemo(
     () => session === null || activityPage === null
-      ? { items: [], currentPlanRoute: undefined }
+      ? { items: [], stages: [], actionGroups: [], currentPlanRoute: undefined }
       : projectSessionTimeline(activityPage, session, activityGroups, liveText, candidatePresentation),
     [activityPage, session, activityGroups, liveText, candidatePresentation],
   );

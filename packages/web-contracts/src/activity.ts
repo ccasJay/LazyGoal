@@ -107,19 +107,47 @@ export interface BrowserActivityMessageItem {
 }
 
 /**
+ * Activity 工具动作的一条已提交生命周期记录。
+ *
+ * @remarks
+ * 记录只来自同一 Action 的白名单 Trajectory 事实，按来源顺序排列，用于把授权申请、
+ * 授权结果、执行开始、重试与结果折叠进同一个工具活动。`title` 是固定短标签，
+ * `detail` 只包含既有安全说明；原始工具参数、Observation 正文、审批表单和模型内部
+ * 反馈不进入该结构。
+ *
+ * @example
+ * ```ts
+ * const entry: BrowserActivityToolLifecycleEntry = {
+ *     kind: "approval", title: "Permission granted",
+ *     detail: "The approved action may now execute within its authorized scope.",
+ * };
+ * ```
+ */
+export interface BrowserActivityToolLifecycleEntry {
+    /** 生命周期阶段类别；用于区分授权、执行、重试与结果。 */
+    readonly kind: "approval" | "execution" | "retry" | "result";
+    /** 固定短标签，不含原始载荷。 */
+    readonly title: string;
+    /** 最多 500 字符的白名单状态说明。 */
+    readonly detail?: string;
+}
+
+/**
  * Activity 事实项携带的已提交工具状态白名单投影。
  *
  * @remarks
  * 只包含恢复活动组所需的工具身份、执行状态与既有安全摘要；不包含原始工具参数、
  * Observation 正文、供应商 reasoning 或审批表单内容。`status` 只反映已提交的
- * Observation 与拒绝事实，实时返回不会把它提前标为成功。`activityBoundaryBefore` 表示
- * 该动作与前一个活动组之间存在已验证的来源边界，隐藏正文不会改变该判定。
+ * Observation 与拒绝事实，实时返回不会把它提前标为成功。`lifecycle` 按来源顺序保留
+ * 同一 Action 的授权、执行、重试与结果记录，供前端折叠为一个活动。`activityBoundaryBefore`
+ * 表示该动作与前一个活动组之间存在已验证的来源边界，隐藏正文不会改变该判定。
  *
  * @example
  * ```ts
  * const tool: BrowserActivityToolState = {
  *     toolId: "read_file", status: "completed",
  *     inputSummary: "src/index.ts", summary: "读取成功",
+ *     lifecycle: [{ kind: "execution", title: "Tool started" }],
  * };
  * ```
  */
@@ -136,6 +164,8 @@ export interface BrowserActivityToolState {
     readonly summary?: string;
     /** 已提交的恢复尝试摘要。 */
     readonly attempts?: readonly string[];
+    /** 按来源顺序排列的已提交生命周期记录。 */
+    readonly lifecycle?: readonly BrowserActivityToolLifecycleEntry[];
     /** 审批者修订后的实际版本引用。 */
     readonly revisionRef?: string;
     /** 结果未知重执行的恢复引用。 */
@@ -152,9 +182,9 @@ export interface BrowserActivityToolState {
  * @remarks
  * 只包含事实身份及必要关联标识，不包含原始 payload、工具参数、Observation、私有
  * Prompt 或模型内部推理。阶段标题仅取自已提交 `run_stage_declared.target`，并按公开
- * 文本上限截断；其他事件不携带阶段标题。`tool` 只在事实属于某个已提交工具动作时
- * 提供，用于在不读取完整会话的情况下恢复活动组。
- * 检索事实仅携带同 Run 内的 `lookupId`、枚举生成的请求摘要和白名单错误码，
+ * 文本上限截断；其他事件不携带阶段标题。同一 Action 的决策、授权、执行、重试与结果
+ * 事实都携带该动作的最终安全状态和生命周期，供前端在不读取完整会话的情况下恢复为
+ * 一个活动组。检索事实仅携带同 Run 内的 `lookupId`、枚举生成的请求摘要和白名单错误码，
  * 不公开查询正文或原始错误消息。
  *
  * @example
@@ -285,7 +315,8 @@ export interface BrowserActivityRunWindow {
  * Activity 页中跨页阶段的安全上下文。
  *
  * @remarks
- * `completeWithinPage` 为 false 表示阶段声明或结算事实不都在当前连续窗口内。
+ * `target` 为已提交阶段声明的目标摘要，最多 1,000 个 UTF-16 代码单元；没有声明时省略。
+ * `completeWithinPage` 为 false 表示阶段来源未全部加载，不代表阶段尚未完成。
  *
  * @example
  * ```ts
@@ -300,6 +331,8 @@ export interface BrowserActivityStageContext {
     readonly stageId: string;
     readonly revision: number;
     readonly status: "executing" | "accepted" | "rejected";
+    /** 与 revision 对应的有界目标；不包含验收条件或原始事件载荷。 */
+    readonly target?: string;
     readonly firstSequence: number;
     readonly lastSequence?: number;
     readonly completeWithinPage: boolean;

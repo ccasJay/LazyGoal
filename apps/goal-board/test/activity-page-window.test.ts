@@ -5,6 +5,8 @@ import {
   MAX_CACHED_ACTIVITY_PAGES,
   MAX_CACHED_MESSAGE_DETAILS,
   applyActivityPage,
+  prependActivityPage,
+  appendActivityPage,
   applyActivityPageFailure,
   captureAnchor,
   createActivityWindowState,
@@ -202,4 +204,39 @@ test("暂停滚动的末尾窗口仍接收正式回答和终态，重复刷新�
   assert.equal(repeated.unread, 2);
   assert.equal(repeated.page?.items.length, 3);
   assert.deepEqual(repeated.anchor, anchor);
+});
+
+test("adjacent pages preserve stage and Action contexts and clear incomplete notes once both endpoints load", () => {
+  const context = { runId: "run-1", stageId: "stage-1", target: "Verify evidence", revision: 1,
+    status: "accepted" as const, firstSequence: 1, lastSequence: 3, completeWithinPage: false };
+  const action = { runId: "run-1", actionId: "action-1", firstSequence: 1, lastSequence: 3, completeWithinPage: false };
+  const older = { ...pageFixture({ items: [factItem(1, "start"), factItem(2, "middle")] }), stages: [context], actionGroups: [action] };
+  const newer = { ...pageFixture({ items: [factItem(3, "end")] }), stages: [context], actionGroups: [action] };
+  for (const merged of [
+    prependActivityPage(applyActivityPage(createActivityWindowState(), newer), older),
+    appendActivityPage(applyActivityPage(createActivityWindowState(), older), newer),
+    mergeLatestPage(applyActivityPage(createActivityWindowState(), older), newer),
+  ]) {
+    assert.deepEqual(merged.page?.stages, [{ ...context, completeWithinPage: true }]);
+    assert.deepEqual(merged.page?.actionGroups, [{ ...action, completeWithinPage: true }]);
+  }
+  const missingStart = { ...older, items: older.items.slice(1), stages: [], actionGroups: [] };
+  const partial = prependActivityPage(applyActivityPage(createActivityWindowState(), newer), missingStart);
+  assert.equal(partial.page?.stages[0]?.completeWithinPage, false);
+  assert.equal(partial.page?.actionGroups[0]?.completeWithinPage, false);
+  const unrelated = pageFixture({ items: [factItem(4, "unrelated")] });
+  const retained = appendActivityPage(applyActivityPage(createActivityWindowState(), newer), unrelated);
+  assert.equal(retained.page?.stages[0]?.target, "Verify evidence");
+  assert.equal(retained.page?.actionGroups[0]?.actionId, "action-1");
+});
+
+test("loading both endpoints across an unread interval does not complete a stage or Action", () => {
+  const stage = { runId: "run-1", stageId: "stage-1", revision: 1, status: "accepted" as const,
+    firstSequence: 1, lastSequence: 3, completeWithinPage: false };
+  const action = { runId: "run-1", actionId: "action-1", firstSequence: 1, lastSequence: 3, completeWithinPage: false };
+  const first = { ...pageFixture({ items: [factItem(1, "start")] }), stages: [stage], actionGroups: [action] };
+  const last = { ...pageFixture({ items: [factItem(3, "end")], olderCount: 2 }), stages: [stage], actionGroups: [action] };
+  const merged = mergeLatestPage(applyActivityPage(createActivityWindowState(), first), last);
+  assert.equal(merged.page?.stages[0]?.completeWithinPage, false);
+  assert.equal(merged.page?.actionGroups[0]?.completeWithinPage, false);
 });

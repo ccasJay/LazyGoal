@@ -754,6 +754,7 @@ export function isBrowserActivityPage(value: unknown): value is BrowserActivityP
             && isNonEmptyString(stage.runId) && isNonEmptyString(stage.stageId)
             && Number.isSafeInteger(stage.revision) && Number(stage.revision) > 0
             && ["executing", "accepted", "rejected"].includes(String(stage.status))
+            && (stage.target === undefined || typeof stage.target === "string" && stage.target.length <= 1_000)
             && Number.isSafeInteger(stage.firstSequence) && Number(stage.firstSequence) >= 0
             && (stage.lastSequence === undefined || Number.isSafeInteger(stage.lastSequence) && Number(stage.lastSequence) >= Number(stage.firstSequence))
             && typeof stage.completeWithinPage === "boolean")
@@ -883,11 +884,30 @@ function isActivityToolState(value: unknown): boolean {
     if (value.revisionRef !== undefined && !isNonEmptyString(value.revisionRef)) return false;
     if (value.recoveryRef !== undefined && !isNonEmptyString(value.recoveryRef)) return false;
     if (value.parentActionId !== undefined && !isNonEmptyString(value.parentActionId)) return false;
+    if (value.lifecycle !== undefined && (!Array.isArray(value.lifecycle)
+        || !value.lifecycle.every(isActivityToolLifecycleEntry))) return false;
     if (value.activityBoundaryBefore !== undefined && value.activityBoundaryBefore !== true) return false;
     return !Object.keys(value).some((key) => ![
         "toolId", "status", "actionStatus", "inputSummary", "summary",
-        "attempts", "revisionRef", "recoveryRef", "parentActionId", "activityBoundaryBefore",
+        "attempts", "lifecycle", "revisionRef", "recoveryRef", "parentActionId", "activityBoundaryBefore",
     ].includes(key));
+}
+
+/**
+ * Activity 工具生命周期记录的 wire 守卫。
+ *
+ * @remarks 只接受固定的阶段类别、短标签与既有安全说明；原始参数、Observation 正文与
+ * 任意未知字段不在白名单内。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为合法的工具生命周期记录。
+ */
+function isActivityToolLifecycleEntry(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    if (Object.keys(value).some((key) => !["kind", "title", "detail"].includes(key))) return false;
+    if (!["approval", "execution", "retry", "result"].includes(String(value.kind))) return false;
+    if (!isNonEmptyString(value.title) || value.title.length > 200) return false;
+    return value.detail === undefined || typeof value.detail === "string" && value.detail.length <= 500;
 }
 
 /**

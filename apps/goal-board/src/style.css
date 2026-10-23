@@ -226,6 +226,7 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .timeline-activity-counts { margin-left: auto; font-size: 12px; font-weight: 400; }
 .timeline-activity-chevron { flex-shrink: 0; margin-left: auto; color: var(--subtle); transition: transform .15s ease; }
 .timeline-activity-outcome { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 8px; font-size: 12px; }
+.timeline-activity-details-heading { margin: 4px 0 0; color: var(--subtle); font-size: 11px; font-weight: 500; }
 .timeline-activity-members { display: grid; min-width: 0; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .timeline-activity-members > li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: start; gap: 5px 10px; min-width: 0; padding: 9px 10px; border-radius: 6px; background: var(--surface); }
 .timeline-activity-member-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
@@ -233,6 +234,9 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .timeline-activity-member-tool { color: var(--subtle); font-size: 11px; }
 .timeline-activity-member-status { display: inline-flex; align-items: center; grid-column: 2; grid-row: 1; padding-top: 3px; font-size: 12px; }
 .timeline-activity-member-summary, .timeline-activity-member-origin, .timeline-activity-member-attempt { color: var(--subtle); font-size: 12px; overflow-wrap: anywhere; }
+.timeline-activity-member-lifecycle { display: grid; grid-column: 1 / -1; gap: 3px; margin: 2px 0 0; padding: 2px 0 2px 12px; border-left: 1px solid var(--line); list-style: none; }
+.timeline-activity-member-lifecycle > li { display: flex; flex-wrap: wrap; gap: 2px 8px; color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
+.timeline-activity-member-lifecycle > li > small { color: var(--subtle); overflow-wrap: anywhere; }
 .timeline-activity-members > li > small, .timeline-activity-member-think { grid-column: 1 / -1; }
 .timeline-activity-member-think { margin-top: 4px; padding-left: 0; font-size: 12px; line-height: 1.7; }
 .timeline-activity-trajectory { display: grid; place-items: center; grid-column: 3; grid-row: 1; width: 28px; height: 28px; padding: 0; }

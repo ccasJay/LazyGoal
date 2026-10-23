@@ -160,7 +160,7 @@ export function mergeLatestPage(state: ActivityWindowState, page: BrowserActivit
     ...page,
     items: mergeActivityItems(state.page.items, page.items),
   };
-  return { ...applyActivityPage(state, merged), newest, unread };
+  return { ...applyActivityPage(state, mergePageContexts(state.page, page, merged)), newest, unread };
 }
 
 /**
@@ -313,7 +313,7 @@ export function prependActivityPage(state: ActivityWindowState, page: BrowserAct
   };
   return {
     ...state,
-    page: merged,
+    page: mergePageContexts(state.page, page, merged),
     cachedPages: [page, ...state.cachedPages.filter((cached) => cached.beforeCursor !== page.beforeCursor)]
       .slice(0, MAX_CACHED_ACTIVITY_PAGES),
   };
@@ -351,7 +351,7 @@ export function appendActivityPage(state: ActivityWindowState, page: BrowserActi
   };
   return {
     ...state,
-    page: merged,
+    page: mergePageContexts(state.page, page, merged),
     cachedPages: [page, ...state.cachedPages.filter((cached) => cached.afterCursor !== page.afterCursor)]
       .slice(0, MAX_CACHED_ACTIVITY_PAGES),
   };
@@ -380,4 +380,27 @@ function maxPosition(left: BrowserActivityPosition, right: BrowserActivityPositi
   if (left.sequence !== right.sequence) return left.sequence > right.sequence ? left : right;
   if (left.itemKind === right.itemKind) return left.order >= right.order ? left : right;
   return left.itemKind === "fact" ? left : right;
+}
+
+function mergePageContexts(current: BrowserActivityPage, incoming: BrowserActivityPage, merged: BrowserActivityPage): BrowserActivityPage {
+  const stages = new Map([...current.stages, ...incoming.stages].sort((a, b) => (a.lastSequence ?? a.firstSequence) - (b.lastSequence ?? b.firstSequence)).map(context => [`${context.runId}:${context.stageId}`, context]));
+  const actions = new Map([...current.actionGroups, ...incoming.actionGroups].sort((a, b) => a.lastSequence - b.lastSequence).map(context => [`${context.runId}:${context.actionId}`, context]));
+  // 端点已加载仍可能跨过实时刷新留下的缺口；只有另一页覆盖该缺口才算完整。
+  const covers = (context: { runId: string; firstSequence: number; lastSequence?: number }) => {
+    const facts = merged.items.filter(item => item.runId === context.runId && item.type === "fact");
+    const first = facts.find(item => item.position.sequence === context.firstSequence)?.position;
+    const last = facts.find(item => item.position.sequence === (context.lastSequence ?? context.firstSequence))?.position;
+    if (first === undefined || last === undefined) return false;
+    return ([[current, incoming], [incoming, current]] as const).every(([source, other]) => source.gaps.every(gap => {
+      if (laterThan(gap.first, last) || laterThan(first, gap.last)) return true;
+      const missingFirst = laterThan(first, gap.first) ? first : gap.first;
+      const missingLast = laterThan(gap.last, last) ? last : gap.last;
+      return other.range.first !== undefined && other.range.last !== undefined
+        && !laterThan(other.range.first, missingFirst) && !laterThan(missingLast, other.range.last);
+    }));
+  };
+  return { ...merged,
+    stages: [...stages.values()].map(context => ({ ...context, completeWithinPage: covers(context) })),
+    actionGroups: [...actions.values()].map(context => ({ ...context, completeWithinPage: covers(context) })),
+  };
 }

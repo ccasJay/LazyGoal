@@ -44,7 +44,7 @@ test("progress stays bounded and never marks a returned tool result as saved", (
 test("the running view shows a real phase, source elapsed time and an inspectable live log", () => {
   const entries = recordExecutionProgress([], event({ kind: "model_started", stage: "completion_review",
     occurredAt: new Date(Date.now() - 42000).toISOString(), executionUnitId: "unit-1" }), Date.now());
-  const html = renderToStaticMarkup(<SessionTimeline projection={{ items: [], currentPlanRoute: undefined }}
+  const html = renderToStaticMarkup(<SessionTimeline projection={{ items: [], stages: [], actionGroups: [], currentPlanRoute: undefined }}
     currentRunId="run-1" runStatus="running" olderAvailable={false} showExecutionFacts liveActivity={null}
     progressEntries={entries} streamConnected brandMark="/logo.svg" onOpenTrajectory={() => {}} />);
   assert.match(html, /Checking the proposed answer/);
@@ -59,7 +59,7 @@ test("the running view shows a real phase, source elapsed time and an inspectabl
 
 test("a later Run does not inherit the last operation of the previous Run", () => {
   const entries = recordExecutionProgress([], event({ kind: "model_started", stage: "think" }, "previous-run"), Date.now());
-  const html = renderToStaticMarkup(<SessionTimeline projection={{ items: [], currentPlanRoute: undefined }}
+  const html = renderToStaticMarkup(<SessionTimeline projection={{ items: [], stages: [], actionGroups: [], currentPlanRoute: undefined }}
     currentRunId="run-1" runStatus="running" olderAvailable={false} showExecutionFacts liveActivity={null}
     progressEntries={entries} streamConnected brandMark="/logo.svg" />);
   assert.doesNotMatch(html, /Analyzing the question/);
@@ -70,7 +70,7 @@ test("non-running runs hide live progress even when connection events remain cac
   const entries = recordExecutionProgress([], event({ kind: "model_started", stage: "decide", executionUnitId: "unit-1" }), Date.now());
   for (const runStatus of ["created", "waiting", "completed", "failed", "cancelled"] as const) {
     for (const streamConnected of [true, false]) {
-      const html = renderToStaticMarkup(<SessionTimeline projection={{ items: [], currentPlanRoute: undefined }}
+      const html = renderToStaticMarkup(<SessionTimeline projection={{ items: [], stages: [], actionGroups: [], currentPlanRoute: undefined }}
         currentRunId="run-1" runStatus={runStatus} olderAvailable={false} showExecutionFacts liveActivity={null}
         progressEntries={entries} streamConnected={streamConnected} brandMark="/logo.svg" />);
       assert.doesNotMatch(html, /timeline-step-progress|timeline-progress|timeline-working|Recent execution events|Waiting for model response/,
@@ -82,7 +82,7 @@ test("non-running runs hide live progress even when connection events remain cac
 test("model silence warns after sixty seconds while disconnection and fresh text do not", () => {
   const now = Date.now();
   const entries = recordExecutionProgress([], event({ kind: "model_started", stage: "decide", executionUnitId: "unit-1", occurredAt: new Date(now - 70_000).toISOString() }), now - 61_000);
-  const render = (progress: typeof entries, connected = true) => renderToStaticMarkup(<SessionTimeline projection={{ items: [], currentPlanRoute: undefined }}
+  const render = (progress: typeof entries, connected = true) => renderToStaticMarkup(<SessionTimeline projection={{ items: [], stages: [], actionGroups: [], currentPlanRoute: undefined }}
     currentRunId="run-1" runStatus="running" olderAvailable={false} showExecutionFacts liveActivity={null}
     progressEntries={progress} streamConnected={connected} brandMark="/logo.svg" />);
   assert.match(render(entries), /No new public response for 60 seconds/);
@@ -110,7 +110,7 @@ test("model completion and tool retries retain their real execution identity wit
 
 test("progress belongs to the matching correction node and never an adjacent event or another run", () => {
   const entries = recordExecutionProgress([], event({ kind: "model_started", executionUnitId: "unit-1" }), 1);
-  const html = renderToStaticMarkup(<SessionTimeline projection={{ currentPlanRoute: undefined, items: [
+  const html = renderToStaticMarkup(<SessionTimeline projection={{ stages: [], actionGroups: [], currentPlanRoute: undefined, items: [
     { kind: "fact", itemId: "repair", runId: "run-1", eventType: "model_repair_feedback_recorded", title: "Correcting model output",
       detail: "Correction detail", executionUnitId: "unit-1", position: { runId: "run-1", runOrder: 0, sequence: 1, itemKind: "fact", order: 0 } },
   ] }} currentRunId="run-1" runStatus="running" olderAvailable={false} showExecutionFacts liveActivity={null}
@@ -126,7 +126,7 @@ test("tool progress appears once inside its own expanded activity step", () => {
   const live = event(source);
   const entries = recordExecutionProgress([], live, Date.now());
   const groups = projectActivityGroups({ goalId: "goal-1", runId: "run-1", current: true, runStatus: "running", items: [], liveEvents: [live] });
-  const html = renderToStaticMarkup(<SessionTimeline projection={{ currentPlanRoute: undefined, items: groups.map(group => ({
+  const html = renderToStaticMarkup(<SessionTimeline projection={{ stages: [], actionGroups: [], currentPlanRoute: undefined, items: groups.map(group => ({
     kind: "activity" as const, itemId: `activity:${group.id}`, runId: "run-1", group,
   })) }} currentRunId="run-1" runStatus="running" olderAvailable={false} showExecutionFacts liveActivity={null}
     progressEntries={entries} streamConnected brandMark="/logo.svg" onOpenTrajectory={() => {}} />);

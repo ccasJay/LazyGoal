@@ -159,6 +159,13 @@ test("Activity 与窄状态 wire guards 接受有界安全 DTO 并拒绝原始�
         actionGroups: [],
     };
     assert.equal(isBrowserActivityPage(page), true);
+    const stageContext = { runId: "run-1", stageId: "stage-1", revision: 1, status: "accepted",
+        firstSequence: 1, lastSequence: 2, completeWithinPage: false };
+    assert.equal(isBrowserActivityPage({ ...page, stages: [{ ...stageContext, target: "x".repeat(1_000) }] }), true);
+    for (const target of [42, "x".repeat(1_001)]) {
+        assert.equal(isBrowserActivityPage({ ...page, stages: [{ ...stageContext, target }] }), false);
+    }
+
     assert.equal(isBrowserActivityPage({
         ...page,
         items: [{ ...page.items[0]!, previewId: "candidate-1" }],
@@ -214,6 +221,33 @@ test("Activity 与窄状态 wire guards 接受有界安全 DTO 并拒绝原始�
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, eventType: "context_lookup_failed", lookupRequest: undefined,
         lookupErrorCode: "PRIVATE_CODE" }] }), false);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, eventType: "tool_started" }] }), false);
+
+    const lifecycleFact = {
+        type: "fact" as const,
+        itemId: "event:tool-lifecycle",
+        eventId: "tool-lifecycle",
+        runId: "run-1",
+        position: { ...position, itemKind: "fact" as const },
+        eventType: "action_staged" as const,
+        title: "Waiting for permission",
+        actionId: "action-1",
+        tool: {
+            toolId: "bash",
+            status: "recorded" as const,
+            actionStatus: "awaiting_approval" as const,
+            lifecycle: [{ kind: "approval" as const, title: "Permission requested", detail: "Execution is paused until permission is granted." }],
+        },
+    };
+    assert.equal(isBrowserActivityPage({ ...page, items: [lifecycleFact] }), true);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lifecycleFact,
+        tool: { ...lifecycleFact.tool, lifecycle: [{ kind: "approval", title: "Permission requested", raw: "PRIVATE" }] },
+    }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lifecycleFact,
+        tool: { ...lifecycleFact.tool, lifecycle: [{ kind: "other", title: "Permission requested" }] },
+    }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lifecycleFact,
+        tool: { ...lifecycleFact.tool, lifecycle: "PRIVATE" },
+    }] }), false);
 
     const thinkItem = {
         type: "think" as const,

@@ -16,9 +16,10 @@ import type { ActivityGroup } from "./activity-projector";
  *
  * @remarks
  * 各持久化项使用 Activity `itemId` 与位置；Run 终态只由 Goal/Run 状态构造，临时正文身份
- * 仅在当前 Run 内有效，不能作为已保存消息提交或恢复。工具活动以真实动作组呈现，组的
- * 位置取其首个成员，组内成员保持各自来源身份。
- * 同 Run 的历史检索事实按 `lookupId` 归入一条活动，缺失的分页侧不从相邻事实推断。
+ * 仅在当前 Run 内有效，不能作为已保存消息提交或恢复。同一 Action 的授权、执行、重试与
+ * 结果事实先归入同一活动，工具活动以真实动作组呈现，组的位置取其首个成员，组内成员保持
+ * 各自来源身份。历史检索事实按同 Run 的 `lookupId` 归入单条活动；未命中和失败保持不同状态，
+ * 缺失的分页侧不从相邻事实推断。
  * 事实保留真实 executionUnitId，供公开进度关联；缺少身份时不按相邻位置推断。
  * 当前失败 Run 的错误摘要只取同 Run 的窄状态，不附到历史 Run 或尚未结算的 Run。
  *
@@ -58,7 +59,8 @@ export type SessionTimelineEntry =
  * Activity 时间线的只读投影。
  *
  * @remarks
- * `items` 依据服务端位置排序；当前路线仍来自状态 DTO，因此正文历史保持有界。
+ * `items` 依据服务端位置排序；阶段与 Action 上下文透传本页来源完整性，阶段声明可在页外。
+ * 当前路线仍来自状态 DTO，因此正文历史保持有界。
  *
  * @example
  * ```ts
@@ -68,6 +70,10 @@ export type SessionTimelineEntry =
 export interface SessionTimelineProjection {
   /** 按服务端 Activity 位置排列的本页正文、事实与 Run 边界。 */
   readonly items: readonly SessionTimelineEntry[];
+  /** 服务端按 Run 提供的阶段标题、状态与本页完整性；不要求声明位于本页。 */
+  readonly stages: BrowserActivityPage["stages"];
+  /** 服务端按 Run 和 Action 提供的来源完整性；不扩充已加载成员。 */
+  readonly actionGroups: BrowserActivityPage["actionGroups"];
   /** 当前窄状态提供的 Plan 路线；不从历史事实推断。 */
   readonly currentPlanRoute: BrowserGoalSessionState["currentPlanRoute"];
 }
@@ -77,9 +83,10 @@ export interface SessionTimelineProjection {
  *
  * @remarks
  * 已保存项只按服务端位置排序并按稳定身份去重；当前候选与临时正文排在已保存来源之后。
- * Run 完成状态只来自状态投影，不从模型正文、过程提交或阶段事实推断。工具事实按真实动作
- * 归入活动组，组出现在其首个成员的位置；实时活动组没有已提交位置，排在当前 Run 末尾。
- * 检索请求与结果按 `lookupId` 关联，未命中和失败保持不同状态。
+ * Run 完成状态只来自状态投影，不从模型正文、过程提交或阶段事实推断。同一 Action 的
+ * 授权、执行、重试与结果事实先归入一个活动，组出现在其首个成员的位置；实时活动组没有
+ * 已提交位置，排在当前 Run 末尾。检索请求和结果按 `lookupId` 关联，取当前窗口内最早
+ * 来源位置；跨页只显示已加载的事实，不将未命中误判为失败。
  *
  * @param page - 服务端固定水位 Activity 页。
  * @param state - 不含历史正文的当前 Goal 状态。
@@ -308,7 +315,7 @@ export function projectSessionTimeline(
   }
 
   items.sort(compareTimelineEntries);
-  return { items, currentPlanRoute: state.currentPlanRoute };
+  return { items, currentPlanRoute: state.currentPlanRoute, stages: page.stages, actionGroups: page.actionGroups };
 }
 
 function compareTimelineEntries(left: SessionTimelineEntry, right: SessionTimelineEntry): number {

@@ -33,3 +33,5 @@ Provider 表单在线查询使用 `BrowserProviderModelQuery` 与 `BrowserProvid
 `BrowserSessionStep.think` 携带显式 Think 目标及可选的已提交分析；无输出表示尚无完成事实，`truncated` 表示有界正文被省略。多个 Think 成员可以共享同一个 Runtime Step 序号，成员数量不等于 `stepCount`。Think 正文通过受保护的会话 HTTP 响应提供，实时通知仍只触发检查点重读；供应商隐藏推理不进入该 DTO。
 
 `BrowserActivityRunContext.terminalDetail` 是可选的安全终态摘要：消息最多 500 字符、代码最多 80 字符，只允许这两个字段。来源缺失时省略；消费者不得借用其它 Run 的错误。它属于展示 DTO，不改变 Runtime 终态或持久化格式。
+
+Activity 页的 `stages` 按 Run 与阶段身份提供已提交声明的有界 `target`（最多 1,000 个 UTF-16 代码单元）；声明缺失时省略。阶段与 Action 上下文的 `completeWithinPage` 描述当前页来源完整性，与执行是否成功或完成独立。前端消费和分页合并见 [Goal Board](../../../apps/goal-board/notes/overview.md)。

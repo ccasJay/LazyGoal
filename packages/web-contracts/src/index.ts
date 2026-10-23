@@ -53,6 +53,7 @@ export type {
     BrowserActivityRunWindow,
     BrowserActivityStageContext,
     BrowserActivityThinkItem,
+    BrowserActivityToolLifecycleEntry,
     BrowserActivityToolState,
 } from "./activity";
 

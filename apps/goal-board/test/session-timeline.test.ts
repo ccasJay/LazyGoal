@@ -135,6 +135,16 @@ test("saved multi-Run activity keeps stable source order across duplicate sync a
   assert.ok(state);
   if (!activity.ok || state === undefined) return;
 
+  const resultPage = await readBrowserGoalActivity(goal.id, { limit: 2 }, store, readTrajectory);
+  assert.ok(resultPage.ok);
+  if (!resultPage.ok) return;
+  assert.equal(resultPage.page.items.some(item => item.type === "fact" && item.eventType === "run_stage_declared"), false);
+  assert.deepEqual(resultPage.page.stages, [{ runId: "run-plan", stageId: "stage-1", revision: 1,
+    target: "Summarize verified findings", status: "accepted", firstSequence: 1, lastSequence: 2, completeWithinPage: false }]);
+  const partialProjection = projectSessionTimeline(resultPage.page, { ...state, currentPlanRoute: undefined }, new Map());
+  assert.deepEqual(partialProjection.stages, resultPage.page.stages);
+  assert.deepEqual(partialProjection.actionGroups, resultPage.page.actionGroups);
+
   const activityGroups = collectActivityProjections(activity.page, goal.id, []);
   const projection = projectSessionTimeline(activity.page, state, activityGroups, "temporary answer");
   const saved = projection.items.filter((item) => item.kind !== "live-preview");
@@ -225,6 +235,127 @@ test("显式 Think 在时间线中保留获准摘要与详情定位入口", asyn
   assert.equal(JSON.stringify(projection).includes("PRIVATE_"), false);
 });
 
+
+test("one tool action folds permission, retry and result facts into a single timeline activity", async () => {
+  const initial = createGoal({
+    id: "timeline-action-goal",
+    intent: "Inspect the workspace",
+    promptBundleVersion: 1,
+    memoryProtocol: { kind: "structured", version: 1 },
+    modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+    contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+    profile: { id: "profile", systemPrompt: "private", instructions: [], toolIds: [] },
+    runId: "run-1",
+  });
+  const goal: Goal = {
+    ...initial,
+    state: { ...initial.state, run: { ...initial.state.run, committedThroughSequence: 8 } },
+  };
+  const action = { actionId: "action-1", toolId: "bash", input: { command: "git status" } };
+  const committed: readonly TrajectoryEvent[] = [
+    allocateImmutableEvent({ goalId: goal.id, runId: "run-1", phase: "executing", executionUnitId: "unit-1", actionId: action.actionId,
+      eventType: "decision_received", payload: { type: "decision_received", decision: { kind: "tool_call", action } } }, 1),
+    allocateImmutableEvent({ goalId: goal.id, runId: "run-1", phase: "executing", executionUnitId: "unit-1", actionId: action.actionId,
+      eventType: "action_staged", payload: { type: "action_staged", action, approvalStatus: "awaiting_approval" } }, 2),
+    allocateImmutableEvent({ goalId: goal.id, runId: "run-1", phase: "executing", actionId: action.actionId,
+      eventType: "action_approved", payload: { type: "action_approved", actionId: action.actionId, approvalScope: "action" } }, 3),
+    allocateImmutableEvent({ goalId: goal.id, runId: "run-1", phase: "executing", executionUnitId: "unit-2", actionId: action.actionId,
+      eventType: "tool_started", payload: { type: "tool_started", actionId: action.actionId, toolId: "bash", input: action.input } }, 4),
+    allocateImmutableEvent({ goalId: goal.id, runId: "run-1", phase: "executing", executionUnitId: "unit-2", actionId: action.actionId,
+      eventType: "tool_attempt_started", payload: { type: "tool_attempt_started", actionId: action.actionId, attempt: 1 } }, 5),
+    allocateImmutableEvent({ goalId: goal.id, runId: "run-1", phase: "executing", executionUnitId: "unit-2", actionId: action.actionId,
+      eventType: "tool_attempt_failed", payload: { type: "tool_attempt_failed", actionId: action.actionId, attempt: 1, reason: "temporary failure" } }, 6),
+    allocateImmutableEvent({ goalId: goal.id, runId: "run-1", phase: "executing", executionUnitId: "unit-2", actionId: action.actionId,
+      eventType: "tool_attempt_started", payload: { type: "tool_attempt_started", actionId: action.actionId, attempt: 2 } }, 7),
+    allocateImmutableEvent({ goalId: goal.id, runId: "run-1", phase: "executing", executionUnitId: "unit-2", actionId: action.actionId,
+      eventType: "observation_recorded", payload: { type: "observation_recorded", actionId: action.actionId,
+        observation: { kind: "success", output: { exitCode: 0, stdout: "clean", stderr: "" }, summary: "Workspace clean" } } }, 8),
+  ];
+  const store = { restore: async (goalId: string) => (goalId === goal.id ? goal : undefined) };
+  const readTrajectory = async () => ({ committed, uncommittedTail: [] });
+  const [activity, state] = await Promise.all([
+    readBrowserGoalActivity(goal.id, {}, store, readTrajectory),
+    readBrowserGoalSessionState(goal.id, store),
+  ]);
+  assert.equal(activity.ok, true);
+  assert.ok(state);
+  if (!activity.ok || state === undefined) return;
+
+  const activityGroups = collectActivityProjections(activity.page, goal.id, []);
+  const projection = projectSessionTimeline(activity.page, state, activityGroups);
+  const activities = projection.items.filter((item) => item.kind === "activity");
+  assert.equal(activities.length, 1);
+  if (activities[0]?.kind !== "activity") return;
+  assert.equal(activities[0].group.status, "completed");
+  assert.equal(activities[0].group.members.length, 1);
+  assert.equal(activities[0].group.members[0]?.actionId, "action-1");
+  assert.equal(activities[0].position?.sequence, 1);
+  assert.deepEqual(activities[0].group.members[0]?.lifecycle?.map((entry) => entry.title), [
+    "Permission requested",
+    "Permission granted",
+    "Tool started",
+    "Tool attempt 1 started",
+    "Tool attempt 1 failed",
+    "Tool attempt 2 started",
+    "Result saved",
+  ]);
+  assert.equal(projection.items.some((item) => item.kind === "fact"), false);
+});
+
+test("a waiting permission action stays a visible activity with an explicit approval state", async () => {
+  const initial = createGoal({
+    id: "timeline-waiting-goal",
+    intent: "Inspect the workspace",
+    promptBundleVersion: 1,
+    memoryProtocol: { kind: "structured", version: 1 },
+    modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+    contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+    profile: { id: "profile", systemPrompt: "private", instructions: [], toolIds: [] },
+    runId: "run-1",
+  });
+  const goal: Goal = {
+    ...initial,
+    state: { ...initial.state, run: { ...initial.state.run, status: "waiting", committedThroughSequence: 2 } },
+  };
+  const action = { actionId: "action-1", toolId: "bash", input: { command: "git status" } };
+  const committed: readonly TrajectoryEvent[] = [
+    allocateImmutableEvent({ goalId: goal.id, runId: "run-1", phase: "executing", executionUnitId: "unit-1", actionId: action.actionId,
+      eventType: "decision_received", payload: { type: "decision_received", decision: { kind: "tool_call", action } } }, 1),
+    allocateImmutableEvent({ goalId: goal.id, runId: "run-1", phase: "executing", executionUnitId: "unit-1", actionId: action.actionId,
+      eventType: "action_staged", payload: { type: "action_staged", action, approvalStatus: "awaiting_approval" } }, 2),
+  ];
+  const store = { restore: async (goalId: string) => (goalId === goal.id ? goal : undefined) };
+  const readTrajectory = async () => ({ committed, uncommittedTail: [] });
+  const [activity, state] = await Promise.all([
+    readBrowserGoalActivity(goal.id, {}, store, readTrajectory),
+    readBrowserGoalSessionState(goal.id, store),
+  ]);
+  assert.equal(activity.ok, true);
+  assert.ok(state);
+  if (!activity.ok || state === undefined) return;
+
+  const activityGroups = collectActivityProjections(activity.page, goal.id, []);
+  const projection = projectSessionTimeline(activity.page, state, activityGroups);
+  const activities = projection.items.filter((item) => item.kind === "activity");
+  assert.equal(activities.length, 1);
+  if (activities[0]?.kind !== "activity") return;
+  assert.equal(activities[0].group.status, "waiting");
+  assert.equal(activities[0].group.members[0]?.status, "waiting");
+  assert.deepEqual(activities[0].group.members[0]?.lifecycle?.map((entry) => entry.title), ["Permission requested"]);
+  assert.equal(projection.items.some((item) => item.kind === "fact"), false);
+
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { SessionTimeline } = await import("../src/components/SessionTimeline");
+  const html = renderToStaticMarkup(createElement(SessionTimeline, {
+    projection, currentRunId: state.currentRunId, runStatus: state.runStatus,
+    olderAvailable: false, showExecutionFacts: false, liveActivity: null, streamConnected: false,
+    brandMark: "/mark.svg",
+  }));
+  assert.match(html, /Awaiting approval/);
+  assert.match(html, /Permission requested/);
+  assert.match(html, /Execution is paused until permission is granted\./);
+});
 
 test("current failure details reach Activity without leaking into another Run", async () => {
   const initial = createGoal({

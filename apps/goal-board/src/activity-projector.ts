@@ -1,6 +1,7 @@
 import type {
   BrowserActivityItem,
   BrowserActivityPosition,
+  BrowserActivityToolLifecycleEntry,
   BrowserActivityToolState,
   BrowserGoalLiveEvent,
   BrowserRunStatus,
@@ -28,13 +29,15 @@ export type ActivityGroupStatus = ActivityMemberStatus | "partial-failure";
  * @remarks
  * `isCommitted` 表示调用身份有已提交 Trajectory 来源；实时信息只覆盖其当前状态，
  * 不会把未提交输出伪装成历史详情。成员只承载既有安全摘要，不含原始参数、
- * Observation 正文或隐藏推理。
+ * Observation 正文或隐藏推理。`lifecycle` 仅在来源动作具有已提交生命周期记录时提供，
+ * 按来源顺序折叠授权、执行、重试与结果，不改变成员状态。
  *
  * @example
  * ```ts
  * const member: ActivityGroupMember = {
  *   id: "action:run-1:a1", runId: "run-1", category: "explore", label: "Read src/index.ts",
  *   status: "completed", isCommitted: true, attempts: [], position,
+ *   lifecycle: [{ kind: "execution", title: "Tool started" }],
  * };
  * ```
  */
@@ -65,8 +68,10 @@ export interface ActivityGroupMember {
   readonly inputSummary?: string;
   /** 公开或已提交的结果摘要。 */
   readonly summary?: string;
-  /** 已记录的重试失败信息；不单独决定最终状态。 */
+  /** 已记录的重试失败信息；有 `lifecycle` 时重试已归入生命周期，此字段只用于实时成员。 */
   readonly attempts: readonly string[];
+  /** 同一 Action 的已提交授权、执行、重试与结果记录；按来源顺序排列。 */
+  readonly lifecycle?: readonly BrowserActivityToolLifecycleEntry[];
   /** PTC 子调用的父程序 Action 身份。 */
   readonly parentActionId?: string;
   /** 审批者修订后的实际版本引用。 */
@@ -87,6 +92,8 @@ export interface ActivityGroupMember {
  * @remarks
  * 组 ID 由首个成员身份导出，不持久化，也不参与 Runtime 调度、授权或评测。组只合并
  * 同 Run、同阶段、同白名单工具且在完整交错时间线上相邻的成员；不据此推断工作阶段。
+ * 同一 Action 的授权、执行、重试与结果事实先归入同一成员，其生命周期记录随成员展开
+ * 显示；历史组保持折叠，等待审批的组仍按真实状态显示 `Awaiting approval`。
  *
  * @example
  * ```ts
@@ -135,6 +142,7 @@ interface MutableMember {
   inputSummary?: string;
   summary?: string;
   attempts: string[];
+  lifecycle?: BrowserActivityToolLifecycleEntry[];
   parentActionId?: string;
   revisionRef?: string;
   recoveryRef?: string;
@@ -308,6 +316,7 @@ function createMember(
 function applyToolState(member: MutableMember, tool: BrowserActivityToolState): void {
   if (tool.inputSummary !== undefined) member.inputSummary = tool.inputSummary;
   if (tool.summary !== undefined) member.summary = tool.summary;
+  if (tool.lifecycle !== undefined) member.lifecycle = [...tool.lifecycle];
   if (tool.revisionRef !== undefined) member.revisionRef = tool.revisionRef;
   if (tool.recoveryRef !== undefined) member.recoveryRef = tool.recoveryRef;
   if (tool.parentActionId !== undefined) member.parentActionId = tool.parentActionId;
@@ -472,6 +481,7 @@ function toPublicMember(member: MutableMember): ActivityGroupMember {
     ...(member.inputSummary === undefined ? {} : { inputSummary: member.inputSummary }),
     ...(member.summary === undefined ? {} : { summary: member.summary }),
     attempts: member.attempts,
+    ...(member.lifecycle === undefined ? {} : { lifecycle: member.lifecycle }),
     ...(member.parentActionId === undefined ? {} : { parentActionId: member.parentActionId }),
     ...(member.revisionRef === undefined ? {} : { revisionRef: member.revisionRef }),
     ...(member.recoveryRef === undefined ? {} : { recoveryRef: member.recoveryRef }),

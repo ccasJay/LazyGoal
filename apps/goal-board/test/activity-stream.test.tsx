@@ -4,7 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { projectActivityGroups } from "../src/activity-projector";
 import { SessionTimeline, ActivityGroupRow } from "../src/components/SessionTimeline";
-import type { SessionTimelineEntry } from "../src/session-timeline";
+import type { SessionTimelineEntry, SessionTimelineProjection } from "../src/session-timeline";
 
 (globalThis as any).React = React;
 
@@ -29,8 +29,8 @@ function stage(eventType: string, sequence: number): SessionTimelineEntry {
     ...(eventType === "run_stage_declared" ? { stageTarget: "Verify the implementation" } : {}) };
 }
 
-function render(items: readonly SessionTimelineEntry[], options: { showExecutionFacts?: boolean; running?: boolean } = {}) {
-  return renderToStaticMarkup(<SessionTimeline projection={{ items, currentPlanRoute: undefined }}
+function render(items: readonly SessionTimelineEntry[], options: { showExecutionFacts?: boolean; running?: boolean; stages?: SessionTimelineProjection["stages"]; actionGroups?: SessionTimelineProjection["actionGroups"] } = {}) {
+  return renderToStaticMarkup(<SessionTimeline projection={{ items, stages: options.stages ?? [], actionGroups: options.actionGroups ?? [], currentPlanRoute: undefined }}
     currentRunId="run-1" runStatus={options.running ? "running" : "completed"} olderAvailable={false}
     showExecutionFacts={options.showExecutionFacts ?? true} liveActivity={null} streamConnected brandMark="/logo.svg" />);
 }
@@ -190,6 +190,57 @@ test("long command titles retain the complete accessible label and expanded call
   assert.match(expanded, /3 tests failed/);
 });
 
+test("saved tool activity shows its filtered lifecycle only in the expanded details", () => {
+  const group = projectActivityGroups({
+    goalId: "goal-1", runId: "run-1", liveEvents: [], current: true, runStatus: "running",
+    items: [{
+      type: "fact", itemId: "fact:tool-1", eventId: "tool-1", runId: "run-1", actionId: "action-1",
+      position: position(2), eventType: "tool_started", title: "Tool started",
+      tool: {
+        toolId: "bash", status: "completed", actionStatus: "approved", inputSummary: "git status", summary: "Workspace clean",
+        lifecycle: [
+          { kind: "approval", title: "Permission requested", detail: "Execution is paused until permission is granted." },
+          { kind: "approval", title: "Permission granted" },
+          { kind: "execution", title: "Tool started" },
+          { kind: "result", title: "Result saved" },
+        ],
+      },
+    }],
+  })[0]!;
+  const entry: SessionTimelineEntry = { kind: "activity", itemId: `activity:${group.id}`, runId: "run-1", group, position: position(2) };
+  const row = (expanded: boolean) => renderToStaticMarkup(<ActivityGroupRow itemId={entry.itemId} runId={entry.runId}
+    group={group} expanded={expanded} onToggle={() => {}} onOpenTrajectory={undefined} />);
+  const collapsed = row(false);
+  assert.doesNotMatch(collapsed, /Permission requested|Permission granted|Result saved/);
+  const expanded = row(true);
+  assert.match(expanded, /timeline-activity-details-heading[^>]*>Execution details/);
+  assert.match(expanded, /aria-label="Execution details"/);
+  assert.match(expanded, /Permission requested/);
+  assert.match(expanded, /Permission granted/);
+  assert.match(expanded, /Result saved/);
+  assert.ok(expanded.indexOf("Permission requested") < expanded.indexOf("Result saved"));
+});
+
+test("a waiting permission activity remains visible when execution facts are filtered", () => {
+  const group = projectActivityGroups({
+    goalId: "goal-1", runId: "run-1", liveEvents: [], current: true, runStatus: "waiting",
+    items: [{
+      type: "fact", itemId: "fact:waiting-1", eventId: "waiting-1", runId: "run-1", actionId: "action-1",
+      position: position(2), eventType: "action_staged", title: "Waiting for permission",
+      tool: {
+        toolId: "bash", status: "recorded", actionStatus: "awaiting_approval", inputSummary: "git status",
+        lifecycle: [{ kind: "approval", title: "Permission requested", detail: "Execution is paused until permission is granted." }],
+      },
+    }],
+  })[0]!;
+  const html = render([{ kind: "activity", itemId: `activity:${group.id}`, runId: "run-1", group, position: position(2) }],
+    { showExecutionFacts: false, running: true });
+  assert.match(html, /timeline-activity waiting/);
+  assert.match(html, /Awaiting approval/);
+  assert.match(html, /Permission requested/);
+  assert.match(html, /Execution is paused until permission is granted\./);
+});
+
 test("messages split consecutive execution traces without changing source order", () => {
   const first = activity("completed");
   const second = { ...activity("failed"), itemId: "second-activity" };
@@ -200,4 +251,28 @@ test("messages split consecutive execution traces without changing source order"
   assert.match(html, /<\/div><article class="message assistant"/);
   assert.ok(html.indexOf("Checking the remaining files") > html.indexOf(`data-item-id="${first.itemId}"`));
   assert.ok(html.indexOf("Checking the remaining files") < html.indexOf('data-item-id="second-activity"'));
+});
+
+test("server contexts recover a historical stage without its declaration and expose incomplete details", () => {
+  const accepted = { ...stage("run_stage_accepted", 3), title: "Stage accepted", runId: "old-run" } as SessionTimelineEntry;
+  const context = { runId: "old-run", stageId: "stage-1", revision: 1, target: "Verify historical evidence",
+    status: "accepted" as const, firstSequence: 1, lastSequence: 3, completeWithinPage: false };
+  const html = render([accepted], { stages: [context] });
+  assert.match(html, /Verify historical evidence/);
+  assert.match(html, /timeline-stage completed/);
+  assert.match(html, /Details not fully loaded/);
+  assert.doesNotMatch(html, /Stage accepted/);
+  const complete = render([accepted], { stages: [{ ...context, completeWithinPage: true }] });
+  assert.doesNotMatch(complete, /Details not fully loaded/);
+  const otherRun = render([accepted], { stages: [{ ...context, runId: "different-run" }] });
+  assert.doesNotMatch(otherRun, /Verify historical evidence/);
+  assert.match(otherRun, /Stage accepted/);
+});
+
+test("an incomplete Action keeps the loading note visible while collapsed", () => {
+  const entry = activity("completed");
+  const context = { runId: "run-1", actionId: "action-1", firstSequence: 1, lastSequence: 3, completeWithinPage: false };
+  assert.match(render([entry], { actionGroups: [context] }), /Details not fully loaded/);
+  assert.doesNotMatch(render([entry], { actionGroups: [{ ...context, runId: "other-run" }] }), /Details not fully loaded/);
+  assert.doesNotMatch(render([entry], { actionGroups: [{ ...context, completeWithinPage: true }] }), /Details not fully loaded/);
 });

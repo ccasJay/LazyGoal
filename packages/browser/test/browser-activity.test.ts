@@ -290,16 +290,13 @@ test("Activity 事实携带最小已提交工具状态白名单，并按真实�
     for (const fact of firstToolFacts) {
         assert.equal(fact.type, "fact");
         if (fact.type !== "fact") continue;
-        if (fact.eventType === "decision_received") {
-            assert.equal(fact.tool, undefined);
-            continue;
-        }
         assert.equal(fact.tool?.toolId, "read_file");
         assert.equal(fact.tool?.status, "completed");
         assert.equal(fact.tool?.actionStatus, "approved");
         assert.equal(fact.tool?.inputSummary, "action-1.ts");
         assert.equal(fact.tool?.summary, "Read file");
         assert.equal(fact.tool?.activityBoundaryBefore, undefined);
+        assert.deepEqual(fact.tool?.lifecycle?.map((entry) => entry.title), ["Action approved", "Result saved"]);
     }
     const secondToolFacts = facts.filter((item) => item.type === "fact" && item.actionId === "action-2");
     assert.equal(secondToolFacts.length, 3);
@@ -514,6 +511,87 @@ test("Activity 的历史失败摘要按 Run 和提交边界关联且不公开异
     assert.equal(isBrowserActivityPage({ ...result.page, runs: [{ ...result.page.runs[0], terminalDetail: { message: "Safe", raw: "PRIVATE" } }] }), false);
 });
 
+test("Activity 终态摘要区分完成审查拒绝与格式失败，不泄漏反馈正文", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = { ...initial, state: { ...initial.state,
+        run: { ...initial.state.run, status: "failed", committedThroughSequence: 2 },
+    } };
+    const committed: TrajectoryEvent[] = [
+        allocateImmutableEvent({
+            goalId: goal.id, runId: goal.state.run.id, phase: "executing",
+            executionUnitId: "unit-2", stepIndex: 2, eventType: "model_repair_feedback_recorded",
+            payload: {
+                type: "model_repair_feedback_recorded", stage: "decide", attempt: 3,
+                feedback: {
+                    goalId: goal.id, runId: goal.state.run.id, executionUnitId: "unit-2", stepOrdinal: 2,
+                    stage: "decide", origin: "completion_review", code: "INCOMPLETE_COMPLETION", attempt: 3,
+                    issues: [{ code: "incomplete_completion", path: ["summary"], message: "PRIVATE_MODEL_FEEDBACK" }],
+                    constraints: ["PRIVATE_CONSTRAINT"],
+                },
+            },
+        }, 1),
+        allocateImmutableEvent({
+            goalId: goal.id, runId: goal.state.run.id, phase: "executing", eventType: "run_failed",
+            payload: { type: "run_failed", code: "INVALID_AGENT_DECISION", message: "PRIVATE_EXCEPTION_PARAMETERS" },
+        }, 2),
+    ];
+    const result = await readBrowserGoalActivity(goal.id, {}, { restore: async () => goal }, async () => ({
+        committed,
+        uncommittedTail: [],
+    }));
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.deepEqual(result.page.runs[0]?.terminalDetail, {
+        code: "INVALID_AGENT_DECISION",
+        message: "The model's answer was rejected by completion review after 3 correction attempts.",
+    });
+    const repair = result.page.items.find((item) => item.type === "fact" && item.eventType === "model_repair_feedback_recorded");
+    assert.ok(repair?.type === "fact");
+    assert.equal(repair.title, "Completion review rejected the answer (step 2)");
+    assert.equal(repair.detail, "Completion review rejected the answer. Correction 3 of 3 (step 2).");
+    assert.doesNotMatch(JSON.stringify(result.page), /PRIVATE_/);
+});
+
+test("Activity 将控制调用批量拒绝归为格式失败而不是完成审查", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = { ...initial, state: { ...initial.state,
+        run: { ...initial.state.run, status: "failed", committedThroughSequence: 2 },
+    } };
+    const committed: TrajectoryEvent[] = [
+        allocateImmutableEvent({
+            goalId: goal.id, runId: goal.state.run.id, phase: "executing",
+            executionUnitId: "unit-2", stepIndex: 2, eventType: "model_repair_feedback_recorded",
+            payload: {
+                type: "model_repair_feedback_recorded", stage: "decide", attempt: 2,
+                feedback: {
+                    goalId: goal.id, runId: goal.state.run.id, executionUnitId: "unit-2", stepOrdinal: 2,
+                    stage: "decide", origin: "output_contract", code: "INVALID_AGENT_DECISION", attempt: 2,
+                    issues: [{ code: "multiple_tool_calls", path: ["toolCalls"], message: "PRIVATE_MODEL_FEEDBACK" }],
+                },
+            },
+        }, 1),
+        allocateImmutableEvent({
+            goalId: goal.id, runId: goal.state.run.id, phase: "executing", eventType: "run_failed",
+            payload: { type: "run_failed", code: "INVALID_AGENT_DECISION", message: "PRIVATE_EXCEPTION_PARAMETERS" },
+        }, 2),
+    ];
+    const result = await readBrowserGoalActivity(goal.id, {}, { restore: async () => goal }, async () => ({
+        committed,
+        uncommittedTail: [],
+    }));
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.deepEqual(result.page.runs[0]?.terminalDetail, {
+        code: "INVALID_AGENT_DECISION",
+        message: "The model output did not satisfy the required format after 2 correction attempts.",
+    });
+    const repair = result.page.items.find((item) => item.type === "fact" && item.eventType === "model_repair_feedback_recorded");
+    assert.ok(repair?.type === "fact");
+    assert.equal(repair.title, "Model output rejected (step 2)");
+    assert.equal(repair.detail, "System control calls cannot be batched. Correction 2 of 3 (step 2).");
+    assert.doesNotMatch(JSON.stringify(result.page), /PRIVATE_/);
+});
+
 test("Activity 从已提交轨迹恢复纠错、请求故障、检索失败与审批，不泄漏内部反馈", async () => {
     const initial = createTestGoal();
     const goal: Goal = { ...initial, state: { ...initial.state, run: { ...initial.state.run, status: "failed", committedThroughSequence: 4 } } };
@@ -568,9 +646,61 @@ test("审批等待与批准保留在实际执行之前，不提前投影最终�
     assert.equal(isBrowserActivityPage(result.page), true);
     const facts = result.page.items.filter((item) => item.type === "fact").filter((item) => item.actionId === action.actionId);
     assert.deepEqual(facts.map((item) => item.title), ["Decision received", "Waiting for permission", "Permission granted", "Tool started"]);
-    assert.equal(facts[0]?.tool, undefined);
-    assert.equal(facts[1]?.tool, undefined);
-    assert.equal(facts[2]?.tool, undefined);
-    assert.equal(facts[3]?.tool?.toolId, "bash");
+    for (const fact of facts) {
+        assert.equal(fact.type, "fact");
+        if (fact.type !== "fact") continue;
+        assert.equal(fact.tool?.toolId, "bash");
+        assert.equal(fact.tool?.status, "recorded");
+        assert.equal(fact.tool?.actionStatus, "approved");
+        assert.equal(fact.tool?.inputSummary, "pwd");
+        assert.deepEqual(fact.tool?.lifecycle?.map((item) => item.title), [
+            "Permission requested", "Permission granted", "Tool started",
+        ]);
+        assert.equal(fact.tool?.lifecycle?.[0]?.detail, "Execution is paused until permission is granted.");
+        assert.equal(fact.stageId, "read-stage");
+    }
     assert.deepEqual(facts.map((item) => item.stageId), ["read-stage", "read-stage", "read-stage", "read-stage"]);
+});
+
+test("tool decision without a committed lifecycle stays a fact instead of a running activity", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = {
+        ...initial,
+        state: { ...initial.state, run: { ...initial.state.run, committedThroughSequence: 1 } },
+    };
+    const action = { actionId: "unfinished-action", toolId: "bash", input: { command: "pwd" } };
+    const committed = [allocateImmutableEvent({
+        goalId: goal.id, runId: goal.state.run.id, phase: "executing", executionUnitId: "unit-1", actionId: action.actionId,
+        eventType: "decision_received",
+        payload: { type: "decision_received", decision: { kind: "tool_call", action } },
+    }, 1)];
+    const result = await readBrowserGoalActivity(goal.id, {}, { restore: async () => goal }, async () => ({ committed, uncommittedTail: [] }));
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    const facts = result.page.items.filter((item) => item.type === "fact");
+    assert.equal(facts.length, 1);
+    assert.equal(facts[0]?.type === "fact" ? facts[0].title : undefined, "Decision received");
+    assert.equal(facts[0]?.type === "fact" ? facts[0].tool : undefined, undefined);
+});
+
+test("跨页阶段上下文保留有界目标而不复制验收条件", async () => {
+    const initial = createGoal({ id: "stage-context", intent: "Verify", promptBundleVersion: 1,
+        memoryProtocol: { kind: "structured", version: 1 }, modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+        profile: { id: "p", systemPrompt: "", instructions: [], toolIds: [] }, runId: "run-1" });
+    const goal = { ...initial, state: { ...initial.state, run: { ...initial.state.run, committedThroughSequence: 2 } } };
+    const committed = [
+        allocateImmutableEvent({ goalId: goal.id, runId: "run-1", phase: "executing", eventType: "run_stage_declared",
+            payload: { type: "run_stage_declared", stageId: "stage-1", revision: 1, target: "x".repeat(1_100), acceptanceCriteria: ["PRIVATE_CRITERION"] } }, 1),
+        allocateImmutableEvent({ goalId: goal.id, runId: "run-1", phase: "executing", eventType: "run_stage_accepted",
+            payload: { type: "run_stage_accepted", stageId: "stage-1", revision: 1 } }, 2),
+    ];
+    const result = await readBrowserGoalActivity(goal.id, { limit: 1 }, { restore: async () => goal },
+        async () => ({ committed, uncommittedTail: [] }));
+    assert.ok(result.ok);
+    if (!result.ok) return;
+    assert.equal(result.page.stages[0]?.target?.length, 1_000);
+    assert.equal(result.page.stages[0]?.completeWithinPage, false);
+    assert.equal(isBrowserActivityPage(result.page), true);
+    assert.equal(JSON.stringify(result.page).includes("PRIVATE_CRITERION"), false);
 });
