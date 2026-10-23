@@ -1,3 +1,5 @@
+import { Button } from "./components/ui/button";
+import { Label } from "./components/ui/label";
 import { useState } from "react";
 import { Check, Circle, Clock3, Shield, Trash2, X } from "lucide-react";
 
@@ -77,7 +79,7 @@ export function GoalDetails({
         <h3>Goal details</h3>
         <span>{session.goalId}</span>
       </div>
-      <label className="field-label">Objective</label>
+      <Label className="field-label">Objective</Label>
       <p className="objective-text">{session.intent}</p>
       <dl className="property-list">
         <div>
@@ -123,18 +125,18 @@ export function GoalDetails({
                     <span>{grant.scope === "goal" ? "This Goal" : "This project"} · {grant.status}</span>
                     {grant.targetPath && <code>{grant.targetPath}</code>}
                   </div>
-                  {grant.status === "active" && <button
+                  {grant.status === "active" && <Button variant="ghost" size="sm"
                     className="grant-revoke"
                     disabled={revokingGrantId !== null}
                     aria-label={`Revoke ${grant.toolId} permission`}
                     onClick={() => onRevokeGrant(grant)}
-                  >{revokingGrantId === grant.grantId ? "Revoking…" : "Revoke"}</button>}
+                  >{revokingGrantId === grant.grantId ? "Revoking…" : "Revoke"}</Button>}
                 </li>
               ))}</ul>}
       </section>
       {onDelete && <section className="goal-delete-panel">
         <div><strong>Local record</strong><p>Remove this Goal and its saved run history from this workspace.</p></div>
-        <button type="button" className={confirmDelete ? "is-confirming" : ""} disabled={deleteBusy || !(session.runStatus === "completed" || session.runStatus === "failed" || session.runStatus === "cancelled")} onPointerLeave={(event) => { if (event.pointerType === "mouse" && !deleteBusy) setConfirmDelete(false); }} onClick={() => { if (confirmDelete) onDelete(); else setConfirmDelete(true); }}><Trash2 size={14} /> {deleteBusy ? "Deleting…" : confirmDelete ? "Confirm" : "Delete goal"}</button>
+        <Button variant="ghost" size="sm" type="button" className={confirmDelete ? "is-confirming" : ""} disabled={deleteBusy || !(session.runStatus === "completed" || session.runStatus === "failed" || session.runStatus === "cancelled")} onPointerLeave={(event) => { if (event.pointerType === "mouse" && !deleteBusy) setConfirmDelete(false); }} onClick={() => { if (confirmDelete) onDelete(); else setConfirmDelete(true); }}><Trash2 size={14} /> {deleteBusy ? "Deleting…" : confirmDelete ? "Confirm" : "Delete goal"}</Button>
       </section>}
       {session.historyTruncated && (
         <div className="info-box">Some session content is omitted from this view.</div>

@@ -1,3 +1,6 @@
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./components/ui/collapsible";
+import { Button } from "./components/ui/button";
+import { ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { BrowserTrajectoryEntry, BrowserModelInputSummary } from "../../../packages/web-contracts/src/index";
 import { browserApi } from "./api";
@@ -113,13 +116,13 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
         selectInput({ callId: row.call!.callId, tab: row.tab ?? "Messages", messageIndex: row.messageIndex });
       }
     };
-    return <div role="option" aria-selected={selected} className={`ct-record ${row.status ?? ""} ${selected ? "selected" : ""} ${row.entry?.parentActionId !== undefined && row.entry.callIndex !== undefined ? "child" : ""}`} key={row.id} onClick={handleSelect}>
-      <div className="ct-gutter"><span className="ct-sequence">{row.entry?.sequence ?? "·"}</span>{showRequests && row.request && <button className="ct-request-dot" aria-label={row.entry ? `View prompt for event ${row.entry.sequence}` : `Inspect model request ${row.call!.callId}`} onClick={(event) => { event.stopPropagation(); selectInput({ callId: row.call?.callId ?? row.promptCallId ?? row.entry?.modelCallId ?? null, tab: "Messages" }); }}/>}</div>
-      <button id={row.entry ? `trajectory-event-${row.entry.sequence}` : undefined} className="ct-record-body" aria-pressed={selected} aria-label={row.call ? `Inspect model request ${row.call.callId}` : undefined} onClick={(event) => { event.stopPropagation(); handleSelect(); }}>
+    return <div className={`ct-record ${row.status ?? ""} ${selected ? "selected" : ""} ${row.entry?.parentActionId !== undefined && row.entry.callIndex !== undefined ? "child" : ""}`} key={row.id} onClick={handleSelect}>
+      <div className="ct-gutter"><span className="ct-sequence">{row.entry?.sequence ?? "·"}</span>{showRequests && row.request && <Button variant="ghost" size="sm" className="ct-request-dot" aria-label={row.entry ? `View prompt for event ${row.entry.sequence}` : `Inspect model request ${row.call!.callId}`} onClick={(event) => { event.stopPropagation(); selectInput({ callId: row.call?.callId ?? row.promptCallId ?? row.entry?.modelCallId ?? null, tab: "Messages" }); }}/>}</div>
+      <Button variant="ghost" size="sm" id={row.entry ? `trajectory-event-${row.entry.sequence}` : undefined} className="ct-record-body" aria-pressed={selected} aria-label={row.call ? `Inspect model request ${row.call.callId}` : undefined} onClick={(event) => { event.stopPropagation(); handleSelect(); }}>
         <span className="ct-preview"><span className={`ct-badge ${row.role.toLowerCase()}`}>{row.role}</span><span className="ct-event-text"><strong>{row.text}</strong>{row.entry?.parentActionId !== undefined && row.entry.callIndex !== undefined && <small title={`Program ${row.entry.parentActionId}`}>Program call {row.entry.callIndex + 1}</small>}</span></span>
         <time className="ct-time" dateTime={row.time} title={row.time}>{formatEventTime(row.time)}</time>
         <span className="ct-detail">{row.entry?.resultPreview ?? row.result ?? row.entry?.inputPreview ?? row.input ?? row.entry?.preview ?? ""}</span>
-      </button>
+      </Button>
     </div>;
   };
   const renderChunk = (chunk: (typeof chunks)[number]) => {
@@ -129,13 +132,13 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
     const rejection = [...peers].reverse().map(call => results.get(call.callId)).find(result => result?.status === "rejected")!;
     const selectedInside = chunk.rows.some(row => row.entry?.sequence === selectedSequence || row.call?.callId === selectedInput?.callId);
     const expanded = !collapsedRetries.includes(chunk.key) && (expandedRetries.includes(chunk.key) || !!query || selectedInside);
-    return <section className="ct-retry" key={chunk.key} aria-label={`Step ${last.stepIndex} ${last.stage} attempts`}>
-      <div className="ct-retry-header"><button className="ct-retry-toggle" aria-expanded={expanded} onClick={() => {
-        setCollapsedRetries(current => expanded ? [...current, chunk.key] : current.filter(key => key !== chunk.key));
-        setExpandedRetries(current => expanded ? current.filter(key => key !== chunk.key) : [...current, chunk.key]);
-      }}><span>{expanded ? "▾" : "▸"}</span><strong>Step {last.stepIndex} / {last.stage}</strong><span>{peers.length} attempts · {results.get(last.callId)!.label}</span><span className="ct-retry-error">{rejection.entry!.preview}</span></button><button className="ct-retry-prompt" onClick={() => selectInput({ callId: last.callId, tab: "Messages" })}>Last prompt</button></div>
-      {expanded && chunk.rows.map(renderRow)}
-    </section>;
+    return <Collapsible asChild key={chunk.key} open={expanded} onOpenChange={(nextOpen) => {
+        setCollapsedRetries(current => nextOpen ? current.filter(key => key !== chunk.key) : current.includes(chunk.key) ? current : [...current, chunk.key]);
+        setExpandedRetries(current => nextOpen ? current.includes(chunk.key) ? current : [...current, chunk.key] : current.filter(key => key !== chunk.key));
+      }}><section className="ct-retry" aria-label={`Step ${last.stepIndex} ${last.stage} attempts`}>
+      <div className="ct-retry-header"><CollapsibleTrigger asChild><Button variant="ghost" size="sm" className="ct-retry-toggle"><ChevronRight aria-hidden="true" className={`ct-chevron ${expanded ? "rotated" : ""}`}/><strong>Step {last.stepIndex} / {last.stage}</strong><span>{peers.length} attempts · {results.get(last.callId)!.label}</span><span className="ct-retry-error">{rejection.entry!.preview}</span></Button></CollapsibleTrigger><Button variant="ghost" size="sm" className="ct-retry-prompt" onClick={() => selectInput({ callId: last.callId, tab: "Messages" })}>Last prompt</Button></div>
+      <CollapsibleContent>{chunk.rows.map(renderRow)}</CollapsibleContent>
+    </section></Collapsible>;
   };
   const stepGroups: { key: string; step?: number; chunks: typeof chunks }[] = [];
   for (const chunk of chunks) {
@@ -188,19 +191,16 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
       });
     }
   }, [query, category, stepGroups]);
-  function toggleStep(key: string, group: (typeof stepGroups)[number]) {
-    setCollapsedSteps(current => current.includes(key) ? current.filter(item => item !== key) : [...current, key]);
-  }
   return <>
-    <div className="mi-input-status">{error ? <span role="alert">Model inputs could not be loaded. Committed events are still available. <button onClick={() => setRetry(value => value + 1)}>Retry inputs</button></span> : total === 0 ? query ? "No saved model inputs match this search." : "Historical model inputs not recorded." : `${offset + 1}–${offset + calls.length} / ${total} saved model inputs · Independent of Snapshot commits`}{total > 100 && <span><button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>Earlier inputs</button><button disabled={nextOffset === null} onClick={() => setOffset(nextOffset!)}>Later inputs</button></span>}</div>
+    <div className="mi-input-status">{error ? <span role="alert">Model inputs could not be loaded. Committed events are still available. <Button variant="ghost" size="sm" onClick={() => setRetry(value => value + 1)}>Retry inputs</Button></span> : total === 0 ? query ? "No saved model inputs match this search." : "Historical model inputs not recorded." : `${offset + 1}–${offset + calls.length} / ${total} saved model inputs · Independent of Snapshot commits`}{total > 100 && <span><Button variant="ghost" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>Earlier inputs</Button><Button variant="ghost" size="sm" disabled={nextOffset === null} onClick={() => setOffset(nextOffset!)}>Later inputs</Button></span>}</div>
     <div className="ct-column-head" aria-hidden="true"><span>#</span><span>Event</span><span>Time</span><span>Detail</span></div>
-    <div className="ct-record-list" role="listbox" aria-label="Recorded events">
+    <div className="ct-record-list">
       {showSteps ? stepGroups.map(group => group.step === undefined
         ? <div className="ct-run-records" key={group.key}>{group.chunks.map(renderChunk)}</div>
-        : <section className="ct-step-group" key={group.key}>
-            <button className="ct-step-header" aria-expanded={!collapsedSteps.includes(group.key)} onClick={() => toggleStep(group.key, group)}><span aria-hidden="true">{collapsedSteps.includes(group.key) ? "▸" : "▾"}</span><strong>Step {group.step}</strong><small>{group.chunks.reduce((count, chunk) => count + chunk.rows.length, 0)} records</small></button>
-            {!collapsedSteps.includes(group.key) && group.chunks.map(renderChunk)}
-          </section>) : chunks.map(renderChunk)}
+        : <Collapsible asChild key={group.key} open={!collapsedSteps.includes(group.key)} onOpenChange={(nextOpen) => setCollapsedSteps(current => nextOpen ? current.filter(key => key !== group.key) : current.includes(group.key) ? current : [...current, group.key])}><section className="ct-step-group">
+            <CollapsibleTrigger asChild><Button variant="ghost" size="sm" className="ct-step-header"><ChevronRight aria-hidden="true" className={`ct-chevron ${collapsedSteps.includes(group.key) ? "" : "rotated"}`}/><strong>Step {group.step}</strong><small>{group.chunks.reduce((count, chunk) => count + chunk.rows.length, 0)} records</small></Button></CollapsibleTrigger>
+            <CollapsibleContent>{group.chunks.map(renderChunk)}</CollapsibleContent>
+          </section></Collapsible>) : chunks.map(renderChunk)}
     </div>
   </>;
 }

@@ -3,8 +3,8 @@
  *
  * @remarks
  * 这里只保存与 DOM 无关的语义：按键如何解释、一次提交冻结什么身份与载荷、受理结果
- * 如何区分明确拒绝与结果不明、以及队列清空需要确认的范围。真实受理、授权与执行仍由
- * Runtime 决定；本模块不发送请求，也不保存草稿正文。
+ * 如何区分明确拒绝与结果不明。真实受理、授权与执行仍由 Runtime 决定；本模块不发送
+ * 请求，也不保存草稿正文。
  */
 
 /** 一次按键在普通输入框中的语义。 */
@@ -43,7 +43,15 @@ export function resolveComposerKey(event: {
  *
  * @remarks
  * 冻结后的身份用于核验与原身份重试；迟到响应只能作用于该身份对应的 Goal 与 Run，
- * 不得写入新目标。
+ * 不得写入新目标。排队消息转为 Steer 时也保留其来源绑定，以便同一身份安全重试。
+ *
+ * @example
+ * ```ts
+ * const submission: FrozenSubmission = {
+ *   inputId: "steer-1", goalId: "goal-1", runId: "run-1",
+ *   kind: "steer", content: "聚焦当前步骤",
+ * };
+ * ```
  */
 export interface FrozenSubmission {
   /** 原输入身份；核验与重试必须沿用它。 */
@@ -56,6 +64,8 @@ export interface FrozenSubmission {
   readonly kind: "message" | "steer";
   /** 冻结载荷正文。 */
   readonly content: string;
+  /** 可选的原排队消息与队列修订绑定；用于原子转换和身份重试。 */
+  readonly queueBinding?: { readonly messageId: string; readonly queueRevision: number };
 }
 
 /**
@@ -176,56 +186,4 @@ export function isSameSubmissionTarget(
 ): boolean {
   if (target === undefined) return false;
   return submission.goalId === target.goalId && submission.runId === target.currentRunId;
-}
-
-/**
- * 生成队列清空的确认范围文案。
- *
- * @remarks
- * 清空只按服务端已受理队列的真实条数确认范围；页面不维护本地队列镜像。
- *
- * @param queuedCount - 服务端已受理队列的条数。
- * @returns 确认文案；队列为空时返回 `undefined`。
- * @example
- * ```ts
- * queueClearScope(2); // "Clear 2 accepted queued tasks?"
- * ```
- */
-export function queueClearScope(queuedCount: number): string | undefined {
-  if (queuedCount <= 0) return undefined;
-  return queuedCount === 1
-    ? "Clear 1 accepted queued task?"
-    : `Clear ${queuedCount} accepted queued tasks?`;
-}
-
-/**
- * Steer 决定当前是否可用及其原因。
- *
- * @remarks
- * Steer 以“当前 Run 正在执行什么”为前提，因此状态可能过期时不可用；普通发送不受
- * 该限制。
- */
-export type SteerActionState =
-  | { readonly enabled: true }
-  | { readonly enabled: false; readonly reason: "busy" | "stale" | "empty-draft" };
-
-/**
- * 判断 Steer 入口当前是否可用。
- *
- * @param input - 提交在途、状态新鲜度与草稿状态。
- * @returns Steer 入口的可用性与原因。
- * @example
- * ```ts
- * steerActionState({ busy: false, stale: true, hasDraft: true }).enabled; // false
- * ```
- */
-export function steerActionState(input: {
-  readonly busy: boolean;
-  readonly stale: boolean;
-  readonly hasDraft: boolean;
-}): SteerActionState {
-  if (input.busy) return { enabled: false, reason: "busy" };
-  if (input.stale) return { enabled: false, reason: "stale" };
-  if (!input.hasDraft) return { enabled: false, reason: "empty-draft" };
-  return { enabled: true };
 }

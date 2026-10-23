@@ -1,125 +1,36 @@
-import { useState } from "react";
-import { Database, Gauge, X } from "lucide-react";
-import { Modal } from "../modal";
-import {
-  type MetricsState,
-  metricCoverage,
-  metricNumber,
-  metricPercent,
-  metricSpeed,
-} from "../types";
+import { ChevronDown } from "lucide-react";
+import { Popover, PopoverTrigger, PopoverContent } from "./ui/popover";
+import { Button } from "./ui/button";
+import { type MetricsState, metricCoverage, metricNumber, metricPercent, metricSpeed } from "../types";
 
-export function SessionMetricsBar({ state }: { state?: MetricsState }) {
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  if (state?.kind === "error") return <div className="session-metrics-state">Recorded metrics unavailable</div>;
-  if (state === undefined) return <div className="session-metrics-state">Loading recorded metrics…</div>;
-  const metrics = state.value;
-  const coverage = metricCoverage(metrics);
-  return (
-    <>
-      <button
-        type="button"
-        className="session-metrics"
-        aria-label="View recorded Goal metrics"
-        onClick={() => setDetailsOpen(true)}
-      >
-        <span className="session-metric">
-          <Gauge size={15} aria-hidden="true" />
-          <span>
-            {metrics.roundCount} run{metrics.roundCount === 1 ? "" : "s"} · {metrics.stepCount} step
-            {metrics.stepCount === 1 ? "" : "s"}
-          </span>
-          <span className="session-metric-divider">·</span>
-          <span
-            title={`${metrics.throughputMeasuredCalls} measured calls; ${metrics.throughputExcludedCalls} excluded calls`}
-          >
-            Output rate {metricSpeed(metrics.tokensPerSecond)} tok/s
-          </span>
-        </span>
-        <span className="session-metric">
-          <Database size={15} aria-hidden="true" />
-          <span>
-            {metricNumber(metrics.inputTokens)} in / {metricNumber(metrics.outputTokens)} out
-          </span>
-          <span className="session-metric-divider">·</span>
-          <span
-            title={`${metrics.cacheMeasuredCalls} measured calls; ${metrics.cacheExcludedCalls} excluded calls`}
-          >
-            Cache hit {metricPercent(metrics.cacheHitRate)}
-          </span>
-        </span>
-        <span
-          className="session-metric"
-          title="Remaining context after the latest confirmed call on the current model"
-        >
-          <span
-            className="context-ring"
-            style={{
-              background:
-                metrics.contextRemainingPercent == null
-                  ? "var(--control-border)"
-                  : `conic-gradient(var(--accent-ink) ${metrics.contextRemainingPercent * 100}%, var(--control-border) 0)`,
-            }}
-            aria-hidden="true"
-          />
-          <span>Context left {metricPercent(metrics.contextRemainingPercent ?? null)}</span>
-        </span>
-        {coverage !== null && (
-          <span className="session-metrics-coverage" title="Provider usage coverage">
-            {coverage}
-          </span>
-        )}
-      </button>
-      {detailsOpen && (
-        <Modal className="metrics-dialog" label="Recorded Goal metrics" onClose={() => setDetailsOpen(false)}>
-          <div className="model-picker-head">
-            <h2>Recorded Goal metrics</h2>
-            <button
-              className="icon"
-              aria-label="Close metrics"
-              onClick={() => setDetailsOpen(false)}
-            >
-              <X size={17} />
-            </button>
-          </div>
-          <dl className="metrics-details">
-            <dt>Runs / committed steps</dt>
-            <dd>
-              {metrics.roundCount} / {metrics.stepCount}
-            </dd>
-            <dt>Input / output tokens</dt>
-            <dd>
-              {metricNumber(metrics.inputTokens)} / {metricNumber(metrics.outputTokens)}
-            </dd>
-            <dt>Output rate</dt>
-            <dd>
-              {metricSpeed(metrics.tokensPerSecond)} tok/s{" "}
-              <small>
-                {metrics.throughputMeasuredCalls} measured · {metrics.throughputExcludedCalls} excluded calls
-              </small>
-              <small>
-                Application-observed end-to-end provider request rate. Includes provider wait and response transfer; not provider-internal decode speed.
-              </small>
-            </dd>
-            <dt>Cache hit</dt>
-            <dd>
-              {metricPercent(metrics.cacheHitRate)}{" "}
-              <small>
-                {metrics.cacheMeasuredCalls} measured · {metrics.cacheExcludedCalls} excluded calls
-              </small>
-            </dd>
-            <dt>Context left</dt>
-            <dd>
-              {metricPercent(metrics.contextRemainingPercent ?? null)}{" "}
-              <small>Latest confirmed call on the current model</small>
-            </dd>
-            <dt>Usage coverage</dt>
-            <dd>{coverage ?? "Complete coverage"}</dd>
-          </dl>
-          <p className="metrics-note">— means unavailable. Missing values are not counted as zero.</p>
-        </Modal>
-      )}
-    </>
-  );
+/** 在输入框下方独立一行展示 Goal 聚合指标；计量说明和当前 Run 状态按需打开。 */
+export function SessionMetricsBar({ state, runStatus }: { state?: MetricsState; runStatus?: string }) {
+  const metrics = state?.kind === "ready" ? state.value : undefined;
+  const coverage = metrics === undefined ? null : metricCoverage(metrics);
+  return <div className="session-metrics" aria-label="Goal metrics">
+    <Popover>
+    <PopoverTrigger asChild><Button variant="ghost" size="sm" className="session-metrics-details-trigger">Goal metrics<ChevronDown size={12} /></Button></PopoverTrigger>
+    <PopoverContent side="top" align="center" className="metrics-popover">
+      {runStatus && <p className="text-xs text-muted-foreground">Current run · {runStatus}</p>}
+      <h3 className="text-sm font-medium py-2">Goal metrics</h3>
+      {metrics === undefined ? <p className="text-xs text-muted-foreground">{state?.kind === "error" ? "Recorded metrics unavailable" : "Loading recorded metrics…"}</p> : <>
+        <dl className="metrics-details">
+          <dt>Runs / committed steps</dt><dd>{metrics.roundCount} / {metrics.stepCount}</dd>
+          <dt>Input / output tokens</dt><dd>{metricNumber(metrics.inputTokens)} / {metricNumber(metrics.outputTokens)}</dd>
+          <dt>Output rate</dt><dd>{metricSpeed(metrics.tokensPerSecond)} tok/s<small>{metrics.throughputMeasuredCalls} measured · {metrics.throughputExcludedCalls} excluded calls</small><small>Application-observed end-to-end provider request rate. Includes provider wait and response transfer; not provider-internal decode speed.</small></dd>
+          <dt>Cache hit</dt><dd>{metricPercent(metrics.cacheHitRate)}<small>{metrics.cacheMeasuredCalls} measured · {metrics.cacheExcludedCalls} excluded calls</small></dd>
+          <dt>Context left</dt><dd>{metricPercent(metrics.contextRemainingPercent ?? null)}<small>Latest confirmed call on the current model</small></dd>
+          <dt>Usage coverage</dt><dd>{coverage ?? "Complete coverage"}</dd>
+        </dl><p className="metrics-note">— means unavailable. Missing values are not counted as zero.</p>
+      </>}
+    </PopoverContent>
+    </Popover>
+    {metrics === undefined ? <span className="session-metric">{state?.kind === "error" ? "Metrics unavailable" : "Loading metrics…"}</span> : <>
+      <span className="session-metric">{metrics.roundCount} runs · {metrics.stepCount} steps</span>
+      <span className="session-metric" title="Input / output tokens">{metricNumber(metrics.inputTokens)} in / {metricNumber(metrics.outputTokens)} out</span>
+      <span className="session-metric" title="Application-observed end-to-end provider request rate">{metricSpeed(metrics.tokensPerSecond)} tok/s</span>
+      <span className="session-metric">Cache {metricPercent(metrics.cacheHitRate)}</span>
+      <span className="session-metric">Context {metricPercent(metrics.contextRemainingPercent ?? null)}</span>
+    </>}
+  </div>;
 }
-

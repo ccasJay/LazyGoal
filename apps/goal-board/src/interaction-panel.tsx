@@ -1,3 +1,11 @@
+import { Alert } from "./components/ui/alert";
+import { RadioGroup, RadioGroupItem } from "./components/ui/radio-group";
+import { Checkbox } from "./components/ui/checkbox";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./components/ui/collapsible";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
+import { Label } from "./components/ui/label";
 import { useCallback, useEffect, useId, useReducer, useRef, useState } from "react";
 import { Check, CircleHelp, Eye, Loader, Shield, ShieldAlert, X, Zap } from "lucide-react";
 
@@ -265,7 +273,7 @@ function DecisionSettled({
         </div>
       ) : (
         <>
-          <p className="interaction-error" role="alert">{submission.error}</p>
+          <Alert variant="destructive" className="interaction-error" role="alert">{submission.error}</Alert>
           <p className="interaction-status" role="status">{submissionStatusText(submission)}</p>
         </>
       )}
@@ -283,19 +291,19 @@ function SubmissionStatus({
   return (
     <>
       {submission.error !== null && (
-        <p className="interaction-error" role="alert">{submission.error}</p>
+        <Alert variant="destructive" className="interaction-error" role="alert">{submission.error}</Alert>
       )}
       <p className="interaction-status" role="status" aria-live="polite">
         {submissionStatusText(submission)}
       </p>
       {needsVerification(submission) && (
         <div className="interaction-resolve">
-          <button type="button" className="approval-primary" onClick={() => onEvent({ kind: "verify" })}>
+          <Button variant="ghost" size="sm" type="button" className="approval-primary" onClick={() => onEvent({ kind: "verify" })}>
             <Eye size={13} aria-hidden="true" /> Check saved decision
-          </button>
-          <button type="button" onClick={() => onEvent({ kind: "retry" })}>
+          </Button>
+          <Button variant="ghost" size="sm" type="button" onClick={() => onEvent({ kind: "retry" })}>
             Retry the same decision
-          </button>
+          </Button>
         </div>
       )}
     </>
@@ -305,9 +313,9 @@ function SubmissionStatus({
 /** 停止 Run 的独立入口；只受停止状态限制，不受回答提交在途限制。 */
 function StopRunButton({ stopping, onStop }: { stopping: boolean; onStop: () => void }) {
   return (
-    <button type="button" className="interaction-stop" disabled={stopping} onClick={onStop}>
+    <Button variant="ghost" size="sm" type="button" className="interaction-stop" disabled={stopping} onClick={onStop}>
       {stopping ? "Stopping…" : "Stop run"}
-    </button>
+    </Button>
   );
 }
 
@@ -388,29 +396,17 @@ export function QuestionInteractionView({
           </div>
         </div>
       )}
-      <fieldset className="interaction-mode-switch" disabled={chrome.busy || locked}>
+      <RadioGroup asChild value={draft.mode} onValueChange={mode => onEvent({ kind: "mode", mode: mode as "answers" | "reply" })} disabled={chrome.busy || locked}><fieldset className="interaction-mode-switch" disabled={chrome.busy || locked}>
         <legend>Response method</legend>
-        <label htmlFor={`${baseId}-mode-answers`}>
-          <input
-            id={`${baseId}-mode-answers`}
-            type="radio"
-            name={`response-method-${interactionId}`}
-            checked={draft.mode === "answers"}
-            onChange={() => onEvent({ kind: "mode", mode: "answers" })}
-          />
+        <Label htmlFor={`${baseId}-mode-answers`}>
+          <RadioGroupItem id={`${baseId}-mode-answers`} value="answers" />
           <span><strong>Answer each question</strong><small>Send one answer for every question.</small></span>
-        </label>
-        <label htmlFor={`${baseId}-mode-reply`}>
-          <input
-            id={`${baseId}-mode-reply`}
-            type="radio"
-            name={`response-method-${interactionId}`}
-            checked={draft.mode === "reply"}
-            onChange={() => onEvent({ kind: "mode", mode: "reply" })}
-          />
+        </Label>
+        <Label htmlFor={`${baseId}-mode-reply`}>
+          <RadioGroupItem id={`${baseId}-mode-reply`} value="reply" />
           <span><strong>Reply instead</strong><small>Send one overall reply that replaces the questionnaire.</small></span>
-        </label>
-      </fieldset>
+        </Label>
+      </fieldset></RadioGroup>
       <p className="interaction-note">
         Both drafts are kept while you switch. Only the selected response method is submitted.
       </p>
@@ -427,7 +423,7 @@ export function QuestionInteractionView({
               <ol>
                 {questions.map((question, index) => (
                   <li key={question.id}>
-                    <button
+                    <Button variant="ghost" size="sm"
                       type="button"
                       className={`question-nav-item ${index === draft.currentIndex ? "current" : ""} ${isQuestionAnswered(draft, question) ? "answered" : "unanswered"}`}
                       aria-current={index === draft.currentIndex ? "step" : undefined}
@@ -439,7 +435,7 @@ export function QuestionInteractionView({
                       <span className="question-nav-state">
                         {isQuestionAnswered(draft, question) ? "Answered" : "Not answered"}
                       </span>
-                    </button>
+                    </Button>
                   </li>
                 ))}
               </ol>
@@ -456,20 +452,20 @@ export function QuestionInteractionView({
               />
             )}
             <div className="question-nav-actions">
-              <button
+              <Button variant="ghost" size="sm"
                 type="button"
                 disabled={chrome.busy || locked || draft.currentIndex === 0}
                 onClick={() => onEvent({ kind: "move_question", delta: -1 })}
               >
                 Previous question
-              </button>
-              <button
+              </Button>
+              <Button variant="ghost" size="sm"
                 type="button"
                 disabled={chrome.busy || locked || draft.currentIndex >= questions.length - 1}
                 onClick={() => onEvent({ kind: "move_question", delta: 1 })}
               >
                 Next question
-              </button>
+              </Button>
             </div>
             <section className="interaction-review" aria-label="Answer review">
               <h5>Review before sending</h5>
@@ -486,8 +482,8 @@ export function QuestionInteractionView({
         )
       ) : (
         <div className="overall-reply">
-          <label htmlFor={`${baseId}-reply`}>Overall reply</label>
-          <textarea
+          <Label htmlFor={`${baseId}-reply`}>Overall reply</Label>
+          <Textarea
             id={`${baseId}-reply`}
             name="overall-reply"
             aria-label="Overall reply"
@@ -504,43 +500,43 @@ export function QuestionInteractionView({
       )}
 
       {submission.error !== null && (
-        <p className="interaction-error" id={errorId} role="alert">{submission.error}</p>
+        <Alert variant="destructive" className="interaction-error" id={errorId} role="alert">{submission.error}</Alert>
       )}
       <p className="interaction-status" role="status" aria-live="polite">
         {submissionStatusText(submission)}
       </p>
       {needsVerification(submission) && (
         <div className="interaction-resolve">
-          <button type="button" className="approval-primary" onClick={() => onEvent({ kind: "verify" })}>
+          <Button variant="ghost" size="sm" type="button" className="approval-primary" onClick={() => onEvent({ kind: "verify" })}>
             <Eye size={13} aria-hidden="true" /> Check saved decision
-          </button>
-          <button type="button" onClick={() => onEvent({ kind: "retry" })}>
+          </Button>
+          <Button variant="ghost" size="sm" type="button" onClick={() => onEvent({ kind: "retry" })}>
             Retry the same decision
-          </button>
+          </Button>
         </div>
       )}
       <div className="ask-user-actions">
         {draft.mode === "answers" ? (
-          <button
+          <Button variant="ghost" size="sm"
             type="button"
             className="approval-primary"
             disabled={chrome.busy || locked || !canSubmitAnswers(draft, questions)}
             onClick={() => onEvent({ kind: "submit_answers" })}
           >
             <Check size={13} aria-hidden="true" /> Send answers
-          </button>
+          </Button>
         ) : (
-          <button
+          <Button variant="ghost" size="sm"
             type="button"
             className="approval-primary"
             disabled={chrome.busy || locked || draft.replyText.trim().length === 0}
             onClick={() => onEvent({ kind: "submit_reply" })}
           >
             <Check size={13} aria-hidden="true" /> Send reply
-          </button>
+          </Button>
         )}
         {!skipConfirmOpen ? (
-          <button
+          <Button variant="ghost" size="sm"
             type="button"
             className="interaction-skip"
             aria-expanded={false}
@@ -548,17 +544,17 @@ export function QuestionInteractionView({
             onClick={() => onEvent({ kind: "request_skip" })}
           >
             <X size={13} aria-hidden="true" /> Skip questionnaire
-          </button>
+          </Button>
         ) : (
           <div className="skip-confirm" role="group" aria-label="Confirm skipping the questionnaire">
             <p>
               Skipping continues this Run without answers. The model is told that you did not answer, no options are
               chosen, and a Plan route revision stays unapproved.
             </p>
-            <button type="button" className="approval-cancel" onClick={() => onEvent({ kind: "confirm_skip" })}>
+            <Button variant="ghost" size="sm" type="button" className="approval-cancel" onClick={() => onEvent({ kind: "confirm_skip" })}>
               Confirm skip
-            </button>
-            <button type="button" onClick={() => onEvent({ kind: "cancel_skip" })}>Keep answering</button>
+            </Button>
+            <Button variant="ghost" size="sm" type="button" onClick={() => onEvent({ kind: "cancel_skip" })}>Keep answering</Button>
           </div>
         )}
       </div>
@@ -581,6 +577,7 @@ function QuestionField({
   baseId: string;
   onEvent: (event: QuestionViewEvent) => void;
 }) {
+  const Options = question.multiSelect ? "div" : RadioGroup;
   return (
     <fieldset className="question" aria-describedby={describedBy}>
       <legend>{question.header}</legend>
@@ -588,41 +585,31 @@ function QuestionField({
       <p className="interaction-note">
         {question.multiSelect ? "Select one or more options." : "Select one option, or write an other answer."}
       </p>
-      <div className="question-options">
+      <Options className="question-options" {...(question.multiSelect ? {} : { value: draft.optionIds[0] ?? "", disabled, onValueChange: (value: string) => onEvent({ kind: "toggle_option", questionId: question.id, optionId: value, checked: true }) })}>
         {question.options.map((option) => {
           const optionId = `${baseId}-q-${question.id}-o-${option.id}`;
           return (
-            <label className="answer-option" key={option.id} htmlFor={optionId}>
-              <input
-                id={optionId}
-                type={question.multiSelect ? "checkbox" : "radio"}
-                name={`question-${question.id}`}
-                checked={draft.optionIds.includes(option.id)}
-                disabled={disabled}
-                onChange={(event) => onEvent({
-                  kind: "toggle_option",
-                  questionId: question.id,
-                  optionId: option.id,
-                  checked: event.target.checked,
-                })}
-              />
+            <Label className="answer-option" key={option.id} htmlFor={optionId}>
+              {question.multiSelect ? <Checkbox id={optionId} name={`question-${question.id}`} checked={draft.optionIds.includes(option.id)} disabled={disabled}
+                onCheckedChange={checked => onEvent({ kind: "toggle_option", questionId: question.id, optionId: option.id, checked: checked === true })} />
+                : <RadioGroupItem id={optionId} value={option.id} disabled={disabled} />}
               <span>{option.label}
                 {option.description && <small>{option.description}</small>}
               </span>
-            </label>
+            </Label>
           );
         })}
-      </div>
-      <label className="other-answer" htmlFor={`${baseId}-q-${question.id}-other`}>
+      </Options>
+      <Label className="other-answer" htmlFor={`${baseId}-q-${question.id}-other`}>
         <span>Other answer</span>
-        <input
+        <Input
           id={`${baseId}-q-${question.id}-other`}
           name={`question-${question.id}-other`}
           value={draft.otherText}
           disabled={disabled}
           onChange={(event) => onEvent({ kind: "other_text", questionId: question.id, value: event.target.value })}
         />
-      </label>
+      </Label>
     </fieldset>
   );
 }
@@ -684,17 +671,17 @@ export function TaskApprovalInteractionView({
         </ol>
       </div>
       <SubmissionStatus submission={submission} onEvent={onEvent} />
-      <button
+      <Button variant="ghost" size="sm"
         type="button"
         className="approval-primary"
         disabled={chrome.busy || locked}
         onClick={() => onEvent({ kind: "submit_approve" })}
       >
         <Check size={13} aria-hidden="true" /> Approve task
-      </button>
+      </Button>
       <div className="feedback-form">
-        <label htmlFor={feedbackId}>Or send feedback</label>
-        <textarea
+        <Label htmlFor={feedbackId}>Or send feedback</Label>
+        <Textarea
           id={feedbackId}
           name="task-feedback"
           aria-label="Task feedback"
@@ -703,13 +690,13 @@ export function TaskApprovalInteractionView({
           onChange={(event) => onEvent({ kind: "feedback_text", value: event.target.value })}
           placeholder="Describe what should change…"
         />
-        <button
+        <Button variant="ghost" size="sm"
           type="button"
           disabled={chrome.busy || locked || feedback.trim().length === 0}
           onClick={() => onEvent({ kind: "submit_feedback" })}
         >
           Send feedback
-        </button>
+        </Button>
       </div>
     </section>
   );
@@ -787,23 +774,23 @@ export function ActionInteractionView({
         </p>
       )}
       <div className="action-input-preview">
-        <label>Tool input</label>
+        <Label>Tool input</Label>
         <pre className="action-input-full">{formatToolInput(detail.input)}</pre>
       </div>
       {!recovery && (
         <section className="action-parameter-editor" aria-label="Edit tool parameters">
           {!editing ? (
-            <button
+            <Button variant="ghost" size="sm"
               type="button"
               disabled={chrome.busy || locked}
               onClick={() => onEvent({ kind: "edit_toggle", editing: true })}
             >
               Edit parameters
-            </button>
+            </Button>
           ) : (
             <>
-              <label htmlFor={`${baseId}-edited-input`}>Edited tool parameters (JSON)</label>
-              <textarea
+              <Label htmlFor={`${baseId}-edited-input`}>Edited tool parameters (JSON)</Label>
+              <Textarea
                 id={`${baseId}-edited-input`}
                 name="edited-tool-input"
                 className="edited-tool-input"
@@ -813,20 +800,20 @@ export function ActionInteractionView({
                 spellCheck={false}
               />
               <div className="action-parameter-editor-actions">
-                <button
+                <Button variant="ghost" size="sm"
                   type="button"
                   disabled={chrome.busy || locked || reviewing}
                   onClick={() => onEvent({ kind: "preview" })}
                 >
                   {reviewing ? "Reviewing…" : "Preview changes"}
-                </button>
-                <button
+                </Button>
+                <Button variant="ghost" size="sm"
                   type="button"
                   disabled={chrome.busy || locked}
                   onClick={() => onEvent({ kind: "edit_toggle", editing: false })}
                 >
                   Cancel editing
-                </button>
+                </Button>
               </div>
             </>
           )}
@@ -854,14 +841,14 @@ export function ActionInteractionView({
           {review.requiresSandboxApproval && (
             <p>This scope needs sandbox permission and must be approved explicitly.</p>
           )}
-          <details open>
-            <summary>Original parameters</summary>
+          <Collapsible defaultOpen>
+            <CollapsibleTrigger>Original parameters</CollapsibleTrigger><CollapsibleContent>
             <pre className="action-input-full">{formatToolInput(review.originalInput)}</pre>
-          </details>
-          <details open>
-            <summary>Final parameters</summary>
+          </CollapsibleContent></Collapsible>
+          <Collapsible defaultOpen>
+            <CollapsibleTrigger>Final parameters</CollapsibleTrigger><CollapsibleContent>
             <pre className="action-input-full">{formatToolInput(review.finalInput)}</pre>
-          </details>
+          </CollapsibleContent></Collapsible>
         </section>
       )}
       {pathAuthorization && (
@@ -884,45 +871,25 @@ export function ActionInteractionView({
         </section>
       )}
       {!recovery && (
-        <fieldset className="approval-scopes" disabled={chrome.busy || locked}>
+        <RadioGroup asChild value={scope} onValueChange={value => onEvent({ kind: "scope", scope: value as "action" | "goal" | "workspace" })} disabled={chrome.busy || locked}><fieldset className="approval-scopes" disabled={chrome.busy || locked}>
           <legend>Allow this action</legend>
-          <label htmlFor={`${baseId}-scope-action`}>
-            <input
-              id={`${baseId}-scope-action`}
-              type="radio"
-              name={`scope-${detail.actionId}`}
-              checked={scope === "action"}
-              onChange={() => onEvent({ kind: "scope", scope: "action" })}
-            />
+          <Label htmlFor={`${baseId}-scope-action`}>
+            <RadioGroupItem id={`${baseId}-scope-action`} value="action" />
             <span><strong>Once</strong><small>Approve this action only.</small></span>
-          </label>
-          <label className={persistentDisabled ? "is-disabled" : ""} htmlFor={`${baseId}-scope-goal`}>
-            <input
-              id={`${baseId}-scope-goal`}
-              type="radio"
-              name={`scope-${detail.actionId}`}
-              checked={scope === "goal"}
-              disabled={persistentDisabled}
-              onChange={() => onEvent({ kind: "scope", scope: "goal" })}
-            />
+          </Label>
+          <Label className={persistentDisabled ? "is-disabled" : ""} htmlFor={`${baseId}-scope-goal`}>
+            <RadioGroupItem id={`${baseId}-scope-goal`} value="goal" disabled={persistentDisabled} />
             <span><strong>This Goal</strong><small>Allow matching actions in this session.</small></span>
-          </label>
-          <label className={persistentDisabled ? "is-disabled" : ""} htmlFor={`${baseId}-scope-workspace`}>
-            <input
-              id={`${baseId}-scope-workspace`}
-              type="radio"
-              name={`scope-${detail.actionId}`}
-              checked={scope === "workspace"}
-              disabled={persistentDisabled}
-              onChange={() => onEvent({ kind: "scope", scope: "workspace" })}
-            />
+          </Label>
+          <Label className={persistentDisabled ? "is-disabled" : ""} htmlFor={`${baseId}-scope-workspace`}>
+            <RadioGroupItem id={`${baseId}-scope-workspace`} value="workspace" disabled={persistentDisabled} />
             <span><strong>This project</strong><small>Allow matching actions in future Goals.</small></span>
-          </label>
-        </fieldset>
+          </Label>
+        </fieldset></RadioGroup>
       )}
       <SubmissionStatus submission={submission} onEvent={onEvent} />
       <div className="action-approval-actions">
-        <button
+        <Button variant="ghost" size="sm"
           type="button"
           className="approval-primary"
           disabled={chrome.busy || locked}
@@ -933,9 +900,9 @@ export function ActionInteractionView({
             : scope === "goal" ? "Approve for this Goal"
               : scope === "workspace" ? "Approve for this project"
                 : "Approve once"}
-        </button>
+        </Button>
         {!recovery && review !== undefined && (
-          <button
+          <Button variant="ghost" size="sm"
             type="button"
             className="approval-primary"
             disabled={chrome.busy || locked}
@@ -945,13 +912,13 @@ export function ActionInteractionView({
             {scope === "goal" ? "Approve revision for this Goal"
               : scope === "workspace" ? "Approve revision for this project"
                 : "Approve revision once"}
-          </button>
+          </Button>
         )}
-        <details className="action-rejection">
-          <summary>Reject action</summary>
+        <Collapsible className="action-rejection" defaultOpen={recovery}>
+          <CollapsibleTrigger>Reject action</CollapsibleTrigger><CollapsibleContent>
           <div className="feedback-form">
-            <label htmlFor={reasonId}>Reason for rejecting</label>
-            <textarea
+            <Label htmlFor={reasonId}>Reason for rejecting</Label>
+            <Textarea
               id={reasonId}
               name="action-reason"
               value={rejection}
@@ -959,15 +926,15 @@ export function ActionInteractionView({
               onChange={(event) => onEvent({ kind: "reject_text", value: event.target.value })}
               placeholder="Explain why this action should not run…"
             />
-            <button
+            <Button variant="ghost" size="sm"
               type="button"
               disabled={chrome.busy || locked || rejection.trim().length === 0}
               onClick={() => onEvent({ kind: "submit_reject" })}
             >
               {recovery ? "Do not run again" : "Reject action"}
-            </button>
+            </Button>
           </div>
-        </details>
+        </CollapsibleContent></Collapsible>
       </div>
     </section>
   );
@@ -1431,9 +1398,9 @@ function InteractionDetailFailure({
         <strong>The request could not be loaded</strong>
       </div>
       <p>{message}</p>
-      <button type="button" onClick={onRetry}>
+      <Button variant="ghost" size="sm" type="button" onClick={onRetry}>
         <Loader size={13} aria-hidden="true" /> Retry loading
-      </button>
+      </Button>
       <StopRunButton stopping={stopping} onStop={onStop} />
     </section>
   );

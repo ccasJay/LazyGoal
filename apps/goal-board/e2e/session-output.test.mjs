@@ -117,7 +117,7 @@ test("real service and browser share one session output protocol", { timeout: 18
       const node = document.querySelector('.candidate-message');
       const feed = node?.closest('.session-timeline-feed');
       if (node === null || feed === null) return undefined;
-      const items = [...feed.children];
+      const items = [...node.parentElement.children];
       window.__candidateNode = node;
       window.__candidateKey = node.dataset.presentationKey;
       window.__candidatePrefix = items.slice(0, items.indexOf(node));
@@ -161,6 +161,7 @@ test("real service and browser share one session output protocol", { timeout: 18
     assert.equal(actionGroupKeys.length, 1, "the controlled action contributes exactly one activity group");
     const expectedItemIds = committedActivity.items
       .filter(item => !(item.type === "fact" && item.tool !== undefined))
+      .filter(item => item.type !== "fact" || !["run_created", "run_started", "run_completed", "run_failed", "run_cancelled", "decision_received", "run_stage_accepted"].includes(item.eventType))
       .map(item => item.itemId);
     await cdp(socket, "Runtime.evaluate", {
       expression: `window.__expectedActivityIds = ${JSON.stringify(expectedItemIds)}`,
@@ -172,14 +173,11 @@ test("real service and browser share one session output protocol", { timeout: 18
         .filter(node => node.dataset.presentationKey === window.__candidateKey);
       const node = matches[0];
       const feed = node?.closest('.session-timeline-feed');
-      const items = feed === null ? [] : [...feed.children];
+      const items = node === undefined ? [] : [...node.parentElement.children];
       const nodeIndex = feed === null ? -1 : items.indexOf(node);
       const prefixStable = window.__candidatePrefix.every((prefixNode, index) => items[index] === prefixNode);
       const terminal = feed?.querySelector('.timeline-terminal');
       const terminalAfter = terminal !== null && terminal !== undefined && nodeIndex < items.indexOf(terminal);
-      const domItemIds = items.map(item => item.dataset.itemId).filter(Boolean);
-      const domActivityIds = domItemIds.filter(itemId => window.__expectedActivityIds.includes(itemId));
-      const domGroupIds = domItemIds.filter(itemId => itemId.startsWith("activity:"));
       return {
         count: matches.length,
         sameNode: node === window.__candidateNode,
@@ -188,8 +186,6 @@ test("real service and browser share one session output protocol", { timeout: 18
         itemId: node?.dataset.itemId,
         prefixStable,
         terminalAfter,
-        domActivityIds,
-        domGroupIds,
       };
     })()`);
     assert.equal(promotedNode.count, 1);
@@ -200,8 +196,16 @@ test("real service and browser share one session output protocol", { timeout: 18
     assert.equal(promotedNode.itemId, `message:${answer.messageId}`);
     assert.equal(promotedNode.prefixStable, true);
     assert.equal(promotedNode.terminalAfter, true);
-    assert.deepEqual(promotedNode.domActivityIds, expectedItemIds, "the DOM keeps the server Activity order for messages and facts");
-    assert.equal(promotedNode.domGroupIds.length, 1, "the same Action collapses into one activity group entry");
+    await value(socket, "document.querySelectorAll('.timeline-stage-heading[aria-expanded=false]').forEach(button => button.click())");
+    const expandedActivity = await value(socket, `(() => {
+      const ids = [...new Set([...document.querySelectorAll('.session-timeline-feed [data-item-id]')].map(node => node.dataset.itemId))];
+      return {
+        items: ids.filter(id => window.__expectedActivityIds.includes(id)),
+        groups: ids.filter(id => id.startsWith('activity:')),
+      };
+    })()`);
+    assert.deepEqual(expandedActivity.items, expectedItemIds, "the expanded DOM keeps the server Activity order for messages and facts");
+    assert.equal(expandedActivity.groups.length, 1, "the same Action collapses into one activity group entry");
 
     const persistedMessages = await api(first.origin, `/api/goals/${goalId}/messages?limit=50`, { token: first.token });
     assert.equal(persistedMessages.response.status, 200);

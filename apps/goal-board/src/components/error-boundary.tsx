@@ -1,3 +1,4 @@
+import { Button } from "./ui/button";
 import { Component } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { CircleHelp } from "lucide-react";
@@ -51,7 +52,7 @@ export class SessionBoundary extends Component<SessionBoundaryProps, SessionBoun
         <div className="session-empty" role="alert" aria-label={label}>
           <CircleHelp size={24} />
           <p>The view hit an unexpected rendering error. The underlying Goal data is still saved.</p>
-          <button className="secondary" onClick={onReload}>Reload session</button>
+          <Button variant="ghost" size="sm" className="secondary" onClick={onReload}>Reload session</Button>
         </div>
       );
     }

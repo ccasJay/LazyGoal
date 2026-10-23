@@ -72,6 +72,7 @@ project-memory/  Durable summaries of completed and verified feature specificati
 * Do not silently expand the requested scope. If adjacent work is required for correctness, keep it minimal and explain why it is necessary.
 * Do not skip, shorten, weaken, or bypass tests merely to finish a task faster.
 * Prefer the smallest implementation that satisfies the current requirement and preserves existing architectural boundaries.
+* When designing or implementing UI, first inspect and prioritize components available in the project's existing component libraries and reusable UI components. Create custom components only when those cannot meet the requirement.
 * Do not introduce abstractions, compatibility layers, fallback paths, or configuration options without a demonstrated current requirement.
 * All user-facing output must be in English, except for GitHub pull request titles and descriptions, commit messages, and Chinese TSDoc explicitly required by this document.
 * Write GitHub pull request titles and descriptions in Chinese by default unless the user explicitly requests another language. Keep code identifiers, commands, and paths unchanged.

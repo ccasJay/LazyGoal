@@ -14,9 +14,13 @@ export type ActivityGroupCategory = "explore" | "execute" | "edit" | "think" | "
  *
  * @remarks
  * `pending-result` 表示工具已返回但结果尚未提交为已保存 Observation；它不能被当作
- * 已保存成功。`retrying` 只来自实时重试事实，不改变已提交终态。
+ * 已保存成功。`retrying` 只来自实时重试事实，不改变已提交终态；`waiting` 仅表示
+ * 已提交动作仍在等待审批，不是正在执行工具。
  */
-export type ActivityMemberStatus = "running" | "retrying" | "pending-result" | "completed" | "failed" | "rejected";
+export type ActivityMemberStatus = "running" | "retrying" | "waiting" | "pending-result" | "completed" | "failed" | "rejected";
+
+/** 活动组的结算状态；部分失败只用于展示，不改变任何成员的真实结果。 */
+export type ActivityGroupStatus = ActivityMemberStatus | "partial-failure";
 
 /**
  * 活动组中的一个真实工具调用。
@@ -43,6 +47,8 @@ export interface ActivityGroupMember {
   readonly stageId?: string;
   /** 经工具白名单归类的活动类别。 */
   readonly category: ActivityGroupCategory;
+  /** 真实工具身份；显式 Think 不提供。用于压缩相邻的同类操作，不代表工作阶段。 */
+  readonly toolId?: string;
   /** 简短操作描述，不含原始工具输入或隐藏推理。 */
   readonly label: string;
   /** 当前调用状态。 */
@@ -80,13 +86,14 @@ export interface ActivityGroupMember {
  *
  * @remarks
  * 组 ID 由首个成员身份导出，不持久化，也不参与 Runtime 调度、授权或评测。组只合并
- * 同 Run、同阶段、同白名单类别且在完整交错时间线上相邻的成员。
+ * 同 Run、同阶段、同白名单工具且在完整交错时间线上相邻的成员；不据此推断工作阶段。
  *
  * @example
  * ```ts
  * const group: ActivityGroup = {
  *   id: "action:run-1:a1", runId: "run-1", category: "explore",
- *   status: "running", summary: "Explored 2 items", members: [], position,
+ *   status: "running", summary: "Read src/index.ts · +1 more", members: [], position,
+ *   counts: { running: 0, retrying: 0, waiting: 0, "pending-result": 0, completed: 0, failed: 0, rejected: 0 },
  * };
  * ```
  */
@@ -100,9 +107,11 @@ export interface ActivityGroup {
   /** 组内成员的统一展示类别。 */
   readonly category: ActivityGroupCategory;
   /** 组级状态，由成员最终状态派生。 */
-  readonly status: ActivityMemberStatus;
-  /** 由成员数量和类别生成的界面摘要。 */
+  readonly status: ActivityGroupStatus;
+  /** 动作描述，不将调用次数作为标题，也不推断不存在的工作阶段。 */
   readonly summary: string;
+  /** 各成员真实状态的计数；调用次数不代表不同文件或对象数量。 */
+  readonly counts: Readonly<Record<ActivityMemberStatus, number>>;
   /** 依来源顺序排列的调用成员。 */
   readonly members: readonly ActivityGroupMember[];
   /** 组在 Activity 时间线中的首个成员位置；实时活动组没有已提交位置。 */
@@ -116,6 +125,7 @@ interface MutableMember {
   runId: string;
   stageId?: string;
   category: ActivityGroupCategory;
+  toolId?: string;
   label: string;
   status: ActivityMemberStatus;
   isCommitted: boolean;
@@ -196,6 +206,7 @@ export function projectActivityGroups(input: {
     }
     const tool = item.tool;
     if (tool === undefined) {
+      if (item.eventType === "decision_received" && item.actionId !== undefined) continue;
       adjacencyBroken = true;
       previous = undefined;
       continue;
@@ -237,6 +248,7 @@ export function projectActivityGroups(input: {
     }
     if (isTerminal(saved.status)) continue;
     saved.status = liveMember.status;
+    saved.label = labelForTool(saved.toolId, saved.inputSummary, saved.status);
     saved.summary = liveMember.summary ?? saved.summary;
     saved.attempts = uniqueAttempts([...saved.attempts, ...liveMember.attempts]);
     saved.hasLiveUpdate = true;
@@ -245,21 +257,25 @@ export function projectActivityGroups(input: {
   return groupAdjacent(members);
 }
 
-/** 生成用于摘要行的类别数量文案。 */
+/** 生成能在折叠状态识别实际调用的摘要行。 */
 export function summarizeActivityGroup(category: ActivityGroupCategory, members: readonly ActivityGroupMember[]): string {
   if (category === "think") return `Thinking · ${members[0]?.think?.goal ?? "Analysis"}`;
   if (category === "single") return members[0]?.label ?? "Activity";
-  const count = members.length;
-  if (category === "explore") return `Explored ${count} ${count === 1 ? "item" : "items"}`;
-  if (category === "execute") {
-    if (count === 0) return "Ran 0 commands";
-    if (count === 1) return members[0]?.label ?? "Ran a command";
-    const previews = members.slice(0, 2)
-      .map((member) => member.label.replace(/^(?:Ran|Run)\s+/u, ""));
-    const remaining = count - previews.length;
-    return `Ran ${count} commands · ${previews.join(" · ")}${remaining > 0 ? ` · +${remaining} more` : ""}`;
+  const first = members[0];
+  const repeated = first?.toolId !== undefined && members.length > 1
+    && members.every((member) => member.toolId === first.toolId);
+  if (repeated) {
+    const operations: Record<string, string> = {
+      read_file: "Read files", list_directory: "Inspect directories", grep: "Search code references",
+      web_search: "Search the web", web_fetch: "Read web pages", write_file: "Write files",
+      edit_file: "Edit files", bash: "Run commands", execute_program: "Run programs",
+    };
+    return operations[first.toolId!] ?? "Run tools";
   }
-  return `Edited ${count} ${count === 1 ? "file" : "files"}`;
+  const labels = members.slice(0, 2).map((member) => member.label);
+  if (labels.length === 0) return "No tool calls";
+  const remaining = members.length - labels.length;
+  return `${labels.join(" · ")}${remaining > 0 ? ` · +${remaining} more` : ""}`;
 }
 
 function createMember(
@@ -268,11 +284,12 @@ function createMember(
   item: Extract<BrowserActivityItem, { readonly type: "fact" }>,
   tool: BrowserActivityToolState,
 ): MutableMember {
-  const status = committedMemberStatus(tool.status);
+  const status = committedMemberStatus(tool);
   const member: MutableMember = {
     id: `action:${runId}:${key}`,
     runId,
     category: categorizeTool(tool.toolId),
+    toolId: tool.toolId,
     label: labelForTool(tool.toolId, tool.inputSummary, status),
     status,
     isCommitted: true,
@@ -295,10 +312,13 @@ function applyToolState(member: MutableMember, tool: BrowserActivityToolState): 
   if (tool.recoveryRef !== undefined) member.recoveryRef = tool.recoveryRef;
   if (tool.parentActionId !== undefined) member.parentActionId = tool.parentActionId;
   if (tool.attempts !== undefined) member.attempts = uniqueAttempts([...member.attempts, ...tool.attempts]);
-  if (!isTerminal(member.status)) member.status = committedMemberStatus(tool.status);
+  if (!isTerminal(member.status)) member.status = committedMemberStatus(tool);
+  member.label = labelForTool(member.toolId, member.inputSummary, member.status);
 }
 
-function committedMemberStatus(status: BrowserActivityToolState["status"]): ActivityMemberStatus {
+function committedMemberStatus(tool: BrowserActivityToolState): ActivityMemberStatus {
+  const status = tool.status;
+  if (status === "recorded" && tool.actionStatus === "awaiting_approval") return "waiting";
   if (status === "pending-result") return "pending-result";
   if (status === "recorded") return "running";
   return status;
@@ -343,6 +363,7 @@ function projectLiveMembers(
         id,
         runId,
         category: categorizeTool(activity.toolId),
+        toolId: activity.toolId,
         label: labelForTool(activity.toolId, activity.inputSummary, "running"),
         status: "running",
         isCommitted: false,
@@ -393,6 +414,7 @@ function groupAdjacent(members: readonly MutableMember[]): ActivityGroup[] {
       category: first.category,
       status: groupStatus(projectedMembers),
       summary: summarizeActivityGroup(first.category, projectedMembers),
+      counts: countActivityMembers(projectedMembers),
       members: projectedMembers,
       ...(live ? { live: true as const } : { position: first.position }),
     });
@@ -407,8 +429,8 @@ function groupAdjacent(members: readonly MutableMember[]): ActivityGroup[] {
       && previous.category !== "single"
       && member.category !== "single"
       && previous.category === member.category
+      && previous.toolId === member.toolId
       && previous.stageId === member.stageId
-      && previous.status !== "failed"
       && previous.status !== "rejected";
     if (!sameGroup) flush();
     current.push(member);
@@ -417,12 +439,21 @@ function groupAdjacent(members: readonly MutableMember[]): ActivityGroup[] {
   return groups;
 }
 
-function groupStatus(members: readonly ActivityGroupMember[]): ActivityMemberStatus {
+function groupStatus(members: readonly ActivityGroupMember[]): ActivityGroupStatus {
+  if (members.some((member) => member.status === "waiting")) return "waiting";
   if (members.some((member) => member.status === "running" || member.status === "retrying")) return "running";
   if (members.some((member) => member.status === "pending-result")) return "pending-result";
+  if (members.some((member) => member.status === "failed" || member.status === "rejected")
+    && members.some((member) => member.status === "completed")) return "partial-failure";
   if (members.some((member) => member.status === "failed")) return "failed";
   if (members.some((member) => member.status === "rejected")) return "rejected";
   return "completed";
+}
+
+function countActivityMembers(members: readonly ActivityGroupMember[]): Readonly<Record<ActivityMemberStatus, number>> {
+  const counts: Record<ActivityMemberStatus, number> = { running: 0, retrying: 0, waiting: 0, "pending-result": 0, completed: 0, failed: 0, rejected: 0 };
+  for (const member of members) counts[member.status] += 1;
+  return counts;
 }
 
 function toPublicMember(member: MutableMember): ActivityGroupMember {
@@ -431,6 +462,7 @@ function toPublicMember(member: MutableMember): ActivityGroupMember {
     runId: member.runId,
     ...(member.stageId === undefined ? {} : { stageId: member.stageId }),
     category: member.category,
+    ...(member.toolId === undefined ? {} : { toolId: member.toolId }),
     label: member.label,
     status: member.status,
     isCommitted: member.isCommitted,

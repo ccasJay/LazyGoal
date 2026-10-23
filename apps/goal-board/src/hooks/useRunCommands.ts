@@ -207,7 +207,10 @@ export function useRunCommands({
   );
 
   const submitSteer = useCallback(
-    async (content: string): Promise<boolean> => {
+    async (
+      content: string,
+      queueBinding?: { readonly messageId: string; readonly queueRevision: number },
+    ): Promise<boolean> => {
       if (!session || session.runStatus !== "running" || !content.trim() || commandBusy) return false;
       setCommandBusy(true);
       setCommandError(null);
@@ -217,6 +220,7 @@ export function useRunCommands({
         runId: session.currentRunId,
         kind: "steer",
         content: content.trim(),
+        ...(queueBinding === undefined ? {} : { queueBinding }),
       };
       try {
         const accepted = await browserApi.submitInput(submission.goalId, {
@@ -224,6 +228,7 @@ export function useRunCommands({
           inputId: submission.inputId,
           runId: submission.runId,
           content: submission.content,
+          ...(submission.queueBinding === undefined ? {} : { queueBinding: submission.queueBinding }),
         });
         const outcome = classifySubmissionAttempt(accepted);
         if (outcome.kind === "rejected") {
@@ -300,6 +305,7 @@ export function useRunCommands({
             inputId: target.inputId,
             runId: target.runId,
             content: target.content,
+            ...(target.queueBinding === undefined ? {} : { queueBinding: target.queueBinding }),
           })
           : await browserApi.submitInput(target.goalId, {
             kind: "message",

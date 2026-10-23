@@ -22,6 +22,7 @@ function toolFact(options: {
   readonly sequence: number;
   readonly toolId: string;
   readonly status?: BrowserActivityToolState["status"];
+  readonly actionStatus?: BrowserActivityToolState["actionStatus"];
   readonly stageId?: string;
   readonly inputSummary?: string;
   readonly summary?: string;
@@ -50,6 +51,7 @@ function toolFact(options: {
     tool: {
       toolId: options.toolId,
       status: options.status ?? "completed",
+      ...(options.actionStatus === undefined ? {} : { actionStatus: options.actionStatus }),
       ...(options.inputSummary === undefined ? {} : { inputSummary: options.inputSummary }),
       ...(options.summary === undefined ? {} : { summary: options.summary }),
       ...(options.attempts === undefined ? {} : { attempts: options.attempts }),
@@ -152,7 +154,7 @@ test("Think 成员保留 Trajectory 详情定位引用，不暴露未获准内�
   assert.equal(JSON.stringify(groups).includes("PRIVATE_"), false);
 });
 
-test("committed actions merge only when category, stage and verified adjacency match", () => {
+test("committed actions merge only when tool, stage and verified adjacency match", () => {
   const groups = project([
     toolFact({ actionId: "a1", sequence: 1, toolId: "read_file", inputSummary: "a.ts" }),
     toolFact({ actionId: "a2", sequence: 4, toolId: "grep", inputSummary: "needle" }),
@@ -164,10 +166,42 @@ test("committed actions merge only when category, stage and verified adjacency m
   ]);
 
   assert.deepEqual(groups.map((group) => [group.category, group.members.map((member) => member.actionId)]), [
-    ["explore", ["a1", "a2"]], ["execute", ["a3"]], ["explore", ["a4"]],
+    ["explore", ["a1"]], ["explore", ["a2"]], ["execute", ["a3"]], ["explore", ["a4"]],
     ["explore", ["a5"]], ["single", ["a6"]], ["single", ["a7"]],
   ]);
-  assert.equal(groups[1]?.members[0]?.label, "Ran npm test");
+  assert.equal(groups[0]?.summary, "Read a.ts");
+  assert.equal(groups[1]?.summary, "Searched for needle");
+  assert.equal(groups[2]?.members[0]?.label, "Ran npm test");
+});
+
+test("repeated reads count actual calls rather than claiming distinct files", () => {
+  const groups = project([
+    toolFact({ actionId: "a1", sequence: 1, toolId: "read_file", inputSummary: "same.ts" }),
+    toolFact({ actionId: "a2", sequence: 2, toolId: "read_file", inputSummary: "same.ts" }),
+    toolFact({ actionId: "a3", sequence: 3, toolId: "edit_file", inputSummary: "same.ts" }),
+    toolFact({ actionId: "a4", sequence: 4, toolId: "read_file", inputSummary: "same.ts" }),
+  ]);
+  assert.deepEqual(groups.map((group) => group.summary), ["Read files", "Edited same.ts", "Read same.ts"]);
+  assert.deepEqual(groups[0]?.members.map((member) => member.actionId), ["a1", "a2"]);
+});
+
+test("approval waits are visible even alongside a running call", () => {
+  const groups = project([
+    toolFact({ actionId: "a1", sequence: 1, toolId: "bash", status: "recorded", actionStatus: "approved" }),
+    toolFact({ actionId: "a2", sequence: 2, toolId: "bash", status: "recorded", actionStatus: "awaiting_approval" }),
+  ]);
+  assert.equal(groups[0]?.status, "waiting");
+  assert.deepEqual(groups[0]?.members.map((member) => member.status), ["running", "waiting"]);
+});
+
+test("a running call stays visible alongside a failed member", () => {
+  const groups = project([
+    toolFact({ actionId: "a1", sequence: 1, toolId: "bash", status: "recorded" }),
+    toolFact({ actionId: "a2", sequence: 2, toolId: "bash", status: "failed", summary: "Tests failed" }),
+  ]);
+  assert.equal(groups[0]?.status, "running");
+  assert.equal(groups[0]?.counts.failed, 1);
+  assert.equal(groups[0]?.members[1]?.summary, "Tests failed");
 });
 
 test("committed same-category actions still break at a verified Activity boundary", () => {
@@ -276,13 +310,13 @@ test("missing source identity keeps an otherwise similar durable action as a sep
   assert.deepEqual(groups.map((group) => group.members.map((member) => member.actionId)), [["a1"], [undefined], ["a3"]]);
 });
 
-test("terminal tool failure ends the current group before a later action", () => {
+test("consecutive calls stay grouped after failure and report partial failure", () => {
   const groups = project([
     toolFact({ actionId: "a1", sequence: 1, toolId: "read_file", status: "completed" }),
     toolFact({ actionId: "a2", sequence: 2, toolId: "read_file", status: "failed" }),
     toolFact({ actionId: "a3", sequence: 3, toolId: "read_file", status: "completed" }),
   ]);
-  assert.deepEqual(groups.map((group) => [group.status, group.members.length]), [["failed", 2], ["completed", 1]]);
+  assert.deepEqual(groups.map((group) => [group.status, group.members.length]), [["partial-failure", 3]]);
 });
 
 test("assistant, waiting, stage, terminal and failure events all separate live groups", () => {

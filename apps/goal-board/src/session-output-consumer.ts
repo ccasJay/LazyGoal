@@ -9,8 +9,8 @@ export function candidatePresentationKey(goalId: string, runId: string, candidat
  * 一个公开完成候选在浏览器中的临时展示状态。
  *
  * @remarks
- * 候选正文只来自 Browser 安全投影，不代表已保存消息。确定作废后状态变为
- * not-adopted 并进入有界旧稿缓存；保存结果不明时保持 pending-verification。
+ * 候选正文只来自 Browser 安全投影，不代表已保存消息。确定作废后立即从临时显示中移除；
+ * 保存结果不明时保持 pending-verification。
  *
  * @example
  * const candidate: CandidatePresentation = {
@@ -40,9 +40,7 @@ export interface CandidatePresentation {
   /** 已观察正文存在缺失前缀或不能与前一段安全拼接。 */
   readonly missingPrefix: boolean;
   /** 当前候选生命周期。 */
-  readonly status: "generating" | "ready" | "pending-verification" | "not-adopted";
-  /** 确定作废或结果不明的 Runtime 原因。 */
-  readonly reason?: "rejected" | "cancelled" | "failed" | "replaced" | "ambiguous";
+  readonly status: "generating" | "ready" | "pending-verification";
   /** 最后一次预览／作废来源游标。 */
   readonly sourceCursor: number;
 }
@@ -51,8 +49,8 @@ export interface CandidatePresentation {
  * 按来源归约后的 Goal Board 会话输出状态。
  *
  * @remarks
- * 正式 Activity 页继续拥有已保存消息正文；该状态只保存流中的临时候选、最多八份作废旧稿和
- * 有界身份标记。会话目标或流连接重建时清空，等待下一轮公开来源。
+ * 正式 Activity 页继续拥有已保存消息正文；该状态只保存流中的临时候选与有界身份标记。
+ * 明确作废的候选立即丢弃，身份标记用于忽略迟到片段。会话目标或流连接重建时清空，等待下一轮公开来源。
  *
  * @example
  * const display = EMPTY_SESSION_OUTPUT_DISPLAY;
@@ -66,46 +64,36 @@ export interface SessionOutputDisplay {
   readonly unconfirmed: boolean;
   /** 当前未保存或等待保存核验的候选。 */
   readonly candidates: readonly CandidatePresentation[];
-  /** 明确作废、可折叠查看的临时旧稿，正文最多保留八份。 */
-  readonly discardedDrafts: readonly CandidatePresentation[];
-  /** 当前唯一展开的旧稿展示身份。 */
-  readonly expandedCandidateKey?: string;
   /** 最近处理的候选来源游标。 */
   readonly latestCandidateCursor: number;
-  /** 已释放或淘汰的候选身份；只保留有界去重标记，不保留正文。 */
+  /** 已作废候选身份；只保留有界去重标记，不保留正文。 */
   readonly retiredCandidateKeys: readonly string[];
   /** 已由正式 Activity 确认的候选及其可比较状态。 */
   readonly settledCandidates: readonly {
     readonly presentationKey: string;
     readonly issue?: "official-text-differs" | "preview-incomplete";
   }[];
-  /** 已释放或因容量淘汰、不可恢复的旧稿数。 */
-  readonly unavailableDraftCount: number;
 }
 
-/** 旧稿正文上限。展开中的一份不会因新旧稿进入而被淘汰。 */
-export const MAX_DISCARDED_CANDIDATE_DRAFTS = 8;
 const MAX_RETIRED_CANDIDATE_KEYS = 128;
 const MAX_SETTLED_CANDIDATES = 128;
 
-/** 没有活动、候选或作废旧稿时的会话输出状态。 */
+/** 没有活动或候选时的会话输出状态。 */
 export const EMPTY_SESSION_OUTPUT_DISPLAY: SessionOutputDisplay = {
   liveText: "",
   liveActivity: "",
   unconfirmed: false,
   candidates: [],
-  discardedDrafts: [],
   latestCandidateCursor: 0,
   retiredCandidateKeys: [],
   settledCandidates: [],
-  unavailableDraftCount: 0,
 };
 
 /**
  * 把一条会话输出事件归约为页面临时展示状态。
  *
  * @remarks
- * 预览按 Goal／Run／候选身份隔离；确定作废保留只读旧稿，ambiguous 与正式消息通知只进入保存核验态。
+ * 预览按 Goal／Run／候选身份隔离；确定作废立即移除候选并保留有限身份标记，ambiguous 与正式消息通知只进入保存核验态。
  * 只有正式 Activity 页出现相同 previewId 才结算候选正文；普通 process 消息不会替换候选。
  *
  * @param current - 当前展示状态。
@@ -185,7 +173,7 @@ export function applySessionOutputEvent(
     const latestCandidateCursor = activity.sourceCursor;
     if (activity.reason === "ambiguous") {
       const candidates = current.candidates.map((item) => item.presentationKey === key
-        ? { ...item, status: "pending-verification" as const, reason: "ambiguous" as const, sourceCursor: activity.sourceCursor }
+        ? { ...item, status: "pending-verification" as const, sourceCursor: activity.sourceCursor }
         : item);
       return {
         ...current,
@@ -198,22 +186,12 @@ export function applySessionOutputEvent(
 
     const candidates = current.candidates.filter((item) => item.presentationKey !== key);
     const retiredCandidateKeys = boundedPush(current.retiredCandidateKeys, key, MAX_RETIRED_CANDIDATE_KEYS);
-    const discardedDrafts = candidate === undefined
-      ? current.discardedDrafts
-      : appendDiscardedDraft(current, { ...candidate, status: "not-adopted", reason: activity.reason, sourceCursor: activity.sourceCursor });
-    const expandedCandidateKey = discardedDrafts.some((item) => item.presentationKey === current.expandedCandidateKey)
-      ? current.expandedCandidateKey
-      : undefined;
-    const evictedCount = Math.max(0, current.discardedDrafts.length + (candidate === undefined ? 0 : 1) - discardedDrafts.length);
     return {
       ...current,
       candidates,
-      discardedDrafts,
-      ...(expandedCandidateKey === undefined ? { expandedCandidateKey: undefined } : { expandedCandidateKey }),
       retiredCandidateKeys,
       unconfirmed: candidates.length > 0,
       liveActivity: candidate === undefined ? current.liveActivity : "The draft answer was not adopted",
-      unavailableDraftCount: current.unavailableDraftCount + evictedCount,
       latestCandidateCursor,
     };
   }
@@ -271,51 +249,6 @@ export function reconcileCandidatePresentation(
   };
 }
 
-/**
- * 展开或收起一个仍在缓存中的旧稿。
- *
- * @param current - 当前会话输出状态。
- * @param presentationKey - 要展开的候选 key；传 undefined 收起所有旧稿。
- * @returns 更新后的状态；已经释放或淘汰的旧稿不能重新展开。
- * @example
- * const next = setExpandedCandidate(display, draft.presentationKey);
- */
-export function setExpandedCandidate(
-  current: SessionOutputDisplay,
-  presentationKey: string | undefined,
-): SessionOutputDisplay {
-  if (presentationKey !== undefined
-    && !current.discardedDrafts.some((candidate) => candidate.presentationKey === presentationKey)) return current;
-  return { ...current, expandedCandidateKey: presentationKey };
-}
-
-/**
- * 主动释放一份折叠旧稿正文。
- *
- * @remarks
- * 释放后仅保留有界身份标记，迟到候选事件不能恢复正文；界面显示该旧稿不可恢复。
- *
- * @param current - 当前会话输出状态。
- * @param presentationKey - 要释放的旧稿稳定 key。
- * @returns 移除正文并增加不可恢复计数后的状态。
- * @example
- * const next = releaseDiscardedCandidate(display, draft.presentationKey);
- */
-export function releaseDiscardedCandidate(
-  current: SessionOutputDisplay,
-  presentationKey: string,
-): SessionOutputDisplay {
-  const draft = current.discardedDrafts.find((item) => item.presentationKey === presentationKey);
-  if (draft === undefined) return current;
-  return {
-    ...current,
-    discardedDrafts: current.discardedDrafts.filter((item) => item.presentationKey !== presentationKey),
-    ...(current.expandedCandidateKey === presentationKey ? { expandedCandidateKey: undefined } : {}),
-    retiredCandidateKeys: boundedPush(current.retiredCandidateKeys, presentationKey, MAX_RETIRED_CANDIDATE_KEYS),
-    unavailableDraftCount: current.unavailableDraftCount + 1,
-  };
-}
-
 function mergeCandidateContent(
   previous: CandidatePresentation | undefined,
   text: string,
@@ -332,18 +265,6 @@ function mergeCandidateContent(
     startOffset: previous.startOffset,
     missingPrefix: previous.missingPrefix,
   };
-}
-
-function appendDiscardedDraft(
-  current: SessionOutputDisplay,
-  candidate: CandidatePresentation,
-): readonly CandidatePresentation[] {
-  const next = [...current.discardedDrafts.filter((item) => item.presentationKey !== candidate.presentationKey), candidate];
-  if (next.length <= MAX_DISCARDED_CANDIDATE_DRAFTS) return next;
-  const evictionIndex = next.findIndex((item) => item.presentationKey !== current.expandedCandidateKey);
-  if (evictionIndex < 0) return next.slice(-MAX_DISCARDED_CANDIDATE_DRAFTS);
-  next.splice(evictionIndex, 1);
-  return next;
 }
 
 function boundedPush<T>(items: readonly T[], item: T, limit: number): readonly T[] {

@@ -66,31 +66,44 @@ test("streaming session keeps one runtime queue across Steer, Interrupt, tabs an
     // 运行中默认 Queue：Enter 直接排队，只持久化受理，不取消在途调用。
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Queued while running");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('textarea[aria-label=\\\"Message the Goal\\\"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.queued-inputs')?.innerText.includes('Queued while running')", 15_000);
-        session = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages?.length ?? 0) === 1);
+    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Queued while running')", 15_000);
+    session = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages?.length ?? 0) === 1);
     assert.equal(session.currentRunId, firstRunId);
     assert.equal(session.queue.paused, false);
     const queueRevision = session.queue.revision;
 
-    // 显式 Steer 面向当前 Run，出现在待应用列表；Steer 是独立按钮，不再经过弹出菜单。
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Steer this active Run");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\\\"Steer the current Run with this message\\\"]').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.pending-steers')?.innerText.includes('Steer this active Run')", 15_000);
+    // 排队项可在活动状态框中原子转为当前 Run 的 Steer。
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.queued-input-status > button').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\\\"Steer queued message 1 into the current Run\\\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Steer · Waiting for next model call')", 15_000);
     session = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingSteers?.length ?? 0) === 1);
     assert.equal(session.currentRunId, firstRunId);
-    assert.equal(session.pendingSteers[0].content, "Steer this active Run");
+    assert.equal(session.pendingSteers[0].content, "Queued while running");
 
-    // 显式 Interrupt：停止阶段可观察，最终以 cancelled 结算并暂停队列。
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Stop run\"]').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Stopping Run\"]') !== null || document.querySelector('.queue-paused') !== null", 10_000);
+    // 折叠队列支持删除单条消息，删除后队列中的 Steer 仍保留。
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Delete this queued task");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .send.is-running').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Delete this queued task')", 15_000);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\\\"Delete queued message 1\\\"]').click()", returnByValue: true });
+    session = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages?.length ?? 0) === 0);
+    assert.equal(session.pendingSteers?.[0]?.content, "Queued while running");
+
+    // 在 Steer 之后继续排队一条普通消息，确认暂停时该项会保留。
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Queue follow-up task");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .send.is-running').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Queue follow-up task')", 15_000);
+
+    // 空输入时唯一发送按钮暂停当前 Run，并暂停后继队列。
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .send.is-running[aria-label=\"Pause Run\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Pausing Run\"]') !== null || document.querySelector('.queue-paused') !== null", 10_000);
     const paused = await waitForSession(first.origin, first.token, (candidate) => candidate.queue?.paused === true);
     assert.equal(paused.queue.pauseReason, "user_interrupt");
     assert.equal((paused.pendingMessages ?? []).length, 1, "queued message stays pending while paused");
     const cancelled = await waitForSession(first.origin, first.token, (candidate) => candidate.runStatus === "cancelled");
     assert.equal(cancelled.currentRunId, firstRunId);
     // 已受理但未应用的 Steer 保留可核验身份，且不能出现在对话中。
-    assert.deepEqual((cancelled.pendingSteers ?? []).map((item) => item.content), ["Steer this active Run"]);
-    assert.equal(cancelled.messages.some((message) => message.role === "user" && message.content === "Steer this active Run"), false, "a cancelled Run never applies its pending Steer");
+    assert.deepEqual((cancelled.pendingSteers ?? []).map((item) => item.content), ["Queued while running"]);
+    assert.equal(cancelled.messages.some((message) => message.role === "user" && message.content === "Queued while running"), false, "a cancelled Run never applies its pending Steer");
     // 取消结算后不再产生新的模型调用。
     const cancelledCalls = (await readStatus(statusPath)).modelCalls;
     await delay(1_500);
@@ -104,11 +117,11 @@ test("streaming session keeps one runtime queue across Steer, Interrupt, tabs an
     await cdp(socket, "Page.reload");
     await waitForExpression(socket, "document.readyState === 'complete' && document.querySelector('.goal-card') !== null", 15_000);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.goal-card')[0].click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.queued-inputs')?.innerText.includes('Queued while running')", 15_000);
-    assert.equal(await value(socket, "document.querySelector('.queued-inputs').innerText.includes('Legacy local task')"), false, "the legacy local queue is never imported");
-    await waitForExpression(socket, "document.querySelector('.queue-paused') !== null", 15_000);
+    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Queue follow-up task')", 15_000);
+    assert.equal(await value(socket, "document.querySelector('.queued-input-status').innerText.includes('Legacy local task')"), false, "the legacy local queue is never imported");
+    await waitForExpression(socket, "document.querySelector('.queued-input-status .queue-status-dot.is-paused') !== null", 15_000);
     session = await sessionDetail(first.origin, first.token, goalId);
-    assert.deepEqual((session.pendingMessages ?? []).map((item) => item.content), ["Queued while running"], "refresh only restores Runtime-accepted items");
+    assert.deepEqual((session.pendingMessages ?? []).map((item) => item.content), ["Queue follow-up task"], "refresh only restores Runtime-accepted items");
     assert.equal(session.queue.paused, true, "the legacy paused flag is not imported");
     const secondTarget = await (await fetch(`http://127.0.0.1:${devtools.port}/json/new?${encodeURIComponent(first.launchUrl)}`, { method: "PUT" })).json();
     secondSocket = await connectCdp(secondTarget.webSocketDebuggerUrl);
@@ -117,7 +130,7 @@ test("streaming session keeps one runtime queue across Steer, Interrupt, tabs an
     await cdp(secondSocket, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
     await waitForExpression(secondSocket, "document.querySelector('.goal-card') !== null", 20_000);
     await cdp(secondSocket, "Runtime.evaluate", { expression: "document.querySelectorAll('.goal-card')[0].click()", returnByValue: true });
-    await waitForExpression(secondSocket, "document.querySelector('.queued-inputs')?.innerText.includes('Queued while running')", 20_000);
+    await waitForExpression(secondSocket, "document.querySelector('.queued-input-status')?.innerText.includes('Queue follow-up task')", 20_000);
     session = await sessionDetail(first.origin, first.token, goalId);
     assert.equal((session.pendingMessages ?? []).length, 1, "both tabs read the same single accepted item");
 
@@ -155,6 +168,7 @@ test("streaming session keeps one runtime queue across Steer, Interrupt, tabs an
     assert.equal(session.pendingMessages.filter((item) => item.content === "Retry once").length, 1, "identity retry does not duplicate the queued item");
 
     // 显式继续队列：从原队首启动后继 Run，页面刷新后只看到服务端顺序。
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.queued-input-status > button[aria-expanded=false]')?.click()", returnByValue: true });
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.queue-paused button').click()", returnByValue: true });
     session = await waitForSession(first.origin, first.token, (candidate) => candidate.currentRunId !== firstRunId && candidate.queue?.paused === false);
     assert.notEqual(session.currentRunId, firstRunId);
@@ -192,9 +206,113 @@ test("streaming session keeps one runtime queue across Steer, Interrupt, tabs an
     assert.equal(restoredReceipt.response.status, 200);
     assert.equal(restoredReceipt.body.found, true);
     assert.equal(restoredReceipt.body.receipt.status, "cleared", "accepted input identities survive the restart");
+
   } finally {
     socket?.close();
     secondSocket?.close();
+    if (chrome !== undefined) await stopProcess(chrome, "SIGKILL", 5_000);
+    if (service !== undefined) await stopService(service);
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("a recoverable Run reuses the composer to resume and pause", { timeout: 120_000 }, async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "lazygoal-recoverable-composer-"));
+  const workspace = join(temporaryRoot, "workspace");
+  const data = join(temporaryRoot, "data");
+  const home = join(temporaryRoot, "home");
+  const profile = join(temporaryRoot, "chrome-profile");
+  const statusPath = join(temporaryRoot, "status.json");
+  await Promise.all([mkdir(workspace), mkdir(home)]);
+
+  let service;
+  let chrome;
+  let socket;
+  try {
+    service = await startService({ workspace, data, home, statusPath, runOffset: 0, modelOffset: 0 });
+    const first = await service.ready;
+    const created = await api(first.origin, "/api/goals", {
+      token: first.token,
+      method: "POST",
+      headers: { "content-type": "application/json", origin: first.origin },
+      body: JSON.stringify({
+        goalId: "goal-recoverable-stop",
+        inputId: "input-recoverable-stop",
+        intent: "Streaming session flow: hold this Run for recovery-stop verification",
+      }),
+    });
+    assert.equal(created.response.status, 202, JSON.stringify(created.body));
+    const running = await waitForSession(first.origin, first.token, (candidate) => candidate.runStatus === "running");
+    await waitFor(async () => (await readStatus(statusPath)).modelCalls > 0, "the active model call", 15_000);
+
+    // 模型响应仍在等待时重启宿主，创建一个真实的 recoverable Run。
+    await stopService(service);
+    service = await startService({ workspace, data, home, statusPath, runOffset: 20, modelOffset: 20, delayModel: true });
+    const restarted = await service.ready;
+
+    chrome = spawn(findChrome(), [
+      "--headless=new",
+      "--no-sandbox",
+      "--disable-gpu",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--remote-debugging-port=0",
+      `--user-data-dir=${profile}`,
+      "about:blank",
+    ], { stdio: "ignore" });
+    const devtools = await waitForDevtools(profile, chrome);
+    const targets = await (await fetch(`http://127.0.0.1:${devtools.port}/json/list`)).json();
+    const target = targets.find((item) => item.type === "page");
+    assert.ok(target?.webSocketDebuggerUrl, "Chrome exposes a page target");
+    socket = await connectCdp(target.webSocketDebuggerUrl);
+    await cdp(socket, "Page.enable");
+    await cdp(socket, "Runtime.enable");
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+    await navigate(socket, restarted.launchUrl);
+    await waitForExpression(socket, "document.querySelector('.goal-card') !== null", 20_000);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.composer-area .send[aria-label=\"Resume Run\"]:not(:disabled)') !== null", 20_000);
+
+    const recoverable = await sessionDetail(restarted.origin, restarted.token, running.goalId);
+    assert.equal(recoverable.currentRunId, running.currentRunId);
+    assert.equal(recoverable.runStatus, "running");
+    assert.equal(recoverable.execution.state, "recoverable");
+    assert.equal(await value(socket, "document.querySelector('.composer-area textarea[aria-label=\\\"Message the Goal\\\"]') !== null"), true);
+    assert.equal(await value(socket, "document.querySelector('.composer-recover-actions button') === null"), true, "recoverable Run has no separate recovery action row");
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null", 10_000);
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Queue a message while the Run is recoverable");
+    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false", 10_000);
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "document.querySelector('button[aria-label=\\\"Send message\\\"]')?.click()",
+      returnByValue: true,
+    });
+    const queued = await waitForSession(
+      restarted.origin,
+      restarted.token,
+      (candidate) => candidate.pendingMessages?.some((message) => message.content === "Queue a message while the Run is recoverable") === true,
+    );
+    assert.equal(queued.currentRunId, running.currentRunId, "queued input does not replace the recoverable Run");
+
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "document.querySelector('.composer-area .send[aria-label=\\\"Resume Run\\\"]')?.click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('.composer-area .send.is-running[aria-label=\"Pause Run\"]') !== null", 20_000);
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "document.querySelector('.composer-area .send.is-running[aria-label=\\\"Pause Run\\\"]')?.click()",
+      returnByValue: true,
+    });
+
+    const stopped = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.runStatus === "cancelled");
+    assert.equal(stopped.currentRunId, running.currentRunId, "stop cancels the recovered Run in place");
+    assert.equal(stopped.queue.paused, true, "stopping keeps any queued follow-up work paused");
+    assert.equal(
+      stopped.pendingMessages?.some((message) => message.content === "Queue a message while the Run is recoverable"),
+      true,
+      "queued input remains available after stopping the Run",
+    );
+  } finally {
+    socket?.close();
     if (chrome !== undefined) await stopProcess(chrome, "SIGKILL", 5_000);
     if (service !== undefined) await stopService(service);
     await rm(temporaryRoot, { recursive: true, force: true });

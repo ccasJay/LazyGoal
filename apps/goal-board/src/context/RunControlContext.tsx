@@ -3,6 +3,22 @@ import type { ReactNode } from "react";
 import type { QueuedInput } from "../types";
 import type { UnverifiedSubmission } from "../hooks/useRunCommands";
 
+/**
+ * 当前 Goal 的输入与 Run 控制边界。
+ *
+ * @example
+ * ```ts
+ * const controls: RunControlContextValue = {
+ *   commandBusy: false, commandError: null, setCommandError: () => {},
+ *   stoppingRunId: null, canSendText: true, queuedInputs: [], queuePaused: false,
+ *   onContinueQueue: async () => {}, onRemoveQueuedInput: async () => {},
+ *   onSubmitMessage: async () => true, onSubmitDraftMessage: async () => true,
+ *   onSubmitSteer: async () => true, onInterrupt: async () => {}, onSubmitResume: async () => {},
+ *   unverifiedSubmissions: [], onVerifySubmission: async () => {},
+ *   onRetrySubmission: async () => true, onDiscardSubmission: () => {},
+ * };
+ * ```
+ */
 export interface RunControlContextValue {
   readonly commandBusy: boolean;
   readonly commandError: string | null;
@@ -12,10 +28,15 @@ export interface RunControlContextValue {
   readonly queuedInputs: readonly QueuedInput[];
   readonly queuePaused: boolean;
   readonly onContinueQueue: () => Promise<void>;
-  readonly onClearQueue: () => Promise<void>;
+  /** 按当前队列修订删除单条尚未应用的消息。 */
+  readonly onRemoveQueuedInput: (messageId: string) => Promise<void>;
   readonly onSubmitMessage: (content: string) => Promise<boolean>;
   readonly onSubmitDraftMessage: (content: string) => Promise<boolean>;
-  readonly onSubmitSteer: (content: string) => Promise<boolean>;
+  /** 可绑定原排队消息，将其原子转为当前 Run 的 Steer。 */
+  readonly onSubmitSteer: (
+    content: string,
+    queueBinding?: { readonly messageId: string; readonly queueRevision: number },
+  ) => Promise<boolean>;
   readonly onInterrupt: () => Promise<void>;
   readonly onSubmitResume: () => Promise<void>;
   /** 受理结果不明、等待核验或原身份重试的输入。 */

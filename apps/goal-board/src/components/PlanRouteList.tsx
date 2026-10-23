@@ -1,5 +1,6 @@
 import type { BrowserPlanRoute } from "../../../../packages/web-contracts/src/index";
 import { renderPlanRouteStatusLabel } from "./run-stage-utils";
+import { Badge } from "./ui/badge";
 
 /**
  * 完整 Plan Run 路线列表的展示属性。
@@ -40,7 +41,7 @@ export function PlanRouteList({ route }: PlanRouteListProps) {
             <div className="plan-route-stage-content">
               <div className="plan-route-stage-heading">
                 <strong>{stage.target}</strong>
-                <span className={`plan-route-status ${stage.status}`}>{renderPlanRouteStatusLabel(stage.status)}</span>
+                <Badge variant="outline" className={`plan-route-status ${stage.status}`}>{renderPlanRouteStatusLabel(stage.status)}</Badge>
               </div>
               <ul aria-label={`Stage ${index + 1} acceptance criteria`}>
                 {stage.acceptanceCriteria.map((criterion, criterionIndex) => (

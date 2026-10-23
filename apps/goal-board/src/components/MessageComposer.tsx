@@ -1,8 +1,11 @@
+import { Command, CommandList, CommandItem } from "./ui/command";
+import { Button } from "./ui/button";
+import { Textarea } from "./ui/textarea";
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { ArrowUp, ChevronDown, Folder } from "lucide-react";
+import { ArrowUp, ChevronDown, Folder, Pause, Play } from "lucide-react";
 import { slashCommands } from "../types";
-import { resolveComposerKey, steerActionState } from "../session-controls";
+import { resolveComposerKey } from "../session-controls";
 
 export function InboxIcon() {
   return (
@@ -22,7 +25,7 @@ export function CurrentModelControl({
   onClick: () => void;
 }) {
   return (
-    <button
+    <Button variant="ghost" size="sm"
       type="button"
       className="current-model-control"
       disabled={!enabled}
@@ -33,42 +36,52 @@ export function CurrentModelControl({
       <span>Model</span>
       <strong>{label}</strong>
       {enabled && <ChevronDown size={11} />}
-    </button>
+    </Button>
   );
 }
 
+/**
+ * Goal 会话的单一消息输入与 Run 主操作。
+ *
+ * @remarks
+ * 普通工作状态下，空输入触发暂停、带文本输入消息；Run 可恢复时，空输入恢复原 Run，
+ * 带文本仍排入后续 Run；终态下仅发送新消息。
+ */
 export function MessageComposer({
   busy,
   running = false,
+  recoverable = false,
   stopping = false,
   sendDisabled = false,
+  recoveryActionLabel = "Resume Run",
   placeholder,
   textareaLabel = "Message the Goal",
   describedBy,
   footerControls,
   onSubmit,
-  pendingSteers = [],
-  onSteer,
   onInterrupt,
-  steerDisabled = false,
+  onResume,
   autoFocus = false,
   showHint = true,
 }: {
   busy: boolean;
   running?: boolean;
+  /** Run 不在当前 Runtime 进程执行时，空输入主按钮恢复同一 Run。 */
+  recoverable?: boolean;
   stopping?: boolean;
   sendDisabled?: boolean;
+  /** 可恢复 Run 主按钮的动作名称；清理已受理的停止时显示对应文案。 */
+  recoveryActionLabel?: string;
   placeholder: string;
   /** 文本框的可访问名称；等待交互时的队列输入使用明确的排队用途。 */
   textareaLabel?: string;
   /** 文本框的补充说明元素 id；用于关联“不会回答当前请求”等说明。 */
   describedBy?: string;
   onSubmit: (content: string) => Promise<boolean>;
-  pendingSteers?: readonly { readonly messageId: string; readonly content: string }[];
-  onSteer?: (content: string) => Promise<boolean>;
+  /** 运行中且输入框为空时，唯一主按钮将此操作作为暂停当前 Run。 */
   onInterrupt?: () => Promise<void>;
-  /** 状态可能过期时禁止依赖最新状态的 Steer 决定。 */
-  steerDisabled?: boolean;
+  /** 可恢复 Run 且输入框为空时，由唯一主按钮恢复当前 Run。 */
+  onResume?: () => Promise<void>;
   footerControls?: ReactNode;
   autoFocus?: boolean;
   showHint?: boolean;
@@ -77,9 +90,9 @@ export function MessageComposer({
   const [selectedCommand, setSelectedCommand] = useState(0);
   const [commandMenuClosed, setCommandMenuClosed] = useState(false);
   const inspection = slashCommands.inspect(draft);
-  const candidates = !running && inspection.kind === "candidates" && !commandMenuClosed ? inspection.candidates : [];
+  const candidates = !running && !recoverable && inspection.kind === "candidates" && !commandMenuClosed ? inspection.candidates : [];
   const activeCandidate = candidates[Math.min(selectedCommand, candidates.length - 1)];
-  const steer = steerActionState({ busy, stale: steerDisabled, hasDraft: draft.trim().length > 0 });
+  const hasDraft = draft.trim().length > 0;
 
   async function submit(content = draft) {
     if (busy || !content.trim()) return;
@@ -91,51 +104,36 @@ export function MessageComposer({
     }
   }
 
-  async function chooseSteer() {
-    if (!onSteer || !steer.enabled || !draft.trim()) return;
-    const submittedDraft = draft;
-    if (await onSteer(submittedDraft)) {
-      setDraft((current) => (current === submittedDraft ? "" : current));
+  async function activatePrimaryAction() {
+    if (recoverable && !hasDraft) {
+      if (!busy && !stopping && onResume !== undefined) await onResume();
+      return;
     }
+    if (running && !hasDraft) {
+      if (!busy && !stopping && onInterrupt !== undefined) await onInterrupt();
+      return;
+    }
+    await submit();
   }
 
   return (
     <>
-      {running && pendingSteers.length > 0 && (
-        <div className="pending-steers" aria-label="Pending Steer messages">
-          <strong>Steer · waiting for next model call</strong>
-          <ol>
-            {pendingSteers.map((item, index) => (
-              <li key={item.messageId}>
-                {index + 1}. {item.content}
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
       {candidates.length > 0 && (
-        <div className="command-candidates" role="listbox" aria-label="Available commands">
+        <Command shouldFilter={false} value={activeCandidate?.name ?? ""} className="command-candidates"><CommandList aria-label="Available commands">
           {candidates.map((candidate, index) => (
-            <button
-              type="button"
-              role="option"
+            <CommandItem value={candidate.name}
               aria-selected={index === Math.min(selectedCommand, candidates.length - 1)}
               className={`command-candidate ${index === Math.min(selectedCommand, candidates.length - 1) ? "active" : ""}`}
               key={candidate.name}
               disabled={busy}
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => void submit(candidate.usage)}
+              onSelect={() => void submit(candidate.usage)}
             >
               <span className="command-candidate-name">{candidate.usage}</span>
               <span className="command-candidate-description">{candidate.description}</span>
-            </button>
+            </CommandItem>
           ))}
-        </div>
-      )}
-      {running && (
-        <p className="composer-run-note" id="composer-run-note">
-          Sending normally queues the next task. Steer modifies the current task instead.
-        </p>
+        </CommandList></Command>
       )}
       <form
         className="composer"
@@ -144,7 +142,7 @@ export function MessageComposer({
           void submit();
         }}
       >
-        <textarea
+        <Textarea
           id="message-composer-draft"
           name="message"
           aria-label={textareaLabel}
@@ -192,43 +190,50 @@ export function MessageComposer({
         <div className="composer-tools">
           <div className="composer-controls">{footerControls}</div>
           <div className="composer-actions">
-            {onInterrupt !== undefined && (
-              <button
-                type="button"
-                className={`stop-run${stopping ? " is-stopping" : ""}`}
-                aria-label={stopping ? "Stopping Run" : "Stop run"}
-                title={stopping ? "This Run is being stopped" : "Stop this Run"}
-                disabled={stopping}
-                onClick={() => void onInterrupt()}
-              >
-                {stopping ? "Stopping" : "Stop run"}
-              </button>
-            )}
-            {onSteer !== undefined && (
-              <button
-                type="button"
-                className="steer-send"
-                aria-label="Steer the current Run with this message"
-                aria-describedby="composer-run-note"
-                title="Steer modifies the current task instead of queuing the next task."
-                disabled={!steer.enabled}
-                onClick={() => void chooseSteer()}
-              >
-                Steer
-              </button>
-            )}
-            <button
-              type="submit"
-              className={`send${running ? " is-running" : ""}`}
-              aria-label={busy ? "Sending message" : "Send message"}
-              disabled={busy || sendDisabled || !draft.trim()}
+            <Button variant="ghost" size="sm"
+              type="button"
+              className={`send${running ? " is-running" : ""}${stopping ? " is-stopping" : ""}`}
+              aria-label={
+                stopping
+                  ? "Pausing Run"
+                  : busy
+                    ? recoverable && !hasDraft ? "Recovering Run" : "Sending message"
+                    : recoverable && !hasDraft
+                      ? recoveryActionLabel
+                      : running && !hasDraft
+                        ? "Pause Run"
+                        : "Send message"
+              }
+              title={
+                stopping
+                  ? "Pausing this Run"
+                  : recoverable && !hasDraft
+                    ? recoveryActionLabel
+                    : running && !hasDraft
+                      ? "Pause this Run"
+                      : "Send message"
+              }
+              disabled={
+                busy || sendDisabled || (
+                  recoverable
+                    ? !hasDraft && (stopping || onResume === undefined)
+                    : running
+                      ? !hasDraft && (stopping || onInterrupt === undefined)
+                      : !hasDraft
+                )
+              }
+              onClick={() => void activatePrimaryAction()}
             >
-              {busy ? (
+              {busy || stopping ? (
                 <span className="loading-mark small" />
+              ) : recoverable && !hasDraft ? (
+                <Play size={14} />
+              ) : running && !hasDraft ? (
+                <Pause size={15} />
               ) : (
                 <ArrowUp size={16} />
               )}
-            </button>
+            </Button>
           </div>
         </div>
       </form>

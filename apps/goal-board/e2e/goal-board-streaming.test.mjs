@@ -72,6 +72,7 @@ test("正式服务与真实浏览器贯通交错时间线、活动组与窄屏�
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null", 20_000);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('[data-testid=\"session-timeline\"]') !== null", 20_000);
+    await value(socket, "document.querySelectorAll('.timeline-stage-heading[aria-expanded=false]').forEach(button => button.click())");
     await waitForExpression(socket, "document.querySelectorAll('.timeline-activity').length >= 1", 20_000);
 
     // 交错顺序：用户消息 → 工具活动组 → 正式答复，按真实来源排列。
@@ -102,6 +103,8 @@ test("正式服务与真实浏览器贯通交错时间线、活动组与窄屏�
     await navigate(socket, ready.launchUrl);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null", 20_000);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.timeline-stage-heading') !== null", 20_000);
+    await value(socket, "document.querySelectorAll('.timeline-stage-heading[aria-expanded=false]').forEach(button => button.click())");
     await waitForExpression(socket, "document.querySelectorAll('.timeline-activity').length >= 1", 20_000);
     const afterReload = await value(socket, "[...document.querySelectorAll('[data-item-id]')].map(node => node.getAttribute('data-item-id'))");
     assert.deepEqual(afterReload, beforeReload, "刷新重建后来源身份与次序不变");
@@ -115,6 +118,8 @@ test("正式服务与真实浏览器贯通交错时间线、活动组与窄屏�
     assert.ok(narrow.overflow <= 1, JSON.stringify(narrow));
     assert.ok(narrow.timeline <= narrow.viewport + 1, JSON.stringify(narrow));
     assert.ok(narrow.controls > 0, JSON.stringify(narrow));
+    const activityHeading = await value(socket, "(() => { const heading = document.querySelector('.timeline-activity-heading'); const counts = heading.querySelector('.timeline-activity-counts').getBoundingClientRect(); return { heading: heading.getBoundingClientRect().toJSON(), counts: counts.toJSON() }; })()");
+    assert.ok(activityHeading.counts.top >= activityHeading.heading.top && activityHeading.counts.bottom <= activityHeading.heading.bottom + 1, JSON.stringify(activityHeading));
 
     // 页面不得为模型内容发起图片或远程嵌入请求。
     const remoteRequests = [...socket.requests.values()].filter((request) => !request.path.startsWith("/api/"));

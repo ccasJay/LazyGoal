@@ -10,8 +10,8 @@ async function readSource(...segments: string[]): Promise<string> {
 
 test("design tokens define the three font size tiers", async () => {
   const style = await readSource("..", "src", "style.css");
-  assert.match(style, /--font-size-xs: 11px;/);
-  assert.match(style, /--font-size-sm: 12px;/);
+  assert.match(style, /--font-size-xs: 12px;/);
+  assert.match(style, /--font-size-sm: 13px;/);
   assert.match(style, /--font-size-base: 14px;/);
 });
 
@@ -33,7 +33,9 @@ test("high-frequency controls extend their hit area to at least 36px", async () 
   assert.match(style, /\.icon::after\s*\{[^}]*inset:\s*-4px/);
   // 卡片菜单按钮位于 overflow:hidden 容器内，伪元素扩展会被裁剪，直接扩大盒子。
   assert.match(style, /\.goal-card-options\s*\{[^}]*width: 36px;/);
-  assert.match(style, /\.goal-card-menu\s*\{[^}]*width: 36px;/);
+  const card = await readSource("..", "src", "components", "GoalCard.tsx");
+  assert.match(card, /DropdownMenuTrigger asChild/);
+  assert.match(card, /size="icon" className="goal-card-options"/);
   const trajectory = await readSource("..", "src", "trajectory.css");
   // 分页箭头同处 overflow hidden 容器，直接扩大尺寸。
   assert.match(trajectory, /\.tr-page-arrow\{[^}]*width:36px/);

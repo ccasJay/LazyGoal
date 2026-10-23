@@ -1,8 +1,12 @@
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./components/ui/collapsible";
+import { Button } from "./components/ui/button";
 import { useEffect, useRef, useState } from "react";
 import { Copy, X } from "lucide-react";
 import type { BrowserModelInputDetail, BrowserTrajectoryEntry } from "../../../packages/web-contracts/src/index";
 import { browserApi, BrowserApiError } from "./api";
 import type { RequestResult } from "./trajectory-presentation";
+import { useInspectorFocus } from "./use-inspector-focus";
 
 /**
  * 页面内的一次模型输入选择；消息索引对应保存请求中的原始顺序。
@@ -20,10 +24,14 @@ export interface ModelInputSelection {
 
 /**
  * 在父组件提供的侧栏中读取完整模型输入；切换消息复用同一调用的已加载数据。
- * @remarks selectionVersion 变化会重新定位所选消息；关闭或切换调用会取消在途读取。
+ * @remarks
+ * selectionVersion 变化会重新定位所选消息；关闭或切换调用会取消在途读取。
+ * 窄屏覆盖布局下检查器按对话框约束焦点，关闭时把焦点还给打开它的控件。
+ * @param narrow - 当前是否为窄屏覆盖布局；宽屏分栏不劫持焦点。
  */
-export function ModelInputInspector({ goalId, runId, selection, selectionVersion, onClose, result, onViewResult }: { result?: RequestResult; onViewResult?: (entry: BrowserTrajectoryEntry) => void; goalId: string; runId: string; selection: ModelInputSelection; selectionVersion: number; onClose: () => void }) {
+export function ModelInputInspector({ goalId, runId, selection, selectionVersion, onClose, result, onViewResult, narrow }: { result?: RequestResult; onViewResult?: (entry: BrowserTrajectoryEntry) => void; goalId: string; runId: string; selection: ModelInputSelection; selectionVersion: number; onClose: () => void; narrow: boolean }) {
   const { callId, tab: initialTab, messageIndex } = selection;
+  const inspectorFocus = useInspectorFocus({ open: true, modal: narrow, onClose });
   const body = useRef<HTMLDivElement>(null);
   const [detail, setDetail] = useState<BrowserModelInputDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -44,9 +52,8 @@ export function ModelInputInspector({ goalId, runId, selection, selectionVersion
     if (!container || !detail) return;
     const reveal = () => {
       const message = tab === "Messages" && messageIndex !== undefined
-        ? container.querySelector<HTMLDetailsElement>(`[data-message-index="${messageIndex}"]`) : null;
+        ? container.querySelector<HTMLElement>(`[data-message-index="${messageIndex}"]`) : null;
       if (message) {
-        message.open = true;
         container.scrollTop += message.getBoundingClientRect().top - container.getBoundingClientRect().top - 12;
       } else container.scrollTop = 0;
     };
@@ -64,16 +71,16 @@ export function ModelInputInspector({ goalId, runId, selection, selectionVersion
   while (prefix < Math.min(oldLines.length, newLines.length) && oldLines[prefix] === newLines[prefix]) prefix++;
   while (suffix < Math.min(oldLines.length, newLines.length) - prefix && oldLines[oldLines.length - suffix - 1] === newLines[newLines.length - suffix - 1]) suffix++;
   const diff = [...newLines.slice(0, prefix).map(text => ({ text, kind: "same" })), ...oldLines.slice(prefix, oldLines.length - suffix).map(text => ({ text, kind: "removed" })), ...newLines.slice(prefix, newLines.length - suffix).map(text => ({ text, kind: "added" })), ...newLines.slice(newLines.length - suffix).map(text => ({ text, kind: "same" }))];
-  return <section className="tr-inspector mi-inspector" aria-label="Model prompt details"><header><span>Model input</span><span>{detail ? `Step ${detail.call.stepIndex} / ${detail.call.stage}` : "Request"}</span><button aria-label="Close prompt details" onClick={onClose}><X size={15}/></button></header><div className="tr-detail-title"><h3>{selectedMessage ? messageTitle(selectedMessage) : "Model request"}</h3><code>{callId ?? "Not recorded"}</code></div><div className="tr-detail-tabs">{["Messages", "System Prompt", "Diff", "Source", "Raw"].map(value => <button key={value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>{value}</button>)}</div>
-    <div className="tr-detail-body" ref={body}>{error ? <p role="alert">{error}{error === "Could not read model input. Retry this request." && <button onClick={() => setRetry(value => value + 1)}>Retry input</button>}</p> : !detail ? <p role="status">Loading recorded input…</p> : <>
-      {result?.entry && <div className={`mi-result ${result.status}`}><strong>{result.label}</strong>{result.status === "rejected" && <p>{result.entry.preview}</p>}{onViewResult && <button onClick={() => onViewResult(result.entry!)}>View {result.status === "rejected" ? "rejection" : "accepted frame"} details</button>}</div>}
+  return <section ref={inspectorFocus} tabIndex={narrow ? -1 : undefined} role={narrow ? "dialog" : undefined} aria-modal={narrow ? true : undefined} className="tr-inspector mi-inspector" aria-label="Model prompt details"><header><span>Model input</span><span>{detail ? `Step ${detail.call.stepIndex} / ${detail.call.stage}` : "Request"}</span><Button variant="ghost" size="icon" aria-label="Close prompt details" onClick={onClose}><X size={15}/></Button></header><div className="tr-detail-title"><h3>{selectedMessage ? messageTitle(selectedMessage) : "Model request"}</h3><code>{callId ?? "Not recorded"}</code></div><Tabs className="tr-detail-tabs-region" value={tab} onValueChange={setTab}><TabsList className="tr-detail-tabs" aria-label="Model input tabs">{["Messages", "System Prompt", "Diff", "Source", "Raw"].map(value => <TabsTrigger key={value} value={value} onClick={() => setTab(value)} className={tab === value ? "active" : ""}>{value}</TabsTrigger>)}</TabsList><TabsContent value={tab} forceMount className="tr-detail-panel">
+    <div className="tr-detail-body" ref={body}>{error ? <p role="alert">{error}{error === "Could not read model input. Retry this request." && <Button variant="ghost" size="sm" onClick={() => setRetry(value => value + 1)}>Retry input</Button>}</p> : !detail ? <p role="status">Loading recorded input…</p> : <>
+      {result?.entry && <div className={`mi-result ${result.status}`}><strong>{result.label}</strong>{result.status === "rejected" && <p>{result.entry.preview}</p>}{onViewResult && <Button variant="ghost" size="sm" onClick={() => onViewResult(result.entry!)}>View {result.status === "rejected" ? "rejection" : "accepted frame"} details</Button>}</div>}
       <div className="mi-version"><span>System {detail.systemVersion.slice(0, 8)}</span><span>{previous === null ? "First recorded" : previous === system ? "Unchanged · version reused" : "Changed from previous request"}</span></div>
-      {tab === "Messages" ? detail.call.messages.map((message, index) => <details data-message-index={index} className={`mi-message ${messageIndex === index ? "is-selected" : ""} ${message.source === "conversation" ? message.role : message.role === "system" ? "system" : "context"}`} key={index} open={messageIndex === undefined ? message.role !== "system" : messageIndex === index}><summary><span>{index + 1}</span><strong>{messageTitle(message)}</strong><small title={`Role: ${message.role}`}>{message.source}</small></summary><pre>{message.role === "tool" || message.role === "assistant" && message.continuation !== undefined ? JSON.stringify(message, null, 2) : message.content}</pre></details>)
+      {tab === "Messages" ? detail.call.messages.map((message, index) => <Collapsible data-message-index={index} className={`mi-message ${messageIndex === index ? "is-selected" : ""} ${message.source === "conversation" ? message.role : message.role === "system" ? "system" : "context"}`} key={index} defaultOpen={messageIndex === undefined ? message.role !== "system" : messageIndex === index}><CollapsibleTrigger><span>{index + 1}</span><strong>{messageTitle(message)}</strong><small title={`Role: ${message.role}`}>{message.source}</small></CollapsibleTrigger><CollapsibleContent><pre>{message.role === "tool" || message.role === "assistant" && message.continuation !== undefined ? JSON.stringify(message, null, 2) : message.content}</pre></CollapsibleContent></Collapsible>)
         : tab === "System Prompt" ? <pre>{system || "No system message in this recorded request."}</pre>
         : tab === "Diff" ? previous === null ? <p>First recorded system prompt. No earlier request in this Run.</p> : previous === system ? <p>System prompt unchanged. The saved version is reused.</p> : diff.length > 2000 ? <p>Diff exceeds 2,000 lines. View complete text in System Prompt or Raw.</p> : <><p>Compared with {detail.previousCallId}. Common prefix and suffix are preserved; the changed region is highlighted.</p><div className="mi-diff">{diff.map((line, index) => <div className={line.kind} key={index}><span>{line.kind === "added" ? "+" : line.kind === "removed" ? "−" : " "}</span><code>{line.text}</code></div>)}</div></>
         : tab === "Source" ? <><dl><div><dt>Call</dt><dd>{detail.call.callId}</dd></div><div><dt>Execution unit</dt><dd>{detail.call.executionUnitId ?? "Unavailable"}</dd></div><div><dt>Stage</dt><dd>{detail.call.stage}</dd></div><div><dt>Prepared at</dt><dd>{detail.call.occurredAt}</dd></div><div><dt>Previous request</dt><dd>{detail.previousCallId ?? "None"}</dd></div></dl><p>Recorded before the Adapter call. This record does not confirm provider receipt and is independent of Snapshot commits.</p></>
         : <pre>{JSON.stringify(detail.call, null, 2)}</pre>}
-    </>}</div><footer><button disabled={!detail} onClick={async () => { try { await navigator.clipboard.writeText(tab === "System Prompt" ? system : JSON.stringify(detail?.call, null, 2)); setCopied("Copied"); } catch { setCopied("Copy failed"); } }}><Copy size={12}/>{copied}</button><div/><small>Complete saved messages</small></footer>
+    </>}</div></TabsContent></Tabs><footer><Button variant="ghost" size="sm" disabled={!detail} onClick={async () => { try { await navigator.clipboard.writeText(tab === "System Prompt" ? system : JSON.stringify(detail?.call, null, 2)); setCopied("Copied"); } catch { setCopied("Copy failed"); } }}><Copy size={12}/>{copied}</Button><div/><small>Complete saved messages</small></footer>
   </section>;
 }
 

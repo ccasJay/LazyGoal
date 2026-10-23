@@ -1,7 +1,13 @@
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
+import { Alert } from "./components/ui/alert";
+import { Badge } from "./components/ui/badge";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
+import { NativeSelect } from "./components/ui/native-select";
 import { EventSummary } from "./trajectory-event-summary";
 import { requestResult } from "./trajectory-presentation";
 import { Fragment, useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, Copy, FileText, Search, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, Copy, FileText, ListTree, Search, X } from "lucide-react";
 import type {
   BrowserGoalSession,
   BrowserModelInputSummary,
@@ -17,6 +23,7 @@ import { ModelInputInspector, type ModelInputSelection } from "./model-input-ins
 import { EMPTY_TRAJECTORY_PAGE_WINDOW, receiveTrajectoryPage, viewedThrough } from "./trajectory-page-window";
 import { resolveActiveDetailTab } from "./trajectory-tab-memory";
 import { isEventMatched } from "./trajectory-event-filter";
+import { useInspectorFocus } from "./use-inspector-focus";
 import { TrajectoryTimeline } from "./trajectory-timeline";
 import { primaryTimelineEntries, timelineTimesValid, type TrajectoryTimelineMode, type TrajectoryTimelineRange } from "./trajectory-timeline-model";
 
@@ -69,7 +76,9 @@ export function Trajectory({ session, target }: { session: BrowserGoalSession; t
   const [detailLoading, setDetailLoading] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [copyStatus, setCopyStatus] = useState("Copy JSON");
+  const [narrow, setNarrow] = useState(false);
   const ledger = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const follow = useRef(target === null);
   const inspectionRef = useRef<Inspection | null>(null);
   const savedScroll = useRef(0);
@@ -176,6 +185,24 @@ export function Trajectory({ session, target }: { session: BrowserGoalSession; t
     } else if (follow.current && !range && !search && category === "All events" && page?.nextCursor === null) ledger.current.scrollTop = ledger.current.scrollHeight;
     else ledger.current.scrollTop = savedScroll.current;
   }, [page, selected, allCollapsed, pageWindow, recordsRevealVersion]);
+
+  const inspectorFocus = useInspectorFocus({
+    open: inspection?.kind === "event" && !allCollapsed,
+    modal: narrow,
+    onClose: () => setInspection(null),
+  });
+
+  useEffect(() => {
+    const element = root.current;
+    if (element === null) return;
+    const observer = new ResizeObserver(entries => {
+      const width = entries[0]?.contentRect.width ?? element.getBoundingClientRect().width;
+      const next = width <= 900;
+      setNarrow(current => current === next ? current : next);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const entries = page?.run.runId === runId
     ? [...new Map(loadedPages
@@ -299,12 +326,12 @@ export function Trajectory({ session, target }: { session: BrowserGoalSession; t
   const coverage = loading
     ? "Loading committed trajectory…"
     : `${firstEntry ? `#${firstEntry.sequence}–#${lastEntry!.sequence}` : "no events"} · ${entries.length} of ${page?.total ?? 0} matches`;
-  return <div className="trajectory-view compact-real trace-workbench" aria-label="Run trajectory" aria-busy={loading}>
-    <div className="tr-runbar"><div className="tr-page-title"><h2>Execution trajectory</h2><span>Inspect what the agent saw and called</span></div><select id="trajectory-run-select" name="runId" aria-label="Select trajectory run" value={runId} onChange={event => switchRun(event.target.value)}>
+  return <div ref={root} className="trajectory-view compact-real trace-workbench" aria-label="Run trajectory" aria-busy={loading}>
+    <div className="tr-runbar"><div className="tr-page-title"><h2>Execution trajectory</h2><span>Inspect what the agent saw and called</span></div><NativeSelect id="trajectory-run-select" name="runId" aria-label="Select trajectory run" value={runId} onChange={event => switchRun(event.target.value)}>
       {runs.length === 0 && <option value={runId}>{runId.slice(0, 12)}</option>}
       {runs.map((run, index) => <option key={run.runId} value={run.runId}>{run.current ? "Current Run" : `Earlier Run ${runs.length - index}`} · {run.runId.slice(0, 8)}</option>)}
-    </select><span className={`tr-status ${selectedRun?.status === "failed" ? "failed" : ""}`}>{selectedRun?.status ?? "Loading"}</span><span className="tr-event-count">{page?.committedCount ?? "—"} committed events</span></div>
-    {(error || catalogError) && <div role="alert" className="tr-feedback">{error ?? catalogError}{page && " Displayed data has not been updated."}<button onClick={() => setRefresh(value => value + 1)}>Retry</button></div>}
+    </NativeSelect><span className={`tr-status ${selectedRun?.status === "failed" ? "failed" : ""}`}>{selectedRun?.status ?? "Loading"}</span><span className="tr-event-count">{page?.committedCount ?? "—"} committed events</span></div>
+    {(error || catalogError) && <Alert variant="destructive" className="tr-feedback rounded-none border-x-0 border-t-0">{error ?? catalogError}{page && " Displayed data has not been updated."}<Button variant="ghost" size="sm" onClick={() => setRefresh(value => value + 1)}>Retry</Button></Alert>}
     <TrajectoryTimeline
       entries={entries}
       mode={timelineMode}
@@ -318,9 +345,9 @@ export function Trajectory({ session, target }: { session: BrowserGoalSession; t
       onZoomChange={value => setTimelineZoom(Math.max(1, Math.min(4, value)))}
     />
     <div className="tr-toolbar">
-      <label className="tr-search" htmlFor="trajectory-search"><Search size={14}/><input id="trajectory-search" name="search" aria-label="Search trajectory" maxLength={500} placeholder="Search events, tools, files…" value={query} onChange={event => { setQuery(event.target.value); setInspection(null); resetWindow(); }}/>{query && <button aria-label="Clear trajectory search" onClick={() => { setQuery(""); setInspection(null); resetWindow(); }}><X size={12}/></button>}</label>
-      <select id="trajectory-category-select" name="category" aria-label="Filter trajectory events" value={category} onChange={event => { setCategory(event.target.value); setInspection(null); resetWindow(); }}>{categoryLabels.map(label => <option key={label}>{label}</option>)}</select>
-      <button className="tr-steps-toggle" aria-pressed={showSteps} onClick={() => setShowSteps(!showSteps)}>⊟ Steps</button>
+      <div className="tr-search"><Search size={14}/><Input id="trajectory-search" name="search" aria-label="Search trajectory" maxLength={500} placeholder="Search events, tools, files…" value={query} onChange={event => { setQuery(event.target.value); setInspection(null); resetWindow(); }}/>{query && <Button variant="ghost" size="sm" aria-label="Clear trajectory search" onClick={() => { setQuery(""); setInspection(null); resetWindow(); }}><X size={12}/></Button>}</div>
+      <NativeSelect id="trajectory-category-select" name="category" aria-label="Filter trajectory events" value={category} onChange={event => { setCategory(event.target.value); setInspection(null); resetWindow(); }}>{categoryLabels.map(label => <option key={label}>{label}</option>)}</NativeSelect>
+      <Button variant="ghost" size="sm" className="tr-steps-toggle" aria-pressed={showSteps} onClick={() => setShowSteps(!showSteps)}><ListTree size={14} aria-hidden="true"/>Steps</Button>
       <div className="tr-timeline-controls" role="group" aria-label="Timeline projection">
         <div className="tr-segmented">
           <button aria-pressed={timelineMode === "time"} disabled={!validTimes} title={validTimes ? "Use recorded time" : "Recorded timing unavailable"} onClick={() => { setTimelineMode("time"); setTimelineCompact(false); setTimelineZoom(1); }}>Time</button>
@@ -335,24 +362,25 @@ export function Trajectory({ session, target }: { session: BrowserGoalSession; t
     <div className={`tr-ledger-layout ${inspection || (allCollapsed && entries.length > 0) ? "has-inspector" : ""}`}><section className="tr-ledger" aria-label="Trajectory events">
       <div className="tr-records" ref={ledger} onScroll={event => { savedScroll.current = event.currentTarget.scrollTop; follow.current = inspection === null && !query && category === "All events" && !range && event.currentTarget.scrollHeight - event.currentTarget.scrollTop - event.currentTarget.clientHeight < 30; }}>
       <TrajectoryRecords goalId={session.goalId} runId={runId} entries={entries} unverifiedPageBoundarySequences={unverifiedPageBoundarySequences} refresh={session} selectEvent={select} selectedInput={selectedInput} selectInput={inspectInput} showSteps={showSteps} showRequests={false} onCalls={setInputCalls} onRevealSelection={() => setRecordsRevealVersion(version => version + 1)} selectedSequence={selected} query={search} category={category} onAllStepsCollapsedChange={setAllCollapsed}/>
-      {!loading && !error && entries.length === 0 && <div className="tr-empty">{page?.committedCount === 0 ? "No committed trajectory yet." : "No events match this view."}<button onClick={() => { setQuery(""); setSearch(""); setCategory("All events"); setRange(null); resetWindow(); setRefresh(value => value + 1); }}>{page?.committedCount === 0 ? "Refresh" : "Clear filters"}</button></div>}
+      {!loading && !error && entries.length === 0 && <div className="tr-empty">{page?.committedCount === 0 ? "No committed trajectory yet." : "No events match this view."}<Button variant="ghost" size="sm" onClick={() => { setQuery(""); setSearch(""); setCategory("All events"); setRange(null); resetWindow(); setRefresh(value => value + 1); }}>{page?.committedCount === 0 ? "Refresh" : "Clear filters"}</Button></div>}
     </div><footer className="tr-ledger-foot">
       <div className="tr-page-control" role="group" aria-label="Trajectory pagination">
-        <button className="tr-page-arrow" aria-label="Earlier events" title="Earlier events" disabled={loading || !canMoveEarlier} onClick={loadEarlier}><ArrowLeft size={14}/></button>
+        <Button variant="ghost" size="icon" className="tr-page-arrow" aria-label="Earlier events" title="Earlier events" disabled={loading || !canMoveEarlier} onClick={loadEarlier}><ArrowLeft size={14}/></Button>
         <span className="tr-page-count" aria-live="polite" aria-label={`Viewing through ${currentPosition} of ${page?.total ?? "unknown"} events`}>{currentPosition} / {page?.total ?? "—"}</span>
-        <button className="tr-page-arrow" aria-label="Later events" title="Later events" disabled={loading || !canMoveLater} onClick={loadLater}><ArrowRight size={14}/></button>
+        <Button variant="ghost" size="icon" className="tr-page-arrow" aria-label="Later events" title="Later events" disabled={loading || !canMoveLater} onClick={loadLater}><ArrowRight size={14}/></Button>
       </div>
-      {range && <button onClick={() => { setRange(null); resetWindow(); setInspection(null); }}>Clear range</button>}
-      <button className="tr-latest" disabled={loading} onClick={() => { focusTarget.current = null; pageFocusCandidates.current = null; follow.current = true; setQuery(""); setSearch(""); setCategory("All events"); setRange(null); setInspection(null); setTimelineZoom(1); setTimelineCompact(false); setWindowQuery({ before: Number.MAX_SAFE_INTEGER }); }}><ArrowDown size={12}/>Latest</button>
+      {range && <Button variant="ghost" size="sm" onClick={() => { setRange(null); resetWindow(); setInspection(null); }}>Clear range</Button>}
+      <Button variant="ghost" size="sm" className="tr-latest" disabled={loading} onClick={() => { focusTarget.current = null; pageFocusCandidates.current = null; follow.current = true; setQuery(""); setSearch(""); setCategory("All events"); setRange(null); setInspection(null); setTimelineZoom(1); setTimelineCompact(false); setWindowQuery({ before: Number.MAX_SAFE_INTEGER }); }}><ArrowDown size={12}/>Latest</Button>
     </footer></section>
-    {inspection !== null && <button className="tr-scrim" aria-label="Close trajectory details" onClick={() => setInspection(null)}/>}
-    {inspection?.kind === "input" && <ModelInputInspector key={inspection.input.callId} goalId={session.goalId} runId={runId} selection={inspection.input} selectionVersion={inspection.nonce} result={inspectedResult} onViewResult={selectTimeline} onClose={() => setInspection(null)}/>}
+    {inspection !== null && <div className="tr-scrim" aria-hidden="true" onClick={() => setInspection(null)}/>}
+    {inspection?.kind === "input" && <ModelInputInspector key={inspection.input.callId} goalId={session.goalId} runId={runId} selection={inspection.input} selectionVersion={inspection.nonce} result={inspectedResult} onViewResult={selectTimeline} narrow={narrow} onClose={() => setInspection(null)}/>}
     {allCollapsed && entries.length > 0 ? (
       <section className="tr-inspector tr-inspector-empty" aria-label="Trajectory event details"><div className="tr-empty-guidance"><p>All steps are collapsed. Expand a step to see its events.</p></div></section>
     ) : selected !== null ? (
-      <section className="tr-inspector" aria-label="Trajectory event details"><header><span>Event #{selected}</span><div className="tr-detail-nav"><button aria-label="Previous trajectory event" disabled={!selectedEntry || entries.indexOf(selectedEntry) <= 0} onClick={() => navigateAdjacent(entries[entries.indexOf(selectedEntry!)-1]!)}><ArrowLeft size={14}/></button><button aria-label="Next trajectory event" disabled={!selectedEntry || entries.indexOf(selectedEntry) >= entries.length-1} onClick={() => navigateAdjacent(entries[entries.indexOf(selectedEntry!)+1]!)}><ArrowRight size={14}/></button><button aria-label="Close trajectory details" onClick={() => setInspection(null)}><X size={15}/></button></div></header><div className="tr-detail-title"><h3>{inspectionTitle(selectedEntry, detail)}</h3><p>{selectedEntry?.preview ?? "Recorded trajectory event"}</p><code>{detail?.event.eventId}</code></div><div className="tr-detail-context">{selectedEntry && (!search && category === "All events" ? false : !isEventMatched(selectedEntry, search, category)) && <div className="tr-outside-badge-wrap"><span className="tr-outside-badge">Event outside active filter</span></div>}<div><span>Step</span><strong>{selectedEntry?.stepIndex === undefined ? "Run" : `Step ${selectedEntry.stepIndex}`}</strong></div><div><span>Kind</span><strong>{selectedEntry?.category ?? "Event"}</strong></div><div><span>Status</span><strong>{eventStatus}</strong></div></div><div className="tr-detail-tabs">{detailTabs.map(tab => <button key={tab} className={activeTab === tab ? "active" : ""} onClick={() => setPreferredDetailTab(tab)}>{tab}</button>)}</div>
-      <div className="tr-detail-body">{detailLoading ? <p role="status">Loading recorded details…</p> : detailError ? <p role="alert">{detailError}</p> : detail && (activeTab === "Raw" ? <pre>{json(detail.event)}</pre> : activeTab === "Input" ? <><h4>Recorded input</h4><pre>{json(detail.input)}</pre></> : activeTab === "Result" ? <><h4>{detail.observationConfirmed ? "Committed observation" : "Tool finished · Observation not confirmed"}</h4><pre>{json(detail.result ?? detail.toolFinished?.payload.observation)}</pre></> : activeTab === "Timing" ? <><h4>Recorded timing</h4><dl><div><dt>Event time</dt><dd>{detail.event.occurredAt}</dd></div><div><dt>Tool started</dt><dd>{detail.toolStartedAt ?? "Unavailable"}</dd></div><div><dt>Tool finished</dt><dd>{detail.toolFinishedAt ?? "Unavailable"}</dd></div><div><dt>Tool duration</dt><dd>{detail.toolDurationMs === null ? "Unavailable" : `${detail.toolDurationMs} ms`}</dd></div><div><dt>Model duration</dt><dd>Unavailable</dd></div></dl></> : <>{!["model_repair_feedback_recorded", "model_repair_attempt_started", "execution_error"].includes(detail.event.eventType) && <p>{detailSummary(detail.event)}</p>}{(selectedModelCallId !== undefined || ["decision_received", "think_completed", "model_context_frame"].includes(detail.event.eventType)) && <button className="mi-open" onClick={() => inspectInput({ callId: selectedModelCallId ?? null, tab: "Messages" })}>View model prompt</button>}<EventSummary event={detail.event}/>{(detail.toolFinished || detail.input !== undefined) && <p>{detail.observationConfirmed ? "Observation committed" : "Observation not confirmed"}</p>}{selectedEntry?.parentActionId !== undefined && selectedEntry.callIndex !== undefined && <div className="relationship"><h4>Execution relationship</h4><p>This tool call ran inside <strong>execute_program</strong> (call {selectedEntry.callIndex + 1}). Parent action: <code>{selectedEntry.parentActionId}</code></p></div>}<dl><div><dt>Sequence</dt><dd>{detail.event.sequence}</dd></div><div><dt>Phase</dt><dd>{detail.event.phase}</dd></div><div><dt>Action</dt><dd>{selectedEntry?.actionId ?? detail.event.actionId ?? "Unavailable"}</dd></div></dl></>)}</div>
-      <footer><button disabled={!detail || detailLoading} onClick={() => void copy()}><Copy size={12}/>{copyStatus}</button><span>{selectedEntry ? `#${entries.indexOf(selectedEntry) + 1} of ${entries.length} loaded` : "Event outside loaded window"}</span></footer>
+      <section ref={inspectorFocus} tabIndex={narrow ? -1 : undefined} role={narrow ? "dialog" : undefined} aria-modal={narrow ? true : undefined} className="tr-inspector" aria-label="Trajectory event details"><header><span>Event #{selected}</span><div className="tr-detail-nav"><Button variant="ghost" size="icon" aria-label="Previous trajectory event" disabled={!selectedEntry || entries.indexOf(selectedEntry) <= 0} onClick={() => navigateAdjacent(entries[entries.indexOf(selectedEntry!)-1]!)}><ArrowLeft size={14}/></Button><Button variant="ghost" size="icon" aria-label="Next trajectory event" disabled={!selectedEntry || entries.indexOf(selectedEntry) >= entries.length-1} onClick={() => navigateAdjacent(entries[entries.indexOf(selectedEntry!)+1]!)}><ArrowRight size={14}/></Button><Button variant="ghost" size="icon" aria-label="Close trajectory details" onClick={() => setInspection(null)}><X size={15}/></Button></div></header><div className="tr-detail-title"><h3>{inspectionTitle(selectedEntry, detail)}</h3><p>{selectedEntry?.preview ?? "Recorded trajectory event"}</p><code>{detail?.event.eventId}</code></div><div className="tr-detail-context">{selectedEntry && (!search && category === "All events" ? false : !isEventMatched(selectedEntry, search, category)) && <div className="tr-outside-badge-wrap"><Badge variant="outline" className="tr-outside-badge">Event outside active filter</Badge></div>}<div><span>Step</span><strong>{selectedEntry?.stepIndex === undefined ? "Run" : `Step ${selectedEntry.stepIndex}`}</strong></div><div><span>Kind</span><strong>{selectedEntry?.category ?? "Event"}</strong></div><div><span>Status</span><strong>{eventStatus}</strong></div></div><Tabs className="tr-detail-tabs-region" value={activeTab} onValueChange={value => setPreferredDetailTab(value as typeof activeTab)}><TabsList className="tr-detail-tabs" aria-label="Event detail tabs">{detailTabs.map(tab => <TabsTrigger key={tab} value={tab} onClick={() => setPreferredDetailTab(tab)} className={activeTab === tab ? "active" : ""}>{tab}</TabsTrigger>)}</TabsList><TabsContent value={activeTab} forceMount className="tr-detail-panel">
+      <div className="tr-detail-body">{detailLoading ? <p role="status">Loading recorded details…</p> : detailError ? <p role="alert">{detailError}</p> : detail && (activeTab === "Raw" ? <pre>{json(detail.event)}</pre> : activeTab === "Input" ? <><h4>Recorded input</h4><pre>{json(detail.input)}</pre></> : activeTab === "Result" ? <><h4>{detail.observationConfirmed ? "Committed observation" : "Tool finished · Observation not confirmed"}</h4><pre>{json(detail.result ?? detail.toolFinished?.payload.observation)}</pre></> : activeTab === "Timing" ? <><h4>Recorded timing</h4><dl><div><dt>Event time</dt><dd>{detail.event.occurredAt}</dd></div><div><dt>Tool started</dt><dd>{detail.toolStartedAt ?? "Unavailable"}</dd></div><div><dt>Tool finished</dt><dd>{detail.toolFinishedAt ?? "Unavailable"}</dd></div><div><dt>Tool duration</dt><dd>{detail.toolDurationMs === null ? "Unavailable" : `${detail.toolDurationMs} ms`}</dd></div><div><dt>Model duration</dt><dd>Unavailable</dd></div></dl></> : <>{!["model_repair_feedback_recorded", "model_repair_attempt_started", "execution_error"].includes(detail.event.eventType) && <p>{detailSummary(detail.event)}</p>}{(selectedModelCallId !== undefined || ["decision_received", "think_completed", "model_context_frame"].includes(detail.event.eventType)) && <Button variant="ghost" size="sm" className="mi-open" onClick={() => inspectInput({ callId: selectedModelCallId ?? null, tab: "Messages" })}>View model prompt</Button>}<EventSummary event={detail.event}/>{(detail.toolFinished || detail.input !== undefined) && <p>{detail.observationConfirmed ? "Observation committed" : "Observation not confirmed"}</p>}{selectedEntry?.parentActionId !== undefined && selectedEntry.callIndex !== undefined && <div className="relationship"><h4>Execution relationship</h4><p>This tool call ran inside <strong>execute_program</strong> (call {selectedEntry.callIndex + 1}). Parent action: <code>{selectedEntry.parentActionId}</code></p></div>}<dl><div><dt>Sequence</dt><dd>{detail.event.sequence}</dd></div><div><dt>Phase</dt><dd>{detail.event.phase}</dd></div><div><dt>Action</dt><dd>{selectedEntry?.actionId ?? detail.event.actionId ?? "Unavailable"}</dd></div></dl></>)}</div>
+      </TabsContent></Tabs>
+      <footer><Button variant="ghost" size="sm" disabled={!detail || detailLoading} onClick={() => void copy()}><Copy size={12}/>{copyStatus}</Button><span>{selectedEntry ? `#${entries.indexOf(selectedEntry) + 1} of ${entries.length} loaded` : "Event outside loaded window"}</span></footer>
     </section>) : null}
     </div><footer className="tr-source"><FileText size={12}/><span title={`${session.goalId}/${runId}.jsonl`}>{runId.slice(0,8)}…jsonl</span><span>Snapshot committed boundary #{page?.run.committedThroughSequence ?? "—"}</span></footer>
   </div>;

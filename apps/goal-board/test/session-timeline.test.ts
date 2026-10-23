@@ -177,3 +177,41 @@ test("显式 Think 在时间线中保留获准摘要与详情定位入口", asyn
   assert.equal(thinkEntry.group.members[0]?.think?.output, "The committed analysis");
   assert.equal(JSON.stringify(projection).includes("PRIVATE_"), false);
 });
+
+
+test("current failure details reach Activity without leaking into another Run", async () => {
+  const initial = createGoal({
+    id: "failed-activity", intent: "hi", runId: "failed-run", promptBundleVersion: 1,
+    memoryProtocol: { kind: "structured", version: 1 },
+    modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+    contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+    profile: { id: "profile", systemPrompt: "private", instructions: [], toolIds: [] },
+  });
+  const goal: Goal = { ...initial, state: { ...initial.state, run: {
+    ...initial.state.run, status: "failed",
+    stopReason: { kind: "execution_error", code: "MODEL_REQUEST_FAILED", message: "Provider rejected this request" },
+  } } };
+  const store = { restore: async () => goal };
+  const state = await readBrowserGoalSessionState(goal.id, store);
+  const activity = await readBrowserGoalActivity(goal.id, {}, store, async () => ({ committed: [], uncommittedTail: [] }));
+  assert.ok(state);
+  assert.equal(activity.ok, true);
+  if (!activity.ok) return;
+  const projection = projectSessionTimeline(activity.page, state, new Map());
+  const terminal = projection.items.find(item => item.kind === "terminal");
+  assert.ok(terminal?.kind === "terminal");
+  assert.deepEqual(terminal.detail, { code: "MODEL_REQUEST_FAILED", message: "Provider rejected this request" });
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { SessionTimeline } = await import("../src/components/SessionTimeline");
+  const html = renderToStaticMarkup(createElement(SessionTimeline, {
+    projection, currentRunId: state.currentRunId, runStatus: state.runStatus,
+    olderAvailable: false, showExecutionFacts: false, liveActivity: null, streamConnected: false,
+    brandMark: "/mark.svg",
+  }));
+  assert.match(html, /Run failed/);
+  assert.match(html, /MODEL_REQUEST_FAILED/);
+  assert.match(html, /Provider rejected this request/);
+  const stale = projectSessionTimeline(activity.page, { ...state, currentRunId: "another-run" }, new Map());
+  assert.equal(stale.items.find(item => item.kind === "terminal")?.detail, undefined);
+});

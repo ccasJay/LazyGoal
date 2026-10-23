@@ -154,7 +154,7 @@ export function mergeLatestPage(state: ActivityWindowState, page: BrowserActivit
     return {
       ...state,
       newest,
-      unread: state.unread + countNewItems(state.page, page),
+      unread: state.unread + page.items.filter(item => state.newest === undefined || laterThan(item.position, state.newest)).length,
     };
   }
   const merged: BrowserActivityPage = {
@@ -368,9 +368,10 @@ function pageKey(page: BrowserActivityPage): string {
   return `${page.beforeCursor ?? ""}|${page.afterCursor ?? ""}|${page.range.first?.sequence ?? ""}|${page.range.last?.sequence ?? ""}`;
 }
 
-function countNewItems(current: BrowserActivityPage, incoming: BrowserActivityPage): number {
-  const known = new Set(current.items.map((item) => item.itemId));
-  return incoming.items.filter((item) => !known.has(item.itemId)).length;
+function laterThan(left: BrowserActivityPosition, right: BrowserActivityPosition): boolean {
+  return (left.runOrder - right.runOrder || left.sequence - right.sequence
+    || (left.itemKind === right.itemKind ? 0 : left.itemKind === "fact" ? -1 : 1)
+    || left.order - right.order) > 0;
 }
 
 function maxPosition(left: BrowserActivityPosition, right: BrowserActivityPosition | undefined): BrowserActivityPosition {

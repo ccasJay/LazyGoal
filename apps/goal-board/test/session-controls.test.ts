@@ -66,15 +66,7 @@ test("迟到响应只作用于提交时的 Goal 与 Run", async () => {
   assert.equal(isSameSubmissionTarget(submission, undefined), false);
 });
 
-test("清空队列先确认服务端已受理的范围", async () => {
-  const { queueClearScope } = await import("../src/session-controls");
-
-  assert.equal(queueClearScope(0), undefined);
-  assert.equal(queueClearScope(1), "Clear 1 accepted queued task?");
-  assert.equal(queueClearScope(3), "Clear 3 accepted queued tasks?");
-});
-
-test("运行中的输入区提供显式 Steer 与独立 Stop，且不弹出 Steer／Queue 菜单", async () => {
+test("运行中的输入区只显示一个主按钮：空输入暂停，消息仍走排队发送", async () => {
   const React = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { MessageComposer } = await import("../src/components/MessageComposer");
@@ -82,48 +74,36 @@ test("运行中的输入区提供显式 Steer 与独立 Stop，且不弹出 Stee
   const html = renderToStaticMarkup(React.createElement(MessageComposer, {
     busy: false,
     running: true,
-    placeholder: "Add direction while this Run is working…",
+    placeholder: "Queue a message for the next Run…",
     onSubmit: async () => true,
-    onSteer: async () => true,
     onInterrupt: async () => undefined,
     footerControls: null,
   } as any));
 
-  assert.match(html, /aria-label="Stop run"/);
-  assert.match(html, /aria-label="Steer the current Run with this message"/);
-  assert.match(html, /Sending normally queues the next task\. Steer modifies the current task instead\./);
+  assert.match(html, /aria-label="Pause Run"/);
+  assert.match(html, /class="[^"]*send is-running"/);
+  assert.doesNotMatch(html, /send-snake-loader|send-snake-pixel|send-live-indicator/);
+  assert.equal((html.match(/<button\b/g) ?? []).length, 1, "running composer has one primary action");
+  assert.doesNotMatch(html, /aria-label="Stop run"|aria-label="Steer the current Run with this message"/);
   assert.equal(html.includes("Choose Steer or Queue"), false);
   assert.equal(html.includes("Choose message action"), false);
-  assert.match(html, /aria-label="Send message"/);
 });
 
-test("停止入口不依赖草稿内容，停止中给出明确状态", async () => {
+test("暂停受理后主按钮显示暂停进度", async () => {
   const React = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { MessageComposer } = await import("../src/components/MessageComposer");
-
-  const running = renderToStaticMarkup(React.createElement(MessageComposer, {
-    busy: true,
-    running: true,
-    stopping: false,
-    placeholder: "Add direction while this Run is working…",
-    onSubmit: async () => true,
-    onInterrupt: async () => undefined,
-    footerControls: null,
-  } as any));
-  assert.match(running, /aria-label="Stop run"/);
-  const stopButton = /<button[^>]*aria-label="Stop run"[^>]*>/.exec(running)?.[0] ?? "";
-  assert.equal(stopButton.includes("disabled"), false, "输入提交在途时停止入口仍然可达");
 
   const stopping = renderToStaticMarkup(React.createElement(MessageComposer, {
     busy: true,
     running: true,
     stopping: true,
-    placeholder: "Add direction while this Run is working…",
+    placeholder: "Queue a message for the next Run…",
     onSubmit: async () => true,
     onInterrupt: async () => undefined,
     footerControls: null,
   } as any));
-  assert.match(stopping, /aria-label="Stopping Run"/);
-  assert.match(stopping, /Stopping/);
+  assert.match(stopping, /aria-label="Pausing Run"/);
+  assert.match(stopping, /class="loading-mark small"/);
+  assert.match(stopping, /disabled=""/);
 });

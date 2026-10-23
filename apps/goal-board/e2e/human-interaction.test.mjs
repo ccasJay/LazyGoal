@@ -76,10 +76,10 @@ test("human interaction questionnaire: navigation, review, queue, overall reply 
     await waitForExpression(socket, "document.querySelector('.interaction-region.question-region') !== null", 20_000);
     await clickLabel(socket, "label.answer-option", "All notes");
     await waitForExpression(socket, "document.querySelector('.question-nav-progress').textContent.includes('Answered 1 of 2')");
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.interaction-mode-switch label')].find(label => label.innerText.includes('Reply instead')).querySelector('input').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.interaction-mode-switch label')].find(label => label.innerText.includes('Reply instead')).querySelector('[role=radio], [role=checkbox]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Overall reply\"]') !== null");
     await setText(socket, "textarea[aria-label=\"Overall reply\"]", "Handle this my own way");
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.interaction-mode-switch label')].find(label => label.innerText.includes('Answer each question')).querySelector('input').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.interaction-mode-switch label')].find(label => label.innerText.includes('Answer each question')).querySelector('[role=radio], [role=checkbox]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.question-nav-progress').textContent.includes('Answered 1 of 2')");
     assert.equal(await checked(socket, "label.answer-option", "All notes"), true, "per-question draft survives the mode switch");
     await setText(socket, "textarea[aria-label=\"Queue next task\"]", "Queue this follow-up task");
@@ -90,12 +90,12 @@ test("human interaction questionnaire: navigation, review, queue, overall reply 
       return (candidate.pendingMessages ?? []).length === 1 ? candidate : undefined;
     }, "the queued follow-up task", 20_000);
     assert.equal(queuedGoal.pendingMessages[0].content, "Queue this follow-up task");
-    assert.equal(await value(socket, "document.querySelector('.queued-inputs')?.innerText.includes('Queue this follow-up task')"), true);
+    assert.equal(await value(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Queue this follow-up task')"), true);
     await waitForExpression(socket, "document.querySelector('.question-nav-item.answered') !== null");
     assert.equal(await checked(socket, "label.answer-option", "All notes"), true, "queueing keeps the questionnaire draft");
 
     // 切回整体回复：两份草稿都在，只提交当前方式。
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.interaction-mode-switch label')].find(label => label.innerText.includes('Reply instead')).querySelector('input').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.interaction-mode-switch label')].find(label => label.innerText.includes('Reply instead')).querySelector('[role=radio], [role=checkbox]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Overall reply\"]')?.value === 'Handle this my own way'");
     assert.equal(await value(socket, "document.querySelector('.interaction-review') === null"), true, "reply mode only shows the reply editor");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.ask-user-actions button')].find(button => button.textContent.includes('Send reply')).click()", returnByValue: true });
@@ -168,9 +168,9 @@ test("human interaction approvals: full task review, single tool approval and ex
     assert.match(actionRegion, /controlled plan write/, "the complete canonical input is reviewable before deciding");
     assert.match(actionRegion, /Approve once/);
     // 拒绝需要非空理由：未填写时拒绝按钮不可用，也从不提供参数编辑。
-    assert.equal(await value(socket, "document.querySelector('.approval-scopes input').checked"), true, "the default scope is the single action");
+    assert.equal(await value(socket, "document.querySelector('.approval-scopes [role=radio]').getAttribute('aria-checked') === 'true'"), true, "the default scope is the single action");
     await clickButton(socket, "Reject action");
-    assert.equal(await value(socket, "(() => { const button = [...document.querySelectorAll('.action-region button')].find(candidate => candidate.textContent.trim() === 'Reject action'); return button.disabled; })()"), true);
+    assert.equal(await value(socket, "document.querySelector('.action-rejection [data-state=open] button').disabled"), true);
     assert.equal(actionRegion.includes("Edit input"), false);
 
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.action-region button')].find(button => button.textContent.includes('Approve once')).click()", returnByValue: true });
@@ -208,7 +208,7 @@ test("human interaction questionnaire: waiting stop, keyboard and narrow layout"
     assert.equal(await value(socket, "getComputedStyle(document.querySelector('.interaction-mode-switch')).gridTemplateColumns.split(' ').length"), 1);
 
     // 键盘：文本框 Enter／Escape 不提交、不跳过、不停止。
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.interaction-mode-switch label')].find(label => label.innerText.includes('Reply instead')).querySelector('input').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.interaction-mode-switch label')].find(label => label.innerText.includes('Reply instead')).querySelector('[role=radio], [role=checkbox]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.overall-reply textarea') !== null");
     await setText(socket, "textarea[aria-label='Overall reply']", "Draft that must not submit");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.overall-reply textarea').focus()", returnByValue: true });
@@ -225,9 +225,9 @@ test("human interaction questionnaire: waiting stop, keyboard and narrow layout"
     // 键盘 Tab 在区域内移动且焦点可见。
     await cdp(socket, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
     await cdp(socket, "Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
-    const focusCheck = await value(socket, "(() => { const element = document.activeElement; return { inRegion: document.querySelector('.interaction-region').contains(element), outline: getComputedStyle(element).outlineStyle, name: element.textContent.trim() }; })()");
+    const focusCheck = await value(socket, "(() => { const element = document.activeElement; return { inRegion: document.querySelector('.interaction-region').contains(element), outline: getComputedStyle(element).outlineStyle, shadow: getComputedStyle(element).boxShadow, name: element.textContent.trim() }; })()");
     assert.equal(focusCheck.inRegion, true, "Tab keeps focus inside the interaction region");
-    assert.notEqual(focusCheck.outline, "none", "keyboard focus is visible");
+    assert.ok(focusCheck.outline !== "none" || focusCheck.shadow !== "none", "keyboard focus has an outline or focus ring");
 
     // 字段关联与状态播报存在，且问题控件都有可访问名称。
     assert.equal(await value(socket, "document.querySelector('.interaction-status').getAttribute('role')"), "status");
@@ -425,13 +425,13 @@ async function answerQuestionnaireAsHost(origin, token, goalId, inputId) {
 
 async function clickLabel(socket, selector, text) {
   await cdp(socket, "Runtime.evaluate", {
-    expression: `[...document.querySelectorAll(${JSON.stringify(selector)})].find(label => label.innerText.includes(${JSON.stringify(text)})).querySelector('input').click()`,
+    expression: `[...document.querySelectorAll(${JSON.stringify(selector)})].find(label => label.innerText.includes(${JSON.stringify(text)})).querySelector('[role=radio], [role=checkbox]').click()`,
     returnByValue: true,
   });
 }
 
 async function checked(socket, selector, text) {
-  return value(socket, `[...document.querySelectorAll(${JSON.stringify(selector)})].find(label => label.innerText.includes(${JSON.stringify(text)})).querySelector('input').checked`);
+  return value(socket, `[...document.querySelectorAll(${JSON.stringify(selector)})].find(label => label.innerText.includes(${JSON.stringify(text)})).querySelector('[role=radio], [role=checkbox]').getAttribute('aria-checked') === 'true'`);
 }
 
 function startService({ workspace, data, home, statusPath, runOffset, modelOffset, delayModel = false }) {

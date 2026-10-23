@@ -58,6 +58,10 @@ test("Run input controls persist Steer and deduplicate continuation retries", as
     assert.equal(steer.body.receipt.targetRunId, runId);
     assert.equal(steer.body.receipt.inputId, "steer-e2e-1");
 
+    const retained = await request(ready, `/api/goals/${goalId}/inputs`, {
+      method: "POST", body: { kind: "message", inputId: "queue-retained-before-pause", content: "Retain this queued task across the pause" },
+    });
+    assert.equal(retained.response.status, 202);
     const interrupted = await request(ready, `/api/goals/${goalId}/inputs`, {
       method: "POST",
       body: { kind: "interrupt", inputId: "interrupt-e2e-1", runId },
@@ -82,7 +86,7 @@ test("Run input controls persist Steer and deduplicate continuation retries", as
     const unknownReceipt = await request(ready, `/api/goals/${goalId}/inputs/never-accepted-input`);
     assert.equal(unknownReceipt.response.status, 200);
     assert.equal(unknownReceipt.body.found, false);
-    const queued = await waitForSessionBody(ready, goalId, (session) => session.pendingMessages?.length === 1);
+    const queued = await waitForSessionBody(ready, goalId, (session) => session.pendingMessages?.length === 2);
     assert.equal(queued.queue.paused, true);
     // 暂停期间新消息只追加到队尾：显式继续才解除暂停。
     const retry = await request(ready, `/api/goals/${goalId}/inputs`, { method: "POST", body: followUp });
@@ -103,9 +107,9 @@ test("Run input controls persist Steer and deduplicate continuation retries", as
     assert.equal(restartedRetry.response.status, 200);
     assert.equal(restartedRetry.body.receipt.inputId, "queue-e2e-1");
     // 重启后只恢复和展示状态：队列顺序与暂停仍来自持久化真源。
-    const restored = await waitForSessionBody(restarted, goalId, (session) => session.pendingMessages?.length === 1);
+    const restored = await waitForSessionBody(restarted, goalId, (session) => session.pendingMessages?.length === 2);
     assert.equal(restored.queue.paused, true);
-    assert.equal(restored.pendingMessages[0].content, "Start the queued follow-up");
+    assert.deepEqual(restored.pendingMessages.map(message => message.content), ["Retain this queued task across the pause", "Start the queued follow-up"]);
     const conflict = await request(restarted, `/api/goals/${goalId}/inputs`, {
       method: "POST",
       body: { ...followUp, content: "Changed after acceptance" },
@@ -118,8 +122,8 @@ test("Run input controls persist Steer and deduplicate continuation retries", as
       body: { kind: "queue_control", inputId: "queue-continue-e2e", action: "continue", queueRevision: restored.queue.revision },
     });
     assert.equal(continued.response.status, 202);
-    const resumedRun = await waitForSessionBody(restarted, goalId, (session) => session.currentRunId !== runId && session.queue.paused === false);
-    assert.equal((resumedRun.pendingMessages ?? []).length, 0);
+    const resumedRun = await waitForSessionBody(restarted, goalId, (session) => session.currentRunId !== runId && session.queue.paused === false && (session.pendingMessages?.length ?? 0) === 1);
+    assert.deepEqual(resumedRun.pendingMessages.map(message => message.content), ["Start the queued follow-up"]);
   } finally {
     if (child.exitCode === null) {
       child.kill("SIGTERM");

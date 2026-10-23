@@ -45,6 +45,12 @@ export function useGoalSession({
   const [sessionState, setSessionState] = useState<BrowserSessionState | null>(null);
   const [activityPage, setActivityPage] = useState<BrowserActivityPage | null>(null);
   const [activityWindow, setActivityWindow] = useState<ActivityWindowState>(createActivityWindowState());
+  const setFollow = useCallback((value: boolean | ((current: boolean) => boolean)) => {
+    setActivityWindow(current => {
+      const following = typeof value === "function" ? value(current.following) : value;
+      return { ...current, following, unread: following ? 0 : current.unread };
+    });
+  }, []);
   const [fullSession, setFullSession] = useState<BrowserGoalSession | null>(null);
   const [fullSessionLoading, setFullSessionLoading] = useState(false);
   const [fullSessionError, setFullSessionError] = useState<string | null>(null);
@@ -292,6 +298,7 @@ export function useGoalSession({
     sessionState,
     activityPage,
     activityWindow,
+    setFollow,
     loadEarlierActivity,
     loadNewerActivity,
     jumpToLatestActivity,

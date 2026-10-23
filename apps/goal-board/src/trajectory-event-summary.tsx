@@ -1,3 +1,4 @@
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./components/ui/collapsible";
 import React from "react";
 import type {
   BrowserTrajectoryDetail,
@@ -25,7 +26,7 @@ export function EventSummary({ event }: { event: BrowserTrajectoryDetail["event"
         <code>{issue.path.join(".") || "Response"}</code><span>{issue.message}</span>
       </li>)}</ul>
       <dl><div><dt>Reason</dt><dd>{feedbackPayload.feedback.code}</dd></div><div><dt>Validation</dt><dd>{feedbackPayload.feedback.origin.replaceAll("_", " ")}</dd></div></dl>
-      {feedbackPayload.feedback.constraints?.length ? <details><summary>Correction instructions</summary>{feedbackPayload.feedback.constraints.map((constraint, index) => <p key={index}>{constraint}</p>)}</details> : null}
+      {feedbackPayload.feedback.constraints?.length ? <Collapsible defaultOpen><CollapsibleTrigger className="tr-feedback-summary-trigger">Correction instructions</CollapsibleTrigger><CollapsibleContent>{feedbackPayload.feedback.constraints.map((constraint, index) => <p key={index}>{constraint}</p>)}</CollapsibleContent></Collapsible> : null}
       <p className="tr-summary-note">View Raw for the complete saved event.</p>
     </section>;
   }

@@ -53,7 +53,7 @@ test("设置页列出凭据状态、激活标记与只读配置来源", async ()
   assert.match(html, /Google · gemini-2\.5-pro/);
 
   // 激活档案不可删除；其它档案仍提供删除入口。
-  assert.match(html, /Switch to another provider before deleting/);
+  assert.match(html, /More options for/);
   const activeRow = html.slice(html.indexOf("profile-active"), html.indexOf("profile-spare"));
   assert.match(activeRow, /disabled/);
 });

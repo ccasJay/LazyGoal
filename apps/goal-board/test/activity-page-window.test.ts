@@ -25,6 +25,17 @@ function position(sequence: number, runId = "run-1", itemKind: "fact" | "message
   return { runId, runOrder: 0, sequence, itemKind, order: 0 };
 }
 
+test("repeated latest refreshes count unread items once while keeping the reading page", () => {
+  const initial = pageFixture({ items: [factItem(1, "e1")] });
+  const latest = pageFixture({ items: [factItem(1, "e1"), factItem(2, "e2")] });
+  const paused = { ...applyActivityPage(createActivityWindowState(), initial), following: false };
+  const updated = mergeLatestPage(paused, latest);
+  assert.equal(updated.unread, 1);
+  const repeated = mergeLatestPage(updated, latest);
+  assert.equal(repeated.unread, 1);
+  assert.equal(repeated.page, initial);
+});
+
 function messageItem(sequence: number, messageId: string, runId = "run-1"): BrowserActivityMessageItem {
   return {
     type: "message",

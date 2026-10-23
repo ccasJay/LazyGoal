@@ -4,6 +4,11 @@
 
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
+| shadcn UI | 官方 Radix 组件源码、Tailwind 样式与 LazyGoal 品牌语义变量；通用交互不重复自制。 | [Goal Board](../README.md) | [组件配置](../components.json)、[品牌主题](../src/ui.css) |
+| 底部指标行 | 输入框下方独立展示 Goal 聚合指标；窄屏横向滚动，Popover 展示当前 Run 状态与完整计量说明。 | [Goal Board](../README.md) | [SessionMetricsBar](../src/components/SessionMetricsBar.tsx)、[模块说明](./overview.md) |
+| 历史执行折叠 | 当前 Run 默认展开，历史执行默认折叠，用户消息与最终答复保持原顺序可读。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx) |
+| 阅读与跟随 | Activity 窗口唯一持有跟随状态；手动浏览保持锚点，未读按新增来源水位计数，显式跳转回到最新。 | [Goal Board](../README.md) | [Activity 窗口](../src/activity-page-window.ts)、[会话视图](../src/components/GoalSession.tsx) |
+| 模型无响应提示 | 模型六十秒无新公开响应时提示；显示来源时长与最近观察时间，不自动取消或重试。 | [Goal Board](../README.md) | [执行进度](../src/execution-progress.ts) |
 | Workspace shell | 当前工作区的紧凑导航、详情、Goal 搜索与可收起最近列表；侧栏可隐藏及拖动调宽，宽度仅保存在页面内。 | [Goal Board](../README.md) | [WorkspaceShell](../src/components/WorkspaceShell.tsx)、[ResizableSidebar](../src/components/ResizableSidebar.tsx) |
 | Goal 列表不可读提示 | 服务端报告存在无法读取的历史 Goal 时，看板显示说明条并保留可读 Goal，不以整页错误替代列表。 | [Goal Board](../README.md) | [GoalBoard](../src/components/GoalBoard.tsx)、[模块说明](./overview.md) |
 | Settings page | 侧栏底部进入 Provider 管理页，切换时保留当前会话。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx)、[模块说明](./overview.md) |
@@ -16,8 +21,10 @@
 | 交互详情读取 | 按当前 Goal／Run／交互引用读取完整问题、任务范围或 Action 输入；失败保留等待并禁用依赖完整范围的决定。 | [浏览器服务边界](../../../packages/browser/README.md) | [交互详情路由](../../../packages/browser/src/browser-goal-routes.ts) |
 | 提案阶段路线 | 批准前显示 Plan Run 的完整候选阶段及各自验收条件。 | [Goal Board](../README.md) | [任务审批视图](../src/interaction-panel.tsx) |
 | 获批 Run 路线 | Activity 时间线上独立呈现 Plan Run 当前完整阶段顺序、状态与验收条件。 | [Goal Board](../README.md) | [PlanRouteList](../src/components/PlanRouteList.tsx) |
-| ActivityGroup | 从固定 Activity 页的已提交事实与安全实时事件派生的纯分组投影；断组由完整交错来源决定，正文、交互、未知事实与阶段边界都会断开相邻成员，隐藏正文不改变该判定。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
-| 活动成员状态 | 区分执行中、重试、结果待保存、已提交失败／成功与已拒绝；实时返回不标为已保存成功，已提交 Observation 才决定终态。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
+| ActivityGroup | 从固定 Activity 页的已提交事实与安全实时事件派生的纯展示分组，只压缩同阶段内连续同工具调用，不代表 Runtime 阶段；断组由完整交错来源决定，正文、交互、未知事实与阶段边界都会断开相邻成员，隐藏正文不改变该判定。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
+| 活动成员状态 | 区分执行中、重试、审批等待、结果待保存、已提交失败／成功与已拒绝；组的运行状态与异常计数独立显示，结算后区分全部失败与部分失败；实时返回不标为已保存成功，已提交 Observation 才决定终态。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
+| 活动组展开状态 | 标题显示动作描述，辅助摘要显示真实调用次数与结果计数；成功默认折叠，运行、失败、拒绝与审批等待默认展开。手动开合在追加、结算与筛选时保留，异常摘要不随折叠或筛选隐藏。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx)、[ActivityProjector](../src/activity-projector.ts) |
+| 真实阶段展示 | 只按已提交声明或当前路线的真实阶段标题、身份与修订收拢连续活动；已接受阶段默认折叠，工作中与需处理的阶段展开，正文与交互仍在原来源位置。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx)、[时间线投影](../src/session-timeline.ts) |
 | Live Activity | 当前 Goal SSE 的公开生成与连接状态；候选正文不持久化，保存通知后仍待固定 Activity 页核验。 | [Goal Board](../README.md) | [useRunStream](../src/hooks/useRunStream.ts) |
 | 临时正文来源索引 | 流式正文按来源身份独立累积并有界：换源时旧来源保留已到达内容，新来源单独累积；结算边界立即提交待合并尾部，不丢字也不复活旧帧。 | [Goal Board](../README.md) | [流式渲染状态](../src/streaming-render.ts)、[帧合并](../src/live-text-batch.ts) |
 | 安全 Markdown | 正文与 Think 输出共用同一安全 GFM 渲染：原始 HTML 与脚本不进入 DOM，模型图片与嵌入降级为链接，代码与表格只在自身区域横向滚动。 | [Goal Board](../README.md) | [AssistantMarkdown](../src/components/AssistantMarkdown.tsx) |
@@ -28,9 +35,9 @@
 | 已受理队列投影 | Runtime Snapshot 中的待处理普通消息、队列修订与暂停原因；页面只读取该投影，不再镜像本地任务或由前端 effect 启动后继 Run。 | [Goal Board](../README.md) | [Session Projection](../../../packages/browser/src/browser-projection.ts) |
 | 本地草稿 | 仅保存在输入框的未提交文本；提交中、拒绝与结果不明时保留，受理成功后由服务端收据接管。 | [Goal Board](../README.md) | [MessageComposer](../src/components/MessageComposer.tsx) |
 | 会话渐进加载 | 固定水位 Activity 页支持双向翻页：更早与更新的页按稳定身份并入当前窗口，缺口明确提示；历史页缓存至多三页，正文分段至多三段；阅读锚点按可见项身份恢复。 | [Goal Board](../README.md) | [Activity 窗口](../src/activity-page-window.ts)、[SessionTimeline](../src/components/SessionTimeline.tsx) |
-| 会话输出消费 | 页面消费同一条 Goal SSE：保存不明的候选保持待核验；正式 Activity 以同一展示 key 替换候选；确定作废后保留最多八份可释放旧稿，换 Goal 或重连清除临时正文。 | [Goal Board](../README.md) | [会话输出归约](../src/session-output-consumer.ts) |
-| 普通发送与显式 Steer | Enter 直接走普通消息受理并排队；Shift+Enter 换行，输入法组合期间不提交。Steer 是独立次操作，说明它修改当前任务而不是排队；拒绝保留草稿且不降级为排队。 | [Goal Board](../README.md) | [输入控制语义](../src/session-controls.ts)、[输入区](../src/components/MessageComposer.tsx) |
-| 独立 Stop run | 中断入口不依赖输入框是否有草稿；停止中、收尾、审批与最终取消各按真实状态呈现，Stopping 不等于已取消。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx) |
+| 会话输出消费 | 页面消费同一条 Goal SSE：保存不明的候选保持待核验；正式 Activity 以同一展示 key 替换候选；确定作废后立即移除临时正文并保留有限身份标记以忽略迟到片段。 | [Goal Board](../README.md) | [会话输出归约](../src/session-output-consumer.ts) |
+| 运行中输入与主按钮 | Enter 排队普通消息、Shift+Enter 换行；唯一主按钮在有正文时排队发送，空输入时受理 Interrupt 并暂停当前 Run。动态运行提示位于 Activity 时间线；暂停后由可恢复 Run 状态提供 Resume。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx)、[Activity 时间线](../src/components/SessionTimeline.tsx)、[运行命令](../src/hooks/useRunCommands.ts) |
+| 可折叠队列状态框 | 汇总 Runtime 队列与待应用 Steer；每条普通消息可单独删除，或按观察到的队列修订原子转为当前 Run 的 Steer。暂停队列显式继续。 | [Goal Board](../README.md) | [会话视图](../src/components/GoalSession.tsx)、[队列控制](../src/hooks/useQueue.ts) |
 | 不确定提交核验 | 受理结果不明时保留原 `inputId` 与冻结载荷，只提供按原身份核验收据或重试；明确拒绝保留可编辑草稿。 | [Goal Board](../README.md) | [输入控制语义](../src/session-controls.ts)、[运行命令](../src/hooks/useRunCommands.ts) |
 | 渲染错误边界 | 会话与轨迹视图的渲染异常被边界捕获，显示错误卡与重载入口，不整页白屏。 | [Goal Board](../README.md) | [SessionBoundary](../src/components/error-boundary.tsx) |
 | liveText 帧合并 | 打字机增量按帧合并后提交渲染，跟随滚动以帧节流，流结束不丢字。 | [Goal Board](../README.md) | [live-text-batch](../src/live-text-batch.ts) |
@@ -42,3 +49,5 @@
 | 轨迹详情覆盖层 | 窄屏下详情覆盖记录列表，列表保持全宽；Trajectory 页不渲染输入区。 | [Goal Board](../README.md) | [Trajectory](../src/trajectory.tsx)、[样式](../src/trajectory.css) |
 | Think activity | 同一 Step 内独立展示的显式思考目标、进行状态及已提交分析；可定位原轨迹。 | [Goal Board](../README.md) | [活动投影](../src/activity-projector.ts)、[轨迹详情](../src/trajectory-event-summary.tsx) |
 | 审批参数编辑与审阅 | 同一工具的 JSON 参数编辑、只读预检与原／最终参数差异确认；再次编辑使旧审阅失效。 | [Goal Board](../README.md) | [交互面板](../src/interaction-panel.tsx) |
+| 运行过程提示 | 显示真实模型阶段、等待对象与来源计时；可展开本连接最近八条事件，最多保存二十条，不推断重连前的当前操作，不展示推理正文。 | [Goal Board](../README.md) | [进度投影](../src/execution-progress.ts)、[时间线](../src/components/SessionTimeline.tsx) |
+| 执行过程回看 | 终态保留本次连接日志；刷新从 Activity 恢复已提交的诊断和审批摘要。 | [Goal Board](../README.md) | [时间线](../src/components/SessionTimeline.tsx) |

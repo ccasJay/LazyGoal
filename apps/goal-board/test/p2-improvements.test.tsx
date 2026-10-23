@@ -194,9 +194,6 @@ test("SessionTimeline 保留真实来源身份并按交错顺序渲染消息、�
     liveActivity: null,
     streamConnected: false,
     brandMark: "/logo.svg",
-    candidatePresentation: { candidates: [], settledCandidates: [], discardedDrafts: [], unavailableDraftCount: 0 } as any,
-    onExpandCandidate: () => {},
-    onReleaseCandidate: () => {},
   }));
 
   const orderedIds = ["run:run-1", "message:user", "event:tool", "message:steer", "message:progress", "message:answer", "terminal:run-1:completed"];
@@ -217,11 +214,12 @@ test("SessionTimeline 把真实工具活动呈现为可展开活动组，并保�
     runId: "run-1", runOrder: 0, sequence, itemKind, order,
   });
   const group = {
+    counts: { running: 0, retrying: 0, waiting: 0, "pending-result": 0, completed: 1, failed: 0, rejected: 0 },
     id: "action:run-1:a1",
     runId: "run-1",
     category: "explore" as const,
     status: "completed" as const,
-    summary: "Explored 1 item",
+    summary: "Read src/app.ts",
     position: position(1),
     members: [{
       id: "action:run-1:a1",
@@ -258,17 +256,15 @@ test("SessionTimeline 把真实工具活动呈现为可展开活动组，并保�
     liveActivity: null,
     streamConnected: false,
     brandMark: "/logo.svg",
-    candidatePresentation: { candidates: [], settledCandidates: [], discardedDrafts: [], unavailableDraftCount: 0 } as any,
-    onExpandCandidate: () => {},
-    onReleaseCandidate: () => {},
   }));
 
   assert.match(html, /data-group-id="action:run-1:a1"/);
   assert.match(html, /aria-expanded="false"/);
-  assert.match(html, /Explored 1 item/);
+  assert.match(html, /Read src\/app\.ts/);
+  assert.match(html, /activity-snake-loader/);
   assert.match(html, /Completed/);
-  // 折叠状态下不渲染成员详情，避免未展开即占用阅读空间。
-  assert.equal(html.includes("Read src/app.ts"), false);
+  // 折叠摘要显示真实调用名，但详情字段仍需展开后读取。
+  assert.equal(html.includes('class="timeline-activity-member-copy"'), false);
 
   const expandedHtml = renderToStaticMarkup(React.createElement(ActivityGroupRow, {
     itemId: "activity:action:run-1:a1",
@@ -290,6 +286,54 @@ test("SessionTimeline 把真实工具活动呈现为可展开活动组，并保�
   assert.match(expandedHtml, /View trajectory/);
 });
 
+test("当前执行中的工具组自动展开，并在 Activity Run 状态显示像素动画", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { SessionTimeline } = await import("../src/components/SessionTimeline");
+  const position = { runId: "run-1", runOrder: 0, sequence: 1, itemKind: "fact" as const, order: 0 };
+  const group = {
+    counts: { running: 0, retrying: 0, waiting: 0, "pending-result": 0, completed: 1, failed: 0, rejected: 0 },
+    id: "action:run-1:a1",
+    runId: "run-1",
+    category: "explore" as const,
+    status: "running" as const,
+    summary: "Read src/app.ts",
+    position,
+    members: [{
+      id: "action:run-1:a1",
+      runId: "run-1",
+      category: "explore" as const,
+      label: "Read src/app.ts",
+      status: "running" as const,
+      isCommitted: false,
+      attempts: [],
+      actionId: "a1",
+      sourceItemId: "live:tool",
+      position,
+    }],
+  };
+  const html = renderToStaticMarkup(React.createElement(SessionTimeline, {
+    projection: {
+      currentPlanRoute: undefined,
+      items: [
+        { kind: "run", itemId: "run:run-1", runId: "run-1", status: "running", position: { ...position, sequence: 0 } },
+        { kind: "activity", itemId: "activity:action:run-1:a1", runId: "run-1", group, position },
+      ],
+    },
+    currentRunId: "run-1",
+    runStatus: "running",
+    olderAvailable: false,
+    showExecutionFacts: true,
+    liveActivity: null,
+    streamConnected: true,
+    brandMark: "/logo.svg",
+  }));
+
+  assert.match(html, /timeline-activity running[\s\S]*activity-snake-loader/);
+  assert.match(html, /timeline-activity-heading[^>]*aria-expanded="true"/);
+  assert.match(html, /timeline-activity-member-label[^>]*>Read src\/app\.ts/);
+});
+
 test("SessionTimeline 保留显式 Think 的获准摘要、已提交输出与详情入口", async () => {
   const React = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
@@ -298,6 +342,7 @@ test("SessionTimeline 保留显式 Think 的获准摘要、已提交输出与详
     runId: "run-1", runOrder: 0, sequence, itemKind: "fact" as const, order: 0,
   });
   const group = {
+    counts: { running: 0, retrying: 0, waiting: 0, "pending-result": 0, completed: 1, failed: 0, rejected: 0 },
     id: "think:run-1:think:event-1",
     runId: "run-1",
     category: "think" as const,
@@ -345,11 +390,12 @@ test("关闭 Execution steps 只隐藏活动主体，正文与 Run 边界仍然�
     runId: "run-1", runOrder: 0, sequence, itemKind, order,
   });
   const group = {
+    counts: { running: 0, retrying: 0, waiting: 0, "pending-result": 0, completed: 1, failed: 0, rejected: 0 },
     id: "action:run-1:a1",
     runId: "run-1",
     category: "explore" as const,
     status: "completed" as const,
-    summary: "Explored 1 item",
+    summary: "Read src/app.ts",
     position: position(1),
     members: [{
       id: "action:run-1:a1",
@@ -379,12 +425,9 @@ test("关闭 Execution steps 只隐藏活动主体，正文与 Run 边界仍然�
     liveActivity: null,
     streamConnected: false,
     brandMark: "/logo.svg",
-    candidatePresentation: { candidates: [], settledCandidates: [], discardedDrafts: [], unavailableDraftCount: 0 } as any,
-    onExpandCandidate: () => {},
-    onReleaseCandidate: () => {},
   }));
 
-  assert.equal(html.includes("Explored 1 item"), false);
+  assert.equal(html.includes("Read src/app.ts"), false);
   assert.match(html, /data-item-id="run:run-1"/);
   assert.match(html, /data-item-id="message:answer"/);
   assert.match(html, /Review complete/);
@@ -393,10 +436,10 @@ test("关闭 Execution steps 只隐藏活动主体，正文与 Run 边界仍然�
 test("PermissionControl 单选框包含 id 和 name 属性并正确关联 label", async () => {
   const React = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { PermissionControl } = await import("../src/components/PermissionControl");
+  const { PermissionModeOptions } = await import("../src/components/PermissionControl");
 
   const html = renderToStaticMarkup(
-    React.createElement(PermissionControl, {
+    React.createElement(PermissionModeOptions, {
       mode: "default",
       open: true,
       modeBusy: false,
@@ -420,7 +463,7 @@ test("PermissionControl 单选框包含 id 和 name 属性并正确关联 label"
   assert.match(html, /for="permission-mode-yolo"/);
 });
 
-test("TrajectoryRecords 渲染记录行时包含外层容器与内部交互按钮", async () => {
+test("TrajectoryRecords 渲染记录行时保留选择按钮且不使用 option 语义", async () => {
   const React = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { TrajectoryRecords } = await import("../src/trajectory-records");
@@ -458,6 +501,8 @@ test("TrajectoryRecords 渲染记录行时包含外层容器与内部交互按�
   );
 
   assert.match(html, /class="ct-record/);
-  assert.match(html, /role="option"/);
-  assert.match(html, /class="ct-record-body"/);
+  assert.doesNotMatch(html, /role="option"/);
+  assert.doesNotMatch(html, /aria-selected/);
+  assert.match(html, /aria-pressed="false"/);
+  assert.match(html, /class="[^"]*ct-record-body"/);
 });

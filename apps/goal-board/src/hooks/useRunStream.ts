@@ -2,12 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { BrowserActivityPage, BrowserGoalActivityEvent, BrowserGoalLiveEvent, BrowserGoalSessionState } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
 import { createTextBatcher } from "../live-text-batch";
+import { recordExecutionProgress, type ExecutionProgressEntry } from "../execution-progress";
 import {
   EMPTY_SESSION_OUTPUT_DISPLAY,
   applySessionOutputEvent,
   reconcileCandidatePresentation,
-  releaseDiscardedCandidate,
-  setExpandedCandidate,
 } from "../session-output-consumer";
 import {
   INITIAL_STREAM_RECOVERY_STATE,
@@ -38,6 +37,7 @@ export function useRunStream({
 }) {
   const [outputDisplay, setOutputDisplay] = useState(EMPTY_SESSION_OUTPUT_DISPLAY);
   const [liveEvents, setLiveEvents] = useState<BrowserGoalLiveEvent[]>([]);
+  const [progressEntries, setProgressEntries] = useState<readonly ExecutionProgressEntry[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
   const [recovery, setRecovery] = useState<StreamRecoveryState>(INITIAL_STREAM_RECOVERY_STATE);
   const [livePreview, setLivePreview] = useState<LivePreviewState>(createLivePreviewState());
@@ -107,6 +107,7 @@ export function useRunStream({
       setLiveText("");
       setOutputDisplay(EMPTY_SESSION_OUTPUT_DISPLAY);
       setLiveEvents([]);
+      setProgressEntries([]);
       setStreamConnected(false);
       setRecovery(INITIAL_STREAM_RECOVERY_STATE);
     }
@@ -134,6 +135,7 @@ export function useRunStream({
     let active = true;
     setOutputDisplay(EMPTY_SESSION_OUTPUT_DISPLAY);
     setLiveEvents([]);
+    setProgressEntries([]);
     setStreamConnected(false);
     setRecovery(INITIAL_STREAM_RECOVERY_STATE);
 
@@ -166,13 +168,17 @@ export function useRunStream({
             if (event.type === "state_sync") {
               if (!synced) {
                 synced = true;
-                // 重建连接后的权威同步：丢弃断线期间保留的旧临时正文与作废旧稿。
+                setProgressEntries((current) => current.length === 0 ? current : [...current, {
+                  id: current.at(-1)!.id + 1, runId: current.at(-1)!.runId, kind: "connection_reset",
+                  label: "Waiting for execution events",
+                  detail: "Reconnected. No current operation observed on this connection.",
+                  startedAt: Date.now(), lastObservedAt: Date.now(), hasSourceTime: false,
+                }].slice(-20));
+                // 重建连接后的权威同步：丢弃断线期间保留的临时正文。
                 textBatcher.clear();
                 setOutputDisplay((current) => ({
                   ...current,
                   liveText: "",
-                  discardedDrafts: [],
-                  unavailableDraftCount: 0,
                 }));
               }
               setRecovery((current) => reduceStreamRecovery(current, { kind: "state_sync" }));
@@ -222,6 +228,7 @@ export function useRunStream({
               await refreshLatest();
               continue;
             }
+            setProgressEntries((current) => recordExecutionProgress(current, event, Date.now()));
             const retainedActivity: BrowserGoalActivityEvent | undefined = event.activity.kind === "assistant_text_delta"
               ? {
                   kind: "activity_boundary",
@@ -253,7 +260,7 @@ export function useRunStream({
                 textBatcher.flush();
                 openSource(event.runId);
                 setLiveText("");
-                setOutputDisplay((current) => ({ ...current, liveActivity: "Runtime is working on this Goal" }));
+                setOutputDisplay((current) => ({ ...current, liveActivity: "Waiting for model response" }));
                 break;
               case "model_completed":
                 setOutputDisplay((current) => ({ ...current, liveActivity: "Waiting for the saved result" }));
@@ -304,21 +311,13 @@ export function useRunStream({
     // 订阅按 Goal 建立：后继 Run 不重建执行订阅，跨 Run 只换权威读取的水位。
   }, [selectedGoalId, session?.goalId, sessionLoading]);
 
-  const expandCandidateDraft = useCallback((presentationKey: string | undefined) => {
-    setOutputDisplay((current) => setExpandedCandidate(current, presentationKey));
-  }, []);
-  const releaseCandidateDraft = useCallback((presentationKey: string) => {
-    setOutputDisplay((current) => releaseDiscardedCandidate(current, presentationKey));
-  }, []);
-
   return {
     liveText,
     setLiveText,
     liveActivity,
     candidatePresentation: outputDisplay,
-    expandCandidateDraft,
-    releaseCandidateDraft,
     liveEvents,
+    progressEntries,
     streamConnected,
     stateStale: recovery.stale,
     streamSynced: recovery.synced,

@@ -21,7 +21,7 @@ async function render(content: string): Promise<string> {
 test("GFM 表格与列表保留语义，表格在自身区域横向滚动", async () => {
   const html = await render("| 名称 | 值 |\n| --- | --- |\n| a | 1 |\n\n- 第一项\n- 第二项");
 
-  assert.match(html, /<table>/);
+  assert.match(html, /<table[^>]*>/);
   assert.match(html, /markdown-table-scroll/);
   assert.match(html, /<li>第一项<\/li>/);
   assert.match(html, /<th>名称<\/th>/);

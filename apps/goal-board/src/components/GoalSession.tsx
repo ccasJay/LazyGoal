@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./ui/collapsible";
+import { Checkbox } from "./ui/checkbox";
+import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Sheet, SheetContent, SheetTitle } from "./ui/sheet";
+import { captureAnchor, resolveAnchorScrollTop, FOLLOW_THRESHOLD_PX, type ActivityAnchor } from "../activity-page-window";
 import type { ReactNode } from "react";
 import {
   AlertCircle,
@@ -6,6 +14,8 @@ import {
   Check,
   ChevronRight,
   CircleHelp,
+  CornerUpRight,
+  Trash2,
   X,
 } from "lucide-react";
 import type { BrowserGoalListItem, BrowserToolGrantSummary } from "../../../../packages/web-contracts/src/index";
@@ -18,13 +28,17 @@ import { useGoalSessionContext } from "../context/GoalSessionContext";
 import { useRunControlContext } from "../context/RunControlContext";
 import { MessageComposer, CurrentModelControl } from "./MessageComposer";
 import { SessionMetricsBar } from "./SessionMetricsBar";
-import { WorkspaceContext } from "./WorkspaceContext";
 import { SessionBoundary } from "./error-boundary";
 import { projectSessionTimeline } from "../session-timeline";
 import { SessionTimeline } from "./SessionTimeline";
 import { collectActivityProjections } from "../collect-activity-projections";
 import type { ActivityGroup } from "../activity-projector";
-import { queueClearScope } from "../session-controls";
+
+function timelineOffsets(element: HTMLElement): ReadonlyMap<string, number> {
+  const top = element.getBoundingClientRect().top;
+  return new Map([...element.querySelectorAll<HTMLElement>("[data-item-id]")].map(item =>
+    [item.dataset.itemId!, item.getBoundingClientRect().top - top + element.scrollTop]));
+}
 
 export function GoalSession({
   activeGoal,
@@ -54,8 +68,6 @@ export function GoalSession({
     loadFullSession,
     sessionLoading,
     sessionError,
-    workspaceContext,
-    workspaceContextError,
     sessionTab,
     setSessionTab,
     trajectoryTarget,
@@ -72,10 +84,9 @@ export function GoalSession({
     revokingGrantId,
     liveText,
     liveActivity,
+    progressEntries,
     liveEvents,
     candidatePresentation,
-    expandCandidateDraft,
-    releaseCandidateDraft,
     streamConnected,
     stateStale,
     metricsByGoal,
@@ -103,7 +114,7 @@ export function GoalSession({
     queuedInputs,
     queuePaused,
     onContinueQueue,
-    onClearQueue,
+    onRemoveQueuedInput,
     onSubmitMessage,
     onSubmitDraftMessage,
     onSubmitSteer,
@@ -116,11 +127,14 @@ export function GoalSession({
   } = useRunControlContext();
 
   const timeline = useRef<HTMLDivElement>(null);
+  const readingAnchor = useRef<ActivityAnchor | undefined>(undefined);
+  const programmaticTop = useRef<number | undefined>(undefined);
   const followFrame = useRef<number | null>(null);
   const currentRun = activityPage?.runs.find((run) => run.current);
+  const pendingSteers = session?.pendingSteers ?? [];
+  const queueRevision = session?.queue?.revision ?? 0;
   const [draftNoticeDismissed, setDraftNoticeDismissed] = useState(false);
   const [decisionSummaries, setDecisionSummaries] = useState<readonly AcceptedDecisionSummary[]>([]);
-  const [queueClearConfirm, setQueueClearConfirm] = useState(false);
 
   const projectionGoalKey = session?.goalId ?? null;
   useEffect(() => {
@@ -130,7 +144,6 @@ export function GoalSession({
   // 切换 Goal 时清空页面级决定摘要：新会话不复用旧请求的决定记录。
   useEffect(() => {
     setDecisionSummaries([]);
-    setQueueClearConfirm(false);
   }, [projectionGoalKey]);
 
   useEffect(() => () => {
@@ -162,6 +175,28 @@ export function GoalSession({
     [activityPage, session, activityGroups, liveText, candidatePresentation],
   );
 
+  useLayoutEffect(() => {
+    const element = timeline.current;
+    if (element === null) return;
+    const settle = () => {
+      const move = (top: number) => {
+        if (Math.abs(element.scrollTop - top) < 1) return;
+        element.scrollTop = top;
+        programmaticTop.current = element.scrollTop;
+      };
+      if (follow) move(element.scrollHeight);
+      else {
+        const top = resolveAnchorScrollTop(readingAnchor.current, timelineOffsets(element));
+        if (top !== undefined) move(top);
+      }
+    };
+    settle();
+    const observer = new ResizeObserver(settle);
+    const feed = element.querySelector(".session-timeline-feed");
+    if (feed) observer.observe(feed);
+    return () => observer.disconnect();
+  }, [follow, timelineProjection, sessionTab]);
+
   useEffect(() => {
     if (follow && timeline.current && followFrame.current === null) {
       // 以帧为刻度合并滚动跳变，避免每个流式增量都同步读写布局值。
@@ -179,29 +214,24 @@ export function GoalSession({
     : (["Board", "Activity", "Plan", "Trajectory"] as const);
 
   return (
-    <section className="session">
+    <section className={`session${draftSessionOpen || sessionTab === "Activity" ? " session-activity" : ""}`}>
       {goalInfoOpen && session && (
-        <>
-          <div
-            className="goal-info-backdrop"
-            aria-hidden="true"
-            onClick={() => setGoalInfoOpen(false)}
-          />
-          <section className="goal-info-panel" aria-label="Goal information">
+        <Sheet open onOpenChange={open => { if (!open) setGoalInfoOpen(false); }}>
+          <SheetContent showCloseButton={false} className="goal-info-panel" aria-describedby={undefined}>
             <header>
-              <strong>Goal information</strong>
-              <button
+              <SheetTitle>Goal information</SheetTitle>
+              <Button variant="ghost" size="sm"
                 className="icon"
                 aria-label="Close Goal information"
                 onClick={() => setGoalInfoOpen(false)}
               >
                 <X size={17} />
-              </button>
+              </Button>
             </header>
             {fullSession === null ? (
               <div className="session-empty" role={fullSessionError ? "alert" : undefined}>
                 <p>{fullSessionLoading ? "Loading Goal details…" : fullSessionError ?? "Goal details are not loaded."}</p>
-                {!fullSessionLoading && <button className="secondary" onClick={() => void loadFullSession()}>Load Goal details</button>}
+                {!fullSessionLoading && <Button variant="ghost" size="sm" className="secondary" onClick={() => void loadFullSession()}>Load Goal details</Button>}
               </div>
             ) : (
               <GoalDetails
@@ -216,21 +246,20 @@ export function GoalSession({
                 deleteBusy={manageBusyId === fullSession.goalId}
               />
             )}
-          </section>
-        </>
+          </SheetContent>
+        </Sheet>
       )}
 
       {draftSessionOpen ? (
         <>
           {sessionError && <div className="command-error" role="alert">
             <p>{sessionError}</p>
-            <button className="secondary" onClick={() => void refreshSelectedSession()}>Reload session</button>
+            <Button variant="ghost" size="sm" className="secondary" onClick={() => void refreshSelectedSession()}>Reload session</Button>
           </div>}
-          <WorkspaceContext context={workspaceContext} error={workspaceContextError} />
           <div className="session-tabs">
-            <div className="session-tab-buttons">
-              <button aria-pressed="true">Activity</button>
-            </div>
+            <Tabs value={sessionTab} onValueChange={value => { setTrajectoryTarget(null); setSessionTab(value as typeof sessionTab); }}><TabsList className="session-tab-buttons">
+              <TabsTrigger value="Activity">Activity</TabsTrigger>
+            </TabsList></Tabs>
             <span className="stream-state">
               <span className="dot" />Local Runtime
             </span>
@@ -250,9 +279,9 @@ export function GoalSession({
           {commandError && (
             <div className="command-error" role="alert">
               <span>{commandError}</span>
-              <button aria-label="Dismiss error" onClick={() => setCommandError(null)}>
+              <Button variant="ghost" size="sm" aria-label="Dismiss error" onClick={() => setCommandError(null)}>
                 <X size={13} />
-              </button>
+              </Button>
             </div>
           )}
           {draftModelCatalog?.defaultModelNotice && !draftNoticeDismissed && (
@@ -262,9 +291,9 @@ export function GoalSession({
                   ? `Saved model belongs to a different provider. ${draftModelId === null ? "Choose an available model." : `Using configured default: ${draftModelName}.`}`
                   : `Saved model is unavailable. ${draftModelId === null ? "Choose an available model." : `Using configured default: ${draftModelName}.`}`}
               </span>
-              <button aria-label="Dismiss notice" onClick={() => setDraftNoticeDismissed(true)}>
+              <Button variant="ghost" size="sm" aria-label="Dismiss notice" onClick={() => setDraftNoticeDismissed(true)}>
                 <X size={13} />
-              </button>
+              </Button>
             </div>
           )}
           {draftModelCatalog !== null && draftModelId === null && (
@@ -275,9 +304,9 @@ export function GoalSession({
           {draftModelError !== null && (
             <div className="command-error" role="alert">
               <span>{draftModelError}</span>
-              <button type="button" onClick={() => void loadDraftDefault(0)}>
+              <Button variant="ghost" size="sm" type="button" onClick={() => void loadDraftDefault(0)}>
                 Retry
-              </button>
+              </Button>
             </div>
           )}
           <div className="composer-area">
@@ -310,9 +339,9 @@ export function GoalSession({
         <div className="session-empty" role="alert">
           <CircleHelp size={24} />
           <p>{sessionError}</p>
-          <button className="secondary" onClick={() => void refreshSelectedSession()}>
+          <Button variant="ghost" size="sm" className="secondary" onClick={() => void refreshSelectedSession()}>
             Reload session
-          </button>
+          </Button>
         </div>
       ) : session === null ? (
         <div className="session-empty">
@@ -322,25 +351,20 @@ export function GoalSession({
         <>
           {sessionError && <div className="command-error" role="alert">
             <p>{sessionError}</p>
-            <button className="secondary" onClick={() => void refreshSelectedSession()}>Reload session</button>
+            <Button variant="ghost" size="sm" className="secondary" onClick={() => void refreshSelectedSession()}>Reload session</Button>
           </div>}
-          <WorkspaceContext context={workspaceContext} error={workspaceContextError} />
           {session.nextRunMode === "plan" && <div className="session-intro">Next Run · Plan Mode</div>}
           <div className="session-tabs">
-            <div className="session-tab-buttons">
+            <Tabs value={sessionTab} onValueChange={value => { setTrajectoryTarget(null); setSessionTab(value as typeof sessionTab); }}><TabsList className="session-tab-buttons">
               {sessionTabs.map((tab) => (
-                <button
+                <TabsTrigger value={tab} onClick={() => { setTrajectoryTarget(null); setSessionTab(tab); }}
                   key={tab}
                   aria-pressed={sessionTab === tab}
-                  onClick={() => {
-                    setTrajectoryTarget(null);
-                    setSessionTab(tab);
-                  }}
                 >
                   {tab}
-                </button>
+                </TabsTrigger>
               ))}
-            </div>
+            </TabsList></Tabs>
             <div className="session-state">
               <span className={`task-state ${sessionStatusTone(session)}`}>
                 <span className="status-dot" />
@@ -356,7 +380,7 @@ export function GoalSession({
             <div className="state-stale" role="status">
               The live connection dropped. The last confirmed content is shown, but it may be outdated. New Steer
               and Resume actions stay unavailable until the state is re-read.
-              <button type="button" onClick={() => void refreshSelectedSession()}>Re-read state</button>
+              <Button variant="ghost" size="sm" type="button" onClick={() => void refreshSelectedSession()}>Re-read state</Button>
             </div>
           )}
           {sessionTab === "Board" ? (
@@ -365,7 +389,7 @@ export function GoalSession({
             fullSession === null ? (
               <div className="session-empty" role={fullSessionError ? "alert" : undefined}>
                 <p>{fullSessionLoading ? "Loading Trajectory…" : fullSessionError ?? "Trajectory is not loaded."}</p>
-                {!fullSessionLoading && <button className="secondary" onClick={() => void loadFullSession()}>Load Trajectory</button>}
+                {!fullSessionLoading && <Button variant="ghost" size="sm" className="secondary" onClick={() => void loadFullSession()}>Load Trajectory</Button>}
               </div>
             ) : (
               <SessionBoundary label="Trajectory view" onReload={() => void refreshSelectedSession()}>
@@ -380,7 +404,7 @@ export function GoalSession({
             fullSession === null ? (
               <div className="session-empty" role={fullSessionError ? "alert" : undefined}>
                 <p>{fullSessionLoading ? "Loading Plan…" : fullSessionError ?? "Plan is not loaded."}</p>
-                {!fullSessionLoading && <button className="secondary" onClick={() => void loadFullSession()}>Load Plan</button>}
+                {!fullSessionLoading && <Button variant="ghost" size="sm" className="secondary" onClick={() => void loadFullSession()}>Load Plan</Button>}
               </div>
             ) : (
               <GoalDetails
@@ -396,22 +420,21 @@ export function GoalSession({
           ) : (
             <>
               <div className="activity-filter">
-                <label htmlFor="filter-execution-steps">
-                  <input
+                <Label htmlFor="filter-execution-steps">
+                  <Checkbox
                     id="filter-execution-steps"
                     name="showTools"
-                    type="checkbox"
                     checked={showTools}
-                    onChange={(event) => setShowTools(event.target.checked)}
+                    onCheckedChange={checked => setShowTools(checked === true)}
                   />
                   Execution steps
-                </label>
+                </Label>
                 <span>{activityPage?.items.filter((item) => item.type === "message").length ?? 0} messages in this page</span>
               </div>
               <SessionBoundary label="Activity view" onReload={() => void refreshSelectedSession()}>
                 <div className="timeline-region">
                   {isWaitingApprovalOrInput && !follow && (
-                    <button
+                    <Button variant="ghost" size="sm"
                       type="button"
                       className="floating-approval-guide"
                       aria-label="Scroll to pending approval form"
@@ -432,14 +455,28 @@ export function GoalSession({
                           : "Awaiting your response · Click to reply"}
                       </span>
                       <ArrowDown size={14} aria-hidden="true" />
-                    </button>
+                    </Button>
                   )}
                   <div
                     className="timeline"
                     ref={timeline}
                     onScroll={(event) => {
                       const element = event.currentTarget;
-                      setFollow(element.scrollHeight - element.scrollTop - element.clientHeight < 60);
+                      if (programmaticTop.current !== undefined && Math.abs(element.scrollTop - programmaticTop.current) < 1) {
+                        programmaticTop.current = undefined;
+                        return;
+                      }
+                      programmaticTop.current = undefined;
+                      const following = element.scrollHeight - element.scrollTop - element.clientHeight < FOLLOW_THRESHOLD_PX;
+                      setFollow(following);
+                      if (!following) readingAnchor.current = captureAnchor({ offsets: timelineOffsets(element), scrollTop: element.scrollTop });
+                    }}
+                    onClickCapture={event => {
+                      if (event.target instanceof Element && event.target.closest("button[aria-expanded]")) {
+                        const element = event.currentTarget;
+                        readingAnchor.current = captureAnchor({ offsets: timelineOffsets(element), scrollTop: element.scrollTop });
+                        setFollow(false);
+                      }
                     }}
                   >
                     {activityPage === null ? (
@@ -452,10 +489,8 @@ export function GoalSession({
                         olderAvailable={activityPage.range.olderAvailable}
                         showExecutionFacts={showTools}
                         liveActivity={liveActivity}
+                        progressEntries={progressEntries}
                         streamConnected={streamConnected}
-                        candidatePresentation={candidatePresentation}
-                        onExpandCandidate={expandCandidateDraft}
-                        onReleaseCandidate={releaseCandidateDraft}
                         onOpenTrajectory={(target) => {
                           setTrajectoryTarget({ ...target, nonce: Date.now() });
                           setSessionTab("Trajectory");
@@ -474,17 +509,17 @@ export function GoalSession({
                     )}
                   </div>
                   {!follow && (
-                    <button
+                    <Button variant="ghost" size="sm"
                       className="jump"
-                      aria-label="Back to latest"
-                      title="Back to latest"
+                      aria-label="Jump to latest"
+                      title="Jump to latest"
                       onClick={() => {
                         setFollow(true);
                         void jumpToLatestActivity();
                       }}
                     >
-                      <ArrowDown size={17} aria-hidden="true" />
-                    </button>
+                      <ArrowDown size={17} aria-hidden="true" />Jump to latest{activityWindow.unread > 0 ? ` (${activityWindow.unread})` : ""}
+                    </Button>
                   )}
                 </div>
               </SessionBoundary>
@@ -495,23 +530,25 @@ export function GoalSession({
             <div className="command-error" role="alert">
               <span>{commandError}</span>
               {modelPreferenceRetry !== null && (
-                <button type="button" onClick={() => void retryModelPreference()}>
+                <Button variant="ghost" size="sm" type="button" onClick={() => void retryModelPreference()}>
                   Retry saving default
-                </button>
+                </Button>
               )}
-              <button aria-label="Dismiss error" onClick={() => setCommandError(null)}>
+              <Button variant="ghost" size="sm" aria-label="Dismiss error" onClick={() => setCommandError(null)}>
                 <X size={13} />
-              </button>
+              </Button>
             </div>
           )}
 
           {sessionTab === "Trajectory" && canSendText && (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               className="trajectory-message-link"
               onClick={() => setSessionTab("Activity")}
             >
               Message this Goal from Activity <ChevronRight size={14} />
-            </button>
+            </Button>
           )}
 
           {sessionTab !== "Board" && sessionTab !== "Trajectory" && (
@@ -525,56 +562,80 @@ export function GoalSession({
                   ))}
                 </div>
               )}
-              {queuedInputs.length > 0 && (
-                <div className="queued-inputs" aria-label="Accepted queue">
-                  <div className="queued-inputs-heading">Accepted queue · next Run order</div>
-                  <ol>
-                    {queuedInputs.map((item) => (
-                      <li key={item.messageId}>{item.content}</li>
+              {(queuedInputs.length > 0 || pendingSteers.length > 0 || queuePaused) && (
+                <Collapsible className="queued-input-status" aria-label="Queued input status">
+                  <CollapsibleTrigger>
+                    <span className={`queue-status-dot${queuePaused ? " is-paused" : ""}`} aria-hidden="true" />
+                    <strong>{queuePaused ? "Queue paused" : "Queue"}</strong>
+                    <span className="queue-status-count">
+                      {queuedInputs.length} queued{pendingSteers.length > 0 ? ` · ${pendingSteers.length} Steer waiting` : ""}
+                    </span>
+                    {queuedInputs[0] !== undefined && (
+                      <span className="queue-status-preview">{queuedInputs[0].content}</span>
+                    )}
+                    <ChevronRight className="queue-status-chevron" size={13} aria-hidden="true" />
+                  </CollapsibleTrigger><CollapsibleContent>
+                  <div className="queued-input-status-body">
+                    {queuedInputs.map((item, index) => (
+                      <article className="queued-input-item" key={item.messageId}>
+                        <div className="queued-input-item-heading">
+                          <span>Queued · Next Run</span>
+                          <span className="queued-input-actions">
+                            <Button variant="ghost" size="sm"
+                              type="button"
+                              aria-label={`Steer queued message ${index + 1} into the current Run`}
+                              title="Steer this message into the current Run"
+                              disabled={
+                                commandBusy
+                                || sessionError !== null
+                                || stateStale
+                                || session?.runStatus !== "running"
+                                || (session.interruption !== undefined && session.interruption.status !== "finished")
+                              }
+                              onClick={() => void onSubmitSteer(item.content, {
+                                messageId: item.messageId,
+                                queueRevision,
+                              })}
+                            >
+                              <CornerUpRight size={13} /> Steer
+                            </Button>
+                            <Button variant="ghost" size="sm"
+                              type="button"
+                              className="queued-input-delete"
+                              aria-label={`Delete queued message ${index + 1}`}
+                              title="Delete this queued message"
+                              disabled={commandBusy || sessionError !== null}
+                              onClick={() => void onRemoveQueuedInput(item.messageId)}
+                            >
+                              <Trash2 size={13} />
+                            </Button>
+                          </span>
+                        </div>
+                        <p>{item.content}</p>
+                      </article>
                     ))}
-                  </ol>
-                  <div className="queued-inputs-actions">
-                    {queueClearConfirm ? (
-                      <>
-                        <span className="queue-clear-confirm">
-                          {queueClearScope(queuedInputs.length)}
-                        </span>
-                        <button
+                    {pendingSteers.map((item) => (
+                      <article className="queued-input-item is-steer" key={item.messageId}>
+                        <div className="queued-input-item-heading">
+                          <span>Steer · Waiting for next model call</span>
+                        </div>
+                        <p>{item.content}</p>
+                      </article>
+                    ))}
+                    {queuePaused && (
+                      <div className="queue-paused">
+                        <span>Queue is paused.</span>
+                        <Button variant="ghost" size="sm"
                           type="button"
-                          className="primary"
                           disabled={commandBusy || sessionError !== null}
-                          onClick={() => {
-                            setQueueClearConfirm(false);
-                            void onClearQueue();
-                          }}
+                          onClick={() => void onContinueQueue()}
                         >
-                          Clear queued tasks
-                        </button>
-                        <button type="button" onClick={() => setQueueClearConfirm(false)}>Keep queue</button>
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={commandBusy || sessionError !== null}
-                        onClick={() => setQueueClearConfirm(true)}
-                      >
-                        Clear accepted queue
-                      </button>
+                          Continue
+                        </Button>
+                      </div>
                     )}
                   </div>
-                  {queuePaused && (
-                    <div className="queue-paused">
-                      Queue paused. Continue when ready.
-                      <button
-                        type="button"
-                        disabled={commandBusy || sessionError !== null}
-                        onClick={() => void onContinueQueue()}
-                      >
-                        Continue queue
-                      </button>
-                    </div>
-                  )}
-                </div>
+                </CollapsibleContent></Collapsible>
               )}
               {unverifiedSubmissions.length > 0 && (
                 <div className="unverified-submissions" aria-label="Unconfirmed submissions">
@@ -583,21 +644,21 @@ export function GoalSession({
                       <span>
                         {item.kind === "steer" ? "Steer" : "Message"} result is unknown. Verify it before sending again.
                       </span>
-                      <button
+                      <Button variant="ghost" size="sm"
                         type="button"
                         disabled={commandBusy}
                         onClick={() => void onVerifySubmission(item.inputId)}
                       >
                         Verify
-                      </button>
-                      <button
+                      </Button>
+                      <Button variant="ghost" size="sm"
                         type="button"
                         disabled={commandBusy}
                         onClick={() => void onRetrySubmission(item.inputId)}
                       >
                         Retry same input
-                      </button>
-                      <button type="button" onClick={() => onDiscardSubmission(item.inputId)}>Discard</button>
+                      </Button>
+                      <Button variant="ghost" size="sm" type="button" onClick={() => onDiscardSubmission(item.inputId)}>Discard</Button>
                     </div>
                   ))}
                 </div>
@@ -649,11 +710,6 @@ export function GoalSession({
                           placeholder="Queue next task…"
                           busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
                           onSubmit={onSubmitMessage}
-                          onInterrupt={onInterrupt}
-                          stopping={
-                            stoppingRunId === session.currentRunId ||
-                            (session.interruption !== undefined && session.interruption.status !== "finished")
-                          }
                         />
                       </div>
                     )}
@@ -716,58 +772,41 @@ export function GoalSession({
                     onSubmit={onSubmitMessage}
                   />
                 )}
-              {session.runStatus === "running" &&
-                (session.execution?.state === "recoverable" ? (
-                  <div className="composer-recover-row">
-                    <div className="composer-extra-controls">
+              {session.runStatus === "running" && (
+                <MessageComposer
+                  key={session.currentRunId}
+                  showHint={false}
+                  busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
+                  sendDisabled={stateStale}
+                  running={session.execution?.state !== "recoverable"}
+                  recoverable={session.execution?.state === "recoverable"}
+                  recoveryActionLabel={
+                    session.interruption !== undefined && session.interruption.status !== "finished"
+                      ? "Finish stopping"
+                      : "Resume Run"
+                  }
+                  placeholder="Queue a message for the next Run…"
+                  onInterrupt={onInterrupt}
+                  onResume={onSubmitResume}
+                  stopping={
+                    stoppingRunId === session.currentRunId ||
+                    (session.execution?.state !== "recoverable" &&
+                      session.interruption !== undefined &&
+                      session.interruption.status !== "finished")
+                  }
+                  footerControls={
+                    <>
                       {renderPermissionControl(true)}
                       <CurrentModelControl
                         label={currentModelName}
                         enabled={false}
                         onClick={() => undefined}
                       />
-                    </div>
-                    <div className="composer-recover-actions">
-                      <span className="composer-note">Execution paused or interrupted.</span>
-                      <button
-                        type="button"
-                        className="primary"
-                        disabled={commandBusy || sessionError !== null || stateStale}
-                        onClick={() => void onSubmitResume()}
-                      >
-                        {commandBusy ? "Resuming…" : "Resume Run"}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <MessageComposer
-                    key={session.currentRunId}
-                    showHint={false}
-                    busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
-                    running
-                    placeholder="Add direction while this Run is working…"
-                    pendingSteers={session.pendingSteers ?? []}
-                    onSteer={onSubmitSteer}
-                    onInterrupt={onInterrupt}
-                    steerDisabled={stateStale}
-                    stopping={
-                      stoppingRunId === session.currentRunId ||
-                      (session.interruption !== undefined &&
-                        session.interruption.status !== "finished")
-                    }
-                    footerControls={
-                      <>
-                        {renderPermissionControl(true)}
-                        <CurrentModelControl
-                          label={currentModelName}
-                          enabled={false}
-                          onClick={() => undefined}
-                        />
-                      </>
-                    }
-                    onSubmit={onSubmitMessage}
-                  />
-                ))}
+                    </>
+                  }
+                  onSubmit={onSubmitMessage}
+                />
+              )}
               {session.runStatus === "created" &&
                 (session.execution?.state === "recoverable" ? (
                   <div className="composer-recover-row">
@@ -781,14 +820,14 @@ export function GoalSession({
                     </div>
                     <div className="composer-recover-actions">
                       <span className="composer-note">Run not yet active in this process.</span>
-                      <button
+                      <Button variant="ghost" size="sm"
                         type="button"
                         className="primary"
                         disabled={commandBusy || sessionError !== null || stateStale}
                         onClick={() => void onSubmitResume()}
                       >
                         {commandBusy ? "Resuming…" : "Resume Run"}
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 ) : (
@@ -820,7 +859,7 @@ export function GoalSession({
                     <div className="composer-note">The approved action is being recorded.</div>
                   </>
                 )}
-              <SessionMetricsBar state={metricsByGoal[session.goalId]} />
+              <SessionMetricsBar state={metricsByGoal[session.goalId]} runStatus={session.runStatus} />
             </div>
           )}
         </>

@@ -1,0 +1,45 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@source "./";
+
+@theme inline {
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --color-background: var(--panel);
+  --color-foreground: var(--text);
+  --color-card: var(--panel);
+  --color-card-foreground: var(--text);
+  --color-popover: var(--panel);
+  --color-popover-foreground: var(--text);
+  --color-primary: var(--accent-ink);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--surface-raised);
+  --color-secondary-foreground: var(--text-secondary);
+  --color-muted: var(--surface);
+  --color-muted-foreground: var(--muted);
+  --color-accent: var(--surface-raised);
+  --color-accent-foreground: var(--accent-ink);
+  --color-destructive-foreground: #ffffff;
+  --color-destructive: var(--danger);
+  --color-border: var(--line);
+  --color-input: var(--control-border);
+  --color-ring: var(--accent-ink);
+  --color-sidebar: var(--surface);
+  --color-sidebar-foreground: var(--text-secondary);
+  --color-sidebar-primary: var(--accent-ink);
+  --color-sidebar-primary-foreground: #ffffff;
+  --color-sidebar-accent: var(--surface-raised);
+  --color-sidebar-accent-foreground: var(--accent-ink);
+  --color-sidebar-border: var(--line);
+  --color-sidebar-ring: var(--accent-ink);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+}

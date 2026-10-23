@@ -25,7 +25,6 @@ export function useGoalBoardApp() {
   const [goalInfoOpen, setGoalInfoOpen] = useState(false);
   const [trajectoryTarget, setTrajectoryTarget] = useState<{ runId: string; executionUnitId: string; nonce: number } | null>(null);
   const [sessionTab, setSessionTab] = useState<SessionTab>("Activity");
-  const [follow, setFollow] = useState(true);
   const [showTools, setShowTools] = useState(true);
 
   const draftGeneration = useRef(0);
@@ -35,6 +34,8 @@ export function useGoalBoardApp() {
     onGoalsRefresh: async () => { await goalsManager.refreshGoals(); },
     onClearLiveText: () => { streamManager.setLiveText(""); },
   });
+  const follow = sessionManager.activityWindow.following;
+  const setFollow = sessionManager.setFollow;
 
   const goalsManager = useGoals({
     selectedGoalId: sessionManager.selectedGoalId,
@@ -187,7 +188,7 @@ export function useGoalBoardApp() {
   const sessionContextValue: GoalSessionContextValue = {
     selectedGoalId: sessionManager.selectedGoalId,
     session: sessionManager.session,
-    activityPage: sessionManager.activityPage,
+    activityPage: sessionManager.activityWindow.page ?? sessionManager.activityPage,
     activityWindow: sessionManager.activityWindow,
     loadEarlierActivity: sessionManager.loadEarlierActivity,
     loadNewerActivity: sessionManager.loadNewerActivity,
@@ -215,9 +216,8 @@ export function useGoalBoardApp() {
     revokingGrantId: permissionsManager.revokingGrantId,
     liveText: streamManager.liveText,
     liveActivity: streamManager.liveActivity,
+    progressEntries: streamManager.progressEntries,
     candidatePresentation: streamManager.candidatePresentation,
-    expandCandidateDraft: streamManager.expandCandidateDraft,
-    releaseCandidateDraft: streamManager.releaseCandidateDraft,
     liveEvents: streamManager.liveEvents,
     streamConnected: streamManager.streamConnected,
     stateStale: streamManager.stateStale,
@@ -257,7 +257,7 @@ export function useGoalBoardApp() {
     queuedInputs: queueManager.queuedInputs,
     queuePaused: queueManager.queuePaused,
     onContinueQueue: queueManager.continueQueue,
-    onClearQueue: queueManager.clearQueue,
+    onRemoveQueuedInput: queueManager.removeQueuedInput,
     onSubmitMessage: commandsManager.submitMessage,
     onSubmitDraftMessage: commandsManager.submitDraftMessage,
     onSubmitSteer: commandsManager.submitSteer,

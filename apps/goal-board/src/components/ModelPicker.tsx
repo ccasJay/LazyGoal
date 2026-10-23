@@ -1,3 +1,8 @@
+import { Command, CommandInput, CommandList, CommandItem } from "./ui/command";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { NativeSelect } from "./ui/native-select";
 import { useEffect, useRef, useState } from "react";
 import { Check, X } from "lucide-react";
 import type {
@@ -77,15 +82,15 @@ export function ModelPicker({
           <h2>Choose model</h2>
           <p>Models available from the current provider</p>
         </div>
-        <button className="icon" type="button" aria-label="Close model picker" onClick={onClose}>
+        <Button variant="ghost" size="sm" className="icon" type="button" aria-label="Close model picker" onClick={onClose}>
           <X size={17} />
-        </button>
+        </Button>
       </div>
       {catalog !== null && <p className="model-provider">Configured provider · {catalog.provider}</p>}
       {catalog !== null && catalog.sources !== undefined && catalog.sources.length > 1 && (
         <div className="model-sources">
-          <label htmlFor="model-picker-source">Provider</label>
-          <select
+          <Label htmlFor="model-picker-source">Provider</Label>
+          <NativeSelect
             id="model-picker-source"
             aria-label="Choose provider"
             value={sourceProfileId ?? ""}
@@ -96,7 +101,7 @@ export function ModelPicker({
                 {source.label}{source.label === source.kind ? "" : ` · ${source.kind}`}{source.active ? " (active)" : ""}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
       )}
       {catalog === null && error === null && (
@@ -105,30 +110,28 @@ export function ModelPicker({
         </p>
       )}
       {error !== null && <p className="model-error" role="alert">{error}</p>}
-      <input
+      <Command shouldFilter={false} loop><CommandInput
         id="model-picker-search"
         name="search"
         className="model-search"
         data-modal-autofocus
-        type="search"
         aria-label="Search models"
         placeholder="Search models…"
         value={search}
-        onChange={(event) => setSearch(event.target.value)}
+        onValueChange={setSearch}
       />
       {catalog !== null && (
-        <div className="model-list">
+        <CommandList className="model-list">
           {catalog.models
             .filter((model) => `${model.displayName} ${model.id}`.toLowerCase().includes(search.toLowerCase()))
             .map((model) => {
               const current = (selectedId ?? catalog.currentModelId) === model.id;
               return (
-                <button
+                <CommandItem value={model.id}
                   key={model.id}
-                  type="button"
                   className={`model-option ${current ? "current" : ""}`}
                   disabled={!model.selectable || busyId !== null}
-                  onClick={() => void pick(model)}
+                  onSelect={() => void pick(model)}
                 >
                   <span className="model-option-main">
                     <strong>{model.displayName}</strong>
@@ -154,14 +157,15 @@ export function ModelPicker({
                       <span className="model-unavailable">{model.unavailableReason ?? "Unavailable"}</span>
                     )}
                   </span>
-                </button>
+                </CommandItem>
               );
             })}
           {!catalog.models.some((model) =>
             `${model.displayName} ${model.id}`.toLowerCase().includes(search.toLowerCase())
           ) && <p className="model-empty">No models match this search.</p>}
-        </div>
+        </CommandList>
       )}
+      </Command>
     </Modal>
   );
 }

@@ -18,6 +18,7 @@ import type { ActivityGroup } from "./activity-projector";
  * 各持久化项使用 Activity `itemId` 与位置；Run 终态只由 Goal/Run 状态构造，临时正文身份
  * 仅在当前 Run 内有效，不能作为已保存消息提交或恢复。工具活动以真实动作组呈现，组的
  * 位置取其首个成员，组内成员保持各自来源身份。
+ * 当前失败 Run 的错误摘要只取同 Run 的窄状态，不附到历史 Run 或尚未结算的 Run。
  *
  * @example
  * ```ts
@@ -28,16 +29,14 @@ import type { ActivityGroup } from "./activity-projector";
  * ```
  */
 export type SessionTimelineEntry =
-  | { readonly kind: "run"; readonly itemId: string; readonly runId: string; readonly status: string; readonly position: BrowserActivityPosition }
+  | { readonly kind: "run"; readonly itemId: string; readonly runId: string; readonly status: string; readonly detail?: BrowserGoalSessionState["currentRunTerminalDetail"]; readonly position: BrowserActivityPosition }
   | { readonly kind: "message"; readonly itemId: string; readonly presentationKey: string; readonly runId: string; readonly role: "user" | "assistant"; readonly purpose?: "process" | "answer" | "notice"; readonly content: string; readonly position: BrowserActivityPosition; readonly previewIssue?: "official-text-differs" | "preview-incomplete" }
   | { readonly kind: "activity"; readonly itemId: string; readonly runId: string; readonly group: ActivityGroup; readonly position?: BrowserActivityPosition }
   | { readonly kind: "interaction"; readonly itemId: string; readonly runId: string; readonly interactionId: string; readonly interactionKind: string; readonly position: BrowserActivityPosition }
-  | { readonly kind: "fact"; readonly itemId: string; readonly runId: string; readonly title: string; readonly eventType: string; readonly stageTarget?: string; readonly position: BrowserActivityPosition }
-  | { readonly kind: "terminal"; readonly itemId: string; readonly runId: string; readonly status: "completed" | "failed" | "cancelled"; readonly position: BrowserActivityPosition }
+  | { readonly kind: "fact"; readonly itemId: string; readonly runId: string; readonly title: string; readonly detail?: string; readonly eventType: string; readonly stageId?: string; readonly stageRevision?: number; readonly stageTarget?: string; readonly position: BrowserActivityPosition }
+  | { readonly kind: "terminal"; readonly itemId: string; readonly runId: string; readonly status: "completed" | "failed" | "cancelled"; readonly detail?: BrowserGoalSessionState["currentRunTerminalDetail"]; readonly position: BrowserActivityPosition }
   | { readonly kind: "live-preview"; readonly itemId: string; readonly runId: string; readonly content: string }
-  | { readonly kind: "candidate-preview"; readonly itemId: string; readonly presentationKey: string; readonly candidateId: string; readonly runId: string; readonly content: string; readonly status: "generating" | "ready" | "pending-verification"; readonly missingPrefix: boolean; readonly truncated: boolean }
-  | { readonly kind: "discarded-preview"; readonly itemId: string; readonly presentationKey: string; readonly runId: string; readonly content: string; readonly reason: string; readonly missingPrefix: boolean; readonly truncated: boolean }
-  | { readonly kind: "discarded-notice"; readonly itemId: string; readonly content: string };
+  | { readonly kind: "candidate-preview"; readonly itemId: string; readonly presentationKey: string; readonly candidateId: string; readonly runId: string; readonly content: string; readonly status: "generating" | "ready" | "pending-verification"; readonly missingPrefix: boolean; readonly truncated: boolean };
 
 /**
  * Activity 时间线的只读投影。
@@ -61,7 +60,7 @@ export interface SessionTimelineProjection {
  * 从固定 Activity 页和窄 Goal 状态构建单一、稳定的会话时间线。
  *
  * @remarks
- * 已保存项只按服务端位置排序并按稳定身份去重；有效候选、作废旧稿与临时正文排在已保存来源之后。
+ * 已保存项只按服务端位置排序并按稳定身份去重；当前候选与临时正文排在已保存来源之后。
  * Run 完成状态只来自状态投影，不从模型正文、过程提交或阶段事实推断。工具事实按真实动作
  * 归入活动组，组出现在其首个成员的位置；实时活动组没有已提交位置，排在当前 Run 末尾。
  *
@@ -110,7 +109,8 @@ export function projectSessionTimeline(
       itemKind: "fact" as const,
       order: 0,
     };
-    items.push({ kind: "run", itemId: `run:${run.runId}`, runId: run.runId, status: run.status, position: runPosition });
+    items.push({ kind: "run", itemId: `run:${run.runId}`, runId: run.runId, status: run.status, position: runPosition,
+      ...(run.terminalDetail === undefined ? {} : { detail: run.terminalDetail }) });
 
     const groups = activityGroups.get(run.runId) ?? [];
     const groupBySourceItem = new Map<string, ActivityGroup>();
@@ -169,8 +169,11 @@ export function projectSessionTimeline(
         kind: "fact",
         itemId: item.itemId,
         runId: item.runId,
-        title: item.stageTarget === undefined ? item.title : `${item.title} · ${item.stageTarget}`,
+        title: item.title,
+        ...(item.detail === undefined ? {} : { detail: item.detail }),
         eventType: item.eventType,
+        ...(item.stageId === undefined ? {} : { stageId: item.stageId }),
+        ...(item.stageRevision === undefined ? {} : { stageRevision: item.stageRevision }),
         ...(item.stageTarget === undefined ? {} : { stageTarget: item.stageTarget }),
         position: item.position,
       });
@@ -194,6 +197,9 @@ export function projectSessionTimeline(
         itemId: `terminal:${run.runId}:${run.status}`,
         runId: run.runId,
         status: run.status,
+        ...(run.terminalDetail !== undefined ? { detail: run.terminalDetail }
+          : run.status === "failed" && state.runStatus === "failed" && run.runId === state.currentRunId
+            && state.currentRunTerminalDetail !== undefined ? { detail: state.currentRunTerminalDetail } : {}),
         position: terminalPosition,
       });
     }
@@ -236,7 +242,6 @@ export function projectSessionTimeline(
   }
 
   for (const candidate of outputDisplay.candidates) {
-    if (candidate.status === "not-adopted") continue;
     const saved = Array.from(unique.values()).some((item) => item.type === "message"
       && item.runId === candidate.runId
       && item.previewId === candidate.candidateId);
@@ -251,27 +256,6 @@ export function projectSessionTimeline(
       status: candidate.status,
       missingPrefix: candidate.missingPrefix,
       truncated: candidate.truncated,
-    });
-  }
-
-  for (const draft of outputDisplay.discardedDrafts) {
-    items.push({
-      kind: "discarded-preview",
-      itemId: "discarded:" + draft.presentationKey,
-      presentationKey: draft.presentationKey,
-      runId: draft.runId,
-      content: draft.content,
-      reason: draft.reason ?? "rejected",
-      missingPrefix: draft.missingPrefix,
-      truncated: draft.truncated,
-    });
-  }
-
-  if (outputDisplay.unavailableDraftCount > 0) {
-    items.push({
-      kind: "discarded-notice",
-      itemId: "discarded-unavailable",
-      content: outputDisplay.unavailableDraftCount + " earlier draft(s) were released and cannot be restored in this session.",
     });
   }
 

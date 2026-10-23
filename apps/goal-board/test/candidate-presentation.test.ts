@@ -20,10 +20,7 @@ import {
   EMPTY_SESSION_OUTPUT_DISPLAY,
   applySessionOutputEvent,
   candidatePresentationKey,
-  MAX_DISCARDED_CANDIDATE_DRAFTS,
   reconcileCandidatePresentation,
-  releaseDiscardedCandidate,
-  setExpandedCandidate,
 } from "../src/session-output-consumer";
 import { projectSessionTimeline } from "../src/session-timeline";
 import { SessionTimeline } from "../src/components/SessionTimeline";
@@ -79,24 +76,17 @@ function invalidationEvent(candidateId: string, sourceCursor: number): BrowserGo
   };
 }
 
-test("确定作废的候选保留为可展开旧稿，后续迟到预览不能复活", () => {
+test("确定作废的候选立即移除，后续迟到预览不能复活", () => {
   const preview = applySessionOutputEvent(EMPTY_SESSION_OUTPUT_DISPLAY, previewEvent("candidate-old", 1, "旧稿正文"));
   assert.ok(preview);
-  const discarded = applySessionOutputEvent(preview, invalidationEvent("candidate-old", 2));
-  assert.ok(discarded);
-
-  const drafts = (discarded as unknown as {
-    readonly discardedDrafts?: readonly { readonly candidateId: string; readonly content: string }[];
-  }).discardedDrafts;
-  assert.deepEqual(drafts?.map((draft) => [draft.candidateId, draft.content]), [
-    ["candidate-old", "旧稿正文"],
-  ]);
-  const latePreview = applySessionOutputEvent(discarded, previewEvent("candidate-old", 1, "迟到旧稿"));
-  assert.deepEqual(
-    ((latePreview ?? discarded) as unknown as { readonly discardedDrafts?: readonly { readonly content: string }[] })
-      .discardedDrafts?.map((draft) => draft.content),
-    ["旧稿正文"],
-  );
+  const invalidated = applySessionOutputEvent(preview, invalidationEvent("candidate-old", 2));
+  assert.ok(invalidated);
+  assert.equal(invalidated.candidates.length, 0);
+  assert.equal(invalidated.retiredCandidateKeys.includes(
+    candidatePresentationKey("candidate-presentation-goal", "run-candidate-presentation", "candidate-old"),
+  ), true);
+  const latePreview = applySessionOutputEvent(invalidated, previewEvent("candidate-old", 3, "迟到旧稿"));
+  assert.equal(latePreview, undefined);
 });
 
 test("真实 GoalSessionStream 在保存屏障前展示候选，正式保存核验后同一展示 key 仅保留规范消息", async () => {
@@ -203,7 +193,6 @@ test("真实 GoalSessionStream 在保存屏障前展示候选，正式保存核�
 
     const pendingVerification = applySessionOutputEvent(beforeSave, committedWireEvent);
     assert.ok(pendingVerification);
-    assert.equal(pendingVerification?.discardedDrafts.length, 0);
     assert.equal(pendingVerification?.candidates[0]?.status, "pending-verification");
     const uncertainHtml = renderTimeline(beforePage.page, beforeState, pendingVerification!);
     assert.equal(uncertainHtml.includes("Checking whether this answer was saved"), true);
@@ -250,33 +239,14 @@ test("真实 GoalSessionStream 在保存屏障前展示候选，正式保存核�
   }
 });
 
-test("缺失前缀与截断状态明确展示，九份旧稿最多保留八份且展开项不会淘汰", () => {
+test("缺失前缀与截断状态记录在当前候选上", () => {
   let display = EMPTY_SESSION_OUTPUT_DISPLAY;
   display = applySessionOutputEvent(display, previewEvent("candidate-gap", 1, "后半段", 6, { truncated: true }))!;
   assert.equal(display.candidates[0]?.missingPrefix, true);
   assert.equal(display.candidates[0]?.truncated, true);
-
-  let cursor = 1;
-  for (let index = 0; index < 9; index += 1) {
-    const candidateId = "candidate-old-" + index;
-    display = applySessionOutputEvent(display, previewEvent(candidateId, ++cursor, "旧稿 " + index))!;
-    display = applySessionOutputEvent(display, invalidationEvent(candidateId, ++cursor))!;
-    if (index === 0) display = setExpandedCandidate(display, candidatePresentationKey("candidate-presentation-goal", "run-candidate-presentation", candidateId));
-  }
-  assert.equal(display.discardedDrafts.length, MAX_DISCARDED_CANDIDATE_DRAFTS);
-  assert.equal(display.discardedDrafts.some((draft) => draft.candidateId === "candidate-old-0"), true);
-  assert.equal(display.unavailableDraftCount, 1);
-  const second = display.discardedDrafts.find((draft) => draft.candidateId === "candidate-old-2")!;
-  display = setExpandedCandidate(display, second.presentationKey);
-  assert.equal(display.expandedCandidateKey, second.presentationKey);
-  display = releaseDiscardedCandidate(display, second.presentationKey);
-  assert.equal(display.discardedDrafts.some((draft) => draft.presentationKey === second.presentationKey), false);
-  assert.equal(display.unavailableDraftCount, 2);
-  const late = applySessionOutputEvent(display, previewEvent(second.candidateId, ++cursor, "迟到内容"));
-  assert.equal(late, undefined);
 });
 
-test("旧稿展开与释放操作在时间线 DOM 中提供可访问控件", async () => {
+test("已作废的候选不会在 Activity 时间线留下旧稿区块", async () => {
   const initial = createCandidateGoal();
   const store = new InMemoryGoalStore();
   const trajectory = new InMemoryTrajectoryStore();
@@ -294,23 +264,12 @@ test("旧稿展开与释放操作在时间线 DOM 中提供可访问控件", asy
     previewEvent("candidate-dom", 1, "旧稿只在展开后显示"),
   );
   assert.ok(preview);
-  const discarded = applySessionOutputEvent(preview!, invalidationEvent("candidate-dom", 2));
-  assert.ok(discarded);
-  const collapsedHtml = renderTimeline(page.page, state, discarded!);
-  assert.equal(collapsedHtml.includes("Review old draft"), true);
-  assert.equal(collapsedHtml.includes("Release draft"), true);
-  assert.equal(collapsedHtml.includes("旧稿只在展开后显示"), false);
-
-  const draft = discarded!.discardedDrafts[0]!;
-  const expanded = setExpandedCandidate(discarded!, draft.presentationKey);
-  const expandedHtml = renderTimeline(page.page, state, expanded);
-  assert.equal(expandedHtml.includes("aria-expanded=\"true\""), true);
-  assert.equal(expandedHtml.includes("旧稿只在展开后显示"), true);
-
-  const released = releaseDiscardedCandidate(expanded, draft.presentationKey);
-  const releasedHtml = renderTimeline(page.page, state, released);
-  assert.equal(releasedHtml.includes("Release draft"), false);
-  assert.equal(releasedHtml.includes("cannot be restored in this session"), true);
+  const invalidated = applySessionOutputEvent(preview!, invalidationEvent("candidate-dom", 2));
+  assert.ok(invalidated);
+  const html = renderTimeline(page.page, state, invalidated!);
+  assert.equal(html.includes("Earlier responses"), false);
+  assert.equal(html.includes("Earlier response"), false);
+  assert.equal(html.includes("旧稿只在展开后显示"), false);
 });
 
 function toBrowserCandidateEvent(event: SessionOutputEvent): BrowserGoalLiveEvent | undefined {
@@ -378,9 +337,6 @@ function renderTimeline(
     showExecutionFacts: true,
     liveActivity: display.liveActivity || null,
     streamConnected: true,
-    candidatePresentation: display,
-    onExpandCandidate: () => undefined,
-    onReleaseCandidate: () => undefined,
     brandMark: "/brand.svg",
   }));
 }

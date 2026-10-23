@@ -1,3 +1,4 @@
+import { Table } from "./ui/table";
 import React, { memo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -17,7 +18,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({ content }: { 
       components={{
         table: ({ children }) => (
           <div className="markdown-table-scroll">
-            <table>{children}</table>
+            <Table>{children}</Table>
           </div>
         ),
         a: ({ href, children }) => (

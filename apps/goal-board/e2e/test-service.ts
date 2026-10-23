@@ -127,7 +127,7 @@ class DeterministicAdapter implements LLMAdapter {
         if (isStreamingSessionFlow) await new Promise(resolve => setTimeout(resolve, 8000));
         if (process.env.LAZYGOAL_E2E_DELAY_MODEL === "1" && !["run_stage_update", "tool_discovery"].includes(result.kind as string)) await new Promise(resolve => setTimeout(resolve, 5000));
         // 严格结构化输出以声明工具调用交付决策。
-        return toolResponseFixture(JSON.stringify({ result }));
+        return toolResponseFixture(JSON.stringify({ result }), request);
     }
 }
 

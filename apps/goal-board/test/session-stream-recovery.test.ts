@@ -61,14 +61,7 @@ test("切换 Goal 后旧目标的迟到回调不能写入新视图", async () =>
   assert.equal(ownsViewEvent("goal-1", null), false);
 });
 
-test("过期标记在页面上明确显示，并限制依赖最新状态的新决定", async () => {
-  const { steerActionState } = await import("../src/session-controls");
-
-  assert.deepEqual(steerActionState({ busy: false, stale: false, hasDraft: true }), { enabled: true });
-  assert.deepEqual(steerActionState({ busy: false, stale: true, hasDraft: true }), { enabled: false, reason: "stale" });
-  assert.deepEqual(steerActionState({ busy: true, stale: false, hasDraft: true }), { enabled: false, reason: "busy" });
-  assert.deepEqual(steerActionState({ busy: false, stale: false, hasDraft: false }), { enabled: false, reason: "empty-draft" });
-
+test("状态过期时仍允许通过唯一主按钮安全暂停当前 Run", async () => {
   const React = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { MessageComposer } = await import("../src/components/MessageComposer");
@@ -76,15 +69,12 @@ test("过期标记在页面上明确显示，并限制依赖最新状态的新�
   const stale = renderToStaticMarkup(React.createElement(MessageComposer, {
     busy: false,
     running: true,
-    steerDisabled: true,
-    placeholder: "Add direction while this Run is working…",
+    placeholder: "Queue a message for the next Run…",
     onSubmit: async () => true,
-    onSteer: async () => true,
     onInterrupt: async () => undefined,
     footerControls: null,
   } as any));
-  const staleSteerButton = /<button[^>]*aria-label="Steer the current Run with this message"[^>]*>/.exec(stale)?.[0] ?? "";
-  assert.equal(staleSteerButton.includes("disabled"), true, "状态过期时禁止新的 Steer 决定");
-  // 停止既有 Run 是安全操作，不受过期限制。
-  assert.match(stale, /aria-label="Stop run"/);
+  assert.match(stale, /aria-label="Pause Run"/);
+  assert.equal((stale.match(/<button\b/g) ?? []).length, 1);
+  assert.doesNotMatch(stale, /aria-label="Stop run"|aria-label="Steer the current Run with this message"/);
 });

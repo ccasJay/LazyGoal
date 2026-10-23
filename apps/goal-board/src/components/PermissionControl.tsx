@@ -1,4 +1,9 @@
-import { useEffect, useRef } from "react";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./ui/collapsible";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Popover, PopoverTrigger, PopoverContent } from "./ui/popover";
+import { RadioGroup, RadioGroupItem } from "./ui/radio-group";
 import { Check, ChevronDown, Shield, Zap } from "lucide-react";
 import type { BrowserToolGrantSummary } from "../../../../packages/web-contracts/src/index";
 
@@ -31,77 +36,28 @@ export function PermissionControl({
   revokingGrantId: string | null;
   onRevokeGrant: (grant: BrowserToolGrantSummary) => void;
 }) {
-  const controlRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (event.target instanceof Node && !controlRef.current?.contains(event.target)) onClose();
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointer);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [open, onClose]);
 
   return (
-    <div className="permission-control" ref={controlRef}>
-      <button
+    <Popover open={open} onOpenChange={next => { if (next !== open) next ? onToggle() : onClose(); }}>
+      <PopoverTrigger asChild>
+      <Button variant="ghost" size="sm"
         type="button"
         className={`permission-trigger ${mode === "yolo" ? "yolo" : ""}`}
         aria-expanded={open}
-        onClick={onToggle}
       >
         <Shield size={13} />
         <span>Permission{mode === null ? "" : ` · ${mode === "yolo" ? "YOLO" : "Default"}`}</span>
         <ChevronDown size={12} />
-      </button>
-      {open && (
-        <section className="permission-popover" aria-label="Project permissions">
-          <fieldset className="permission-modes" aria-label="Execution mode" disabled={modeBusy || mode === null}>
-            <label className={mode === "default" ? "selected" : ""} htmlFor="permission-mode-default">
-              <input
-                id="permission-mode-default"
-                type="radio"
-                name="project-permission-mode"
-                checked={mode === "default"}
-                onChange={() => onChooseMode("default")}
-              />
-              <Shield size={16} aria-hidden="true" />
-              <span>
-                <strong>Default</strong>
-                <small>Review actions that need approval.</small>
-              </span>
-              {mode === "default" && <Check className="permission-selected-icon" size={15} aria-hidden="true" />}
-            </label>
-            <label className={mode === "yolo" ? "selected" : ""} htmlFor="permission-mode-yolo">
-              <input
-                id="permission-mode-yolo"
-                type="radio"
-                name="project-permission-mode"
-                checked={mode === "yolo"}
-                onChange={() => onChooseMode("yolo")}
-              />
-              <Zap size={16} aria-hidden="true" />
-              <span>
-                <strong>YOLO</strong>
-                <small>Automatically approve eligible tools. Sandbox limits still apply.</small>
-              </span>
-              {mode === "yolo" && <Check className="permission-selected-icon" size={15} aria-hidden="true" />}
-            </label>
-          </fieldset>
+      </Button>
+      </PopoverTrigger><PopoverContent align="start" className="permission-popover" aria-label="Project permissions">
+          <PermissionModeOptions mode={mode} modeBusy={modeBusy} onChooseMode={onChooseMode} />
           {modeError && (
             <p className="permission-error" role="alert">
               {modeError}
             </p>
           )}
-          <details className="permission-grants">
-            <summary>Saved permissions{grants.length > 0 ? ` (${grants.length})` : ""}</summary>
+          <Collapsible className="permission-grants">
+            <CollapsibleTrigger>Saved permissions{grants.length > 0 ? ` (${grants.length})` : ""}</CollapsibleTrigger><CollapsibleContent>
             <div className="permission-grants-content">
               {!hasGoal ? (
                 <p>Select a Goal to review or revoke its saved permissions.</p>
@@ -138,24 +94,51 @@ export function PermissionControl({
                         ))}
                       </div>
                       {grant.status === "active" && (
-                        <button
+                        <Button variant="ghost" size="sm"
                           type="button"
                           className="permission-revoke"
                           disabled={revokingGrantId !== null}
                           onClick={() => onRevokeGrant(grant)}
                         >
                           {revokingGrantId === grant.grantId ? "Revoking…" : "Revoke"}
-                        </button>
+                        </Button>
                       )}
                     </li>
                   ))}
                 </ul>
               )}
             </div>
-          </details>
-        </section>
-      )}
-    </div>
+          </CollapsibleContent></Collapsible>
+      </PopoverContent>
+    </Popover>
   );
 }
 
+
+/** 受控权限模式选项；由 RadioGroup 统一处理键盘与单选语义，不自行保存模式。 */
+export function PermissionModeOptions({ mode, modeBusy, onChooseMode }: {
+  mode: "default" | "yolo" | null;
+  modeBusy: boolean;
+  onChooseMode: (mode: "default" | "yolo") => void;
+}) {
+  return (          <RadioGroup className="permission-modes" name="project-permission-mode" aria-label="Execution mode" value={mode ?? ""} onValueChange={value => onChooseMode(value as "default" | "yolo")} disabled={modeBusy || mode === null}>
+            <Label className={mode === "default" ? "selected" : ""} htmlFor="permission-mode-default">
+              <RadioGroupItem id="permission-mode-default" value="default" />
+              <Shield size={16} aria-hidden="true" />
+              <span>
+                <strong>Default</strong>
+                <small>Review actions that need approval.</small>
+              </span>
+              {mode === "default" && <Check className="permission-selected-icon" size={15} aria-hidden="true" />}
+            </Label>
+            <Label className={mode === "yolo" ? "selected" : ""} htmlFor="permission-mode-yolo">
+              <RadioGroupItem id="permission-mode-yolo" value="yolo" />
+              <Zap size={16} aria-hidden="true" />
+              <span>
+                <strong>YOLO</strong>
+                <small>Automatically approve eligible tools. Sandbox limits still apply.</small>
+              </span>
+              {mode === "yolo" && <Check className="permission-selected-icon" size={15} aria-hidden="true" />}
+            </Label>
+          </RadioGroup>);
+}

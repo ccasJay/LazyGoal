@@ -59,7 +59,6 @@ test("正式消息通知只标记候选等待 Snapshot 核验", () => {
   assert.equal(committed.liveText, "");
   assert.equal(committed.unconfirmed, true);
   assert.equal(committed.candidates[0]?.status, "pending-verification");
-  assert.equal(committed.discardedDrafts.length, 0);
   assert.equal(committed.liveText.includes("候选正文"), false);
 });
 
@@ -72,7 +71,7 @@ test("重复的正式消息通知不产生第二份正文", () => {
   assert.equal(second.unconfirmed, false);
 });
 
-test("候选确定作废后转入可折叠的只读旧稿", () => {
+test("候选确定作废后丢弃正文并保留迟到事件屏障", () => {
   const preview = applySessionOutputEvent(EMPTY_SESSION_OUTPUT_DISPLAY, previewEvent("候选正文"));
   assert.ok(preview !== undefined);
   const invalidated = applySessionOutputEvent(preview, {
@@ -91,7 +90,7 @@ test("候选确定作废后转入可折叠的只读旧稿", () => {
   assert.equal(invalidated.liveText, "");
   assert.equal(invalidated.unconfirmed, false);
   assert.equal(invalidated.candidates.length, 0);
-  assert.equal(invalidated.discardedDrafts[0]?.content, "候选正文");
+  assert.equal(invalidated.retiredCandidateKeys.length, 1);
 });
 
 test("等待交互只更新提示，不伪造完成结果", () => {

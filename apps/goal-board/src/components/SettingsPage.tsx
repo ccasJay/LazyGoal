@@ -1,6 +1,15 @@
+import { FieldSet } from "./ui/field";
+import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./ui/collapsible";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { NativeSelect } from "./ui/native-select";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { MoreHorizontal, Plus, X } from "lucide-react";
+import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu";
 
 import { browserApi, BrowserApiError } from "../api";
 import type {
@@ -100,7 +109,7 @@ export function ProviderSettingsSection(props: {
   const [editor, setEditor] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const editorOpener = useRef<HTMLElement | null>(null);
   const [models, setModels] = useState<BrowserProviderModels["models"] | null>(null);
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -145,22 +154,12 @@ export function ProviderSettingsSection(props: {
   };
   const closeEditor = () => {
     cancelFetch();
-    if (dialogRef.current?.open) dialogRef.current.close();
     setEditor(null);
     setForm({ ...EMPTY_FORM });
   };
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog === null) return;
-    if (editor !== null) {
-      if (!dialog.open) dialog.showModal();
-      formRef.current?.querySelector<HTMLInputElement>("input")?.focus();
-    } else if (dialog.open) {
-      dialog.close();
-    }
-  }, [editor]);
 
   const startEdit = (profile: BrowserProviderProfile) => {
+    editorOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     cancelFetch();
     setDeleting(null);
     setEditor(profile.id);
@@ -184,53 +183,53 @@ export function ProviderSettingsSection(props: {
           ? await props.onUpdate?.(editor, input) : await props.onCreate?.(input);
         if (saved === true) closeEditor();
       }}>
-      <fieldset disabled={props.busy}>
+      <FieldSet disabled={props.busy}>
         <div className="settings-editor-heading">
           <h3 id={`${modelInputId}-dialog-title`}>{editing ? "Edit provider" : "Add provider"}</h3>
-          <button type="button" className="icon" aria-label="Close provider editor" onClick={closeEditor}><X size={16} /></button>
+          <Button variant="ghost" size="sm" type="button" className="icon" aria-label="Close provider editor" onClick={closeEditor}><X size={16} /></Button>
         </div>
         {!editing && <div className="settings-add-modes" role="group" aria-label="Provider type">
-          <button type="button" aria-pressed={!custom} onClick={() => update({ kind: "openai", baseURL: "" })}>Built-in provider</button>
-          <button type="button" aria-pressed={custom} onClick={() => update({ kind: "openai-compatible" })}>Custom API</button>
+          <Button variant="ghost" size="sm" type="button" aria-pressed={!custom} onClick={() => update({ kind: "openai", baseURL: "" })}>Built-in provider</Button>
+          <Button variant="ghost" size="sm" type="button" aria-pressed={custom} onClick={() => update({ kind: "openai-compatible" })}>Custom API</Button>
         </div>}
         {!editing && <p className="settings-form-hint">{custom ? "Connect an OpenAI-compatible endpoint or a self-hosted model." : "Use a supported provider with your own API key."}</p>}
-        <label>Name<input value={form.label} onChange={event => update({ label: event.target.value })} placeholder="e.g. Personal account" required /></label>
-        {!custom && <label>Provider<select value={form.kind} onChange={event => update({ kind: event.target.value })}>
+        <Label>Name<Input value={form.label} onChange={event => update({ label: event.target.value })} placeholder="e.g. Personal account" required /></Label>
+        {!custom && <Label>Provider<NativeSelect value={form.kind} onChange={event => update({ kind: event.target.value })}>
           {PROVIDERS.map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}
-        </select></label>}
-        {custom && <label>API URL<input type="url" value={form.baseURL} placeholder="https://gateway.example/v1" onChange={event => update({ baseURL: event.target.value })} required /></label>}
-        <label>API key<input type="password" autoComplete="new-password" value={form.apiKey} placeholder={editing ? "Leave blank to keep the saved key" : "Enter your API key"} required={!editing} onChange={event => update({ apiKey: event.target.value })} /></label>
+        </NativeSelect></Label>}
+        {custom && <Label>API URL<Input type="url" value={form.baseURL} placeholder="https://gateway.example/v1" onChange={event => update({ baseURL: event.target.value })} required /></Label>}
+        <Label>API key<Input type="password" autoComplete="new-password" value={form.apiKey} placeholder={editing ? "Leave blank to keep the saved key" : "Enter your API key"} required={!editing} onChange={event => update({ apiKey: event.target.value })} /></Label>
         <div className="settings-model-field">
           <div className="settings-model-label">
-            <label htmlFor={modelInputId}>Default model</label>
-            <button type="button" className="settings-fetch-models" disabled={fetching || !props.onFetchModels || (!editing && !form.apiKey.trim()) || (custom && !form.baseURL.trim())} onClick={() => void fetchModels()}>{fetching ? "Fetching…" : "Fetch models"}</button>
+            <Label htmlFor={modelInputId}>Default model</Label>
+            <Button variant="ghost" size="sm" type="button" className="settings-fetch-models" disabled={fetching || !props.onFetchModels || (!editing && !form.apiKey.trim()) || (custom && !form.baseURL.trim())} onClick={() => void fetchModels()}>{fetching ? "Fetching…" : "Fetch models"}</Button>
           </div>
-          {models !== null && models.length > 0 && !manualModelEntry ? <select id={modelInputId} value={form.defaultModel} onChange={event => update({ defaultModel: event.target.value })} required>
+          {models !== null && models.length > 0 && !manualModelEntry ? <NativeSelect id={modelInputId} value={form.defaultModel} onChange={event => update({ defaultModel: event.target.value })} required>
             {!form.defaultModel && <option value="" disabled>Select a model ({models.length} available)</option>}
             {form.defaultModel && !models.some(model => model.id === form.defaultModel) && <option value={form.defaultModel}>Current model · {form.defaultModel}</option>}
             {models.map(model => <option key={model.id} value={model.id}>{model.name === model.id ? model.id : `${model.name} (${model.id})`}</option>)}
-          </select> : <input id={modelInputId} value={form.defaultModel} placeholder="Model ID" onChange={event => update({ defaultModel: event.target.value })} required />}
-          {models !== null && models.length > 0 && <button type="button" className="settings-manual-model" onClick={() => setManualModelEntry(value => !value)}>{manualModelEntry ? "Choose a fetched model" : "Enter model ID manually"}</button>}
+          </NativeSelect> : <Input id={modelInputId} value={form.defaultModel} placeholder="Model ID" onChange={event => update({ defaultModel: event.target.value })} required />}
+          {models !== null && models.length > 0 && <Button variant="ghost" size="sm" type="button" className="settings-manual-model" onClick={() => setManualModelEntry(value => !value)}>{manualModelEntry ? "Choose a fetched model" : "Enter model ID manually"}</Button>}
         </div>
         <div className="settings-model-results" aria-live="polite" aria-busy={fetching}>
           {fetchError && <p className="settings-test-error" role="alert">Could not fetch models ({fetchError}). Check the provider, API key and URL.</p>}
           {models !== null && models.length === 0 && <p>No models returned. You can enter a model ID manually.</p>}
         </div>
-        <details className="settings-advanced" key={editor}>
-          <summary>Advanced</summary>
+        <Collapsible className="settings-advanced" key={editor}>
+          <CollapsibleTrigger>Advanced</CollapsibleTrigger><CollapsibleContent>
           <div className="settings-capacities">
-            <label>Context window tokens<input type="number" min="1" step="1" value={form.contextWindowTokens} onChange={event => update({ contextWindowTokens: event.target.value })} /></label>
-            <label>Max output tokens<input type="number" min="1" step="1" value={form.maxOutputTokens} onChange={event => update({ maxOutputTokens: event.target.value })} /></label>
+            <Label>Context window tokens<Input type="number" min="1" step="1" value={form.contextWindowTokens} onChange={event => update({ contextWindowTokens: event.target.value })} /></Label>
+            <Label>Max output tokens<Input type="number" min="1" step="1" value={form.maxOutputTokens} onChange={event => update({ maxOutputTokens: event.target.value })} /></Label>
           </div>
-          <label>Structured output mode<select value={form.structuredOutputMode} onChange={event => update({ structuredOutputMode: event.target.value })}>
+          <Label>Structured output mode<NativeSelect value={form.structuredOutputMode} onChange={event => update({ structuredOutputMode: event.target.value })}>
             <option value="">Provider default</option><option value="prompt_only">Prompt only</option><option value="strict">Strict</option><option value="two_stage">Two stage</option>
-          </select></label>
-        </details>
+          </NativeSelect></Label>
+        </CollapsibleContent></Collapsible>
         <div className="settings-provider-form-actions">
-          <button type="button" className="secondary" onClick={closeEditor}>Cancel</button>
-          <button type="submit" className="primary" disabled={fetching}>{props.busy ? "Saving…" : editing ? "Save changes" : "Add provider"}</button>
+          <Button variant="ghost" size="sm" type="button" className="secondary" onClick={closeEditor}>Cancel</Button>
+          <Button variant="ghost" size="sm" type="submit" className="primary" disabled={fetching}>{props.busy ? "Saving…" : editing ? "Save changes" : "Add provider"}</Button>
         </div>
-      </fieldset>
+      </FieldSet>
     </form>
   );
 
@@ -239,9 +238,9 @@ export function ProviderSettingsSection(props: {
       <div className="settings-layout">
         <nav className="settings-nav" aria-label="Settings">
           <p>Settings</p>
-          <div role="tablist" aria-label="Settings sections">
-            <button type="button" id={`${modelInputId}-providers-tab`} role="tab" aria-selected="true" aria-controls={`${modelInputId}-providers-panel`}>Providers</button>
-          </div>
+          <Tabs value="providers"><TabsList aria-label="Settings sections">
+            <TabsTrigger value="providers" id={`${modelInputId}-providers-tab`} aria-controls={`${modelInputId}-providers-panel`}>Providers</TabsTrigger>
+          </TabsList></Tabs>
         </nav>
         <div className="settings-page-inner" id={`${modelInputId}-providers-panel`} role="tabpanel" aria-labelledby={`${modelInputId}-providers-tab`}>
         <header className="settings-page-heading"><h2 id="settings-page-title">Providers</h2><p>Manage your model connections.</p></header>
@@ -272,34 +271,35 @@ export function ProviderSettingsSection(props: {
                 </div>
                 <div className="settings-provider-actions">
                   {active && <span className="settings-active">Active</span>}
-                  <button type="button" className="secondary" aria-haspopup="dialog" aria-label={`Edit ${profile.label}`} disabled={props.busy} onClick={() => startEdit(profile)}>Edit</button>
-                  <details className="settings-provider-menu" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; }} onKeyDown={event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}>
-                    <summary aria-label={`More options for ${profile.label}`}><MoreHorizontal size={18} /></summary>
-                    <div className="settings-provider-menu-items">
-                      <button type="button" disabled={props.busy} onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); props.onTest?.(profile.id); }}>Check model catalog</button>
-                      <button type="button" disabled={props.busy || active} onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); props.onActivate?.(profile.id); }}>Set active</button>
-                      <button type="button" className="settings-delete" disabled={props.busy || active} title={active ? "Switch to another provider before deleting" : undefined} onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); setDeleting(profile.id); }}>Delete</button>
-                    </div>
-                  </details>
+                  <Button variant="ghost" size="sm" type="button" className="secondary" aria-haspopup="dialog" aria-label={`Edit ${profile.label}`} disabled={props.busy} onClick={() => startEdit(profile)}>Edit</Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`More options for ${profile.label}`}><MoreHorizontal size={18} /></Button></DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem disabled={props.busy} onSelect={() => props.onTest?.(profile.id)}>Check model catalog</DropdownMenuItem>
+                      <DropdownMenuItem disabled={props.busy || active} onSelect={() => props.onActivate?.(profile.id)}>Set active</DropdownMenuItem>
+                      <DropdownMenuItem className="text-destructive" disabled={props.busy || active} onSelect={() => setDeleting(profile.id)}>Delete</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </div>
               {result && <p className={`settings-provider-test ${result.ok ? "" : "settings-test-error"}`} role="status">{result.ok ? `Model catalog available · ${result.modelCount} models` : `Model catalog check failed: ${result.error}`}</p>}
               {deleting === profile.id && <div className="settings-delete-confirm" role="group" aria-label={`Delete ${profile.label}`}>
                 <p>Delete this provider? Goals using it will need another provider on resume.</p>
-                <div><button type="button" className="secondary" disabled={props.busy} onClick={() => setDeleting(null)}>Cancel</button><button type="button" className="secondary settings-delete" disabled={props.busy} onClick={() => { setDeleting(null); props.onDelete?.(profile.id); }}>Delete provider</button></div>
+                <div><Button variant="ghost" size="sm" type="button" className="secondary" disabled={props.busy} onClick={() => setDeleting(null)}>Cancel</Button><Button variant="ghost" size="sm" type="button" className="secondary settings-delete" disabled={props.busy} onClick={() => { setDeleting(null); props.onDelete?.(profile.id); }}>Delete provider</Button></div>
               </div>}
             </li>;
           })}
         </ul>
-        <button type="button" className="settings-add-provider" disabled={props.busy} onClick={() => { cancelFetch(); setDeleting(null); setForm({ ...EMPTY_FORM }); setEditor("create"); }}><Plus size={16} />Add provider</button>
+        <Button variant="ghost" size="sm" type="button" className="settings-add-provider" disabled={props.busy} onClick={event => { editorOpener.current = event.currentTarget; cancelFetch(); setDeleting(null); setForm({ ...EMPTY_FORM }); setEditor("create"); }}><Plus size={16} />Add provider</Button>
         </div>
       </div>
-      <dialog ref={dialogRef} className="settings-provider-dialog"
-        aria-labelledby={`${modelInputId}-dialog-title`}
-        onCancel={event => { event.preventDefault(); closeEditor(); }}
-        onClick={event => { if (event.target === event.currentTarget) closeEditor(); }}>
-        {editor !== null && editorForm}
-      </dialog>
+      <Dialog open={editor !== null} onOpenChange={open => { if (!open) closeEditor(); }}>
+        <DialogContent showCloseButton={false} className="settings-provider-dialog" aria-describedby={undefined}
+          onCloseAutoFocus={event => { event.preventDefault(); editorOpener.current?.focus(); }}>
+          <DialogTitle className="sr-only">{editing ? "Edit provider" : "Add provider"}</DialogTitle>
+          {editor !== null && editorForm}
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

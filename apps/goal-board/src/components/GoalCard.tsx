@@ -1,4 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { Card } from "./ui/card";
+import { Badge } from "./ui/badge";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "./ui/dropdown-menu";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "./ui/alert-dialog";
+import { Button } from "./ui/button";
+import { useState } from "react";
 import { Archive, MoreHorizontal, Trash2 } from "lucide-react";
 import type { BrowserGoalListItem } from "../../../../packages/web-contracts/src/index";
 import {
@@ -56,13 +61,7 @@ export function GoalCard({
   onArchive: () => void;
   onDelete: () => void;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const firstMenuAction = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (menuOpen) firstMenuAction.current?.focus();
-  }, [menuOpen]);
 
   const status = statusFromRun(goal.runStatus);
   const { label: statusLabel, className: statusPillClass } = cardStatusPresentation(goal.runStatus);
@@ -70,8 +69,8 @@ export function GoalCard({
   const coverage = metrics?.kind === "ready" ? metricCoverage(metrics.value) : null;
 
   return (
-    <article className="goal-card-shell">
-      <button
+    <Card role="article" className="goal-card-shell gap-0 border-0 p-0 shadow-none">
+      <Button variant="ghost" size="sm"
         className={`goal-card ${selected ? "is-selected" : ""}`}
         onClick={onSelect}
         aria-pressed={selected}
@@ -79,10 +78,10 @@ export function GoalCard({
         <h3>{goal.intent}</h3>
         <CardMetrics state={metrics} />
         <div className="card-footer">
-          <span className={`status-pill ${statusPillClass}`}>
+          <Badge variant="outline" className={`status-pill ${statusPillClass}`}>
             <span className="status-dot" />
             {statusLabel}
-          </span>
+          </Badge>
           {coverage !== null && (
             <span className="metric-coverage" title={coverage}>
               {coverage}
@@ -92,69 +91,20 @@ export function GoalCard({
             {formatUpdatedAt(goal.updatedAt)}
           </time>
         </div>
-      </button>
-      <div
-        className={`goal-card-menu ${menuOpen ? "is-expanded" : ""}`}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            setMenuOpen(false);
-            setConfirmDelete(false);
-          }
-        }}
-        onPointerLeave={(event) => {
-          if (event.pointerType === "mouse") {
-            setMenuOpen(false);
-            setConfirmDelete(false);
-          }
-        }}
-      >
-        <button
-          type="button"
-          className="goal-card-options"
-          aria-label={`More options for ${goal.intent}`}
-          aria-expanded={menuOpen}
-          tabIndex={menuOpen ? -1 : 0}
-          onClick={() => {
-            setConfirmDelete(false);
-            setMenuOpen(true);
-          }}
-        >
-          <MoreHorizontal size={18} />
-        </button>
-        {menuOpen && (
-          <div className="goal-card-menu-items" role="group" aria-label={`Options for ${goal.intent}`}>
-            <button
-              ref={firstMenuAction}
-              type="button"
-              disabled={!terminal || busy}
-              title={!terminal ? "Available after this Goal ends." : undefined}
-              onClick={() => {
-                onArchive();
-                setMenuOpen(false);
-              }}
-            >
-              <Archive size={14} /> {goal.archived ? "Restore" : "Archive"}
-            </button>
-            <button
-              type="button"
-              className={`danger ${confirmDelete ? "is-confirming" : ""}`}
-              disabled={!terminal || busy}
-              title={!terminal ? "Available after this Goal ends." : undefined}
-              onClick={() => {
-                if (confirmDelete) {
-                  onDelete();
-                  setMenuOpen(false);
-                } else {
-                  setConfirmDelete(true);
-                }
-              }}
-            >
-              <Trash2 size={14} /> {busy ? "Deleting…" : confirmDelete ? "Confirm" : "Delete"}
-            </button>
-          </div>
-        )}
-      </div>
-    </article>
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="goal-card-options" aria-label={`More options for ${goal.intent}`}><MoreHorizontal size={18} /></Button></DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem disabled={!terminal || busy} onSelect={onArchive}><Archive size={14} />{goal.archived ? "Restore" : "Archive"}</DropdownMenuItem>
+          <DropdownMenuItem className="text-destructive" disabled={!terminal || busy} onSelect={() => setConfirmDelete(true)}><Trash2 size={14} />Delete</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete goal?</AlertDialogTitle><AlertDialogDescription>This removes the saved Goal and its execution records.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction disabled={busy} onClick={onDelete}>Confirm delete</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
   );
 }
 

@@ -1,3 +1,6 @@
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 import { useMemo, useState } from "react";
 import { Clock3, Plus, Search, X } from "lucide-react";
 import type { BrowserGoalListItem } from "../../../../packages/web-contracts/src/index";
@@ -73,7 +76,7 @@ export function GoalBoard({
               : totalCount}
           </span>
         </strong>
-        <button
+        <Button variant="ghost" size="sm"
           className={`archive-view-toggle ${archivedView ? "is-active" : ""}`}
           type="button"
           onClick={() => {
@@ -81,10 +84,10 @@ export function GoalBoard({
           }}
         >
           {archivedView ? "All goals" : `Archived (${goals.filter((goal) => goal.archived).length})`}
-        </button>
-        <label className="search" htmlFor="goal-board-search">
+        </Button>
+        <Label className="search" htmlFor="goal-board-search">
           <Search size={14} />
-          <input
+          <Input
             id="goal-board-search"
             name="search"
             aria-label="Search goals"
@@ -92,50 +95,50 @@ export function GoalBoard({
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
-        </label>
+        </Label>
         {search && (
-          <button
+          <Button variant="ghost" size="sm"
             className="icon"
             aria-label="Clear search"
             title="Clear search"
             onClick={() => setSearch("")}
           >
             <X size={14} />
-          </button>
+          </Button>
         )}
-        <button
+        <Button variant="ghost" size="sm"
           className="icon refresh-button"
           aria-label="Refresh goals"
           onClick={() => void onRefreshGoals()}
         >
           <Clock3 size={14} />
-        </button>
+        </Button>
       </div>
       {sessionError && selectedGoalId === null && (
         <div className="page-error" role="alert">
           <span>{sessionError}</span>
           {browserApi.hasAccessToken && (
-            <button onClick={() => void onRefreshGoals()}>Retry</button>
+            <Button variant="ghost" size="sm" onClick={() => void onRefreshGoals()}>Retry</Button>
           )}
         </div>
       )}
       {manageError && (
         <div className="page-error" role="alert">
           <span>{manageError}</span>
-          <button onClick={onClearManageError}>Dismiss</button>
+          <Button variant="ghost" size="sm" onClick={onClearManageError}>Dismiss</Button>
         </div>
       )}
       {undoArchiveId && !archivedView && (
         <div className="archive-notice" role="status">
           Goal archived.{" "}
-          <button
+          <Button variant="ghost" size="sm"
             onClick={() => {
               const goal = goals.find((item) => item.goalId === undoArchiveId);
               if (goal) void onChangeArchive(goal, false);
             }}
           >
             Undo
-          </button>
+          </Button>
         </div>
       )}
       {unreadableCount > 0 && (
@@ -167,13 +170,13 @@ export function GoalBoard({
                 : "Create a Goal to start a real session in this workspace."}
           </p>
           {!archivedView && (
-            <button
+            <Button variant="ghost" size="sm"
               className="primary"
               onClick={onOpenNewGoalDraft}
               disabled={!browserApi.hasAccessToken}
             >
               <Plus size={14} /> New goal
-            </button>
+            </Button>
           )}
         </div>
       ) : visibleGoals.length === 0 && !sessionError ? (

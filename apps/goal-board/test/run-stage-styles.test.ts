@@ -15,7 +15,7 @@ test("approved plan route and timeline stages keep their committed terminal styl
     ".plan-route-index",
     ".plan-route-status",
     ".timeline-stage-target",
-    ".timeline-run-boundary",
+    ".timeline-run-summary",
     ".timeline-activity",
     ".timeline-activity-heading",
     ".timeline-activity-members",
