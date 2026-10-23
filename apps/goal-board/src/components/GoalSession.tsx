@@ -475,7 +475,7 @@ export function GoalSession({
                       if (event.target instanceof Element && event.target.closest("button[aria-expanded]")) {
                         const element = event.currentTarget;
                         readingAnchor.current = captureAnchor({ offsets: timelineOffsets(element), scrollTop: element.scrollTop });
-                        setFollow(false);
+                        if (element.scrollHeight > element.clientHeight) setFollow(false);
                       }
                     }}
                   >

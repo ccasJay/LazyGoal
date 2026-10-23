@@ -951,11 +951,10 @@ export interface BrowserGoalSession {
         readonly paused: boolean;
         readonly pauseReason?: "run_failed" | "user_interrupt";
     };
-    /** 已受理的用户终止及自动收尾进度。 */
+    /** 已受理的用户终止及取消结算状态；不包含模型收尾阶段。 */
     readonly interruption?: {
         readonly requestId: string;
-        readonly status: "requested" | "repairing" | "finished";
-        readonly repairCallsStarted: number;
+        readonly status: "requested" | "finished";
         readonly outcomeUnknown?: boolean;
     };
     /** 历史与当前 Run 列表。 */
@@ -1011,8 +1010,7 @@ export interface BrowserGoalSessionState {
     };
     readonly interruption?: {
         readonly requestId: string;
-        readonly status: "requested" | "repairing" | "finished";
-        readonly repairCallsStarted: number;
+        readonly status: "requested" | "finished";
         readonly outcomeUnknown?: boolean;
     };
     readonly goalPlan?: BrowserGoalPlan;

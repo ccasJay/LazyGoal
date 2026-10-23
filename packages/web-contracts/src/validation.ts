@@ -245,7 +245,7 @@ export function isBrowserSessionState(value: unknown): value is BrowserSessionSt
         && typeof value.executionOwner === "boolean"
         && (value.interruption === undefined || (isRecord(value.interruption)
             && isNonEmptyString(value.interruption.requestId)
-            && ["requested", "repairing", "finished"].includes(String(value.interruption.status))
+            && ["requested", "finished"].includes(String(value.interruption.status))
             && typeof value.interruption.outcomeUnknown === "boolean"));
 }
 
@@ -644,10 +644,7 @@ export function isBrowserGoalSession(value: unknown): value is BrowserGoalSessio
             || (value.queue.pauseReason !== undefined && value.queue.pauseReason !== "run_failed" && value.queue.pauseReason !== "user_interrupt")))
         || (value.interruption !== undefined && (!isRecord(value.interruption)
             || !isNonEmptyString(value.interruption.requestId)
-            || !["requested", "repairing", "finished"].includes(String(value.interruption.status))
-            || !Number.isInteger(value.interruption.repairCallsStarted)
-            || Number(value.interruption.repairCallsStarted) < 0
-            || Number(value.interruption.repairCallsStarted) > 3
+            || !["requested", "finished"].includes(String(value.interruption.status))
             || (value.interruption.outcomeUnknown !== undefined && typeof value.interruption.outcomeUnknown !== "boolean")))
         || !Array.isArray(value.runs)
         || !value.runs.every(isBrowserRun)
@@ -708,9 +705,7 @@ export function isBrowserGoalSessionState(value: unknown): value is BrowserGoalS
         || (value.queue.pauseReason !== undefined && value.queue.pauseReason !== "run_failed" && value.queue.pauseReason !== "user_interrupt"))) return false;
     if (value.interruption !== undefined && (!isRecord(value.interruption)
         || !isNonEmptyString(value.interruption.requestId)
-        || !["requested", "repairing", "finished"].includes(String(value.interruption.status))
-        || !Number.isSafeInteger(value.interruption.repairCallsStarted)
-        || Number(value.interruption.repairCallsStarted) < 0 || Number(value.interruption.repairCallsStarted) > 3
+        || !["requested", "finished"].includes(String(value.interruption.status))
         || (value.interruption.outcomeUnknown !== undefined && typeof value.interruption.outcomeUnknown !== "boolean"))) return false;
     return (value.goalPlan === undefined || isGoalPlan(value.goalPlan))
         && (value.interaction === undefined || isBrowserInteractionView(value.interaction))

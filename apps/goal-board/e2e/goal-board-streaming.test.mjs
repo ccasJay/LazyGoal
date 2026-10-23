@@ -62,16 +62,23 @@ test("正式服务与真实浏览器贯通交错时间线、活动组与窄屏�
     });
     assert.equal(created.response.status, 202, JSON.stringify(created.body));
 
-    const status = await waitForStatus(statusPath, (value) => value.toolCalls === 1);
-    assert.equal(status.toolCalls, 1, "受控工具只执行一次");
-    // 等待正式答复落库：Run 进入终态后页面才显示完整交错时间线。
-    await waitForRunTerminal(ready, goalId);
-
-    // 页面读取同一条 Goal SSE 与固定 Activity 窗口。
+    // 在最终回答落库前展开 Run：短会话的折叠操作不能把后续输出挡在未读提示后面。
     await navigate(socket, ready.launchUrl);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null", 20_000);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('[data-testid=\"session-timeline\"]') !== null", 20_000);
+    await waitForExpression(socket, "document.querySelector('.timeline-run-summary.running') !== null", 20_000);
+    await value(socket, "document.querySelector('.timeline-run-summary').click()");
+    await waitForExpression(socket, "document.querySelector('.timeline-run-summary[aria-expanded=false]') !== null");
+    await value(socket, "document.querySelector('.timeline-run-summary').click()");
+    await waitForExpression(socket, "document.querySelector('.timeline-run-summary[aria-expanded=true]') !== null");
+    assert.equal(await value(socket, "document.querySelector('.jump') === null"), true, "短会话开合后仍跟随最新内容");
+
+    const status = await waitForStatus(statusPath, (value) => value.toolCalls === 1);
+    assert.equal(status.toolCalls, 1, "受控工具只执行一次");
+    await waitForRunTerminal(ready, goalId);
+    await waitForExpression(socket, "document.querySelector('.timeline-run-summary.completed') !== null", 20_000);
+    await waitForExpression(socket, "document.querySelector('.message.assistant') !== null", 20_000);
+    assert.equal(await value(socket, "document.querySelector('.jump') === null"), true, "回答与终态无需点击 Jump to latest 即可显示");
     await value(socket, "document.querySelectorAll('.timeline-stage-heading[aria-expanded=false]').forEach(button => button.click())");
     await waitForExpression(socket, "document.querySelectorAll('.timeline-activity').length >= 1", 20_000);
 
@@ -150,6 +157,7 @@ async function startService({ workspace, data, home, statusPath }) {
       LAZYGOAL_E2E_RUN_COUNTER: "0",
       LAZYGOAL_E2E_MODEL_OFFSET: "0",
       LAZYGOAL_E2E_TOOL_POLICY: "allow",
+      LAZYGOAL_E2E_DELAY_MODEL: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

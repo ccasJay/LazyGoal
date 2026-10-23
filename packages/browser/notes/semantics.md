@@ -33,3 +33,4 @@
 | 执行诊断摘要 | 已提交纠错、请求失败、检索和审批事实的白名单摘要；工具保留真实 Stage 关联及审批后执行顺序，可跨刷新读取。 | [Browser](../README.md) | [Activity 投影](../src/browser-projection.ts) |
 
 | Activity Run 终态摘要 | 按所属 Run 与固定提交水位投影受限代码和固定说明，不公开原始异常，原因缺失时省略。 | [Browser](../README.md) | [Activity 投影](../src/browser-projection.ts) |
+| 用户中断状态 | 已受理到取消结算的两阶段记录及未知工具效果，不含模型收尾。 | [Goal Runtime](../../runtime/README.md) | [Runtime 中断语义](../../runtime/notes/overview.md) |

@@ -144,7 +144,7 @@ test("explicit recovery finishes an accepted interruption without unpausing the 
             run: {
                 ...created.state.run,
                 status: "running",
-                interruption: { requestId: "interrupt-before-recovery", status: "requested", repairCallsStarted: 0 },
+                interruption: { requestId: "interrupt-before-recovery", status: "requested" },
             },
             messageQueue: {
                 revision: 1,

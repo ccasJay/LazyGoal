@@ -18,6 +18,7 @@ import type { ActivityGroup } from "./activity-projector";
  * 各持久化项使用 Activity `itemId` 与位置；Run 终态只由 Goal/Run 状态构造，临时正文身份
  * 仅在当前 Run 内有效，不能作为已保存消息提交或恢复。工具活动以真实动作组呈现，组的
  * 位置取其首个成员，组内成员保持各自来源身份。
+ * 事实保留真实 executionUnitId，供公开进度关联；缺少身份时不按相邻位置推断。
  * 当前失败 Run 的错误摘要只取同 Run 的窄状态，不附到历史 Run 或尚未结算的 Run。
  *
  * @example
@@ -33,7 +34,7 @@ export type SessionTimelineEntry =
   | { readonly kind: "message"; readonly itemId: string; readonly presentationKey: string; readonly runId: string; readonly role: "user" | "assistant"; readonly purpose?: "process" | "answer" | "notice"; readonly content: string; readonly position: BrowserActivityPosition; readonly previewIssue?: "official-text-differs" | "preview-incomplete" }
   | { readonly kind: "activity"; readonly itemId: string; readonly runId: string; readonly group: ActivityGroup; readonly position?: BrowserActivityPosition }
   | { readonly kind: "interaction"; readonly itemId: string; readonly runId: string; readonly interactionId: string; readonly interactionKind: string; readonly position: BrowserActivityPosition }
-  | { readonly kind: "fact"; readonly itemId: string; readonly runId: string; readonly title: string; readonly detail?: string; readonly eventType: string; readonly stageId?: string; readonly stageRevision?: number; readonly stageTarget?: string; readonly position: BrowserActivityPosition }
+  | { readonly kind: "fact"; readonly itemId: string; readonly runId: string; readonly title: string; readonly detail?: string; readonly eventType: string; readonly executionUnitId?: string; readonly stageId?: string; readonly stageRevision?: number; readonly stageTarget?: string; readonly position: BrowserActivityPosition }
   | { readonly kind: "terminal"; readonly itemId: string; readonly runId: string; readonly status: "completed" | "failed" | "cancelled"; readonly detail?: BrowserGoalSessionState["currentRunTerminalDetail"]; readonly position: BrowserActivityPosition }
   | { readonly kind: "live-preview"; readonly itemId: string; readonly runId: string; readonly content: string }
   | { readonly kind: "candidate-preview"; readonly itemId: string; readonly presentationKey: string; readonly candidateId: string; readonly runId: string; readonly content: string; readonly status: "generating" | "ready" | "pending-verification"; readonly missingPrefix: boolean; readonly truncated: boolean };
@@ -172,6 +173,7 @@ export function projectSessionTimeline(
         title: item.title,
         ...(item.detail === undefined ? {} : { detail: item.detail }),
         eventType: item.eventType,
+        ...(item.executionUnitId === undefined ? {} : { executionUnitId: item.executionUnitId }),
         ...(item.stageId === undefined ? {} : { stageId: item.stageId }),
         ...(item.stageRevision === undefined ? {} : { stageRevision: item.stageRevision }),
         ...(item.stageTarget === undefined ? {} : { stageTarget: item.stageTarget }),

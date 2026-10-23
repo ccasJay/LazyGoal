@@ -72,7 +72,7 @@ project-memory/  Durable summaries of completed and verified feature specificati
 * Do not silently expand the requested scope. If adjacent work is required for correctness, keep it minimal and explain why it is necessary.
 * Do not skip, shorten, weaken, or bypass tests merely to finish a task faster.
 * Prefer the smallest implementation that satisfies the current requirement and preserves existing architectural boundaries.
-* When designing or implementing UI, first inspect and prioritize components available in the project's existing component libraries and reusable UI components. Create custom components only when those cannot meet the requirement.
+* **UI Components:** Use shadcn/ui as the default component library. Before implementing custom components, check whether suitable shadcn/ui or existing reusable UI components are available; reuse or customize them whenever possible. Follow the existing project styling conventions. Create custom components only when those options cannot meet the requirement.
 * Do not introduce abstractions, compatibility layers, fallback paths, or configuration options without a demonstrated current requirement.
 * All user-facing output must be in English, except for GitHub pull request titles and descriptions, commit messages, and Chinese TSDoc explicitly required by this document.
 * Write GitHub pull request titles and descriptions in Chinese by default unless the user explicitly requests another language. Keep code identifiers, commands, and paths unchanged.
@@ -100,7 +100,6 @@ Prefer deleting obsolete test data and keeping one coherent current implementati
 ### Task Completion Summary
 
 Upon completing a task, structure the final summary so that every change item is paired directly with its clickable source location.
-And ask the user whether distille the changes into a project memory. (Use the using-lazyspec skill.)
 
 Example:
 

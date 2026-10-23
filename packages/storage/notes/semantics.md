@@ -18,3 +18,4 @@
 | 批次进度指针 | 多调用批次中尚未暂存的业务 Action 及其顺序，与队首共同决定恢复位置。 | [Storage](../README.md) | [Goal Snapshot 协议](../src/goal-snapshot.ts) |
 | 最终执行版本快照 | 已获批 Action 的原请求引用与最终 canonical 参数；获批后不可再编辑，恢复沿用同一版本。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
 | 恢复身份快照 | 结果未知等待的稳定恢复身份；跨重启保留，同一 Action 再次未知时改变。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
+| 用户中断状态 | 已受理到取消结算的两阶段记录及未知工具效果，不含模型收尾。 | [Goal Runtime](../../runtime/README.md) | [Runtime 中断语义](../../runtime/notes/overview.md) |

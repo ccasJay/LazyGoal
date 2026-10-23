@@ -10,3 +10,4 @@
 | 默认协议适配 | 只接受 structured@1 + trajectory-layered@1 + bm25-lite@1 + v1。 | [Prompt Bundle](../README.md) | [默认装配](../src/default-bundles.ts) |
 | 默认 Renderer | 显式加载当前资产并装配注册机制的工厂。 | [Prompt Bundle](../README.md) | [默认装配](../src/default-bundles.ts) |
 | 阶段操作提示 | 明示阶段状态，按当前状态提示开始、修订或完成。 | [Prompt Bundle](../README.md) | [动态 Section](../src/default-dynamic-sections.ts) |
+| 全局回复语言 | 优先遵循用户明确指定的语言，否则跟随当前输入的主要交流语言；Decide 与 Think 共用。 | [Prompt Bundle](../README.md) | [Global Overview](../src/global-system-prompt/global-overview@1.njk) |

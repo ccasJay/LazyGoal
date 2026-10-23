@@ -43,7 +43,7 @@ test("Snapshot round-trips pending Steer bodies and applied message positions", 
     assert.deepEqual(restored.state.run.steerInputs, goal.state.run.steerInputs);
 });
 
-test("Snapshot preserves accepted Interrupt intent and repair budget across restart", () => {
+test("Snapshot preserves accepted Interrupt intent and unknown outcomes across restart", () => {
     const goal = createGoalWithSteer();
     const interrupted = {
         ...goal,
@@ -53,8 +53,7 @@ test("Snapshot preserves accepted Interrupt intent and repair budget across rest
                 ...goal.state.run,
                 interruption: {
                     requestId: "interrupt-1",
-                    status: "repairing" as const,
-                    repairCallsStarted: 2,
+                    status: "requested" as const,
                     interruptedActions: [{ actionId: "action-1", toolId: "probe", input: {} }],
                     outcomeUnknown: true,
                 },

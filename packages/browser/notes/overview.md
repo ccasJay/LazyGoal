@@ -3,6 +3,8 @@
 本机浏览器会话的访问检查、Goal 命令、历史读取与投影路由；不拥有前端视图。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。
 
 
+会话投影从当前 Snapshot 公开用户中断的 `requested`／`finished` 状态及未知工具效果标记，不推断模型收尾进度。执行语义见 [Runtime](../../runtime/notes/overview.md)。
+
 ## 职责
 
 正式消息投影保留 Snapshot 中的稳定消息身份、所属 Run 和事实锚点位置；窄状态摘要、Activity 历史、消息读取与 SSE 提交通知复用同一位置，不依据连接到达时间排序。
@@ -33,7 +35,7 @@ Plan Run 的待审批会话 DTO 会投影候选路线中的全部阶段顺序、
 
 `GET /api/goals/:goalId/actions/:actionId?runId=...` 仅在该 Goal/Run 仍处于对应 Action 审批等待时返回完整 canonical Tool 输入。常规会话投影只携带限长输入预览；写入类 Tool 额外投影目标路径。`GET /api/goals/:goalId/grants?runId=...` 只列出当前 Goal 与 Workspace 的授权摘要，不暴露精确输入摘要；`DELETE /api/goals/:goalId/grants/:grantId` 按授权层级撤销并返回更新后的列表。三个端点均受 BrowserSessionAccess 保护，并在服务层重验当前 Run 身份。
 
-普通 `message` 不绑定发送时的旧 Run：运行中或等待交互时按受理顺序进入该 Goal 的持久化队列，Goal 处于可启动终态且无恢复或队列暂停约束时由 Runtime 为队首创建后继 Run。终止态或 Interrupt 暂停保留队列与暂停原因，只有显式 `queue_control` 继续才解除。`steer` 只面向当前 running Run，受理不取消在途调用，应用发生在既有模型安全边界并写入真实用户消息；旧 Run、已进入中断或非 running 目标明确拒绝，不会静默降级为普通队列消息。`interrupt` 按目标 Run 与稳定身份在同一提交内保存中断意图并暂停队列，随后委派既有中止与有限收尾，重复请求返回同一收据。用户终止只影响目标 Run，最终以 cancelled 结算；普通服务关闭或断连不生成该意图。会话投影按顺序公开已受理、尚未应用的 Steer，并区分队列、暂停、提交修订、中断阶段与是否需要显式恢复。
+普通 `message` 不绑定发送时的旧 Run：运行中或等待交互时按受理顺序进入该 Goal 的持久化队列，Goal 处于可启动终态且无恢复或队列暂停约束时由 Runtime 为队首创建后继 Run。终止态或 Interrupt 暂停保留队列与暂停原因，只有显式 `queue_control` 继续才解除。`steer` 只面向当前 running Run，受理不取消在途调用，应用发生在既有模型安全边界并写入真实用户消息；旧 Run、已进入中断或非 running 目标明确拒绝，不会静默降级为普通队列消息。`interrupt` 按目标 Run 与稳定身份在同一提交内保存中断意图并暂停队列，随后委派执行器中止执行并直接结算取消，不再调用模型，重复请求返回同一收据。用户终止只影响目标 Run，最终以 cancelled 结算；普通服务关闭或断连不生成该意图。会话投影按顺序公开已受理、尚未应用的 Steer，并区分队列、暂停、提交修订、中断阶段与是否需要显式恢复。
 
 `POST /api/goals/:goalId/plan-mode` 只接受当前 `runId`，并由管理命令服务在转交 Coordinator 前校验 Goal/Run 身份与实例活动名额。Runtime 允许未启动 Run 进入 Plan Mode，或为已完成或失败 Run 标记下一 Run 使用 Plan Mode；已开始的普通 Run 和其他不允许切换的状态返回稳定错误。命令文本不写入消息或 Step。
 

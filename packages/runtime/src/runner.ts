@@ -275,10 +275,6 @@ function stageRequestKey(goal: Goal): string {
 }
 class RunInterruptAcceptedError extends Error {}
 
-class InterruptRepairBudgetExhausted extends Error {
-    constructor(readonly goal: Goal) { super("Interrupt repair model-call budget exhausted"); }
-}
-
 /**
  * Steer 命令已保存或被明确拒绝的 Runtime 结果。
  *
@@ -1256,12 +1252,6 @@ class RunExecutor {
         }
 
         if (goal.state.run.interruption !== undefined && options.authorizedActionId === undefined) {
-            // 收尾阶段的新审批请求已被批准：先执行该 Action 再继续收尾，
-            // 否则已批准的真实操作会被收尾分支静默丢弃。
-            if (goal.state.run.interruption.status === "repairing"
-                && goal.state.run.pendingAction?.status === "approved") {
-                return this.recoverPendingAction(goal, effectiveControl);
-            }
             return this.resumeInterruptedRun(goal, control);
         }
 
@@ -1495,7 +1485,7 @@ class RunExecutor {
                     return { ok: false, error: "INTERRUPT_CONFLICT" };
                 }
             }
-            const interruption: RunInterruption = { requestId, status: "requested", repairCallsStarted: 0 };
+            const interruption: RunInterruption = { requestId, status: "requested" };
             const ledgerEntry: SessionInputRecord | undefined = ledger === undefined
                 ? undefined
                 : {
@@ -1564,33 +1554,16 @@ class RunExecutor {
                 ...(program === undefined ? [] : [program.action]),
             ].filter((action, index, actions) => actions.findIndex((candidate) => candidate.actionId === action.actionId) === index);
             if (unknownActions.length === 0) return this.cancelInterruptedRun(goal, control);
-            const actionId = program?.action.actionId ?? unknownActions[0]!.actionId;
-            const toolId = unknownActions.map((action) => `${action.toolId} (${action.actionId})`).join(", ");
             const attempt = pending?.attemptsStarted ?? Math.max(1, program?.nextCallIndex ?? 1);
             const nextInterruption: RunInterruption = {
                 ...interruption,
-                status: "repairing",
                 interruptedActions: unknownActions,
                 outcomeUnknown: true,
             };
-            const { pendingAction: _pendingAction, pendingProgram: _pendingProgram,
-                pendingThink: _pendingThink, pendingModelRepair: _pendingModelRepair, ...run } = goal.state.run;
-            const nextGoal: Goal = appendGoalMessage(goal, {
-                role: "user",
-                content: `The current Run was interrupted while Tool ${toolId} (Action ${actionId}) was executing. Its external effect is unknown. Do not repeat that operation. Use necessary authorized tools only to inspect and safely repair its outcome, then stop.`,
-                runId: goal.state.run.id,
-                source: {
-                    kind: "runtime_notice",
-                    noticeId: `interruption:${interruption.requestId}:${actionId}`,
-                },
-            }).goal;
-            const nextGoalWithRun: Goal = {
-                ...nextGoal,
-                state: {
-                    ...nextGoal.state,
-                    run: { ...run, status: "running", interruption: nextInterruption },
-                },
-            };
+            const nextGoalWithRun = this.withRun(goal, {
+                ...goal.state.run,
+                interruption: nextInterruption,
+            });
             const facts: TrajectoryEventDraft[] = unknownActions.flatMap((action) => {
                 const unknownObservation: ToolObservation = {
                     kind: "failure",
@@ -1617,21 +1590,12 @@ class RunExecutor {
                     },
                 ];
             });
-            const committed = await this.checkpointCommitter.commit(nextGoalWithRun, { facts, ...(control === undefined ? {} : { control }) });
-            this.publishCommittedEvents(committed);
-            this.publishCheckpointCommitted(committed, facts);
-            goal = committed.goal;
+            return this.cancelInterruptedRun(nextGoalWithRun, control, facts);
         }
-        if ((goal.state.run.interruption?.repairCallsStarted ?? 0) >= 3) return this.cancelInterruptedRun(goal, control);
-        const contextLookupResult = await this.restoreContextLookupResult(goal, control);
-        const result = await this.runLoop(goal, undefined, control, contextLookupResult, undefined, undefined);
-        const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
-        if (latest === undefined) return { ok: true, state: goal.state.run };
-        if (latest.state.run.status === "waiting") return { ok: true, state: latest.state.run };
-        return this.cancelInterruptedRun(latest, control);
+        return this.cancelInterruptedRun(goal, control);
     }
 
-    private async cancelInterruptedRun(goal: Goal, control?: ExecutionControl): Promise<RunnerResult> {
+    private async cancelInterruptedRun(goal: Goal, control?: ExecutionControl, interruptedFacts: readonly TrajectoryEventDraft[] = []): Promise<RunnerResult> {
         const interruption = goal.state.run.interruption;
         if (interruption === undefined) return { ok: true, state: goal.state.run };
         if (goal.state.run.status === "cancelled" || interruption.status === "finished") {
@@ -1644,6 +1608,7 @@ class RunExecutor {
         });
         const closed = this.contextEpochClosedFact(cancelledGoal, "run_cancelled");
         const facts: TrajectoryEventDraft[] = [
+            ...interruptedFacts,
             { goalId: goal.id, runId: goal.state.run.id, phase: "executing", eventType: "run_cancelled", payload: { type: "run_cancelled", reason: "user_interrupt" } },
             ...(closed === undefined ? [] : [closed]),
         ];
@@ -3186,10 +3151,7 @@ class RunExecutor {
             pending = started.pending;
             try {
                 const value = await this.executeModelStage(
-                    async () => {
-                        currentGoal = await this.reserveInterruptRepairCall(currentGoal, control);
-                        return operation(currentGoal, feedback);
-                    },
+                    () => operation(currentGoal, feedback),
                     control,
                     async (attempt, error) => {
                         currentGoal = await this.recordModelRequestFailure(currentGoal, input, stage, attempt, error, control);
@@ -3205,7 +3167,6 @@ class RunExecutor {
                 return { goal: currentGoal, result };
             } catch (error) {
                 if (isExecutionAbortedError(error)) throw error;
-                if (error instanceof InterruptRepairBudgetExhausted) throw error;
                 if (error instanceof StageCheckpointFailure) throw error;
                 if (error instanceof StaleStageRequestError) throw error;
                 if (!(error instanceof ModelStageFeedbackError)) throw new StageExecutionFailure(error);
@@ -3250,31 +3211,6 @@ class RunExecutor {
                 }
             }
         }
-    }
-
-    private async reserveInterruptRepairCall(goal: Goal, control?: ExecutionControl): Promise<Goal> {
-        const interruption = goal.state.run.interruption;
-        if (interruption?.status !== "repairing") return goal;
-        if (interruption.repairCallsStarted >= 3) throw new InterruptRepairBudgetExhausted(goal);
-        const attempt = interruption.repairCallsStarted + 1;
-        const nextGoal = this.withRun(goal, {
-            ...goal.state.run,
-            interruption: { ...interruption, repairCallsStarted: attempt },
-        });
-        const fact: TrajectoryEventDraft = {
-            goalId: goal.id,
-            runId: goal.state.run.id,
-            phase: "executing",
-            eventType: "run_interrupt_repair_started",
-            payload: { type: "run_interrupt_repair_started", requestId: interruption.requestId, attempt },
-        };
-        const committed = await this.checkpointCommitter.commit(nextGoal, {
-            facts: [fact],
-            ...(control === undefined ? {} : { control }),
-        });
-        this.publishCommittedEvents(committed);
-        this.publishCheckpointCommitted(committed, [fact]);
-        return committed.goal;
     }
 
     private createRepairInputBoundary(
@@ -4381,15 +4317,9 @@ class RunExecutor {
             goal = await this.applyPendingSteers(goal, control);
             if (goal.state.run.status !== "running") break;
 
-            const interruption = goal.state.run.interruption;
-            if (interruption?.status === "repairing") {
-                if (interruption.repairCallsStarted >= 3) return this.cancelInterruptedRun(goal, control);
-            }
-
             const maxSteps = goal.definition.executionPolicy.maxSteps;
 
-            if (goal.state.run.interruption?.status !== "repairing"
-                && maxSteps > 0 && goal.state.run.stepCount >= maxSteps) {
+            if (maxSteps > 0 && goal.state.run.stepCount >= maxSteps) {
                 throwIfAborted(control);
                 const lifecyclePatch = await this.createTerminalLifecyclePatch(
                     goal,
@@ -4823,17 +4753,6 @@ class RunExecutor {
                                     normalized.modelCallId,
                                     executionUnitId,
                                 );
-                            }
-                            if (goal.state.run.interruption?.status === "repairing") {
-                                const repairDecision = normalized.decision;
-                                if (repairDecision.kind !== "tool_call") {
-                                    return this.cancelInterruptedRun(goal, control);
-                                }
-                                const repeated = (goal.state.run.interruption.interruptedActions ?? []).some((action) =>
-                                    action.toolId === repairDecision.action.toolId
-                                    && JSON.stringify(canonicalizeBoundaryValue(action.input))
-                                        === JSON.stringify(canonicalizeBoundaryValue(repairDecision.action.input)));
-                                if (repeated) return this.cancelInterruptedRun(goal, control);
                             }
                             break;
                         }
@@ -5833,9 +5752,6 @@ class RunExecutor {
                     }
 
                     throwIfAborted(control);
-                    if (goal.state.run.interruption?.status === "repairing") {
-                        return this.cancelInterruptedRun(goal, control);
-                    }
 
                     if (reviewed.kind === "reject") {
                         const rejectedStage = rejectCurrentRunStage(goal.state.run.currentStage, reviewed.feedback);
@@ -5983,9 +5899,6 @@ class RunExecutor {
                     }
 
                     throwIfAborted(control);
-                    if (goal.state.run.interruption?.status === "repairing") {
-                        return this.cancelInterruptedRun(goal, control);
-                    }
 
                     if (reviewed.kind === "reject") {
                         const rejectedStage = rejectCurrentRunStage(goal.state.run.currentStage, reviewed.feedback, undefined, true);
@@ -6056,9 +5969,6 @@ class RunExecutor {
                 }, control);
 
                 throwIfAborted(control);
-                if (goal.state.run.interruption?.status === "repairing") {
-                    return this.cancelInterruptedRun(goal, control);
-                }
                 const transitionedRun = this.applyTransition(goal.state.run, {
                     kind: "decision",
                     decision: normalized.decision,
@@ -6165,14 +6075,11 @@ class RunExecutor {
                     continue;
                 }
                 if (error instanceof RunInterruptAcceptedError) {
-                    // 已被受理的中断使当前候选失效：它不是正式答复，也不改变收尾规则。
+                    // 已被受理的中断使当前候选失效：它不是正式答复，Run 随后结算为取消。
                     if (pendingCandidateId !== undefined) {
                         this.publishCandidateInvalidated(goal, pendingCandidateId, "cancelled");
                     }
                     throw error;
-                }
-                if (error instanceof InterruptRepairBudgetExhausted) {
-                    return this.cancelInterruptedRun(error.goal, control);
                 }
                 if (error instanceof PendingSteerAcceptedError) {
                     // Steer 到达使旧决策被弃用：对应候选必须先作废。
@@ -6996,7 +6903,7 @@ export class Runner {
     }
 
     /**
-     * 受理并中止指定 Run；自动收尾由同一 Run 执行器完成。
+     * 受理并中止指定 Run；同一 Run 执行器记录未知工具结果并直接结算取消，不再调用模型。
      *
      * @param ref - Goal 与目标 Run 的稳定身份。
      * @param requestId - 客户端稳定请求身份。

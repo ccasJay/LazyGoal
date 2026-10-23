@@ -616,7 +616,7 @@ test("pending session work blocks terminal management", async () => {
             messageQueue: { revision: 9, items: [] },
             run: {
                 ...idle.state.run,
-                interruption: { requestId: "interrupt-1", status: "repairing", repairCallsStarted: 1 },
+                interruption: { requestId: "interrupt-1", status: "requested" },
             },
         },
     };

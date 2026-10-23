@@ -1,11 +1,11 @@
 import { FieldSet } from "./ui/field";
-import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./ui/collapsible";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { NativeSelect } from "./ui/native-select";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { MoreHorizontal, Plus, X } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
@@ -74,9 +74,62 @@ const PROVIDERS = [
   ["openai", "OpenAI"], ["google", "Google"], ["anthropic", "Anthropic"],
   ["openrouter", "OpenRouter"], ["deepseek", "DeepSeek"], ["opencode-go", "OpenCode Go"],
 ] as const;
+const PROVIDERS_SECTION = {
+  value: "providers",
+  label: "Providers",
+  title: "Providers",
+  description: "Manage your model connections.",
+} as const;
 const CONFIG_PROVIDER_LABEL = "CPA";
 const providerName = (kind: string) => PROVIDERS.find(([id]) => id === kind)?.[1] ?? (kind === "openai-compatible" ? "Custom API" : kind);
 type WriteResult = void | Promise<boolean | void>;
+
+type SettingsSectionDefinition = {
+  readonly value: string;
+  readonly label: string;
+  readonly title: string;
+  readonly description: string;
+  readonly action?: ReactNode;
+  readonly content: ReactNode;
+};
+
+function SettingsLayout(props: { readonly sections: readonly [SettingsSectionDefinition, ...SettingsSectionDefinition[]] }) {
+  const settingsId = useId();
+  const [activeSection, setActiveSection] = useState(props.sections[0].value);
+
+  return (
+    <section className="settings-page" aria-labelledby={`${settingsId}-${activeSection}-title`}>
+      <Tabs className="settings-tabs" value={activeSection} onValueChange={setActiveSection}>
+        <div className="settings-layout">
+          <nav className="settings-nav" aria-label="Settings">
+            <p>Settings</p>
+            <TabsList aria-label="Settings sections">
+              {props.sections.map(section => <TabsTrigger
+                key={section.value}
+                value={section.value}
+                id={`${settingsId}-${section.value}-tab`}
+                aria-controls={`${settingsId}-${section.value}-panel`}
+              >{section.label}</TabsTrigger>)}
+            </TabsList>
+          </nav>
+          {props.sections.map(section => <TabsContent
+            key={section.value}
+            className="settings-page-inner"
+            value={section.value}
+            id={`${settingsId}-${section.value}-panel`}
+            aria-labelledby={`${settingsId}-${section.value}-tab`}
+          >
+            <header className="settings-page-heading">
+              <div><h2 id={`${settingsId}-${section.value}-title`}>{section.title}</h2><p>{section.description}</p></div>
+              {section.action}
+            </header>
+            {section.content}
+          </TabsContent>)}
+        </div>
+      </Tabs>
+    </section>
+  );
+}
 
 /**
  * 受管 Provider 设置的展示层。
@@ -234,18 +287,14 @@ export function ProviderSettingsSection(props: {
   );
 
   return (
-    <section className="settings-page" aria-labelledby="settings-page-title">
-      <div className="settings-layout">
-        <nav className="settings-nav" aria-label="Settings">
-          <p>Settings</p>
-          <Tabs value="providers"><TabsList aria-label="Settings sections">
-            <TabsTrigger value="providers" id={`${modelInputId}-providers-tab`} aria-controls={`${modelInputId}-providers-panel`}>Providers</TabsTrigger>
-          </TabsList></Tabs>
-        </nav>
-        <div className="settings-page-inner" id={`${modelInputId}-providers-panel`} role="tabpanel" aria-labelledby={`${modelInputId}-providers-tab`}>
-        <header className="settings-page-heading"><h2 id="settings-page-title">Providers</h2><p>Manage your model connections.</p></header>
-        {props.error !== undefined && <p className="settings-notice settings-error" role="alert">{props.error}</p>}
-        {props.notice !== undefined && <p className="settings-notice" role="status">{props.notice}</p>}
+    <>
+      <SettingsLayout sections={[{
+        ...PROVIDERS_SECTION,
+        action: <Button variant="ghost" size="sm" type="button" className="primary settings-add-provider" disabled={props.busy} onClick={event => { editorOpener.current = event.currentTarget; cancelFetch(); setDeleting(null); setForm({ ...EMPTY_FORM }); setEditor("create"); }}><Plus size={16} />Add provider</Button>,
+        content: (
+          <>
+            {props.error !== undefined && <p className="settings-notice settings-error" role="alert">{props.error}</p>}
+            {props.notice !== undefined && <p className="settings-notice" role="status">{props.notice}</p>}
         <ul className="settings-providers" data-testid="settings-providers">
           {props.settings.fallback !== undefined && !props.settings.profiles.some(profile =>
             profile.label === CONFIG_PROVIDER_LABEL
@@ -290,9 +339,9 @@ export function ProviderSettingsSection(props: {
             </li>;
           })}
         </ul>
-        <Button variant="ghost" size="sm" type="button" className="settings-add-provider" disabled={props.busy} onClick={event => { editorOpener.current = event.currentTarget; cancelFetch(); setDeleting(null); setForm({ ...EMPTY_FORM }); setEditor("create"); }}><Plus size={16} />Add provider</Button>
-        </div>
-      </div>
+          </>
+        ),
+      }]} />
       <Dialog open={editor !== null} onOpenChange={open => { if (!open) closeEditor(); }}>
         <DialogContent showCloseButton={false} className="settings-provider-dialog" aria-describedby={undefined}
           onCloseAutoFocus={event => { event.preventDefault(); editorOpener.current?.focus(); }}>
@@ -300,7 +349,7 @@ export function ProviderSettingsSection(props: {
           {editor !== null && editorForm}
         </DialogContent>
       </Dialog>
-    </section>
+    </>
   );
 }
 
@@ -385,14 +434,10 @@ export function SettingsPage() {
 
   if (settings === undefined) {
     return (
-      <section className="settings-page" aria-labelledby="settings-page-title">
-        <div className="settings-page-inner">
-          <header className="settings-page-heading">
-            <h2 id="settings-page-title">Providers</h2>
-            <p>{error ?? "Loading providers…"}</p>
-          </header>
-        </div>
-      </section>
+      <SettingsLayout sections={[{
+        ...PROVIDERS_SECTION,
+        content: <p className={`settings-notice${error ? " settings-error" : ""}`} role={error ? "alert" : "status"}>{error ?? "Loading providers…"}</p>,
+      }]} />
     );
   }
 

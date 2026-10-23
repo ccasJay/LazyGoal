@@ -285,7 +285,6 @@ export async function readBrowserGoalSession(
             interruption: {
                 requestId: currentRun.interruption.requestId,
                 status: currentRun.interruption.status,
-                repairCallsStarted: currentRun.interruption.repairCallsStarted,
                 ...(currentRun.interruption.outcomeUnknown === undefined ? {} : { outcomeUnknown: currentRun.interruption.outcomeUnknown }),
             },
         }),
@@ -365,7 +364,6 @@ export async function readBrowserGoalSessionState(
             interruption: {
                 requestId: currentRun.interruption.requestId,
                 status: currentRun.interruption.status,
-                repairCallsStarted: currentRun.interruption.repairCallsStarted,
                 ...(currentRun.interruption.outcomeUnknown === undefined ? {} : { outcomeUnknown: currentRun.interruption.outcomeUnknown }),
             },
         }),

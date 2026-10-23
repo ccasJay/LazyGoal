@@ -31,3 +31,4 @@
 | Activity 诊断说明 | 事实可携带最多 500 字符的安全状态说明，不含原始反馈或检索内容。 | [Web Contracts](../README.md) | [Activity DTO](../src/activity.ts) |
 
 | BrowserActivityRunContext.terminalDetail | 所属 Run 固定提交水位内的安全失败摘要；可缺失，不承载原始异常。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts)、[Wire 校验](../src/validation.ts) |
+| 用户中断状态 | 已受理到取消结算的两阶段记录及未知工具效果，不含模型收尾。 | [Goal Runtime](../../runtime/README.md) | [Runtime 中断语义](../../runtime/notes/overview.md) |

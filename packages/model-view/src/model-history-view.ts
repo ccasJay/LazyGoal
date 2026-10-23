@@ -54,7 +54,6 @@ export type ModelTrajectoryEventType =
     | "run_completed"
     | "run_created"
     | "run_failed"
-    | "run_interrupt_repair_started"
     | "run_interrupt_requested"
     | "run_interrupted_action_unknown"
     | "run_plan_route_revised"

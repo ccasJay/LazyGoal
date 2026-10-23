@@ -25,7 +25,7 @@
 | 交互详情读取 | 按稳定引用返回当前等待的完整问题、任务范围或 Action 输入；引用过期时拒绝且不推进等待。 | [Goal Runtime](../README.md) | [交互视图](../src/interaction-view.ts) |
 | 交互处理器 | 会话边界按种类分派的宿主处理函数入口：单一自动所有者、按引用去重、Gate 外调用；故障、迟到结果、解除与关闭都不默认决定。 | [Goal Runtime](../README.md) | [交互处理器](../src/interaction-handlers.ts) |
 | 问答响应分支 | 逐题答案、整体回复与跳过三种互斥分支；整体回复保留用户原文，跳过提交未回答并要求继续的控制语义，都不伪造选项。 | [Goal Runtime](../README.md) | [输入契约](../src/session-input.ts) |
-| 显式恢复 | 匹配最新 Run 与提交修订的恢复命令唤醒执行所有者或已受理队首；已受理 Interrupt 的安全收尾可恢复并结算取消，但不解除队列暂停或代答等待。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
+| 显式恢复 | 匹配最新 Run 与提交修订的恢复命令唤醒执行所有者或已受理队首；已受理 Interrupt 可恢复取消结算，但不解除队列暂停或代答等待。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 异步输入消费 | `consume` 逐条等待持久化受理；业务拒绝继续，基础设施失败停止来源，迟到项不受理。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 单消息封装 | 等待指定 Run 的等待或终态结果并返回可恢复身份；只释放自己的资源。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 有界关闭 | 停止接受与订阅后按期限结算；未结算时保留类型化错误，不伪造取消。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
@@ -40,9 +40,8 @@
 | 流背压 | 控制事件无法保留时以 `backpressure` 结束该订阅，不静默丢弃也不阻塞执行。 | [Goal Runtime](../README.md) | [事件 Core](../../execution-stream/src/publisher.ts) |
 | 模型 Binding 对齐 | 新 Run 启动前按最新 Goal 的 `modelSelection` 重新对齐实例绑定。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | Goal 动态模型执行选择 | 保存非敏感 API 协议与容量供宿主恢复 Binding；不含端点或凭据。 | [Goal Runtime](../README.md) | [领域契约](../src/domain.ts) |
-| 会话 Interrupt 受理 | 中断意图、账本收据与队列暂停在同一提交生效；受理使旧交互引用失效，受理后观察停止、有限收尾、必要审批与最终 cancelled。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
+| 会话 Interrupt 受理 | 中断意图、账本收据与队列暂停在同一提交生效；受理使旧交互引用失效，受理后停止执行，记录已开始工具的未知结果并直接结算 cancelled，不再调用模型。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 停止与交互竞争 | 停止先受理时旧等待的回答／批准不再被接受；回答先提交时按最新 Run 状态处理停止，不回滚已提交事实。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts) |
-| 收尾中的新请求 | 未知效果收尾阶段提出的新审批请求仍然有效并按批准真实执行；旧引用保持失效，收尾预算与未知效果记录不被重置。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 后继 Run 绑定 | 队首消息、输入应用关联、队列修订与新 Run 创建在同一 Snapshot 提交中完成。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts) |
 | Goal 提交修订 | Goal 级单调提交修订，跨 Run 递增，用于恢复命令、状态同步与竞态判定。 | [Goal Runtime](../README.md) | [提交边界](../src/trajectory-checkpoint-committer.ts) |
 | 短 mutation Gate | 按 Store 与 Goal 串行化读取与 Snapshot 提交；同一异步调用链可安全重入。 | [Goal Runtime](../README.md) | [提交边界](../src/goal-mutation-gate.ts) |

@@ -151,8 +151,7 @@ export interface GoalSessionState {
      * 当前等待的交互类型；运行中或终态时省略。
      *
      * @remarks
-     * 只描述等待点自己的请求：Interrupt 收尾阶段提出的新审批请求仍然报告为对应
-     * 种类，不会被未结算的中断事实覆盖；未结算的停止状态由 `interruption` 表达。
+     * 只描述等待点自己的请求；用户中断受理后旧交互引用失效，随后结算为取消。
      */
     readonly waitingFor?:
         | "ask_user"
@@ -190,12 +189,11 @@ export interface GoalSessionState {
      * 当前 Run 的用户中断状态；未受理用户中断时省略。
      *
      * @remarks
-     * 调用方据此区分已受理（`requested`）、停止／有限收尾（`repairing`）与
-     * 已结算（`finished`）；`outcomeUnknown` 表示仍有未解决的未知外部效果。
+     * 调用方据此区分等待取消结算（`requested`）与已结算（`finished`）；`outcomeUnknown` 表示仍有未解决的未知外部效果。
      */
     readonly interruption?: {
         readonly requestId: string;
-        readonly status: "requested" | "repairing" | "finished";
+        readonly status: "requested" | "finished";
         readonly outcomeUnknown: boolean;
     } | undefined;
     /** 当前实例是否持有该 Goal 的执行所有者。 */
@@ -648,8 +646,6 @@ function projectMessageSourceId(source: GoalMessageSource): string {
 
 function resolveWaitingFor(goal: Goal): GoalSessionState["waitingFor"] {
     const run = goal.state.run;
-    // 当前等待自己的请求优先：Interrupt 收尾阶段提出的新审批请求仍然有效，
-    // 不能被未结算的中断事实误报为普通恢复等待。
     if (run.pendingInteraction?.kind === "ask_user") return "ask_user";
     if (run.pendingInteraction?.kind === "task_approval") return "task_approval";
     if (run.pendingAction?.status === "awaiting_approval") return "action_approval";

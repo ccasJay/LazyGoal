@@ -28,3 +28,6 @@ specs/**/.execution-progress.md
 
 # 本地 worktree 目录
 .worktrees/
+
+# Repository-installed agent skills
+.agents/skills/shadcn/

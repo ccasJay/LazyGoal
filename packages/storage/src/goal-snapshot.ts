@@ -587,20 +587,19 @@ export type GoalSnapshotSteerInputV1 =
     | { readonly messageId: string; readonly status: "applied"; readonly messageIndex: number };
 
 /**
- * Snapshot 中的用户 Interrupt 请求及可恢复收尾预算。
+ * Snapshot 中的用户 Interrupt 请求及取消结算状态。
  *
- * @remarks 收尾调用计数在每次调用开始前提交，服务重启不能重置预算。
+ * @remarks 已受理请求在重启后继续取消结算，不调用模型；未知工具效果及 Action 身份保留。
  * @example
  * ```ts
  * const interruption: GoalSnapshotRunInterruptionV1 = {
- *   requestId: "interrupt-1", status: "repairing", repairCallsStarted: 1,
+ *   requestId: "interrupt-1", status: "requested",
  * };
  * ```
  */
 export interface GoalSnapshotRunInterruptionV1 {
     readonly requestId: string;
-    readonly status: "requested" | "repairing" | "finished";
-    readonly repairCallsStarted: number;
+    readonly status: "requested" | "finished";
     readonly interruptedActions?: readonly GoalSnapshotToolCallActionV1[];
     readonly outcomeUnknown?: boolean;
 }
@@ -1326,8 +1325,7 @@ const SteerInputSchema = z.discriminatedUnion("status", [
 
 const RunInterruptionSchema = z.object({
     requestId: NonEmptyStringSchema,
-    status: z.enum(["requested", "repairing", "finished"]),
-    repairCallsStarted: z.number().int().min(0).max(3),
+    status: z.enum(["requested", "finished"]),
     interruptedActions: z.array(ToolCallActionSchema).optional(),
     outcomeUnknown: z.boolean().optional(),
 }).strict();
@@ -1925,9 +1923,6 @@ function validateSnapshotInvariants(
         }
         if (interruption.status !== "finished" && run.status !== "running" && run.status !== "waiting") {
             addInvariantIssue(context, "active Interrupt requires a running or waiting Run", ["state", "run", "interruption"]);
-        }
-        if (interruption.repairCallsStarted > 0 && interruption.status === "requested") {
-            addInvariantIssue(context, "repair call budget requires an active repair phase", ["state", "run", "interruption"]);
         }
         if (interruption.outcomeUnknown === true && (interruption.interruptedActions?.length ?? 0) === 0) {
             addInvariantIssue(context, "unknown interrupted outcome requires its Action identities", ["state", "run", "interruption"]);

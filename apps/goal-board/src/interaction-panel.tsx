@@ -185,6 +185,11 @@ export function useInteractionDetail(view: BrowserInteractionView): {
   return { state, reload: load };
 }
 
+/** 权限批准属于当前交互的授权操作，不作为输入区的历史摘要保留。 */
+function shouldRecordDecisionSummary(command: BrowserGoalInteractionCommand): boolean {
+  return command.kind !== "approve_action" && command.kind !== "approve_action_revision";
+}
+
 /** 统一交互提交与结果核验；冻结身份、复用原身份重试并保留编辑草稿。 */
 export function useInteractionSubmission({
   view,
@@ -215,7 +220,9 @@ export function useInteractionSubmission({
         return;
       }
       dispatch({ kind: "accepted" });
-      onDecisionAccepted({ interactionId: view.interactionId, runId: view.runId, summary: decisionSummary(command) });
+      if (shouldRecordDecisionSummary(command)) {
+        onDecisionAccepted({ interactionId: view.interactionId, runId: view.runId, summary: decisionSummary(command) });
+      }
       await onRefreshSession();
     } catch (error) {
       if (error instanceof BrowserApiError && isInvalidatingCode(error.code)) {
@@ -239,11 +246,13 @@ export function useInteractionSubmission({
         return;
       }
       dispatch({ kind: "verified_accepted" });
-      onDecisionAccepted({
-        interactionId: view.interactionId,
-        runId: view.runId,
-        summary: decisionSummary(submission.frozen.command),
-      });
+      if (shouldRecordDecisionSummary(submission.frozen.command)) {
+        onDecisionAccepted({
+          interactionId: view.interactionId,
+          runId: view.runId,
+          summary: decisionSummary(submission.frozen.command),
+        });
+      }
       await onRefreshSession();
     } catch (error) {
       dispatch({ kind: "unverified", message: errorMessage(error) });

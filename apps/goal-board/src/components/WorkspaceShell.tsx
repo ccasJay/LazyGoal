@@ -113,7 +113,8 @@ export function WorkspaceShell() {
             </div>
             <footer className="workspace-sidebar-footer">
               <Button variant="ghost" size="sm" ref={settingsButton} className="workspace-settings" aria-current={settingsOpen ? "page" : undefined} onClick={() => { setSettingsOpen(true); if (mobile) setCollapsed(true); }}>
-                <Settings size={16} aria-hidden="true" /><span>Settings</span>
+                <Settings size={16} aria-hidden="true" />
+                <span>Settings</span>
               </Button>
             </footer>
     </div>

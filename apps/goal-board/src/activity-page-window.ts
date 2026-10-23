@@ -49,7 +49,7 @@ export interface ActivityWindowState {
   readonly page: BrowserActivityPage | undefined;
   /** 已缓存的历史页，按最近使用顺序排列。 */
   readonly cachedPages: readonly BrowserActivityPage[];
-  /** 是否仍跟随最新内容。 */
+  /** 是否自动滚动到最新内容；暂停滚动不阻止当前末尾窗口接收新项。 */
   readonly following: boolean;
   /** 当前阅读锚点。 */
   readonly anchor: ActivityAnchor | undefined;
@@ -136,8 +136,9 @@ export function applyActivityPageFailure(
  * 把最新读取的页合并进当前窗口。
  *
  * @remarks
- * 合并按稳定身份去重并按位置排序，因此不会重复或遗漏已读项。未跟随时只更新最新水位
- * 与未读提示，不替换当前页，也不移动阅读锚点。
+ * 合并按稳定身份去重并按位置排序。当前窗口已到来源末尾时，即使暂停自动滚动，也继续
+ * 合并新消息、事实和 Run 状态，并保留阅读锚点；未读按新增来源计数。仍有更新方向缺口
+ * 的历史窗口只更新最新水位和未读提示，不跨过未加载区间拼接最新页。
  *
  * @param state - 当前窗口状态。
  * @param page - 最新读取的页。
@@ -150,18 +151,16 @@ export function applyActivityPageFailure(
 export function mergeLatestPage(state: ActivityWindowState, page: BrowserActivityPage): ActivityWindowState {
   if (state.page === undefined) return applyActivityPage(state, page);
   const newest = state.newest === undefined ? page.range.last : maxPosition(state.newest, page.range.last);
-  if (!state.following) {
-    return {
-      ...state,
-      newest,
-      unread: state.unread + page.items.filter(item => state.newest === undefined || laterThan(item.position, state.newest)).length,
-    };
+  const unread = state.following ? 0 : state.unread
+    + page.items.filter(item => state.newest === undefined || laterThan(item.position, state.newest)).length;
+  if (!state.following && state.page.range.newerAvailable) {
+    return { ...state, newest, unread };
   }
   const merged: BrowserActivityPage = {
     ...page,
     items: mergeActivityItems(state.page.items, page.items),
   };
-  return { ...applyActivityPage(state, merged), newest };
+  return { ...applyActivityPage(state, merged), newest, unread };
 }
 
 /**

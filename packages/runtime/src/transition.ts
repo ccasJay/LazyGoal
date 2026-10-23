@@ -54,8 +54,9 @@ function clearPendingThink(
 
 function clearAllPending(
     state: RunState,
-): Omit<RunState, "pendingAction" | "pendingInteraction" | "pendingThink" | "pendingModelRepair"> {
+): Omit<RunState, "pendingAction" | "pendingInteraction" | "pendingThink" | "pendingModelRepair" | "pendingProgram"> {
     const {
+        pendingProgram: _pendingProgram,
         pendingAction: _pendingAction,
         pendingInteraction: _pendingInteraction,
         pendingThink: _pendingThink,

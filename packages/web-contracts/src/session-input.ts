@@ -387,7 +387,7 @@ export interface BrowserSessionState {
     /** 当前 Run 的用户中断状态；未受理用户中断时省略。 */
     readonly interruption?: {
         readonly requestId: string;
-        readonly status: "requested" | "repairing" | "finished";
+        readonly status: "requested" | "finished";
         readonly outcomeUnknown: boolean;
     };
     /** 当前实例是否持有该 Goal 的执行所有者。 */

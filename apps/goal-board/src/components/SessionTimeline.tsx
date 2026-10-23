@@ -12,6 +12,8 @@ import { PlanRouteList } from "./PlanRouteList";
 import type { SessionTimelineEntry, SessionTimelineProjection } from "../session-timeline";
 import type { ActivityGroup, ActivityGroupStatus, ActivityMemberStatus } from "../activity-projector";
 import { Badge } from "./ui/badge";
+import { cn } from "../ui-utils";
+import { Trace, TraceLine, TraceIcon, TraceTitle, TraceDescription, TraceCollapsible, TraceCollapsibleTrigger, TraceCollapsibleContent } from "./ui/trace";
 import type { ExecutionProgressEntry } from "../execution-progress";
 
 type RenderableSessionMessage =
@@ -68,7 +70,7 @@ const SessionMessage = memo(function SessionMessage({
  * Goal 会话 Activity 单列视图的展示属性。
  *
  * @remarks
- * `olderAvailable` 只提示固定页之前仍有来源，不触发读取；翻页交互属于后续历史窗口能力。
+ * `olderAvailable` 提示固定页之前仍有来源；读取更早或更新来源仅通过调用方回调触发，不恢复执行。
  *
  * @example
  * ```tsx
@@ -90,7 +92,7 @@ export interface SessionTimelineProps {
   readonly showExecutionFacts: boolean;
   /** 当前安全状态摘要；不从未提交工具参数生成文案。 */
   readonly liveActivity: string | null;
-  /** 当前连接实际观察的有界阶段变化；不充当已保存历史。 */
+  /** 当前连接实际观察的有界阶段变化；仅按真实执行单元或 Action 归入节点折叠内容，不充当已保存历史。 */
   readonly progressEntries?: readonly ExecutionProgressEntry[];
   /** 当前 Goal SSE 是否已连接。 */
   readonly streamConnected: boolean;
@@ -145,6 +147,8 @@ function ActivitySnake({ className }: { readonly className?: string }) {
  * 动作组呈现，成功默认折叠，运行、失败与等待组默认展开。真实阶段只按声明或当前路线关联，
  * 不从工具类别生成阶段；阶段折叠与 Execution steps 筛选仍保留异常活动。手动开合状态按组身份保存，
  * 追加内容、结算和 Execution steps 筛选不覆盖用户选择；重新进入会话时恢复默认值。
+ * 公开进度在匹配事件或工具步骤的折叠内容中显示；尚无已保存节点的真实执行单元形成临时步骤，
+ * 不显示独立进度面板，未提供执行身份的事件不按相邻位置归属。
  *
  * @param props - 当前固定 Activity 页的来源投影与安全实时状态。
  * @returns 按稳定来源顺序排列的可滚动 feed。
@@ -184,30 +188,53 @@ export function SessionTimeline({
   const savedContentCount = projection.items
     .filter((item) => item.kind === "message" || item.kind === "fact" || item.kind === "activity")
     .length;
+  const progressByItem = new Map<string, ExecutionProgressEntry[]>();
+  const pendingSteps = new Map<string, ExecutionProgressEntry[]>();
+  const progress = runStatus === "running" && newerItemCount === 0
+    ? progressEntries.filter(entry => entry.runId === currentRunId) : [];
+  for (const entry of progress) {
+    if (entry.executionUnitId === undefined) continue;
+    const activity = projection.items.find(item => item.kind === "activity" && item.runId === entry.runId
+      && item.group.members.some(member => entry.actionId !== undefined
+        ? member.actionId === entry.actionId : member.executionUnitId === entry.executionUnitId));
+    const fact = [...projection.items].reverse().find(item => item.kind === "fact" && item.runId === entry.runId
+      && item.executionUnitId === entry.executionUnitId
+      && !["run_created", "run_started", "run_completed", "run_failed", "run_cancelled", "decision_received"].includes(item.eventType));
+    const owner = activity ?? fact;
+    const target = owner === undefined ? pendingSteps : progressByItem;
+    const key = owner?.itemId ?? entry.executionUnitId;
+    target.set(key, [...(target.get(key) ?? []), entry]);
+  }
   const options = {
     currentRunId, currentPlanRoute: projection.currentPlanRoute, runStatus, liveActivity,
-    streamConnected, showExecutionFacts, brandMark, expandedGroups,
+    streamConnected, showExecutionFacts, brandMark, expandedGroups, progressByItem,
+    latestProgressId: progress.at(-1)?.id,
     onToggleGroup: toggleGroup, onOpenTrajectory,
   };
-  const currentProgress = progressEntries.filter((entry) => entry.runId === currentRunId);
-  const hasActiveGroup = showExecutionFacts && projection.items.some(item => item.kind === "activity" && item.runId === currentRunId && isActive(item.group.status));
+  const renderPendingSteps = () => pendingSteps.size > 0 && <Trace className="timeline-execution">{[...pendingSteps].map(([unitId, entries]) => (
+    <TraceCollapsible key={unitId} defaultOpen className="timeline-fact" data-run-id={currentRunId} data-execution-unit-id={unitId}>
+      <TraceCollapsibleTrigger className="timeline-step-trigger">
+        <TraceLine status="running"><TraceIcon>{streamConnected ? <ActivitySnake /> : <Clock3 />}</TraceIcon><TraceTitle>{entries.at(-1)!.label}</TraceTitle></TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent><StepProgressDetails entries={entries} active={entries.at(-1)?.id === progress.at(-1)?.id} streamConnected={streamConnected} onOpenTrajectory={onOpenTrajectory} /></TraceCollapsibleContent>
+    </TraceCollapsible>
+  ))}</Trace>;
 
   return (
     <div className="session-timeline-feed" data-testid="session-timeline">
       {olderAvailable && (
         <div className="history-note">
           <span>
-            Earlier activity is outside this fixed page
-            {olderItemCount > 0 ? ` (${olderItemCount} item(s) not loaded)` : ""}.
+            {olderItemCount > 0 ? `${olderItemCount} earlier items` : "Earlier activity"}
           </span>
           {onLoadEarlier !== undefined && (
-            <Button variant="ghost" size="sm" type="button" onClick={onLoadEarlier}>Load earlier activity</Button>
+            <Button variant="outline" size="sm" type="button" onClick={onLoadEarlier}>Load earlier activity</Button>
           )}
         </div>
       )}
       {unreadCount > 0 && (
         <div className="history-note history-unread" role="status">
-          {unreadCount} new item(s) arrived while you were reading.
+          {unreadCount} new items
         </div>
       )}
       {projection.items.filter(item => item.kind === "run").map(run => {
@@ -218,8 +245,8 @@ export function SessionTimeline({
           || item.kind === "candidate-preview" || item.kind === "live-preview" || item.kind === "interaction");
         return <div className="timeline-run-block" key={run.runId} data-run-id={run.runId}>
           <Collapsible open={expanded} onOpenChange={open => setExpandedRuns(current => new Map(current).set(run.runId, open))}>
-            <CollapsibleTrigger asChild><Button variant="ghost" className={`timeline-run-summary ${run.status}`} data-item-id={run.itemId}>
-              <ChevronRight size={13} className={expanded ? "rotate-90" : ""} />
+            <CollapsibleTrigger asChild><Button variant="ghost" className={cn("timeline-run-summary", run.status)} data-item-id={run.itemId}>
+              <ChevronRight data-icon="inline-start" className={cn(expanded && "rotate-90")} />
               <strong>Run {run.position.runOrder + 1}</strong>
               <Badge variant="outline" className={`timeline-run-status ${run.status}`}>{formatRunStatus(run.status)}</Badge>
               <span className="timeline-run-result">{run.detail?.message ?? (run.status === "failed" ? "Failure reason unavailable" : run.runId === currentRunId ? "Current run" : "Execution history")}</span>
@@ -228,21 +255,18 @@ export function SessionTimeline({
           <CollapsibleContent forceMount>
           {expanded && run.runId === currentRunId && <PlanRouteList route={projection.currentPlanRoute} />}
           {renderTimelineEntries(visible, options)}
+          {expanded && run.runId === currentRunId && renderPendingSteps()}
           </CollapsibleContent>
           </Collapsible>
         </div>;
       })}
-      {!projection.items.some(item => item.kind === "run") && renderTimelineEntries(projection.items, options)}
-      {newerItemCount === 0 && (runStatus === "running" && !hasActiveGroup || currentProgress.length > 0) && (
-        <LiveExecutionProgress entries={currentProgress}
-          active={runStatus === "running"} streamConnected={streamConnected} onOpenTrajectory={onOpenTrajectory} />
-      )}
+      {!projection.items.some(item => item.kind === "run") && <>{renderTimelineEntries(projection.items, options)}{renderPendingSteps()}</>}
       {savedContentCount === 0 && (
         <div className="timeline-date"><span />No saved activity in this window<span /></div>
       )}
       {newerItemCount > 0 && onLoadNewer !== undefined && (
         <div className="history-note">
-          <span>{newerItemCount} later item(s) are outside this fixed page.</span>
+          <span>{newerItemCount} newer items</span>
           <Button variant="ghost" size="sm" type="button" onClick={onLoadNewer}>Load newer activity</Button>
         </div>
       )}
@@ -250,58 +274,38 @@ export function SessionTimeline({
   );
 }
 
-function LiveExecutionProgress({ entries, active, streamConnected, onOpenTrajectory }: {
+function StepProgressDetails({ entries, active, streamConnected, onOpenTrajectory }: {
   readonly entries: readonly ExecutionProgressEntry[];
   readonly active: boolean;
   readonly streamConnected: boolean;
   readonly onOpenTrajectory: SessionTimelineProps["onOpenTrajectory"];
 }) {
-  const current = entries.at(-1);
+  const current = entries.at(-1)!;
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!active) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [active]);
-  if (current === undefined) return <div className="timeline-working" role="status">
-    <ActivitySnake />
-    <span className="timeline-progress-copy"><strong>Waiting for execution events</strong>
-      <small>{streamConnected ? "Connected. No current operation observed on this connection." : "Reconnecting to the execution stream."}</small>
-    </span>
-  </div>;
   const seconds = Math.max(0, Math.floor((now - current.startedAt) / 1000));
   const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
   const silent = active && streamConnected && (current.kind === "model_started" || current.kind === "assistant_text_delta")
     && now - current.lastObservedAt >= 60_000;
-  const renderRecent = (recent: readonly ExecutionProgressEntry[]) => <ol>{recent.map(entry => <li key={entry.id}>
-    <span>{entry.label}{entry.kind === "tool_started" && <small className="timeline-progress-tool">{entry.detail}</small>}</span>
-    <time dateTime={new Date(entry.lastObservedAt).toISOString()}>{new Date(entry.lastObservedAt).toLocaleTimeString("en-GB")}</time>
-    {entry.executionUnitId !== undefined && onOpenTrajectory !== undefined && <Button variant="ghost" size="sm" type="button" className="timeline-progress-inspect"
-      aria-label={`Inspect ${entry.label}`} onClick={() => onOpenTrajectory({ runId: entry.runId, executionUnitId: entry.executionUnitId! })}>
-      <ArrowUpRight size={13} aria-hidden="true" />
-    </Button>}
-  </li>)}</ol>;
-  return <div className="timeline-progress">
-    <div className="timeline-working">
-      {active && streamConnected ? <ActivitySnake /> : <Clock3 size={13} aria-hidden="true" />}
-      <span className="timeline-progress-copy">
-        <strong role="status">{active ? streamConnected ? current.label : "Reconnecting · last observed activity" : "Recent execution events"}</strong>
-        {active && <small>{streamConnected ? current.detail : "Reconnecting. Showing the last observed operation."}</small>}
-        {active && <small>{streamConnected ? "Connected" : "Disconnected"} · Last event {new Date(current.lastObservedAt).toLocaleTimeString("en-GB")}</small>}
-        {silent && <small className="timeline-progress-warning" role="status">No new public response for 60 seconds. You can pause this Run from the composer.</small>}
-      </span>
-      {active && <small className="timeline-progress-elapsed" title={current.hasSourceTime ? "Time since the model request started" : "Time since this event was observed"}>
-        {current.hasSourceTime ? elapsed : `Observed ${elapsed}`}
-      </small>}
-    </div>
-    <div className="timeline-progress-history">
-      <small>Recent live events from this connection</small>
-      {renderRecent(entries.slice(-3))}
-      {entries.length > 3 && <Collapsible>
-        <CollapsibleTrigger className="text-xs py-2 text-muted-foreground">Show {entries.length - 3} earlier events</CollapsibleTrigger>
-        <CollapsibleContent>{renderRecent(entries.slice(0, -3))}</CollapsibleContent>
-      </Collapsible>}
-    </div>
+  return <div className="timeline-step-progress">
+    {active && <p>{streamConnected ? current.detail : "Reconnecting. Showing the last observed operation."}</p>}
+    {active && <small>{streamConnected ? "Connected" : "Disconnected"} · Last event {new Date(current.lastObservedAt).toLocaleTimeString("en-GB")}</small>}
+    {active && <small title={current.hasSourceTime ? "Time since the model request started" : "Time since this event was observed"}>
+      {current.hasSourceTime ? elapsed : `Observed ${elapsed}`}
+    </small>}
+    {silent && <p className="timeline-step-warning" role="status">No new public response for 60 seconds. You can pause this Run from the composer.</p>}
+    <ol>{entries.map(entry => <li key={entry.id}>
+      <span>{entry.label}</span>
+      <time dateTime={new Date(entry.lastObservedAt).toISOString()}>{new Date(entry.lastObservedAt).toLocaleTimeString("en-GB")}</time>
+      {entry.executionUnitId !== undefined && onOpenTrajectory !== undefined && <Button variant="ghost" size="sm"
+        aria-label={`Inspect ${entry.label}`} onClick={() => onOpenTrajectory({ runId: entry.runId, executionUnitId: entry.executionUnitId! })}>
+        <ArrowUpRight size={13} aria-hidden="true" />
+      </Button>}
+    </li>)}</ol>
   </div>;
 }
 
@@ -314,6 +318,8 @@ type TimelineRenderOptions = {
     readonly showExecutionFacts: boolean;
     readonly brandMark: string;
     readonly expandedGroups: ReadonlyMap<string, boolean>;
+    readonly progressByItem: ReadonlyMap<string, readonly ExecutionProgressEntry[]>;
+    readonly latestProgressId: number | undefined;
     readonly onToggleGroup: (groupId: string, expanded: boolean) => void;
     readonly onOpenTrajectory: SessionTimelineProps["onOpenTrajectory"];
 };
@@ -360,28 +366,27 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
       || entry.eventType !== "run_stage_declared" && entry.eventType !== "run_stage_accepted");
     const hasDetails = details.length > 0;
     const activityCount = activities.reduce((count, entry) => count + entry.group.members.length, 0);
-    const stageHeading = <>
-      <span className="timeline-activity-marker" aria-hidden="true">
-        {status === "attention" ? <CircleHelp size={13} /> : running ? <ActivitySnake /> : accepted ? <Check size={13} /> : <span className="timeline-fact-marker" />}
-      </span>
-      <strong className="timeline-stage-target">{title}</strong>
-      {activityCount > 0 && <small className="timeline-stage-count">{activityCount} {activityCount === 1 ? "activity" : "activities"}</small>}
-      <span className="timeline-stage-status">{status === "attention" ? "Needs attention" : accepted ? "Accepted" : running ? "In progress" : "Recorded"}</span>
-      {hasDetails && <ChevronRight className="timeline-activity-chevron" size={13} aria-hidden="true" />}
-    </>;
+    const stageHeading = <TraceLine status={running ? "running" : status === "attention" ? "error" : undefined}>
+      <TraceIcon>
+        {status === "attention" ? <CircleHelp /> : running ? <ActivitySnake /> : accepted ? <Check /> : <span className="timeline-fact-dot" />}
+      </TraceIcon>
+      <TraceTitle title={title}>{title}</TraceTitle>
+      {activityCount > 0 && <TraceDescription>{activityCount} {activityCount === 1 ? "activity" : "activities"}</TraceDescription>}
+      <TraceDescription>{status === "attention" ? "Needs attention" : accepted ? "Accepted" : running ? "In progress" : "Recorded"}</TraceDescription>
+    </TraceLine>;
     rendered.push(
-      <Collapsible asChild key={key} open={expanded} onOpenChange={open => options.onToggleGroup(key, open)}><section className={`timeline-stage ${status}`} data-stage-id={stageId}
+      <TraceCollapsible key={key} open={expanded} onOpenChange={open => options.onToggleGroup(key, open)} className={cn("timeline-stage", status)} data-stage-id={stageId}
         data-item-id={entries[0]?.itemId} data-run-id={entries[0]?.runId}>
-        {hasDetails ? <CollapsibleTrigger asChild><Button variant="ghost" size="sm" type="button" className="timeline-stage-heading" aria-expanded={expanded} aria-controls={detailId}>
+        {hasDetails ? <TraceCollapsibleTrigger className="timeline-stage-heading" aria-expanded={expanded} aria-controls={detailId}>
           {stageHeading}
-        </Button></CollapsibleTrigger> : <div className="timeline-stage-heading">{stageHeading}</div>}
-        <CollapsibleContent asChild><div className="timeline-stage-activities" id={detailId}>
+        </TraceCollapsibleTrigger> : stageHeading}
+        <TraceCollapsibleContent><Trace className="timeline-stage-activities" id={detailId}>
           {details.map((entry) => renderEntry(entry, options))}
-        </div></CollapsibleContent>
-        {!expanded && attention.length > 0 && <div className="timeline-stage-activities">
+        </Trace></TraceCollapsibleContent>
+        {!expanded && attention.length > 0 && <Trace className="timeline-stage-activities">
           {attention.map((entry) => renderEntry(entry, options))}
-        </div>}
-      </section></Collapsible>,
+        </Trace>}
+      </TraceCollapsible>,
     );
     section = undefined;
   };
@@ -407,7 +412,19 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
     section.entries.push(entry);
   }
   flush();
-  return rendered;
+  const grouped: React.ReactNode[] = [];
+  let trace: React.ReactNode[] = [];
+  const flushTrace = () => {
+    if (trace.length === 0) return;
+    grouped.push(<Trace className="timeline-execution" key={`trace:${grouped.length}`}>{trace}</Trace>);
+    trace = [];
+  };
+  for (const node of rendered) {
+    if (React.isValidElement(node) && (node.type === TraceCollapsible || node.type === ActivityGroupRow)) trace.push(node);
+    else if (node !== null) { flushTrace(); grouped.push(node); }
+  }
+  flushTrace();
+  return grouped;
 }
 
 function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions) {
@@ -429,6 +446,9 @@ function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions)
         expanded={expanded}
         onToggle={() => options.onToggleGroup(item.group.id, !expanded)}
         onOpenTrajectory={options.onOpenTrajectory}
+        progress={options.progressByItem.get(item.itemId)}
+        progressActive={options.progressByItem.get(item.itemId)?.at(-1)?.id === options.latestProgressId}
+        streamConnected={options.streamConnected}
       />
     );
   }
@@ -449,16 +469,18 @@ function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions)
     if (["run_created", "run_started", "run_completed", "run_failed", "run_cancelled", "decision_received"].includes(item.eventType)) return null;
     if (!options.showExecutionFacts && executionEventTypes.has(item.eventType) && item.detail === undefined) return null;
     return (
-      <article className={`timeline-fact ${item.eventType}`} key={item.itemId} data-item-id={item.itemId} data-run-id={item.runId} title="Saved activity">
-        <span className="timeline-fact-marker" aria-hidden="true" />
-        <div className="timeline-fact-content">
-          <strong>{item.title}</strong>
+      <TraceCollapsible className={cn("timeline-fact", item.eventType)} key={item.itemId} data-item-id={item.itemId} data-run-id={item.runId} title="Saved activity">
+        <TraceCollapsibleTrigger className="timeline-step-trigger">
+          <TraceLine><TraceIcon><span className="timeline-fact-dot" /></TraceIcon><TraceTitle>{item.title}</TraceTitle></TraceLine>
+        </TraceCollapsibleTrigger>
+        <TraceCollapsibleContent>
           {item.detail !== undefined && <span className="timeline-fact-detail">{item.detail}</span>}
-          {item.eventType === "run_stage_declared" && item.stageTarget !== undefined && (
-            <span className="timeline-stage-target">{item.stageTarget}</span>
-          )}
-        </div>
-      </article>
+          {item.eventType === "run_stage_declared" && item.stageTarget !== undefined && <span className="timeline-stage-target">{item.stageTarget}</span>}
+          {options.progressByItem.has(item.itemId) && <StepProgressDetails entries={options.progressByItem.get(item.itemId)!}
+            active={options.progressByItem.get(item.itemId)?.at(-1)?.id === options.latestProgressId}
+            streamConnected={options.streamConnected} onOpenTrajectory={options.onOpenTrajectory} />}
+        </TraceCollapsibleContent>
+      </TraceCollapsible>
     );
   }
 
@@ -502,7 +524,7 @@ function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions)
  * 已完成状态以图标呈现并保留可访问名称。成员只显示既有安全摘要与真实来源身份，原始
  * 参数与 Observation 不进入此处。
  *
- * @param props - 活动组身份、展开状态与 Trajectory 定位回调。
+ * @param props - 活动组身份、展开状态、可选的同组实时进度、连接状态与 Trajectory 定位回调。
  * @returns 一个可展开的活动组行。
  * @example
  * ```tsx
@@ -516,7 +538,13 @@ export function ActivityGroupRow({
   expanded,
   onToggle,
   onOpenTrajectory,
+  progress,
+  progressActive = false,
+  streamConnected = false,
 }: {
+  readonly progress?: readonly ExecutionProgressEntry[];
+  readonly progressActive?: boolean;
+  readonly streamConnected?: boolean;
   readonly itemId: string;
   readonly runId: string;
   readonly group: ActivityGroup;
@@ -526,36 +554,33 @@ export function ActivityGroupRow({
 }) {
   const detailId = `activity-detail-${group.id.replace(/[^A-Za-z0-9_-]/gu, "-")}`;
   return (
-    <Collapsible open={expanded} onOpenChange={onToggle} className={`timeline-activity ${group.status}`} data-item-id={itemId} data-run-id={runId} data-group-id={group.id}>
-      <CollapsibleTrigger asChild>
-      <Button variant="ghost" size="sm"
-        type="button"
-        className="timeline-activity-heading"
-        aria-expanded={expanded}
-        aria-controls={detailId}
-      >
-        <span className="timeline-activity-marker" aria-hidden="true">
-          {group.status === "completed" ? <Check size={13} />
-            : group.status === "failed" || group.status === "partial-failure" ? <CircleHelp size={13} />
-              : group.status === "rejected" ? <X size={13} />
-                : group.status === "waiting" ? <Clock3 size={13} /> : <ActivitySnake />}
-        </span>
-        <strong>{group.summary}</strong>
-        <small className="timeline-activity-counts">{group.members.length} {group.members.length === 1 ? "call" : "calls"}
-          {group.counts.completed > 0 && ` · ${group.counts.completed} succeeded`}
-          {group.counts.failed > 0 && <span className="text-destructive"> · {group.counts.failed} failed</span>}
-          {group.counts.rejected > 0 && ` · ${group.counts.rejected} rejected`}
-          {group.counts.waiting > 0 && ` · ${group.counts.waiting} awaiting approval`}
-        </small>
-        <span className={`timeline-activity-status ${group.status}`}>{activityStatusLabel(group.status)}</span>
-        {group.live === true && <small>Not saved yet</small>}
-        <ChevronRight className="timeline-activity-chevron" size={13} aria-hidden="true" />
-      </Button>
-      </CollapsibleTrigger>
+    <TraceCollapsible open={expanded} onOpenChange={onToggle} className={cn("timeline-activity", group.status)} data-item-id={itemId} data-run-id={runId} data-group-id={group.id}>
+      <TraceCollapsibleTrigger className="timeline-activity-heading" aria-expanded={expanded} aria-controls={detailId}>
+        <TraceLine status={isActive(group.status) ? "running" : group.status === "failed" || group.status === "partial-failure" ? "error" : undefined}>
+          <TraceIcon className="timeline-activity-marker">
+            {group.status === "completed" ? <Check />
+              : group.status === "failed" || group.status === "partial-failure" ? <CircleHelp />
+                : group.status === "rejected" ? <X />
+                  : group.status === "waiting" ? <Clock3 /> : <ActivitySnake />}
+          </TraceIcon>
+          <TraceTitle title={group.summary}>{group.summary}</TraceTitle>
+          <TraceDescription className="timeline-activity-counts">{group.status === "partial-failure" ? `${group.counts.completed} succeeded / ${group.counts.failed} failed` : `${group.members.length} ${group.members.length === 1 ? "call" : "calls"}`}</TraceDescription>
+        </TraceLine>
+        <Badge variant="outline" className={cn("timeline-activity-status", group.status)}>{activityStatusLabel(group.status)}</Badge>
+        {group.live === true && <span className="sr-only">Not saved yet</span>}
+      </TraceCollapsibleTrigger>
       {!expanded && group.members.some(member => needsAttention(member.status)) && (
         <p className="timeline-activity-alert">{group.members.find((member) => needsAttention(member.status))?.summary ?? activityStatusLabel(group.status)}</p>
       )}
-      <CollapsibleContent>
+      <TraceCollapsibleContent>
+        <p className="timeline-activity-outcome">
+          {group.counts.completed > 0 && <span>{group.counts.completed} succeeded</span>}
+          {group.counts.failed > 0 && <span className="text-destructive">{group.counts.failed} failed</span>}
+          {group.counts.rejected > 0 && <span>{group.counts.rejected} rejected</span>}
+          {group.counts.waiting > 0 && <span>{group.counts.waiting} awaiting approval</span>}
+          {group.live === true && <span>Not saved yet</span>}
+        </p>
+        {progress !== undefined && <StepProgressDetails entries={progress} active={progressActive} streamConnected={streamConnected} onOpenTrajectory={onOpenTrajectory} />}
         <ul className="timeline-activity-members" id={detailId}>
           {group.members.map((member) => (
             <li key={member.id} data-member-id={member.id} data-action-id={member.actionId ?? ""}>
@@ -604,8 +629,8 @@ export function ActivityGroupRow({
             </li>
           ))}
         </ul>
-      </CollapsibleContent>
-    </Collapsible>
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
   );
 }
 

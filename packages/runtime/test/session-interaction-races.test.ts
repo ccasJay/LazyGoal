@@ -439,7 +439,7 @@ test("回答先受理：Interrupt 仍按最新 Run 状态生效且不回滚已�
     assert.equal(receipt.ok && receipt.found && receipt.receipt.status, "applied");
 });
 
-test("未知效果收尾：真实阶段与预算保留，收尾中的新请求仍可回答", async () => {
+test("未知效果中断直接取消，不调用模型或提出新的审批请求", async () => {
     const store = new InMemoryGoalStore();
     const trajectory = trajectoryStoreFor(store);
     const committer = new TrajectoryCheckpointCommitter({ store, trajectoryStore: trajectory });
@@ -468,24 +468,7 @@ test("未知效果收尾：真实阶段与预算保留，收尾中的新请求�
                     modelContextFrame: { stage: "decide" as const, epochNumber: input.goal.state.run.contextEpoch.number, conversationPosition: input.goal.state.messages.length, sections: [] },
                 };
             }
-            // 收尾阶段提出的新审批请求必须仍然有效，而旧审批引用保持失效。
-            assert.equal(input.goal.state.run.interruption?.status, "repairing");
-            if (calls >= 3) {
-                // 收尾检查完成后不再提出新操作：按既有收尾规则结算为取消。
-                return {
-                    kind: "decision",
-                    decision: { kind: "complete", summary: "收尾完成", evidenceSequences: [] },
-                    modelContextFrame: { stage: "decide" as const, epochNumber: input.goal.state.run.contextEpoch.number, conversationPosition: input.goal.state.messages.length, sections: [] },
-                };
-            }
-            return {
-                kind: "decision",
-                decision: {
-                    kind: "tool_call",
-                    action: { actionId: `act-inspect-${calls}`, toolId: "inspect_probe", input: { path: "probe.txt" } },
-                },
-                modelContextFrame: { stage: "decide" as const, epochNumber: input.goal.state.run.contextEpoch.number, conversationPosition: input.goal.state.messages.length, sections: [] },
-            };
+            throw new Error("Interrupt must not call the model again");
         },
         async think() { throw new Error("unexpected Think call"); },
     };
@@ -527,7 +510,7 @@ test("未知效果收尾：真实阶段与预算保留，收尾中的新请求�
             get: (toolId) => toolId === "write_probe" ? createToolRegistration(tool)
                 : toolId === "inspect_probe" ? createToolRegistration(inspectTool) : undefined,
         },
-        // 写入探针允许执行以产生未知效果；收尾检查工具仍需审批。
+        // 允许写入探针执行；中断后不得再提出检查工具审批。
         toolPolicy: { evaluate: ({ action }) => action.toolId === "inspect_probe" ? "require_approval" : "allow" },
     });
     const execution = runner.runUntilBlocked({ goalId, runId: fixture.state.run.id });
@@ -536,70 +519,19 @@ test("未知效果收尾：真实阶段与预算保留，收尾中的新请求�
     assert.equal(accepted.ok, true);
     await execution;
 
-    const waiting = (await store.restore(goalId))!;
-    assert.equal(waiting.state.run.interruption?.status, "repairing");
-    assert.equal(waiting.state.run.interruption?.outcomeUnknown, true);
-    assert.equal(waiting.state.run.interruption?.repairCallsStarted, 1);
-    assert.equal(waiting.state.run.status, "waiting", "收尾中的新审批请求等待真实存在");
-    const pending = waiting.state.run.pendingAction;
-    assert.ok(pending !== undefined && pending.status === "awaiting_approval");
-    assert.equal(pending.action.actionId, "act-inspect-2");
-    assert.equal(toolCalls, 1);
-    const unknownObservation = trajectory.events.find((event) =>
-        event.eventType === "observation_recorded" && event.payload.actionId === "act-write-1");
-    assert.ok(unknownObservation !== undefined);
-    assert.equal(trajectory.events.some((event) => event.eventType === "tool_finished" && event.actionId === "act-write-1"), false);
-
-    const coordinator = new GoalCoordinator({
-        store,
-        scheduler: new InlineScheduler(runner),
-        checkpointCommitter: committer,
-        runIdGenerator: () => "run-races-repair-next",
-    });
-    const sessions = new SessionManager({
-        store,
-        committer,
-        coordinator,
-        profiles,
-        runIdGenerator: () => "run-races-repair-next",
-        onBackgroundFailure: () => undefined,
-    });
-
-    // 收尾阶段的新审批请求必须可见为 action_approval，而不是被误报为普通恢复等待。
-    const state = await sessions.readSessionState(goalId);
-    assert.equal(state?.waitingFor, "action_approval");
-    assert.equal(state?.interruption?.status, "repairing");
-    assert.equal(state?.interruption?.outcomeUnknown, true);
-
-    // 旧引用（被中断的写入 Action）保持失效。
-    const stale = await sessions.sendSessionInput(goalId, {
-        kind: "respond",
-        inputId: "repair-stale-approve",
-        runId: waiting.state.run.id,
-        requestId: "act-write-1",
-        response: { kind: "approve_action", actionId: "act-write-1", scope: "action" },
-    });
-    assert.equal(stale.ok, false);
-    assert.equal(stale.ok === false && stale.code, "INTERACTION_MISMATCH");
-
-    // 新收尾请求可被正常批准并真实执行。
-    const approved = await sessions.sendSessionInput(goalId, {
-        kind: "respond",
-        inputId: "repair-approve",
-        runId: waiting.state.run.id,
-        requestId: pending.action.actionId,
-        response: { kind: "approve_action", actionId: pending.action.actionId, scope: "action" },
-    });
-    assert.equal(approved.ok, true, "收尾期间的新请求不被旧停止失效");
-    await sessions.waitForIdle();
-    assert.equal(inspectCalls, 1, "收尾检查工具按批准真实执行一次");
     const settled = (await store.restore(goalId))!;
+    assert.equal(settled.state.run.status, "cancelled");
     assert.equal(settled.state.run.interruption?.status, "finished");
-    assert.equal(settled.state.run.interruption?.outcomeUnknown, true, "未知效果记录保留，不报告为已回滚");
-    const repairCalls = settled.state.run.interruption?.repairCallsStarted ?? 0;
-    assert.ok(repairCalls >= 1 && repairCalls <= 3, `收尾预算在既有上限内且未被重置（实际 ${repairCalls}）`);
+    assert.equal(settled.state.run.interruption?.outcomeUnknown, true);
+    assert.equal(settled.state.run.pendingAction, undefined);
+    assert.equal(calls, 1);
+    assert.equal(toolCalls, 1);
+    assert.equal(inspectCalls, 0);
+    assert.equal(settled.state.messageQueue?.pause?.reason, "user_interrupt");
     assert.equal(trajectory.events.some((event) =>
         event.eventType === "run_interrupted_action_unknown" && event.payload.actionId === "act-write-1"), true);
+    assert.equal(trajectory.events.some((event) =>
+        event.eventType === "tool_finished" && event.actionId === "act-write-1"), false);
 });
 
 test("读取、解除句柄与普通消息不会产生用户 Interrupt 事实", async () => {

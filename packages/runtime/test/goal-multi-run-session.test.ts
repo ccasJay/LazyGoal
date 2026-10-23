@@ -210,7 +210,7 @@ test("cancelled Run can accept a continuation in the same Goal", async () => {
             workflow: { phase: "executing" },
             run: {
                 ...cancelled.state,
-                interruption: { requestId: "interrupt-1", status: "finished", repairCallsStarted: 0 },
+                interruption: { requestId: "interrupt-1", status: "finished" },
             },
         },
     };

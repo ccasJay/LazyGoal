@@ -911,7 +911,7 @@ export class SessionManager implements SessionHandlePort {
      * @remarks
      * 必须匹配最新 Run 与当前 Goal 提交修订；等待交互、失败暂停队列或没有可恢复
      * 工作时返回稳定拒绝。恢复不会代答等待，也不会解除队列暂停；若 Interrupt
-     * 已受理但安全收尾中断，则只重新唤醒该 Run 完成收尾与取消结算。
+     * 已受理但取消结算中断，则只重新唤醒该 Run 完成取消结算。
      */
     private async admitResume(
         goalId: string,

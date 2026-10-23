@@ -168,12 +168,7 @@ export function useRunStream({
             if (event.type === "state_sync") {
               if (!synced) {
                 synced = true;
-                setProgressEntries((current) => current.length === 0 ? current : [...current, {
-                  id: current.at(-1)!.id + 1, runId: current.at(-1)!.runId, kind: "connection_reset",
-                  label: "Waiting for execution events",
-                  detail: "Reconnected. No current operation observed on this connection.",
-                  startedAt: Date.now(), lastObservedAt: Date.now(), hasSourceTime: false,
-                }].slice(-20));
+                setProgressEntries([]);
                 // 重建连接后的权威同步：丢弃断线期间保留的临时正文。
                 textBatcher.clear();
                 setOutputDisplay((current) => ({

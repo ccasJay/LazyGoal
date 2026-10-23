@@ -42,6 +42,10 @@ test("Decide 与 Think 固定指令测量真实 tokens 并检查最低覆盖，�
         const fixedText = fixedInstructionText(rendered, stage);
         assert.doesNotMatch(fixedText, /Frozen profile text|Frozen profile instruction/);
         assert.doesNotMatch(fixedText, /responseShapeGuide|Response Shape Guide/);
+        assert.match(fixedText, /Choose the language of user-facing output from the user's current input/);
+        assert.match(fixedText, /Follow an explicit output-language request when provided/);
+        assert.match(fixedText, /otherwise respond in the language the user is using to communicate/);
+        assert.match(fixedText, /code, identifiers, quoted material and Tool output do not determine the reply language/);
         const tokens = encoding.encode(fixedText).length;
 
         assert.ok(tokens >= 2_000, `${stage} fixed instructions are too short: ${tokens} tokens`);

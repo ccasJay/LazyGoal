@@ -58,7 +58,7 @@ waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表�
 
 会话输入受理由 [SessionInputAdmission](../src/session-admission.ts) 拥有：它在 [Goal mutation gate](../src/goal-mutation-gate.ts) 内读取最新快照并提交单次变更，先按 `inputId` 与规范化载荷摘要判定重复受理或身份冲突，再校验文本额度，然后追加 `GoalState.inputLedger` 记录与 `messageQueue` 队列项。`queue_control remove` 按队列修订删除单条待处理消息并将其账本状态标记为 `cleared`；Steer 来源绑定在 Run 执行所有者内与队列变更一同提交。受理成功只表示输入已保存，不表示消息已应用、工具已停止或 Run 已完成；受理本身不调用模型或工具。保存失败或结果不明时抛出 `SessionInputAdmissionError`，调用方必须使用原 `inputId` 查询或重试。普通消息与 Steer 共享单条 64,000、128 项与合计 1,048,576 个 UTF-16 code unit 的额度；中断、回答、恢复与队列清空不受文本额度阻塞。
 
-会话模块把交互回答与显式恢复接入同一输入边界：`respond` 先核验 Goal、Run、请求及必要 Action 身份，再委派既有 Coordinator 等待恢复规则；匹配回答只推进对应等待，旧请求、错身份或载荷冲突不解除等待也不写收据。`resume` 必须匹配最新 Run 与当前 Goal 提交修订：等待交互时报告所需交互，失败导致的队列暂停时拒绝并要求显式继续队列，只有可恢复的当前 Run 或已受理队首才唤醒执行所有者。已受理的 Interrupt 若因进程中断而停在安全收尾阶段，`resume` 只重新唤醒该 Run 完成收尾与取消结算，仍保持队列暂停；它不代答等待，也不解除队列暂停。新 Run 启动前后台执行在推进与创建后继 Run 前按最新快照的 `modelSelection` 重新对齐模型 Binding，避免继承另一个 Goal 的进程绑定。
+会话模块把交互回答与显式恢复接入同一输入边界：`respond` 先核验 Goal、Run、请求及必要 Action 身份，再委派既有 Coordinator 等待恢复规则；匹配回答只推进对应等待，旧请求、错身份或载荷冲突不解除等待也不写收据。`resume` 必须匹配最新 Run 与当前 Goal 提交修订：等待交互时报告所需交互，失败导致的队列暂停时拒绝并要求显式继续队列，只有可恢复的当前 Run 或已受理队首才唤醒执行所有者。已受理的 Interrupt 若因进程中断而尚未完成取消结算，`resume` 只重新唤醒该 Run 完成取消结算，仍保持队列暂停；它不代答等待，也不解除队列暂停。新 Run 启动前后台执行在推进与创建后继 Run 前按最新快照的 `modelSelection` 重新对齐模型 Binding，避免继承另一个 Goal 的进程绑定。
 
 `GoalModelSelection` 为登记的 OpenCode Go 动态模型保存 `executionApi`、上下文容量与输出上限，供进程恢复时重建同一执行协议。浏览器只提交模型 ID 和可选 Provider Profile ID；执行 API 与容量由服务端目录解析。该领域状态不保存 Base URL 或凭据，Adapter 的连接配置由宿主按 Profile 身份重建。
 
@@ -82,7 +82,7 @@ waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表�
 
 同一执行所有者在 Run 结束后继续消费持久化队列：Run `completed` 且队列未暂停时，按 FIFO 为队首消息创建后继 Run——归档旧 Run、追加真实用户消息、创建新 Run 与应用队首输入在同一 Snapshot 提交中完成（`GoalCoordinator.continue` 的队列绑定），因此崩溃或响应丢失不会重复创建 Run。Run `waiting` 时队列不出队、不启动后继；Run `failed` 或用户 Interrupt 结算为 `cancelled` 时持久化队列暂停（`run_failed`／`user_interrupt`）并保留尚未应用的消息，已有积压消息时，新消息只追加到队尾，须显式 `queue_control continue` 解除暂停并从原队首启动；Run 已结束且队列为空时，受理新消息会在同一 Snapshot 提交中解除暂停，随后由执行所有者创建后继 Run。`queue_control clear` 只清除尚未应用的普通消息：保留收据、真实对话和当前 Run。
 
-用户 Interrupt 通过稳定请求身份持久化到 `RunState.interruption`，并同时暂停该 Goal 的消息队列（`user_interrupt`）与写入统一输入账本收据，再中止目标 Run 的进程内信号；受理不等待停止完成，宿主关闭仍使用独立调用信号。已开始但结果未知的直接 Tool 或 PTC 操作会写入不可重试的失败 Observation 和原 Action 来源，原操作不重放。RunExecutor 在同一 Run 中仅为该未知结果进行最多三次已持久化预算的核查/修复模型调用，必要工具沿用原授权、审批和沙箱路径；收尾结束或预算耗尽后保存 `run_cancelled` 并结算 `cancelled`。该终态可通过 `continue` 在同一 Goal 创建新 Run。普通服务关闭不会创建 Interrupt 记录。
+用户 Interrupt 通过稳定请求身份持久化到 `RunState.interruption`，并同时暂停该 Goal 的消息队列（`user_interrupt`）与写入统一输入账本收据，再中止目标 Run 的进程内信号；受理不等待停止完成，宿主关闭仍使用独立调用信号。已开始但结果未知的直接 Tool 或 PTC 操作会写入不可重试的失败 Observation 和原 Action 来源，原操作不重放。RunExecutor 不再调用模型或执行核查/修复工具，直接在同一提交中保存未知结果事实与 `run_cancelled` 并结算 `cancelled`。该终态可通过 `continue` 在同一 Goal 创建新 Run。普通服务关闭不会创建 Interrupt 记录。
 
 Runner 将调度契约委派给 RunExecutor；RunExecutor 按当前 Run 模式和获批任务推进：
 

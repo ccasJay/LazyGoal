@@ -1,6 +1,6 @@
 import { Command, CommandList, CommandItem } from "./ui/command";
 import { Button } from "./ui/button";
-import { Textarea } from "./ui/textarea";
+import { InputGroup, InputGroupAddon, InputGroupTextarea } from "./ui/input-group";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { ArrowUp, ChevronDown, Folder, Pause, Play } from "lucide-react";
@@ -136,106 +136,107 @@ export function MessageComposer({
         </CommandList></Command>
       )}
       <form
-        className="composer"
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
         }}
       >
-        <Textarea
-          id="message-composer-draft"
-          name="message"
-          aria-label={textareaLabel}
-          aria-describedby={describedBy}
-          aria-keyshortcuts="Enter Shift+Enter"
-          title="Enter to send · Shift + Enter for a new line"
-          placeholder={placeholder}
-          autoFocus={autoFocus}
-          value={draft}
-          disabled={busy}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            setSelectedCommand(0);
-            setCommandMenuClosed(false);
-          }}
-          onKeyDown={(event) => {
-            if (candidates.length > 0 && !event.nativeEvent.isComposing) {
-              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        <InputGroup className="composer">
+          <InputGroupTextarea
+            id="message-composer-draft"
+            name="message"
+            aria-label={textareaLabel}
+            aria-describedby={describedBy}
+            aria-keyshortcuts="Enter Shift+Enter"
+            title="Enter to send · Shift + Enter for a new line"
+            placeholder={placeholder}
+            autoFocus={autoFocus}
+            value={draft}
+            disabled={busy}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setSelectedCommand(0);
+              setCommandMenuClosed(false);
+            }}
+            onKeyDown={(event) => {
+              if (candidates.length > 0 && !event.nativeEvent.isComposing) {
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setSelectedCommand((current) => (current + (event.key === "ArrowDown" ? 1 : -1) + candidates.length) % candidates.length);
+                  return;
+                }
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  if (activeCandidate !== undefined) void submit(activeCandidate.usage);
+                  return;
+                }
+              }
+              if (event.key === "Escape" && candidates.length > 0) {
                 event.preventDefault();
-                setSelectedCommand((current) => (current + (event.key === "ArrowDown" ? 1 : -1) + candidates.length) % candidates.length);
+                setCommandMenuClosed(true);
                 return;
               }
-              if (event.key === "Enter" && !event.shiftKey) {
+              const outcome = resolveComposerKey({
+                key: event.key,
+                shiftKey: event.shiftKey,
+                isComposing: event.nativeEvent.isComposing,
+              });
+              if (outcome.kind === "submit") {
                 event.preventDefault();
-                if (activeCandidate !== undefined) void submit(activeCandidate.usage);
-                return;
+                void submit();
               }
-            }
-            if (event.key === "Escape" && candidates.length > 0) {
-              event.preventDefault();
-              setCommandMenuClosed(true);
-              return;
-            }
-            const outcome = resolveComposerKey({
-              key: event.key,
-              shiftKey: event.shiftKey,
-              isComposing: event.nativeEvent.isComposing,
-            });
-            if (outcome.kind === "submit") {
-              event.preventDefault();
-              void submit();
-            }
-          }}
-        />
-        <div className="composer-tools">
-          <div className="composer-controls">{footerControls}</div>
-          <div className="composer-actions">
-            <Button variant="ghost" size="sm"
-              type="button"
-              className={`send${running ? " is-running" : ""}${stopping ? " is-stopping" : ""}`}
-              aria-label={
-                stopping
-                  ? "Pausing Run"
-                  : busy
-                    ? recoverable && !hasDraft ? "Recovering Run" : "Sending message"
+            }}
+          />
+          <InputGroupAddon align="block-end" className="composer-tools">
+            <div className="composer-controls">{footerControls}</div>
+            <div className="composer-actions">
+              <Button variant="ghost" size="sm"
+                type="button"
+                className={`send${running ? " is-running" : ""}${stopping ? " is-stopping" : ""}`}
+                aria-label={
+                  stopping
+                    ? "Pausing Run"
+                    : busy
+                      ? recoverable && !hasDraft ? "Recovering Run" : "Sending message"
+                      : recoverable && !hasDraft
+                        ? recoveryActionLabel
+                        : running && !hasDraft
+                          ? "Pause Run"
+                          : "Send message"
+                }
+                title={
+                  stopping
+                    ? "Pausing this Run"
                     : recoverable && !hasDraft
                       ? recoveryActionLabel
                       : running && !hasDraft
-                        ? "Pause Run"
+                        ? "Pause this Run"
                         : "Send message"
-              }
-              title={
-                stopping
-                  ? "Pausing this Run"
-                  : recoverable && !hasDraft
-                    ? recoveryActionLabel
-                    : running && !hasDraft
-                      ? "Pause this Run"
-                      : "Send message"
-              }
-              disabled={
-                busy || sendDisabled || (
-                  recoverable
-                    ? !hasDraft && (stopping || onResume === undefined)
-                    : running
-                      ? !hasDraft && (stopping || onInterrupt === undefined)
-                      : !hasDraft
-                )
-              }
-              onClick={() => void activatePrimaryAction()}
-            >
-              {busy || stopping ? (
-                <span className="loading-mark small" />
-              ) : recoverable && !hasDraft ? (
-                <Play size={14} />
-              ) : running && !hasDraft ? (
-                <Pause size={15} />
-              ) : (
-                <ArrowUp size={16} />
-              )}
-            </Button>
-          </div>
-        </div>
+                }
+                disabled={
+                  busy || sendDisabled || (
+                    recoverable
+                      ? !hasDraft && (stopping || onResume === undefined)
+                      : running
+                        ? !hasDraft && (stopping || onInterrupt === undefined)
+                        : !hasDraft
+                  )
+                }
+                onClick={() => void activatePrimaryAction()}
+              >
+                {busy || stopping ? (
+                  <span className="loading-mark small" />
+                ) : recoverable && !hasDraft ? (
+                  <Play size={14} />
+                ) : running && !hasDraft ? (
+                  <Pause size={15} />
+                ) : (
+                  <ArrowUp size={16} />
+                )}
+              </Button>
+            </div>
+          </InputGroupAddon>
+        </InputGroup>
       </form>
       {showHint && <div className="composer-hint">Enter to send · Shift + Enter for a new line</div>}
     </>

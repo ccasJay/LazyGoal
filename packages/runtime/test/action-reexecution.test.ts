@@ -380,7 +380,6 @@ test("已被中断的 Run 拒绝重执行决定，原任务不越过中断", asy
                     interruption: {
                         requestId: "interrupt-1",
                         status: "requested",
-                        repairCallsStarted: 0,
                     },
                 },
             },

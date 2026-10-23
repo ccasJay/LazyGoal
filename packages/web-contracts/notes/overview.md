@@ -16,6 +16,8 @@ Activity 助手消息必须携带 `process`、`answer` 或 `notice` 用途；用
 
 `model_started` 可带真实来源时间、模型调用身份、执行单元与已知协议阶段；阶段仅允许 decide、think、completion_review，不代表工作流 Stage。wire guard 校验元数据长度与时间有效性；未提供的字段不由浏览器推断。
 
+会话 wire DTO 与 guard 只接受 `requested`／`finished` 中断状态，不再传输模型收尾预算。执行语义见 [Runtime](../../runtime/notes/overview.md)。
+
 ## 所有权
 
 传输 DTO 不是 Goal Snapshot 的持久化 Schema。运行状态、阶段记录及授权事实由 Runtime 提交，Browser 从已提交状态建立当前视图；前端的瞬时活动不会变成恢复输入。请求入站验证由对应的 Web 边界处理。

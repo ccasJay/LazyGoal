@@ -200,7 +200,7 @@ test("SessionTimeline 保留真实来源身份并按交错顺序渲染消息、�
   const positions = orderedIds.map((id) => html.indexOf(`data-item-id="${id}"`));
   assert.ok(positions.every((position) => position >= 0));
   assert.deepEqual(positions, [...positions].sort((left, right) => left - right));
-  assert.match(html, /Earlier activity is outside this fixed page/);
+  assert.match(html, /Earlier activity/);
   assert.match(html, /Review the saved evidence/);
   assert.match(html, /Progress/);
   assert.match(html, /Run completed/);
@@ -261,7 +261,7 @@ test("SessionTimeline 把真实工具活动呈现为可展开活动组，并保�
   assert.match(html, /data-group-id="action:run-1:a1"/);
   assert.match(html, /aria-expanded="false"/);
   assert.match(html, /Read src\/app\.ts/);
-  assert.match(html, /activity-snake-loader/);
+  assert.doesNotMatch(html, /timeline-progress|Waiting for execution events|activity-snake-loader/);
   assert.match(html, /Completed/);
   // 折叠摘要显示真实调用名，但详情字段仍需展开后读取。
   assert.equal(html.includes('class="timeline-activity-member-copy"'), false);
@@ -330,7 +330,7 @@ test("当前执行中的工具组自动展开，并在 Activity Run 状态显示
   }));
 
   assert.match(html, /timeline-activity running[\s\S]*activity-snake-loader/);
-  assert.match(html, /timeline-activity-heading[^>]*aria-expanded="true"/);
+  assert.match(html, /<button(?=[^>]*timeline-activity-heading)(?=[^>]*aria-expanded="true")[^>]*>/);
   assert.match(html, /timeline-activity-member-label[^>]*>Read src\/app\.ts/);
 });
 

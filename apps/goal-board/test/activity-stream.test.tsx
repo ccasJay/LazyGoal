@@ -41,10 +41,10 @@ test("an accepted real stage collapses its tools and leaves the final answer out
     { kind: "message", itemId: "answer", presentationKey: "answer", runId: "run-1", role: "assistant", purpose: "answer", content: "Verified result", position: position(4) },
   ]);
   assert.match(html, /timeline-stage completed/);
-  assert.match(html, /timeline-stage-heading[^>]*aria-expanded="false"/);
+  assert.match(html, /<button(?=[^>]*timeline-stage-heading)(?=[^>]*aria-expanded="false")[^>]*>/);
   assert.match(html, /Verify the implementation/);
   assert.doesNotMatch(html, /timeline-activity-heading/);
-  assert.match(html, /<\/section><article class="message assistant"/);
+  assert.match(html, /<\/div><\/div><article class="message assistant"/);
   assert.match(html, /Verified result/);
 });
 
@@ -55,7 +55,7 @@ test("a stage identity without a real title stays a flat activity", () => {
   assert.match(html, /Ran npm test/);
 });
 
-test("saved correction and lookup diagnostics remain visible after the run ends", () => {
+test("saved correction and lookup nodes retain collapsed diagnostics after the run ends", () => {
   const html = render([
     { kind: "fact", itemId: "correction", runId: "run-1", eventType: "model_repair_feedback_recorded",
       title: "Correcting model output", detail: "Tool input did not satisfy the current contract. Correction 2 of 3.", position: position(3) },
@@ -63,8 +63,9 @@ test("saved correction and lookup diagnostics remain visible after the run ends"
       title: "History lookup found no matches", detail: "No matching history was found.", position: position(4) },
   ], { showExecutionFacts: false });
   assert.match(html, /Correcting model output/);
-  assert.match(html, /Correction 2 of 3/);
-  assert.match(html, /No matching history was found/);
+  assert.match(html, /History lookup found no matches/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.doesNotMatch(html, /Correction 2 of 3|No matching history was found/);
 });
 
 test("a later acceptance resolves a prior stage rejection of the same revision", () => {
@@ -134,19 +135,15 @@ test("historical execution collapses while user messages and final answers remai
 test("an active stage expands without waiting for assistant text", () => {
   const html = render([stage("run_stage_declared", 1), activity("recorded", "stage-1")], { running: true });
   assert.match(html, /timeline-stage running/);
-  assert.match(html, /timeline-stage-heading[^>]*aria-expanded="true"/);
-  assert.match(html, /timeline-activity-heading[^>]*aria-expanded="true"/);
+  assert.match(html, /<button(?=[^>]*timeline-stage-heading)(?=[^>]*aria-expanded="true")[^>]*>/);
+  assert.match(html, /<button(?=[^>]*timeline-activity-heading)(?=[^>]*aria-expanded="true")[^>]*>/);
   assert.match(html, /Run npm test/);
   assert.doesNotMatch(html, /class="timeline-working"/);
 });
 
-test("working feedback is present even before a text or tool event arrives", () => {
+test("no standalone progress panel is invented before a model or tool event arrives", () => {
   const html = render([], { running: true });
-  assert.match(html, /timeline-working" role="status"/);
-  assert.match(html, /activity-snake-loader/);
-  assert.match(html, /Waiting for execution events/);
-  assert.match(html, /No current operation observed/);
-  assert.doesNotMatch(render([]), /timeline-working/);
+  assert.doesNotMatch(html, /timeline-working|timeline-progress|Waiting for execution events|activity-snake-loader/);
 });
 
 test("message boundaries remain in source order between stage segments", () => {
@@ -158,4 +155,31 @@ test("message boundaries remain in source order between stage segments", () => {
   assert.equal((html.match(/data-stage-id="stage-1"/g) ?? []).length, 2);
   assert.ok(html.indexOf("Checking evidence") > html.indexOf('data-item-id="fact:1"'));
   assert.ok(html.indexOf("Checking evidence") < html.indexOf('data-item-id="activity:action:run-1:action-1"'));
+});
+
+test("long command titles retain the complete accessible label and expanded call details", () => {
+  const entry = activity("completed");
+  const command = 'Ran git status --short; echo "branch"; git diff --stat; git status --porcelain';
+  const group = { ...entry.group, summary: command, members: entry.group.members.map(member => ({ ...member, label: command })) };
+  const row = (expanded: boolean) => renderToStaticMarkup(<ActivityGroupRow itemId={entry.itemId} runId={entry.runId}
+    group={group} expanded={expanded} onToggle={() => {}} onOpenTrajectory={undefined} />);
+  const collapsed = row(false);
+  assert.match(collapsed, /data-slot="trace-title"[^>]*title="Ran git status --short; echo &quot;branch&quot;; git diff --stat; git status --porcelain"/);
+  assert.match(collapsed, /1 call/);
+  assert.doesNotMatch(collapsed, /timeline-activity-members|3 tests failed/);
+  const expanded = row(true);
+  assert.match(expanded, /timeline-activity-member-label[^>]*>Ran git status --short; echo &quot;branch&quot;; git diff --stat; git status --porcelain/);
+  assert.match(expanded, /3 tests failed/);
+});
+
+test("messages split consecutive execution traces without changing source order", () => {
+  const first = activity("completed");
+  const second = { ...activity("failed"), itemId: "second-activity" };
+  const html = render([first,
+    { kind: "message", itemId: "update", presentationKey: "update", runId: "run-1", role: "assistant", purpose: "process", content: "Checking the remaining files", position: position(3) },
+    second]);
+  assert.equal((html.match(/data-slot="trace"/g) ?? []).length, 2);
+  assert.match(html, /<\/div><article class="message assistant"/);
+  assert.ok(html.indexOf("Checking the remaining files") > html.indexOf(`data-item-id="${first.itemId}"`));
+  assert.ok(html.indexOf("Checking the remaining files") < html.indexOf('data-item-id="second-activity"'));
 });

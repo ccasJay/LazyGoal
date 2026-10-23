@@ -26,7 +26,7 @@ function position(sequence: number, runId = "run-1", itemKind: "fact" | "message
 }
 
 test("repeated latest refreshes count unread items once while keeping the reading page", () => {
-  const initial = pageFixture({ items: [factItem(1, "e1")] });
+  const initial = pageFixture({ items: [factItem(1, "e1")], newerCount: 1 });
   const latest = pageFixture({ items: [factItem(1, "e1"), factItem(2, "e2")] });
   const paused = { ...applyActivityPage(createActivityWindowState(), initial), following: false };
   const updated = mergeLatestPage(paused, latest);
@@ -148,7 +148,7 @@ test("读取失败保留现有窗口与锚点，可以原地重试", () => {
 });
 
 test("阅读旧页时只更新最新水位与未读提示，不挤掉锚点页", () => {
-  let state = applyActivityPage(createActivityWindowState(), pageFixture({ items: [messageItem(1, "m1")] }));
+  let state = applyActivityPage(createActivityWindowState(), pageFixture({ items: [messageItem(1, "m1")], newerCount: 1 }));
   state = { ...state, following: false, anchor: { itemId: "message:m1", offset: 4 } };
   const merged = mergeLatestPage(state, pageFixture({ items: [messageItem(1, "m1"), messageItem(2, "m2")] }));
 
@@ -182,4 +182,24 @@ test("阅读锚点按稳定身份恢复，锚点项不在当前页时保留原�
 
   const missing = resolveAnchorScrollTop({ itemId: "message:gone", offset: 10 }, offsets);
   assert.equal(missing, undefined);
+});
+
+test("暂停滚动的末尾窗口仍接收正式回答和终态，重复刷新不累计同一未读项", () => {
+  const initial = pageFixture({ items: [messageItem(1, "question")] });
+  const anchor = { itemId: "message:question", offset: 4 };
+  const paused = { ...applyActivityPage(createActivityWindowState(), initial), following: false, anchor };
+  const answer = { ...messageItem(2, "answer"), purpose: "answer" as const };
+  const terminal = { ...factItem(3, "completed"), eventType: "run_completed", title: "Run completed" };
+  const latest = { ...pageFixture({ items: [...initial.items, answer, terminal] }),
+    runs: initial.runs.map(run => ({ ...run, status: "completed" as const })) };
+  const updated = mergeLatestPage(paused, latest);
+  assert.deepEqual(updated.page?.items.map(item => item.itemId), ["message:question", "message:answer", "fact:completed"]);
+  assert.equal(updated.page?.runs[0]?.status, "completed");
+  assert.equal(updated.following, false);
+  assert.deepEqual(updated.anchor, anchor);
+  assert.equal(updated.unread, 2);
+  const repeated = mergeLatestPage(updated, latest);
+  assert.equal(repeated.unread, 2);
+  assert.equal(repeated.page?.items.length, 3);
+  assert.deepEqual(repeated.anchor, anchor);
 });

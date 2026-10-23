@@ -3,6 +3,8 @@
 Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。
 
 
+用户中断的 Snapshot Schema 只保存 `requested`／`finished` 状态、未知效果及 Action 身份，不再包含模型收尾预算。执行语义见 [Runtime](../../runtime/notes/overview.md)。
+
 ## 摘要
 
 `@lazygoal/storage` 拥有持久化文件表示与实现：Profile 文件 DTO、当前 Goal Snapshot v1 DTO 与严格 Schema、Runtime↔Snapshot 双向 Codec、Trajectory/Diagnostic JSONL Store、Tool Grant 授权账本，以及实现 Runtime/Agent Port 的内存/JSON 文件 Store。它依赖 Runtime 的 Port 与领域契约；Runtime 不反向加载本模块。

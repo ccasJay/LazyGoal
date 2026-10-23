@@ -893,7 +893,7 @@ export interface RunState {
     readonly pendingModelRepair?: PendingModelRepair;
     /** 当前 Run 已受理、尚待模型输入边界应用的 Steer 消息。 */
     readonly steerInputs?: readonly RunSteerInput[];
-    /** 当前 Run 的持久化用户终止意图与有限收尾进度。 */
+    /** 当前 Run 的持久化用户终止意图与取消结算状态。 */
     readonly interruption?: RunInterruption;
     readonly stopReason?: RunStopReason;
     /**
@@ -931,17 +931,16 @@ export type RunSteerInput =
  * 用户 Interrupt 的持久化状态。
  *
  * @remarks
- * 该记录用于区分用户终止与宿主关闭，并恢复收尾模型调用预算。进程内 AbortSignal
+ * 该记录用于区分用户终止与宿主关闭，并恢复尚未完成的取消结算。进程内 AbortSignal
  * 不进入快照；只有明确受理的用户请求才建立此记录。
  * @example
  * ```ts
- * const interruption: RunInterruption = { requestId: "interrupt-1", status: "requested", repairCallsStarted: 0 };
+ * const interruption: RunInterruption = { requestId: "interrupt-1", status: "requested" };
  * ```
  */
 export interface RunInterruption {
     readonly requestId: string;
-    readonly status: "requested" | "repairing" | "finished";
-    readonly repairCallsStarted: number;
+    readonly status: "requested" | "finished";
     readonly interruptedActions?: readonly ToolCallAction[];
     readonly outcomeUnknown?: boolean;
 }

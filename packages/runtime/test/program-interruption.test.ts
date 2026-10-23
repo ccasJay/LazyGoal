@@ -514,7 +514,7 @@ test("PTC can be cancelled while a child approval is waiting without executing i
     assert.equal(writes, 0);
 });
 
-test("User Interrupt records unknown PTC parent and child outcomes, then repairs without rerunning the program", {
+test("User Interrupt records unknown PTC parent and child outcomes, then cancels without another model call", {
     skip: !isSeatbeltSupported(),
 }, async () => {
     const entered = deferred();
@@ -560,10 +560,12 @@ test("User Interrupt records unknown PTC parent and child outcomes, then repairs
     assert.equal(accepted.ok, true);
     const result = await execution;
     assert.equal(result.ok, true);
-    assert.equal(modelCalls, 2);
+    assert.equal(modelCalls, 1);
     assert.equal(toolCalls, 1);
     if (!result.ok) return;
     assert.equal(result.state.status, "cancelled");
+    assert.equal(result.state.pendingProgram, undefined);
+    assert.equal(result.state.pendingAction, undefined);
     const events = await fixture.trajectoryStore.read({ goalId: fixture.goal.id, runId: fixture.goal.state.run.id });
     assert.equal(events.some((event) => event.eventType === "run_interrupted_action_unknown" && event.actionId === "parent"), true);
     assert.equal(events.filter((event) => event.eventType === "run_interrupted_action_unknown").length, 2);

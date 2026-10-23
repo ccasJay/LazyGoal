@@ -29,8 +29,10 @@ export interface ExecutionProgressEntry {
   readonly lastObservedAt: number;
   /** 是否具有真实调用开始时间；false 时只能显示观察时长。 */
   readonly hasSourceTime: boolean;
-  /** 已知的执行单元；只供定位真实轨迹。 */
+  /** 已知的执行单元；用于归入对应步骤及定位真实轨迹。 */
   readonly executionUnitId?: string;
+  /** 工具事件的真实 Action 身份；用于归入对应步骤，不能按相邻位置猜测。 */
+  readonly actionId?: string;
 }
 
 /**
@@ -85,14 +87,22 @@ export function recordExecutionProgress(entries: readonly ExecutionProgressEntry
     default: return entries;
   }
   const previous = entries.at(-1);
+  const sourceTime = activity.kind === "model_started" ? activity.occurredAt : undefined;
+  const actionId = "actionId" in activity ? activity.actionId : undefined;
+  const origin = actionId === undefined
+    ? previous?.runId === event.runId && (previous.kind === "model_started" || previous.kind === "assistant_text_delta")
+      && (activity.kind === "model_completed" || activity.kind === "assistant_text_delta") ? previous : undefined
+    : [...entries].reverse().find(entry => entry.runId === event.runId && entry.actionId === actionId);
+  const executionUnitId = "executionUnitId" in activity ? activity.executionUnitId : origin?.executionUnitId;
   if (previous?.runId === event.runId && previous.kind === activity.kind && previous.label === label && previous.detail === detail
+    && previous.actionId === actionId && previous.executionUnitId === executionUnitId
     && activity.kind !== "model_started" && activity.kind !== "tool_started" && activity.kind !== "step_started") {
     return [...entries.slice(0, -1), { ...previous, lastObservedAt: observedAt }];
   }
-  const sourceTime = activity.kind === "model_started" ? activity.occurredAt : undefined;
   return [...entries, {
     id: (previous?.id ?? 0) + 1, runId: event.runId, kind: activity.kind, label, detail,
     startedAt: sourceTime === undefined ? observedAt : Date.parse(sourceTime), lastObservedAt: observedAt, hasSourceTime: sourceTime !== undefined,
-    ...("executionUnitId" in activity && activity.executionUnitId !== undefined ? { executionUnitId: activity.executionUnitId } : {}),
+    ...(executionUnitId === undefined ? {} : { executionUnitId }),
+    ...(actionId === undefined ? {} : { actionId }),
   }].slice(-20);
 }
