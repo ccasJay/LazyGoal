@@ -25,6 +25,7 @@ benchmarks/      Explicit headless benchmark evaluation
   context/        Native checkpoint capture, frozen scripts, paired recovery evaluation
 prompt-evaluation/ External prompt optimization integrations
   gepa/            Official GEPA adapter for LazyGoal Prompt Evaluation
+  harness2/        Standalone Harness2 Propose-Probe-Compose framework and prompt optimizer
 packages/        Private `@lazygoal/*` workspaces
   contracts/      Contract AST builders and static type inference core
   context-budget/ Model input metering, budget allocation, unit selection, and stable serialization

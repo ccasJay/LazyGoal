@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lazygoal-harness2"
+version = "0.1.0"
+description = "Standalone Harness2 Propose-Probe-Compose framework optimizer for LazyGoal"
+requires-python = ">=3.10,<3.15"
+dependencies = []
+
+[project.scripts]
+lazygoal-harness2 = "lazygoal_harness2.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv]
+package = true

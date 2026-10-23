@@ -4,6 +4,19 @@ import { isAbsolute, resolve } from "node:path";
 import type {
     BenchmarkAttemptError,
 } from "../attempt-recorder.js";
+import {
+    MUTABLE_PROMPT_TEMPLATE_IDS,
+    PromptTemplateOverrideError,
+    normalizeTemplateOverrides,
+    type MutablePromptTemplateId,
+} from "./template-overrides.js";
+
+export {
+    MUTABLE_PROMPT_TEMPLATE_IDS,
+    PromptTemplateOverrideError,
+    normalizeTemplateOverrides,
+    type MutablePromptTemplateId,
+};
 
 /** Prompt Evaluation 当前唯一受支持的线协议标识。 */
 export const PROMPT_EVALUATION_PROTOCOL = "prompt-evaluation@1" as const;
@@ -27,7 +40,24 @@ export interface PromptEvaluationBenchmarkReference {
     readonly manifestPath: string;
 }
 
-/** 仅包含可变 Prompt 字段的候选描述。 */
+/**
+ * 包含可变 Profile Prompt 字段与可选框架模板覆盖的候选描述。
+ *
+ * @remarks
+ * `templateOverrides` 仅允许覆盖 {@link MUTABLE_PROMPT_TEMPLATE_IDS} 白名单内的模板 ID；
+ * 省略时使用默认 Prompt Bundle v1 模板。
+ *
+ * @example
+ * ```ts
+ * const candidate: PromptEvaluationCandidate = {
+ *   id: "candidate-1",
+ *   baseProfileId: "swebench-acp-profile",
+ *   systemPrompt: "Solve the issue carefully.",
+ *   instructions: ["Use authorized tools only."],
+ *   templateOverrides: { "global-overview@1": "Global Overview:\n..." },
+ * };
+ * ```
+ */
 export interface PromptEvaluationCandidate {
     /** 由外部优化器分配的候选稳定标识。 */
     readonly id: string;
@@ -37,6 +67,8 @@ export interface PromptEvaluationCandidate {
     readonly systemPrompt: string;
     /** 替换基准 Profile 的有序 instructions。 */
     readonly instructions: readonly string[];
+    /** 可选的框架层 Prompt Bundle 模板覆盖映射（模板 ID 到模板源码）。 */
+    readonly templateOverrides?: Readonly<Record<string, string>>;
 }
 
 /** 不含凭据的模型配置身份。 */
@@ -179,6 +211,7 @@ export interface PromptEvaluationResultV1 {
         readonly systemPromptCharacters: number;
         readonly instructionCount: number;
         readonly instructionCharacters: number;
+        readonly overriddenTemplateIds?: readonly string[];
     };
     readonly modelConfigId: string;
     readonly modelId: string;
@@ -277,7 +310,8 @@ export interface PromptEvaluationRequestParseOptions {
 
 const ROOT_KEYS = ["protocol", "benchmark", "candidate", "model", "outputDirectory"] as const;
 const BENCHMARK_KEYS = ["id", "manifestPath"] as const;
-const CANDIDATE_KEYS = ["id", "baseProfileId", "systemPrompt", "instructions"] as const;
+const CANDIDATE_REQUIRED_KEYS = ["id", "baseProfileId", "systemPrompt", "instructions"] as const;
+const CANDIDATE_ALLOWED_KEYS = ["id", "baseProfileId", "systemPrompt", "instructions", "templateOverrides"] as const;
 const MODEL_KEYS = ["configId", "modelId"] as const;
 
 /**
@@ -320,8 +354,14 @@ export async function parsePromptEvaluationRequest(
     const manifestPath = resolvePath(requireString(benchmark.manifestPath, "$.benchmark.manifestPath"), cwd);
     await requireRegularFile(manifestPath, "$.benchmark.manifestPath", options.statPath ?? stat);
 
-    const candidate = requireRecord(root.candidate, "$.candidate", CANDIDATE_KEYS);
+    const candidate = requireRecordWithOptionalKeys(
+        root.candidate,
+        "$.candidate",
+        CANDIDATE_REQUIRED_KEYS,
+        CANDIDATE_ALLOWED_KEYS,
+    );
     const instructions = requireInstructions(candidate.instructions);
+    const templateOverrides = parseCandidateTemplateOverrides(candidate.templateOverrides);
     const model = requireRecord(root.model, "$.model", MODEL_KEYS);
     const outputDirectory = resolvePath(requireString(root.outputDirectory, "$.outputDirectory"), cwd);
     await requireDirectoryWhenPresent(outputDirectory, "$.outputDirectory", options.statPath ?? stat);
@@ -334,6 +374,7 @@ export async function parsePromptEvaluationRequest(
             baseProfileId: requireString(candidate.baseProfileId, "$.candidate.baseProfileId"),
             systemPrompt: requireString(candidate.systemPrompt, "$.candidate.systemPrompt"),
             instructions: Object.freeze(instructions),
+            ...(templateOverrides === undefined ? {} : { templateOverrides }),
         }),
         model: Object.freeze({
             configId: requireString(model.configId, "$.model.configId"),
@@ -391,6 +432,18 @@ function requireRecord<const TKeys extends readonly string[]>(
     field: string,
     allowedKeys: TKeys,
 ): Record<TKeys[number], unknown> {
+    return requireRecordWithOptionalKeys(value, field, allowedKeys, allowedKeys);
+}
+
+function requireRecordWithOptionalKeys<
+    const TRequired extends readonly string[],
+    const TAllowed extends readonly string[],
+>(
+    value: unknown,
+    field: string,
+    requiredKeys: TRequired,
+    allowedKeys: TAllowed,
+): Record<TAllowed[number], unknown> {
     if (!isRecord(value)) {
         throw new PromptEvaluationRequestError("INVALID_SCHEMA", field, `${field} must be an object`);
     }
@@ -404,7 +457,7 @@ function requireRecord<const TKeys extends readonly string[]>(
             );
         }
     }
-    for (const key of allowedKeys) {
+    for (const key of requiredKeys) {
         if (!(key in value)) {
             throw new PromptEvaluationRequestError(
                 "INVALID_SCHEMA",
@@ -413,7 +466,28 @@ function requireRecord<const TKeys extends readonly string[]>(
             );
         }
     }
-    return value as Record<TKeys[number], unknown>;
+    return value as Record<TAllowed[number], unknown>;
+}
+
+function parseCandidateTemplateOverrides(
+    value: unknown,
+): Readonly<Record<string, string>> | undefined {
+    try {
+        return normalizeTemplateOverrides(value);
+    } catch (error: unknown) {
+        if (error instanceof PromptTemplateOverrideError) {
+            const field = error.templateId === "$"
+                ? "$.candidate.templateOverrides"
+                : `$.candidate.templateOverrides[${JSON.stringify(error.templateId)}]`;
+            throw new PromptEvaluationRequestError(
+                "INVALID_SCHEMA",
+                field,
+                error.message,
+                { cause: error },
+            );
+        }
+        throw error;
+    }
 }
 
 function requireString(value: unknown, field: string): string {

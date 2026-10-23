@@ -21,6 +21,8 @@ import {
 } from "../../../packages/tools/src/index.js";
 import { JsonFileBenchmarkPersistenceAdapter } from "../../src/file-persistence-adapter.js";
 import { HeadlessCompositionRoot, type HeadlessEpisodeResult } from "../../src/headless-composition-root.js";
+import { validatePromptEvaluationProfile } from "../../src/prompt-evaluation/profile.js";
+import { normalizeTemplateOverrides } from "../../src/prompt-evaluation/template-overrides.js";
 import {
     AcpTrajectoryStore,
     cancelledAcpResult,
@@ -130,6 +132,37 @@ export interface SwebenchAcpTaskMetadata {
     readonly maxSteps: number;
     /** 宿主 Adapter 固定的结构化输出模式。 */
     readonly structuredOutputMode: LLMAdapter["structuredOutputMode"];
+    /** Prompt Evaluation 传入并供 Worker 重验的基准 Profile。 */
+    readonly baseProfile?: AgentProfile;
+    /** Prompt Evaluation 传入的候选 Profile。 */
+    readonly profile?: AgentProfile;
+    /** Prompt Evaluation 传入的可选框架模板覆盖映射。 */
+    readonly templateOverrides?: Readonly<Record<string, string>>;
+}
+
+/**
+ * 校验 SWE-bench 候选 Profile 保持固定 5 个工具白名单与 `/testbed` 工作区约束。
+ *
+ * @param profile - 公共层派生或 ACP metadata 反序列化的候选 Profile。
+ * @returns 深冻结且可交给 Headless Root 的候选 Profile。
+ * @throws 冻结字段变化或指令删除 SWE-bench 必需工具或 `/testbed` 边界时抛出。
+ * @example
+ * ```ts
+ * const candidate = validateSwebenchPromptEvaluationProfile(profile);
+ * ```
+ */
+export function validateSwebenchPromptEvaluationProfile(profile: unknown): AgentProfile {
+    const validated = validatePromptEvaluationProfile(profile, SWE_ACP_PROFILE);
+    const promptText = `${validated.systemPrompt}\n${validated.instructions.join("\n")}`;
+    if (!promptText.includes("/testbed")) {
+        throw new TypeError("SWE-bench candidate prompt must reference /testbed");
+    }
+    for (const toolId of SWE_ACP_TOOL_IDS) {
+        if (!promptText.includes(toolId)) {
+            throw new TypeError(`SWE-bench candidate prompt must reference ${toolId}`);
+        }
+    }
+    return validated;
 }
 
 /**
@@ -157,7 +190,9 @@ export function parseSwebenchAcpTaskMetadata(value: unknown): SwebenchAcpTaskMet
         || (value.structuredOutputMode !== "strict" && value.structuredOutputMode !== "prompt_only")) {
         throw new TypeError("Invalid SWE-bench ACP session metadata");
     }
-    const metadata = {
+    const profiles = parseSwebenchPromptEvaluationProfiles(value);
+    const templateOverrides = normalizeTemplateOverrides(value.templateOverrides);
+    const metadata: SwebenchAcpTaskMetadata = {
         instanceId: value.instanceId,
         repo: value.repo,
         baseCommit: value.baseCommit,
@@ -166,9 +201,30 @@ export function parseSwebenchAcpTaskMetadata(value: unknown): SwebenchAcpTaskMet
         runId: value.runId,
         maxSteps: value.maxSteps,
         structuredOutputMode: value.structuredOutputMode,
-    } satisfies SwebenchAcpTaskMetadata;
+        ...profiles,
+        ...(templateOverrides === undefined ? {} : { templateOverrides }),
+    };
     validateMetadata(metadata);
     return metadata;
+}
+
+function parseSwebenchPromptEvaluationProfiles(
+    record: Record<string, unknown>,
+): Pick<SwebenchAcpTaskMetadata, "baseProfile" | "profile"> {
+    if (record.baseProfile === undefined && record.profile === undefined) return {};
+    if (record.baseProfile === undefined || record.profile === undefined) {
+        throw new TypeError("SWE-bench Prompt Evaluation metadata requires baseProfile and profile together");
+    }
+    const baseProfile = validatePromptEvaluationProfile(record.baseProfile, SWE_ACP_PROFILE);
+    if (
+        baseProfile.systemPrompt !== SWE_ACP_PROFILE.systemPrompt
+        || baseProfile.instructions.length !== SWE_ACP_PROFILE.instructions.length
+        || !baseProfile.instructions.every((val, idx) => val === SWE_ACP_PROFILE.instructions[idx])
+    ) {
+        throw new TypeError("SWE-bench Prompt Evaluation baseProfile must match the Worker base Profile");
+    }
+    const profile = validateSwebenchPromptEvaluationProfile(record.profile);
+    return { baseProfile, profile };
 }
 
 /**
@@ -258,10 +314,13 @@ export async function runSwebenchAcpTask(
                 },
             };
         })();
+    const activeProfile = options.metadata.profile === undefined
+        ? toolSet.profile
+        : validateSwebenchPromptEvaluationProfile(options.metadata.profile);
     const root = new HeadlessCompositionRoot<SwebenchAcpTaskMetadata, null>({
         benchmarkId: "swebench-acp",
         workspaceRoot,
-        profile: toolSet.profile,
+        profile: activeProfile,
         llmAdapter: options.llmAdapter,
         renderer: options.renderer,
         contextCompactor: options.contextCompactor,

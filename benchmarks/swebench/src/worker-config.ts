@@ -13,7 +13,13 @@ export const SWE_ACP_WORKER_PROMPT_ASSETS = Object.freeze([
     "packages/prompt-bundle/src/global-system-prompt/global-overview@1.njk",
     "packages/prompt-bundle/src/prompting/profile@1.njk",
     "packages/prompt-bundle/src/step-prompt/agent-decision@1.njk",
+    "packages/prompt-bundle/src/step-prompt/agent-think@1.njk",
     "packages/prompt-bundle/src/prompting/authorized-tools@1.njk",
+    "packages/prompt-bundle/src/prompting/run-mode@1.njk",
+    "packages/prompt-bundle/src/prompting/approved-task@1.njk",
+    "packages/prompt-bundle/src/prompting/goal-plan@1.njk",
+    "packages/prompt-bundle/src/prompting/working-memory@1.njk",
+    "packages/prompt-bundle/src/prompting/goal-context-navigation@1.njk",
 ] as const);
 
 /** Prompt 资产路径到默认 Bundle 模板 ID 的固定映射。 */
@@ -21,7 +27,13 @@ export const SWE_ACP_WORKER_PROMPT_ASSET_IDS = Object.freeze([
     "global-overview@1",
     "profile@1",
     "agent-decision@1",
+    "agent-think@1",
     "authorized-tools@1",
+    "run-mode@1",
+    "approved-task@1",
+    "goal-plan@1",
+    "working-memory@1",
+    "goal-context-navigation@1",
 ] as const);
 
 /** Worker 与预检共用的环境初始化；日志不得写入 ACP stdout。 */

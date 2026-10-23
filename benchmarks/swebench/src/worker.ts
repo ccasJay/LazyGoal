@@ -1,6 +1,5 @@
 import { Readable, Writable } from "node:stream";
-import { DEFAULT_PROMPT_BUNDLE_MANIFEST } from "../../../packages/prompt-bundle/src/index.js";
-import { createPromptBundleRenderer, type PromptBundleRenderer } from "../../../packages/prompt-renderer/src/index.js";
+import type { PromptBundleRenderer } from "../../../packages/prompt-renderer/src/index.js";
 import { DropOldestContextCompactor } from "../../../packages/context-budget/src/index.js";
 import {
     serveLazyGoalAcpAgent,
@@ -12,6 +11,7 @@ import {
     MultiplexedConnection,
 } from "../../src/multiplex.js";
 import { RpcLlmAdapter } from "../../src/llm-rpc.js";
+import { buildVerifiedPromptBundleRenderer } from "../../src/prompt-evaluation/template-overrides.js";
 import {
     createSwebenchAcpSessionFactory,
     parseSwebenchAcpTaskMetadata,
@@ -42,11 +42,14 @@ export async function runSwebenchWorker(): Promise<void> {
         output: Writable.toWeb(process.stdout) as WritableStream<Uint8Array>,
     });
     let adapter: RpcLlmAdapter | undefined;
-    const renderer = createEmbeddedPromptRenderer();
+    const defaultRenderer = createEmbeddedPromptRenderer();
     const sessions: AcpSessionFactory = {
         async create(input): Promise<AcpSession> {
             if (adapter !== undefined) throw new Error("Worker supports one ACP Session per connection");
             const metadata = parseSwebenchAcpTaskMetadata(input.sessionMeta);
+            const renderer = metadata.templateOverrides === undefined
+                ? defaultRenderer
+                : createEmbeddedPromptRenderer(metadata.templateOverrides);
             adapter = new RpcLlmAdapter({
                 stream: mux.channel("llm"),
                 structuredOutputMode: metadata.structuredOutputMode,
@@ -84,7 +87,20 @@ export async function runSwebenchWorker(): Promise<void> {
     }
 }
 
-function createEmbeddedPromptRenderer(): PromptBundleRenderer {
+/**
+ * 从 Worker 内嵌模板资产与可选覆盖构建经过 Golden Fixture 校验的 `PromptBundleRenderer`。
+ *
+ * @param templateOverrides - 可选的模板覆盖映射。
+ * @returns 已编译的 `PromptBundleRenderer`。
+ * @throws 内嵌模板缺失或覆盖模板未通过编译/锚点校验时抛出异常。
+ * @example
+ * ```ts
+ * const renderer = createEmbeddedPromptRenderer({ "global-overview@1": "Global Overview:\n..." });
+ * ```
+ */
+export function createEmbeddedPromptRenderer(
+    templateOverrides?: Readonly<Record<string, string>>,
+): PromptBundleRenderer {
     const globalAssets = (globalThis as typeof globalThis & {
         __lazygoalPromptAssets?: EmbeddedPromptAssets;
     }).__lazygoalPromptAssets;
@@ -95,7 +111,7 @@ function createEmbeddedPromptRenderer(): PromptBundleRenderer {
         if (source === undefined || id === undefined) throw new Error(`Embedded Prompt asset is missing: ${assetPath}`);
         return { id, source };
     });
-    return createPromptBundleRenderer({ templates, bundles: [DEFAULT_PROMPT_BUNDLE_MANIFEST] });
+    return buildVerifiedPromptBundleRenderer(templates, templateOverrides);
 }
 
 if (process.argv[1] !== undefined && process.argv[1].endsWith("worker.mjs")) {

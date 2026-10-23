@@ -8,3 +8,5 @@
 | Patch | 提交给官方评分器的导出差异。 | [SWE-bench 评测](../README.md) | [模块说明](./overview.md) |
 
 | Context source adapter | 固定任务公开投影、官方环境和评分的宿主适配。 | [SWE-bench](../README.md) | [来源实现](../src/context-source.ts) |
+| SwebenchRuntimeHealthReport | 基于已提交 Trajectory 的零错判定与连续 Runtime 健康度得分。 | [SWE-bench 评测](../README.md) | [评分实现](../src/runtime-error-scorer.ts) |
+| SwebenchPromptEvaluationAdapter | 支持 Profile 与 `.njk` 模板覆盖的 SWE-bench Prompt Evaluation 适配器。 | [SWE-bench 评测](../README.md) | [适配器实现](../src/prompt-evaluation-adapter.ts) |
