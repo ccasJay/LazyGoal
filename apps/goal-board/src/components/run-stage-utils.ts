@@ -105,7 +105,7 @@ export function renderPlanRouteStatusLabel(status: "pending" | "executing" | "ac
  * @example
  * ```ts
  * const title = formatRunStepsTitle(run, 1);
- * // "Run 1 (3 steps) · Ran ls -la"
+ * // "Run 1 (3 steps), Ran ls -la"
  * ```
  */
 export function formatRunStepsTitle(
@@ -124,7 +124,7 @@ export function formatRunStepsTitle(
   const firstAction = firstStep ? stepActivity(firstStep).label : undefined;
 
   if (firstAction) {
-    return `${indexPart} (${countLabel}) · ${firstAction}`;
+    return `${indexPart} (${countLabel}), ${firstAction}`;
   }
   return `${indexPart} (${countLabel})`;
 }

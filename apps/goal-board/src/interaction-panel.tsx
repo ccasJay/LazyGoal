@@ -843,7 +843,7 @@ export function ActionInteractionView({
           {review.capability.extraFiles.length > 0 && (
             <ul>
               {review.capability.extraFiles.map((file) => (
-                <li key={file.canonicalPath}><code>{file.canonicalPath}</code> · {file.access}</li>
+                <li key={file.canonicalPath}><code>{file.canonicalPath}</code>, {file.access}</li>
               ))}
             </ul>
           )}
@@ -873,7 +873,7 @@ export function ActionInteractionView({
           {summary.sandboxReview.extraFiles.length > 0 && (
             <ul>
               {summary.sandboxReview.extraFiles.map((file) => (
-                <li key={file.canonicalPath}><code>{file.canonicalPath}</code> · {file.access}</li>
+                <li key={file.canonicalPath}><code>{file.canonicalPath}</code>, {file.access}</li>
               ))}
             </ul>
           )}

@@ -185,12 +185,12 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     const metricDetails = await value(socket, "document.querySelector('.metrics-popover').innerText");
     assert.match(metricDetails, /Goal metrics/);
     assert.match(metricDetails, /Output rate/);
-    assert.match(metricDetails, /end-to-end provider request rate/i);
-    assert.match(metricDetails, /not provider-internal decode speed/i);
-    assert.match(metricDetails, /Missing values are not counted as zero/);
+    assert.doesNotMatch(metricDetails, /end-to-end provider request rate/i);
+    assert.doesNotMatch(metricDetails, /not provider-internal decode speed/i);
+    assert.doesNotMatch(metricDetails, /Missing values are not counted as zero/);
     mock.publishOutputRate();
     await waitForExpression(socket, "document.querySelector('.metrics-popover')?.innerText.includes('25 tok/s')");
-    assert.match(await value(socket, "document.querySelector('.metrics-popover').innerText"), /1 measured · 1 excluded calls/);
+    assert.match(await value(socket, "document.querySelector('.metrics-popover').innerText"), /1 measured, 1 excluded calls/);
     await value(socket, "document.querySelector('.session-metrics-details-trigger').click()");
     await waitForExpression(socket, "document.querySelector('.metrics-popover') === null");
 
@@ -247,14 +247,14 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.composer-area .composer') !== null");
     const inputBounds = await value(socket, "(() => { const box = document.querySelector('.composer-area .composer').getBoundingClientRect(); const column = document.querySelector('.composer-area').getBoundingClientRect(); const main = document.querySelector('.workspace-main').getBoundingClientRect(); return { width: box.width, columnGap: Math.abs((box.left + box.right - column.left - column.right) / 2), columnAligned: column.left >= main.left && column.right <= main.right && Math.abs((column.left + column.right - main.left - main.right) / 2) < 2, mainWithinViewport: main.left >= 0 && main.right <= window.innerWidth }; })()");
     assert.ok(inputBounds.width <= 840 && inputBounds.columnGap < 2 && inputBounds.columnAligned && inputBounds.mainWithinViewport, JSON.stringify(inputBounds));
-    await waitForExpression(socket, "document.querySelector('.permission-trigger')?.textContent.includes('Default')");
+    await waitForExpression(socket, "document.querySelector('.permission-trigger')?.textContent.includes('Ask when needed')");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.permission-trigger').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.permission-popover') !== null");
     assert.equal(await value(socket, "document.querySelector('.permission-popover > header') === null"), true);
     assert.equal(await value(socket, "document.querySelector('.permission-grants > button')?.getAttribute('aria-expanded') === 'true'"), false);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.permission-modes label:last-child [role=radio]').click()", returnByValue: true });
     await waitForLocal(() => mock.permissionMode === "yolo");
-    await waitForExpression(socket, "document.querySelector('.permission-popover') === null && document.querySelector('.permission-trigger')?.textContent.includes('YOLO')");
+    await waitForExpression(socket, "document.querySelector('.permission-popover') === null && document.querySelector('.permission-trigger')?.textContent.includes('Auto-approve')");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.permission-trigger').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.permission-popover') !== null");
     await cdp(socket, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });

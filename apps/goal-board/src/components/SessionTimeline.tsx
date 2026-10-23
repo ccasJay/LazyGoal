@@ -51,10 +51,10 @@ const SessionMessage = memo(function SessionMessage({
         {role === "assistant" ? <AssistantMarkdown content={entry.content} /> : entry.content}
       </div>
       {entry.kind === "candidate-preview" && entry.missingPrefix && (
-        <small className="candidate-settlement-note">Earlier candidate text is missing.</small>
+        <small className="candidate-settlement-note">Preview incomplete.</small>
       )}
       {entry.kind === "candidate-preview" && entry.truncated && (
-        <small className="candidate-settlement-note">This candidate preview was truncated.</small>
+        <small className="candidate-settlement-note">Preview truncated.</small>
       )}
       {!isCandidate && entry.previewIssue === "official-text-differs" && (
         <small className="candidate-settlement-note">The saved answer differs from its preview.</small>
@@ -300,11 +300,11 @@ function StepProgressDetails({ entries, active, streamConnected, onOpenTrajector
     && now - current.lastObservedAt >= 60_000;
   return <div className="timeline-step-progress">
     {active && <p>{streamConnected ? current.detail : "Reconnecting. Showing the last observed operation."}</p>}
-    {active && <small>{streamConnected ? "Connected" : "Disconnected"} · Last event {new Date(current.lastObservedAt).toLocaleTimeString("en-GB")}</small>}
+    {active && <small>{streamConnected ? "Connected" : "Disconnected"}, Last event {new Date(current.lastObservedAt).toLocaleTimeString("en-GB")}</small>}
     {active && <small title={current.hasSourceTime ? "Time since the model request started" : "Time since this event was observed"}>
       {current.hasSourceTime ? elapsed : `Observed ${elapsed}`}
     </small>}
-    {silent && <p className="timeline-step-warning" role="status">No new public response for 60 seconds. You can pause this Run from the composer.</p>}
+    {silent && <p className="timeline-step-warning" role="status">No response update for 60 seconds.</p>}
     <ol>{entries.map(entry => <li key={entry.id}>
       <span>{entry.label}</span>
       <time dateTime={new Date(entry.lastObservedAt).toISOString()}>{new Date(entry.lastObservedAt).toLocaleTimeString("en-GB")}</time>
@@ -727,9 +727,9 @@ function interactionLabel(kind: string): string {
 }
 
 function candidateStatusLabel(status: "generating" | "ready" | "pending-verification"): string {
-  if (status === "generating") return "Draft answer · generating";
+  if (status === "generating") return "Draft answer, generating";
   if (status === "pending-verification") return "Checking whether this answer was saved";
-  return "Draft answer · not saved";
+  return "Draft answer, not saved";
 }
 
 function formatRunStatus(status: string): string {

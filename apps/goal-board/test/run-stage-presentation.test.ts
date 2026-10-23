@@ -163,7 +163,7 @@ test("formatRunStepsTitle 正确格式化当前 Run 与历史 Run 标题并提�
     ],
     current: false,
   };
-  assert.equal(formatRunStepsTitle(earlierRun, 1), "Run 1 (2 steps) · Ran git status");
+  assert.equal(formatRunStepsTitle(earlierRun, 1), "Run 1 (2 steps), Ran git status");
 
   const emptyEarlierRun: BrowserSessionRun = {
     runId: "run-0",

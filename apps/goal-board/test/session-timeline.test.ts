@@ -46,7 +46,7 @@ test("history lookups fold by lookupId while not found and failure remain distin
   assert.deepEqual(lookups.map((item) => [item.itemId, item.status, item.position.sequence]), [
     ["lookup:run-1:missing", "not_found", 1], ["lookup:run-1:broken", "failed", 2],
   ]);
-  assert.equal(lookups[0]?.kind === "lookup" ? lookups[0].request : undefined, "History search · Historical execution");
+  assert.equal(lookups[0]?.kind === "lookup" ? lookups[0].request : undefined, "History search, Historical execution");
   assert.equal(lookups[1]?.kind === "lookup" ? lookups[1].errorCode : undefined, "CONTEXT_LOOKUP_FAILED");
   assert.equal(projection.items.some((item) => item.kind === "fact" && item.eventType.startsWith("context_lookup_")), false);
   const reordered = projectSessionTimeline({ ...activity.page, items: [...activity.page.items].reverse() }, state, new Map());

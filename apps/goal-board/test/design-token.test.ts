@@ -11,19 +11,19 @@ async function readSource(...segments: string[]): Promise<string> {
 test("design tokens define the three font size tiers", async () => {
   const style = await readSource("..", "src", "style.css");
   assert.match(style, /--font-size-xs: 12px;/);
-  assert.match(style, /--font-size-sm: 13px;/);
   assert.match(style, /--font-size-base: 14px;/);
+  assert.match(style, /--font-size-title: 18px;/);
 });
 
-test("9px font sizes are eliminated from both stylesheets", async () => {
-  const style = await readSource("..", "src", "style.css");
-  const trajectory = await readSource("..", "src", "trajectory.css");
-  for (const [name, source] of [["style.css", style], ["trajectory.css", trajectory]] as const) {
-    assert.doesNotMatch(
-      source,
-      /font-size:\s*9px/,
-      `${name} must not contain 9px font sizes`,
-    );
+test("application styles use only the three shared font size tiers", async () => {
+  for (const name of ["style.css", "workspace.css", "trajectory.css"]) {
+    const source = await readSource("..", "src", name);
+    for (const match of source.matchAll(/(?<![-\w])font-size:\s*([^;}]+)/g)) {
+      assert.match(match[1].trim(), /^var\(--font-size-(?:xs|base|title)\)(?:\s*!important)?$/, `${name}: ${match[0]}`);
+    }
+    for (const match of source.matchAll(/(?<![-\w])font:\s*([^;}]+)/g)) {
+      assert.match(match[1].trim(), /^(?:inherit|var\(--font-size-(?:xs|base|title)\))/, `${name}: ${match[0]}`);
+    }
   }
 });
 

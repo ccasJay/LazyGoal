@@ -348,7 +348,7 @@ test("SessionTimeline 保留显式 Think 的获准摘要、已提交输出与详
     runId: "run-1",
     category: "think" as const,
     status: "completed" as const,
-    summary: "Thinking · Compare evidence",
+    summary: "Thinking: Compare evidence",
     position: position(4),
     members: [{
       id: "think:run-1:think:event-1",
@@ -374,7 +374,7 @@ test("SessionTimeline 保留显式 Think 的获准摘要、已提交输出与详
     onOpenTrajectory: () => {},
   }));
 
-  assert.match(html, /Thinking · Compare evidence/);
+  assert.match(html, /Thinking: Compare evidence/);
   assert.match(html, /Compare evidence/);
   assert.match(html, /Use the observed result\./);
   assert.match(html, /Some Think content is omitted\. View the complete event in trajectory\./);

@@ -122,7 +122,7 @@ export function GoalDetails({
                 <li key={grant.grantId}>
                   <div className="grant-copy">
                     <strong><Shield size={13} /> {grant.toolId}</strong>
-                    <span>{grant.scope === "goal" ? "This Goal" : "This project"} · {grant.status}</span>
+                    <span>{grant.scope === "goal" ? "This Goal" : "This project"}, {grant.status}</span>
                     {grant.targetPath && <code>{grant.targetPath}</code>}
                   </div>
                   {grant.status === "active" && <Button variant="ghost" size="sm"

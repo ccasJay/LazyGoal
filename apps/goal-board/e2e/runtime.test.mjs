@@ -436,7 +436,7 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('.session-intro')?.innerText.includes('Next Run · Plan Mode')", 10_000);
+    await waitForExpression(socket, "document.querySelector('.session-intro')?.innerText.includes('Next Run: Plan Mode')", 10_000);
     const introStyle = JSON.parse(await value(socket, `JSON.stringify((() => {
       const style = getComputedStyle(document.querySelector('.session-intro'));
       return { color: style.color, textAlign: style.textAlign, borderRadius: style.borderRadius };
@@ -509,7 +509,7 @@ test("real local service restores and completes one authorized Goal conversation
     await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Steer this active Run')");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.queued-input-status > button').click()", returnByValue: true });
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Steer queued message 1 into the current Run\"]').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Steer · Waiting for next model call')");
+    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Steer: Waiting for next model call')");
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Queue follow-up task");
     await waitForExpression(socket, "document.querySelector('.composer-area .send.is-running')?.getAttribute('aria-label') === 'Send message'");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .send.is-running').click()", returnByValue: true });

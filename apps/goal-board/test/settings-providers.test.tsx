@@ -50,7 +50,7 @@ test("设置页列出凭据状态、激活标记与只读配置来源", async ()
   assert.match(html, /No credential saved/);
   assert.match(html, /From configuration/);
   assert.match(html, /Read-only/);
-  assert.match(html, /Google · gemini-2\.5-pro/);
+  assert.match(html, /Google, gemini-2\.5-pro/);
 
   // 激活档案不可删除；其它档案仍提供删除入口。
   assert.match(html, /More options for/);

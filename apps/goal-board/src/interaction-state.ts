@@ -315,7 +315,7 @@ export function sameCommand(left: BrowserGoalInteractionCommand, right: BrowserG
 export function decisionSummary(command: BrowserGoalInteractionCommand): string {
   switch (command.kind) {
     case "answer_ask_user":
-      return `Answers sent · ${command.answers.length} question${command.answers.length === 1 ? "" : "s"}`;
+      return `Answers sent, ${command.answers.length} question${command.answers.length === 1 ? "" : "s"}`;
     case "reply_to_question":
       return "Overall reply sent";
     case "skip_question":

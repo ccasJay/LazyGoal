@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Design study for the LazyGoal execution trace panel.">
-<title>LazyGoal · Execution trace workbench</title>
+<title>LazyGoal, Execution trace workbench</title>
 <style>
 :root{
   color-scheme:light;
@@ -1016,8 +1016,8 @@ body.is-clean #shell{height:100vh}
 </head>
 <body>
 <div class="protobar">
-  <strong>Execution trace · design study</strong>
-  <span class="proto-note">Representative run · not connected to a live goal</span>
+  <strong>Execution trace, design study</strong>
+  <span class="proto-note">Representative run, not connected to a live goal</span>
   <span class="spacer"></span>
   <span class="proto-note">Container</span>
   <div class="viewport" role="group" aria-label="Prototype viewport width">
@@ -1168,8 +1168,8 @@ const REQUESTS = {
       { role: 'system', source: 'system', content: MESSAGES.system, preview: 'Behavior contract and evidence boundaries' },
       { role: 'user', source: 'conversation', content: MESSAGES.user, preview: 'Read apps/goal-board/package.json and report its package name.' },
       { role: 'assistant', source: 'native_history', content: MESSAGES.assistant, preview: 'I’ll read the manifest first…' },
-      { role: 'user', source: 'section', content: '[Dynamic section: run_mode; mode=execute; step=1]', preview: 'Run mode · execute' },
-      { role: 'user', source: 'section', content: '[Dynamic section: authorized_tools; tools=[read_file,grep,write_file,edit_file]]', preview: 'Authorized tools · read_file, grep, write_file, edit_file' },
+      { role: 'user', source: 'section', content: '[Dynamic section: run_mode; mode=execute; step=1]', preview: 'Run mode, execute' },
+      { role: 'user', source: 'section', content: '[Dynamic section: authorized_tools; tools=[read_file,grep,write_file,edit_file]]', preview: 'Authorized tools, read_file, grep, write_file, edit_file' },
       { role: 'user', source: 'working_context', content: 'Working context\nGoal: report the package name.\nStep: inspect the package manifest.\nEvidence: none yet.', preview: 'Working context updated' }
     ]
   },
@@ -1180,8 +1180,8 @@ const REQUESTS = {
       { role: 'system', source: 'system', content: MESSAGES.system, preview: 'Behavior contract and evidence boundaries' },
       { role: 'user', source: 'conversation', content: MESSAGES.user, preview: 'Read apps/goal-board/package.json and report its package name.' },
       { role: 'assistant', source: 'native_history', content: MESSAGES.assistant, preview: 'I’ll read the manifest first…' },
-      { role: 'user', source: 'section', content: '[Dynamic section: run_mode; mode=execute; step=1]', preview: 'Run mode · execute' },
-      { role: 'user', source: 'working_context', content: 'Working context\nGoal: report the package name.\nStep: inspect the package manifest.\nValidation feedback: the previous response was rejected.', preview: 'Working context · correction recorded' },
+      { role: 'user', source: 'section', content: '[Dynamic section: run_mode; mode=execute; step=1]', preview: 'Run mode, execute' },
+      { role: 'user', source: 'working_context', content: 'Working context\nGoal: report the package name.\nStep: inspect the package manifest.\nValidation feedback: the previous response was rejected.', preview: 'Working context, correction recorded' },
       { role: 'user', source: 'request', content: 'Previous output was rejected: result.memoryPatch.operations.0.fact.evidenceSequences must be a JSON array. Return a valid result without inventing evidence.', preview: 'Output correction after attempt 1' }
     ]
   },
@@ -1189,11 +1189,11 @@ const REQUESTS = {
     id: 'r3', step: 2, stage: 'decide', attempt: 1, of: 1, systemVersion: 'v4', status: 'Accepted',
     recordedAt: '09:22:03.910',
     messages: [
-      { role: 'system', source: 'system', content: MESSAGES.system + '\n\nCurrent context section: step 2 requires a concise final report.', preview: 'Behavior contract · system prompt updated' },
+      { role: 'system', source: 'system', content: MESSAGES.system + '\n\nCurrent context section: step 2 requires a concise final report.', preview: 'Behavior contract, system prompt updated' },
       { role: 'user', source: 'conversation', content: MESSAGES.user, preview: 'Read apps/goal-board/package.json and report its package name.' },
-      { role: 'tool', source: 'native_history', content: MESSAGES.tool, preview: 'package.json · 1.1 KB' },
+      { role: 'tool', source: 'native_history', content: MESSAGES.tool, preview: 'package.json, 1.1 KB' },
       { role: 'assistant', source: 'native_history', content: 'The package name is @lazygoal/goal-board. I can report it now.', preview: 'The package name is @lazygoal/goal-board.' },
-      { role: 'user', source: 'section', content: '[Dynamic section: run_mode; mode=execute; step=2]', preview: 'Run mode · execute' },
+      { role: 'user', source: 'section', content: '[Dynamic section: run_mode; mode=execute; step=2]', preview: 'Run mode, execute' },
       { role: 'user', source: 'working_context', content: 'Working context\nObserved: package.json declares @lazygoal/goal-board.\nNext: return the final answer.', preview: 'Working context updated' }
     ]
   }
@@ -1202,26 +1202,26 @@ const REQUESTS = {
 const EVENTS = [
   { id: 1, step: 0, t: 0.00, kind: 'lifecycle', title: 'Run created', sub: 'Normal execution mode', outcome: 'Committed', tone: 'good' },
   { id: 2, step: 0, t: 0.08, kind: 'lifecycle', title: 'Session input applied', sub: 'inputId 3680c2df…', outcome: 'Committed', tone: 'good' },
-  { id: 4, step: 0, t: 0.16, kind: 'lifecycle', title: 'Run started', sub: 'Provider profile · managed OpenAI-compatible', outcome: 'Committed', tone: 'good' },
-  { id: 6, step: 1, t: 0.28, kind: 'model', title: 'Model request', chip: 'attempt 1 of 3', sub: 'Decide · 6 messages · system v3', outcome: 'Rejected', tone: 'bad', request: 'r1' },
-  { id: 8, step: 1, t: 12.42, kind: 'error', title: 'Output rejected', sub: '1 validation issue · no action ran', outcome: 'Rejected', tone: 'bad', issue: true },
-  { id: 10, step: 1, t: 12.61, kind: 'model', title: 'Model request', chip: 'attempt 2 of 3', sub: 'Decide · 6 messages · correction included', outcome: 'Accepted', tone: 'good', request: 'r2' },
-  { id: 12, step: 1, t: 13.04, kind: 'model', title: 'Decision received', sub: 'execute_program · read the package manifest', outcome: 'Committed', tone: 'run' },
+  { id: 4, step: 0, t: 0.16, kind: 'lifecycle', title: 'Run started', sub: 'Provider profile, managed OpenAI-compatible', outcome: 'Committed', tone: 'good' },
+  { id: 6, step: 1, t: 0.28, kind: 'model', title: 'Model request', chip: 'attempt 1 of 3', sub: 'Decide, 6 messages, system v3', outcome: 'Rejected', tone: 'bad', request: 'r1' },
+  { id: 8, step: 1, t: 12.42, kind: 'error', title: 'Output rejected', sub: '1 validation issue, no action ran', outcome: 'Rejected', tone: 'bad', issue: true },
+  { id: 10, step: 1, t: 12.61, kind: 'model', title: 'Model request', chip: 'attempt 2 of 3', sub: 'Decide, 6 messages, correction included', outcome: 'Accepted', tone: 'good', request: 'r2' },
+  { id: 12, step: 1, t: 13.04, kind: 'model', title: 'Decision received', sub: 'execute_program, read the package manifest', outcome: 'Committed', tone: 'run' },
   { id: 14, step: 1, t: 13.18, kind: 'tool', title: 'execute_program', sub: 'Read package metadata and map imports', outcome: 'Running', tone: 'warn' },
-  { id: 17, step: 1, t: 13.24, kind: 'tool', child: true, title: 'read_file', sub: 'apps/goal-board/package.json · 1.1 KB', outcome: 'Succeeded', tone: 'good' },
-  { id: 18, step: 1, t: 13.29, kind: 'tool', child: true, title: 'read_file', sub: 'apps/goal-board/README.md · 2.4 KB', outcome: 'Succeeded', tone: 'good' },
-  { id: 19, step: 1, t: 13.34, kind: 'tool', child: true, title: 'grep', sub: '^import · *.ts · 100 matches', outcome: 'Succeeded', tone: 'good' },
-  { id: 22, step: 1, t: 13.52, kind: 'tool', title: 'Program settled', sub: 'execute_program · 3 tool calls · success', outcome: 'Succeeded', tone: 'good' },
+  { id: 17, step: 1, t: 13.24, kind: 'tool', child: true, title: 'read_file', sub: 'apps/goal-board/package.json, 1.1 KB', outcome: 'Succeeded', tone: 'good' },
+  { id: 18, step: 1, t: 13.29, kind: 'tool', child: true, title: 'read_file', sub: 'apps/goal-board/README.md, 2.4 KB', outcome: 'Succeeded', tone: 'good' },
+  { id: 19, step: 1, t: 13.34, kind: 'tool', child: true, title: 'grep', sub: '^import, *.ts, 100 matches', outcome: 'Succeeded', tone: 'good' },
+  { id: 22, step: 1, t: 13.52, kind: 'tool', title: 'Program settled', sub: 'execute_program, 3 tool calls, success', outcome: 'Succeeded', tone: 'good' },
   { id: 24, step: 1, t: 13.61, kind: 'tool', title: 'Observation recorded', sub: 'Committed observation for action 7c1d', outcome: 'Committed', tone: 'good' },
   { id: 25, step: 1, t: 13.66, kind: 'activity', internal: true, title: 'State committed', sub: 'Snapshot boundary #25', outcome: 'Committed', tone: 'good' },
-  { id: 27, step: 2, t: 20.11, kind: 'model', title: 'Model request', chip: 'attempt 1 of 1', sub: 'Decide · 6 messages · system v4', outcome: 'Accepted', tone: 'good', request: 'r3' },
-  { id: 29, step: 2, t: 20.67, kind: 'model', title: 'Decision received', sub: 'write_file · record the final report', outcome: 'Committed', tone: 'run' },
+  { id: 27, step: 2, t: 20.11, kind: 'model', title: 'Model request', chip: 'attempt 1 of 1', sub: 'Decide, 6 messages, system v4', outcome: 'Accepted', tone: 'good', request: 'r3' },
+  { id: 29, step: 2, t: 20.67, kind: 'model', title: 'Decision received', sub: 'write_file, record the final report', outcome: 'Committed', tone: 'run' },
   { id: 31, step: 2, t: 20.82, kind: 'tool', title: 'write_file', sub: 'apps/goal-board/notes/package-name.md', outcome: 'Running', tone: 'warn' },
-  { id: 33, step: 2, t: 21.04, kind: 'tool', title: 'Observation recorded', sub: 'write_file succeeded · 86 bytes written', outcome: 'Committed', tone: 'good' },
+  { id: 33, step: 2, t: 21.04, kind: 'tool', title: 'Observation recorded', sub: 'write_file succeeded, 86 bytes written', outcome: 'Committed', tone: 'good' },
   { id: 34, step: 2, t: 21.10, kind: 'activity', internal: true, title: 'State committed', sub: 'Snapshot boundary #34', outcome: 'Committed', tone: 'good' },
-  { id: 35, step: 2, t: 21.18, kind: 'memory', title: 'Memory patch accepted', sub: 'Working memory · 1 fact added', outcome: 'Committed', tone: 'good' },
+  { id: 35, step: 2, t: 21.18, kind: 'memory', title: 'Memory patch accepted', sub: 'Working memory, 1 fact added', outcome: 'Committed', tone: 'good' },
   { id: 36, step: 2, t: 21.26, kind: 'terminal', title: 'Run completed', sub: 'Final answer delivered', outcome: 'Completed', tone: 'good' },
-  { id: 37, step: 2, t: 21.31, kind: 'activity', internal: true, title: 'Context epoch closed', sub: 'Epoch 3 · no pending work', outcome: 'Committed', tone: 'good' },
+  { id: 37, step: 2, t: 21.31, kind: 'activity', internal: true, title: 'Context epoch closed', sub: 'Epoch 3, no pending work', outcome: 'Committed', tone: 'good' },
   { id: 38, step: 2, t: 21.36, kind: 'activity', internal: true, title: 'State committed', sub: 'Snapshot boundary #38', outcome: 'Committed', tone: 'good' }
 ];
 
@@ -1390,7 +1390,7 @@ function renderTimeline() {
     span.dataset.eventId = String(ev.id);
     span.dataset.dim = matches(ev) && inRange(ev) ? 'false' : 'true';
     span.dataset.current = selected?.id === ev.id ? 'true' : 'false';
-    span.title = `#${ev.id} ${ev.title} · ${relativeTime(ev)}`;
+    span.title = `#${ev.id} ${ev.title}, ${relativeTime(ev)}`;
     span.setAttribute('aria-hidden', 'true');
     lanes.append(span);
   }
@@ -1473,7 +1473,7 @@ function renderLedger() {
         <span class="chev">${SVG.chevron}</span>
         <span class="step-no">${group.step === 0 ? 'Run start' : `Step ${group.step}`}</span>
         <span class="step-name">${esc(STEP_NAMES[group.step] ?? '')}</span>
-        <span class="step-meta">${group.events.length} events${attempts ? ` · ${attempts} model requests` : ''}</span>
+        <span class="step-meta">${group.events.length} events${attempts ? `, ${attempts} model requests` : ''}</span>
       </button></div>`;
       if (collapsed) continue;
     }
@@ -1482,7 +1482,7 @@ function renderLedger() {
       const selected = selectedId === ev.id;
       const child = ev.child === true;
       html += `<li class="event-row ${selected ? 'is-selected' : ''} ${child ? 'is-child' : ''} ${ev.internal ? 'is-internal' : ''}">
-        <button class="event-hit" data-event="${ev.id}" aria-pressed="${selected}" title="${esc(ev.title)} · ${esc(absoluteTime(ev))}">
+        <button class="event-hit" data-event="${ev.id}" aria-pressed="${selected}" title="${esc(ev.title)}, ${esc(absoluteTime(ev))}">
           <span class="seq">${ev.id}</span>
           <span class="kind ${ev.kind}">
             <span class="mark"></span>
@@ -1508,7 +1508,7 @@ function updateResult(events) {
   const requests = events.filter(ev => ev.request).length;
   let text = `<strong>${events.length}</strong> ${events.length === 1 ? 'event' : 'events'}`;
   if (active) text += ` of ${EVENTS.filter(ev => state.showInternal || !ev.internal).length}`;
-  text += ` · <strong>${requests}</strong> ${requests === 1 ? 'model request' : 'model requests'}`;
+  text += `, <strong>${requests}</strong> ${requests === 1 ? 'model request' : 'model requests'}`;
   if (state.query) text += ` matching “${esc(state.query)}”`;
   if (state.range) text += ' in selected range';
   $('query-result').innerHTML = text;
@@ -1605,7 +1605,7 @@ function renderInspector() {
     ? 'Model request'
     : ev.title;
   const subtitle = isPromptSelection
-    ? `${request.stage} · attempt ${request.attempt} of ${request.of} · ${request.messages.length} messages`
+    ? `${request.stage}, attempt ${request.attempt} of ${request.of}, ${request.messages.length} messages`
     : ev.sub;
   const status = isPromptSelection
     ? `<span class="status-chip ${request.status === 'Rejected' ? 'failed' : 'completed'}">${request.status}</span>`
@@ -1688,7 +1688,7 @@ function renderSummary(ev, request) {
     return `<div class="callout bad"><strong>Validation rejected the model response</strong><p>No action or tool ran. The next request included the validation feedback.</p></div>
       <h3>What failed</h3>
       ${ISSUES.map(issue => `<div class="issue"><code>${esc(issue.path)}</code><span>${esc(issue.message)}</span></div>`).join('')}
-      <dl class="facts"><dt>Stage</dt><dd>${esc(request?.stage ?? 'decide')} · attempt 1 of 3</dd><dt>Retry</dt><dd><button class="issue-button" data-open-prompt="r2" data-prompt-tab="messages">Open the corrected request →</button></dd></dl>
+      <dl class="facts"><dt>Stage</dt><dd>${esc(request?.stage ?? 'decide')}, attempt 1 of 3</dd><dt>Retry</dt><dd><button class="issue-button" data-open-prompt="r2" data-prompt-tab="messages">Open the corrected request →</button></dd></dl>
       <h4>Why this is recorded separately</h4>
       <p>The rejected response is an output-validation fact. It never becomes an Action, and it does not prove that the provider failed to answer.</p>`;
   }
@@ -1703,9 +1703,9 @@ function renderSummary(ev, request) {
         <dt>Stage</dt><dd>${esc(req.stage)}</dd>
         <dt>Attempt</dt><dd>${req.attempt} of ${req.of}</dd>
         <dt>Messages</dt><dd>${req.messages.length} recorded input messages</dd>
-        <dt>System</dt><dd><code>${esc(req.systemVersion)}</code>${req.attempt === 1 ? ' · first seen in this step' : ' · unchanged'}</dd>
+        <dt>System</dt><dd><code>${esc(req.systemVersion)}</code>${req.attempt === 1 ? ', first seen in this step' : ', unchanged'}</dd>
         <dt>Recorded</dt><dd>${esc(req.recordedAt)}</dd>
-        <dt>Validation</dt><dd>${rejected ? '1 issue · response rejected' : 'Passed'}</dd>
+        <dt>Validation</dt><dd>${rejected ? '1 issue, response rejected' : 'Passed'}</dd>
       </dl>
       <div class="action-row">
         <button class="action primary" data-open-prompt="${req.id}">Open full prompt ${SVG.external}</button>
@@ -1722,7 +1722,7 @@ function renderSummary(ev, request) {
       <p>${running ? 'The agent started a tool action. No result or committed observation is visible yet.' : ev.child ? 'A tool call inside execute_program returned a result to the program.' : 'The agent executed a tool action and the result was committed as an observation.'}</p>
       <dl class="facts">
         <dt>Tool</dt><dd>${esc(ev.title)}</dd>
-        <dt>Parent</dt><dd>${ev.child ? 'execute_program · call 1' : 'Run action'}</dd>
+        <dt>Parent</dt><dd>${ev.child ? 'execute_program, call 1' : 'Run action'}</dd>
         <dt>Outcome</dt><dd>${esc(ev.outcome)}</dd>
         <dt>Recorded</dt><dd>${esc(absoluteTime(ev))}</dd>
       </dl>
@@ -1738,7 +1738,7 @@ function renderSummary(ev, request) {
     return `<div class="callout good"><strong>Working memory updated</strong><p>One fact was accepted into the current working context.</p></div>
       <h3>Recorded fact</h3>
       <p>The fact is attached to the Step that produced it and is available to later requests in this Run. It does not imply a file changed.</p>
-      <dl class="facts"><dt>Patch</dt><dd>1 operation · add fact</dd><dt>Status</dt><dd>Accepted</dd><dt>Recorded</dt><dd>${esc(absoluteTime(ev))}</dd></dl>`;
+      <dl class="facts"><dt>Patch</dt><dd>1 operation, add fact</dd><dt>Status</dt><dd>Accepted</dd><dt>Recorded</dt><dd>${esc(absoluteTime(ev))}</dd></dl>`;
   }
   return `<div class="callout"><strong>${esc(ev.title)}</strong><p>${esc(ev.sub)}</p></div>
     <h3>What happened</h3>
@@ -1768,7 +1768,7 @@ function renderPromptTab(request) {
 function renderSystemTab(request) {
   const system = request.messages.find(m => m.role === 'system');
   return `<h3>System prompt</h3>
-    <p>System version <code>${esc(request.systemVersion)}</code>${request.attempt === 1 ? ' · first recorded request in this step' : ' · reused from the previous attempt'}.</p>
+    <p>System version <code>${esc(request.systemVersion)}</code>${request.attempt === 1 ? ', first recorded request in this step' : ', reused from the previous attempt'}.</p>
     <details class="system-block" open><summary>Complete system message</summary><pre>${esc(system?.content ?? 'No system message recorded.')}</pre></details>
     <p>The saved version is content-addressed. A changed version means the exact system text differed, not that the provider interpreted it differently.</p>`;
 }

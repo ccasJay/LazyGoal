@@ -10,6 +10,7 @@
     "test:e2e": "npm run build && node --test --test-concurrency=1 e2e/*.test.mjs"
   },
   "dependencies": {
+    "@radix-ui/colors": "3.0.0",
     "@radix-ui/react-alert-dialog": "^1.2.1",
     "@radix-ui/react-checkbox": "^1.4.1",
     "@radix-ui/react-collapsible": "^1.2.1",

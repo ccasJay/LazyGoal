@@ -5,6 +5,7 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | shadcn UI | 官方 Radix 组件源码、Tailwind 样式与 LazyGoal 品牌语义变量；通用交互不重复自制。 | [Goal Board](../README.md) | [组件配置](../components.json)、[品牌主题](../src/ui.css) |
+| 界面配色 | Radix Colors 标准色阶经语义变量映射到业务样式与 shadcn；品牌、交互、状态及聚焦分开定义，图片与用户内容不改色。 | [Goal Board](../README.md) | [配色说明](./overview.md#界面配色)、[主题映射](../src/ui.css)、[语义变量](../src/style.css) |
 | 底部指标行 | 输入框下方独立展示 Goal 聚合指标；窄屏横向滚动，Popover 展示当前 Run 状态与完整计量说明。 | [Goal Board](../README.md) | [SessionMetricsBar](../src/components/SessionMetricsBar.tsx)、[模块说明](./overview.md) |
 | 历史执行折叠 | 当前 Run 默认展开，历史执行默认折叠，用户消息与最终答复保持原顺序可读。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx) |
 | 阅读与跟随 | Activity 窗口持有自动滚动状态；暂停滚动仍接收末尾窗口的新回答与终态并保留锚点，有更新方向缺口的历史页只累计提示。未读按新增来源水位计数，显式跳转回到最新。 | [Goal Board](../README.md) | [Activity 窗口](../src/activity-page-window.ts)、[会话视图](../src/components/GoalSession.tsx) |

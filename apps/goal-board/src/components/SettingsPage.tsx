@@ -102,7 +102,6 @@ function SettingsLayout(props: { readonly sections: readonly [SettingsSectionDef
       <Tabs className="settings-tabs" value={activeSection} onValueChange={setActiveSection}>
         <div className="settings-layout">
           <nav className="settings-nav" aria-label="Settings">
-            <p>Settings</p>
             <TabsList aria-label="Settings sections">
               {props.sections.map(section => <TabsTrigger
                 key={section.value}
@@ -259,7 +258,7 @@ export function ProviderSettingsSection(props: {
           </div>
           {models !== null && models.length > 0 && !manualModelEntry ? <NativeSelect id={modelInputId} value={form.defaultModel} onChange={event => update({ defaultModel: event.target.value })} required>
             {!form.defaultModel && <option value="" disabled>Select a model ({models.length} available)</option>}
-            {form.defaultModel && !models.some(model => model.id === form.defaultModel) && <option value={form.defaultModel}>Current model · {form.defaultModel}</option>}
+            {form.defaultModel && !models.some(model => model.id === form.defaultModel) && <option value={form.defaultModel}>Current model: {form.defaultModel}</option>}
             {models.map(model => <option key={model.id} value={model.id}>{model.name === model.id ? model.id : `${model.name} (${model.id})`}</option>)}
           </NativeSelect> : <Input id={modelInputId} value={form.defaultModel} placeholder="Model ID" onChange={event => update({ defaultModel: event.target.value })} required />}
           {models !== null && models.length > 0 && <Button variant="ghost" size="sm" type="button" className="settings-manual-model" onClick={() => setManualModelEntry(value => !value)}>{manualModelEntry ? "Choose a fetched model" : "Enter model ID manually"}</Button>}
@@ -302,7 +301,7 @@ export function ProviderSettingsSection(props: {
             && profile.defaultModel === props.settings.fallback?.model
           ) && <li className="settings-config-row" data-testid="settings-fallback">
             <div className="settings-provider-row">
-              <div className="settings-provider-identity"><strong>{CONFIG_PROVIDER_LABEL}</strong><p>{providerName(props.settings.fallback.provider)} · {props.settings.fallback.model}</p></div>
+              <div className="settings-provider-identity"><strong>{CONFIG_PROVIDER_LABEL}</strong><p>{providerName(props.settings.fallback.provider)}, {props.settings.fallback.model}</p></div>
               <span className="settings-source">From configuration<span>Read-only</span></span>
             </div>
           </li>}
@@ -316,7 +315,7 @@ export function ProviderSettingsSection(props: {
                     <span className={`settings-key-dot ${profile.hasApiKey ? "is-saved" : "is-missing"}`} role="img" aria-label={profile.hasApiKey ? "Credential saved" : "No credential saved"} title={profile.hasApiKey ? "Credential saved" : "No credential saved"} />
                     {profile.kind === "openai-compatible" && <span className="settings-custom">Custom</span>}
                   </div>
-                  <p>{providerName(profile.kind)} · {profile.defaultModel}</p>
+                  <p>{providerName(profile.kind)}, {profile.defaultModel}</p>
                 </div>
                 <div className="settings-provider-actions">
                   {active && <span className="settings-active">Active</span>}
@@ -331,7 +330,7 @@ export function ProviderSettingsSection(props: {
                   </DropdownMenu>
                 </div>
               </div>
-              {result && <p className={`settings-provider-test ${result.ok ? "" : "settings-test-error"}`} role="status">{result.ok ? `Model catalog available · ${result.modelCount} models` : `Model catalog check failed: ${result.error}`}</p>}
+              {result && <p className={`settings-provider-test ${result.ok ? "" : "settings-test-error"}`} role="status">{result.ok ? `Model catalog available, ${result.modelCount} models` : `Model catalog check failed: ${result.error}`}</p>}
               {deleting === profile.id && <div className="settings-delete-confirm" role="group" aria-label={`Delete ${profile.label}`}>
                 <p>Delete this provider? Goals using it will need another provider on resume.</p>
                 <div><Button variant="ghost" size="sm" type="button" className="secondary" disabled={props.busy} onClick={() => setDeleting(null)}>Cancel</Button><Button variant="ghost" size="sm" type="button" className="secondary settings-delete" disabled={props.busy} onClick={() => { setDeleting(null); props.onDelete?.(profile.id); }}>Delete provider</Button></div>

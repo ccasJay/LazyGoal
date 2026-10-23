@@ -20,7 +20,8 @@ test("style.css contains fixed activity-filter, jump and command-notice styles",
 
   // 1. activity-filter solid background & border
   assert.ok(css.includes(".activity-filter"));
-  assert.ok(css.includes("border-bottom: 1px solid var(--line)"));
+  assert.ok(css.includes("--border-width: 0.5px"));
+  assert.ok(css.includes("border-bottom: var(--border-width) solid var(--line)"));
   assert.ok(css.includes("background: var(--panel)"));
 
   // 2. jump button positioned at bottom-right

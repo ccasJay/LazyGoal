@@ -48,7 +48,7 @@ test("the running view shows a real phase, source elapsed time and an inspectabl
     currentRunId="run-1" runStatus="running" olderAvailable={false} showExecutionFacts liveActivity={null}
     progressEntries={entries} streamConnected brandMark="/logo.svg" onOpenTrajectory={() => {}} />);
   assert.match(html, /Checking the proposed answer/);
-  assert.match(html, /No public response received yet/);
+  assert.match(html, /No response received yet/);
   assert.match(html, /Time since the model request started/);
   assert.match(html, /4[23]s/);
   assert.match(html, /data-execution-unit-id="unit-1"/);
@@ -85,13 +85,13 @@ test("model silence warns after sixty seconds while disconnection and fresh text
   const render = (progress: typeof entries, connected = true) => renderToStaticMarkup(<SessionTimeline projection={{ items: [], stages: [], actionGroups: [], currentPlanRoute: undefined }}
     currentRunId="run-1" runStatus="running" olderAvailable={false} showExecutionFacts liveActivity={null}
     progressEntries={progress} streamConnected={connected} brandMark="/logo.svg" />);
-  assert.match(render(entries), /No new public response for 60 seconds/);
+  assert.match(render(entries), /No response update for 60 seconds/);
   const disconnected = render(entries, false);
   assert.match(disconnected, /Reconnecting. Showing the last observed operation/);
-  assert.doesNotMatch(disconnected, /No new public response for 60 seconds|activity-snake-loader/);
+  assert.doesNotMatch(disconnected, /No response update for 60 seconds|activity-snake-loader/);
   const delta = event({ kind: "assistant_text_delta", text: "PRIVATE_TEXT", truncated: false, sourceEventId: "e2", sourceCursor: 2 });
   const resumed = recordExecutionProgress(entries, delta, now);
-  assert.doesNotMatch(render(resumed), /No new public response for 60 seconds|PRIVATE_TEXT/);
+  assert.doesNotMatch(render(resumed), /No response update for 60 seconds|PRIVATE_TEXT/);
 });
 
 test("model completion and tool retries retain their real execution identity without crossing runs", () => {

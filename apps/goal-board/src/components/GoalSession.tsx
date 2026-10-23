@@ -269,12 +269,8 @@ export function GoalSession({
               <span />No saved messages<span />
             </div>
             {draftPlanMode && (
-              <div className="session-intro">Plan Mode · The first message will start a Plan Run.</div>
+              <div className="session-intro">Plan Mode</div>
             )}
-            <p>
-              Send your first message to create a Goal and start the session. Use <code>/plan</code> for
-              Plan Mode or <code>/model</code> to choose a model.
-            </p>
           </div>
           {commandError && (
             <div className="command-error" role="alert">
@@ -353,7 +349,7 @@ export function GoalSession({
             <p>{sessionError}</p>
             <Button variant="ghost" size="sm" className="secondary" onClick={() => void refreshSelectedSession()}>Reload session</Button>
           </div>}
-          {session.nextRunMode === "plan" && <div className="session-intro">Next Run · Plan Mode</div>}
+          {session.nextRunMode === "plan" && <div className="session-intro">Next Run: Plan Mode</div>}
           <div className="session-tabs">
             <Tabs value={sessionTab} onValueChange={value => { setTrajectoryTarget(null); setSessionTab(value as typeof sessionTab); }}><TabsList className="session-tab-buttons">
               {sessionTabs.map((tab) => (
@@ -420,7 +416,7 @@ export function GoalSession({
           ) : (
             <>
               <div className="activity-filter">
-                <Label htmlFor="filter-execution-steps" title="Show thinking and standalone execution records. Tool summaries and important states remain visible.">
+                <Label htmlFor="filter-execution-steps">
                   <Checkbox
                     id="filter-execution-steps"
                     name="showTools"
@@ -449,10 +445,10 @@ export function GoalSession({
                       <AlertCircle size={14} aria-hidden="true" />
                       <span>
                         {session.interaction?.kind === "task_approval"
-                          ? "Awaiting task approval · Click to review"
+                          ? "Awaiting task approval"
                           : session.interaction?.kind === "action_approval" || session.interaction?.kind === "action_recovery"
-                          ? "Awaiting action approval · Click to review"
-                          : "Awaiting your response · Click to reply"}
+                          ? "Awaiting action approval"
+                          : "Awaiting your response"}
                       </span>
                       <ArrowDown size={14} aria-hidden="true" />
                     </Button>
@@ -568,7 +564,7 @@ export function GoalSession({
                     <span className={`queue-status-dot${queuePaused ? " is-paused" : ""}`} aria-hidden="true" />
                     <strong>{queuePaused ? "Queue paused" : "Queue"}</strong>
                     <span className="queue-status-count">
-                      {queuedInputs.length} queued{pendingSteers.length > 0 ? ` · ${pendingSteers.length} Steer waiting` : ""}
+                      {queuedInputs.length} queued{pendingSteers.length > 0 ? `, ${pendingSteers.length} Steer waiting` : ""}
                     </span>
                     {queuedInputs[0] !== undefined && (
                       <span className="queue-status-preview">{queuedInputs[0].content}</span>
@@ -579,7 +575,7 @@ export function GoalSession({
                     {queuedInputs.map((item, index) => (
                       <article className="queued-input-item" key={item.messageId}>
                         <div className="queued-input-item-heading">
-                          <span>Queued · Next Run</span>
+                          <span>Queued for Next Run</span>
                           <span className="queued-input-actions">
                             <Button variant="ghost" size="sm"
                               type="button"
@@ -617,7 +613,7 @@ export function GoalSession({
                     {pendingSteers.map((item) => (
                       <article className="queued-input-item is-steer" key={item.messageId}>
                         <div className="queued-input-item-heading">
-                          <span>Steer · Waiting for next model call</span>
+                          <span>Steer: Waiting for next model call</span>
                         </div>
                         <p>{item.content}</p>
                       </article>

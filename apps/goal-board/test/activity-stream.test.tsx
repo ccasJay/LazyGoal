@@ -72,7 +72,7 @@ test("saved correction and lookup activities retain collapsed diagnostics after 
 test("one lookup row shows a distinct not-found state and expands failure diagnostics", () => {
   const html = render([
     { kind: "lookup", itemId: "lookup:run-1:missing", runId: "run-1", lookupId: "missing",
-      status: "not_found", request: "History search · Historical execution",
+      status: "not_found", request: "History search, Historical execution",
       resultDetail: "No matching history was found.", position: position(1) },
     { kind: "lookup", itemId: "lookup:run-1:broken", runId: "run-1", lookupId: "broken",
       status: "failed", request: "Search history directory", errorCode: "CONTEXT_LOOKUP_FAILED",

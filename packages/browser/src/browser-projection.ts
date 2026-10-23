@@ -668,7 +668,7 @@ function activityLookupRequest(request: ContextLookupRequest): string {
         decision_rationale: "Decision rationale",
     };
     return [operations[request.operation ?? "history_search"], request.need === undefined ? undefined : needs[request.need]]
-        .filter((part) => part !== undefined).join(" · ");
+        .filter((part) => part !== undefined).join(", ");
 }
 
 /**
@@ -959,7 +959,7 @@ function activityEventDetail(event: TrajectoryEvent): string | undefined {
             return `${subject} did not satisfy the current contract. ${attempt}`;
         }
         case "model_request_retry_recorded":
-            return `${payload.reason.replaceAll("_", " ")} · attempt ${payload.attempt} of 3${payload.status === undefined ? "" : ` · HTTP ${payload.status}`}`;
+            return `${payload.reason.replaceAll("_", " ")}, attempt ${payload.attempt} of 3${payload.status === undefined ? "" : `, HTTP ${payload.status}`}`;
         case "context_lookup_requested": return "Searching committed execution history.";
         case "context_lookup_completed": return "Matching history was found.";
         case "context_lookup_not_found": return "No matching history was found. The agent must gather evidence another way.";

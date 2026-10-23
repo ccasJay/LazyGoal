@@ -51,10 +51,10 @@ export function recordExecutionProgress(entries: readonly ExecutionProgressEntry
   switch (activity.kind) {
     case "model_started":
       label = "Waiting for model response";
-      detail = activity.stage === "decide" ? "Choosing the next action. No public response received yet."
-        : activity.stage === "think" ? "Analyzing the question. No public response received yet."
-          : activity.stage === "completion_review" ? "Checking the proposed answer. No public response received yet."
-            : "Waiting for model output. No public response received yet.";
+      detail = activity.stage === "decide" ? "Choosing the next action. No response received yet."
+        : activity.stage === "think" ? "Analyzing the question. No response received yet."
+          : activity.stage === "completion_review" ? "Checking the proposed answer. No response received yet."
+            : "Waiting for model output. No response received yet.";
       break;
     case "model_completed":
       label = "Processing model response";
@@ -66,7 +66,7 @@ export function recordExecutionProgress(entries: readonly ExecutionProgressEntry
       break;
     case "assistant_text_delta":
       label = "Generating a response";
-      detail = "Public response text is arriving.";
+      detail = "Response text is arriving.";
       break;
     case "tool_started":
       label = `Running ${activity.toolId}`;

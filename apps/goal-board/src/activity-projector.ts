@@ -99,7 +99,7 @@ export interface ActivityGroupMember {
  * ```ts
  * const group: ActivityGroup = {
  *   id: "action:run-1:a1", runId: "run-1", category: "explore",
- *   status: "running", summary: "Read src/index.ts · +1 more", members: [], position,
+ *   status: "running", summary: "Read src/index.ts, +1 more", members: [], position,
  *   counts: { running: 0, retrying: 0, waiting: 0, "pending-result": 0, completed: 0, failed: 0, rejected: 0 },
  * };
  * ```
@@ -267,12 +267,12 @@ export function projectActivityGroups(input: {
 
 /** 生成能在折叠状态识别实际调用的摘要行。 */
 export function summarizeActivityGroup(category: ActivityGroupCategory, members: readonly ActivityGroupMember[]): string {
-  if (category === "think") return `Thinking · ${members[0]?.think?.goal ?? "Analysis"}`;
+  if (category === "think") return `Thinking: ${members[0]?.think?.goal ?? "Analysis"}`;
   if (category === "single") return members[0]?.label ?? "Activity";
   const first = members[0];
   if (first?.toolId === "bash" && members.every(member => member.toolId === "bash")) {
     const operations = [...new Set(members.map(member => summarizeBashCommand(member.inputSummary)))];
-    return `${operations.slice(0, 2).join(" · ")}${operations.length > 2 ? ` · +${operations.length - 2} more operations` : ""}`;
+    return `${operations.slice(0, 2).join(", ")}${operations.length > 2 ? `, +${operations.length - 2} more operations` : ""}`;
   }
   const repeated = first?.toolId !== undefined && members.length > 1
     && members.every((member) => member.toolId === first.toolId);
@@ -287,7 +287,7 @@ export function summarizeActivityGroup(category: ActivityGroupCategory, members:
   const labels = members.slice(0, 2).map((member) => member.label);
   if (labels.length === 0) return "No tool calls";
   const remaining = members.length - labels.length;
-  return `${labels.join(" · ")}${remaining > 0 ? ` · +${remaining} more` : ""}`;
+  return `${labels.join(", ")}${remaining > 0 ? `, +${remaining} more` : ""}`;
 }
 
 function createMember(

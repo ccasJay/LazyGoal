@@ -11,22 +11,22 @@ export function SessionMetricsBar({ state, runStatus }: { state?: MetricsState; 
     <Popover>
     <PopoverTrigger asChild><Button variant="ghost" size="sm" className="session-metrics-details-trigger">Goal metrics<ChevronDown size={12} /></Button></PopoverTrigger>
     <PopoverContent side="top" align="center" className="metrics-popover">
-      {runStatus && <p className="text-xs text-muted-foreground">Current run · {runStatus}</p>}
+      {runStatus && <p className="text-xs text-muted-foreground">Current run: {runStatus}</p>}
       <h3 className="text-sm font-medium py-2">Goal metrics</h3>
       {metrics === undefined ? <p className="text-xs text-muted-foreground">{state?.kind === "error" ? "Recorded metrics unavailable" : "Loading recorded metrics…"}</p> : <>
         <dl className="metrics-details">
           <dt>Runs / committed steps</dt><dd>{metrics.roundCount} / {metrics.stepCount}</dd>
           <dt>Input / output tokens</dt><dd>{metricNumber(metrics.inputTokens)} / {metricNumber(metrics.outputTokens)}</dd>
-          <dt>Output rate</dt><dd>{metricSpeed(metrics.tokensPerSecond)} tok/s<small>{metrics.throughputMeasuredCalls} measured · {metrics.throughputExcludedCalls} excluded calls</small><small>Application-observed end-to-end provider request rate. Includes provider wait and response transfer; not provider-internal decode speed.</small></dd>
-          <dt>Cache hit</dt><dd>{metricPercent(metrics.cacheHitRate)}<small>{metrics.cacheMeasuredCalls} measured · {metrics.cacheExcludedCalls} excluded calls</small></dd>
+          <dt>Output rate</dt><dd>{metricSpeed(metrics.tokensPerSecond)} tok/s<small>{metrics.throughputMeasuredCalls} measured, {metrics.throughputExcludedCalls} excluded calls</small></dd>
+          <dt>Cache hit</dt><dd>{metricPercent(metrics.cacheHitRate)}<small>{metrics.cacheMeasuredCalls} measured, {metrics.cacheExcludedCalls} excluded calls</small></dd>
           <dt>Context left</dt><dd>{metricPercent(metrics.contextRemainingPercent ?? null)}<small>Latest confirmed call on the current model</small></dd>
           <dt>Usage coverage</dt><dd>{coverage ?? "Complete coverage"}</dd>
-        </dl><p className="metrics-note">— means unavailable. Missing values are not counted as zero.</p>
+        </dl>
       </>}
     </PopoverContent>
     </Popover>
     {metrics === undefined ? <span className="session-metric">{state?.kind === "error" ? "Metrics unavailable" : "Loading metrics…"}</span> : <>
-      <span className="session-metric">{metrics.roundCount} runs · {metrics.stepCount} steps</span>
+      <span className="session-metric">{metrics.roundCount} runs, {metrics.stepCount} steps</span>
       <span className="session-metric" title="Input / output tokens">{metricNumber(metrics.inputTokens)} in / {metricNumber(metrics.outputTokens)} out</span>
       <span className="session-metric" title="Application-observed end-to-end provider request rate">{metricSpeed(metrics.tokensPerSecond)} tok/s</span>
       <span className="session-metric">Cache {metricPercent(metrics.cacheHitRate)}</span>

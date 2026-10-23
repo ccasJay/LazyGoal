@@ -162,13 +162,9 @@ export function GoalBoard({
                 ? "No readable saved Goals"
                 : "No saved Goals yet"}
           </h2>
-          <p>
-            {archivedView
-              ? "Archived Goals will appear here."
-              : unreadableCount > 0
-                ? "The saved Goals above could not be read; create a Goal to start a new session."
-                : "Create a Goal to start a real session in this workspace."}
-          </p>
+          {unreadableCount > 0 && !archivedView && (
+            <p>The saved Goals above could not be read; create a Goal to start a new session.</p>
+          )}
           {!archivedView && (
             <Button variant="ghost" size="sm"
               className="primary"

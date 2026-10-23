@@ -139,7 +139,7 @@ test("Think rounds remain separate from tools and retain committed analysis afte
   ]);
 
   assert.deepEqual(groups.map((group) => group.category), ["explore", "think", "think", "explore"]);
-  assert.equal(groups[1]?.summary, "Thinking · Compare evidence");
+  assert.equal(groups[1]?.summary, "Thinking: Compare evidence");
   assert.equal(groups[1]?.members[0]?.think?.output, "Use the observed result.");
   assert.equal(groups[1]?.members[0]?.actionId, undefined);
 });
@@ -412,7 +412,7 @@ test("grouped Bash calls combine distinct operations while retaining commands an
   const commands = ["git status --short", "git diff --stat", "git status --porcelain"];
   const group = project(commands.map((command, index) => toolFact({ actionId: `a${index}`, sequence: index + 1,
     toolId: "bash", inputSummary: command, summary: `result-${index}` })))[0]!;
-  assert.equal(group.summary, "Check Git workspace · Review code changes");
+  assert.equal(group.summary, "Check Git workspace, Review code changes");
   assert.equal(group.members.length, 3);
   assert.deepEqual(group.members.map(member => [member.inputSummary, member.summary]), commands.map((command, index) => [command, `result-${index}`]));
   const tests = project(["npm test", "npx vitest run"].map((command, index) => toolFact({
@@ -420,5 +420,5 @@ test("grouped Bash calls combine distinct operations while retaining commands an
   assert.equal(tests.summary, "Run tests");
   const mixed = project(["git status", "custom-command"].map((command, index) => toolFact({
     actionId: `m${index}`, sequence: index + 1, toolId: "bash", inputSummary: command })))[0]!;
-  assert.equal(mixed.summary, "Check Git workspace · Run shell commands");
+  assert.equal(mixed.summary, "Check Git workspace, Run shell commands");
 });

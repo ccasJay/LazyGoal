@@ -46,7 +46,7 @@ export function PermissionControl({
         aria-expanded={open}
       >
         <Shield size={13} />
-        <span>Permission{mode === null ? "" : ` · ${mode === "yolo" ? "YOLO" : "Default"}`}</span>
+        <span>Permission{mode === null ? "" : `: ${mode === "yolo" ? "Auto-approve" : "Ask when needed"}`}</span>
         <ChevronDown size={12} />
       </Button>
       </PopoverTrigger><PopoverContent align="start" className="permission-popover" aria-label="Project permissions">
@@ -75,11 +75,11 @@ export function PermissionControl({
                     <li key={grant.grantId}>
                       <div className="permission-grant-copy">
                         <strong>
-                          {grant.kind === "sandbox" ? "Sandbox · " : ""}
+                          {grant.kind === "sandbox" ? "Sandbox: " : ""}
                           {grant.toolId}
                         </strong>
                         <span>
-                          {grant.scope === "goal" ? "This Goal" : "This project"} · {grant.status}
+                          {grant.scope === "goal" ? "This Goal" : "This project"}, {grant.status}
                         </span>
                         {grant.kind === "sandbox" && grant.command && <code>{grant.command}</code>}
                         {grant.targetPath && <code>{grant.targetPath}</code>}
@@ -88,7 +88,7 @@ export function PermissionControl({
                         )}
                         {grant.extraFiles?.map((file) => (
                           <code key={`${file.canonicalPath}:${file.access}`}>
-                            {file.access} · {file.canonicalPath}
+                            {file.access}, {file.canonicalPath}
                             {file.kind === "directory_tree" ? "/…" : ""}
                           </code>
                         ))}
@@ -126,7 +126,7 @@ export function PermissionModeOptions({ mode, modeBusy, onChooseMode }: {
               <RadioGroupItem id="permission-mode-default" value="default" />
               <Shield size={16} aria-hidden="true" />
               <span>
-                <strong>Default</strong>
+                <strong>Ask when needed</strong>
                 <small>Review actions that need approval.</small>
               </span>
               {mode === "default" && <Check className="permission-selected-icon" size={15} aria-hidden="true" />}
@@ -135,7 +135,7 @@ export function PermissionModeOptions({ mode, modeBusy, onChooseMode }: {
               <RadioGroupItem id="permission-mode-yolo" value="yolo" />
               <Zap size={16} aria-hidden="true" />
               <span>
-                <strong>YOLO</strong>
+                <strong>Auto-approve</strong>
                 <small>Automatically approve eligible tools. Sandbox limits still apply.</small>
               </span>
               {mode === "yolo" && <Check className="permission-selected-icon" size={15} aria-hidden="true" />}

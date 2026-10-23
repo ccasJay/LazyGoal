@@ -30,7 +30,7 @@ test("trajectory labels the initial model call separately from an output retry",
     const attempts = [1, 2].map(attempt => fact(attempt, { goalId: "goal-1", runId: "run-1", phase: "executing", executionUnitId: "unit-1", stepIndex: 1,
         eventType: "model_repair_attempt_started", payload: { type: "model_repair_attempt_started", stage: "decide", attempt, inputBoundary: `sha256:${"a".repeat(64)}` } }));
     const page = await (await routes(goal(2), attempts).request("/api/goals/goal-1/trajectory?runId=run-1")).json() as BrowserTrajectoryPage;
-    assert.deepEqual(page.entries.map(entry => entry.preview), ["decide · Model request 1", "decide · Output retry 2"]);
+    assert.deepEqual(page.entries.map(entry => entry.preview), ["decide, Model request 1", "decide, Output retry 2"]);
 });
 
 test("trajectory audit links an internal tool call to its parent program", async () => {

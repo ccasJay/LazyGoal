@@ -95,7 +95,6 @@ export function WorkspaceShell() {
               </Button>
             </div>
             <nav className="workspace-nav" aria-label="Main navigation">
-              <p className="sidebar-section-label">Workspace</p>
               <Button variant="ghost" size="sm" aria-label="All goals" aria-current={settingsOpen || app.draftSessionOpen ? undefined : app.sessionVisible ? "location" : "page"} onClick={openBoard} title="All goals">
                 <LayoutDashboard size={16} /><span>Goals</span><small>{goals.length}</small>
               </Button>

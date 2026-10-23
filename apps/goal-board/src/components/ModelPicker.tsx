@@ -93,7 +93,6 @@ export function ModelPicker({
       <div className="model-picker-head">
         <div>
           <h2>Choose model</h2>
-          <p>Choose the model for this run.</p>
         </div>
         <Button variant="ghost" size="sm" className="icon" type="button" aria-label="Close model picker" onClick={onClose}>
           <X size={17} data-icon="inline-start" />
@@ -113,7 +112,7 @@ export function ModelPicker({
               >
                 {catalog.sources?.map((source) => (
                   <option key={source.profileId ?? "config"} value={source.profileId ?? ""}>
-                    {source.label}{source.label === source.kind ? "" : ` · ${source.kind}`}{source.active ? " (active)" : ""}
+                    {source.label}{source.label === source.kind ? "" : `, ${source.kind}`}{source.active ? " (active)" : ""}
                   </option>
                 ))}
               </NativeSelect>

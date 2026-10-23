@@ -2,6 +2,10 @@
 
 React 浏览器前端，呈现已提交会话及临时活动。通用 UI 采用 shadcn/ui（Radix 底座），按 [组件配置](../components.json) 将官方组件源码保存在 [components/ui](../src/components/ui/button.tsx)，由 Tailwind CSS 与 [品牌主题](../src/ui.css) 统一外观。业务状态仍由既有 Hooks、Context 和纯投影持有；通用弹层、菜单、单选、复选和折叠交互使用库组件。仅轨迹时间轴、记录网格、检查器分栏、详情正文、Markdown、像素动画及业务布局保留专用实现。
 
+## 界面配色
+
+配色从 `@radix-ui/colors` 的浅色标准色阶导入：Sage 提供中性色，Mint 提供品牌与交互色，Green、Amber、Ruby 提供成功、警告、错误色，Violet 区分模型事件。色阶在 [ui.css](../src/ui.css) 导入并映射到 shadcn 主题；[style.css](../src/style.css) 持有业务语义变量，组件通过这些变量取色。背景、悬停和选中使用不同色阶，聚焦环独立于选中边框；实色 Mint 按钮使用深色前景，错误按钮使用 Ruby 11／12 配浅色字，以满足小字号文字对比度。遮罩和阴影使用官方透明色阶。Logo、图片及用户内容不参与颜色替换，当前仍只提供浅色主题。
+
 ## 职责与使用
 
 通过本模块的公开入口使用上述能力。状态或副作用由调用方在所属边界控制。

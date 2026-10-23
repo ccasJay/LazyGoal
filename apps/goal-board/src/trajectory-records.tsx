@@ -44,7 +44,7 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
     rows.push({
       id: `${call.callId}:prompt`,
       role: "Prompt",
-      text: `${call.stage} · ${messageCount} message${messageCount === 1 ? "" : "s"} · ${result.label}`,
+      text: `${call.stage}, ${messageCount} message${messageCount === 1 ? "" : "s"}, ${result.label}`,
       result: call.firstSystem
         ? "Initial system prompt"
         : call.systemChanged ? "System prompt updated" : `System ${call.systemVersion.slice(0, 8)}`,
@@ -117,7 +117,7 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
       }
     };
     return <div className={`ct-record ${row.status ?? ""} ${selected ? "selected" : ""} ${row.entry?.parentActionId !== undefined && row.entry.callIndex !== undefined ? "child" : ""}`} key={row.id} onClick={handleSelect}>
-      <div className="ct-gutter"><span className="ct-sequence">{row.entry?.sequence ?? "·"}</span>{showRequests && row.request && <Button variant="ghost" size="sm" className="ct-request-dot" aria-label={row.entry ? `View prompt for event ${row.entry.sequence}` : `Inspect model request ${row.call!.callId}`} onClick={(event) => { event.stopPropagation(); selectInput({ callId: row.call?.callId ?? row.promptCallId ?? row.entry?.modelCallId ?? null, tab: "Messages" }); }}/>}</div>
+      <div className="ct-gutter"><span className="ct-sequence">{row.entry?.sequence ?? "—"}</span>{showRequests && row.request && <Button variant="ghost" size="sm" className="ct-request-dot" aria-label={row.entry ? `View prompt for event ${row.entry.sequence}` : `Inspect model request ${row.call!.callId}`} onClick={(event) => { event.stopPropagation(); selectInput({ callId: row.call?.callId ?? row.promptCallId ?? row.entry?.modelCallId ?? null, tab: "Messages" }); }}/>}</div>
       <Button variant="ghost" size="sm" id={row.entry ? `trajectory-event-${row.entry.sequence}` : undefined} className="ct-record-body" aria-pressed={selected} aria-label={row.call ? `Inspect model request ${row.call.callId}` : undefined} onClick={(event) => { event.stopPropagation(); handleSelect(); }}>
         <span className="ct-preview"><span className={`ct-badge ${row.role.toLowerCase()}`}>{row.role}</span><span className="ct-event-text"><strong>{row.text}</strong>{row.entry?.parentActionId !== undefined && row.entry.callIndex !== undefined && <small title={`Program ${row.entry.parentActionId}`}>Program call {row.entry.callIndex + 1}</small>}</span></span>
         <time className="ct-time" dateTime={row.time} title={row.time}>{formatEventTime(row.time)}</time>
@@ -136,7 +136,7 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
         setCollapsedRetries(current => nextOpen ? current.filter(key => key !== chunk.key) : current.includes(chunk.key) ? current : [...current, chunk.key]);
         setExpandedRetries(current => nextOpen ? current.includes(chunk.key) ? current : [...current, chunk.key] : current.filter(key => key !== chunk.key));
       }}><section className="ct-retry" aria-label={`Step ${last.stepIndex} ${last.stage} attempts`}>
-      <div className="ct-retry-header"><CollapsibleTrigger asChild><Button variant="ghost" size="sm" className="ct-retry-toggle"><ChevronRight aria-hidden="true" className={`ct-chevron ${expanded ? "rotated" : ""}`}/><strong>Step {last.stepIndex} / {last.stage}</strong><span>{peers.length} attempts · {results.get(last.callId)!.label}</span><span className="ct-retry-error">{rejection.entry!.preview}</span></Button></CollapsibleTrigger><Button variant="ghost" size="sm" className="ct-retry-prompt" onClick={() => selectInput({ callId: last.callId, tab: "Messages" })}>Last prompt</Button></div>
+      <div className="ct-retry-header"><CollapsibleTrigger asChild><Button variant="ghost" size="sm" className="ct-retry-toggle"><ChevronRight aria-hidden="true" className={`ct-chevron ${expanded ? "rotated" : ""}`}/><strong>Step {last.stepIndex} / {last.stage}</strong><span>{peers.length} attempts, {results.get(last.callId)!.label}</span><span className="ct-retry-error">{rejection.entry!.preview}</span></Button></CollapsibleTrigger><Button variant="ghost" size="sm" className="ct-retry-prompt" onClick={() => selectInput({ callId: last.callId, tab: "Messages" })}>Last prompt</Button></div>
       <CollapsibleContent>{chunk.rows.map(renderRow)}</CollapsibleContent>
     </section></Collapsible>;
   };
@@ -192,7 +192,7 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
     }
   }, [query, category, stepGroups]);
   return <>
-    <div className="mi-input-status">{error ? <span role="alert">Model inputs could not be loaded. Committed events are still available. <Button variant="ghost" size="sm" onClick={() => setRetry(value => value + 1)}>Retry inputs</Button></span> : total === 0 ? query ? "No saved model inputs match this search." : "Historical model inputs not recorded." : `${offset + 1}–${offset + calls.length} / ${total} saved model inputs · Independent of Snapshot commits`}{total > 100 && <span><Button variant="ghost" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>Earlier inputs</Button><Button variant="ghost" size="sm" disabled={nextOffset === null} onClick={() => setOffset(nextOffset!)}>Later inputs</Button></span>}</div>
+    <div className="mi-input-status">{error ? <span role="alert">Model inputs could not be loaded. <Button variant="ghost" size="sm" onClick={() => setRetry(value => value + 1)}>Retry inputs</Button></span> : total === 0 ? query ? "No saved model inputs match this search." : "Historical model inputs not recorded." : `${offset + 1}–${offset + calls.length} / ${total} saved model inputs`}{total > 100 && <span><Button variant="ghost" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>Earlier inputs</Button><Button variant="ghost" size="sm" disabled={nextOffset === null} onClick={() => setOffset(nextOffset!)}>Later inputs</Button></span>}</div>
     <div className="ct-column-head" aria-hidden="true"><span>#</span><span>Event</span><span>Time</span><span>Detail</span></div>
     <div className="ct-record-list">
       {showSteps ? stepGroups.map(group => group.step === undefined

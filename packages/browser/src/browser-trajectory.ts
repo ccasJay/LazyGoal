@@ -159,7 +159,7 @@ function summary(event: TrajectoryEvent, events: readonly TrajectoryEvent[]): Br
         const decision = event.payload.decision;
         preview = decision.kind === "tool_call" ? "Tool call only" : "summary" in decision ? decision.summary : JSON.stringify(decision);
     }
-    if (event.eventType === "run_created") preview = `Run created · ${event.payload.mode}`;
+    if (event.eventType === "run_created") preview = `Run created, ${event.payload.mode}`;
     if (event.eventType === "run_started") preview = "Run started";
     if (event.eventType === "goal_created") preview = event.payload.intent;
     if (event.eventType === "tool_attempt_started") preview = `Tool attempt ${event.payload.attempt}`;
@@ -168,8 +168,8 @@ function summary(event: TrajectoryEvent, events: readonly TrajectoryEvent[]): Br
     if (event.eventType === "model_response_received") preview = event.payload.message.content || "Native model response";
     if (event.eventType === "model_context_frame") preview = event.payload.sections.map(section => section.content).join("\n") || "No dynamic context updates";
     if (event.eventType === "model_repair_attempt_started") preview = event.payload.attempt === 1
-        ? `${event.payload.stage} · Model request 1`
-        : `${event.payload.stage} · Output retry ${event.payload.attempt}`;
+        ? `${event.payload.stage}, Model request 1`
+        : `${event.payload.stage}, Output retry ${event.payload.attempt}`;
     if (event.eventType === "context_epoch_closed") preview = "Context epoch closed";
     if (event.eventType === "memory_patch_accepted") preview = "Working memory updated";
     if (event.eventType === "think_completed") preview = event.payload.output;

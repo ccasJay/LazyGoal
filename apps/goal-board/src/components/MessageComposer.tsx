@@ -148,7 +148,7 @@ export function MessageComposer({
             aria-label={textareaLabel}
             aria-describedby={describedBy}
             aria-keyshortcuts="Enter Shift+Enter"
-            title="Enter to send · Shift + Enter for a new line"
+            title="Enter to send, Shift + Enter for a new line"
             placeholder={placeholder}
             autoFocus={autoFocus}
             value={draft}
@@ -238,7 +238,7 @@ export function MessageComposer({
           </InputGroupAddon>
         </InputGroup>
       </form>
-      {showHint && <div className="composer-hint">Enter to send · Shift + Enter for a new line</div>}
+      {showHint && <div className="composer-hint">Enter to send, Shift + Enter for a new line</div>}
     </>
   );
 }

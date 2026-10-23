@@ -75,7 +75,7 @@ test("streaming session keeps one runtime queue across Steer, Interrupt, tabs an
     // 排队项可在活动状态框中原子转为当前 Run 的 Steer。
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.queued-input-status > button').click()", returnByValue: true });
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\\\"Steer queued message 1 into the current Run\\\"]').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Steer · Waiting for next model call')", 15_000);
+    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Steer: Waiting for next model call')", 15_000);
     session = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingSteers?.length ?? 0) === 1);
     assert.equal(session.currentRunId, firstRunId);
     assert.equal(session.pendingSteers[0].content, "Queued while running");
