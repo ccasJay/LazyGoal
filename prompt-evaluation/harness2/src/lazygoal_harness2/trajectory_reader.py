@@ -68,7 +68,7 @@ def load_evaluation_trajectories(result_json_path: str | Path) -> CandidateEvalu
 
     evaluation_id = str(raw.get("evaluationId", "eval-unknown"))
     candidate_info = raw.get("candidate") or {}
-    candidate_id = str(candidate_info.get("id", "cand-unknown"))
+    candidate_id = str(raw.get("candidateId") or candidate_info.get("id", "cand-unknown"))
 
     tasks_map: dict[str, TaskRuntimeSummary] = {}
     total_score = 0.0

@@ -91,22 +91,42 @@ class SubprocessPromptEvalBridge:
     ) -> CandidateEvaluationSummary:
         output_dir = output_dir.resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
+        base_manifest_path = (
+            Path(request.manifest_path).resolve()
+            if Path(request.manifest_path).is_absolute()
+            else (self.workspace_root / request.manifest_path).resolve()
+        )
+        effective_manifest_path = base_manifest_path
+        if task_ids and base_manifest_path.is_file():
+            try:
+                raw_manifest = json.loads(base_manifest_path.read_text(encoding="utf-8"))
+                if (
+                    isinstance(raw_manifest, dict)
+                    and "instanceIds" in raw_manifest
+                    and list(raw_manifest["instanceIds"]) != list(task_ids)
+                ):
+                    subset_manifest = {
+                        **raw_manifest,
+                        "instanceIds": list(task_ids),
+                    }
+                    effective_manifest_path = output_dir / "subset-manifest.json"
+                    effective_manifest_path.write_text(
+                        json.dumps(subset_manifest, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8",
+                    )
+            except Exception:
+                effective_manifest_path = base_manifest_path
+
         req_payload = {
-            "protocol": "lazygoal-prompt-eval@1",
+            "protocol": "prompt-evaluation@1",
             "benchmark": {
                 "id": request.benchmark_id,
-                "manifestPath": str((self.workspace_root / request.manifest_path).resolve())
-                if not Path(request.manifest_path).is_absolute()
-                else request.manifest_path,
-                "taskIds": list(task_ids),
+                "manifestPath": str(effective_manifest_path),
             },
             "candidate": candidate.to_prompt_evaluation_candidate(),
             "model": {
                 "configId": request.agent_model_config_id,
                 "modelId": request.agent_model_id,
-            },
-            "execution": {
-                "maxConcurrency": request.max_concurrency,
             },
             "outputDirectory": str(output_dir),
         }
@@ -145,7 +165,7 @@ class SubprocessPromptEvalBridge:
 
 
 class SubprocessReflectionBridge:
-    """Invokes `node bin/lazygoal.cjs gepa reflect` via stdin/stdout JSON."""
+    """Invokes `node bin/lazygoal.cjs gepa reflect --request <path>`."""
 
     def __init__(self, workspace_root: Path) -> None:
         self.workspace_root = workspace_root.resolve()
@@ -158,22 +178,46 @@ class SubprocessReflectionBridge:
         model_id: str,
         prompt: str,
     ) -> str:
+        import tempfile
+
+        model_target: dict[str, str] = {"modelId": model_id}
+        if config_id and config_id not in ("default", ""):
+            model_target["configId"] = config_id
         payload = json.dumps(
             {
-                "configId": config_id,
-                "modelId": model_id,
+                "model": model_target,
                 "prompt": prompt,
             },
             ensure_ascii=False,
         )
-        proc = subprocess.run(
-            ["node", str(self.cli_bin), "gepa", "reflect"],
-            cwd=str(self.workspace_root),
-            input=payload,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".json",
+            prefix="lg-h2-reflect-",
+            encoding="utf-8",
+            delete=False,
+        ) as tmp:
+            tmp.write(payload)
+            req_path = Path(tmp.name)
+
+        try:
+            proc = subprocess.run(
+                [
+                    "node",
+                    str(self.cli_bin),
+                    "gepa",
+                    "reflect",
+                    "--request",
+                    str(req_path),
+                ],
+                cwd=str(self.workspace_root),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            req_path.unlink(missing_ok=True)
+
         if proc.returncode != 0:
             raise RuntimeError(
                 f"Reflection bridge failed (exit={proc.returncode}): {proc.stderr.strip()}"

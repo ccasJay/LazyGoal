@@ -345,8 +345,9 @@ export function createLlmRpcServer(options: LlmRpcServerOptions): LlmRpcServer {
     return new LlmRpcServer(options);
 }
 
-function validateMode(mode: StructuredOutputMode, request: LLMRequest, native = false): void {
-    if (mode === "strict" && request.structuredOutput === undefined && !(native && request.tools?.length && request.toolChoice === "required")) {
+function validateMode(mode: StructuredOutputMode, request: LLMRequest, _native = false): void {
+    const hasRequiredTools = Boolean(request.tools?.length) && request.toolChoice === "required";
+    if (mode === "strict" && request.structuredOutput === undefined && !hasRequiredTools) {
         throw new LlmRpcError("Strict mode requires structuredOutput", "mode_mismatch");
     }
     if (mode === "prompt_only" && request.structuredOutput !== undefined) {

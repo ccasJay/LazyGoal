@@ -421,12 +421,16 @@ export async function scoreSwebenchPersistedTrajectory(
 ): Promise<SwebenchRuntimeHealthReport> {
     const goalStore = new JsonFileGoalStore(options.goalSnapshotDir);
     const trajectoryStore = new JsonFileTrajectoryStore(options.trajectoryDir);
-    const { goal, events } = await readTrajectoryAtSnapshot(goalStore, trajectoryStore, {
+    const goal = await goalStore.restore(options.goalId);
+    if (goal === undefined) {
+        throw new Error(`Goal snapshot ${options.goalId} not found in ${options.goalSnapshotDir}`);
+    }
+    const { committed } = await readTrajectoryAtSnapshot(goalStore, trajectoryStore, {
         goalId: options.goalId,
         runId: options.runId,
     });
     return scoreRuntimeTrajectoryEvents({
-        events,
+        events: committed,
         runStatus: goal.state.run.status,
         stopReason: options.stopReason,
         patch: options.patch,
