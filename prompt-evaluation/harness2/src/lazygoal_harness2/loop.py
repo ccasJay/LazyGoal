@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -297,6 +298,13 @@ class ProposeProbeComposeEngine:
             '- `"systemPrompt"`: optional updated systemPrompt string\n'
             '- `"instructions"`: optional updated array of instruction strings\n'
         )
+        if request.mode == "parallel":
+            prompt += (
+                "\n## Parallel Mode Directives\n"
+                f"You are operating in Parallel Mode across {request.proposals_per_iteration} branches.\n"
+                "Propose diverse, complementary hypotheses concurrently (e.g. at least one distinct Invariant edit "
+                "for step efficiency/tool protocol and at least one distinct Domain edit for targeted problem solving).\n"
+            )
 
         raw_response = self.reflection_bridge.generate(
             config_id=request.editor_model_config_id,
@@ -352,8 +360,7 @@ class ProposeProbeComposeEngine:
         iteration_dir: Path,
     ) -> list[ProbeOutcome]:
         """Evaluate each proposed candidate on the train set and record contrastive trajectory deltas."""
-        outcomes: list[ProbeOutcome] = []
-        for idx, proposal in enumerate(proposals):
+        def _evaluate_single(idx: int, proposal: Harness2Candidate) -> ProbeOutcome:
             probe_dir = iteration_dir / f"probe-{idx + 1}-{proposal.candidate_id}"
             self.workspace.materialize_tree(proposal, probe_dir / "workspace")
             eval_summary = self.eval_bridge.evaluate(
@@ -401,20 +408,33 @@ class ProposeProbeComposeEngine:
                 ),
             )
             entry.record_probe(score_delta=score_delta, fault_delta=fault_delta)
-            self.library.upsert(entry)
-
-            outcomes.append(
-                ProbeOutcome(
-                    candidate=proposal,
-                    evaluation=eval_summary,
-                    comparisons=comparisons,
-                    score_delta=score_delta,
-                    fault_delta=fault_delta,
-                    resolved_fault_codes=resolved_codes,
-                    introduced_fault_codes=introduced_codes,
-                    library_entry=entry,
-                )
+            return ProbeOutcome(
+                candidate=proposal,
+                evaluation=eval_summary,
+                comparisons=comparisons,
+                score_delta=score_delta,
+                fault_delta=fault_delta,
+                resolved_fault_codes=resolved_codes,
+                introduced_fault_codes=introduced_codes,
+                library_entry=entry,
             )
+
+        concurrency = min(request.max_concurrency, len(proposals)) if len(proposals) > 1 else 1
+        if concurrency > 1:
+            with ThreadPoolExecutor(max_workers=concurrency) as executor:
+                futures = [
+                    executor.submit(_evaluate_single, idx, proposal)
+                    for idx, proposal in enumerate(proposals)
+                ]
+                outcomes = [f.result() for f in futures]
+        else:
+            outcomes = [
+                _evaluate_single(idx, proposal)
+                for idx, proposal in enumerate(proposals)
+            ]
+
+        for outcome in outcomes:
+            self.library.upsert(outcome.library_entry)
         return outcomes
 
     def compose(
@@ -602,11 +622,21 @@ class Harness2Controller:
         self,
         request_path: str | Path,
         *,
+        mode: str | None = None,
+        concurrency: int | None = None,
         foreground: bool = True,
     ) -> dict[str, Any]:
         """Initialize a new Harness2 run directory and execute (foreground or detached worker)."""
         req_file = Path(request_path).resolve()
         raw = json.loads(req_file.read_text(encoding="utf-8"))
+        if mode:
+            raw["mode"] = mode
+            if "budget" in raw and isinstance(raw["budget"], dict):
+                raw["budget"]["mode"] = mode
+        if concurrency:
+            raw.setdefault("budget", {})
+            if isinstance(raw["budget"], dict):
+                raw["budget"]["maxConcurrency"] = concurrency
         request = Harness2RunRequest.from_dict(raw)
         run_id = request.run_id or f"h2-{uuid.uuid4().hex[:12]}"
         run_dir = (self.runs_dir / run_id).resolve()

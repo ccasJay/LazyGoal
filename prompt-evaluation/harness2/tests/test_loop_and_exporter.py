@@ -213,6 +213,46 @@ class TestHarness2LoopAndExporter(unittest.TestCase):
             self.assertIn("diff --git a/packages/prompt-bundle/src/prompting/run-mode@1.njk", patch_text)
             self.assertIn("+Always ensure a Run stage is active before tool actions.", patch_text)
 
+    def test_parallel_mode_execution_with_concurrency(self) -> None:
+        ws = HarnessWorkspace(REPO_ROOT)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            runs_dir = tmp_root / "runs"
+            req_path = tmp_root / "request.json"
+            req_path.write_text(
+                json.dumps(
+                    {
+                        "protocol": "lazygoal-harness2-run@1",
+                        "runId": "h2-test-parallel",
+                        "mode": "parallel",
+                        "benchmark": {
+                            "id": "swebench",
+                            "manifestPath": "benchmarks/swebench/manifests/smoke.json",
+                            "trainTaskIds": ["astropy__astropy-12907"],
+                        },
+                        "agentModel": {"configId": "default", "modelId": "test-agent"},
+                        "editorModel": {"configId": "default", "modelId": "test-editor"},
+                        "budget": {
+                            "maxIterations": 1,
+                            "proposalsPerIteration": 2,
+                            "maxConcurrency": 2,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            controller = Harness2Controller(
+                workspace_root=REPO_ROOT,
+                runs_dir=runs_dir,
+                eval_bridge=FakeEvalBridge(),
+                reflection_bridge=FakeReflectionBridge(ws),
+            )
+
+            report = controller.start(req_path, mode="parallel", concurrency=2, foreground=True)
+            self.assertEqual(report["lifecycleStatus"], "completed")
+            self.assertAlmostEqual(report["bestScore"], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

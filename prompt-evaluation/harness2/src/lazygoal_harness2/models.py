@@ -174,6 +174,7 @@ class Harness2RunRequest:
     max_iterations: int = 3
     proposals_per_iteration: int = 2
     max_concurrency: int = 1
+    mode: Literal["sequential", "parallel", "both"] = "both"
     run_id: str | None = None
 
     @classmethod
@@ -202,9 +203,12 @@ class Harness2RunRequest:
         editor_model_id = str(editor_model.get("modelId", agent_model_id)).strip()
 
         budget = raw.get("budget") or {}
+        mode_val = str(raw.get("mode") or budget.get("mode") or "both").strip().lower()
+        if mode_val not in ("sequential", "parallel", "both"):
+            raise ValueError(f"Unsupported Harness2 mode: {mode_val!r}, must be 'sequential', 'parallel', or 'both'")
         max_iterations = int(budget.get("maxIterations", 3))
-        proposals_per_iteration = int(budget.get("proposalsPerIteration", 2))
-        max_concurrency = int(budget.get("maxConcurrency", 1))
+        proposals_per_iteration = int(budget.get("proposalsPerIteration", 4 if mode_val == "parallel" else 2))
+        max_concurrency = int(budget.get("maxConcurrency", 2 if mode_val == "parallel" else 1))
         if max_iterations < 1 or proposals_per_iteration < 1 or max_concurrency < 1:
             raise ValueError("Harness2 budget values must be positive integers")
 
@@ -221,6 +225,7 @@ class Harness2RunRequest:
             max_iterations=max_iterations,
             proposals_per_iteration=proposals_per_iteration,
             max_concurrency=max_concurrency,
+            mode=mode_val,  # type: ignore[arg-type]
             run_id=raw.get("runId"),
         )
 
@@ -228,6 +233,7 @@ class Harness2RunRequest:
         return {
             "protocol": HARNESS2_RUN_PROTOCOL,
             "runId": self.run_id,
+            "mode": self.mode,
             "baseProfileId": self.base_profile_id,
             "benchmark": {
                 "id": self.benchmark_id,
@@ -247,6 +253,7 @@ class Harness2RunRequest:
                 "maxIterations": self.max_iterations,
                 "proposalsPerIteration": self.proposals_per_iteration,
                 "maxConcurrency": self.max_concurrency,
+                "mode": self.mode,
             },
         }
 

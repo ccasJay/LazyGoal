@@ -27,6 +27,8 @@ def _build_parser() -> argparse.ArgumentParser:
     # start
     p_start = subparsers.add_parser("start", help="Start a new Harness2 optimization run")
     p_start.add_argument("--request", required=True, help="Path to lazygoal-harness2-run@1 JSON request")
+    p_start.add_argument("--mode", choices=["sequential", "parallel", "both"], default=None, help="Harness2 recursion mode (sequential, parallel, or both)")
+    p_start.add_argument("--concurrency", type=int, default=None, help="Maximum concurrent probe evaluations")
     p_start.add_argument("--detach", action="store_true", default=False, help="Run in a detached background worker")
     p_start.add_argument("--workspace-root", default=None, help="Root directory of the workspace")
     p_start.add_argument("--runs-dir", default=None, help="Directory where Harness2 runs are stored")
@@ -99,7 +101,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.subcommand == "preflight":
             result = controller.preflight(args.request)
         elif args.subcommand == "start":
-            result = controller.start(args.request, foreground=not args.detach)
+            result = controller.start(
+                args.request,
+                mode=args.mode,
+                concurrency=args.concurrency,
+                foreground=not args.detach,
+            )
         elif args.subcommand == "status":
             result = controller.status(args.run)
         elif args.subcommand == "stop":
