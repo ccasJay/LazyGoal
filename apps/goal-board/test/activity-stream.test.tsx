@@ -52,7 +52,7 @@ test("a stage identity without a real title stays a flat activity", () => {
   const html = render([activity("completed", "stage-not-in-window")]);
   assert.doesNotMatch(html, /class="timeline-stage /);
   assert.match(html, /timeline-activity-heading/);
-  assert.match(html, /Ran npm test/);
+  assert.match(html, /Run tests/);
 });
 
 test("saved correction and lookup activities retain collapsed diagnostics after the run ends", () => {
@@ -155,7 +155,7 @@ test("an active stage expands without waiting for assistant text", () => {
   assert.match(html, /timeline-stage running/);
   assert.match(html, /<button(?=[^>]*timeline-stage-heading)(?=[^>]*aria-expanded="true")[^>]*>/);
   assert.match(html, /<button(?=[^>]*timeline-activity-heading)(?=[^>]*aria-expanded="true")[^>]*>/);
-  assert.match(html, /Run npm test/);
+  assert.match(html, /Run tests/);
   assert.doesNotMatch(html, /class="timeline-working"/);
 });
 
@@ -175,19 +175,21 @@ test("message boundaries remain in source order between stage segments", () => {
   assert.ok(html.indexOf("Checking evidence") < html.indexOf('data-item-id="activity:action:run-1:action-1"'));
 });
 
-test("long command titles retain the complete accessible label and expanded call details", () => {
-  const entry = activity("completed");
-  const command = 'Ran git status --short; echo "branch"; git diff --stat; git status --porcelain';
-  const group = { ...entry.group, summary: command, members: entry.group.members.map(member => ({ ...member, label: command })) };
-  const row = (expanded: boolean) => renderToStaticMarkup(<ActivityGroupRow itemId={entry.itemId} runId={entry.runId}
+test("Bash titles stay short while expanded details retain the supplied command and result", () => {
+  const command = 'git status --short; echo "branch"; git diff --stat; git status --porcelain';
+  const group = projectActivityGroups({ goalId: "goal-1", runId: "run-1", liveEvents: [], current: true, runStatus: "completed",
+    items: [{ type: "fact", itemId: "tool", eventId: "tool", runId: "run-1", actionId: "action-1", position: position(1),
+      eventType: "tool_started", title: "Tool started", tool: { toolId: "bash", status: "completed", inputSummary: command, summary: "Workspace checked" } }],
+  })[0]!;
+  const row = (expanded: boolean) => renderToStaticMarkup(<ActivityGroupRow itemId="activity:tool" runId="run-1"
     group={group} expanded={expanded} onToggle={() => {}} onOpenTrajectory={undefined} />);
   const collapsed = row(false);
-  assert.match(collapsed, /data-slot="trace-title"[^>]*title="Ran git status --short; echo &quot;branch&quot;; git diff --stat; git status --porcelain"/);
+  assert.match(collapsed, /Run shell commands/);
   assert.match(collapsed, /1 call/);
-  assert.doesNotMatch(collapsed, /timeline-activity-members|3 tests failed/);
+  assert.doesNotMatch(collapsed, /git status|timeline-activity-member-command|Workspace checked/);
   const expanded = row(true);
-  assert.match(expanded, /timeline-activity-member-label[^>]*>Ran git status --short; echo &quot;branch&quot;; git diff --stat; git status --porcelain/);
-  assert.match(expanded, /3 tests failed/);
+  assert.match(expanded, /timeline-activity-member-command[^>]*>git status --short; echo &quot;branch&quot;; git diff --stat; git status --porcelain/);
+  assert.match(expanded, /Workspace checked/);
 });
 
 test("saved tool activity shows its filtered lifecycle only in the expanded details", () => {

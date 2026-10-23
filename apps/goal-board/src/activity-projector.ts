@@ -270,13 +270,17 @@ export function summarizeActivityGroup(category: ActivityGroupCategory, members:
   if (category === "think") return `Thinking · ${members[0]?.think?.goal ?? "Analysis"}`;
   if (category === "single") return members[0]?.label ?? "Activity";
   const first = members[0];
+  if (first?.toolId === "bash" && members.every(member => member.toolId === "bash")) {
+    const operations = [...new Set(members.map(member => summarizeBashCommand(member.inputSummary)))];
+    return `${operations.slice(0, 2).join(" · ")}${operations.length > 2 ? ` · +${operations.length - 2} more operations` : ""}`;
+  }
   const repeated = first?.toolId !== undefined && members.length > 1
     && members.every((member) => member.toolId === first.toolId);
   if (repeated) {
     const operations: Record<string, string> = {
       read_file: "Read files", list_directory: "Inspect directories", grep: "Search code references",
       web_search: "Search the web", web_fetch: "Read web pages", write_file: "Write files",
-      edit_file: "Edit files", bash: "Run commands", execute_program: "Run programs",
+      edit_file: "Edit files", execute_program: "Run programs",
     };
     return operations[first.toolId!] ?? "Run tools";
   }
@@ -507,9 +511,20 @@ function labelForTool(toolId: string | undefined, target: string | undefined, st
   if (toolId === "web_fetch") return `${completed ? "Fetched" : "Fetch"} ${value || "a page"}`;
   if (toolId === "write_file") return `${status === "completed" ? "Wrote" : "Write"} ${value || "a file"}`;
   if (toolId === "edit_file") return `${status === "completed" ? "Edited" : "Edit"} ${value || "a file"}`;
-  if (toolId === "bash") return `${completed ? "Ran" : "Run"} ${value || "a command"}`;
+  if (toolId === "bash") return summarizeBashCommand(value);
   if (toolId === "execute_program") return `${completed ? "Ran" : "Run"} a program`;
   return toolId ?? "Activity";
+}
+
+function summarizeBashCommand(command: string | undefined): string {
+  // 只识别简单调用；不从 Shell 控制流、替换表达式或引用中的文本推断操作。
+  if (command === undefined || /[;&|<>\n\r`$(){}\\]/u.test(command)) return "Run shell commands";
+  const value = command.trim();
+  if (/^git\s+status(?:\s|$)/u.test(value)) return "Check Git workspace";
+  if (/^git\s+log(?:\s|$)/u.test(value)) return "View commit history";
+  if (/^git\s+diff(?:\s|$)/u.test(value)) return "Review code changes";
+  if (/^(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test|(?:npx\s+)?(?:vitest|jest)|node\s+--test)(?:\s|$)/u.test(value)) return "Run tests";
+  return "Run shell commands";
 }
 
 function livePosition(runId: string, cursor: number): BrowserActivityPosition {

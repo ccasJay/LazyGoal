@@ -173,7 +173,7 @@ test("committed actions merge only when tool, stage and verified adjacency match
   ]);
   assert.equal(groups[0]?.summary, "Read a.ts");
   assert.equal(groups[1]?.summary, "Searched for needle");
-  assert.equal(groups[2]?.members[0]?.label, "Ran npm test");
+  assert.equal(groups[2]?.members[0]?.label, "Run tests");
 });
 
 test("repeated reads count actual calls rather than claiming distinct files", () => {
@@ -384,4 +384,41 @@ test("live-only activity is excluded once the Run reaches a saved wait or termin
   assert.equal(project([], liveEvents, { runStatus: "waiting" }).length, 0);
   assert.equal(project([], liveEvents, { runStatus: "completed" }).length, 0);
   assert.equal(project([], liveEvents, { current: false }).length, 0);
+});
+
+test("Bash titles identify simple operations without copying arguments or changing with status", () => {
+  const cases: readonly [string | undefined, string][] = [
+    ["git status --short", "Check Git workspace"], ["git log -5 --oneline", "View commit history"],
+    ["git diff --stat", "Review code changes"], ["npm test -- --runInBand", "Run tests"],
+    ["npm run test", "Run tests"], ["pnpm test", "Run tests"], ["yarn test", "Run tests"],
+    ["bun test", "Run tests"], ["npx vitest run", "Run tests"], ["vitest --run", "Run tests"],
+    ["jest", "Run tests"], ["node --test test/example.test.js", "Run tests"],
+    [undefined, "Run shell commands"], ["python script.py", "Run shell commands"],
+    ['echo "git status"', "Run shell commands"], ["npm test-extra", "Run shell commands"],
+    ["git status && git diff", "Run shell commands"], ["git log; npm test", "Run shell commands"],
+    ["echo x\ngit diff", "Run shell commands"], ["git diff $(npm test)", "Run shell commands"],
+  ];
+  for (const [command, title] of cases) {
+    for (const status of ["running", "completed", "failed"] as const) {
+      const group = project([toolFact({ actionId: "a1", sequence: 1, toolId: "bash", inputSummary: command, status })])[0]!;
+      assert.equal(group.summary, title, command);
+      assert.equal(group.members[0]?.label, title);
+      assert.equal(group.members[0]?.inputSummary, command);
+    }
+  }
+});
+
+test("grouped Bash calls combine distinct operations while retaining commands and results", () => {
+  const commands = ["git status --short", "git diff --stat", "git status --porcelain"];
+  const group = project(commands.map((command, index) => toolFact({ actionId: `a${index}`, sequence: index + 1,
+    toolId: "bash", inputSummary: command, summary: `result-${index}` })))[0]!;
+  assert.equal(group.summary, "Check Git workspace · Review code changes");
+  assert.equal(group.members.length, 3);
+  assert.deepEqual(group.members.map(member => [member.inputSummary, member.summary]), commands.map((command, index) => [command, `result-${index}`]));
+  const tests = project(["npm test", "npx vitest run"].map((command, index) => toolFact({
+    actionId: `t${index}`, sequence: index + 1, toolId: "bash", inputSummary: command })))[0]!;
+  assert.equal(tests.summary, "Run tests");
+  const mixed = project(["git status", "custom-command"].map((command, index) => toolFact({
+    actionId: `m${index}`, sequence: index + 1, toolId: "bash", inputSummary: command })))[0]!;
+  assert.equal(mixed.summary, "Check Git workspace · Run shell commands");
 });

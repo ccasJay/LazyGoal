@@ -231,6 +231,7 @@ h1 span { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 
 .timeline-activity-members > li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: start; gap: 5px 10px; min-width: 0; padding: 9px 10px; border-radius: 6px; background: var(--surface); }
 .timeline-activity-member-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
 .timeline-activity-member-label { color: var(--text-secondary); line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
+.timeline-activity-member-command { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .timeline-activity-member-tool { color: var(--subtle); font-size: 11px; }
 .timeline-activity-member-status { display: inline-flex; align-items: center; grid-column: 2; grid-row: 1; padding-top: 3px; font-size: 12px; }
 .timeline-activity-member-summary, .timeline-activity-member-origin, .timeline-activity-member-attempt { color: var(--subtle); font-size: 12px; overflow-wrap: anywhere; }

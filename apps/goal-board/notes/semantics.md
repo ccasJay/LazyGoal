@@ -54,3 +54,4 @@
 | 步骤内进度 | 当前 Run 的公开进度按真实执行单元或 Action 放入对应节点折叠内容；未保存单元显示临时步骤，无身份不猜测归属，等待或终态隐藏临时进度。最多缓存二十条，不显示独立面板或推理正文。 | [Goal Board](../README.md) | [进度投影](../src/execution-progress.ts)、[时间线](../src/components/SessionTimeline.tsx) |
 | 执行过程回看 | 终态保留本次连接日志；刷新从 Activity 恢复已提交的诊断、工具生命周期和审批记录。 | [Goal Board](../README.md) | [时间线](../src/components/SessionTimeline.tsx) |
 | 跨页活动上下文 | 按 Run 及阶段恢复标题，阶段／Action 来源未全部加载时保留完整性提示；相邻页合并后更新。 | [Goal Board](../README.md) | [时间线投影](../src/session-timeline.ts)、[Activity 窗口](../src/activity-page-window.ts) |
+| Bash 活动标题 | 简单命令按确定性规则显示 Git 或测试操作；复杂／未知调用显示通用 Shell 标题。归组组合不同操作，命令摘要与结果留在展开详情。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts)、[SessionTimeline](../src/components/SessionTimeline.tsx) |

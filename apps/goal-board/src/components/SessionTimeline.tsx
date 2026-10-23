@@ -645,6 +645,9 @@ export function ActivityGroupRow({
                 <span className="timeline-activity-member-label">
                   {member.think === undefined ? member.label : member.think.goal}
                 </span>
+                {member.toolId === "bash" && member.inputSummary !== undefined && (
+                  <code className="timeline-activity-member-command">{member.inputSummary}</code>
+                )}
                 {member.toolId !== undefined && <code className="timeline-activity-member-tool">{member.toolId}</code>}
                 {member.summary !== undefined && <small className="timeline-activity-member-summary">{member.summary}</small>}
               </div>
