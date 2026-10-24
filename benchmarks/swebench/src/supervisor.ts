@@ -214,6 +214,7 @@ export async function runSwebenchSupervisor(
                     try {
                         return await executeLlmWithTransientRetry(options.llmAdapter, request, control, { logPrefix: "[SWE-bench LLM]" });
                     } catch (error) {
+                        console.error("[HOST ADAPTER ERROR]", error);
                         modelFailed = true;
                         if (typeof error === "object" && error !== null && "status" in error
                             && typeof error.status === "number" && Number.isInteger(error.status) && error.status >= 100 && error.status <= 599) {
@@ -331,6 +332,7 @@ async function runSwebenchSupervisorWithIsolatedEnvironment(
             try {
                 return await executeLlmWithTransientRetry(options.llmAdapter, request, control, { logPrefix: "[SWE-bench LLM]" });
             } catch (error) {
+                console.error("[ISOLATED HOST ADAPTER ERROR]", error);
                 modelFailed = true;
                 if (typeof error === "object" && error !== null && "status" in error
                     && typeof error.status === "number" && Number.isInteger(error.status)
