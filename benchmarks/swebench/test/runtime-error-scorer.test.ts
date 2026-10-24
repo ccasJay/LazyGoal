@@ -162,3 +162,81 @@ test("scoreRuntimeTrajectoryEvents counts stage rejections, tool failures, and n
     assert.ok(report.faults.some((f) => f.code === "MAX_STEPS_EXCEEDED"));
     assert.ok(report.runtimeScore < 0.15);
 });
+
+test("scoreRuntimeTrajectoryEvents 豁免网络相关错误且不计入故障与扣分", () => {
+    const events: TrajectoryEvent[] = [
+        makeEvent(1, { type: "model_response_received", stage: "decide" }),
+        makeEvent(2, {
+            type: "tool_started",
+            actionId: "act-1",
+            toolId: "bash",
+            input: {
+                command: "pip install pytest",
+                sandboxAccess: { network: { targets: ["pypi.org"] } },
+            },
+        }),
+        makeEvent(3, {
+            type: "tool_finished",
+            actionId: "act-1",
+            toolId: "bash",
+            observation: {
+                kind: "failure",
+                code: "SANDBOX_APPROVAL_REQUIRED",
+                message: "命令申请了额外的沙箱文件或网络能力，须经 Permission 核准后方可执行",
+            },
+        }),
+        makeEvent(4, {
+            type: "tool_started",
+            actionId: "act-2",
+            toolId: "bash",
+            input: { command: "curl https://example.com" },
+        }),
+        makeEvent(5, {
+            type: "tool_finished",
+            actionId: "act-2",
+            toolId: "bash",
+            observation: {
+                kind: "error",
+                code: "NETWORK_ERROR",
+                message: "Could not resolve host: example.com",
+            },
+        }),
+        makeEvent(6, {
+            type: "tool_started",
+            actionId: "act-3",
+            toolId: "edit_file",
+            input: { path: "src/fix.py" },
+        }),
+        makeEvent(7, {
+            type: "tool_finished",
+            actionId: "act-3",
+            toolId: "edit_file",
+            observation: { kind: "success", output: "Fixed" },
+        }),
+        makeEvent(8, {
+            type: "tool_started",
+            actionId: "act-4",
+            toolId: "bash",
+            input: { command: "pytest" },
+        }),
+        makeEvent(9, {
+            type: "tool_finished",
+            actionId: "act-4",
+            toolId: "bash",
+            observation: { kind: "success", output: "Passed" },
+        }),
+    ];
+
+    const report = scoreRuntimeTrajectoryEvents({
+        events,
+        runStatus: "completed",
+        stopReason: "end_turn",
+        patch: "diff --git a/src/fix.py b/src/fix.py\n+fixed\n",
+    });
+
+    assert.equal(report.zeroFaultPass, true);
+    assert.equal(report.runtimeScore, 1.0);
+    assert.equal(report.toolFaultCount, 0);
+    assert.equal(report.faults.length, 0);
+    assert.equal(report.ignoredNetworkFaultCount, 2);
+});

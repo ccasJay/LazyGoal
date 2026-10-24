@@ -99,6 +99,8 @@ export interface SwebenchRuntimeHealthReport {
     readonly hasNonEmptyPatch: boolean;
     /** 是否在修改文件后执行过至少一次验证命令。 */
     readonly hasVerificationBashCall: boolean;
+    /** 被豁免未计入分数的网络相关错误次数（如沙箱网络权限拦截或外部网络请求失败）。 */
+    readonly ignoredNetworkFaultCount?: number;
     /** 按发生顺序排列的有界故障明细列表。 */
     readonly faults: readonly RuntimeFaultEntry[];
 }
@@ -160,6 +162,76 @@ export interface PersistedTrajectoryScoreOptions {
 const MAX_FAULT_MESSAGE_CHARS = 500;
 const MAX_FAULT_ENTRIES = 64;
 
+const NETWORK_ERROR_CODES = new Set([
+    "SANDBOX_APPROVAL_REQUIRED",
+    "NETWORK_ERROR",
+    "NETWORK_TIMEOUT",
+    "DNS_LOOKUP_FAILED",
+    "CONNECTION_REFUSED",
+    "CONNECT_TIMEOUT",
+    "SOCKET_TIMEOUT",
+    "ECONNRESET",
+    "ETIMEDOUT",
+    "ECONNREFUSED",
+    "EHOSTUNREACH",
+    "ENETUNREACH",
+    "UND_ERR_CONNECT_TIMEOUT",
+    "UND_ERR_HEADERS_TIMEOUT",
+    "UND_ERR_SOCKET",
+]);
+
+const NETWORK_MESSAGE_REGEX = /(?:网络能力|network capability|could not resolve host|temporary failure in name resolution|failed to connect to|network is unreachable|network unreachable|connection reset by peer|connection refused|connection timed out|request timed? out|socket hang up|fetch failed|econnreset|etimedout|econnrefused|enetunreach)/i;
+
+/**
+ * 判断给定的运行故障或工具异常是否属于外部网络环境或沙箱网络能力相关。
+ *
+ * @remarks
+ * 网络相关错误（如申请沙箱外部网络能力被拒、DNS 解析失败、连接超时或重置等）
+ * 属于外部环境不可控或离线沙箱隔离限制，不作为 Agent 决策或实现缺陷计入错误率与降权。
+ *
+ * @param input - 待判定的错误码、诊断消息与可选工具原始输入。
+ * @returns 若命中网络相关特征则返回 `true`，否则返回 `false`。
+ *
+ * @example
+ * ```ts
+ * const isNet = isNetworkRelatedFault({
+ *   code: "SANDBOX_APPROVAL_REQUIRED",
+ *   message: "命令申请了额外的沙箱文件或网络能力，须经 Permission 核准后方可执行",
+ * });
+ * ```
+ */
+export function isNetworkRelatedFault(input: {
+    readonly code?: string | undefined;
+    readonly message?: string | undefined;
+    readonly toolInput?: unknown;
+}): boolean {
+    const rawCode = (input.code ?? "").toUpperCase().replace(/^REPEATED_/, "");
+    const message = input.message ?? "";
+
+    if (rawCode === "SANDBOX_APPROVAL_REQUIRED") {
+        if (message.includes("网络") || message.toLowerCase().includes("network")) {
+            return true;
+        }
+        if (typeof input.toolInput === "object" && input.toolInput !== null) {
+            const sandboxAccess = (input.toolInput as { sandboxAccess?: { network?: unknown } }).sandboxAccess;
+            if (sandboxAccess?.network !== undefined) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (NETWORK_ERROR_CODES.has(rawCode)) {
+        return true;
+    }
+
+    if (NETWORK_MESSAGE_REGEX.test(message)) {
+        return true;
+    }
+
+    return false;
+}
+
 /**
  * 根据已提交的 Trajectory 事件序列与终态事实计算 SWE-bench Runtime 错误率与健康度得分。
  *
@@ -195,11 +267,13 @@ export function scoreRuntimeTrajectoryEvents(
     let stageRejectionCount = 0;
     let toolFaultCount = 0;
     let terminalFaultCount = 0;
+    let ignoredNetworkFaultCount = 0;
     let seenFileMutation = false;
     let hasVerificationBashCall = false;
 
     const faults: RuntimeFaultEntry[] = [];
     const startedToolInputs = new Map<string, string>();
+    const startedToolRawInputs = new Map<string, unknown>();
     const failedToolSignatures = new Set<string>();
 
     for (const event of input.events) {
@@ -210,15 +284,19 @@ export function scoreRuntimeTrajectoryEvents(
                 break;
             }
             case "model_repair_feedback_recorded": {
-                repairCount += 1;
                 const origin = payload.feedback.origin;
-                if (origin in repairByOrigin) {
-                    repairByOrigin[origin] += 1;
-                }
                 const firstIssue = payload.feedback.issues[0];
                 const issueSummary = firstIssue === undefined
                     ? payload.feedback.code
                     : `${firstIssue.code}: ${firstIssue.message}`;
+                if (isNetworkRelatedFault({ code: payload.feedback.code, message: issueSummary })) {
+                    ignoredNetworkFaultCount += 1;
+                    break;
+                }
+                repairCount += 1;
+                if (origin in repairByOrigin) {
+                    repairByOrigin[origin] += 1;
+                }
                 pushFault(faults, {
                     sequence: event.sequence,
                     category: "repair",
@@ -265,9 +343,15 @@ export function scoreRuntimeTrajectoryEvents(
                 toolCallCount += 1;
                 const serializedInput = safeJson(payload.input);
                 startedToolInputs.set(payload.actionId, `${payload.toolId}:${serializedInput}`);
+                startedToolRawInputs.set(payload.actionId, payload.input);
                 break;
             }
             case "tool_attempt_failed": {
+                const rawInput = startedToolRawInputs.get(payload.actionId);
+                if (isNetworkRelatedFault({ message: payload.reason, toolInput: rawInput })) {
+                    ignoredNetworkFaultCount += 1;
+                    break;
+                }
                 toolFaultCount += 1;
                 pushFault(faults, {
                     sequence: event.sequence,
@@ -280,6 +364,7 @@ export function scoreRuntimeTrajectoryEvents(
             }
             case "tool_finished": {
                 const signature = startedToolInputs.get(payload.actionId) ?? payload.toolId;
+                const rawInput = startedToolRawInputs.get(payload.actionId);
                 if (payload.observation.kind === "success") {
                     if (payload.toolId === "write_file" || payload.toolId === "edit_file") {
                         seenFileMutation = true;
@@ -287,6 +372,14 @@ export function scoreRuntimeTrajectoryEvents(
                         hasVerificationBashCall = true;
                     }
                 } else {
+                    if (isNetworkRelatedFault({
+                        code: payload.observation.code,
+                        message: payload.observation.message,
+                        toolInput: rawInput,
+                    })) {
+                        ignoredNetworkFaultCount += 1;
+                        break;
+                    }
                     const isRepeatedIdenticalFailure = failedToolSignatures.has(signature);
                     failedToolSignatures.add(signature);
                     toolFaultCount += 1;
@@ -303,6 +396,10 @@ export function scoreRuntimeTrajectoryEvents(
                 break;
             }
             case "execution_error": {
+                if (isNetworkRelatedFault({ code: String(payload.code), message: payload.message })) {
+                    ignoredNetworkFaultCount += 1;
+                    break;
+                }
                 terminalFaultCount += 1;
                 pushFault(faults, {
                     sequence: event.sequence,
@@ -313,6 +410,10 @@ export function scoreRuntimeTrajectoryEvents(
                 break;
             }
             case "run_failed": {
+                if (isNetworkRelatedFault({ code: String(payload.code), message: payload.message })) {
+                    ignoredNetworkFaultCount += 1;
+                    break;
+                }
                 terminalFaultCount += 1;
                 pushFault(faults, {
                     sequence: event.sequence,
@@ -402,6 +503,7 @@ export function scoreRuntimeTrajectoryEvents(
         stopReason: input.stopReason,
         hasNonEmptyPatch,
         hasVerificationBashCall,
+        ignoredNetworkFaultCount,
         faults: Object.freeze(faults),
     });
 }

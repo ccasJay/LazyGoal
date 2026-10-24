@@ -118,5 +118,5 @@ SIGINT/SIGTERM 清理本次容器并保存已有产物，但不支持从 Goal Sn
 从回收的已提交 Trajectory 中统计模型修复反馈（`model_repair_feedback_recorded`）、阶段驳回
 （`run_stage_rejected`/`action_rejected`/`context_lookup_failed`）、工具故障（`tool_attempt_failed` 与非成功
 `tool_finished`）及非完成中断，计算严格零错通过标记 `zeroFaultPass` 与连续健康度分数 `runtimeScore`（作为
-`metricScore`），并保留完整 JSONL Trajectory 与导出 `.patch` 供 [Harness2 优化](../../../prompt-evaluation/harness2/README.md)
+`metricScore`），外部网络环境或沙箱网络能力相关错误（如 `SANDBOX_APPROVAL_REQUIRED` 网络申请、DNS/连接超时或被拒）被豁免，不计入加权故障数与健康度降权；完整 JSONL Trajectory 与导出 `.patch` 供 [Harness2 优化](../../../prompt-evaluation/harness2/README.md)
 及离线 `grade swebench` 消费。
