@@ -54,7 +54,7 @@ const factories = {
 const LAZYGOAL_USER_AGENT = "lazygoal";
 
 /** OpenCode Go 的 OpenAI-compatible Chat Completions API 前缀。 */
-const OPENCODE_GO_OPENAI_COMPLETIONS_BASE_URL = "https://opencode.ai/inference/go/openai/v1";
+const OPENCODE_GO_OPENAI_COMPLETIONS_BASE_URL = "https://opencode.ai/inference/go/v1";
 
 /**
  * 构造 pi-ai 请求 options 中的供应商专属附加项。
@@ -159,10 +159,12 @@ export class PiAiAdapter implements LLMAdapter {
                     resolve: async () => ({ auth: { apiKey: config.apiKey }, source: "explicit" }),
                 } },
             }));
-        } else if (config.provider === "opencode-go" && config.executionApi === "openai-completions") {
-            if (!Number.isSafeInteger(config.contextWindowTokens) || config.contextWindowTokens <= 0
-                || !Number.isSafeInteger(config.maxOutputTokens) || config.maxOutputTokens <= 0
-                || config.maxOutputTokens >= config.contextWindowTokens) {
+        } else if (config.provider === "opencode-go" && (config.executionApi === "openai-completions" || config.model === "beam-free")) {
+            const contextWindow = config.contextWindowTokens ?? 128000;
+            const maxTokens = config.maxOutputTokens ?? 8192;
+            if (!Number.isSafeInteger(contextWindow) || contextWindow <= 0
+                || !Number.isSafeInteger(maxTokens) || maxTokens <= 0
+                || maxTokens >= contextWindow) {
                 throw new LLMConfigurationError([], `Invalid dynamic model capacity for "${config.model}"`);
             }
             const provider = opencodeGoProvider();
@@ -180,8 +182,8 @@ export class PiAiAdapter implements LLMAdapter {
                 baseUrl: OPENCODE_GO_OPENAI_COMPLETIONS_BASE_URL,
                 reasoning: config.reasoning,
                 input: ["text"],
-                contextWindow: config.contextWindowTokens,
-                maxTokens: config.maxOutputTokens,
+                contextWindow,
+                maxTokens,
                 cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
                 ...(completionsTemplate.compat === undefined ? {} : { compat: completionsTemplate.compat }),
             };
