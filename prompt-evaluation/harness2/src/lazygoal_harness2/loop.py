@@ -598,7 +598,11 @@ class Harness2Controller:
         raw = json.loads(req_file.read_text(encoding="utf-8"))
         request = Harness2RunRequest.from_dict(raw)
         workspace = HarnessWorkspace(self.workspace_root)
-        baseline = workspace.create_baseline_candidate()
+        baseline = (
+            request.initial_candidate
+            if request.initial_candidate is not None
+            else workspace.create_baseline_candidate()
+        )
 
         manifest_path = (
             Path(request.manifest_path)
@@ -648,7 +652,11 @@ class Harness2Controller:
             encoding="utf-8",
         )
         workspace = HarnessWorkspace(self.workspace_root)
-        baseline = workspace.create_baseline_candidate()
+        baseline = (
+            request.initial_candidate
+            if request.initial_candidate is not None
+            else workspace.create_baseline_candidate()
+        )
         self._write_state(
             run_dir,
             {

@@ -253,6 +253,56 @@ class TestHarness2LoopAndExporter(unittest.TestCase):
             self.assertEqual(report["lifecycleStatus"], "completed")
             self.assertAlmostEqual(report["bestScore"], 1.0)
 
+    def test_initial_candidate_as_baseline(self) -> None:
+        ws = HarnessWorkspace(REPO_ROOT)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            runs_dir = tmp_root / "runs"
+            req_path = tmp_root / "request.json"
+            initial_cand = Harness2Candidate(
+                candidate_id="cand-custom-seed",
+                base_profile_id="swebench-acp-profile",
+                system_prompt="Custom system prompt",
+                instructions=("Custom instruction 1",),
+                template_overrides={"run-mode@1": "Custom run-mode template"},
+            )
+            req_path.write_text(
+                json.dumps(
+                    {
+                        "protocol": "lazygoal-harness2-run@1",
+                        "runId": "h2-test-initial-cand",
+                        "mode": "sequential",
+                        "benchmark": {
+                            "id": "swebench",
+                            "manifestPath": "benchmarks/swebench/manifests/smoke.json",
+                            "trainTaskIds": ["astropy__astropy-12907"],
+                        },
+                        "agentModel": {"configId": "default", "modelId": "test-agent"},
+                        "editorModel": {"configId": "default", "modelId": "test-editor"},
+                        "initialCandidate": initial_cand.to_dict(),
+                        "budget": {
+                            "maxIterations": 1,
+                            "proposalsPerIteration": 1,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            controller = Harness2Controller(
+                workspace_root=REPO_ROOT,
+                runs_dir=runs_dir,
+                eval_bridge=FakeEvalBridge(),
+                reflection_bridge=FakeReflectionBridge(ws),
+            )
+
+            preflight = controller.preflight(req_path)
+            self.assertEqual(preflight["baselineCandidateId"], "cand-custom-seed")
+
+            report = controller.start(req_path, foreground=True)
+            self.assertEqual(report["lifecycleStatus"], "completed")
+            self.assertAlmostEqual(report["baselineScore"], 0.8)
+
 
 if __name__ == "__main__":
     unittest.main()

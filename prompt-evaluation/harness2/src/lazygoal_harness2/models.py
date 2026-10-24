@@ -176,6 +176,7 @@ class Harness2RunRequest:
     max_concurrency: int = 1
     mode: Literal["sequential", "parallel", "both"] = "both"
     run_id: str | None = None
+    initial_candidate: Harness2Candidate | None = None
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> Harness2RunRequest:
@@ -212,6 +213,13 @@ class Harness2RunRequest:
         if max_iterations < 1 or proposals_per_iteration < 1 or max_concurrency < 1:
             raise ValueError("Harness2 budget values must be positive integers")
 
+        initial_cand_dict = raw.get("initialCandidate")
+        initial_candidate = (
+            Harness2Candidate.from_dict(initial_cand_dict)
+            if initial_cand_dict is not None
+            else None
+        )
+
         return cls(
             benchmark_id=benchmark_id,
             manifest_path=manifest_path,
@@ -227,10 +235,11 @@ class Harness2RunRequest:
             max_concurrency=max_concurrency,
             mode=mode_val,  # type: ignore[arg-type]
             run_id=raw.get("runId"),
+            initial_candidate=initial_candidate,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "protocol": HARNESS2_RUN_PROTOCOL,
             "runId": self.run_id,
             "mode": self.mode,
@@ -256,6 +265,9 @@ class Harness2RunRequest:
                 "mode": self.mode,
             },
         }
+        if self.initial_candidate is not None:
+            payload["initialCandidate"] = self.initial_candidate.to_dict()
+        return payload
 
 
 @dataclass(frozen=True)
