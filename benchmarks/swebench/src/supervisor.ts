@@ -17,6 +17,7 @@ import {
 } from "../../src/multiplex.js";
 import {
     createLlmRpcServer,
+    executeLlmWithTransientRetry,
     type LlmRpcServer,
 } from "../../src/llm-rpc.js";
 import {
@@ -211,7 +212,7 @@ export async function runSwebenchSupervisor(
                 structuredOutputMode: options.llmAdapter.structuredOutputMode,
                 generate: async (request, control) => {
                     try {
-                        return await options.llmAdapter.generate(request, control);
+                        return await executeLlmWithTransientRetry(options.llmAdapter, request, control, { logPrefix: "[SWE-bench LLM]" });
                     } catch (error) {
                         modelFailed = true;
                         if (typeof error === "object" && error !== null && "status" in error
@@ -328,7 +329,7 @@ async function runSwebenchSupervisorWithIsolatedEnvironment(
         structuredOutputMode: options.llmAdapter.structuredOutputMode,
         generate: async (request, control) => {
             try {
-                return await options.llmAdapter.generate(request, control);
+                return await executeLlmWithTransientRetry(options.llmAdapter, request, control, { logPrefix: "[SWE-bench LLM]" });
             } catch (error) {
                 modelFailed = true;
                 if (typeof error === "object" && error !== null && "status" in error

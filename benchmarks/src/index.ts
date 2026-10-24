@@ -33,6 +33,7 @@ export type {
 export {
     createRpcLlmAdapter,
     createLlmRpcServer,
+    executeLlmWithTransientRetry,
     LlmRpcError,
     RpcLlmAdapter,
 } from "./llm-rpc.js";
@@ -41,6 +42,7 @@ export type {
     RpcLlmAdapterOptions,
     LlmRpcServer,
     LlmRpcServerOptions,
+    TransientRetryOptions,
 } from "./llm-rpc.js";
 export {
     requireSuccess,

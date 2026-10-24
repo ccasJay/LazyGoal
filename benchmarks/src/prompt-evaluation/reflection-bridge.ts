@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 import type { LLMAdapter, LLMRequest } from "../../../packages/llm-core/src/index.js";
+import { executeLlmWithTransientRetry } from "../llm-rpc.js";
 import { createLlmAdapter, createReflectionLlmAdapter } from "../../../packages/llm/src/index.js";
 import { loadReflectionRuntimeConfig } from "../../../packages/config/src/index.js";
 import { resolveLazyGoalHomePaths } from "../../../packages/config/src/index.js";
@@ -410,7 +411,9 @@ export async function runGepaReflectCli(
             sessionId: `gepa-reflection-${randomUUID()}`,
         };
 
-        const response = await adapter.generate(llmRequest, { signal });
+        const response = await executeLlmWithTransientRetry(adapter, llmRequest, { signal }, {
+            logPrefix: "[GEPA Reflection LLM]",
+        });
 
         const outputText = boundText(redactSensitiveString(readAssistantText(response), env), GEPA_REFLECTION_OUTPUT_MAX_CHARS);
         const normalizedUsage = readNormalizedUsage(response.providerMetadata) ?? {

@@ -63,7 +63,9 @@ Runtime、通知或清理错误不会形成成功终态。已知失败通过标�
 单题 [`runSwebenchSupervisor`](../src/supervisor.ts) 通过共享
 [`IsolatedEnvironment`](../../src/isolated-environment.ts) 把上述 Worker 接入
 宿主模型：它先启动、注入并预检容器，再创建 ACP/LLM 双通道、一次性 Client
-和宿主 RPC Server。任务超时或外部取消共用一个 AbortSignal；Worker 停止后，Supervisor
+和宿主 RPC Server。宿主通过 [`executeLlmWithTransientRetry`](../../src/llm-rpc.ts)
+对 HTTP 429、5xx 及底层传输抖动执行指数退避重试，避免瞬时并发击穿单题作答。
+任务超时或外部取消共用一个 AbortSignal；Worker 停止后，Supervisor
 在独立的有界宽限期内按 Goal Snapshot、Trajectory、Trace、patch 顺序逐项复制或导出，
 单步失败只追加对应阶段错误，最后幂等删除本题容器。patch 使用 `/opt/lazygoal` 下的
 临时 `GIT_INDEX_FILE` 相对已校验 base commit 导出，不修改题目仓库的 `.git/index`。
