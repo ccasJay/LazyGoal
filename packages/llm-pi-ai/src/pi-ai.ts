@@ -77,9 +77,8 @@ export function buildPiAiRequestOptions(input: {
     readonly sessionId?: string | undefined;
 }): { readonly sessionId?: string; readonly headers?: Record<string, string> } {
     if (input.provider !== "opencode-go") return {};
-    const sessionId = input.sessionId ?? randomUUID();
     return {
-        sessionId,
+        ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
         headers: { "User-Agent": LAZYGOAL_USER_AGENT },
     };
 }
@@ -162,8 +161,9 @@ export class PiAiAdapter implements LLMAdapter {
                 } },
             }));
         } else if (config.provider === "opencode-go" && (config.executionApi === "openai-completions" || config.model === "beam-free")) {
-            const contextWindow = config.contextWindowTokens ?? 128000;
-            const maxTokens = config.maxOutputTokens ?? 8192;
+            const dynamicConfig = config.executionApi === "openai-completions" ? config : undefined;
+            const contextWindow = dynamicConfig?.contextWindowTokens ?? 128000;
+            const maxTokens = dynamicConfig?.maxOutputTokens ?? config.maxOutputTokens ?? 8192;
             if (!Number.isSafeInteger(contextWindow) || contextWindow <= 0
                 || !Number.isSafeInteger(maxTokens) || maxTokens <= 0
                 || maxTokens >= contextWindow) {
@@ -182,7 +182,7 @@ export class PiAiAdapter implements LLMAdapter {
                 provider: "opencode-go",
                 api: "openai-completions",
                 baseUrl: OPENCODE_GO_OPENAI_COMPLETIONS_BASE_URL,
-                reasoning: config.reasoning,
+                reasoning: dynamicConfig?.reasoning ?? false,
                 input: ["text"],
                 contextWindow,
                 maxTokens,
