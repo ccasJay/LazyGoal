@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -406,6 +407,7 @@ export async function runGepaReflectCli(
         const llmRequest: LLMRequest = {
             messages: normalizedRequest.messages,
             toolChoice: "none",
+            sessionId: `gepa-reflection-${randomUUID()}`,
         };
 
         const response = await adapter.generate(llmRequest, { signal });

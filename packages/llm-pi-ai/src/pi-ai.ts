@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createModels, createProvider, hasApi, type Api, type AssistantMessage, type AssistantMessageEvent, type Context, type JsonObject, type Model, type StreamOptions } from "@earendil-works/pi-ai";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
@@ -76,8 +77,9 @@ export function buildPiAiRequestOptions(input: {
     readonly sessionId?: string | undefined;
 }): { readonly sessionId?: string; readonly headers?: Record<string, string> } {
     if (input.provider !== "opencode-go") return {};
+    const sessionId = input.sessionId ?? randomUUID();
     return {
-        ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+        sessionId,
         headers: { "User-Agent": LAZYGOAL_USER_AGENT },
     };
 }
