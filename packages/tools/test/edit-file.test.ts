@@ -281,3 +281,54 @@ test("EditFileTool rejects an already-aborted execution before filesystem access
         await rm(workspaceRoot, { recursive: true, force: true });
     }
 });
+
+test("EditFileTool 支持空白/换行符自适应容错匹配与绝对路径归一化", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-edit-fuzzy-"));
+
+    try {
+        const testFile = join(workspaceRoot, "crlf-demo.py");
+        // 原文件包含 CRLF 且行尾带有空格
+        const originalContent = "def hello():\r\n    msg = 'world'   \r\n    return msg\r\n";
+        await writeFile(testFile, originalContent, "utf8");
+
+        const tool = new EditFileTool(workspaceRoot);
+
+        // 1. 模型提供 LF 且去除了行尾空格的 oldString
+        const modelOldString = "def hello():\n    msg = 'world'\n    return msg";
+        const modelNewString = "def hello():\n    msg = 'lazygoal'\n    return msg";
+
+        // 通过工作区绝对路径执行
+        const res = await tool.execute({
+            actionId: "act-fuzzy",
+            input: {
+                path: testFile,
+                oldString: modelOldString,
+                newString: modelNewString,
+            },
+        });
+
+        assert.equal(res.kind, "success");
+        assert.match(res.summary ?? "", /自适应容错编辑/);
+        const updated = await readFile(testFile, "utf8");
+        assert.ok(updated.includes("msg = 'lazygoal'"));
+
+        // 2. 歧义匹配：有多处可以容错匹配时拒绝替换
+        const ambiguousFile = join(workspaceRoot, "ambiguous.py");
+        await writeFile(ambiguousFile, "x = 1  \n\nx = 1    \n", "utf8");
+        const ambRes = await tool.execute({
+            actionId: "act-amb",
+            input: {
+                path: "ambiguous.py",
+                oldString: "x = 1",
+                newString: "x = 2",
+            },
+        });
+        assert.equal(ambRes.kind, "failure");
+        if (ambRes.kind === "failure") {
+            assert.equal(ambRes.code, "STRING_NOT_UNIQUE");
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+

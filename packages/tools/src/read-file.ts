@@ -26,6 +26,7 @@ import {
 } from "./internal/cursor";
 import {
     createWorkspaceSandbox,
+    normalizeToWorkspaceRelative,
     type DomainFailureMessages,
     type WorkspaceSandbox,
 } from "../../sandbox/src/index";
@@ -140,7 +141,8 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
     }
 
     validate(input: ReadFileInput): ToolValidationResult {
-        const violation = this.sandbox.validateRelativePath(input.path);
+        const normalizedPath = normalizeToWorkspaceRelative(input.path, this.sandbox.root);
+        const violation = this.sandbox.validateRelativePath(normalizedPath);
         if (violation !== undefined) {
             switch (violation) {
                 case "empty":
@@ -155,9 +157,6 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
                     return invalidInput("read_file.path references a protected path", ["path"]);
             }
         }
-        if (input.startLine !== undefined && input.endLine !== undefined && input.startLine > input.endLine) {
-            return invalidInput("startLine cannot be greater than endLine", ["startLine"]);
-        }
         if (input.cursor !== undefined && input.cursor.trim() === "") {
             return invalidInput("cursor cannot be empty if specified", ["cursor"]);
         }
@@ -170,7 +169,7 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
     ): Promise<ToolObservation> {
         throwIfAborted(control);
         const { input } = request;
-        const requestedPath = input.path;
+        const requestedPath = normalizeToWorkspaceRelative(input.path, this.sandbox.root);
 
         const resolved = await this.sandbox.resolveTarget(
             requestedPath,
@@ -183,16 +182,24 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
         }
 
         const maxChars = input.maxChars ?? READ_FILE_DEFAULT_MAX_CHARS;
-        let startLine = input.startLine ?? 1;
-        const targetEndLine = input.endLine;
+        const rawStart = input.startLine;
+        const rawEnd = input.endLine;
+        let startLine = rawStart ?? 1;
+        let targetEndLine = rawEnd;
+
+        if (rawStart !== undefined && rawEnd !== undefined) {
+            startLine = Math.min(rawStart, rawEnd);
+            targetEndLine = Math.max(rawStart, rawEnd);
+        }
         let charOffsetInLine = 0;
 
         const queryDigest = computeCanonicalDigest({
             path: requestedPath,
-            startLine: input.startLine,
-            endLine: input.endLine,
+            startLine,
+            endLine: targetEndLine,
         });
 
+        let cursorDegraded = false;
         if (input.cursor !== undefined) {
             const decoded = decodeAndValidateCursor<ReadFileCursorPayload>(
                 input.cursor,
@@ -200,15 +207,11 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
                 queryDigest,
             );
             if (decoded === undefined) {
-                return {
-                    kind: "failure",
-                    code: "INVALID_CURSOR",
-                    message: "The provided cursor is invalid, corrupted, or does not match the target query.",
-                    retryable: false,
-                };
+                cursorDegraded = true;
+            } else {
+                startLine = decoded.nextLine;
+                charOffsetInLine = decoded.charOffsetInLine;
             }
-            startLine = decoded.nextLine;
-            charOffsetInLine = decoded.charOffsetInLine;
         }
 
         let fileHandle;
@@ -377,10 +380,11 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
                 ...(nextCursor !== undefined ? { nextCursor } : {}),
             };
 
+            const degradationNote = cursorDegraded ? " (cursor degraded to line range)" : "";
             return {
                 kind: "success",
                 output: output as any,
-                summary: `Read lines ${actualStartLine}-${actualEndLine} of ${requestedPath}${eof ? " (EOF)" : ""}${truncated ? " (truncated)" : ""}.`,
+                summary: `Read lines ${actualStartLine}-${actualEndLine} of ${requestedPath}${eof ? " (EOF)" : ""}${truncated ? " (truncated)" : ""}${degradationNote}.`,
             };
         } finally {
             await fileHandle.close().catch(() => {});

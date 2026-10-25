@@ -179,7 +179,6 @@ test("ReadFileTool 拒绝非法输入且不访问文件系统", async () => {
             { path: "/tmp/secret.txt" },
             { path: "C:\\secret.txt" },
             { path: "README.md", extra: true },
-            { path: "a.txt", startLine: 5, endLine: 2 },
         ];
 
         for (const input of invalidInputs) {
@@ -264,3 +263,60 @@ test("ReadFileTool 解析符号链接后拒绝工作区外目标", async () => {
         await rm(outsideRoot, { recursive: true, force: true });
     }
 });
+
+test("ReadFileTool 支持倒置行号自愈、路径归一化与损坏游标平滑降级", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-read-healing-"));
+
+    try {
+        const filePath = join(workspaceRoot, "demo.txt");
+        const lines = Array.from({ length: 30 }, (_, i) => `Line ${i + 1}`).join("\n") + "\n";
+        await writeFile(filePath, lines, "utf8");
+
+        const tool = new ReadFileTool(workspaceRoot);
+
+        // 1. 行号倒置自愈：startLine: 10, endLine: 5 -> 自动读取 5-10
+        assert.deepEqual(tool.validate({ path: "demo.txt", startLine: 10, endLine: 5 }), { ok: true });
+        const invertedResult = await tool.execute({
+            actionId: "act-inverted",
+            input: { path: "demo.txt", startLine: 10, endLine: 5 },
+        });
+        assert.equal(invertedResult.kind, "success");
+        if (invertedResult.kind === "success") {
+            const output = invertedResult.output as unknown as ReadFileOutput;
+            assert.equal(output.startLine, 5);
+            assert.equal(output.endLine, 10);
+            assert.ok(output.text.includes("Line 5\n"));
+            assert.ok(output.text.includes("Line 10\n"));
+            assert.ok(!output.text.includes("Line 4\n"));
+        }
+
+        // 2. 路径归一化：工作区绝对路径
+        const absResult = await tool.execute({
+            actionId: "act-abs",
+            input: { path: filePath, startLine: 1, endLine: 2 },
+        });
+        assert.equal(absResult.kind, "success");
+        if (absResult.kind === "success") {
+            const output = absResult.output as unknown as ReadFileOutput;
+            assert.equal(output.path, "demo.txt");
+            assert.equal(output.startLine, 1);
+            assert.equal(output.endLine, 2);
+        }
+
+        // 3. 损坏游标平滑降级：不抛 INVALID_CURSOR，退回到按 startLine 正常读取
+        const degradedResult = await tool.execute({
+            actionId: "act-corrupted-cursor",
+            input: { path: "demo.txt", startLine: 3, endLine: 4, cursor: "corrupted-cursor-payload" },
+        });
+        assert.equal(degradedResult.kind, "success");
+        if (degradedResult.kind === "success") {
+            const output = degradedResult.output as unknown as ReadFileOutput;
+            assert.equal(output.startLine, 3);
+            assert.equal(output.endLine, 4);
+            assert.match(degradedResult.summary ?? "", /cursor degraded to line range/);
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+

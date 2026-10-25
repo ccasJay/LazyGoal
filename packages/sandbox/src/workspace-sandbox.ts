@@ -123,6 +123,11 @@ export class SandboxAbortedError extends Error {
  */
 export interface WorkspaceSandbox {
     /**
+     * 该沙箱绑定的工作区根目录绝对路径。
+     */
+    readonly root: string;
+
+    /**
      * 校验工作区内相对路径的静态规则，不访问文件系统。
      *
      * @param path - Agent 提交的相对路径。
@@ -313,6 +318,7 @@ export function createWorkspaceSandbox(
     });
 
     return {
+        root: resolvedWorkspaceRoot,
         validateRelativePath(path, options) {
             if (path.trim() === "") {
                 return "empty";
@@ -438,3 +444,40 @@ export function createWorkspaceSandbox(
         },
     };
 }
+
+/**
+ * 将可能是工作区绝对路径或容器别名的路径转换为相对路径。
+ *
+ * @remarks
+ * 当 `rawPath` 以 `/testbed/` 开头，剥离该前缀为相对路径；
+ * 当 `rawPath` 是绝对路径且位于 `workspaceRoot` 之下，计算出相对于工作区的相对路径；
+ * 其它情况保留原样供沙箱常规校验。
+ *
+ * @param rawPath - 原始输入路径。
+ * @param workspaceRoot - 允许操作的工作区根目录。
+ * @returns 归一化后的相对路径或原始路径。
+ *
+ * @example
+ * ```ts
+ * normalizeToWorkspaceRelative("/testbed/src/index.ts", "/workspace"); // "src/index.ts"
+ * normalizeToWorkspaceRelative("/workspace/src/index.ts", "/workspace"); // "src/index.ts"
+ * ```
+ */
+export function normalizeToWorkspaceRelative(rawPath: string, workspaceRoot: string): string {
+    const trimmed = rawPath.trim();
+    if (trimmed.startsWith("/testbed/") || trimmed === "/testbed") {
+        return trimmed.slice(8).replace(/^[/\\]+/, "");
+    }
+
+    if (isAbsolutePath(trimmed)) {
+        const resolvedRoot = resolve(workspaceRoot);
+        const resolvedTarget = resolve(trimmed);
+        if (isWithinRoot(resolvedRoot, resolvedTarget)) {
+            const rel = relative(resolvedRoot, resolvedTarget);
+            return rel;
+        }
+    }
+
+    return rawPath;
+}
+

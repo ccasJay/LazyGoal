@@ -18,6 +18,7 @@ import {
 import { invalidInput } from "./internal/invalid-input";
 import {
     createWorkspaceSandbox,
+    normalizeToWorkspaceRelative,
     type DomainFailureMessages,
     type WorkspaceSandbox,
 } from "../../sandbox/src/index";
@@ -108,7 +109,8 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
      *   符号链接越界需在执行时解析后拒绝。
      */
     validate(input: EditFileInput): ToolValidationResult {
-        return this.checkSemantics(input);
+        const normalizedPath = normalizeToWorkspaceRelative(input.path, this.sandbox.root);
+        return this.checkSemantics({ ...input, path: normalizedPath });
     }
 
     /**
@@ -125,7 +127,7 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
         control?: ExecutionControl,
     ): Promise<ToolObservation> {
         throwIfAborted(control);
-        const requestedPath = request.input.path;
+        const requestedPath = normalizeToWorkspaceRelative(request.input.path, this.sandbox.root);
         const oldString = request.input.oldString;
         const newString = request.input.newString;
 
@@ -178,6 +180,57 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
                         alreadyApplied: true,
                     },
                     summary: `编辑已应用（重放确认）: ${requestedPath}`,
+                };
+            }
+
+            const fuzzyResult = tryFuzzyMatchAndReplace(content, oldString, newString);
+            if (fuzzyResult.kind === "matched" && fuzzyResult.updatedContent !== undefined) {
+                try {
+                    await this.sandbox.writeTextFile(
+                        resolved.path,
+                        fuzzyResult.updatedContent,
+                        control,
+                    );
+                    throwIfAborted(control);
+                } catch (error) {
+                    if (isExecutionAbortedError(error)) {
+                        throw error;
+                    }
+
+                    if (control?.signal?.aborted) {
+                        throw new ExecutionAbortedError();
+                    }
+
+                    const failure = this.sandbox.toDomainFailure(
+                        error as NodeJS.ErrnoException,
+                        EDIT_FILE_DOMAIN_FAILURES,
+                        requestedPath,
+                    );
+
+                    if (failure !== undefined) {
+                        return failure;
+                    }
+
+                    throw error;
+                }
+
+                return {
+                    kind: "success",
+                    output: {
+                        path: requestedPath,
+                        replacements: 1,
+                        alreadyApplied: false,
+                    },
+                    summary: `已通过空白/换行符自适应容错编辑 ${requestedPath}`,
+                };
+            }
+
+            if (fuzzyResult.kind === "ambiguous") {
+                return {
+                    kind: "failure",
+                    code: "STRING_NOT_UNIQUE",
+                    message: `oldString 在文件中出现 ${fuzzyResult.occurrences} 次，需提供更长的上下文: ${requestedPath}`,
+                    retryable: false,
                 };
             }
 
@@ -294,3 +347,109 @@ function countOccurrences(content: string, needle: string): number {
 
     return count;
 }
+
+interface FuzzyMatchResult {
+    readonly kind: "matched" | "not_found" | "ambiguous";
+    readonly occurrences?: number;
+    readonly updatedContent?: string;
+}
+
+function normalizeString(text: string): string {
+    return text
+        .replace(/\r\n|\r/g, "\n")
+        .split("\n")
+        .map((line) => line.replace(/[ \t]+$/, ""))
+        .join("\n");
+}
+
+function normalizeContentWithMapping(text: string): {
+    readonly normalized: string;
+    readonly origIndex: readonly number[];
+    readonly origLength: readonly number[];
+} {
+    const normalizedChars: string[] = [];
+    const origIndex: number[] = [];
+    const origLength: number[] = [];
+
+    const len = text.length;
+    let i = 0;
+
+    while (i < len) {
+        const ch = text[i]!;
+
+        if (ch === "\r" || ch === "\n") {
+            let nlLen = 1;
+            if (ch === "\r" && i + 1 < len && text[i + 1] === "\n") {
+                nlLen = 2;
+            }
+            normalizedChars.push("\n");
+            origIndex.push(i);
+            origLength.push(nlLen);
+            i += nlLen;
+            continue;
+        }
+
+        if (ch === " " || ch === "\t") {
+            let j = i;
+            while (j < len && (text[j] === " " || text[j] === "\t")) {
+                j++;
+            }
+            if (j === len || text[j] === "\r" || text[j] === "\n") {
+                i = j;
+                continue;
+            }
+        }
+
+        normalizedChars.push(ch);
+        origIndex.push(i);
+        origLength.push(1);
+        i++;
+    }
+
+    return {
+        normalized: normalizedChars.join(""),
+        origIndex,
+        origLength,
+    };
+}
+
+function tryFuzzyMatchAndReplace(
+    content: string,
+    oldString: string,
+    newString: string,
+): FuzzyMatchResult {
+    const normOldString = normalizeString(oldString);
+    if (normOldString === "") {
+        return { kind: "not_found" };
+    }
+
+    const { normalized: normContent, origIndex, origLength } = normalizeContentWithMapping(content);
+    const normOccurrences = countOccurrences(normContent, normOldString);
+
+    if (normOccurrences === 0) {
+        return { kind: "not_found" };
+    }
+
+    if (normOccurrences > 1) {
+        return { kind: "ambiguous", occurrences: normOccurrences };
+    }
+
+    const matchStart = normContent.indexOf(normOldString);
+    const matchEnd = matchStart + normOldString.length;
+    const origStart = origIndex[matchStart]!;
+    const lastCharIdx = matchEnd - 1;
+    let origEnd = origIndex[lastCharIdx]! + origLength[lastCharIdx]!;
+
+    if (normContent[lastCharIdx] !== "\n" && (matchEnd === normContent.length || normContent[matchEnd] === "\n")) {
+        while (origEnd < content.length && (content[origEnd] === " " || content[origEnd] === "\t")) {
+            origEnd++;
+        }
+    }
+
+    const updatedContent = content.slice(0, origStart) + newString + content.slice(origEnd);
+    return {
+        kind: "matched",
+        updatedContent,
+    };
+}
+

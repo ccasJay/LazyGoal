@@ -255,3 +255,25 @@ test("WriteFileTool rejects an already-aborted execution before filesystem acces
         await rm(workspaceRoot, { recursive: true, force: true });
     }
 });
+
+test("WriteFileTool 支持工作区绝对路径写入", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-write-abs-"));
+
+    try {
+        const tool = new WriteFileTool(workspaceRoot);
+        const targetPath = join(workspaceRoot, "out.txt");
+
+        assert.deepEqual(tool.validate({ path: targetPath, content: "hello" }), { ok: true });
+
+        const result = await tool.execute({
+            actionId: "act-write-abs",
+            input: { path: targetPath, content: "hello world" },
+        });
+
+        assert.equal(result.kind, "success");
+        assert.equal(await readFile(targetPath, "utf8"), "hello world");
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
