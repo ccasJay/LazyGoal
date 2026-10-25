@@ -181,12 +181,18 @@ export class TrajectoryEventProjector {
         output: unknown,
         observation: unknown,
     ): ModelOutputProjection {
-        const serializedOutput = stableJson(output);
-        const serializedObservation = stableJson(observation);
+        const effectiveOutput = foldBashStdout(output);
+        const effectiveObservation = effectiveOutput === output
+            ? observation
+            : (typeof observation === "object" && observation !== null
+                ? { ...observation, output: effectiveOutput }
+                : observation);
+        const serializedOutput = stableJson(effectiveOutput);
+        const serializedObservation = stableJson(effectiveObservation);
         const contentHash = createHash("sha256")
             .update(serializedObservation, "utf8")
             .digest("hex");
-        const artifact = this.artifactResolver?.(event, output);
+        const artifact = this.artifactResolver?.(event, effectiveOutput);
         const artifactAvailability = artifact?.availability ?? "unavailable";
         let artifactReference: string | undefined;
         if (artifact !== undefined) {
@@ -203,7 +209,7 @@ export class TrajectoryEventProjector {
         if (serializedOutput.length <= this.previewLimit) {
             return deepFreeze({
                 truncated: false as const,
-                value: structuredClone(output),
+                value: structuredClone(effectiveOutput),
                 sourceSequence: event.sequence,
                 sourceSequenceRange: { first: event.sequence, last: event.sequence },
                 contentHash,
@@ -238,3 +244,49 @@ function deepFreeze<T>(value: T, seen = new Set<object>()): T {
     }
     return Object.freeze(value);
 }
+
+/**
+ * 对长 bash 成功命令输出进行结构化压缩折叠。
+ *
+ * @param output - 待检查的工具输出。
+ * @returns 若满足折叠条件则返回折叠后的对象，否则原样返回。
+ */
+function foldBashStdout(output: unknown): unknown {
+    if (
+        typeof output !== "object"
+        || output === null
+        || !("exitCode" in output)
+        || !("stdout" in output)
+    ) {
+        return output;
+    }
+
+    const bashOutput = output as { exitCode: unknown; stdout: unknown };
+    if (bashOutput.exitCode !== 0 || typeof bashOutput.stdout !== "string") {
+        return output;
+    }
+
+    const stdout = bashOutput.stdout;
+    if (stdout.length <= 1200) {
+        return output;
+    }
+
+    const lines = stdout.split("\n");
+    if (lines.length <= 30) {
+        return output;
+    }
+
+    const head = lines.slice(0, 10).join("\n");
+    const tail = lines.slice(-10).join("\n");
+    const middleLines = lines.slice(10, -10);
+    const hiddenLines = middleLines.length;
+    const hiddenChars = middleLines.join("\n").length;
+
+    const foldedStdout = `${head}\n... [已折叠 ${hiddenLines} 行成功输出，共 ${hiddenChars} 字符] ...\n${tail}`;
+
+    return {
+        ...bashOutput,
+        stdout: foldedStdout,
+    };
+}
+

@@ -143,6 +143,46 @@ test("投影器拒绝非法 preview 配置或 Artifact 引用", () => {
     );
 });
 
+test("投影器对长 bash 成功输出进行感知折叠，非零退出码保持完整", () => {
+    // 构造 50 行、每行 30 字符的长输出（总计 > 1500 字符）
+    const lines = Array.from({ length: 50 }, (_, i) => `log line ${i + 1} - test runner message output`);
+    const longStdout = lines.join("\n");
+
+    const projector = new TrajectoryEventProjector({ previewLimit: 10_000 });
+
+    // 1. exitCode === 0 的成功输出：折叠中间 30 行
+    const successEvent = observationEvent(1, {
+        exitCode: 0,
+        stdout: longStdout,
+        stderr: "",
+    });
+    const projectedSuccess = projector.project(successEvent);
+    const successPayload = projectedSuccess.payload as any;
+    const successOutput = successPayload.observation.output.value;
+
+    assert.equal(successOutput.exitCode, 0);
+    assert.match(successOutput.stdout, /log line 1 - test runner/);
+    assert.match(successOutput.stdout, /log line 10 - test runner/);
+    assert.match(successOutput.stdout, /\[已折叠 30 行成功输出，共 \d+ 字符\]/);
+    assert.match(successOutput.stdout, /log line 41 - test runner/);
+    assert.match(successOutput.stdout, /log line 50 - test runner/);
+    assert.ok(!successOutput.stdout.includes("log line 25 - test runner"));
+
+    // 2. exitCode !== 0 的失败输出：保持完整
+    const failureEvent = observationEvent(2, {
+        exitCode: 1,
+        stdout: longStdout,
+        stderr: "stack trace",
+    });
+    const projectedFailure = projector.project(failureEvent);
+    const failurePayload = projectedFailure.payload as any;
+    const failureOutput = failurePayload.observation.output.value;
+
+    assert.equal(failureOutput.exitCode, 1);
+    assert.equal(failureOutput.stdout, longStdout);
+    assert.ok(failureOutput.stdout.includes("log line 25 - test runner"));
+});
+
 function observationEvent(sequence: number, output: unknown): TrajectoryEvent {
     const draft: TrajectoryEventDraft = {
         goalId: "goal-1",
