@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -408,12 +409,14 @@ async function createSwebenchPromptEvaluationAdapter(
         cacheDirectory: join(paths.cacheDirectory, "worker"),
         promptAssets: SWE_ACP_WORKER_PROMPT_ASSETS,
     });
+    const defaultVenvPython = join(paths.cacheDirectory, "venv", "bin", "python");
+    const configuredPython = (typeof env["LAZYGOAL_SWEBENCH_PYTHON"] === "string"
+        && env["LAZYGOAL_SWEBENCH_PYTHON"].trim() !== "")
+        ? env["LAZYGOAL_SWEBENCH_PYTHON"]
+        : (existsSync(defaultVenvPython) ? defaultVenvPython : undefined);
     return new SwebenchPromptEvaluationAdapter({
         workerArtifact,
-        ...(typeof env["LAZYGOAL_SWEBENCH_PYTHON"] === "string"
-            && env["LAZYGOAL_SWEBENCH_PYTHON"].trim() !== ""
-            ? { python: env["LAZYGOAL_SWEBENCH_PYTHON"] }
-            : {}),
+        ...(configuredPython !== undefined ? { python: configuredPython } : {}),
     }) as unknown as ProductionAdapter;
 }
 
