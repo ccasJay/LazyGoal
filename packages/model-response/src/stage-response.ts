@@ -126,7 +126,19 @@ export function decodeToolCallOutcome(
     const declaration = declarations.find(tool => tool.id === toolCall.toolId);
     try {
         return decodePhaseToolCall(declarations, toolCall.toolId, rawArgs) as DecideOutput;
-    } catch (error) {
+    } catch (firstError) {
+        if (firstError instanceof ContractValidationError) {
+            const sanitizedArgs = unwrapAndSanitizeToolArguments(toolCall.toolId, rawArgs, declaration);
+            if (sanitizedArgs !== rawArgs) {
+                try {
+                    return decodePhaseToolCall(declarations, toolCall.toolId, sanitizedArgs) as DecideOutput;
+                } catch {
+                    // 解包净化后仍不符合契约，保留抛出原始错误
+                }
+            }
+        }
+
+        const error = firstError;
         throw error instanceof ContractValidationError
             ? new LLMResponseProtocolError(
                 `Tool call "${toolCall.toolId}" validation failed: ${error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
@@ -152,6 +164,101 @@ export function decodeToolCallOutcome(
             )
             : error;
     }
+}
+
+/**
+ * 已知的模型幻觉元字段集合，若声明契约不包含则予以修剪。
+ */
+const KNOWN_STRAY_FIELDS = new Set([
+    "kind",
+    "stageId",
+    "actionId",
+    "approvalRequest",
+    "baseRevision",
+    "memoryPatch",
+    "reason",
+    "thought",
+]);
+
+/**
+ * 常见的外壳对象包装键。
+ */
+const WRAPPER_KEYS = ["action", "input", "params", "arguments"];
+
+function pruneStrayFields(
+    obj: Record<string, unknown>,
+    allowedProperties?: readonly string[],
+): Record<string, unknown> {
+    const allowed = allowedProperties !== undefined ? new Set(allowedProperties) : undefined;
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+        if (KNOWN_STRAY_FIELDS.has(key) && (allowed === undefined || !allowed.has(key))) {
+            continue;
+        }
+        result[key] = value;
+    }
+    return result;
+}
+
+/**
+ * 净化工具调用参数：安全剥离模型返回的冗余包装外壳并修剪多余元字段。
+ *
+ * @remarks
+ * 当模型返回包含 `action`/`input`/`params` 单一核心对象的包装外壳，或者在参数中附加了
+ * `kind`、`stageId` 等契约外元字段时，剥离外壳并修剪元字段；若契约本身声明了该字段则保留。
+ *
+ * @param toolId - 被调用的工具标识。
+ * @param rawArgs - 模型返回的原始解析参数。
+ * @param declaration - 匹配到的系统工具声明。
+ * @returns 净化后的参数对象；无法解包时返回原值。
+ *
+ * @example
+ * ```ts
+ * const sanitized = unwrapAndSanitizeToolArguments("read_file", { action: { path: "a.ts" }, stageId: "s1" }, decl);
+ * // { path: "a.ts" }
+ * ```
+ */
+export function unwrapAndSanitizeToolArguments(
+    _toolId: string,
+    rawArgs: unknown,
+    declaration?: SystemToolDeclaration<unknown>,
+): unknown {
+    if (typeof rawArgs !== "object" || rawArgs === null || Array.isArray(rawArgs)) {
+        return rawArgs;
+    }
+
+    const schemaProperties = declaration?.parametersSchema && typeof declaration.parametersSchema === "object"
+        ? (declaration.parametersSchema as { properties?: Record<string, unknown> }).properties
+        : undefined;
+    const allowedProperties = schemaProperties !== undefined ? Object.keys(schemaProperties) : undefined;
+
+    let current: unknown = rawArgs;
+
+    for (let depth = 0; depth < 3; depth++) {
+        if (typeof current !== "object" || current === null || Array.isArray(current)) {
+            break;
+        }
+
+        const pruned = pruneStrayFields(current as Record<string, unknown>, allowedProperties);
+        const keys = Object.keys(pruned);
+
+        if (keys.length === 1 && WRAPPER_KEYS.includes(keys[0]!)) {
+            const inner = pruned[keys[0]!];
+            if (typeof inner === "object" && inner !== null && !Array.isArray(inner)) {
+                current = inner;
+                continue;
+            }
+        }
+
+        current = pruned;
+        break;
+    }
+
+    if (typeof current === "object" && current !== null && !Array.isArray(current)) {
+        current = pruneStrayFields(current as Record<string, unknown>, allowedProperties);
+    }
+
+    return current;
 }
 
 function schemaLiteralHint(schema: unknown, path: readonly (string | number)[]): { expectedValues?: readonly (string | number | boolean | null)[] } {

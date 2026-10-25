@@ -98,6 +98,42 @@ test("decodeToolCallOutcome 解码合法调用并保留 actionId 契约结果", 
     assert.deepEqual(output.action.input, { path: "a.ts" });
 });
 
+test("decodeToolCallOutcome 容错解包 action/input 外壳与修剪多余元字段", () => {
+    // 1. 带 action 外壳与多余元字段 (stageId, kind, thought, reason)
+    const wrappedCall = {
+        callId: "call-wrap",
+        toolId: "read_file",
+        argumentsJson: JSON.stringify({
+            kind: "action",
+            stageId: "stage-1",
+            thought: "I should inspect the file",
+            action: { path: "src/index.ts" },
+        }),
+    };
+    const output = decodeToolCallOutcome(wrappedCall, declarations, AUTHORIZED_TOOL_IDS);
+    assert.equal(output.kind, "tool_call");
+    if (output.kind === "tool_call") {
+        assert.equal(output.action.toolId, "read_file");
+        assert.deepEqual(output.action.input, { path: "src/index.ts" });
+    }
+
+    // 2. 带 input 外壳且附带 reason
+    const inputWrappedCall = {
+        callId: "call-wrap-2",
+        toolId: "read_file",
+        argumentsJson: JSON.stringify({
+            reason: "need to read config",
+            input: { path: "config.json" },
+        }),
+    };
+    const output2 = decodeToolCallOutcome(inputWrappedCall, declarations, AUTHORIZED_TOOL_IDS);
+    assert.equal(output2.kind, "tool_call");
+    if (output2.kind === "tool_call") {
+        assert.equal(output2.action.toolId, "read_file");
+        assert.deepEqual(output2.action.input, { path: "config.json" });
+    }
+});
+
 test("decodeToolCallOutcome 对非法 JSON 与契约违规保持稳定 issue 与业务路径", () => {
     assert.throws(
         () => decodeToolCallOutcome(
