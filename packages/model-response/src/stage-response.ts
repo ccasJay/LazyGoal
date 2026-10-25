@@ -219,7 +219,7 @@ function pruneStrayFields(
  * ```
  */
 export function unwrapAndSanitizeToolArguments(
-    _toolId: string,
+    toolId: string,
     rawArgs: unknown,
     declaration?: SystemToolDeclaration<unknown>,
 ): unknown {
@@ -249,9 +249,30 @@ export function unwrapAndSanitizeToolArguments(
         }
 
         const pruned = pruneStrayFields(current as Record<string, unknown>, allowedProperties);
+
+        // 清理常见的空 sandboxAccess 容器以规避硬性校验
+        if ("sandboxAccess" in pruned && typeof pruned.sandboxAccess === "object" && pruned.sandboxAccess !== null) {
+            const sa = { ...(pruned.sandboxAccess as Record<string, unknown>) };
+            if (typeof sa.network === "object" && sa.network !== null) {
+                const net = sa.network as { targets?: unknown[] };
+                if (Array.isArray(net.targets) && net.targets.length === 0) {
+                    delete sa.network;
+                }
+            }
+            if (Array.isArray(sa.files) && sa.files.length === 0) {
+                delete sa.files;
+            }
+            if (Object.keys(sa).length === 0) {
+                delete pruned.sandboxAccess;
+            } else {
+                pruned.sandboxAccess = sa;
+            }
+        }
+
         const keys = Object.keys(pruned);
 
-        if (keys.length === 1 && WRAPPER_KEYS.includes(keys[0]!)) {
+        // 支持标准包装外壳以及与工具标识同名的单键外壳（如 {"system_start_run_stage": {...}}）
+        if (keys.length === 1 && (WRAPPER_KEYS.includes(keys[0]!) || keys[0] === toolId)) {
             const inner = pruned[keys[0]!];
             if (typeof inner === "object" && inner !== null && !Array.isArray(inner)) {
                 current = inner;

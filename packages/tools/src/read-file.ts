@@ -1,4 +1,4 @@
-import { open } from "node:fs/promises";
+import { open, readdir, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import type {
@@ -216,6 +216,19 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
 
         let fileHandle;
         try {
+            const fileStat = await stat(resolved.path);
+            if (fileStat.isDirectory()) {
+                let entries: string[] = [];
+                try {
+                    entries = (await readdir(resolved.path)).slice(0, 50);
+                } catch {}
+                return {
+                    kind: "failure",
+                    code: "TARGET_IS_DIRECTORY",
+                    message: `Target is a directory: ${requestedPath}. Use grep or list files to choose a specific text file. Entries: [${entries.join(", ")}]`,
+                    retryable: true,
+                };
+            }
             fileHandle = await open(resolved.path, "r");
         } catch (error) {
             if (isExecutionAbortedError(error)) throw error;
@@ -359,13 +372,21 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
                 }
             }
 
-            // 如果收集为空且文件不是空文件且 startLine 超过了总行数
+            // 如果收集为空且 startLine 超过了总行数，做友好返回并提示实际总行数
             if (!hasEmittedContent && collectedText === "" && currentLineNumber < startLine) {
+                const totalLines = Math.max(1, currentLineNumber);
+                const degradationNote = cursorDegraded ? " (cursor degraded to line range)" : "";
                 return {
-                    kind: "failure",
-                    code: "INVALID_LINE_RANGE",
-                    message: `startLine ${startLine} is beyond the total lines of ${requestedPath} (${currentLineNumber}).`,
-                    retryable: false,
+                    kind: "success",
+                    output: {
+                        path: requestedPath,
+                        text: "",
+                        startLine: totalLines,
+                        endLine: totalLines,
+                        eof: true,
+                        truncated: false,
+                    } as any,
+                    summary: `Requested startLine (${startLine}) is beyond the total lines of ${requestedPath} (total: ${totalLines} lines). Returned empty range at EOF.${degradationNote}`,
                 };
             }
 

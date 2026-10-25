@@ -150,6 +150,37 @@ test("decodeToolCallOutcome 容错解包 action/input 外壳与修剪多余元�
         assert.equal(output3.action.toolId, "read_file");
         assert.deepEqual(output3.action.input, { path: "nested.ts" });
     }
+
+    // 4. 同名工具单键外壳解包 ({ read_file: { path: "same-name.ts" } })
+    const sameNameCall = {
+        callId: "call-wrap-4",
+        toolId: "read_file",
+        argumentsJson: JSON.stringify({
+            read_file: { path: "same-name.ts" },
+        }),
+    };
+    const output4 = decodeToolCallOutcome(sameNameCall, declarations, AUTHORIZED_TOOL_IDS);
+    assert.equal(output4.kind, "tool_call");
+    if (output4.kind === "tool_call") {
+        assert.equal(output4.action.toolId, "read_file");
+        assert.deepEqual(output4.action.input, { path: "same-name.ts" });
+    }
+
+    // 5. 空 sandboxAccess.network.targets 自动清理以避免硬校验报错
+    const emptyNetworkCall = {
+        callId: "call-wrap-5",
+        toolId: "read_file",
+        argumentsJson: JSON.stringify({
+            path: "target.ts",
+            sandboxAccess: { network: { targets: [] } },
+        }),
+    };
+    const output5 = decodeToolCallOutcome(emptyNetworkCall, declarations, AUTHORIZED_TOOL_IDS);
+    assert.equal(output5.kind, "tool_call");
+    if (output5.kind === "tool_call") {
+        assert.equal(output5.action.toolId, "read_file");
+        assert.deepEqual(output5.action.input, { path: "target.ts" });
+    }
 });
 
 test("decodeToolCallOutcome 对非法 JSON 与契约违规保持稳定 issue 与业务路径", () => {

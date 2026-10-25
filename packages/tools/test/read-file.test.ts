@@ -345,6 +345,28 @@ test("ReadFileTool 支持倒置行号自愈、路径归一化与损坏游标平�
         if (testbedResult.kind === "success") {
             assert.equal((testbedResult.output as any).path, "demo.txt");
         }
+
+        // 6. 目录读取自愈为 TARGET_IS_DIRECTORY 并附带文件条目引导
+        const dirResult = await tool.execute({
+            actionId: "act-dir",
+            input: { path: "." },
+        });
+        assert.equal(dirResult.kind, "failure");
+        if (dirResult.kind === "failure") {
+            assert.equal(dirResult.code, "TARGET_IS_DIRECTORY");
+            assert.ok(dirResult.message.includes("demo.txt"));
+        }
+
+        // 7. startLine 超过总行数自愈为 EOF 友好返回
+        const beyondResult = await tool.execute({
+            actionId: "act-beyond",
+            input: { path: "demo.txt", startLine: 9999 },
+        });
+        assert.equal(beyondResult.kind, "success");
+        if (beyondResult.kind === "success") {
+            assert.equal((beyondResult.output as any).text, "");
+            assert.ok(beyondResult.summary.includes("beyond the total lines"));
+        }
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
     }
