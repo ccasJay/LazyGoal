@@ -171,18 +171,6 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
         const occurrences = countOccurrences(content, oldString);
 
         if (occurrences === 0) {
-            if (content.includes(newString)) {
-                return {
-                    kind: "success",
-                    output: {
-                        path: requestedPath,
-                        replacements: 0,
-                        alreadyApplied: true,
-                    },
-                    summary: `编辑已应用（重放确认）: ${requestedPath}`,
-                };
-            }
-
             const fuzzyResult = tryFuzzyMatchAndReplace(content, oldString, newString);
             if (fuzzyResult.kind === "matched" && fuzzyResult.updatedContent !== undefined) {
                 try {
@@ -231,6 +219,21 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
                     code: "STRING_NOT_UNIQUE",
                     message: `oldString 在文件中出现 ${fuzzyResult.occurrences} 次，需提供更长的上下文: ${requestedPath}`,
                     retryable: false,
+                };
+            }
+
+            const isAlreadyApplied = content.includes(newString)
+                || (normalizeString(newString) !== "" && normalizeString(content).includes(normalizeString(newString)));
+
+            if (isAlreadyApplied) {
+                return {
+                    kind: "success",
+                    output: {
+                        path: requestedPath,
+                        replacements: 0,
+                        alreadyApplied: true,
+                    },
+                    summary: `编辑已应用（重放确认）: ${requestedPath}`,
                 };
             }
 
@@ -446,7 +449,12 @@ function tryFuzzyMatchAndReplace(
         }
     }
 
-    const updatedContent = content.slice(0, origStart) + newString + content.slice(origEnd);
+    const matchedSlice = content.slice(origStart, origEnd);
+    const effectiveNewString = matchedSlice.includes("\r\n") && !newString.includes("\r\n")
+        ? newString.replace(/\n/g, "\r\n")
+        : newString;
+
+    const updatedContent = content.slice(0, origStart) + effectiveNewString + content.slice(origEnd);
     return {
         kind: "matched",
         updatedContent,

@@ -315,6 +315,36 @@ test("ReadFileTool 支持倒置行号自愈、路径归一化与损坏游标平�
             assert.equal(output.endLine, 4);
             assert.match(degradedResult.summary ?? "", /cursor degraded to line range/);
         }
+
+        // 4. 倒置行号截断产生有效游标并支持后续顺畅续读
+        const cursorGenResult = await tool.execute({
+            actionId: "act-inv-cursor",
+            input: { path: "demo.txt", startLine: 10, endLine: 5, maxChars: 25 },
+        });
+        assert.equal(cursorGenResult.kind, "success");
+        const nextCursor = (cursorGenResult.output as any)?.nextCursor;
+        assert.ok(nextCursor);
+
+        const continueResult = await tool.execute({
+            actionId: "act-inv-continue",
+            input: { path: "demo.txt", startLine: 10, endLine: 5, maxChars: 100, cursor: nextCursor },
+        });
+        assert.equal(continueResult.kind, "success");
+        if (continueResult.kind === "success") {
+            const output = continueResult.output as unknown as ReadFileOutput;
+            assert.ok(output.text.length > 0);
+            assert.equal(output.endLine, 10);
+        }
+
+        // 5. /testbed/ 容器别名前缀读取
+        const testbedResult = await tool.execute({
+            actionId: "act-testbed",
+            input: { path: "/testbed/demo.txt", startLine: 1, endLine: 2 },
+        });
+        assert.equal(testbedResult.kind, "success");
+        if (testbedResult.kind === "success") {
+            assert.equal((testbedResult.output as any).path, "demo.txt");
+        }
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
     }

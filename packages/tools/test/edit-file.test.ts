@@ -327,6 +327,59 @@ test("EditFileTool 支持空白/换行符自适应容错匹配与绝对路径归
         if (ambRes.kind === "failure") {
             assert.equal(ambRes.code, "STRING_NOT_UNIQUE");
         }
+
+        // 3. 删除行操作（newString: ""）在 CRLF 文件中正常执行，不被 alreadyApplied 误拦截
+        const deleteFile = join(workspaceRoot, "delete-demo.py");
+        await writeFile(deleteFile, "def run():\r\n    bad_line()\r\n    return 1\r\n", "utf8");
+        const delRes = await tool.execute({
+            actionId: "act-del",
+            input: {
+                path: "delete-demo.py",
+                oldString: "    bad_line()\n",
+                newString: "",
+            },
+        });
+        assert.equal(delRes.kind, "success");
+        if (delRes.kind === "success") {
+            assert.equal((delRes.output as any).replacements, 1);
+            assert.equal((delRes.output as any).alreadyApplied, false);
+        }
+        const delContent = await readFile(deleteFile, "utf8");
+        assert.ok(!delContent.includes("bad_line"));
+
+        // 4. newString 已存在于文件其他位置时，容错匹配仍能正确匹配并替换目标区域，而非误判 alreadyApplied
+        const duplicateFile = join(workspaceRoot, "duplicate-helper.py");
+        await writeFile(duplicateFile, "def foo():\r\n    return 1\r\n\ndef bar():\r\n    return 0   \r\n", "utf8");
+        const dupRes = await tool.execute({
+            actionId: "act-dup",
+            input: {
+                path: "duplicate-helper.py",
+                oldString: "def bar():\n    return 0",
+                newString: "def bar():\n    return 1",
+            },
+        });
+        assert.equal(dupRes.kind, "success");
+        if (dupRes.kind === "success") {
+            assert.equal((dupRes.output as any).replacements, 1);
+            assert.equal((dupRes.output as any).alreadyApplied, false);
+        }
+        const dupContent = await readFile(duplicateFile, "utf8");
+        assert.ok(dupContent.includes("def bar():\r\n    return 1"));
+
+        // 5. CRLF 文件上的编辑重放（newString 为 LF 形式）仍可正确识别 alreadyApplied: true
+        const replayRes = await tool.execute({
+            actionId: "act-replay-crlf",
+            input: {
+                path: "duplicate-helper.py",
+                oldString: "def bar():\n    return 0",
+                newString: "def bar():\n    return 1\n",
+            },
+        });
+        assert.equal(replayRes.kind, "success");
+        if (replayRes.kind === "success") {
+            assert.equal((replayRes.output as any).replacements, 0);
+            assert.equal((replayRes.output as any).alreadyApplied, true);
+        }
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
     }
