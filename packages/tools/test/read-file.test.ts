@@ -367,6 +367,23 @@ test("ReadFileTool 支持倒置行号自愈、路径归一化与损坏游标平�
             assert.equal((beyondResult.output as any).text, "");
             assert.ok(beyondResult.summary.includes("beyond the total lines"));
         }
+
+        // 8. 不存在文件返回父目录相似候选建议
+        const missingResult = await tool.execute({
+            actionId: "act-miss-1",
+            input: { path: "demo_typo.txt" },
+        });
+        assert.equal(missingResult.kind, "failure");
+        assert.equal(missingResult.code, "FILE_NOT_FOUND");
+        assert.ok(missingResult.message.includes("demo.txt"));
+
+        // 9. 重复读取相同不存在路径触发 REPEATED_FILE_NOT_FOUND 熔断
+        const repeatedMissResult = await tool.execute({
+            actionId: "act-miss-2",
+            input: { path: "demo_typo.txt" },
+        });
+        assert.equal(repeatedMissResult.kind, "failure");
+        assert.equal(repeatedMissResult.code, "REPEATED_FILE_NOT_FOUND");
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
     }

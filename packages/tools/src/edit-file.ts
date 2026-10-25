@@ -16,6 +16,7 @@ import {
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import { invalidInput } from "./internal/invalid-input";
+import { markWorkspaceModified } from "./internal/workspace-version";
 import {
     createWorkspaceSandbox,
     normalizeToWorkspaceRelative,
@@ -180,6 +181,7 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
                         control,
                     );
                     throwIfAborted(control);
+                    markWorkspaceModified(this.sandbox.root);
                 } catch (error) {
                     if (isExecutionAbortedError(error)) {
                         throw error;
@@ -263,6 +265,7 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
                 control,
             );
             throwIfAborted(control);
+            markWorkspaceModified(this.sandbox.root);
         } catch (error) {
             if (isExecutionAbortedError(error)) {
                 throw error;

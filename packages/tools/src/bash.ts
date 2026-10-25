@@ -20,6 +20,7 @@ import {
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import { invalidInput } from "./internal/invalid-input";
+import { getWorkspaceVersion } from "./internal/workspace-version";
 import {
     buildSeatbeltPolicy,
     cleanupPrivateTmpDir,
@@ -401,6 +402,7 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
 
     private readonly workspaceRoot: string;
     private readonly enableSeatbelt: boolean;
+    private readonly failedCommands = new Map<string, { version: number; lastErrorSummary: string }>();
 
     /**
      * @param workspaceRoot - 命令执行时的工作区根目录，可为相对或绝对路径。
@@ -530,6 +532,18 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
     ): Promise<ToolObservation> {
         throwIfAborted(control);
         const input = request.input;
+
+        const currentVersion = getWorkspaceVersion(this.workspaceRoot);
+        const priorFailure = this.failedCommands.get(input.command);
+        if (priorFailure !== undefined && priorFailure.version === currentVersion) {
+            return {
+                kind: "failure",
+                code: "REPEATED_COMMAND_BLOCKED",
+                message: `该命令前次执行失败，且之后工作区内未发生任何代码修改（edit_file/write_file）。请先查看前次错误信息并修改代码，或修改测试命令后再尝试执行。前次错误摘要: ${priorFailure.lastErrorSummary}`,
+                retryable: false,
+            };
+        }
+
         const timeoutMs = input.timeoutMs ?? BASH_DEFAULT_TIMEOUT_MS;
         const resolvedRoot = await realpath(this.workspaceRoot);
         throwIfAborted(control);
@@ -633,6 +647,10 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
         const suffix = output === "" ? "" : `: ${output}`;
 
         if (outcome.timedOut) {
+            this.failedCommands.set(input.command, {
+                version: currentVersion,
+                lastErrorSummary: suffix.slice(0, 300),
+            });
             return {
                 kind: "failure",
                 code: "COMMAND_TIMEOUT",
@@ -642,6 +660,7 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
         }
 
         if (outcome.exitCode === 0) {
+            this.failedCommands.delete(input.command);
             return {
                 kind: "success",
                 output: {
@@ -652,6 +671,11 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
                 summary: "命令执行成功",
             };
         }
+
+        this.failedCommands.set(input.command, {
+            version: currentVersion,
+            lastErrorSummary: suffix.slice(0, 300),
+        });
 
         if (typeof outcome.exitCode === "number") {
             return {

@@ -635,3 +635,53 @@ test("BashTool 在 workspaceRoot 无法解析时传播基础设施异常", async
         })
     );
 });
+
+test("BashTool 阻断重复失败命令并在修改文件后允许重试", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-repeat-"));
+    const { EditFileTool } = await import("../src/index");
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(join(workspaceRoot, "demo.txt"), "hello", "utf8");
+
+    try {
+        const bashTool = new BashTool(workspaceRoot, { enableSeatbelt: false });
+        const editTool = new EditFileTool(workspaceRoot);
+
+        // 1. 首次执行失败命令
+        const first = await bashTool.execute({
+            actionId: "act-fail-1",
+            input: { command: "exit 1" },
+        });
+        assert.equal(first.kind, "failure");
+        assert.equal(first.code, "COMMAND_FAILED");
+
+        // 2. 未修改文件时，重复完全相同失败命令立即被阻断
+        const second = await bashTool.execute({
+            actionId: "act-fail-2",
+            input: { command: "exit 1" },
+        });
+        assert.equal(second.kind, "failure");
+        assert.equal(second.code, "REPEATED_COMMAND_BLOCKED");
+
+        // 3. 执行不同命令不会被阻断
+        const third = await bashTool.execute({
+            actionId: "act-ok-1",
+            input: { command: "echo ok" },
+        });
+        assert.equal(third.kind, "success");
+
+        // 4. 修改文件后，原先失败命令允许再次重试
+        await editTool.execute({
+            actionId: "act-edit",
+            input: { path: "demo.txt", oldString: "hello", newString: "world" },
+        });
+
+        const fourth = await bashTool.execute({
+            actionId: "act-fail-retry",
+            input: { command: "exit 1" },
+        });
+        assert.equal(fourth.kind, "failure");
+        assert.equal(fourth.code, "COMMAND_FAILED"); // 重新执行，而不是被阻断
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});

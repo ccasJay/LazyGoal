@@ -1,5 +1,5 @@
 import { open, readdir, stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 import type {
     Tool,
@@ -19,6 +19,7 @@ import {
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import { invalidInput } from "./internal/invalid-input";
+import { getWorkspaceVersion } from "./internal/workspace-version";
 import {
     computeCanonicalDigest,
     decodeAndValidateCursor,
@@ -132,6 +133,7 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
     readonly replayPolicy = "safe" as const;
 
     private readonly sandbox: WorkspaceSandbox;
+    private readonly missingPaths = new Map<string, number>();
 
     constructor(workspaceRoot: string) {
         if (workspaceRoot.trim() === "") {
@@ -171,6 +173,17 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
         const { input } = request;
         const requestedPath = normalizeToWorkspaceRelative(input.path, this.sandbox.root);
 
+        const currentVersion = getWorkspaceVersion(this.sandbox.root);
+        const priorMissingVersion = this.missingPaths.get(requestedPath);
+        if (priorMissingVersion !== undefined && priorMissingVersion === currentVersion) {
+            return {
+                kind: "failure",
+                code: "REPEATED_FILE_NOT_FOUND",
+                message: `Path was already confirmed not to exist: ${requestedPath}. Do not repeat this path; use grep or list files to locate the correct file.`,
+                retryable: false,
+            };
+        }
+
         const resolved = await this.sandbox.resolveTarget(
             requestedPath,
             READ_FILE_DOMAIN_FAILURES,
@@ -178,6 +191,29 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
         );
 
         if (!resolved.ok) {
+            if (resolved.failure.code === "FILE_NOT_FOUND") {
+                this.missingPaths.set(requestedPath, currentVersion);
+                let suggestions: string[] = [];
+                try {
+                    const candidatePath = resolve(this.sandbox.root, requestedPath);
+                    const parentDir = dirname(candidatePath);
+                    const entries = await readdir(parentDir);
+                    const base = basename(candidatePath);
+                    const baseStem = base.replace(/\.[^.]+$/, "");
+                    const matched = entries.filter((e) =>
+                        e.toLowerCase().includes(baseStem.toLowerCase()) ||
+                        baseStem.toLowerCase().includes(e.toLowerCase())
+                    );
+                    suggestions = (matched.length > 0 ? matched : entries).slice(0, 10);
+                } catch {}
+                const hint = suggestions.length > 0
+                    ? `. Candidates in parent directory: [${suggestions.join(", ")}]. Use grep to locate the correct file; do not re-request this exact path.`
+                    : "";
+                return {
+                    ...resolved.failure,
+                    message: `${resolved.failure.message}${hint}`,
+                };
+            }
             return resolved.failure;
         }
 
@@ -230,8 +266,33 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
                 };
             }
             fileHandle = await open(resolved.path, "r");
+            this.missingPaths.delete(requestedPath);
         } catch (error) {
             if (isExecutionAbortedError(error)) throw error;
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+                this.missingPaths.set(requestedPath, currentVersion);
+                let suggestions: string[] = [];
+                try {
+                    const parentDir = dirname(resolved.path);
+                    const entries = await readdir(parentDir);
+                    const base = basename(resolved.path);
+                    const baseStem = base.replace(/\.[^.]+$/, "");
+                    const matched = entries.filter((e) =>
+                        e.toLowerCase().includes(baseStem.toLowerCase()) ||
+                        baseStem.toLowerCase().includes(e.toLowerCase())
+                    );
+                    suggestions = (matched.length > 0 ? matched : entries).slice(0, 10);
+                } catch {}
+                const hint = suggestions.length > 0
+                    ? `. Candidates in parent directory: [${suggestions.join(", ")}]. Use grep to locate the correct file; do not re-request this exact path.`
+                    : "";
+                return {
+                    kind: "failure",
+                    code: "FILE_NOT_FOUND",
+                    message: `File not found: ${requestedPath}${hint}`,
+                    retryable: false,
+                };
+            }
             const mapped = this.sandbox.toDomainFailure(
                 error as NodeJS.ErrnoException,
                 READ_FILE_DOMAIN_FAILURES,

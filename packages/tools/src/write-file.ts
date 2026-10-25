@@ -18,6 +18,7 @@ import {
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import { invalidInput } from "./internal/invalid-input";
+import { markWorkspaceModified } from "./internal/workspace-version";
 import {
     createWorkspaceSandbox,
     normalizeToWorkspaceRelative,
@@ -251,6 +252,7 @@ export class WriteFileTool implements Tool<typeof WRITE_FILE_INPUT_CONTRACT> {
         try {
             await this.sandbox.writeTextFile(targetPath, content, control);
             throwIfAborted(control);
+            markWorkspaceModified(this.sandbox.root);
 
             return {
                 kind: "success",
