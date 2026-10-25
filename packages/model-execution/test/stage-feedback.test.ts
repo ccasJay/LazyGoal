@@ -27,12 +27,12 @@ test("Original stage failure reports extra fields and a corrected call is accept
     const input = { target: "Inspect architecture", acceptanceCriteria: ["Read source"] };
     try {
         decodeToolCallOutcome({ callId: "stage", toolId: "system_start_run_stage", argumentsJson: JSON.stringify({
-            ...input, stageId: "PRIVATE_ID", memoryPatch: { protocolVersion: "1", operations: [] },
+            ...input, extraParam: "PRIVATE_ID", customMeta: { protocolVersion: "1", operations: [] },
         }) }, [SystemStartRunStageDeclaration], []);
     } catch (error) { failure = error; }
     const mapped = toModelStageFeedback(failure, { goal }, "decide");
     assert.ok(mapped instanceof ModelStageFeedbackError);
-    assert.deepEqual(mapped.feedback.issues.map(issue => issue.path), [["memoryPatch"], ["stageId"]]);
+    assert.deepEqual(mapped.feedback.issues.map(issue => issue.path), [["customMeta"], ["extraParam"]]);
     assert.ok(mapped.feedback.issues.every(issue => /Remove/.test(issue.message)));
     assert.equal(JSON.stringify(mapped.feedback).includes("PRIVATE"), false);
     assert.deepEqual(SystemStartRunStageDeclaration.decode(input), { kind: "run_stage_update", ...input });

@@ -132,6 +132,24 @@ test("decodeToolCallOutcome 容错解包 action/input 外壳与修剪多余元�
         assert.equal(output2.action.toolId, "read_file");
         assert.deepEqual(output2.action.input, { path: "config.json" });
     }
+
+    // 3. 带 parameters 外壳与多层嵌套外壳解包 ({ action: { input: { path: "nested.ts" } } })
+    const nestedWrappedCall = {
+        callId: "call-wrap-3",
+        toolId: "read_file",
+        argumentsJson: JSON.stringify({
+            action: {
+                parameters: { path: "nested.ts" },
+            },
+            approvalRequest: false,
+        }),
+    };
+    const output3 = decodeToolCallOutcome(nestedWrappedCall, declarations, AUTHORIZED_TOOL_IDS);
+    assert.equal(output3.kind, "tool_call");
+    if (output3.kind === "tool_call") {
+        assert.equal(output3.action.toolId, "read_file");
+        assert.deepEqual(output3.action.input, { path: "nested.ts" });
+    }
 });
 
 test("decodeToolCallOutcome 对非法 JSON 与契约违规保持稳定 issue 与业务路径", () => {

@@ -183,7 +183,7 @@ const KNOWN_STRAY_FIELDS = new Set([
 /**
  * 常见的外壳对象包装键。
  */
-const WRAPPER_KEYS = ["action", "input", "params", "arguments"];
+const WRAPPER_KEYS = ["action", "input", "params", "arguments", "parameters"];
 
 function pruneStrayFields(
     obj: Record<string, unknown>,
@@ -204,7 +204,7 @@ function pruneStrayFields(
  * 净化工具调用参数：安全剥离模型返回的冗余包装外壳并修剪多余元字段。
  *
  * @remarks
- * 当模型返回包含 `action`/`input`/`params` 单一核心对象的包装外壳，或者在参数中附加了
+ * 当模型返回包含 `action`/`input`/`params`/`parameters` 单一核心对象的包装外壳，或者在参数中附加了
  * `kind`、`stageId` 等契约外元字段时，剥离外壳并修剪元字段；若契约本身声明了该字段则保留。
  *
  * @param toolId - 被调用的工具标识。
@@ -223,6 +223,15 @@ export function unwrapAndSanitizeToolArguments(
     rawArgs: unknown,
     declaration?: SystemToolDeclaration<unknown>,
 ): unknown {
+    if (typeof rawArgs === "string") {
+        try {
+            const parsed = JSON.parse(rawArgs);
+            if (typeof parsed === "object" && parsed !== null) {
+                rawArgs = parsed;
+            }
+        } catch {}
+    }
+
     if (typeof rawArgs !== "object" || rawArgs === null || Array.isArray(rawArgs)) {
         return rawArgs;
     }
