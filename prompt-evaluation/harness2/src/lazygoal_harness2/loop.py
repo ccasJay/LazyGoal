@@ -282,7 +282,15 @@ class ProposeProbeComposeEngine:
                 f"### `{tid}`\n```njk\n{content}\n```"
                 for tid, content in sorted(effective_templates.items())
             )
-            + "\n\n## Current SWE-bench AgentProfile (Domain Edits)\n"
+            + "\n\n## Framework Components Architecture (Framework Track Edits)\n"
+            "You are NOT limited to prompt text or templates alone! If a runtime failure, tool error, or protocol friction "
+            "originates from underlying framework limitations or rigid validation, you may also diagnose and propose framework component edits "
+            "across these core packages:\n"
+            "- `packages/tools`: Tool implementation, parameter normalization, self-healing (read_file, edit_file, write_file, grep, bash)\n"
+            "- `packages/model-response`: Decision/tool call unwrapping, schema tolerance, extra-field pruning\n"
+            "- `packages/model-context`: Trajectory projection, output folding, budget allocation\n"
+            "- `packages/sandbox`: Workspace path resolution, boundary normalization\n\n"
+            "## Current SWE-bench AgentProfile (Domain Edits)\n"
             "Must reference `/testbed` and all 5 tools (`read_file`, `write_file`, `edit_file`, `grep`, `bash`).\n"
             f"```json\n{json.dumps({'systemPrompt': parent.system_prompt, 'instructions': list(parent.instructions)}, ensure_ascii=False, indent=2)}\n```\n\n"
             "## Full Committed Trajectory & Fault Report (Parent Candidate)\n"
@@ -291,12 +299,13 @@ class ProposeProbeComposeEngine:
             f"```json\n{json.dumps(prior_entries, ensure_ascii=False, indent=2)}\n```\n\n"
             f"Return a JSON object with key `proposals` containing up to {request.proposals_per_iteration} "
             "focused proposals. Each proposal object must have:\n"
-            '- `"scope"`: `"invariant"` (edits `.njk` templates) or `"domain"` (edits `systemPrompt`/`instructions`)\n'
+            '- `"scope"`: `"invariant"` (edits `.njk` templates), `"domain"` (edits `systemPrompt`/`instructions`), `"framework"` (edits framework components), or `"composed"`\n'
             '- `"hypothesis"`: concise root-cause diagnosis grounded in the trajectory events\n'
             '- `"targetFaultCodes"`: array of fault codes targeted\n'
             '- `"templateEdits"`: optional object mapping templateId to full updated `.njk` string\n'
             '- `"systemPrompt"`: optional updated systemPrompt string\n'
             '- `"instructions"`: optional updated array of instruction strings\n'
+            '- `"frameworkEdits"`: optional array of framework edit objects `[{"package": "...", "file": "...", "component": "...", "description": "...", "patchOrPseudoCode": "..."}]`\n'
         )
         if request.mode == "parallel":
             prompt += (
@@ -321,7 +330,7 @@ class ProposeProbeComposeEngine:
                 continue
             scope: EditScope = (
                 item.get("scope")
-                if item.get("scope") in ("invariant", "domain", "composed")
+                if item.get("scope") in ("invariant", "domain", "composed", "framework")
                 else "composed"
             )
             template_edits = {
@@ -331,6 +340,9 @@ class ProposeProbeComposeEngine:
             }
             sys_prompt = item.get("systemPrompt")
             instructions = item.get("instructions")
+            framework_edits = [
+                dict(f) for f in (item.get("frameworkEdits") or []) if isinstance(f, dict)
+            ]
             try:
                 cand = self.workspace.build_candidate_from_edits(
                     parent,
@@ -342,6 +354,7 @@ class ProposeProbeComposeEngine:
                     target_fault_codes=tuple(
                         str(c) for c in (item.get("targetFaultCodes") or [])
                     ),
+                    framework_edits=framework_edits,
                 )
             except ValueError:
                 continue
@@ -478,6 +491,7 @@ class ProposeProbeComposeEngine:
                     "templateOverrides": outcome.candidate.template_overrides,
                     "systemPrompt": outcome.candidate.system_prompt,
                     "instructions": list(outcome.candidate.instructions),
+                    "frameworkEdits": [dict(f) for f in outcome.candidate.framework_edits],
                     "taskComparisons": [
                         {
                             "taskId": c.task_id,
@@ -497,10 +511,13 @@ class ProposeProbeComposeEngine:
             "You are the Harness2 Composer agent for LazyGoal.\n"
             "Multiple Probe candidates improved over the Baseline/Parent trajectory.\n"
             "Inspect their contrastive trajectory outcomes (resolved vs. introduced faults) "
-            "and synthesize a unified candidate combining non-conflicting Invariant (`.njk`) "
-            "and Domain (`systemPrompt`/`instructions`) improvements.\n\n"
+            "and synthesize a unified candidate combining non-conflicting Invariant (`.njk`), "
+            "Domain (`systemPrompt`/`instructions`), and Framework Component (`frameworkEdits`) improvements.\n\n"
+            "## Framework Component Integration\n"
+            "If any Probe candidate proposed valid `frameworkEdits` (underlying tool/decoding/context engine fixes) "
+            "grounded in empirical trajectory improvements, carry forward or synthesize those `frameworkEdits` in your result.\n\n"
             f"## Contrastive Probe Outcomes\n```json\n{json.dumps(contrastive_summary, ensure_ascii=False, indent=2)}\n```\n\n"
-            "Return a JSON object with keys `hypothesis`, `templateEdits`, `systemPrompt`, and `instructions`."
+            "Return a JSON object with keys `hypothesis`, `templateEdits`, `systemPrompt`, `instructions`, and optional `frameworkEdits`."
         )
 
         try:
@@ -515,6 +532,13 @@ class ProposeProbeComposeEngine:
                 for k, v in (parsed.get("templateEdits") or {}).items()
                 if str(k) in MUTABLE_TEMPLATE_SOURCE_PATHS and isinstance(v, str) and v.strip()
             }
+            composed_framework_edits = [
+                dict(f) for f in (parsed.get("frameworkEdits") or []) if isinstance(f, dict)
+            ]
+            if not composed_framework_edits:
+                for o in beneficial:
+                    if o.candidate.framework_edits:
+                        composed_framework_edits.extend(dict(f) for f in o.candidate.framework_edits)
             composed_candidate = self.workspace.build_candidate_from_edits(
                 parent,
                 system_prompt=parsed.get("systemPrompt"),
@@ -533,6 +557,7 @@ class ProposeProbeComposeEngine:
                         }
                     )
                 ),
+                framework_edits=composed_framework_edits,
             )
             if composed_candidate.candidate_id != parent.candidate_id:
                 return composed_candidate
@@ -543,6 +568,7 @@ class ProposeProbeComposeEngine:
         merged_templates = dict(parent.template_overrides)
         merged_system_prompt = parent.system_prompt
         merged_instructions = parent.instructions
+        merged_framework_edits: list[dict[str, Any]] = []
         hypotheses: list[str] = []
         for outcome in reversed(beneficial):
             cand = outcome.candidate
@@ -553,6 +579,8 @@ class ProposeProbeComposeEngine:
                 merged_system_prompt = cand.system_prompt
             if cand.instructions != parent.instructions:
                 merged_instructions = cand.instructions
+            if cand.framework_edits:
+                merged_framework_edits.extend(dict(f) for f in cand.framework_edits)
             if cand.hypothesis:
                 hypotheses.append(cand.hypothesis)
 
@@ -566,6 +594,7 @@ class ProposeProbeComposeEngine:
             target_fault_codes=tuple(
                 sorted({code for o in beneficial for code in o.resolved_fault_codes})
             ),
+            framework_edits=merged_framework_edits,
         )
 
 

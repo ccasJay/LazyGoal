@@ -182,8 +182,9 @@ class HarnessWorkspace:
         scope: EditScope = "composed",
         hypothesis: str = "",
         target_fault_codes: tuple[str, ...] = (),
+        framework_edits: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
     ) -> Harness2Candidate:
-        """Apply incremental template and/or profile edits on top of a parent candidate."""
+        """Apply incremental template, profile, and/or framework edits on top of a parent candidate."""
         next_system_prompt = (
             system_prompt.strip()
             if isinstance(system_prompt, str) and system_prompt.strip()
@@ -208,6 +209,12 @@ class HarnessWorkspace:
             else:
                 merged_overrides[tid] = new_content
 
+        resolved_framework_edits: tuple[dict[str, Any], ...] = (
+            tuple(dict(f) for f in framework_edits if isinstance(f, dict))
+            if framework_edits is not None
+            else parent.framework_edits
+        )
+
         cid = compute_candidate_id(next_system_prompt, next_instructions, merged_overrides)
         return Harness2Candidate(
             candidate_id=cid,
@@ -219,4 +226,5 @@ class HarnessWorkspace:
             scope=scope,
             hypothesis=hypothesis,
             target_fault_codes=target_fault_codes,
+            framework_edits=resolved_framework_edits,
         )

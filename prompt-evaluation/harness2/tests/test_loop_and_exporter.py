@@ -303,6 +303,25 @@ class TestHarness2LoopAndExporter(unittest.TestCase):
             self.assertEqual(report["lifecycleStatus"], "completed")
             self.assertAlmostEqual(report["baselineScore"], 0.8)
 
+    def test_framework_edits_preserved_and_exported(self) -> None:
+        cand = Harness2Candidate(
+            candidate_id="cand-fw-1",
+            base_profile_id="swebench-acp-profile",
+            system_prompt="sys",
+            instructions=("inst",),
+            framework_edits=(
+                {
+                    "package": "packages/tools",
+                    "file": "packages/tools/src/read-file.ts",
+                    "description": "Auto-swap startLine and endLine",
+                },
+            ),
+        )
+        as_dict = cand.to_dict()
+        self.assertEqual(len(as_dict["frameworkEdits"]), 1)
+        reconstructed = Harness2Candidate.from_dict(as_dict)
+        self.assertEqual(reconstructed.framework_edits, cand.framework_edits)
+
 
 if __name__ == "__main__":
     unittest.main()

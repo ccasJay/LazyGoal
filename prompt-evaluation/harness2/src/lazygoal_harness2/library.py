@@ -21,6 +21,7 @@ class ImprovementEntry:
     template_edits: dict[str, str] = field(default_factory=dict)
     system_prompt_edit: str | None = None
     instructions_edit: tuple[str, ...] | None = None
+    framework_edits: tuple[dict[str, Any], ...] = ()
     trials: int = 0
     total_score_delta: float = 0.0
     total_fault_delta: int = 0
@@ -47,6 +48,7 @@ class ImprovementEntry:
             "templateEdits": dict(sorted(self.template_edits.items())),
             "systemPromptEdit": self.system_prompt_edit,
             "instructionsEdit": list(self.instructions_edit) if self.instructions_edit else None,
+            "frameworkEdits": [dict(f) for f in self.framework_edits],
             "trials": self.trials,
             "totalScoreDelta": round(self.total_score_delta, 6),
             "totalFaultDelta": self.total_fault_delta,
@@ -57,6 +59,7 @@ class ImprovementEntry:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ImprovementEntry:
         raw_inst = data.get("instructionsEdit")
+        raw_framework = data.get("frameworkEdits") or []
         return cls(
             entry_id=str(data["entryId"]),
             scope=data.get("scope", "invariant"),
@@ -67,6 +70,7 @@ class ImprovementEntry:
             },
             system_prompt_edit=data.get("systemPromptEdit"),
             instructions_edit=tuple(str(x) for x in raw_inst) if isinstance(raw_inst, list) else None,
+            framework_edits=tuple(dict(f) for f in raw_framework if isinstance(f, dict)),
             trials=int(data.get("trials", 0)),
             total_score_delta=float(data.get("totalScoreDelta", 0.0)),
             total_fault_delta=int(data.get("totalFaultDelta", 0)),

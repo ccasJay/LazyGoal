@@ -98,6 +98,13 @@ def export_best_candidate(
     prompt_bundle_patch_path = exports_dir / "prompt-bundle.patch"
     prompt_bundle_patch_path.write_text(patch_text, encoding="utf-8")
 
+    if candidate.framework_edits:
+        framework_improvements_path = exports_dir / "framework-improvements.json"
+        framework_improvements_path.write_text(
+            json.dumps([dict(f) for f in candidate.framework_edits], ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
     improvement_library_path = exports_dir / "improvement-library.json"
     library.save()
     if library.storage_path.resolve() != improvement_library_path.resolve():

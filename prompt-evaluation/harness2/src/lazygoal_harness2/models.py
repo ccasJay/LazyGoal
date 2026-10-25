@@ -7,13 +7,13 @@ from typing import Any, Literal
 
 HARNESS2_RUN_PROTOCOL = "lazygoal-harness2-run@1"
 
-EditScope = Literal["invariant", "domain", "composed"]
+EditScope = Literal["invariant", "domain", "composed", "framework"]
 LifecycleStatus = Literal["pending", "running", "completed", "stopped", "failed"]
 
 
 @dataclass(frozen=True)
 class Harness2Candidate:
-    """Immutable snapshot of a dual-track candidate (Prompt Bundle templates + AgentProfile)."""
+    """Immutable snapshot of a multi-track candidate (Prompt Bundle templates + AgentProfile + Framework Edits)."""
 
     candidate_id: str
     base_profile_id: str
@@ -24,6 +24,7 @@ class Harness2Candidate:
     scope: EditScope = "composed"
     hypothesis: str = ""
     target_fault_codes: tuple[str, ...] = ()
+    framework_edits: tuple[dict[str, Any], ...] = ()
 
     def to_prompt_evaluation_candidate(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -47,11 +48,13 @@ class Harness2Candidate:
             "scope": self.scope,
             "hypothesis": self.hypothesis,
             "targetFaultCodes": list(self.target_fault_codes),
+            "frameworkEdits": [dict(f) for f in self.framework_edits],
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Harness2Candidate:
         raw_overrides = data.get("templateOverrides") or {}
+        raw_framework = data.get("frameworkEdits") or []
         return cls(
             candidate_id=str(data["candidateId"]),
             base_profile_id=str(data["baseProfileId"]),
@@ -62,6 +65,7 @@ class Harness2Candidate:
             scope=data.get("scope", "composed"),
             hypothesis=str(data.get("hypothesis", "")),
             target_fault_codes=tuple(str(c) for c in data.get("targetFaultCodes", [])),
+            framework_edits=tuple(dict(f) for f in raw_framework if isinstance(f, dict)),
         )
 
 
