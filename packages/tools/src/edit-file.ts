@@ -16,7 +16,7 @@ import {
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import { invalidInput } from "./internal/invalid-input";
-import { markWorkspaceModified } from "./internal/workspace-version";
+import { getWorkspaceVersion, markWorkspaceModified } from "./internal/workspace-version";
 import {
     createWorkspaceSandbox,
     normalizeToWorkspaceRelative,
@@ -92,6 +92,7 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
     readonly replayPolicy = "safe" as const;
 
     private readonly sandbox: WorkspaceSandbox;
+    private readonly failedOldStrings = new Map<string, number>();
 
     /**
      * @param workspaceRoot - 允许编辑的工作区根目录，可为相对或绝对路径。
@@ -131,6 +132,18 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
         const requestedPath = normalizeToWorkspaceRelative(request.input.path, this.sandbox.root);
         const oldString = request.input.oldString;
         const newString = request.input.newString;
+
+        const cacheKey = `${requestedPath}\0${oldString}`;
+        const currentVersion = getWorkspaceVersion(this.sandbox.root);
+        const recordedVersion = this.failedOldStrings.get(cacheKey);
+        if (recordedVersion !== undefined && recordedVersion === currentVersion) {
+            return {
+                kind: "failure",
+                code: "REPEATED_STRING_NOT_FOUND",
+                message: `oldString 在文件中之前已确认不存在: ${requestedPath}。请勿重复发送相同的 oldString；请重新读取目标行号范围确认最新内容，或直接使用 write_file 重写文件。`,
+                retryable: false,
+            };
+        }
 
         const resolved = await this.sandbox.resolveTarget(
             requestedPath,
@@ -182,6 +195,8 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
                     );
                     throwIfAborted(control);
                     markWorkspaceModified(this.sandbox.root);
+            this.failedOldStrings.clear();
+                    this.failedOldStrings.clear();
                 } catch (error) {
                     if (isExecutionAbortedError(error)) {
                         throw error;
@@ -228,6 +243,7 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
                 || (normalizeString(newString) !== "" && normalizeString(content).includes(normalizeString(newString)));
 
             if (isAlreadyApplied) {
+                this.failedOldStrings.delete(cacheKey);
                 return {
                     kind: "success",
                     output: {
@@ -239,10 +255,13 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
                 };
             }
 
+            this.failedOldStrings.set(cacheKey, currentVersion);
+            const hint = findNearestLineHint(content, oldString);
+
             return {
                 kind: "failure",
                 code: "STRING_NOT_FOUND",
-                message: `oldString 在文件中不存在: ${requestedPath}`,
+                message: `oldString 在文件中不存在: ${requestedPath}${hint}`,
                 retryable: false,
             };
         }
@@ -266,6 +285,7 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
             );
             throwIfAborted(control);
             markWorkspaceModified(this.sandbox.root);
+            this.failedOldStrings.clear();
         } catch (error) {
             if (isExecutionAbortedError(error)) {
                 throw error;
@@ -462,5 +482,30 @@ function tryFuzzyMatchAndReplace(
         kind: "matched",
         updatedContent,
     };
+}
+
+/**
+ * 在目标文本中尝试定位与未匹配 oldString 最接近的行号与代码摘要。
+ *
+ * @param content - 文件完整文本。
+ * @param oldString - 未匹配成功的旧字符串。
+ * @returns 提示字符串；若无实质匹配则返回空字符串。
+ */
+function findNearestLineHint(content: string, oldString: string): string {
+    const rawLines = oldString.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 3);
+    if (rawLines.length === 0) {
+        return "";
+    }
+    const targetLine = rawLines[0]!;
+    const contentLines = content.split(/\r?\n/);
+    for (let i = 0; i < contentLines.length; i++) {
+        const line = contentLines[i]!;
+        if (line.includes(targetLine) || (line.trim().length > 5 && targetLine.includes(line.trim()))) {
+            const lineNo = i + 1;
+            const snippet = line.trim().slice(0, 80);
+            return `. 提示: 在第 ${lineNo} 行发现可能相关的代码: "${snippet}"。请重新核对该行精确内容或使用 write_file 重写文件。`;
+        }
+    }
+    return "";
 }
 

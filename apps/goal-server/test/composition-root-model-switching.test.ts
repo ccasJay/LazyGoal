@@ -416,7 +416,7 @@ test("新进程从 Snapshot 恢复动态模型 API 与容量，并使用当前 P
         });
         assert.equal(accepted.ok, true);
         const request = await withTimeout(transport.promise, "Restored dynamic binding did not call its transport");
-        assert.equal(request.url, "https://opencode.ai/inference/go/openai/v1/chat/completions");
+        assert.equal(request.url, "https://opencode.ai/inference/go/v1/chat/completions");
         assert.equal(request.headers.get("authorization"), "Bearer sk-current-provider-key");
         assert.equal(request.headers.get("user-agent"), "lazygoal");
         assert.ok(request.headers.get("x-opencode-session"));

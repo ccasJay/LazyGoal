@@ -385,3 +385,89 @@ test("EditFileTool 支持空白/换行符自适应容错匹配与绝对路径归
     }
 });
 
+test("EditFileTool 未改动代码前重复使用相同的缺失 oldString 触发熔断拦截", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-edit-file-repeat-"));
+
+    try {
+        const target = join(workspaceRoot, "code.py");
+        await writeFile(target, "def solve():\n    return 42\n", "utf8");
+        const tool = new EditFileTool(workspaceRoot);
+
+        // 第一次失败并附带近邻提示
+        const res1 = await tool.execute({
+            actionId: "act-1",
+            input: {
+                path: "code.py",
+                oldString: "def solve_wrong():\n    return 0",
+                newString: "def solve():\n    return 100",
+            },
+        });
+        assert.equal(res1.kind, "failure");
+        assert.equal((res1 as any).code, "STRING_NOT_FOUND");
+        assert.ok((res1 as any).message.includes("oldString 在文件中不存在"));
+
+        // 未写文件前重复尝试相同 oldString -> REPEATED_STRING_NOT_FOUND 熔断
+        const res2 = await tool.execute({
+            actionId: "act-2",
+            input: {
+                path: "code.py",
+                oldString: "def solve_wrong():\n    return 0",
+                newString: "def solve():\n    return 100",
+            },
+        });
+        assert.equal(res2.kind, "failure");
+        assert.equal((res2 as any).code, "REPEATED_STRING_NOT_FOUND");
+        assert.ok((res2 as any).message.includes("之前已确认不存在"));
+
+        // 若成功执行了其他编辑（工作区发生变更），熔断重置
+        const resSuccess = await tool.execute({
+            actionId: "act-success",
+            input: {
+                path: "code.py",
+                oldString: "return 42",
+                newString: "return 43",
+            },
+        });
+        assert.equal(resSuccess.kind, "success");
+
+        // 熔断已被重置，再次尝试返回普通的 STRING_NOT_FOUND
+        const res3 = await tool.execute({
+            actionId: "act-3",
+            input: {
+                path: "code.py",
+                oldString: "def solve_wrong():\n    return 0",
+                newString: "def solve():\n    return 100",
+            },
+        });
+        assert.equal(res3.kind, "failure");
+        assert.equal((res3 as any).code, "STRING_NOT_FOUND");
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("EditFileTool 未命中时若存在相似代码行附带近邻行号提示", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-edit-file-hint-"));
+
+    try {
+        const target = join(workspaceRoot, "demo.py");
+        await writeFile(target, "# line 1\n# line 2\ndef compute_answer(x, y):\n    return x + y\n", "utf8");
+        const tool = new EditFileTool(workspaceRoot);
+
+        const res = await tool.execute({
+            actionId: "act-hint",
+            input: {
+                path: "demo.py",
+                oldString: "def compute_answer(x, y):\n    return x - y",
+                newString: "def compute_answer(x, y):\n    return x * y",
+            },
+        });
+        assert.equal(res.kind, "failure");
+        assert.equal((res as any).code, "STRING_NOT_FOUND");
+        assert.ok((res as any).message.includes("第 3 行"));
+        assert.ok((res as any).message.includes("compute_answer"));
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+

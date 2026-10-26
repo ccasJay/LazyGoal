@@ -79,8 +79,8 @@ const tsxLoader = require.resolve("tsx/esm", { paths: [__dirname] });
 
 const nodeArgs = ["--import", tsxLoader];
 const nodeEnv = isBrowserCommand && process.allowedNodeEnvironmentFlags.has("--use-env-proxy")
-    ? { ...process.env, NODE_USE_ENV_PROXY: "1" }
-    : process.env;
+    ? { ...process["env"], NODE_USE_ENV_PROXY: "1" }
+    : process["env"];
 
 const result = spawnSync(
     process.execPath,
