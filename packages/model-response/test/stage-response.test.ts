@@ -181,6 +181,22 @@ test("decodeToolCallOutcome 容错解包 action/input 外壳与修剪多余元�
         assert.equal(output5.action.toolId, "read_file");
         assert.deepEqual(output5.action.input, { path: "target.ts" });
     }
+
+    // 6. 支持带 toolId/input 多键包装与嵌套 action.input 解包
+    const toolIdInputCall = {
+        callId: "call-wrap-6",
+        toolId: "read_file",
+        argumentsJson: JSON.stringify({
+            toolId: "read_file",
+            input: { path: "from-toolId-input.ts" },
+        }),
+    };
+    const output6 = decodeToolCallOutcome(toolIdInputCall, declarations, AUTHORIZED_TOOL_IDS);
+    assert.equal(output6.kind, "tool_call");
+    if (output6.kind === "tool_call") {
+        assert.equal(output6.action.toolId, "read_file");
+        assert.deepEqual(output6.action.input, { path: "from-toolId-input.ts" });
+    }
 });
 
 test("decodeToolCallOutcome 对非法 JSON 与契约违规保持稳定 issue 与业务路径", () => {

@@ -271,8 +271,18 @@ export function unwrapAndSanitizeToolArguments(
 
         const keys = Object.keys(pruned);
 
+        // 支持带 toolId/input 或 action/input 等多键嵌套的包装外壳
+        if ("input" in pruned && typeof pruned.input === "object" && pruned.input !== null && !Array.isArray(pruned.input)) {
+            current = pruned.input;
+            continue;
+        }
+        if ("action" in pruned && typeof pruned.action === "object" && pruned.action !== null && !Array.isArray(pruned.action)) {
+            current = pruned.action;
+            continue;
+        }
+
         // 支持标准包装外壳以及与工具标识同名的单键外壳（如 {"system_start_run_stage": {...}}）
-        if (keys.length === 1 && (WRAPPER_KEYS.includes(keys[0]!) || keys[0] === toolId)) {
+        if (keys.length === 1 && (WRAPPER_KEYS.includes(keys[0]!) || keys[0] === toolId || keys[0]!.toLowerCase() === toolId.toLowerCase())) {
             const inner = pruned[keys[0]!];
             if (typeof inner === "object" && inner !== null && !Array.isArray(inner)) {
                 current = inner;
