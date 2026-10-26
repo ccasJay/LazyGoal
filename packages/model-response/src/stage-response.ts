@@ -123,15 +123,22 @@ export function decodeToolCallOutcome(
             },
         );
     }
-    const declaration = declarations.find(tool => tool.id === toolCall.toolId);
+    const effectiveToolId = declarations.some(tool => tool.id === toolCall.toolId)
+        ? toolCall.toolId
+        : declarations.some(tool => tool.id === `system_${toolCall.toolId}`)
+        ? `system_${toolCall.toolId}`
+        : declarations.some(tool => tool.id.replace(/^system_/, "") === toolCall.toolId)
+        ? declarations.find(tool => tool.id.replace(/^system_/, "") === toolCall.toolId)!.id
+        : toolCall.toolId;
+    const declaration = declarations.find(tool => tool.id === effectiveToolId);
     try {
-        return decodePhaseToolCall(declarations, toolCall.toolId, rawArgs) as DecideOutput;
+        return decodePhaseToolCall(declarations, effectiveToolId, rawArgs) as DecideOutput;
     } catch (firstError) {
         if (firstError instanceof ContractValidationError) {
-            const sanitizedArgs = unwrapAndSanitizeToolArguments(toolCall.toolId, rawArgs, declaration);
+            const sanitizedArgs = unwrapAndSanitizeToolArguments(effectiveToolId, rawArgs, declaration);
             if (sanitizedArgs !== rawArgs) {
                 try {
-                    return decodePhaseToolCall(declarations, toolCall.toolId, sanitizedArgs) as DecideOutput;
+                    return decodePhaseToolCall(declarations, effectiveToolId, sanitizedArgs) as DecideOutput;
                 } catch {
                     // 解包净化后仍不符合契约，保留抛出原始错误
                 }
@@ -141,11 +148,11 @@ export function decodeToolCallOutcome(
         const error = firstError;
         throw error instanceof ContractValidationError
             ? new LLMResponseProtocolError(
-                `Tool call "${toolCall.toolId}" validation failed: ${error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+                `Tool call "${effectiveToolId}" validation failed: ${error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
                 {
                     issues: error.issues.map(i => ({
                         code: i.code,
-                        path: authorizedToolIds.includes(toolCall.toolId)
+                        path: authorizedToolIds.includes(effectiveToolId)
                             ? ["action", "input", ...i.path]
                             : i.path,
                         message: i.message,
