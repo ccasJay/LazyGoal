@@ -208,8 +208,20 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
                 } catch {}
 
                 let alternativePathHint = "";
+                // 探测同名 Python 包目录的 __init__.py（例如请求 quantity_helper.py，但实际为 quantity_helper/__init__.py）
+                if (requestedPath.endsWith(".py")) {
+                    const pkgDir = requestedPath.slice(0, -3);
+                    const initPath = `${pkgDir}/__init__.py`;
+                    try {
+                        const st = await stat(resolve(this.sandbox.root, initPath));
+                        if (st.isFile()) {
+                            alternativePathHint = `. 提示: 文件 ${requestedPath} 不存在，但存在同名 Python 模块包: ${initPath}，请直接读取该包的 __init__.py。`;
+                        }
+                    } catch {}
+                }
+
                 const parts = requestedPath.split("/").filter(Boolean);
-                if (parts.length > 1) {
+                if (!alternativePathHint && parts.length > 1) {
                     const stripped = parts.slice(1).join("/");
                     try {
                         const st = await stat(resolve(this.sandbox.root, stripped));

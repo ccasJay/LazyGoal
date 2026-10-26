@@ -413,4 +413,28 @@ test("ReadFileTool 检测并提示冗余/重复目录前缀的真实存在路径
     }
 });
 
+test("ReadFileTool 检测并提示同名 Python 模块包目录的 __init__.py", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-read-pkg-"));
+    try {
+        const pkgDir = join(workspaceRoot, "astropy", "coordinates", "quantity_helper");
+        await mkdir(pkgDir, { recursive: true });
+        await writeFile(join(pkgDir, "__init__.py"), "# package init", "utf8");
+
+        const tool = new ReadFileTool(workspaceRoot);
+
+        // 模型请求 quantity_helper.py，实际存在 quantity_helper/__init__.py
+        const res = await tool.execute({
+            actionId: "act-pkg-1",
+            input: { path: "astropy/coordinates/quantity_helper.py" },
+        });
+        assert.equal(res.kind, "failure");
+        assert.equal(res.code, "FILE_NOT_FOUND");
+        assert.ok(res.message.includes("astropy/coordinates/quantity_helper/__init__.py"));
+        assert.ok(res.message.includes("同名 Python 模块包"));
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+
 
