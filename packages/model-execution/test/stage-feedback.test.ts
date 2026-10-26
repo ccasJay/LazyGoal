@@ -106,3 +106,24 @@ test("工具形状反馈只包含字段名与当前声明，不回传参数值",
     assert.ok(!text.includes("PRIVATE_"));
     assert.ok(mapped.feedback.constraints!.every(line => line.length <= 240));
 });
+
+test("未授权或未知系统工具调用生成清晰提示切换合法工具", () => {
+    let failure: unknown;
+    try {
+        decodeToolCallOutcome({
+            callId: "call_unauth",
+            toolId: "system_start_run_stage",
+            argumentsJson: JSON.stringify({ target: "test", acceptanceCriteria: ["done"] }),
+        }, [SystemCompleteRunDeclaration], []);
+    } catch (error) {
+        failure = error;
+    }
+    const mapped = toModelStageFeedback(failure, { goal }, "decide");
+    assert.ok(mapped instanceof ModelStageFeedbackError);
+    assert.equal(mapped.feedback.origin, "output_contract");
+    assert.deepEqual(mapped.feedback.issues[0]?.path, ["system_start_run_stage"]);
+    assert.match(
+        mapped.feedback.issues[0]!.message,
+        /Tool call "system_start_run_stage" is not declared or not authorized in the current state/,
+    );
+});

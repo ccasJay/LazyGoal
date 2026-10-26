@@ -87,7 +87,15 @@ function safeIssueMessage(code: string, diagnosticMessage?: string): string {
         case "missing_tool_call": return "Call exactly one declared tool using its parameter schema. Do not return a text JSON decision.";
         case "multiple_tool_calls": return "Return exactly one declared tool call, not multiple calls.";
         case "missing_field": return "Supply this required field using the current schema.";
-        case "extra_field": return "Remove this field; the current schema does not allow it.";
+        case "extra_field": {
+            if (diagnosticMessage && diagnosticMessage.includes("Unauthorized or unknown tool call")) {
+                const match = diagnosticMessage.match(/tool call: "([^"]+)"/i);
+                return match
+                    ? `Tool call "${match[1]}" is not declared or not authorized in the current state. Call one of the currently declared tools instead.`
+                    : "Tool call is not declared or not authorized in the current state. Call one of the currently declared tools instead.";
+            }
+            return "Remove this field; the current schema does not allow it.";
+        }
         case "string_min_length": return "Use a non-blank string at this path.";
         case "invalid_type": {
             switch (diagnosticMessage) {
