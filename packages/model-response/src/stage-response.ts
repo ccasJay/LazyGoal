@@ -178,6 +178,8 @@ const KNOWN_STRAY_FIELDS = new Set([
     "memoryPatch",
     "reason",
     "thought",
+    "cursor",
+    "useDefaultCursor",
 ]);
 
 /**

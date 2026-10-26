@@ -493,7 +493,7 @@ export async function executeLlmWithTransientRetry(
     control?: ExecutionControl,
     options?: TransientRetryOptions,
 ): Promise<LLMResponse> {
-    const maxAttempts = options?.maxAttempts ?? 6;
+    const maxAttempts = options?.maxAttempts ?? 8;
     const baseDelayMs = options?.baseDelayMs ?? 1000;
     const maxDelayMs = options?.maxDelayMs ?? 30_000;
     const logPrefix = options?.logPrefix ?? "[LLM Retry]";
