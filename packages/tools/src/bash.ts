@@ -169,13 +169,16 @@ function createTailCollector(limit: number): OutputCollector {
     };
 }
 
+const FAILURE_LINE_PATTERN = /(FAILED|ERROR|assert|Traceback|\(.*Error\)|Exception|short test summary|E\s{2,})/i;
+
 /**
  * 单个子进程输出流的首尾双向保留收集器。
  *
  * @remarks
  * 保留首部 `headLimit` 字符（捕获 pytest 等命令最前端的失败用例与配置头）
  * 与尾部 `tailLimit` 字符（捕获最终总结与最近 Traceback），中间超量部分折叠，
- * 解决单向尾部截断吞掉头部错误信息的痛点。
+ * 同时智能过滤并提取中间被省略的真实测试失败用例与断言行（如 FAILED/ERROR），
+ * 彻底解决长篇测试套件中核心失败信息被截断丢失的痛点。
  */
 function createHeadTailCollector(headLimit: number, tailLimit: number): OutputCollector {
     let head = "";
@@ -184,6 +187,7 @@ function createHeadTailCollector(headLimit: number, tailLimit: number): OutputCo
     const totalLimit = headLimit + tailLimit;
     let totalChars = 0;
     let exceeded = false;
+    const failureLines: string[] = [];
 
     return {
         push(chunk: string) {
@@ -211,6 +215,17 @@ function createHeadTailCollector(headLimit: number, tailLimit: number): OutputCo
                 return;
             }
 
+            if (failureLines.length < 40) {
+                const lines = chunk.split("\n");
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (trimmed.length > 0 && FAILURE_LINE_PATTERN.test(trimmed)) {
+                        failureLines.push(trimmed.slice(0, 200));
+                        if (failureLines.length >= 40) break;
+                    }
+                }
+            }
+
             tail += chunk;
             if (tail.length > tailLimit) {
                 let drop = tail.length - tailLimit;
@@ -226,7 +241,10 @@ function createHeadTailCollector(headLimit: number, tailLimit: number): OutputCo
                 return initialBuffer;
             }
             const omitted = totalChars - head.length - tail.length;
-            return `${head}\n[...已省略中间 ${omitted} 字符...]\n${tail}`;
+            const failureBlock = failureLines.length > 0
+                ? `\n=== 关键失败用例与断言提取 ===\n${failureLines.join("\n")}\n==============================\n`
+                : "";
+            return `${head}\n[...已省略中间 ${omitted} 字符...]${failureBlock}\n${tail}`;
         },
     };
 }
@@ -619,7 +637,7 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
             return {
                 kind: "failure",
                 code: "REPEATED_COMMAND_BLOCKED",
-                message: `该命令前次执行失败，且之后工作区内未发生任何代码修改（edit_file/write_file）。请先查看前次错误信息并修改代码，或修改测试命令后再尝试执行。前次错误摘要: ${priorFailure.lastErrorSummary}`,
+                message: `该命令前次执行失败，且之后工作区内未发生任何代码修改（edit_file/write_file）。严禁下一步继续调用 bash！请立即发起 edit_file 或 write_file 修改代码，修改后再运行针对性的单测节点。前次错误摘要: ${priorFailure.lastErrorSummary}`,
                 retryable: false,
             };
         }

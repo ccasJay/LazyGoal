@@ -713,3 +713,33 @@ test("BashTool 在 head_tail 模式下保留首部与尾部并折叠中间超量
         await rm(workspaceRoot, { recursive: true, force: true });
     }
 });
+
+test("BashTool 在 head_tail 模式下智能提取中间被截断的 pytest 失败断言行", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-pytest-extract-"));
+
+    try {
+        const bashTool = new BashTool(workspaceRoot, {
+            enableSeatbelt: false,
+            truncationMode: "head_tail",
+        });
+
+        // 构造首部 + 中间超量垃圾输出 + 关键 FAILED 节点断言 + 尾部（超过 10,000 字符预算）
+        const command = `printf 'HEAD_START\\n'; printf 'noise_line_%.0s\\n' {1..1200}; printf 'FAILED tests/test_sampled.py::test_required_columns - ValueError: missing col\\n'; printf 'noise_line_%.0s\\n' {1..1200}; printf 'TAIL_END\\n'`;
+
+        const result = await bashTool.execute({
+            actionId: "act-ht-pytest",
+            input: { command },
+        });
+
+        assert.equal(result.kind, "success");
+        if (result.kind === "success") {
+            const output = result.output as { stdout: string };
+            assert.ok(output.stdout.includes("HEAD_START"));
+            assert.ok(output.stdout.includes("TAIL_END"));
+            assert.ok(output.stdout.includes("=== 关键失败用例与断言提取 ==="));
+            assert.ok(output.stdout.includes("FAILED tests/test_sampled.py::test_required_columns"));
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
