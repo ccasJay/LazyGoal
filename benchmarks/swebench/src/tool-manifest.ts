@@ -81,6 +81,6 @@ export function createSwebenchToolRegistrations(workspaceRoot: string): readonly
         createToolRegistration(new WriteFileTool(workspaceRoot)),
         createToolRegistration(new EditFileTool(workspaceRoot)),
         createToolRegistration(new GrepTool(workspaceRoot)),
-        createToolRegistration(new BashTool(workspaceRoot, { enableSeatbelt: false })),
+        createToolRegistration(new BashTool(workspaceRoot, { enableSeatbelt: false, truncationMode: "head_tail" })),
     ];
 }

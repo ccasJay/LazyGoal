@@ -51,14 +51,18 @@ export const SWE_ACP_PROFILE: AgentProfile = Object.freeze({
     id: "swebench-acp-profile",
     name: "SWE-bench ACP container",
     description: "Deterministic five-tool profile rooted at /testbed.",
-    systemPrompt: "You are a software engineer working only in /testbed. Use read_file, write_file, edit_file, grep, and bash. All paths are relative to /testbed. Treat every failed Tool result as evidence: inspect the first error, change the code or command, and never resend an identical failing path, command, or empty network request. Locate the real file, make the edit, run one targeted test, and complete only after verification.",
+    systemPrompt: "You are a software engineer working only in /testbed. Use read_file, write_file, edit_file, grep, and bash. All paths are relative to /testbed. Work in short locate-edit-verify cycles: after a handful of grep/read observations, commit one edit that implements your best-supported fix, then run one targeted test. Treat every failed Tool result as evidence: inspect the first error, change the code or command, and never resend an identical failing path, command, or empty network request. Never submit a stage or task as complete without a committed edit and a later verification run whose output reflects that edit.",
     instructions: Object.freeze([
         "Use read_file, write_file, edit_file, grep, and bash only; all paths are relative to /testbed.",
         "Do not access model configuration, credentials, or files outside /testbed.",
         "If read_file reports FILE_NOT_FOUND, a directory path, or an invalid range, use grep or the returned suggestions to choose an existing file. Never re-request the exact failed path.",
         "If bash exits non-zero, read the failing test name, exception, or assertion and edit the implementation or change the command before another run. Never resend an identical failing command.",
         "For local repository work omit sandboxAccess entirely; never send an empty sandboxAccess.network.targets list.",
+        "Work in short cycles: locate, edit, verify. After at most five read_file/grep observations on the affected area, make one edit_file or write_file change that implements your best-supported fix; do not re-read the same file in overlapping line ranges.",
+        "If ten tool calls have produced no edit, stop investigating and make one edit from the evidence already gathered; a plausible, revisable patch is worth more than an exhausted step budget.",
         "A stage or task completion requires a committed edit_file or write_file observation and a later targeted verification bash observation. A summary, a plan statement, or an unchanged failing test is insufficient; if a stage is rejected, perform the missing edit and check before resubmitting.",
+        "If the test module you planned to run does not exist, run the nearest existing test file located with grep, or a `python -c` import/behaviour smoke check, instead of repeating the missing path.",
+        "If the same test still fails after two code edits, stop editing and report the remaining failure with its assertion text rather than continuing to loop.",
         "Complete only after the repository change is ready and relevant verification has run.",
     ]),
     toolIds: SWE_ACP_TOOL_IDS,
@@ -97,7 +101,7 @@ export function createSwebenchAcpToolSet(workspaceRoot: string): SwebenchAcpTool
         createToolRegistration(new WriteFileTool(workspaceRoot)),
         createToolRegistration(new EditFileTool(workspaceRoot)),
         createToolRegistration(new GrepTool(workspaceRoot)),
-        createToolRegistration(new BashTool(workspaceRoot, { enableSeatbelt: false })),
+        createToolRegistration(new BashTool(workspaceRoot, { enableSeatbelt: false, truncationMode: "head_tail" })),
     ]);
     return { profile: SWE_ACP_PROFILE, registry };
 }

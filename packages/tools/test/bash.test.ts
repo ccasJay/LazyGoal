@@ -685,3 +685,31 @@ test("BashTool 阻断重复失败命令并在修改文件后允许重试", async
         await rm(workspaceRoot, { recursive: true, force: true });
     }
 });
+
+test("BashTool 在 head_tail 模式下保留首部与尾部并折叠中间超量输出", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-head-tail-"));
+
+    try {
+        const bashTool = new BashTool(workspaceRoot, {
+            enableSeatbelt: false,
+            truncationMode: "head_tail",
+        });
+
+        const result = await bashTool.execute({
+            actionId: "act-ht-1",
+            input: {
+                command: "printf 'HEAD_START'; printf 'a%.0s' {1..9990}; printf 'b%.0s' {1..9990}; printf 'TAIL_END'",
+            },
+        });
+
+        assert.equal(result.kind, "success");
+        if (result.kind === "success") {
+            const output = result.output as { stdout: string };
+            assert.ok(output.stdout.startsWith("HEAD_START"));
+            assert.ok(output.stdout.endsWith("TAIL_END"));
+            assert.match(output.stdout, /\[\.\.\.已省略中间 \d+ 字符\.\.\.\]/);
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
