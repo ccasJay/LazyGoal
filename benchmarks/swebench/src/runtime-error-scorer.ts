@@ -383,12 +383,13 @@ export function scoreRuntimeTrajectoryEvents(
                     const isRepeatedIdenticalFailure = failedToolSignatures.has(signature);
                     failedToolSignatures.add(signature);
                     toolFaultCount += 1;
+                    const code = payload.observation.code ?? "";
                     pushFault(faults, {
                         sequence: event.sequence,
                         category: "tool",
-                        code: isRepeatedIdenticalFailure
-                            ? `REPEATED_${payload.observation.code}`
-                            : payload.observation.code,
+                        code: isRepeatedIdenticalFailure && !code.startsWith("REPEATED_")
+                            ? `REPEATED_${code}`
+                            : code,
                         origin: payload.toolId,
                         message: payload.observation.message,
                     });

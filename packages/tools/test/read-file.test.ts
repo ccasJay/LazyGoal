@@ -384,8 +384,33 @@ test("ReadFileTool 支持倒置行号自愈、路径归一化与损坏游标平�
         });
         assert.equal(repeatedMissResult.kind, "failure");
         assert.equal(repeatedMissResult.code, "REPEATED_FILE_NOT_FOUND");
+        assert.ok(repeatedMissResult.message.includes("严禁重复读取"));
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
     }
 });
+
+test("ReadFileTool 检测并提示冗余/重复目录前缀的真实存在路径", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-read-prefix-"));
+    try {
+        const subDir = join(workspaceRoot, "pkg", "core");
+        await mkdir(subDir, { recursive: true });
+        await writeFile(join(subDir, "target.py"), "print('hello')", "utf8");
+
+        const tool = new ReadFileTool(workspaceRoot);
+
+        // 模型多传入了一级冗余前缀 pkg/pkg/core/target.py
+        const redundantResult = await tool.execute({
+            actionId: "act-redundant-1",
+            input: { path: "pkg/pkg/core/target.py" },
+        });
+        assert.equal(redundantResult.kind, "failure");
+        assert.equal(redundantResult.code, "FILE_NOT_FOUND");
+        assert.ok(redundantResult.message.includes("pkg/core/target.py"));
+        assert.ok(redundantResult.message.includes("冗余目录前缀") || redundantResult.message.includes("重复根目录前缀"));
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
 

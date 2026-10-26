@@ -66,6 +66,7 @@ export const SWE_ACP_PROFILE: AgentProfile = Object.freeze({
         "A stage or task completion requires a committed edit_file or write_file observation and a later targeted verification bash observation. A summary, plan statement, or unchanged failing test is insufficient; if a stage is rejected for no edit, the next call must be the missing edit, not another read or completion.",
         "If the test module you planned to run does not exist, run the nearest existing test file located with grep, or a `python -c` import/behaviour smoke check, instead of repeating the missing path.",
         "If the same test still fails after two code edits, stop editing and report the remaining failure with its assertion text rather than continuing to loop.",
+        "Emit bare tool calls with only schema-defined fields (e.g. read_file supports only path, startLine, endLine, maxChars, cursor). Never invent extra fields such as use_cache, useDefaultCursor, or metadata.",
         "Complete only after the repository change is ready and relevant verification has run.",
     ]),
     toolIds: SWE_ACP_TOOL_IDS,

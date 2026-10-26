@@ -179,7 +179,7 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
             return {
                 kind: "failure",
                 code: "REPEATED_FILE_NOT_FOUND",
-                message: `Path was already confirmed not to exist: ${requestedPath}. Do not repeat this path; use grep or list files to locate the correct file.`,
+                message: `严禁重复读取已确认不存在的文件路径: ${requestedPath}！该文件已被确认为不存在。请立即调用 grep 搜索关键符号或类名，禁止盲猜文件路径。`,
                 retryable: false,
             };
         }
@@ -206,9 +206,31 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
                     );
                     suggestions = (matched.length > 0 ? matched : entries).slice(0, 10);
                 } catch {}
-                const hint = suggestions.length > 0
+
+                let alternativePathHint = "";
+                const parts = requestedPath.split("/").filter(Boolean);
+                if (parts.length > 1) {
+                    const stripped = parts.slice(1).join("/");
+                    try {
+                        const st = await stat(resolve(this.sandbox.root, stripped));
+                        if (st.isFile()) {
+                            alternativePathHint = `. 提示: 检测到可能包含冗余目录前缀，工作区内存在真实文件: ${stripped}。`;
+                        }
+                    } catch {}
+                    if (!alternativePathHint && parts.length > 2 && parts[0] === parts[1]) {
+                        const deduped = [parts[0], ...parts.slice(2)].join("/");
+                        try {
+                            const st = await stat(resolve(this.sandbox.root, deduped));
+                            if (st.isFile()) {
+                                alternativePathHint = `. 提示: 检测到重复根目录前缀，工作区内存在真实文件: ${deduped}。`;
+                            }
+                        } catch {}
+                    }
+                }
+
+                const hint = alternativePathHint || (suggestions.length > 0
                     ? `. Candidates in parent directory: [${suggestions.join(", ")}]. Use grep to locate the correct file; do not re-request this exact path.`
-                    : "";
+                    : "");
                 return {
                     ...resolved.failure,
                     message: `${resolved.failure.message}${hint}`,
