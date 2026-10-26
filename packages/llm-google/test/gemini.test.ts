@@ -868,3 +868,66 @@ test("Gemini native stream validates the fixed output mode before dispatch", asy
     assert.equal(dispatched, 0);
     assert.deepEqual(events, []);
 });
+
+test("Gemini 转换复杂嵌套 anyOf 工具 Schema 时完全消除 anyOf 并保留平坦结构", async () => {
+    const adapter = createAdapter("prompt_only");
+    let capturedConfig: any;
+    (adapter as any).client = {
+        models: {
+            generateContent: async (input: any) => {
+                capturedConfig = input.config;
+                return {
+                    candidates: [{
+                        content: { role: "model", parts: [{ text: "done" }] },
+                        finishReason: "STOP",
+                    }],
+                };
+            },
+        },
+    };
+
+    const complexToolSchema = {
+        type: "object",
+        properties: {
+            target: { type: "string" },
+            memoryPatch: {
+                anyOf: [
+                    {
+                        type: "object",
+                        properties: {
+                            protocolVersion: { enum: [1] },
+                            operations: {
+                                type: "array",
+                                items: {
+                                    anyOf: [
+                                        { type: "object", properties: { type: { enum: ["upsert_fact"] }, key: { type: "string" } }, required: ["type", "key"] },
+                                        { type: "object", properties: { type: { enum: ["retire_fact"] }, id: { type: "string" } }, required: ["type", "id"] },
+                                    ],
+                                },
+                            },
+                        },
+                        required: ["protocolVersion", "operations"],
+                    },
+                    { type: "null" },
+                ],
+            },
+        },
+        required: ["target", "memoryPatch"],
+    };
+
+    await adapter.generate({
+        messages: [{ role: "user", content: "test complex schema" }],
+        tools: [{
+            id: "system_complete_task",
+            description: "complete task",
+            parametersSchema: complexToolSchema as any,
+        }],
+        toolChoice: "required",
+    });
+
+    assert.ok(capturedConfig.tools);
+    const serialized = JSON.stringify(capturedConfig.tools);
+    assert.equal(serialized.includes("anyOf"), false, "Gemini parametersSchema must never contain anyOf");
+    assert.equal(capturedConfig.tools[0].functionDeclarations[0].name, "system_complete_task");
+    assert.equal(capturedConfig.tools[0].functionDeclarations[0].parameters.type, "object");
+});
