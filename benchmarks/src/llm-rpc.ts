@@ -292,7 +292,12 @@ export class LlmRpcServer {
         const active: ActiveRequest = { controller: new AbortController(), settled: false };
         this.active.set(message.id, active);
         try {
-            const response = await this.adapter.generate(message.request, { signal: active.controller.signal });
+            const response = await executeLlmWithTransientRetry(
+                this.adapter,
+                message.request,
+                { signal: active.controller.signal },
+                { logPrefix: "[LLM RPC Server]" },
+            );
             if (active.controller.signal.aborted) {
                 await this.send({ type: "error", id: message.id, code: "cancelled", message: "Model request cancelled" });
             } else {

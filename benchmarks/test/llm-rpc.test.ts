@@ -178,3 +178,53 @@ test("executeLlmWithTransientRetry 在退避等待期间响应 AbortSignal 并�
     assert.equal(callCount, 1);
 });
 
+
+test("LlmRpcServer 在底层 Adapter 抛出暂时性 HTTP 500 时自动退避重试并成功交付响应", async () => {
+    let callCount = 0;
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "prompt_only",
+        generate: async () => {
+            callCount += 1;
+            if (callCount < 3) {
+                const err = new Error("Model provider request failed (HTTP 500)");
+                (err as Record<string, unknown>).status = 500;
+                throw err;
+            }
+            return textResponse("success response");
+        },
+    };
+
+    const hostToWorker = new TransformStream<Uint8Array, Uint8Array>();
+    const workerToHost = new TransformStream<Uint8Array, Uint8Array>();
+
+    const serverMux = new MultiplexedConnection({
+        input: workerToHost.readable,
+        output: hostToWorker.writable,
+    });
+    const clientMux = new MultiplexedConnection({
+        input: hostToWorker.readable,
+        output: workerToHost.writable,
+    });
+
+    const server = createLlmRpcServer({
+        stream: serverMux.channel("llm"),
+        adapter,
+    });
+    const client = new RpcLlmAdapter({
+        stream: clientMux.channel("llm"),
+        structuredOutputMode: "prompt_only",
+    });
+
+    const response = await client.generate({
+        messages: [{ role: "user", content: "test 500 retry" }],
+    });
+
+    assert.equal(callCount, 3);
+    assert.equal(response.blocks[0]?.type, "text");
+    assert.equal((response.blocks[0] as { text: string }).text, "success response");
+
+    await client.close();
+    await server.close();
+    await clientMux.close();
+    await serverMux.close();
+});
