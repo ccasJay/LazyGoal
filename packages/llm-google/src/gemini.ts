@@ -960,6 +960,20 @@ function mergeGeminiUnion(
                     : required,
             });
         }
+
+        // 通用对象联合扁平化：Gemini 严格不支持 anyOf，将所有分支 properties 归并为单一 object
+        const keys = [...new Set(properties.flatMap(Object.keys))];
+        return withNullability({
+            type: "object",
+            properties: Object.fromEntries(keys.map(key => {
+                const merged = mergeGeminiUnion(
+                    properties.flatMap(shape => shape[key] === undefined ? [] : [shape[key]!]),
+                    [...path, "properties", key],
+                );
+                return [key, merged];
+            })),
+            required,
+        });
     }
 
     if (values.every(branch => branch.type === "string")) {
@@ -970,5 +984,12 @@ function mergeGeminiUnion(
                 : {}),
         });
     }
-    return withNullability({ anyOf: values });
+
+    if (values.every(branch => branch.type === "number" || branch.type === "integer")) {
+        return withNullability({ type: "number" });
+    }
+
+    // Gemini 严格不支持 anyOf；多基础类型联合收敛为单一主类型，避免 HTTP 400
+    const primaryType = values.find(b => b.type && b.type !== "null")?.type ?? "string";
+    return withNullability({ type: primaryType });
 }

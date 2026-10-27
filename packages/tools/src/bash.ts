@@ -20,6 +20,7 @@ import {
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import { invalidInput } from "./internal/invalid-input";
+import { getWorkspaceVersion } from "./internal/workspace-version";
 import {
     buildSeatbeltPolicy,
     cleanupPrivateTmpDir,
@@ -96,6 +97,38 @@ export interface BashToolOptions {
      * 默认为 `true`。沙箱容器环境（如 Benchmark 评测容器）或无沙箱测试可将其设为 `false`。
      */
     readonly enableSeatbelt?: boolean;
+
+    /**
+     * 长输出截断模式。
+     *
+     * @remarks
+     * - `head_tail`：保留首部 2,500 字符与尾部 7,500 字符，中间省略，保留测试用例头部报错与尾部总结；
+     * - `tail`：传统模式，仅保留尾部 10,000 字符。
+     * 默认为 `head_tail`。
+     */
+    readonly truncationMode?: "tail" | "head_tail";
+}
+
+/** 双向保留截断时头部保留字符数 (2,500 字符)。 */
+export const BASH_HEAD_CHARS = 2_500;
+
+/** 双向保留截断时尾部保留字符数 (7,500 字符)。 */
+export const BASH_TAIL_CHARS = 7_500;
+
+/**
+ * 单个子进程输出流的有界收集器接口。
+ */
+interface OutputCollector {
+    /**
+     * 按到达顺序消费一段 UTF-8 文本。
+     *
+     * @param chunk - 子进程流解码后的文本块。
+     */
+    push(chunk: string): void;
+    /**
+     * 把累计内容投影为 Observation 使用的字符串。
+     */
+    result(): string;
 }
 
 /**
@@ -106,23 +139,7 @@ export interface BashToolOptions {
  * 不随命令总输出量增长。它不负责终止命令；输出超量时进程继续运行直到
  * 退出、超时或被中止。
  */
-interface TailCollector {
-    /**
-     * 按到达顺序消费一段 UTF-8 文本。
-     *
-     * @param chunk - 子进程流解码后的文本块；多字节字符不会跨块拆坏。
-     */
-    push(chunk: string): void;
-    /**
-     * 把累计内容投影为 Observation 使用的字符串。
-     *
-     * @returns 未超限时返回原文；超限后返回
-     *   `[...已省略前 N 字符...]\n<尾部>`，N 为累计丢弃的字符数。
-     */
-    result(): string;
-}
-
-function createTailCollector(limit: number): TailCollector {
+function createTailCollector(limit: number): OutputCollector {
     let tail = "";
     let omitted = 0;
 
@@ -148,6 +165,86 @@ function createTailCollector(limit: number): TailCollector {
             return omitted === 0
                 ? tail
                 : `[...已省略前 ${omitted} 字符...]\n${tail}`;
+        },
+    };
+}
+
+const FAILURE_LINE_PATTERN = /(FAILED|ERROR|assert|Traceback|\(.*Error\)|Exception|short test summary|E\s{2,})/i;
+
+/**
+ * 单个子进程输出流的首尾双向保留收集器。
+ *
+ * @remarks
+ * 保留首部 `headLimit` 字符（捕获 pytest 等命令最前端的失败用例与配置头）
+ * 与尾部 `tailLimit` 字符（捕获最终总结与最近 Traceback），中间超量部分折叠，
+ * 同时智能过滤并提取中间被省略的真实测试失败用例与断言行（如 FAILED/ERROR），
+ * 彻底解决长篇测试套件中核心失败信息被截断丢失的痛点。
+ */
+function createHeadTailCollector(headLimit: number, tailLimit: number): OutputCollector {
+    let head = "";
+    let tail = "";
+    let initialBuffer = "";
+    const totalLimit = headLimit + tailLimit;
+    let totalChars = 0;
+    let exceeded = false;
+    const failureLines: string[] = [];
+
+    return {
+        push(chunk: string) {
+            totalChars += chunk.length;
+
+            if (!exceeded) {
+                initialBuffer += chunk;
+                if (initialBuffer.length <= totalLimit) {
+                    return;
+                }
+                exceeded = true;
+                head = initialBuffer.slice(0, headLimit);
+                if (head.length > 0) {
+                    const lastChar = head.charCodeAt(head.length - 1);
+                    if (lastChar >= 0xd800 && lastChar <= 0xdbff) {
+                        head = head.slice(0, -1);
+                    }
+                }
+                tail = initialBuffer.slice(-tailLimit);
+                const boundary = tail.charCodeAt(0);
+                if (boundary >= 0xdc00 && boundary <= 0xdfff) {
+                    tail = tail.slice(1);
+                }
+                initialBuffer = "";
+                return;
+            }
+
+            if (failureLines.length < 40) {
+                const lines = chunk.split("\n");
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (trimmed.length > 0 && FAILURE_LINE_PATTERN.test(trimmed)) {
+                        failureLines.push(trimmed.slice(0, 200));
+                        if (failureLines.length >= 40) break;
+                    }
+                }
+            }
+
+            tail += chunk;
+            if (tail.length > tailLimit) {
+                let drop = tail.length - tailLimit;
+                const boundary = tail.charCodeAt(drop);
+                if (boundary >= 0xdc00 && boundary <= 0xdfff) {
+                    drop += 1;
+                }
+                tail = tail.slice(drop);
+            }
+        },
+        result(): string {
+            if (!exceeded) {
+                return initialBuffer;
+            }
+            const omitted = totalChars - head.length - tail.length;
+            const failureBlock = failureLines.length > 0
+                ? `\n=== 关键失败用例与断言提取 ===\n${failureLines.join("\n")}\n==============================\n`
+                : "";
+            return `${head}\n[...已省略中间 ${omitted} 字符...]${failureBlock}\n${tail}`;
         },
     };
 }
@@ -246,8 +343,8 @@ function runShellCommand(
         readonly cwd: string;
         readonly timeoutMs: number;
         readonly signal?: AbortSignal;
-        readonly stdout: TailCollector;
-        readonly stderr: TailCollector;
+        readonly stdout: OutputCollector;
+        readonly stderr: OutputCollector;
         readonly onOutput?: (channel: "stdout" | "stderr", text: string) => void;
         readonly sandbox?: {
             readonly policy: string;
@@ -401,6 +498,8 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
 
     private readonly workspaceRoot: string;
     private readonly enableSeatbelt: boolean;
+    private readonly truncationMode: "tail" | "head_tail";
+    private readonly failedCommands = new Map<string, { version: number; lastErrorSummary: string }>();
 
     /**
      * @param workspaceRoot - 命令执行时的工作区根目录，可为相对或绝对路径。
@@ -414,6 +513,7 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
 
         this.workspaceRoot = resolve(workspaceRoot);
         this.enableSeatbelt = options?.enableSeatbelt ?? true;
+        this.truncationMode = options?.truncationMode ?? "tail";
     }
 
     /**
@@ -530,12 +630,28 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
     ): Promise<ToolObservation> {
         throwIfAborted(control);
         const input = request.input;
+
+        const currentVersion = getWorkspaceVersion(this.workspaceRoot);
+        const priorFailure = this.failedCommands.get(input.command);
+        if (priorFailure !== undefined && priorFailure.version === currentVersion) {
+            return {
+                kind: "failure",
+                code: "REPEATED_COMMAND_BLOCKED",
+                message: `该命令前次执行失败，且之后工作区内未发生任何代码修改（edit_file/write_file）。严禁下一步继续调用 bash！请立即发起 edit_file 或 write_file 修改代码，修改后再运行针对性的单测节点。前次错误摘要: ${priorFailure.lastErrorSummary}`,
+                retryable: false,
+            };
+        }
+
         const timeoutMs = input.timeoutMs ?? BASH_DEFAULT_TIMEOUT_MS;
         const resolvedRoot = await realpath(this.workspaceRoot);
         throwIfAborted(control);
 
-        const stdout = createTailCollector(BASH_MAX_OUTPUT_CHARS);
-        const stderr = createTailCollector(BASH_MAX_OUTPUT_CHARS);
+        const stdout = this.truncationMode === "tail"
+            ? createTailCollector(BASH_MAX_OUTPUT_CHARS)
+            : createHeadTailCollector(BASH_HEAD_CHARS, BASH_TAIL_CHARS);
+        const stderr = this.truncationMode === "tail"
+            ? createTailCollector(BASH_MAX_OUTPUT_CHARS)
+            : createHeadTailCollector(BASH_HEAD_CHARS, BASH_TAIL_CHARS);
 
         const hasFiles = input.sandboxAccess?.files !== undefined && input.sandboxAccess.files.length > 0;
         const hasNetwork = input.sandboxAccess?.network !== undefined && input.sandboxAccess.network.targets.length > 0;
@@ -633,6 +749,10 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
         const suffix = output === "" ? "" : `: ${output}`;
 
         if (outcome.timedOut) {
+            this.failedCommands.set(input.command, {
+                version: currentVersion,
+                lastErrorSummary: suffix.slice(0, 300),
+            });
             return {
                 kind: "failure",
                 code: "COMMAND_TIMEOUT",
@@ -642,6 +762,7 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
         }
 
         if (outcome.exitCode === 0) {
+            this.failedCommands.delete(input.command);
             return {
                 kind: "success",
                 output: {
@@ -652,6 +773,11 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
                 summary: "命令执行成功",
             };
         }
+
+        this.failedCommands.set(input.command, {
+            version: currentVersion,
+            lastErrorSummary: suffix.slice(0, 300),
+        });
 
         if (typeof outcome.exitCode === "number") {
             return {

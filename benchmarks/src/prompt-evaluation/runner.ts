@@ -17,6 +17,7 @@ import {
     type PromptEvaluationResultV1,
     type PromptEvaluationTaskResult,
 } from "./protocol.js";
+import { loadAndVerifyPromptTemplateOverrides } from "./template-overrides.js";
 
 /** 单个 benchmark 任务执行时收到的完整 Prompt Evaluation 上下文。 */
 export interface PromptEvaluationTaskInput<TTask> {
@@ -36,6 +37,8 @@ export interface PromptEvaluationTaskInput<TTask> {
     readonly baseProfile: AgentProfile;
     /** 候选 Prompt 的稳定指纹。 */
     readonly fingerprint: PromptEvaluationPromptFingerprint;
+    /** 已通过 Golden Fixture 预检的可选模板覆盖映射。 */
+    readonly templateOverrides?: Readonly<Record<string, string>>;
     /** 当前任务独占的宿主输出目录。 */
     readonly outputDirectory: string;
     /** 由 CLI 根据本地配置创建的宿主模型适配器。 */
@@ -212,6 +215,9 @@ export class PromptEvaluationRunner {
             adapter.validateCandidateProfile(derivedProfile),
             baseProfile,
         );
+        if (request.candidate.templateOverrides !== undefined) {
+            await loadAndVerifyPromptTemplateOverrides(request.candidate.templateOverrides);
+        }
         const fingerprint = fingerprintPromptEvaluationCandidate(request.candidate);
         const tasks = await adapter.loadManifest(request.benchmark.manifestPath);
         const taskIds = validateTasks(adapter, tasks);
@@ -243,6 +249,9 @@ export class PromptEvaluationRunner {
                 profile,
                 baseProfile,
                 fingerprint,
+                ...(request.candidate.templateOverrides === undefined
+                    ? {}
+                    : { templateOverrides: request.candidate.templateOverrides }),
                 outputDirectory: join(
                     request.outputDirectory,
                     "evaluations",

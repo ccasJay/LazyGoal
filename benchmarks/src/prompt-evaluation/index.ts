@@ -63,3 +63,15 @@ export type {
 export type {
     PromptEvaluationCliOptions,
 } from "./cli.js";
+export {
+    MAX_TEMPLATE_OVERRIDE_CHARS,
+    MUTABLE_PROMPT_TEMPLATE_IDS,
+    PromptTemplateOverrideError,
+    buildVerifiedPromptBundleRenderer,
+    loadAndVerifyPromptTemplateOverrides,
+    normalizeTemplateOverrides,
+} from "./template-overrides.js";
+export type {
+    MutablePromptTemplateId,
+    PromptTemplateOverrideErrorCode,
+} from "./template-overrides.js";

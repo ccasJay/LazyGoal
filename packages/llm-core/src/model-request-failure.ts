@@ -66,6 +66,11 @@ export function classifyTransientModelFailure(error: unknown): TransientModelReq
         if (item.name === "TimeoutError") return new TransientModelRequestFailure("timeout");
         current = item.cause;
     }
+
+    if (message.includes("model provider request failed") || message.includes("socket hang up")
+        || message.includes("fetch failed") || message.includes("econnreset") || message.includes("etimedout")) {
+        return new TransientModelRequestFailure("connection");
+    }
     return undefined;
 }
 

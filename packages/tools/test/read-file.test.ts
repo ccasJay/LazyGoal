@@ -179,7 +179,6 @@ test("ReadFileTool 拒绝非法输入且不访问文件系统", async () => {
             { path: "/tmp/secret.txt" },
             { path: "C:\\secret.txt" },
             { path: "README.md", extra: true },
-            { path: "a.txt", startLine: 5, endLine: 2 },
         ];
 
         for (const input of invalidInputs) {
@@ -264,3 +263,178 @@ test("ReadFileTool 解析符号链接后拒绝工作区外目标", async () => {
         await rm(outsideRoot, { recursive: true, force: true });
     }
 });
+
+test("ReadFileTool 支持倒置行号自愈、路径归一化与损坏游标平滑降级", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-read-healing-"));
+
+    try {
+        const filePath = join(workspaceRoot, "demo.txt");
+        const lines = Array.from({ length: 30 }, (_, i) => `Line ${i + 1}`).join("\n") + "\n";
+        await writeFile(filePath, lines, "utf8");
+
+        const tool = new ReadFileTool(workspaceRoot);
+
+        // 1. 行号倒置自愈：startLine: 10, endLine: 5 -> 自动读取 5-10
+        assert.deepEqual(tool.validate({ path: "demo.txt", startLine: 10, endLine: 5 }), { ok: true });
+        const invertedResult = await tool.execute({
+            actionId: "act-inverted",
+            input: { path: "demo.txt", startLine: 10, endLine: 5 },
+        });
+        assert.equal(invertedResult.kind, "success");
+        if (invertedResult.kind === "success") {
+            const output = invertedResult.output as unknown as ReadFileOutput;
+            assert.equal(output.startLine, 5);
+            assert.equal(output.endLine, 10);
+            assert.ok(output.text.includes("Line 5\n"));
+            assert.ok(output.text.includes("Line 10\n"));
+            assert.ok(!output.text.includes("Line 4\n"));
+        }
+
+        // 2. 路径归一化：工作区绝对路径
+        const absResult = await tool.execute({
+            actionId: "act-abs",
+            input: { path: filePath, startLine: 1, endLine: 2 },
+        });
+        assert.equal(absResult.kind, "success");
+        if (absResult.kind === "success") {
+            const output = absResult.output as unknown as ReadFileOutput;
+            assert.equal(output.path, "demo.txt");
+            assert.equal(output.startLine, 1);
+            assert.equal(output.endLine, 2);
+        }
+
+        // 3. 损坏游标平滑降级：不抛 INVALID_CURSOR，退回到按 startLine 正常读取
+        const degradedResult = await tool.execute({
+            actionId: "act-corrupted-cursor",
+            input: { path: "demo.txt", startLine: 3, endLine: 4, cursor: "corrupted-cursor-payload" },
+        });
+        assert.equal(degradedResult.kind, "success");
+        if (degradedResult.kind === "success") {
+            const output = degradedResult.output as unknown as ReadFileOutput;
+            assert.equal(output.startLine, 3);
+            assert.equal(output.endLine, 4);
+            assert.match(degradedResult.summary ?? "", /cursor degraded to line range/);
+        }
+
+        // 4. 倒置行号截断产生有效游标并支持后续顺畅续读
+        const cursorGenResult = await tool.execute({
+            actionId: "act-inv-cursor",
+            input: { path: "demo.txt", startLine: 10, endLine: 5, maxChars: 25 },
+        });
+        assert.equal(cursorGenResult.kind, "success");
+        const nextCursor = (cursorGenResult.output as any)?.nextCursor;
+        assert.ok(nextCursor);
+
+        const continueResult = await tool.execute({
+            actionId: "act-inv-continue",
+            input: { path: "demo.txt", startLine: 10, endLine: 5, maxChars: 100, cursor: nextCursor },
+        });
+        assert.equal(continueResult.kind, "success");
+        if (continueResult.kind === "success") {
+            const output = continueResult.output as unknown as ReadFileOutput;
+            assert.ok(output.text.length > 0);
+            assert.equal(output.endLine, 10);
+        }
+
+        // 5. /testbed/ 容器别名前缀读取
+        const testbedResult = await tool.execute({
+            actionId: "act-testbed",
+            input: { path: "/testbed/demo.txt", startLine: 1, endLine: 2 },
+        });
+        assert.equal(testbedResult.kind, "success");
+        if (testbedResult.kind === "success") {
+            assert.equal((testbedResult.output as any).path, "demo.txt");
+        }
+
+        // 6. 目录读取自愈为 TARGET_IS_DIRECTORY 并附带文件条目引导
+        const dirResult = await tool.execute({
+            actionId: "act-dir",
+            input: { path: "." },
+        });
+        assert.equal(dirResult.kind, "failure");
+        if (dirResult.kind === "failure") {
+            assert.equal(dirResult.code, "TARGET_IS_DIRECTORY");
+            assert.ok(dirResult.message.includes("demo.txt"));
+        }
+
+        // 7. startLine 超过总行数自愈为 EOF 友好返回
+        const beyondResult = await tool.execute({
+            actionId: "act-beyond",
+            input: { path: "demo.txt", startLine: 9999 },
+        });
+        assert.equal(beyondResult.kind, "success");
+        if (beyondResult.kind === "success") {
+            assert.equal((beyondResult.output as any).text, "");
+            assert.ok(beyondResult.summary.includes("beyond the total lines"));
+        }
+
+        // 8. 不存在文件返回父目录相似候选建议
+        const missingResult = await tool.execute({
+            actionId: "act-miss-1",
+            input: { path: "demo_typo.txt" },
+        });
+        assert.equal(missingResult.kind, "failure");
+        assert.equal(missingResult.code, "FILE_NOT_FOUND");
+        assert.ok(missingResult.message.includes("demo.txt"));
+
+        // 9. 重复读取相同不存在路径触发 REPEATED_FILE_NOT_FOUND 熔断
+        const repeatedMissResult = await tool.execute({
+            actionId: "act-miss-2",
+            input: { path: "demo_typo.txt" },
+        });
+        assert.equal(repeatedMissResult.kind, "failure");
+        assert.equal(repeatedMissResult.code, "REPEATED_FILE_NOT_FOUND");
+        assert.ok(repeatedMissResult.message.includes("严禁重复读取"));
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("ReadFileTool 检测并提示冗余/重复目录前缀的真实存在路径", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-read-prefix-"));
+    try {
+        const subDir = join(workspaceRoot, "pkg", "core");
+        await mkdir(subDir, { recursive: true });
+        await writeFile(join(subDir, "target.py"), "print('hello')", "utf8");
+
+        const tool = new ReadFileTool(workspaceRoot);
+
+        // 模型多传入了一级冗余前缀 pkg/pkg/core/target.py
+        const redundantResult = await tool.execute({
+            actionId: "act-redundant-1",
+            input: { path: "pkg/pkg/core/target.py" },
+        });
+        assert.equal(redundantResult.kind, "failure");
+        assert.equal(redundantResult.code, "FILE_NOT_FOUND");
+        assert.ok(redundantResult.message.includes("pkg/core/target.py"));
+        assert.ok(redundantResult.message.includes("冗余目录前缀") || redundantResult.message.includes("重复根目录前缀"));
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("ReadFileTool 检测并提示同名 Python 模块包目录的 __init__.py", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-read-pkg-"));
+    try {
+        const pkgDir = join(workspaceRoot, "astropy", "coordinates", "quantity_helper");
+        await mkdir(pkgDir, { recursive: true });
+        await writeFile(join(pkgDir, "__init__.py"), "# package init", "utf8");
+
+        const tool = new ReadFileTool(workspaceRoot);
+
+        // 模型请求 quantity_helper.py，实际存在 quantity_helper/__init__.py
+        const res = await tool.execute({
+            actionId: "act-pkg-1",
+            input: { path: "astropy/coordinates/quantity_helper.py" },
+        });
+        assert.equal(res.kind, "failure");
+        assert.equal(res.code, "FILE_NOT_FOUND");
+        assert.ok(res.message.includes("astropy/coordinates/quantity_helper/__init__.py"));
+        assert.ok(res.message.includes("同名 Python 模块包"));
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+
+

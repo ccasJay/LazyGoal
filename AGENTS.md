@@ -25,6 +25,7 @@ benchmarks/      Explicit headless benchmark evaluation
   context/        Native checkpoint capture, frozen scripts, paired recovery evaluation
 prompt-evaluation/ External prompt optimization integrations
   gepa/            Official GEPA adapter for LazyGoal Prompt Evaluation
+  harness2/        Standalone Harness2 Propose-Probe-Compose framework and prompt optimizer
 packages/        Private `@lazygoal/*` workspaces
   contracts/      Contract AST builders and static type inference core
   context-budget/ Model input metering, budget allocation, unit selection, and stable serialization
@@ -127,6 +128,7 @@ When performing a task, load and follow the matching skill under `.agents/skills
 * 推送前变更范围审查、靶向验证、安全推送与 PR CI 跟踪 → `lg-pre-push-checks`
 * 启动单个 GEPA 优化运行、管理与汇报 → `lg-gepa-optimization`
 * 在独立 worktree 执行多轮 GEPA 变异循环与自纠错 → `lg-gepa-loop`
+* 在独立 worktree 执行 Harness2 双轨变异优化与框架自愈落地 → `lg-harness2-optimization`
 
 When multiple skills apply, follow all relevant skills unless their instructions conflict with a higher-priority repository rule.
 

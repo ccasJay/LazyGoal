@@ -18,8 +18,10 @@ import {
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import { invalidInput } from "./internal/invalid-input";
+import { markWorkspaceModified } from "./internal/workspace-version";
 import {
     createWorkspaceSandbox,
+    normalizeToWorkspaceRelative,
     type DomainFailureMessages,
     type WorkspaceSandbox,
 } from "../../sandbox/src/index";
@@ -106,7 +108,8 @@ export class WriteFileTool implements Tool<typeof WRITE_FILE_INPUT_CONTRACT> {
      * @returns 领域语义合法性；`content` 允许为空字符串；符号链接越界需在执行时解析后拒绝。
      */
     validate(input: WriteFileInput): ToolValidationResult {
-        return this.checkSemantics(input);
+        const normalizedPath = normalizeToWorkspaceRelative(input.path, this.sandbox.root);
+        return this.checkSemantics({ ...input, path: normalizedPath });
     }
 
     /**
@@ -123,7 +126,7 @@ export class WriteFileTool implements Tool<typeof WRITE_FILE_INPUT_CONTRACT> {
         control?: ExecutionControl,
     ): Promise<ToolObservation> {
         throwIfAborted(control);
-        const requestedPath = request.input.path;
+        const requestedPath = normalizeToWorkspaceRelative(request.input.path, this.sandbox.root);
         const content = request.input.content;
 
         let targetPath: string;
@@ -249,6 +252,7 @@ export class WriteFileTool implements Tool<typeof WRITE_FILE_INPUT_CONTRACT> {
         try {
             await this.sandbox.writeTextFile(targetPath, content, control);
             throwIfAborted(control);
+            markWorkspaceModified(this.sandbox.root);
 
             return {
                 kind: "success",

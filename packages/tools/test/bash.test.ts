@@ -635,3 +635,111 @@ test("BashTool 在 workspaceRoot 无法解析时传播基础设施异常", async
         })
     );
 });
+
+test("BashTool 阻断重复失败命令并在修改文件后允许重试", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-repeat-"));
+    const { EditFileTool } = await import("../src/index");
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(join(workspaceRoot, "demo.txt"), "hello", "utf8");
+
+    try {
+        const bashTool = new BashTool(workspaceRoot, { enableSeatbelt: false });
+        const editTool = new EditFileTool(workspaceRoot);
+
+        // 1. 首次执行失败命令
+        const first = await bashTool.execute({
+            actionId: "act-fail-1",
+            input: { command: "exit 1" },
+        });
+        assert.equal(first.kind, "failure");
+        assert.equal(first.code, "COMMAND_FAILED");
+
+        // 2. 未修改文件时，重复完全相同失败命令立即被阻断
+        const second = await bashTool.execute({
+            actionId: "act-fail-2",
+            input: { command: "exit 1" },
+        });
+        assert.equal(second.kind, "failure");
+        assert.equal(second.code, "REPEATED_COMMAND_BLOCKED");
+
+        // 3. 执行不同命令不会被阻断
+        const third = await bashTool.execute({
+            actionId: "act-ok-1",
+            input: { command: "echo ok" },
+        });
+        assert.equal(third.kind, "success");
+
+        // 4. 修改文件后，原先失败命令允许再次重试
+        await editTool.execute({
+            actionId: "act-edit",
+            input: { path: "demo.txt", oldString: "hello", newString: "world" },
+        });
+
+        const fourth = await bashTool.execute({
+            actionId: "act-fail-retry",
+            input: { command: "exit 1" },
+        });
+        assert.equal(fourth.kind, "failure");
+        assert.equal(fourth.code, "COMMAND_FAILED"); // 重新执行，而不是被阻断
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("BashTool 在 head_tail 模式下保留首部与尾部并折叠中间超量输出", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-head-tail-"));
+
+    try {
+        const bashTool = new BashTool(workspaceRoot, {
+            enableSeatbelt: false,
+            truncationMode: "head_tail",
+        });
+
+        const result = await bashTool.execute({
+            actionId: "act-ht-1",
+            input: {
+                command: "printf 'HEAD_START'; printf 'a%.0s' {1..9990}; printf 'b%.0s' {1..9990}; printf 'TAIL_END'",
+            },
+        });
+
+        assert.equal(result.kind, "success");
+        if (result.kind === "success") {
+            const output = result.output as { stdout: string };
+            assert.ok(output.stdout.startsWith("HEAD_START"));
+            assert.ok(output.stdout.endsWith("TAIL_END"));
+            assert.match(output.stdout, /\[\.\.\.已省略中间 \d+ 字符\.\.\.\]/);
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("BashTool 在 head_tail 模式下智能提取中间被截断的 pytest 失败断言行", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-pytest-extract-"));
+
+    try {
+        const bashTool = new BashTool(workspaceRoot, {
+            enableSeatbelt: false,
+            truncationMode: "head_tail",
+        });
+
+        // 构造首部 + 中间超量垃圾输出 + 关键 FAILED 节点断言 + 尾部（超过 10,000 字符预算）
+        const command = `printf 'HEAD_START\\n'; printf 'noise_line_%.0s\\n' {1..1200}; printf 'FAILED tests/test_sampled.py::test_required_columns - ValueError: missing col\\n'; printf 'noise_line_%.0s\\n' {1..1200}; printf 'TAIL_END\\n'`;
+
+        const result = await bashTool.execute({
+            actionId: "act-ht-pytest",
+            input: { command },
+        });
+
+        assert.equal(result.kind, "success");
+        if (result.kind === "success") {
+            const output = result.output as { stdout: string };
+            assert.ok(output.stdout.includes("HEAD_START"));
+            assert.ok(output.stdout.includes("TAIL_END"));
+            assert.ok(output.stdout.includes("=== 关键失败用例与断言提取 ==="));
+            assert.ok(output.stdout.includes("FAILED tests/test_sampled.py::test_required_columns"));
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});

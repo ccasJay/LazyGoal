@@ -1,5 +1,5 @@
-import { open } from "node:fs/promises";
-import { resolve } from "node:path";
+import { open, readdir, stat } from "node:fs/promises";
+import { basename, dirname, resolve } from "node:path";
 
 import type {
     Tool,
@@ -19,6 +19,7 @@ import {
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import { invalidInput } from "./internal/invalid-input";
+import { getWorkspaceVersion } from "./internal/workspace-version";
 import {
     computeCanonicalDigest,
     decodeAndValidateCursor,
@@ -26,6 +27,7 @@ import {
 } from "./internal/cursor";
 import {
     createWorkspaceSandbox,
+    normalizeToWorkspaceRelative,
     type DomainFailureMessages,
     type WorkspaceSandbox,
 } from "../../sandbox/src/index";
@@ -131,6 +133,7 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
     readonly replayPolicy = "safe" as const;
 
     private readonly sandbox: WorkspaceSandbox;
+    private readonly missingPaths = new Map<string, number>();
 
     constructor(workspaceRoot: string) {
         if (workspaceRoot.trim() === "") {
@@ -140,7 +143,8 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
     }
 
     validate(input: ReadFileInput): ToolValidationResult {
-        const violation = this.sandbox.validateRelativePath(input.path);
+        const normalizedPath = normalizeToWorkspaceRelative(input.path, this.sandbox.root);
+        const violation = this.sandbox.validateRelativePath(normalizedPath);
         if (violation !== undefined) {
             switch (violation) {
                 case "empty":
@@ -155,9 +159,6 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
                     return invalidInput("read_file.path references a protected path", ["path"]);
             }
         }
-        if (input.startLine !== undefined && input.endLine !== undefined && input.startLine > input.endLine) {
-            return invalidInput("startLine cannot be greater than endLine", ["startLine"]);
-        }
         if (input.cursor !== undefined && input.cursor.trim() === "") {
             return invalidInput("cursor cannot be empty if specified", ["cursor"]);
         }
@@ -170,7 +171,18 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
     ): Promise<ToolObservation> {
         throwIfAborted(control);
         const { input } = request;
-        const requestedPath = input.path;
+        const requestedPath = normalizeToWorkspaceRelative(input.path, this.sandbox.root);
+
+        const currentVersion = getWorkspaceVersion(this.sandbox.root);
+        const priorMissingVersion = this.missingPaths.get(requestedPath);
+        if (priorMissingVersion !== undefined && priorMissingVersion === currentVersion) {
+            return {
+                kind: "failure",
+                code: "REPEATED_FILE_NOT_FOUND",
+                message: `严禁重复读取已确认不存在的文件路径: ${requestedPath}！该文件已被确认为不存在。请立即调用 grep 搜索关键符号或类名，禁止盲猜文件路径。`,
+                retryable: false,
+            };
+        }
 
         const resolved = await this.sandbox.resolveTarget(
             requestedPath,
@@ -179,20 +191,85 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
         );
 
         if (!resolved.ok) {
+            if (resolved.failure.code === "FILE_NOT_FOUND") {
+                this.missingPaths.set(requestedPath, currentVersion);
+                let suggestions: string[] = [];
+                try {
+                    const candidatePath = resolve(this.sandbox.root, requestedPath);
+                    const parentDir = dirname(candidatePath);
+                    const entries = await readdir(parentDir);
+                    const base = basename(candidatePath);
+                    const baseStem = base.replace(/\.[^.]+$/, "");
+                    const matched = entries.filter((e) =>
+                        e.toLowerCase().includes(baseStem.toLowerCase()) ||
+                        baseStem.toLowerCase().includes(e.toLowerCase())
+                    );
+                    suggestions = (matched.length > 0 ? matched : entries).slice(0, 10);
+                } catch {}
+
+                let alternativePathHint = "";
+                // 探测同名 Python 包目录的 __init__.py（例如请求 quantity_helper.py，但实际为 quantity_helper/__init__.py）
+                if (requestedPath.endsWith(".py")) {
+                    const pkgDir = requestedPath.slice(0, -3);
+                    const initPath = `${pkgDir}/__init__.py`;
+                    try {
+                        const st = await stat(resolve(this.sandbox.root, initPath));
+                        if (st.isFile()) {
+                            alternativePathHint = `. 提示: 文件 ${requestedPath} 不存在，但存在同名 Python 模块包: ${initPath}，请直接读取该包的 __init__.py。`;
+                        }
+                    } catch {}
+                }
+
+                const parts = requestedPath.split("/").filter(Boolean);
+                if (!alternativePathHint && parts.length > 1) {
+                    const stripped = parts.slice(1).join("/");
+                    try {
+                        const st = await stat(resolve(this.sandbox.root, stripped));
+                        if (st.isFile()) {
+                            alternativePathHint = `. 提示: 检测到可能包含冗余目录前缀，工作区内存在真实文件: ${stripped}。`;
+                        }
+                    } catch {}
+                    if (!alternativePathHint && parts.length > 2 && parts[0] === parts[1]) {
+                        const deduped = [parts[0], ...parts.slice(2)].join("/");
+                        try {
+                            const st = await stat(resolve(this.sandbox.root, deduped));
+                            if (st.isFile()) {
+                                alternativePathHint = `. 提示: 检测到重复根目录前缀，工作区内存在真实文件: ${deduped}。`;
+                            }
+                        } catch {}
+                    }
+                }
+
+                const hint = alternativePathHint || (suggestions.length > 0
+                    ? `. Candidates in parent directory: [${suggestions.join(", ")}]. Use grep to locate the correct file; do not re-request this exact path.`
+                    : "");
+                return {
+                    ...resolved.failure,
+                    message: `${resolved.failure.message}${hint}`,
+                };
+            }
             return resolved.failure;
         }
 
         const maxChars = input.maxChars ?? READ_FILE_DEFAULT_MAX_CHARS;
-        let startLine = input.startLine ?? 1;
-        const targetEndLine = input.endLine;
+        const rawStart = input.startLine;
+        const rawEnd = input.endLine;
+        let startLine = rawStart ?? 1;
+        let targetEndLine = rawEnd;
+
+        if (rawStart !== undefined && rawEnd !== undefined) {
+            startLine = Math.min(rawStart, rawEnd);
+            targetEndLine = Math.max(rawStart, rawEnd);
+        }
         let charOffsetInLine = 0;
 
         const queryDigest = computeCanonicalDigest({
             path: requestedPath,
-            startLine: input.startLine,
-            endLine: input.endLine,
+            startLine,
+            endLine: targetEndLine,
         });
 
+        let cursorDegraded = false;
         if (input.cursor !== undefined) {
             const decoded = decodeAndValidateCursor<ReadFileCursorPayload>(
                 input.cursor,
@@ -200,22 +277,56 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
                 queryDigest,
             );
             if (decoded === undefined) {
-                return {
-                    kind: "failure",
-                    code: "INVALID_CURSOR",
-                    message: "The provided cursor is invalid, corrupted, or does not match the target query.",
-                    retryable: false,
-                };
+                cursorDegraded = true;
+            } else {
+                startLine = decoded.nextLine;
+                charOffsetInLine = decoded.charOffsetInLine;
             }
-            startLine = decoded.nextLine;
-            charOffsetInLine = decoded.charOffsetInLine;
         }
 
         let fileHandle;
         try {
+            const fileStat = await stat(resolved.path);
+            if (fileStat.isDirectory()) {
+                let entries: string[] = [];
+                try {
+                    entries = (await readdir(resolved.path)).slice(0, 50);
+                } catch {}
+                return {
+                    kind: "failure",
+                    code: "TARGET_IS_DIRECTORY",
+                    message: `Target is a directory: ${requestedPath}. Use grep or list files to choose a specific text file. Entries: [${entries.join(", ")}]`,
+                    retryable: true,
+                };
+            }
             fileHandle = await open(resolved.path, "r");
+            this.missingPaths.delete(requestedPath);
         } catch (error) {
             if (isExecutionAbortedError(error)) throw error;
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+                this.missingPaths.set(requestedPath, currentVersion);
+                let suggestions: string[] = [];
+                try {
+                    const parentDir = dirname(resolved.path);
+                    const entries = await readdir(parentDir);
+                    const base = basename(resolved.path);
+                    const baseStem = base.replace(/\.[^.]+$/, "");
+                    const matched = entries.filter((e) =>
+                        e.toLowerCase().includes(baseStem.toLowerCase()) ||
+                        baseStem.toLowerCase().includes(e.toLowerCase())
+                    );
+                    suggestions = (matched.length > 0 ? matched : entries).slice(0, 10);
+                } catch {}
+                const hint = suggestions.length > 0
+                    ? `. Candidates in parent directory: [${suggestions.join(", ")}]. Use grep to locate the correct file; do not re-request this exact path.`
+                    : "";
+                return {
+                    kind: "failure",
+                    code: "FILE_NOT_FOUND",
+                    message: `File not found: ${requestedPath}${hint}`,
+                    retryable: false,
+                };
+            }
             const mapped = this.sandbox.toDomainFailure(
                 error as NodeJS.ErrnoException,
                 READ_FILE_DOMAIN_FAILURES,
@@ -356,13 +467,21 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
                 }
             }
 
-            // 如果收集为空且文件不是空文件且 startLine 超过了总行数
+            // 如果收集为空且 startLine 超过了总行数，做友好返回并提示实际总行数
             if (!hasEmittedContent && collectedText === "" && currentLineNumber < startLine) {
+                const totalLines = Math.max(1, currentLineNumber);
+                const degradationNote = cursorDegraded ? " (cursor degraded to line range)" : "";
                 return {
-                    kind: "failure",
-                    code: "INVALID_LINE_RANGE",
-                    message: `startLine ${startLine} is beyond the total lines of ${requestedPath} (${currentLineNumber}).`,
-                    retryable: false,
+                    kind: "success",
+                    output: {
+                        path: requestedPath,
+                        text: "",
+                        startLine: totalLines,
+                        endLine: totalLines,
+                        eof: true,
+                        truncated: false,
+                    } as any,
+                    summary: `Requested startLine (${startLine}) is beyond the total lines of ${requestedPath} (total: ${totalLines} lines). Returned empty range at EOF.${degradationNote}`,
                 };
             }
 
@@ -377,10 +496,11 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
                 ...(nextCursor !== undefined ? { nextCursor } : {}),
             };
 
+            const degradationNote = cursorDegraded ? " (cursor degraded to line range)" : "";
             return {
                 kind: "success",
                 output: output as any,
-                summary: `Read lines ${actualStartLine}-${actualEndLine} of ${requestedPath}${eof ? " (EOF)" : ""}${truncated ? " (truncated)" : ""}.`,
+                summary: `Read lines ${actualStartLine}-${actualEndLine} of ${requestedPath}${eof ? " (EOF)" : ""}${truncated ? " (truncated)" : ""}${degradationNote}.`,
             };
         } finally {
             await fileHandle.close().catch(() => {});

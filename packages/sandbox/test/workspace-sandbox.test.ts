@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 
 import {
     createWorkspaceSandbox,
+    normalizeToWorkspaceRelative,
     EXECUTION_ABORTED_ERROR_CODE,
 } from "../src/index";
 
@@ -134,4 +135,28 @@ describe("WorkspaceSandbox", () => {
             await rm(tempRoot, { recursive: true, force: true });
         }
     });
+
+    it("normalizeToWorkspaceRelative 归一化容器别名与工作区绝对路径", () => {
+        const root = "/workspace/project";
+        const sandbox = createWorkspaceSandbox(root);
+        assert.equal(sandbox.root, "/workspace/project");
+
+        // 1. /testbed/ 别名剥离
+        assert.equal(normalizeToWorkspaceRelative("/testbed/src/index.ts", root), "src/index.ts");
+        assert.equal(normalizeToWorkspaceRelative("/testbed/a/b/c.py", root), "a/b/c.py");
+        assert.equal(normalizeToWorkspaceRelative("/testbed", root), "");
+
+        // 2. 工作区内绝对路径剥离
+        assert.equal(normalizeToWorkspaceRelative("/workspace/project/src/index.ts", root), "src/index.ts");
+        assert.equal(normalizeToWorkspaceRelative("/workspace/project/README.md", root), "README.md");
+
+        // 3. 工作区外绝对路径保留原样供常规沙箱拦截
+        assert.equal(normalizeToWorkspaceRelative("/etc/passwd", root), "/etc/passwd");
+        assert.equal(normalizeToWorkspaceRelative("/other/workspace/foo.txt", root), "/other/workspace/foo.txt");
+
+        // 4. 相对路径与常规路径保留原样
+        assert.equal(normalizeToWorkspaceRelative("src/index.ts", root), "src/index.ts");
+        assert.equal(normalizeToWorkspaceRelative("../outside.txt", root), "../outside.txt");
+    });
 });
+

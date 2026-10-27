@@ -21,6 +21,8 @@ import {
 } from "../../../packages/tools/src/index.js";
 import { JsonFileBenchmarkPersistenceAdapter } from "../../src/file-persistence-adapter.js";
 import { HeadlessCompositionRoot, type HeadlessEpisodeResult } from "../../src/headless-composition-root.js";
+import { validatePromptEvaluationProfile } from "../../src/prompt-evaluation/profile.js";
+import { normalizeTemplateOverrides } from "../../src/prompt-evaluation/template-overrides.js";
 import {
     AcpTrajectoryStore,
     cancelledAcpResult,
@@ -49,11 +51,26 @@ export const SWE_ACP_PROFILE: AgentProfile = Object.freeze({
     id: "swebench-acp-profile",
     name: "SWE-bench ACP container",
     description: "Deterministic five-tool profile rooted at /testbed.",
-    systemPrompt: "You are a software engineer working only in /testbed. Use the authorized tools to resolve the issue and verify the change.",
+    systemPrompt: "You are a software engineer working only in /testbed. Use read_file, write_file, edit_file, grep, and bash. All paths are relative to /testbed. Business tools become callable only after system_find_tools has returned their schema. If any expected schema (read_file, grep, edit_file, write_file, bash) is absent, make one discovery call whose query names every tool you expect to need; the discovery tool id is system_find_tools (find_tools is invalid). Do not call discovery for schemas already present. If a call is rejected as 'not declared or not authorized', do not resend it — run system_find_tools for that tool, then resend once. Work in a strict locate-edit-verify loop. Call system_start_run_stage at most once at task start; never call system_start_run_stage while a stage is already active. Emit every tool call, including system_start_run_stage, system_revise_run_stage, system_complete_run_stage and system_find_tools, as a bare JSON object whose top-level fields are exactly the declared schema properties; never wrap a call in an object keyed by the tool name, and never include action, input, toolId, kind, cursor, useDefaultCursor, or a tool-name envelope. Before running pytest, confirm the target exists: if a run reports `file or directory not found` or exits with pytest usage error code 4 / `no tests ran`, do not repeat that command — locate the real test file with grep or list the valid node ids with `pytest --collect-only -q <path>` once. Run targeted pytest as `pytest -q --tb=short path::test`; when output is truncated or shows only the pytest header, rerun just the failing node or append `2>&1 | tail -n 120` once. Do not run the full test suite; treat unrelated `Internet access disabled` failures as environment noise, not as the verdict of your change. Never resend an identical failing command or test-file command without an intervening edit; if bash reports REPEATED_COMMAND_FAILED or REPEATED_COMMAND_BLOCKED, your next call must be edit_file or write_file. If read_file reports FILE_NOT_FOUND, a directory path, or REPEATED_FILE_NOT_FOUND, do not call read_file again on that exact path; use the returned candidates (for a package candidate, read <candidate>/__init__.py), any indexFile or resolvedFrom, or grep with a symbol/class name. Before changing validation, exception messages, or public behavior, grep the test suite for the current message/function and read the assertions you must preserve; when an issue asks for a clearer message, keep existing behavior for missing data and add the new message as a separate branch rather than replacing semantics existing tests assert. After at most two reads on the same file, make one edit_file or write_file change; if six business-tool calls have produced no successful edit, stop investigating and edit from the evidence already gathered. If edit_file reports STRING_NOT_FOUND, never resend that oldString: copy the verbatim region text the tool returned, and on a second miss on the same file call write_file with the corrected full content. A stage or task is complete only with a committed edit observation and a later targeted verification bash observation showing the new behavior.",
     instructions: Object.freeze([
+        "Call system_start_run_stage at most once at task start. While a stage is executing, never call system_start_run_stage again; use business tools (read_file, edit_file, grep, bash) to locate, edit, and verify, and complete with system_complete_run_stage.",
+        "Before your first business-tool call, ensure every expected business-tool schema is present. If any of read_file, write_file, edit_file, grep or bash is absent, call system_find_tools exactly once with a query naming every tool you expect to need. A business tool is not callable until its schema has been returned, and calling an undiscovered tool is rejected as 'not declared or not authorized'. The discovery id is system_find_tools; find_tools is never valid. If a repair names a tool id that is not declared, that is a discovery gap: run system_find_tools for that tool and resend once, never answer the same feedback with the same payload a third time.",
+        "Emit every tool call, including system_start_run_stage, system_revise_run_stage, system_complete_run_stage and system_find_tools, as a bare JSON object whose top-level fields are exactly the declared schema properties. Never include action, input, toolId, kind, cursor, useDefaultCursor, or a tool-name envelope. For system_start_run_stage send the declared target and acceptanceCriteria fields; for system_revise_run_stage add reason; for grep send pattern and path. If a repair says extra_field, remove exactly that field; if it names action or input, drop the wrapper and resend only the inner declared schema arguments.",
         "Use read_file, write_file, edit_file, grep, and bash only; all paths are relative to /testbed.",
         "Do not access model configuration, credentials, or files outside /testbed.",
-        "Complete only after the repository change is ready and relevant verification has run.",
+        "If read_file returns FILE_NOT_FOUND, a directory-path error, or REPEATED_FILE_NOT_FOUND, do not call read_file again on that exact path in this run. Never guess similar non-existent module names; use the returned candidates entry (for a package candidate, read <candidate>/__init__.py), any indexFile or resolvedFrom, or grep for the symbol/class across the parent directory to locate the real defining file.",
+        "Before any pytest run, confirm the target exists. If a run reports ERROR: file or directory not found: <path> or exits with pytest usage-error code 4 / no tests ran, do not rerun that command or a cosmetic variant: locate the real module with grep, or list valid node ids once with pytest --collect-only -q <path>. Then run pytest -q --tb=short path::test. If bash output is truncated or begins with the pytest header but contains no FAILED/assertion line, rerun only the reported failing node id or append 2>&1 | tail -n 120 once. Do not run the full test suite; unrelated Internet access disabled failures are environment noise, not the verdict of your change.",
+        "If bash exits non-zero, read the failing test name, exception, or assertion and edit the implementation or change the command before another run. If bash returns REPEATED_COMMAND_FAILED or REPEATED_COMMAND_BLOCKED, the next business-tool call must be edit_file or write_file, not bash. A third run of the same failing command family without an edit in between is a protocol violation.",
+        "For local repository work omit sandboxAccess entirely; never send an empty sandboxAccess.network.targets list.",
+        "After at most two read_file or grep observations on the same file, the next call must be edit_file or write_file unless you are reading a different file for a newly named dependency.",
+        "If edit_file reports STRING_NOT_FOUND, do not resend that oldString and do not rebuild it from memory or from a pre-edit read. An earlier edit of your own may have rewritten that region: use the verbatim current region text the tool returned, or re-read the exact 10-30 line window, and anchor on a short unique contiguous block. On a second STRING_NOT_FOUND for the same file, stop anchoring and call write_file with the corrected full file content. An oldString equal to newString is always invalid.",
+        "A repeated identical failed edit, read path, or bash command is a protocol violation: track it explicitly and change the code or invocation before retrying.",
+        "If six business-tool calls have produced no edit, stop investigating and make one edit from the evidence already gathered; a plausible, revisable patch beats an exhausted step budget. If bash returns a classified failure such as TEST_TARGET_MISSING or TEST_USAGE_ERROR, your next call must be edit_file, write_file, or a discovery call for the real test file — never another run of the same command.",
+        "Before changing validation or exception text, grep the test suite for the existing message/function and read the assertions you must preserve. If the issue asks for a clearer error message, keep the existing branch for missing data and add a separate branch for the new case; do not replace semantics that existing tests assert.",
+        "A stage or task completion requires a committed edit_file or write_file observation and a later targeted verification bash observation showing the new behavior. A summary, plan statement, a read observation, or an unchanged failing test is insufficient; if a stage is rejected for no edit or for breaking existing tests, the next call must be the missing edit or the test-preserving correction, not another read or completion.",
+        "If the test module you planned to run does not exist, run the nearest existing test file located with grep, or a python -c import/behaviour smoke check, instead of repeating the missing path.",
+        "If the same test still fails after two code edits, stop editing and report the remaining failure with its assertion text rather than continuing to loop, then make the most defensible correction to the branch the assertion names.",
+        "Complete only after the repository change is ready and relevant targeted verification has run.",
     ]),
     toolIds: SWE_ACP_TOOL_IDS,
 });
@@ -91,7 +108,7 @@ export function createSwebenchAcpToolSet(workspaceRoot: string): SwebenchAcpTool
         createToolRegistration(new WriteFileTool(workspaceRoot)),
         createToolRegistration(new EditFileTool(workspaceRoot)),
         createToolRegistration(new GrepTool(workspaceRoot)),
-        createToolRegistration(new BashTool(workspaceRoot, { enableSeatbelt: false })),
+        createToolRegistration(new BashTool(workspaceRoot, { enableSeatbelt: false, truncationMode: "head_tail" })),
     ]);
     return { profile: SWE_ACP_PROFILE, registry };
 }
@@ -130,6 +147,37 @@ export interface SwebenchAcpTaskMetadata {
     readonly maxSteps: number;
     /** 宿主 Adapter 固定的结构化输出模式。 */
     readonly structuredOutputMode: LLMAdapter["structuredOutputMode"];
+    /** Prompt Evaluation 传入并供 Worker 重验的基准 Profile。 */
+    readonly baseProfile?: AgentProfile;
+    /** Prompt Evaluation 传入的候选 Profile。 */
+    readonly profile?: AgentProfile;
+    /** Prompt Evaluation 传入的可选框架模板覆盖映射。 */
+    readonly templateOverrides?: Readonly<Record<string, string>>;
+}
+
+/**
+ * 校验 SWE-bench 候选 Profile 保持固定 5 个工具白名单与 `/testbed` 工作区约束。
+ *
+ * @param profile - 公共层派生或 ACP metadata 反序列化的候选 Profile。
+ * @returns 深冻结且可交给 Headless Root 的候选 Profile。
+ * @throws 冻结字段变化或指令删除 SWE-bench 必需工具或 `/testbed` 边界时抛出。
+ * @example
+ * ```ts
+ * const candidate = validateSwebenchPromptEvaluationProfile(profile);
+ * ```
+ */
+export function validateSwebenchPromptEvaluationProfile(profile: unknown): AgentProfile {
+    const validated = validatePromptEvaluationProfile(profile, SWE_ACP_PROFILE);
+    const promptText = `${validated.systemPrompt}\n${validated.instructions.join("\n")}`;
+    if (!promptText.includes("/testbed")) {
+        throw new TypeError("SWE-bench candidate prompt must reference /testbed");
+    }
+    for (const toolId of SWE_ACP_TOOL_IDS) {
+        if (!promptText.includes(toolId)) {
+            throw new TypeError(`SWE-bench candidate prompt must reference ${toolId}`);
+        }
+    }
+    return validated;
 }
 
 /**
@@ -157,7 +205,9 @@ export function parseSwebenchAcpTaskMetadata(value: unknown): SwebenchAcpTaskMet
         || (value.structuredOutputMode !== "strict" && value.structuredOutputMode !== "prompt_only")) {
         throw new TypeError("Invalid SWE-bench ACP session metadata");
     }
-    const metadata = {
+    const profiles = parseSwebenchPromptEvaluationProfiles(value);
+    const templateOverrides = normalizeTemplateOverrides(value.templateOverrides);
+    const metadata: SwebenchAcpTaskMetadata = {
         instanceId: value.instanceId,
         repo: value.repo,
         baseCommit: value.baseCommit,
@@ -166,9 +216,30 @@ export function parseSwebenchAcpTaskMetadata(value: unknown): SwebenchAcpTaskMet
         runId: value.runId,
         maxSteps: value.maxSteps,
         structuredOutputMode: value.structuredOutputMode,
-    } satisfies SwebenchAcpTaskMetadata;
+        ...profiles,
+        ...(templateOverrides === undefined ? {} : { templateOverrides }),
+    };
     validateMetadata(metadata);
     return metadata;
+}
+
+function parseSwebenchPromptEvaluationProfiles(
+    record: Record<string, unknown>,
+): Pick<SwebenchAcpTaskMetadata, "baseProfile" | "profile"> {
+    if (record.baseProfile === undefined && record.profile === undefined) return {};
+    if (record.baseProfile === undefined || record.profile === undefined) {
+        throw new TypeError("SWE-bench Prompt Evaluation metadata requires baseProfile and profile together");
+    }
+    const baseProfile = validatePromptEvaluationProfile(record.baseProfile, SWE_ACP_PROFILE);
+    if (
+        baseProfile.systemPrompt !== SWE_ACP_PROFILE.systemPrompt
+        || baseProfile.instructions.length !== SWE_ACP_PROFILE.instructions.length
+        || !baseProfile.instructions.every((val, idx) => val === SWE_ACP_PROFILE.instructions[idx])
+    ) {
+        throw new TypeError("SWE-bench Prompt Evaluation baseProfile must match the Worker base Profile");
+    }
+    const profile = validateSwebenchPromptEvaluationProfile(record.profile);
+    return { baseProfile, profile };
 }
 
 /**
@@ -258,10 +329,13 @@ export async function runSwebenchAcpTask(
                 },
             };
         })();
+    const activeProfile = options.metadata.profile === undefined
+        ? toolSet.profile
+        : validateSwebenchPromptEvaluationProfile(options.metadata.profile);
     const root = new HeadlessCompositionRoot<SwebenchAcpTaskMetadata, null>({
         benchmarkId: "swebench-acp",
         workspaceRoot,
-        profile: toolSet.profile,
+        profile: activeProfile,
         llmAdapter: options.llmAdapter,
         renderer: options.renderer,
         contextCompactor: options.contextCompactor,

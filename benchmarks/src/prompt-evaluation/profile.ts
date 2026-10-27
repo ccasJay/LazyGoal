@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
 import type { PromptEvaluationCandidate } from "./protocol.js";
+import { normalizeTemplateOverrides } from "./template-overrides.js";
 
 /** 候选 Prompt 的可审计指纹与有界摘要。 */
 export interface PromptEvaluationPromptFingerprint {
@@ -12,6 +13,7 @@ export interface PromptEvaluationPromptFingerprint {
         readonly systemPromptCharacters: number;
         readonly instructionCount: number;
         readonly instructionCharacters: number;
+        readonly overriddenTemplateIds?: readonly string[];
     };
 }
 
@@ -151,9 +153,10 @@ export function validatePromptEvaluationProfile(
  * 为候选 Prompt 计算跨进程稳定的哈希和内容长度摘要。
  *
  * @remarks
- * 哈希输入固定为 UTF-8 JSON，键顺序为 `systemPrompt` 后 `instructions`。
+ * 哈希输入固定为 UTF-8 JSON，键顺序为 `systemPrompt` 后 `instructions`；当提供非空
+ * `templateOverrides` 时，按模板 ID 字典序追加 `templateOverrides` 参与哈希。
  *
- * @param prompt - 只读取 Prompt 文本的对象。
+ * @param prompt - 包含 Prompt 文本与可选模板覆盖的对象。
  * @returns SHA-256 与不含原文的长度摘要。
  * @example
  * ```ts
@@ -161,17 +164,26 @@ export function validatePromptEvaluationProfile(
  * ```
  */
 export function fingerprintPromptEvaluationCandidate(
-    prompt: Pick<PromptEvaluationCandidate, "systemPrompt" | "instructions">,
+    prompt: Pick<PromptEvaluationCandidate, "systemPrompt" | "instructions" | "templateOverrides">,
 ): PromptEvaluationPromptFingerprint {
     const systemPrompt = requirePromptText(prompt.systemPrompt, "candidate.systemPrompt");
     const instructions = requireInstructions(prompt.instructions, "candidate.instructions");
-    const canonical = JSON.stringify({ systemPrompt, instructions });
+    const templateOverrides = normalizeTemplateOverrides(prompt.templateOverrides);
+    const overriddenTemplateIds = templateOverrides === undefined
+        ? []
+        : Object.keys(templateOverrides);
+    const canonical = overriddenTemplateIds.length === 0
+        ? JSON.stringify({ systemPrompt, instructions })
+        : JSON.stringify({ systemPrompt, instructions, templateOverrides });
     return Object.freeze({
         promptSha256: createHash("sha256").update(canonical, "utf8").digest("hex"),
         promptSummary: Object.freeze({
             systemPromptCharacters: systemPrompt.length,
             instructionCount: instructions.length,
             instructionCharacters: instructions.reduce((total, instruction) => total + instruction.length, 0),
+            ...(overriddenTemplateIds.length === 0
+                ? {}
+                : { overriddenTemplateIds: Object.freeze(overriddenTemplateIds) }),
         }),
     });
 }

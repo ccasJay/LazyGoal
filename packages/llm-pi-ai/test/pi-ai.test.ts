@@ -333,7 +333,7 @@ test("PiAiAdapter 动态执行 OpenCode Go MiniMax 并沿用官方 Completions �
         assert.equal(captured.length, 2);
         for (const outgoing of captured) {
             assert.equal(outgoing.url.origin, "https://opencode.ai");
-            assert.equal(outgoing.url.pathname, "/inference/go/openai/v1/chat/completions");
+            assert.equal(outgoing.url.pathname, "/inference/go/v1/chat/completions");
             assert.equal(outgoing.headers.get("authorization"), "Bearer test-explicit-key");
             assert.equal(outgoing.headers.get("user-agent"), "lazygoal");
             assert.equal(outgoing.headers.get("x-opencode-session"), "goal-minimax");
@@ -365,7 +365,7 @@ test("PiAiAdapter 动态执行 OpenCode Go Beam Free", async () => {
         const generated = await new PiAiAdapter(config).generate({ ...request, sessionId: "goal-beam" });
         assert.equal(readAssistantText(generated), json);
         assert.ok(captured);
-        assert.equal(new URL(captured.url).pathname, "/inference/go/openai/v1/chat/completions");
+        assert.equal(new URL(captured.url).pathname, "/inference/go/v1/chat/completions");
         assert.equal(captured.headers.get("authorization"), "Bearer test-explicit-key");
         assert.equal(captured.headers.get("user-agent"), "lazygoal");
         assert.equal(captured.headers.get("x-opencode-session"), "goal-beam");

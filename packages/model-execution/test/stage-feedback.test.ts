@@ -27,12 +27,12 @@ test("Original stage failure reports extra fields and a corrected call is accept
     const input = { target: "Inspect architecture", acceptanceCriteria: ["Read source"] };
     try {
         decodeToolCallOutcome({ callId: "stage", toolId: "system_start_run_stage", argumentsJson: JSON.stringify({
-            ...input, stageId: "PRIVATE_ID", memoryPatch: { protocolVersion: "1", operations: [] },
+            ...input, extraParam: "PRIVATE_ID", customMeta: { protocolVersion: "1", operations: [] },
         }) }, [SystemStartRunStageDeclaration], []);
     } catch (error) { failure = error; }
     const mapped = toModelStageFeedback(failure, { goal }, "decide");
     assert.ok(mapped instanceof ModelStageFeedbackError);
-    assert.deepEqual(mapped.feedback.issues.map(issue => issue.path), [["memoryPatch"], ["stageId"]]);
+    assert.deepEqual(mapped.feedback.issues.map(issue => issue.path), [["customMeta"], ["extraParam"]]);
     assert.ok(mapped.feedback.issues.every(issue => /Remove/.test(issue.message)));
     assert.equal(JSON.stringify(mapped.feedback).includes("PRIVATE"), false);
     assert.deepEqual(SystemStartRunStageDeclaration.decode(input), { kind: "run_stage_update", ...input });
@@ -105,4 +105,25 @@ test("工具形状反馈只包含字段名与当前声明，不回传参数值",
     for (const field of ["system_complete_task", "Provided fields", "Allowed fields", "Required fields", "protocolVersion"]) assert.ok(text.includes(field));
     assert.ok(!text.includes("PRIVATE_"));
     assert.ok(mapped.feedback.constraints!.every(line => line.length <= 240));
+});
+
+test("未授权或未知系统工具调用生成清晰提示切换合法工具", () => {
+    let failure: unknown;
+    try {
+        decodeToolCallOutcome({
+            callId: "call_unauth",
+            toolId: "system_start_run_stage",
+            argumentsJson: JSON.stringify({ target: "test", acceptanceCriteria: ["done"] }),
+        }, [SystemCompleteRunDeclaration], []);
+    } catch (error) {
+        failure = error;
+    }
+    const mapped = toModelStageFeedback(failure, { goal }, "decide");
+    assert.ok(mapped instanceof ModelStageFeedbackError);
+    assert.equal(mapped.feedback.origin, "output_contract");
+    assert.deepEqual(mapped.feedback.issues[0]?.path, ["system_start_run_stage"]);
+    assert.match(
+        mapped.feedback.issues[0]!.message,
+        /Tool call "system_start_run_stage" is not declared or not authorized in the current state/,
+    );
 });

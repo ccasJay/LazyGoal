@@ -33,6 +33,7 @@ export type {
 export {
     createRpcLlmAdapter,
     createLlmRpcServer,
+    executeLlmWithTransientRetry,
     LlmRpcError,
     RpcLlmAdapter,
 } from "./llm-rpc.js";
@@ -41,6 +42,7 @@ export type {
     RpcLlmAdapterOptions,
     LlmRpcServer,
     LlmRpcServerOptions,
+    TransientRetryOptions,
 } from "./llm-rpc.js";
 export {
     requireSuccess,
@@ -182,4 +184,12 @@ export {
 export {
     runPromptEvaluationCli,
     type PromptEvaluationCliOptions,
+    MAX_TEMPLATE_OVERRIDE_CHARS,
+    MUTABLE_PROMPT_TEMPLATE_IDS,
+    PromptTemplateOverrideError,
+    buildVerifiedPromptBundleRenderer,
+    loadAndVerifyPromptTemplateOverrides,
+    normalizeTemplateOverrides,
+    type MutablePromptTemplateId,
+    type PromptTemplateOverrideErrorCode,
 } from "./prompt-evaluation/index.js";

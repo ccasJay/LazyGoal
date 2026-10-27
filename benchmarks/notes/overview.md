@@ -93,8 +93,11 @@ Runner 的 `max_steps_exceeded` 记录为 `task_not_won`，Tool/协议执行错�
 ## Prompt Evaluation
 
 [`runPromptEvaluationCli`](../src/prompt-evaluation/cli.ts) 接受当前版本的单候选
-JSON 请求。候选只能覆盖 benchmark 基准 Profile 的 `systemPrompt` 与 `instructions`；公共层
-派生并校验冻结字段，ALFWorld、GAIA 和 TUA Worker 在创建 Headless Root 前再次校验同一 Profile。
+JSON 请求。候选可覆盖 benchmark 基准 Profile 的 `systemPrompt` 与 `instructions`，并可通过可选
+`templateOverrides` 覆盖 [`MUTABLE_PROMPT_TEMPLATE_IDS`](../src/prompt-evaluation/template-overrides.ts)
+白名单内的 5 个 `.njk` 框架模板（`global-overview@1`、`agent-decision@1`、`agent-think@1`、
+`authorized-tools@1`、`run-mode@1`）；公共层在启动容器前使用 Golden Fixture 试渲染校验所有必需插值与协议锚点，
+ALFWorld、GAIA、SWE-bench 和 TUA Worker 在创建 Headless Root 前再次校验同一 Profile 与模板覆盖。
 TUA Worker 的 ACP metadata 也可携带成对的基准与候选 Profile，并在创建 Headless Root 前
 以其内置 Profile 重验 Prompt 字段和冻结的身份、展示字段及工具白名单。注册的 TUA Prompt
 Evaluation adapter 通过单任务 Manifest 和统一隔离容器执行 Agent，并在 Agent 结束后运行 verifier。
@@ -139,6 +142,11 @@ TUA GEPA Worker 将官方 GEPA 选择器固定为 `all`，让一次提案覆盖 
 GAIA GEPA 的数据校验只接受 validation Level 1/2；任务可声明附件，但每个附件必须是
 `dataRoot` 内存在的相对文件，随后由 GAIA Environment 挂载到隔离容器。Level 3、test
 split 和自动发现不进入该生命周期。
+
+[`prompt-evaluation/harness2`](../../prompt-evaluation/harness2/README.md) 提供并列的
+`Propose–Probe–Compose` 双轨优化控制面（`lazygoal harness2`），通过 `lazygoal eval prompt`
+在 SWE-bench 上读取完整已提交 JSONL Trajectory 与 Runtime 错误率指标，协同优化 5 个可调
+`.njk` 框架模板与 AgentProfile。
 
 ## Persistent Headless sessions
 

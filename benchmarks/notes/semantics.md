@@ -10,3 +10,4 @@
 | Benchmark task source | 工程任务来源、环境和独立评分端口。 | [共享评测层](../README.md) | [来源契约](../src/task-source.ts) |
 | Filesystem archive | 停止 Agent 后的完整可导入容器镜像工件。 | [共享评测层](../README.md) | [归档契约](../src/filesystem-archive.ts) |
 | Scripted Worker | 领域工具注入的共享真实 Runtime 会话 Worker。 | [共享评测层](../README.md) | [Worker 契约](../src/scripted-worker.ts) |
+| Prompt template overrides | 受白名单与 Golden Fixture 锚点保护的 `.njk` 框架模板覆盖。 | [共享评测框架](../README.md) | [覆盖校验契约](../src/prompt-evaluation/template-overrides.ts) |

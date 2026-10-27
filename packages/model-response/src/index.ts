@@ -33,6 +33,7 @@ export {
     normalizeRequestThinkGoal,
     readPublicTextBlocks,
     requireSingleToolCall,
+    unwrapAndSanitizeToolArguments,
 } from "./stage-response";
 export type {
     DecideResponseOutcome,

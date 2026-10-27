@@ -161,10 +161,19 @@ async function atomicWrite(path: string, result: PromptEvaluationResultV1): Prom
 }
 
 function isPromptSummary(value: unknown): value is PromptEvaluationResultV1["promptSummary"] {
-    return isRecord(value)
-        && isNonNegativeInteger(value.systemPromptCharacters)
-        && isNonNegativeInteger(value.instructionCount)
-        && isNonNegativeInteger(value.instructionCharacters);
+    if (!isRecord(value)
+        || !isNonNegativeInteger(value.systemPromptCharacters)
+        || !isNonNegativeInteger(value.instructionCount)
+        || !isNonNegativeInteger(value.instructionCharacters)) {
+        return false;
+    }
+    if (value.overriddenTemplateIds !== undefined) {
+        if (!Array.isArray(value.overriddenTemplateIds)
+            || !value.overriddenTemplateIds.every(isNonEmptyString)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 function isArtifactLocator(value: unknown): value is PromptEvaluationArtifactLocator | null {

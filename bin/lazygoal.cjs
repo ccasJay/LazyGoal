@@ -15,6 +15,7 @@ const isGepaResolveModels = argv[0] === "gepa" && argv[1] === "resolve-models";
 const isGepaInspectTua = argv[0] === "gepa" && argv[1] === "inspect-tua";
 const isGepaAuditTuaCandidate = argv[0] === "gepa" && argv[1] === "audit-tua-candidate";
 const isGepaLifecycle = argv[0] === "gepa" && !isGepaReflect && !isGepaResolveModels && !isGepaInspectTua && !isGepaAuditTuaCandidate;
+const isHarness2Lifecycle = argv[0] === "harness2";
 
 if (isGepaLifecycle) {
     const procEnv = process["env"];
@@ -23,6 +24,28 @@ if (isGepaLifecycle) {
     const pyResult = spawnSync(pythonBin, pyArgs, {
         stdio: "inherit",
         env: procEnv,
+    });
+    if (pyResult.error !== undefined) {
+        console.error(pyResult.error.message);
+        process.exitCode = 1;
+    } else if (pyResult.signal !== null) {
+        process.exitCode = pyResult.signal === "SIGINT" ? 130 : 1;
+    } else {
+        process.exitCode = pyResult.status ?? 1;
+    }
+    return;
+}
+
+if (isHarness2Lifecycle) {
+    const procEnv = process["env"];
+    const pythonBin = procEnv["LAZYGOAL_HARNESS2_PYTHON"] || procEnv["LAZYGOAL_GEPA_PYTHON"] || "python3";
+    const harness2Src = resolve(__dirname, "../prompt-evaluation/harness2/src");
+    const existingPythonPath = procEnv["PYTHONPATH"];
+    const mergedPythonPath = existingPythonPath ? `${harness2Src}:${existingPythonPath}` : harness2Src;
+    const pyArgs = ["-m", "lazygoal_harness2.cli", ...argv.slice(1)];
+    const pyResult = spawnSync(pythonBin, pyArgs, {
+        stdio: "inherit",
+        env: { ...procEnv, PYTHONPATH: mergedPythonPath },
     });
     if (pyResult.error !== undefined) {
         console.error(pyResult.error.message);
@@ -56,8 +79,8 @@ const tsxLoader = require.resolve("tsx/esm", { paths: [__dirname] });
 
 const nodeArgs = ["--import", tsxLoader];
 const nodeEnv = isBrowserCommand && process.allowedNodeEnvironmentFlags.has("--use-env-proxy")
-    ? { ...process.env, NODE_USE_ENV_PROXY: "1" }
-    : process.env;
+    ? { ...process["env"], NODE_USE_ENV_PROXY: "1" }
+    : process["env"];
 
 const result = spawnSync(
     process.execPath,

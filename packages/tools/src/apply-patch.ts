@@ -21,6 +21,7 @@ import {
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import { invalidInput } from "./internal/invalid-input";
+import { markWorkspaceModified } from "./internal/workspace-version";
 import {
     createWorkspaceSandbox,
     type WorkspaceSandbox,
@@ -626,6 +627,7 @@ export class ApplyPatchTool implements Tool<typeof APPLY_PATCH_INPUT_CONTRACT> {
             summary: `Successfully applied patch across ${applied.length} file(s).`,
         };
 
+        markWorkspaceModified(this.workspaceRoot);
         return {
             kind: "success",
             output: output as any,

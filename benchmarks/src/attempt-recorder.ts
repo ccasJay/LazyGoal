@@ -39,6 +39,7 @@ export interface PromptEvaluationAttemptMetadata {
         readonly systemPromptCharacters: number;
         readonly instructionCount: number;
         readonly instructionCharacters: number;
+        readonly overriddenTemplateIds?: readonly string[];
     };
     readonly modelConfigId: string;
     readonly modelId: string;
@@ -339,7 +340,11 @@ function isPromptEvaluationMetadata(value: unknown): value is PromptEvaluationAt
             "systemPromptCharacters",
             "instructionCount",
             "instructionCharacters",
-        ].includes(key));
+            "overriddenTemplateIds",
+        ].includes(key))
+        && (value.promptSummary.overriddenTemplateIds === undefined
+            || (Array.isArray(value.promptSummary.overriddenTemplateIds)
+                && value.promptSummary.overriddenTemplateIds.every(isNonEmptyString)));
 }
 
 function isNonNegativeInteger(value: unknown): value is number {

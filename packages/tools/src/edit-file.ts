@@ -16,8 +16,10 @@ import {
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import { invalidInput } from "./internal/invalid-input";
+import { getWorkspaceVersion, markWorkspaceModified } from "./internal/workspace-version";
 import {
     createWorkspaceSandbox,
+    normalizeToWorkspaceRelative,
     type DomainFailureMessages,
     type WorkspaceSandbox,
 } from "../../sandbox/src/index";
@@ -90,6 +92,7 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
     readonly replayPolicy = "safe" as const;
 
     private readonly sandbox: WorkspaceSandbox;
+    private readonly failedOldStrings = new Map<string, number>();
 
     /**
      * @param workspaceRoot - 允许编辑的工作区根目录，可为相对或绝对路径。
@@ -108,7 +111,8 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
      *   符号链接越界需在执行时解析后拒绝。
      */
     validate(input: EditFileInput): ToolValidationResult {
-        return this.checkSemantics(input);
+        const normalizedPath = normalizeToWorkspaceRelative(input.path, this.sandbox.root);
+        return this.checkSemantics({ ...input, path: normalizedPath });
     }
 
     /**
@@ -125,9 +129,21 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
         control?: ExecutionControl,
     ): Promise<ToolObservation> {
         throwIfAborted(control);
-        const requestedPath = request.input.path;
+        const requestedPath = normalizeToWorkspaceRelative(request.input.path, this.sandbox.root);
         const oldString = request.input.oldString;
         const newString = request.input.newString;
+
+        const cacheKey = `${requestedPath}\0${oldString}`;
+        const currentVersion = getWorkspaceVersion(this.sandbox.root);
+        const recordedVersion = this.failedOldStrings.get(cacheKey);
+        if (recordedVersion !== undefined && recordedVersion === currentVersion) {
+            return {
+                kind: "failure",
+                code: "REPEATED_STRING_NOT_FOUND",
+                message: `oldString 在文件中之前已确认不存在: ${requestedPath}。请勿重复发送相同的 oldString；请重新读取目标行号范围确认最新内容，或直接使用 write_file 重写文件。`,
+                retryable: false,
+            };
+        }
 
         const resolved = await this.sandbox.resolveTarget(
             requestedPath,
@@ -169,7 +185,64 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
         const occurrences = countOccurrences(content, oldString);
 
         if (occurrences === 0) {
-            if (content.includes(newString)) {
+            const fuzzyResult = tryFuzzyMatchAndReplace(content, oldString, newString);
+            if (fuzzyResult.kind === "matched" && fuzzyResult.updatedContent !== undefined) {
+                try {
+                    await this.sandbox.writeTextFile(
+                        resolved.path,
+                        fuzzyResult.updatedContent,
+                        control,
+                    );
+                    throwIfAborted(control);
+                    markWorkspaceModified(this.sandbox.root);
+                    this.failedOldStrings.clear();
+                } catch (error) {
+                    if (isExecutionAbortedError(error)) {
+                        throw error;
+                    }
+
+                    if (control?.signal?.aborted) {
+                        throw new ExecutionAbortedError();
+                    }
+
+                    const failure = this.sandbox.toDomainFailure(
+                        error as NodeJS.ErrnoException,
+                        EDIT_FILE_DOMAIN_FAILURES,
+                        requestedPath,
+                    );
+
+                    if (failure !== undefined) {
+                        return failure;
+                    }
+
+                    throw error;
+                }
+
+                return {
+                    kind: "success",
+                    output: {
+                        path: requestedPath,
+                        replacements: 1,
+                        alreadyApplied: false,
+                    },
+                    summary: `已通过空白/换行符自适应容错编辑 ${requestedPath}`,
+                };
+            }
+
+            if (fuzzyResult.kind === "ambiguous") {
+                return {
+                    kind: "failure",
+                    code: "STRING_NOT_UNIQUE",
+                    message: `oldString 在文件中出现 ${fuzzyResult.occurrences} 次，需提供更长的上下文: ${requestedPath}`,
+                    retryable: false,
+                };
+            }
+
+            const isAlreadyApplied = content.includes(newString)
+                || (normalizeString(newString) !== "" && normalizeString(content).includes(normalizeString(newString)));
+
+            if (isAlreadyApplied) {
+                this.failedOldStrings.delete(cacheKey);
                 return {
                     kind: "success",
                     output: {
@@ -181,10 +254,13 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
                 };
             }
 
+            this.failedOldStrings.set(cacheKey, currentVersion);
+            const hint = findNearestLineHint(content, oldString);
+
             return {
                 kind: "failure",
                 code: "STRING_NOT_FOUND",
-                message: `oldString 在文件中不存在: ${requestedPath}`,
+                message: `oldString 在文件中不存在: ${requestedPath}${hint}`,
                 retryable: false,
             };
         }
@@ -207,6 +283,8 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
                 control,
             );
             throwIfAborted(control);
+            markWorkspaceModified(this.sandbox.root);
+            this.failedOldStrings.clear();
         } catch (error) {
             if (isExecutionAbortedError(error)) {
                 throw error;
@@ -294,3 +372,156 @@ function countOccurrences(content: string, needle: string): number {
 
     return count;
 }
+
+interface FuzzyMatchResult {
+    readonly kind: "matched" | "not_found" | "ambiguous";
+    readonly occurrences?: number;
+    readonly updatedContent?: string;
+}
+
+function normalizeString(text: string): string {
+    return text
+        .replace(/\r\n|\r/g, "\n")
+        .split("\n")
+        .map((line) => line.replace(/[ \t]+$/, ""))
+        .join("\n");
+}
+
+function normalizeContentWithMapping(text: string): {
+    readonly normalized: string;
+    readonly origIndex: readonly number[];
+    readonly origLength: readonly number[];
+} {
+    const normalizedChars: string[] = [];
+    const origIndex: number[] = [];
+    const origLength: number[] = [];
+
+    const len = text.length;
+    let i = 0;
+
+    while (i < len) {
+        const ch = text[i]!;
+
+        if (ch === "\r" || ch === "\n") {
+            let nlLen = 1;
+            if (ch === "\r" && i + 1 < len && text[i + 1] === "\n") {
+                nlLen = 2;
+            }
+            normalizedChars.push("\n");
+            origIndex.push(i);
+            origLength.push(nlLen);
+            i += nlLen;
+            continue;
+        }
+
+        if (ch === " " || ch === "\t") {
+            let j = i;
+            while (j < len && (text[j] === " " || text[j] === "\t")) {
+                j++;
+            }
+            if (j === len || text[j] === "\r" || text[j] === "\n") {
+                i = j;
+                continue;
+            }
+        }
+
+        normalizedChars.push(ch);
+        origIndex.push(i);
+        origLength.push(1);
+        i++;
+    }
+
+    return {
+        normalized: normalizedChars.join(""),
+        origIndex,
+        origLength,
+    };
+}
+
+function tryFuzzyMatchAndReplace(
+    content: string,
+    oldString: string,
+    newString: string,
+): FuzzyMatchResult {
+    let normOldString = normalizeString(oldString);
+    if (normOldString === "") {
+        return { kind: "not_found" };
+    }
+
+    const { normalized: normContent, origIndex, origLength } = normalizeContentWithMapping(content);
+    let normOccurrences = countOccurrences(normContent, normOldString);
+    let effectiveNew = newString;
+
+    // 若未直接命中，尝试解除由于模型 JSON 双重转义引入的多余引号反斜杠（\" ↔ ", \' ↔ '）
+    if (normOccurrences === 0 && (/\\['"`]/.test(oldString))) {
+        const unescapedOldString = oldString.replace(/\\(['"`])/g, "$1");
+        const unescapedNormOld = normalizeString(unescapedOldString);
+        const unescapedOccurrences = countOccurrences(normContent, unescapedNormOld);
+        if (unescapedOccurrences === 1) {
+            normOldString = unescapedNormOld;
+            normOccurrences = 1;
+            if (/\\['"`]/.test(newString)) {
+                effectiveNew = newString.replace(/\\(['"`])/g, "$1");
+            }
+        }
+    }
+
+    if (normOccurrences === 0) {
+        return { kind: "not_found" };
+    }
+
+    if (normOccurrences > 1) {
+        return { kind: "ambiguous", occurrences: normOccurrences };
+    }
+
+    const matchStart = normContent.indexOf(normOldString);
+    const matchEnd = matchStart + normOldString.length;
+    const origStart = origIndex[matchStart]!;
+    const lastCharIdx = matchEnd - 1;
+    let origEnd = origIndex[lastCharIdx]! + origLength[lastCharIdx]!;
+
+    if (normContent[lastCharIdx] !== "\n" && (matchEnd === normContent.length || normContent[matchEnd] === "\n")) {
+        while (origEnd < content.length && (content[origEnd] === " " || content[origEnd] === "\t")) {
+            origEnd++;
+        }
+    }
+
+    const matchedSlice = content.slice(origStart, origEnd);
+    const effectiveNewString = matchedSlice.includes("\r\n") && !effectiveNew.includes("\r\n")
+        ? effectiveNew.replace(/\n/g, "\r\n")
+        : effectiveNew;
+
+    const updatedContent = content.slice(0, origStart) + effectiveNewString + content.slice(origEnd);
+    return {
+        kind: "matched",
+        updatedContent,
+    };
+}
+
+/**
+ * 在目标文本中尝试定位与未匹配 oldString 最接近的行号与代码摘要。
+ *
+ * @param content - 文件完整文本。
+ * @param oldString - 未匹配成功的旧字符串。
+ * @returns 提示字符串；若无实质匹配则返回空字符串。
+ */
+function findNearestLineHint(content: string, oldString: string): string {
+    const rawLines = oldString.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 3);
+    if (rawLines.length === 0) {
+        return "";
+    }
+    const targetLine = rawLines[0]!;
+    const contentLines = content.split(/\r?\n/);
+    for (let i = 0; i < contentLines.length; i++) {
+        const line = contentLines[i]!;
+        if (line.includes(targetLine) || (line.trim().length > 5 && targetLine.includes(line.trim()))) {
+            const lineNo = i + 1;
+            const snippet = line.trim().slice(0, 80);
+            const contextEnd = Math.min(contentLines.length, i + 6);
+            const contextLines = contentLines.slice(i, contextEnd).join("\n");
+            return `. 提示: 在第 ${lineNo} 行发现可能相关的代码: "${snippet}"。目标行附近的真实上下文代码为:\n\`\`\`\n${contextLines}\n\`\`\`\n请复制上述真实代码作为 oldString，或直接使用 write_file 重写文件。`;
+        }
+    }
+    return "";
+}
+

@@ -98,6 +98,107 @@ test("decodeToolCallOutcome 解码合法调用并保留 actionId 契约结果", 
     assert.deepEqual(output.action.input, { path: "a.ts" });
 });
 
+test("decodeToolCallOutcome 容错解包 action/input 外壳与修剪多余元字段", () => {
+    // 1. 带 action 外壳与多余元字段 (stageId, kind, thought, reason)
+    const wrappedCall = {
+        callId: "call-wrap",
+        toolId: "read_file",
+        argumentsJson: JSON.stringify({
+            kind: "action",
+            stageId: "stage-1",
+            thought: "I should inspect the file",
+            action: { path: "src/index.ts" },
+        }),
+    };
+    const output = decodeToolCallOutcome(wrappedCall, declarations, AUTHORIZED_TOOL_IDS);
+    assert.equal(output.kind, "tool_call");
+    if (output.kind === "tool_call") {
+        assert.equal(output.action.toolId, "read_file");
+        assert.deepEqual(output.action.input, { path: "src/index.ts" });
+    }
+
+    // 2. 带 input 外壳且附带 reason
+    const inputWrappedCall = {
+        callId: "call-wrap-2",
+        toolId: "read_file",
+        argumentsJson: JSON.stringify({
+            reason: "need to read config",
+            input: { path: "config.json" },
+        }),
+    };
+    const output2 = decodeToolCallOutcome(inputWrappedCall, declarations, AUTHORIZED_TOOL_IDS);
+    assert.equal(output2.kind, "tool_call");
+    if (output2.kind === "tool_call") {
+        assert.equal(output2.action.toolId, "read_file");
+        assert.deepEqual(output2.action.input, { path: "config.json" });
+    }
+
+    // 3. 带 parameters 外壳与多层嵌套外壳解包 ({ action: { input: { path: "nested.ts" } } })
+    const nestedWrappedCall = {
+        callId: "call-wrap-3",
+        toolId: "read_file",
+        argumentsJson: JSON.stringify({
+            action: {
+                parameters: { path: "nested.ts" },
+            },
+            approvalRequest: false,
+        }),
+    };
+    const output3 = decodeToolCallOutcome(nestedWrappedCall, declarations, AUTHORIZED_TOOL_IDS);
+    assert.equal(output3.kind, "tool_call");
+    if (output3.kind === "tool_call") {
+        assert.equal(output3.action.toolId, "read_file");
+        assert.deepEqual(output3.action.input, { path: "nested.ts" });
+    }
+
+    // 4. 同名工具单键外壳解包 ({ read_file: { path: "same-name.ts" } })
+    const sameNameCall = {
+        callId: "call-wrap-4",
+        toolId: "read_file",
+        argumentsJson: JSON.stringify({
+            read_file: { path: "same-name.ts" },
+        }),
+    };
+    const output4 = decodeToolCallOutcome(sameNameCall, declarations, AUTHORIZED_TOOL_IDS);
+    assert.equal(output4.kind, "tool_call");
+    if (output4.kind === "tool_call") {
+        assert.equal(output4.action.toolId, "read_file");
+        assert.deepEqual(output4.action.input, { path: "same-name.ts" });
+    }
+
+    // 5. 空 sandboxAccess.network.targets 自动清理以避免硬校验报错
+    const emptyNetworkCall = {
+        callId: "call-wrap-5",
+        toolId: "read_file",
+        argumentsJson: JSON.stringify({
+            path: "target.ts",
+            sandboxAccess: { network: { targets: [] } },
+        }),
+    };
+    const output5 = decodeToolCallOutcome(emptyNetworkCall, declarations, AUTHORIZED_TOOL_IDS);
+    assert.equal(output5.kind, "tool_call");
+    if (output5.kind === "tool_call") {
+        assert.equal(output5.action.toolId, "read_file");
+        assert.deepEqual(output5.action.input, { path: "target.ts" });
+    }
+
+    // 6. 支持带 toolId/input 多键包装与嵌套 action.input 解包
+    const toolIdInputCall = {
+        callId: "call-wrap-6",
+        toolId: "read_file",
+        argumentsJson: JSON.stringify({
+            toolId: "read_file",
+            input: { path: "from-toolId-input.ts" },
+        }),
+    };
+    const output6 = decodeToolCallOutcome(toolIdInputCall, declarations, AUTHORIZED_TOOL_IDS);
+    assert.equal(output6.kind, "tool_call");
+    if (output6.kind === "tool_call") {
+        assert.equal(output6.action.toolId, "read_file");
+        assert.deepEqual(output6.action.input, { path: "from-toolId-input.ts" });
+    }
+});
+
 test("decodeToolCallOutcome 对非法 JSON 与契约违规保持稳定 issue 与业务路径", () => {
     assert.throws(
         () => decodeToolCallOutcome(

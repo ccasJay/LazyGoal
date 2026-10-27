@@ -281,3 +281,220 @@ test("EditFileTool rejects an already-aborted execution before filesystem access
         await rm(workspaceRoot, { recursive: true, force: true });
     }
 });
+
+test("EditFileTool 支持空白/换行符自适应容错匹配与绝对路径归一化", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-edit-fuzzy-"));
+
+    try {
+        const testFile = join(workspaceRoot, "crlf-demo.py");
+        // 原文件包含 CRLF 且行尾带有空格
+        const originalContent = "def hello():\r\n    msg = 'world'   \r\n    return msg\r\n";
+        await writeFile(testFile, originalContent, "utf8");
+
+        const tool = new EditFileTool(workspaceRoot);
+
+        // 1. 模型提供 LF 且去除了行尾空格的 oldString
+        const modelOldString = "def hello():\n    msg = 'world'\n    return msg";
+        const modelNewString = "def hello():\n    msg = 'lazygoal'\n    return msg";
+
+        // 通过工作区绝对路径执行
+        const res = await tool.execute({
+            actionId: "act-fuzzy",
+            input: {
+                path: testFile,
+                oldString: modelOldString,
+                newString: modelNewString,
+            },
+        });
+
+        assert.equal(res.kind, "success");
+        assert.match(res.summary ?? "", /自适应容错编辑/);
+        const updated = await readFile(testFile, "utf8");
+        assert.ok(updated.includes("msg = 'lazygoal'"));
+
+        // 2. 歧义匹配：有多处可以容错匹配时拒绝替换
+        const ambiguousFile = join(workspaceRoot, "ambiguous.py");
+        await writeFile(ambiguousFile, "x = 1  \n\nx = 1    \n", "utf8");
+        const ambRes = await tool.execute({
+            actionId: "act-amb",
+            input: {
+                path: "ambiguous.py",
+                oldString: "x = 1",
+                newString: "x = 2",
+            },
+        });
+        assert.equal(ambRes.kind, "failure");
+        if (ambRes.kind === "failure") {
+            assert.equal(ambRes.code, "STRING_NOT_UNIQUE");
+        }
+
+        // 3. 删除行操作（newString: ""）在 CRLF 文件中正常执行，不被 alreadyApplied 误拦截
+        const deleteFile = join(workspaceRoot, "delete-demo.py");
+        await writeFile(deleteFile, "def run():\r\n    bad_line()\r\n    return 1\r\n", "utf8");
+        const delRes = await tool.execute({
+            actionId: "act-del",
+            input: {
+                path: "delete-demo.py",
+                oldString: "    bad_line()\n",
+                newString: "",
+            },
+        });
+        assert.equal(delRes.kind, "success");
+        if (delRes.kind === "success") {
+            assert.equal((delRes.output as any).replacements, 1);
+            assert.equal((delRes.output as any).alreadyApplied, false);
+        }
+        const delContent = await readFile(deleteFile, "utf8");
+        assert.ok(!delContent.includes("bad_line"));
+
+        // 4. newString 已存在于文件其他位置时，容错匹配仍能正确匹配并替换目标区域，而非误判 alreadyApplied
+        const duplicateFile = join(workspaceRoot, "duplicate-helper.py");
+        await writeFile(duplicateFile, "def foo():\r\n    return 1\r\n\ndef bar():\r\n    return 0   \r\n", "utf8");
+        const dupRes = await tool.execute({
+            actionId: "act-dup",
+            input: {
+                path: "duplicate-helper.py",
+                oldString: "def bar():\n    return 0",
+                newString: "def bar():\n    return 1",
+            },
+        });
+        assert.equal(dupRes.kind, "success");
+        if (dupRes.kind === "success") {
+            assert.equal((dupRes.output as any).replacements, 1);
+            assert.equal((dupRes.output as any).alreadyApplied, false);
+        }
+        const dupContent = await readFile(duplicateFile, "utf8");
+        assert.ok(dupContent.includes("def bar():\r\n    return 1"));
+
+        // 5. CRLF 文件上的编辑重放（newString 为 LF 形式）仍可正确识别 alreadyApplied: true
+        const replayRes = await tool.execute({
+            actionId: "act-replay-crlf",
+            input: {
+                path: "duplicate-helper.py",
+                oldString: "def bar():\n    return 0",
+                newString: "def bar():\n    return 1\n",
+            },
+        });
+        assert.equal(replayRes.kind, "success");
+        if (replayRes.kind === "success") {
+            assert.equal((replayRes.output as any).replacements, 0);
+            assert.equal((replayRes.output as any).alreadyApplied, true);
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("EditFileTool 未改动代码前重复使用相同的缺失 oldString 触发熔断拦截", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-edit-file-repeat-"));
+
+    try {
+        const target = join(workspaceRoot, "code.py");
+        await writeFile(target, "def solve():\n    return 42\n", "utf8");
+        const tool = new EditFileTool(workspaceRoot);
+
+        // 第一次失败并附带近邻提示
+        const res1 = await tool.execute({
+            actionId: "act-1",
+            input: {
+                path: "code.py",
+                oldString: "def solve_wrong():\n    return 0",
+                newString: "def solve():\n    return 100",
+            },
+        });
+        assert.equal(res1.kind, "failure");
+        assert.equal((res1 as any).code, "STRING_NOT_FOUND");
+        assert.ok((res1 as any).message.includes("oldString 在文件中不存在"));
+
+        // 未写文件前重复尝试相同 oldString -> REPEATED_STRING_NOT_FOUND 熔断
+        const res2 = await tool.execute({
+            actionId: "act-2",
+            input: {
+                path: "code.py",
+                oldString: "def solve_wrong():\n    return 0",
+                newString: "def solve():\n    return 100",
+            },
+        });
+        assert.equal(res2.kind, "failure");
+        assert.equal((res2 as any).code, "REPEATED_STRING_NOT_FOUND");
+        assert.ok((res2 as any).message.includes("之前已确认不存在"));
+
+        // 若成功执行了其他编辑（工作区发生变更），熔断重置
+        const resSuccess = await tool.execute({
+            actionId: "act-success",
+            input: {
+                path: "code.py",
+                oldString: "return 42",
+                newString: "return 43",
+            },
+        });
+        assert.equal(resSuccess.kind, "success");
+
+        // 熔断已被重置，再次尝试返回普通的 STRING_NOT_FOUND
+        const res3 = await tool.execute({
+            actionId: "act-3",
+            input: {
+                path: "code.py",
+                oldString: "def solve_wrong():\n    return 0",
+                newString: "def solve():\n    return 100",
+            },
+        });
+        assert.equal(res3.kind, "failure");
+        assert.equal((res3 as any).code, "STRING_NOT_FOUND");
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("EditFileTool 未命中时若存在相似代码行附带近邻行号提示", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-edit-file-hint-"));
+
+    try {
+        const target = join(workspaceRoot, "demo.py");
+        await writeFile(target, "# line 1\n# line 2\ndef compute_answer(x, y):\n    return x + y\n", "utf8");
+        const tool = new EditFileTool(workspaceRoot);
+
+        const res = await tool.execute({
+            actionId: "act-hint",
+            input: {
+                path: "demo.py",
+                oldString: "def compute_answer(x, y):\n    return x - y",
+                newString: "def compute_answer(x, y):\n    return x * y",
+            },
+        });
+        assert.equal(res.kind, "failure");
+        assert.equal((res as any).code, "STRING_NOT_FOUND");
+        assert.ok((res as any).message.includes("第 3 行"));
+        assert.ok((res as any).message.includes("compute_answer"));
+        assert.ok((res as any).message.includes("真实上下文代码"));
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("EditFileTool 自动容错模型生成的误转义引号反斜杠", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-edit-file-escape-"));
+
+    try {
+        const target = join(workspaceRoot, "core.py");
+        await writeFile(target, 'raise ValueError("{} object is invalid - expected \x27{}\x27")\n', "utf8");
+        const tool = new EditFileTool(workspaceRoot);
+
+        // 模型在 JSON 序列化中常常误输出 \" ，解码后带有真正的反斜杠
+        const res = await tool.execute({
+            actionId: "act-unescape",
+            input: {
+                path: "core.py",
+                oldString: 'raise ValueError(\\"{} object is invalid - expected \x27{}\x27\\")',
+                newString: 'raise ValueError(\\"{} object is invalid - columns missing\\")',
+            },
+        });
+        assert.equal(res.kind, "success");
+        const updated = await readFile(target, "utf8");
+        assert.equal(updated, 'raise ValueError("{} object is invalid - columns missing")\n');
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+

@@ -1,9 +1,7 @@
 import { isModelConversationMessage } from "../../packages/model-contracts/src/index.js";
-import type { LLMAdapter } from "../../packages/llm-core/src/index.js";
-import type { LLMRequest, LLMResponse } from "../../packages/llm-core/src/index.js";
+import { classifyTransientModelFailure, type LLMAdapter, type LLMRequest, type LLMResponse, type StructuredOutputMode } from "../../packages/llm-core/src/index.js";
 import type { ExecutionControl } from "../../packages/execution-control/src/index.js";
-import { ExecutionAbortedError, throwIfAborted } from "../../packages/execution-control/src/index.js";
-import type { StructuredOutputMode } from "../../packages/llm-core/src/index.js";
+import { ExecutionAbortedError, TransientModelRequestFailure, throwIfAborted } from "../../packages/execution-control/src/index.js";
 import type { MuxChannelStream } from "./multiplex.js";
 
 /** Worker 与宿主之间传输的结构化 LLM RPC 消息。 */
@@ -294,7 +292,12 @@ export class LlmRpcServer {
         const active: ActiveRequest = { controller: new AbortController(), settled: false };
         this.active.set(message.id, active);
         try {
-            const response = await this.adapter.generate(message.request, { signal: active.controller.signal });
+            const response = await executeLlmWithTransientRetry(
+                this.adapter,
+                message.request,
+                { signal: active.controller.signal },
+                { logPrefix: "[LLM RPC Server]" },
+            );
             if (active.controller.signal.aborted) {
                 await this.send({ type: "error", id: message.id, code: "cancelled", message: "Model request cancelled" });
             } else {
@@ -345,8 +348,9 @@ export function createLlmRpcServer(options: LlmRpcServerOptions): LlmRpcServer {
     return new LlmRpcServer(options);
 }
 
-function validateMode(mode: StructuredOutputMode, request: LLMRequest, native = false): void {
-    if (mode === "strict" && request.structuredOutput === undefined && !(native && request.tools?.length && request.toolChoice === "required")) {
+function validateMode(mode: StructuredOutputMode, request: LLMRequest, _native = false): void {
+    const hasRequiredTools = Boolean(request.tools?.length) && request.toolChoice === "required";
+    if (mode === "strict" && request.structuredOutput === undefined && !hasRequiredTools) {
         throw new LlmRpcError("Strict mode requires structuredOutput", "mode_mismatch");
     }
     if (mode === "prompt_only" && request.structuredOutput !== undefined) {
@@ -435,3 +439,106 @@ function isAbortLike(error: unknown): boolean {
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+/**
+ * 瞬态模型请求重试配置选项。
+ *
+ * @remarks
+ * 定义瞬态模型故障发生时的最大尝试次数、退避基数与上限，以及重试监控钩子。
+ *
+ * @example
+ * ```ts
+ * const options: TransientRetryOptions = {
+ *     maxAttempts: 5,
+ *     baseDelayMs: 1500,
+ *     logPrefix: "[MyWorker LLM]",
+ * };
+ * ```
+ */
+export interface TransientRetryOptions {
+    /** 最大尝试次数，包含首次调用。默认为 6。 */
+    readonly maxAttempts?: number;
+    /** 初始退避延迟毫秒数。默认为 1000。 */
+    readonly baseDelayMs?: number;
+    /** 最大退避延迟毫秒数。默认为 30_000。 */
+    readonly maxDelayMs?: number;
+    /** 重试日志前缀。默认为 "[LLM Retry]"。 */
+    readonly logPrefix?: string;
+    /** 发生重试时的通知钩子。 */
+    readonly onRetry?: (attempt: number, delayMs: number, error: unknown) => void;
+}
+
+/**
+ * 带有指数退避与抖动的瞬态模型请求执行器。
+ *
+ * @remarks
+ * 针对上游模型供应商返回的 HTTP 429（限流）、5xx（服务端暂时故障）以及底层传输抖动，
+ * 执行指数退避重试，避免瞬时并发导致整个基准测试任务被误判为致命失败。
+ *
+ * @param adapter - 底层 LLM 适配器。
+ * @param request - LLM 请求参数。
+ * @param control - 可选的执行中止控制信号。
+ * @param options - 重试配置选项。
+ * @returns 成功完成的模型响应。
+ * @throws `ExecutionAbortedError` 中止；非暂时性错误或重试次数用尽时抛出最后发生的错误。
+ *
+ * @example
+ * ```ts
+ * const response = await executeLlmWithTransientRetry(adapter, request, control);
+ * ```
+ */
+export async function executeLlmWithTransientRetry(
+    adapter: LLMAdapter,
+    request: LLMRequest,
+    control?: ExecutionControl,
+    options?: TransientRetryOptions,
+): Promise<LLMResponse> {
+    const maxAttempts = options?.maxAttempts ?? 8;
+    const baseDelayMs = options?.baseDelayMs ?? 1000;
+    const maxDelayMs = options?.maxDelayMs ?? 30_000;
+    const logPrefix = options?.logPrefix ?? "[LLM Retry]";
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        throwIfAborted(control);
+        try {
+            return await adapter.generate(request, control);
+        } catch (error) {
+            throwIfAborted(control);
+            if (isAbortLike(error)) throw error;
+
+            const transient = error instanceof TransientModelRequestFailure
+                ? error
+                : classifyTransientModelFailure(error);
+
+            if (transient === undefined || attempt >= maxAttempts) {
+                throw error;
+            }
+
+            const exponential = baseDelayMs * 2 ** (attempt - 1);
+            const retryAfter = transient.retryAfterMs;
+            const jitter = Math.floor(Math.random() * 200);
+            const delayMs = Math.min(maxDelayMs, Math.max(exponential, retryAfter ?? 0)) + jitter;
+
+            options?.onRetry?.(attempt, delayMs, error);
+            console.warn(
+                `${logPrefix} Transient failure (${transient.reason}${transient.status !== undefined ? ` HTTP ${transient.status}` : ""}), ` +
+                `retrying attempt ${attempt + 1}/${maxAttempts} after ${delayMs}ms...`,
+            );
+
+            await new Promise<void>((resolve, reject) => {
+                if (control?.signal?.aborted) return reject(new ExecutionAbortedError());
+                const timer = setTimeout(() => {
+                    control?.signal?.removeEventListener("abort", onAbort);
+                    resolve();
+                }, delayMs);
+                const onAbort = () => {
+                    clearTimeout(timer);
+                    reject(new ExecutionAbortedError());
+                };
+                control?.signal?.addEventListener("abort", onAbort, { once: true });
+            });
+        }
+    }
+    throw new ExecutionAbortedError();
+}
+

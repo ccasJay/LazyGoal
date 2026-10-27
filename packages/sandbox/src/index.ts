@@ -1,5 +1,6 @@
 export {
     createWorkspaceSandbox,
+    normalizeToWorkspaceRelative,
     EXECUTION_ABORTED_ERROR_CODE,
     SandboxAbortedError,
     type DomainFailureMessages,
