@@ -9,7 +9,7 @@ description: 在 LazyGoal 中设计、实现或审查 Web 界面的布局、视�
 
 ## 组件与样式来源
 
-- 遵循根 `AGENTS.md`，优先复用现有组件和 shadcn/ui；涉及组件实现时同时使用 [shadcn](../shadcn/SKILL.md)。
+- 遵循根 `AGENTS.md`，优先复用现有组件和 shadcn/ui；涉及组件实现时同时使用 `shadcn` 技能。
 - 从当前主题和组件查找已有实现，优先修改其来源，避免叠加相互覆盖的样式。主要入口为 [主题映射](../../../apps/goal-board/src/ui.css)、[共享样式](../../../apps/goal-board/src/style.css)、[工作区样式](../../../apps/goal-board/src/workspace.css) 和 [轨迹样式](../../../apps/goal-board/src/trajectory.css)。
 - 文案同时遵循 [lg-prose-standard](../lg-prose-standard/SKILL.md)。本技能中的界面约束优先于通用设计技能中的装饰性建议。
 
