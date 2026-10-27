@@ -20,7 +20,6 @@ import type {
     LLMStreamEvent,
 } from "../../llm-core/src/index";
 import {
-    classifyTransientModelFailure,
     createContentBlockStreamTracker,
     readNormalizedUsage,
     readToolCalls,
@@ -30,7 +29,6 @@ import {
     ExecutionAbortedError,
     isExecutionAbortedError,
     throwIfAborted,
-    TransientModelRequestFailure,
     type ExecutionControl,
 } from "../../execution-control/src/index";
 import type { ModelInputStore, ModelInputRecord } from "../../runtime/src/model-input";
@@ -179,76 +177,33 @@ export async function callModel(
         modelId: context.modelId,
         occurredAt: new Date().toISOString(),
     });
-    let response!: LLMResponse;
+    let response: LLMResponse;
     let decodeDurationMs: number | undefined;
     let requestStartedAt: number | undefined;
     let requestDurationMs: number | undefined;
     const observation: ModelStreamObservation = {};
-    const maxAttempts = 4;
-    const baseDelayMs = 250;
-    let lastError: unknown;
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-        throwIfAborted(control);
-        try {
-            if (dependencies.adapter.stream === undefined) {
-                if (attempt === 1) publishModelStarted(dependencies, context, callId, stage);
-                requestStartedAt = performance.now();
-                response = await dependencies.adapter.generate(providerRequest, control);
-                const elapsedMs = performance.now() - requestStartedAt;
-                if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
-                publishWholeResponseEvents(dependencies, context, callId, response, stage);
-            } else {
-                requestStartedAt = performance.now();
-                const streamed = await consumeModelStream(dependencies, providerRequest, context, control, callId, observation, stage);
-                response = streamed.response;
-                decodeDurationMs = streamed.decodeDurationMs;
-                const elapsedMs = performance.now() - requestStartedAt;
-                if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
-            }
-            throwIfAborted(control);
-            lastError = undefined;
-            break;
-        } catch (error) {
-            if (requestDurationMs === undefined && requestStartedAt !== undefined) {
-                const elapsedMs = performance.now() - requestStartedAt;
-                if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
-            }
-            const cancelled = isExecutionAbortedError(error) || control?.signal?.aborted === true;
-            if (cancelled) {
-                lastError = error;
-                break;
-            }
-            const transient = error instanceof TransientModelRequestFailure
-                ? error
-                : classifyTransientModelFailure(error);
-            if (transient === undefined || attempt >= maxAttempts) {
-                lastError = error;
-                break;
-            }
-
-            const exponential = baseDelayMs * 2 ** (attempt - 1);
-            const retryAfter = transient.retryAfterMs;
-            const jitter = Math.floor(Math.random() * 100);
-            const delayMs = Math.min(8000, Math.max(exponential, retryAfter ?? 0)) + jitter;
-
-            await new Promise<void>((resolve, reject) => {
-                if (control?.signal?.aborted) return reject(new ExecutionAbortedError());
-                const timer = setTimeout(() => {
-                    control?.signal?.removeEventListener("abort", onAbort);
-                    resolve();
-                }, delayMs);
-                const onAbort = () => {
-                    clearTimeout(timer);
-                    reject(new ExecutionAbortedError());
-                };
-                control?.signal?.addEventListener("abort", onAbort, { once: true });
-            });
+    try {
+        if (dependencies.adapter.stream === undefined) {
+            publishModelStarted(dependencies, context, callId, stage);
+            requestStartedAt = performance.now();
+            response = await dependencies.adapter.generate(providerRequest, control);
+            const elapsedMs = performance.now() - requestStartedAt;
+            if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
+            publishWholeResponseEvents(dependencies, context, callId, response, stage);
+        } else {
+            requestStartedAt = performance.now();
+            const streamed = await consumeModelStream(dependencies, providerRequest, context, control, callId, observation, stage);
+            response = streamed.response;
+            decodeDurationMs = streamed.decodeDurationMs;
+            const elapsedMs = performance.now() - requestStartedAt;
+            if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
         }
-    }
-
-    if (lastError !== undefined) {
-        const error = lastError;
+        throwIfAborted(control);
+    } catch (error) {
+        if (requestDurationMs === undefined && requestStartedAt !== undefined) {
+            const elapsedMs = performance.now() - requestStartedAt;
+            if (Number.isFinite(elapsedMs) && elapsedMs > 0) requestDurationMs = elapsedMs;
+        }
         const cancelled = isExecutionAbortedError(error) || control?.signal?.aborted === true;
         publishModelTerminated(dependencies, context, callId, cancelled, observation.tracker?.unfinishedIndexes() ?? []);
         await appendModelMetric(dependencies.metricsRecorder, {
