@@ -195,7 +195,6 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
                     );
                     throwIfAborted(control);
                     markWorkspaceModified(this.sandbox.root);
-            this.failedOldStrings.clear();
                     this.failedOldStrings.clear();
                 } catch (error) {
                     if (isExecutionAbortedError(error)) {
@@ -444,13 +443,28 @@ function tryFuzzyMatchAndReplace(
     oldString: string,
     newString: string,
 ): FuzzyMatchResult {
-    const normOldString = normalizeString(oldString);
+    let normOldString = normalizeString(oldString);
     if (normOldString === "") {
         return { kind: "not_found" };
     }
 
     const { normalized: normContent, origIndex, origLength } = normalizeContentWithMapping(content);
-    const normOccurrences = countOccurrences(normContent, normOldString);
+    let normOccurrences = countOccurrences(normContent, normOldString);
+    let effectiveNew = newString;
+
+    // 若未直接命中，尝试解除由于模型 JSON 双重转义引入的多余引号反斜杠（\" ↔ ", \' ↔ '）
+    if (normOccurrences === 0 && (/\\['"`]/.test(oldString))) {
+        const unescapedOldString = oldString.replace(/\\(['"`])/g, "$1");
+        const unescapedNormOld = normalizeString(unescapedOldString);
+        const unescapedOccurrences = countOccurrences(normContent, unescapedNormOld);
+        if (unescapedOccurrences === 1) {
+            normOldString = unescapedNormOld;
+            normOccurrences = 1;
+            if (/\\['"`]/.test(newString)) {
+                effectiveNew = newString.replace(/\\(['"`])/g, "$1");
+            }
+        }
+    }
 
     if (normOccurrences === 0) {
         return { kind: "not_found" };
@@ -473,9 +487,9 @@ function tryFuzzyMatchAndReplace(
     }
 
     const matchedSlice = content.slice(origStart, origEnd);
-    const effectiveNewString = matchedSlice.includes("\r\n") && !newString.includes("\r\n")
-        ? newString.replace(/\n/g, "\r\n")
-        : newString;
+    const effectiveNewString = matchedSlice.includes("\r\n") && !effectiveNew.includes("\r\n")
+        ? effectiveNew.replace(/\n/g, "\r\n")
+        : effectiveNew;
 
     const updatedContent = content.slice(0, origStart) + effectiveNewString + content.slice(origEnd);
     return {
@@ -503,7 +517,9 @@ function findNearestLineHint(content: string, oldString: string): string {
         if (line.includes(targetLine) || (line.trim().length > 5 && targetLine.includes(line.trim()))) {
             const lineNo = i + 1;
             const snippet = line.trim().slice(0, 80);
-            return `. 提示: 在第 ${lineNo} 行发现可能相关的代码: "${snippet}"。请重新核对该行精确内容或使用 write_file 重写文件。`;
+            const contextEnd = Math.min(contentLines.length, i + 6);
+            const contextLines = contentLines.slice(i, contextEnd).join("\n");
+            return `. 提示: 在第 ${lineNo} 行发现可能相关的代码: "${snippet}"。目标行附近的真实上下文代码为:\n\`\`\`\n${contextLines}\n\`\`\`\n请复制上述真实代码作为 oldString，或直接使用 write_file 重写文件。`;
         }
     }
     return "";

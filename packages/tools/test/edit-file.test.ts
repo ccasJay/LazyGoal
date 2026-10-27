@@ -466,8 +466,35 @@ test("EditFileTool 未命中时若存在相似代码行附带近邻行号提示"
         assert.equal((res as any).code, "STRING_NOT_FOUND");
         assert.ok((res as any).message.includes("第 3 行"));
         assert.ok((res as any).message.includes("compute_answer"));
+        assert.ok((res as any).message.includes("真实上下文代码"));
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
     }
 });
+
+test("EditFileTool 自动容错模型生成的误转义引号反斜杠", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-edit-file-escape-"));
+
+    try {
+        const target = join(workspaceRoot, "core.py");
+        await writeFile(target, 'raise ValueError("{} object is invalid - expected \x27{}\x27")\n', "utf8");
+        const tool = new EditFileTool(workspaceRoot);
+
+        // 模型在 JSON 序列化中常常误输出 \" ，解码后带有真正的反斜杠
+        const res = await tool.execute({
+            actionId: "act-unescape",
+            input: {
+                path: "core.py",
+                oldString: 'raise ValueError(\\"{} object is invalid - expected \x27{}\x27\\")',
+                newString: 'raise ValueError(\\"{} object is invalid - columns missing\\")',
+            },
+        });
+        assert.equal(res.kind, "success");
+        const updated = await readFile(target, "utf8");
+        assert.equal(updated, 'raise ValueError("{} object is invalid - columns missing")\n');
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
 
