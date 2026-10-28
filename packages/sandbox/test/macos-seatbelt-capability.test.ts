@@ -58,7 +58,20 @@ describe("macOS Seatbelt Capability & Scope Resolution", () => {
             assert.ok(scope.extraFiles.some((f) => f.access === "read" && f.kind === "file"));
             assert.ok(scope.extraFiles.some((f) => f.access === "write" && f.kind === "directory_tree"));
 
-            // 2. 严禁申请 .lazygoal 内部状态目录
+            // 2. 工作区根目录本身不触发额外审批，子路径仍保留为显式申请
+            const redundant = await resolveEffectiveSandboxScope(workspace, {
+                files: [
+                    { path: ".", access: "read", kind: "directory_tree", purpose: "读取工作区" },
+                    { path: "src", access: "write", kind: "directory_tree", purpose: "写入工作区" },
+                ],
+            });
+            assert.equal(redundant.network, "none");
+            assert.equal(redundant.extraFiles.length, 1);
+            assert.equal(redundant.extraFiles[0]?.access, "write");
+            assert.equal(redundant.extraFiles[0]?.kind, "directory_tree");
+            assert.ok(redundant.extraFiles[0]?.canonicalPath.endsWith("/src"));
+
+            // 3. 严禁申请 .lazygoal 内部状态目录
             await assert.rejects(
                 () => resolveEffectiveSandboxScope(workspace, {
                     files: [

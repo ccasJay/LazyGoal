@@ -160,7 +160,7 @@ async function resolveCanonicalPath(rawPath: string): Promise<string> {
  *
  * @param workspaceRoot - 当前工作区根目录。
  * @param request - 模型提交的可选沙箱能力申请。
- * @returns 规范化的 EffectiveSandboxScope。
+ * @returns 规范化的 EffectiveSandboxScope；重复的工作区根目录申请被省略。
  * @throws 当申请访问 LazyGoal 内部私密状态等绝对禁止开放的路径时抛出异常。
  *
  * @example
@@ -199,6 +199,12 @@ export async function resolveEffectiveSandboxScope(
             || canonical.startsWith(resolve(canonicalWorkspace, ".lazygoal") + "/")
         ) {
             throw new Error(`严禁向受限命令开放 LazyGoal 内部状态目录: ${item.path}`);
+        }
+
+        // 工作区根目录本身已由默认沙箱覆盖；重复声明不应升级为额外审批范围。
+        // 子路径可能承载 Git 元数据等受保护能力，仍需保留为显式申请。
+        if (canonical === canonicalWorkspace) {
+            continue;
         }
 
         const key = `${canonical}:${item.access}:${item.kind}`;
