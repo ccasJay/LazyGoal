@@ -203,6 +203,7 @@ export function transition(
                         pendingAction: {
                             action: pendingAction.action,
                             status: "outcome_unknown",
+                            ...(pendingAction.executionUnitId === undefined ? {} : { executionUnitId: pendingAction.executionUnitId }),
                             ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
                             ...(pendingAction.executionVersion === undefined ? {} : { executionVersion: pendingAction.executionVersion }),
                             recoveryRef: computeActionRecoveryRef(
@@ -234,6 +235,14 @@ export function transition(
                     );
                 }
 
+                if (input.executionUnitId !== undefined && !hasText(input.executionUnitId)) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Action staging requires a non-empty executionUnitId",
+                    );
+                }
+
                 const status = input.status ?? "approved";
 
                 if (
@@ -257,6 +266,7 @@ export function transition(
                         pendingAction: {
                             action: input.action,
                             status,
+                            ...(input.executionUnitId === undefined ? {} : { executionUnitId: input.executionUnitId }),
                             ...(input.approvalKind === undefined ? {} : { approvalKind: input.approvalKind }),
                             ...(input.effectiveSandboxScope === undefined ? {} : { effectiveSandboxScope: input.effectiveSandboxScope }),
                         },
@@ -583,6 +593,7 @@ export function transition(
                                 pendingAction: {
                                     action: pendingAction.action,
                                     status: "outcome_unknown" as const,
+                                    ...(pendingAction.executionUnitId === undefined ? {} : { executionUnitId: pendingAction.executionUnitId }),
                                     ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
                                     ...(pendingAction.executionVersion === undefined ? {} : { executionVersion: pendingAction.executionVersion }),
                                     recoveryRef: computeActionRecoveryRef(
@@ -613,6 +624,7 @@ export function transition(
                         pendingAction: {
                             action: pendingAction.action,
                             status: "outcome_unknown",
+                            ...(pendingAction.executionUnitId === undefined ? {} : { executionUnitId: pendingAction.executionUnitId }),
                             ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
                             ...(pendingAction.executionVersion === undefined ? {} : { executionVersion: pendingAction.executionVersion }),
                             recoveryRef: computeActionRecoveryRef(
@@ -681,6 +693,7 @@ export function transition(
                             action: pendingAction.action,
                             status: "approved",
                             approvalScope,
+                            ...(pendingAction.executionUnitId === undefined ? {} : { executionUnitId: pendingAction.executionUnitId }),
                             ...(input.grantId === undefined ? {} : { grantId: input.grantId }),
                             ...(input.approvalInputId === undefined ? {} : { approvalInputId: input.approvalInputId }),
                             ...(pendingAction.approvalKind === undefined ? {} : { approvalKind: pendingAction.approvalKind }),
@@ -742,6 +755,7 @@ export function transition(
                             action: pendingAction.action,
                             status: "approved",
                             approvalScope,
+                            ...(pendingAction.executionUnitId === undefined ? {} : { executionUnitId: pendingAction.executionUnitId }),
                             ...(input.grantId === undefined ? {} : { grantId: input.grantId }),
                             ...(input.approvalInputId === undefined ? {} : { approvalInputId: input.approvalInputId }),
                             ...(input.approvalKind === undefined
@@ -792,6 +806,7 @@ export function transition(
                             action: pendingAction.action,
                             status: "approved",
                             approvalScope: "action",
+                            ...(pendingAction.executionUnitId === undefined ? {} : { executionUnitId: pendingAction.executionUnitId }),
                             ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
                             ...(pendingAction.approvalKind === undefined ? {} : { approvalKind: pendingAction.approvalKind }),
                             ...(pendingAction.effectiveSandboxScope === undefined ? {} : { effectiveSandboxScope: pendingAction.effectiveSandboxScope }),

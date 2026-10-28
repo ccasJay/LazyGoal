@@ -281,6 +281,7 @@ function createActionApprovalGoal(): Goal {
         {
             kind: "stage_action",
             status: "awaiting_approval",
+            executionUnitId: "execution-unit-approval",
             action: {
                 actionId: "action-approval",
                 toolId: "read_file",
@@ -529,6 +530,7 @@ test("saves Action approval before scheduling the matching transient authorizati
         assert.deepEqual(approved.state.run.pendingAction, {
             action: waiting.state.run.pendingAction?.action,
             status: "approved",
+            executionUnitId: "execution-unit-approval",
             approvalScope: "action",
             approvalInputId: computeApprovalInputId({
                 actionId: "action-approval",
@@ -561,8 +563,9 @@ test("saves Action approval before scheduling the matching transient authorizati
         });
         return { ok: true, state: completedRun };
     }, events);
+    const trajectoryStore = trajectoryStoreFor(store);
     const coordinator = new GoalCoordinator({
-        trajectoryStore: trajectoryStoreFor(store),
+        trajectoryStore,
         store,
         scheduler,
     });
@@ -572,6 +575,11 @@ test("saves Action approval before scheduling the matching transient authorizati
         action: { kind: "approve_action", actionId: "action-approval" },
     }));
 
+    const approvalEvent = (await trajectoryStore.read({
+        goalId: waiting.id,
+        runId: waiting.state.run.id,
+    })).find((event) => event.eventType === "action_approved");
+    assert.equal(approvalEvent?.executionUnitId, "execution-unit-approval");
     assert.equal(result.kind, "terminal");
     assert.equal(result.goal.state.run.stepCount, 2);
     assert.deepEqual(result.goal.state.messages, waiting.state.messages);

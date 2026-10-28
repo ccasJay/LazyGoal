@@ -607,6 +607,9 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                         pendingAction: {
                             action: encodeAction(run.pendingAction.action),
                             status: run.pendingAction.status,
+                            ...(run.pendingAction.executionUnitId === undefined
+                                ? {}
+                                : { executionUnitId: run.pendingAction.executionUnitId }),
                             ...(run.pendingAction.attemptsStarted === undefined
                                 ? {}
                                 : { attemptsStarted: run.pendingAction.attemptsStarted }),
@@ -970,6 +973,7 @@ function decodePendingAction(pendingAction: GoalSnapshotPendingActionV1): Pendin
     return {
         action: decodeAction(pendingAction.action),
         status: pendingAction.status,
+        ...(pendingAction.executionUnitId === undefined ? {} : { executionUnitId: pendingAction.executionUnitId }),
         ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
         ...(pendingAction.approvalScope === undefined ? {} : { approvalScope: pendingAction.approvalScope }),
         ...(pendingAction.grantId === undefined ? {} : { grantId: pendingAction.grantId }),

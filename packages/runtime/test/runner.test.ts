@@ -2274,7 +2274,9 @@ test("require_approval 会保存等待中的 Action 且不调用 Tool", async ()
     const state = requireSuccessfulState(result);
     assert.equal(state.status, "waiting");
     assert.equal(state.stepCount, 0);
-    assert.deepEqual(state.pendingAction, {
+    const { executionUnitId, ...approvalPendingAction } = state.pendingAction!;
+    assert.match(executionUnitId ?? "", /^execution-unit-/);
+    assert.deepEqual(approvalPendingAction, {
         action: {
             actionId: "action-approval",
             toolId: "read_file",
@@ -2331,7 +2333,9 @@ test("Runner 批准后为同一 canonical Action 重新 prepare 且不重复评�
     );
     assert.equal(waiting.status, "waiting");
     assert.equal(counted.prepareCalls(), 1);
-    assert.deepEqual(waiting.pendingAction, {
+    const { executionUnitId: reprepareExecutionUnitId, ...repreparePendingAction } = waiting.pendingAction!;
+    assert.match(reprepareExecutionUnitId ?? "", /^execution-unit-/);
+    assert.deepEqual(repreparePendingAction, {
         action,
         status: "awaiting_approval",
     });
@@ -2835,7 +2839,10 @@ test("Observation 保存失败时保留已暂存 pendingAction", async () => {
     const persisted = await control.delegate.restore(initial.id);
     assert.equal(persisted?.state.run.status, "running");
     assert.equal(persisted?.state.run.stepCount, 0);
-    assert.deepEqual(persisted?.state.run.pendingAction, {
+    const { executionUnitId: saveFailureExecutionUnitId, ...saveFailurePendingAction } =
+        persisted!.state.run.pendingAction!;
+    assert.match(saveFailureExecutionUnitId ?? "", /^execution-unit-/);
+    assert.deepEqual(saveFailurePendingAction, {
         action: {
             actionId: "action-observation-save-failure",
             toolId: "read_file",
@@ -2877,7 +2884,9 @@ test("Tool 异常会保存 outcome_unknown execution_error", async () => {
     const state = requireSuccessfulState(result);
     assert.equal(state.status, "failed");
     assert.equal(state.stepCount, 0);
-    assert.deepEqual(state.pendingAction, {
+    const { executionUnitId: toolErrorExecutionUnitId, ...toolErrorPendingAction } = state.pendingAction!;
+    assert.match(toolErrorExecutionUnitId ?? "", /^execution-unit-/);
+    assert.deepEqual(toolErrorPendingAction, {
         action: {
             actionId: "action-tool-error",
             toolId: "read_file",

@@ -362,6 +362,7 @@ test("无最终任务的普通只读 Action 可以保存为可恢复 pendingActi
             toolId: "read_file",
             input: { path: "README.md" },
         },
+        executionUnitId: "execution-unit-approval",
         status: "awaiting_approval",
     });
     assert.equal(waiting.ok, true);

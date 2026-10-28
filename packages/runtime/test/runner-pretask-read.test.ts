@@ -243,7 +243,9 @@ test("无任务只读 Action: require_approval 使用普通 pendingAction 恢复
     const pending = await store.restore(goal.id);
     assert.ok(pending !== undefined);
     assert.equal(pending.state.run.stepCount, 0);
-    assert.deepEqual(pending.state.run.pendingAction, {
+    const { executionUnitId, ...readPendingAction } = pending.state.run.pendingAction!;
+    assert.match(executionUnitId ?? "", /^execution-unit-/);
+    assert.deepEqual(readPendingAction, {
         action: {
             actionId: "action-read-approval",
             toolId: "read_file",

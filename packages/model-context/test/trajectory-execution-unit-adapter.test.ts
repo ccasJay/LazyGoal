@@ -104,6 +104,84 @@ test("Adapter 只投影 committed boundary 内的完整 Tool execution unit", ()
     assert.equal(Object.isFrozen(units[0]?.events), true);
 });
 
+test("Adapter 将暂存待审、批准事实与 Tool 生命周期合为完整单元", () => {
+    const source = [
+        event(1, {
+            unitId: "unit-approved",
+            eventType: "decision_received",
+            payload: {
+                type: "decision_received",
+                decision: toolDecision(),
+            },
+        }),
+        event(2, {
+            unitId: "unit-approved",
+            eventType: "action_staged",
+            payload: {
+                type: "action_staged",
+                action: toolDecision().action,
+                approvalStatus: "awaiting_approval",
+            },
+        }),
+        event(3, {
+            unitId: "unit-approved",
+            eventType: "action_approved",
+            payload: {
+                type: "action_approved",
+                actionId: "action-tool",
+            },
+        }),
+        event(4, {
+            unitId: "unit-approved",
+            eventType: "tool_started",
+            payload: {
+                type: "tool_started",
+                actionId: "action-tool",
+                toolId: "echo",
+                input: {},
+            },
+        }),
+        event(5, {
+            unitId: "unit-approved",
+            eventType: "tool_finished",
+            payload: {
+                type: "tool_finished",
+                actionId: "action-tool",
+                toolId: "echo",
+                observation: { kind: "success", output: "ok", summary: "done" },
+            },
+        }),
+        event(6, {
+            unitId: "unit-approved",
+            eventType: "observation_recorded",
+            payload: {
+                type: "observation_recorded",
+                actionId: "action-tool",
+                observation: { kind: "success", output: "ok", summary: "done" },
+            },
+        }),
+    ];
+
+    const units = new TrajectoryExecutionUnitAdapter().adapt(source, {
+        committedThroughSequence: 6,
+        goalId: "goal-1",
+        runId: "run-1",
+    });
+
+    assert.equal(units.length, 1);
+    assert.deepEqual(
+        units[0]?.events.map((item) => item.eventType),
+        [
+            "decision_received",
+            "action_staged",
+            "action_approved",
+            "tool_started",
+            "tool_finished",
+            "observation_recorded",
+        ],
+    );
+});
+
 test("Adapter 对缺失 action staging 的旧 Tool 单元 fail-closed", () => {
     const source = [
         event(1, {

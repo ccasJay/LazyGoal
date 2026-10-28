@@ -302,6 +302,7 @@ export class HotWindowSelector<T> {
 const EXECUTION_UNIT_EVENT_TYPES = new Set([
     "decision_received",
     "action_staged",
+    "action_approved",
     "tool_started",
     "tool_finished",
     "observation_recorded",
@@ -336,6 +337,7 @@ function completeExecutionUnit(
     const decision = decisions[0]!.payload.decision;
     if (decision.kind === "tool_call") {
         const staged = events.filter((event) => event.eventType === "action_staged");
+        const approvals = events.filter((event) => event.eventType === "action_approved");
         const started = events.filter((event) => event.eventType === "tool_started");
         const finished = events.filter((event) => event.eventType === "tool_finished");
         const observations = events.filter(
@@ -349,7 +351,7 @@ function completeExecutionUnit(
             "execution_error",
         ].includes(event.eventType));
 
-        if (staged.length > 1 || started.length > 1 || finished.length > 1 || observations.length > 1) {
+        if (staged.length > 1 || approvals.length > 1 || started.length > 1 || finished.length > 1 || observations.length > 1) {
             throw new ModelContextSourceError(
                 `Execution Unit ${executionUnitId} contains duplicate action lifecycle events`,
             );
@@ -359,8 +361,16 @@ function completeExecutionUnit(
                 `Tool Execution Unit ${executionUnitId} contains a terminal event`,
             );
         }
+
+        const actionId = decision.action.actionId;
+        if (approvals.length === 1 && approvals[0]!.payload.actionId !== actionId) {
+            throw new ModelContextSourceError(
+                `Execution Unit ${executionUnitId} contains mismatched approval identity`,
+            );
+        }
+        const approvedByFact = approvals.length === 1;
         const isApprovedTool = staged.length === 1
-            && staged[0]!.payload.approvalStatus === "approved"
+            && (staged[0]!.payload.approvalStatus === "approved" || approvedByFact)
             && started.length === 1
             && finished.length === 1
             && observations.length === 1;
@@ -369,7 +379,6 @@ function completeExecutionUnit(
             return undefined;
         }
 
-        const actionId = decision.action.actionId;
         if (
             staged[0]!.payload.action.actionId !== actionId
             || started[0]!.payload.actionId !== actionId

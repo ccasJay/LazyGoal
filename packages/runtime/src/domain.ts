@@ -734,6 +734,14 @@ export type {
 export interface PendingAction {
     readonly action: ToolCallAction;
     readonly status: "approved" | "awaiting_approval" | "outcome_unknown";
+    /**
+     * 暂存该 Action 的执行单元身份。
+     *
+     * @remarks
+     * 批准后执行仍复用同一单元，使 Decision、审批、Tool 生命周期与 Observation
+     * 在 Trajectory 中保持为一个完整执行单元；旧快照或非单元来源省略。
+     */
+    readonly executionUnitId?: string;
     /** 已提交的 Tool 调用开始次数；只对获批 Action 设置，最多三次。 */
     readonly attemptsStarted?: number;
     /** 已批准 Action 使用的权限期限；单次批准为 action。 */
@@ -1218,6 +1226,8 @@ export type RunInput =
     | {
         readonly kind: "stage_action";
         readonly action: ToolCallAction;
+        /** 暂存该 Action 的执行单元；批准后执行复用同一身份。 */
+        readonly executionUnitId?: string;
         readonly status?: "approved" | "awaiting_approval";
         readonly approvalKind?: "tool" | "sandbox";
         readonly effectiveSandboxScope?: EffectiveSandboxScope;

@@ -3157,6 +3157,8 @@ class RunExecutor {
                         currentGoal = await this.recordModelRequestFailure(currentGoal, input, stage, attempt, error, control);
                     },
                 );
+                // 模型调用可能在用户中断已经落下后才返回；提交任何事实前必须再次观察取消。
+                throwIfAborted(control);
                 const result = await this.executeModelStage(
                     async () => validate(currentGoal, value),
                     control,
@@ -3164,6 +3166,7 @@ class RunExecutor {
                         currentGoal = await this.recordModelRequestFailure(currentGoal, input, stage, attempt, error, control);
                     },
                 );
+                throwIfAborted(control);
                 return { goal: currentGoal, result };
             } catch (error) {
                 if (isExecutionAbortedError(error)) throw error;
@@ -4297,7 +4300,7 @@ class RunExecutor {
                 const outcome = await this.executeToolAndObserve(
                     goal,
                     validated,
-                    createExecutionUnitId(),
+                    pendingAction.executionUnitId ?? createExecutionUnitId(),
                     control,
                     effectivePlan,
                 );
@@ -5349,6 +5352,7 @@ class RunExecutor {
                             const stagedRun = this.applyTransition(goal.state.run, {
                                 kind: "stage_action",
                                 action: validated.action,
+                                executionUnitId,
                                 status: "awaiting_approval",
                                 ...(authorization.approvalKind === undefined
                                     ? {} : { approvalKind: authorization.approvalKind }),
@@ -5393,6 +5397,7 @@ class RunExecutor {
                         const stagedRun = this.applyTransition(goal.state.run, {
                             kind: "stage_action",
                             action: validated.action,
+                            executionUnitId,
                             status: "awaiting_approval",
                             ...(approvalKind === undefined ? {} : { approvalKind }),
                             ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
@@ -5428,6 +5433,7 @@ class RunExecutor {
                     const stagedRun = this.applyTransition(goal.state.run, {
                         kind: "stage_action",
                         action: validated.action,
+                        executionUnitId,
                         status: "approved",
                         ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
                     });
@@ -6423,6 +6429,7 @@ class RunExecutor {
                         const stagedRun = this.applyTransition(goal.state.run, {
                             kind: "stage_action",
                             action: prepared.action,
+                            executionUnitId: childExecutionUnitId,
                             status: authorization.requiresApproval ? "awaiting_approval" : "approved",
                             ...(authorization.approvalKind === undefined ? {} : { approvalKind: authorization.approvalKind }),
                             ...(hasCustomScope ? { effectiveSandboxScope: authorization.effectiveSandboxScope } : {}),

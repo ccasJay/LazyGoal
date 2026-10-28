@@ -79,6 +79,58 @@ test("Interrupt persists intent, stops only the active Run, and settles it as ca
     });
 });
 
+test("Interrupt rejects a model decision that arrives after cancellation", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectory = trajectoryStoreFor(store);
+    const initial = createGoal({
+        ...currentProtocols,
+        promptBundleVersion: 1,
+        id: "goal-interrupt-late-model",
+        intent: "interrupt late model",
+        profile,
+        runId: "run-interrupt-late-model",
+    });
+    await store.save(initial);
+    const entered = deferred();
+    let release!: () => void;
+    const executor: StepExecutor = {
+        async decide() {
+            entered.resolve();
+            return new Promise((resolve) => {
+                release = () => resolve({
+                    kind: "decision",
+                    decision: {
+                        kind: "complete",
+                        summary: "late completion",
+                        completionEvidence: [],
+                    },
+                });
+            });
+        },
+        async think() { throw new Error("unexpected Think call"); },
+        async reviewCompletion() { return { kind: "accept" }; },
+    };
+    const runner = new Runner({ store, trajectoryStore: trajectory, executor });
+    const execution = runner.runUntilBlocked({ goalId: initial.id, runId: initial.state.run.id });
+    await entered.promise;
+
+    await runner.interrupt({ goalId: initial.id, runId: initial.state.run.id }, "interrupt-late-model");
+
+    release();
+    const result = await execution;
+    assert.equal(result.ok, true);
+
+    const saved = await store.restore(initial.id);
+    assert.equal(saved?.state.run.status, "cancelled");
+    const eventTypes = trajectory.events.map((event) => event.eventType);
+    const cancelledIndex = eventTypes.indexOf("run_cancelled");
+    assert.ok(cancelledIndex >= 0);
+    assert.equal(
+        eventTypes.slice(cancelledIndex + 1).includes("decision_received"),
+        false,
+    );
+});
+
 test("Interrupted Tool cancels without another model call and preserves its unknown outcome", async () => {
     const store = new InMemoryGoalStore();
     const trajectory = trajectoryStoreFor(store);

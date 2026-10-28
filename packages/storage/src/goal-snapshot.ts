@@ -383,6 +383,8 @@ export interface GoalSnapshotExecutionVersionV1 {
 export interface GoalSnapshotPendingActionV1 {
     readonly action: GoalSnapshotToolCallActionV1;
     readonly status: "approved" | "awaiting_approval" | "outcome_unknown";
+    /** 暂存该 Action 的执行单元；恢复执行后继续使用同一身份。 */
+    readonly executionUnitId?: string;
     readonly attemptsStarted?: number;
     readonly approvalScope?: "action" | "goal" | "workspace";
     readonly grantId?: string;
@@ -1234,6 +1236,7 @@ const ExecutionVersionSchema = z.object({
 const PendingActionSchema = z.object({
     action: ToolCallActionSchema,
     status: z.enum(["approved", "awaiting_approval", "outcome_unknown"]),
+    executionUnitId: NonEmptyStringSchema.optional(),
     attemptsStarted: z.number().int().min(1).max(3).optional(),
     approvalScope: z.enum(["action", "goal", "workspace"]).optional(),
     grantId: NonEmptyStringSchema.optional(),

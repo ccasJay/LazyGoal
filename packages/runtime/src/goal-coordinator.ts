@@ -1821,6 +1821,9 @@ export class GoalCoordinator {
                     runId: goal.state.run.id,
                     phase: "executing",
                     actionId: request.action.actionId,
+                    ...(pendingAction.executionUnitId === undefined
+                        ? {}
+                        : { executionUnitId: pendingAction.executionUnitId }),
                     eventType: "action_approved",
                     payload: {
                         type: "action_approved",

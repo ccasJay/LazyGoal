@@ -178,9 +178,10 @@ test("Action 经核准并提供有效 SandboxExecutionPlan 后执行成功并传
         };
 
         const executor = new FakeStepExecutor([decision]);
+        const trajectoryStore = trajectoryStoreFor(store);
         const runner = new Runner({
             store,
-            trajectoryStore: trajectoryStoreFor(store),
+            trajectoryStore,
             executor,
             toolRegistry: registry,
             toolPolicy: {
@@ -200,6 +201,8 @@ test("Action 经核准并提供有效 SandboxExecutionPlan 后执行成功并传
         if (!step1.ok) return;
         assert.equal(step1.state.status, "waiting");
         assert.equal(step1.state.pendingAction?.status, "awaiting_approval");
+        const executionUnitId = step1.state.pendingAction?.executionUnitId;
+        assert.ok(executionUnitId);
 
         // 用户核准并提供合法的 SandboxExecutionPlan
         const plan: SandboxExecutionPlan = {
@@ -232,6 +235,28 @@ test("Action 经核准并提供有效 SandboxExecutionPlan 后执行成功并传
         assert.ok(capturedRequest);
         assert.equal(capturedRequest.actionId, actionId);
         assert.deepEqual(capturedRequest.plan, plan);
+
+        const related = (await trajectoryStore.read({ goalId, runId })).filter((event) => {
+            if (event.payload.type === "decision_received") {
+                return event.payload.decision.kind === "tool_call"
+                    && event.payload.decision.action.actionId === actionId;
+            }
+            if (event.payload.type === "action_staged") {
+                return event.payload.action.actionId === actionId;
+            }
+            return "actionId" in event.payload && event.payload.actionId === actionId;
+        });
+        for (const eventType of [
+            "decision_received",
+            "action_staged",
+            "tool_started",
+            "tool_finished",
+            "observation_recorded",
+        ] as const) {
+            const event = related.find((candidate) => candidate.eventType === eventType);
+            assert.ok(event, `missing ${eventType}`);
+            assert.equal(event.executionUnitId, executionUnitId);
+        }
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
     }

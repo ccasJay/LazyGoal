@@ -151,6 +151,45 @@ test("stage_action persists a pending Action without consuming a Step", () => {
     });
 });
 
+test("stage_action preserves its execution unit across approval", () => {
+    const staged = requireSuccessfulState(
+        transition(createRunningState(), {
+            kind: "stage_action",
+            action: {
+                actionId: "action-1",
+                toolId: "read_file",
+                input: { path: "README.md" },
+            },
+            executionUnitId: "execution-unit-1",
+            status: "awaiting_approval",
+            approvalKind: "sandbox",
+        }),
+    );
+
+    assert.equal(staged.pendingAction?.executionUnitId, "execution-unit-1");
+
+    const approved = requireSuccessfulState(
+        transition(staged, { kind: "approve_action", actionId: "action-1" }),
+    );
+
+    assert.equal(approved.pendingAction?.executionUnitId, "execution-unit-1");
+    assert.equal(approved.pendingAction?.status, "approved");
+});
+
+test("stage_action rejects an empty execution unit", () => {
+    const result = transition(createRunningState(), {
+        kind: "stage_action",
+        action: {
+            actionId: "action-1",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+        executionUnitId: " ",
+    });
+
+    assert.match(requireFailedTransition(result).error.message, /executionUnitId/);
+});
+
 test("observe_action records one Action Step and clears its pendingAction", () => {
     const staged = requireSuccessfulState(
         transition(createRunningState(), {
