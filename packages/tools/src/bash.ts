@@ -249,6 +249,24 @@ function createHeadTailCollector(headLimit: number, tailLimit: number): OutputCo
     };
 }
 
+/**
+ * macOS 系统 Git 启动器在 Seatbelt 内无法写入 xcrun 缓存时会输出固定噪声。
+ *
+ * @remarks
+ * 该错误不影响命令退出码或结果，但会反复进入模型 Observation，误导其重新验证。
+ * 只移除精确匹配的缓存失败行，其余 stderr 原样保留。
+ */
+function stripSandboxToolchainNoise(stderr: string): string {
+    if (!stderr.includes("/xcrun_db-")) return stderr;
+
+    const lines = stderr.split("\n");
+    const retained = lines.filter((line) =>
+        !/^git: error: couldn't create cache file '.*\/xcrun_db-[^']+' \(errno=Operation not permitted\)$/.test(line.trim()),
+    );
+
+    return retained.join("\n");
+}
+
 function combineOutput(stdout: string, stderr: string): string {
     const parts: string[] = [];
 
@@ -744,7 +762,7 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
         throwIfAborted(control);
 
         const truncatedStdout = stdout.result();
-        const truncatedStderr = stderr.result();
+        const truncatedStderr = stripSandboxToolchainNoise(stderr.result());
         const output = combineOutput(truncatedStdout, truncatedStderr);
         const suffix = output === "" ? "" : `: ${output}`;
 

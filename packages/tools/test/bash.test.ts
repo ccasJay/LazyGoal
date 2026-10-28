@@ -95,6 +95,32 @@ test("BashTool 执行成功命令并声明 manual replay", async () => {
     }
 });
 
+test("BashTool 过滤 macOS xcrun 缓存的固定 stderr 噪声", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-noise-"));
+
+    try {
+        const tool = new BashTool(workspaceRoot);
+        const result = await tool.execute({
+            actionId: "action-noise",
+            input: {
+                command: "printf '%s\\n' \"git: error: couldn't create cache file '/var/folders/x/T/xcrun_db-test' (errno=Operation not permitted)\" \"real stderr\" >&2",
+            },
+        });
+
+        assert.deepEqual(result, {
+            kind: "success",
+            output: {
+                exitCode: 0,
+                stdout: "",
+                stderr: "real stderr\n",
+            },
+            summary: "命令执行成功",
+        });
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
 test("BashTool 流式产出 stdout/stderr 分片并以 Observation 结算", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-"));
 
