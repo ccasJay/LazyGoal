@@ -12,13 +12,13 @@ import { statusClass, statusFromRun } from "../types";
 import { GoalSession } from "./GoalSession";
 import { GoalSearch } from "./GoalSearch";
 import { ModelPicker } from "./ModelPicker";
-import { ResizableSidebar } from "./ResizableSidebar";
 import { SettingsPage } from "./SettingsPage";
 import { SessionBoundary } from "./error-boundary";
 import { WorkspaceContext } from "./WorkspaceContext";
 import { Sheet, SheetContent, SheetTitle } from "./ui/sheet";
 import { Popover, PopoverTrigger, PopoverContent } from "./ui/popover";
 import { ResizablePanelGroup, ResizablePanel } from "./ui/resizable";
+import { ResizableSidebar } from "./ResizableSidebar";
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbPage, BreadcrumbSeparator } from "./ui/breadcrumb";
 
 /** 工作区导航与当前会话的展示外壳；沿用当前服务的唯一执行目录和既有会话生命周期。 */
