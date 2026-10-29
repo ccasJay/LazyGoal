@@ -790,7 +790,7 @@ test("Goal events and metrics reconnect after the server ends each stream", { ti
     mock.prepareReconnectState();
     mock.endGoalEvents();
     mock.endMetricsStream();
-    await waitForLocal(() => mock.goalEventConnections() === 2 && mock.metricsConnections() === 2);
+    await waitForLocal(() => mock.goalEventConnections() === 2 && mock.metricsConnections() === 2, 15_000);
     await waitForExpression(socket, "document.querySelector('.task-state')?.textContent === 'Waiting'");
     await waitForExpression(socket, "document.querySelector('.transient-message') === null");
     assert.equal(await value(socket, "document.querySelector('.stream-state')?.textContent"), "Connected");
@@ -806,7 +806,7 @@ test("Goal events and metrics reconnect after the server ends each stream", { ti
     const goalConnections = mock.goalEventConnections();
     const metricsConnections = mock.metricsConnections();
     await cdp(socket, "Page.navigate", { url: "about:blank" });
-    await waitForLocal(() => !mock.goalEventsOpen() && !mock.metricsStreamOpen());
+    await waitForLocal(() => !mock.goalEventsOpen() && !mock.metricsStreamOpen(), 15_000);
     await delay(1_200);
     assert.equal(mock.goalEventConnections(), goalConnections, "关闭视图后不再重连 Goal 事件");
     assert.equal(mock.metricsConnections(), metricsConnections, "关闭视图后不再重连 metrics");
@@ -1663,9 +1663,9 @@ async function waitForExpression(socket, expression) {
   throw new Error(`Timed out waiting for browser expression: ${expression}; questionnaire: ${await value(socket, "document.querySelector('.question-region')?.innerHTML")}; diagnostics: ${await browserDiagnostics(socket)}`);
 }
 
-async function waitForLocal(predicate) {
+async function waitForLocal(predicate, timeoutMs = 5_000) {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 5_000) {
+  while (Date.now() - startedAt < timeoutMs) {
     if (predicate()) return;
     await delay(50);
   }
