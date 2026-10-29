@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 
 import {
+    canonicalJson,
+    compareCodeUnits,
+    isRecord,
+} from "../../contracts/src/index";
+import {
     ContextDocumentBuilder,
     type ContextDocumentFieldName,
     type ContextRetrievalTrajectoryEvent,
@@ -300,9 +305,6 @@ export function computeContextRetrievalSourceDigest(
     throughSequence: number,
 ): string {
     assertNonNegativeSafeInteger(throughSequence, "throughSequence");
-    if (!Array.isArray(events)) {
-        throw new ContextRetrievalIndexError("events must be an array for source digest");
-    }
     const committed: ContextRetrievalTrajectoryEvent[] = [];
     let previousSequence = 0;
     for (const event of events) {
@@ -852,24 +854,7 @@ function assertIndexVersion(index: ContextInvertedIndex): void {
 function compareDocuments(left: ContextSearchDocument, right: ContextSearchDocument): number {
     return left.firstSequence - right.firstSequence
         || left.lastSequence - right.lastSequence
-        || compareLexical(left.documentId, right.documentId);
-}
-
-function canonicalJson(value: unknown): string {
-    const serialized = JSON.stringify(sortKeys(value));
-    return serialized === undefined ? "null" : serialized;
-}
-
-function sortKeys(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(sortKeys);
-    if (value !== null && typeof value === "object") {
-        return Object.fromEntries(
-            Object.entries(value as Record<string, unknown>)
-                .sort(([left], [right]) => compareLexical(left, right))
-                .map(([key, child]) => [key, sortKeys(child)]),
-        );
-    }
-    return value;
+        || compareCodeUnits(left.documentId, right.documentId);
 }
 
 function deepFreeze<T>(value: T, seen = new Set<object>()): T {
@@ -877,10 +862,6 @@ function deepFreeze<T>(value: T, seen = new Set<object>()): T {
     seen.add(value as object);
     for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child, seen);
     return Object.freeze(value);
-}
-
-function isRecord(value: unknown): value is Record<string, any> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function assertNonEmptyString(value: unknown, field: string): asserts value is string {
@@ -893,8 +874,4 @@ function assertNonNegativeSafeInteger(value: unknown, field: string): asserts va
     if (!Number.isSafeInteger(value) || (value as number) < 0) {
         throw new ContextRetrievalIndexError(`${field} must be a non-negative safe integer`);
     }
-}
-
-function compareLexical(left: string, right: string): number {
-    return left < right ? -1 : left > right ? 1 : 0;
 }

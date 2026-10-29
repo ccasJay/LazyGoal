@@ -1,3 +1,7 @@
+import {
+    compareCodeUnits,
+    isRecord,
+} from "../../contracts/src/index";
 import type {
     ContextDocumentFieldName,
     ContextDocumentFields,
@@ -298,7 +302,7 @@ export function buildContextInvertedIndex(
     }
 
     const tokenized = documents.map((document) => tokenizer.tokenize(document));
-    tokenized.sort((left, right) => compareLexical(left.documentId, right.documentId));
+    tokenized.sort((left, right) => compareCodeUnits(left.documentId, right.documentId));
     const seenDocumentIds = new Set<string>();
     for (const document of tokenized) {
         if (seenDocumentIds.has(document.documentId)) {
@@ -350,12 +354,12 @@ export function buildContextInvertedIndex(
             }
         }
 
-        const sortedTerms = Object.keys(postings[fieldName]).sort(compareLexical);
+        const sortedTerms = Object.keys(postings[fieldName]).sort(compareCodeUnits);
         const sortedPostingMap = Object.create(null) as Record<string, readonly ContextIndexPosting[]>;
         const sortedDocumentFrequency = Object.create(null) as Record<string, number>;
         for (const term of sortedTerms) {
             const sortedPostings = postings[fieldName][term]!
-                .sort((left, right) => compareLexical(left.documentId, right.documentId))
+                .sort((left, right) => compareCodeUnits(left.documentId, right.documentId))
                 .map((posting) => Object.freeze(posting));
             sortedPostingMap[term] = Object.freeze(sortedPostings);
             sortedDocumentFrequency[term] = documentFrequency[term]!;
@@ -497,10 +501,6 @@ function normalizeToken(value: string): string {
     return value.normalize("NFKC").toLowerCase();
 }
 
-function compareLexical(left: string, right: string): number {
-    return left < right ? -1 : left > right ? 1 : 0;
-}
-
 function deepFreeze<T>(value: T, seen = new Set<object>()): T {
     if (typeof value !== "object" || value === null || seen.has(value as object)) return value;
     seen.add(value as object);
@@ -508,10 +508,6 @@ function deepFreeze<T>(value: T, seen = new Set<object>()): T {
         deepFreeze(child, seen);
     }
     return Object.freeze(value);
-}
-
-function isRecord(value: unknown): value is Record<string, any> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function assertNonEmptyString(value: unknown, field: string): asserts value is string {

@@ -1,3 +1,4 @@
+import { isRecord } from "../../contracts/src/index";
 import type {
     ContextLookupRequest,
 } from "../../model-contracts/src/index";
@@ -23,6 +24,7 @@ import type {
     ContextRankingResult,
 } from "./context-ranking";
 import type { ContextDocumentSource } from "./context-document";
+import { roundRankedScore } from "./score-rounding";
 
 /** Context Lookup Result 构建失败时使用的稳定错误代码。 */
 export const CONTEXT_LOOKUP_RESULT_ERROR_CODE = "CONTEXT_LOOKUP_RESULT_ERROR" as const;
@@ -304,7 +306,7 @@ function buildMatch(
         firstSequence: document.firstSequence,
         lastSequence: document.lastSequence,
         matchedFields: Object.freeze(matchedFields),
-        score: ranked.adjacent ? 0 : roundScore(ranked.score),
+        score: ranked.adjacent ? 0 : assertRankedScore(ranked.score),
         preview: preview.text,
         truncated: preview.truncated,
         ...(ranked.adjacent ? { adjacent: true as const } : {}),
@@ -353,11 +355,11 @@ function createPreview(body: string, limit: number): { readonly text: string; re
     return { text: `${body.slice(0, length)}${suffix}`, truncated: true };
 }
 
-function roundScore(value: number): number {
+function assertRankedScore(value: number): number {
     if (!Number.isFinite(value) || value < 0) {
         throw new ContextLookupResultError("ranked score is invalid");
     }
-    return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
+    return roundRankedScore(value);
 }
 
 function utf8Bytes(value: unknown): number {
@@ -374,8 +376,4 @@ function assertBoundary(value: unknown): asserts value is number {
     if (!Number.isSafeInteger(value) || (value as number) < 0) {
         throw new ContextLookupResultError("committedThroughSequence is invalid");
     }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
