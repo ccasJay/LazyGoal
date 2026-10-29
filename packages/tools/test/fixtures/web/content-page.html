@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>Structured Content Fixture</title>
+        <style>
+            body { color: red; }
+            .hidden { display: none; }
+        </style>
+        <script>
+            window.scriptSecret = "script-secret";
+        </script>
+    </head>
+    <body>
+        <header>
+            <nav><a href="/home">Home</a></nav>
+        </header>
+        <main>
+            <h1>Product Overview</h1>
+            <p>Tom &amp; Jerry &lt;tag&gt; &quot;quoted&quot; &#39;single&#39; &nbsp; spaced.</p>
+            <table>
+                <thead>
+                    <tr><th>Name</th><th>Value</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Alpha</td><td>1</td></tr>
+                    <tr><td>Beta</td><td>2</td></tr>
+                </tbody>
+            </table>
+            <ul>
+                <li>First <strong>item</strong></li>
+                <li>Second</li>
+            </ul>
+            <div><span>Nested</span> <em>inline</em> text</div>
+        </main>
+        <img src="hidden.png" alt="hidden-image">
+        <footer>Footer note</footer>
+    </body>
+</html>

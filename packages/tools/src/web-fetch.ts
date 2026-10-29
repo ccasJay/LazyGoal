@@ -17,6 +17,7 @@ import {
 import { TransientToolExecutionFailure } from "../../tool-core/src/index";
 import type { DerivedSandboxAccess } from "../../sandbox/src/index";
 import { invalidInput } from "./internal/invalid-input";
+import { extractHtmlText } from "./web/html-extract";
 
 /** `WebFetchTool` 在 Profile 中使用的稳定标识。 */
 export const WEB_FETCH_TOOL_ID = "web_fetch";
@@ -108,21 +109,23 @@ export const WEB_FETCH_INPUT_CONTRACT = contract.object({
 export type WebFetchInput = InferContract<typeof WEB_FETCH_INPUT_CONTRACT>;
 
 /**
- * 将 HTML 文本粗略转换为纯文本。
+ * 将 HTML 文本转换为单行可见文本。
+ *
+ * @remarks
+ * 委托结构化抽取实现，排除脚本与样式，保留表格、列表和标题中的可见文本，
+ * 并折叠空白为单行。该函数是公开的 HTML 抽取入口，不保留第二套正则实现。
+ *
+ * @param html - 待转换的 HTML 文本。
+ * @returns 空白折叠后的单行文本。
+ * @throws 底层 HTML 解析失败时抛出异常。
+ *
+ * @example
+ * ```ts
+ * const text = htmlToPlainText("<p>Hello &amp; welcome</p>");
+ * ```
  */
 export function htmlToPlainText(html: string): string {
-    return html
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;/gi, " ")
-        .replace(/&amp;/gi, "&")
-        .replace(/&lt;/gi, "<")
-        .replace(/&gt;/gi, ">")
-        .replace(/&quot;/gi, "\"")
-        .replace(/&#39;/gi, "'")
-        .replace(/\s+/g, " ")
-        .trim();
+    return extractHtmlText(html);
 }
 
 /**

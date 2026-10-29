@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { safeParse, compileJsonSchema } from "../../contracts/src/index";
@@ -14,6 +15,10 @@ import {
     type WebFetchOutput,
     htmlToPlainText,
 } from "../src/index";
+
+function fixture(name: string): string {
+    return readFileSync(new URL(`./fixtures/web/${name}`, import.meta.url), "utf8");
+}
 
 const validPlan = {
     actionId: "action-fetch-1",
@@ -126,6 +131,66 @@ test("htmlToPlainText 正确剥离标签与脚本并解码实体", () => {
     assert.doesNotMatch(text, /color: red/);
     assert.match(text, /标题 & 概述/);
     assert.match(text, /这是段落一。<hello>/);
+});
+
+test("htmlToPlainText 保留表格、列表、标题与实体并输出单行", () => {
+    const text = htmlToPlainText(fixture("content-page.html"));
+
+    assert.doesNotMatch(text, /\n/);
+    assert.equal(text, text.trim());
+    assert.match(text, /Product Overview/);
+    assert.match(text, /Tom & Jerry <tag> "quoted" 'single' spaced\./);
+    assert.match(text, /Name Value Alpha 1 Beta 2/);
+    assert.match(text, /First item/);
+    assert.match(text, /Second/);
+    assert.match(text, /Nested inline text/);
+    assert.match(text, /Footer note/);
+    assert.doesNotMatch(text, /script-secret/);
+    assert.doesNotMatch(text, /color: red/);
+    assert.doesNotMatch(text, /hidden-image/);
+});
+
+test("web_fetch 非 HTML 文本不经过 HTML 抽取", async () => {
+    const plainText = "text/plain 内容 & <not-a-tag> \"quoted\"";
+    const tool = new WebFetchTool(async () => ({ text: plainText, isHtml: false }));
+
+    const observation = await tool.execute({
+        actionId: "action-fetch-plain",
+        input: { url: "https://example.com/plain.txt" },
+        plan: {
+            actionId: "action-fetch-plain",
+            workspaceRoot: "/workspace",
+            scope: { extraFiles: [], network: "all_outbound" },
+        },
+    });
+
+    assert.equal(observation.kind, "success");
+    if (observation.kind === "success") {
+        assert.equal((observation.output as unknown as WebFetchOutput).text, plainText);
+    }
+});
+
+test("web_fetch HTML 抽取失败时返回 WEB_FETCH_FAILED 且不返回部分正文", async () => {
+    // 深度嵌套会耗尽解析器调用栈，同时文本远小于 2 MiB 响应上限。
+    const deeplyNested = `${"<div>".repeat(20_000)}hidden${"</div>".repeat(20_000)}`;
+    const tool = new WebFetchTool(async () => ({ text: deeplyNested, isHtml: true }));
+
+    const observation = await tool.execute({
+        actionId: "action-fetch-extract-failure",
+        input: { url: "https://example.com/broken" },
+        plan: {
+            actionId: "action-fetch-extract-failure",
+            workspaceRoot: "/workspace",
+            scope: { extraFiles: [], network: "all_outbound" },
+        },
+    });
+
+    assert.equal(observation.kind, "failure");
+    if (observation.kind === "failure") {
+        assert.equal(observation.code, "WEB_FETCH_FAILED");
+        assert.doesNotMatch(observation.message, /hidden/);
+        assert.equal(observation.retryable, false);
+    }
 });
 
 test("web_fetch 返回结构化正文且支持 UTF-16 offset 与分页截断", async () => {

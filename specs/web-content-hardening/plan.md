@@ -12,7 +12,7 @@
   - 场景与预期：用 fixture 调用默认解析/默认后端，结果页按 fixture 顺序返回 title/url/snippet；零结果页经 `WebSearchTool` 得到 `kind: "success"` 且 `output` 为空数组；不可识别页得到 `kind: "failure"`、`code: "WEB_SEARCH_UNRECOGNIZED_RESPONSE"`；429 或 5xx 仍抛出 `TransientToolExecutionFailure`。
   - 验证手段：`npx tsx --test packages/tools/test/web-search.test.ts`；`npx tsc --noEmit`。
 
-- [ ] //TODO 2. 用 `html-to-text` 替换正则去标签，并保持单行分页输出
+- [x] //TODO 2. 用 `html-to-text` 替换正则去标签，并保持单行分页输出
   - 落实标准：[2.1](./spec.md#spec-req-2-1)、[2.2](./spec.md#spec-req-2-2)、[2.3](./spec.md#spec-req-2-3)、[2.4](./spec.md#spec-req-2-4)、[2.5](./spec.md#spec-req-2-5)、[6.4](./spec.md#spec-req-6-4)。
   - 实施目标：为 `packages/tools` 增加 `html-to-text@9.0.5` 与 `@types/html-to-text@9.0.4`（后者放 devDependencies），执行 `npm install --prefix packages/tools html-to-text@9.0.5` 与 `npm install --prefix packages/tools --save-dev @types/html-to-text@9.0.4`，更新其 `package.json`/`package-lock.json`。新增 `packages/tools/src/web/html-extract.ts`，使用 `html-to-text` 的 `convert`：`wordwrap: false`、跳过 `script`/`style`/`img`、`a` 仅保留文本（`ignoreHref: true`）、标题保留原始大小写；输出再执行空白折叠和首尾 trim，继续得到单行文本。`web-fetch.ts` 的 `htmlToPlainText` 改为委托该函数，保留公开导出和 TSDoc，不保留第二套正则实现。HTML 抽取异常继续落到 `WEB_FETCH_FAILED`，非 HTML 文本原样通过。
   - 场景与预期：包含标题、表格、列表、实体、script/style 和嵌套标签的 HTML fixture 抽取后包含可见文本、排除脚本/样式、输出为单行；`text/plain` 与 `application/json` 文本不经过 HTML 抽取；现有 `offset`/`maxChars`/`nextOffset` 分页断言不变；`htmlToPlainText` 仍是唯一公开 helper。
