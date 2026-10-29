@@ -1,10 +1,12 @@
 import { encodePathSegment } from "./path-segment";
 import { isRecord } from "../../contracts/src/index";
 import { isModelConversationMessage, type ModelAssistantMessage } from "../../model-contracts/src/index";
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { ModelInputMessage, ModelInputRecord, ModelInputStore } from "../../runtime/src/model-input";
+import { appendJsonl } from "./json-file-write";
+import { KeyedSerialQueue } from "./keyed-serial-queue";
 
 type Manifest = Omit<ModelInputRecord, "messages"> & { schemaVersion: 1; messages: { role: ModelInputMessage["role"]; source: ModelInputMessage["source"]; ref: string; callId?: string; toolId?: string; reasoning?: string; toolCalls?: ModelAssistantMessage["toolCalls"]; continuation?: ModelAssistantMessage["continuation"] }[] };
 const sources = ["system", "conversation", "section", "working_context", "stage", "request", "native_history"];
@@ -23,7 +25,7 @@ const id = (value: string) => { if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) throw
  * ```
  */
 export class JsonFileModelInputStore implements ModelInputStore {
-    private readonly queues = new Map<string, Promise<void>>();
+    private readonly queue = new KeyedSerialQueue();
     /** @param directory - 正式工作区或隔离评测的模型输入根目录。 */
     constructor(private readonly directory: string) {}
     /** @returns 全部正文写入且调用清单追加完成后 resolve。 @throws 写入失败拒绝。 */
@@ -31,7 +33,7 @@ export class JsonFileModelInputStore implements ModelInputStore {
         const directory = this.path(record.goalId, record.runId);
         const key = dirname(directory);
         const bodyDirectory = join(key, "messages");
-        const operation = (this.queues.get(key) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+        return this.queue.run(key, async () => {
             await mkdir(bodyDirectory, { recursive: true, mode: 0o700 });
             await mkdir(directory, { recursive: true, mode: 0o700 });
             const messages: Manifest["messages"] = [];
@@ -46,11 +48,12 @@ export class JsonFileModelInputStore implements ModelInputStore {
                 messages.push({ ...fields, ref });
             }
             const { messages: _, ...identity } = record;
-            await appendFile(join(directory, "requests.jsonl"), JSON.stringify({ schemaVersion: 1, ...identity, messages }) + "\n", { mode: 0o600 });
+            await appendJsonl({
+                path: join(directory, "requests.jsonl"),
+                value: { schemaVersion: 1, ...identity, messages },
+                durable: false,
+            });
         });
-        this.queues.set(key, operation);
-        void operation.finally(() => { if (this.queues.get(key) === operation) this.queues.delete(key); }).catch(() => undefined);
-        return operation;
     }
     /** @returns 完整且顺序不变的输入事实；不存在时为空。 @throws 格式、正文哈希或身份不匹配时拒绝。 */
     async read(goalId: string, runId: string): Promise<readonly ModelInputRecord[]> {

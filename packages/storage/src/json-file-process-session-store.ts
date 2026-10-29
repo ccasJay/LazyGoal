@@ -1,7 +1,6 @@
 import { encodePathSegment } from "./path-segment";
-import { randomUUID } from "node:crypto";
-import { mkdir, open, readdir, readFile, rename, rm, stat, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { appendFile, mkdir, open, readFile, readdir, rename, rm, unlink } from "node:fs/promises";
+import { join } from "node:path";
 import { z } from "zod";
 
 import type {
@@ -11,6 +10,13 @@ import type {
     ProcessSessionStatus,
     ProcessSessionStore,
 } from "../../runtime/src/index";
+import { appendFileChunk, atomicWriteJson } from "./json-file-write";
+import { KeyedSerialQueue } from "./keyed-serial-queue";
+
+type ProcessSessionFileOperations = Partial<Pick<
+    typeof import("node:fs/promises"),
+    "appendFile" | "mkdir" | "open" | "readFile" | "readdir" | "rename" | "rm" | "unlink"
+>>;
 
 /** 单个轮转日志文件的最大字节数（512 KiB）。 */
 export const PROCESS_LOG_MAX_FILE_BYTES = 512 * 1024;
@@ -68,7 +74,8 @@ type ChannelMeta = z.infer<typeof ChannelMetaSchema>;
  * @remarks
  * 存储目录结构：`<baseDirectory>/processes/<encodedGoalId>/<encodedProcessId>/`。
  * 所有目录权限使用 0700，元数据与日志文件使用 0600。
- * 元数据通过临时文件及原子替换（rename）写入。
+ * 元数据通过临时文件及原子替换（rename）写入。会话记录只静默 `rename` 阶段的
+ * `ENOENT`（父目录被并发清理）；通道元数据对整段写入的 `ENOENT` 静默。
  * 每个通道（stdout / stderr）维护最多 2 个分片文件（part-0.log, part-1.log），每片最多 512 KiB，
  * 记录全局绝对字节偏移；当游标落后于最早留存字节时，设置 gap: true 明确告知日志缺口。
  * 宿主实例重启时，如果读取到的记录非终态且宿主标识不属于当前活跃实例，投影为 "interrupted"。
@@ -82,15 +89,32 @@ type ChannelMeta = z.infer<typeof ChannelMetaSchema>;
 export class JsonFileProcessSessionStore implements ProcessSessionStore {
     private readonly baseDirectory: string;
     private readonly currentHostInstanceId: string;
-    private readonly writeLocks = new Map<string, Promise<void>>();
+    private readonly queue = new KeyedSerialQueue();
+    private readonly fileOperations: Required<ProcessSessionFileOperations>;
 
     /**
      * @param baseDirectory - 进程存储的根目录（通常为 `<workspaceHome>/processes` 或 `<baseDirectory>`）。
      * @param currentHostInstanceId - 当前宿主运行时实例随机标识。
+     * @param fileOperations - 可选文件操作替身，用于确定性验证写入故障；生产默认使用 Node 文件系统。
      */
-    constructor(baseDirectory: string, currentHostInstanceId: string) {
+    constructor(
+        baseDirectory: string,
+        currentHostInstanceId: string,
+        fileOperations: ProcessSessionFileOperations = {},
+    ) {
         this.baseDirectory = baseDirectory;
         this.currentHostInstanceId = currentHostInstanceId;
+        this.fileOperations = {
+            appendFile,
+            mkdir,
+            open,
+            readFile,
+            readdir,
+            rename,
+            rm,
+            unlink,
+            ...fileOperations,
+        };
     }
 
     private encodeGoalId(goalId: string): string {
@@ -118,22 +142,6 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
         return join(this.getProcessDirectory(goalId, processId), channel);
     }
 
-    private async withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-        const prev = this.writeLocks.get(key) ?? Promise.resolve();
-        let release: () => void;
-        const next = new Promise<void>((r) => { release = r; });
-        this.writeLocks.set(key, prev.then(() => next));
-        try {
-            await prev;
-            return await fn();
-        } finally {
-            release!();
-            if (this.writeLocks.get(key) === next) {
-                this.writeLocks.delete(key);
-            }
-        }
-    }
-
     /**
      * 保存或更新进程会话元数据（原子替换）。
      */
@@ -141,32 +149,16 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
         const validated = ProcessSessionDtoSchema.parse(session);
         const lockKey = `${session.goalId}:${session.processId}:session`;
 
-        await this.withLock(lockKey, async () => {
-            const dir = this.getProcessDirectory(session.goalId, session.processId);
-            await mkdir(dir, { recursive: true, mode: 0o700 });
-
-            const filePath = this.getSessionFilePath(session.goalId, session.processId);
-            const tempPath = join(dir, `.session-${randomUUID()}.tmp`);
-
-            const handle = await open(tempPath, "w", 0o600);
-            try {
-                await handle.writeFile(JSON.stringify(validated, null, 2), "utf8");
-                await handle.sync();
-            } finally {
-                await handle.close();
-            }
-
-            try {
-                await rename(tempPath, filePath);
-            } catch (err) {
-                try {
-                    await unlink(tempPath);
-                } catch {}
-                // 如果父目录在此期间被清理，则忽略
-                if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-                    throw err;
-                }
-            }
+        await this.queue.run(lockKey, async () => {
+            await atomicWriteJson({
+                path: this.getSessionFilePath(session.goalId, session.processId),
+                value: validated,
+                indent: 2,
+                trailingNewline: false,
+                durable: true,
+                tolerateRenameEnoent: true,
+                operations: this.fileOperations,
+            });
         });
     }
 
@@ -177,7 +169,7 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
         const filePath = this.getSessionFilePath(goalId, processId);
         let content: string;
         try {
-            content = await readFile(filePath, "utf8");
+            content = await this.fileOperations.readFile(filePath, "utf8");
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === "ENOENT") {
                 return undefined;
@@ -212,7 +204,7 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
         const goalDir = join(this.baseDirectory, "processes", this.encodeGoalId(goalId));
         let entries: string[];
         try {
-            entries = await readdir(goalDir);
+            entries = await this.fileOperations.readdir(goalDir);
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === "ENOENT") {
                 return [];
@@ -224,7 +216,7 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
         for (const entry of entries) {
             const sessionPath = join(goalDir, entry, "session.json");
             try {
-                const content = await readFile(sessionPath, "utf8");
+                const content = await this.fileOperations.readFile(sessionPath, "utf8");
                 const parsed = ProcessSessionDtoSchema.parse(JSON.parse(content));
                 const isTerminal = parsed.status === "exited"
                     || parsed.status === "stopped"
@@ -252,7 +244,7 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
     private async readMeta(channelDir: string): Promise<ChannelMeta> {
         const metaPath = join(channelDir, "meta.json");
         try {
-            const content = await readFile(metaPath, "utf8");
+            const content = await this.fileOperations.readFile(metaPath, "utf8");
             return ChannelMetaSchema.parse(JSON.parse(content));
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === "ENOENT") {
@@ -267,20 +259,17 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
     }
 
     private async writeMeta(channelDir: string, meta: ChannelMeta): Promise<void> {
-        const metaPath = join(channelDir, "meta.json");
-        const tempPath = join(channelDir, `.meta-${randomUUID()}.tmp`);
         try {
-            await mkdir(channelDir, { recursive: true, mode: 0o700 });
-            const handle = await open(tempPath, "w", 0o600);
-            try {
-                await handle.writeFile(JSON.stringify(meta, null, 2), "utf8");
-                await handle.sync();
-            } finally {
-                await handle.close();
-            }
-            await rename(tempPath, metaPath);
+            await atomicWriteJson({
+                path: join(channelDir, "meta.json"),
+                value: meta,
+                indent: 2,
+                trailingNewline: false,
+                durable: true,
+                operations: this.fileOperations,
+            });
         } catch (error) {
-            // 如果底层目录在进程退出或清理阶段已不存在，静默忽略以避免未捕获异常
+            // 如果底层目录在进程退出或清理阶段已不存在，整段写入的缺失目录错误静默忽略
             if ((error as NodeJS.ErrnoException).code === "ENOENT") {
                 return;
             }
@@ -300,10 +289,10 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
         if (text.length === 0) return;
 
         const channelDir = this.getChannelDirectory(goalId, processId, channel);
-        await mkdir(channelDir, { recursive: true, mode: 0o700 });
+        await this.fileOperations.mkdir(channelDir, { recursive: true, mode: 0o700 });
 
         const lockKey = `${goalId}:${processId}:${channel}`;
-        await this.withLock(lockKey, async () => {
+        await this.queue.run(lockKey, async () => {
             const meta = await this.readMeta(channelDir);
             const textBuffer = Buffer.from(text, "utf8");
             let remaining = textBuffer;
@@ -327,7 +316,7 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
                         meta.headOffset = dropped.startOffset + dropped.bytes;
                         const droppedFile = join(channelDir, `part-${dropped.index}.log`);
                         try {
-                            await unlink(droppedFile);
+                            await this.fileOperations.unlink(droppedFile);
                         } catch {
                             // 忽略删除失败
                         }
@@ -340,13 +329,12 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
 
                 const partFile = join(channelDir, `part-${currentPart.index}.log`);
                 try {
-                    const handle = await open(partFile, "a", 0o600);
-                    try {
-                        await handle.writeFile(toWrite);
-                        await handle.sync();
-                    } finally {
-                        await handle.close();
-                    }
+                    await appendFileChunk({
+                        path: partFile,
+                        data: toWrite,
+                        durable: true,
+                        operations: this.fileOperations,
+                    });
                 } catch (error) {
                     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
                         return;
@@ -375,7 +363,7 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
         const channelDir = this.getChannelDirectory(goalId, processId, channel);
         const lockKey = `${goalId}:${processId}:${channel}`;
 
-        return await this.withLock(lockKey, async () => {
+        return await this.queue.run(lockKey, async () => {
             const meta = await this.readMeta(channelDir);
             const reqCursor = cursor ?? meta.headOffset;
 
@@ -411,7 +399,7 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
 
                 const partFile = join(channelDir, `part-${part.index}.log`);
                 try {
-                    const handle = await open(partFile, "r");
+                    const handle = await this.fileOperations.open(partFile, "r");
                     try {
                         const buf = Buffer.alloc(bytesToRead);
                         const { bytesRead } = await handle.read(buf, 0, bytesToRead, offsetInPart);
@@ -447,7 +435,7 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
     async deleteGoalSessions(goalId: string): Promise<void> {
         const goalDir = join(this.baseDirectory, "processes", this.encodeGoalId(goalId));
         try {
-            await rm(goalDir, { recursive: true, force: true });
+            await this.fileOperations.rm(goalDir, { recursive: true, force: true });
         } catch {
             // 忽略删除失败
         }

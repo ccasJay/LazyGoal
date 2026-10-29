@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -121,5 +121,20 @@ test("模式文件损坏时失败关闭，抛出异常，绝不静默覆盖或�
         );
     } finally {
         await rm(dir, { recursive: true, force: true });
+    }
+});
+
+test("permission-mode.json 不受进程 umask 影响，创建时为 0600", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "perm-mode-test-"));
+    const directory = join(parent, "nested");
+    const previousUmask = process.umask(0);
+    try {
+        const store = new JsonFileProjectPermissionModeStore(directory);
+        await store.set("ws-1", "yolo", 0);
+        assert.equal((await stat(directory)).mode & 0o777, 0o700);
+        assert.equal((await stat(join(directory, "permission-mode.json"))).mode & 0o777, 0o600);
+    } finally {
+        process.umask(previousUmask);
+        await rm(parent, { recursive: true, force: true });
     }
 });

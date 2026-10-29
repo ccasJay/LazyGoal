@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 
@@ -10,6 +10,8 @@ import {
     type SandboxGrantMatcher,
     type SandboxGrantStore,
 } from "../../permission/src/index";
+import { atomicWriteJson } from "./json-file-write";
+import { KeyedSerialQueue } from "./keyed-serial-queue";
 
 const ExtraFileSchema = z.object({
     canonicalPath: z.string().min(1),
@@ -88,7 +90,7 @@ type Ledger = { readonly version: 1; readonly grants: readonly SandboxGrant[] };
  * ```
  */
 export class JsonFileSandboxGrantStore implements SandboxGrantStore {
-    private tail: Promise<void> = Promise.resolve();
+    private readonly queue = new KeyedSerialQueue();
 
     /** @param directory - 当前 Workspace 的 LazyGoal Home 私有数据目录。 */
     constructor(private readonly directory: string) {}
@@ -208,30 +210,21 @@ export class JsonFileSandboxGrantStore implements SandboxGrantStore {
     }
 
     private async mutate<T>(update: (ledger: Ledger) => { readonly ledger: Ledger; readonly result: T }): Promise<T> {
-        let resolveResult!: (value: T) => void;
-        let rejectResult!: (reason: unknown) => void;
-        const result = new Promise<T>((resolve, reject) => { resolveResult = resolve; rejectResult = reject; });
-        const operation = this.tail.then(async () => {
-            try {
-                const updated = update(await this.readLedger());
-                if (updated.ledger !== undefined) await this.writeLedger(updated.ledger);
-                resolveResult(updated.result);
-            } catch (error) { rejectResult(error); }
+        return this.queue.run("sandbox-grants", async () => {
+            const updated = update(await this.readLedger());
+            if (updated.ledger !== undefined) await this.writeLedger(updated.ledger);
+            return updated.result;
         });
-        this.tail = operation.then(() => undefined, () => undefined);
-        return result;
     }
 
     private async writeLedger(ledger: Ledger): Promise<void> {
-        await mkdir(this.directory, { recursive: true, mode: 0o700 });
-        const filePath = this.filePath();
-        const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
-        try {
-            const handle = await open(temporaryPath, "wx", 0o600);
-            try { await handle.writeFile(`${JSON.stringify(ledger, null, 2)}\n`, "utf8"); await handle.sync(); }
-            finally { await handle.close(); }
-            await rename(temporaryPath, filePath);
-        } catch (error) { await unlink(temporaryPath).catch(() => undefined); throw error; }
+        await atomicWriteJson({
+            path: this.filePath(),
+            value: ledger,
+            indent: 2,
+            trailingNewline: true,
+            durable: true,
+        });
     }
 
     private filePath(): string { return join(this.directory, "sandbox-grants.json"); }

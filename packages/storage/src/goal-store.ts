@@ -1,5 +1,4 @@
 import { encodePathSegment } from "./path-segment";
-import { randomUUID } from "node:crypto";
 import {
     mkdir,
     open,
@@ -22,11 +21,14 @@ import type {
 import { goalSnapshotCodec } from "./goal-snapshot-codec";
 import type { GoalSnapshotV1 } from "./goal-snapshot";
 import { GoalSnapshotProtocolError } from "./goal-snapshot";
+import {
+    atomicWriteJson,
+    TRANSIENT_FILE_ERROR_CODES,
+    WRITE_RETRY_THREE_ATTEMPTS,
+} from "./json-file-write";
+import { KeyedSerialQueue } from "./keyed-serial-queue";
 
 type GoalFileOperations = Partial<Pick<typeof import("node:fs/promises"), "mkdir" | "open" | "readFile" | "rename" | "unlink">>;
-const GOAL_WRITE_RETRY_LIMIT = 3;
-const GOAL_WRITE_RETRY_DELAY_MS = 10;
-const RETRYABLE_GOAL_FILE_ERROR_CODES = new Set(["EINTR", "EAGAIN", "EBUSY"]);
 
 /**
  * 单进程内的 Goal 快照存储。
@@ -69,7 +71,7 @@ export class InMemoryGoalStore implements GoalStore {
  * 乐观锁、租约或版本冲突检测。文件系统错误原样传播。
  */
 export class JsonFileGoalStore implements GoalStore, GoalCatalog {
-    private readonly saveQueues = new Map<string, Promise<unknown>>();
+    private readonly saveQueue = new KeyedSerialQueue();
     private readonly directory: string;
     private readonly fileOperations: Required<GoalFileOperations>;
 
@@ -97,17 +99,9 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
      */
     save(goal: Goal): Promise<void> {
         const snapshot = goalSnapshotCodec.encode(goal);
-        const key = snapshot.id;
-        const previous = this.saveQueues.get(key) ?? Promise.resolve();
-        const operation = previous.catch(() => undefined).then(() => this.saveSnapshot(snapshot, goal));
-        let tracked: Promise<unknown>;
-        tracked = operation
-            .catch(() => undefined)
-            .finally(() => {
-                if (this.saveQueues.get(key) === tracked) this.saveQueues.delete(key);
-            });
-        this.saveQueues.set(key, tracked);
-        return operation;
+        return this.saveQueue.run(snapshot.id, async () => {
+            await this.saveSnapshot(snapshot, goal);
+        });
     }
 
     private async saveSnapshot(
@@ -115,50 +109,20 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         goal: Goal,
     ): Promise<void> {
         const filePath = this.filePath(snapshot.id);
-        const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
-        const serialized = `${JSON.stringify(snapshot, null, 2)}\n`;
-        let saved = false;
 
-        for (let attempt = 1; attempt <= GOAL_WRITE_RETRY_LIMIT; attempt += 1) {
-            try {
-                await this.fileOperations.mkdir(this.directory, { recursive: true });
-                const handle = await this.fileOperations.open(temporaryPath, "wx", 0o600);
-                try {
-                    await handle.writeFile(serialized, "utf8");
-                    await handle.sync();
-                } finally {
-                    await handle.close();
-                }
-                await this.fileOperations.rename(temporaryPath, filePath);
-                saved = true;
-                break;
-            } catch (error) {
-                const code = error instanceof Error
-                    ? (error as NodeJS.ErrnoException).code
-                    : undefined;
-                if (code === undefined || !RETRYABLE_GOAL_FILE_ERROR_CODES.has(code)) {
-                    await this.fileOperations.unlink(temporaryPath).catch(() => undefined);
-                    throw error;
-                }
+        await atomicWriteJson({
+            path: filePath,
+            value: snapshot,
+            indent: 2,
+            trailingNewline: true,
+            durable: true,
+            retry: WRITE_RETRY_THREE_ATTEMPTS,
+            verify: async (serialized) => await this.snapshotMatches(filePath, serialized)
+                ? "applied"
+                : "absent",
+            operations: this.fileOperations,
+        });
 
-                let snapshotWasReplaced: boolean;
-                try {
-                    snapshotWasReplaced = await this.snapshotMatches(filePath, serialized);
-                } catch (verificationError) {
-                    await this.fileOperations.unlink(temporaryPath).catch(() => undefined);
-                    throw verificationError;
-                }
-                if (snapshotWasReplaced) {
-                    saved = true;
-                    break;
-                }
-                await this.fileOperations.unlink(temporaryPath).catch(() => undefined);
-                if (attempt === GOAL_WRITE_RETRY_LIMIT) throw error;
-                await new Promise((resolve) => setTimeout(resolve, GOAL_WRITE_RETRY_DELAY_MS));
-            }
-        }
-
-        if (!saved) throw new Error("Goal Snapshot save did not reach a verified state");
         const status = goal.state.run.status;
         if (status !== "completed" && status !== "failed" && status !== "cancelled") {
             await this.removeArchiveMarkerWithRetry(this.archivePath(goal.id));
@@ -177,22 +141,22 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
     }
 
     private async removeArchiveMarkerWithRetry(markerPath: string): Promise<void> {
-        for (let attempt = 1; attempt <= GOAL_WRITE_RETRY_LIMIT; attempt += 1) {
+        for (let attempt = 1; attempt <= WRITE_RETRY_THREE_ATTEMPTS.attempts; attempt += 1) {
             try {
                 await this.fileOperations.unlink(markerPath);
                 return;
             } catch (error) {
                 if (error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT") return;
                 const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
-                if (code === undefined || !RETRYABLE_GOAL_FILE_ERROR_CODES.has(code)) throw error;
+                if (code === undefined || !TRANSIENT_FILE_ERROR_CODES.has(code)) throw error;
                 try {
                     await this.fileOperations.readFile(markerPath);
                 } catch (readError) {
                     if (readError instanceof Error && (readError as NodeJS.ErrnoException).code === "ENOENT") return;
                     throw readError;
                 }
-                if (attempt === GOAL_WRITE_RETRY_LIMIT) throw error;
-                await new Promise((resolve) => setTimeout(resolve, GOAL_WRITE_RETRY_DELAY_MS));
+                if (attempt === WRITE_RETRY_THREE_ATTEMPTS.attempts) throw error;
+                await new Promise((resolve) => setTimeout(resolve, WRITE_RETRY_THREE_ATTEMPTS.delayMs));
             }
         }
     }

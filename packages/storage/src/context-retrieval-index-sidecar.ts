@@ -1,14 +1,9 @@
 import { encodePathSegment } from "./path-segment";
 import { deepFreeze } from "../../contracts/src/index";
 import {
-    chmod,
-    mkdir,
-    open,
     readFile,
-    rename,
     unlink,
 } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { z } from "zod";
 
@@ -25,6 +20,7 @@ import {
     type ContextRetrievalQueryCacheEntry,
     type TrajectoryRetrievalIndexStore,
 } from "../../context-retrieval/src/index";
+import { atomicWriteJson } from "./json-file-write";
 
 /** Retrieval Index Sidecar 文件协议错误代码。 */
 export const CONTEXT_RETRIEVAL_INDEX_SIDECAR_PROTOCOL_ERROR_CODE =
@@ -360,28 +356,20 @@ export class JsonFileContextRetrievalIndexStore implements TrajectoryRetrievalIn
     /** @inheritdoc */
     async save(sidecar: ContextRetrievalIndexSidecar): Promise<void> {
         const validated = contextRetrievalIndexSidecarCodec.encode(sidecar);
-        const goalDirectory = join(this.directory, this.encodeIdentifier(validated.goalId));
-        const runDirectory = join(goalDirectory, this.encodeIdentifier(validated.runId));
-        const filePath = join(runDirectory, "retrieval-v1.json");
-        const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
+        const filePath = join(
+            this.directory,
+            this.encodeIdentifier(validated.goalId),
+            this.encodeIdentifier(validated.runId),
+            "retrieval-v1.json",
+        );
 
-        await mkdir(runDirectory, { recursive: true, mode: 0o700 });
-        await chmod(goalDirectory, 0o700);
-        await chmod(runDirectory, 0o700);
-        try {
-            const handle = await open(temporaryPath, "wx", 0o600);
-            try {
-                await handle.writeFile(`${JSON.stringify(validated, null, 2)}\n`, "utf8");
-                await handle.sync();
-            } finally {
-                await handle.close();
-            }
-            await chmod(temporaryPath, 0o600);
-            await rename(temporaryPath, filePath);
-        } catch (error) {
-            await unlink(temporaryPath).catch(() => undefined);
-            throw error;
-        }
+        await atomicWriteJson({
+            path: filePath,
+            value: validated,
+            indent: 2,
+            trailingNewline: true,
+            durable: true,
+        });
     }
 
     /** @inheritdoc */

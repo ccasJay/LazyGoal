@@ -1,7 +1,5 @@
 import { encodePathSegment } from "./path-segment";
 import {
-    appendFile,
-    chmod,
     mkdir,
     readFile,
 } from "node:fs/promises";
@@ -16,6 +14,8 @@ import type {
     ModelCallMetricReadQuery,
     ModelCallMetricRecord,
 } from "../../runtime/src/index";
+import { appendJsonl } from "./json-file-write";
+import { KeyedSerialQueue } from "./keyed-serial-queue";
 
 const IdentifierSchema = z.string().min(1);
 const MetricIdentitySchema = {
@@ -103,8 +103,8 @@ export class ModelCallMetricStoreProtocolError extends Error {
  * ```
  */
 export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCoverageStore {
-    private readonly appendQueues = new Map<string, Promise<unknown>>();
-    private readonly coverageQueues = new Map<string, Promise<unknown>>();
+    private readonly appendQueue = new KeyedSerialQueue();
+    private readonly coverageQueue = new KeyedSerialQueue();
 
     /** @param directory - 指标 JSONL 根目录；追加时按需创建子目录。 */
     constructor(private readonly directory: string) {}
@@ -125,26 +125,14 @@ export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCover
         }
         const key = this.keyFor(record.goalId, record.runId);
         const filePath = this.filePath(record.goalId, record.runId);
-        const previous = this.appendQueues.get(key) ?? Promise.resolve();
-        const operation = previous.catch(() => undefined).then(async () => {
+        return this.appendQueue.run(key, async () => {
             await this.ensureGoalDirectory(record.goalId);
-            await appendFile(
-                filePath,
-                `${JSON.stringify(parsed.data)}\n`,
-                { encoding: "utf8", mode: 0o600 },
-            );
-            if (process.platform !== "win32") await chmod(filePath, 0o600);
-        });
-        let tracked: Promise<unknown>;
-        tracked = operation
-            .catch(() => undefined)
-            .finally(() => {
-                if (this.appendQueues.get(key) === tracked) {
-                    this.appendQueues.delete(key);
-                }
+            await appendJsonl({
+                path: filePath,
+                value: parsed.data,
+                durable: false,
             });
-        this.appendQueues.set(key, tracked);
-        return operation;
+        });
     }
 
     /**
@@ -329,18 +317,7 @@ export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCover
     }
 
     private enqueueCoverage<T>(goalId: string, operation: () => Promise<T>): Promise<T> {
-        const previous = this.coverageQueues.get(goalId) ?? Promise.resolve();
-        const pending = previous.catch(() => undefined).then(operation);
-        let tracked: Promise<unknown>;
-        tracked = pending
-            .catch(() => undefined)
-            .finally(() => {
-                if (this.coverageQueues.get(goalId) === tracked) {
-                    this.coverageQueues.delete(goalId);
-                }
-            });
-        this.coverageQueues.set(goalId, tracked);
-        return pending;
+        return this.coverageQueue.run(goalId, operation);
     }
 
     private async appendCoverageRecord(record: ModelCallMetricsCoverageRecord): Promise<void> {
@@ -349,22 +326,16 @@ export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCover
             throw new ModelCallMetricStoreProtocolError("Invalid model call metric coverage record");
         }
         await this.ensureGoalDirectory(record.goalId);
-        const filePath = this.coverageFilePath(record.goalId);
-        await appendFile(
-            filePath,
-            `${JSON.stringify(parsed.data)}\n`,
-            { encoding: "utf8", mode: 0o600 },
-        );
-        if (process.platform !== "win32") await chmod(filePath, 0o600);
+        await appendJsonl({
+            path: this.coverageFilePath(record.goalId),
+            value: parsed.data,
+            durable: false,
+        });
     }
 
     private async ensureGoalDirectory(goalId: string): Promise<void> {
         const goalDirectory = join(this.directory, this.encode(goalId));
         await mkdir(goalDirectory, { recursive: true, mode: 0o700 });
-        if (process.platform !== "win32") {
-            await chmod(this.directory, 0o700);
-            await chmod(goalDirectory, 0o700);
-        }
     }
 
     private filePath(goalId: string, runId: string): string {
