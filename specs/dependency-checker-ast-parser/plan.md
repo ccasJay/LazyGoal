@@ -24,7 +24,7 @@
   - 场景与预期：同一文件同时进入包方向、文件级、组件与入口检查时，读取和解析各最多一次，仍产生所有适用诊断；第二次分析前修改 fixture，结果反映新内容；不同 fixture 根目录不会串缓存。读取或解析失败仍传至调用者，不返回空引用。
   - 验证手段：使用内部 scanner 的可控读取/解析测试接缝记录调用次数，不修改 `analyzeDependencies(projectRoot)` / `checkDependencies(projectRoot)` 的调用契约；在现有测试文件添加以 `AST cache` 命名的重叠扫描、文件改写与不同根目录场景，运行 `node --test --test-name-pattern="AST cache" scripts/check-dependencies.test.mjs`。
 
-- [ ] //TODO 4. 补齐逐规则等价证据和维护对照，保持唯一检查入口
+- [x] //TODO 4. 补齐逐规则等价证据和维护对照，保持唯一检查入口
   - 落实标准：[2.1](./spec.md#spec-req-2-1)、[2.4](./spec.md#spec-req-2-4)、[2.5](./spec.md#spec-req-2-5)、[3.1](./spec.md#spec-req-3-1)、[3.5](./spec.md#spec-req-3-5)。
   - 实施目标：逐项核对 Spec 的 16 个规则族与当前脚本规则，复用既有违规 fixture，补齐缺少的合法/违规场景；文件级逐文件规则、包允许方向和 app 允许方向分别覆盖，不只验证一个代表包。新增 `scripts/notes/dependency-rules.md`，逐规则记录触发条件、稳定消息前缀、fixture 和测试名称/位置，并为合法方向注明对应证据。对照表链接当前源码和测试，不把历史扫描文件数或耗时当作固定验收值。保持 `check:dependencies` 为唯一依赖门，核对 `npm test` 与 CI 原有调用链；不增加检查命令、配置或报告器。
   - 场景与预期：每条受保护边界都有可定位的违规断言，合法引用通过；旧 LLM 路径残留/引用、供应商 SDK、组件/能力入口、构建产物、benchmark/app 隔离和进程 API 均保留；规则表可逐项对应实际测试；未改变允许清单，未新增运行时依赖。

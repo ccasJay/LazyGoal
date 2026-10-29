@@ -977,3 +977,143 @@ test("AST cache isolates different project roots", async () => {
     ]);
     assert.deepEqual(await analyzeDependencies(cleanRoot), []);
 });
+
+const PACKAGE_DIRECTION_CASES = [
+    ["contracts", "runtime"],
+    ["context-budget", "runtime"],
+    ["model-view", "runtime"],
+    ["model-context", "llm"],
+    ["prompt-renderer", "runtime"],
+    ["prompt-bundle", "contracts"],
+    ["model-request", "agent"],
+    ["model-response", "runtime"],
+    ["model-call", "agent"],
+    ["model-execution", "agent"],
+    ["model-contracts", "runtime"],
+    ["execution-stream", "contracts"],
+    ["execution-control", "runtime"],
+    ["context-retrieval", "runtime"],
+    ["http", "contracts"],
+    ["slash-command", "contracts"],
+    ["acp", "contracts"],
+    ["sandbox", "contracts"],
+    ["permission", "runtime"],
+    ["tool-core", "runtime"],
+    ["working-memory", "runtime"],
+    ["llm-core", "config"],
+    ["llm-openai", "config"],
+    ["llm-google", "config"],
+    ["llm-pi-ai", "config"],
+    ["model-catalog", "llm-pi-ai"],
+    ["config", "runtime"],
+    ["runtime", "agent"],
+    ["llm", "runtime"],
+    ["storage", "agent"],
+    ["agent", "browser"],
+    ["session-metrics", "storage"],
+    ["tools", "agent"],
+    ["process-runtime", "contracts"],
+    ["browser", "storage"],
+    ["web-contracts", "runtime"],
+];
+
+test("包依赖方向逐包拒绝未允许的出站边", async () => {
+    for (const [sourcePackage, targetPackage] of PACKAGE_DIRECTION_CASES) {
+        const sourceFile = sourcePackage === "agent" ? "executor.ts" : "index.ts";
+        const root = await fixtureProject({
+            [`packages/${sourcePackage}/src/${sourceFile}`]:
+                `export {} from "../../${targetPackage}/src/index";\n`,
+            [`packages/${targetPackage}/src/index.ts`]: "export {};\n",
+        });
+
+        assert.deepEqual(await analyzeDependencies(root), [
+            `禁止依赖方向：packages/${sourcePackage} 不得导入 packages/${targetPackage}（packages/${sourcePackage}/src/${sourceFile} 引用 ../../${targetPackage}/src/index）`,
+        ], `${sourcePackage} -> ${targetPackage}`);
+    }
+});
+
+test("app 依赖方向逐 app 拒绝未允许的包", async () => {
+    for (const [sourceApp, targetPackage] of [
+        ["goal-board", "agent"],
+        ["goal-server", "sandbox"],
+    ]) {
+        const root = await fixtureProject({
+            [`apps/${sourceApp}/src/index.ts`]:
+                `export {} from "../../../packages/${targetPackage}/src/index";\n`,
+            [`packages/${targetPackage}/src/index.ts`]: "export {};\n",
+        });
+
+        assert.deepEqual(await analyzeDependencies(root), [
+            `禁止依赖方向：apps/${sourceApp} 不得导入 packages/${targetPackage}（apps/${sourceApp}/src/index.ts 引用 ../../../packages/${targetPackage}/src/index）`,
+        ], `${sourceApp} -> ${targetPackage}`);
+    }
+});
+
+test("rejects imports between different apps", async () => {
+    const root = await fixtureProject({
+        "apps/goal-server/src/index.ts":
+            'export {} from "../../../apps/goal-board/src/index";\n',
+        "apps/goal-board/src/index.ts": "export {};\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止应用交叉依赖：apps/goal-server 不得导入 apps/goal-board（apps/goal-server/src/index.ts 引用 ../../../apps/goal-board/src/index）",
+    ]);
+});
+
+const FILE_BOUNDARY_CASES = [
+    ["packages/model-view/src/model-inference-view.ts", "ModelInferenceView DTO"],
+    ["packages/model-view/src/model-history-view.ts", "模型历史结果 DTO"],
+    ["packages/model-request/src/render.ts", "Prompt 请求渲染器"],
+    ["packages/storage/src/goal-snapshot.ts", "Goal Snapshot DTO/Schema"],
+    ["packages/storage/src/agent-profile-file.ts", "AgentProfile 文件 DTO/Schema"],
+];
+
+test("文件级边界逐文件拒绝 Runtime 引用", async () => {
+    for (const [relativePath, label] of FILE_BOUNDARY_CASES) {
+        const root = await fixtureProject({
+            [relativePath]: 'export type Leak = import("../../runtime/src/index").Leak;\n',
+            "packages/runtime/src/index.ts": "export type Leak = true;\n",
+        });
+
+        assert.deepEqual(
+            (await analyzeDependencies(root)).filter((violation) => violation.startsWith("边界违规：")),
+            [`边界违规：${label} 不得导入 packages/runtime（${relativePath} 引用 ../../runtime/src/index）`],
+            relativePath,
+        );
+    }
+});
+
+test("文件级边界允许未禁止的包引用", async () => {
+    for (const [relativePath] of FILE_BOUNDARY_CASES) {
+        const root = await fixtureProject({
+            [relativePath]: 'export type Allowed = import("../../model-contracts/src/index").Allowed;\n',
+            "packages/model-contracts/src/index.ts": "export type Allowed = true;\n",
+        });
+
+        assert.deepEqual(await analyzeDependencies(root), [], relativePath);
+    }
+});
+
+test("allows benchmark shared-layer and same-benchmark imports", async () => {
+    const root = await fixtureProject({
+        "benchmarks/gaia/src/index.ts":
+            'export { run } from "./worker";\nexport { shared } from "../../src/shared";\n',
+        "benchmarks/gaia/src/worker.ts": "export const run = true;\n",
+        "benchmarks/src/shared.ts": "export const shared = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), []);
+});
+
+test("allows vendor SDK imports outside SDK-free packages", async () => {
+    const root = await fixtureProject({
+        "packages/llm-openai/src/index.ts": [
+            'import OpenAI from "openai";',
+            'import type { GoogleGenAI } from "@google/genai";',
+            "export const client = OpenAI;\nexport type Client = GoogleGenAI;",
+        ].join("\n"),
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), []);
+});
