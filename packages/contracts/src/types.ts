@@ -21,7 +21,9 @@ export type ContractKind =
     | "null"
     | "literal"
     | "enum"
+    | "unknown"
     | "object"
+    | "openObject"
     | "optional"
     | "nullable"
     | "array"
@@ -205,6 +207,37 @@ export type NullableContract<Inner extends Contract<unknown>> =
         readonly inner: Inner;
     };
 
+/**
+ * 任意 JSON 载荷 Contract 的 AST 节点类型。
+ *
+ * @remarks
+ * 运行时接受 JSON 标量、数组与普通对象，并返回与输入引用隔离的深复制；该节点的
+ * 载荷遍历不消耗合同结构的深度预算。
+ *
+ * @example
+ * ```ts
+ * const payload = contract.unknown();
+ * ```
+ */
+export type UnknownContract = Contract<unknown> & { readonly kind: "unknown" };
+
+/**
+ * 保留未声明字段的开放对象 Contract 的 AST 节点类型。
+ *
+ * @remarks
+ * 声明字段按 shape 校验，额外字段必须是 JSON 值并原样保留；输出类型只包含声明字段。
+ *
+ * @example
+ * ```ts
+ * const envelope = contract.openObject({ id: contract.string() });
+ * ```
+ */
+export type OpenObjectContract<Shape extends ObjectShape> =
+    Contract<InferObjectShape<Shape>> & {
+        readonly kind: "openObject";
+        readonly shape: Readonly<Shape>;
+    };
+
 /** array Contract 的 AST 节点类型。 */
 export type ArrayContract<Items extends Contract<unknown>> =
     Contract<readonly InferContract<Items>[]> & {
@@ -362,6 +395,17 @@ export interface ContractBuilders {
         values: Values,
     ) => EnumContract<Values>;
     /**
+     * 创建接受任意 JSON 值的 Contract。
+     *
+     * @remarks
+     * 解析时拒绝 `undefined`、函数、Symbol、BigInt、非有限数、类实例、符号键对象与
+     * 循环引用，并返回与输入引用隔离的深复制。载荷遍历使用独立的有界遍历，不消耗
+     * 合同结构的深度预算。
+     *
+     * @returns 不可变 unknown AST 节点。
+     */
+    readonly unknown: () => UnknownContract;
+    /**
      * 创建始终拒绝额外字段的 strict object Contract。
      *
      * @param shape - 按声明顺序排列的 required/optional 字段表。
@@ -369,6 +413,20 @@ export interface ContractBuilders {
      * @throws 字段不是 Contract 或合法 optional property 时抛出异常。
      */
     readonly object: <const Shape extends ObjectShape>(shape: Shape) => ObjectContract<Shape>;
+    /**
+     * 创建保留额外 JSON 字段的开放对象 Contract。
+     *
+     * @remarks
+     * 声明字段按 shape 校验；未声明的 JSON 字段会被校验并保留在解析结果中，且不会
+     * 进入 `InferContract` 的静态类型。额外字段的 JSON 遍历不消耗合同结构预算。
+     *
+     * @param shape - 按声明顺序排列的 required/optional 字段表。
+     * @returns 保存独立冻结 shape 的开放对象 AST 节点。
+     * @throws shape 或字段不是合法 Contract/optional property 时抛出异常。
+     */
+    readonly openObject: <const Shape extends ObjectShape>(
+        shape: Shape,
+    ) => OpenObjectContract<Shape>;
     /**
      * 创建只能作为 object 字段值使用的 optional 标记。
      *

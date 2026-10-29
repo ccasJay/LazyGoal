@@ -80,6 +80,12 @@ function deriveWireNode(
                 "Dynamic record is not supported in model output contracts",
                 path,
             );
+        case "unknown":
+        case "openObject":
+            throw new ModelOutputContractDefinitionError(
+                "Open payloads are not portable for model output contracts",
+                path,
+            );
         case "recursive":
         case "recursiveRef":
             throw new ModelOutputContractDefinitionError(

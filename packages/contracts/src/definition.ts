@@ -34,7 +34,9 @@ const knownContractKinds: readonly ContractKind[] = [
     "null",
     "literal",
     "enum",
+    "unknown",
     "object",
+    "openObject",
     "optional",
     "nullable",
     "array",
@@ -151,8 +153,10 @@ class DefinitionChecker {
             case "null":
             case "literal":
             case "enum":
+            case "unknown":
                 return;
             case "object":
+            case "openObject":
                 this.collectShape(node.shape, path);
                 return;
             case "optional":
@@ -290,8 +294,10 @@ class DefinitionChecker {
             case "null":
             case "literal":
             case "enum":
+            case "unknown":
                 return;
             case "object":
+            case "openObject":
                 this.walkShape(node.shape, guards, path);
                 return;
             case "optional":

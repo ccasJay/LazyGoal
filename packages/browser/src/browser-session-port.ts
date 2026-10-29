@@ -1,6 +1,8 @@
 import type {
     Session,
+    SessionInput,
     SessionInputOutcome,
+    SessionInteractionResponse,
     SessionInputReceipt,
     SessionManager,
     SessionOutputEvent,
@@ -24,10 +26,12 @@ import type {
     BrowserSessionInputQueryResult,
     BrowserSessionInputReceipt,
     BrowserSessionInputResult,
+    BrowserSessionInteractionResponse,
     BrowserSessionMessageListResult,
     BrowserSessionMessageResult,
     BrowserSessionState,
 } from "../../web-contracts/src/index";
+import { isJsonValue } from "../../web-contracts/src/index";
 
 const MAX_PENDING_LIVE_EVENTS = 128;
 type ActivityBoundaryReason = "assistant_reply" | "user_wait" | "stage_change" | "terminal" | "failure" | "unknown";
@@ -199,7 +203,10 @@ export function createBrowserGoalSessionPort(
         submit: async (goalId, input) => {
             if (shuttingDown()) return { ok: false, error: "session_unavailable" };
             try {
-                const result = await dependencies.sessions.sendSessionInput(goalId, input);
+                const result = await dependencies.sessions.sendSessionInput(
+                    goalId,
+                    toRuntimeSessionInput(input),
+                );
                 return result.ok
                     ? { ok: true, existing: result.existing, receipt: projectSessionInputReceipt(result.receipt) }
                     : { ok: false, error: result.code };
@@ -834,6 +841,28 @@ export function projectInputOutcome(goalId: string, outcome: SessionInputOutcome
  * @param receipt - Runtime 持久化收据。
  * @returns 只包含去重与追溯事实的 wire 收据。
  */
+/**
+ * 将 wire 命令收窄为 Runtime 会话输入。
+ *
+ * @remarks
+ * wire DTO 的开放 JSON `input` 在合同推导中保持 `unknown`；Runtime 要求可移植的
+ * `JsonValue`。该转换只收窄已经过 parser 的 JSON 值，不改变命令形状、不补默认值。
+ */
+function toRuntimeSessionInput(input: BrowserSessionInputCommand): SessionInput {
+    if (input.kind !== "respond") return input;
+    return { ...input, response: toRuntimeInteractionResponse(input.response) };
+}
+
+function toRuntimeInteractionResponse(
+    response: BrowserSessionInteractionResponse,
+): SessionInteractionResponse {
+    if (response.kind !== "approve_action_revision") return response;
+    if (!isJsonValue(response.input)) {
+        throw new TypeError("Action review input must be a JSON value");
+    }
+    return { ...response, input: response.input };
+}
+
 export function projectSessionInputReceipt(receipt: SessionInputReceipt): BrowserSessionInputReceipt {
     return {
         goalId: receipt.goalId,

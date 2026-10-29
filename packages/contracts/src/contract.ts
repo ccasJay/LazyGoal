@@ -20,6 +20,7 @@ import type {
     ObjectContract,
     ObjectProperty,
     ObjectShape,
+    OpenObjectContract,
     OptionalProperty,
     RecursiveContract,
     RecursiveSelfContract,
@@ -27,6 +28,7 @@ import type {
     StringContract,
     StringOptions,
     UnionContract,
+    UnknownContract,
 } from "./types";
 import {
     contractBrand,
@@ -61,6 +63,7 @@ export type {
     ObjectContract,
     ObjectProperty,
     ObjectShape,
+    OpenObjectContract,
     OptionalProperty,
     RecursiveContract,
     RecursiveSelfContract,
@@ -68,6 +71,7 @@ export type {
     StringContract,
     StringOptions,
     UnionContract,
+    UnknownContract,
 } from "./types";
 
 /** 供内部 AST helper 使用的非空 Contract 分支数组。 */
@@ -316,6 +320,14 @@ function buildObject<const Shape extends ObjectShape>(shape: Shape): ObjectContr
     return freezeContractNode({ kind: "object", shape: copyShape(shape) }) as ObjectContract<Shape>;
 }
 
+function buildUnknown(): UnknownContract {
+    return freezeContractNode({ kind: "unknown" }) as UnknownContract;
+}
+
+function buildOpenObject<const Shape extends ObjectShape>(shape: Shape): OpenObjectContract<Shape> {
+    return freezeContractNode({ kind: "openObject", shape: copyShape(shape) }) as OpenObjectContract<Shape>;
+}
+
 function buildOptional<Inner extends Contract<unknown>>(inner: Inner): OptionalProperty<InferContract<Inner>> {
     assertContract(inner, "optional inner");
     const node = {
@@ -482,7 +494,9 @@ const builderSet: ContractBuilders = {
     null: buildNull,
     literal: buildLiteral,
     enum: buildEnum,
+    unknown: buildUnknown,
     object: buildObject,
+    openObject: buildOpenObject,
     optional: buildOptional,
     nullable: buildNullable,
     array: buildArray,

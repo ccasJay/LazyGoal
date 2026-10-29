@@ -27,6 +27,8 @@ Activity 响应项数有界；当前文件 JSONL 读取器仍可扫描整个 Run
 
 `POST /api/goals` 只接受有界 JSON 中的稳定 Goal ID、稳定首条 `inputId`、非空意图、可选 `mode: "plan"` 与可选 `modelId`，并委派现有无界面装配的会话所有者创建 Session。省略模型时解析当前工作区 Web 模型偏好，也可由装配提供进程默认选择；模型 ID 由服务端目录重新验证，Profile 和执行策略仍由本机决定。受理仅在 Goal、首条用户消息、Run 与受理收据成功保存后返回，执行由 Runtime 会话所有者在后台推进；同身份同载荷的重试返回既有收据与原 Goal，异载荷返回身份冲突。另一个 Goal 持有实例执行名额时拒绝新建。页面断开不会取消已受理的执行。
 
+所有 JSON 请求体先经传输层校验（Content-Type、字节上限与 UTF-8/JSON 解码），再由 `@lazygoal/web-contracts` 的严格命令合同执行 `safeParse`；route 只保留 wire ID、路径身份、kind/跨字段关系与固定 HTTP 错误映射，不维护第二套 body 字段白名单。Provider 档案可选的 `null` 值按 DTO 保留并交由下游解释为清空，`apiKey: null` 被合同拒绝。
+
 `POST /api/goals/:goalId/inputs` 受理统一会话输入联合：`message`、`steer`、`interrupt`、`respond`、`resume` 与 `queue_control`，每项都携带 Goal 内稳定 `inputId`。Browser 只做严格 wire 校验与安全投影，受理、去重、队列、执行所有权与恢复判定全部委派 Runtime 会话所有者：新受理返回 202，同身份同载荷的既有收据返回 200，业务拒绝返回稳定错误码（字段错误 400、文本超限 413、Goal 缺失 404、身份／状态／容量冲突与 busy 409、关闭或保存结果不明 503）。`respond` 携带当前 `runId`、`requestId` 与回答、提案批准/反馈或 Action 批准/拒绝载荷，由 Runtime 再次校验等待类型与身份；旧身份、错配等待点或载荷冲突不写入收据，普通文本也不能代答结构化等待。`GET /api/goals/:goalId/inputs/:inputId` 按身份返回持久化收据及应用关联，未找到与读取失败分别返回明确结果。
 
 Plan Run 的待审批会话 DTO 会投影候选路线中的全部阶段顺序、目标和验收条件，文本受有界投影处理。普通会话不返回路线字段；候选仍属于待审批 Snapshot，不代表 Runtime 已批准或正在执行的阶段。
@@ -77,7 +79,7 @@ PTC 子操作沿用普通 Action 的审批入口；待审视图额外展示父�
 
 模型目录投影新增来源维度：`BrowserModelCatalog` 可携带当前 `profileId` 与 `sources`（受管档案加回退来源，含 `active` 标记）；`GET /api/models` 与 `GET /api/goals/:goalId/models` 接受可选 `providerProfileId` 以读取非激活来源的目录。偏好写入与 Goal 模型选择命令同样接受可选 `providerProfileId`，使草稿默认与 Goal 内切换能够落到指定来源；Goal 内切换仍复用既有安全等待点与协调器提交边界。
 
-`POST /api/providers/models` 接受未保存的 Provider 连接参数，经字段白名单、长度及可选档案 ID 校验后调用只读模型查询端口；沿用同源 Origin 与 Bearer 授权，不保存输入。响应仅含模型 ID/名称或稳定错误分类，不包含凭据与供应商原始响应。
+`POST /api/providers/models` 接受未保存的 Provider 连接参数，经共享命令合同、wire 文本上限及可选档案 ID 校验后调用只读模型查询端口；沿用同源 Origin 与 Bearer 授权，不保存输入。响应仅含模型 ID/名称或稳定错误分类，不包含凭据与供应商原始响应。
 
 会话步骤按已提交的 `think_requested` 请求身份独立投影显式 Think，配对同执行单元的 `think_completed` 输出；请求和完成保持同一来源身份。目标最多 4,000 字符，输出最多 64,000 字符，超限标记 `think.truncated`，完整事件通过轨迹详情读取。未提交输出不进入会话；只有请求时保留未完成状态，后续 Run 失败或取消事实使未完成 Think 显示失败。Think 与同执行单元的最终 Action 分开显示，保持实际先后顺序与原 Step 序号，不修改 Runtime 的 Step 计数。
 

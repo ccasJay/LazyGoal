@@ -38,3 +38,26 @@ test("Goal 管理路由校验输入并区分成功、缺失与非终态", async 
     assert.equal(revoke.status, 503);
     assert.deepEqual(await revoke.json(), { error: "service_shutting_down" });
 });
+
+test("授权撤销只从路径读取 grantId 且拒绝请求体同名字段", async () => {
+    let calls = 0;
+    const api = port();
+    const routes = createBrowserGoalRoutes({
+        ...api,
+        revokeToolGrant: async () => {
+            calls += 1;
+            return { ok: false, error: "service_shutting_down" };
+        },
+    });
+    const revoke = (body: unknown) => routes.request("/api/goals/terminal/grants/grant-1", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+    });
+    assert.equal((await revoke({ runId: "run-1", scope: "goal", grantId: "grant-1" })).status, 400);
+    assert.equal(calls, 0);
+    assert.equal((await revoke({ runId: "run-1", scope: "goal" })).status, 503);
+    assert.equal(calls, 1);
+    assert.equal((await revoke({ runId: "run-1", scope: "goal", kind: "unknown" })).status, 400);
+    assert.equal(calls, 1);
+});

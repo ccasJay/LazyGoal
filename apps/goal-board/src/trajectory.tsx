@@ -33,10 +33,10 @@ type WindowQuery = { after?: number; before?: number; executionUnitId?: string }
 const categoryLabels = ["All events", "lifecycle", "decision", "memory", "action", "tool", "observation", "terminal", "commit"];
 const json = (value: unknown) => JSON.stringify(value, null, 2);
 const detailSummary = (event: BrowserTrajectoryDetail["event"]) => event.eventType === "model_repair_attempt_started"
-  ? event.payload.attempt === 1 ? "Initial model request; no output has been rejected." : "Retry after rejected model output."
+  ? (event.payload as Readonly<Record<string, unknown>>).attempt === 1 ? "Initial model request; no output has been rejected." : "Retry after rejected model output."
   : event.eventType.replaceAll("_", " ");
 const detailTitle = (event: BrowserTrajectoryDetail["event"]) => event.eventType === "model_repair_attempt_started"
-  ? event.payload.attempt === 1 ? "Model request" : "Output retry"
+  ? (event.payload as Readonly<Record<string, unknown>>).attempt === 1 ? "Model request" : "Output retry"
   : event.eventType === "model_repair_feedback_recorded" ? "Output rejected"
   : event.eventType === "think_requested" ? "Think requested"
   : event.eventType === "think_completed" ? "Think completed"

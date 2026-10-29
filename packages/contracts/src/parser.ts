@@ -14,6 +14,7 @@ import {
 } from "./errors";
 import { assertValidContract } from "./definition";
 import { recursiveOwner } from "./internal";
+import { copyJsonValue } from "./json-value-copy";
 
 type Path = readonly (string | number)[];
 type RuntimeContract = Omit<Contract<unknown>, "kind"> & Readonly<Record<PropertyKey, unknown>> & {
@@ -31,7 +32,9 @@ const knownContractKinds: readonly ContractKind[] = [
     "null",
     "literal",
     "enum",
+    "unknown",
     "object",
+    "openObject",
     "optional",
     "nullable",
     "array",
@@ -296,9 +299,24 @@ function parseObject(
         }
 
         if (!collector.stopped) {
+            const open = node.kind === "openObject";
             for (const key of sortedKeys(input)) {
                 if (shapeKeySet.has(key)) continue;
-                collector.add("extra_field", [...path, key], "Unexpected field");
+                if (!open) {
+                    collector.add("extra_field", [...path, key], "Unexpected field");
+                    if (collector.stopped) break;
+                    continue;
+                }
+                const copied = copyJsonValue(input[key]);
+                if (copied.success) {
+                    setOwn(output, key, copied.value);
+                } else {
+                    collector.add(
+                        copied.code,
+                        [...path, key, ...copied.path],
+                        copied.message,
+                    );
+                }
                 if (collector.stopped) break;
             }
         }
@@ -373,6 +391,19 @@ function parseRecord(
     } finally {
         leaveAncestor(input, state);
     }
+}
+
+function parseUnknown(
+    input: unknown,
+    path: Path,
+    collector: IssueCollector,
+): unknown {
+    const copied = copyJsonValue(input);
+    if (!copied.success) {
+        collector.add(copied.code, [...path, ...copied.path], copied.message);
+        return undefined;
+    }
+    return copied.value;
 }
 
 function parseUnion(
@@ -473,7 +504,10 @@ function parseNode(
             return parseLiteral(node, input, path, collector);
         case "enum":
             return parseEnum(node, input, path, collector);
+        case "unknown":
+            return parseUnknown(input, path, collector);
         case "object":
+        case "openObject":
             return parseObject(node, input, path, collector, state, depth);
         case "nullable":
             return input === null

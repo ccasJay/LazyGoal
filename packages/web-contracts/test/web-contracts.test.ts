@@ -3,6 +3,7 @@ import test from "node:test";
 import {
     isAcceptedCommand,
     isActionDetailsResult,
+    isBrowserActionReviewResult,
     isBrowserCreateSessionResult,
     isBrowserSessionInputQueryResult,
     isBrowserSessionInputReceipt,
@@ -50,6 +51,8 @@ import {
     type BrowserActivityPage,
     type SessionMetricsSnapshot,
 } from "../src/index";
+import { safeParse } from "../../contracts/src/index";
+import { browserGoalSessionContract } from "../src/contracts/session";
 
 test("isRunStatus classifies valid and invalid run statuses", () => {
     assert.equal(isRunStatus("created"), true);
@@ -217,8 +220,9 @@ test("Activity 与窄状态 wire guards 接受有界安全 DTO 并拒绝原始�
     assert.equal(isBrowserActivityPage({ ...page, items: [lookupFact] }), true);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, lookupId: "" }] }), false);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, lookupRequest: "x".repeat(201) }] }), false);
-    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, eventType: "context_lookup_failed", lookupRequest: undefined }] }), true);
-    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, eventType: "context_lookup_failed", lookupRequest: undefined,
+    const { lookupRequest: _lookupRequest, ...lookupWithoutRequest } = lookupFact;
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupWithoutRequest, eventType: "context_lookup_failed" }] }), true);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupWithoutRequest, eventType: "context_lookup_failed",
         lookupErrorCode: "PRIVATE_CODE" }] }), false);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, eventType: "tool_started" }] }), false);
 
@@ -723,4 +727,443 @@ test("Provider 写入、删除、激活与测试守卫区分成功与失败形�
     assert.equal(isProviderProfileTestResult({ ok: true, modelCount: 29 }), true);
     assert.equal(isProviderProfileTestResult({ ok: true, modelCount: -1 }), false);
     assert.equal(isProviderProfileTestResult({ ok: false, error: "model_catalog_authentication" }), true);
+});
+
+test("session contracts preserve open layers and reject unlisted strict fields", () => {
+    const session = {
+        goalId: "goal-1",
+        intent: "Test goal",
+        currentRunId: "run-1",
+        runStatus: "waiting",
+        currentRunMode: "normal",
+        messages: [],
+        runs: [],
+        historyTruncated: false,
+    };
+    const parsed = safeParse(browserGoalSessionContract, {
+        ...session,
+        futureServerField: { nested: [1, 2] },
+    });
+    assert.equal(parsed.success, true);
+    if (parsed.success) {
+        assert.deepEqual(
+            (parsed.data as Record<string, unknown>).futureServerField,
+            { nested: [1, 2] },
+        );
+    }
+
+    const state = {
+        goalId: "goal-1",
+        intent: "Test goal",
+        currentRunId: "run-1",
+        runStatus: "waiting",
+        currentRunMode: "normal",
+        currentRunStepCount: 0,
+        history: {
+            messages: { included: false, source: "activity" },
+            steps: { included: false, source: "activity" },
+            stages: { included: false, source: "activity" },
+        },
+    };
+    assert.equal(isBrowserGoalSessionState(state), true);
+    assert.equal(isBrowserGoalSessionState({ ...state, futureServerField: true }), false);
+    assert.equal(isBrowserGoalSessionState({
+        ...state,
+        runStatus: "failed",
+        currentRunTerminalDetail: { message: "failed", futureField: true },
+    }), false);
+    assert.equal(isBrowserGoalSessionState({
+        ...state,
+        runStatus: "running",
+        currentRunTerminalDetail: { message: "failed" },
+    }), false);
+});
+
+test("session guards enforce plan route, terminal and declared field invariants", () => {
+    const validSession = {
+        goalId: "goal-1",
+        intent: "Test goal",
+        currentRunId: "run-1",
+        runStatus: "running",
+        currentRunMode: "normal",
+        messages: [],
+        runs: [{
+            runId: "run-1",
+            status: "running",
+            stepCount: 1,
+            steps: [{
+                runId: "run-1",
+                executionUnitId: "u-1",
+                sequence: 1,
+                stepIndex: 1,
+                status: "completed",
+            }],
+            current: true,
+            planRoute: {
+                revision: 2,
+                revisionReason: "Evidence confirmed another verification gate",
+                nextStageIndex: 1,
+                stages: [
+                    { stageId: "stage-1", revision: 1, status: "accepted", target: "Inspect", acceptanceCriteria: ["Entry found"], acceptedSequence: 3 },
+                    { stageId: "stage-2", revision: 2, status: "executing", target: "Implement", acceptanceCriteria: ["Checks pass"] },
+                ],
+            },
+        }],
+        historyTruncated: false,
+    };
+    assert.equal(isBrowserGoalSession(validSession), true);
+    const withRoute = (route: Record<string, unknown>) => ({
+        ...validSession,
+        runs: [{ ...validSession.runs[0], planRoute: route }],
+    });
+    const route = validSession.runs[0]!.planRoute;
+    assert.equal(isBrowserGoalSession(validSession), true);
+    const { revisionReason: _revisionReason, ...routeWithoutReason } = route;
+    assert.equal(isBrowserGoalSession(withRoute(routeWithoutReason)), false);
+    assert.equal(isBrowserGoalSession(withRoute({
+        ...route,
+        stages: [route.stages[0], { ...route.stages[1], stageId: "stage-1" }],
+    })), false);
+    assert.equal(isBrowserGoalSession(withRoute({
+        ...route,
+        stages: [{ ...route.stages[0], acceptedSequence: undefined }, route.stages[1]],
+    })), false);
+    assert.equal(isBrowserGoalSession(withRoute({
+        ...route,
+        stages: [{ ...route.stages[0], status: "pending" }, route.stages[1]],
+    })), false);
+
+    const runWithoutRoute = {
+        runId: "run-1",
+        status: "running",
+        stepCount: 1,
+        steps: validSession.runs[0]!.steps,
+        current: true,
+    };
+    const withStep = (step: Record<string, unknown>) => ({
+        ...validSession,
+        runs: [{ ...runWithoutRoute, steps: [step] }],
+    });
+    assert.equal(isBrowserGoalSession(withStep({
+        ...validSession.runs[0]!.steps[0],
+        runId: 1,
+    })), false);
+    assert.equal(isBrowserGoalSession(withStep({
+        ...validSession.runs[0]!.steps[0],
+        sourceEventId: 1,
+    })), false);
+    assert.equal(isBrowserGoalSession(withStep({
+        ...validSession.runs[0]!.steps[0],
+        bashExecution: { command: "npm test", exitCode: "0" },
+    })), false);
+
+    assert.equal(isGoalListItem({
+        goalId: "goal-1",
+        runId: "run-1",
+        intent: "Test",
+        workflowPhase: "executing",
+        runStatus: "running",
+        execution: { state: "active", committedThroughSequence: Number.NaN },
+        updatedAt: "2026-10-28T00:00:00.000Z",
+        archived: false,
+    }), false);
+    assert.equal(isBrowserRun({
+        runId: "run-1",
+        status: "running",
+        stepCount: Number.MAX_SAFE_INTEGER + 1,
+        steps: [],
+        current: true,
+    }), false);
+    assert.equal(isRunStatus(new String("running")), false);
+});
+
+test("Action Review 与输入状态 guard 校验声明字段和不变量", () => {
+    const review = {
+        actionId: "act-1",
+        toolId: "write_file",
+        originalInput: { path: "a.txt" },
+        finalInput: { path: "b.txt", nested: [1, true] },
+        changed: true,
+        scope: "action",
+        availableScopes: ["action"],
+        capability: { network: "none", extraFiles: [], targetPaths: [] },
+        requiresSandboxApproval: false,
+        reviewRef: "review:0123456789abcdef",
+    };
+    const result = { ok: true, goalId: "goal-1", runId: "run-1", review };
+    assert.equal(isBrowserActionReviewResult(result), true);
+    assert.equal(isBrowserActionReviewResult({ ...result, review: { ...review, capability: undefined } }), false);
+    assert.equal(isBrowserActionReviewResult({ ...result, review: { ...review, availableScopes: ["action", "unknown"] } }), false);
+    assert.equal(isBrowserActionReviewResult({
+        ...result,
+        review: { ...review, capability: { ...review.capability, extraFiles: [{ canonicalPath: "", access: "read", kind: "file" }] } },
+    }), false);
+    assert.equal(isBrowserActionReviewResult({ ...result, review: { ...review, originalInput: undefined } }), false);
+    assert.equal(isBrowserActionReviewResult({ ok: false, error: "scope_unavailable" }), true);
+    assert.equal(isBrowserActionReviewResult({ ok: false, error: "unexpected" }), false);
+
+    const receipt = {
+        goalId: "goal-1", inputId: "input-1", kind: "message", sequence: 1,
+        status: "applied", admittedAtRevision: 0, targetRunId: "run-1", appliedRunId: "run-1", messageIndex: 0,
+    };
+    assert.equal(isBrowserSessionInputReceipt(receipt), true);
+    assert.equal(isBrowserSessionInputReceipt({ ...receipt, targetRunId: "" }), false);
+    assert.equal(isBrowserSessionInputReceipt({ ...receipt, messageIndex: -1 }), false);
+    assert.equal(isBrowserSessionInputReceipt({ ...receipt, admittedAtRevision: -1 }), false);
+
+    const state = {
+        goalId: "goal-1", runId: "run-1", runStatus: "running", mode: "plan",
+        commitRevision: 0, queueRevision: 0, queuePaused: false,
+        pendingMessageCount: 0, pendingSteerCount: 0, needsRecovery: false, executionOwner: true,
+        messages: { count: 0, recent: [] },
+    };
+    assert.equal(isBrowserSessionState({ ...state, interruption: { requestId: "req-1", status: "requested", outcomeUnknown: false } }), true);
+    assert.equal(isBrowserSessionState({ ...state, interruption: { requestId: "req-1", status: "requested" } }), false);
+    assert.equal(isBrowserSessionState({ ...state, waitingFor: "other" }), false);
+    assert.equal(isBrowserSessionState({ ...state, messages: { count: 1, recent: [{ messageId: "m", role: "user", runId: "run-1", sourceKind: "s", sourceId: "s" }] } }), false);
+
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "action_approval:act-1",
+        detail: { kind: "action_approval", actionId: "act-1", toolId: "bash" },
+    }), false);
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "action_approval:act-1",
+        detail: { kind: "action_approval", actionId: "act-1", toolId: "bash", input: { command: "ls" }, parentProgram: { actionId: "act-0", callNumber: 0 } },
+    }), false);
+});
+
+test("Activity contracts keep strict layers, open layers and UTF-16 limits", () => {
+    const position = { runId: "run-1", runOrder: 0, sequence: 1, itemKind: "message" as const, order: 0 };
+    const message = {
+        type: "message" as const,
+        itemId: "message:msg-1",
+        messageId: "msg-1",
+        role: "assistant" as const,
+        purpose: "answer" as const,
+        runId: "run-1",
+        position,
+        content: "a".repeat(4_000),
+        contentLength: 4_000,
+        truncated: false,
+    };
+    const page = {
+        goalId: "goal-1",
+        limit: 1,
+        items: [message],
+        runs: [{
+            runId: "run-1", status: "running", current: true, runOrder: 0,
+            committedThroughSequence: 1, futureServerField: { ok: true },
+        }],
+        window: [],
+        gaps: [],
+        range: { olderAvailable: false, newerAvailable: false },
+        stages: [],
+        actionGroups: [],
+    };
+    assert.equal(isBrowserActivityPage(page), true);
+    assert.equal(isBrowserActivityPage({ ...page, futureField: true }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, futureField: true }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, content: "a".repeat(4_001), contentLength: 4_001 }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, content: "😀".repeat(2_000), contentLength: 4_000 }] }), true);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, content: "😀".repeat(2_001), contentLength: 4_002 }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, contentLength: 1 }] }), false);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        items: [{ ...message, role: "user", purpose: "answer" }],
+    }), false);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        items: [{ ...message, role: "user", purpose: undefined }],
+    }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, purpose: "process", previewId: "call-1" }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, previewId: "p".repeat(201) }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, limit: 0 }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [message, message], limit: 1 }), false);
+
+    const gapPosition = { ...position, itemKind: "fact" as const };
+    const gap = { direction: "older" as const, itemCount: 1, first: gapPosition, last: gapPosition };
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        gaps: [gap],
+        range: { olderAvailable: true, newerAvailable: false },
+    }), true);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        gaps: [gap],
+        range: { olderAvailable: false, newerAvailable: false },
+    }), false);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        gaps: [gap, { ...gap, direction: "older" }],
+        range: { olderAvailable: true, newerAvailable: false },
+    }), false);
+
+    const stage = {
+        runId: "run-1", stageId: "stage-1", revision: 1, status: "executing" as const,
+        target: "t".repeat(1_000), firstSequence: 1, completeWithinPage: true,
+    };
+    assert.equal(isBrowserActivityPage({ ...page, stages: [stage] }), true);
+    assert.equal(isBrowserActivityPage({ ...page, stages: [{ ...stage, target: "t".repeat(1_001) }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, stages: [{ ...stage, lastSequence: 0 }] }), false);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        runs: [{ ...page.runs[0], terminalDetail: { message: "failed", extra: true } }],
+    }), false);
+
+    const live = { type: "activity", goalId: "goal-1", runId: "run-1", activity: {
+        kind: "assistant_text_delta", text: "😀".repeat(1_000), truncated: false,
+        sourceEventId: "e".repeat(200), sourceCursor: 1,
+    } };
+    assert.equal(isLiveEvent(live), true);
+    assert.equal(isLiveEvent({ ...live, activity: { ...live.activity, text: "😀".repeat(1_001) } }), false);
+    assert.equal(isLiveEvent({ ...live, activity: { ...live.activity, sourceEventId: "e".repeat(201) } }), false);
+    assert.equal(isLiveEvent({
+        type: "activity", goalId: "goal-1", runId: "run-1",
+        activity: { kind: "tool_attempt_failed", sourceEventId: "e", sourceCursor: 1, actionId: "a", attempt: 0, reason: "r" },
+    }), false);
+});
+
+test("Trajectory、Model Input 与 Metrics 合同保留开放 JSON 与数值边界", () => {
+    let deep: unknown = "leaf";
+    for (let index = 0; index < 200; index += 1) {
+        deep = index % 2 === 0 ? [deep] : { nested: deep };
+    }
+
+    const detail = {
+        event: {
+            eventId: "e-1", goalId: "goal-1", runId: "run-1", sequence: 1,
+            occurredAt: "2026-10-18T00:00:00Z", phase: "executing",
+            eventType: "run_started", payload: { type: "run_started", extra: deep },
+            eventSchemaVersion: 1,
+        },
+        input: deep,
+        result: { kind: "success", output: deep, summary: "ok", extra: deep },
+        observationConfirmed: true,
+        toolDurationMs: 12,
+    };
+    assert.equal(isTrajectoryDetail(detail), true);
+    assert.equal(isTrajectoryDetail({ ...detail, event: { ...detail.event, payload: { type: "other" } } }), false);
+    assert.equal(isTrajectoryDetail({ ...detail, event: { ...detail.event, phase: "waiting" } }), false);
+    assert.equal(isTrajectoryDetail({ ...detail, event: { ...detail.event, eventSchemaVersion: 2 } }), false);
+    assert.equal(isTrajectoryDetail({ ...detail, event: { ...detail.event, payload: { type: "run_started", extra: () => undefined } } }), false);
+    assert.equal(isTrajectoryDetail({ ...detail, event: { ...detail.event, payload: { type: "run_started", extra: new Date() } } }), false);
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    assert.equal(isTrajectoryDetail({ ...detail, event: { ...detail.event, payload: { type: "run_started", extra: cyclic } } }), false);
+    assert.equal(isTrajectoryDetail({ ...detail, input: () => undefined }), false);
+    assert.equal(isTrajectoryDetail({ ...detail, result: [] }), false);
+    assert.equal(isTrajectoryDetail({
+        ...detail,
+        toolFinished: { eventType: "observation_recorded", payload: { observation: {} } },
+    }), false);
+    assert.equal(isTrajectoryDetail({
+        ...detail,
+        toolFinished: { eventType: "tool_finished", payload: { observation: "not-record" } },
+    }), false);
+    assert.equal(isTrajectoryDetail({
+        ...detail,
+        toolFinished: { eventType: "tool_finished", payload: { observation: { kind: "success" } } },
+    }), true);
+    assert.equal(isTrajectoryDetail({ ...detail, toolDurationMs: Number.POSITIVE_INFINITY }), false);
+
+    const inputDetail = {
+        call: {
+            goalId: "goal-1", runId: "run-1", callId: "call-1", stepIndex: 1,
+            stage: "think", occurredAt: "2026-10-18T00:00:00Z",
+            messages: [{
+                role: "assistant", source: "conversation", content: "hi",
+                continuation: deep,
+            }],
+        },
+        previousSystem: null,
+        previousCallId: null,
+        systemVersion: "v1",
+    };
+    assert.equal(isModelInputDetail(inputDetail), true);
+    assert.equal(isModelInputDetail({
+        ...inputDetail,
+        call: { ...inputDetail.call, messages: [{ ...inputDetail.call.messages[0], continuation: () => undefined }] },
+    }), false);
+    assert.equal(isModelInputDetail({ ...inputDetail, call: { ...inputDetail.call, stepIndex: 0 } }), false);
+
+    const metrics = {
+        stepCount: 1, reportedCalls: 1, missingCalls: 0,
+        inputTokens: 10, outputTokens: 5, coverage: "complete",
+        cacheMeasuredCalls: 1, cacheExcludedCalls: 0, cacheHitRate: 0.5,
+        throughputMeasuredCalls: 1, throughputExcludedCalls: 0, tokensPerSecond: 2,
+    };
+    assert.equal(isMetricValues(metrics), true);
+    assert.equal(isMetricValues({ ...metrics, cacheHitRate: 1.1 }), false);
+    assert.equal(isMetricValues({ ...metrics, cacheHitRate: -0.1 }), false);
+    assert.equal(isMetricValues({ ...metrics, inputTokens: -1 }), false);
+    assert.equal(isMetricValues({ ...metrics, tokensPerSecond: -1 }), false);
+    assert.equal(isMetricValues({ ...metrics, cacheHitRate: null }), true);
+    assert.equal(isMetricValues({ ...metrics, stepCount: 1.5 }), false);
+
+    const runMetrics = { ...metrics, runId: "run-1" };
+    const snapshot = { goalId: "goal-1", roundCount: 1, ...metrics, contextRemainingPercent: 1, runs: [runMetrics] };
+    assert.equal(isMetricsSnapshot(snapshot), true);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextRemainingPercent: 1.1 }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextRemainingPercent: -0.1 }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, runs: [{ ...runMetrics, runId: "" }] }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, runs: [runMetrics] }), true);
+});
+
+test("Provider、模型与命令结果合同校验嵌套凭据键、声明字段与错误码", () => {
+    assert.equal(isProviderProfileWriteResult({ ok: true, profile: { ...maskedProfile, apiKey: "sk-raw" } }), false);
+    assert.equal(isProviderProfileDeleteResult({ ok: true, profile: { ...maskedProfile, apiKey: "sk-raw" }, mayBeReferencedByGoals: false }), false);
+    assert.equal(isProviderProfileActivationResult({ ok: false, error: "provider_profile_invalid" }), true);
+    assert.equal(isProviderProfileActivationResult({ ok: false, error: "unknown" }), false);
+    assert.equal(isProviderSettings({
+        profiles: [],
+        futureServerField: { nested: [1, 2] },
+    }), true);
+
+    assert.equal(isModelSelectionAccepted({
+        ok: true, goalId: "goal-1", runId: "run-1", modelId: "gpt-4o", defaultModelSaved: false,
+    }), true);
+    assert.equal(isModelSelectionAccepted({ ok: true, modelId: "gpt-4o", defaultModelSaved: false }), false);
+    assert.equal(isModelSelectionAccepted({ ok: true, goalId: "goal-1", modelId: "gpt-4o", defaultModelSaved: false }), false);
+    assert.equal(isModelSelectionAccepted({ ok: false, error: "unknown_error" }), false);
+    assert.equal(isModelPreferenceAccepted({ ok: true, modelId: "gpt-4o" }), true);
+    assert.equal(isModelPreferenceAccepted({ ok: true, modelId: "" }), false);
+
+    assert.equal(isModelCatalog({
+        provider: "openai",
+        currentModelId: "gpt-4o",
+        models: [{
+            id: "gpt-4o", displayName: "GPT-4o", availabilitySource: "live", metadataSource: "catalog",
+            selectable: true, contextWindowTokens: 128_000, maxOutputTokens: 8_192,
+        }],
+    }), true);
+    assert.equal(isModelCatalog({
+        provider: "openai",
+        currentModelId: "gpt-4o",
+        models: [{
+            id: "gpt-4o", displayName: "GPT-4o", availabilitySource: "live", metadataSource: "catalog",
+            selectable: true, contextWindowTokens: 0,
+        }],
+    }), false);
+    assert.equal(isModelCatalog({
+        provider: "openai",
+        currentModelId: "gpt-4o",
+        models: [{
+            id: "gpt-4o", displayName: "GPT-4o", availabilitySource: "live", metadataSource: "catalog",
+            selectable: true, futureModelField: { ok: true },
+        }],
+    }), true);
+
+    assert.equal(isPermissionModeResult({ ok: true, mode: "yolo", revision: 2, workspaceId: "ws-1" }), true);
+    assert.equal(isPermissionModeResult({ ok: false, error: "unknown" }), false);
+    assert.equal(isPermissionModeResult({ ok: false, error: "conflict", actualRevision: Number.MAX_SAFE_INTEGER + 1 }), false);
+    assert.equal(isToolGrantResult({ ok: false, error: "grant_failed" }), true);
+    assert.equal(isToolGrantResult({ ok: false, error: "unknown" }), false);
+    assert.equal(isActionDetailsResult({ ok: true, goalId: "g", runId: "r", actionId: "a", toolId: "t", input: () => undefined }), false);
+    assert.equal(isAcceptedCommand({ goalId: "g", runId: "r", existing: false }), true);
 });

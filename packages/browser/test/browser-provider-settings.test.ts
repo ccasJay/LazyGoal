@@ -148,7 +148,9 @@ test("创建与更新拒绝非白名单或非法输入，且不触达端口", as
         });
         assert.equal(patched.status, 200);
         assert.deepEqual(await patched.json(), { ok: true, profile: maskedProfile() });
-        assert.deepEqual(calls[1], ["profile-1", { label: "x", kind: "openai", defaultModel: "m" }]);
+        assert.deepEqual(calls[1], ["profile-1", {
+            label: "x", kind: "openai", defaultModel: "m", structuredOutputMode: null,
+        }]);
 
         const invalidId = await fetch(`${base}/api/providers/${"a".repeat(200)}`, {
             method: "PATCH",
@@ -213,5 +215,34 @@ test("连接测试只按档案拉取模型并映射稳定分类", async () => {
         assert.equal(missing.status, 404);
         assert.equal(unavailable.status, 503);
         assert.deepEqual(tested, ["profile-1", "profile-1", "profile-1", "profile-1"]);
+    });
+});
+
+test("Provider 输入保留已声明 null 并拒绝 apiKey null", async () => {
+    const calls: unknown[] = [];
+    await withRoutes(unusedPort({
+        update: async (profileId, input) => {
+            calls.push([profileId, input]);
+            return { ok: true, profile: maskedProfile() };
+        },
+    }), async (base, authorize) => {
+        const patch = (body: unknown) => fetch(`${base}/api/providers/profile-1`, {
+            method: "PATCH",
+            headers: authorize,
+            body: JSON.stringify(body),
+        });
+        const preserved = await patch({
+            label: "x", kind: "openai", defaultModel: "m",
+            baseURL: null, contextWindowTokens: null, maxOutputTokens: null, structuredOutputMode: null,
+        });
+        assert.equal(preserved.status, 200);
+        assert.deepEqual(calls[0], ["profile-1", {
+            label: "x", kind: "openai", defaultModel: "m",
+            baseURL: null, contextWindowTokens: null, maxOutputTokens: null, structuredOutputMode: null,
+        }]);
+
+        const rejected = await patch({ label: "x", kind: "openai", defaultModel: "m", apiKey: null });
+        assert.equal(rejected.status, 400);
+        assert.equal(calls.length, 1);
     });
 });

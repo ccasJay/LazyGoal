@@ -9,3 +9,5 @@
 | canonical JSON | 递归键排序且由 `JSON.stringify` 输出的确定性 JSON 文本。 | [通用契约](../README.md) | [JSON 原语](../src/json.ts) |
 | 对象守卫 | 非 `null`、非数组对象的通用类型收窄。 | [通用契约](../README.md) | [JSON 原语](../src/json.ts) |
 | 深冻结 | 返回同一引用、环安全的递归只读冻结。 | [通用契约](../README.md) | [JSON 原语](../src/json.ts) |
+| unknown | 接受任意 JSON 并返回隔离深复制；载荷遍历不占用结构深度预算。 | [通用契约](../README.md) | [模块说明](./overview.md) |
+| openObject | 校验声明字段、保留额外 JSON 字段，静态类型只含声明字段。 | [通用契约](../README.md) | [模块说明](./overview.md) |

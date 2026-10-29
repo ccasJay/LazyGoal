@@ -413,3 +413,24 @@ test("executing Wire 失败按已知 kind/toolId 报告字段错误，仍拒绝�
         return true;
     });
 });
+
+test("deriveWireContract 明确拒绝 unknown 与 openObject 节点（Req 1.6）", () => {
+    for (const definition of [
+        contract.unknown(),
+        contract.openObject({ id: contract.string() }),
+        contract.object({ payload: contract.unknown() }),
+        contract.array(contract.openObject({ id: contract.string() })),
+    ]) {
+        assert.throws(
+            () => deriveWireContract(definition),
+            (error: unknown) => {
+                assert.ok(error instanceof ModelOutputContractDefinitionError);
+                return true;
+            },
+        );
+    }
+    assert.throws(
+        () => deriveWireEnvelopeContract(contract.object({ payload: contract.unknown() })),
+        ModelOutputContractDefinitionError,
+    );
+});

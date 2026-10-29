@@ -1,40 +1,24 @@
-import type { BrowserRunStatus } from "./session";
+import type { InferContract } from "../../contracts/src/index";
+import {
+    browserActivityActionContextContract,
+    browserActivityFactItemContract,
+    browserActivityGapContract,
+    browserActivityItemContract,
+    browserActivityMessageItemContract,
+    browserActivityPageContract,
+    browserActivityPositionContract,
+    browserActivityQueryContract,
+    browserActivityReadResultContract,
+    browserActivityRunContextContract,
+    browserActivityRunWindowContract,
+    browserActivityStageContextContract,
+    browserActivityThinkItemContract,
+    browserActivityToolLifecycleEntryContract,
+    browserActivityToolStateContract,
+    BROWSER_ACTIVITY_EVENT_TYPES,
+} from "./contracts/activity";
+export { BROWSER_ACTIVITY_EVENT_TYPES } from "./contracts/activity";
 
-/** Activity 历史中允许投影的已提交事件类型。 */
-export const BROWSER_ACTIVITY_EVENT_TYPES = [
-    "run_created",
-    "run_started",
-    "run_waiting",
-    "run_completed",
-    "run_failed",
-    "run_cancelled",
-    "run_stage_declared",
-    "run_stage_accepted",
-    "run_stage_rejected",
-    "decision_received",
-    "model_repair_feedback_recorded",
-    "model_request_retry_recorded",
-    "context_lookup_requested",
-    "context_lookup_completed",
-    "context_lookup_not_found",
-    "context_lookup_failed",
-    "action_staged",
-    "action_approved",
-    "action_revised",
-    "action_rejected",
-    "tool_started",
-    "tool_attempt_started",
-    "tool_attempt_failed",
-    "tool_finished",
-    "observation_recorded",
-    "ask_user_answered",
-    "ask_user_replied",
-    "ask_user_skipped",
-    "task_approved",
-    "task_feedback_received",
-    "session_input_applied",
-    "steer_input_applied",
-] as const;
 
 /** Activity 历史中可公开的轨迹事实种类。 */
 export type BrowserActivityEventType = typeof BROWSER_ACTIVITY_EVENT_TYPES[number];
@@ -53,18 +37,7 @@ export type BrowserActivityEventType = typeof BROWSER_ACTIVITY_EVENT_TYPES[numbe
  * };
  * ```
  */
-export interface BrowserActivityPosition {
-    /** 所属 Run 身份。 */
-    readonly runId: string;
-    /** Goal 中稳定的 Run 顺序，从零开始。 */
-    readonly runOrder: number;
-    /** 事实序号；消息使用其 afterSequence 锚点。 */
-    readonly sequence: number;
-    /** 同序列处的事实先于消息。 */
-    readonly itemKind: "fact" | "message";
-    /** 同一事实锚点内消息的 Snapshot 次序；事实项固定为零。 */
-    readonly order: number;
-}
+export type BrowserActivityPosition = InferContract<typeof browserActivityPositionContract>;
 
 /**
  * Activity 窗口中的正式消息摘要。
@@ -85,26 +58,8 @@ export interface BrowserActivityPosition {
  * };
  * ```
  */
-export interface BrowserActivityMessageItem {
-    readonly type: "message";
-    /** 以来源种类和来源身份构造的稳定项身份。 */
-    readonly itemId: string;
-    /** 正式消息稳定身份。 */
-    readonly messageId: string;
-    readonly role: "user" | "assistant";
-    /** 助手正文的 Runtime 用途；用户消息省略。 */
-    readonly purpose?: "process" | "answer" | "notice";
-    /** 仅正式完成候选答复提供；关联此前公开的候选预览，不携带候选正文。 */
-    readonly previewId?: string;
-    readonly runId: string;
-    readonly position: BrowserActivityPosition;
-    /** 最多 4,000 UTF-16 code unit 的正文摘要。 */
-    readonly content: string;
-    /** Snapshot 中的原始正文长度。 */
-    readonly contentLength: number;
-    /** 正文摘要是否因上限截断。 */
-    readonly truncated: boolean;
-}
+export type BrowserActivityMessageItem =
+    InferContract<typeof browserActivityMessageItemContract>;
 
 /**
  * Activity 工具动作的一条已提交生命周期记录。
@@ -123,14 +78,8 @@ export interface BrowserActivityMessageItem {
  * };
  * ```
  */
-export interface BrowserActivityToolLifecycleEntry {
-    /** 生命周期阶段类别；用于区分授权、执行、重试与结果。 */
-    readonly kind: "approval" | "execution" | "retry" | "result";
-    /** 固定短标签，不含原始载荷。 */
-    readonly title: string;
-    /** 最多 500 字符的白名单状态说明。 */
-    readonly detail?: string;
-}
+export type BrowserActivityToolLifecycleEntry =
+    InferContract<typeof browserActivityToolLifecycleEntryContract>;
 
 /**
  * Activity 事实项携带的已提交工具状态白名单投影。
@@ -151,30 +100,8 @@ export interface BrowserActivityToolLifecycleEntry {
  * };
  * ```
  */
-export interface BrowserActivityToolState {
-    /** 白名单工具标识。 */
-    readonly toolId: string;
-    /** 已提交的工具执行状态；`pending-result` 表示工具已返回但结果尚未提交。 */
-    readonly status: "recorded" | "pending-result" | "completed" | "failed" | "rejected";
-    /** 已提交的审批状态。 */
-    readonly actionStatus?: "awaiting_approval" | "approved" | "rejected";
-    /** 白名单输入摘要；不是原始工具参数。 */
-    readonly inputSummary?: string;
-    /** 已提交结果摘要；不是原始 Observation 正文。 */
-    readonly summary?: string;
-    /** 已提交的恢复尝试摘要。 */
-    readonly attempts?: readonly string[];
-    /** 按来源顺序排列的已提交生命周期记录。 */
-    readonly lifecycle?: readonly BrowserActivityToolLifecycleEntry[];
-    /** 审批者修订后的实际版本引用。 */
-    readonly revisionRef?: string;
-    /** 结果未知重执行的恢复引用。 */
-    readonly recoveryRef?: string;
-    /** PTC 子调用的父程序 Action 身份。 */
-    readonly parentActionId?: string;
-    /** 与前一活动组的已验证断组边界。 */
-    readonly activityBoundaryBefore?: true;
-}
+export type BrowserActivityToolState =
+    InferContract<typeof browserActivityToolStateContract>;
 
 /**
  * Activity 窗口中的安全轨迹事实摘要。
@@ -197,37 +124,8 @@ export interface BrowserActivityToolState {
  * };
  * ```
  */
-export interface BrowserActivityFactItem {
-    readonly type: "fact";
-    /** 以事实事件身份构造的稳定项身份。 */
-    readonly itemId: string;
-    /** 不可变轨迹事件身份。 */
-    readonly eventId: string;
-    readonly runId: string;
-    readonly position: BrowserActivityPosition;
-    /** 白名单事件类型。 */
-    readonly eventType: BrowserActivityEventType;
-    /** 不含 payload 的短展示标签。 */
-    readonly title: string;
-    /** 最多 500 字符的白名单状态说明；不含原始模型反馈、检索内容或审批表单。 */
-    readonly detail?: string;
-    /** 历史检索的稳定关联身份；仅四种检索事实提供。 */
-    readonly lookupId?: string;
-    /** 由请求操作和需求枚举生成的安全摘要；仅请求事实提供。 */
-    readonly lookupRequest?: string;
-    /** 已知的检索失败代码；未知代码及原始错误消息不公开。 */
-    readonly lookupErrorCode?: string;
-    /** 存在时只用于关联真实 Runtime 活动。 */
-    readonly executionUnitId?: string;
-    readonly actionId?: string;
-    readonly stageId?: string;
-    /** 阶段生命周期事实携带的 Runtime 修订号。 */
-    readonly stageRevision?: number;
-    /** 已提交阶段声明中的有界目标；仅 `run_stage_declared` 提供。 */
-    readonly stageTarget?: string;
-    /** 该事实所属已提交工具动作的安全状态；非工具事实省略。 */
-    readonly tool?: BrowserActivityToolState;
-}
+export type BrowserActivityFactItem =
+    InferContract<typeof browserActivityFactItemContract>;
 
 /**
  * Activity 窗口中的显式 Think 摘要。
@@ -248,27 +146,11 @@ export interface BrowserActivityFactItem {
  * };
  * ```
  */
-export interface BrowserActivityThinkItem {
-    readonly type: "think";
-    /** 以 Think 请求事件身份构造的稳定项身份。 */
-    readonly itemId: string;
-    readonly runId: string;
-    readonly position: BrowserActivityPosition;
-    /** 该 Think 所属的 Runtime 执行单元；用于定位 Trajectory 中的完整事件。 */
-    readonly executionUnitId?: string;
-    /** 显式 Think 的目标及已提交输出；输出缺省表示尚无已提交完成事实。 */
-    readonly think: {
-        /** 本次明确的思考目标；最多 4,000 字符。 */
-        readonly goal: string;
-        /** 已提交的显式分析正文；最多 64,000 字符，不包含供应商隐藏推理。 */
-        readonly output?: string;
-        /** 目标或正文被截断时为 true；完整事件仍可从 Trajectory 读取。 */
-        readonly truncated?: true;
-    };
-}
+export type BrowserActivityThinkItem =
+    InferContract<typeof browserActivityThinkItemContract>;
 
 /** 正式消息、安全轨迹事实与显式 Think 组成的原子 Activity 项。 */
-export type BrowserActivityItem = BrowserActivityMessageItem | BrowserActivityFactItem | BrowserActivityThinkItem;
+export type BrowserActivityItem = InferContract<typeof browserActivityItemContract>;
 
 /**
  * 一次读取涉及的 Run 上下文。
@@ -284,15 +166,8 @@ export type BrowserActivityItem = BrowserActivityMessageItem | BrowserActivityFa
  * };
  * ```
  */
-export interface BrowserActivityRunContext {
-    readonly runId: string;
-    readonly status: BrowserRunStatus;
-    readonly current: boolean;
-    readonly runOrder: number;
-    readonly committedThroughSequence: number;
-    /** 本 Run 已提交终态的安全摘要；不包含原始异常、参数或工具输出，缺失时不得借用其它 Run。 */
-    readonly terminalDetail?: { readonly code?: string; readonly message: string };
-}
+export type BrowserActivityRunContext =
+    InferContract<typeof browserActivityRunContextContract>;
 
 /**
  * 固定 Activity 窗口中单个 Run 的消息和轨迹上界。
@@ -304,12 +179,8 @@ export interface BrowserActivityRunContext {
  * };
  * ```
  */
-export interface BrowserActivityRunWindow {
-    readonly runId: string;
-    readonly messageCount: number;
-    readonly throughMessageId?: string;
-    readonly committedThroughSequence: number;
-}
+export type BrowserActivityRunWindow =
+    InferContract<typeof browserActivityRunWindowContract>;
 
 /**
  * Activity 页中跨页阶段的安全上下文。
@@ -326,17 +197,8 @@ export interface BrowserActivityRunWindow {
  * };
  * ```
  */
-export interface BrowserActivityStageContext {
-    readonly runId: string;
-    readonly stageId: string;
-    readonly revision: number;
-    readonly status: "executing" | "accepted" | "rejected";
-    /** 与 revision 对应的有界目标；不包含验收条件或原始事件载荷。 */
-    readonly target?: string;
-    readonly firstSequence: number;
-    readonly lastSequence?: number;
-    readonly completeWithinPage: boolean;
-}
+export type BrowserActivityStageContext =
+    InferContract<typeof browserActivityStageContextContract>;
 
 /**
  * Activity 页中跨页 Action 活动组的完整性提示。
@@ -353,13 +215,8 @@ export interface BrowserActivityStageContext {
  * };
  * ```
  */
-export interface BrowserActivityActionContext {
-    readonly runId: string;
-    readonly actionId: string;
-    readonly firstSequence: number;
-    readonly lastSequence: number;
-    readonly completeWithinPage: boolean;
-}
+export type BrowserActivityActionContext =
+    InferContract<typeof browserActivityActionContextContract>;
 
 /**
  * 当前页之外、仍可按 Activity cursor 读取的连续项区间。
@@ -377,12 +234,7 @@ export interface BrowserActivityActionContext {
  * };
  * ```
  */
-export interface BrowserActivityGap {
-    readonly direction: "older" | "newer";
-    readonly itemCount: number;
-    readonly first: BrowserActivityPosition;
-    readonly last: BrowserActivityPosition;
-}
+export type BrowserActivityGap = InferContract<typeof browserActivityGapContract>;
 
 /**
  * 固定水位的一页 Activity 查询结果。
@@ -399,26 +251,7 @@ export interface BrowserActivityGap {
  * };
  * ```
  */
-export interface BrowserActivityPage {
-    readonly goalId: string;
-    readonly runFilter?: string;
-    readonly limit: number;
-    readonly items: readonly BrowserActivityItem[];
-    readonly runs: readonly BrowserActivityRunContext[];
-    readonly window: readonly BrowserActivityRunWindow[];
-    /** 当前页之前或之后尚未加载的固定窗口范围；至多各一段。 */
-    readonly gaps: readonly BrowserActivityGap[];
-    readonly range: {
-        readonly first?: BrowserActivityPosition;
-        readonly last?: BrowserActivityPosition;
-        readonly olderAvailable: boolean;
-        readonly newerAvailable: boolean;
-    };
-    readonly stages: readonly BrowserActivityStageContext[];
-    readonly actionGroups: readonly BrowserActivityActionContext[];
-    readonly beforeCursor?: string;
-    readonly afterCursor?: string;
-}
+export type BrowserActivityPage = InferContract<typeof browserActivityPageContract>;
 
 /**
  * Activity 读取路由的已验证参数。
@@ -432,12 +265,7 @@ export interface BrowserActivityPage {
  * const query: BrowserActivityQuery = { runId: "run-1", limit: 50 };
  * ```
  */
-export interface BrowserActivityQuery {
-    readonly runId?: string;
-    readonly before?: string;
-    readonly after?: string;
-    readonly limit?: number;
-}
+export type BrowserActivityQuery = InferContract<typeof browserActivityQueryContract>;
 
 /**
  * Activity 查询的稳定读取结果。
@@ -452,5 +280,4 @@ export interface BrowserActivityQuery {
  * ```
  */
 export type BrowserActivityReadResult =
-    | { readonly ok: true; readonly page: BrowserActivityPage }
-    | { readonly ok: false; readonly error: "goal_not_found" | "run_not_found" | "activity_cursor_invalid" };
+    InferContract<typeof browserActivityReadResultContract>;

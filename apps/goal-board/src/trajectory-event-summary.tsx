@@ -10,11 +10,12 @@ import { AssistantMarkdown } from "./components/AssistantMarkdown";
 
 export function EventSummary({ event }: { event: BrowserTrajectoryDetail["event"] }) {
   const payload = event.payload;
+  const payloadRecord = payload as Readonly<Record<string, unknown>>;
   if (payload.type === "think_requested" || payload.type === "think_completed") {
     return <section className="markdown-body" aria-label="Think analysis">
-      <h4>Think goal</h4><p>{String(payload.goal)}</p>
+      <h4>Think goal</h4><p>{String(payloadRecord.goal)}</p>
       {payload.type === "think_completed"
-        ? <><h4>Analysis</h4><AssistantMarkdown content={String(payload.output)} /></>
+        ? <><h4>Analysis</h4><AssistantMarkdown content={String(payloadRecord.output)} /></>
         : <p>Think requested. The output is recorded in a separate completion event.</p>}
     </section>;
   }

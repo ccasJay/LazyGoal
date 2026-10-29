@@ -1,3 +1,25 @@
+import type { InferContract } from "../../contracts/src/index";
+import {
+    browserSessionInputKindContract,
+    browserSessionInputReceiptContract,
+    browserSessionInputStatusContract,
+} from "./contracts/common";
+import {
+    browserCreateSessionCommandContract,
+    browserCreateSessionResultContract,
+    browserSessionInputCommandContract,
+    browserSessionInputOutcomeContract,
+    browserSessionInputQueryResultContract,
+    browserSessionInputResultContract,
+    browserSessionInteractionResponseContract,
+    browserSessionStateContract,
+} from "./contracts/input";
+import {
+    browserSessionMessageEntryContract,
+    browserSessionMessageListResultContract,
+    browserSessionMessageResultContract,
+} from "./contracts/session";
+
 /**
  * Web 统一会话输入、收据与安全会话状态的 wire 传输对象。
  *
@@ -15,13 +37,7 @@
  * const kind: BrowserSessionInputKind = "steer";
  * ```
  */
-export type BrowserSessionInputKind =
-    | "message"
-    | "steer"
-    | "interrupt"
-    | "respond"
-    | "resume"
-    | "queue_control";
+export type BrowserSessionInputKind = InferContract<typeof browserSessionInputKindContract>;
 
 /**
  * wire 上允许传输的 JSON 值。
@@ -56,63 +72,7 @@ export type BrowserJsonValue =
  * ```
  */
 export type BrowserSessionInteractionResponse =
-    | {
-        readonly kind: "answer_ask_user";
-        readonly answers: readonly {
-            readonly questionId: string;
-            readonly optionIds: readonly string[];
-            readonly otherText?: string;
-        }[];
-    }
-    | { readonly kind: "reply_to_question"; readonly content: string }
-    | { readonly kind: "skip_question" }
-    | { readonly kind: "approve_task" }
-    | { readonly kind: "feedback_task"; readonly feedback: string }
-    | {
-        /**
-         * 批准首次未执行的工具调用。
-         *
-         * @remarks 只消费首次审批等待；不消费结果未知的恢复等待。
-         */
-        readonly kind: "approve_action";
-        readonly actionId: string;
-        readonly scope?: "action" | "goal" | "workspace";
-    }
-    | {
-        /**
-         * 批准同一工具的修订参数版本。
-         *
-         * @remarks 必须携带预检返回的审阅引用；服务端会重新计算最终参数与范围并
-         * 比对，不一致时明确拒绝并要求重新审阅。
-         */
-        readonly kind: "approve_action_revision";
-        readonly actionId: string;
-        readonly input: BrowserJsonValue;
-        readonly reviewRef: string;
-        readonly scope?: "action" | "goal" | "workspace";
-    }
-    | {
-        /**
-         * 明确允许结果未知的操作按获批版本再次执行。
-         *
-         * @remarks 绑定本次未知结果等待身份；不携带新参数或持续授权期限。
-         */
-        readonly kind: "retry_unknown_action";
-        readonly actionId: string;
-        readonly recoveryRef: string;
-    }
-    | {
-        /**
-         * 拒绝结果未知的操作再次执行。
-         *
-         * @remarks 保留此前效果未知的事实，不把原操作记作未执行、已回滚或成功。
-         */
-        readonly kind: "decline_unknown_action_retry";
-        readonly actionId: string;
-        readonly recoveryRef: string;
-        readonly reason: string;
-    }
-    | { readonly kind: "reject_action"; readonly actionId: string; readonly reason: string };
+    InferContract<typeof browserSessionInteractionResponseContract>;
 
 /**
  * `POST /api/goals/:goalId/inputs` 的严格 wire 命令。
@@ -132,36 +92,7 @@ export type BrowserSessionInteractionResponse =
  * ```
  */
 export type BrowserSessionInputCommand =
-    | { readonly kind: "message"; readonly inputId: string; readonly content: string }
-    | {
-        readonly kind: "steer";
-        readonly inputId: string;
-        readonly runId: string;
-        readonly content: string;
-        readonly queueBinding?: { readonly messageId: string; readonly queueRevision: number };
-    }
-    | { readonly kind: "interrupt"; readonly inputId: string; readonly runId: string }
-    | {
-        readonly kind: "respond";
-        readonly inputId: string;
-        readonly runId: string;
-        readonly requestId: string;
-        readonly response: BrowserSessionInteractionResponse;
-    }
-    | {
-        readonly kind: "resume";
-        readonly inputId: string;
-        readonly runId: string;
-        readonly commitRevision: number;
-        readonly content?: string;
-    }
-    | {
-        readonly kind: "queue_control";
-        readonly inputId: string;
-        readonly action: "continue" | "clear" | "remove";
-        readonly queueRevision: number;
-        readonly messageId?: string;
-    };
+    InferContract<typeof browserSessionInputCommandContract>;
 
 /**
  * 输入账本中的受理状态。
@@ -171,7 +102,7 @@ export type BrowserSessionInputCommand =
  * const status: BrowserSessionInputStatus = "pending";
  * ```
  */
-export type BrowserSessionInputStatus = "pending" | "applied" | "cleared";
+export type BrowserSessionInputStatus = InferContract<typeof browserSessionInputStatusContract>;
 
 /**
  * 一条已持久化输入的受理收据投影。
@@ -184,26 +115,7 @@ export type BrowserSessionInputStatus = "pending" | "applied" | "cleared";
  * };
  * ```
  */
-export interface BrowserSessionInputReceipt {
-    /** 受理该输入的 Goal。 */
-    readonly goalId: string;
-    /** 输入身份。 */
-    readonly inputId: string;
-    /** 输入种类。 */
-    readonly kind: BrowserSessionInputKind;
-    /** 受理序号。 */
-    readonly sequence: number;
-    /** 当前受理状态。 */
-    readonly status: BrowserSessionInputStatus;
-    /** 受理提交后的 Goal 提交修订。 */
-    readonly admittedAtRevision: number;
-    /** 控制类输入的目标 Run。 */
-    readonly targetRunId?: string;
-    /** 已应用时的唯一实际 Run。 */
-    readonly appliedRunId?: string;
-    /** 已应用时的消息位置。 */
-    readonly messageIndex?: number;
-}
+export type BrowserSessionInputReceipt = InferContract<typeof browserSessionInputReceiptContract>;
 
 /**
  * 输入受理与查询的稳定 wire 拒绝代码。
@@ -256,22 +168,8 @@ export type BrowserSessionInputErrorCode =
  * };
  * ```
  */
-export interface BrowserSessionInputOutcome {
-    /** 受理该输入的 Goal。 */
-    readonly goalId: string;
-    /** 输入身份。 */
-    readonly inputId: string;
-    /** 输入种类。 */
-    readonly kind: BrowserSessionInputKind;
-    /** 是否已持久化受理。 */
-    readonly ok: boolean;
-    /** 是否为同身份同载荷的既有收据。 */
-    readonly existing?: boolean;
-    /** 已受理收据；拒绝时省略。 */
-    readonly receipt?: BrowserSessionInputReceipt;
-    /** 稳定业务拒绝代码；受理成功时省略。 */
-    readonly code?: BrowserSessionInputErrorCode;
-}
+export type BrowserSessionInputOutcome =
+    InferContract<typeof browserSessionInputOutcomeContract>;
 
 /**
  * 一次 inputs 受理的 wire 结果。
@@ -288,15 +186,7 @@ export interface BrowserSessionInputOutcome {
  * ```
  */
 export type BrowserSessionInputResult =
-    | {
-        readonly ok: true;
-        readonly existing: boolean;
-        readonly receipt: BrowserSessionInputReceipt;
-    }
-    | {
-        readonly ok: false;
-        readonly error: BrowserSessionInputErrorCode;
-    };
+    InferContract<typeof browserSessionInputResultContract>;
 
 /**
  * 按身份查询持久化收据的结果。
@@ -309,9 +199,7 @@ export type BrowserSessionInputResult =
  * ```
  */
 export type BrowserSessionInputQueryResult =
-    | { readonly ok: true; readonly found: false }
-    | { readonly ok: true; readonly found: true; readonly receipt: BrowserSessionInputReceipt }
-    | { readonly ok: false; readonly error: "GOAL_NOT_FOUND" | "input_read_failed" };
+    InferContract<typeof browserSessionInputQueryResultContract>;
 
 /**
  * 安全会话状态投影。
@@ -331,68 +219,7 @@ export type BrowserSessionInputQueryResult =
  * };
  * ```
  */
-export interface BrowserSessionState {
-    /** Goal 稳定标识。 */
-    readonly goalId: string;
-    /** 当前（或最新）Run 的稳定标识。 */
-    readonly runId: string;
-    /** 当前 Run 的持久化状态。 */
-    readonly runStatus: "created" | "running" | "waiting" | "completed" | "failed" | "cancelled";
-    /** 当前 Run 的模式。 */
-    readonly mode: "normal" | "plan";
-    /** Goal 级单调提交修订。 */
-    readonly commitRevision: number;
-    /** 消息队列修订。 */
-    readonly queueRevision: number;
-    /** 队列是否处于暂停。 */
-    readonly queuePaused: boolean;
-    /** 暂停原因；未暂停时省略。 */
-    readonly queuePauseReason?: "run_failed" | "user_interrupt";
-    /** 尚未应用的普通消息数量。 */
-    readonly pendingMessageCount: number;
-    /** 尚未应用的 Steer 数量。 */
-    readonly pendingSteerCount: number;
-    /** 当前等待的交互类型；运行中或终态时省略。 */
-    readonly waitingFor?:
-        | "ask_user"
-        | "task_approval"
-        | "action_approval"
-        | "action_recovery"
-        | "blocked";
-    /** 当前等待交互的规范引用；没有等待时省略。 */
-    readonly interaction?: {
-        readonly interactionId: string;
-        readonly kind: "question" | "task_approval" | "action_approval" | "action_recovery";
-        readonly runId: string;
-        readonly requestId?: string;
-        readonly actionId?: string;
-    };
-    /** 已提交消息的有界范围；不包含正文。 */
-    readonly messages: {
-        readonly count: number;
-        readonly throughMessageId?: string;
-        readonly recent: readonly {
-            readonly messageId: string;
-            readonly role: "user" | "assistant";
-            readonly runId: string;
-            /** 消息之前最后一条已提交 Run 事实及同锚点 Snapshot 次序。 */
-            readonly position: { readonly afterSequence: number; readonly order: number };
-            readonly purpose?: "process" | "answer" | "notice";
-            readonly sourceKind: string;
-            readonly sourceId: string;
-        }[];
-    };
-    /** 是否需要调用方显式恢复执行。 */
-    readonly needsRecovery: boolean;
-    /** 当前 Run 的用户中断状态；未受理用户中断时省略。 */
-    readonly interruption?: {
-        readonly requestId: string;
-        readonly status: "requested" | "finished";
-        readonly outcomeUnknown: boolean;
-    };
-    /** 当前实例是否持有该 Goal 的执行所有者。 */
-    readonly executionOwner: boolean;
-}
+export type BrowserSessionState = InferContract<typeof browserSessionStateContract>;
 
 /**
  * 会话消息的公开条目。
@@ -411,28 +238,7 @@ export interface BrowserSessionState {
  * };
  * ```
  */
-export interface BrowserSessionMessageEntry {
-    /** 消息稳定身份。 */
-    readonly messageId: string;
-    /** 消息角色。 */
-    readonly role: "user" | "assistant";
-    /** 消息所属 Run。 */
-    readonly runId: string;
-    /** 消息在所属 Run 已提交事实流中的稳定位置。 */
-    readonly position: { readonly afterSequence: number; readonly order: number };
-    /** 助手消息用途；用户消息省略。 */
-    readonly purpose?: "process" | "answer" | "notice";
-    /** 来源判别式。 */
-    readonly sourceKind: string;
-    /** 来源的稳定标识。 */
-    readonly sourceId: string;
-    /** 有界正文摘要。 */
-    readonly content: string;
-    /** 原始正文长度。 */
-    readonly contentLength: number;
-    /** 正文摘要是否被截断。 */
-    readonly truncated: boolean;
-}
+export type BrowserSessionMessageEntry = InferContract<typeof browserSessionMessageEntryContract>;
 
 /**
  * 有界消息列表的 wire 结果。
@@ -447,17 +253,7 @@ export interface BrowserSessionMessageEntry {
  * ```
  */
 export type BrowserSessionMessageListResult =
-    | {
-        readonly ok: true;
-        readonly messages: readonly BrowserSessionMessageEntry[];
-        readonly nextAfterMessageId?: string;
-        readonly throughMessageId?: string;
-        readonly total: number;
-    }
-    | {
-        readonly ok: false;
-        readonly error: "message_range_invalid" | "goal_not_found";
-    };
+    InferContract<typeof browserSessionMessageListResultContract>;
 
 /**
  * 单条消息正文的 wire 结果。
@@ -471,15 +267,7 @@ export type BrowserSessionMessageListResult =
  * ```
  */
 export type BrowserSessionMessageResult =
-    | {
-        readonly ok: true;
-        readonly message: BrowserSessionMessageEntry;
-        readonly nextOffset?: number;
-    }
-    | {
-        readonly ok: false;
-        readonly error: "message_not_found" | "goal_not_found";
-    };
+    InferContract<typeof browserSessionMessageResultContract>;
 
 /**
  * 创建 Session 的 wire 命令。
@@ -495,18 +283,8 @@ export type BrowserSessionMessageResult =
  * };
  * ```
  */
-export interface BrowserCreateSessionCommand {
-    /** 前端预生成的 Goal 稳定标识。 */
-    readonly goalId: string;
-    /** 首条输入的稳定身份。 */
-    readonly inputId: string;
-    /** 非空用户意图。 */
-    readonly intent: string;
-    /** 可选 Plan 模式。 */
-    readonly mode?: "plan";
-    /** 可选模型选择；省略时使用工作区默认选择。 */
-    readonly modelId?: string;
-}
+export type BrowserCreateSessionCommand =
+    InferContract<typeof browserCreateSessionCommandContract>;
 
 /**
  * 创建 Session 的 wire 结果。
@@ -520,23 +298,4 @@ export interface BrowserCreateSessionCommand {
  * ```
  */
 export type BrowserCreateSessionResult =
-    | {
-        readonly ok: true;
-        readonly existing: boolean;
-        readonly goalId: string;
-        readonly runId: string;
-        readonly receipt: BrowserSessionInputReceipt;
-    }
-    | {
-        readonly ok: false;
-        readonly error:
-            | "goal_id_conflict"
-            | "goal_busy"
-            | "model_not_selectable"
-            | "model_catalog_unavailable"
-            | "profile_not_found"
-            | "invalid_goal_input"
-            | "goal_unreadable"
-            | "service_shutting_down"
-            | "create_failed";
-    };
+    InferContract<typeof browserCreateSessionResultContract>;
