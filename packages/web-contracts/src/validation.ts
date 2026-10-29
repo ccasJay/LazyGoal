@@ -7,7 +7,6 @@ import type {
     BrowserInteractionView,
     BrowserGoalPlan,
     BrowserMessagePosition,
-    BrowserPlanRoute,
     BrowserGoalSession,
     BrowserGoalSessionState,
     BrowserActivityPage,
@@ -44,13 +43,28 @@ import { safeParse } from "../../contracts/src/index";
 import { BROWSER_ACTIVITY_EVENT_TYPES } from "./activity";
 import {
     hasConsistentTerminalDetail,
+    isInteractionView,
     isJsonValue,
     isPlanRoute,
 } from "./invariants";
 import {
+    browserInteractionViewContract,
     browserMessagePositionContract,
     browserRunStatusContract,
+    browserSessionInputReceiptContract,
 } from "./contracts/common";
+import {
+    browserActionReviewResultContract,
+    browserInteractionDetailResultContract,
+} from "./contracts/interaction";
+import {
+    browserCreateSessionResultContract,
+    browserGoalSessionEnvelopeContract,
+    browserGoalSessionStateEnvelopeContract,
+    browserSessionInputQueryResultContract,
+    browserSessionInputResultContract,
+    browserSessionStateContract,
+} from "./contracts/input";
 import {
     browserGoalListItemContract,
     browserGoalListContract,
@@ -58,7 +72,6 @@ import {
     browserGoalSessionContract,
     browserGoalSessionStateContract,
     browserPendingActionContract,
-    browserPlanRouteContract,
     browserSessionRunContract,
 } from "./contracts/session";
 
@@ -79,11 +92,6 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isMessagePosition(value: unknown): value is BrowserMessagePosition {
     return safeParse(browserMessagePositionContract, value).success;
-}
-
-function isBrowserPlanRoute(value: unknown): value is BrowserPlanRoute {
-    const parsed = safeParse(browserPlanRouteContract, value);
-    return parsed.success && isPlanRoute(parsed.data);
 }
 
 /**
@@ -162,12 +170,9 @@ export function isAcceptedCommand(value: unknown): value is { readonly goalId: s
  * ```
  */
 export function isBrowserSessionInputResult(value: unknown): value is BrowserSessionInputResult {
-    if (!isRecord(value)) return false;
-    if (value.ok === true) {
-        return typeof value.existing === "boolean" && isBrowserSessionInputReceipt(value.receipt);
-    }
-    return value.ok === false && SESSION_INPUT_ERROR_CODES.has(String(value.error));
+    return safeParse(browserSessionInputResultContract, value).success;
 }
+
 
 /**
  * 输入收据类型守卫。
@@ -180,17 +185,9 @@ export function isBrowserSessionInputResult(value: unknown): value is BrowserSes
  * ```
  */
 export function isBrowserSessionInputReceipt(value: unknown): value is BrowserSessionInputReceipt {
-    return isRecord(value)
-        && isNonEmptyString(value.goalId)
-        && isNonEmptyString(value.inputId)
-        && SESSION_INPUT_KINDS.has(String(value.kind))
-        && Number.isSafeInteger(value.sequence) && Number(value.sequence) > 0
-        && ["pending", "applied", "cleared"].includes(String(value.status))
-        && Number.isSafeInteger(value.admittedAtRevision) && Number(value.admittedAtRevision) >= 0
-        && (value.targetRunId === undefined || isNonEmptyString(value.targetRunId))
-        && (value.appliedRunId === undefined || isNonEmptyString(value.appliedRunId))
-        && (value.messageIndex === undefined || (Number.isSafeInteger(value.messageIndex) && Number(value.messageIndex) >= 0));
+    return safeParse(browserSessionInputReceiptContract, value).success;
 }
+
 
 /**
  * 按身份查询收据的类型守卫。
@@ -203,12 +200,9 @@ export function isBrowserSessionInputReceipt(value: unknown): value is BrowserSe
  * ```
  */
 export function isBrowserSessionInputQueryResult(value: unknown): value is BrowserSessionInputQueryResult {
-    if (!isRecord(value)) return false;
-    if (value.ok === true) {
-        return value.found === false || (value.found === true && isBrowserSessionInputReceipt(value.receipt));
-    }
-    return value.ok === false && (value.error === "GOAL_NOT_FOUND" || value.error === "input_read_failed");
+    return safeParse(browserSessionInputQueryResultContract, value).success;
 }
+
 
 /**
  * 安全会话状态投影类型守卫。
@@ -221,41 +215,9 @@ export function isBrowserSessionInputQueryResult(value: unknown): value is Brows
  * ```
  */
 export function isBrowserSessionState(value: unknown): value is BrowserSessionState {
-    if (!isRecord(value)) return false;
-    return isNonEmptyString(value.goalId)
-        && isNonEmptyString(value.runId)
-        && isRunStatus(value.runStatus)
-        && (value.mode === "normal" || value.mode === "plan")
-        && Number.isSafeInteger(value.commitRevision) && Number(value.commitRevision) >= 0
-        && Number.isSafeInteger(value.queueRevision) && Number(value.queueRevision) >= 0
-        && typeof value.queuePaused === "boolean"
-        && (value.queuePauseReason === undefined || value.queuePauseReason === "run_failed" || value.queuePauseReason === "user_interrupt")
-        && Number.isSafeInteger(value.pendingMessageCount) && Number(value.pendingMessageCount) >= 0
-        && Number.isSafeInteger(value.pendingSteerCount) && Number(value.pendingSteerCount) >= 0
-        && (value.waitingFor === undefined
-            || ["ask_user", "task_approval", "action_approval", "action_recovery", "blocked"].includes(String(value.waitingFor)))
-        && (value.interaction === undefined || (isRecord(value.interaction)
-            && isNonEmptyString(value.interaction.interactionId)
-            && ["question", "task_approval", "action_approval", "action_recovery"].includes(String(value.interaction.kind))
-            && isNonEmptyString(value.interaction.runId)))
-        && isRecord(value.messages)
-        && Number.isSafeInteger(value.messages.count) && Number(value.messages.count) >= 0
-        && (value.messages.throughMessageId === undefined || isNonEmptyString(value.messages.throughMessageId))
-        && Array.isArray(value.messages.recent)
-        && value.messages.recent.every((message: unknown) => isRecord(message)
-            && isNonEmptyString(message.messageId)
-            && ["user", "assistant"].includes(String(message.role))
-            && isNonEmptyString(message.runId)
-            && isMessagePosition(message.position)
-            && isNonEmptyString(message.sourceKind)
-            && isNonEmptyString(message.sourceId))
-        && typeof value.needsRecovery === "boolean"
-        && typeof value.executionOwner === "boolean"
-        && (value.interruption === undefined || (isRecord(value.interruption)
-            && isNonEmptyString(value.interruption.requestId)
-            && ["requested", "finished"].includes(String(value.interruption.status))
-            && typeof value.interruption.outcomeUnknown === "boolean"));
+    return safeParse(browserSessionStateContract, value).success;
 }
+
 
 /**
  * 创建 Session 的 wire 结果守卫。
@@ -268,18 +230,9 @@ export function isBrowserSessionState(value: unknown): value is BrowserSessionSt
  * ```
  */
 export function isBrowserCreateSessionResult(value: unknown): value is BrowserCreateSessionResult {
-    if (!isRecord(value)) return false;
-    if (value.ok === true) {
-        return typeof value.existing === "boolean"
-            && isNonEmptyString(value.goalId)
-            && isNonEmptyString(value.runId)
-            && isBrowserSessionInputReceipt(value.receipt);
-    }
-    return value.ok === false && [
-        "goal_id_conflict", "goal_busy", "model_not_selectable", "model_catalog_unavailable",
-        "profile_not_found", "invalid_goal_input", "goal_unreadable", "service_shutting_down", "create_failed",
-    ].includes(String(value.error));
+    return safeParse(browserCreateSessionResultContract, value).success;
 }
+
 
 const SESSION_INPUT_KINDS: ReadonlySet<string> = new Set([
     "message", "steer", "interrupt", "respond", "resume", "queue_control",
@@ -384,27 +337,10 @@ export function isPendingAction(value: unknown): value is BrowserPendingAction {
  * ```
  */
 export function isBrowserInteractionView(value: unknown): value is BrowserInteractionView {
-    if (!isRecord(value)
-        || !isNonEmptyString(value.goalId)
-        || !isNonEmptyString(value.runId)
-        || !isNonEmptyString(value.interactionId)
-        || typeof value.truncated !== "boolean"
-        || !["question", "task_approval", "action_approval", "action_recovery"].includes(String(value.kind))) {
-        return false;
-    }
-    const kind = String(value.kind);
-    if (kind === "question" || kind === "task_approval") {
-        if (!isNonEmptyString(value.requestId) || value.actionId !== undefined) return false;
-    } else if (!isNonEmptyString(value.actionId) || value.requestId !== undefined) {
-        return false;
-    }
-    if (!Array.isArray(value.decisions) || value.decisions.length === 0) return false;
-    const allowed = kind === "question" ? ["answer_questions", "reply_to_question", "skip_question"]
-        : kind === "task_approval" ? ["approve_task", "send_task_feedback"]
-            : kind === "action_recovery" ? ["retry_unknown_action", "decline_unknown_action_retry"]
-                : ["approve_action", "approve_action_revision", "reject_action"];
-    return value.decisions.every((decision) => allowed.includes(String(decision)));
+    const parsed = safeParse(browserInteractionViewContract, value);
+    return parsed.success && isInteractionView(parsed.data);
 }
+
 
 /**
  * 交互详情读取结果类型守卫。
@@ -418,54 +354,9 @@ export function isBrowserInteractionView(value: unknown): value is BrowserIntera
  * ```
  */
 export function isBrowserInteractionDetailResult(value: unknown): value is BrowserInteractionDetailResult {
-    if (!isRecord(value)) return false;
-    if (value.ok === false) {
-        return [
-            "goal_not_found",
-            "stale_run",
-            "interaction_not_waiting",
-            "interaction_mismatch",
-            "interaction_details_unavailable",
-        ].includes(String(value.error));
-    }
-    if (value.ok !== true
-        || !isNonEmptyString(value.goalId)
-        || !isNonEmptyString(value.runId)
-        || !isNonEmptyString(value.interactionId)
-        || !isRecord(value.detail)) {
-        return false;
-    }
-    const detail = value.detail;
-    if (detail.kind === "question") {
-        return (detail.mode === "plan" || detail.mode === "execution")
-            && Array.isArray(detail.questions)
-            && detail.questions.every((question) => isRecord(question)
-                && isNonEmptyString(question.id)
-                && typeof question.header === "string"
-                && typeof question.question === "string"
-                && typeof question.multiSelect === "boolean"
-                && Array.isArray(question.options))
-            && (detail.routeRevision === undefined
-                || (isRecord(detail.routeRevision)
-                    && isNonEmptyString(detail.routeRevision.approvalRequest)
-                    && isNonEmptyString(detail.routeRevision.reason)
-                    && Array.isArray(detail.routeRevision.stages)));
-    }
-    if (detail.kind === "task_approval") {
-        return typeof detail.objective === "string"
-            && typeof detail.approvalRequest === "string"
-            && Array.isArray(detail.completionCriteria)
-            && detail.completionCriteria.every((criterion) => typeof criterion === "string")
-            && Array.isArray(detail.stages);
-    }
-    if (detail.kind === "action_approval" || detail.kind === "action_recovery") {
-        return isNonEmptyString(detail.actionId)
-            && isNonEmptyString(detail.toolId)
-            && detail.input !== undefined
-            && (detail.approvalKind === undefined || detail.approvalKind === "tool" || detail.approvalKind === "sandbox");
-    }
-    return false;
+    return safeParse(browserInteractionDetailResultContract, value).success;
 }
+
 
 /**
  * 只读审批预检结果类型守卫。
@@ -479,38 +370,9 @@ export function isBrowserInteractionDetailResult(value: unknown): value is Brows
  * ```
  */
 export function isBrowserActionReviewResult(value: unknown): value is BrowserActionReviewResult {
-    if (!isRecord(value)) return false;
-    if (value.ok === false) {
-        return [
-            "goal_not_found",
-            "stale_run",
-            "action_not_waiting",
-            "action_id_mismatch",
-            "tool_not_found",
-            "invalid_tool_input",
-            "scope_unavailable",
-            "sandbox_scope_unavailable",
-            "review_unavailable",
-        ].includes(String(value.error));
-    }
-    if (value.ok !== true
-        || !isNonEmptyString(value.goalId)
-        || !isNonEmptyString(value.runId)
-        || !isRecord(value.review)) {
-        return false;
-    }
-    const review = value.review;
-    return isNonEmptyString(review.actionId)
-        && isNonEmptyString(review.toolId)
-        && review.originalInput !== undefined
-        && review.finalInput !== undefined
-        && typeof review.changed === "boolean"
-        && ["action", "goal", "workspace"].includes(String(review.scope))
-        && Array.isArray(review.availableScopes)
-        && isRecord(review.capability)
-        && typeof review.requiresSandboxApproval === "boolean"
-        && isNonEmptyString(review.reviewRef);
+    return safeParse(browserActionReviewResultContract, value).success;
 }
+
 
 /**
  * 完整 Goal 会话详情类型守卫。
@@ -543,45 +405,15 @@ export function isBrowserGoalSession(value: unknown): value is BrowserGoalSessio
  * ```
  */
 export function isBrowserGoalSessionState(value: unknown): value is BrowserGoalSessionState {
-    if (!isRecord(value)
-        || Object.keys(value).some((key) => !["goalId", "intent", "currentRunId", "runStatus", "currentRunMode", "nextRunMode", "currentRunStepCount", "currentRunTerminalDetail", "currentPlanRoute", "execution", "pendingSteers", "pendingMessages", "queue", "interruption", "goalPlan", "interaction", "pendingAction", "history"].includes(key))
-        || !isNonEmptyString(value.goalId)
-        || typeof value.intent !== "string"
-        || !isNonEmptyString(value.currentRunId)
-        || !isRunStatus(value.runStatus)
-        || (value.currentRunMode !== "normal" && value.currentRunMode !== "plan")
-        || (value.nextRunMode !== undefined && value.nextRunMode !== "plan")
-        || !Number.isSafeInteger(value.currentRunStepCount) || Number(value.currentRunStepCount) < 0
-        || !isRecord(value.history)
-        || !isActivityHistoryMarker(value.history.messages)
-        || !isActivityHistoryMarker(value.history.steps)
-        || !isActivityHistoryMarker(value.history.stages)) return false;
-    if (value.currentPlanRoute !== undefined && !isBrowserPlanRoute(value.currentPlanRoute)) return false;
-    if (value.currentRunTerminalDetail !== undefined && (value.runStatus !== "failed"
-        || !isRecord(value.currentRunTerminalDetail)
-        || Object.keys(value.currentRunTerminalDetail).some((key) => key !== "code" && key !== "message")
-        || typeof value.currentRunTerminalDetail.message !== "string"
-        || (value.currentRunTerminalDetail.code !== undefined && typeof value.currentRunTerminalDetail.code !== "string"))) return false;
-    if (value.execution !== undefined && !(isRecord(value.execution)
-        && ["active", "recoverable", "inactive"].includes(String(value.execution.state))
-        && Number.isSafeInteger(value.execution.committedThroughSequence)
-        && Number(value.execution.committedThroughSequence) >= 0)) return false;
-    if (value.pendingSteers !== undefined && (!Array.isArray(value.pendingSteers)
-        || !value.pendingSteers.every((item) => isRecord(item) && isNonEmptyString(item.messageId) && typeof item.content === "string"))) return false;
-    if (value.pendingMessages !== undefined && (!Array.isArray(value.pendingMessages)
-        || !value.pendingMessages.every((item) => isRecord(item) && isNonEmptyString(item.inputId) && typeof item.content === "string"))) return false;
-    if (value.queue !== undefined && (!isRecord(value.queue)
-        || !Number.isSafeInteger(value.queue.revision) || Number(value.queue.revision) < 0
-        || typeof value.queue.paused !== "boolean"
-        || (value.queue.pauseReason !== undefined && value.queue.pauseReason !== "run_failed" && value.queue.pauseReason !== "user_interrupt"))) return false;
-    if (value.interruption !== undefined && (!isRecord(value.interruption)
-        || !isNonEmptyString(value.interruption.requestId)
-        || !["requested", "finished"].includes(String(value.interruption.status))
-        || (value.interruption.outcomeUnknown !== undefined && typeof value.interruption.outcomeUnknown !== "boolean"))) return false;
-    return (value.goalPlan === undefined || isGoalPlan(value.goalPlan))
-        && (value.interaction === undefined || isBrowserInteractionView(value.interaction))
-        && (value.pendingAction === undefined || isPendingAction(value.pendingAction));
+    const parsed = safeParse(browserGoalSessionStateContract, value);
+    if (!parsed.success) return false;
+    return hasConsistentTerminalDetail(parsed.data)
+        && (parsed.data.currentPlanRoute === undefined
+            || isPlanRoute(parsed.data.currentPlanRoute))
+        && (parsed.data.interaction === undefined
+            || isBrowserInteractionView(parsed.data.interaction));
 }
+
 
 /**
  * 有界 Activity 页类型守卫。
@@ -652,10 +484,6 @@ function isBrowserActivityGap(value: unknown): value is BrowserActivityGap {
     if (first.sequence !== last.sequence) return first.sequence < last.sequence;
     if (first.itemKind !== last.itemKind) return first.itemKind === "fact";
     return first.order <= last.order;
-}
-
-function isActivityHistoryMarker(value: unknown): boolean {
-    return isRecord(value) && value.included === false && value.source === "activity";
 }
 
 function isActivityPosition(value: unknown): value is BrowserActivityPosition {
@@ -793,10 +621,9 @@ function isActivityToolLifecycleEntry(value: unknown): boolean {
  * ```
  */
 export function isGoalSessionEnvelope(value: unknown): value is { readonly goal: BrowserGoalSession; readonly session?: BrowserSessionState } {
-    return isRecord(value)
-        && isBrowserGoalSession(value.goal)
-        && (value.session === undefined || isBrowserSessionState(value.session));
+    return safeParse(browserGoalSessionEnvelopeContract, value).success;
 }
+
 
 /**
  * 窄状态响应信封类型守卫。
@@ -809,10 +636,9 @@ export function isGoalSessionEnvelope(value: unknown): value is { readonly goal:
  * ```
  */
 export function isGoalSessionStateEnvelope(value: unknown): value is { readonly goal: BrowserGoalSessionState; readonly session?: BrowserSessionState } {
-    return isRecord(value)
-        && isBrowserGoalSessionState(value.goal)
-        && (value.session === undefined || isBrowserSessionState(value.session));
+    return safeParse(browserGoalSessionStateEnvelopeContract, value).success;
 }
+
 
 /**
  * 模型目录类型守卫。

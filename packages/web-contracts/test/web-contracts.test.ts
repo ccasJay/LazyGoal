@@ -3,6 +3,7 @@ import test from "node:test";
 import {
     isAcceptedCommand,
     isActionDetailsResult,
+    isBrowserActionReviewResult,
     isBrowserCreateSessionResult,
     isBrowserSessionInputQueryResult,
     isBrowserSessionInputReceipt,
@@ -873,4 +874,65 @@ test("session guards enforce plan route, terminal and declared field invariants"
         current: true,
     }), false);
     assert.equal(isRunStatus(new String("running")), false);
+});
+
+test("Action Review 与输入状态 guard 校验声明字段和不变量", () => {
+    const review = {
+        actionId: "act-1",
+        toolId: "write_file",
+        originalInput: { path: "a.txt" },
+        finalInput: { path: "b.txt", nested: [1, true] },
+        changed: true,
+        scope: "action",
+        availableScopes: ["action"],
+        capability: { network: "none", extraFiles: [], targetPaths: [] },
+        requiresSandboxApproval: false,
+        reviewRef: "review:0123456789abcdef",
+    };
+    const result = { ok: true, goalId: "goal-1", runId: "run-1", review };
+    assert.equal(isBrowserActionReviewResult(result), true);
+    assert.equal(isBrowserActionReviewResult({ ...result, review: { ...review, capability: undefined } }), false);
+    assert.equal(isBrowserActionReviewResult({ ...result, review: { ...review, availableScopes: ["action", "unknown"] } }), false);
+    assert.equal(isBrowserActionReviewResult({
+        ...result,
+        review: { ...review, capability: { ...review.capability, extraFiles: [{ canonicalPath: "", access: "read", kind: "file" }] } },
+    }), false);
+    assert.equal(isBrowserActionReviewResult({ ...result, review: { ...review, originalInput: undefined } }), false);
+    assert.equal(isBrowserActionReviewResult({ ok: false, error: "scope_unavailable" }), true);
+    assert.equal(isBrowserActionReviewResult({ ok: false, error: "unexpected" }), false);
+
+    const receipt = {
+        goalId: "goal-1", inputId: "input-1", kind: "message", sequence: 1,
+        status: "applied", admittedAtRevision: 0, targetRunId: "run-1", appliedRunId: "run-1", messageIndex: 0,
+    };
+    assert.equal(isBrowserSessionInputReceipt(receipt), true);
+    assert.equal(isBrowserSessionInputReceipt({ ...receipt, targetRunId: "" }), false);
+    assert.equal(isBrowserSessionInputReceipt({ ...receipt, messageIndex: -1 }), false);
+    assert.equal(isBrowserSessionInputReceipt({ ...receipt, admittedAtRevision: -1 }), false);
+
+    const state = {
+        goalId: "goal-1", runId: "run-1", runStatus: "running", mode: "plan",
+        commitRevision: 0, queueRevision: 0, queuePaused: false,
+        pendingMessageCount: 0, pendingSteerCount: 0, needsRecovery: false, executionOwner: true,
+        messages: { count: 0, recent: [] },
+    };
+    assert.equal(isBrowserSessionState({ ...state, interruption: { requestId: "req-1", status: "requested", outcomeUnknown: false } }), true);
+    assert.equal(isBrowserSessionState({ ...state, interruption: { requestId: "req-1", status: "requested" } }), false);
+    assert.equal(isBrowserSessionState({ ...state, waitingFor: "other" }), false);
+    assert.equal(isBrowserSessionState({ ...state, messages: { count: 1, recent: [{ messageId: "m", role: "user", runId: "run-1", sourceKind: "s", sourceId: "s" }] } }), false);
+
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "action_approval:act-1",
+        detail: { kind: "action_approval", actionId: "act-1", toolId: "bash" },
+    }), false);
+    assert.equal(isBrowserInteractionDetailResult({
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        interactionId: "action_approval:act-1",
+        detail: { kind: "action_approval", actionId: "act-1", toolId: "bash", input: { command: "ls" }, parentProgram: { actionId: "act-0", callNumber: 0 } },
+    }), false);
 });

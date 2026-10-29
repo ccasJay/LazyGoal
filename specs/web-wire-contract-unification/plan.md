@@ -26,7 +26,7 @@
   - 场景与预期：现有 Goal session、PlanRoute、Goal list、窄状态正反例保持；开放层额外字段被接受并保留，严格层额外字段被拒绝；`nextStageIndex` 不一致、`revision > 1` 缺少理由、stageId 重复、`acceptedSequence` 错位失败；`currentRunTerminalDetail` 只在失败 Run 上通过；`BrowserSessionStep.runId` 等此前浅检查字段的非法值现在失败；枚举严格相等、`number` 拒绝 NaN/Infinity、`integer` 拒绝非安全整数、错误码联合拒绝未声明值。
   - 验证手段：`npx tsx --test packages/web-contracts/test/web-contracts.test.ts` 与 `npx tsc --noEmit`。
 
-- [ ] //TODO 4. 迁移 Interaction、Action Review 与输入状态 DTO
+- [x] //TODO 4. 迁移 Interaction、Action Review 与输入状态 DTO
   - 落实标准：[2.1](./spec.md#spec-req-2-1), [2.2](./spec.md#spec-req-2-2), [2.4](./spec.md#spec-req-2-4), [2.5](./spec.md#spec-req-2-5), [2.6](./spec.md#spec-req-2-6), [3.1](./spec.md#spec-req-3-1), [3.2](./spec.md#spec-req-3-2), [3.3](./spec.md#spec-req-3-3), [3.4](./spec.md#spec-req-3-4), [3.5](./spec.md#spec-req-3-5), [3.6](./spec.md#spec-req-3-6), [3.7](./spec.md#spec-req-3-7), [5.1](./spec.md#spec-req-5-1), [5.2](./spec.md#spec-req-5-2)
   - 实施目标：为 Interaction detail、AskUser 问题与答案、ActionReview command/result、统一输入命令/结果/查询/状态与 CreateSession 命令/结果建立唯一 Contract 并派生类型；复用 TODO 2 的 `BrowserSessionInputKind`/`Status`/`Receipt`、`BrowserInteractionKind`/`Decision`/`View`、`BrowserSandboxReview`；迁移对应 guard；保留 kind 与 `requestId`/`actionId` 互斥、decisions 子集、detail 分支字段、错误码联合与 JSON `input`；按 DTO 完整校验 `BrowserActionReview.capability` 与 `availableScopes` 元素。
   - 场景与预期：现有 question/task_approval/action_approval/action_recovery 正反例保持；`actionId`/`requestId` 错位失败；decisions 不属于当前 kind 时失败；`capability` 字段缺失或类型错误、`availableScopes` 非法元素现在失败；receipt 的 `sequence > 0`、revision 非负与可选 run/message 边界保持。

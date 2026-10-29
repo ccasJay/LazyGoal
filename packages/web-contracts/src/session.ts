@@ -10,6 +10,13 @@ import {
     browserToolGrantExtraFileContract,
 } from "./contracts/common";
 import {
+    browserActionReviewCommandContract,
+    browserActionReviewContract,
+    browserActionReviewResultContract,
+    browserInteractionDetailContract,
+    browserInteractionDetailResultContract,
+} from "./contracts/interaction";
+import {
     browserBashExecutionDetailContract,
     browserGoalExecutionContract,
     browserGoalListItemContract,
@@ -18,6 +25,9 @@ import {
     browserGoalPlanItemContract,
     browserGoalSessionContract,
     browserGoalSessionStateContract,
+    browserAskUserAnswerContract,
+    browserAskUserOptionContract,
+    browserAskUserQuestionContract,
     browserPendingActionContract,
     browserPlanRouteContract,
     browserPlanRouteStageStateContract,
@@ -28,7 +38,6 @@ import {
     browserSessionRunContract,
     browserSessionStepContract,
 } from "./contracts/session";
-import type { BrowserJsonValue } from "./session-input";
 
 /**
  * Web 会话与看板投影的数据传输对象 (DTO)。
@@ -53,16 +62,7 @@ import type { BrowserJsonValue } from "./session-input";
  * };
  * ```
  */
-export interface BrowserActionReviewCommand {
-    /** 当前 Run 身份。 */
-    readonly runId: string;
-    /** 当前待审批 Action 身份。 */
-    readonly actionId: string;
-    /** 拟审阅的最终参数；省略表示原样审阅。 */
-    readonly input?: BrowserJsonValue;
-    /** 拟申请的授权期限；省略表示单次放行。 */
-    readonly scope?: "action" | "goal" | "workspace";
-}
+export type BrowserActionReviewCommand = InferContract<typeof browserActionReviewCommandContract>;
 
 /**
  * 只读审批预检返回的可审阅内容。
@@ -81,32 +81,7 @@ export interface BrowserActionReviewCommand {
  * };
  * ```
  */
-export interface BrowserActionReview {
-    /** 当前待审批 Action 身份。 */
-    readonly actionId: string;
-    /** 被审阅的 Tool 身份。 */
-    readonly toolId: string;
-    /** 原请求参数。 */
-    readonly originalInput: BrowserJsonValue;
-    /** 重新准备后的最终 canonical 参数。 */
-    readonly finalInput: BrowserJsonValue;
-    /** 最终参数是否与原请求不同。 */
-    readonly changed: boolean;
-    /** 本次审阅对应的授权期限。 */
-    readonly scope: "action" | "goal" | "workspace";
-    /** 当前真正可用的授权期限。 */
-    readonly availableScopes: readonly ("action" | "goal" | "workspace")[];
-    /** 重新计算出的实际能力范围。 */
-    readonly capability: {
-        readonly network: "none" | "all_outbound";
-        readonly extraFiles: readonly BrowserToolGrantExtraFile[];
-        readonly targetPaths: readonly string[];
-    };
-    /** 最终范围是否超出默认沙箱，需要沙箱能力审批。 */
-    readonly requiresSandboxApproval: boolean;
-    /** 审阅指纹；确认时必须原样带回。 */
-    readonly reviewRef: string;
-}
+export type BrowserActionReview = InferContract<typeof browserActionReviewContract>;
 
 /**
  * 只读审批预检的 wire 结果。
@@ -120,27 +95,7 @@ export interface BrowserActionReview {
  * ```
  */
 export type BrowserActionReviewResult =
-    | {
-        readonly ok: true;
-        readonly goalId: string;
-        readonly runId: string;
-        readonly review: BrowserActionReview;
-    }
-    | {
-        readonly ok: false;
-        readonly error:
-            | "goal_not_found"
-            | "stale_run"
-            | "action_not_waiting"
-            | "action_id_mismatch"
-            | "tool_not_found"
-            | "invalid_tool_input"
-            | "scope_unavailable"
-            | "sandbox_scope_unavailable"
-            | "review_unavailable";
-        /** 可定位的字段级问题。 */
-        readonly issues?: readonly { readonly path: readonly (string | number)[]; readonly message: string }[];
-    };
+    InferContract<typeof browserActionReviewResultContract>;
 
 /**
  * Run 生命周期状态。
@@ -390,14 +345,7 @@ export type BrowserSessionRun = InferContract<typeof browserSessionRunContract>;
  * };
  * ```
  */
-export interface BrowserAskUserOption {
-    /** 选项局部标识。 */
-    readonly id: string;
-    /** 选项标题。 */
-    readonly label: string;
-    /** 选项补充说明。 */
-    readonly description?: string;
-}
+export type BrowserAskUserOption = InferContract<typeof browserAskUserOptionContract>;
 
 /**
  * 结构化问卷问题。
@@ -413,18 +361,7 @@ export interface BrowserAskUserOption {
  * };
  * ```
  */
-export interface BrowserAskUserQuestion {
-    /** 问题局部标识。 */
-    readonly id: string;
-    /** 简短分类标题。 */
-    readonly header: string;
-    /** 提问内容。 */
-    readonly question: string;
-    /** 是否支持多选。 */
-    readonly multiSelect: boolean;
-    /** 候选选项列表。 */
-    readonly options: readonly BrowserAskUserOption[];
-}
+export type BrowserAskUserQuestion = InferContract<typeof browserAskUserQuestionContract>;
 
 /**
  * 结构化问卷单个问题的用户回答。
@@ -437,14 +374,7 @@ export interface BrowserAskUserQuestion {
  * };
  * ```
  */
-export interface BrowserAskUserAnswer {
-    /** 被回答的问题标识。 */
-    readonly questionId: string;
-    /** 选中的选项标识列表。 */
-    readonly optionIds: readonly string[];
-    /** 自由文本补充。 */
-    readonly otherText?: string;
-}
+export type BrowserAskUserAnswer = InferContract<typeof browserAskUserAnswerContract>;
 
 /**
  * Plan Run 任务提案中的一个有序阶段。
@@ -600,40 +530,7 @@ export type BrowserInteractionView = InferContract<typeof browserInteractionView
  * };
  * ```
  */
-export type BrowserInteractionDetail =
-    | {
-        readonly kind: "question";
-        readonly mode: "plan" | "execution";
-        readonly questions: readonly BrowserAskUserQuestion[];
-        readonly routeRevision?: {
-            readonly baseRevision: number;
-            readonly reason: string;
-            readonly approvalRequest: string;
-            readonly approvalOptionId: string;
-            readonly stages: readonly BrowserPlanRouteStage[];
-        };
-    }
-    | {
-        readonly kind: "task_approval";
-        readonly objective: string;
-        readonly approvalRequest: string;
-        readonly completionCriteria: readonly string[];
-        readonly stages: readonly BrowserPlanRouteStage[];
-    }
-    | {
-        readonly kind: "action_approval" | "action_recovery";
-        readonly actionId: string;
-        readonly toolId: string;
-        readonly approvalKind?: "tool" | "sandbox";
-        /** 完整 canonical Tool 输入。 */
-        readonly input: unknown;
-        /** 本次未知结果等待的恢复身份；仅恢复等待提供。 */
-        readonly recoveryRef?: string;
-        readonly parentProgram?: {
-            readonly actionId: string;
-            readonly callNumber: number;
-        };
-    };
+export type BrowserInteractionDetail = InferContract<typeof browserInteractionDetailContract>;
 
 /**
  * 当前交互完整详情读取的结果。
@@ -648,22 +545,7 @@ export type BrowserInteractionDetail =
  * ```
  */
 export type BrowserInteractionDetailResult =
-    | {
-        readonly ok: true;
-        readonly goalId: string;
-        readonly runId: string;
-        readonly interactionId: string;
-        readonly detail: BrowserInteractionDetail;
-    }
-    | {
-        readonly ok: false;
-        readonly error:
-            | "goal_not_found"
-            | "stale_run"
-            | "interaction_not_waiting"
-            | "interaction_mismatch"
-            | "interaction_details_unavailable";
-    };
+    InferContract<typeof browserInteractionDetailResultContract>;
 
 /**
  * 完整 Goal 会话详情的传输对象。
