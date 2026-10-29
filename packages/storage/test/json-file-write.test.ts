@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+    appendFile,
     mkdir,
     mkdtemp,
     open,
@@ -15,6 +16,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import {
+    appendFileChunk,
+    appendJsonl,
     atomicWriteJson,
     type FileWriteOperations,
 } from "../src/json-file-write";
@@ -403,3 +406,187 @@ test("atomicWriteJson keeps ENOENT stage semantics explicit", async () => {
 function fileErrno(error: unknown): string | undefined {
     return error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
 }
+
+test("appendJsonl writes exactly one newline-terminated record per call", async () => {
+    await withDirectory(async (directory) => {
+        const path = join(directory, "events.jsonl");
+
+        await appendJsonl({ path, value: { first: 1 }, durable: false });
+        await appendJsonl({ path, value: { second: 2 }, durable: true });
+
+        assert.equal(
+            await readFile(path, "utf8"),
+            `${JSON.stringify({ first: 1 })}\n${JSON.stringify({ second: 2 })}\n`,
+        );
+        assert.equal((await stat(path)).mode & 0o777, 0o600);
+    });
+});
+
+test("appendJsonl uses verification to decide retry and treats an applied line as success", async () => {
+    await withDirectory(async (directory) => {
+        const retriedPath = join(directory, "retried.jsonl");
+        let attempts = 0;
+        let verifications = 0;
+
+        await appendJsonl({
+            path: retriedPath,
+            value: { attempt: 1 },
+            durable: false,
+            retry: { attempts: 3, delayMs: 0, codes: new Set(["EBUSY"]) },
+            verify: async () => {
+                verifications += 1;
+                return "absent";
+            },
+            operations: {
+                appendFile: async (path, data, options) => {
+                    attempts += 1;
+                    if (attempts === 1) throw fileError("EBUSY");
+                    await appendFile(path, data, options);
+                },
+            },
+        });
+
+        assert.equal(attempts, 2);
+        assert.equal(verifications, 1);
+        assert.equal(await readFile(retriedPath, "utf8"), `${JSON.stringify({ attempt: 1 })}\n`);
+
+        const appliedPath = join(directory, "applied.jsonl");
+        let appliedAttempts = 0;
+
+        await appendJsonl({
+            path: appliedPath,
+            value: { attempt: 2 },
+            durable: false,
+            retry: { attempts: 3, delayMs: 0, codes: new Set(["EAGAIN"]) },
+            verify: async (line) => await readFile(appliedPath, "utf8").then(
+                (content) => content.endsWith(line) ? "applied" : "absent",
+            ),
+            operations: {
+                appendFile: async (path, data, options) => {
+                    appliedAttempts += 1;
+                    await appendFile(path, data, options);
+                    if (appliedAttempts === 1) throw fileError("EAGAIN");
+                },
+            },
+        });
+
+        assert.equal(appliedAttempts, 1);
+        assert.equal(await readFile(appliedPath, "utf8"), `${JSON.stringify({ attempt: 2 })}\n`);
+    });
+});
+
+test("appendJsonl never retries without verification or on non-retryable errors", async () => {
+    await withDirectory(async (directory) => {
+        let blindAttempts = 0;
+
+        await assert.rejects(
+            appendJsonl({
+                path: join(directory, "blind.jsonl"),
+                value: { blind: true },
+                durable: false,
+                retry: { attempts: 3, delayMs: 0, codes: new Set(["EBUSY"]) },
+                operations: {
+                    appendFile: async () => {
+                        blindAttempts += 1;
+                        throw fileError("EBUSY");
+                    },
+                },
+            }),
+            (error: unknown) => fileErrno(error) === "EBUSY",
+        );
+        assert.equal(blindAttempts, 1);
+
+        let deniedAttempts = 0;
+        let deniedVerifications = 0;
+
+        await assert.rejects(
+            appendJsonl({
+                path: join(directory, "denied.jsonl"),
+                value: { denied: true },
+                durable: false,
+                retry: { attempts: 3, delayMs: 0, codes: new Set(["EBUSY"]) },
+                verify: async () => {
+                    deniedVerifications += 1;
+                    return "absent";
+                },
+                operations: {
+                    appendFile: async () => {
+                        deniedAttempts += 1;
+                        throw fileError("EACCES");
+                    },
+                },
+            }),
+            (error: unknown) => fileErrno(error) === "EACCES",
+        );
+        assert.equal(deniedAttempts, 1);
+        assert.equal(deniedVerifications, 0);
+    });
+});
+
+test("appendJsonl stops on a verification protocol error without truncating the file", async () => {
+    await withDirectory(async (directory) => {
+        const path = join(directory, "partial.jsonl");
+        const protocolError = new Error("incomplete JSONL tail");
+
+        await assert.rejects(
+            appendJsonl({
+                path,
+                value: { partial: true },
+                durable: false,
+                retry: { attempts: 3, delayMs: 0, codes: new Set(["EBUSY"]) },
+                verify: async () => {
+                    throw protocolError;
+                },
+                operations: {
+                    appendFile: async (path, data, options) => {
+                        if (typeof data !== "string") throw new Error("Expected a JSONL string write");
+                        await appendFile(path, data.slice(0, -3), options);
+                        throw fileError("EBUSY");
+                    },
+                },
+            }),
+            (error: unknown) => error === protocolError,
+        );
+
+        assert.equal(
+            await readFile(path, "utf8"),
+            `${JSON.stringify({ partial: true })}\n`.slice(0, -3),
+        );
+    });
+});
+
+test("appendFileChunk appends raw bytes and syncs only when durable", async () => {
+    await withDirectory(async (directory) => {
+        const path = join(directory, "part-0.log");
+
+        await appendFileChunk({ path, data: Buffer.from("ab"), durable: false });
+        await appendFileChunk({ path, data: "cd", durable: true });
+
+        assert.equal((await readFile(path)).toString("utf8"), "abcd");
+        assert.equal((await stat(path)).mode & 0o777, 0o600);
+
+        const events: string[] = [];
+
+        await appendFileChunk({
+            path: join(directory, "durable.log"),
+            data: "x",
+            durable: true,
+            operations: {
+                open: async (path, flags, mode) => {
+                    const handle = await open(path, flags, mode);
+                    const sync = handle.sync.bind(handle);
+                    Object.defineProperty(handle, "sync", {
+                        configurable: true,
+                        value: async () => {
+                            events.push("sync");
+                            await sync();
+                        },
+                    });
+                    return handle;
+                },
+            },
+        });
+
+        assert.deepEqual(events, ["sync"]);
+    });
+});
