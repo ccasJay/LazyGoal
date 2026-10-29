@@ -56,6 +56,23 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 验证时间：-
-- 验证摘要：尚未开始执行。
+- 状态：completed（保留基线既有 E2E 失败，未修改其断言或相关生产代码）
+- 执行日期：2026-10-29
+- 最终实现提交：`04216bff`（其后仅追加本结果文档）
+- 验证摘要：
+  - `npx tsx --test packages/browser/test/browser-stream.test.ts`：11 pass。覆盖真实 HTTP 首事件与传输头、客户端取消、feed 正常结束、feed 抛错、错误响应不进入 SSE 及订阅只释放一次。
+  - `npx tsx --test apps/goal-board/test/sse.test.ts`：5 pass。覆盖任意字节切分、CRLF／CR／LF、注释、多行 `data:`、`id`／`retry`、未知事件、无效 JSON／DTO 与 abort。
+  - `npx tsx --test packages/session-metrics/test/session-metrics-http.test.ts`：5 pass。
+  - `npm run --prefix apps/goal-board build` 与 `npm run build:web`：通过。
+  - `npm test`：通过。2555 个 `.ts`／`.tsx` 测试与 70 个 `scripts` 测试全部通过，包含 `npx tsc --noEmit`、`check:docs`、`check:dependencies` 与 GEPA adapter 测试。首次运行曾因 `apps/goal-server/test/runtime-composition.integration.test.ts` 的临时目录 `ENOTEMPTY` 清理竞态失败一次；该文件单独运行与完整重跑均通过。
+  - `node --test --test-concurrency=1 apps/goal-board/e2e/board.test.mjs`：新增重连用例通过；同文件首个既有用例停在 `activity-breathe` 断言，属于基线既有失败。
+  - `node --test --test-concurrency=1 apps/goal-board/e2e/*.test.mjs`：10 pass / 4 fail；4 项失败均已在基线提交 `a36c8939` 的临时 worktree 复现，与本 Spec 改动无关。
+  - `npm run test:web-e2e`（并行）：6 pass / 8 fail。除基线失败外，并发启动多个 Vite／Chrome 实例造成既有用例超时，不作为本功能的通过证据。
+  - `npm run check:docs`：通过（46 个模块，166 份当前说明）；`npm run check:dependencies`：通过（275 个源文件）。
+  - `git diff --check`：通过。
+- 未决问题（均为基线既有，未在本 Spec 内修改）：
+  1. `board.test.mjs` 首个用例断言 `.task-state.running .status-dot::after` 的 `activity-breathe` 动画；该动画已在基线提交 `1feedd35` 从 `apps/goal-board/src/style.css` 删除，测试断言未同步。
+  2. `run-stages.test.mjs` 的时间线阶段标题为空；在基线 worktree 复现相同差异。
+  3. `runtime.test.mjs` 在 `.tr-detail-body pre` 处超时；在基线 worktree 复现相同超时。
+  4. `streaming-session.test.mjs` 重启后等待保存状态超时；在基线 worktree 复现（基线失败位置更早）。
+  5. `npm run test:web-e2e` 未带 `--test-concurrency=1`，本机并行执行时资源竞争会放大上述超时；CI 使用顺序执行。上述 4 项在顺序执行下仍只余基线失败。
