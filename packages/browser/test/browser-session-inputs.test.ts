@@ -538,3 +538,90 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
 }
 
 export type { SessionHarnessOptions };
+
+test("统一输入 parser 使用共享严格合同并保留关系检查", async () => {
+    const harness = createSessionHarness();
+    const submitted: unknown[] = [];
+    const receipt = {
+        goalId: "goal-parser", inputId: "input-1", kind: "message", sequence: 1,
+        status: "pending", admittedAtRevision: 0,
+    };
+    const session = {
+        submit: async (_goalId: string, input: unknown) => {
+            submitted.push(input);
+            return { ok: true, existing: false, receipt };
+        },
+    } as unknown as import("../src/index").BrowserGoalSessionPort;
+    const routes = createBrowserGoalRoutes({ ...createApi(harness), session });
+    const post = (body: unknown) => routes.request("/api/goals/goal-parser/inputs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+    });
+
+    const unknownField = await post({ kind: "message", inputId: "input-1", content: "hello", extra: true });
+    assert.equal(unknownField.status, 400);
+    assert.deepEqual(await unknownField.json(), { error: "INVALID_INPUT" });
+
+    const withoutScope = await post({
+        kind: "respond", inputId: "input-1", runId: "run-1", requestId: "act-1",
+        response: { kind: "approve_action", actionId: "act-1" },
+    });
+    assert.equal(withoutScope.status, 202);
+    assert.deepEqual(submitted.at(-1), {
+        kind: "respond", inputId: "input-1", runId: "run-1", requestId: "act-1",
+        response: { kind: "approve_action", actionId: "act-1" },
+    });
+    const scopeNull = await post({
+        kind: "respond", inputId: "input-1", runId: "run-1", requestId: "act-1",
+        response: { kind: "approve_action", actionId: "act-1", scope: null },
+    });
+    assert.equal(scopeNull.status, 400);
+
+    const actionColonRequest = await post({
+        kind: "respond", inputId: "input-1", runId: "run-1", requestId: "question:ask-1",
+        response: { kind: "approve_action", actionId: "act-1" },
+    });
+    assert.equal(actionColonRequest.status, 202);
+    const questionColonRequest = await post({
+        kind: "respond", inputId: "input-1", runId: "run-1", requestId: "question:ask-1",
+        response: { kind: "skip_question" },
+    });
+    assert.equal(questionColonRequest.status, 400);
+
+    const removeWithoutMessage = await post({
+        kind: "queue_control", inputId: "input-1", action: "remove", queueRevision: 1,
+    });
+    assert.equal(removeWithoutMessage.status, 400);
+    const continueWithMessage = await post({
+        kind: "queue_control", inputId: "input-1", action: "continue", queueRevision: 1, messageId: "msg-1",
+    });
+    assert.equal(continueWithMessage.status, 400);
+    const bindingExtra = await post({
+        kind: "steer", inputId: "input-1", runId: "run-1", content: "go",
+        queueBinding: { messageId: "msg-1", queueRevision: 1, extra: true },
+    });
+    assert.equal(bindingExtra.status, 400);
+    const blankResume = await post({
+        kind: "resume", inputId: "input-1", runId: "run-1", commitRevision: 1, content: "   ",
+    });
+    assert.equal(blankResume.status, 400);
+
+    const body = { kind: "message", inputId: "input-1", content: "stable" };
+    const first = await post(body);
+    const second = await post(body);
+    assert.equal(first.status, 202);
+    assert.equal(second.status, 202);
+    assert.deepEqual(submitted.at(-1), submitted.at(-2));
+    const { computeSessionInputDigest } = await import("../../runtime/src/index");
+    assert.equal(
+        computeSessionInputDigest(submitted.at(-1) as never),
+        computeSessionInputDigest(submitted.at(-2) as never),
+    );
+
+    const leaked = await post({ kind: "message", inputId: "input-1", content: 1 });
+    const leakedText = await leaked.text();
+    assert.equal(leaked.status, 400);
+    assert.equal(leakedText.includes("Expected"), false);
+    assert.equal(leakedText, JSON.stringify({ error: "INVALID_INPUT" }));
+});

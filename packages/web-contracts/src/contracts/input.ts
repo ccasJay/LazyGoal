@@ -46,9 +46,9 @@ export const browserSessionInteractionResponseContract = contract.union([
         kind: contract.literal("answer_ask_user"),
         answers: contract.array(contract.object({
             questionId: browserNonEmptyStringContract,
-            optionIds: contract.array(contract.string()),
-            otherText: contract.optional(contract.string()),
-        })),
+            optionIds: contract.array(browserNonEmptyStringContract, { maxItems: 3 }),
+            otherText: contract.optional(browserNonEmptyStringContract),
+        }), { minItems: 1, maxItems: 3 }),
     }),
     contract.object({
         kind: contract.literal("reply_to_question"),

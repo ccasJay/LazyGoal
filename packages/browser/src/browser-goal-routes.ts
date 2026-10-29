@@ -33,6 +33,14 @@ import type {
     BrowserSessionInteractionResponse,
 } from "../../web-contracts/src/index";
 import { isJsonValue } from "../../web-contracts/src/index";
+import { browserGoalPlanModeCommandContract } from "../../web-contracts/src/contracts/command";
+import {
+    browserCreateSessionCommandContract,
+    browserSessionInputCommandContract,
+} from "../../web-contracts/src/contracts/input";
+import { browserActionReviewCommandContract } from "../../web-contracts/src/contracts/interaction";
+import { safeParse } from "../../web-contracts/src/contracts/runtime";
+import { hasUtf16LengthAtMost } from "../../web-contracts/src/invariants/index";
 import type {
     BrowserProviderProfileInput,
     BrowserProviderProfileTestError,
@@ -992,35 +1000,20 @@ async function parseCreateSessionCommand(
 > {
     const parsedBody = await readJsonBody(request);
     if (!parsedBody.ok) return parsedBody;
-    const value = parsedBody.value;
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    const parsed = safeParse(browserCreateSessionCommandContract, parsedBody.value);
+    if (!parsed.success) {
         return { ok: false, error: "invalid_goal_input", status: 400 };
     }
-    const body = value as Record<string, unknown>;
-    if (
-        Object.keys(body).some((key) => key !== "goalId" && key !== "inputId" && key !== "intent" && key !== "mode" && key !== "modelId")
-        || !isWireId(body.goalId, MAX_GOAL_ID_LENGTH)
-        || !isWireId(body.inputId, 256)
-        || typeof body.intent !== "string"
-        || body.intent.trim().length === 0
-        || body.intent.length > MAX_COMMAND_TEXT_LENGTH
-        || (body.mode !== undefined && body.mode !== "plan")
-        || (body.modelId !== undefined && readWireText(body.modelId, 256) === undefined)
-    ) {
+    const command = parsed.data;
+    if (!isWireId(command.goalId, MAX_GOAL_ID_LENGTH)
+        || !isWireId(command.inputId, 256)
+        || !hasUtf16LengthAtMost(command.intent, MAX_COMMAND_TEXT_LENGTH)
+        || (command.modelId !== undefined && !hasUtf16LengthAtMost(command.modelId, 256))) {
         return { ok: false, error: "invalid_goal_input", status: 400 };
     }
-
-    return {
-        ok: true,
-        command: {
-            goalId: body.goalId,
-            inputId: body.inputId,
-            intent: body.intent,
-            ...(body.mode === undefined ? {} : { mode: body.mode }),
-            ...(body.modelId === undefined ? {} : { modelId: body.modelId as string }),
-        },
-    };
+    return { ok: true, command };
 }
+
 
 /**
  * 解析统一会话输入的严格 wire 联合。
@@ -1037,108 +1030,100 @@ async function parseSessionInputCommand(
 > {
     const parsedBody = await readJsonBody(request, MAX_SESSION_INPUT_BODY_BYTES);
     if (!parsedBody.ok) return parsedBody;
-    const value = parsedBody.value;
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    const parsed = safeParse(browserSessionInputCommandContract, parsedBody.value);
+    if (!parsed.success || !isWireId(parsed.data.inputId, 256)) {
         return { ok: false, error: "INVALID_INPUT", status: 400 };
     }
-    const body = value as Record<string, unknown>;
-    const kind = body.kind;
-    if (!isWireId(body.inputId, 256) || typeof kind !== "string") {
-        return { ok: false, error: "INVALID_INPUT", status: 400 };
+    const command = parsed.data;
+
+    if (command.kind === "message") {
+        return { ok: true, command };
     }
 
-    if (kind === "message") {
-        if (!hasExactKeys(body, ["kind", "inputId", "content"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
-        const content = readSessionText(body.content);
-        return content === undefined
-            ? { ok: false, error: "INVALID_INPUT", status: 400 }
-            : { ok: true, command: { kind, inputId: body.inputId, content } };
-    }
-
-    if (kind === "steer") {
-        if (!hasExactKeys(body, ["kind", "inputId", "runId", "content"], ["queueBinding"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
-        const content = readSessionText(body.content);
-        const queueBinding = body.queueBinding === undefined
-            ? undefined
-            : parseQueueBinding(body.queueBinding);
-        return !isWireId(body.runId, 256) || content === undefined
-            || (body.queueBinding !== undefined && queueBinding === undefined)
-            ? { ok: false, error: "INVALID_INPUT", status: 400 }
-            : {
-                ok: true,
-                command: {
-                    kind,
-                    inputId: body.inputId,
-                    runId: body.runId,
-                    content,
-                    ...(queueBinding === undefined ? {} : { queueBinding }),
-                },
-            };
-    }
-
-    if (kind === "interrupt") {
-        if (!hasExactKeys(body, ["kind", "inputId", "runId"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
-        return !isWireId(body.runId, 256)
-            ? { ok: false, error: "INVALID_INPUT", status: 400 }
-            : { ok: true, command: { kind, inputId: body.inputId, runId: body.runId } };
-    }
-
-    if (kind === "respond") {
-        if (!hasExactKeys(body, ["kind", "inputId", "runId", "requestId", "response"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
-        const response = parseInteractionResponse(body.response);
-        // Action 类决定以当前 Action 身份作为请求引用；PTC 子操作身份包含分隔符。
-        const requestId = response !== undefined && ACTION_RESPONSE_KINDS.has(response.kind)
-            ? (isWireActionIdentity(body.requestId, 256) ? body.requestId : undefined)
-            : (isWireId(body.requestId, 256) ? body.requestId : undefined);
-        return !isWireId(body.runId, 256) || requestId === undefined || response === undefined
-            ? { ok: false, error: "INVALID_INPUT", status: 400 }
-            : { ok: true, command: { kind, inputId: body.inputId, runId: body.runId, requestId, response } };
-    }
-
-    if (kind === "resume") {
-        if (!hasExactKeys(body, ["kind", "inputId", "runId", "commitRevision"], ["content"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
-        const content = body.content === undefined ? undefined : readSessionText(body.content);
-        if (
-            !isWireId(body.runId, 256)
-            || !isNonNegativeInteger(body.commitRevision)
-            || ("content" in body && content === undefined)
-        ) return { ok: false, error: "INVALID_INPUT", status: 400 };
-        return {
-            ok: true,
-            command: {
-                kind,
-                inputId: body.inputId,
-                runId: body.runId,
-                commitRevision: body.commitRevision,
-                ...(content === undefined ? {} : { content }),
-            },
-        };
-    }
-
-    if (kind === "queue_control") {
-        if (!hasExactKeys(body, ["kind", "inputId", "action", "queueRevision"], ["messageId"])) return { ok: false, error: "INVALID_INPUT", status: 400 };
-        const action = body.action;
-        if (
-            (action !== "continue" && action !== "clear" && action !== "remove")
-            || !isNonNegativeInteger(body.queueRevision)
-            || (action === "remove" ? !isWireId(body.messageId, 256) : body.messageId !== undefined)
-        ) {
+    if (command.kind === "steer") {
+        if (!isWireId(command.runId, 256)
+            || (command.queueBinding !== undefined
+                && !isWireId(command.queueBinding.messageId, 256))) {
             return { ok: false, error: "INVALID_INPUT", status: 400 };
         }
-        return {
-            ok: true,
-            command: {
-                kind,
-                inputId: body.inputId,
-                action,
-                queueRevision: body.queueRevision,
-                ...(action === "remove" ? { messageId: body.messageId as string } : {}),
-            },
-        };
+        return { ok: true, command };
     }
 
-    return { ok: false, error: "INVALID_INPUT", status: 400 };
+    if (command.kind === "interrupt") {
+        return isWireId(command.runId, 256)
+            ? { ok: true, command }
+            : { ok: false, error: "INVALID_INPUT", status: 400 };
+    }
+
+    if (command.kind === "respond") {
+        if (!isWireId(command.runId, 256) || !isValidInteractionResponse(command.response)) {
+            return { ok: false, error: "INVALID_INPUT", status: 400 };
+        }
+        const requestId = ACTION_RESPONSE_KINDS.has(command.response.kind)
+            ? isWireActionIdentity(command.requestId, 256)
+            : isWireId(command.requestId, 256);
+        return requestId
+            ? { ok: true, command }
+            : { ok: false, error: "INVALID_INPUT", status: 400 };
+    }
+
+    if (command.kind === "resume") {
+        return isWireId(command.runId, 256)
+            ? { ok: true, command }
+            : { ok: false, error: "INVALID_INPUT", status: 400 };
+    }
+
+    if (command.action === "remove") {
+        return command.messageId !== undefined && isWireId(command.messageId, 256)
+            ? { ok: true, command }
+            : { ok: false, error: "INVALID_INPUT", status: 400 };
+    }
+    return command.messageId === undefined
+        ? { ok: true, command }
+        : { ok: false, error: "INVALID_INPUT", status: 400 };
 }
+
+/**
+ * 检查交互回答的既有 wire 文本长度边界。
+ *
+ * @remarks 结构、枚举与 kind 专属字段已由命令合同校验；这里只保留既有上限语义，
+ * 不修改用户文本。
+ */
+function isValidInteractionResponse(response: BrowserSessionInteractionResponse): boolean {
+    if (response.kind === "answer_ask_user") {
+        return response.answers.every((answer) =>
+            hasUtf16LengthAtMost(answer.questionId, 256)
+            && (answer.otherText === undefined
+                || hasUtf16LengthAtMost(answer.otherText, MAX_COMMAND_TEXT_LENGTH))
+            && answer.optionIds.every((id) => hasUtf16LengthAtMost(id, 256)));
+    }
+    if (response.kind === "reply_to_question") return true;
+    if (response.kind === "feedback_task") {
+        return hasUtf16LengthAtMost(response.feedback, MAX_COMMAND_TEXT_LENGTH);
+    }
+    if (response.kind === "approve_action") {
+        return hasUtf16LengthAtMost(response.actionId, 256);
+    }
+    if (response.kind === "approve_action_revision") {
+        return hasUtf16LengthAtMost(response.actionId, 256)
+            && hasUtf16LengthAtMost(response.reviewRef, 256);
+    }
+    if (response.kind === "retry_unknown_action") {
+        return hasUtf16LengthAtMost(response.actionId, 256)
+            && hasUtf16LengthAtMost(response.recoveryRef, 256);
+    }
+    if (response.kind === "decline_unknown_action_retry") {
+        return hasUtf16LengthAtMost(response.actionId, 256)
+            && hasUtf16LengthAtMost(response.recoveryRef, 256)
+            && hasUtf16LengthAtMost(response.reason, MAX_COMMAND_TEXT_LENGTH);
+    }
+    if (response.kind === "reject_action") {
+        return hasUtf16LengthAtMost(response.actionId, 256)
+            && hasUtf16LengthAtMost(response.reason, MAX_COMMAND_TEXT_LENGTH);
+    }
+    return response.kind === "skip_question" || response.kind === "approve_task";
+}
+
 
 function parseQueueBinding(value: unknown): { readonly messageId: string; readonly queueRevision: number } | undefined {
     if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
@@ -1253,16 +1238,13 @@ async function parsePlanModeCommand(
 > {
     const parsedBody = await readJsonBody(request);
     if (!parsedBody.ok) return parsedBody;
-    const value = parsedBody.value;
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    const parsed = safeParse(browserGoalPlanModeCommandContract, parsedBody.value);
+    if (!parsed.success || !isWireId(parsed.data.runId, 256)) {
         return { ok: false, error: "invalid_plan_mode_command", status: 400 };
     }
-    const body = value as Record<string, unknown>;
-    if (Object.keys(body).length !== 1 || typeof body.runId !== "string" || !isWireId(body.runId, 256)) {
-        return { ok: false, error: "invalid_plan_mode_command", status: 400 };
-    }
-    return { ok: true, command: { runId: body.runId } };
+    return { ok: true, command: parsed.data };
 }
+
 
 /**
  * 解析只读审批预检的严格 wire 命令。
@@ -1275,25 +1257,15 @@ async function parseActionReviewCommand(
 ): Promise<BrowserActionReviewCommand | undefined> {
     const parsedBody = await readJsonBody(request, MAX_SESSION_INPUT_BODY_BYTES);
     if (!parsedBody.ok) return undefined;
-    const value = parsedBody.value;
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-    const body = value as Record<string, unknown>;
-    if (!hasExactKeys(body, ["runId", "actionId"], ["input", "scope"])) return undefined;
-    const runId = readWireText(body.runId, 256);
-    const actionId = readWireText(body.actionId, 256);
-    if (runId === undefined || actionId === undefined) return undefined;
-    if (body.input !== undefined && !isJsonValue(body.input)) return undefined;
-    const scope = body.scope;
-    if (scope !== undefined && scope !== "action" && scope !== "goal" && scope !== "workspace") {
+    const parsed = safeParse(browserActionReviewCommandContract, parsedBody.value);
+    if (!parsed.success
+        || !hasUtf16LengthAtMost(parsed.data.runId, 256)
+        || !hasUtf16LengthAtMost(parsed.data.actionId, 256)) {
         return undefined;
     }
-    return {
-        runId,
-        actionId,
-        ...(body.input === undefined ? {} : { input: body.input }),
-        ...(scope === undefined ? {} : { scope }),
-    };
+    return parsed.data;
 }
+
 
 async function parseGrantRevokeCommand(request: Request): Promise<
     | { readonly ok: true; readonly command: Omit<BrowserToolGrantRevokeCommand, "grantId"> }
