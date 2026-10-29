@@ -6,7 +6,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 用 AST 提取模块引用，消除伪 import 误报并在解析失败时明确失败
+- [x] //TODO 1. 用 AST 提取模块引用，消除伪 import 误报并在解析失败时明确失败
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)、[1.5](./spec.md#spec-req-1-5)、[3.2](./spec.md#spec-req-3-2)。
   - 实施目标：根目录执行 `npm install --save-dev --save-exact @babel/parser@8.0.8`，只更新根依赖声明与 lockfile。按 Spec 的 AST 节点表替换 `extractModuleSpecifiers` 的文本提取，接入包、app、benchmark 及已有入口/产物扫描调用点；按源文件扩展名选择 TypeScript / TSX 解析，按源码首次出现顺序去重。只提取字面量模块说明符，不从注释、普通字符串、模板字符串、正则或 `import.meta` 推断引用。解析异常包含仓库相对路径与解析器消息并向上传播，不跳过或回退。保留现有规则判断与诊断排序。
   - 场景与预期：静态/侧效/type 导入、各类再导出、类型位置 `import()`、动态 `import()`、`require()`、`import = require()` 均产生对应方向违规；重复说明符只产生既有去重语义下的诊断，提取顺序按首次出现；伪 import 不产生违规；`.ts` 尖括号断言和 `.tsx` JSX 正常解析；两种模式均覆盖全部合法引用形式和 import attributes，非法语法定位到具体文件并使检查失败。

@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
     analyzeDependencies,
     checkDependencies,
+    extractModuleSpecifiers,
 } from "./check-dependencies.mjs";
 
 const EXISTING_PACKAGES = ["runtime", "llm-core", "llm-google", "storage", "agent", "tools"];
@@ -696,4 +699,128 @@ test("constrains the agent public entry to the default assembly", async () => {
     assert.deepEqual(await analyzeDependencies(root), [
         "入口约束：packages/agent 公共入口只能转发默认装配（packages/agent/src/index.ts 引用 ./old-executor）",
     ]);
+});
+
+const TS_REFERENCE_FORMS = [
+    'import { alpha } from "./alpha";',
+    'import "./side-effect";',
+    'import type { Beta } from "./beta";',
+    'export type { Gamma } from "./gamma";',
+    'export * from "./delta";',
+    'export type Epsilon = import("./epsilon").Epsilon;',
+    'const zeta = import("./zeta");',
+    'const eta = require("./eta");',
+    'import theta = require("./theta");',
+    'import iota from "./iota" with { type: "json" };',
+    'import { alphaAgain } from "./alpha";',
+];
+
+const TS_REFERENCE_SPECIFIERS = [
+    "./alpha",
+    "./side-effect",
+    "./beta",
+    "./gamma",
+    "./delta",
+    "./epsilon",
+    "./zeta",
+    "./eta",
+    "./theta",
+    "./iota",
+];
+
+const PSEUDO_REFERENCES = [
+    '// import { commented } from "./comment";',
+    'const quoted = \'import { quoted } from "./string"\';',
+    'const templated = `require("./template")`;',
+    'const pattern = /import\\("\\.\\/regex"\\)/;',
+    "const meta = import.meta.url;",
+];
+
+test("AST extraction covers every supported reference form in first-occurrence order", () => {
+    const source = [
+        ...TS_REFERENCE_FORMS,
+        ...PSEUDO_REFERENCES,
+        "const asserted = <string>meta;",
+        "void [zeta, eta, quoted, templated, pattern, asserted];",
+    ].join("\n");
+
+    assert.deepEqual(
+        extractModuleSpecifiers(source, "packages/example/src/index.ts"),
+        TS_REFERENCE_SPECIFIERS,
+    );
+});
+
+test("AST extraction enables JSX for tsx sources and still covers every reference form", () => {
+    const source = [
+        ...TS_REFERENCE_FORMS,
+        'const element = <div className="x">{alpha}</div>;',
+        "void element;",
+    ].join("\n");
+
+    assert.deepEqual(
+        extractModuleSpecifiers(source, "apps/example/src/index.tsx"),
+        TS_REFERENCE_SPECIFIERS,
+    );
+});
+
+test("AST extraction ignores pseudo imports in comments strings templates and regexes", async () => {
+    const root = await fixtureProject({
+        "packages/contracts/src/index.ts": [
+            '// import { fake } from "../../runtime/src/index";',
+            'const quoted = \'import { fake } from "../../runtime/src/index"\';',
+            'const templated = `require("../../runtime/src/index")`;',
+            'const pattern = /from "..\\/..\\/runtime\\/src\\/index"/;',
+            "export const value = [quoted, templated, pattern];",
+        ].join("\n"),
+        "packages/runtime/src/index.ts": "export const runtime = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), []);
+});
+
+test("AST extraction reports forbidden directions for every supported reference form", async () => {
+    const root = await fixtureProject({
+        "packages/contracts/src/index.ts": [
+            'import { a } from "../../runtime/src/index";',
+            'import "../../runtime/src/side-effect";',
+            'export type { B } from "../../runtime/src/type-decl";',
+            'export type C = import("../../runtime/src/type-position").C;',
+            'export const d = import("../../runtime/src/dynamic");',
+            'export const e = require("../../runtime/src/required");',
+            'import f = require("../../runtime/src/import-equals");',
+            "void [a, d, e, f];",
+        ].join("\n"),
+        "packages/runtime/src/index.ts": "export const runtime = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/dynamic）",
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/import-equals）",
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/index）",
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/required）",
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/side-effect）",
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/type-decl）",
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/type-position）",
+    ]);
+});
+
+test("AST extraction fails with repository-relative path and parser message", async () => {
+    const root = await fixtureProject({
+        "packages/contracts/src/broken.ts": "export const broken = ;\n",
+    });
+
+    await assert.rejects(analyzeDependencies(root), (error) => {
+        assert.match(error.message, /^无法解析源文件：packages\/contracts\/src\/broken\.ts：/);
+        assert.match(error.message, /Unexpected token/);
+        return true;
+    });
+
+    const result = spawnSync(
+        process.execPath,
+        [fileURLToPath(new URL("./check-dependencies.mjs", import.meta.url)), root],
+        { encoding: "utf8" },
+    );
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /无法解析源文件：packages\/contracts\/src\/broken\.ts：/);
+    assert.match(result.stderr, /Unexpected token/);
 });

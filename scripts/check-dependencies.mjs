@@ -3,6 +3,8 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { parse } from "@babel/parser";
+
 /**
  * 依赖与边界检查。
  *
@@ -15,8 +17,9 @@ import { pathToFileURL } from "node:url";
  *   5. 相对引用不得落入项目构建产物目录（第三方依赖自身产物不在此限）；
  *   6. 组件目录不得反向依赖宿主实现或注册进程信号（既有 Spec 规则）。
  *
- * 模块引用提取覆盖普通/类型 import/export、侧效导入、import 类型表达式、字面量
- * dynamic import 与字面量 require（当前仓库的 TypeScript 7 不提供可用的编译器 API，因此按文本模式提取）。
+ * 模块引用由 `@babel/parser` 的 AST 提取：覆盖普通/类型 import/export、侧效导入、
+ * import 类型表达式、字面量 dynamic import、字面量 require 与 import = require。
+ * 注释、普通字符串、模板字符串与正则中的伪引用不产生模块引用；解析失败直接报告文件并中止检查。
  */
 
 /**
@@ -321,20 +324,104 @@ function extractRelativeImports(text) {
     return [...new Set(imports)];
 }
 
+/** AST 节点中不承载子节点的元数据字段；递归遍历时跳过位置、注释与原文信息。 */
+const AST_METADATA_KEYS = new Set([
+    "loc",
+    "extra",
+    "comments",
+    "leadingComments",
+    "trailingComments",
+    "innerComments",
+    "errors",
+    "tokens",
+]);
+
+/** 读取字符串字面量的值；动态表达式、模板与变量引用返回 undefined。 */
+function stringLiteralValue(node) {
+    return node !== null && typeof node === "object" && node.type === "StringLiteral"
+        ? node.value
+        : undefined;
+}
+
+/** 返回单个 AST 节点声明的模块说明符；非引用节点返回 undefined。 */
+function specifierOfAstNode(node) {
+    switch (node.type) {
+        case "ImportDeclaration":
+        case "ExportNamedDeclaration":
+        case "ExportAllDeclaration":
+        case "TSImportType":
+            return stringLiteralValue(node.source);
+        case "TSExternalModuleReference":
+            return stringLiteralValue(node.expression);
+        case "ImportExpression":
+            return stringLiteralValue(node.source);
+        case "CallExpression":
+            return node.callee?.type === "Identifier"
+                && node.callee.name === "require"
+                && node.arguments.length === 1
+                ? stringLiteralValue(node.arguments[0])
+                : undefined;
+        default:
+            return undefined;
+    }
+}
+
+/** 递归收集 AST 中的模块引用节点及其源码起始位置。 */
+function collectModuleReferenceNodes(node, references) {
+    if (Array.isArray(node)) {
+        for (const item of node) collectModuleReferenceNodes(item, references);
+        return;
+    }
+    if (node === null || typeof node !== "object") return;
+
+    const specifier = specifierOfAstNode(node);
+    if (specifier !== undefined) references.push({ start: node.start ?? 0, specifier });
+
+    for (const [key, value] of Object.entries(node)) {
+        if (AST_METADATA_KEYS.has(key)) continue;
+        if (value !== null && typeof value === "object") collectModuleReferenceNodes(value, references);
+    }
+}
+
 /**
- * 提取组件边界检查覆盖的全部模块引用。
+ * 按文件扩展名选择 TypeScript / TSX 语法解析源文件。
+ *
+ * @param sourceText - 待解析的源文件内容。
+ * @param relativePath - 源文件相对仓库根的 POSIX 路径；用于选择语法模式与报告错误。
+ * @returns Babel 文件 AST。
+ * @throws 源文件不符合所选语法时抛出包含相对路径与解析器消息的 Error。
+ */
+function parseModuleAst(sourceText, relativePath) {
+    const plugins = ["typescript"];
+    if (path.extname(relativePath).toLowerCase() === ".tsx") plugins.push("jsx");
+    try {
+        return parse(sourceText, { sourceType: "module", plugins });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`无法解析源文件：${relativePath}：${message}`);
+    }
+}
+
+/**
+ * 从源码 AST 提取模块说明符。
  *
  * @remarks
- * 除 `from` 形式外还覆盖侧效导入、字面量动态导入与 `require` 字面量，
- * 避免通过重新导出或动态引用绕过边界；结果按出现顺序去重。
+ * 覆盖静态与侧效导入、`import type` / `export type … from`、命名与全部再导出、
+ * 类型位置与字面量动态 `import()`、字面量 `require()` 与 `import x = require("…")`。
+ * 结果按源码首次出现位置排序并去重，因此同一说明符只返回一次；注释、字符串、
+ * 模板、正则与 `import.meta` 不产生引用。`.ts` 禁用 JSX 以接受尖括号类型断言，
+ * `.tsx` 启用 JSX。
+ *
+ * @param sourceText - 待解析的源文件内容。
+ * @param relativePath - 源文件相对仓库根的 POSIX 路径；决定语法模式并出现在解析错误中。
+ * @returns 按首次出现顺序去重的模块说明符。
+ * @throws 源文件无法按 TypeScript/TSX 解析时抛出包含相对路径与解析器消息的 Error。
  */
-function extractModuleSpecifiers(text) {
-    const imports = new Set();
-    for (const match of text.matchAll(/\bfrom\s*(['"])([^'"]+)\1/g)) imports.add(match[2]);
-    for (const match of text.matchAll(/\bimport\s*(['"])([^'"]+)\1/g)) imports.add(match[2]);
-    for (const match of text.matchAll(/\bimport\s*\(\s*(['"])([^'"]+)\1\s*\)/g)) imports.add(match[2]);
-    for (const match of text.matchAll(/\brequire\s*\(\s*(['"])([^'"]+)\1\s*\)/g)) imports.add(match[2]);
-    return [...imports];
+export function extractModuleSpecifiers(sourceText, relativePath) {
+    const references = [];
+    collectModuleReferenceNodes(parseModuleAst(sourceText, relativePath), references);
+    references.sort((left, right) => left.start - right.start);
+    return [...new Set(references.map((reference) => reference.specifier))];
 }
 
 /** 判定说明符是否为相对模块引用。 */
@@ -580,7 +667,7 @@ async function analyzeComponentBoundaries(projectRoot) {
     for (const file of await collectComponentBoundaryFiles(projectRoot)) {
         const relativePath = toProjectRelativePath(projectRoot, file);
         const text = await readFile(file, "utf8");
-        const specifiers = extractModuleSpecifiers(text);
+        const specifiers = extractModuleSpecifiers(text, relativePath);
         const boundaries = COMPONENT_BOUNDARIES.filter((candidate) =>
             candidate.file !== undefined
                 ? candidate.file === relativePath
@@ -654,7 +741,7 @@ async function analyzeEntryBoundaries(projectRoot) {
     for (const file of await collectEntryScanFiles(projectRoot)) {
         const relativePath = toProjectRelativePath(projectRoot, file);
         const text = await readFile(file, "utf8");
-        for (const specifier of extractModuleSpecifiers(text)) {
+        for (const specifier of extractModuleSpecifiers(text, relativePath)) {
             if (!isRelativeSpecifier(specifier)) continue;
             const targetRelative = toProjectRelativePath(
                 projectRoot,
@@ -726,7 +813,7 @@ export async function analyzeDependencies(projectRoot) {
             continue;
         }
 
-        for (const specifier of extractModuleSpecifiers(text)) {
+        for (const specifier of extractModuleSpecifiers(text, relativePath)) {
             if (!isRelativeSpecifier(specifier)) {
                 if (SDK_FREE_PACKAGES.has(sourcePackage) && isVendorSdkSpecifier(specifier)) {
                     violations.push(
@@ -787,7 +874,7 @@ export async function analyzeDependencies(projectRoot) {
         if (sourceBenchmark === null) continue;
         const text = await readFile(file, "utf8");
         const relativePath = path.relative(projectRoot, file).split(path.sep).join("/");
-        for (const specifier of extractModuleSpecifiers(text)) {
+        for (const specifier of extractModuleSpecifiers(text, relativePath)) {
             if (isRelativeSpecifier(specifier)) {
                 const boundary = referenceBoundaryViolation(projectRoot, file, relativePath, null, specifier);
                 if (boundary !== null) {
@@ -824,7 +911,7 @@ export async function analyzeDependencies(projectRoot) {
         if (sourceApp === null || !ALLOWED_APP_DEPENDENCIES[sourceApp]) continue;
         const text = await readFile(file, "utf8");
         const relativePath = path.relative(projectRoot, file).split(path.sep).join("/");
-        for (const specifier of extractModuleSpecifiers(text)) {
+        for (const specifier of extractModuleSpecifiers(text, relativePath)) {
             if (isRelativeSpecifier(specifier)) {
                 const boundary = referenceBoundaryViolation(projectRoot, file, relativePath, null, specifier);
                 if (boundary !== null) {
