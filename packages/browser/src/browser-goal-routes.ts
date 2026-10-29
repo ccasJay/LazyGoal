@@ -73,10 +73,6 @@ const MAX_PROVIDER_LABEL_LENGTH = 200;
 const MAX_PROVIDER_KIND_LENGTH = 64;
 const MAX_PROVIDER_API_KEY_LENGTH = 4_096;
 const MAX_PROVIDER_BASE_URL_LENGTH = 2_048;
-const PROVIDER_PROFILE_FIELD_NAMES: ReadonlySet<string> = new Set([
-    "label", "kind", "defaultModel", "apiKey", "baseURL",
-    "contextWindowTokens", "maxOutputTokens", "structuredOutputMode",
-]);
 
 /**
  * 受管 Provider 档案管理端口。
@@ -1085,17 +1081,6 @@ function isValidInteractionResponse(response: BrowserSessionInteractionResponse)
 }
 
 
-function parseQueueBinding(value: unknown): { readonly messageId: string; readonly queueRevision: number } | undefined {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-    const binding = value as Record<string, unknown>;
-    if (
-        !hasExactKeys(binding, ["messageId", "queueRevision"])
-        || !isWireId(binding.messageId, 256)
-        || !isNonNegativeInteger(binding.queueRevision)
-    ) return undefined;
-    return { messageId: binding.messageId, queueRevision: binding.queueRevision };
-}
-
 /**
  * 以 Action 身份作为请求引用的交互决定种类。
  *
@@ -1108,87 +1093,6 @@ const ACTION_RESPONSE_KINDS: ReadonlySet<string> = new Set([
     "retry_unknown_action",
     "decline_unknown_action_retry",
 ]);
-
-function parseInteractionResponse(value: unknown): BrowserSessionInteractionResponse | undefined {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-    const body = value as Record<string, unknown>;
-    const kind = body.kind;
-    if (typeof kind !== "string") return undefined;
-    if (kind === "skip_question") {
-        return hasExactKeys(body, ["kind"]) ? { kind } : undefined;
-    }
-    if (kind === "reply_to_question") {
-        if (!hasExactKeys(body, ["kind", "content"])) return undefined;
-        const content = readSessionText(body.content);
-        return content === undefined ? undefined : { kind, content };
-    }
-    if (kind === "answer_ask_user") {
-        if (!hasExactKeys(body, ["kind", "answers"])) return undefined;
-        const answers = parseAnswers(body.answers);
-        return answers === undefined ? undefined : { kind, answers };
-    }
-    if (kind === "approve_task") {
-        return hasExactKeys(body, ["kind"]) ? { kind } : undefined;
-    }
-    if (kind === "feedback_task") {
-        if (!hasExactKeys(body, ["kind", "feedback"])) return undefined;
-        const feedback = readWireText(body.feedback, MAX_COMMAND_TEXT_LENGTH);
-        return feedback === undefined ? undefined : { kind, feedback };
-    }
-    if (kind === "approve_action") {
-        if (!hasExactKeys(body, ["kind", "actionId"], ["scope"])) return undefined;
-        const actionId = readWireText(body.actionId, 256);
-        const scope = body.scope ?? "action";
-        return actionId === undefined || (scope !== "action" && scope !== "goal" && scope !== "workspace")
-            ? undefined
-            : { kind, actionId, scope };
-    }
-    if (kind === "approve_action_revision") {
-        if (!hasExactKeys(body, ["kind", "actionId", "input", "reviewRef"], ["scope"])) return undefined;
-        const actionId = readWireText(body.actionId, 256);
-        const reviewRef = readWireText(body.reviewRef, 256);
-        const scope = body.scope ?? "action";
-        if (actionId === undefined || reviewRef === undefined) return undefined;
-        if (scope !== "action" && scope !== "goal" && scope !== "workspace") return undefined;
-        if (body.input === undefined || !isJsonValue(body.input)) return undefined;
-        return { kind, actionId, input: body.input, reviewRef, scope };
-    }
-    if (kind === "retry_unknown_action") {
-        if (!hasExactKeys(body, ["kind", "actionId", "recoveryRef"])) return undefined;
-        const actionId = readWireText(body.actionId, 256);
-        const recoveryRef = readWireText(body.recoveryRef, 256);
-        return actionId === undefined || recoveryRef === undefined
-            ? undefined
-            : { kind, actionId, recoveryRef };
-    }
-    if (kind === "decline_unknown_action_retry") {
-        if (!hasExactKeys(body, ["kind", "actionId", "recoveryRef", "reason"])) return undefined;
-        const actionId = readWireText(body.actionId, 256);
-        const recoveryRef = readWireText(body.recoveryRef, 256);
-        const reason = readWireText(body.reason, MAX_COMMAND_TEXT_LENGTH);
-        return actionId === undefined || recoveryRef === undefined || reason === undefined
-            ? undefined
-            : { kind, actionId, recoveryRef, reason };
-    }
-    if (kind === "reject_action") {
-        if (!hasExactKeys(body, ["kind", "actionId", "reason"])) return undefined;
-        const actionId = readWireText(body.actionId, 256);
-        const reason = readWireText(body.reason, MAX_COMMAND_TEXT_LENGTH);
-        return actionId === undefined || reason === undefined || reason.trim().length === 0
-            ? undefined
-            : { kind, actionId, reason };
-    }
-    return undefined;
-}
-
-function isNonNegativeInteger(value: unknown): value is number {
-    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-}
-
-function readSessionText(value: unknown): string | undefined {
-    // 只校验形状；正文额度由 Runtime 会话所有者判定并返回稳定拒绝码。
-    return typeof value === "string" && value.trim().length > 0 ? value : undefined;
-}
 
 async function parsePlanModeCommand(
     request: Request,
@@ -1316,58 +1220,6 @@ function sessionInputErrorStatus(error: BrowserSessionInputErrorCode): 400 | 404
     if (error === "GOAL_NOT_FOUND") return 404;
     if (error === "input_admission_failed" || error === "session_unavailable") return 503;
     return 409;
-}
-
-function parseAnswers(
-    value: unknown,
-): { readonly questionId: string; readonly optionIds: readonly string[]; readonly otherText?: string }[] | undefined {
-    if (!Array.isArray(value) || value.length === 0 || value.length > 3) return undefined;
-    type Answer = { readonly questionId: string; readonly optionIds: readonly string[]; readonly otherText?: string };
-    const answers: Answer[] = [];
-    for (const candidate of value) {
-        if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return undefined;
-        const answer = candidate as Record<string, unknown>;
-        if (
-            !hasExactKeys(answer, ["questionId", "optionIds"], ["otherText"])
-            || typeof answer.optionIds !== "object"
-            || !Array.isArray(answer.optionIds)
-            || answer.optionIds.length > 3
-        ) return undefined;
-        const questionId = readWireText(answer.questionId, 256);
-        const optionIds = answer.optionIds.map((id) => readWireText(id, 256));
-        const otherText = answer.otherText === undefined
-            ? undefined
-            : readWireText(answer.otherText, MAX_COMMAND_TEXT_LENGTH);
-        if (
-            questionId === undefined
-            || optionIds.some((id) => id === undefined)
-            || (answer.otherText !== undefined && otherText === undefined)
-        ) return undefined;
-        answers.push({
-            questionId,
-            optionIds: optionIds as string[],
-            ...(otherText === undefined ? {} : { otherText }),
-        });
-    }
-    return answers;
-}
-
-function hasExactKeys(
-    value: Record<string, unknown>,
-    required: readonly string[],
-    optional: readonly string[] = [],
-): boolean {
-    const keys = Object.keys(value);
-    return required.every((key) => Object.hasOwn(value, key))
-        && keys.every((key) => required.includes(key) || optional.includes(key));
-}
-
-function readWireText(value: unknown, maximumLength: number): string | undefined {
-    return typeof value === "string"
-        && value.trim().length > 0
-        && value.length <= maximumLength
-        ? value
-        : undefined;
 }
 
 function isWireId(value: unknown, maximumLength: number): value is string {

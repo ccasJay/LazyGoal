@@ -118,8 +118,9 @@ export function isActivityPage(page: BrowserActivityPage): boolean {
 
     for (const run of page.runs) {
         if (run.terminalDetail === undefined) continue;
-        if (run.terminalDetail.message.length > 500) return false;
-        if (run.terminalDetail.code !== undefined && run.terminalDetail.code.length > 80) return false;
+        if (!hasUtf16LengthAtMost(run.terminalDetail.message, 500)) return false;
+        if (run.terminalDetail.code !== undefined
+            && !hasUtf16LengthAtMost(run.terminalDetail.code, 80)) return false;
     }
     for (const stage of page.stages) {
         if (stage.target !== undefined && !hasUtf16LengthAtMost(stage.target, 1_000)) return false;

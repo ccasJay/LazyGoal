@@ -5,6 +5,10 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | BrowserGoalSession | 浏览器会话投影 DTO。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
+| Web wire Contract | 每个 DTO 的唯一结构事实源；类型、guard 与命令 parser 共享同一 AST。 | [Web 传输契约](../README.md) | [合同目录](../src/contracts)、[模块说明](./overview.md) |
+| unknown / openObject | 任意 JSON 与开放对象的边界策略；载荷深度独立于合同结构预算。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
+| 跨字段不变量 | 结构解析后执行的 Plan Route、Activity、交互、Provider 与指标关系检查。 | [Web 传输契约](../README.md) | [不变量目录](../src/invariants) |
+| UTF-16 文本上限 | wire 文本按 UTF-16 code unit 计数的唯一实现。 | [Web 传输契约](../README.md) | [utf16.ts](../src/invariants/utf16.ts) |
 | BrowserGoalList | Goal 列表响应信封：可读取摘要与无法读取的历史 Goal 数量。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserGoalSessionState | 只含当前 Run 状态的窄会话 DTO；消息、步骤和阶段历史明确由 Activity 提供。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserSessionInputCommand | 统一输入 wire 命令；队列删除与 Steer 来源转换均绑定客户端读取的队列修订，Runtime 负责最终原子校验。 | [Web 传输契约](../README.md) | [输入命令 DTO](../src/session-input.ts)、[入站解析](../../browser/src/browser-goal-routes.ts) |

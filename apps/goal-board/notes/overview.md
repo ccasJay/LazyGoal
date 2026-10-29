@@ -10,6 +10,8 @@ React 浏览器前端，呈现已提交会话及临时活动。通用 UI 采用 
 
 通过本模块的公开入口使用上述能力。状态或副作用由调用方在所属边界控制。
 
+Goal Board 只消费 `@lazygoal/web-contracts` 导出的 DTO 与 guard，不导入 Contract AST 或 JSON Schema。Trajectory payload 等开放字段以只读记录视图展示，任意附加字段不会进入业务状态。
+
 ## 边界与限制
 
 本模块不替代其依赖模块的协议或持久化职责；具体输入、失败语义与类型以链接的源码契约为准。
