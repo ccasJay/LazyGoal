@@ -7,6 +7,11 @@ import { WebFetchBlockedUrlError } from "./fetch-errors";
  *
  * @remarks
  * `family` 只使用 4 或 6，供连接层按地址族选择已验证地址。
+ *
+ * @example
+ * ```ts
+ * const resolved: WebFetchResolvedAddress = { address: "8.8.8.8", family: 4 };
+ * ```
  */
 export interface WebFetchResolvedAddress {
     /** 规范化后的 IP 字面量。 */

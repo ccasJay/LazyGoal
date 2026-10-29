@@ -46,6 +46,11 @@ export class WebSearchUnrecognizedResponseError extends Error {
  *
  * @remarks
  * 仅用于隔离测试；生产默认构造不传入任何选项。
+ *
+ * @example
+ * ```ts
+ * const options: DuckDuckGoSearchBackendOptions = { fetch: myFetch };
+ * ```
  */
 export interface DuckDuckGoSearchBackendOptions {
     /** 替换网络传输的 fetch 实现。 */

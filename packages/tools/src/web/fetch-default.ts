@@ -33,6 +33,11 @@ const WEB_FETCH_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Ap
  *
  * @remarks
  * 该结构只由 URL 策略产生，测试接缝可观察但不能扩大地址集合。
+ *
+ * @example
+ * ```ts
+ * const address: WebFetchTransportAddress = { address: "8.8.8.8", family: 4 };
+ * ```
  */
 export interface WebFetchTransportAddress extends WebFetchResolvedAddress {}
 
@@ -42,6 +47,13 @@ export interface WebFetchTransportAddress extends WebFetchResolvedAddress {}
  * @remarks
  * `resolveHostname` 与 `createConnector` 只用于确定性测试和内部传输隔离；
  * 它们不会通过 `WebFetchTool` 构造器、Profile 或配置暴露，不能用于生产环境放行私网地址。
+ *
+ * @example
+ * ```ts
+ * const options: DefaultWebFetchHandlerOptions = {
+ *   resolveHostname: async () => ["8.8.8.8"],
+ * };
+ * ```
  */
 export interface DefaultWebFetchHandlerOptions {
     /** 替换主机名解析的确定性解析函数。 */
