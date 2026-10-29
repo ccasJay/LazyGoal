@@ -1,3 +1,4 @@
+import { encodePathSegment } from "./path-segment";
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readdir, readFile, rename, rm, stat, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -93,11 +94,11 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
     }
 
     private encodeGoalId(goalId: string): string {
-        return Buffer.from(goalId, "utf8").toString("base64url");
+        return encodePathSegment(goalId);
     }
 
     private encodeProcessId(processId: string): string {
-        return Buffer.from(processId, "utf8").toString("base64url");
+        return encodePathSegment(processId);
     }
 
     private getProcessDirectory(goalId: string, processId: string): string {

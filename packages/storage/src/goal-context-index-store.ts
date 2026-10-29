@@ -1,3 +1,4 @@
+import { encodePathSegment } from "./path-segment";
 import { deepFreeze } from "../../contracts/src/index";
 import {
     chmod,
@@ -97,7 +98,7 @@ export class JsonFileGoalContextIndexStore implements GoalContextIndexStore {
     constructor(private readonly directory: string) {}
 
     private goalDirectory(goalId: string): string {
-        const encodedGoalId = Buffer.from(goalId).toString("base64url");
+        const encodedGoalId = encodePathSegment(goalId);
         return join(this.directory, encodedGoalId);
     }
 

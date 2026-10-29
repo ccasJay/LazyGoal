@@ -1,3 +1,4 @@
+import { encodePathSegment } from "./path-segment";
 import { deepFreeze } from "../../contracts/src/index";
 import {
     chmod,
@@ -405,7 +406,7 @@ export class JsonFileContextRetrievalIndexStore implements TrajectoryRetrievalIn
 
     private encodeIdentifier(value: string): string {
         this.assertIdentifier(value, "sidecar identifier");
-        return Buffer.from(value, "utf8").toString("base64url");
+        return encodePathSegment(value);
     }
 
     private assertIdentifier(value: string, field: string): void {

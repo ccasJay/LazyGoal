@@ -1,3 +1,4 @@
+import { encodePathSegment } from "./path-segment";
 import { isRecord } from "../../contracts/src/index";
 import { isModelConversationMessage, type ModelAssistantMessage } from "../../model-contracts/src/index";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -8,7 +9,7 @@ import type { ModelInputMessage, ModelInputRecord, ModelInputStore } from "../..
 type Manifest = Omit<ModelInputRecord, "messages"> & { schemaVersion: 1; messages: { role: ModelInputMessage["role"]; source: ModelInputMessage["source"]; ref: string; callId?: string; toolId?: string; reasoning?: string; toolCalls?: ModelAssistantMessage["toolCalls"]; continuation?: ModelAssistantMessage["continuation"] }[] };
 const sources = ["system", "conversation", "section", "working_context", "stage", "request", "native_history"];
 const digest = (text: string) => createHash("sha256").update(text).digest("hex");
-const id = (value: string) => { if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) throw new Error("Invalid model input identity"); return Buffer.from(value).toString("base64url"); };
+const id = (value: string) => { if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) throw new Error("Invalid model input identity"); return encodePathSegment(value); };
 
 /**
  * 按 Goal/Run 保存调用清单与 SHA-256 寻址正文，未变化的 system 文本不重复写入。

@@ -44,7 +44,7 @@
   - 场景与预期：既有 DTO 冻结测试仍通过；循环对象不再导致栈溢出；冻结后的对象在严格模式下写入仍然抛错；`model-context` 两个原先不检测环的投影路径行为与其它路径一致。
   - 验证手段：`npx tsc --noEmit` 与 `npx tsx --test packages/context-retrieval/test/context-tokenizer.test.ts packages/context-retrieval/test/context-document-builder.test.ts packages/context-retrieval/test/context-retrieval-index.test.ts packages/model-context/test/trajectory-event-projector.test.ts packages/model-context/test/trajectory-model-context-assembler.test.ts packages/model-context/test/model-inference-projector.test.ts packages/model-context/test/context-lookup-projection.test.ts packages/storage/test/goal-context-index-store.test.ts packages/storage/test/context-retrieval-index-sidecar.test.ts`。
 
-- [ ] //TODO 8. 完成 storage base64url 路径编码收敛
+- [x] //TODO 8. 完成 storage base64url 路径编码收敛
   - 落实标准：[4.1](./spec.md#spec-req-4-1), [4.2](./spec.md#spec-req-4-2), [4.3](./spec.md#spec-req-4-3), [6.4](./spec.md#spec-req-6-4)
   - 实施目标：新增 storage 内部模块 `packages/storage/src/path-segment.ts`，提供 `encodePathSegment(value: string): string`，实现为 `Buffer.from(value, "utf8").toString("base64url")` 且不从 `src/index.ts` 导出；替换 `goal-store`、`json-file-trajectory-store`、`json-file-metrics-store`、`json-file-diagnostic-trace-sink`、`json-file-model-input-store`、`json-file-process-session-store`（两个方法）、`goal-context-index-store`、`context-retrieval-index-sidecar` 的 9 处编码。保留 `json-file-model-input-store` 编码前的 `^[A-Za-z0-9_-]{1,256}$` 校验。若 `specs/storage-write-primitives` 已落地，只替换路径编码调用点，不覆盖其原子写入与队列实现。新增 `packages/storage/test/path-segment.test.ts` 固定 ASCII、Unicode、`/`、`+`、`=` 与空字符串输出。
   - 场景与预期：所有现有文件路径、文件名、目录布局与持久化字节不变；`goal-store.test.ts`、`trajectory-store.test.ts` 与 `context-retrieval-index-sidecar.test.ts` 的路径断言不变。
