@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
     analyzeDependencies,
+    analyzeDependenciesWithScanner,
     checkDependencies,
+    createSourceScanner,
+    extractModuleSpecifiers,
 } from "./check-dependencies.mjs";
 
 const EXISTING_PACKAGES = ["runtime", "llm-core", "llm-google", "storage", "agent", "tools"];
@@ -696,4 +701,419 @@ test("constrains the agent public entry to the default assembly", async () => {
     assert.deepEqual(await analyzeDependencies(root), [
         "入口约束：packages/agent 公共入口只能转发默认装配（packages/agent/src/index.ts 引用 ./old-executor）",
     ]);
+});
+
+const TS_REFERENCE_FORMS = [
+    'import { alpha } from "./alpha";',
+    'import "./side-effect";',
+    'import type { Beta } from "./beta";',
+    'export type { Gamma } from "./gamma";',
+    'export * from "./delta";',
+    'export type Epsilon = import("./epsilon").Epsilon;',
+    'const zeta = import("./zeta");',
+    'const eta = require("./eta");',
+    'import theta = require("./theta");',
+    'import iota from "./iota" with { type: "json" };',
+    'import { alphaAgain } from "./alpha";',
+];
+
+const TS_REFERENCE_SPECIFIERS = [
+    "./alpha",
+    "./side-effect",
+    "./beta",
+    "./gamma",
+    "./delta",
+    "./epsilon",
+    "./zeta",
+    "./eta",
+    "./theta",
+    "./iota",
+];
+
+const PSEUDO_REFERENCES = [
+    '// import { commented } from "./comment";',
+    'const quoted = \'import { quoted } from "./string"\';',
+    'const templated = `require("./template")`;',
+    'const pattern = /import\\("\\.\\/regex"\\)/;',
+    "const meta = import.meta.url;",
+];
+
+test("AST extraction covers every supported reference form in first-occurrence order", () => {
+    const source = [
+        ...TS_REFERENCE_FORMS,
+        ...PSEUDO_REFERENCES,
+        "const asserted = <string>meta;",
+        "void [zeta, eta, quoted, templated, pattern, asserted];",
+    ].join("\n");
+
+    assert.deepEqual(
+        extractModuleSpecifiers(source, "packages/example/src/index.ts"),
+        TS_REFERENCE_SPECIFIERS,
+    );
+});
+
+test("AST extraction enables JSX for tsx sources and still covers every reference form", () => {
+    const source = [
+        ...TS_REFERENCE_FORMS,
+        'const element = <div className="x">{alpha}</div>;',
+        "void element;",
+    ].join("\n");
+
+    assert.deepEqual(
+        extractModuleSpecifiers(source, "apps/example/src/index.tsx"),
+        TS_REFERENCE_SPECIFIERS,
+    );
+});
+
+test("AST extraction ignores pseudo imports in comments strings templates and regexes", async () => {
+    const root = await fixtureProject({
+        "packages/contracts/src/index.ts": [
+            '// import { fake } from "../../runtime/src/index";',
+            'const quoted = \'import { fake } from "../../runtime/src/index"\';',
+            'const templated = `require("../../runtime/src/index")`;',
+            'const pattern = /from "..\\/..\\/runtime\\/src\\/index"/;',
+            "export const value = [quoted, templated, pattern];",
+        ].join("\n"),
+        "packages/runtime/src/index.ts": "export const runtime = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), []);
+});
+
+test("AST extraction reports forbidden directions for every supported reference form", async () => {
+    const root = await fixtureProject({
+        "packages/contracts/src/index.ts": [
+            'import { a } from "../../runtime/src/index";',
+            'import "../../runtime/src/side-effect";',
+            'export type { B } from "../../runtime/src/type-decl";',
+            'export type C = import("../../runtime/src/type-position").C;',
+            'export const d = import("../../runtime/src/dynamic");',
+            'export const e = require("../../runtime/src/required");',
+            'import f = require("../../runtime/src/import-equals");',
+            "void [a, d, e, f];",
+        ].join("\n"),
+        "packages/runtime/src/index.ts": "export const runtime = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/dynamic）",
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/import-equals）",
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/index）",
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/required）",
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/side-effect）",
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/type-decl）",
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/type-position）",
+    ]);
+});
+
+test("AST extraction fails with repository-relative path and parser message", async () => {
+    const root = await fixtureProject({
+        "packages/contracts/src/broken.ts": "export const broken = ;\n",
+    });
+
+    await assert.rejects(analyzeDependencies(root), (error) => {
+        assert.match(error.message, /^无法解析源文件：packages\/contracts\/src\/broken\.ts：/);
+        assert.match(error.message, /Unexpected token/);
+        return true;
+    });
+
+    const result = spawnSync(
+        process.execPath,
+        [fileURLToPath(new URL("./check-dependencies.mjs", import.meta.url)), root],
+        { encoding: "utf8" },
+    );
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /无法解析源文件：packages\/contracts\/src\/broken\.ts：/);
+    assert.match(result.stderr, /Unexpected token/);
+});
+
+test("AST boundary applies file-level rules to require dynamic and type-position imports", async () => {
+    const root = await fixtureProject({
+        "packages/model-view/src/model-inference-view.ts": [
+            'export type Goal = import("../../runtime/src/index").Goal;',
+            'export const errors = require("../../runtime/src/errors");',
+            'export const context = import("../../model-context/src/index");',
+        ].join("\n"),
+        "packages/runtime/src/index.ts": "export type Goal = true;\n",
+        "packages/runtime/src/errors.ts": "export const errors = true;\n",
+        "packages/model-context/src/index.ts": "export const context = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/model-view 不得导入 packages/model-context（packages/model-view/src/model-inference-view.ts 引用 ../../model-context/src/index）",
+        "禁止依赖方向：packages/model-view 不得导入 packages/runtime（packages/model-view/src/model-inference-view.ts 引用 ../../runtime/src/errors）",
+        "禁止依赖方向：packages/model-view 不得导入 packages/runtime（packages/model-view/src/model-inference-view.ts 引用 ../../runtime/src/index）",
+        "边界违规：ModelInferenceView DTO 不得导入 packages/model-context（packages/model-view/src/model-inference-view.ts 引用 ../../model-context/src/index）",
+        "边界违规：ModelInferenceView DTO 不得导入 packages/runtime（packages/model-view/src/model-inference-view.ts 引用 ../../runtime/src/errors）",
+        "边界违规：ModelInferenceView DTO 不得导入 packages/runtime（packages/model-view/src/model-inference-view.ts 引用 ../../runtime/src/index）",
+    ]);
+});
+
+test("AST boundary rejects every relative reference form in the agent entry", async () => {
+    const root = await fixtureProject({
+        "packages/agent/src/index.ts": [
+            'export { createAgentExecutor } from "./create-agent-executor";',
+            '// export { commented } from "./comment";',
+            'const label = "export { quoted } from \\"./quoted\\"";',
+            'export type Options = import("./types").Options;',
+            'export const load = () => import("./dynamic");',
+            'const legacy = require("./legacy");',
+            "void [label, load, legacy];",
+        ].join("\n"),
+        "packages/agent/src/create-agent-executor.ts": "export const createAgentExecutor = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "入口约束：packages/agent 公共入口只能转发默认装配（packages/agent/src/index.ts 引用 ./dynamic）",
+        "入口约束：packages/agent 公共入口只能转发默认装配（packages/agent/src/index.ts 引用 ./legacy）",
+        "入口约束：packages/agent 公共入口只能转发默认装配（packages/agent/src/index.ts 引用 ./types）",
+    ]);
+});
+
+test("AST boundary allows the default agent forwarding target and ignores pseudo references", async () => {
+    const root = await fixtureProject({
+        "packages/agent/src/index.ts": [
+            'export { createAgentExecutor } from "./create-agent-executor";',
+            '// export { commented } from "./comment";',
+            'const label = `export { templated } from "./templated"`;',
+            "void label;",
+        ].join("\n"),
+        "packages/agent/src/create-agent-executor.ts": "export const createAgentExecutor = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), []);
+});
+
+/** 构造统计读取与解析次数的 scanner，用于验证调用级缓存而不是总耗时。 */
+async function countingScanner(root) {
+    const reads = new Map();
+    const parses = new Map();
+    const scanner = createSourceScanner(root, {
+        readFile: async (file) => {
+            reads.set(file, (reads.get(file) ?? 0) + 1);
+            return readFile(file, "utf8");
+        },
+        extractSpecifiers: (sourceText, relativePath) => {
+            parses.set(relativePath, (parses.get(relativePath) ?? 0) + 1);
+            return extractModuleSpecifiers(sourceText, relativePath);
+        },
+    });
+    return { scanner, reads, parses };
+}
+
+test("AST cache reads and parses each file once across overlapping rule families", async () => {
+    const root = await fixtureProject({
+        "packages/runtime/src/checkpoint-gate.ts":
+            'import { ProcessManager } from "../../process-runtime/src/errors";\nexport const RuntimeLifecycle = ProcessManager;\n',
+        "packages/process-runtime/src/errors.ts": "export const ProcessManager = true;\n",
+        "packages/process-runtime/src/index.ts": "export {};\n",
+    });
+    const { scanner, reads, parses } = await countingScanner(root);
+
+    assert.deepEqual(await analyzeDependenciesWithScanner(root, scanner), [
+        "禁止依赖方向：packages/runtime 不得导入 packages/process-runtime（packages/runtime/src/checkpoint-gate.ts 引用 ../../process-runtime/src/errors）",
+        "组件入口违规：packages/runtime/src/checkpoint-gate.ts 必须通过 packages/process-runtime/src/index.ts 访问进程会话运行时（引用 ../../process-runtime/src/errors）",
+    ]);
+
+    const watchedFile = path.join(root, "packages", "runtime", "src", "checkpoint-gate.ts");
+    assert.equal(reads.get(watchedFile), 1);
+    assert.equal(parses.get("packages/runtime/src/checkpoint-gate.ts"), 1);
+    for (const [file, count] of reads) assert.equal(count, 1, `${file} 被读取 ${count} 次`);
+    for (const [file, count] of parses) assert.equal(count, 1, `${file} 被解析 ${count} 次`);
+});
+
+test("AST cache shares one read between text and concurrent specifier requests", async () => {
+    const source = 'export {} from "../../runtime/src/index";\n';
+    const root = await fixtureProject({
+        "packages/contracts/src/index.ts": source,
+        "packages/runtime/src/index.ts": "export {};\n",
+    });
+    const { scanner, reads, parses } = await countingScanner(root);
+    const file = path.join(root, "packages", "contracts", "src", "index.ts");
+
+    const [text, first, second] = await Promise.all([
+        scanner.text(file),
+        scanner.specifiers(file),
+        scanner.specifiers(file),
+    ]);
+
+    assert.equal(text, source);
+    assert.deepEqual(first, ["../../runtime/src/index"]);
+    assert.deepEqual(second, ["../../runtime/src/index"]);
+    assert.equal(reads.get(file), 1);
+    assert.equal(parses.get("packages/contracts/src/index.ts"), 1);
+});
+
+test("AST cache does not leak file content between analysis calls", async () => {
+    const file = "packages/contracts/src/index.ts";
+    const root = await fixtureProject({
+        [file]: '// import { fake } from "../../runtime/src/index";\n',
+        "packages/runtime/src/index.ts": "export {};\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), []);
+
+    await writeFile(
+        path.join(root, file),
+        'export {} from "../../runtime/src/index";\n',
+    );
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/index）",
+    ]);
+});
+
+test("AST cache isolates different project roots", async () => {
+    const violatingRoot = await fixtureProject({
+        "packages/contracts/src/index.ts": 'export {} from "../../runtime/src/index";\n',
+        "packages/runtime/src/index.ts": "export {};\n",
+    });
+    const cleanRoot = await fixtureProject({
+        "packages/contracts/src/index.ts": "export const contract = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(violatingRoot), [
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/index）",
+    ]);
+    assert.deepEqual(await analyzeDependencies(cleanRoot), []);
+});
+
+const PACKAGE_DIRECTION_CASES = [
+    ["contracts", "runtime"],
+    ["context-budget", "runtime"],
+    ["model-view", "runtime"],
+    ["model-context", "llm"],
+    ["prompt-renderer", "runtime"],
+    ["prompt-bundle", "contracts"],
+    ["model-request", "agent"],
+    ["model-response", "runtime"],
+    ["model-call", "agent"],
+    ["model-execution", "agent"],
+    ["model-contracts", "runtime"],
+    ["execution-stream", "contracts"],
+    ["execution-control", "runtime"],
+    ["context-retrieval", "runtime"],
+    ["http", "contracts"],
+    ["slash-command", "contracts"],
+    ["acp", "contracts"],
+    ["sandbox", "contracts"],
+    ["permission", "runtime"],
+    ["tool-core", "runtime"],
+    ["working-memory", "runtime"],
+    ["llm-core", "config"],
+    ["llm-openai", "config"],
+    ["llm-google", "config"],
+    ["llm-pi-ai", "config"],
+    ["model-catalog", "llm-pi-ai"],
+    ["config", "runtime"],
+    ["runtime", "agent"],
+    ["llm", "runtime"],
+    ["storage", "agent"],
+    ["agent", "browser"],
+    ["session-metrics", "storage"],
+    ["tools", "agent"],
+    ["process-runtime", "contracts"],
+    ["browser", "storage"],
+    ["web-contracts", "runtime"],
+];
+
+test("包依赖方向逐包拒绝未允许的出站边", async () => {
+    for (const [sourcePackage, targetPackage] of PACKAGE_DIRECTION_CASES) {
+        const sourceFile = sourcePackage === "agent" ? "executor.ts" : "index.ts";
+        const root = await fixtureProject({
+            [`packages/${sourcePackage}/src/${sourceFile}`]:
+                `export {} from "../../${targetPackage}/src/index";\n`,
+            [`packages/${targetPackage}/src/index.ts`]: "export {};\n",
+        });
+
+        assert.deepEqual(await analyzeDependencies(root), [
+            `禁止依赖方向：packages/${sourcePackage} 不得导入 packages/${targetPackage}（packages/${sourcePackage}/src/${sourceFile} 引用 ../../${targetPackage}/src/index）`,
+        ], `${sourcePackage} -> ${targetPackage}`);
+    }
+});
+
+test("app 依赖方向逐 app 拒绝未允许的包", async () => {
+    for (const [sourceApp, targetPackage] of [
+        ["goal-board", "agent"],
+        ["goal-server", "sandbox"],
+    ]) {
+        const root = await fixtureProject({
+            [`apps/${sourceApp}/src/index.ts`]:
+                `export {} from "../../../packages/${targetPackage}/src/index";\n`,
+            [`packages/${targetPackage}/src/index.ts`]: "export {};\n",
+        });
+
+        assert.deepEqual(await analyzeDependencies(root), [
+            `禁止依赖方向：apps/${sourceApp} 不得导入 packages/${targetPackage}（apps/${sourceApp}/src/index.ts 引用 ../../../packages/${targetPackage}/src/index）`,
+        ], `${sourceApp} -> ${targetPackage}`);
+    }
+});
+
+test("rejects imports between different apps", async () => {
+    const root = await fixtureProject({
+        "apps/goal-server/src/index.ts":
+            'export {} from "../../../apps/goal-board/src/index";\n',
+        "apps/goal-board/src/index.ts": "export {};\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止应用交叉依赖：apps/goal-server 不得导入 apps/goal-board（apps/goal-server/src/index.ts 引用 ../../../apps/goal-board/src/index）",
+    ]);
+});
+
+const FILE_BOUNDARY_CASES = [
+    ["packages/model-view/src/model-inference-view.ts", "ModelInferenceView DTO"],
+    ["packages/model-view/src/model-history-view.ts", "模型历史结果 DTO"],
+    ["packages/model-request/src/render.ts", "Prompt 请求渲染器"],
+    ["packages/storage/src/goal-snapshot.ts", "Goal Snapshot DTO/Schema"],
+    ["packages/storage/src/agent-profile-file.ts", "AgentProfile 文件 DTO/Schema"],
+];
+
+test("文件级边界逐文件拒绝 Runtime 引用", async () => {
+    for (const [relativePath, label] of FILE_BOUNDARY_CASES) {
+        const root = await fixtureProject({
+            [relativePath]: 'export type Leak = import("../../runtime/src/index").Leak;\n',
+            "packages/runtime/src/index.ts": "export type Leak = true;\n",
+        });
+
+        assert.deepEqual(
+            (await analyzeDependencies(root)).filter((violation) => violation.startsWith("边界违规：")),
+            [`边界违规：${label} 不得导入 packages/runtime（${relativePath} 引用 ../../runtime/src/index）`],
+            relativePath,
+        );
+    }
+});
+
+test("文件级边界允许未禁止的包引用", async () => {
+    for (const [relativePath] of FILE_BOUNDARY_CASES) {
+        const root = await fixtureProject({
+            [relativePath]: 'export type Allowed = import("../../model-contracts/src/index").Allowed;\n',
+            "packages/model-contracts/src/index.ts": "export type Allowed = true;\n",
+        });
+
+        assert.deepEqual(await analyzeDependencies(root), [], relativePath);
+    }
+});
+
+test("allows benchmark shared-layer and same-benchmark imports", async () => {
+    const root = await fixtureProject({
+        "benchmarks/gaia/src/index.ts":
+            'export { run } from "./worker";\nexport { shared } from "../../src/shared";\n',
+        "benchmarks/gaia/src/worker.ts": "export const run = true;\n",
+        "benchmarks/src/shared.ts": "export const shared = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), []);
+});
+
+test("allows vendor SDK imports outside SDK-free packages", async () => {
+    const root = await fixtureProject({
+        "packages/llm-openai/src/index.ts": [
+            'import OpenAI from "openai";',
+            'import type { GoogleGenAI } from "@google/genai";',
+            "export const client = OpenAI;\nexport type Client = GoogleGenAI;",
+        ].join("\n"),
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), []);
 });
