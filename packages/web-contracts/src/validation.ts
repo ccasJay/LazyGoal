@@ -1,3 +1,4 @@
+import { isRecord } from "../../contracts/src/index";
 import type {
     BrowserActionDetailsResult,
     BrowserJsonValue,
@@ -52,10 +53,7 @@ import { BROWSER_ACTIVITY_EVENT_TYPES } from "./activity";
  * if (isRecord(val)) console.log(Object.keys(val));
  * ```
  */
-export function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
+export { isRecord };
 function isMessagePosition(value: unknown): value is { readonly afterSequence: number; readonly order: number } {
     return isRecord(value)
         && Number.isSafeInteger(value.afterSequence) && Number(value.afterSequence) >= 0

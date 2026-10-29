@@ -1,3 +1,4 @@
+import { isRecord } from "../../contracts/src/index";
 import { isModelConversationMessage, type ModelAssistantMessage } from "../../model-contracts/src/index";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -8,7 +9,6 @@ type Manifest = Omit<ModelInputRecord, "messages"> & { schemaVersion: 1; message
 const sources = ["system", "conversation", "section", "working_context", "stage", "request", "native_history"];
 const digest = (text: string) => createHash("sha256").update(text).digest("hex");
 const id = (value: string) => { if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) throw new Error("Invalid model input identity"); return Buffer.from(value).toString("base64url"); };
-const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 
 /**
  * 按 Goal/Run 保存调用清单与 SHA-256 寻址正文，未变化的 system 文本不重复写入。
@@ -61,7 +61,7 @@ export class JsonFileModelInputStore implements ModelInputStore {
         const result: ModelInputRecord[] = [];
         for (const line of content.split("\n").filter(Boolean)) {
             const value: unknown = JSON.parse(line);
-            if (!object(value) || value.schemaVersion !== 1 || value.goalId !== goalId || value.runId !== runId
+            if (!isRecord(value) || value.schemaVersion !== 1 || value.goalId !== goalId || value.runId !== runId
                 || typeof value.callId !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(value.callId)
                 || !["think", "decide", "completion_review"].includes(String(value.stage)) || !Number.isSafeInteger(value.stepIndex) || Number(value.stepIndex) < 1
                 || typeof value.occurredAt !== "string" || !Number.isFinite(Date.parse(value.occurredAt))
@@ -69,7 +69,7 @@ export class JsonFileModelInputStore implements ModelInputStore {
                 || !Array.isArray(value.messages)) throw new Error("Invalid model input manifest");
             const messages: ModelInputMessage[] = [];
             for (const message of value.messages) {
-                if (!object(message) || !["system", "user", "assistant", "tool"].includes(String(message.role)) || !sources.includes(String(message.source))
+                if (!isRecord(message) || !["system", "user", "assistant", "tool"].includes(String(message.role)) || !sources.includes(String(message.source))
                     || typeof message.ref !== "string" || !/^[a-f0-9]{64}$/.test(message.ref)) throw new Error("Invalid model input message reference");
                 let body = bodies.get(message.ref);
                 if (body === undefined) {

@@ -1,3 +1,4 @@
+import { isRecord } from "../../contracts/src/index";
 import {
     isModelAssistantMessage,
     sameNativeIdentity,
@@ -672,7 +673,7 @@ function restoreGeminiResponseProjection(content: string, schema: JsonSchema2020
         return content;
     }
 
-    if (isJsonObject(value) && isJsonObject(value.result)) {
+    if (isRecord(value) && isRecord(value.result)) {
         const result = value.result;
 
         // 1. 若具有有效的 action 对象，确认为 tool_call，清理非当前分支的字段
@@ -737,7 +738,7 @@ function restoreGeminiProjectedValue(value: unknown, schema: JsonSchema202012): 
         return value.reduce((changed, item) =>
             restoreGeminiProjectedValue(item, schema.items as JsonSchema202012) || changed, false);
     }
-    if (schema.type !== "object" || !isJsonObject(value) || schema.properties === undefined) return false;
+    if (schema.type !== "object" || !isRecord(value) || schema.properties === undefined) return false;
 
     const properties = schema.properties as Record<string, JsonSchema202012>;
     const required = new Set(Array.isArray(schema.required) ? schema.required as readonly string[] : []);
@@ -792,7 +793,7 @@ function matchesKnownSchemaShape(value: unknown, schema: JsonSchema202012): bool
             return Array.isArray(value) && (schema.items === undefined
                 || value.every(item => matchesKnownSchemaShape(item, schema.items as JsonSchema202012)));
         case "object": {
-            if (!isJsonObject(value) || schema.properties === undefined) return false;
+            if (!isRecord(value) || schema.properties === undefined) return false;
             const properties = schema.properties as Record<string, JsonSchema202012>;
             if (schema.additionalProperties === false && Object.keys(value).some(key =>
                 !(key in properties) && !(key === "completionEvidence" && value[key] === GEMINI_ABSENT_SENTINEL))) return false;
@@ -847,10 +848,6 @@ function schemaAllowsNull(schema: JsonSchema202012): boolean {
         || schema.nullable === true
         || (Array.isArray(schema.anyOf)
             && schema.anyOf.some(branch => schemaAllowsNull(branch as JsonSchema202012)));
-}
-
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** 合并决策判别联合，转换 nullable，并保持内部对象联合的独立分支。 */

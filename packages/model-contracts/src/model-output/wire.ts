@@ -12,15 +12,12 @@ import {
     type ObjectShape,
     type StringOptions,
 } from "../../../contracts/src/index";
+import { isRecord } from "../../../contracts/src/index";
 import { ModelOutputContractDefinitionError } from "./errors";
 
 type RuntimeContract = Omit<Contract<unknown>, "kind"> & Readonly<Record<PropertyKey, unknown>> & {
     readonly kind: ContractKind;
 };
-
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /**
  * 将 Canonical Contract 节点递归转换为 required-nullable Wire Contract 节点。
@@ -199,7 +196,7 @@ export function deriveWireEnvelopeContract<Result>(
  * 检查某个 object contract 分支是否与当前的 input 对象相匹配。
  */
 function isMatchingBranch(branch: RuntimeContract, value: Record<string, unknown>): boolean {
-    if (branch.kind !== "object" || !isObjectRecord(branch.shape)) {
+    if (branch.kind !== "object" || !isRecord(branch.shape)) {
         return false;
     }
     const shape = branch.shape as Record<string, unknown>;
@@ -213,9 +210,9 @@ function isMatchingBranch(branch: RuntimeContract, value: Record<string, unknown
     }
 
     // 针对 tool_call 分支检查 action.toolId
-    if (value.kind === "tool_call" && "action" in shape && isObjectRecord(value.action)) {
+    if (value.kind === "tool_call" && "action" in shape && isRecord(value.action)) {
         const actionProp = shape.action as RuntimeContract;
-        if (actionProp.kind === "object" && isObjectRecord(actionProp.shape)) {
+        if (actionProp.kind === "object" && isRecord(actionProp.shape)) {
             const actionShape = actionProp.shape as Record<string, unknown>;
             if ("toolId" in actionShape && "toolId" in value.action) {
                 const toolIdProp = actionShape.toolId as RuntimeContract;
@@ -246,7 +243,7 @@ function decodeNode(
 
     switch (runtimeNode.kind) {
         case "object": {
-            if (!isObjectRecord(value)) {
+            if (!isRecord(value)) {
                 return value;
             }
             const decoded: Record<string, unknown> = {};
@@ -284,7 +281,7 @@ function decodeNode(
             return decoded;
         }
         case "discriminatedUnion": {
-            if (!isObjectRecord(value)) {
+            if (!isRecord(value)) {
                 return value;
             }
             const discriminator = runtimeNode.discriminator as string;
@@ -307,7 +304,7 @@ function decodeNode(
                     return decodeNode(arrayBranch, value, path);
                 }
             }
-            if (isObjectRecord(value)) {
+            if (isRecord(value)) {
                 const branches = runtimeNode.branches as readonly Contract<unknown>[];
                 const matchingBranch = branches.find((b) => isMatchingBranch(b as unknown as RuntimeContract, value));
                 if (matchingBranch !== undefined) {
@@ -356,7 +353,7 @@ export function decodeWireResult<Result>(
     wireValue: unknown,
     canonicalContract: Contract<Result>,
 ): Result {
-    if (!isObjectRecord(wireValue) || !("result" in wireValue)) {
+    if (!isRecord(wireValue) || !("result" in wireValue)) {
         throw new ContractValidationError(
             [
                 {

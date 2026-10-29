@@ -1,3 +1,4 @@
+import { isRecord } from "./json";
 import type {
     ArrayContract,
     ArrayOptions,
@@ -86,10 +87,6 @@ function freezeContractNode<Node extends object>(node: Node): Readonly<Node> {
     return Object.freeze(node);
 }
 
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function isContract(value: unknown): value is Contract<unknown> {
     return isContractNode(value);
 }
@@ -101,7 +98,7 @@ function assertContract(value: unknown, label: string): asserts value is Contrac
 }
 
 function assertOptionsObject(value: unknown, label: string, keys: readonly string[]): asserts value is Record<string, unknown> {
-    if (!isObjectRecord(value)) {
+    if (!isRecord(value)) {
         throw new TypeError(`${label} must be an object`);
     }
 
@@ -193,7 +190,7 @@ function copyArrayOptions(options: ArrayOptions | undefined): ArrayOptions | und
 }
 
 function copyShape<Shape extends ObjectShape>(shape: Shape): Readonly<Shape> {
-    if (!isObjectRecord(shape)) {
+    if (!isRecord(shape)) {
         throw new TypeError("object shape must be an object");
     }
     for (const key of Reflect.ownKeys(shape)) {
@@ -394,7 +391,7 @@ function copyDiscriminatedBranches(
 ): readonly ObjectContract<ObjectShape>[] {
     const list = Array.isArray(branches)
         ? branches
-        : isObjectRecord(branches)
+        : isRecord(branches)
             ? Object.keys(branches).map((key) => branches[key])
             : undefined;
     if (list === undefined || list.length === 0) {

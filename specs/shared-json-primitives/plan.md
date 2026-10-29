@@ -26,7 +26,7 @@
   - 场景与预期：同一 Tool 输入的 `computeInputDigest` 与 `computeCanonicalDigest` 与收敛前逐字节一致；Cursor 解码后的 payload 不变；Working Memory 的事实相等与规范化结果不变。
   - 验证手段：`npx tsc --noEmit` 与 `npx tsx --test packages/permission/test/grant-matching.test.ts packages/tools/test/cursor.test.ts packages/working-memory/test/working-memory-core.test.ts`。
 
-- [ ] //TODO 5. 完成 packages 内的通用对象守卫收敛
+- [x] //TODO 5. 完成 packages 内的通用对象守卫收敛
   - 落实标准：[2.1](./spec.md#spec-req-2-1), [2.2](./spec.md#spec-req-2-2), [2.4](./spec.md#spec-req-2-4), [2.5](./spec.md#spec-req-2-5)
   - 实施目标：把剩余 10 个 packages 内通用守卫替换为 contracts 的 `isRecord`：`contracts/src/contract.ts` 1 个；`model-contracts` 4 个（`canonical.ts`、`model-conversation.ts`、`model-output/factory.ts`、`model-output/wire.ts`）；`storage` 2 个（`goal-snapshot-codec.ts`、`json-file-model-input-store.ts`）；`model-call` 1 个；`web-contracts` 1 个（保留公开导出并转发）；`llm-google` 1 个。若 `specs/web-wire-contract-unification` 已重写 `validation.ts`，在其迁移后的内容上只替换 `isRecord` 实现，保留其 48 个 guard 与合同迁移。保留 `execution-stream` 的 `StreamJsonValue`、`browser-projection` 的 `JsonValue` 与 `contracts/internal.ts` 的 `Record<PropertyKey, unknown>` 守卫。类型收窄引发的错误必须在调用点做显式字段校验，不得新增 `any` 断言。
   - 场景与预期：`isRecord` 对普通对象返回 `true`，对 `null`/数组返回 `false`，对 `Date`/`Map`/类实例仍返回 `true`；`web-contracts` 的 `isRecord` 导出名与签名不变；`browser` 继续通过 `web-contracts` 使用该守卫；所有受影响包的类型检查通过。
