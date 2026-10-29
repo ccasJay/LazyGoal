@@ -12,7 +12,7 @@
   - 场景与预期：读取首个事件得到精确的 `event: update\ndata: {json}\n\n`，顺序与 feed 一致；客户端取消后 `feed.close()` 的副作用恰好一次且不再写入后续事件；feed 正常结束同样只释放一次；非法 Goal、绑定查询、缺失 Goal 与不可读 Goal 仍在 SSE 开始前返回现有 JSON 状态；错误响应不带 `text/event-stream`。
   - 验证手段：扩展 `packages/browser/test/browser-stream.test.ts`，使用 `createHttpService` + `createBrowserSessionAccess` 走真实 HTTP，覆盖首事件、取消、正常结束与订阅计数；`npx tsx --test packages/browser/test/browser-stream.test.ts`；`npx tsc --noEmit`。
 
-- [ ] //TODO 2. 建立 Goal Board 统一 SSE 解析入口并迁移 metrics 与 Goal events
+- [x] //TODO 2. 建立 Goal Board 统一 SSE 解析入口并迁移 metrics 与 Goal events
   - 落实标准：[2.1](./spec.md#spec-req-2-1), [2.2](./spec.md#spec-req-2-2), [2.3](./spec.md#spec-req-2-3), [2.4](./spec.md#spec-req-2-4), [2.5](./spec.md#spec-req-2-5), [2.6](./spec.md#spec-req-2-6), [4.1](./spec.md#spec-req-4-1), [4.2](./spec.md#spec-req-4-2)
   - 实施目标：在 `apps/goal-board` 增加固定版本 `eventsource-parser@4.1.3` 运行时依赖并更新该 app 的 `package.json`／`package-lock.json`。新增 `apps/goal-board/src/sse.ts`，导出 `SseMessage` 与 `readSseMessages(body, signal?)`：使用 `eventsource-parser/stream` 的 `EventSourceParserStream` 与 `TextDecoderStream`，把任意分块解码为 `{ event?, data }`；默认容错注释、未知字段与无效 `retry`，在生成器返回或 signal 中止时取消 reader。重构 `apps/goal-board/src/api.ts`：删除 `sseBlocks` 与 `events()` 内的手写 reader／缓冲区；`metrics()` 只接受 `snapshot`（`isMetricsSnapshot`）并在 `error` 时抛 `metrics_unavailable`，其他命名事件忽略；`events()` 接受 `update` 或未命名默认事件（`isLiveEvent`），其他命名事件忽略。保留非 2xx 的 `responseError`、缺失 body 的稳定错误，以及无效 JSON／DTO 的既有错误分类。
   - 场景与预期：同一段 SSE 文本被切成任意 chunk、使用 CRLF／CR／LF、包含 `: keepalive` 注释、多个 `data:` 行与可选 `id`／`retry` 时，解析器都能产出正确事件；metrics 的 `snapshot` 产出快照，`error` 抛 `metrics_unavailable`，未知事件不产出，坏快照抛 `invalid_metrics_response`；Goal events 的 `update` 与未命名事件产出 `isLiveEvent` 值，未知事件不产出，坏 JSON／坏事件形状结束生成器；abort 后不再产出且 reader 被取消。

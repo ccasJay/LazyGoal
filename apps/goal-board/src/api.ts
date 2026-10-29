@@ -74,6 +74,7 @@ import {
   type BrowserProviderSettings,
   type SessionMetricsSnapshot,
 } from "../../../packages/web-contracts/src/index";
+import { readSseMessages } from "./sse";
 
 const token = window.location.hash.slice(1);
 
@@ -189,12 +190,10 @@ export const browserApi = {
     });
     if (!response.ok) throw await responseError(response);
     if (response.body === null) throw new Error("metrics_stream_missing_body");
-    for await (const block of sseBlocks(response.body)) {
-      const event = block.split("\n").find((line) => line.startsWith("event:"))?.slice(6).trim();
-      if (event === "error") throw new Error("metrics_unavailable");
-      if (event !== "snapshot") continue;
-      const data = block.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
-      const value: unknown = JSON.parse(data);
+    for await (const message of readSseMessages(response.body, signal)) {
+      if (message.event === "error") throw new Error("metrics_unavailable");
+      if (message.event !== "snapshot") continue;
+      const value = parseSseJson(message.data, "invalid_metrics_response");
       if (!isMetricsSnapshot(value)) throw new Error("invalid_metrics_response");
       yield value;
     }
@@ -398,56 +397,20 @@ export const browserApi = {
     if (!response.ok) throw await responseError(response);
     if (response.body === null) throw new Error("event_stream_missing_body");
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    try {
-      while (true) {
-        const chunk = await reader.read();
-        buffer += chunk.done ? decoder.decode() : decoder.decode(chunk.value, { stream: true });
-        buffer = buffer.replace(/\r\n/g, "\n");
-        let boundary = buffer.indexOf("\n\n");
-        while (boundary >= 0) {
-          const block = buffer.slice(0, boundary);
-          buffer = buffer.slice(boundary + 2);
-          const data = block
-            .split("\n")
-            .filter((line) => line.startsWith("data:"))
-            .map((line) => line.slice(5).trimStart())
-            .join("\n");
-          if (data.length > 0) {
-            const value: unknown = JSON.parse(data);
-            if (isLiveEvent(value)) yield value;
-          }
-          boundary = buffer.indexOf("\n\n");
-        }
-        if (chunk.done) break;
-      }
-    } finally {
-      await reader.cancel().catch(() => undefined);
+    for await (const message of readSseMessages(response.body, signal)) {
+      if (message.event !== undefined && message.event !== "update") continue;
+      const value = parseSseJson(message.data, "invalid_event_response");
+      if (!isLiveEvent(value)) throw new Error("invalid_event_response");
+      yield value;
     }
   },
 };
 
-async function* sseBlocks(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+function parseSseJson(data: string, errorCode: string): unknown {
   try {
-    while (true) {
-      const chunk = await reader.read();
-      buffer += chunk.done ? decoder.decode() : decoder.decode(chunk.value, { stream: true });
-      buffer = buffer.replace(/\r\n/g, "\n");
-      let boundary = buffer.indexOf("\n\n");
-      while (boundary >= 0) {
-        yield buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        boundary = buffer.indexOf("\n\n");
-      }
-      if (chunk.done) break;
-    }
-  } finally {
-    await reader.cancel().catch(() => undefined);
+    return JSON.parse(data);
+  } catch {
+    throw new Error(errorCode);
   }
 }
 
