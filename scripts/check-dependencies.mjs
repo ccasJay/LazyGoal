@@ -300,30 +300,6 @@ function appNameOf(filePath) {
     return match === null ? null : match[1];
 }
 
-/**
- * 提取文件文本中的相对 import/export 引用（不含 node 内置与外部依赖）。
- *
- * @remarks
- * 覆盖 `from`、侧效导入与字面量动态导入形式并按出现去重；DTO/Renderer
- * 文件边界规则与跨包依赖方向使用同一覆盖，避免通过重新导出或类型位置引用绕过边界。
- */
-function extractRelativeImports(text) {
-    const imports = [];
-    for (const pattern of [
-        /\bfrom\s*(['"])([^'"]+)\1/g,
-        /\bimport\s*(['"])([^'"]+)\1/g,
-        /\bimport\s*\(\s*(['"])([^'"]+)\1\s*\)/g,
-    ]) {
-        for (const match of text.matchAll(pattern)) {
-            const specifier = match[2];
-            if (specifier.startsWith("./") || specifier.startsWith("../")) {
-                imports.push(specifier);
-            }
-        }
-    }
-    return [...new Set(imports)];
-}
-
 /** AST 节点中不承载子节点的元数据字段；递归遍历时跳过位置、注释与原文信息。 */
 const AST_METADATA_KEYS = new Set([
     "loc",
@@ -774,8 +750,7 @@ async function analyzeAgentEntryBoundary(projectRoot) {
     const agentEntryPath = path.join(projectRoot, "packages", "agent", "src", "index.ts");
     try {
         const agentEntry = await readFile(agentEntryPath, "utf8");
-        for (const match of agentEntry.matchAll(/\bfrom\s*(['"])([^'"]+)\1/g)) {
-            const specifier = match[2];
+        for (const specifier of extractModuleSpecifiers(agentEntry, "packages/agent/src/index.ts")) {
             if (specifier.startsWith(".") && !AGENT_ENTRY_EXPORT_SOURCES.includes(specifier)) {
                 violations.push(
                     `入口约束：packages/agent 公共入口只能转发默认装配（packages/agent/src/index.ts 引用 ${specifier}）`,
@@ -859,7 +834,8 @@ export async function analyzeDependencies(projectRoot) {
             continue;
         }
 
-        for (const specifier of extractRelativeImports(text)) {
+        for (const specifier of extractModuleSpecifiers(text, relativePath)) {
+            if (!isRelativeSpecifier(specifier)) continue;
             const targetPackage = targetPackageOf(projectRoot, file, specifier);
             if (targetPackage !== null && rule.forbidden.includes(targetPackage)) {
                 violations.push(

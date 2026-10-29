@@ -824,3 +824,60 @@ test("AST extraction fails with repository-relative path and parser message", as
     assert.match(result.stderr, /无法解析源文件：packages\/contracts\/src\/broken\.ts：/);
     assert.match(result.stderr, /Unexpected token/);
 });
+
+test("AST boundary applies file-level rules to require dynamic and type-position imports", async () => {
+    const root = await fixtureProject({
+        "packages/model-view/src/model-inference-view.ts": [
+            'export type Goal = import("../../runtime/src/index").Goal;',
+            'export const errors = require("../../runtime/src/errors");',
+            'export const context = import("../../model-context/src/index");',
+        ].join("\n"),
+        "packages/runtime/src/index.ts": "export type Goal = true;\n",
+        "packages/runtime/src/errors.ts": "export const errors = true;\n",
+        "packages/model-context/src/index.ts": "export const context = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/model-view 不得导入 packages/model-context（packages/model-view/src/model-inference-view.ts 引用 ../../model-context/src/index）",
+        "禁止依赖方向：packages/model-view 不得导入 packages/runtime（packages/model-view/src/model-inference-view.ts 引用 ../../runtime/src/errors）",
+        "禁止依赖方向：packages/model-view 不得导入 packages/runtime（packages/model-view/src/model-inference-view.ts 引用 ../../runtime/src/index）",
+        "边界违规：ModelInferenceView DTO 不得导入 packages/model-context（packages/model-view/src/model-inference-view.ts 引用 ../../model-context/src/index）",
+        "边界违规：ModelInferenceView DTO 不得导入 packages/runtime（packages/model-view/src/model-inference-view.ts 引用 ../../runtime/src/errors）",
+        "边界违规：ModelInferenceView DTO 不得导入 packages/runtime（packages/model-view/src/model-inference-view.ts 引用 ../../runtime/src/index）",
+    ]);
+});
+
+test("AST boundary rejects every relative reference form in the agent entry", async () => {
+    const root = await fixtureProject({
+        "packages/agent/src/index.ts": [
+            'export { createAgentExecutor } from "./create-agent-executor";',
+            '// export { commented } from "./comment";',
+            'const label = "export { quoted } from \\"./quoted\\"";',
+            'export type Options = import("./types").Options;',
+            'export const load = () => import("./dynamic");',
+            'const legacy = require("./legacy");',
+            "void [label, load, legacy];",
+        ].join("\n"),
+        "packages/agent/src/create-agent-executor.ts": "export const createAgentExecutor = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "入口约束：packages/agent 公共入口只能转发默认装配（packages/agent/src/index.ts 引用 ./dynamic）",
+        "入口约束：packages/agent 公共入口只能转发默认装配（packages/agent/src/index.ts 引用 ./legacy）",
+        "入口约束：packages/agent 公共入口只能转发默认装配（packages/agent/src/index.ts 引用 ./types）",
+    ]);
+});
+
+test("AST boundary allows the default agent forwarding target and ignores pseudo references", async () => {
+    const root = await fixtureProject({
+        "packages/agent/src/index.ts": [
+            'export { createAgentExecutor } from "./create-agent-executor";',
+            '// export { commented } from "./comment";',
+            'const label = `export { templated } from "./templated"`;',
+            "void label;",
+        ].join("\n"),
+        "packages/agent/src/create-agent-executor.ts": "export const createAgentExecutor = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), []);
+});

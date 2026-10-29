@@ -12,7 +12,7 @@
   - 场景与预期：静态/侧效/type 导入、各类再导出、类型位置 `import()`、动态 `import()`、`require()`、`import = require()` 均产生对应方向违规；重复说明符只产生既有去重语义下的诊断，提取顺序按首次出现；伪 import 不产生违规；`.ts` 尖括号断言和 `.tsx` JSX 正常解析；两种模式均覆盖全部合法引用形式和 import attributes，非法语法定位到具体文件并使检查失败。
   - 验证手段：在 `scripts/check-dependencies.test.mjs` 添加上述 fixture，运行 `node --test --test-name-pattern="AST extraction" scripts/check-dependencies.test.mjs`；`node --check scripts/check-dependencies.mjs`。新增测试以 `AST extraction` 命名，直接验证提取结果与检查入口行为，不仅断言退出码。
 
-- [ ] //TODO 2. 统一文件级与 agent 公共入口的引用覆盖，并删除旧文本提取路径
+- [x] //TODO 2. 统一文件级与 agent 公共入口的引用覆盖，并删除旧文本提取路径
   - 落实标准：[2.1](./spec.md#spec-req-2-1)、[2.2](./spec.md#spec-req-2-2)、[2.3](./spec.md#spec-req-2-3)、[2.5](./spec.md#spec-req-2-5)、[3.3](./spec.md#spec-req-3-3)。
   - 实施目标：DTO、Renderer、Storage 文件级规则复用同一 AST 结果，再按既有规则筛选相对引用；agent 公共入口改为消费相同结果，允许目标仍只有 `./create-agent-executor`。删除 `extractRelativeImports` 与旧文本提取、agent 的独立引用匹配，不保留正则回退或双解析路径。进程 API 的文本检查保持原规则，不把“删除文本提取”扩大为重写进程规则。保留全部既有测试，新增覆盖不替代原有断言。
   - 场景与预期：被限制文件中的 `require()`、动态与类型位置 `import()` 同时产生适用的文件级与包方向违规；agent 的非法相对引用无论采用何种支持形式均被拒绝，合法转发通过，注释/字符串中的伪引用不触发入口约束。原有稳定消息、违规去重、最终排序和消费型测试扫描范围保持。
