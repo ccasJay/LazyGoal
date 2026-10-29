@@ -6,7 +6,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. Goal 事件服务端改用 Hono streamSSE，并保持订阅释放语义
+- [x] //TODO 1. Goal 事件服务端改用 Hono streamSSE，并保持订阅释放语义
   - 落实标准：[1.1](./spec.md#spec-req-1-1), [1.2](./spec.md#spec-req-1-2), [1.3](./spec.md#spec-req-1-3), [1.4](./spec.md#spec-req-1-4), [1.5](./spec.md#spec-req-1-5), [1.6](./spec.md#spec-req-1-6), [4.3](./spec.md#spec-req-4-3)
   - 实施目标：在 `packages/browser/src/browser-goal-routes.ts` 引入 `hono/streaming` 的 `streamSSE`，删除 `createEventStreamResponse` 与手写 `ReadableStream`。`GET /api/goals/:goalId/events` 保留现有 Goal 身份／查询校验、`session.openEvents(goalId, context.req.raw.signal)` 与 400／404／409／503 映射；回调内注册 `stream.onAbort(() => feed.close())`，按 feed 顺序写入 `{ event: "update", data: JSON.stringify(event) }`，在 `stream.aborted` 时停止，并在 `finally` 再次调用幂等的 `feed.close()`。返回响应前恢复 `cache-control: no-cache, no-transform` 与 `x-accel-buffering: no`，保留 `text/event-stream`。不引入慢客户端写超时。
   - 场景与预期：读取首个事件得到精确的 `event: update\ndata: {json}\n\n`，顺序与 feed 一致；客户端取消后 `feed.close()` 的副作用恰好一次且不再写入后续事件；feed 正常结束同样只释放一次；非法 Goal、绑定查询、缺失 Goal 与不可读 Goal 仍在 SSE 开始前返回现有 JSON 状态；错误响应不带 `text/event-stream`。
