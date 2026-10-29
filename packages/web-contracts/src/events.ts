@@ -2,7 +2,11 @@
  * Web SSE 实时流事件数据传输对象 (DTO)。
  */
 
-import type { BrowserSessionInputOutcome, BrowserSessionState } from "./session-input";
+import type { InferContract } from "../../contracts/src/index";
+import {
+    browserGoalActivityEventContract,
+    browserGoalLiveEventContract,
+} from "./contracts/events";
 
 /**
  * 实时执行活动事件。
@@ -19,82 +23,7 @@ import type { BrowserSessionInputOutcome, BrowserSessionState } from "./session-
  * ```
  */
 export type BrowserGoalActivityEvent =
-    | {
-        readonly kind: "assistant_text_delta";
-        readonly text: string;
-        readonly truncated: boolean;
-        readonly sourceEventId: string;
-        readonly sourceCursor: number;
-    }
-    | {
-        readonly kind: "model_started";
-        /** 真实调用阶段；非工作流 Stage，不包含隐藏推理。来源未提供时省略。 */
-        readonly stage?: "think" | "decide" | "completion_review";
-        /** 来源模型调用身份，仅供当前观察与详情关联。 */
-        readonly modelCallId?: string;
-        /** 模型调用所属的真实执行单元。 */
-        readonly executionUnitId?: string;
-        /** 开始事件的来源时间；不从浏览器连接时间推断调用开始。 */
-        readonly occurredAt?: string;
-    }
-    | { readonly kind: "model_completed" }
-    | { readonly kind: "step_started" }
-    | {
-        readonly kind: "tool_started";
-        readonly sourceEventId: string;
-        readonly sourceCursor: number;
-        readonly actionId: string;
-        readonly executionUnitId: string;
-        readonly toolId: string;
-        readonly inputSummary?: string;
-    }
-    | {
-        readonly kind: "tool_finished";
-        readonly sourceEventId: string;
-        readonly sourceCursor: number;
-        readonly actionId: string;
-        readonly toolId: string;
-        readonly outcome: "success" | "failure";
-        readonly summary?: string;
-    }
-    | {
-        readonly kind: "tool_attempt_started";
-        readonly sourceEventId: string;
-        readonly sourceCursor: number;
-        readonly actionId: string;
-        readonly attempt: number;
-    }
-    | {
-        readonly kind: "tool_attempt_failed";
-        readonly sourceEventId: string;
-        readonly sourceCursor: number;
-        readonly actionId: string;
-        readonly attempt: number;
-        readonly reason: string;
-    }
-    | {
-        readonly kind: "activity_boundary";
-        readonly sourceEventId: string;
-        readonly sourceCursor: number;
-        readonly reason: "assistant_reply" | "user_wait" | "stage_change" | "terminal" | "failure" | "unknown";
-    }
-    | {
-        readonly kind: "candidate_preview";
-        readonly sourceEventId: string;
-        readonly sourceCursor: number;
-        readonly candidateId: string;
-        readonly text: string;
-        readonly startOffset: number;
-        readonly truncated: boolean;
-        readonly complete: boolean;
-    }
-    | {
-        readonly kind: "candidate_invalidated";
-        readonly sourceEventId: string;
-        readonly sourceCursor: number;
-        readonly candidateId: string;
-        readonly reason: "rejected" | "cancelled" | "failed" | "replaced" | "ambiguous";
-    };
+    InferContract<typeof browserGoalActivityEventContract>;
 
 /**
  * 浏览器端消费的 Goal 范围实时推送事件。
@@ -116,54 +45,4 @@ export type BrowserGoalActivityEvent =
  * ```
  */
 export type BrowserGoalLiveEvent =
-    | {
-        readonly type: "state_sync";
-        readonly goalId: string;
-        readonly state: BrowserSessionState;
-    }
-    | {
-        readonly type: "input_result";
-        readonly goalId: string;
-        readonly outcome: BrowserSessionInputOutcome;
-    }
-    | {
-        readonly type: "activity";
-        readonly goalId: string;
-        readonly runId: string;
-        readonly activity: BrowserGoalActivityEvent;
-    }
-    | {
-        readonly type: "message_committed";
-        readonly goalId: string;
-        readonly runId: string;
-        readonly message: {
-            readonly messageId: string;
-            readonly role: "user" | "assistant";
-            readonly runId: string;
-            /** 消息之前最后一条已提交 Run 事实及同锚点 Snapshot 次序。 */
-            readonly position: { readonly afterSequence: number; readonly order: number };
-            readonly purpose?: "process" | "answer" | "notice";
-            readonly commitRevision: number;
-            readonly previewId?: string;
-        };
-    }
-    | {
-        readonly type: "interaction_required";
-        readonly goalId: string;
-        readonly runId: string;
-        readonly interaction: {
-            readonly interactionId: string;
-            readonly kind: "ask_user" | "task_approval" | "action_approval" | "action_recovery";
-            readonly runId: string;
-        };
-    }
-    | {
-        readonly type: "snapshot_changed";
-        readonly goalId: string;
-        readonly runId?: string;
-    }
-    | {
-        readonly type: "refresh_required";
-        readonly goalId: string;
-        readonly runId?: string;
-    };
+    InferContract<typeof browserGoalLiveEventContract>;

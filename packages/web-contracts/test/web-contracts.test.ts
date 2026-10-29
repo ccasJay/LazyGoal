@@ -220,8 +220,9 @@ test("Activity 与窄状态 wire guards 接受有界安全 DTO 并拒绝原始�
     assert.equal(isBrowserActivityPage({ ...page, items: [lookupFact] }), true);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, lookupId: "" }] }), false);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, lookupRequest: "x".repeat(201) }] }), false);
-    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, eventType: "context_lookup_failed", lookupRequest: undefined }] }), true);
-    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, eventType: "context_lookup_failed", lookupRequest: undefined,
+    const { lookupRequest: _lookupRequest, ...lookupWithoutRequest } = lookupFact;
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupWithoutRequest, eventType: "context_lookup_failed" }] }), true);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupWithoutRequest, eventType: "context_lookup_failed",
         lookupErrorCode: "PRIVATE_CODE" }] }), false);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lookupFact, eventType: "tool_started" }] }), false);
 
@@ -934,5 +935,96 @@ test("Action Review 与输入状态 guard 校验声明字段和不变量", () =>
         runId: "run-1",
         interactionId: "action_approval:act-1",
         detail: { kind: "action_approval", actionId: "act-1", toolId: "bash", input: { command: "ls" }, parentProgram: { actionId: "act-0", callNumber: 0 } },
+    }), false);
+});
+
+test("Activity contracts keep strict layers, open layers and UTF-16 limits", () => {
+    const position = { runId: "run-1", runOrder: 0, sequence: 1, itemKind: "message" as const, order: 0 };
+    const message = {
+        type: "message" as const,
+        itemId: "message:msg-1",
+        messageId: "msg-1",
+        role: "assistant" as const,
+        purpose: "answer" as const,
+        runId: "run-1",
+        position,
+        content: "a".repeat(4_000),
+        contentLength: 4_000,
+        truncated: false,
+    };
+    const page = {
+        goalId: "goal-1",
+        limit: 1,
+        items: [message],
+        runs: [{
+            runId: "run-1", status: "running", current: true, runOrder: 0,
+            committedThroughSequence: 1, futureServerField: { ok: true },
+        }],
+        window: [],
+        gaps: [],
+        range: { olderAvailable: false, newerAvailable: false },
+        stages: [],
+        actionGroups: [],
+    };
+    assert.equal(isBrowserActivityPage(page), true);
+    assert.equal(isBrowserActivityPage({ ...page, futureField: true }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, futureField: true }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, content: "a".repeat(4_001), contentLength: 4_001 }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, content: "😀".repeat(2_000), contentLength: 4_000 }] }), true);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, content: "😀".repeat(2_001), contentLength: 4_002 }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, contentLength: 1 }] }), false);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        items: [{ ...message, role: "user", purpose: "answer" }],
+    }), false);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        items: [{ ...message, role: "user", purpose: undefined }],
+    }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, purpose: "process", previewId: "call-1" }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, previewId: "p".repeat(201) }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, limit: 0 }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [message, message], limit: 1 }), false);
+
+    const gapPosition = { ...position, itemKind: "fact" as const };
+    const gap = { direction: "older" as const, itemCount: 1, first: gapPosition, last: gapPosition };
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        gaps: [gap],
+        range: { olderAvailable: true, newerAvailable: false },
+    }), true);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        gaps: [gap],
+        range: { olderAvailable: false, newerAvailable: false },
+    }), false);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        gaps: [gap, { ...gap, direction: "older" }],
+        range: { olderAvailable: true, newerAvailable: false },
+    }), false);
+
+    const stage = {
+        runId: "run-1", stageId: "stage-1", revision: 1, status: "executing" as const,
+        target: "t".repeat(1_000), firstSequence: 1, completeWithinPage: true,
+    };
+    assert.equal(isBrowserActivityPage({ ...page, stages: [stage] }), true);
+    assert.equal(isBrowserActivityPage({ ...page, stages: [{ ...stage, target: "t".repeat(1_001) }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, stages: [{ ...stage, lastSequence: 0 }] }), false);
+    assert.equal(isBrowserActivityPage({
+        ...page,
+        runs: [{ ...page.runs[0], terminalDetail: { message: "failed", extra: true } }],
+    }), false);
+
+    const live = { type: "activity", goalId: "goal-1", runId: "run-1", activity: {
+        kind: "assistant_text_delta", text: "😀".repeat(1_000), truncated: false,
+        sourceEventId: "e".repeat(200), sourceCursor: 1,
+    } };
+    assert.equal(isLiveEvent(live), true);
+    assert.equal(isLiveEvent({ ...live, activity: { ...live.activity, text: "😀".repeat(1_001) } }), false);
+    assert.equal(isLiveEvent({ ...live, activity: { ...live.activity, sourceEventId: "e".repeat(201) } }), false);
+    assert.equal(isLiveEvent({
+        type: "activity", goalId: "goal-1", runId: "run-1",
+        activity: { kind: "tool_attempt_failed", sourceEventId: "e", sourceCursor: 1, actionId: "a", attempt: 0, reason: "r" },
     }), false);
 });

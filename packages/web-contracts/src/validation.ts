@@ -6,7 +6,6 @@ import type {
     BrowserInteractionDetailResult,
     BrowserInteractionView,
     BrowserGoalPlan,
-    BrowserMessagePosition,
     BrowserGoalSession,
     BrowserGoalSessionState,
     BrowserActivityPage,
@@ -40,13 +39,18 @@ import type {
     BrowserProviderProfileTestResult,
 } from "./index";
 import { safeParse } from "../../contracts/src/index";
-import { BROWSER_ACTIVITY_EVENT_TYPES } from "./activity";
 import {
     hasConsistentTerminalDetail,
+    isActivityPage,
     isInteractionView,
     isJsonValue,
+    isLiveEventStructure,
     isPlanRoute,
 } from "./invariants";
+import {
+    browserActivityPageContract,
+} from "./contracts/activity";
+import { browserGoalLiveEventContract } from "./contracts/events";
 import {
     browserInteractionViewContract,
     browserMessagePositionContract,
@@ -90,9 +94,6 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isMessagePosition(value: unknown): value is BrowserMessagePosition {
-    return safeParse(browserMessagePositionContract, value).success;
-}
 
 /**
  * 非空字符串类型守卫。
@@ -233,18 +234,6 @@ export function isBrowserCreateSessionResult(value: unknown): value is BrowserCr
     return safeParse(browserCreateSessionResultContract, value).success;
 }
 
-
-const SESSION_INPUT_KINDS: ReadonlySet<string> = new Set([
-    "message", "steer", "interrupt", "respond", "resume", "queue_control",
-]);
-
-const SESSION_INPUT_ERROR_CODES: ReadonlySet<string> = new Set([
-    "INVALID_INPUT", "INPUT_CONFLICT", "INPUT_NOT_FOUND", "GOAL_NOT_FOUND", "BUSY", "STEER_CONFLICT",
-    "INTERRUPT_CONFLICT", "STALE_REVISION", "INTERACTION_MISMATCH", "INTERACTION_REQUIRED", "QUEUE_PAUSED",
-    "RUN_NOT_RESUMABLE", "QUEUE_FULL", "QUEUE_TEXT_TOO_LARGE", "TEXT_TOO_LARGE", "QUEUE_NOT_PAUSED",
-    "QUEUE_REVISION_MISMATCH", "QUEUED_MESSAGE_NOT_FOUND", "RUN_NOT_FOUND", "RUN_NOT_RUNNING", "RUN_CONTROL_UNAVAILABLE",
-    "input_admission_failed", "session_unavailable",
-]);
 
 
 /**
@@ -426,188 +415,11 @@ export function isBrowserGoalSessionState(value: unknown): value is BrowserGoalS
  * ```
  */
 export function isBrowserActivityPage(value: unknown): value is BrowserActivityPage {
-    if (!isRecord(value) || !isNonEmptyString(value.goalId)
-        || Object.keys(value).some((key) => !["goalId", "runFilter", "limit", "items", "runs", "window", "gaps", "range", "stages", "actionGroups", "beforeCursor", "afterCursor"].includes(key))
-        || (value.runFilter !== undefined && !isNonEmptyString(value.runFilter))
-        || !Number.isSafeInteger(value.limit) || Number(value.limit) < 1 || Number(value.limit) > 100
-        || !Array.isArray(value.items) || value.items.length > Number(value.limit)
-        || !value.items.every(isBrowserActivityItem)
-        || !Array.isArray(value.runs) || !value.runs.every((run) => isRecord(run)
-            && isNonEmptyString(run.runId) && isRunStatus(run.status) && typeof run.current === "boolean"
-            && Number.isSafeInteger(run.runOrder) && Number(run.runOrder) >= 0
-            && Number.isSafeInteger(run.committedThroughSequence) && Number(run.committedThroughSequence) >= 0
-            && (run.terminalDetail === undefined || (isRecord(run.terminalDetail)
-                && Object.keys(run.terminalDetail).every(key => key === "code" || key === "message")
-                && typeof run.terminalDetail.message === "string" && run.terminalDetail.message.length <= 500
-                && (run.terminalDetail.code === undefined || (typeof run.terminalDetail.code === "string" && run.terminalDetail.code.length <= 80)))))
-        || !Array.isArray(value.window) || !value.window.every((window) => isRecord(window)
-            && isNonEmptyString(window.runId)
-            && Number.isSafeInteger(window.messageCount) && Number(window.messageCount) >= 0
-            && (window.throughMessageId === undefined || isNonEmptyString(window.throughMessageId))
-            && Number.isSafeInteger(window.committedThroughSequence) && Number(window.committedThroughSequence) >= 0)
-        || !Array.isArray(value.gaps) || value.gaps.length > 2 || !value.gaps.every(isBrowserActivityGap)
-        || !isRecord(value.range)
-        || typeof value.range.olderAvailable !== "boolean" || typeof value.range.newerAvailable !== "boolean"
-        || (value.range.first !== undefined && !isActivityPosition(value.range.first))
-        || (value.range.last !== undefined && !isActivityPosition(value.range.last))
-        || value.gaps.some((gap) => gap.direction === "older") !== value.range.olderAvailable
-        || value.gaps.some((gap) => gap.direction === "newer") !== value.range.newerAvailable
-        || new Set(value.gaps.map((gap) => gap.direction)).size !== value.gaps.length
-        || !Array.isArray(value.stages) || !value.stages.every((stage) => isRecord(stage)
-            && isNonEmptyString(stage.runId) && isNonEmptyString(stage.stageId)
-            && Number.isSafeInteger(stage.revision) && Number(stage.revision) > 0
-            && ["executing", "accepted", "rejected"].includes(String(stage.status))
-            && (stage.target === undefined || typeof stage.target === "string" && stage.target.length <= 1_000)
-            && Number.isSafeInteger(stage.firstSequence) && Number(stage.firstSequence) >= 0
-            && (stage.lastSequence === undefined || Number.isSafeInteger(stage.lastSequence) && Number(stage.lastSequence) >= Number(stage.firstSequence))
-            && typeof stage.completeWithinPage === "boolean")
-        || !Array.isArray(value.actionGroups) || !value.actionGroups.every((group) => isRecord(group)
-            && isNonEmptyString(group.runId) && isNonEmptyString(group.actionId)
-            && Number.isSafeInteger(group.firstSequence) && Number(group.firstSequence) >= 0
-            && Number.isSafeInteger(group.lastSequence) && Number(group.lastSequence) >= Number(group.firstSequence)
-            && typeof group.completeWithinPage === "boolean")
-        || (value.beforeCursor !== undefined && !isActivityCursor(value.beforeCursor))
-        || (value.afterCursor !== undefined && !isActivityCursor(value.afterCursor))) return false;
-    return true;
+    const parsed = safeParse(browserActivityPageContract, value);
+    return parsed.success && isActivityPage(parsed.data);
 }
 
-function isBrowserActivityGap(value: unknown): value is BrowserActivityGap {
-    if (!isRecord(value)
-        || Object.keys(value).some((key) => !["direction", "itemCount", "first", "last"].includes(key))
-        || (value.direction !== "older" && value.direction !== "newer")
-        || !Number.isSafeInteger(value.itemCount) || Number(value.itemCount) < 1
-        || !isActivityPosition(value.first) || !isActivityPosition(value.last)) return false;
-    const first = value.first;
-    const last = value.last;
-    if (first.runOrder < last.runOrder) return true;
-    if (first.runOrder !== last.runOrder || first.runId !== last.runId) return false;
-    if (first.sequence !== last.sequence) return first.sequence < last.sequence;
-    if (first.itemKind !== last.itemKind) return first.itemKind === "fact";
-    return first.order <= last.order;
-}
 
-function isActivityPosition(value: unknown): value is BrowserActivityPosition {
-    return isRecord(value)
-        && isNonEmptyString(value.runId)
-        && Number.isSafeInteger(value.runOrder) && Number(value.runOrder) >= 0
-        && Number.isSafeInteger(value.sequence) && Number(value.sequence) >= 0
-        && (value.itemKind === "fact" || value.itemKind === "message")
-        && Number.isSafeInteger(value.order) && Number(value.order) >= 0;
-}
-
-function isActivityCursor(value: unknown): boolean {
-    return typeof value === "string" && value.length > 0 && value.length <= 65_536 && /^[A-Za-z0-9_-]+$/.test(value);
-}
-
-function isBrowserActivityItem(value: unknown): boolean {
-    if (!isRecord(value) || !isNonEmptyString(value.itemId) || !isNonEmptyString(value.runId)
-        || !isActivityPosition(value.position) || value.position.runId !== value.runId) return false;
-    if (value.type === "message") {
-        return !Object.keys(value).some((key) => !["type", "itemId", "messageId", "role", "purpose", "previewId", "runId", "position", "content", "contentLength", "truncated"].includes(key))
-            && isNonEmptyString(value.messageId)
-            && (value.role === "user" || value.role === "assistant")
-            && (value.role === "user"
-                ? value.purpose === undefined && value.previewId === undefined
-                : (value.purpose === "process" || value.purpose === "answer" || value.purpose === "notice")
-                    && (value.previewId === undefined
-                        || (value.purpose === "answer" && isNonEmptyString(value.previewId) && value.previewId.length <= 200)))
-            && typeof value.content === "string" && value.content.length <= 4_000
-            && Number.isSafeInteger(value.contentLength) && Number(value.contentLength) >= value.content.length
-            && typeof value.truncated === "boolean";
-    }
-    if (value.type !== "fact") return value.type === "think" && isActivityThinkItem(value);
-    const isStageDeclaration = value.eventType === "run_stage_declared";
-    const isLookup = ["context_lookup_requested", "context_lookup_completed", "context_lookup_not_found", "context_lookup_failed"].includes(String(value.eventType));
-    return !Object.keys(value).some((key) => !["type", "itemId", "eventId", "runId", "position", "eventType", "title", "detail", "lookupId", "lookupRequest", "lookupErrorCode", "executionUnitId", "actionId", "stageId", "stageRevision", "stageTarget", "tool"].includes(key))
-        && isNonEmptyString(value.eventId)
-        && (BROWSER_ACTIVITY_EVENT_TYPES as readonly string[]).includes(String(value.eventType))
-        && typeof value.title === "string"
-        && (value.detail === undefined || typeof value.detail === "string" && value.detail.length <= 500)
-        && (isLookup ? isNonEmptyString(value.lookupId) && value.lookupId.length <= 200 : value.lookupId === undefined)
-        && (value.eventType === "context_lookup_requested"
-            ? value.lookupRequest === undefined || typeof value.lookupRequest === "string" && value.lookupRequest.length <= 200
-            : value.lookupRequest === undefined)
-        && (value.eventType === "context_lookup_failed"
-            ? value.lookupErrorCode === undefined || ["INVALID_CONTEXT_LOOKUP", "CONTEXT_LOOKUP_CHAIN_LIMIT", "CONTEXT_LOOKUP_UNAVAILABLE", "CONTEXT_LOOKUP_FAILED", "INVALID_CONTEXT_LOOKUP_RESULT"].includes(String(value.lookupErrorCode))
-            : value.lookupErrorCode === undefined)
-        && (value.executionUnitId === undefined || isNonEmptyString(value.executionUnitId))
-        && (value.actionId === undefined || isNonEmptyString(value.actionId))
-        && (value.stageId === undefined || isNonEmptyString(value.stageId))
-        && (value.stageRevision === undefined || Number.isSafeInteger(value.stageRevision) && Number(value.stageRevision) > 0)
-        && (isStageDeclaration
-            ? isNonEmptyString(value.stageTarget) && value.stageTarget.length <= 1_000
-            : value.stageTarget === undefined)
-        && (value.tool === undefined || isActivityToolState(value.tool));
-}
-
-/**
- * Activity 显式 Think 摘要守卫。
- *
- * @remarks 只接受思考目标、已提交输出与截断标记。
- *
- * @param value - 待检测值。
- * @returns 是否为合法的 Think 摘要。
- */
-function isActivityThinkItem(value: unknown): boolean {
-    if (!isRecord(value)) return false;
-    if (Object.keys(value).some((key) => !["type", "itemId", "runId", "position", "executionUnitId", "think"].includes(key))) return false;
-    if (value.type !== "think") return false;
-    if (!isNonEmptyString(value.itemId) || !isNonEmptyString(value.runId)) return false;
-    if (!isActivityPosition(value.position) || value.position.runId !== value.runId) return false;
-    if (value.executionUnitId !== undefined && (!isNonEmptyString(value.executionUnitId) || value.executionUnitId.length > 200)) return false;
-    if (!isRecord(value.think)) return false;
-    if (!isNonEmptyString(value.think.goal) || value.think.goal.length > 4_000) return false;
-    if (value.think.output !== undefined && (typeof value.think.output !== "string" || value.think.output.length > 64_000)) return false;
-    if (value.think.truncated !== undefined && value.think.truncated !== true) return false;
-    return !Object.keys(value.think).some((key) => !["goal", "output", "truncated"].includes(key));
-}
-
-/**
- * Activity 事实项的已提交工具状态白名单守卫。
- *
- * @remarks 只接受工具身份、已提交状态与既有安全摘要；原始参数与 Observation 不在
- * wire 白名单内。
- *
- * @param value - 待检测值。
- * @returns 是否为合法的工具状态投影。
- */
-function isActivityToolState(value: unknown): boolean {
-    if (!isRecord(value)) return false;
-    if (!isNonEmptyString(value.toolId)) return false;
-    if (!["recorded", "pending-result", "completed", "failed", "rejected"].includes(String(value.status))) return false;
-    if (value.actionStatus !== undefined && !["awaiting_approval", "approved", "rejected"].includes(String(value.actionStatus))) return false;
-    if (value.inputSummary !== undefined && typeof value.inputSummary !== "string") return false;
-    if (value.summary !== undefined && typeof value.summary !== "string") return false;
-    if (value.attempts !== undefined && (!Array.isArray(value.attempts)
-        || !value.attempts.every((attempt) => typeof attempt === "string"))) return false;
-    if (value.revisionRef !== undefined && !isNonEmptyString(value.revisionRef)) return false;
-    if (value.recoveryRef !== undefined && !isNonEmptyString(value.recoveryRef)) return false;
-    if (value.parentActionId !== undefined && !isNonEmptyString(value.parentActionId)) return false;
-    if (value.lifecycle !== undefined && (!Array.isArray(value.lifecycle)
-        || !value.lifecycle.every(isActivityToolLifecycleEntry))) return false;
-    if (value.activityBoundaryBefore !== undefined && value.activityBoundaryBefore !== true) return false;
-    return !Object.keys(value).some((key) => ![
-        "toolId", "status", "actionStatus", "inputSummary", "summary",
-        "attempts", "lifecycle", "revisionRef", "recoveryRef", "parentActionId", "activityBoundaryBefore",
-    ].includes(key));
-}
-
-/**
- * Activity 工具生命周期记录的 wire 守卫。
- *
- * @remarks 只接受固定的阶段类别、短标签与既有安全说明；原始参数、Observation 正文与
- * 任意未知字段不在白名单内。
- *
- * @param value - 待检测值。
- * @returns 是否为合法的工具生命周期记录。
- */
-function isActivityToolLifecycleEntry(value: unknown): boolean {
-    if (!isRecord(value)) return false;
-    if (Object.keys(value).some((key) => !["kind", "title", "detail"].includes(key))) return false;
-    if (!["approval", "execution", "retry", "result"].includes(String(value.kind))) return false;
-    if (!isNonEmptyString(value.title) || value.title.length > 200) return false;
-    return value.detail === undefined || typeof value.detail === "string" && value.detail.length <= 500;
-}
 
 /**
  * 会话响应信封守卫。
@@ -930,116 +742,10 @@ export function isWorkspaceContext(value: unknown): value is BrowserWorkspaceCon
  * ```
  */
 export function isLiveEvent(value: unknown): value is BrowserGoalLiveEvent {
-    if (!isRecord(value) || !isNonEmptyString(value.goalId)) return false;
-    if (value.type === "state_sync") return isBrowserSessionState(value.state);
-    if (value.type === "input_result") {
-        if (!isRecord(value.outcome)) return false;
-        const outcome = value.outcome;
-        return isNonEmptyString(outcome.inputId)
-            && SESSION_INPUT_KINDS.has(String(outcome.kind))
-            && typeof outcome.ok === "boolean"
-            && (outcome.ok ? isBrowserSessionInputReceipt(outcome.receipt) : SESSION_INPUT_ERROR_CODES.has(String(outcome.code)));
-    }
-    if (value.type === "snapshot_changed" || value.type === "refresh_required") {
-        return value.runId === undefined || isNonEmptyString(value.runId);
-    }
-    if (value.type === "message_committed") {
-        if (!isNonEmptyString(value.runId) || !isRecord(value.message)) return false;
-        const message = value.message;
-        return isNonEmptyString(message.messageId)
-            && message.messageId.length <= 200
-            && ["user", "assistant"].includes(String(message.role))
-            && isNonEmptyString(message.runId)
-            && isMessagePosition(message.position)
-            && Number.isSafeInteger(message.commitRevision)
-            && (message.purpose === undefined
-                || ["process", "answer", "notice"].includes(String(message.purpose)))
-            && (message.previewId === undefined
-                || (typeof message.previewId === "string" && message.previewId.length <= 200));
-    }
-    if (value.type === "interaction_required") {
-        if (!isNonEmptyString(value.runId) || !isRecord(value.interaction)) return false;
-        const interaction = value.interaction;
-        return isNonEmptyString(interaction.interactionId)
-            && interaction.interactionId.length <= 200
-            && ["ask_user", "task_approval", "action_approval", "action_recovery"].includes(String(interaction.kind))
-            && isNonEmptyString(interaction.runId);
-    }
-    if (value.type !== "activity" || !isNonEmptyString(value.runId) || !isRecord(value.activity)) return false;
-    const activity = value.activity;
-    if (activity.kind === "assistant_text_delta") {
-        return typeof activity.text === "string" && activity.text.length <= 2_000 && typeof activity.truncated === "boolean"
-            && isNonEmptyString(activity.sourceEventId)
-            && activity.sourceEventId.length <= 200
-            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0;
-    }
-    if (activity.kind === "model_started") {
-        return (activity.stage === undefined || ["think", "decide", "completion_review"].includes(String(activity.stage)))
-            && (activity.modelCallId === undefined || (isNonEmptyString(activity.modelCallId) && activity.modelCallId.length <= 200))
-            && (activity.executionUnitId === undefined || (isNonEmptyString(activity.executionUnitId) && activity.executionUnitId.length <= 200))
-            && (activity.occurredAt === undefined || (typeof activity.occurredAt === "string" && activity.occurredAt.length <= 40 && Number.isFinite(Date.parse(activity.occurredAt))));
-    }
-    if (["model_completed", "step_started"].includes(String(activity.kind))) return true;
-    if (activity.kind === "tool_started") {
-        return isNonEmptyString(activity.sourceEventId)
-            && activity.sourceEventId.length <= 200
-            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
-            && isNonEmptyString(activity.actionId)
-            && activity.actionId.length <= 200
-            && isNonEmptyString(activity.executionUnitId)
-            && activity.executionUnitId.length <= 200
-            && isNonEmptyString(activity.toolId)
-            && activity.toolId.length <= 128
-            && (activity.inputSummary === undefined || (typeof activity.inputSummary === "string" && activity.inputSummary.length <= 240));
-    }
-    if (activity.kind === "tool_finished") {
-        return isNonEmptyString(activity.sourceEventId)
-            && activity.sourceEventId.length <= 200
-            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
-            && isNonEmptyString(activity.actionId)
-            && activity.actionId.length <= 200
-            && isNonEmptyString(activity.toolId)
-            && activity.toolId.length <= 128
-            && ["success", "failure"].includes(String(activity.outcome))
-            && (activity.summary === undefined || (typeof activity.summary === "string" && activity.summary.length <= 500));
-    }
-    if (activity.kind === "tool_attempt_started" || activity.kind === "tool_attempt_failed") {
-        return isNonEmptyString(activity.sourceEventId)
-            && activity.sourceEventId.length <= 200
-            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
-            && isNonEmptyString(activity.actionId)
-            && activity.actionId.length <= 200
-            && Number.isSafeInteger(activity.attempt) && Number(activity.attempt) > 0
-            && (activity.kind !== "tool_attempt_failed" || (typeof activity.reason === "string" && activity.reason.length <= 160));
-    }
-    if (activity.kind === "activity_boundary") {
-        return isNonEmptyString(activity.sourceEventId)
-            && activity.sourceEventId.length <= 200
-            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
-            && ["assistant_reply", "user_wait", "stage_change", "terminal", "failure", "unknown"].includes(String(activity.reason));
-    }
-    if (activity.kind === "candidate_preview") {
-        return isNonEmptyString(activity.sourceEventId)
-            && activity.sourceEventId.length <= 200
-            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
-            && isNonEmptyString(activity.candidateId)
-            && activity.candidateId.length <= 200
-            && typeof activity.text === "string"
-            && activity.text.length <= 64_000
-            && Number.isSafeInteger(activity.startOffset) && Number(activity.startOffset) >= 0
-            && typeof activity.truncated === "boolean"
-            && typeof activity.complete === "boolean";
-    }
-    if (activity.kind === "candidate_invalidated") {
-        return isNonEmptyString(activity.sourceEventId)
-            && activity.sourceEventId.length <= 200
-            && Number.isSafeInteger(activity.sourceCursor) && Number(activity.sourceCursor) > 0
-            && isNonEmptyString(activity.candidateId)
-            && activity.candidateId.length <= 200
-            && ["rejected", "cancelled", "failed", "replaced", "ambiguous"].includes(String(activity.reason));
-    }
-    return false;
+    const parsed = safeParse(browserGoalLiveEventContract, value);
+    return parsed.success && isLiveEventStructure(parsed.data);
 }
+
 
 function nullableSequence(value: unknown): boolean {
     return value === null || (Number.isSafeInteger(value) && Number(value) >= 0);

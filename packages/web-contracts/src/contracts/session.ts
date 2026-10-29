@@ -32,12 +32,18 @@ export const browserBashExecutionDetailContract = contract.openObject({
     failure: contract.optional(contract.string()),
 });
 
-/** 已提交 Step 内显式 Think 的目标、输出与截断标记。 */
-export const browserSessionStepThinkContract = contract.openObject({
+/** 已提交 Step 与 Activity Think 共用的字段形状。 */
+const browserThinkShape = {
     goal: contract.string(),
     output: contract.optional(contract.string()),
     truncated: contract.optional(contract.literal(true)),
-});
+} as const;
+
+/** 已提交 Step 内显式 Think 的目标、输出与截断标记。 */
+export const browserSessionStepThinkContract = contract.openObject(browserThinkShape);
+
+/** Activity Think 项的严格嵌套结构。 */
+export const browserActivityThinkDetailContract = contract.object(browserThinkShape);
 
 /** 会话单步执行的安全投影。 */
 export const browserSessionStepContract = contract.openObject({
@@ -350,6 +356,7 @@ export const sessionWebContracts = [
     browserSessionMessageContract,
     browserBashExecutionDetailContract,
     browserSessionStepThinkContract,
+    browserActivityThinkDetailContract,
     browserSessionStepContract,
     browserRunStageStatusContract,
     browserRunStageRevisionContract,

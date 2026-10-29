@@ -621,10 +621,10 @@ function projectActivityFact(
     const lookupId = payload.type === "context_lookup_requested" || payload.type === "context_lookup_completed"
         || payload.type === "context_lookup_not_found" || payload.type === "context_lookup_failed" ? payload.lookupId : undefined;
     const lookupRequest = payload.type === "context_lookup_requested" ? activityLookupRequest(payload.request) : undefined;
-    const lookupErrorCode = payload.type === "context_lookup_failed" && [
+    const lookupErrorCode: BrowserActivityFactItem["lookupErrorCode"] = payload.type === "context_lookup_failed" && [
         "INVALID_CONTEXT_LOOKUP", "CONTEXT_LOOKUP_CHAIN_LIMIT", "CONTEXT_LOOKUP_UNAVAILABLE",
         "CONTEXT_LOOKUP_FAILED", "INVALID_CONTEXT_LOOKUP_RESULT",
-    ].includes(payload.code) ? payload.code : undefined;
+    ].includes(payload.code) ? payload.code as NonNullable<BrowserActivityFactItem["lookupErrorCode"]> : undefined;
     // 只有决策事实而没有后续生命周期时，不伪造一个仍在运行的工具活动。
     const attachTool = tool !== undefined
         && !(payload.type === "decision_received" && (tool.lifecycle === undefined || tool.lifecycle.length === 0));
