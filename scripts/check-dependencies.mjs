@@ -400,6 +400,52 @@ export function extractModuleSpecifiers(sourceText, relativePath) {
     return [...new Set(references.map((reference) => reference.specifier))];
 }
 
+/**
+ * 创建一次依赖分析使用的源文件读取与解析缓存。
+ *
+ * @remarks
+ * 同一个 scanner 对同一规范化绝对路径最多读取一次、解析一次；`text()` 与 `specifiers()`
+ * 共用读取结果，并发请求复用同一个进行中的 Promise。缓存不跨 scanner 共享，因此两次分析
+ * 之间或不同 projectRoot 之间不会复用旧内容。读取或解析失败以 rejected Promise 传给调用者，
+ * 不返回空引用。scanner 只负责读取与提取，不包含任何规则判断。
+ *
+ * @param projectRoot - 仓库根目录；用于生成解析错误中的仓库相对路径。
+ * @param dependencies - 可选的读取与提取接缝；测试用它统计调用次数。
+ * @param dependencies.readFile - 读取实现，接收规范化绝对路径并返回文件内容 Promise。
+ * @param dependencies.extractSpecifiers - 提取实现，接收文件内容与仓库相对路径。
+ * @returns 提供 `text(file)` 与 `specifiers(file)` 的 scanner；两者均按绝对路径缓存。
+ */
+export function createSourceScanner(projectRoot, dependencies = {}) {
+    const root = path.resolve(projectRoot);
+    const readSource = dependencies.readFile ?? ((file) => readFile(file, "utf8"));
+    const extractSpecifiers = dependencies.extractSpecifiers ?? extractModuleSpecifiers;
+    const textCache = new Map();
+    const specifiersCache = new Map();
+
+    function text(file) {
+        const key = path.resolve(file);
+        let pending = textCache.get(key);
+        if (pending === undefined) {
+            pending = readSource(key);
+            textCache.set(key, pending);
+        }
+        return pending;
+    }
+
+    function specifiers(file) {
+        const key = path.resolve(file);
+        let pending = specifiersCache.get(key);
+        if (pending === undefined) {
+            pending = text(key).then((sourceText) =>
+                extractSpecifiers(sourceText, toProjectRelativePath(root, key)));
+            specifiersCache.set(key, pending);
+        }
+        return pending;
+    }
+
+    return { text, specifiers };
+}
+
 /** 判定说明符是否为相对模块引用。 */
 function isRelativeSpecifier(specifier) {
     return specifier.startsWith("./") || specifier.startsWith("../");
@@ -635,15 +681,16 @@ function normalizeEntryPath(relativePath) {
  * 分析组件目录边界、调用入口与项目内构建产物使用。
  *
  * @param projectRoot - 仓库根目录。
+ * @param scanner - 本次分析共享的读取与解析缓存。
  * @returns 每条违规对应的稳定中文描述；无违规时返回空数组。
  */
-async function analyzeComponentBoundaries(projectRoot) {
+async function analyzeComponentBoundaries(projectRoot, scanner) {
     const violations = [];
 
     for (const file of await collectComponentBoundaryFiles(projectRoot)) {
         const relativePath = toProjectRelativePath(projectRoot, file);
-        const text = await readFile(file, "utf8");
-        const specifiers = extractModuleSpecifiers(text, relativePath);
+        const text = await scanner.text(file);
+        const specifiers = await scanner.specifiers(file);
         const boundaries = COMPONENT_BOUNDARIES.filter((candidate) =>
             candidate.file !== undefined
                 ? candidate.file === relativePath
@@ -709,15 +756,15 @@ async function analyzeComponentBoundaries(projectRoot) {
  * 目录内部引用与测试中的定向导入不受限制。
  *
  * @param projectRoot - 仓库根目录。
+ * @param scanner - 本次分析共享的读取与解析缓存。
  * @returns 每条违规对应的稳定中文描述；无违规时返回空数组。
  */
-async function analyzeEntryBoundaries(projectRoot) {
+async function analyzeEntryBoundaries(projectRoot, scanner) {
     const violations = [];
 
     for (const file of await collectEntryScanFiles(projectRoot)) {
         const relativePath = toProjectRelativePath(projectRoot, file);
-        const text = await readFile(file, "utf8");
-        for (const specifier of extractModuleSpecifiers(text, relativePath)) {
+        for (const specifier of await scanner.specifiers(file)) {
             if (!isRelativeSpecifier(specifier)) continue;
             const targetRelative = toProjectRelativePath(
                 projectRoot,
@@ -743,14 +790,14 @@ async function analyzeEntryBoundaries(projectRoot) {
  * 约束 packages/agent 公共入口只转发默认装配实现。
  *
  * @param projectRoot - 仓库根目录。
+ * @param scanner - 本次分析共享的读取与解析缓存。
  * @returns 每条违规对应的稳定中文描述；入口缺失时按无违规处理。
  */
-async function analyzeAgentEntryBoundary(projectRoot) {
+async function analyzeAgentEntryBoundary(projectRoot, scanner) {
     const violations = [];
     const agentEntryPath = path.join(projectRoot, "packages", "agent", "src", "index.ts");
     try {
-        const agentEntry = await readFile(agentEntryPath, "utf8");
-        for (const specifier of extractModuleSpecifiers(agentEntry, "packages/agent/src/index.ts")) {
+        for (const specifier of await scanner.specifiers(agentEntryPath)) {
             if (specifier.startsWith(".") && !AGENT_ENTRY_EXPORT_SOURCES.includes(specifier)) {
                 violations.push(
                     `入口约束：packages/agent 公共入口只能转发默认装配（packages/agent/src/index.ts 引用 ${specifier}）`,
@@ -766,10 +813,28 @@ async function analyzeAgentEntryBoundary(projectRoot) {
 /**
  * 分析源码依赖方向并返回违反边界的情况列表。
  *
+ * @remarks
+ * 每次调用创建独立的源文件 scanner，因此读取与解析缓存不会跨调用或跨 projectRoot 复用。
+ *
  * @param projectRoot - 仓库根目录。
  * @returns 每次违规对应的稳定中文描述；无违规时返回空数组。
  */
 export async function analyzeDependencies(projectRoot) {
+    return analyzeDependenciesWithScanner(projectRoot, createSourceScanner(projectRoot));
+}
+
+/**
+ * 使用给定 scanner 分析源码依赖方向。
+ *
+ * @remarks
+ * 生产入口 `analyzeDependencies` 会创建调用级 scanner；需要统计读取/解析次数时，
+ * 可由测试传入 `createSourceScanner` 构造的 scanner。scanner 必须属于同一 projectRoot。
+ *
+ * @param projectRoot - 仓库根目录。
+ * @param scanner - 本次分析共享的读取与解析缓存。
+ * @returns 每次违规对应的稳定中文描述；无违规时返回空数组。
+ */
+export async function analyzeDependenciesWithScanner(projectRoot, scanner) {
     const files = await collectSourceFiles(projectRoot);
     const violations = [];
 
@@ -780,7 +845,6 @@ export async function analyzeDependencies(projectRoot) {
     }
 
     for (const file of files) {
-        const text = await readFile(file, "utf8");
         const sourcePackage = packageNameOf(file);
         const relativePath = path.relative(projectRoot, file).split(path.sep).join("/");
 
@@ -788,7 +852,8 @@ export async function analyzeDependencies(projectRoot) {
             continue;
         }
 
-        for (const specifier of extractModuleSpecifiers(text, relativePath)) {
+        const specifiers = await scanner.specifiers(file);
+        for (const specifier of specifiers) {
             if (!isRelativeSpecifier(specifier)) {
                 if (SDK_FREE_PACKAGES.has(sourcePackage) && isVendorSdkSpecifier(specifier)) {
                     violations.push(
@@ -834,7 +899,7 @@ export async function analyzeDependencies(projectRoot) {
             continue;
         }
 
-        for (const specifier of extractModuleSpecifiers(text, relativePath)) {
+        for (const specifier of specifiers) {
             if (!isRelativeSpecifier(specifier)) continue;
             const targetPackage = targetPackageOf(projectRoot, file, specifier);
             if (targetPackage !== null && rule.forbidden.includes(targetPackage)) {
@@ -848,9 +913,8 @@ export async function analyzeDependencies(projectRoot) {
     for (const file of await collectBenchmarkSourceFiles(projectRoot)) {
         const sourceBenchmark = benchmarkNameOf(file);
         if (sourceBenchmark === null) continue;
-        const text = await readFile(file, "utf8");
         const relativePath = path.relative(projectRoot, file).split(path.sep).join("/");
-        for (const specifier of extractModuleSpecifiers(text, relativePath)) {
+        for (const specifier of await scanner.specifiers(file)) {
             if (isRelativeSpecifier(specifier)) {
                 const boundary = referenceBoundaryViolation(projectRoot, file, relativePath, null, specifier);
                 if (boundary !== null) {
@@ -885,9 +949,8 @@ export async function analyzeDependencies(projectRoot) {
     for (const file of await collectAppSourceFiles(projectRoot)) {
         const sourceApp = appNameOf(file);
         if (sourceApp === null || !ALLOWED_APP_DEPENDENCIES[sourceApp]) continue;
-        const text = await readFile(file, "utf8");
         const relativePath = path.relative(projectRoot, file).split(path.sep).join("/");
-        for (const specifier of extractModuleSpecifiers(text, relativePath)) {
+        for (const specifier of await scanner.specifiers(file)) {
             if (isRelativeSpecifier(specifier)) {
                 const boundary = referenceBoundaryViolation(projectRoot, file, relativePath, null, specifier);
                 if (boundary !== null) {
@@ -923,9 +986,9 @@ export async function analyzeDependencies(projectRoot) {
         }
     }
 
-    violations.push(...await analyzeComponentBoundaries(projectRoot));
-    violations.push(...await analyzeEntryBoundaries(projectRoot));
-    violations.push(...await analyzeAgentEntryBoundary(projectRoot));
+    violations.push(...await analyzeComponentBoundaries(projectRoot, scanner));
+    violations.push(...await analyzeEntryBoundaries(projectRoot, scanner));
+    violations.push(...await analyzeAgentEntryBoundary(projectRoot, scanner));
 
     return violations.sort();
 }

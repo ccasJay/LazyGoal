@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,7 +8,9 @@ import { fileURLToPath } from "node:url";
 
 import {
     analyzeDependencies,
+    analyzeDependenciesWithScanner,
     checkDependencies,
+    createSourceScanner,
     extractModuleSpecifiers,
 } from "./check-dependencies.mjs";
 
@@ -880,4 +882,98 @@ test("AST boundary allows the default agent forwarding target and ignores pseudo
     });
 
     assert.deepEqual(await analyzeDependencies(root), []);
+});
+
+/** 构造统计读取与解析次数的 scanner，用于验证调用级缓存而不是总耗时。 */
+async function countingScanner(root) {
+    const reads = new Map();
+    const parses = new Map();
+    const scanner = createSourceScanner(root, {
+        readFile: async (file) => {
+            reads.set(file, (reads.get(file) ?? 0) + 1);
+            return readFile(file, "utf8");
+        },
+        extractSpecifiers: (sourceText, relativePath) => {
+            parses.set(relativePath, (parses.get(relativePath) ?? 0) + 1);
+            return extractModuleSpecifiers(sourceText, relativePath);
+        },
+    });
+    return { scanner, reads, parses };
+}
+
+test("AST cache reads and parses each file once across overlapping rule families", async () => {
+    const root = await fixtureProject({
+        "packages/runtime/src/checkpoint-gate.ts":
+            'import { ProcessManager } from "../../process-runtime/src/errors";\nexport const RuntimeLifecycle = ProcessManager;\n',
+        "packages/process-runtime/src/errors.ts": "export const ProcessManager = true;\n",
+        "packages/process-runtime/src/index.ts": "export {};\n",
+    });
+    const { scanner, reads, parses } = await countingScanner(root);
+
+    assert.deepEqual(await analyzeDependenciesWithScanner(root, scanner), [
+        "禁止依赖方向：packages/runtime 不得导入 packages/process-runtime（packages/runtime/src/checkpoint-gate.ts 引用 ../../process-runtime/src/errors）",
+        "组件入口违规：packages/runtime/src/checkpoint-gate.ts 必须通过 packages/process-runtime/src/index.ts 访问进程会话运行时（引用 ../../process-runtime/src/errors）",
+    ]);
+
+    const watchedFile = path.join(root, "packages", "runtime", "src", "checkpoint-gate.ts");
+    assert.equal(reads.get(watchedFile), 1);
+    assert.equal(parses.get("packages/runtime/src/checkpoint-gate.ts"), 1);
+    for (const [file, count] of reads) assert.equal(count, 1, `${file} 被读取 ${count} 次`);
+    for (const [file, count] of parses) assert.equal(count, 1, `${file} 被解析 ${count} 次`);
+});
+
+test("AST cache shares one read between text and concurrent specifier requests", async () => {
+    const source = 'export {} from "../../runtime/src/index";\n';
+    const root = await fixtureProject({
+        "packages/contracts/src/index.ts": source,
+        "packages/runtime/src/index.ts": "export {};\n",
+    });
+    const { scanner, reads, parses } = await countingScanner(root);
+    const file = path.join(root, "packages", "contracts", "src", "index.ts");
+
+    const [text, first, second] = await Promise.all([
+        scanner.text(file),
+        scanner.specifiers(file),
+        scanner.specifiers(file),
+    ]);
+
+    assert.equal(text, source);
+    assert.deepEqual(first, ["../../runtime/src/index"]);
+    assert.deepEqual(second, ["../../runtime/src/index"]);
+    assert.equal(reads.get(file), 1);
+    assert.equal(parses.get("packages/contracts/src/index.ts"), 1);
+});
+
+test("AST cache does not leak file content between analysis calls", async () => {
+    const file = "packages/contracts/src/index.ts";
+    const root = await fixtureProject({
+        [file]: '// import { fake } from "../../runtime/src/index";\n',
+        "packages/runtime/src/index.ts": "export {};\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), []);
+
+    await writeFile(
+        path.join(root, file),
+        'export {} from "../../runtime/src/index";\n',
+    );
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/index）",
+    ]);
+});
+
+test("AST cache isolates different project roots", async () => {
+    const violatingRoot = await fixtureProject({
+        "packages/contracts/src/index.ts": 'export {} from "../../runtime/src/index";\n',
+        "packages/runtime/src/index.ts": "export {};\n",
+    });
+    const cleanRoot = await fixtureProject({
+        "packages/contracts/src/index.ts": "export const contract = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(violatingRoot), [
+        "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/index）",
+    ]);
+    assert.deepEqual(await analyzeDependencies(cleanRoot), []);
 });
