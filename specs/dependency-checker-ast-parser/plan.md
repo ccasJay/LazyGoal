@@ -57,6 +57,25 @@
 
 ### Latest Result
 
-- 状态：未执行。
-- 验证时间：-。
-- 验证摘要：仅完成计划编写，尚未安装解析器或修改实现；后续记录测试提交、Spec/Plan 内容指纹、实际结果、证据位置与新鲜度。
+- 状态：通过；并行改动集成项未在本 worktree 执行，由编排阶段独立验证。
+- 执行日期：2026-10-29。
+- 最终实现提交：`e0836fe5`（TODO 4）；本结果文档提交紧随其后。
+- Spec 指纹：`spec.md` 的 sha256 为 `5fa060da4df2bda91fd5d5d7401c2733b639c74eeb6ba2766637f982a0358154`；Planned Checks 段落的 sha256 为 `0087baa2a63d91cc29fa49bfc7863e29a9921eda9b7a6b96fa6ed08a72cb2e00`。
+- 验证环境：Node v22.22.2、npm 10.9.7、uv 0.9.5。
+
+| 检查 | 命令 | 结果 |
+|---|---|---|
+| 根依赖安装 | `npm ci` | 通过；`@babel/parser` 及其传递依赖可复现安装 |
+| Workspace 依赖安装 | `npm ci --prefix <apps/benchmarks/packages 的 21 个 workspace>` | 全部通过 |
+| 检查器测试 | `node --test scripts/check-dependencies.test.mjs` | 61 passed，0 failed |
+| 依赖边界门 | `npm run check:dependencies` | 通过；实际扫描 275 个源文件 |
+| 类型检查 | `npx tsc --noEmit` | exit 0 |
+| 全量回归 | `npm test` | exit 0；输出 `[regression] 全部通过` |
+| 文档检查 | `npm run check:docs` | 通过；46 个模块、166 份当前说明 |
+| 空白检查 | `git diff --check` | exit 0 |
+| 解析失败显式失败 | `node scripts/check-dependencies.mjs <临时根>`（非法 `.ts` 语法） | exit 1；输出 `无法解析源文件：packages/contracts/src/broken.ts：Unexpected token (1:22)` |
+| 允许清单未改动 | 对比 `a36c8939` 的 `ALLOWED_PACKAGE_DEPENDENCIES` 与 `ALLOWED_APP_DEPENDENCIES` | 完全一致；未新增本 Spec 之外的允许边 |
+| Lockfile 范围 | `git diff a36c8939 -- package-lock.json` | 仅新增 `@babel/parser`、`@babel/types` 与两个 helper 包 |
+
+- 规则证据：新增 fixture 与逐规则对照位于 [`scripts/check-dependencies.test.mjs`](../../scripts/check-dependencies.test.mjs) 与 [`scripts/notes/dependency-rules.md`](../../scripts/notes/dependency-rules.md)；16 个规则族、逐文件边界、逐 package 与逐 app 方向均有违规断言，合法 fixture 覆盖允许方向。
+- 未决项：Planned Checks 的“并行改动集成”要求独立集成 worktree 验证其它 Spec 获准的依赖边；本 worktree 未执行该步骤，不宣称集成通过。无环境阻塞项。
