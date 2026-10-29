@@ -47,14 +47,14 @@ import { pathToFileURL } from "node:url";
  */
 const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
-    "context-budget": [],
+    "context-budget": ["contracts"],
     "model-view": ["context-budget", "model-contracts", "context-retrieval"],
     "model-context": ["context-budget", "model-view", "runtime", "contracts", "model-contracts", "tool-core", "working-memory", "context-retrieval", "execution-control"],
     "prompt-renderer": ["model-view", "context-budget"],
     "prompt-bundle": ["prompt-renderer", "model-view", "runtime", "working-memory"],
     "model-request": ["context-budget", "model-view", "model-context", "prompt-renderer", "llm-core", "runtime", "config", "model-contracts", "tool-core", "working-memory"],
     "model-response": ["llm-core", "contracts", "model-contracts"],
-    "model-call": ["llm-core", "runtime", "model-response", "execution-control", "execution-stream"],
+    "model-call": ["llm-core", "runtime", "model-response", "execution-control", "execution-stream", "contracts"],
     "model-execution": ["context-budget", "model-view", "model-context", "prompt-renderer", "model-request", "model-response", "model-call", "llm-core", "runtime", "model-contracts", "execution-control"],
     "model-contracts": ["contracts"],
     "execution-stream": [],
@@ -81,7 +81,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     tools: ["runtime", "contracts", "execution-stream", "sandbox", "execution-control", "tool-core", "process-runtime"],
     "process-runtime": ["runtime", "sandbox"],
     browser: ["http", "runtime", "permission", "web-contracts", "execution-control"],
-    "web-contracts": [],
+    "web-contracts": ["contracts"],
 };
 
 const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);

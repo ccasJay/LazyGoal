@@ -2,7 +2,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 完成共享 JSON 原语与 `stableJson` 委托：建立 `@lazygoal/contracts` 的 canonical JSON、对象守卫与深冻结入口
+- [x] //TODO 1. 完成共享 JSON 原语与 `stableJson` 委托：建立 `@lazygoal/contracts` 的 canonical JSON、对象守卫与深冻结入口
   - 落实标准：[1.2](./spec.md#spec-req-1-2), [1.3](./spec.md#spec-req-1-3), [1.4](./spec.md#spec-req-1-4), [1.5](./spec.md#spec-req-1-5), [1.6](./spec.md#spec-req-1-6), [1.7](./spec.md#spec-req-1-7), [2.1](./spec.md#spec-req-2-1), [2.3](./spec.md#spec-req-2-3), [5.1](./spec.md#spec-req-5-1), [5.2](./spec.md#spec-req-5-2), [6.1](./spec.md#spec-req-6-1)
   - 实施目标：新增 `packages/contracts/src/json.ts`，实现 `compareCodeUnits`、`isRecord`、`canonicalizeJson`（`JsonValue` 与 `unknown` 重载）、`canonicalJson(value, { indent?: 2 })` 与环安全的 `deepFreeze`；从 `packages/contracts/src/index.ts` 导出并补齐中文契约级 TSDoc 与示例。把 `packages/context-budget/src/stable-json.ts` 的 `stableJson` 改为 `canonicalJson(value, { indent: 2 })` 并重新导出 `compareCodeUnits`。在 `scripts/check-dependencies.mjs` 增加 `context-budget → contracts` 与 `model-call → contracts`；仅当 `web-contracts → contracts` 尚不存在时补齐。新增 `packages/contracts/test/json.test.ts` 覆盖 compact/两空格 golden、Unicode/整数样式键、`undefined`、`Date`、自有 `toJSON`、自有 `"__proto__"`、`compareCodeUnits`、`isRecord` 边界与循环引用 `deepFreeze`。不得在 `contracts` 引入 `node:`、`Buffer`、`process` 或 `require`。
   - 场景与预期：`stableJson({ b: 1, a: [2, 1] })` 与收敛前逐字节一致；`canonicalJson({ b: 1, a: 2 })` 输出 `{"a":2,"b":1}`；`canonicalJson(undefined)` 输出 `"null"`；含自有 `"__proto__"` 的对象输出该键且 `Object.getPrototypeOf` 不被污染；循环对象上的 `deepFreeze` 正常返回；`Date` 输出 `{}`，自有 `toJSON` 仍被 `JSON.stringify` 调用。
