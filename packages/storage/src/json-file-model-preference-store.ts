@@ -4,6 +4,9 @@ import { z } from "zod";
 
 import type { ModelPreference, ModelPreferenceStore } from "../../runtime/src/model-preference";
 import { atomicWriteJson } from "./json-file-write";
+import { KeyedSerialQueue } from "./keyed-serial-queue";
+
+const MODEL_PREFERENCE_KEY = "model-preference";
 
 const ModelPreferenceRecordSchema = z.object({
     version: z.literal(1),
@@ -25,20 +28,20 @@ const ModelPreferenceRecordSchema = z.object({
  * ```
  */
 export class JsonFileModelPreferenceStore implements ModelPreferenceStore {
-    private tail: Promise<void> = Promise.resolve();
+    private readonly queue = new KeyedSerialQueue();
 
     /** @param directory - 当前工作区的私有 LazyGoal 目录。 */
     constructor(private readonly directory: string) {}
 
     /** @returns 已保存偏好；文件不存在时返回 undefined，损坏或读取失败时拒绝。 */
     async get(): Promise<ModelPreference | undefined> {
-        await this.tail;
+        await this.queue.drain(MODEL_PREFERENCE_KEY);
         return this.readRecord();
     }
 
     /** @param preference - 已由调用方验证的当前 Provider 模型；损坏或写入失败时拒绝。 */
     async set(preference: ModelPreference): Promise<void> {
-        const write = async (): Promise<void> => {
+        return this.queue.run(MODEL_PREFERENCE_KEY, async () => {
             await this.readRecord();
             await atomicWriteJson({
                 path: join(this.directory, "model-preference.json"),
@@ -47,10 +50,7 @@ export class JsonFileModelPreferenceStore implements ModelPreferenceStore {
                 trailingNewline: false,
                 durable: false,
             });
-        };
-        const result = this.tail.then(write, write);
-        this.tail = result.then(() => undefined, () => undefined);
-        return result;
+        });
     }
 
     private async readRecord(): Promise<ModelPreference | undefined> {

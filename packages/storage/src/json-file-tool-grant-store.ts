@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import type { ToolGrant, ToolGrantStore } from "../../runtime/src/index";
 import { atomicWriteJson } from "./json-file-write";
+import { KeyedSerialQueue } from "./keyed-serial-queue";
 
 const MatcherSchema = z.discriminatedUnion("kind", [
     z.object({
@@ -82,7 +83,7 @@ type Ledger = { readonly version: 1; readonly grants: readonly ToolGrant[] };
  * ```
  */
 export class JsonFileToolGrantStore implements ToolGrantStore {
-    private tail: Promise<void> = Promise.resolve();
+    private readonly queue = new KeyedSerialQueue();
 
     /** @param directory - 当前 Workspace 的 LazyGoal Home 私有数据目录。 */
     constructor(private readonly directory: string) {}
@@ -203,18 +204,11 @@ export class JsonFileToolGrantStore implements ToolGrantStore {
     }
 
     private async mutate<T>(update: (ledger: Ledger) => { readonly ledger: Ledger; readonly result: T }): Promise<T> {
-        let resolveResult!: (value: T) => void;
-        let rejectResult!: (reason: unknown) => void;
-        const result = new Promise<T>((resolve, reject) => { resolveResult = resolve; rejectResult = reject; });
-        const operation = this.tail.then(async () => {
-            try {
-                const updated = update(await this.readLedger());
-                if (updated.ledger !== undefined) await this.writeLedger(updated.ledger);
-                resolveResult(updated.result);
-            } catch (error) { rejectResult(error); }
+        return this.queue.run("tool-grants", async () => {
+            const updated = update(await this.readLedger());
+            if (updated.ledger !== undefined) await this.writeLedger(updated.ledger);
+            return updated.result;
         });
-        this.tail = operation.then(() => undefined, () => undefined);
-        return result;
     }
 
     private async writeLedger(ledger: Ledger): Promise<void> {

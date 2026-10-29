@@ -8,6 +8,7 @@ import type {
     TraceRecord,
 } from "../../runtime/src/index";
 import { appendJsonl } from "./json-file-write";
+import { KeyedSerialQueue } from "./keyed-serial-queue";
 
 /**
  * 将 Diagnostic Trace 追加到独立 JSONL 文件的 Sink。
@@ -25,7 +26,7 @@ import { appendJsonl } from "./json-file-write";
  * ```
  */
 export class JsonFileDiagnosticTraceSink implements DiagnosticTraceSink {
-    private readonly appendQueues = new Map<string, Promise<unknown>>();
+    private readonly appendQueue = new KeyedSerialQueue();
 
     /** @param directory - Trace JSONL 根目录；写入时按需创建。 */
     constructor(private readonly directory: string) {}
@@ -40,8 +41,7 @@ export class JsonFileDiagnosticTraceSink implements DiagnosticTraceSink {
     append(record: TraceRecord): Promise<void> {
         const key = this.keyFor(record.goalId, record.runId);
         const filePath = this.filePath(record.goalId, record.runId);
-        const previous = this.appendQueues.get(key) ?? Promise.resolve();
-        const operation = previous.catch(() => undefined).then(async () => {
+        return this.appendQueue.run(key, async () => {
             await mkdir(join(this.directory, this.encode(record.goalId)), {
                 recursive: true,
                 mode: 0o700,
@@ -52,14 +52,6 @@ export class JsonFileDiagnosticTraceSink implements DiagnosticTraceSink {
                 durable: false,
             });
         });
-        let tracked: Promise<unknown>;
-        tracked = operation.finally(() => {
-            if (this.appendQueues.get(key) === tracked) {
-                this.appendQueues.delete(key);
-            }
-        }).catch(() => undefined);
-        this.appendQueues.set(key, tracked);
-        return operation;
     }
 
     private filePath(goalId: string, runId: string): string {

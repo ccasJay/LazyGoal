@@ -25,6 +25,7 @@ import {
     appendJsonl,
     WRITE_RETRY_THREE_ATTEMPTS,
 } from "./json-file-write";
+import { KeyedSerialQueue } from "./keyed-serial-queue";
 
 /** 尾部反向扫描的单次回读块大小(字节)。 */
 const TAIL_SCAN_BLOCK_BYTES = 4_096;
@@ -115,7 +116,7 @@ function parseTailSequence(
  * ```
  */
 export class JsonFileTrajectoryStore implements TrajectoryStore {
-    private readonly appendQueues = new Map<string, Promise<unknown>>();
+    private readonly appendQueue = new KeyedSerialQueue();
     private readonly sequenceCache = new Map<string, number>();
     private readonly directory: string;
     private readonly fileOperations: Required<JsonTrajectoryFileOperations>;
@@ -206,8 +207,7 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
         assertValidTrajectoryEventDraft(draft);
         const key = this.keyFor(draft.goalId, draft.runId);
         const filePath = this.filePath(draft.goalId, draft.runId);
-        const previous = this.appendQueues.get(key) ?? Promise.resolve();
-        const operation = previous.catch(() => undefined).then(async () => {
+        return this.appendQueue.run(key, async () => {
             const lastSequence = this.sequenceCache.get(key)
                 ?? await this.readLastStoredSequence(
                     filePath,
@@ -225,18 +225,6 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
             this.sequenceCache.set(key, sequence);
             return event;
         });
-        let tracked: Promise<unknown>;
-        // tracked 只承担队列簿记,吞掉拒绝避免无人处理的 rejection;
-        // 失败仍通过返回的 operation 传播给调用方。
-        tracked = operation
-            .catch(() => undefined)
-            .finally(() => {
-                if (this.appendQueues.get(key) === tracked) {
-                    this.appendQueues.delete(key);
-                }
-            });
-        this.appendQueues.set(key, tracked);
-        return operation;
     }
 
     /**

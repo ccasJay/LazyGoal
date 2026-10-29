@@ -25,6 +25,7 @@ import {
     TRANSIENT_FILE_ERROR_CODES,
     WRITE_RETRY_THREE_ATTEMPTS,
 } from "./json-file-write";
+import { KeyedSerialQueue } from "./keyed-serial-queue";
 
 type GoalFileOperations = Partial<Pick<typeof import("node:fs/promises"), "mkdir" | "open" | "readFile" | "rename" | "unlink">>;
 
@@ -69,7 +70,7 @@ export class InMemoryGoalStore implements GoalStore {
  * 乐观锁、租约或版本冲突检测。文件系统错误原样传播。
  */
 export class JsonFileGoalStore implements GoalStore, GoalCatalog {
-    private readonly saveQueues = new Map<string, Promise<unknown>>();
+    private readonly saveQueue = new KeyedSerialQueue();
     private readonly directory: string;
     private readonly fileOperations: Required<GoalFileOperations>;
 
@@ -97,17 +98,9 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
      */
     save(goal: Goal): Promise<void> {
         const snapshot = goalSnapshotCodec.encode(goal);
-        const key = snapshot.id;
-        const previous = this.saveQueues.get(key) ?? Promise.resolve();
-        const operation = previous.catch(() => undefined).then(() => this.saveSnapshot(snapshot, goal));
-        let tracked: Promise<unknown>;
-        tracked = operation
-            .catch(() => undefined)
-            .finally(() => {
-                if (this.saveQueues.get(key) === tracked) this.saveQueues.delete(key);
-            });
-        this.saveQueues.set(key, tracked);
-        return operation;
+        return this.saveQueue.run(snapshot.id, async () => {
+            await this.saveSnapshot(snapshot, goal);
+        });
     }
 
     private async saveSnapshot(

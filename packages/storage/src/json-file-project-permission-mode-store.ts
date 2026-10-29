@@ -9,6 +9,9 @@ import {
     type ProjectPermissionModeStore,
 } from "../../permission/src/index";
 import { atomicWriteJson } from "./json-file-write";
+import { KeyedSerialQueue } from "./keyed-serial-queue";
+
+const PERMISSION_MODE_KEY = "permission-mode";
 
 const PermissionModeRecordSchema = z.object({
     version: z.literal(1),
@@ -42,7 +45,7 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
  * ```
  */
 export class JsonFileProjectPermissionModeStore implements ProjectPermissionModeStore {
-    private tail: Promise<void> = Promise.resolve();
+    private readonly queue = new KeyedSerialQueue();
 
     /**
      * @param directory - 当前工作区的私有状态目录。
@@ -61,6 +64,7 @@ export class JsonFileProjectPermissionModeStore implements ProjectPermissionMode
      * @throws 文件格式非法或损坏时抛出异常。
      */
     async get(workspaceId: string): Promise<ProjectPermissionMode> {
+        await this.queue.drain(PERMISSION_MODE_KEY);
         const record = await this.readRecord();
         if (record === undefined) {
             return {
@@ -128,14 +132,10 @@ export class JsonFileProjectPermissionModeStore implements ProjectPermissionMode
     private async mutate<T>(
         operation: (current: PermissionModeRecord | undefined) => Promise<T>,
     ): Promise<T> {
-        const run = async (): Promise<T> => {
+        return this.queue.run(PERMISSION_MODE_KEY, async () => {
             const current = await this.readRecord();
             return operation(current);
-        };
-
-        const result = this.tail.then(run, run);
-        this.tail = result.then(() => undefined, () => undefined);
-        return result;
+        });
     }
 
     private async readRecord(): Promise<PermissionModeRecord | undefined> {

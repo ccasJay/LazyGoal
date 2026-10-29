@@ -28,7 +28,7 @@
   - 场景与预期：指标、覆盖记录、诊断 Trace 与模型输入清单的行数与内容不变且文件为 `0600`；同一次调用出现冲突的完成事实时仍抛 `ModelCallMetricStoreProtocolError`；Trace 写入失败仍原样传播且不影响 Goal；模型输入正文已存在且哈希一致时不重写；进程输出分片按原字节追加、轮转仍产生 `gap` 语义。
   - 验证手段：`npx tsx --test packages/storage/test/session-metrics-store.test.ts packages/storage/test/diagnostic-trace-sink.test.ts packages/storage/test/model-input-store.test.ts packages/storage/test/process-session-store.test.ts`。
 
-- [ ] //TODO 5. 交付按键串行队列并接管全部写入顺序
+- [x] //TODO 5. 交付按键串行队列并接管全部写入顺序
   - 落实标准：[3.1](./spec.md#spec-req-3-1)、[3.2](./spec.md#spec-req-3-2)、[3.3](./spec.md#spec-req-3-3)、[3.4](./spec.md#spec-req-3-4)、[3.5](./spec.md#spec-req-3-5)、[6.1](./spec.md#spec-req-6-1)、[6.3](./spec.md#spec-req-6-3)
   - 实施目标：新增 `packages/storage/src/keyed-serial-queue.ts`，实现按 key 的 FIFO `run`、`drain` 与只读 `pendingKeyCount`（用于验证簿记释放）。把 10 个 Store 中 11 处手写队列（含 `this.tail`、`Map<string, Promise>` 与 `withLock`）全部替换，key 粒度严格按 spec 的队列表；`JsonFileModelPreferenceStore` 与 `JsonFileProjectPermissionModeStore` 的读取改为先 `drain` 固定 key。删除 `withLock`，其串行与读取互斥语义由 `run` 承担。
   - 场景与预期：同 key 连续提交三次写入按提交顺序完成；第一个操作拒绝时只拒绝它本身，第二个仍成功；不同 key 的慢操作不阻塞彼此；`drain` 返回后立即可读到刚写入的偏好与权限模式；连续写入后 `pendingKeyCount` 回到 0；不存在未处理拒绝（进程级 `unhandledRejection` 未被触发）。

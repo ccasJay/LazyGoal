@@ -11,6 +11,7 @@ import {
     type SandboxGrantStore,
 } from "../../permission/src/index";
 import { atomicWriteJson } from "./json-file-write";
+import { KeyedSerialQueue } from "./keyed-serial-queue";
 
 const ExtraFileSchema = z.object({
     canonicalPath: z.string().min(1),
@@ -89,7 +90,7 @@ type Ledger = { readonly version: 1; readonly grants: readonly SandboxGrant[] };
  * ```
  */
 export class JsonFileSandboxGrantStore implements SandboxGrantStore {
-    private tail: Promise<void> = Promise.resolve();
+    private readonly queue = new KeyedSerialQueue();
 
     /** @param directory - 当前 Workspace 的 LazyGoal Home 私有数据目录。 */
     constructor(private readonly directory: string) {}
@@ -209,18 +210,11 @@ export class JsonFileSandboxGrantStore implements SandboxGrantStore {
     }
 
     private async mutate<T>(update: (ledger: Ledger) => { readonly ledger: Ledger; readonly result: T }): Promise<T> {
-        let resolveResult!: (value: T) => void;
-        let rejectResult!: (reason: unknown) => void;
-        const result = new Promise<T>((resolve, reject) => { resolveResult = resolve; rejectResult = reject; });
-        const operation = this.tail.then(async () => {
-            try {
-                const updated = update(await this.readLedger());
-                if (updated.ledger !== undefined) await this.writeLedger(updated.ledger);
-                resolveResult(updated.result);
-            } catch (error) { rejectResult(error); }
+        return this.queue.run("sandbox-grants", async () => {
+            const updated = update(await this.readLedger());
+            if (updated.ledger !== undefined) await this.writeLedger(updated.ledger);
+            return updated.result;
         });
-        this.tail = operation.then(() => undefined, () => undefined);
-        return result;
     }
 
     private async writeLedger(ledger: Ledger): Promise<void> {

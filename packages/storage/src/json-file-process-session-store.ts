@@ -10,6 +10,7 @@ import type {
     ProcessSessionStore,
 } from "../../runtime/src/index";
 import { appendFileChunk, atomicWriteJson } from "./json-file-write";
+import { KeyedSerialQueue } from "./keyed-serial-queue";
 
 type ProcessSessionFileOperations = Partial<Pick<
     typeof import("node:fs/promises"),
@@ -87,7 +88,7 @@ type ChannelMeta = z.infer<typeof ChannelMetaSchema>;
 export class JsonFileProcessSessionStore implements ProcessSessionStore {
     private readonly baseDirectory: string;
     private readonly currentHostInstanceId: string;
-    private readonly writeLocks = new Map<string, Promise<void>>();
+    private readonly queue = new KeyedSerialQueue();
     private readonly fileOperations: Required<ProcessSessionFileOperations>;
 
     /**
@@ -140,22 +141,6 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
         return join(this.getProcessDirectory(goalId, processId), channel);
     }
 
-    private async withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-        const prev = this.writeLocks.get(key) ?? Promise.resolve();
-        let release: () => void;
-        const next = new Promise<void>((r) => { release = r; });
-        this.writeLocks.set(key, prev.then(() => next));
-        try {
-            await prev;
-            return await fn();
-        } finally {
-            release!();
-            if (this.writeLocks.get(key) === next) {
-                this.writeLocks.delete(key);
-            }
-        }
-    }
-
     /**
      * 保存或更新进程会话元数据（原子替换）。
      */
@@ -163,7 +148,7 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
         const validated = ProcessSessionDtoSchema.parse(session);
         const lockKey = `${session.goalId}:${session.processId}:session`;
 
-        await this.withLock(lockKey, async () => {
+        await this.queue.run(lockKey, async () => {
             await atomicWriteJson({
                 path: this.getSessionFilePath(session.goalId, session.processId),
                 value: validated,
@@ -306,7 +291,7 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
         await this.fileOperations.mkdir(channelDir, { recursive: true, mode: 0o700 });
 
         const lockKey = `${goalId}:${processId}:${channel}`;
-        await this.withLock(lockKey, async () => {
+        await this.queue.run(lockKey, async () => {
             const meta = await this.readMeta(channelDir);
             const textBuffer = Buffer.from(text, "utf8");
             let remaining = textBuffer;
@@ -377,7 +362,7 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
         const channelDir = this.getChannelDirectory(goalId, processId, channel);
         const lockKey = `${goalId}:${processId}:${channel}`;
 
-        return await this.withLock(lockKey, async () => {
+        return await this.queue.run(lockKey, async () => {
             const meta = await this.readMeta(channelDir);
             const reqCursor = cursor ?? meta.headOffset;
 
