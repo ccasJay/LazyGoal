@@ -2,23 +2,8 @@ import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
+import { canonicalJson, isRecord } from "../../contracts/src/index";
 import type { ToolGrantMatcher } from "./types";
-
-function isRecord(value: unknown): value is { readonly [key: string]: unknown } {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-export function canonicalize(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(canonicalize);
-    if (value !== null && typeof value === "object") {
-        return Object.fromEntries(
-            Object.entries(value)
-                .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-                .map(([key, child]) => [key, canonicalize(child)]),
-        );
-    }
-    return value;
-}
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
     return typeof error === "object"
@@ -93,7 +78,7 @@ export async function createToolGrantMatcher(
         toolId,
         version: 1,
         digest: `sha256:${createHash("sha256")
-            .update(JSON.stringify(canonicalize(input)), "utf8")
+            .update(canonicalJson(input), "utf8")
             .digest("hex")}`,
     };
 }

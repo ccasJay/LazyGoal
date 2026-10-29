@@ -20,7 +20,7 @@
   - 场景与预期：同一 `SessionInput` 的 digest 与收敛前完全一致；同一 `goalId`/`runId`/请求的 `lookupId` 完全一致；Think 输入边界摘要仍由 `model-stream-execution-boundary.test.ts` 与现有恢复测试证明稳定。
   - 验证手段：`npx tsc --noEmit` 与 `npx tsx --test packages/runtime/test/digest-golden.test.ts packages/runtime/test/session-input.test.ts packages/runtime/test/context-retrieval-protocol.test.ts packages/runtime/test/model-stream-execution-boundary.test.ts`。
 
-- [ ] //TODO 4. 完成 permission、tools 与 working-memory 的 canonical JSON 与摘要收敛
+- [x] //TODO 4. 完成 permission、tools 与 working-memory 的 canonical JSON 与摘要收敛
   - 落实标准：[1.1](./spec.md#spec-req-1-1), [1.2](./spec.md#spec-req-1-2), [1.3](./spec.md#spec-req-1-3), [2.1](./spec.md#spec-req-2-1), [2.2](./spec.md#spec-req-2-2), [2.4](./spec.md#spec-req-2-4), [6.2](./spec.md#spec-req-6-2)
   - 实施目标：`permission/src/tool-grant-matcher.ts` 与 `permission/src/grant-matching.ts` 改用 `canonicalizeJson`/`canonicalJson`，并删除 `tool-grant-matcher` 的本地 `isRecord`；`tools/src/internal/cursor.ts` 的 `computeCanonicalDigest` 改用 `canonicalJson`；`working-memory/src/core.ts` 的 `canonicalizeJson`/`jsonEquals` 改用共享值规范化与字符串比较，并删除其本地 `isRecord`。在 `packages/permission/test/grant-matching.test.ts` 增加 `computeInputDigest` 字面量摘要；新增 `packages/tools/test/cursor.test.ts` 固定 `computeCanonicalDigest` 与 Cursor 往返。
   - 场景与预期：同一 Tool 输入的 `computeInputDigest` 与 `computeCanonicalDigest` 与收敛前逐字节一致；Cursor 解码后的 payload 不变；Working Memory 的事实相等与规范化结果不变。

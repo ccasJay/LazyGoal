@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+    computeInputDigest,
     createSandboxGrantMatcher,
     DefaultPermissionGrantService,
     matchesSandboxGrant,
@@ -222,4 +223,15 @@ test("DefaultPermissionGrantService: 聚合列表与分别撤销", async () => {
 
     await service.revoke({ kind: "sandbox", grantId: "sb-1", workspaceId: "ws-1" });
     assert.equal(sandboxRevoked, true);
+});
+
+test("computeInputDigest 固定 Tool 输入的字面量摘要", () => {
+    assert.equal(
+        computeInputDigest({ command: "git status", cwd: "/workspace" }),
+        "4053d3628a804bc4c55cebd1cd0306b170b9e5770c126fe6c695cb565d6ba180",
+    );
+    assert.equal(
+        computeInputDigest({ b: [2, 1], a: { d: 1, c: 2 }, "中文": "值" }),
+        "f3365afb97d5847ecd2c90e3ef50149649f9f9970b77e7db7a36c6155555ccdf",
+    );
 });

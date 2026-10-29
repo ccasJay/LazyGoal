@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { canonicalJson } from "../../../contracts/src/index";
+
 /**
  * 计算任意 JSON 结构可规范化的 sha256 摘要（hex 字符串）。
  *
@@ -7,26 +9,7 @@ import { createHash } from "node:crypto";
  * @returns 64 位十六进制哈希字符串。
  */
 export function computeCanonicalDigest(value: unknown): string {
-    return createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex");
-}
-
-function canonicalize(value: unknown): unknown {
-    if (value === null || typeof value !== "object") {
-        return value;
-    }
-    if (Array.isArray(value)) {
-        return value.map(canonicalize);
-    }
-    const record = value as Record<string, unknown>;
-    const sortedKeys = Object.keys(record).sort();
-    const result: Record<string, unknown> = {};
-    for (const key of sortedKeys) {
-        const val = record[key];
-        if (val !== undefined) {
-            result[key] = canonicalize(val);
-        }
-    }
-    return result;
+    return createHash("sha256").update(canonicalJson(value)).digest("hex");
 }
 
 /**
