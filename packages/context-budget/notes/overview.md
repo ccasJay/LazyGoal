@@ -20,7 +20,7 @@
 
 `truncateThought` 对超长思考链执行确定性尾部截断并附加 `THOUGHT_TRUNCATION_MARKER`；提供 `TokenBudgetPlanner` 时同时返回截断后 Token 数。`formatThinkingContext` 生成第二阶段提取用的固定包装文本。
 
-[`stableJson`](../src/stable-json.ts) 与 `compareCodeUnits` 不依赖 Nunjucks：对象键按代码单元顺序递归排序、数组保持原顺序、两空格缩进，空数组固定输出 `[]`。该实现同时是 Prompt 环境的 `stableJson` Filter 与各计量、投影消费者引用的唯一算法，不另建通用工具包。
+[`stableJson`](../src/stable-json.ts) 是本包保留的公开入口，不再拥有算法实现：它委托 `@lazygoal/contracts` 的 `canonicalJson(value, { indent: 2 })`，输出对象键按代码单元顺序递归排序、数组保序、两空格缩进的文本，空数组固定为 `[]`。`compareCodeUnits` 同样从 contracts 重新导出。Prompt 环境的 `stableJson` Filter 与各计量、投影消费者继续经本包使用该入口，算法归属与权威说明在 [contracts](../../contracts/notes/overview.md)。
 
 ## 限制
 

@@ -9,6 +9,8 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 
 `@lazygoal/storage` 拥有持久化文件表示与实现：Profile 文件 DTO、当前 Goal Snapshot v1 DTO 与严格 Schema、Runtime↔Snapshot 双向 Codec、Trajectory/Diagnostic JSONL Store、Tool Grant 授权账本，以及实现 Runtime/Agent Port 的内存/JSON 文件 Store。它依赖 Runtime 的 Port 与领域契约；Runtime 不反向加载本模块。
 
+所有 Store 的路径段编码统一由内部 [`encodePathSegment`](../src/path-segment.ts) 完成（UTF-8 base64url），该模块不从公共入口导出；各 Store 只保留身份校验与目录布局，编码结果保持不变。
+
 ## 职责速查
 
 | 组件 | 负责 | 不负责 |
