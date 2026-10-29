@@ -1,3 +1,14 @@
+import type { InferContract } from "../../contracts/src/index";
+import {
+    browserExecutionStateContract,
+    browserInteractionDecisionContract,
+    browserInteractionKindContract,
+    browserInteractionViewContract,
+    browserMessagePositionContract,
+    browserRunStatusContract,
+    browserSandboxReviewContract,
+    browserToolGrantExtraFileContract,
+} from "./contracts/common";
 import type { BrowserJsonValue } from "./session-input";
 
 /**
@@ -123,13 +134,7 @@ export type BrowserActionReviewResult =
  * const status: BrowserRunStatus = "running";
  * ```
  */
-export type BrowserRunStatus =
-    | "created"
-    | "running"
-    | "waiting"
-    | "completed"
-    | "failed"
-    | "cancelled";
+export type BrowserRunStatus = InferContract<typeof browserRunStatusContract>;
 
 /**
  * Run 执行与恢复状态。
@@ -145,7 +150,7 @@ export type BrowserRunStatus =
  * const state: BrowserExecutionState = "recoverable";
  * ```
  */
-export type BrowserExecutionState = "active" | "recoverable" | "inactive";
+export type BrowserExecutionState = InferContract<typeof browserExecutionStateContract>;
 
 /**
  * Run 提交边界与执行活动投影。
@@ -177,12 +182,7 @@ export interface BrowserGoalExecution {
  * const position: BrowserMessagePosition = { afterSequence: 12, order: 0 };
  * ```
  */
-export interface BrowserMessagePosition {
-    /** 消息之前的最后一条已提交事实序列。 */
-    readonly afterSequence: number;
-    /** 同一 Run、同一事实锚点内的零基 Snapshot 次序。 */
-    readonly order: number;
-}
+export type BrowserMessagePosition = InferContract<typeof browserMessagePositionContract>;
 
 /**
  * 工作区 Goal 列表项的安全传输对象。
@@ -667,14 +667,7 @@ export interface BrowserGoalPlan {
  * };
  * ```
  */
-export interface BrowserToolGrantExtraFile {
-    /** 规范化绝对路径。 */
-    readonly canonicalPath: string;
-    /** 访问权限方向。 */
-    readonly access: "read" | "write";
-    /** 文件类型。 */
-    readonly kind: "file" | "directory_tree";
-}
+export type BrowserToolGrantExtraFile = InferContract<typeof browserToolGrantExtraFileContract>;
 
 /**
  * 沙箱权限审阅摘要。
@@ -687,14 +680,7 @@ export interface BrowserToolGrantExtraFile {
  * };
  * ```
  */
-export interface BrowserSandboxReview {
-    /** 越界文件或目录列表。 */
-    readonly extraFiles: readonly BrowserToolGrantExtraFile[];
-    /** 网络访问范围。 */
-    readonly network: "none" | "all_outbound";
-    /** 网络访问附加说明。 */
-    readonly networkNotice?: string;
-}
+export type BrowserSandboxReview = InferContract<typeof browserSandboxReviewContract>;
 
 /**
  * 待用户审批的工具或沙箱 Action 视图。
@@ -748,11 +734,7 @@ export interface BrowserPendingAction {
  * const kind: BrowserInteractionKind = "action_recovery";
  * ```
  */
-export type BrowserInteractionKind =
-    | "question"
-    | "task_approval"
-    | "action_approval"
-    | "action_recovery";
+export type BrowserInteractionKind = InferContract<typeof browserInteractionKindContract>;
 
 /**
  * 当前交互允许的决定。
@@ -766,17 +748,7 @@ export type BrowserInteractionKind =
  * const decisions: readonly BrowserInteractionDecision[] = ["approve_task", "send_task_feedback"];
  * ```
  */
-export type BrowserInteractionDecision =
-    | "answer_questions"
-    | "reply_to_question"
-    | "skip_question"
-    | "approve_task"
-    | "send_task_feedback"
-    | "approve_action"
-    | "approve_action_revision"
-    | "reject_action"
-    | "retry_unknown_action"
-    | "decline_unknown_action_retry";
+export type BrowserInteractionDecision = InferContract<typeof browserInteractionDecisionContract>;
 
 /**
  * 当前已提交等待的类型化交互视图摘要。
@@ -799,30 +771,7 @@ export type BrowserInteractionDecision =
  * };
  * ```
  */
-export interface BrowserInteractionView {
-    /** Goal 稳定标识。 */
-    readonly goalId: string;
-    /** 等待所属的 Run 身份。 */
-    readonly runId: string;
-    /** 交互种类。 */
-    readonly kind: BrowserInteractionKind;
-    /** 由种类与等待身份构成的稳定引用。 */
-    readonly interactionId: string;
-    /** 问答与任务审批的请求身份。 */
-    readonly requestId?: string;
-    /** 工具／沙箱审批与恢复等待的 Action 身份。 */
-    readonly actionId?: string;
-    /**
-     * 本次未知结果等待的恢复身份。
-     *
-     * @remarks 仅恢复等待提供；重执行决定必须原样带回该引用。
-     */
-    readonly recoveryRef?: string;
-    /** 当前等待允许的决定。 */
-    readonly decisions: readonly BrowserInteractionDecision[];
-    /** 有界摘要是否省略了决定所需内容。 */
-    readonly truncated: boolean;
-}
+export type BrowserInteractionView = InferContract<typeof browserInteractionViewContract>;
 
 /**
  * 当前交互的完整审阅内容。

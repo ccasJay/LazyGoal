@@ -1,6 +1,5 @@
 import type {
     BrowserActionDetailsResult,
-    BrowserJsonValue,
     BrowserActionReviewResult,
     BrowserGoalListItem,
     BrowserGoalList,
@@ -40,6 +39,7 @@ import type {
     BrowserProviderProfileTestResult,
 } from "./index";
 import { BROWSER_ACTIVITY_EVENT_TYPES } from "./activity";
+import { isJsonValue } from "./invariants";
 
 /**
  * 通用对象类型守卫。
@@ -77,23 +77,7 @@ export function isNonEmptyString(value: unknown): value is string {
     return typeof value === "string" && value.trim().length > 0;
 }
 
-/**
- * JSON-safe 合法值类型守卫。
- *
- * @param value - 待检测值。
- * @returns 是否为可被 JSON 序列化的值。
- *
- * @example
- * ```ts
- * if (isJsonValue(val)) JSON.stringify(val);
- * ```
- */
-export function isJsonValue(value: unknown): value is BrowserJsonValue {
-    if (value === null || typeof value === "string" || typeof value === "boolean") return true;
-    if (typeof value === "number") return Number.isFinite(value);
-    if (Array.isArray(value)) return value.every(isJsonValue);
-    return isRecord(value) && Object.values(value).every(isJsonValue);
-}
+export { isJsonValue };
 
 /**
  * Run 生命周期状态类型守卫。

@@ -1,3 +1,10 @@
+import type { InferContract } from "../../contracts/src/index";
+import {
+    browserSessionInputKindContract,
+    browserSessionInputReceiptContract,
+    browserSessionInputStatusContract,
+} from "./contracts/common";
+
 /**
  * Web 统一会话输入、收据与安全会话状态的 wire 传输对象。
  *
@@ -15,13 +22,7 @@
  * const kind: BrowserSessionInputKind = "steer";
  * ```
  */
-export type BrowserSessionInputKind =
-    | "message"
-    | "steer"
-    | "interrupt"
-    | "respond"
-    | "resume"
-    | "queue_control";
+export type BrowserSessionInputKind = InferContract<typeof browserSessionInputKindContract>;
 
 /**
  * wire 上允许传输的 JSON 值。
@@ -171,7 +172,7 @@ export type BrowserSessionInputCommand =
  * const status: BrowserSessionInputStatus = "pending";
  * ```
  */
-export type BrowserSessionInputStatus = "pending" | "applied" | "cleared";
+export type BrowserSessionInputStatus = InferContract<typeof browserSessionInputStatusContract>;
 
 /**
  * 一条已持久化输入的受理收据投影。
@@ -184,26 +185,7 @@ export type BrowserSessionInputStatus = "pending" | "applied" | "cleared";
  * };
  * ```
  */
-export interface BrowserSessionInputReceipt {
-    /** 受理该输入的 Goal。 */
-    readonly goalId: string;
-    /** 输入身份。 */
-    readonly inputId: string;
-    /** 输入种类。 */
-    readonly kind: BrowserSessionInputKind;
-    /** 受理序号。 */
-    readonly sequence: number;
-    /** 当前受理状态。 */
-    readonly status: BrowserSessionInputStatus;
-    /** 受理提交后的 Goal 提交修订。 */
-    readonly admittedAtRevision: number;
-    /** 控制类输入的目标 Run。 */
-    readonly targetRunId?: string;
-    /** 已应用时的唯一实际 Run。 */
-    readonly appliedRunId?: string;
-    /** 已应用时的消息位置。 */
-    readonly messageIndex?: number;
-}
+export type BrowserSessionInputReceipt = InferContract<typeof browserSessionInputReceiptContract>;
 
 /**
  * 输入受理与查询的稳定 wire 拒绝代码。
