@@ -30,7 +30,7 @@
   - 场景与预期：`text/html`、`application/json`、`text/plain` 正常返回；`image/png` 返回 `WEB_FETCH_UNSUPPORTED_CONTENT_TYPE` 且不发正文；ISO-8859-1 响应按声明解码，meta charset 生效，无声明时 UTF-8；`Content-Length` 超 2 MiB 和 chunked 超 2 MiB 都返回 `WEB_RESPONSE_TOO_LARGE`；404 返回 `WEB_FETCH_HTTP_ERROR`，429/503 仍走瞬态失败。
   - 验证手段：扩展 `packages/tools/test/web-fetch.test.ts`；`npx tsx --test packages/tools/test/web-fetch.test.ts`；`npx tsc --noEmit`。
 
-- [ ] //TODO 5. 收口公开契约、默认注册、跨模块兼容与模块文档
+- [x] //TODO 5. 收口公开契约、默认注册、跨模块兼容与模块文档
   - 落实标准：[5.1](./spec.md#spec-req-5-1)、[5.2](./spec.md#spec-req-5-2)、[5.3](./spec.md#spec-req-5-3)、[6.1](./spec.md#spec-req-6-1)、[6.2](./spec.md#spec-req-6-2)、[6.3](./spec.md#spec-req-6-3)、[6.4](./spec.md#spec-req-6-4)。
   - 实施目标：确认 `packages/tools/src/index.ts` 的 `WEB_SEARCH_*`/`WEB_FETCH_*` 导出、`WEB_SEARCH_INPUT_CONTRACT`、`WEB_FETCH_INPUT_CONTRACT`、`WebSearchResult`、`WebFetchOutput`、`WebSearchBackend`、`WebFetchHandler` 和 `DEFAULT_TOOL_IDS` 未改变；`default-tools.ts` 保持 `new WebSearchTool()`/`new WebFetchTool()` 的默认注册，仅在不改变构造契约时调整导入来源；`htmlToPlainText` 只保留委托实现。更新 `packages/tools/notes/overview.md` 的网页工具边界（默认 DuckDuckGo、`html-to-text`、URL/DNS/连接地址绑定/重定向策略、Host/TLS 身份与连接资源所有权、content-type/charset、2 MiB/30 秒和错误码），更新 `notes/semantics.md` 的概念行，并在 `README.md` 的简介中补充网页工具。保留当前工作树中已有的无关修改；不修改 `specs/tool-suite-expansion` 或 `specs/permission`。
   - 场景与预期：现有默认 Profile 仍注册 `web_search`/`web_fetch`；Runtime 的 `web-tool-permission.test.ts` 继续证明未获 `all_outbound` 时后端不被调用；Benchmark 的 remote/fake backend 不受默认实现影响；模块语义表四列完整，链接有效；公开导出和输入/输出字段与 Spec 一致。
