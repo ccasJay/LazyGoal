@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { isRecord } from "../../contracts/src/index";
 import type {
     CompletedRunRecord,
     Goal,
@@ -91,11 +92,6 @@ import {
 
 function isStreamDeltaKind(kind: string): boolean {
     return kind.endsWith("_delta");
-}
-
-/** 判断 JSON 值是否为普通对象；用于读取可选的沙箱能力申请字段。 */
-function isJsonRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function streamCoalescingKey(
@@ -1360,7 +1356,7 @@ export class GoalCoordinator {
         if (typeof prepared.resolveSandboxAccess === "function") {
             const derived = await prepared.resolveSandboxAccess(control);
             if (derived !== undefined) sandboxAccessRequest = derived;
-        } else if (isJsonRecord(finalInput) && isJsonRecord(finalInput.sandboxAccess)) {
+        } else if (isRecord(finalInput) && isRecord(finalInput.sandboxAccess)) {
             sandboxAccessRequest = finalInput.sandboxAccess as unknown as SandboxAccessRequest;
         }
 

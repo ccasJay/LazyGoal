@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { canonicalJson } from "../../contracts/src/index";
 import type { EffectiveExtraFile, EffectiveSandboxScope } from "../../sandbox/src/index";
 import type { JsonValue, PendingAction, ToolCallAction } from "./domain";
 
@@ -188,19 +189,6 @@ export function computeActionRecoveryRef(actionId: string, attempt: number): str
         .slice(0, 32)}`;
 }
 
-function canonicalize(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(canonicalize);
-    if (value !== null && typeof value === "object") {
-        return Object.fromEntries(
-            Object.entries(value as Record<string, unknown>)
-                .filter(([, child]) => child !== undefined)
-                .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-                .map(([key, child]) => [key, canonicalize(child)]),
-        );
-    }
-    return value;
-}
-
 /**
  * 程序工具调用结果信封中的修订说明。
  *
@@ -306,7 +294,7 @@ export function computeActionApprovalReviewRef(input: {
     readonly scope: ActionApprovalScope;
     readonly capability: ActionApprovalCapability;
 }): string {
-    const payload = canonicalize({
+    const payload = canonicalJson({
         actionId: input.actionId,
         toolId: input.toolId,
         originalInput: input.originalInput,
@@ -319,7 +307,7 @@ export function computeActionApprovalReviewRef(input: {
         },
     });
     return `review:${createHash("sha256")
-        .update(JSON.stringify(payload), "utf8")
+        .update(payload, "utf8")
         .digest("hex")
         .slice(0, 32)}`;
 }
@@ -348,14 +336,14 @@ export function computeApprovalInputId(input: {
     readonly scope: ActionApprovalScope;
     readonly finalInput: JsonValue;
 }): string {
-    const payload = canonicalize({
+    const payload = canonicalJson({
         actionId: input.actionId,
         toolId: input.toolId,
         scope: input.scope,
         finalInput: input.finalInput,
     });
     return `approval:${createHash("sha256")
-        .update(JSON.stringify(payload), "utf8")
+        .update(payload, "utf8")
         .digest("hex")
         .slice(0, 32)}`;
 }

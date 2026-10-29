@@ -14,7 +14,7 @@
   - 场景与预期：`createContextLookupQueryHash` 对同一请求返回固定 64 位 hex；`roundRankedScore` 与 `roundScore` 在 6 位小数网格上幂等，并在半微单位边界保持各自公式；现有检索结果分数与查询缓存键逐值不变。
   - 验证手段：`npx tsc --noEmit` 与 `npx tsx --test packages/context-retrieval/test/score-rounding.test.ts packages/context-retrieval/test/context-protocol-digest.test.ts packages/context-retrieval/test/context-ranking.test.ts packages/context-retrieval/test/context-lookup-result.test.ts packages/context-retrieval/test/context-retrieval-index.test.ts`。
 
-- [ ] //TODO 3. 完成 runtime 的 canonical JSON、对象守卫与摘要入口收敛
+- [x] //TODO 3. 完成 runtime 的 canonical JSON、对象守卫与摘要入口收敛
   - 落实标准：[1.1](./spec.md#spec-req-1-1), [1.2](./spec.md#spec-req-1-2), [1.3](./spec.md#spec-req-1-3), [2.1](./spec.md#spec-req-2-1), [2.2](./spec.md#spec-req-2-2), [2.4](./spec.md#spec-req-2-4), [3.2](./spec.md#spec-req-3-2), [6.2](./spec.md#spec-req-6-2)
   - 实施目标：删除 `runtime/src/{runner,action-approval,session-input,context-retrieval,trajectory-checkpoint-committer,working-memory-session,session-output,trajectory,goal-coordinator}.ts` 中的本地 `canonicalize`/`stableJson`/`compareCodeUnits`/`isRecord`（共 7 个守卫），改用 contracts 的对应导出；`runtime/src/context-retrieval.ts` 的 `roundScore` 改用 context-retrieval 的共享实现。新增 `packages/runtime/test/digest-golden.test.ts`，固定 `computeSessionInputDigest` 与 `createContextLookupId` 的字面量结果。
   - 场景与预期：同一 `SessionInput` 的 digest 与收敛前完全一致；同一 `goalId`/`runId`/请求的 `lookupId` 完全一致；Think 输入边界摘要仍由 `model-stream-execution-boundary.test.ts` 与现有恢复测试证明稳定。

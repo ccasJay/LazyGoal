@@ -3,6 +3,7 @@ import {
     type ModelAssistantMessage,
     type NativeConversationIdentity,
 } from "../../model-contracts/src/index";
+import { isRecord } from "../../contracts/src/index";
 import { createHash } from "node:crypto";
 
 import type {
@@ -953,10 +954,6 @@ const DERIVED_PAYLOAD_KEYS = new Set([
     "currentPlan",
     "currentPendingAction",
 ]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function assertNonEmptyString(value: unknown, field: string): asserts value is string {
     if (typeof value !== "string" || value.length === 0) {

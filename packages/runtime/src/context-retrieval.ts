@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 
 import {
+    canonicalJson,
+    compareCodeUnits,
+    isRecord,
+} from "../../contracts/src/index";
+import {
     isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
@@ -19,6 +24,7 @@ import {
     ContextLookupProtocolError as ContextRetrievalProtocolError,
     normalizeContextLookupRequest as normalizeContextRetrievalRequest,
 } from "../../context-retrieval/src/context-protocol";
+import { roundScore } from "../../context-retrieval/src/score-rounding";
 import type {
     ContextLookupFilters,
     ContextLookupNeed,
@@ -664,7 +670,7 @@ export function createContextLookupId(
     assertNonEmptyString(goalId, "goalId");
     assertNonEmptyString(runId, "runId");
     const normalized = normalizeContextLookupRequest(request);
-    const canonical = stableJson({ version: 1, goalId, runId, request: normalized });
+    const canonical = canonicalJson({ version: 1, goalId, runId, request: normalized });
     return `lookup-${createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 32)}`;
 }
 
@@ -673,7 +679,7 @@ export function createContextLookupQueryHash(
     request: ContextLookupRequest,
 ): string {
     const normalized = normalizeContextLookupRequest(request);
-    const canonical = stableJson({
+    const canonical = canonicalJson({
         version: CONTEXT_LOOKUP_RESULT_VERSION,
         request: normalized,
     });
@@ -1039,10 +1045,6 @@ function normalizeSourceRunBoundaries(
     return Object.freeze(boundaries);
 }
 
-function roundScore(value: number): number {
-    return Math.round(value * 1_000_000) / 1_000_000;
-}
-
 function assertExactKeys(value: Record<string, unknown>, keys: readonly string[]): void {
     const expected = new Set(keys);
     const actual = Object.keys(value);
@@ -1076,39 +1078,10 @@ function assertNonNegativeSafeInteger(value: unknown, field: string): asserts va
     }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function uniqueSorted(values: readonly string[]): readonly string[] {
     return [...new Set(values)].sort(compareCodeUnits);
 }
 
-function compareCodeUnits(left: string, right: string): number {
-    const length = Math.min(left.length, right.length);
-    for (let index = 0; index < length; index += 1) {
-        const difference = left.charCodeAt(index) - right.charCodeAt(index);
-        if (difference !== 0) return difference;
-    }
-    return left.length - right.length;
-}
-
-function stableJson(value: unknown): string {
-    return JSON.stringify(sortKeys(value));
-}
-
-function sortKeys(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(sortKeys);
-    if (value !== null && typeof value === "object") {
-        const record = value as Record<string, unknown>;
-        return Object.fromEntries(
-            Object.keys(record)
-                .sort(compareCodeUnits)
-                .map((key) => [key, sortKeys(record[key])]),
-        );
-    }
-    return value;
-}
 
 const MATCHED_FIELDS = new Set<ContextLookupMatchedField>([
     "eventType",
