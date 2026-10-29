@@ -74,6 +74,26 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 验证时间：-
-- 验证摘要：尚未开始执行。
+- 状态：已完成；两项基线既有类型检查失败见未决问题
+- 验证时间：2026-10-29
+- 最终代码提交：`70ebb226`（本记录由紧随其后的 `docs(shared-json-primitives)` 提交追加）
+- 验证摘要：九个 TODO 的定向检查全部通过；`npm test`、`npm run build:web`、`npm run check:docs` 与 `git diff --check` 通过。`npm --prefix benchmarks run typecheck`（19 个错误）与 `npx tsc -p apps/goal-server/tsconfig.json --noEmit`（1 个错误）在基线提交 `a36c8939` 上以完全相同的输出失败，与本次改动无关，未在本 Spec 内修改。
+
+| 检查项 | 命令 | 结果 |
+| --- | --- | --- |
+| 共享 canonical JSON 输出与边界语义 | `npx tsx --test packages/contracts/test/json.test.ts` | 通过：13 tests |
+| `stableJson` 与 Prompt 字节回归 | `npx tsx --test packages/context-budget/test/stable-serialization.test.ts packages/prompt-renderer/test/prompting-renderer.test.ts packages/prompt-bundle/test/default-dynamic-sections.test.ts packages/prompt-bundle/test/fixed-instructions.test.ts packages/prompt-bundle/test/prompting-default-bundles.test.ts packages/model-execution/test/component-extraction-baseline.test.ts` | 通过：27 tests |
+| 全仓 canonical JSON 迁移与 5 个摘要快照 | `npx tsx --test packages/permission/test/grant-matching.test.ts packages/tools/test/cursor.test.ts packages/runtime/test/digest-golden.test.ts packages/context-retrieval/test/context-protocol-digest.test.ts` | 通过：13 tests |
+| 对象守卫与 `deepFreeze` 语义 | `npx tsx --test packages/contracts/test/json.test.ts packages/model-contracts/test/model-output-canonical.test.ts packages/web-contracts/test/web-contracts.test.ts packages/browser/test/browser-projection.test.ts packages/model-context/test/trajectory-event-projector.test.ts packages/model-context/test/trajectory-model-context-assembler.test.ts packages/model-context/test/model-inference-projector.test.ts packages/model-context/test/context-lookup-projection.test.ts packages/storage/test/goal-context-index-store.test.ts` | 通过：111 tests |
+| 分数舍入双语义 | `npx tsx --test packages/context-retrieval/test/score-rounding.test.ts packages/context-retrieval/test/context-ranking.test.ts packages/context-retrieval/test/context-lookup-result.test.ts packages/runtime/test/context-retrieval-protocol.test.ts` | 通过：19 tests |
+| storage base64url 与持久化字节 | `npx tsx --test packages/storage/test/path-segment.test.ts packages/storage/test/goal-store.test.ts packages/storage/test/trajectory-store.test.ts packages/storage/test/context-retrieval-index-sidecar.test.ts packages/storage/test/goal-snapshot-current.test.ts packages/storage/test/model-input-store.test.ts` | 通过：71 tests |
+| 依赖边界与浏览器安全 | `npm run check:dependencies`、`npm run build:web`、`npx tsx --test packages/contracts/test/json.test.ts` | 通过：278 个源文件无违规；Goal Board 构建成功（905.24 kB JS / 270.12 kB gzip）；13 tests |
+| 重复实现静态守护 | `npx tsx --test packages/contracts/test/single-implementation.test.ts` | 通过：7 tests（真实仓库零违规，正反 fixture 均定位文件与行号） |
+| 全量回归、跨项目类型检查与文档 | `npm test`、`npm --prefix benchmarks run typecheck`、`npx tsc -p apps/goal-server/tsconfig.json --noEmit`、`npm run build:web`、`npm run check:docs`、`git diff --check` | `npm test` 通过（433 个 TS/TSX 与 5 个 mjs 测试、类型检查、文档、依赖、GEPA adapter）；`build:web` 通过；`check:docs` 通过（46 模块 / 166 份说明）；`git diff --check` 无输出；两项跨项目 `tsc` 为基线既有失败（见下） |
+| TODO 1–9 定向检查 | 每个 TODO bullet 内列出的 `npx tsc --noEmit` 与定向 `npx tsx --test` | 全部通过，详见各 TODO 的提交与验证记录 |
+
+- 未决问题：
+  - `npm --prefix benchmarks run typecheck` 在基线 `a36c8939` 与本分支均报告 19 个错误（`swebench/test/prompt-evaluation-adapter.test.ts`、`swebench/test/runtime-error-scorer.test.ts`、`test/llm-rpc.test.ts`、`test/prompt-evaluation-template-overrides.test.ts`）；两边错误输出一致，属于既有测试与类型漂移，本 Spec 未修改这些文件。
+  - `npx tsc -p apps/goal-server/tsconfig.json --noEmit` 在基线与本分支均报告同一处错误 `apps/goal-server/test/runtime-recovery.integration.test.ts(171,40)`，属于既有问题。
+  - `npm run test:gepa-adapter` 的首两次冷启动运行因 `test_start_spawns_detached_worker_and_returns_immediately` 的 2 秒墙钟断言失败（2.22s / 3.37s）；随后两次运行与 `npm test` 内的同一阶段均通过，确认与 TS 改动无关，属于环境冷启动抖动。
+  - 本 worktree 的依赖安装需要按 CI 顺序执行根 `npm ci` 与每个 `package-lock.json` 的 `npm ci --prefix`；仅执行根安装会因缺少包内依赖导致类型检查失败。
