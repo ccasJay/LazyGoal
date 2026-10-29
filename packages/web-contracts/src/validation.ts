@@ -41,16 +41,35 @@ import type {
 import { safeParse } from "../../contracts/src/index";
 import {
     hasConsistentTerminalDetail,
+    hasValidContextRemainingPercent,
     isActivityPage,
     isInteractionView,
     isJsonValue,
     isLiveEventStructure,
+    isMetricValues as hasValidMetricValues,
     isPlanRoute,
+    isRecord,
+    isTrajectoryDetail as hasValidTrajectoryDetail,
 } from "./invariants";
 import {
     browserActivityPageContract,
 } from "./contracts/activity";
 import { browserGoalLiveEventContract } from "./contracts/events";
+import {
+    sessionMetricsSnapshotContract,
+    sessionMetricsValuesContract,
+} from "./contracts/metrics";
+import {
+    browserModelInputDetailContract,
+    browserModelInputsContract,
+} from "./contracts/model-input";
+import {
+    browserTrajectoryDetailContract,
+    browserTrajectoryEntryContract,
+    browserTrajectoryPageContract,
+    browserTrajectoryRunContract,
+    browserTrajectoryRunsContract,
+} from "./contracts/trajectory";
 import {
     browserInteractionViewContract,
     browserMessagePositionContract,
@@ -79,20 +98,7 @@ import {
     browserSessionRunContract,
 } from "./contracts/session";
 
-/**
- * 通用对象类型守卫。
- *
- * @param value - 待检测值。
- * @returns 是否为非空对象且非数组。
- *
- * @example
- * ```ts
- * if (isRecord(val)) console.log(Object.keys(val));
- * ```
- */
-export function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+export { isRecord };
 
 
 /**
@@ -747,9 +753,7 @@ export function isLiveEvent(value: unknown): value is BrowserGoalLiveEvent {
 }
 
 
-function nullableSequence(value: unknown): boolean {
-    return value === null || (Number.isSafeInteger(value) && Number(value) >= 0);
-}
+
 
 /**
  * 轨迹 Run 投影类型守卫。
@@ -763,9 +767,9 @@ function nullableSequence(value: unknown): boolean {
  * ```
  */
 export function isTrajectoryRun(value: unknown): value is BrowserTrajectoryRun {
-    return isRecord(value) && isNonEmptyString(value.runId) && isRunStatus(value.status)
-        && typeof value.current === "boolean" && Number.isSafeInteger(value.committedThroughSequence) && Number(value.committedThroughSequence) >= 0;
+    return safeParse(browserTrajectoryRunContract, value).success;
 }
+
 
 /**
  * 轨迹 Run 列表响应类型守卫。
@@ -779,8 +783,9 @@ export function isTrajectoryRun(value: unknown): value is BrowserTrajectoryRun {
  * ```
  */
 export function isTrajectoryRuns(value: unknown): value is { runs: BrowserTrajectoryRun[]; nextOffset: number | null } {
-    return isRecord(value) && Array.isArray(value.runs) && value.runs.every(isTrajectoryRun) && nullableSequence(value.nextOffset);
+    return safeParse(browserTrajectoryRunsContract, value).success;
 }
+
 
 /**
  * 轨迹事件条目类型守卫。
@@ -794,18 +799,9 @@ export function isTrajectoryRuns(value: unknown): value is { runs: BrowserTrajec
  * ```
  */
 export function isTrajectoryEntry(value: unknown): value is BrowserTrajectoryEntry {
-    return isRecord(value) && isNonEmptyString(value.eventId) && Number.isSafeInteger(value.sequence) && Number(value.sequence) > 0
-        && typeof value.occurredAt === "string" && typeof value.eventType === "string"
-        && ["lifecycle", "decision", "memory", "action", "tool", "observation", "terminal", "commit"].includes(String(value.category))
-        && [value.inputPreview, value.resultPreview, value.modelCallId].every((field) => field === undefined || typeof field === "string")
-        && (value.modelStage === undefined || value.modelStage === "think" || value.modelStage === "decide")
-        && typeof value.title === "string" && typeof value.preview === "string" && typeof value.previewTruncated === "boolean"
-        && (value.executionUnitId === undefined || isNonEmptyString(value.executionUnitId))
-        && (value.stepIndex === undefined || Number.isSafeInteger(value.stepIndex)) && (value.actionId === undefined || isNonEmptyString(value.actionId))
-        && (value.programId === undefined || isNonEmptyString(value.programId))
-        && (value.callIndex === undefined || (Number.isSafeInteger(value.callIndex) && Number(value.callIndex) >= 0))
-        && (value.parentActionId === undefined || isNonEmptyString(value.parentActionId));
+    return safeParse(browserTrajectoryEntryContract, value).success;
 }
+
 
 /**
  * 轨迹查询页响应守卫。
@@ -819,11 +815,9 @@ export function isTrajectoryEntry(value: unknown): value is BrowserTrajectoryEnt
  * ```
  */
 export function isTrajectoryPage(value: unknown): value is BrowserTrajectoryPage {
-    return isRecord(value) && isNonEmptyString(value.goalId) && isTrajectoryRun(value.run) && Array.isArray(value.entries)
-        && value.entries.every(isTrajectoryEntry) && Number.isSafeInteger(value.total) && Number(value.total) >= 0
-        && Number.isSafeInteger(value.committedCount) && Number(value.committedCount) >= 0
-        && nullableSequence(value.previousCursor) && nullableSequence(value.nextCursor) && nullableSequence(value.locatedSequence);
+    return safeParse(browserTrajectoryPageContract, value).success;
 }
+
 
 /**
  * 轨迹事件详情响应守卫。
@@ -837,26 +831,14 @@ export function isTrajectoryPage(value: unknown): value is BrowserTrajectoryPage
  * ```
  */
 export function isTrajectoryDetail(value: unknown): value is BrowserTrajectoryDetail {
-    return isRecord(value) && isRecord(value.event) && value.event.eventSchemaVersion === 1
-        && isNonEmptyString(value.event.eventId) && isNonEmptyString(value.event.goalId) && isNonEmptyString(value.event.runId)
-        && Number.isSafeInteger(value.event.sequence) && Number(value.event.sequence) > 0 && typeof value.event.occurredAt === "string"
-        && value.event.phase === "executing" && typeof value.event.eventType === "string" && isRecord(value.event.payload) && value.event.eventType === value.event.payload.type
-        && typeof value.observationConfirmed === "boolean" && (value.toolDurationMs === null || (typeof value.toolDurationMs === "number" && Number.isFinite(value.toolDurationMs) && value.toolDurationMs >= 0))
-        && (value.toolStartedAt === undefined || typeof value.toolStartedAt === "string") && (value.toolFinishedAt === undefined || typeof value.toolFinishedAt === "string")
-        && (value.result === undefined || isRecord(value.result)) && (value.toolFinished === undefined || (isRecord(value.toolFinished)
-            && value.toolFinished.eventType === "tool_finished" && isRecord(value.toolFinished.payload) && isRecord(value.toolFinished.payload.observation)));
+    const parsed = safeParse(browserTrajectoryDetailContract, value);
+    return parsed.success && hasValidTrajectoryDetail(parsed.data);
 }
 
-function isInputIdentity(value: unknown): value is Record<string, unknown> {
-    return isRecord(value) && isNonEmptyString(value.callId) && isNonEmptyString(value.goalId) && isNonEmptyString(value.runId)
-        && (value.stage === "think" || value.stage === "decide" || value.stage === "completion_review") && Number.isSafeInteger(value.stepIndex) && Number(value.stepIndex) > 0
-        && typeof value.occurredAt === "string" && (value.executionUnitId === undefined || isNonEmptyString(value.executionUnitId));
-}
 
-function isInputMessage(value: unknown): value is Record<string, unknown> {
-    return isRecord(value) && ["system", "user", "assistant", "tool"].includes(String(value.role))
-        && ["system", "conversation", "section", "working_context", "stage", "request", "native_history"].includes(String(value.source));
-}
+
+
+
 
 /**
  * 模型输入列表响应类型守卫。
@@ -870,11 +852,9 @@ function isInputMessage(value: unknown): value is Record<string, unknown> {
  * ```
  */
 export function isModelInputs(value: unknown): value is { calls: BrowserModelInputSummary[]; total: number; nextOffset: number | null } {
-    return isRecord(value) && nullableSequence(value.nextOffset) && Number.isSafeInteger(value.total) && Number(value.total) >= 0 && Array.isArray(value.calls)
-        && value.calls.every((call) => isInputIdentity(call) && typeof call.systemVersion === "string" && typeof call.systemChanged === "boolean" && typeof call.firstSystem === "boolean"
-            && (call.previousCallId === null || isNonEmptyString(call.previousCallId)) && Number.isSafeInteger(call.omittedMessageCount) && Number(call.omittedMessageCount) >= 0
-            && Array.isArray(call.messages) && call.messages.every((message) => isInputMessage(message) && typeof message.preview === "string" && typeof message.truncated === "boolean" && Number.isSafeInteger(message.index) && Number(message.index) >= 0));
+    return safeParse(browserModelInputsContract, value).success;
 }
+
 
 /**
  * 模型输入详情响应类型守卫。
@@ -888,9 +868,9 @@ export function isModelInputs(value: unknown): value is { calls: BrowserModelInp
  * ```
  */
 export function isModelInputDetail(value: unknown): value is BrowserModelInputDetail {
-    return isRecord(value) && isInputIdentity(value.call) && Array.isArray(value.call.messages) && value.call.messages.every((message) => isInputMessage(message) && typeof message.content === "string")
-        && (value.previousSystem === null || typeof value.previousSystem === "string") && (value.previousCallId === null || isNonEmptyString(value.previousCallId)) && typeof value.systemVersion === "string";
+    return safeParse(browserModelInputDetailContract, value).success;
 }
+
 
 /**
  * 会话指标数值项类型守卫。
@@ -904,22 +884,10 @@ export function isModelInputDetail(value: unknown): value is BrowserModelInputDe
  * ```
  */
 export function isMetricValues(value: Record<string, unknown>): boolean {
-    const count = (item: unknown) => typeof item === "number" && Number.isSafeInteger(item) && item >= 0;
-    const optionalNumber = (item: unknown) => item === null || (typeof item === "number" && Number.isFinite(item) && item >= 0);
-    return count(value.stepCount)
-        && count(value.reportedCalls)
-        && count(value.missingCalls)
-        && optionalNumber(value.inputTokens)
-        && optionalNumber(value.outputTokens)
-        && ["complete", "partial", "unavailable"].includes(String(value.coverage))
-        && count(value.cacheMeasuredCalls)
-        && count(value.cacheExcludedCalls)
-        && optionalNumber(value.cacheHitRate)
-        && (value.cacheHitRate === null || Number(value.cacheHitRate) <= 1)
-        && count(value.throughputMeasuredCalls)
-        && count(value.throughputExcludedCalls)
-        && optionalNumber(value.tokensPerSecond);
+    const parsed = safeParse(sessionMetricsValuesContract, value);
+    return parsed.success && hasValidMetricValues(parsed.data);
 }
+
 
 /**
  * 会话指标聚合快照类型守卫。
@@ -933,14 +901,13 @@ export function isMetricValues(value: Record<string, unknown>): boolean {
  * ```
  */
 export function isMetricsSnapshot(value: unknown): value is SessionMetricsSnapshot {
-    return isRecord(value)
-        && isNonEmptyString(value.goalId)
-        && isMetricValues(value)
-        && (value.contextRemainingPercent === undefined || value.contextRemainingPercent === null || (typeof value.contextRemainingPercent === "number" && Number.isFinite(value.contextRemainingPercent) && value.contextRemainingPercent >= 0 && value.contextRemainingPercent <= 1))
-        && Number.isInteger(value.roundCount)
-        && Array.isArray(value.runs)
-        && value.runs.every((run) => isRecord(run) && isNonEmptyString(run.runId) && isMetricValues(run));
+    const parsed = safeParse(sessionMetricsSnapshotContract, value);
+    if (!parsed.success) return false;
+    return hasValidMetricValues(parsed.data)
+        && hasValidContextRemainingPercent(parsed.data)
+        && parsed.data.runs.every((run) => hasValidMetricValues(run));
 }
+
 
 /**
  * 显式恢复命令类型守卫。

@@ -4,7 +4,10 @@ import { sharedWebContracts } from "./common";
 import { eventsWebContracts } from "./events";
 import { inputWebContracts } from "./input";
 import { interactionWebContracts } from "./interaction";
+import { metricsWebContracts } from "./metrics";
+import { modelInputWebContracts } from "./model-input";
 import { sessionWebContracts } from "./session";
+import { trajectoryWebContracts } from "./trajectory";
 
 /** 本包当前登记的全部 Web wire 合同。 */
 const webContracts: readonly Contract<unknown>[] = [
@@ -14,6 +17,9 @@ const webContracts: readonly Contract<unknown>[] = [
     ...inputWebContracts,
     ...activityWebContracts,
     ...eventsWebContracts,
+    ...trajectoryWebContracts,
+    ...modelInputWebContracts,
+    ...metricsWebContracts,
 ];
 
 /**

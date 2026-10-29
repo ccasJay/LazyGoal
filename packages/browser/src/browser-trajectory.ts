@@ -130,7 +130,7 @@ export function createBrowserTrajectoryRoutes(
             const detail: BrowserTrajectoryDetail = {
                 event: event as unknown as BrowserTrajectoryEventWire, ...(input === undefined ? {} : { input }),
                 ...(observation?.eventType === "observation_recorded" ? { result: observation.payload.observation } : {}),
-                ...(finished === undefined ? {} : { toolFinished: finished as unknown as BrowserTrajectoryDetail["toolFinished"], toolFinishedAt: finished.occurredAt }),
+                ...(finished === undefined ? {} : { toolFinished: finished as unknown as NonNullable<BrowserTrajectoryDetail["toolFinished"]>, toolFinishedAt: finished.occurredAt }),
                 ...(started === undefined ? {} : { toolStartedAt: started.occurredAt }),
                 toolDurationMs: Number.isFinite(duration) && duration >= 0 ? duration : null,
                 observationConfirmed: observation !== undefined,

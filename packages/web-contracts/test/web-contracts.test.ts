@@ -1028,3 +1028,89 @@ test("Activity contracts keep strict layers, open layers and UTF-16 limits", () 
         activity: { kind: "tool_attempt_failed", sourceEventId: "e", sourceCursor: 1, actionId: "a", attempt: 0, reason: "r" },
     }), false);
 });
+
+test("Trajectory、Model Input 与 Metrics 合同保留开放 JSON 与数值边界", () => {
+    let deep: unknown = "leaf";
+    for (let index = 0; index < 200; index += 1) {
+        deep = index % 2 === 0 ? [deep] : { nested: deep };
+    }
+
+    const detail = {
+        event: {
+            eventId: "e-1", goalId: "goal-1", runId: "run-1", sequence: 1,
+            occurredAt: "2026-10-18T00:00:00Z", phase: "executing",
+            eventType: "run_started", payload: { type: "run_started", extra: deep },
+            eventSchemaVersion: 1,
+        },
+        input: deep,
+        result: { kind: "success", output: deep, summary: "ok", extra: deep },
+        observationConfirmed: true,
+        toolDurationMs: 12,
+    };
+    assert.equal(isTrajectoryDetail(detail), true);
+    assert.equal(isTrajectoryDetail({ ...detail, event: { ...detail.event, payload: { type: "other" } } }), false);
+    assert.equal(isTrajectoryDetail({ ...detail, event: { ...detail.event, phase: "waiting" } }), false);
+    assert.equal(isTrajectoryDetail({ ...detail, event: { ...detail.event, eventSchemaVersion: 2 } }), false);
+    assert.equal(isTrajectoryDetail({ ...detail, event: { ...detail.event, payload: { type: "run_started", extra: () => undefined } } }), false);
+    assert.equal(isTrajectoryDetail({ ...detail, event: { ...detail.event, payload: { type: "run_started", extra: new Date() } } }), false);
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    assert.equal(isTrajectoryDetail({ ...detail, event: { ...detail.event, payload: { type: "run_started", extra: cyclic } } }), false);
+    assert.equal(isTrajectoryDetail({ ...detail, input: () => undefined }), false);
+    assert.equal(isTrajectoryDetail({ ...detail, result: [] }), false);
+    assert.equal(isTrajectoryDetail({
+        ...detail,
+        toolFinished: { eventType: "observation_recorded", payload: { observation: {} } },
+    }), false);
+    assert.equal(isTrajectoryDetail({
+        ...detail,
+        toolFinished: { eventType: "tool_finished", payload: { observation: "not-record" } },
+    }), false);
+    assert.equal(isTrajectoryDetail({
+        ...detail,
+        toolFinished: { eventType: "tool_finished", payload: { observation: { kind: "success" } } },
+    }), true);
+    assert.equal(isTrajectoryDetail({ ...detail, toolDurationMs: Number.POSITIVE_INFINITY }), false);
+
+    const inputDetail = {
+        call: {
+            goalId: "goal-1", runId: "run-1", callId: "call-1", stepIndex: 1,
+            stage: "think", occurredAt: "2026-10-18T00:00:00Z",
+            messages: [{
+                role: "assistant", source: "conversation", content: "hi",
+                continuation: deep,
+            }],
+        },
+        previousSystem: null,
+        previousCallId: null,
+        systemVersion: "v1",
+    };
+    assert.equal(isModelInputDetail(inputDetail), true);
+    assert.equal(isModelInputDetail({
+        ...inputDetail,
+        call: { ...inputDetail.call, messages: [{ ...inputDetail.call.messages[0], continuation: () => undefined }] },
+    }), false);
+    assert.equal(isModelInputDetail({ ...inputDetail, call: { ...inputDetail.call, stepIndex: 0 } }), false);
+
+    const metrics = {
+        stepCount: 1, reportedCalls: 1, missingCalls: 0,
+        inputTokens: 10, outputTokens: 5, coverage: "complete",
+        cacheMeasuredCalls: 1, cacheExcludedCalls: 0, cacheHitRate: 0.5,
+        throughputMeasuredCalls: 1, throughputExcludedCalls: 0, tokensPerSecond: 2,
+    };
+    assert.equal(isMetricValues(metrics), true);
+    assert.equal(isMetricValues({ ...metrics, cacheHitRate: 1.1 }), false);
+    assert.equal(isMetricValues({ ...metrics, cacheHitRate: -0.1 }), false);
+    assert.equal(isMetricValues({ ...metrics, inputTokens: -1 }), false);
+    assert.equal(isMetricValues({ ...metrics, tokensPerSecond: -1 }), false);
+    assert.equal(isMetricValues({ ...metrics, cacheHitRate: null }), true);
+    assert.equal(isMetricValues({ ...metrics, stepCount: 1.5 }), false);
+
+    const runMetrics = { ...metrics, runId: "run-1" };
+    const snapshot = { goalId: "goal-1", roundCount: 1, ...metrics, contextRemainingPercent: 1, runs: [runMetrics] };
+    assert.equal(isMetricsSnapshot(snapshot), true);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextRemainingPercent: 1.1 }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextRemainingPercent: -0.1 }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, runs: [{ ...runMetrics, runId: "" }] }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, runs: [runMetrics] }), true);
+});

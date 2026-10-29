@@ -4,6 +4,12 @@ export {
     isLiveEventStructure,
 } from "./activity";
 export { isInteractionView } from "./interaction";
+export {
+    hasValidContextRemainingPercent,
+    isMetricValues,
+} from "./metrics";
+export { isRecord } from "./record";
+export { isTrajectoryDetail } from "./trajectory";
 export { isJsonValue } from "./json-value";
 export { hasUtf16LengthAtMost } from "./utf16";
 export {
