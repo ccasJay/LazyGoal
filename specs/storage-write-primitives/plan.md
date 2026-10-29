@@ -34,7 +34,7 @@
   - 场景与预期：同 key 连续提交三次写入按提交顺序完成；第一个操作拒绝时只拒绝它本身，第二个仍成功；不同 key 的慢操作不阻塞彼此；`drain` 返回后立即可读到刚写入的偏好与权限模式；连续写入后 `pendingKeyCount` 回到 0；不存在未处理拒绝（进程级 `unhandledRejection` 未被触发）。
   - 验证手段：新增 `packages/storage/test/keyed-serial-queue.test.ts` 覆盖顺序、隔离、释放、`drain` 与拒绝簿记，然后运行 `npx tsx --test packages/storage/test/keyed-serial-queue.test.ts packages/storage/test/goal-store.test.ts packages/storage/test/trajectory-store.test.ts packages/storage/test/process-session-store.test.ts`。
 
-- [ ] //TODO 6. 交付重复实现静态守护、消费方不变检查与模块文档
+- [x] //TODO 6. 交付重复实现静态守护、消费方不变检查与模块文档
   - 落实标准：[5.1](./spec.md#spec-req-5-1)、[5.2](./spec.md#spec-req-5-2)、[5.3](./spec.md#spec-req-5-3)、[6.2](./spec.md#spec-req-6-2)、[6.4](./spec.md#spec-req-6-4)、[7.1](./spec.md#spec-req-7-1)、[7.2](./spec.md#spec-req-7-2)、[7.3](./spec.md#spec-req-7-3)
   - 实施目标：新增 `packages/storage/test/storage-write-invariants.test.ts`，剥离注释与 TSDoc 后扫描 `packages/storage/src/*.ts`：除 `json-file-write.ts` 外禁止 `rename(`、`appendFile(`、`.sync(`、`open(..., "a")` 与 `.tmp` 构造；除 `keyed-serial-queue.ts` 外禁止 `this.tail` 与 `new Map<string, Promise`；违规时报告文件与行号。更新 `packages/storage/notes/overview.md` 与 `notes/semantics.md`，新增写入原语与串行队列的职责和语义条目，删除各 Store 中已由原语统一承担的重复重试/权限表述，并记录延后 SQLite 的三项阻塞约束与独立 Spec 的最低覆盖范围。
   - 场景与预期：正常树上静态检查通过；临时在任一 Store 加回 `rename(` 或 `.tmp` 构造时测试失败并打印文件与行号；`npm run check:docs` 通过；`git diff --stat` 不包含 `apps/goal-server`、`packages/browser`、`benchmarks/src/file-persistence-adapter.ts` 与任何 `package.json`。

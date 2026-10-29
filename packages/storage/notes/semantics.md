@@ -19,3 +19,8 @@
 | 最终执行版本快照 | 已获批 Action 的原请求引用与最终 canonical 参数；获批后不可再编辑，恢复沿用同一版本。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
 | 恢复身份快照 | 结果未知等待的稳定恢复身份；跨重启保留，同一 Action 再次未知时改变。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
 | 用户中断状态 | 已受理到取消结算的两阶段记录及未知工具效果，不含模型收尾。 | [Goal Runtime](../../runtime/README.md) | [Runtime 中断语义](../../runtime/notes/overview.md) |
+| 写入原语 | `atomicWriteJson`、`appendJsonl` 与 `appendFileChunk` 的统一实现：临时文件、创建权限、可选 `fsync`、核对后重试与失败清理。 | [持久化实现](../README.md) | [写入原语](../src/json-file-write.ts) |
+| 创建权限策略 | storage 新建文件为 `0600`、新建目录为 `0700`；只作用于创建，不追溯已有路径。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
+| 按键串行队列 | 同一 key 的进程内 FIFO 执行、失败隔离、簿记释放与 `drain` 读己之写。 | [持久化实现](../README.md) | [串行队列](../src/keyed-serial-queue.ts) |
+| 缺失目录阶段语义 | 原子替换默认逐阶段抛出 `ENOENT`；只有调用点显式声明时才缩小静默范围。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
+| SQLite 延后约束 | 制品目录形状、`node:sqlite` 实验状态与零原生模块依赖共同阻塞本轮切换。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
