@@ -2,5 +2,15 @@
   "name": "@lazygoal/tools",
   "version": "0.1.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "html-to-text": "^9.0.5",
+    "undici": "8.12.3"
+  },
+  "devDependencies": {
+    "@types/html-to-text": "^9.0.4"
+  }
 }

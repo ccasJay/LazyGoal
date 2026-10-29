@@ -17,6 +17,19 @@ import {
 import { TransientToolExecutionFailure } from "../../tool-core/src/index";
 import type { DerivedSandboxAccess } from "../../sandbox/src/index";
 import { invalidInput } from "./internal/invalid-input";
+import { extractHtmlText } from "./web/html-extract";
+import {
+    WebFetchBlockedUrlError,
+    WebFetchHttpError,
+    WebFetchNetworkError,
+    WebFetchRedirectLimitError,
+    WebFetchUnsupportedCharsetError,
+    WebFetchUnsupportedContentTypeError,
+    WebResponseTooLargeError,
+} from "./web/fetch-errors";
+import { assertSafeWebFetchUrl } from "./web/fetch-url-policy";
+import { createDefaultWebFetchHandler } from "./web/fetch-default";
+import { WEB_FETCH_MAX_RESPONSE_BYTES } from "./web/limits";
 
 /** `WebFetchTool` 在 Profile 中使用的稳定标识。 */
 export const WEB_FETCH_TOOL_ID = "web_fetch";
@@ -28,7 +41,7 @@ export const WEB_FETCH_DEFAULT_MAX_CHARS = 16_000;
 export const WEB_FETCH_MAX_CHARS_LIMIT = 50_000;
 
 /** 抓取响应体读取字节上限（2 MiB）。 */
-export const WEB_FETCH_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+export { WEB_FETCH_MAX_RESPONSE_BYTES } from "./web/limits";
 
 /** 抓取请求默认超时时间（30 秒）。 */
 export const WEB_FETCH_DEFAULT_TIMEOUT_MS = 30_000;
@@ -60,15 +73,8 @@ export interface WebFetchOutput {
     readonly truncated: boolean;
 }
 
-/**
- * 响应体超过 2 MiB 硬上限的错误。
- */
-export class WebResponseTooLargeError extends Error {
-    constructor(message = "Web response exceeds 2 MiB limit") {
-        super(message);
-        this.name = "WebResponseTooLargeError";
-    }
-}
+/** 响应体超出 2 MiB 上限的错误由内部传输层拥有。 */
+export { WebResponseTooLargeError } from "./web/fetch-errors";
 
 /**
  * 网页内容获取后端执行函数契约。
@@ -108,100 +114,23 @@ export const WEB_FETCH_INPUT_CONTRACT = contract.object({
 export type WebFetchInput = InferContract<typeof WEB_FETCH_INPUT_CONTRACT>;
 
 /**
- * 将 HTML 文本粗略转换为纯文本。
+ * 将 HTML 文本转换为单行可见文本。
+ *
+ * @remarks
+ * 委托结构化抽取实现，排除脚本与样式，保留表格、列表和标题中的可见文本，
+ * 并折叠空白为单行。该函数是公开的 HTML 抽取入口，不保留第二套正则实现。
+ *
+ * @param html - 待转换的 HTML 文本。
+ * @returns 空白折叠后的单行文本。
+ * @throws 底层 HTML 解析失败时抛出异常。
+ *
+ * @example
+ * ```ts
+ * const text = htmlToPlainText("<p>Hello &amp; welcome</p>");
+ * ```
  */
 export function htmlToPlainText(html: string): string {
-    return html
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;/gi, " ")
-        .replace(/&amp;/gi, "&")
-        .replace(/&lt;/gi, "<")
-        .replace(/&gt;/gi, ">")
-        .replace(/&quot;/gi, "\"")
-        .replace(/&#39;/gi, "'")
-        .replace(/\s+/g, " ")
-        .trim();
-}
-
-/**
- * 默认宿主网页抓取实现。
- */
-async function defaultWebFetch(
-    url: string,
-    control?: ExecutionControl,
-): Promise<{ text: string; isHtml: boolean }> {
-    throwIfAborted(control);
-    const requestInit: RequestInit = {
-        headers: {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        },
-        ...(control?.signal !== undefined ? { signal: control.signal } : {}),
-    };
-    let response: Response;
-    try {
-        response = await fetch(url, requestInit);
-    } catch (error) {
-        if (control?.signal?.aborted) throw new ExecutionAbortedError();
-        if (error instanceof TypeError) {
-            throw new TransientToolExecutionFailure("network_request_failed");
-        }
-        throw error;
-    }
-    if (!response.ok) {
-        if (response.status === 429 || response.status >= 500) {
-            const retryAfter = response.headers.get("retry-after");
-            const seconds = retryAfter === null ? undefined : Number(retryAfter);
-            const retryAfterMs = seconds !== undefined && Number.isFinite(seconds) && seconds >= 0
-                ? Math.min(30_000, seconds * 1_000)
-                : undefined;
-            throw new TransientToolExecutionFailure(`http_${response.status}`, retryAfterMs);
-        }
-        throw new Error(`HTTP ${response.status} ${response.statusText}`);
-    }
-
-    const contentLengthHeader = response.headers.get("content-length");
-    if (contentLengthHeader !== null) {
-        const contentLength = parseInt(contentLengthHeader, 10);
-        if (Number.isFinite(contentLength) && contentLength > WEB_FETCH_MAX_RESPONSE_BYTES) {
-            throw new WebResponseTooLargeError(`Response Content-Length (${contentLength} bytes) exceeds 2 MiB limit`);
-        }
-    }
-
-    const contentType = response.headers.get("content-type") ?? "";
-    let rawText = "";
-
-    if (response.body !== null) {
-        const reader = response.body.getReader();
-        const chunks: Uint8Array[] = [];
-        let totalBytes = 0;
-        try {
-            while (true) {
-                throwIfAborted(control);
-                const { done, value } = await reader.read();
-                if (done) break;
-                totalBytes += value.byteLength;
-                if (totalBytes > WEB_FETCH_MAX_RESPONSE_BYTES) {
-                    await reader.cancel();
-                    throw new WebResponseTooLargeError(`Response body exceeded 2 MiB limit (${totalBytes} bytes read)`);
-                }
-                chunks.push(value);
-            }
-        } finally {
-            reader.releaseLock();
-        }
-        rawText = Buffer.concat(chunks).toString("utf8");
-    } else {
-        rawText = await response.text();
-        if (Buffer.byteLength(rawText, "utf8") > WEB_FETCH_MAX_RESPONSE_BYTES) {
-            throw new WebResponseTooLargeError("Response body exceeded 2 MiB limit");
-        }
-    }
-    throwIfAborted(control);
-
-    const isHtml = contentType.includes("text/html") || rawText.includes("<html") || rawText.includes("<!DOCTYPE");
-    return { text: rawText, isHtml };
+    return extractHtmlText(html);
 }
 
 /**
@@ -210,6 +139,7 @@ async function defaultWebFetch(
  * @remarks
  * 在宿主执行 HTTP 请求并解析纯文本，派生 `all_outbound` 沙箱网络能力。
  * 执行前严格核验当前沙箱执行计划是否已获准出站网络；若无有效计划则阻断并拒绝调用后端。
+ * 默认实现拒绝非 `http`/`https`、带凭据、本机与私网地址，逐跳校验重定向并把连接绑定到已验证地址。
  * 限制响应体最多读取 2 MiB，超过返回 `WEB_RESPONSE_TOO_LARGE` 失败，不以残缺 HTML 冒充成功。
  * 提取文本后按 UTF-16 偏移 `offset` 与 `maxChars` 分页返回结构化切片与 `nextOffset`。
  *
@@ -236,10 +166,10 @@ export class WebFetchTool implements Tool<typeof WEB_FETCH_INPUT_CONTRACT> {
     private readonly fetcher: WebFetchHandler;
 
     /**
-     * @param fetcher - 可选的网页抓取实现；若未指定则使用内置 fetch。
+     * @param fetcher - 可选的网页抓取实现；若未指定则使用带 URL 与地址策略的默认 handler。
      */
     constructor(fetcher?: WebFetchHandler) {
-        this.fetcher = fetcher ?? defaultWebFetch;
+        this.fetcher = fetcher ?? createDefaultWebFetchHandler();
     }
 
     /**
@@ -262,7 +192,7 @@ export class WebFetchTool implements Tool<typeof WEB_FETCH_INPUT_CONTRACT> {
     }
 
     /**
-     * 校验 URL 的格式与合法性。
+     * 校验 URL 的格式、协议、凭据与本机/私网字面地址。
      *
      * @param input - 结构化输入。
      * @returns 语义校验结果。
@@ -273,11 +203,22 @@ export class WebFetchTool implements Tool<typeof WEB_FETCH_INPUT_CONTRACT> {
             return invalidInput("url cannot be empty", ["url"]);
         }
         try {
-            const parsed = new URL(trimmed);
-            if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-                return invalidInput("url must use http or https protocol", ["url"]);
+            assertSafeWebFetchUrl(trimmed);
+        } catch (error) {
+            if (error instanceof WebFetchBlockedUrlError) {
+                switch (error.reason) {
+                    case "unsupported_protocol":
+                        return invalidInput("url must use http or https protocol", ["url"]);
+                    case "credentials_not_allowed":
+                        return invalidInput("url must not include credentials", ["url"]);
+                    case "local_hostname":
+                    case "blocked_address":
+                    case "no_addresses":
+                        return invalidInput("url must not target a local or private address", ["url"]);
+                    case "invalid_url":
+                        return invalidInput("url is not a valid URL", ["url"]);
+                }
             }
-        } catch {
             return invalidInput("url is not a valid URL", ["url"]);
         }
         if (input.maxChars !== undefined && (input.maxChars < 1 || input.maxChars > WEB_FETCH_MAX_CHARS_LIMIT)) {
@@ -361,6 +302,57 @@ export class WebFetchTool implements Tool<typeof WEB_FETCH_INPUT_CONTRACT> {
                     kind: "failure",
                     code: "WEB_FETCH_TIMEOUT",
                     message: "Web fetch request timed out after 30 seconds.",
+                    retryable: false,
+                };
+            }
+            if (error instanceof WebFetchBlockedUrlError) {
+                return {
+                    kind: "failure",
+                    code: "WEB_FETCH_BLOCKED_URL",
+                    message: "Web fetch URL is blocked by policy.",
+                    retryable: false,
+                };
+            }
+            if (error instanceof WebFetchRedirectLimitError) {
+                return {
+                    kind: "failure",
+                    code: "WEB_FETCH_REDIRECT_LIMIT",
+                    message: error.message,
+                    retryable: false,
+                };
+            }
+            if (error instanceof WebFetchHttpError) {
+                if (error.status === 429 || error.status >= 500) {
+                    throw new TransientToolExecutionFailure(`http_${error.status}`, error.retryAfterMs);
+                }
+                return {
+                    kind: "failure",
+                    code: "WEB_FETCH_HTTP_ERROR",
+                    message: error.message,
+                    retryable: false,
+                };
+            }
+            if (error instanceof WebFetchUnsupportedContentTypeError) {
+                return {
+                    kind: "failure",
+                    code: "WEB_FETCH_UNSUPPORTED_CONTENT_TYPE",
+                    message: error.message,
+                    retryable: false,
+                };
+            }
+            if (error instanceof WebFetchUnsupportedCharsetError) {
+                return {
+                    kind: "failure",
+                    code: "WEB_FETCH_FAILED",
+                    message: error.message,
+                    retryable: false,
+                };
+            }
+            if (error instanceof WebFetchNetworkError) {
+                return {
+                    kind: "failure",
+                    code: "WEB_FETCH_FAILED",
+                    message: `Failed to fetch web content (${error.reason}).`,
                     retryable: false,
                 };
             }
