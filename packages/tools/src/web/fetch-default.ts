@@ -10,6 +10,8 @@ import {
     WebFetchHttpError,
     WebFetchNetworkError,
     WebFetchRedirectLimitError,
+    WebFetchUnsupportedCharsetError,
+    WebFetchUnsupportedContentTypeError,
     WebResponseTooLargeError,
 } from "./fetch-errors";
 import {
@@ -155,7 +157,7 @@ function defaultConnectorFactory(
 async function readResponseBody(
     body: Dispatcher.ResponseData["body"],
     control: ExecutionControl | undefined,
-): Promise<string> {
+): Promise<Buffer> {
     const chunks: Buffer[] = [];
     let totalBytes = 0;
     try {
@@ -174,14 +176,60 @@ async function readResponseBody(
         discardBody(body);
         throw error;
     }
-    return Buffer.concat(chunks).toString("utf8");
+    return Buffer.concat(chunks);
 }
 
-function isHtmlResponse(contentType: string | undefined, text: string): boolean {
-    const normalized = contentType?.toLowerCase() ?? "";
-    return normalized.includes("text/html")
-        || normalized.includes("application/xhtml+xml")
-        || /^\s*<(?:!doctype|html)\b/i.test(text);
+interface ParsedContentType {
+    readonly mimeType: string;
+    readonly charset: string | undefined;
+    readonly isHtml: boolean;
+}
+
+const TEXTUAL_CONTENT_TYPES = new Set([
+    "text/html",
+    "application/xhtml+xml",
+    "text/plain",
+    "application/json",
+    "application/xml",
+]);
+
+function parseContentType(raw: string | undefined): ParsedContentType | undefined {
+    if (raw === undefined) return undefined;
+    const mimeType = (raw.split(";")[0] ?? "").trim().toLowerCase();
+    if (!TEXTUAL_CONTENT_TYPES.has(mimeType) && !mimeType.startsWith("text/")) return undefined;
+    const charsetMatch = /;\s*charset\s*=\s*(?:"([^"]*)"|'([^']*)'|([^;\s]*))/i.exec(raw);
+    const charset = (charsetMatch?.[1] ?? charsetMatch?.[2] ?? charsetMatch?.[3] ?? "")
+        .trim()
+        .toLowerCase();
+    return {
+        mimeType,
+        charset: charset.length > 0 ? charset : undefined,
+        isHtml: mimeType === "text/html" || mimeType === "application/xhtml+xml",
+    };
+}
+
+function sniffHtmlCharset(bytes: Buffer): string | undefined {
+    const head = bytes.subarray(0, 1024).toString("latin1");
+    for (const tag of head.match(/<meta\b[^>]*>/gi) ?? []) {
+        const charsetMatch = /\bcharset\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'/>]+))/i.exec(tag);
+        const charset = (charsetMatch?.[1] ?? charsetMatch?.[2] ?? charsetMatch?.[3] ?? "")
+            .trim()
+            .toLowerCase();
+        if (charset.length > 0) return charset;
+    }
+    return undefined;
+}
+
+function decodeResponseBody(bytes: Buffer, contentType: ParsedContentType): string {
+    const charset = contentType.charset
+        ?? (contentType.isHtml ? sniffHtmlCharset(bytes) : undefined)
+        ?? "utf-8";
+    try {
+        const decoder = new TextDecoder(charset);
+        return decoder.decode(bytes);
+    } catch {
+        throw new WebFetchUnsupportedCharsetError();
+    }
 }
 
 /**
@@ -254,6 +302,12 @@ export function createDefaultWebFetchHandler(
                 throw new WebFetchHttpError(response.statusCode, retryAfterMs);
             }
 
+            const contentType = parseContentType(headerValue(response.headers, "content-type"));
+            if (contentType === undefined) {
+                discardBody(response.body);
+                throw new WebFetchUnsupportedContentTypeError();
+            }
+
             const contentLengthHeader = headerValue(response.headers, "content-length");
             if (contentLengthHeader !== undefined) {
                 const contentLength = Number.parseInt(contentLengthHeader, 10);
@@ -265,20 +319,22 @@ export function createDefaultWebFetchHandler(
                 }
             }
 
-            const text = await readResponseBody(response.body, control);
+            const bytes = await readResponseBody(response.body, control);
+            const text = decodeResponseBody(bytes, contentType);
             consumedResponse = true;
-            const contentType = headerValue(response.headers, "content-type");
             return {
                 kind: "response",
                 text,
-                isHtml: isHtmlResponse(contentType, text),
+                isHtml: contentType.isHtml,
             };
         } catch (error) {
             if (control?.signal?.aborted) throw error;
             if (error instanceof WebResponseTooLargeError
                 || error instanceof WebFetchBlockedUrlError
                 || error instanceof WebFetchHttpError
-                || error instanceof WebFetchRedirectLimitError) {
+                || error instanceof WebFetchRedirectLimitError
+                || error instanceof WebFetchUnsupportedContentTypeError
+                || error instanceof WebFetchUnsupportedCharsetError) {
                 throw error;
             }
             throw new WebFetchNetworkError(

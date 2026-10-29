@@ -24,7 +24,7 @@
   - 场景与预期：`http://localhost:8080/api`、`http://127.0.0.1`、`http://10.0.0.1`、`http://169.254.169.254`、`http://[::1]`、带 `user:pass@` 的 URL 在 `validate` 阶段被拒绝；公网主机解析到私网地址时默认 handler 返回 `WEB_FETCH_BLOCKED_URL`；首跳公网、重定向到 `127.0.0.1` 的响应被阻止；超过 5 跳返回 `WEB_FETCH_REDIRECT_LIMIT`；错误消息不包含 DNS 明细或凭据；模拟预检查返回公网、后续 DNS 返回私网，连接层只能收到已验证的公网地址；混合 A/AAAA 中任一地址受限即整跳拒绝，连接重试不得选择集合外地址；HTTPS 保留原域名 SNI 并拒绝不匹配的证书，Host 保持原 URL 语义；正常完成、失败、取消、超时和正文超限均释放请求资源。
   - 验证手段：新增 `packages/tools/test/web-fetch-policy.test.ts`，并扩展 `packages/tools/test/web-fetch.test.ts`；`npx tsx --test packages/tools/test/web-fetch.test.ts packages/tools/test/web-fetch-policy.test.ts`；`npx tsc --noEmit`。
 
-- [ ] //TODO 4. 按 content-type、charset 和字节上限解码默认抓取响应
+- [x] //TODO 4. 按 content-type、charset 和字节上限解码默认抓取响应
   - 落实标准：[4.1](./spec.md#spec-req-4-1)、[4.2](./spec.md#spec-req-4-2)、[4.3](./spec.md#spec-req-4-3)、[4.4](./spec.md#spec-req-4-4)、[6.1](./spec.md#spec-req-6-1)、[6.3](./spec.md#spec-req-6-3)。
   - 实施目标：扩展 `fetch-default.ts` 的响应处理：只接受 `text/html`、`application/xhtml+xml`、`text/plain`、`application/json`、`application/xml` 和其它 `text/*`；其它类型以及缺少 content-type 的响应在读取正文前返回 `WebFetchUnsupportedContentTypeError`。按 `content-type` charset、HTML `<meta charset>` 前 1 KiB 嗅探、UTF-8 的顺序选择 `TextDecoder`；声明但不支持的 charset 以安全 `WEB_FETCH_FAILED` 结束，不静默当 UTF-8。保留 `Content-Length` 提前检查和读取中 2 MiB 累计上限；超限返回 `WEB_RESPONSE_TOO_LARGE`。`WebFetchTool` 增加 `WEB_FETCH_UNSUPPORTED_CONTENT_TYPE`、`WEB_FETCH_HTTP_ERROR` 映射，保留超时、超大、普通失败和瞬态失败语义。
   - 场景与预期：`text/html`、`application/json`、`text/plain` 正常返回；`image/png` 返回 `WEB_FETCH_UNSUPPORTED_CONTENT_TYPE` 且不发正文；ISO-8859-1 响应按声明解码，meta charset 生效，无声明时 UTF-8；`Content-Length` 超 2 MiB 和 chunked 超 2 MiB 都返回 `WEB_RESPONSE_TOO_LARGE`；404 返回 `WEB_FETCH_HTTP_ERROR`，429/503 仍走瞬态失败。

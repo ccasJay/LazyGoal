@@ -23,6 +23,7 @@ import {
     WebFetchHttpError,
     WebFetchNetworkError,
     WebFetchRedirectLimitError,
+    WebFetchUnsupportedCharsetError,
     WebFetchUnsupportedContentTypeError,
     WebResponseTooLargeError,
 } from "./web/fetch-errors";
@@ -335,6 +336,14 @@ export class WebFetchTool implements Tool<typeof WEB_FETCH_INPUT_CONTRACT> {
                 return {
                     kind: "failure",
                     code: "WEB_FETCH_UNSUPPORTED_CONTENT_TYPE",
+                    message: error.message,
+                    retryable: false,
+                };
+            }
+            if (error instanceof WebFetchUnsupportedCharsetError) {
+                return {
+                    kind: "failure",
+                    code: "WEB_FETCH_FAILED",
                     message: error.message,
                     retryable: false,
                 };

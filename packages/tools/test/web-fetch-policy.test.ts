@@ -18,6 +18,8 @@ import {
     WebFetchHttpError,
     WebFetchNetworkError,
     WebFetchRedirectLimitError,
+    WebFetchUnsupportedCharsetError,
+    WebFetchUnsupportedContentTypeError,
     WebResponseTooLargeError,
 } from "../src/web/fetch-errors";
 import {
@@ -31,6 +33,7 @@ import {
     type WebFetchTransportAddress,
 } from "../src/web/fetch-default";
 import type { WebFetchHandler } from "../src/web-fetch";
+import { WebFetchTool } from "../src/index";
 
 const PUBLIC_V4 = "93.184.216.34";
 const PUBLIC_V6 = "2001:4860:4860::8888";
@@ -138,6 +141,19 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2000): Promise<void
 
 function readTlsFixture(name: string): string {
     return readFileSync(new URL(name, TLS_FIXTURE_DIR), "utf8");
+}
+
+function executeFetchTool(handler: WebFetchHandler, url: string) {
+    const tool = new WebFetchTool(handler);
+    return tool.execute({
+        actionId: "action-policy-fetch",
+        input: { url },
+        plan: {
+            actionId: "action-policy-fetch",
+            workspaceRoot: "/workspace",
+            scope: { extraFiles: [], network: "all_outbound" },
+        },
+    });
 }
 
 test("URL 策略拒绝非 http(s)、凭据、本机与私网字面地址", () => {
@@ -456,6 +472,227 @@ test("HTTPS 保留原域名 Host、SNI 与证书主机名校验", async () => {
                 assert.ok(error instanceof WebFetchNetworkError);
                 assert.equal(error.reason, "tls_verification_failed");
                 assert.equal(error.message, "Web fetch network request failed.");
+                return true;
+            },
+        );
+    } finally {
+        await fixture.close();
+    }
+});
+
+test("默认 handler 按 content-type 与 charset 解码并拒绝二进制和未知字符集", async () => {
+    const fixture = await startHttpFixture((request, response) => {
+        switch (request.url) {
+            case "/html-latin1":
+                response.writeHead(200, { "content-type": "text/html; charset=iso-8859-1" });
+                response.end(Buffer.from("<p>Caf\xe9</p>", "latin1"));
+                return;
+            case "/html-meta":
+                response.writeHead(200, { "content-type": "text/html" });
+                response.end(Buffer.concat([
+                    Buffer.from("<meta charset=\"windows-1252\"><p>Caf", "latin1"),
+                    Buffer.from([0xe9]),
+                    Buffer.from("</p>", "latin1"),
+                ]));
+                return;
+            case "/html-utf8":
+                response.writeHead(200, { "content-type": "text/html" });
+                response.end(Buffer.from("<p>你好</p>", "utf8"));
+                return;
+            case "/json":
+                response.writeHead(200, { "content-type": "application/json" });
+                response.end("{\"text\":\"<b>raw</b>\"}");
+                return;
+            case "/plain-markup":
+                response.writeHead(200, { "content-type": "text/plain" });
+                response.end("<html><body>plain markup</body></html>");
+                return;
+            case "/xml":
+                response.writeHead(200, { "content-type": "application/xml" });
+                response.end("<root>ok</root>");
+                return;
+            case "/binary":
+                response.writeHead(200, { "content-type": "image/png" });
+                response.write("binary");
+                return;
+            case "/missing-type":
+                response.writeHead(200);
+                response.end("missing content type");
+                return;
+            case "/bad-charset":
+                response.writeHead(200, { "content-type": "text/html; charset=x-unknown" });
+                response.end("<p>unknown</p>");
+                return;
+            default:
+                response.writeHead(404, { "content-type": "text/plain" });
+                response.end("missing");
+        }
+    });
+    try {
+        const { handler } = createLocalHandler(fixture.port, async () => [PUBLIC_V4]);
+
+        assert.deepEqual(await handler("http://public.example/html-latin1"), {
+            text: "<p>Café</p>",
+            isHtml: true,
+        });
+        assert.deepEqual(await handler("http://public.example/html-meta"), {
+            text: "<meta charset=\"windows-1252\"><p>Café</p>",
+            isHtml: true,
+        });
+        assert.deepEqual(await handler("http://public.example/html-utf8"), {
+            text: "<p>你好</p>",
+            isHtml: true,
+        });
+        assert.deepEqual(await handler("http://public.example/json"), {
+            text: "{\"text\":\"<b>raw</b>\"}",
+            isHtml: false,
+        });
+        assert.deepEqual(await handler("http://public.example/plain-markup"), {
+            text: "<html><body>plain markup</body></html>",
+            isHtml: false,
+        });
+        assert.deepEqual(await handler("http://public.example/xml"), {
+            text: "<root>ok</root>",
+            isHtml: false,
+        });
+
+        const latin1 = await executeFetchTool(handler, "http://public.example/html-latin1");
+        assert.equal(latin1.kind, "success");
+        if (latin1.kind === "success") {
+            assert.match((latin1.output as { text: string }).text, /Café/);
+        }
+
+        const meta = await executeFetchTool(handler, "http://public.example/html-meta");
+        assert.equal(meta.kind, "success");
+        if (meta.kind === "success") {
+            assert.match((meta.output as { text: string }).text, /Café/);
+        }
+
+        const json = await executeFetchTool(handler, "http://public.example/json");
+        assert.equal(json.kind, "success");
+        if (json.kind === "success") {
+            assert.equal(
+                (json.output as { text: string }).text,
+                "{\"text\":\"<b>raw</b>\"}",
+            );
+        }
+
+        const plainMarkup = await executeFetchTool(
+            handler,
+            "http://public.example/plain-markup",
+        );
+        assert.equal(plainMarkup.kind, "success");
+        if (plainMarkup.kind === "success") {
+            assert.equal(
+                (plainMarkup.output as { text: string }).text,
+                "<html><body>plain markup</body></html>",
+            );
+        }
+
+        await assert.rejects(
+            () => handler("http://public.example/binary"),
+            WebFetchUnsupportedContentTypeError,
+        );
+        const binary = await executeFetchTool(handler, "http://public.example/binary");
+        assert.equal(binary.kind, "failure");
+        if (binary.kind === "failure") {
+            assert.equal(binary.code, "WEB_FETCH_UNSUPPORTED_CONTENT_TYPE");
+            assert.equal(binary.retryable, false);
+        }
+
+        await assert.rejects(
+            () => handler("http://public.example/missing-type"),
+            WebFetchUnsupportedContentTypeError,
+        );
+
+        await assert.rejects(
+            () => handler("http://public.example/bad-charset"),
+            WebFetchUnsupportedCharsetError,
+        );
+        const badCharset = await executeFetchTool(handler, "http://public.example/bad-charset");
+        assert.equal(badCharset.kind, "failure");
+        if (badCharset.kind === "failure") {
+            assert.equal(badCharset.code, "WEB_FETCH_FAILED");
+            assert.equal(
+                badCharset.message,
+                "Web fetch response declared an unsupported character set.",
+            );
+            assert.equal(badCharset.retryable, false);
+        }
+    } finally {
+        await fixture.close();
+    }
+});
+
+test("默认 handler 与 Tool 对正文超限、404 和 503 保持稳定分类", async () => {
+    const fixture = await startHttpFixture((request, response) => {
+        if (request.url === "/huge-chunked") {
+            response.writeHead(200, { "content-type": "text/plain" });
+            const chunk = Buffer.alloc(64 * 1024, "x");
+            let sent = 0;
+            const write = (): void => {
+                while (sent <= 2 * 1024 * 1024) {
+                    sent += chunk.byteLength;
+                    if (!response.write(chunk)) {
+                        response.once("drain", write);
+                        return;
+                    }
+                }
+                response.end();
+            };
+            write();
+            return;
+        }
+        if (request.url === "/huge-declared") {
+            response.writeHead(200, {
+                "content-type": "text/plain",
+                "content-length": String(2 * 1024 * 1024 + 1),
+            });
+            response.end("x");
+            return;
+        }
+        if (request.url === "/unavailable") {
+            response.writeHead(503, {
+                "content-type": "text/plain",
+                "retry-after": "1",
+            });
+            response.end("busy");
+            return;
+        }
+        response.writeHead(404, { "content-type": "text/plain" });
+        response.end("not found");
+    });
+    try {
+        const { handler } = createLocalHandler(fixture.port, async () => [PUBLIC_V4]);
+
+        const chunked = await executeFetchTool(handler, "http://public.example/huge-chunked");
+        assert.equal(chunked.kind, "failure");
+        if (chunked.kind === "failure") {
+            assert.equal(chunked.code, "WEB_RESPONSE_TOO_LARGE");
+            assert.equal(chunked.retryable, false);
+        }
+
+        const declared = await executeFetchTool(handler, "http://public.example/huge-declared");
+        assert.equal(declared.kind, "failure");
+        if (declared.kind === "failure") {
+            assert.equal(declared.code, "WEB_RESPONSE_TOO_LARGE");
+        }
+
+        const notFound = await executeFetchTool(handler, "http://public.example/missing");
+        assert.equal(notFound.kind, "failure");
+        if (notFound.kind === "failure") {
+            assert.equal(notFound.code, "WEB_FETCH_HTTP_ERROR");
+            assert.match(notFound.message, /HTTP status 404/);
+            assert.equal(notFound.retryable, false);
+        }
+
+        await assert.rejects(
+            () => executeFetchTool(handler, "http://public.example/unavailable"),
+            (error: unknown) => {
+                assert.ok(error instanceof Error);
+                assert.equal(error.name, "TransientToolExecutionFailure");
+                assert.equal((error as { reason?: string }).reason, "http_503");
+                assert.equal((error as { retryAfterMs?: number }).retryAfterMs, 1000);
                 return true;
             },
         );

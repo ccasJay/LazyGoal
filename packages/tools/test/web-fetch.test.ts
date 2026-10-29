@@ -20,6 +20,8 @@ import {
     WebFetchHttpError,
     WebFetchNetworkError,
     WebFetchRedirectLimitError,
+    WebFetchUnsupportedCharsetError,
+    WebFetchUnsupportedContentTypeError,
 } from "../src/web/fetch-errors";
 
 function fixture(name: string): string {
@@ -394,6 +396,25 @@ test("web_fetch 将 blocked、重定向上限、HTTP 与网络失败映射为稳
         assert.equal(network.code, "WEB_FETCH_FAILED");
         assert.match(network.message, /dns_resolution_failed/);
         assert.equal(network.retryable, false);
+    }
+
+    const unsupported = await run(async () => {
+        throw new WebFetchUnsupportedContentTypeError();
+    });
+    assert.equal(unsupported.kind, "failure");
+    if (unsupported.kind === "failure") {
+        assert.equal(unsupported.code, "WEB_FETCH_UNSUPPORTED_CONTENT_TYPE");
+        assert.equal(unsupported.retryable, false);
+    }
+
+    const unsupportedCharset = await run(async () => {
+        throw new WebFetchUnsupportedCharsetError();
+    });
+    assert.equal(unsupportedCharset.kind, "failure");
+    if (unsupportedCharset.kind === "failure") {
+        assert.equal(unsupportedCharset.code, "WEB_FETCH_FAILED");
+        assert.match(unsupportedCharset.message, /unsupported character set/);
+        assert.equal(unsupportedCharset.retryable, false);
     }
 });
 

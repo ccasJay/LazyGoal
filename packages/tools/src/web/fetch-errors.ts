@@ -114,6 +114,24 @@ export class WebFetchNetworkError extends Error {
 }
 
 /**
+ * 响应声明了无法识别的字符集时抛出的错误。
+ *
+ * @remarks
+ * 该错误由 Tool 映射为安全的 `WEB_FETCH_FAILED`，不会把二进制字节静默当作 UTF-8。
+ *
+ * @example
+ * ```ts
+ * throw new WebFetchUnsupportedCharsetError();
+ * ```
+ */
+export class WebFetchUnsupportedCharsetError extends Error {
+    constructor() {
+        super("Web fetch response declared an unsupported character set.");
+        this.name = "WebFetchUnsupportedCharsetError";
+    }
+}
+
+/**
  * 响应体超过 2 MiB 硬上限的错误。
  *
  * @example
