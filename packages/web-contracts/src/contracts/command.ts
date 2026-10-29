@@ -140,6 +140,13 @@ export const browserToolGrantResultContract = contract.union([
     }),
 ]);
 
+/** 撤销工具授权请求体；`grantId` 只来自路径。 */
+export const browserToolGrantRevokeBodyContract = contract.object({
+    runId: browserNonEmptyStringContract,
+    scope: contract.enum(["goal", "workspace"] as const),
+    kind: contract.optional(contract.enum(["tool", "sandbox"] as const)),
+});
+
 /** 撤销工具授权命令。 */
 export const browserToolGrantRevokeCommandContract = contract.object({
     runId: browserNonEmptyStringContract,
@@ -218,6 +225,7 @@ export const commandWebContracts = [
     browserToolGrantSummaryContract,
     browserActionDetailsResultContract,
     browserToolGrantResultContract,
+    browserToolGrantRevokeBodyContract,
     browserToolGrantRevokeCommandContract,
     browserPermissionModeContract,
     browserPermissionModeCommandContract,

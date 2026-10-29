@@ -33,12 +33,23 @@ import type {
     BrowserSessionInteractionResponse,
 } from "../../web-contracts/src/index";
 import { isJsonValue } from "../../web-contracts/src/index";
-import { browserGoalPlanModeCommandContract } from "../../web-contracts/src/contracts/command";
+import {
+    browserGoalArchiveCommandContract,
+    browserGoalPlanModeCommandContract,
+    browserModelPreferenceCommandContract,
+    browserModelSelectionCommandContract,
+    browserPermissionModeCommandContract,
+    browserToolGrantRevokeBodyContract,
+} from "../../web-contracts/src/contracts/command";
 import {
     browserCreateSessionCommandContract,
     browserSessionInputCommandContract,
 } from "../../web-contracts/src/contracts/input";
 import { browserActionReviewCommandContract } from "../../web-contracts/src/contracts/interaction";
+import {
+    browserProviderModelQueryContract,
+    browserProviderProfileInputContract,
+} from "../../web-contracts/src/contracts/provider";
 import { safeParse } from "../../web-contracts/src/contracts/runtime";
 import { hasUtf16LengthAtMost } from "../../web-contracts/src/invariants/index";
 import type {
@@ -325,22 +336,14 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
     routes.post("/api/project/model-preference", async (context) => {
         const body = await readJsonBody(context.req.raw);
         if (!body.ok) return context.json({ error: body.error }, body.status);
-        const value = body.value;
-        if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        const parsed = safeParse(browserModelPreferenceCommandContract, body.value);
+        if (!parsed.success
+            || !hasUtf16LengthAtMost(parsed.data.modelId, 256)
+            || (parsed.data.providerProfileId !== undefined
+                && !isWireId(parsed.data.providerProfileId, MAX_GOAL_ID_LENGTH))) {
             return context.json({ error: "invalid_model_preference" }, 400);
         }
-        const fields = value as Record<string, unknown>;
-        const modelId = readWireText(fields.modelId, 256);
-        const providerProfileId = fields.providerProfileId === undefined
-            ? undefined
-            : readWireText(fields.providerProfileId, MAX_GOAL_ID_LENGTH);
-        if (
-            Object.keys(fields).some((key) => key !== "modelId" && key !== "providerProfileId")
-            || modelId === undefined
-            || ("providerProfileId" in fields && providerProfileId === undefined)
-        ) {
-            return context.json({ error: "invalid_model_preference" }, 400);
-        }
+        const { modelId, providerProfileId } = parsed.data;
         try {
             const result = await source.setModelPreference(modelId, providerProfileId);
             if (result.ok) return context.json(result);
@@ -355,27 +358,16 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) return context.json({ error: "invalid_model_selection" }, 400);
         const body = await readJsonBody(context.req.raw);
         if (!body.ok) return context.json({ error: body.error }, body.status);
-        const value = body.value;
-        if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        const parsed = safeParse(browserModelSelectionCommandContract, body.value);
+        if (!parsed.success
+            || !isWireId(parsed.data.runId, 256)
+            || !hasUtf16LengthAtMost(parsed.data.modelId, 256)
+            || (parsed.data.providerProfileId !== undefined
+                && !isWireId(parsed.data.providerProfileId, MAX_GOAL_ID_LENGTH))) {
             return context.json({ error: "invalid_model_selection" }, 400);
         }
-        const fields = value as Record<string, unknown>;
-        const modelId = readWireText(fields.modelId, 256);
-        const providerProfileId = fields.providerProfileId === undefined
-            ? undefined
-            : readWireText(fields.providerProfileId, MAX_GOAL_ID_LENGTH);
-        if (
-            Object.keys(fields).some((key) => key !== "runId" && key !== "modelId" && key !== "providerProfileId")
-            || !isWireId(fields.runId, 256)
-            || modelId === undefined
-            || ("providerProfileId" in fields && providerProfileId === undefined)
-        ) return context.json({ error: "invalid_model_selection" }, 400);
         try {
-            const result = await source.selectModel(goalId, {
-                runId: fields.runId,
-                modelId,
-                ...(providerProfileId === undefined ? {} : { providerProfileId }),
-            });
+            const result = await source.selectModel(goalId, parsed.data);
             if (result.ok) return context.json(result);
             const status = result.error === "goal_not_found" ? 404
                 : result.error === "model_catalog_unavailable" || result.error === "model_selection_failed" || result.error === "service_shutting_down" ? 503
@@ -400,12 +392,10 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         if (source.setArchived === undefined) return context.json({ error: "goal_management_unavailable" }, 503);
         const body = await readJsonBody(context.req.raw);
         if (!body.ok) return context.json({ error: body.error }, body.status);
-        if (typeof body.value !== "object" || body.value === null || Array.isArray(body.value)
-            || Object.keys(body.value).length !== 1 || typeof (body.value as Record<string, unknown>).archived !== "boolean") {
-            return context.json({ error: "invalid_archive_request" }, 400);
-        }
+        const parsed = safeParse(browserGoalArchiveCommandContract, body.value);
+        if (!parsed.success) return context.json({ error: "invalid_archive_request" }, 400);
         try {
-            const result = await source.setArchived(goalId, (body.value as { archived: boolean }).archived);
+            const result = await source.setArchived(goalId, parsed.data.archived);
             return result.ok ? context.json({ ok: true })
                 : context.json({ error: result.error }, result.error === "goal_not_found" ? 404
                     : result.error === "service_shutting_down" ? 503
@@ -813,23 +803,21 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         });
 
         routes.post("/api/providers/models", async (context) => {
-            const parsed = await readJsonBody(context.req.raw);
-            if (!parsed.ok) return context.json({ error: parsed.error }, parsed.status);
-            const value = parsed.value;
-            if (typeof value !== "object" || value === null || Array.isArray(value)) return context.json({ error: "invalid_provider_profile" }, 400);
-            const fields = value as Record<string, unknown>;
-            const kind = readWireText(fields.kind, MAX_PROVIDER_KIND_LENGTH);
-            const apiKey = fields.apiKey === undefined ? undefined : readWireText(fields.apiKey, MAX_PROVIDER_API_KEY_LENGTH);
-            const baseURL = fields.baseURL === undefined ? undefined : readWireText(fields.baseURL, MAX_PROVIDER_BASE_URL_LENGTH);
-            const profileId = fields.profileId === undefined ? undefined : readWireText(fields.profileId, MAX_GOAL_ID_LENGTH);
-            if (!kind || Object.keys(fields).some(key => !["kind", "apiKey", "baseURL", "profileId"].includes(key))
-                || (fields.apiKey !== undefined && apiKey === undefined)
-                || (fields.baseURL !== undefined && baseURL === undefined)
-                || (fields.profileId !== undefined && (profileId === undefined || !isWireId(profileId, MAX_GOAL_ID_LENGTH)))) {
+            const parsedBody = await readJsonBody(context.req.raw);
+            if (!parsedBody.ok) return context.json({ error: parsedBody.error }, parsedBody.status);
+            const parsed = safeParse(browserProviderModelQueryContract, parsedBody.value);
+            if (!parsed.success
+                || !hasUtf16LengthAtMost(parsed.data.kind, MAX_PROVIDER_KIND_LENGTH)
+                || (parsed.data.apiKey !== undefined
+                    && !hasUtf16LengthAtMost(parsed.data.apiKey, MAX_PROVIDER_API_KEY_LENGTH))
+                || (parsed.data.baseURL !== undefined
+                    && !hasUtf16LengthAtMost(parsed.data.baseURL, MAX_PROVIDER_BASE_URL_LENGTH))
+                || (parsed.data.profileId !== undefined
+                    && !isWireId(parsed.data.profileId, MAX_GOAL_ID_LENGTH))) {
                 return context.json({ error: "invalid_provider_profile" }, 400);
             }
             try {
-                const result = await providerSettings.fetchModels({ kind, ...(apiKey === undefined ? {} : { apiKey }), ...(baseURL === undefined ? {} : { baseURL }), ...(profileId === undefined ? {} : { profileId }) }, context.req.raw.signal);
+                const result = await providerSettings.fetchModels(parsed.data, context.req.raw.signal);
                 if (result.ok) return context.json(result);
                 return context.json({ error: result.error }, result.error === "provider_profile_invalid" ? 400 : providerProfileTestStatus(result.error));
             } catch {
@@ -942,47 +930,19 @@ async function parseProviderProfileInput(
 ): Promise<{ readonly ok: true; readonly input: BrowserProviderProfileInput } | { readonly ok: false }> {
     const parsedBody = await readJsonBody(request);
     if (!parsedBody.ok) return { ok: false };
-    const value = parsedBody.value;
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return { ok: false };
-    const fields = value as Record<string, unknown>;
-    if (Object.keys(fields).some((key) => !PROVIDER_PROFILE_FIELD_NAMES.has(key))) return { ok: false };
-
-    const label = readWireText(fields.label, MAX_PROVIDER_LABEL_LENGTH);
-    const kind = readWireText(fields.kind, MAX_PROVIDER_KIND_LENGTH);
-    const defaultModel = readWireText(fields.defaultModel, 256);
-    if (label === undefined || kind === undefined || defaultModel === undefined) return { ok: false };
-
-    const absent = (input: unknown): boolean => input === undefined || input === null;
-    if (!absent(fields.apiKey) && readWireText(fields.apiKey, MAX_PROVIDER_API_KEY_LENGTH) === undefined) return { ok: false };
-    if (!absent(fields.baseURL) && readWireText(fields.baseURL, MAX_PROVIDER_BASE_URL_LENGTH) === undefined) return { ok: false };
-    const apiKey = absent(fields.apiKey) ? undefined : readWireText(fields.apiKey, MAX_PROVIDER_API_KEY_LENGTH);
-    const baseURL = absent(fields.baseURL) ? undefined : readWireText(fields.baseURL, MAX_PROVIDER_BASE_URL_LENGTH);
-
-    const mode = absent(fields.structuredOutputMode) ? undefined : readWireText(fields.structuredOutputMode, 32);
-    if (mode !== undefined && mode !== "strict" && mode !== "prompt_only" && mode !== "two_stage") return { ok: false };
-
-    const readPositive = (input: unknown): number | undefined => {
-        if (absent(input)) return undefined;
-        return typeof input === "number" && Number.isSafeInteger(input) && input > 0 ? input : undefined;
-    };
-    if (!absent(fields.contextWindowTokens) && readPositive(fields.contextWindowTokens) === undefined) return { ok: false };
-    if (!absent(fields.maxOutputTokens) && readPositive(fields.maxOutputTokens) === undefined) return { ok: false };
-    const contextWindowTokens = readPositive(fields.contextWindowTokens);
-    const maxOutputTokens = readPositive(fields.maxOutputTokens);
-
-    return {
-        ok: true,
-        input: {
-            label,
-            kind,
-            defaultModel,
-            ...(apiKey === undefined ? {} : { apiKey }),
-            ...(baseURL === undefined ? {} : { baseURL }),
-            ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
-            ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
-            ...(mode === undefined ? {} : { structuredOutputMode: mode }),
-        },
-    };
+    const parsed = safeParse(browserProviderProfileInputContract, parsedBody.value);
+    if (!parsed.success) return { ok: false };
+    const input = parsed.data;
+    if (!hasUtf16LengthAtMost(input.label, MAX_PROVIDER_LABEL_LENGTH)
+        || !hasUtf16LengthAtMost(input.kind, MAX_PROVIDER_KIND_LENGTH)
+        || !hasUtf16LengthAtMost(input.defaultModel, 256)
+        || (input.apiKey !== undefined
+            && !hasUtf16LengthAtMost(input.apiKey, MAX_PROVIDER_API_KEY_LENGTH))
+        || (input.baseURL !== undefined && input.baseURL !== null
+            && !hasUtf16LengthAtMost(input.baseURL, MAX_PROVIDER_BASE_URL_LENGTH))) {
+        return { ok: false };
+    }
+    return { ok: true, input };
 }
 
 function modelCatalogErrorStatus(error: Exclude<BrowserModelCatalogReadResult, { readonly ok: true }>["error"]): 404 | 409 | 502 | 503 {
@@ -1271,55 +1231,27 @@ async function parseGrantRevokeCommand(request: Request): Promise<
     | { readonly ok: true; readonly command: Omit<BrowserToolGrantRevokeCommand, "grantId"> }
     | { readonly ok: false; readonly error: string }
 > {
-    const parsed = await readJsonBody(request);
-    if (!parsed.ok) return { ok: false, error: parsed.error };
-    const value = parsed.value;
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    const parsedBody = await readJsonBody(request);
+    if (!parsedBody.ok) return { ok: false, error: parsedBody.error };
+    const parsed = safeParse(browserToolGrantRevokeBodyContract, parsedBody.value);
+    if (!parsed.success || !isWireId(parsed.data.runId, 256)) {
         return { ok: false, error: "invalid_grant_request" };
     }
-    const body = value as Record<string, unknown>;
-    const allowedKeys = ["runId", "scope", "kind"];
-    for (const key of Object.keys(body)) {
-        if (!allowedKeys.includes(key)) return { ok: false, error: "invalid_grant_request" };
-    }
-    if (!("runId" in body) || !("scope" in body)) return { ok: false, error: "invalid_grant_request" };
-    const runId = readWireText(body.runId, 256);
-    const scope = body.scope;
-    if (runId === undefined || (scope !== "goal" && scope !== "workspace")) {
-        return { ok: false, error: "invalid_grant_request" };
-    }
-    const kind = body.kind;
-    if (kind !== undefined && kind !== "tool" && kind !== "sandbox") {
-        return { ok: false, error: "invalid_grant_request" };
-    }
-    return { ok: true, command: { runId, scope, ...(kind !== undefined ? { kind } : {}) } };
+    const { runId, scope, kind } = parsed.data;
+    return { ok: true, command: { runId, scope, ...(kind === undefined ? {} : { kind }) } };
 }
 
 async function parsePermissionModeCommand(request: Request): Promise<
     | { readonly ok: true; readonly command: BrowserPermissionModeCommand }
     | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
 > {
-    const parsed = await readJsonBody(request);
-    if (!parsed.ok) return parsed;
-    const value = parsed.value;
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    const parsedBody = await readJsonBody(request);
+    if (!parsedBody.ok) return parsedBody;
+    const parsed = safeParse(browserPermissionModeCommandContract, parsedBody.value);
+    if (!parsed.success) {
         return { ok: false, error: "invalid_permission_mode_request", status: 400 };
     }
-    const body = value as Record<string, unknown>;
-    if (!hasExactKeys(body, ["mode", "expectedRevision"])) {
-        return { ok: false, error: "invalid_permission_mode_request", status: 400 };
-    }
-    const mode = body.mode;
-    const expectedRevision = body.expectedRevision;
-    if (
-        (mode !== "default" && mode !== "yolo")
-        || typeof expectedRevision !== "number"
-        || !Number.isSafeInteger(expectedRevision)
-        || expectedRevision < 0
-    ) {
-        return { ok: false, error: "invalid_permission_mode_request", status: 400 };
-    }
-    return { ok: true, command: { mode, expectedRevision } };
+    return { ok: true, command: parsed.data };
 }
 
 async function readJsonBody(
