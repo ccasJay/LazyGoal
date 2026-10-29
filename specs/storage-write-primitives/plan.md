@@ -4,7 +4,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 交付原子替换原语并接入 Goal Snapshot：临时文件、可选 fsync、结果未知核对与失败清理
+- [x] //TODO 1. 交付原子替换原语并接入 Goal Snapshot：临时文件、可选 fsync、结果未知核对与失败清理
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)、[1.5](./spec.md#spec-req-1-5)、[1.6](./spec.md#spec-req-1-6)、[4.1](./spec.md#spec-req-4-1)、[4.3](./spec.md#spec-req-4-3)、[4.4](./spec.md#spec-req-4-4)、[6.1](./spec.md#spec-req-6-1)、[6.3](./spec.md#spec-req-6-3)
   - 实施目标：新增 `packages/storage/src/json-file-write.ts`，导出 `atomicWriteJson`、`TRANSIENT_FILE_ERROR_CODES`、`WRITE_RETRY_THREE_ATTEMPTS`、`FileWriteOperations` 与选项类型；临时文件固定为 `<target>.<uuid>.tmp`，创建时文件 `0600`、目录 `0700`，`durable` 决定 rename 前是否 `fsync`，失败时清理临时文件并重抛原始错误。`tolerateRenameEnoent` 只在 `rename` 返回 `ENOENT` 时正常返回，其余阶段与其它 errno 照旧抛出；清理临时文件的失败不得掩盖原始错误。把 `packages/storage/src/goal-store.ts` 的 `saveSnapshot` 改为调用原语，保留三次临时故障上限、目标内容核对、归档标记清理与 `GoalSnapshotProtocolError`。原语不定义新错误类型，也不从 `src/index.ts` 导出。同步补中文契约 TSDoc。
   - 场景与预期：第一次 `open` 抛 `EINTR`、第二次成功时 `restore` 得到同一 Goal；`rename` 已完成但抛 `EBUSY` 时只写一次且不重放提交；持续 `EBUSY` 时第三次后以 `EBUSY` 拒绝，目录中无 `*.tmp`；核对抛出 `GoalSnapshotProtocolError` 时立即停止并传播；新建目录中保存后快照为 `0600`、目录为 `0700`；`indent` 与 `trailingNewline` 组合产生的字节与重构前一致；`mkdir` 或 `open` 抛 `ENOENT` 时以该错误拒绝，`tolerateRenameEnoent: true` 时 `rename` 抛 `ENOENT` 正常返回且无 `*.tmp` 残留，未声明该选项时 `rename` 的 `ENOENT` 照旧抛出；`unlink` 清理抛 `EACCES` 时抛出原始写入错误。
