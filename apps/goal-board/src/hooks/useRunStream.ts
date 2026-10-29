@@ -169,8 +169,10 @@ export function useRunStream({
               if (!synced) {
                 synced = true;
                 setProgressEntries([]);
-                // 重建连接后的权威同步：丢弃断线期间保留的临时正文。
+                // 重建连接后的权威同步：丢弃断线期间保留的临时正文与来源索引。
                 textBatcher.clear();
+                sourceRef.current = null;
+                setLivePreview(createLivePreviewState());
                 setOutputDisplay((current) => ({
                   ...current,
                   liveText: "",

@@ -1,5 +1,6 @@
 import type { BrowserProviderModelQuery, BrowserProviderModels } from "../../web-contracts/src/index";
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 
 import type { BrowserGoalList, BrowserGoalSession } from "../../web-contracts/src/index";
 import type {
@@ -21,7 +22,6 @@ import type {
     BrowserPermissionModeResult,
 } from "./browser-goal-command-service";
 import type {
-    BrowserGoalLiveFeed,
     BrowserGoalSessionPort,
 } from "./browser-session-port";
 import type {
@@ -783,7 +783,30 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         if (!opened.ok) {
             return context.json({ error: opened.error }, opened.error === "goal_not_found" ? 404 : 409);
         }
-        return createEventStreamResponse(opened.feed);
+        const feed = opened.feed;
+        const response = streamSSE(context, async (stream) => {
+            let released = false;
+            const release = () => {
+                if (released) return;
+                released = true;
+                feed.close();
+            };
+            stream.onAbort(release);
+            try {
+                for await (const event of feed.events) {
+                    if (stream.aborted) break;
+                    await stream.writeSSE({ event: "update", data: JSON.stringify(event) });
+                }
+            } catch {
+                // feed 迭代失败按普通断线收尾：客户端经重连重新同步权威状态。
+            } finally {
+                release();
+            }
+        });
+        // `streamSSE` 默认只声明 `no-cache`；保留既有禁用缓存与代理缓冲的传输语义。
+        response.headers.set("cache-control", "no-cache, no-transform");
+        response.headers.set("x-accel-buffering", "no");
+        return response;
     });
 
     const providerSettings = source.providerSettings;
@@ -1269,39 +1292,4 @@ function isWireInteractionId(value: unknown, maximumLength: number): value is st
     const separator = value.indexOf(":");
     if (separator <= 0 || separator === value.length - 1) return false;
     return isWireId(value.slice(0, separator), 64) && isWireActionIdentity(value.slice(separator + 1), 256);
-}
-
-function createEventStreamResponse(
-    feed: BrowserGoalLiveFeed,
-): Response {
-    const encoder = new TextEncoder();
-    const iterator = feed.events[Symbol.asyncIterator]();
-    let cancelled = false;
-    const body = new ReadableStream<Uint8Array>({
-        async pull(controller) {
-            try {
-                const next = await iterator.next();
-                if (next.done) {
-                    if (!cancelled) controller.close();
-                    feed.close();
-                    return;
-                }
-                controller.enqueue(encoder.encode(`event: update\ndata: ${JSON.stringify(next.value)}\n\n`));
-            } catch {
-                if (!cancelled) controller.error(new Error("browser event stream failed"));
-                feed.close();
-            }
-        },
-        cancel() {
-            cancelled = true;
-            feed.close();
-        },
-    });
-    return new Response(body, {
-        headers: {
-            "cache-control": "no-cache, no-transform",
-            "content-type": "text/event-stream; charset=utf-8",
-            "x-accel-buffering": "no",
-        },
-    });
 }

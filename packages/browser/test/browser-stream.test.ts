@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 
 import {
@@ -16,10 +17,14 @@ import {
 import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/index";
 import type { LLMAdapter, LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
 import { blockResponse } from "../../llm-core/test/response-fixtures";
+import { createHttpService } from "../../http/src/index";
 import {
     createBrowserGoalRoutes,
+    createBrowserSessionAccess,
     createBrowserSessionFeed,
     type BrowserGoalLiveEvent,
+    type BrowserGoalLiveFeed,
+    type BrowserGoalSessionPort,
 } from "../src/index";
 
 const protocols = {
@@ -614,7 +619,240 @@ test("HTTP 消息入口按稳定身份返回有界列表与正文，并区分不
     assert.equal(missing.status, 404);
 });
 
-test("真实模型调用链下的浏览器活动只包含公开正文与调用提示", async () => {    const goal = goalFor("goal-stream-real");
+/** 由测试显式推进的 Goal 事件流：关闭后迭代结束，并记录释放与消费次数。 */
+interface ControlledFeed {
+    readonly feed: BrowserGoalLiveFeed;
+    push(event: BrowserGoalLiveEvent): void;
+    end(): void;
+    fail(error: Error): void;
+    closeCalls(): number;
+    consumed(): number;
+}
+
+function createControlledFeed(): ControlledFeed {
+    const queued: BrowserGoalLiveEvent[] = [];
+    let pending: (() => void) | undefined;
+    let ended = false;
+    let failure: Error | undefined;
+    let closeCalls = 0;
+    let consumed = 0;
+    const wake = () => {
+        const resolve = pending;
+        pending = undefined;
+        resolve?.();
+    };
+    return {
+        feed: {
+            events: {
+                async *[Symbol.asyncIterator]() {
+                    while (true) {
+                        const event = queued.shift();
+                        if (event !== undefined) {
+                            consumed += 1;
+                            yield event;
+                            continue;
+                        }
+                        if (failure !== undefined) throw failure;
+                        if (ended) return;
+                        await new Promise<void>((resolve) => { pending = resolve; });
+                    }
+                },
+            },
+            close() {
+                closeCalls += 1;
+                ended = true;
+                wake();
+            },
+        },
+        push(event) { queued.push(event); wake(); },
+        end() { ended = true; wake(); },
+        fail(error) { failure = error; wake(); },
+        closeCalls: () => closeCalls,
+        consumed: () => consumed,
+    };
+}
+
+/** 只提供事件订阅的最小白名单端口，用于真实 HTTP 下的写出与释放断言。 */
+function streamRoutes(
+    openEvents: BrowserGoalSessionPort["openEvents"],
+    withSession = true,
+) {
+    return createBrowserGoalRoutes({
+        async list() { return { goals: [], unreadableCount: 0 }; },
+        async read() { return undefined; },
+        async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
+        async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
+        setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
+        async selectModel() { return { ok: false as const, error: "model_selection_failed" as const }; },
+        ...(withSession ? {
+            session: {
+                async create() { return { ok: false as const, error: "create_failed" as const }; },
+                async submit() { return { ok: false as const, error: "session_unavailable" as const }; },
+                async readInput() { return { ok: true as const, found: false as const }; },
+                async readState() { return undefined; },
+                openEvents,
+                async listMessages() { return { ok: true as const, messages: [], total: 0 }; },
+                async readMessage() { return { ok: false as const, error: "message_not_found" as const }; },
+            } satisfies BrowserGoalSessionPort,
+        } : {}),
+    });
+}
+
+async function waitForCondition(predicate: () => boolean): Promise<void> {
+    const startedAt = Date.now();
+    while (!predicate()) {
+        if (Date.now() - startedAt > 2_000) throw new Error("timed out waiting for condition");
+        await delay(10);
+    }
+}
+
+test("真实 HTTP Goal 事件流以 streamSSE 写出首事件并在正常结束时释放一次订阅", async () => {
+    const access = createBrowserSessionAccess();
+    const service = createHttpService({ middleware: access.middleware });
+    const ending = createControlledFeed();
+    const other = createControlledFeed();
+    const feeds = new Map([["goal-http-end", ending], ["goal-http-other", other]]);
+    service.mount("/", streamRoutes(async (goalId) => {
+        const controlled = feeds.get(goalId);
+        return controlled === undefined
+            ? { ok: false as const, error: "goal_not_found" as const }
+            : { ok: true as const, feed: controlled.feed };
+    }));
+    const address = await service.start(0);
+    access.bindOrigin(address.origin);
+    const token = new URL(access.createLaunchUrl(address.origin)).hash.slice(1);
+    const event: BrowserGoalLiveEvent = {
+        type: "activity",
+        goalId: "goal-http-end",
+        runId: "run-1",
+        activity: { kind: "model_started" },
+    };
+    try {
+        ending.push(event);
+        const response = await fetch(`${address.origin}/api/goals/goal-http-end/events`, {
+            headers: { authorization: `Bearer ${token}` },
+        });
+        assert.equal(response.status, 200);
+        assert.match(response.headers.get("content-type") ?? "", /^text\/event-stream/);
+        assert.equal(response.headers.get("cache-control"), "no-cache, no-transform");
+        assert.equal(response.headers.get("x-accel-buffering"), "no");
+        const reader = response.body?.getReader();
+        assert.ok(reader);
+        const first = await reader.read();
+        assert.equal(new TextDecoder().decode(first.value),
+            `event: update\ndata: ${JSON.stringify(event)}\n\n`);
+        ending.end();
+        assert.equal((await reader.read()).done, true);
+        assert.equal(ending.closeCalls(), 1);
+
+        // 另一条连接不受影响：结束第一条订阅只释放它自己的资源。
+        other.push({ ...event, goalId: "goal-http-other" });
+        const otherResponse = await fetch(`${address.origin}/api/goals/goal-http-other/events`, {
+            headers: { authorization: `Bearer ${token}` },
+        });
+        const otherReader = otherResponse.body?.getReader();
+        assert.ok(otherReader);
+        assert.match(new TextDecoder().decode((await otherReader.read()).value), /^event: update\n/);
+        other.end();
+        assert.equal((await otherReader.read()).done, true);
+        assert.equal(other.closeCalls(), 1);
+        assert.equal(ending.closeCalls(), 1);
+    } finally {
+        await service.close();
+    }
+});
+
+test("真实 HTTP Goal 事件流在客户端取消与 feed 抛错时结束响应并只释放一次订阅", async () => {
+    const access = createBrowserSessionAccess();
+    const service = createHttpService({ middleware: access.middleware });
+    const cancellable = createControlledFeed();
+    const failing = createControlledFeed();
+    const unreadable = createControlledFeed();
+    service.mount("/", streamRoutes(async (goalId) => {
+        if (goalId === "goal-http-unreadable") throw new Error("snapshot unreadable");
+        const controlled = goalId === "goal-http-cancel" ? cancellable
+            : goalId === "goal-http-fail" ? failing
+                : undefined;
+        return controlled === undefined
+            ? { ok: false as const, error: "goal_not_found" as const }
+            : { ok: true as const, feed: controlled.feed };
+    }));
+    service.mount("/offline", streamRoutes(async () => ({ ok: false as const, error: "goal_not_found" as const }), false));
+    const address = await service.start(0);
+    access.bindOrigin(address.origin);
+    const token = new URL(access.createLaunchUrl(address.origin)).hash.slice(1);
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+    process.on("unhandledRejection", onUnhandled);
+    const authorize = { authorization: `Bearer ${token}` };
+    try {
+        const cancelledEvent: BrowserGoalLiveEvent = {
+            type: "activity", goalId: "goal-http-cancel", runId: "run-1", activity: { kind: "model_started" },
+        };
+        cancellable.push(cancelledEvent);
+        const abort = new AbortController();
+        const response = await fetch(`${address.origin}/api/goals/goal-http-cancel/events`, {
+            headers: authorize,
+            signal: abort.signal,
+        });
+        const reader = response.body?.getReader();
+        assert.ok(reader);
+        assert.match(new TextDecoder().decode((await reader.read()).value), /^event: update\n/);
+        abort.abort();
+        await waitForCondition(() => cancellable.closeCalls() === 1);
+        assert.equal(cancellable.consumed(), 1);
+        cancellable.push({ ...cancelledEvent, activity: { kind: "model_completed" } });
+        await delay(50);
+        assert.equal(cancellable.consumed(), 1, "取消后不再消费后续事件");
+        assert.equal(cancellable.closeCalls(), 1, "取消只释放一次订阅");
+
+        const failingEvent: BrowserGoalLiveEvent = {
+            type: "activity", goalId: "goal-http-fail", runId: "run-1", activity: { kind: "model_started" },
+        };
+        failing.push(failingEvent);
+        const failingResponse = await fetch(`${address.origin}/api/goals/goal-http-fail/events`, {
+            headers: authorize,
+        });
+        const failingReader = failingResponse.body?.getReader();
+        assert.ok(failingReader);
+        assert.match(new TextDecoder().decode((await failingReader.read()).value), /^event: update\n/);
+        failing.fail(new Error("feed iteration failed"));
+        assert.equal((await failingReader.read()).done, true, "feed 抛错结束响应而不是伪造事件");
+        assert.equal(failing.closeCalls(), 1);
+
+        const invalidIdentity = await fetch(`${address.origin}/api/goals/bad%20id/events`, { headers: authorize });
+        assert.equal(invalidIdentity.status, 400);
+        assert.deepEqual(await invalidIdentity.json(), { error: "invalid_stream_identity" });
+        assert.equal(invalidIdentity.headers.get("content-type")?.includes("text/event-stream"), false);
+
+        const boundRun = await fetch(`${address.origin}/api/goals/goal-http-cancel/events?runId=run-1`, { headers: authorize });
+        assert.equal(boundRun.status, 400);
+        assert.deepEqual(await boundRun.json(), { error: "invalid_stream_identity" });
+
+        const missingGoal = await fetch(`${address.origin}/api/goals/goal-http-missing/events`, { headers: authorize });
+        assert.equal(missingGoal.status, 404);
+        assert.deepEqual(await missingGoal.json(), { error: "goal_not_found" });
+        assert.equal(missingGoal.headers.get("content-type")?.includes("text/event-stream"), false);
+
+        const unreadableGoal = await fetch(`${address.origin}/api/goals/goal-http-unreadable/events`, { headers: authorize });
+        assert.equal(unreadableGoal.status, 500);
+        assert.deepEqual(await unreadableGoal.json(), { error: "stream_unavailable" });
+        assert.equal(unreadable.closeCalls(), 0);
+
+        const noSession = await fetch(`${address.origin}/offline/api/goals/goal-http-cancel/events`, { headers: authorize });
+        assert.equal(noSession.status, 503);
+        assert.deepEqual(await noSession.json(), { error: "session_unavailable" });
+
+        await delay(50);
+        assert.deepEqual(unhandled, []);
+    } finally {
+        process.off("unhandledRejection", onUnhandled);
+        await service.close();
+    }
+});
+
+test("真实模型调用链下的浏览器活动只包含公开正文与调用提示", async () => {
+    const goal = goalFor("goal-stream-real");
     const store = new MemoryStore();
     await store.save(goal);
     const publisher = new InMemoryExecutionStreamPublisher();

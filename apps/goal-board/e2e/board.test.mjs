@@ -738,10 +738,98 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
   }
 });
 
+test("Goal events and metrics reconnect after the server ends each stream", { timeout: 180_000 }, async () => {
+  const reconnectUrl = "http://127.0.0.1:4175";
+  const mock = createMockApi();
+  const apiAddress = await listen(mock.server);
+  const apiPort = Number(new URL(apiAddress).port);
+  const webServer = spawn(
+    process.execPath,
+    [join(root, "node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", "4175", "--strictPort"],
+    {
+      cwd: root,
+      env: { ...process.env, LAZYGOAL_E2E_API_PORT: String(apiPort) },
+      stdio: "ignore",
+    },
+  );
+  const profile = await mkdtemp(join(tmpdir(), "lazygoal-browser-reconnect-"));
+  let chrome;
+  let socket;
+
+  try {
+    await waitForHttp(`${reconnectUrl}/`);
+    chrome = spawn(findChrome(), [
+      "--headless=new",
+      "--no-sandbox",
+      "--disable-gpu",
+      "--hide-scrollbars",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--remote-debugging-port=0",
+      `--user-data-dir=${profile}`,
+      "about:blank",
+    ], { stdio: "ignore" });
+    const devtools = await waitForDevtools(profile, chrome);
+    const targets = await (await fetch(`http://127.0.0.1:${devtools.port}/json/list`)).json();
+    const target = targets.find((item) => item.type === "page");
+    assert.ok(target?.webSocketDebuggerUrl, "Chrome exposes a page target");
+    socket = await connectCdp(target.webSocketDebuggerUrl);
+    await cdp(socket, "Page.enable");
+    await cdp(socket, "Runtime.enable");
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+
+    await navigate(socket, `${reconnectUrl}/?session=reconnect#${token}`);
+    await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.transient-message h1')?.textContent === 'Checking saved notes…'");
+    assert.equal(mock.goalEventConnections(), 1, "first Goal event subscription");
+    assert.equal(mock.metricsConnections(), 1, "first metrics subscription");
+    assert.equal(await value(socket, "document.querySelector('.stream-state')?.textContent"), "Connected");
+
+    // 服务端主动结束两条流：客户端按既有 800ms 退避重连，并以新的 state_sync 与快照恢复。
+    mock.prepareReconnectState();
+    mock.endGoalEvents();
+    mock.endMetricsStream();
+    await waitForLocal(() => mock.goalEventConnections() === 2 && mock.metricsConnections() === 2, 15_000);
+    await waitForExpression(socket, "document.querySelector('.task-state')?.textContent === 'Waiting'");
+    await waitForExpression(socket, "document.querySelector('.transient-message') === null");
+    assert.equal(await value(socket, "document.querySelector('.stream-state')?.textContent"), "Connected");
+    assert.equal(mock.sawLastEventId(), false, "重连不发送 Last-Event-ID");
+
+    await waitForExpression(socket, "document.querySelector('.session-metrics-details-trigger') !== null");
+    await value(socket, "document.querySelector('.session-metrics-details-trigger').click()");
+    await waitForExpression(socket, "document.querySelector('.metrics-popover')?.innerText.includes('40 tok/s')");
+    await value(socket, "document.querySelector('.session-metrics-details-trigger').click()");
+    await waitForExpression(socket, "document.querySelector('.metrics-popover') === null");
+
+    // 关闭视图后取消两条连接，且不再建立新连接。
+    const goalConnections = mock.goalEventConnections();
+    const metricsConnections = mock.metricsConnections();
+    await cdp(socket, "Page.navigate", { url: "about:blank" });
+    await waitForLocal(() => !mock.goalEventsOpen() && !mock.metricsStreamOpen(), 15_000);
+    await delay(1_200);
+    assert.equal(mock.goalEventConnections(), goalConnections, "关闭视图后不再重连 Goal 事件");
+    assert.equal(mock.metricsConnections(), metricsConnections, "关闭视图后不再重连 metrics");
+  } finally {
+    socket?.close();
+    if (chrome !== undefined && chrome.exitCode === null) {
+      const closed = once(chrome, "close");
+      chrome.kill("SIGTERM");
+      await closed;
+    }
+    webServer.kill("SIGTERM");
+    mock.server.close();
+    await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  }
+});
+
 function createMockApi() {
   let session = waitingSession();
   let currentListItem = listItem("waiting");
   let metricsStreamResponse;
+  let goalEventConnections = 0;
+  let metricsConnections = 0;
+  let sawLastEventId = false;
   let currentMetrics = {
     goalId: "goal-1", roundCount: 1, stepCount: 3, reportedCalls: 1, missingCalls: 1,
     inputTokens: 1200, outputTokens: 80, coverage: "partial", cacheMeasuredCalls: 0,
@@ -803,6 +891,7 @@ function createMockApi() {
     pendingSteerCount: 0,
     needsRecovery: false,
     executionOwner: true,
+    messages: { count: session.messages.length, recent: [] },
     ...(session.runStatus !== "waiting" ? {} : {
       waitingFor: session.pendingAction !== undefined
         ? (session.pendingAction.status === "outcome_unknown" ? "action_recovery" : "action_approval")
@@ -883,8 +972,16 @@ function createMockApi() {
       })),
     };
   };
+  /** 按 SSE 规范写出显式事件名；测试桩不使用默认事件蒙混事件映射。 */
+  const writeSseEvent = (response, event, payload) => {
+    response.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+  };
+  /** Goal 事件统一使用 `update`，metrics 使用 `snapshot`。 */
+  const writeGoalEvent = (response, payload) => writeSseEvent(response, "update", payload);
+  const writeMetricsSnapshot = (response, payload) => writeSseEvent(response, "snapshot", payload);
   const server = createServer(async (request, response) => {
     authorizationHeaders.push(request.headers.authorization ?? "");
+    if (request.headers["last-event-id"] !== undefined) sawLastEventId = true;
     if (request.headers.authorization !== `Bearer ${token}`) {
       response.writeHead(401, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: "unauthorized" }));
@@ -913,6 +1010,7 @@ function createMockApi() {
       return;
     }
     if (request.url === "/goals/goal-1/metrics/stream" && request.method === "GET") {
+      metricsConnections += 1;
       // 新订阅取代旧订阅：结束旧响应，模拟服务端不会无限保留同一客户端的陈旧流。
       if (metricsStreamResponse !== undefined && !metricsStreamResponse.writableEnded) metricsStreamResponse.end();
       response.writeHead(200, {
@@ -922,7 +1020,7 @@ function createMockApi() {
       });
       metricsStreamResponse = response;
       response.on("close", () => { if (metricsStreamResponse === response) metricsStreamResponse = undefined; });
-      response.write(`event: snapshot\ndata: ${JSON.stringify(currentMetrics)}\n\n`);
+      writeMetricsSnapshot(response, currentMetrics);
       return;
     }
     if (request.url?.startsWith("/api/goals/goal-1/model-inputs?")) {
@@ -1106,6 +1204,7 @@ function createMockApi() {
       return;
     }
     if (request.url === "/api/goals/goal-1/events" && request.method === "GET") {
+      goalEventConnections += 1;
       // 新订阅取代旧订阅：结束旧响应，避免测试客户端在多次导航后耗尽同源连接配额。
       if (activityResponse !== undefined && !activityResponse.writableEnded) activityResponse.end();
       response.writeHead(200, {
@@ -1115,20 +1214,20 @@ function createMockApi() {
       });
       activityResponse = response;
       response.on("close", () => { if (activityResponse === response) activityResponse = undefined; });
-      response.write(`data: ${JSON.stringify({ type: "state_sync", goalId: "goal-1", state: sessionState() })}\n\n`);
+      writeGoalEvent(response, { type: "state_sync", goalId: "goal-1", state: sessionState() });
       if (!liveTransitionSent) {
         liveTransitionSent = true;
-        response.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "model_started" } })}\n\n`);
-        response.write(`data: ${JSON.stringify({
+        writeGoalEvent(response, { goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "model_started" } });
+        writeGoalEvent(response, {
           goalId: "goal-1",
           runId: "run-1",
           type: "activity",
           activity: { kind: "assistant_text_delta", text: "# Checking saved notes…\n", truncated: false, sourceEventId: "live-event-1", sourceCursor: 1 },
-        })}\n\n`);
-        response.write(`data: ${JSON.stringify({
+        });
+        writeGoalEvent(response, {
           goalId: "goal-1", runId: "run-1", type: "activity",
           activity: { kind: "tool_started", sourceEventId: "live-event-2", sourceCursor: 2, actionId: "live-action-1", executionUnitId: "live-unit-1", toolId: "read_file", inputSummary: "README.md" },
-        })}\n\n`);
+        });
 
       }
       return;
@@ -1188,28 +1287,57 @@ function createMockApi() {
         throughputMeasuredCalls: 1,
         tokensPerSecond: 25,
       };
-      metricsStreamResponse.write(`event: snapshot\ndata: ${JSON.stringify(currentMetrics)}\n\n`);
+      writeMetricsSnapshot(metricsStreamResponse, currentMetrics);
     },
     advanceReviewActivity() {
       assert.ok(activityResponse && !activityResponse.destroyed);
-      activityResponse.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "model_started" } })}\n\n`);
-      activityResponse.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "tool_finished", sourceEventId: "live-event-3", sourceCursor: 3, actionId: "live-action-1", toolId: "read_file", outcome: "success", summary: "Read README" } })}\n\n`);
-      activityResponse.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "assistant_text_delta", text: "# Reviewing result…\n", truncated: false, sourceEventId: "live-event-4", sourceCursor: 4 } })}\n\n`);
+      writeGoalEvent(activityResponse, { goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "model_started" } });
+      writeGoalEvent(activityResponse, { goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "tool_finished", sourceEventId: "live-event-3", sourceCursor: 3, actionId: "live-action-1", toolId: "read_file", outcome: "success", summary: "Read README" } });
+      writeGoalEvent(activityResponse, { goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "assistant_text_delta", text: "# Reviewing result…\n", truncated: false, sourceEventId: "live-event-4", sourceCursor: 4 } });
     },
     publishModelProgress() {
       assert.ok(activityResponse && !activityResponse.destroyed);
       const occurredAt = new Date(Date.now() - 42000).toISOString();
-      activityResponse.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "activity", activity: {
+      writeGoalEvent(activityResponse, { goalId: "goal-1", runId: "run-1", type: "activity", activity: {
         kind: "model_started", stage: "completion_review", modelCallId: "review-call-1", executionUnitId: "live-unit-1", occurredAt,
-      } })}\n\n`);
+      } });
       return occurredAt;
     },
     commitWaitingActivity() {
       assert.ok(activityResponse && !activityResponse.destroyed);
       session = interactionSession();
       currentListItem = listItem("waiting");
-      activityResponse.write(`data: ${JSON.stringify({ goalId: "goal-1", runId: "run-1", type: "snapshot_changed" })}\n\n`);
+      writeGoalEvent(activityResponse, { goalId: "goal-1", runId: "run-1", type: "snapshot_changed" });
     },
+    /** 显式结束当前 Goal 事件流，触发客户端按既有退避重连。 */
+    endGoalEvents() {
+      activityResponse?.end();
+    },
+    /** 显式结束当前 metrics 流，触发客户端按既有退避重新订阅。 */
+    endMetricsStream() {
+      metricsStreamResponse?.end();
+    },
+    /** 下一次 Goal 事件连接前的会话与指标状态：用于验证新同步与新快照替换旧值。 */
+    prepareReconnectState() {
+      session = {
+        ...session,
+        runStatus: "waiting",
+        runs: session.runs.map((run) => ({ ...run, status: "waiting" })),
+      };
+      currentListItem = listItem("waiting");
+      currentMetrics = {
+        ...currentMetrics,
+        roundCount: 2,
+        stepCount: 4,
+        throughputMeasuredCalls: 1,
+        tokensPerSecond: 40,
+      };
+    },
+    goalEventsOpen: () => activityResponse !== undefined && !activityResponse.destroyed,
+    metricsStreamOpen: () => metricsStreamResponse !== undefined && !metricsStreamResponse.destroyed,
+    goalEventConnections: () => goalEventConnections,
+    metricsConnections: () => metricsConnections,
+    sawLastEventId: () => sawLastEventId,
     authorizationHeaders,
     get lastInteraction() { return lastInteraction; },
     get lastMessage() { return lastMessage; },
@@ -1535,9 +1663,9 @@ async function waitForExpression(socket, expression) {
   throw new Error(`Timed out waiting for browser expression: ${expression}; questionnaire: ${await value(socket, "document.querySelector('.question-region')?.innerHTML")}; diagnostics: ${await browserDiagnostics(socket)}`);
 }
 
-async function waitForLocal(predicate) {
+async function waitForLocal(predicate, timeoutMs = 5_000) {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 5_000) {
+  while (Date.now() - startedAt < timeoutMs) {
     if (predicate()) return;
     await delay(50);
   }

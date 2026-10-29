@@ -41,7 +41,7 @@ Plan Run 的待审批会话 DTO 会投影候选路线中的全部阶段顺序、
 
 `POST /api/goals/:goalId/plan-mode` 只接受当前 `runId`，并由管理命令服务在转交 Coordinator 前校验 Goal/Run 身份与实例活动名额。Runtime 允许未启动 Run 进入 Plan Mode，或为已完成或失败 Run 标记下一 Run 使用 Plan Mode；已开始的普通 Run 和其他不允许切换的状态返回稳定错误。命令文本不写入消息或 Step。
 
-`GET /api/goals/:goalId/events` 订阅整个 Goal，不再要求客户端绑定单一当前 Run，也不接受 `runId` 查询参数。首项是一致 `state_sync` 安全会话状态，其后按来源顺序输出 `input_result`（按 `inputId` 关联受理与拒绝）和公开执行活动；后继 Run 开始不关闭订阅、不遗漏开始事件。事件仅投影白名单活动和长度受限的助手文本：内部块协议中只有公开普通正文增量与整块完成映射为 `assistant_text_delta`，结构化 JSON、Tool 参数、reasoning、调用失败摘要及未识别载荷不转发。Trajectory/Checkpoint 事件与 Goal 保存只发送刷新通知；订阅缺口、同步读取失败、背压关闭或连接故障要求页面重新读取，不代表 Run 完成。
+`GET /api/goals/:goalId/events` 订阅整个 Goal，不再要求客户端绑定单一当前 Run，也不接受 `runId` 查询参数。该路由用 Hono `streamSSE` 写出 `event: update` 与 JSON `data:`，并在返回前恢复 `cache-control: no-cache, no-transform` 与 `x-accel-buffering: no`；客户端断开、feed 正常结束或迭代失败都会结束响应，并只释放本连接的一次 Browser feed 订阅。Goal 事件不设置 metrics 的 5 秒写超时：慢客户端由 128 项有界 `LiveEventQueue` 关闭本连接订阅，HTTP 连接可能保持到客户端断开。首项是一致 `state_sync` 安全会话状态，其后按来源顺序输出 `input_result`（按 `inputId` 关联受理与拒绝）和公开执行活动；后继 Run 开始不关闭订阅、不遗漏开始事件。事件仅投影白名单活动和长度受限的助手文本：内部块协议中只有公开普通正文增量与整块完成映射为 `assistant_text_delta`，结构化 JSON、Tool 参数、reasoning、调用失败摘要及未识别载荷不转发。Trajectory/Checkpoint 事件与 Goal 保存只发送刷新通知；订阅缺口、同步读取失败、背压关闭或连接故障要求页面重新读取，不代表 Run 完成。
 
 模型开始事件投影真实来源时间，以及来源提供的调用阶段、调用身份和执行单元；不复制模型输入或输出。Bash 的实时及已提交活动输入摘要只公开至多 240 字符的命令，不带环境或其它参数。实时工具活动的安全 DTO 附带 ExecutionStream 自己的 `sourceEventId` 与 `sourceCursor`，并保留跨流调用对齐所需的 `actionId`。这些来源标识不等同于 Trajectory 中同名字段；只有 `actionId` 用于将同一调用的暂时活动与已提交步骤对齐。输入与结果仅允许投影白名单摘要，不发送任意 Tool 参数、原始 Tool 输出或隐藏推理。助手可见回复、等待、阶段变化、终态、失败和未知公开事件投影为活动边界，供 Goal Board 重建活动组；流缺口通知促使前端清空不完整临时数据并刷新。
 
