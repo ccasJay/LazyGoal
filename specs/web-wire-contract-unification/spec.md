@@ -1,6 +1,7 @@
 ---
-status: proposed
+status: delivered
 created_at: 2026-10-28
+delivered_at: 2026-10-29
 supersedes: []
 superseded_by: null
 ---
@@ -189,7 +190,7 @@ apps/goal-board
 ### 关联 Spec 边界
 
 - `specs/contract-dsl-core` 拥有 Contract AST、Parser 与 JSON Schema 编译器；本 Spec 只新增 `unknown` 与 `openObject`，不改变严格 `object`、递归、联合或 `InferContract` 的既有语义。
-- `specs/tool-input-contracts` 已建立“结构由 Contract、语义由 Tool 校验”的先例；本 Spec 将该模式用于 Web wire，不修改 Tool Input Contract，也不允许 Tool 输入使用 `unknown`/`openObject`。
+- `specs/tool-input-contracts` 已建立“结构由 Contract、语义由 Tool 校验”的先例；本 Spec 把该模式用于 Web wire，不修改 Tool Input Contract，也不允许 Tool 输入使用 `unknown`/`openObject`。
 - `specs/goal-board-backend-validation` 与 `specs/web-backend-separation` 拥有浏览器/后端边界行为：非法输入不得推进 Runtime，前端只依赖公开契约。本 Spec 保持这些需求，只收敛其实现。
 - `specs/shared-json-primitives` 拥有 `contracts` 的 canonical JSON、共享 `isRecord` 与 `deepFreeze`，并引用本 Spec 拥有的 `web-contracts → contracts` 依赖边与 10 KiB gzip Bundle 预算。本 Spec 是该边与预算的所有者；`shared-json-primitives` 只复用，不重复定义。`isRecord` 的共享实现由该 Spec 接管，本 Spec 只保留公开导出且不新增第二份实现。两份 Spec 会在 `packages/contracts` 的类型/入口/文档与 `validation.ts` 上产生机械冲突，后落地者 rebase。
 - `specs/unified-sse` 拥有 SSE 服务端写出与客户端分帧；它只调用 `isLiveEvent`/`isMetricsSnapshot` 的既有名称与签名。本 Spec 对这两个 guard 的接受范围变化（声明字段完整校验、严格枚举、UTF-16 上限）由需求 3 显式记录，不借 SSE 传输改动放宽。

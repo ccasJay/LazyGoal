@@ -1,6 +1,7 @@
 ---
-status: proposed
+status: delivered
 created_at: 2026-10-28
+delivered_at: 2026-10-29
 supersedes: []
 superseded_by: null
 ---
@@ -9,7 +10,7 @@ superseded_by: null
 
 ## 目标与范围
 
-`scripts/check-dependencies.mjs` 是 `npm test` 与 CI 的依赖边界门，当前按文本正则提取模块引用，再由自研规则判断包方向、Benchmark 隔离、供应商 SDK、入口穿透、旧 LLM 路径、项目产物和进程 API 边界。本 Spec 将引用提取替换为基于维护中解析器的 AST 提取器，保留全部规则、允许清单、扫描范围和稳定中文诊断，并修复当前文本提取的两个实际缺陷：
+`scripts/check-dependencies.mjs` 是 `npm test` 与 CI 的依赖边界门，当前按文本正则提取模块引用，再由自研规则判断包方向、Benchmark 隔离、供应商 SDK、入口穿透、旧 LLM 路径、项目产物和进程 API 边界。本 Spec 把引用提取替换为基于维护中解析器的 AST 提取器，保留全部规则、允许清单、扫描范围和稳定中文诊断，并修复当前文本提取的两个实际缺陷：
 
 - 注释中的伪 import 会产生误报。已复现：`packages/contracts/src/index.ts` 中的注释 `// import { x } from "../../runtime/src/index"` 会触发“禁止依赖方向”。
 - 文件级边界规则使用缺少 `require` 覆盖的另一套提取器。已复现：`packages/model-view/src/model-inference-view.ts` 中的 `require("../../runtime/src/index")` 只触发包方向规则，绕过 DTO 边界规则。
