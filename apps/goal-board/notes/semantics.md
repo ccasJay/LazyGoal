@@ -32,6 +32,8 @@
 | 临时正文来源索引 | 流式正文按来源身份独立累积并有界：换源时旧来源保留已到达内容，新来源单独累积；结算边界立即提交待合并尾部，不丢字也不复活旧帧。 | [Goal Board](../README.md) | [流式渲染状态](../src/streaming-render.ts)、[帧合并](../src/live-text-batch.ts) |
 | 安全 Markdown | 正文与 Think 输出共用同一安全 GFM 渲染：原始 HTML 与脚本不进入 DOM，模型图片与嵌入降级为链接，代码与表格只在自身区域横向滚动。 | [Goal Board](../README.md) | [AssistantMarkdown](../src/components/AssistantMarkdown.tsx) |
 | 观察同步与过期 | 订阅按 Goal 建立并先消费权威同步；单纯断开或读取失败只标记内容可能过期，保留最后确认的正式内容与当前草稿，并限制 Steer 与 Resume 一类依赖最新状态的决定。 | [Goal Board](../README.md) | [观察恢复语义](../src/session-stream-recovery.ts) |
+| 统一 SSE 分帧 | metrics 与 Goal 事件共用一个 `eventsource-parser` 入口，只产出事件名与 `data`；未知命名事件忽略，已接受事件的无效 JSON 或无效 DTO 结束本次生成器。 | [Goal Board](../README.md) | [SSE 分帧](../src/sse.ts)、[API 映射](../src/api.ts) |
+| 重连与权威恢复 | 两条流结束后由既有 800ms 循环重新订阅；不发送 `Last-Event-ID`、不请求补发，以新连接的 `state_sync` 或最新指标快照替换旧值与旧临时正文。 | [Goal Board](../README.md) | [useRunStream](../src/hooks/useRunStream.ts)、[useGoals](../src/hooks/useGoals.ts) |
 | 观察释放 | 卸载视图或切换 Goal 只回收浏览器本地的订阅、请求与合并帧；不发送 Interrupt，不撤销已受理输入，也不关闭宿主 Runtime。 | [Goal Board](../README.md) | [观察恢复语义](../src/session-stream-recovery.ts) |
 | GoalSessionContext | 局部持有 Goal 窄状态、固定 Activity 页、按需完整会话及视图状态。 | [Goal Board](../README.md) | [上下文契约](../src/context/GoalSessionContext.tsx) |
 | RunControlContext | 隔离指令分发、客户端排队有限状态机与原子单飞防重锁的局部上下文。 | [Goal Board](../README.md) | [模块说明](./overview.md) |

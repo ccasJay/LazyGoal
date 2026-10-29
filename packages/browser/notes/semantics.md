@@ -23,6 +23,7 @@
 | Activity think summary | Activity 页从已提交 Think 事实投影既有获准摘要与已提交输出，作为独立原子项参与排序与分页，并附带执行单元定位引用以支持 Trajectory 详情入口。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Activity route access | Activity 与窄状态读取由同一 Host、Origin、Bearer 边界保护，授权失败发生于数据读取之前。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
 | Safe live activity projection | 白名单公开的 Goal 范围 SSE 活动、`state_sync`／`input_result` 与 ExecutionStream 来源身份；与 Trajectory 标识空间分离。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
+| Goal SSE 传输生命周期 | Goal 事件由 Hono `streamSSE` 以 `event: update` 写出；断开、正常结束或迭代失败结束响应并只释放一次本连接订阅，保留禁用缓存与代理缓冲的传输头；慢客户端由有界队列关闭订阅，连接可能保持到客户端断开。 | [浏览器服务边界](../README.md) | [Goal 事件路由](../src/browser-goal-routes.ts)、[Browser Session Port](../src/browser-session-port.ts) |
 | Provider settings routes | 受管 Provider 档案的掩码读取与增删改、激活、连接测试接口；写请求需同源 `Origin` 与 Bearer 令牌。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
 | Model source dimension | 模型目录携带的受管档案与回退来源列表，以及按 `providerProfileId` 读取指定来源目录的能力。 | [浏览器服务边界](../README.md) | [Model Catalog Projection](../src/browser-model-catalog.ts) |
 | Provider model preview | 受同源授权保护的未保存连接查询，不写入档案。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |

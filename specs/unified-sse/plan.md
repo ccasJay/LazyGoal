@@ -24,7 +24,7 @@
   - 场景与预期：浏览器首次连接显示实时状态；服务端主动结束 Goal 与 metrics 流后，页面短暂显示断线，再以新连接恢复并展示更新后的 `state_sync`／指标；不会把旧连接的临时正文或旧快照当权威值；不出现未处理的连接错误或重复计数。
   - 验证手段：`npm run --prefix apps/goal-board build`；`node --test --test-concurrency=1 apps/goal-board/e2e/board.test.mjs`。
 
-- [ ] //TODO 4. 收口模块说明、依赖边界与兼容性记录
+- [x] //TODO 4. 收口模块说明、依赖边界与兼容性记录
   - 落实标准：[4.1](./spec.md#spec-req-4-1), [4.2](./spec.md#spec-req-4-2), [4.5](./spec.md#spec-req-4-5)
   - 实施目标：更新 `packages/browser/notes/overview.md` 的 Goal 事件段落，说明服务端由 Hono `streamSSE` 写出、请求断开时释放订阅、保留的传输头与“慢客户端由 128 项有界队列关闭订阅、连接可能保持到断开”的限制；在 `packages/browser/notes/semantics.md` 增加或更新 Goal SSE 传输生命周期条目并链接权威源码。更新 `apps/goal-board/notes/overview.md` 的网络流说明与 `notes/semantics.md`，记录统一 `eventsource-parser` 入口、未知事件忽略、数据错误触发重连、重连不发送 `Last-Event-ID` 且以 `state_sync`／最新指标快照恢复。确认 `isLiveEvent`／`isMetricsSnapshot` 调用签名未变，`apps/goal-board/package.json` 仅新增 `eventsource-parser`，服务端包依赖未变。
   - 场景与预期：模块说明能独立回答“SSE 由谁写出、客户端如何分帧、断线如何恢复、慢客户端如何处理”；`check:docs` 的覆盖与链接检查通过；依赖检查无新增跨包边；Goal Board 类型检查与构建通过。
