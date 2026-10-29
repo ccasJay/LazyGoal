@@ -1,14 +1,10 @@
 import {
-    chmod,
-    mkdir,
-    open,
     readFile,
-    rename,
     unlink,
 } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { GoalContextIndexSnapshot } from "../../context-retrieval/src/index";
+import { atomicWriteJson } from "./json-file-write";
 
 /**
  * Goal 派生上下文索引的读取选项。
@@ -113,20 +109,13 @@ export class JsonFileGoalContextIndexStore implements GoalContextIndexStore {
 
     /** @inheritdoc */
     async save(snapshot: GoalContextIndexSnapshot): Promise<void> {
-        const goalDir = this.goalDirectory(snapshot.goalId);
-        await mkdir(goalDir, { recursive: true, mode: 0o700 });
-        const tempPath = join(goalDir, `goal-index.json.tmp.${randomUUID()}`);
-        const targetPath = this.filePath(snapshot.goalId);
-
-        const handle = await open(tempPath, "w", 0o600);
-        try {
-            await handle.writeFile(JSON.stringify(snapshot, null, 2), "utf8");
-            await handle.sync();
-        } finally {
-            await handle.close();
-        }
-        await chmod(tempPath, 0o600);
-        await rename(tempPath, targetPath);
+        await atomicWriteJson({
+            path: this.filePath(snapshot.goalId),
+            value: snapshot,
+            indent: 2,
+            trailingNewline: false,
+            durable: true,
+        });
     }
 
     /** @inheritdoc */

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -149,5 +149,20 @@ test("TODO 3.10: 删除缓存与幂等性，删除后 restore 返回 undefined",
         assert.equal(await store.restore(goalId), undefined);
     } finally {
         await rm(tempDir, { recursive: true, force: true });
+    }
+});
+
+test("JsonFileGoalContextIndexStore 以 0700 目录与 0600 文件保存索引", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "goal-index-store-"));
+    const directory = join(parent, "sidecars");
+    try {
+        const goalId = "goal-permission-1";
+        await new JsonFileGoalContextIndexStore(directory).save(createDummySnapshot(goalId));
+
+        const goalDirectory = join(directory, Buffer.from(goalId).toString("base64url"));
+        assert.equal((await stat(goalDirectory)).mode & 0o777, 0o700);
+        assert.equal((await stat(join(goalDirectory, "goal-index.json"))).mode & 0o777, 0o600);
+    } finally {
+        await rm(parent, { recursive: true, force: true });
     }
 });

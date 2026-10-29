@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 
 import type { ToolGrant, ToolGrantStore } from "../../runtime/src/index";
+import { atomicWriteJson } from "./json-file-write";
 
 const MatcherSchema = z.discriminatedUnion("kind", [
     z.object({
@@ -217,15 +218,13 @@ export class JsonFileToolGrantStore implements ToolGrantStore {
     }
 
     private async writeLedger(ledger: Ledger): Promise<void> {
-        await mkdir(this.directory, { recursive: true, mode: 0o700 });
-        const filePath = this.filePath();
-        const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
-        try {
-            const handle = await open(temporaryPath, "wx", 0o600);
-            try { await handle.writeFile(`${JSON.stringify(ledger, null, 2)}\n`, "utf8"); await handle.sync(); }
-            finally { await handle.close(); }
-            await rename(temporaryPath, filePath);
-        } catch (error) { await unlink(temporaryPath).catch(() => undefined); throw error; }
+        await atomicWriteJson({
+            path: this.filePath(),
+            value: ledger,
+            indent: 2,
+            trailingNewline: true,
+            durable: true,
+        });
     }
 
     private filePath(): string { return join(this.directory, "tool-grants.json"); }

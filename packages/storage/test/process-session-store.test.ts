@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -9,6 +9,30 @@ import {
     PROCESS_LOG_MAX_FILE_BYTES,
     type ProcessSessionRecord,
 } from "../src/index";
+
+function injectedError(code: string): NodeJS.ErrnoException {
+    return Object.assign(new Error(`injected ${code}`), { code });
+}
+
+function errnoIs(code: string): (error: unknown) => boolean {
+    return (error: unknown) => error instanceof Error
+        && (error as NodeJS.ErrnoException).code === code;
+}
+
+function encoded(value: string): string {
+    return Buffer.from(value, "utf8").toString("base64url");
+}
+
+function createSession(goalId = "goal-1", processId = "proc-1"): ProcessSessionRecord {
+    return {
+        goalId,
+        processId,
+        command: "echo test",
+        status: "running",
+        hostInstanceId: "host-1",
+        startedAt: new Date().toISOString(),
+    };
+}
 
 test("JsonFileProcessSessionStore 原子保存与查询 Session 元数据", async () => {
     const tmpDir = await mkdtemp(join(tmpdir(), "lg-proc-store-"));
@@ -163,6 +187,150 @@ test("JsonFileProcessSessionStore deleteGoalSessions 清理指定 Goal 的全部
         assert.equal(await store.getSession("goal-del", "proc-1"), undefined);
         const list = await store.listSessions("goal-del");
         assert.equal(list.length, 0);
+    } finally {
+        await rm(tmpDir, { recursive: true, force: true });
+    }
+});
+
+test("JsonFileProcessSessionStore.saveSession 只静默 rename 阶段的 ENOENT", async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), "lg-proc-store-"));
+    const processDirectory = join(
+        tmpDir,
+        "processes",
+        encoded("goal-1"),
+        encoded("proc-1"),
+    );
+
+    try {
+        const session = createSession();
+
+        await assert.rejects(
+            new JsonFileProcessSessionStore(tmpDir, "host-1", {
+                mkdir: async () => {
+                    throw injectedError("ENOENT");
+                },
+            }).saveSession(session),
+            errnoIs("ENOENT"),
+        );
+
+        await assert.rejects(
+            new JsonFileProcessSessionStore(tmpDir, "host-1", {
+                open: async () => {
+                    throw injectedError("ENOENT");
+                },
+            }).saveSession(session),
+            errnoIs("ENOENT"),
+        );
+
+        await new JsonFileProcessSessionStore(tmpDir, "host-1", {
+            rename: async () => {
+                throw injectedError("ENOENT");
+            },
+        }).saveSession(session);
+
+        assert.deepEqual(
+            (await readdir(processDirectory)).filter((name) => name.endsWith(".tmp")),
+            [],
+        );
+        assert.equal(
+            await new JsonFileProcessSessionStore(tmpDir, "host-1").getSession("goal-1", "proc-1"),
+            undefined,
+        );
+
+        await assert.rejects(
+            new JsonFileProcessSessionStore(tmpDir, "host-1", {
+                rename: async () => {
+                    throw injectedError("EACCES");
+                },
+            }).saveSession(session),
+            errnoIs("EACCES"),
+        );
+        assert.deepEqual(
+            (await readdir(processDirectory)).filter((name) => name.endsWith(".tmp")),
+            [],
+        );
+    } finally {
+        await rm(tmpDir, { recursive: true, force: true });
+    }
+});
+
+test("JsonFileProcessSessionStore.writeMeta 静默整段写入的 ENOENT 但传播进入 rename 的 EACCES", async () => {
+    const tolerantDirectory = await mkdtemp(join(tmpdir(), "lg-proc-store-"));
+    const rejectingDirectory = await mkdtemp(join(tmpdir(), "lg-proc-store-"));
+
+    try {
+        const tolerant = new JsonFileProcessSessionStore(tolerantDirectory, "host-1", {
+            open: async (path, flags, mode) => {
+                if (String(path).endsWith(".tmp")) {
+                    throw injectedError("ENOENT");
+                }
+                return await open(path, flags, mode);
+            },
+        });
+
+        await tolerant.appendOutput("goal-1", "proc-1", "stdout", "log text");
+
+        const tolerantChannel = join(
+            tolerantDirectory,
+            "processes",
+            encoded("goal-1"),
+            encoded("proc-1"),
+            "stdout",
+        );
+        assert.equal(await readFile(join(tolerantChannel, "part-0.log"), "utf8"), "log text");
+        await assert.rejects(
+            readFile(join(tolerantChannel, "meta.json"), "utf8"),
+            errnoIs("ENOENT"),
+        );
+
+        const rejecting = new JsonFileProcessSessionStore(rejectingDirectory, "host-1", {
+            rename: async (from, to) => {
+                if (String(to).endsWith("meta.json")) {
+                    throw injectedError("EACCES");
+                }
+                await rename(from, to);
+            },
+        });
+
+        await assert.rejects(
+            rejecting.appendOutput("goal-1", "proc-1", "stdout", "log text"),
+            errnoIs("EACCES"),
+        );
+
+        const rejectingChannel = join(
+            rejectingDirectory,
+            "processes",
+            encoded("goal-1"),
+            encoded("proc-1"),
+            "stdout",
+        );
+        assert.deepEqual(
+            (await readdir(rejectingChannel)).filter((name) => name.endsWith(".tmp")),
+            [],
+        );
+    } finally {
+        await rm(tolerantDirectory, { recursive: true, force: true });
+        await rm(rejectingDirectory, { recursive: true, force: true });
+    }
+});
+
+test("JsonFileProcessSessionStore 新建目录与元数据分别使用 0700 与 0600", async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), "lg-proc-store-"));
+
+    try {
+        const store = new JsonFileProcessSessionStore(tmpDir, "host-1");
+        await store.saveSession(createSession());
+        await store.appendOutput("goal-1", "proc-1", "stdout", "log text");
+
+        const processDirectory = join(
+            tmpDir,
+            "processes",
+            encoded("goal-1"),
+            encoded("proc-1"),
+        );
+        assert.equal((await stat(processDirectory)).mode & 0o777, 0o700);
+        assert.equal((await stat(join(processDirectory, "session.json"))).mode & 0o777, 0o600);
+        assert.equal((await stat(join(processDirectory, "stdout", "part-0.log"))).mode & 0o777, 0o600);
     } finally {
         await rm(tmpDir, { recursive: true, force: true });
     }

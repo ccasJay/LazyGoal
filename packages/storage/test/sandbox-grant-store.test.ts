@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -178,4 +178,15 @@ test("同一 Action 的不同决定身份各自暂存一条 pending 记录，同
         const after = await store.list({ workspaceId: "workspace-1", goalId: "goal-1" });
         assert.equal(after.find((grant) => grant.id === first.id)?.status, "pending");
     } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("sandbox-grants.json 以 0600 保存且新建目录为 0700", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "lazygoal-sandbox-grants-"));
+    const directory = join(parent, "nested");
+    try {
+        const store = new JsonFileSandboxGrantStore(directory);
+        await store.stage({ scope: "workspace", workspaceId: "workspace-1", source, matcher });
+        assert.equal((await stat(directory)).mode & 0o777, 0o700);
+        assert.equal((await stat(join(directory, "sandbox-grants.json"))).mode & 0o777, 0o600);
+    } finally { await rm(parent, { recursive: true, force: true }); }
 });

@@ -1,8 +1,9 @@
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 
 import type { ModelPreference, ModelPreferenceStore } from "../../runtime/src/model-preference";
+import { atomicWriteJson } from "./json-file-write";
 
 const ModelPreferenceRecordSchema = z.object({
     version: z.literal(1),
@@ -39,17 +40,13 @@ export class JsonFileModelPreferenceStore implements ModelPreferenceStore {
     async set(preference: ModelPreference): Promise<void> {
         const write = async (): Promise<void> => {
             await this.readRecord();
-            await mkdir(this.directory, { recursive: true, mode: 0o700 });
-            const target = join(this.directory, "model-preference.json");
-            const temp = `${target}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
-            const record = { version: 1 as const, ...preference };
-            try {
-                await writeFile(temp, JSON.stringify(record, null, 2), { encoding: "utf8", mode: 0o600, flag: "wx" });
-                await rename(temp, target);
-            } catch (error) {
-                await unlink(temp).catch(() => undefined);
-                throw error;
-            }
+            await atomicWriteJson({
+                path: join(this.directory, "model-preference.json"),
+                value: { version: 1, ...preference },
+                indent: 2,
+                trailingNewline: false,
+                durable: false,
+            });
         };
         const result = this.tail.then(write, write);
         this.tail = result.then(() => undefined, () => undefined);

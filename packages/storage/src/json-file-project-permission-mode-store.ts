@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 
@@ -8,6 +8,7 @@ import {
     type ProjectPermissionMode,
     type ProjectPermissionModeStore,
 } from "../../permission/src/index";
+import { atomicWriteJson } from "./json-file-write";
 
 const PermissionModeRecordSchema = z.object({
     version: z.literal(1),
@@ -164,20 +165,12 @@ export class JsonFileProjectPermissionModeStore implements ProjectPermissionMode
     }
 
     private async writeRecord(record: PermissionModeRecord): Promise<void> {
-        await mkdir(this.directory, { recursive: true });
-        const target = this.filePath();
-        const temp = `${target}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
-
-        await writeFile(temp, JSON.stringify(record, null, 2), "utf8");
-        try {
-            await rename(temp, target);
-        } catch (error) {
-            try {
-                await unlink(temp);
-            } catch {
-                // 忽略临时文件清理失败
-            }
-            throw error;
-        }
+        await atomicWriteJson({
+            path: this.filePath(),
+            value: record,
+            indent: 2,
+            trailingNewline: false,
+            durable: false,
+        });
     }
 }
