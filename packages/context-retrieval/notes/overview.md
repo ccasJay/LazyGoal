@@ -11,7 +11,7 @@
 
 1. **分词器（FieldTokenizer）**：基于 `Intl.Segmenter` 和精确正则切分 path、camelCase、snake_case、数字与自然语言，保留原词与小写形态，提供确定性分词输出。
 2. **倒排索引（ContextInvertedIndex）**：为文档集构建 term 倒排表、文档长度统计与平均字段长度（`schemaVersion: 1`）。
-3. **BM25-lite 排序器（FieldedBm25LiteRanker）**：对字段加权（`body: 1.0`, `path: 2.0`, `errorCode: 2.0` 等）计算 BM25-lite 分数（`k1 = 1.2`, `b = 0.75`），执行过滤前置、精确标识加分与 6 位有效小数舍入。
+3. **BM25-lite 排序器（FieldedBm25LiteRanker）**：对字段加权（`body: 1.0`, `path: 2.0`, `errorCode: 2.0` 等）计算 BM25-lite 分数（`k1 = 1.2`, `b = 0.75`），执行过滤前置、精确标识加分与 6 位有效小数舍入。分数舍入由 [`score-rounding.ts`](../src/score-rounding.ts) 唯一拥有：`roundRankedScore`（含 `Number.EPSILON`）供排序与 Lookup Result 使用，`roundScore`（不含该修正）供 Context Lookup 协议与 Runtime 复用；两者都是无副作用纯函数，有限性与非负断言留在各调用点。
 4. **查询缓存与会话（ContextRetrievalIndexSession / ContextRetrievalQueryCache）**：以 64 项 LRU 维护规范化查询缓存，支持落后 Sidecar 的增量补齐与损坏重建。
 5. **检索器抽象（ContextRetriever）**：定义无领域绑定的标准检索接口 `ContextRetriever.retrieve(input: ContextRetrieverInput)`。`IndexedContextRetriever` 为默认 BM25-lite 实现。
 6. **Runtime 适配层**：Runtime 通过 `RuntimeContextLookupAdapter` 将 Goal/Trajectory 投影后委托给 `ContextRetriever`，并在 `IndexedContextLookupService` 中默认组装。所有检索结果在被接纳前均通过 Runtime Evidence Gate 边界校验。
@@ -30,4 +30,5 @@
 - [文档构建](../src/context-document.ts)：执行单元事实与对话文档构建器。
 - [倒排索引与分词](../src/context-tokenizer.ts)：字段分词器与倒排索引构建。
 - [BM25-lite 排序](../src/context-ranking.ts)：字段加权排序器。
+- [分数舍入](../src/score-rounding.ts)：排序与协议两种六位小数舍入语义的唯一实现。
 - [评测与基准脚本](../../../scripts/benchmark-context-retrieval.ts)：独立固定语料评测入口。

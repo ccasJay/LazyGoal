@@ -1,3 +1,4 @@
+import { isRecord } from "../../../packages/contracts/src/index";
 import { createHash } from "node:crypto";
 
 import type { AgentProfile } from "../../../packages/runtime/src/index.js";
@@ -446,10 +447,6 @@ function createFailureCounts(): Record<EpisodeFailureCategory, number> {
         timeout: 0,
         unknown: 0,
     };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function validateEvaluationReport(value: unknown): asserts value is EvaluationReport {

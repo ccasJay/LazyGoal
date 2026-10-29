@@ -1,3 +1,4 @@
+import { deepFreeze } from "../../contracts/src/index";
 import {
     validateContextLookupResult,
     type ContextLookupResult,
@@ -90,12 +91,3 @@ export function projectContextLookupResult(
 /** `projectContextLookupResult` 的语义别名。 */
 export const projectLookupResult = projectContextLookupResult;
 
-function deepFreeze<T>(value: T): T {
-    if (value !== null && typeof value === "object") {
-        Object.freeze(value);
-        for (const key of Object.keys(value)) {
-            deepFreeze((value as Record<string, unknown>)[key]);
-        }
-    }
-    return value;
-}

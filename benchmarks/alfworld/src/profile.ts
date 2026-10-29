@@ -1,3 +1,4 @@
+import { isRecord } from "../../../packages/contracts/src/index";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -219,10 +220,6 @@ export async function loadAlfworldProfile(
         profilePath,
         contentHash: createHash("sha256").update(content, "utf8").digest("hex"),
     };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isStringArray(value: unknown): value is readonly string[] {

@@ -1,3 +1,4 @@
+import { isRecord } from "../../../packages/contracts/src/index";
 import { access, mkdir, readFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import type {
@@ -265,10 +266,6 @@ function parseProbe(text: string): Readonly<Record<string, unknown>> | undefined
     } catch {
         return undefined;
     }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseCollectedResult(text: string): CollectedResult | undefined {

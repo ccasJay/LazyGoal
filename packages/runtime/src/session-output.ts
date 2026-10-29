@@ -1,3 +1,4 @@
+import { isRecord } from "../../contracts/src/index";
 import type { ExecutionStreamEvent } from "../../execution-stream/src/index";
 import type { GoalSessionState } from "./session";
 import type { SessionInputOutcome } from "./session-stream";
@@ -611,10 +612,6 @@ function readCommitBoundary(event: ExecutionStreamEvent): SessionCommitBoundaryE
         source: toSource(event),
         ...(revision === undefined ? {} : { commitRevision: revision }),
     };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

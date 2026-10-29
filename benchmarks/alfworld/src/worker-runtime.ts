@@ -1,3 +1,4 @@
+import { isRecord } from "../../../packages/contracts/src/index";
 import { writeFile } from "node:fs/promises";
 import { Readable, Writable } from "node:stream";
 import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
@@ -315,10 +316,6 @@ function readPrompt(content: readonly AcpPromptContent[]): string {
 
 function isAlfworldSplit(value: unknown): value is AlfworldManifestTask["split"] {
     return value === "train" || value === "valid_seen" || value === "valid_unseen" || value === "test_seen" || value === "test_unseen";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parsePromptEvaluationProfiles(

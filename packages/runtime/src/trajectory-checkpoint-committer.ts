@@ -1,3 +1,4 @@
+import { isRecord } from "../../contracts/src/index";
 import type { ModelContextFrameForStage } from "./step-executor";
 import type {
     Goal,
@@ -223,10 +224,6 @@ export interface TrajectoryCheckpointCommitterPort {
     ): Promise<TrajectoryCheckpointCommitResult>;
     /** 仅保存当前 Goal Snapshot。 */
     saveCheckpoint(goal: Goal, control?: ExecutionControl): Promise<Goal>;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === "object";
 }
 
 function trajectoryKey(goal: Pick<Goal, "id" | "state">): string {

@@ -1,5 +1,6 @@
 import {
     contract,
+    isRecord,
     safeParse,
     ContractValidationError,
     type Contract,
@@ -377,12 +378,12 @@ export function createModelOutputContractBundle<Result extends DecideOutput | Co
         decode(value: unknown): Result {
             const wireParsed = safeParse(wireContract, value);
             if (!wireParsed.success) {
-                if (isObject(value) && isObject(value.result)) {
+                if (isRecord(value) && isRecord(value.result)) {
                     const result = value.result;
                     const candidates = diagnosticBranches.filter((branch) =>
                         branch.kind === result.kind
                         && (branch.kind !== "tool_call"
-                            || (isObject(result.action) && branch.toolId === result.action.toolId)),
+                            || (isRecord(result.action) && branch.toolId === result.action.toolId)),
                     );
                     if (candidates.length === 1) {
                         const diagnostic = safeParse(candidates[0]!.envelope, value);
@@ -403,10 +404,6 @@ export function createModelOutputContractBundle<Result extends DecideOutput | Co
             return decoded as Result;
         },
     };
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isRequestThink(value: unknown): value is Extract<DecideOutput, { readonly kind: "request_think" }> {

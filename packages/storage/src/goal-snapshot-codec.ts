@@ -1,3 +1,4 @@
+import { isRecord } from "../../contracts/src/index";
 import type {
     ExecutingWorkingMemoryPatch,
 } from "../../model-contracts/src/index";
@@ -86,10 +87,6 @@ export interface GoalSnapshotCodec {
      * @throws GoalSnapshotProtocolError 当版本或结构不受支持时抛出；不会产生 I/O。
      */
     decode(input: unknown): Goal;
-}
-
-function isRecord(input: unknown): input is Record<string, unknown> {
-    return typeof input === "object" && input !== null && !Array.isArray(input);
 }
 
 function readSchemaVersion(input: unknown): unknown {

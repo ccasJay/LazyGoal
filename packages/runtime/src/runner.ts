@@ -69,7 +69,7 @@ import {
     type ContextLookupPort,
     type ContextLookupResult,
 } from "./context-retrieval";
-import { safeParse } from "../../contracts/src/index";
+import { canonicalJson, isRecord, safeParse } from "../../contracts/src/index";
 import {
     AgentDecisionContract,
     normalizeAskUserRequest,
@@ -399,18 +399,6 @@ async function waitForRetry(delayMs: number, control?: ExecutionControl): Promis
     throwIfAborted(control);
 }
 
-function canonicalizeBoundaryValue(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(canonicalizeBoundaryValue);
-    if (value !== null && typeof value === "object") {
-        return Object.fromEntries(
-            Object.entries(value as Record<string, unknown>)
-                .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-                .map(([key, child]) => [key, canonicalizeBoundaryValue(child)]),
-        );
-    }
-    return value;
-}
-
 function createThinkInputBoundary(
     input: StepExecutionInput,
     stepOrdinal: number,
@@ -442,7 +430,7 @@ function createThinkInputBoundary(
         workingMemory,
         contextLookupResult: input.contextLookupResult,
     };
-    const serialized = JSON.stringify(canonicalizeBoundaryValue(boundary));
+    const serialized = canonicalJson(boundary);
     return `sha256:${createHash("sha256").update(serialized, "utf8").digest("hex")}`;
 }
 
@@ -473,10 +461,6 @@ function resolveExecutionControl(
     }
 
     return control;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function hasOnlyKeys(
@@ -3222,12 +3206,12 @@ class RunExecutor {
         thinkRequestId?: string,
         thinkGoal?: string,
     ): PendingThink["inputBoundary"] {
-        const identity = JSON.stringify(canonicalizeBoundaryValue({
+        const identity = canonicalJson({
             baseBoundary,
             stage,
             thinkRequestId,
             thinkGoal,
-        }));
+        });
         return ("sha256:" + createHash("sha256").update(identity, "utf8").digest("hex")) as PendingThink["inputBoundary"];
     }
 

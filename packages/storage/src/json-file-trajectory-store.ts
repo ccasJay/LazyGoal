@@ -1,3 +1,4 @@
+import { encodePathSegment } from "./path-segment";
 import {
     appendFile,
     mkdir,
@@ -493,7 +494,7 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
 
     private encodeIdentifier(value: string): string {
         this.assertIdentifier(value, "trajectory identifier");
-        return Buffer.from(value, "utf8").toString("base64url");
+        return encodePathSegment(value);
     }
 
     private assertIdentifier(value: string, field: string): void {

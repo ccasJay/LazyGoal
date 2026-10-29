@@ -1,3 +1,4 @@
+import { isRecord } from "../../../packages/contracts/src/index";
 import { readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import type { GaiaLevel, GaiaManifest, GaiaManifestTask, GaiaSplit } from "./types";
@@ -36,10 +37,6 @@ export class GaiaManifestValidationError extends Error {
     ) {
         super(message);
     }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseLevel(value: unknown): GaiaLevel {

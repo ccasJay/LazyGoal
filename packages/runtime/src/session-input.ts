@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { canonicalJson } from "../../contracts/src/index";
 import type { AskUserAnswer } from "../../model-contracts/src/index";
 import type { Goal, JsonValue } from "./domain";
 
@@ -372,19 +373,6 @@ export class SessionInputAdmissionError extends Error {
     }
 }
 
-function canonicalize(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(canonicalize);
-    if (value !== null && typeof value === "object") {
-        return Object.fromEntries(
-            Object.entries(value as Record<string, unknown>)
-                .filter(([, child]) => child !== undefined)
-                .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-                .map(([key, child]) => [key, canonicalize(child)]),
-        );
-    }
-    return value;
-}
-
 /**
  * 计算输入去重键使用的规范化载荷摘要。
  *
@@ -401,7 +389,7 @@ function canonicalize(value: unknown): unknown {
  */
 export function computeSessionInputDigest(input: SessionInput): SessionInputDigest {
     const { inputId: _inputId, ...payload } = input;
-    const canonical = JSON.stringify(canonicalize(payload));
+    const canonical = canonicalJson(payload);
     return `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`;
 }
 

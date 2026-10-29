@@ -1,3 +1,4 @@
+import { isRecord } from "../../contracts/src/index";
 import type {
     Goal,
     MemoryPatchAcceptedPayload,
@@ -160,10 +161,6 @@ const REPLAY_LIMITS: WorkingMemoryLimitsInput = Object.freeze({
     maxHypotheses: Number.MAX_SAFE_INTEGER,
     maxBlockers: Number.MAX_SAFE_INTEGER,
 });
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function assertExactKeys(
     value: Record<string, unknown>,

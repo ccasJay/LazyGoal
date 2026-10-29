@@ -1,3 +1,5 @@
+import { isRecord } from "../../contracts/src/index";
+
 /**
  * 原生对话续接的供应商身份；端点必须是不含凭据的规范化地址。
  * @remarks 只有身份完全相同的响应才能原生回放；切换身份结束续接段。
@@ -98,7 +100,6 @@ export function sameNativeIdentity(a: NativeConversationIdentity, b: NativeConve
     return a.provider === b.provider && a.endpoint === b.endpoint && a.model === b.model && a.protocol === b.protocol;
 }
 
-const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const keys = (value: Record<string, unknown>, allowed: readonly string[]) => Object.keys(value).every(key => allowed.includes(key));
 const nonempty = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 
@@ -111,15 +112,15 @@ const nonempty = (value: unknown): value is string => typeof value === "string" 
  * ```
  */
 export function isModelAssistantMessage(value: unknown): value is ModelAssistantMessage {
-    if (!object(value) || !keys(value, ["role", "content", "reasoning", "toolCalls", "continuation"])
+    if (!isRecord(value) || !keys(value, ["role", "content", "reasoning", "toolCalls", "continuation"])
         || value.role !== "assistant" || typeof value.content !== "string"
         || value.reasoning !== undefined && typeof value.reasoning !== "string") return false;
     if (value.toolCalls !== undefined && (!Array.isArray(value.toolCalls) || value.toolCalls.length > 1
-        || !value.toolCalls.every(call => object(call) && keys(call, ["callId", "toolId", "argumentsJson"])
+        || !value.toolCalls.every(call => isRecord(call) && keys(call, ["callId", "toolId", "argumentsJson"])
             && nonempty(call.callId) && nonempty(call.toolId) && typeof call.argumentsJson === "string"))) return false;
     if (value.continuation === undefined) return true;
     const continuation = value.continuation;
-    if (!object(continuation) || !keys(continuation, ["identity", "parts", "reasoningContent"]) || !object(continuation.identity)) return false;
+    if (!isRecord(continuation) || !keys(continuation, ["identity", "parts", "reasoningContent"]) || !isRecord(continuation.identity)) return false;
     const identity = continuation.identity;
     if (!keys(identity, ["provider", "endpoint", "model", "protocol"]) || !nonempty(identity.model) || !nonempty(identity.endpoint)
         || !["openai", "openai-compatible", "google"].includes(String(identity.provider))) return false;
@@ -135,15 +136,15 @@ export function isModelAssistantMessage(value: unknown): value is ModelAssistant
         || !Array.isArray(continuation.parts)) return false;
     const calls: Record<string, unknown>[] = [];
     for (const part of continuation.parts) {
-        if (!object(part) || !keys(part, ["text", "thought", "thoughtSignature", "functionCall"])
+        if (!isRecord(part) || !keys(part, ["text", "thought", "thoughtSignature", "functionCall"])
             || part.text !== undefined && typeof part.text !== "string"
             || part.thought !== undefined && typeof part.thought !== "boolean"
             || part.thoughtSignature !== undefined && typeof part.thoughtSignature !== "string"
             || part.text === undefined && part.functionCall === undefined) return false;
         if (part.functionCall !== undefined) {
             const call = part.functionCall;
-            if (!object(call) || !keys(call, ["name", "id", "args"]) || !nonempty(call.name)
-                || call.id !== undefined && !nonempty(call.id) || call.args !== undefined && !object(call.args)) return false;
+            if (!isRecord(call) || !keys(call, ["name", "id", "args"]) || !nonempty(call.name)
+                || call.id !== undefined && !nonempty(call.id) || call.args !== undefined && !isRecord(call.args)) return false;
             calls.push(call);
         }
     }
@@ -163,7 +164,7 @@ export function isModelAssistantMessage(value: unknown): value is ModelAssistant
  * ```
  */
 export function isModelConversationMessage(value: unknown): value is ModelConversationMessage {
-    if (!object(value)) return false;
+    if (!isRecord(value)) return false;
     if (value.role === "assistant") return isModelAssistantMessage(value);
     if (value.role === "tool") return keys(value, ["role", "content", "callId", "toolId"])
         && typeof value.content === "string" && nonempty(value.callId) && nonempty(value.toolId);

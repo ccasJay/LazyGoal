@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { canonicalizeJson, canonicalJson, isRecord } from "../../contracts/src/index";
 import type { JsonValue } from "../../contracts/src/index";
 import type {
     FactProposal,
@@ -20,8 +21,6 @@ import type {
     WorkingMemory,
 } from "./types";
 import { createEmptyWorkingMemory } from "./protocol";
-
-type JsonObject = { readonly [key: string]: JsonValue };
 
 /** Working Memory Patch 校验失败的稳定错误码。 */
 export const WORKING_MEMORY_PATCH_ERROR_CODE = "INVALID_MEMORY_PATCH" as const;
@@ -237,10 +236,6 @@ const CONTROL_STATE_TERMS = new Set([
     "won",
 ]);
 
-function isRecord(value: unknown): value is RecordValue {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 // 路径来自校验器自己构造的字段标签，不能从异常正文或模型文本解析。
 function diagnosticPath(label: string): readonly (string | number)[] {
     return [...label.matchAll(/([A-Za-z_]+)|\[(\d+)\]/g)]
@@ -328,20 +323,8 @@ function normalizeText(value: string): string {
     return value.normalize("NFC").trim();
 }
 
-function canonicalizeJson(value: JsonValue): JsonValue {
-    if (Array.isArray(value)) return value.map(canonicalizeJson);
-    if (value !== null && typeof value === "object") {
-        const normalized: Record<string, JsonValue> = {};
-        for (const key of Object.keys(value).sort()) {
-            normalized[key] = canonicalizeJson((value as JsonObject)[key] as JsonValue);
-        }
-        return normalized;
-    }
-    return value;
-}
-
 function jsonEquals(left: JsonValue, right: JsonValue): boolean {
-    return JSON.stringify(canonicalizeJson(left)) === JSON.stringify(canonicalizeJson(right));
+    return canonicalJson(left) === canonicalJson(right);
 }
 
 function assertJsonValue(value: unknown, label: string, depth = 0): asserts value is JsonValue {

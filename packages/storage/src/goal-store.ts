@@ -1,3 +1,4 @@
+import { encodePathSegment } from "./path-segment";
 import { randomUUID } from "node:crypto";
 import {
     mkdir,
@@ -410,7 +411,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
     }
 
     private filePath(goalId: string): string {
-        const encodedGoalId = Buffer.from(goalId, "utf8").toString("base64url");
+        const encodedGoalId = encodePathSegment(goalId);
         return join(this.directory, `${encodedGoalId}.json`);
     }
 

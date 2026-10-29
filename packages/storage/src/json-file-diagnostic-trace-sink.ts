@@ -1,3 +1,4 @@
+import { encodePathSegment } from "./path-segment";
 import {
     appendFile,
     mkdir,
@@ -77,7 +78,7 @@ export class JsonFileDiagnosticTraceSink implements DiagnosticTraceSink {
 
     private encode(value: string): string {
         this.assertIdentifier(value, "trace identifier");
-        return Buffer.from(value, "utf8").toString("base64url");
+        return encodePathSegment(value);
     }
 
     private assertIdentifier(value: string, field: string): void {

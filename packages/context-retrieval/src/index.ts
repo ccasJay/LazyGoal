@@ -1,4 +1,5 @@
 export * from "./types";
+export * from "./score-rounding";
 export * from "./context-document";
 export * from "./conversation-context-document";
 export * from "./context-tokenizer";

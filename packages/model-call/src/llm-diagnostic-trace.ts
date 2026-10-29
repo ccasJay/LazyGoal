@@ -1,3 +1,4 @@
+import { isRecord } from "../../contracts/src/index";
 import type {
     DiagnosticTraceSink,
     JsonValue,
@@ -262,10 +263,6 @@ function sanitizeValue(value: unknown, depth: number, key?: string): JsonValue {
     }
 
     return String(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export type { TraceRecord };

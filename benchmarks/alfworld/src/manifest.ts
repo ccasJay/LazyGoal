@@ -1,3 +1,4 @@
+import { isRecord } from "../../../packages/contracts/src/index";
 import { readFile } from "node:fs/promises";
 import {
     isAbsolute,
@@ -253,7 +254,10 @@ function parseTask(
     }
     const gameFile = normalizeGameFile(value.gameFile, dataRoot, index);
 
-    if (!Number.isInteger(value.seed) || value.seed < 0 || value.seed > 0xffffffff) {
+    if (typeof value.seed !== "number"
+        || !Number.isInteger(value.seed)
+        || value.seed < 0
+        || value.seed > 0xffffffff) {
         throw new ManifestValidationError(
             "INVALID_SEED",
             `ALFWorld task ${index} seed must be an integer from 0 to 4294967295`,
@@ -261,9 +265,10 @@ function parseTask(
     }
 
     if (
-        !Number.isInteger(value.maxSteps) ||
-        value.maxSteps < 1 ||
-        value.maxSteps > MAX_ALFWORLD_TASK_STEPS
+        typeof value.maxSteps !== "number"
+        || !Number.isInteger(value.maxSteps)
+        || value.maxSteps < 1
+        || value.maxSteps > MAX_ALFWORLD_TASK_STEPS
     ) {
         throw new ManifestValidationError(
             "INVALID_STEP_LIMIT",
@@ -326,6 +331,3 @@ function isSplit(value: unknown): value is AlfworldSplit {
     );
 }
 
-function isRecord(value: unknown): value is Record<string, any> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}

@@ -1,9 +1,10 @@
 /**
- * 核心 Contract AST、解析器与 JSON Schema 编译器。
+ * 核心 Contract AST、解析器、JSON Schema 编译器与确定性 JSON 原语。
  *
  * @remarks
  * 提供强类型的契约定义 DSL、运行时安全校验器以及确定性的 JSON Schema 2020-12 编译器。
- * 作为全仓无出站依赖的核心契约基础包，不包含具体应用领域的模型交互或业务协议。
+ * 作为全仓无出站依赖的核心契约基础包，它还拥有共享的 canonical JSON、对象守卫与
+ * 深冻结实现，不包含具体应用领域的模型交互或业务协议。
  *
  * @example
  * ```ts
@@ -20,6 +21,14 @@
  * @packageDocumentation
  */
 
+export {
+    canonicalizeJson,
+    canonicalJson,
+    compareCodeUnits,
+    deepFreeze,
+    isRecord,
+} from "./json";
+export type { CanonicalJsonOptions } from "./json";
 export {
     contract,
 } from "./contract";

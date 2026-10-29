@@ -1,3 +1,5 @@
+import { encodePathSegment } from "./path-segment";
+import { deepFreeze } from "../../contracts/src/index";
 import {
     chmod,
     mkdir,
@@ -75,13 +77,6 @@ function isMissingFile(error: unknown): boolean {
     return error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
-function deepFreeze<T>(value: T, seen = new Set<object>()): T {
-    if (typeof value !== "object" || value === null || seen.has(value as object)) return value;
-    seen.add(value as object);
-    for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child, seen);
-    return Object.freeze(value);
-}
-
 /**
  * 基于本地 JSON 文件的 Goal 上下文索引存储实现。
  *
@@ -103,7 +98,7 @@ export class JsonFileGoalContextIndexStore implements GoalContextIndexStore {
     constructor(private readonly directory: string) {}
 
     private goalDirectory(goalId: string): string {
-        const encodedGoalId = Buffer.from(goalId).toString("base64url");
+        const encodedGoalId = encodePathSegment(goalId);
         return join(this.directory, encodedGoalId);
     }
 

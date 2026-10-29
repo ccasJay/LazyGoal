@@ -1,3 +1,4 @@
+import { deepFreeze } from "../../contracts/src/index";
 import {
     type Goal,
     type GoalMessageSource,
@@ -436,25 +437,6 @@ function projectGoalPlan(
             status: item.status,
         })),
     };
-}
-
-/**
- * 递归冻结对象与数组，使 PromptContext 在运行时不可变。
- *
- * @remarks
- * 只作用于从 Runtime 投影出的 DTO，不修改原始 Goal。冻结后任何修改尝试在严格
- * 模式下都会抛出，从而保证 Renderer 只读取 PromptContext、不改变模型输入。
- */
-function deepFreeze<T>(value: T): T {
-    if (value !== null && typeof value === "object") {
-        Object.freeze(value);
-
-        for (const key of Object.keys(value)) {
-            deepFreeze((value as Record<string, unknown>)[key]);
-        }
-    }
-
-    return value;
 }
 
 function projectStepRecord(step: StepRecord): ModelStepRecord {

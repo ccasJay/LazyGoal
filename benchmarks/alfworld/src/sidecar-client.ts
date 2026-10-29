@@ -1,3 +1,4 @@
+import { isRecord } from "../../../packages/contracts/src/index";
 import { spawn, type SpawnOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { Buffer } from "node:buffer";
@@ -597,10 +598,6 @@ function asSidecarError(error: unknown): SidecarError {
 function asRecord(value: unknown): Record<string, unknown> {
     if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
     return value as Record<string, unknown>;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isSidecarResponse(value: unknown): value is SidecarResponse {

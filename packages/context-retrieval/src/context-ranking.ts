@@ -1,3 +1,7 @@
+import {
+    compareCodeUnits,
+    isRecord,
+} from "../../contracts/src/index";
 import type { ContextLookupFilters } from "../../model-contracts/src/index";
 import type {
     ContextDocumentFieldName,
@@ -9,6 +13,7 @@ import {
     type ContextIndexPosting,
     type ContextInvertedIndex,
 } from "./context-tokenizer";
+import { roundRankedScore } from "./score-rounding";
 
 /** Fielded BM25-lite 排名算法的稳定版本。 */
 export const CONTEXT_RANKING_VERSION = "fielded-bm25-lite-v1" as const;
@@ -365,7 +370,7 @@ function scoreDocument(
     if (matchedFields.length === 0) return undefined;
     return {
         document,
-        score: roundScore(score),
+        score: assertRankedScore(score),
         matchedFields: Object.freeze(matchedFields),
         exactMatchedFields: Object.freeze(exactMatchedFields),
     };
@@ -417,7 +422,7 @@ function compareCandidates(left: CandidateScore, right: CandidateScore): number 
     return right.score - left.score
         || right.document.lastSequence - left.document.lastSequence
         || right.document.firstSequence - left.document.firstSequence
-        || compareLexical(left.document.documentId, right.document.documentId);
+        || compareCodeUnits(left.document.documentId, right.document.documentId);
 }
 
 function toRankedMatch(candidate: CandidateScore, adjacent: boolean): ContextRankedMatch {
@@ -469,7 +474,7 @@ function collectAdjacentDocuments(
 function compareDocumentsBySequence(left: ContextSearchDocument, right: ContextSearchDocument): number {
     return left.firstSequence - right.firstSequence
         || left.lastSequence - right.lastSequence
-        || compareLexical(left.documentId, right.documentId);
+        || compareCodeUnits(left.documentId, right.documentId);
 }
 
 function estimateMatchBytes(match: ContextRankedMatch): number {
@@ -524,7 +529,7 @@ function normalizeFilters(filters: ContextLookupFilters | undefined): ContextLoo
             }
             return item.normalize("NFKC").trim();
         });
-        return Object.freeze([...new Set(result)].sort(compareLexical));
+        return Object.freeze([...new Set(result)].sort(compareCodeUnits));
     };
     const normalizeNumbers = (value: unknown, name: string): readonly number[] | undefined => {
         if (value === undefined) return undefined;
@@ -621,16 +626,21 @@ function normalizeOptions(options: ContextRankingOptions): NormalizedRankingOpti
     const minimumScore = options.minimumScore ?? CONTEXT_RANKING_DEFAULT_MINIMUM_SCORE;
     const resultBudgetBytes = options.resultBudgetBytes ?? CONTEXT_RANKING_DEFAULT_RESULT_BUDGET_BYTES;
     const adjacentCount = options.adjacentCount ?? 1;
-    if (!Number.isSafeInteger(topK) || topK <= 0) {
+    if (typeof topK !== "number" || !Number.isSafeInteger(topK) || topK <= 0) {
         throw new ContextRankingError("topK must be a positive safe integer");
     }
     if (typeof minimumScore !== "number" || !Number.isFinite(minimumScore) || minimumScore < 0) {
         throw new ContextRankingError("minimumScore must be a finite non-negative number");
     }
-    if (!Number.isSafeInteger(resultBudgetBytes) || resultBudgetBytes <= 0) {
+    if (typeof resultBudgetBytes !== "number"
+        || !Number.isSafeInteger(resultBudgetBytes)
+        || resultBudgetBytes <= 0) {
         throw new ContextRankingError("resultBudgetBytes must be a positive safe integer");
     }
-    if (!Number.isSafeInteger(adjacentCount) || adjacentCount < 0 || adjacentCount > 1) {
+    if (typeof adjacentCount !== "number"
+        || !Number.isSafeInteger(adjacentCount)
+        || adjacentCount < 0
+        || adjacentCount > 1) {
         throw new ContextRankingError("adjacentCount must be 0 or 1");
     }
     return { topK, minimumScore, resultBudgetBytes, adjacentCount };
@@ -654,17 +664,9 @@ function assertIndex(index: ContextInvertedIndex): void {
     }
 }
 
-function roundScore(value: number): number {
+function assertRankedScore(value: number): number {
     if (!Number.isFinite(value) || value < 0) {
         throw new ContextRankingError("computed score is invalid");
     }
-    return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
-}
-
-function compareLexical(left: string, right: string): number {
-    return left < right ? -1 : left > right ? 1 : 0;
-}
-
-function isRecord(value: unknown): value is Record<string, any> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
+    return roundRankedScore(value);
 }

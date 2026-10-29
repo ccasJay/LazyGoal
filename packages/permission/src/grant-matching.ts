@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
+import { canonicalJson } from "../../contracts/src/index";
 import type {
     EffectiveSandboxScope,
 } from "../../sandbox/src/index";
-import { canonicalize } from "./tool-grant-matcher";
 import type {
     SandboxGrant,
     SandboxGrantMatcher,
@@ -55,7 +55,7 @@ export function matchesToolGrantMatcher(
  */
 export function computeInputDigest(input: unknown): string {
     return createHash("sha256")
-        .update(JSON.stringify(canonicalize(input)), "utf8")
+        .update(canonicalJson(input), "utf8")
         .digest("hex");
 }
 

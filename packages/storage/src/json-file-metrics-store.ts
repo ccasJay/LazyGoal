@@ -1,3 +1,4 @@
+import { encodePathSegment } from "./path-segment";
 import {
     appendFile,
     chmod,
@@ -386,7 +387,7 @@ export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCover
 
     private encode(value: string): string {
         this.assertIdentifier(value, "metric identifier");
-        return Buffer.from(value, "utf8").toString("base64url");
+        return encodePathSegment(value);
     }
 
     private assertIdentifier(value: string, field: string): void {

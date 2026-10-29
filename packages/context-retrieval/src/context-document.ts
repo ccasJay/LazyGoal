@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
 
+import {
+    canonicalJson,
+    compareCodeUnits,
+    deepFreeze,
+    isRecord,
+} from "../../contracts/src/index";
+
 /** committed Context Document 构建失败时使用的稳定错误代码。 */
 export const CONTEXT_DOCUMENT_SOURCE_ERROR_CODE = "CONTEXT_DOCUMENT_SOURCE_ERROR" as const;
 
@@ -871,44 +878,11 @@ function isExecutionEvent(event: ContextRetrievalTrajectoryEvent): boolean {
 function compareDocuments(left: ContextSearchDocument, right: ContextSearchDocument): number {
     return left.firstSequence - right.firstSequence
         || left.lastSequence - right.lastSequence
-        || compareLexical(left.documentId, right.documentId);
+        || compareCodeUnits(left.documentId, right.documentId);
 }
 
 function uniqueSorted(values: readonly string[]): string[] {
-    return [...new Set(values)].sort(compareLexical);
-}
-
-function canonicalJson(value: unknown): string {
-    const normalized = canonicalize(value);
-    const serialized = JSON.stringify(normalized);
-    return serialized === undefined ? "null" : serialized;
-}
-
-function canonicalize(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map((child) => canonicalize(child));
-    if (!isRecord(value)) return value;
-    return Object.fromEntries(
-        Object.entries(value)
-            .sort(([left], [right]) => compareLexical(left, right))
-            .map(([key, child]) => [key, canonicalize(child)]),
-    );
-}
-
-function compareLexical(left: string, right: string): number {
-    return left < right ? -1 : left > right ? 1 : 0;
-}
-
-function deepFreeze<T>(value: T, seen = new Set<object>()): T {
-    if (typeof value !== "object" || value === null || seen.has(value as object)) return value;
-    seen.add(value as object);
-    for (const child of Object.values(value as Record<string, unknown>)) {
-        deepFreeze(child, seen);
-    }
-    return Object.freeze(value);
-}
-
-function isRecord(value: unknown): value is Record<string, any> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
+    return [...new Set(values)].sort(compareCodeUnits);
 }
 
 function assertNonEmptyString(value: unknown, field: string): asserts value is string {

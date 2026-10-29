@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
     contract,
+    isRecord,
     type Contract,
     type InferContract,
     type JsonValue,
@@ -1407,10 +1408,6 @@ export interface ModelOutputSemanticIssue {
     readonly path: readonly (string | number)[];
     /** 面向诊断的英文消息。 */
     readonly message: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function checkNonBlank(
