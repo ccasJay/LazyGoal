@@ -27,7 +27,7 @@
 
 | 规则族 | 触发条件 | 稳定消息前缀 | 违规证据 | 合法证据 |
 | --- | --- | --- | --- | --- |
-| 包出站方向 | 相对引用解析到另一个 package，且目标不在 `ALLOWED_PACKAGE_DEPENDENCIES` | `禁止依赖方向：packages/` | [`包依赖方向逐包拒绝未允许的出站边`](../check-dependencies.test.mjs) 覆盖全部 package 的未允许边；`rejects outbound dependencies from contracts` 等保留原断言 | `allows existing packages to depend on contracts`、`allows config to consume llm-core and rejects core SDK-style reverse edges` |
+| 包出站方向 | 相对引用解析到另一个 package，且目标不在 `ALLOWED_PACKAGE_DEPENDENCIES` | `禁止依赖方向：packages/` | [`包依赖方向逐包拒绝未允许的出站边`](../check-dependencies.test.mjs) 为每个 package 覆盖至少一条未允许边；`rejects outbound dependencies from contracts` 等保留原断言 | `allows existing packages to depend on contracts`、`allows config to consume llm-core and rejects core SDK-style reverse edges` |
 | App 出站方向 | app 相对引用解析到 package，且目标不在 `ALLOWED_APP_DEPENDENCIES` | `禁止依赖方向：apps/` | [`app 依赖方向逐 app 拒绝未允许的包`](../check-dependencies.test.mjs)；`allows apps/goal-board to import web-contracts and rejects backend packages` | 同一测试的 goal-board → web-contracts 合法分支 |
 | App 交叉依赖 | app 相对引用解析到另一个 app | `禁止应用交叉依赖：` | [`rejects imports between different apps`](../check-dependencies.test.mjs) | 同一 goal-board 测试只引用 package，不触发交叉依赖 |
 | Benchmark 隔离 | benchmark 相对引用解析到另一个 benchmark | `禁止 benchmark 交叉依赖：` | `rejects cross benchmark imports`、`rejects gaia cross benchmark imports with swebench and alfworld`、`rejects tua-bench cross benchmark imports with other benchmarks` | [`allows benchmark shared-layer and same-benchmark imports`](../check-dependencies.test.mjs) |
