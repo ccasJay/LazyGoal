@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { safeParse, compileJsonSchema } from "../../contracts/src/index";
@@ -13,6 +14,21 @@ import {
     WebSearchTool,
     type WebSearchResult,
 } from "../src/index";
+import {
+    createDuckDuckGoSearchBackend,
+    parseDuckDuckGoSearchHtml,
+} from "../src/web/search-duckduckgo";
+
+function fixture(name: string): string {
+    return readFileSync(new URL(`./fixtures/web/${name}`, import.meta.url), "utf8");
+}
+
+function fixtureFetch(html: string, status = 200, headers?: Record<string, string>): typeof fetch {
+    return (async () => new Response(html, {
+        status,
+        ...(headers !== undefined ? { headers } : {}),
+    })) as typeof fetch;
+}
 
 const validPlan = {
     actionId: "action-search-1",
@@ -236,3 +252,104 @@ test("web_search 工具成功注册进 ToolRegistry 且 JSON Schema 编译通过
     const prep = registration.prepare({ query: "test query" });
     assert.equal(prep.ok, true);
 });
+
+test("默认 DuckDuckGo 后端按 fixture 顺序解析 title、url 与 snippet 并限制数量", () => {
+    const html = fixture("duckduckgo-results.html");
+    const results = parseDuckDuckGoSearchHtml(html, 10);
+    assert.deepEqual(results, [
+        {
+            title: "LazyGoal & Runtime",
+            url: "https://example.com/lazygoal",
+            snippet: "A goal-driven & resumable agent runtime.",
+        },
+        {
+            title: "Guide 'Getting Started'",
+            url: "https://docs.example.org/guide?q=1&lang=en",
+            snippet: "Install and run your first Goal.",
+        },
+    ]);
+
+    assert.deepEqual(parseDuckDuckGoSearchHtml(html, 1), [results[0]]);
+});
+
+test("默认 DuckDuckGo 后端将明确零结果页面映射为成功空数组", async () => {
+    let requestedUrl = "";
+    const tool = new WebSearchTool(createDuckDuckGoSearchBackend({
+        fetch: (async (input: string | URL | Request) => {
+            requestedUrl = String(input);
+            return new Response(fixture("duckduckgo-zero-results.html"), { status: 200 });
+        }) as typeof fetch,
+    }));
+
+    const observation = await tool.execute({
+        actionId: "action-search-zero",
+        input: { query: "no such lazygoal query" },
+        plan: {
+            actionId: "action-search-zero",
+            workspaceRoot: "/workspace",
+            scope: { extraFiles: [], network: "all_outbound" },
+        },
+    });
+
+    assert.equal(observation.kind, "success");
+    if (observation.kind === "success") {
+        assert.deepEqual(observation.output, []);
+        assert.match(observation.summary, /returned 0 result\(s\)/);
+    }
+    assert.match(requestedUrl, /[?&]q=no\+such\+lazygoal\+query(?:&|$)/);
+});
+
+test("默认 DuckDuckGo 后端把无法识别的成功 HTML 映射为 WEB_SEARCH_UNRECOGNIZED_RESPONSE", async () => {
+    const tool = new WebSearchTool(createDuckDuckGoSearchBackend({
+        fetch: fixtureFetch(fixture("duckduckgo-unrecognized.html")),
+    }));
+
+    const observation = await tool.execute({
+        actionId: "action-search-unrecognized",
+        input: { query: "lazygoal" },
+        plan: {
+            actionId: "action-search-unrecognized",
+            workspaceRoot: "/workspace",
+            scope: { extraFiles: [], network: "all_outbound" },
+        },
+    });
+
+    assert.equal(observation.kind, "failure");
+    if (observation.kind === "failure") {
+        assert.equal(observation.code, "WEB_SEARCH_UNRECOGNIZED_RESPONSE");
+        assert.match(observation.message, /could not be recognized/);
+        assert.equal(observation.retryable, false);
+    }
+});
+
+test("默认 DuckDuckGo 后端把 429、5xx 与网络瞬态错误交给 TransientToolExecutionFailure", async () => {
+    const backend429 = createDuckDuckGoSearchBackend({
+        fetch: fixtureFetch("", 429, { "retry-after": "2" }),
+    });
+    await assert.rejects(
+        () => backend429("test", 5),
+        (error: unknown) => {
+            assert.ok(error instanceof TransientToolExecutionFailure);
+            assert.equal(error.reason, "http_429");
+            assert.equal(error.retryAfterMs, 2000);
+            return true;
+        },
+    );
+
+    const backend503 = createDuckDuckGoSearchBackend({
+        fetch: fixtureFetch("", 503),
+    });
+    await assert.rejects(() => backend503("test", 5), TransientToolExecutionFailure);
+
+    const backendNetwork = createDuckDuckGoSearchBackend({
+        fetch: (async () => {
+            throw new TypeError("fetch failed");
+        }) as typeof fetch,
+    });
+    await assert.rejects(
+        () => backendNetwork("test", 5),
+        (error: unknown) => error instanceof TransientToolExecutionFailure
+            && error.reason === "network_request_failed",
+    );
+});
+

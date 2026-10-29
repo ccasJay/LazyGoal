@@ -6,7 +6,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 隔离 DuckDuckGo 默认搜索后端，并区分零结果与不可识别 HTML
+- [x] //TODO 1. 隔离 DuckDuckGo 默认搜索后端，并区分零结果与不可识别 HTML
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)、[1.5](./spec.md#spec-req-1-5)、[6.2](./spec.md#spec-req-6-2)。
   - 实施目标：新增 `packages/tools/src/web/search-duckduckgo.ts`，把现有 DuckDuckGo HTML 请求和解析从 `web-search.ts` 移入独立 `WebSearchBackend` 工厂；导出纯解析函数供 fixture 测试。`WebSearchTool` 默认构造仍使用该后端，注入点、`WebSearchBackend` 类型和 `WebSearchResult` 形状不变。新增 `WEB_SEARCH_UNRECOGNIZED_RESPONSE` 错误码；默认后端在“有结果”“明确零结果”“成功 HTML 但无法识别”三种情况下分别返回结果、空数组、类型化失败。继续把 429/5xx 与网络瞬态错误交给 `TransientToolExecutionFailure`。签入结果页、零结果页和不可识别页三个 HTML fixture。
   - 场景与预期：用 fixture 调用默认解析/默认后端，结果页按 fixture 顺序返回 title/url/snippet；零结果页经 `WebSearchTool` 得到 `kind: "success"` 且 `output` 为空数组；不可识别页得到 `kind: "failure"`、`code: "WEB_SEARCH_UNRECOGNIZED_RESPONSE"`；429 或 5xx 仍抛出 `TransientToolExecutionFailure`。

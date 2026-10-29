@@ -17,6 +17,10 @@ import {
 import { TransientToolExecutionFailure } from "../../tool-core/src/index";
 import type { DerivedSandboxAccess } from "../../sandbox/src/index";
 import { invalidInput } from "./internal/invalid-input";
+import {
+    createDuckDuckGoSearchBackend,
+    WebSearchUnrecognizedResponseError,
+} from "./web/search-duckduckgo";
 
 /** `WebSearchTool` 在 Profile 中使用的稳定标识。 */
 export const WEB_SEARCH_TOOL_ID = "web_search";
@@ -98,71 +102,14 @@ export const WEB_SEARCH_INPUT_CONTRACT = contract.object({
 export type WebSearchInput = InferContract<typeof WEB_SEARCH_INPUT_CONTRACT>;
 
 /**
- * 默认宿主 DuckDuckGo HTML 网页搜索抓取实现。
- */
-async function defaultDuckDuckGoSearch(
-    query: string,
-    maxResults: number,
-    control?: ExecutionControl,
-): Promise<readonly WebSearchResult[]> {
-    throwIfAborted(control);
-    const endpoint = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    const requestInit: RequestInit = {
-        headers: {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        },
-        ...(control?.signal !== undefined ? { signal: control.signal } : {}),
-    };
-    let response: Response;
-    try {
-        response = await fetch(endpoint, requestInit);
-    } catch (error) {
-        if (control?.signal?.aborted) throw new ExecutionAbortedError();
-        if (error instanceof TypeError) {
-            throw new TransientToolExecutionFailure("network_request_failed");
-        }
-        throw error;
-    }
-    if (!response.ok) {
-        if (response.status === 429 || response.status >= 500) {
-            const retryAfter = response.headers.get("retry-after");
-            const seconds = retryAfter === null ? undefined : Number(retryAfter);
-            const retryAfterMs = seconds !== undefined && Number.isFinite(seconds) && seconds >= 0
-                ? Math.min(30_000, seconds * 1_000)
-                : undefined;
-            throw new TransientToolExecutionFailure(`http_${response.status}`, retryAfterMs);
-        }
-        throw new Error(`DuckDuckGo search failed: HTTP ${response.status}`);
-    }
-    const html = await response.text();
-    throwIfAborted(control);
-
-    const results: WebSearchResult[] = [];
-    const linkRegex = /<a\s+class="result__url"\s+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a\s+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
-    let match: RegExpExecArray | null;
-
-    while ((match = linkRegex.exec(html)) !== null && results.length < maxResults) {
-        const rawUrl = match[1]?.trim() ?? "";
-        const title = (match[2] ?? "").replace(/<[^>]+>/g, "").trim();
-        const snippet = (match[3] ?? "").replace(/<[^>]+>/g, "").trim();
-        if (rawUrl && title) {
-            results.push({
-                title: title.slice(0, WEB_SEARCH_MAX_TITLE_CHARS),
-                url: rawUrl.slice(0, WEB_SEARCH_MAX_URL_CHARS),
-                snippet: snippet.slice(0, WEB_SEARCH_MAX_SNIPPET_CHARS),
-            });
-        }
-    }
-    return results;
-}
-
-/**
  * 宿主代理网页搜索 Tool。
  *
  * @remarks
  * 在宿主执行网络搜索请求，派生 `all_outbound` 沙箱网络能力。
  * 执行前严格核验当前沙箱执行计划是否已获准出站网络；若无有效计划则阻断并拒绝调用后端。
  * 支持注入自定义搜索后端以进行离线测试或切换不同搜索引擎。
+ * 未注入时使用独立的 DuckDuckGo HTML 后端；成功但无法识别的页面返回
+ * `WEB_SEARCH_UNRECOGNIZED_RESPONSE`，不伪装成零结果。
  * 针对 429 与 5xx 故障抛出 `TransientToolExecutionFailure`，由 Runner 执行安全重试。
  *
  * @example
@@ -190,10 +137,10 @@ export class WebSearchTool implements Tool<typeof WEB_SEARCH_INPUT_CONTRACT> {
     private readonly backend: WebSearchBackend;
 
     /**
-     * @param backend - 可选的搜索后端提供方；若未提供则使用默认抓取后端。
+     * @param backend - 可选的搜索后端提供方；若未提供则使用默认 DuckDuckGo HTML 后端。
      */
     constructor(backend?: WebSearchBackend) {
-        this.backend = backend ?? defaultDuckDuckGoSearch;
+        this.backend = backend ?? createDuckDuckGoSearchBackend();
     }
 
     /**
@@ -286,6 +233,14 @@ export class WebSearchTool implements Tool<typeof WEB_SEARCH_INPUT_CONTRACT> {
                     kind: "failure",
                     code: "WEB_SEARCH_TIMEOUT",
                     message: "Web search request timed out after 30 seconds.",
+                    retryable: false,
+                };
+            }
+            if (error instanceof WebSearchUnrecognizedResponseError) {
+                return {
+                    kind: "failure",
+                    code: "WEB_SEARCH_UNRECOGNIZED_RESPONSE",
+                    message: "Web search response could not be recognized.",
                     retryable: false,
                 };
             }
