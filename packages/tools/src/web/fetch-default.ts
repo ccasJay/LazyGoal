@@ -2,6 +2,7 @@ import type { LookupAddress, LookupOptions } from "node:dns";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
+import { restoreNodeGlobalDispatcher } from "./undici-env-proxy-guard";
 import { Agent, buildConnector, request, type Dispatcher } from "undici";
 import { throwIfAborted, type ExecutionControl } from "../../../execution-control/src/index";
 import type { WebFetchHandler } from "../web-fetch";
@@ -21,6 +22,9 @@ import {
     type WebFetchResolvedAddress,
 } from "./fetch-url-policy";
 import { WEB_FETCH_MAX_RESPONSE_BYTES } from "./limits";
+
+// `undici` 的全局初始化会覆盖 Node 的环境代理 dispatcher；在模块体开始时恢复。
+restoreNodeGlobalDispatcher();
 
 /** 默认抓取请求的最大重定向跳数。 */
 const MAX_REDIRECTS = 5;

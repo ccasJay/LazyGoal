@@ -12,7 +12,7 @@ Grep 的空白 `include` 与 `exclude` 按未设置过滤处理；非空模式�
 
 `web_search` 未注入后端时使用 [DuckDuckGo HTML 后端](../src/web/search-duckduckgo.ts)：解析结果页并区分明确零结果与不可识别结构。成功但无法识别的响应返回 `WEB_SEARCH_UNRECOGNIZED_RESPONSE`；429/5xx 与网络瞬态失败仍抛出 `TransientToolExecutionFailure`，由 Runner 安全重试。
 
-`web_fetch` 未注入 handler 时使用[默认抓取 handler](../src/web/fetch-default.ts)。它只接受 `http`/`https`，拒绝 URL 凭据、`localhost`、本机、私网、链路本地、组播、未指定和常见保留地址；每跳解析全部 A/AAAA，任一地址受限即失败，并把该跳的连接绑定到已验证地址集合。重定向手动逐跳重新校验，最多 5 跳。连接保留原 URL 的 Host、原域名 TLS SNI 与证书主机名校验，不修改全局 dispatcher。成功消费正文后关闭请求自有 dispatcher；失败、取消、超时和正文超限时销毁连接并释放未消费正文。正文只读取 `text/html`、`application/xhtml+xml`、`text/plain`、`application/json`、`application/xml` 与其它 `text/*`，按响应 charset、HTML `<meta charset>` 前 1 KiB、UTF-8 的顺序解码；`Content-Length` 与读取累计上限均为 2 MiB，单次请求超时为 30 秒。
+`web_fetch` 未注入 handler 时使用[默认抓取 handler](../src/web/fetch-default.ts)。它只接受 `http`/`https`，拒绝 URL 凭据、`localhost`、本机、私网、链路本地、组播、未指定和常见保留地址；每跳解析全部 A/AAAA，任一地址受限即失败，并把该跳的连接绑定到已验证地址集合。重定向手动逐跳重新校验，最多 5 跳。连接保留原 URL 的 Host、原域名 TLS SNI 与证书主机名校验；抓取请求只使用请求自有 dispatcher，并在加载 npm `undici` 后恢复 Node 内置 fetch 原本的环境代理 dispatcher，避免 `undici@8` 覆盖 `NODE_USE_ENV_PROXY` 槽位、使后续 Provider 请求绕过代理。成功消费正文后关闭请求自有 dispatcher；失败、取消、超时和正文超限时销毁连接并释放未消费正文。正文只读取 `text/html`、`application/xhtml+xml`、`text/plain`、`application/json`、`application/xml` 与其它 `text/*`，按响应 charset、HTML `<meta charset>` 前 1 KiB、UTF-8 的顺序解码；`Content-Length` 与读取累计上限均为 2 MiB，单次请求超时为 30 秒。
 
 HTML 可见文本由 [html-to-text 抽取](../src/web/html-extract.ts) 产生：排除 `script`、`style`、`img`，保留表格、列表、标题和实体，再折叠为单行；`htmlToPlainText` 只委托该实现。抓取失败码包括 `WEB_FETCH_TIMEOUT`、`WEB_RESPONSE_TOO_LARGE`、`WEB_FETCH_FAILED`、`WEB_FETCH_BLOCKED_URL`、`WEB_FETCH_UNSUPPORTED_CONTENT_TYPE`、`WEB_FETCH_REDIRECT_LIMIT` 和 `WEB_FETCH_HTTP_ERROR`；429/5xx 仍映射为瞬态失败。
 
