@@ -62,6 +62,26 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 验证时间：-
-- 验证摘要：尚未开始执行。
+- 状态：通过（工具、Runtime、Benchmark、类型与文档检查）；高负载复跑出现与本 Spec 无关的时序失败
+- 验证时间：2026-10-29
+- 功能实现最终提交：`a2a36701`（本记录随后单独提交）
+- 验证环境：Node v22.22.2；`uv` 与 Chrome 可用。
+
+逐条结果：
+
+- `npx tsx --test packages/tools/test/web-search.test.ts packages/tools/test/web-fetch.test.ts packages/tools/test/web-fetch-policy.test.ts`：通过，39 项测试全部通过（13 + 14 + 12）。
+- `npx tsx --test packages/runtime/test/web-tool-permission.test.ts benchmarks/test/remote-tool-registry.test.ts benchmarks/test/tool-rpc.test.ts`：通过，13 项测试全部通过；`all_outbound` 审批与 Benchmark remote/fake backend 注入未改变。
+- `npx tsc --noEmit`：通过。
+- `npx tsc --noEmit -p apps/goal-server/tsconfig.json`：失败（基线阻塞）。`apps/goal-server/test/runtime-recovery.integration.test.ts(171,40)` 将 `LaunchResult` 传给 `GoalProgressResult` 参数，报 `TS2345`。该文件及 `apps/goal-server`、`packages/runtime`、`packages/storage` 相对基线 `a36c8939fe5c31737af609504fa820c537ca1fa4` 无改动，属于本 Spec 范围外的既有类型错误，未修改。
+- `npm test`：首次完整执行通过，输出 `[regression] 全部通过`（含根 `tsc --noEmit`、依赖边界检查、GEPA adapter 测试与全量测试）。最终注释提交后的复跑在 GEPA adapter 阶段失败：`test_lifecycle_controller.LifecycleControllerTests.test_start_spawns_detached_worker_and_returns_immediately` 在主机 load average 约 18–33 时测得 4.16–8.40 秒，超过 2 秒阈值；隔离复跑该测试在负载较低时 0.897 秒通过。`prompt-evaluation/gepa` 相对基线无改动。
+- 单独执行全部 427 个 TypeScript 测试文件：2568 项中 2567 通过；唯一失败为 `benchmarks/context/test/cli.test.ts` 的 `top-level source import is invoked once with the injected adapter` 在 10 秒超时下失败，单独复跑该文件 3/3 通过。该文件相对基线无改动，失败与主机高负载下的子进程超时一致。
+- `npm run check:docs`：通过（46 个模块，166 份当前说明）。
+- `npm run check:dependencies`：通过（281 个源文件）。
+- `git diff --check`：通过。
+
+未决问题：
+
+- `apps/goal-server/tsconfig.json` 的基线类型错误仍需由所属工作修复；本 Spec 不扩大范围修改该测试或 `LaunchResult`/`GoalProgressResult` 契约。
+- GEPA adapter 与 context benchmark 的子进程/时序断言在主机负载约 18–33 时不稳定；相关目录均未改动，隔离复跑通过，需在低负载环境重跑全量回归。
+- 签入的 TLS fixture 有效期至 2036-10-26；过期后需重新生成，否则本地 TLS 身份测试会失效。
+- 默认生产 lookup/连接绑定未访问真实外网；确定性证据来自 `createBoundLookup` 单测、真实 `undici` dispatcher 与受控连接接缝，符合 Spec 禁止真实外网测试的约束。
