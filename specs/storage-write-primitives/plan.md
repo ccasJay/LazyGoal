@@ -57,6 +57,26 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 验证时间：-
-- 验证摘要：尚未开始执行。
+- 状态：已执行；storage 测试与全量回归通过，`npm run test:web-e2e` 存在与基线一致的 4 个环境性失败。
+- 验证时间：2026-10-29
+- 已验证实现提交：`fc9695bf`（本记录在其后单独提交）
+- 验证摘要：
+
+| 检查 | 结果 |
+|---|---|
+| `npx tsx --test packages/storage/test/*.test.ts` | 172 passed / 0 failed |
+| `npx tsx --test packages/storage/test/json-file-write.test.ts packages/storage/test/goal-store.test.ts` | 40 passed / 0 failed |
+| `npx tsx --test packages/storage/test/json-file-write.test.ts packages/storage/test/trajectory-store.test.ts packages/storage/test/session-metrics-store.test.ts packages/storage/test/diagnostic-trace-sink.test.ts packages/storage/test/model-input-store.test.ts packages/storage/test/process-session-store.test.ts` | 44 passed / 0 failed |
+| `npx tsx --test packages/storage/test/keyed-serial-queue.test.ts` | 6 passed / 0 failed |
+| `npx tsx --test packages/storage/test/storage-write-invariants.test.ts` | 4 passed / 0 failed；手工注入 `.tmp` 构造时报告 `json-file-metrics-store.ts:372`，随后已还原 |
+| `npx tsc --noEmit` | exit 0 |
+| `npm test` | exit 0（类型检查、`check:docs`、`check:dependencies`、GEPA adapter、全部包/应用/Benchmark 测试与 scripts 测试） |
+| `npm run check:dependencies` | 通过，277 个源文件 |
+| `npm run check:docs` | 通过，46 个模块 / 166 份当前说明 |
+| `git diff --check` | exit 0 |
+| `npx tsx --test apps/goal-server/test/browser-session.integration.test.ts` | 2 passed / 0 failed |
+| `npm run test:web-e2e`（先执行 `npm run build:web`） | 13 tests：9 pass / 4 fail |
+
+- `test:web-e2e` 失败项为 `board`、`run-stages`、`runtime`、`streaming-session`。在基线提交 `a36c8939` 的独立克隆中执行同一命令得到相同的 4 项失败、9 项通过；失败表现为 Chrome 计算样式（`.task-state.running .status-dot::after` 的 `animationName`）与详情面板渲染等待超时，与本次 storage 改动无关。`human-interaction` 在并行负载下曾偶发失败，单独运行 4/4 通过。
+- 依赖与范围：`git diff --name-only a36c8939..HEAD` 只包含 `packages/storage/**` 与本 Spec 文档；`package.json`、`apps/goal-server`、`packages/browser`、`benchmarks/src/file-persistence-adapter.ts` 均未改动。
+- 未决问题：`test:web-e2e` 的 4 个既有环境性失败未修复（超出本 Spec 范围）。
