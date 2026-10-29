@@ -18,7 +18,7 @@
   - 场景与预期：同一段 SSE 文本被切成任意 chunk、使用 CRLF／CR／LF、包含 `: keepalive` 注释、多个 `data:` 行与可选 `id`／`retry` 时，解析器都能产出正确事件；metrics 的 `snapshot` 产出快照，`error` 抛 `metrics_unavailable`，未知事件不产出，坏快照抛 `invalid_metrics_response`；Goal events 的 `update` 与未命名事件产出 `isLiveEvent` 值，未知事件不产出，坏 JSON／坏事件形状结束生成器；abort 后不再产出且 reader 被取消。
   - 验证手段：新增 `apps/goal-board/test/sse.test.ts`，用合成 `ReadableStream` 覆盖分帧、事件名称、两条映射与 abort；`npx tsx --test apps/goal-board/test/sse.test.ts`；`npm run --prefix apps/goal-board build`。
 
-- [ ] //TODO 3. 补齐 Goal events 与 metrics 的断线重连 E2E
+- [x] //TODO 3. 补齐 Goal events 与 metrics 的断线重连 E2E
   - 落实标准：[3.1](./spec.md#spec-req-3-1), [3.2](./spec.md#spec-req-3-2), [3.3](./spec.md#spec-req-3-3), [3.4](./spec.md#spec-req-3-4), [4.3](./spec.md#spec-req-4-3), [4.4](./spec.md#spec-req-4-4)
   - 实施目标：扩展 `apps/goal-board/e2e/board.test.mjs` 的 mock API：Goal 事件流全部写入 `event: update`，metrics 流保持 `event: snapshot`；新增显式结束当前 Goal 事件／metrics 响应的测试辅助方法，并记录新连接次数。增加断言：首个 Goal 流结束后 UI 在现有 800ms 退避后重新连接，第二个 `state_sync` 清空旧临时进度并应用更新后的会话状态；首个 metrics 流结束后重新订阅，第二个快照替换旧值；请求不携带 `Last-Event-ID`；切换视图或结束测试时连接被取消且不再重连。保持 mock API 的其余响应与现有场景不变。
   - 场景与预期：浏览器首次连接显示实时状态；服务端主动结束 Goal 与 metrics 流后，页面短暂显示断线，再以新连接恢复并展示更新后的 `state_sync`／指标；不会把旧连接的临时正文或旧快照当权威值；不出现未处理的连接错误或重复计数。
