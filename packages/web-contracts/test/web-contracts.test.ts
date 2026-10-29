@@ -1114,3 +1114,56 @@ test("Trajectory、Model Input 与 Metrics 合同保留开放 JSON 与数值边�
     assert.equal(isMetricsSnapshot({ ...snapshot, runs: [{ ...runMetrics, runId: "" }] }), false);
     assert.equal(isMetricsSnapshot({ ...snapshot, runs: [runMetrics] }), true);
 });
+
+test("Provider、模型与命令结果合同校验嵌套凭据键、声明字段与错误码", () => {
+    assert.equal(isProviderProfileWriteResult({ ok: true, profile: { ...maskedProfile, apiKey: "sk-raw" } }), false);
+    assert.equal(isProviderProfileDeleteResult({ ok: true, profile: { ...maskedProfile, apiKey: "sk-raw" }, mayBeReferencedByGoals: false }), false);
+    assert.equal(isProviderProfileActivationResult({ ok: false, error: "provider_profile_invalid" }), true);
+    assert.equal(isProviderProfileActivationResult({ ok: false, error: "unknown" }), false);
+    assert.equal(isProviderSettings({
+        profiles: [],
+        futureServerField: { nested: [1, 2] },
+    }), true);
+
+    assert.equal(isModelSelectionAccepted({
+        ok: true, goalId: "goal-1", runId: "run-1", modelId: "gpt-4o", defaultModelSaved: false,
+    }), true);
+    assert.equal(isModelSelectionAccepted({ ok: true, modelId: "gpt-4o", defaultModelSaved: false }), false);
+    assert.equal(isModelSelectionAccepted({ ok: true, goalId: "goal-1", modelId: "gpt-4o", defaultModelSaved: false }), false);
+    assert.equal(isModelSelectionAccepted({ ok: false, error: "unknown_error" }), false);
+    assert.equal(isModelPreferenceAccepted({ ok: true, modelId: "gpt-4o" }), true);
+    assert.equal(isModelPreferenceAccepted({ ok: true, modelId: "" }), false);
+
+    assert.equal(isModelCatalog({
+        provider: "openai",
+        currentModelId: "gpt-4o",
+        models: [{
+            id: "gpt-4o", displayName: "GPT-4o", availabilitySource: "live", metadataSource: "catalog",
+            selectable: true, contextWindowTokens: 128_000, maxOutputTokens: 8_192,
+        }],
+    }), true);
+    assert.equal(isModelCatalog({
+        provider: "openai",
+        currentModelId: "gpt-4o",
+        models: [{
+            id: "gpt-4o", displayName: "GPT-4o", availabilitySource: "live", metadataSource: "catalog",
+            selectable: true, contextWindowTokens: 0,
+        }],
+    }), false);
+    assert.equal(isModelCatalog({
+        provider: "openai",
+        currentModelId: "gpt-4o",
+        models: [{
+            id: "gpt-4o", displayName: "GPT-4o", availabilitySource: "live", metadataSource: "catalog",
+            selectable: true, futureModelField: { ok: true },
+        }],
+    }), true);
+
+    assert.equal(isPermissionModeResult({ ok: true, mode: "yolo", revision: 2, workspaceId: "ws-1" }), true);
+    assert.equal(isPermissionModeResult({ ok: false, error: "unknown" }), false);
+    assert.equal(isPermissionModeResult({ ok: false, error: "conflict", actualRevision: Number.MAX_SAFE_INTEGER + 1 }), false);
+    assert.equal(isToolGrantResult({ ok: false, error: "grant_failed" }), true);
+    assert.equal(isToolGrantResult({ ok: false, error: "unknown" }), false);
+    assert.equal(isActionDetailsResult({ ok: true, goalId: "g", runId: "r", actionId: "a", toolId: "t", input: () => undefined }), false);
+    assert.equal(isAcceptedCommand({ goalId: "g", runId: "r", existing: false }), true);
+});

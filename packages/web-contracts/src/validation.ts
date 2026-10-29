@@ -41,6 +41,7 @@ import type {
 import { safeParse } from "../../contracts/src/index";
 import {
     hasConsistentTerminalDetail,
+    hasNoProviderCredentialKey,
     hasValidContextRemainingPercent,
     isActivityPage,
     isInteractionView,
@@ -54,7 +55,30 @@ import {
 import {
     browserActivityPageContract,
 } from "./contracts/activity";
+import {
+    acceptedCommandContract,
+    browserActionDetailsResultContract,
+    browserModelPreferenceResultContract,
+    browserModelSelectionResultContract,
+    browserPermissionModeResultContract,
+    browserToolGrantResultContract,
+    browserWorkspaceContextContract,
+} from "./contracts/command";
 import { browserGoalLiveEventContract } from "./contracts/events";
+import {
+    browserModelCatalogContract,
+    browserModelCatalogReadResultContract,
+} from "./contracts/model";
+import {
+    browserProviderModelsContract,
+    browserProviderProfileActivationResultContract,
+    browserProviderProfileContract,
+    browserProviderProfileDeleteResultContract,
+    browserProviderProfileTestResultContract,
+    browserProviderProfileWriteResultContract,
+    browserProviderSettingsContract,
+    browserProviderSettingsReadResultContract,
+} from "./contracts/provider";
 import {
     sessionMetricsSnapshotContract,
     sessionMetricsValuesContract,
@@ -160,11 +184,9 @@ export function isOkResponse(value: unknown): value is { readonly ok: true } {
  * ```
  */
 export function isAcceptedCommand(value: unknown): value is { readonly goalId: string; readonly runId: string; readonly existing: boolean } {
-    return isRecord(value)
-        && isNonEmptyString(value.goalId)
-        && isNonEmptyString(value.runId)
-        && typeof value.existing === "boolean";
+    return safeParse(acceptedCommandContract, value).success;
 }
+
 
 /**
  * 验证 inputs 路由返回的持久化受理或既有收据结果。
@@ -470,23 +492,9 @@ export function isGoalSessionStateEnvelope(value: unknown): value is { readonly 
  * ```
  */
 export function isModelCatalog(value: unknown): value is BrowserModelCatalog {
-    return isRecord(value)
-        && isNonEmptyString(value.provider)
-        && isNonEmptyString(value.currentModelId)
-        && (value.defaultModelNotice === undefined || value.defaultModelNotice === "provider_changed" || value.defaultModelNotice === "model_unavailable")
-        && Array.isArray(value.models)
-        && value.models.every((model) => isRecord(model)
-            && isNonEmptyString(model.id)
-            && isNonEmptyString(model.displayName)
-            && ["live", "catalog", "configured"].includes(String(model.availabilitySource))
-            && ["live", "catalog", "execution", "configured", "mixed"].includes(String(model.metadataSource))
-            && typeof model.selectable === "boolean"
-            && (model.contextWindowTokens === undefined || (Number.isSafeInteger(model.contextWindowTokens) && Number(model.contextWindowTokens) > 0))
-            && (model.maxOutputTokens === undefined || (Number.isSafeInteger(model.maxOutputTokens) && Number(model.maxOutputTokens) > 0))
-            && (model.reasoning === undefined || typeof model.reasoning === "boolean")
-            && (model.vision === undefined || typeof model.vision === "boolean")
-            && (model.unavailableReason === undefined || typeof model.unavailableReason === "string"));
+    return safeParse(browserModelCatalogContract, value).success;
 }
+
 
 /**
  * 模型选择受理结果类型守卫。
@@ -499,9 +507,11 @@ export function isModelCatalog(value: unknown): value is BrowserModelCatalog {
  * if (isModelSelectionAccepted(res)) console.log(res.modelId);
  * ```
  */
-export function isModelSelectionAccepted(value: unknown): value is { readonly ok: true; readonly modelId: string; readonly defaultModelSaved: boolean } {
-    return isRecord(value) && value.ok === true && isNonEmptyString(value.modelId) && typeof value.defaultModelSaved === "boolean";
+export function isModelSelectionAccepted(value: unknown): value is { readonly ok: true; readonly goalId: string; readonly runId: string; readonly modelId: string; readonly defaultModelSaved: boolean } {
+    const parsed = safeParse(browserModelSelectionResultContract, value);
+    return parsed.success && parsed.data.ok;
 }
+
 
 /**
  * 偏好模型设定受理守卫。
@@ -515,8 +525,10 @@ export function isModelSelectionAccepted(value: unknown): value is { readonly ok
  * ```
  */
 export function isModelPreferenceAccepted(value: unknown): value is { readonly ok: true; readonly modelId: string } {
-    return isRecord(value) && value.ok === true && isNonEmptyString(value.modelId);
+    const parsed = safeParse(browserModelPreferenceResultContract, value);
+    return parsed.success && parsed.data.ok;
 }
+
 
 /**
  * 受管 Provider 档案投影守卫。
@@ -530,20 +542,10 @@ export function isModelPreferenceAccepted(value: unknown): value is { readonly o
  * ```
  */
 export function isProviderProfile(value: unknown): value is BrowserProviderProfile {
-    if (!isRecord(value)) return false;
-    if ("apiKey" in value) return false;
-    return isNonEmptyString(value.id)
-        && isNonEmptyString(value.label)
-        && isNonEmptyString(value.kind)
-        && isNonEmptyString(value.defaultModel)
-        && typeof value.hasApiKey === "boolean"
-        && typeof value.apiKeyMask === "string"
-        && (value.baseURL === undefined || typeof value.baseURL === "string")
-        && (value.contextWindowTokens === undefined || typeof value.contextWindowTokens === "number")
-        && (value.maxOutputTokens === undefined || typeof value.maxOutputTokens === "number")
-        && (value.structuredOutputMode === undefined || value.structuredOutputMode === "strict"
-            || value.structuredOutputMode === "prompt_only" || value.structuredOutputMode === "two_stage");
+    const parsed = safeParse(browserProviderProfileContract, value);
+    return parsed.success && hasNoProviderCredentialKey(parsed.data);
 }
+
 
 /**
  * 设置页读取守卫。
@@ -561,15 +563,11 @@ export function isProviderProfile(value: unknown): value is BrowserProviderProfi
  * ```
  */
 export function isProviderSettings(value: unknown): value is BrowserProviderSettings {
-    if (!isRecord(value)) return false;
-    return (value.activeProfileId === undefined || typeof value.activeProfileId === "string")
-        && Array.isArray(value.profiles)
-        && value.profiles.every((profile) => isProviderProfile(profile))
-        && (value.fallback === undefined || (isRecord(value.fallback)
-            && value.fallback.source === "config"
-            && isNonEmptyString(value.fallback.provider)
-            && isNonEmptyString(value.fallback.model)));
+    const parsed = safeParse(browserProviderSettingsContract, value);
+    return parsed.success
+        && parsed.data.profiles.every(hasNoProviderCredentialKey);
 }
+
 
 /**
  * 档案写入结果守卫。
@@ -583,13 +581,11 @@ export function isProviderSettings(value: unknown): value is BrowserProviderSett
  * ```
  */
 export function isProviderProfileWriteResult(value: unknown): value is BrowserProviderProfileWriteResult {
-    if (!isRecord(value) || typeof value.ok !== "boolean") return false;
-    if (!value.ok) {
-        return typeof value.error === "string" && (value.fields === undefined
-            || (Array.isArray(value.fields) && value.fields.every((field) => typeof field === "string")));
-    }
-    return isProviderProfile(value.profile);
+    const parsed = safeParse(browserProviderProfileWriteResultContract, value);
+    return parsed.success
+        && (!parsed.data.ok || hasNoProviderCredentialKey(parsed.data.profile));
 }
+
 
 /**
  * 档案删除结果守卫。
@@ -603,10 +599,11 @@ export function isProviderProfileWriteResult(value: unknown): value is BrowserPr
  * ```
  */
 export function isProviderProfileDeleteResult(value: unknown): value is BrowserProviderProfileDeleteResult {
-    if (!isRecord(value) || typeof value.ok !== "boolean") return false;
-    if (!value.ok) return typeof value.error === "string";
-    return isProviderProfile(value.profile) && typeof value.mayBeReferencedByGoals === "boolean";
+    const parsed = safeParse(browserProviderProfileDeleteResultContract, value);
+    return parsed.success
+        && (!parsed.data.ok || hasNoProviderCredentialKey(parsed.data.profile));
 }
+
 
 /**
  * 档案激活结果守卫。
@@ -620,10 +617,9 @@ export function isProviderProfileDeleteResult(value: unknown): value is BrowserP
  * ```
  */
 export function isProviderProfileActivationResult(value: unknown): value is BrowserProviderProfileActivationResult {
-    if (!isRecord(value) || typeof value.ok !== "boolean") return false;
-    if (!value.ok) return typeof value.error === "string";
-    return isNonEmptyString(value.activeProfileId);
+    return safeParse(browserProviderProfileActivationResultContract, value).success;
 }
+
 
 /**
  * 连接测试结果守卫。
@@ -637,10 +633,9 @@ export function isProviderProfileActivationResult(value: unknown): value is Brow
  * ```
  */
 export function isProviderProfileTestResult(value: unknown): value is BrowserProviderProfileTestResult {
-    if (!isRecord(value) || typeof value.ok !== "boolean") return false;
-    if (!value.ok) return typeof value.error === "string";
-    return typeof value.modelCount === "number" && Number.isFinite(value.modelCount) && value.modelCount >= 0;
+    return safeParse(browserProviderProfileTestResultContract, value).success;
 }
+
 
 /**
  * Action 完整输入结果守卫。
@@ -654,14 +649,9 @@ export function isProviderProfileTestResult(value: unknown): value is BrowserPro
  * ```
  */
 export function isActionDetailsResult(value: unknown): value is BrowserActionDetailsResult {
-    if (!isRecord(value) || typeof value.ok !== "boolean") return false;
-    if (!value.ok) return typeof value.error === "string";
-    return isNonEmptyString(value.goalId)
-        && isNonEmptyString(value.runId)
-        && isNonEmptyString(value.actionId)
-        && isNonEmptyString(value.toolId)
-        && isJsonValue(value.input);
+    return safeParse(browserActionDetailsResultContract, value).success;
 }
+
 
 /**
  * 工具授权结果守卫。
@@ -675,28 +665,9 @@ export function isActionDetailsResult(value: unknown): value is BrowserActionDet
  * ```
  */
 export function isToolGrantResult(value: unknown): value is BrowserToolGrantResult {
-    return isRecord(value)
-        && (value.ok === false
-            ? typeof value.error === "string"
-            : value.ok === true
-                && isNonEmptyString(value.goalId)
-                && isNonEmptyString(value.runId)
-                && Array.isArray(value.grants)
-                && value.grants.every((grant) => isRecord(grant)
-                    && isNonEmptyString(grant.grantId)
-                    && (grant.scope === "goal" || grant.scope === "workspace")
-                    && isNonEmptyString(grant.toolId)
-                    && ["pending", "active", "revoked"].includes(String(grant.status))
-                    && (grant.kind === undefined || grant.kind === "tool" || grant.kind === "sandbox")
-                    && (grant.targetPath === undefined || typeof grant.targetPath === "string")
-                    && (grant.command === undefined || typeof grant.command === "string")
-                    && (grant.network === undefined || grant.network === "none" || grant.network === "all_outbound")
-                    && (grant.extraFiles === undefined || (Array.isArray(grant.extraFiles) && grant.extraFiles.every((file) =>
-                        isRecord(file)
-                            && isNonEmptyString(file.canonicalPath)
-                            && (file.access === "read" || file.access === "write")
-                            && (file.kind === "file" || file.kind === "directory_tree"))))));
+    return safeParse(browserToolGrantResultContract, value).success;
 }
+
 
 /**
  * 权限模式查询/设置结果守卫。
@@ -710,13 +681,9 @@ export function isToolGrantResult(value: unknown): value is BrowserToolGrantResu
  * ```
  */
 export function isPermissionModeResult(value: unknown): value is BrowserPermissionModeResult {
-    if (!isRecord(value)) return false;
-    if (value.ok === false) return typeof value.error === "string";
-    return value.ok === true
-        && (value.mode === "default" || value.mode === "yolo")
-        && Number.isInteger(value.revision)
-        && isNonEmptyString(value.workspaceId);
+    return safeParse(browserPermissionModeResultContract, value).success;
 }
+
 
 /**
  * 工作区上下文类型守卫。
@@ -730,11 +697,9 @@ export function isPermissionModeResult(value: unknown): value is BrowserPermissi
  * ```
  */
 export function isWorkspaceContext(value: unknown): value is BrowserWorkspaceContext {
-    return isRecord(value)
-        && isNonEmptyString(value.workspaceRoot)
-        && (value.worktreeRoot === null || isNonEmptyString(value.worktreeRoot))
-        && (value.branch === null || isNonEmptyString(value.branch));
+    return safeParse(browserWorkspaceContextContract, value).success;
 }
+
 
 /**
  * 实时事件类型守卫。
@@ -928,6 +893,6 @@ export function isMetricsSnapshot(value: unknown): value is SessionMetricsSnapsh
  * ```
  */
 export function isProviderModels(value: unknown): value is import("./provider-settings").BrowserProviderModels {
-    return isRecord(value) && value.ok === true && Array.isArray(value.models)
-        && value.models.every(model => isRecord(model) && isNonEmptyString(model.id) && typeof model.name === "string");
+    return safeParse(browserProviderModelsContract, value).success;
 }
+

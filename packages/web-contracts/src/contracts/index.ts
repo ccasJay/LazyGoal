@@ -1,11 +1,14 @@
 import { compileJsonSchema, type Contract } from "../../../contracts/src/index";
 import { activityWebContracts } from "./activity";
+import { commandWebContracts } from "./command";
 import { sharedWebContracts } from "./common";
 import { eventsWebContracts } from "./events";
 import { inputWebContracts } from "./input";
 import { interactionWebContracts } from "./interaction";
 import { metricsWebContracts } from "./metrics";
+import { modelWebContracts } from "./model";
 import { modelInputWebContracts } from "./model-input";
+import { providerWebContracts } from "./provider";
 import { sessionWebContracts } from "./session";
 import { trajectoryWebContracts } from "./trajectory";
 
@@ -20,6 +23,9 @@ const webContracts: readonly Contract<unknown>[] = [
     ...trajectoryWebContracts,
     ...modelInputWebContracts,
     ...metricsWebContracts,
+    ...providerWebContracts,
+    ...modelWebContracts,
+    ...commandWebContracts,
 ];
 
 /**

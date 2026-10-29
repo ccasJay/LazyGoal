@@ -44,7 +44,7 @@
   - 场景与预期：现有 trajectory、model input、metrics 正反例保持；事件 `eventType` 与 `payload.type` 不一致、`phase` 或 `eventSchemaVersion` 错误、toolFinished 形状错误失败；Trajectory 开放 payload 的 JSON 额外字段被接受并保留，200 层嵌套 `continuation`/`input`/`observation` 仍被接受，函数/`undefined`/Symbol/类实例/循环引用失败；`continuation`/`input`/`observation` 保持 `unknown` 且按 JSON 值校验；`cacheHitRate > 1`、`contextRemainingPercent` 越界、非安全指标计数失败。
   - 验证手段：`npx tsx --test packages/web-contracts/test/web-contracts.test.ts packages/browser/test/browser-trajectory.test.ts packages/browser/test/browser-model-input.test.ts`。
 
-- [ ] //TODO 7. 迁移 Provider、Model 与命令结果 DTO
+- [x] //TODO 7. 迁移 Provider、Model 与命令结果 DTO
   - 落实标准：[2.1](./spec.md#spec-req-2-1), [2.2](./spec.md#spec-req-2-2), [2.4](./spec.md#spec-req-2-4), [2.5](./spec.md#spec-req-2-5), [2.6](./spec.md#spec-req-2-6), [3.1](./spec.md#spec-req-3-1), [3.2](./spec.md#spec-req-3-2), [3.3](./spec.md#spec-req-3-3), [3.4](./spec.md#spec-req-3-4), [3.6](./spec.md#spec-req-3-6), [3.7](./spec.md#spec-req-3-7), [3.8](./spec.md#spec-req-3-8), [5.1](./spec.md#spec-req-5-1), [5.2](./spec.md#spec-req-5-2)
   - 实施目标：在 `contracts/` 中为 Provider profile/settings/input/读取与写入结果、模型目录/选项/来源/读取结果、模型选择与偏好命令/结果、Plan Mode 命令/结果、权限模式、Tool grant、Action details、workspace、archive/delete 结果建立唯一 Contract 并派生类型；复用 TODO 2 的 `BrowserToolGrantExtraFile`；迁移对应 guard；把 `!("apiKey" in value)` 抽成共享不变量，应用于 `isProviderProfile`、`isProviderSettings`、写入/删除/激活结果中的嵌套档案；`isModelSelectionAccepted` 按 DTO 校验 `goalId`/`runId`。
   - 场景与预期：现有 Provider、模型目录、模型选择、权限模式、授权、workspace 与归档正反例保持；顶层或嵌套档案含 `apiKey` 时失败；Provider settings 开放层额外 JSON 字段被接受并保留；`isModelSelectionAccepted` 缺少 `goalId`/`runId` 或类型错误现在失败；模型 context/output 上限与 selectable 字段边界保持。

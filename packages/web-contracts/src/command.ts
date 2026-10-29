@@ -1,7 +1,24 @@
-import type {
-    BrowserAskUserAnswer,
-    BrowserToolGrantExtraFile,
-} from "./session";
+import type { InferContract } from "../../contracts/src/index";
+import {
+    acceptedCommandContract,
+    browserActionDetailsResultContract,
+    browserGoalArchiveCommandContract,
+    browserGoalArchiveResultContract,
+    browserGoalDeleteResultContract,
+    browserGoalPlanModeCommandContract,
+    browserGoalPlanModeResultContract,
+    browserModelPreferenceCommandContract,
+    browserModelPreferenceResultContract,
+    browserModelSelectionCommandContract,
+    browserModelSelectionResultContract,
+    browserPermissionModeCommandContract,
+    browserPermissionModeContract,
+    browserPermissionModeResultContract,
+    browserToolGrantResultContract,
+    browserToolGrantRevokeCommandContract,
+    browserToolGrantSummaryContract,
+    browserWorkspaceContextContract,
+} from "./contracts/command";
 
 /**
  * Web 命令与响应结果的数据传输对象 (DTO)。
@@ -22,11 +39,7 @@ import type {
  * };
  * ```
  */
-export interface AcceptedCommand {
-    readonly goalId: string;
-    readonly runId: string;
-    readonly existing: boolean;
-}
+export type AcceptedCommand = InferContract<typeof acceptedCommandContract>;
 
 /**
  * 切换计划模式命令。
@@ -36,10 +49,8 @@ export interface AcceptedCommand {
  * const cmd: BrowserGoalPlanModeCommand = { runId: "run-1" };
  * ```
  */
-export interface BrowserGoalPlanModeCommand {
-    /** 目标 Run 标识。 */
-    readonly runId: string;
-}
+export type BrowserGoalPlanModeCommand =
+    InferContract<typeof browserGoalPlanModeCommandContract>;
 
 /**
  * 切换计划模式结果。
@@ -58,22 +69,7 @@ export interface BrowserGoalPlanModeCommand {
  * ```
  */
 export type BrowserGoalPlanModeResult =
-    | {
-        readonly ok: true;
-        readonly goalId: string;
-        readonly runId: string;
-        readonly existing: boolean;
-    }
-    | {
-        readonly ok: false;
-        readonly error:
-            | "goal_not_found"
-            | "stale_run"
-            | "goal_busy"
-            | "plan_mode_busy"
-            | "plan_mode_failed"
-            | "service_shutting_down";
-    };
+    InferContract<typeof browserGoalPlanModeResultContract>;
 
 /**
  * 选定执行模型命令。
@@ -86,14 +82,8 @@ export type BrowserGoalPlanModeResult =
  * };
  * ```
  */
-export interface BrowserModelSelectionCommand {
-    /** 当前 Run 标识。 */
-    readonly runId: string;
-    /** 选中的模型标识。 */
-    readonly modelId: string;
-    /** 目标受管 Provider 档案；省略表示保持当前来源。 */
-    readonly providerProfileId?: string | undefined;
-}
+export type BrowserModelSelectionCommand =
+    InferContract<typeof browserModelSelectionCommandContract>;
 
 /**
  * 模型选择结果。
@@ -113,25 +103,7 @@ export interface BrowserModelSelectionCommand {
  * ```
  */
 export type BrowserModelSelectionResult =
-    | {
-        readonly ok: true;
-        readonly goalId: string;
-        readonly runId: string;
-        readonly modelId: string;
-        readonly defaultModelSaved: boolean;
-    }
-    | {
-        readonly ok: false;
-        readonly error:
-            | "goal_not_found"
-            | "stale_run"
-            | "goal_busy"
-            | "model_switch_not_allowed"
-            | "model_not_selectable"
-            | "model_catalog_unavailable"
-            | "model_selection_failed"
-            | "service_shutting_down";
-    };
+    InferContract<typeof browserModelSelectionResultContract>;
 
 /**
  * 设置工作区默认模型偏好命令。
@@ -141,12 +113,8 @@ export type BrowserModelSelectionResult =
  * const cmd: BrowserModelPreferenceCommand = { modelId: "gpt-4o" };
  * ```
  */
-export interface BrowserModelPreferenceCommand {
-    /** 目标模型标识。 */
-    readonly modelId: string;
-    /** 目标受管 Provider 档案；省略表示当前来源。 */
-    readonly providerProfileId?: string | undefined;
-}
+export type BrowserModelPreferenceCommand =
+    InferContract<typeof browserModelPreferenceCommandContract>;
 
 /**
  * 设置工作区默认模型偏好结果。
@@ -157,8 +125,7 @@ export interface BrowserModelPreferenceCommand {
  * ```
  */
 export type BrowserModelPreferenceResult =
-    | { readonly ok: true; readonly modelId: string }
-    | { readonly ok: false; readonly error: string };
+    InferContract<typeof browserModelPreferenceResultContract>;
 
 /**
  * 授权摘要条目。
@@ -173,26 +140,8 @@ export type BrowserModelPreferenceResult =
  * };
  * ```
  */
-export interface BrowserToolGrantSummary {
-    /** 授权标识。 */
-    readonly grantId: string;
-    /** 授权作用域。 */
-    readonly scope: "goal" | "workspace";
-    /** 工具标识。 */
-    readonly toolId: string;
-    /** 授权状态。 */
-    readonly status: "pending" | "active" | "revoked";
-    /** 授权分类。 */
-    readonly kind?: "tool" | "sandbox";
-    /** 目标路径白名单。 */
-    readonly targetPath?: string;
-    /** 允许的命令。 */
-    readonly command?: string;
-    /** 网络访问能力。 */
-    readonly network?: "none" | "all_outbound";
-    /** 额外访问文件列表。 */
-    readonly extraFiles?: readonly BrowserToolGrantExtraFile[];
-}
+export type BrowserToolGrantSummary =
+    InferContract<typeof browserToolGrantSummaryContract>;
 
 /**
  * Action 完整输入查询结果。
@@ -210,22 +159,7 @@ export interface BrowserToolGrantSummary {
  * ```
  */
 export type BrowserActionDetailsResult =
-    | {
-        readonly ok: true;
-        readonly goalId: string;
-        readonly runId: string;
-        readonly actionId: string;
-        readonly toolId: string;
-        readonly input: unknown;
-    }
-    | {
-        readonly ok: false;
-        readonly error:
-            | "goal_not_found"
-            | "stale_run"
-            | "action_not_waiting"
-            | "action_details_unavailable";
-    };
+    InferContract<typeof browserActionDetailsResultContract>;
 
 /**
  * 工具授权查询或撤销结果。
@@ -244,21 +178,7 @@ export type BrowserActionDetailsResult =
  * ```
  */
 export type BrowserToolGrantResult =
-    | {
-        readonly ok: true;
-        readonly goalId: string;
-        readonly runId: string;
-        readonly grants: readonly BrowserToolGrantSummary[];
-    }
-    | {
-        readonly ok: false;
-        readonly error:
-            | "goal_not_found"
-            | "stale_run"
-            | "permissions_unavailable"
-            | "grant_failed"
-            | "service_shutting_down";
-    };
+    InferContract<typeof browserToolGrantResultContract>;
 
 /**
  * 撤销工具授权命令。
@@ -272,16 +192,8 @@ export type BrowserToolGrantResult =
  * };
  * ```
  */
-export interface BrowserToolGrantRevokeCommand {
-    /** 当前 Run 标识。 */
-    readonly runId: string;
-    /** 待撤销授权标识。 */
-    readonly grantId: string;
-    /** 作用域。 */
-    readonly scope: "goal" | "workspace";
-    /** 授权分类。 */
-    readonly kind?: "tool" | "sandbox";
-}
+export type BrowserToolGrantRevokeCommand =
+    InferContract<typeof browserToolGrantRevokeCommandContract>;
 
 /**
  * 项目权限模式。
@@ -291,7 +203,8 @@ export interface BrowserToolGrantRevokeCommand {
  * const mode: BrowserPermissionMode = "default";
  * ```
  */
-export type BrowserPermissionMode = "default" | "yolo";
+export type BrowserPermissionMode =
+    InferContract<typeof browserPermissionModeContract>;
 
 /**
  * 变更权限模式命令。
@@ -304,12 +217,8 @@ export type BrowserPermissionMode = "default" | "yolo";
  * };
  * ```
  */
-export interface BrowserPermissionModeCommand {
-    /** 目标模式。 */
-    readonly mode: BrowserPermissionMode;
-    /** 期望版本（乐观并发控制）。 */
-    readonly expectedRevision: number;
-}
+export type BrowserPermissionModeCommand =
+    InferContract<typeof browserPermissionModeCommandContract>;
 
 /**
  * 权限模式变更结果。
@@ -328,17 +237,7 @@ export interface BrowserPermissionModeCommand {
  * ```
  */
 export type BrowserPermissionModeResult =
-    | {
-        readonly ok: true;
-        readonly mode: BrowserPermissionMode;
-        readonly revision: number;
-        readonly workspaceId: string;
-    }
-    | {
-        readonly ok: false;
-        readonly error: "permissions_unavailable" | "conflict" | "service_shutting_down";
-        readonly actualRevision?: number;
-    };
+    InferContract<typeof browserPermissionModeResultContract>;
 
 /**
  * 当前工作区上下文视图。
@@ -352,14 +251,8 @@ export type BrowserPermissionModeResult =
  * };
  * ```
  */
-export interface BrowserWorkspaceContext {
-    /** 工作区真实根目录。 */
-    readonly workspaceRoot: string;
-    /** Git worktree 根目录（若存在）。 */
-    readonly worktreeRoot: string | null;
-    /** 当前 Git 分支（若存在）。 */
-    readonly branch: string | null;
-}
+export type BrowserWorkspaceContext =
+    InferContract<typeof browserWorkspaceContextContract>;
 
 /**
  * 归档或恢复 Goal 的 wire 命令。
@@ -369,10 +262,8 @@ export interface BrowserWorkspaceContext {
  * const cmd: BrowserGoalArchiveCommand = { archived: true };
  * ```
  */
-export interface BrowserGoalArchiveCommand {
-    /** 是否归档。 */
-    readonly archived: boolean;
-}
+export type BrowserGoalArchiveCommand =
+    InferContract<typeof browserGoalArchiveCommandContract>;
 
 /**
  * 归档 Goal 结果。
@@ -383,8 +274,7 @@ export interface BrowserGoalArchiveCommand {
  * ```
  */
 export type BrowserGoalArchiveResult =
-    | { readonly ok: true }
-    | { readonly ok: false; readonly error: string };
+    InferContract<typeof browserGoalArchiveResultContract>;
 
 /**
  * 删除 Goal 结果。
@@ -395,5 +285,4 @@ export type BrowserGoalArchiveResult =
  * ```
  */
 export type BrowserGoalDeleteResult =
-    | { readonly ok: true }
-    | { readonly ok: false; readonly error: string };
+    InferContract<typeof browserGoalDeleteResultContract>;

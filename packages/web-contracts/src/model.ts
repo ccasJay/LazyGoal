@@ -1,3 +1,15 @@
+import type { InferContract } from "../../contracts/src/index";
+import {
+    browserModelCatalogContract,
+    browserModelCatalogErrorContract,
+    browserModelCatalogNoticeContract,
+    browserModelCatalogReadResultContract,
+    browserModelMetadataSourceContract,
+    browserModelOptionContract,
+    browserModelSourceContract,
+    browserModelSourceRefContract,
+} from "./contracts/model";
+
 /**
  * Web 模型目录与模型选项数据传输对象 (DTO)。
  */
@@ -10,7 +22,8 @@
  * const source: BrowserModelMetadataSource = "catalog";
  * ```
  */
-export type BrowserModelMetadataSource = "live" | "catalog" | "execution" | "configured" | "mixed";
+export type BrowserModelMetadataSource =
+    InferContract<typeof browserModelMetadataSourceContract>;
 
 /**
  * 候选模型项的展示属性。
@@ -30,28 +43,7 @@ export type BrowserModelMetadataSource = "live" | "catalog" | "execution" | "con
  * };
  * ```
  */
-export interface BrowserModelOption {
-    /** 模型唯一标识。 */
-    readonly id: string;
-    /** 用户友好展示名称。 */
-    readonly displayName: string;
-    /** 可用性来源。 */
-    readonly availabilitySource: "live" | "catalog" | "configured";
-    /** 元数据来源。 */
-    readonly metadataSource: BrowserModelMetadataSource;
-    /** 当前是否可选。 */
-    readonly selectable: boolean;
-    /** 上下文窗口 Token 上限。 */
-    readonly contextWindowTokens?: number | undefined;
-    /** 最大输出 Token 上限。 */
-    readonly maxOutputTokens?: number | undefined;
-    /** 是否支持思维链/思考推理。 */
-    readonly reasoning?: boolean | undefined;
-    /** 是否支持多模态视觉。 */
-    readonly vision?: boolean | undefined;
-    /** 不可选时的提示原因。 */
-    readonly unavailableReason?: string | undefined;
-}
+export type BrowserModelOption = InferContract<typeof browserModelOptionContract>;
 
 /**
  * 默认模型提示告警分类。
@@ -61,7 +53,8 @@ export interface BrowserModelOption {
  * const error: BrowserModelCatalogNotice = "provider_changed";
  * ```
  */
-export type BrowserModelCatalogNotice = "provider_changed" | "model_unavailable";
+export type BrowserModelCatalogNotice =
+    InferContract<typeof browserModelCatalogNoticeContract>;
 
 /**
  * 浏览器模型目录读取的稳定失败分类。
@@ -72,12 +65,7 @@ export type BrowserModelCatalogNotice = "provider_changed" | "model_unavailable"
  * ```
  */
 export type BrowserModelCatalogError =
-    | "goal_not_found"
-    | "stale_run"
-    | "model_catalog_authentication"
-    | "model_catalog_permission"
-    | "model_catalog_protocol"
-    | "model_catalog_unavailable";
+    InferContract<typeof browserModelCatalogErrorContract>;
 
 /**
  * 可供选择的模型来源：受管 Provider 档案或 `config.toml` 回退。
@@ -87,16 +75,8 @@ export type BrowserModelCatalogError =
  * const source: BrowserModelSourceRef = { profileId: "6f1c...", kind: "openai", label: "OpenAI 主账号", active: true };
  * ```
  */
-export interface BrowserModelSourceRef {
-    /** 受管档案标识；`config.toml` 回退来源时省略。 */
-    readonly profileId?: string | undefined;
-    /** 供应商标识。 */
-    readonly kind: string;
-    /** 面向用户的来源名称。 */
-    readonly label: string;
-    /** 进程启动配置是否来自该来源。 */
-    readonly active: boolean;
-}
+export type BrowserModelSourceRef =
+    InferContract<typeof browserModelSourceRefContract>;
 
 /**
  * 完整模型目录投影。
@@ -110,20 +90,7 @@ export interface BrowserModelSourceRef {
  * };
  * ```
  */
-export interface BrowserModelCatalog {
-    /** 当前生效的 Provider 名称。 */
-    readonly provider: string;
-    /** 当前目录对应的受管档案标识；回退来源时省略。 */
-    readonly profileId?: string | undefined;
-    /** 可选来源维度；仅有单一来源时省略。 */
-    readonly sources?: readonly BrowserModelSourceRef[] | undefined;
-    /** 当前选中的模型标识。 */
-    readonly currentModelId: string;
-    /** 默认模型告警提示。 */
-    readonly defaultModelNotice?: BrowserModelCatalogNotice;
-    /** 可用模型列表。 */
-    readonly models: readonly BrowserModelOption[];
-}
+export type BrowserModelCatalog = InferContract<typeof browserModelCatalogContract>;
 
 /**
  * 供投影目录的最小模型元数据来源。
@@ -140,10 +107,7 @@ export interface BrowserModelCatalog {
  * };
  * ```
  */
-export interface BrowserModelSource extends BrowserModelOption {
-    /** 供应商标识。 */
-    readonly provider: string;
-}
+export type BrowserModelSource = InferContract<typeof browserModelSourceContract>;
 
 /**
  * 读取模型目录结果。
@@ -157,5 +121,4 @@ export interface BrowserModelSource extends BrowserModelOption {
  * ```
  */
 export type BrowserModelCatalogReadResult =
-    | { readonly ok: true; readonly catalog: BrowserModelCatalog }
-    | { readonly ok: false; readonly error: BrowserModelCatalogError };
+    InferContract<typeof browserModelCatalogReadResultContract>;

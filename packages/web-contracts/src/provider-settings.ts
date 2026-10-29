@@ -1,3 +1,20 @@
+import type { InferContract } from "../../contracts/src/index";
+import {
+    browserProviderFallbackContract,
+    browserProviderModelQueryContract,
+    browserProviderModelsContract,
+    browserProviderProfileActivationResultContract,
+    browserProviderProfileContract,
+    browserProviderProfileDeleteResultContract,
+    browserProviderProfileInputContract,
+    browserProviderProfileTestErrorContract,
+    browserProviderProfileTestResultContract,
+    browserProviderProfileWriteResultContract,
+    browserProviderSettingsContract,
+    browserProviderSettingsErrorContract,
+    browserProviderSettingsReadResultContract,
+} from "./contracts/provider";
+
 /**
  * 受管 Provider 档案与设置页的数据传输对象 (DTO)。
  *
@@ -16,28 +33,7 @@
  * };
  * ```
  */
-export interface BrowserProviderProfile {
-    /** 稳定唯一且不可变的档案标识。 */
-    readonly id: string;
-    /** 面向用户的展示名。 */
-    readonly label: string;
-    /** 供应商标识。 */
-    readonly kind: string;
-    /** 默认模型。 */
-    readonly defaultModel: string;
-    /** 端点覆盖；仅部分供应商有值。 */
-    readonly baseURL?: string | undefined;
-    /** 自定义模型的上下文窗口上限。 */
-    readonly contextWindowTokens?: number | undefined;
-    /** 输出 Token 上限。 */
-    readonly maxOutputTokens?: number | undefined;
-    /** 结构化输出模式；省略时由运行时派生。 */
-    readonly structuredOutputMode?: "strict" | "prompt_only" | "two_stage" | undefined;
-    /** 是否已保存凭据。 */
-    readonly hasApiKey: boolean;
-    /** 凭据掩码；未保存凭据时为空串。 */
-    readonly apiKeyMask: string;
-}
+export type BrowserProviderProfile = InferContract<typeof browserProviderProfileContract>;
 
 /**
  * 只读的 `config.toml` 回退来源投影。
@@ -47,11 +43,7 @@ export interface BrowserProviderProfile {
  * const fallback: BrowserProviderFallback = { source: "config", provider: "google", model: "gemini-2.5-pro" };
  * ```
  */
-export interface BrowserProviderFallback {
-    readonly source: "config";
-    readonly provider: string;
-    readonly model: string;
-}
+export type BrowserProviderFallback = InferContract<typeof browserProviderFallbackContract>;
 
 /**
  * 设置页读取结果。
@@ -61,14 +53,7 @@ export interface BrowserProviderFallback {
  * const settings: BrowserProviderSettings = { profiles: [], fallback: { source: "config", provider: "openai", model: "gpt-4o" } };
  * ```
  */
-export interface BrowserProviderSettings {
-    /** 当前受管激活档案标识；未设置时省略。 */
-    readonly activeProfileId?: string | undefined;
-    /** 已保存的受管档案。 */
-    readonly profiles: readonly BrowserProviderProfile[];
-    /** `config.toml` 回退来源；进程无回退配置时省略。 */
-    readonly fallback?: BrowserProviderFallback | undefined;
-}
+export type BrowserProviderSettings = InferContract<typeof browserProviderSettingsContract>;
 
 /**
  * 设置操作的稳定失败分类。
@@ -79,11 +64,7 @@ export interface BrowserProviderSettings {
  * ```
  */
 export type BrowserProviderSettingsError =
-    | "provider_profile_not_found"
-    | "provider_profile_conflict"
-    | "provider_profile_active"
-    | "provider_profile_invalid"
-    | "provider_profile_unavailable";
+    InferContract<typeof browserProviderSettingsErrorContract>;
 
 /**
  * 设置页读取结果。
@@ -94,8 +75,7 @@ export type BrowserProviderSettingsError =
  * ```
  */
 export type BrowserProviderSettingsReadResult =
-    | { readonly ok: true; readonly settings: BrowserProviderSettings }
-    | { readonly ok: false; readonly error: BrowserProviderSettingsError };
+    InferContract<typeof browserProviderSettingsReadResultContract>;
 
 /**
  * 创建或部分更新档案的输入。
@@ -109,21 +89,8 @@ export type BrowserProviderSettingsReadResult =
  * const input: BrowserProviderProfileInput = { label: "OpenAI", kind: "openai", defaultModel: "gpt-4o", apiKey: "sk-..." };
  * ```
  */
-export interface BrowserProviderProfileInput {
-    readonly label: string;
-    readonly kind: string;
-    readonly defaultModel: string;
-    /** 凭据；省略表示保留原值。 */
-    readonly apiKey?: string | undefined;
-    /** 端点覆盖；`null` 表示清空。 */
-    readonly baseURL?: string | null | undefined;
-    /** 上下文窗口上限；`null` 表示清空。 */
-    readonly contextWindowTokens?: number | null | undefined;
-    /** 输出上限；`null` 表示清空。 */
-    readonly maxOutputTokens?: number | null | undefined;
-    /** 结构化输出模式；`null` 表示清空。 */
-    readonly structuredOutputMode?: "strict" | "prompt_only" | "two_stage" | null | undefined;
-}
+export type BrowserProviderProfileInput =
+    InferContract<typeof browserProviderProfileInputContract>;
 
 /**
  * 创建或更新结果。
@@ -134,8 +101,7 @@ export interface BrowserProviderProfileInput {
  * ```
  */
 export type BrowserProviderProfileWriteResult =
-    | { readonly ok: true; readonly profile: BrowserProviderProfile }
-    | { readonly ok: false; readonly error: BrowserProviderSettingsError; readonly fields?: readonly string[] | undefined };
+    InferContract<typeof browserProviderProfileWriteResultContract>;
 
 /**
  * 删除结果。
@@ -149,8 +115,7 @@ export type BrowserProviderProfileWriteResult =
  * ```
  */
 export type BrowserProviderProfileDeleteResult =
-    | { readonly ok: true; readonly profile: BrowserProviderProfile; readonly mayBeReferencedByGoals: boolean }
-    | { readonly ok: false; readonly error: BrowserProviderSettingsError };
+    InferContract<typeof browserProviderProfileDeleteResultContract>;
 
 /**
  * 激活结果。
@@ -161,8 +126,7 @@ export type BrowserProviderProfileDeleteResult =
  * ```
  */
 export type BrowserProviderProfileActivationResult =
-    | { readonly ok: true; readonly activeProfileId: string }
-    | { readonly ok: false; readonly error: BrowserProviderSettingsError };
+    InferContract<typeof browserProviderProfileActivationResultContract>;
 
 /**
  * 连接测试的稳定失败分类。
@@ -173,11 +137,7 @@ export type BrowserProviderProfileActivationResult =
  * ```
  */
 export type BrowserProviderProfileTestError =
-    | "provider_profile_not_found"
-    | "model_catalog_authentication"
-    | "model_catalog_permission"
-    | "model_catalog_protocol"
-    | "model_catalog_unavailable";
+    InferContract<typeof browserProviderProfileTestErrorContract>;
 
 /**
  * 连接测试结果。
@@ -191,8 +151,7 @@ export type BrowserProviderProfileTestError =
  * ```
  */
 export type BrowserProviderProfileTestResult =
-    | { readonly ok: true; readonly modelCount: number }
-    | { readonly ok: false; readonly error: BrowserProviderProfileTestError };
+    InferContract<typeof browserProviderProfileTestResultContract>;
 
 /**
  * 未保存表单的在线模型查询；省略密钥时仅允许复用指定档案的同类供应商凭据。
@@ -202,16 +161,8 @@ export type BrowserProviderProfileTestResult =
  * const query: BrowserProviderModelQuery = { kind: "google", apiKey: "secret" };
  * ```
  */
-export interface BrowserProviderModelQuery {
-    /** 表单选择的供应商。 */
-    readonly kind: string;
-    /** 新输入的密钥；不出现在响应中。 */
-    readonly apiKey?: string;
-    /** 表单当前端点；省略表示使用供应商默认端点。 */
-    readonly baseURL?: string;
-    /** 编辑中的已保存档案；仅用于密钥留空时读取凭据。 */
-    readonly profileId?: string;
-}
+export type BrowserProviderModelQuery =
+    InferContract<typeof browserProviderModelQueryContract>;
 
 /**
  * 在线查询的非敏感模型列表，不代表模型生成能力已经验证。
@@ -220,8 +171,4 @@ export interface BrowserProviderModelQuery {
  * const result: BrowserProviderModels = { ok: true, models: [{ id: "model-1", name: "Model 1" }] };
  * ```
  */
-export interface BrowserProviderModels {
-    readonly ok: true;
-    /** 仅本次端点实际返回的模型，不补静态回退目录。 */
-    readonly models: readonly { readonly id: string; readonly name: string }[];
-}
+export type BrowserProviderModels = InferContract<typeof browserProviderModelsContract>;
