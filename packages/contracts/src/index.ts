@@ -56,8 +56,10 @@ export type {
     ObjectContract,
     ObjectProperty,
     ObjectShape,
+    OpenObjectContract,
     OptionalProperty,
     StringOptions,
+    UnknownContract,
 } from "./types";
 export type { SafeParseResult } from "./parser";
 export type {

@@ -97,8 +97,12 @@ class SchemaCompiler {
                 setOwn(schema, "enum", [...values] as JsonScalar[]);
                 return schema;
             }
+            case "unknown":
+                return {};
             case "object":
-                return this.compileObject(node);
+                return this.compileObject(node, false);
+            case "openObject":
+                return this.compileObject(node, true);
             case "nullable": {
                 const schema: SchemaObject = {};
                 setOwn(schema, "anyOf", [
@@ -195,7 +199,7 @@ class SchemaCompiler {
         return schema;
     }
 
-    private compileObject(node: RuntimeContract): SchemaObject {
+    private compileObject(node: RuntimeContract, additionalProperties: boolean): SchemaObject {
         const shape = readShape(node.shape);
         const properties: SchemaObject = {};
         const required: string[] = [];
@@ -212,7 +216,7 @@ class SchemaCompiler {
         setOwn(schema, "type", "object");
         setOwn(schema, "properties", properties);
         if (required.length > 0) setOwn(schema, "required", required);
-        setOwn(schema, "additionalProperties", false);
+        setOwn(schema, "additionalProperties", additionalProperties);
         return schema;
     }
 

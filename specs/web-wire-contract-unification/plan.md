@@ -8,7 +8,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 扩展 Contract AST 的 `unknown` 与 `openObject`
+- [x] //TODO 1. 扩展 Contract AST 的 `unknown` 与 `openObject`
   - 落实标准：[1.1](./spec.md#spec-req-1-1), [1.2](./spec.md#spec-req-1-2), [1.3](./spec.md#spec-req-1-3), [1.4](./spec.md#spec-req-1-4), [1.5](./spec.md#spec-req-1-5), [1.6](./spec.md#spec-req-1-6)
   - 实施目标：在 `packages/contracts` 的 types、builder、definition、parser、json-schema 与公共入口加入 `contract.unknown()` 和 `contract.openObject(shape)`；`unknown` 接受任意 JSON 并深复制，其子树使用独立的有界遍历（显式栈）校验，不消耗 `MAX_DEPTH` 结构预算；`openObject` 校验声明字段、保留额外 JSON 字段并安全处理 `__proto__`；`InferContract` 分别推导 `unknown` 与仅声明字段；模型输出 wire 推导明确拒绝两类节点，并在 Tool 注册测试中新增递归检查，禁止 Tool 输入合同声明它们。改动前先运行 `npm run build:web` 并记录 `apps/goal-board/dist/assets/index-*.js` 的原始与 gzip 体积作为基线。
   - 场景与预期：`safeParse(contract.unknown(), { nested: [1] })` 成功且不与输入共享引用；`undefined`、函数、Symbol、BigInt、NaN、类实例、循环对象失败；`safeParse(contract.openObject({ id: contract.string() }), { id: "1", extra: { ok: true } })` 成功且数据保留 `extra`；`__proto__` 额外键不污染原型；200 层嵌套数组在 `unknown` 与 `openObject` 额外字段中均成功，证明载荷深度不占用结构预算；递归合同的输入超过 64 层时仍报告 `max_depth_exceeded`；`unknown` Schema 根除 `$schema` 外为空，`openObject` 为 `additionalProperties: true`，严格 `object` 仍为 `false`；非法定义仍抛 `ContractDefinitionError`；模型输出与 Tool 输入合同不得包含两类节点。
