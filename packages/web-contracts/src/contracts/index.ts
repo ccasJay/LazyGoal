@@ -1,9 +1,11 @@
 import { compileJsonSchema, type Contract } from "../../../contracts/src/index";
 import { sharedWebContracts } from "./common";
+import { sessionWebContracts } from "./session";
 
 /** 本包当前登记的全部 Web wire 合同。 */
 const webContracts: readonly Contract<unknown>[] = [
     ...sharedWebContracts,
+    ...sessionWebContracts,
 ];
 
 /**

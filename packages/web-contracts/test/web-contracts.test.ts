@@ -50,6 +50,8 @@ import {
     type BrowserActivityPage,
     type SessionMetricsSnapshot,
 } from "../src/index";
+import { safeParse } from "../../contracts/src/index";
+import { browserGoalSessionContract } from "../src/contracts/session";
 
 test("isRunStatus classifies valid and invalid run statuses", () => {
     assert.equal(isRunStatus("created"), true);
@@ -723,4 +725,152 @@ test("Provider 写入、删除、激活与测试守卫区分成功与失败形�
     assert.equal(isProviderProfileTestResult({ ok: true, modelCount: 29 }), true);
     assert.equal(isProviderProfileTestResult({ ok: true, modelCount: -1 }), false);
     assert.equal(isProviderProfileTestResult({ ok: false, error: "model_catalog_authentication" }), true);
+});
+
+test("session contracts preserve open layers and reject unlisted strict fields", () => {
+    const session = {
+        goalId: "goal-1",
+        intent: "Test goal",
+        currentRunId: "run-1",
+        runStatus: "waiting",
+        currentRunMode: "normal",
+        messages: [],
+        runs: [],
+        historyTruncated: false,
+    };
+    const parsed = safeParse(browserGoalSessionContract, {
+        ...session,
+        futureServerField: { nested: [1, 2] },
+    });
+    assert.equal(parsed.success, true);
+    if (parsed.success) {
+        assert.deepEqual(
+            (parsed.data as Record<string, unknown>).futureServerField,
+            { nested: [1, 2] },
+        );
+    }
+
+    const state = {
+        goalId: "goal-1",
+        intent: "Test goal",
+        currentRunId: "run-1",
+        runStatus: "waiting",
+        currentRunMode: "normal",
+        currentRunStepCount: 0,
+        history: {
+            messages: { included: false, source: "activity" },
+            steps: { included: false, source: "activity" },
+            stages: { included: false, source: "activity" },
+        },
+    };
+    assert.equal(isBrowserGoalSessionState(state), true);
+    assert.equal(isBrowserGoalSessionState({ ...state, futureServerField: true }), false);
+    assert.equal(isBrowserGoalSessionState({
+        ...state,
+        runStatus: "failed",
+        currentRunTerminalDetail: { message: "failed", futureField: true },
+    }), false);
+    assert.equal(isBrowserGoalSessionState({
+        ...state,
+        runStatus: "running",
+        currentRunTerminalDetail: { message: "failed" },
+    }), false);
+});
+
+test("session guards enforce plan route, terminal and declared field invariants", () => {
+    const validSession = {
+        goalId: "goal-1",
+        intent: "Test goal",
+        currentRunId: "run-1",
+        runStatus: "running",
+        currentRunMode: "normal",
+        messages: [],
+        runs: [{
+            runId: "run-1",
+            status: "running",
+            stepCount: 1,
+            steps: [{
+                runId: "run-1",
+                executionUnitId: "u-1",
+                sequence: 1,
+                stepIndex: 1,
+                status: "completed",
+            }],
+            current: true,
+            planRoute: {
+                revision: 2,
+                revisionReason: "Evidence confirmed another verification gate",
+                nextStageIndex: 1,
+                stages: [
+                    { stageId: "stage-1", revision: 1, status: "accepted", target: "Inspect", acceptanceCriteria: ["Entry found"], acceptedSequence: 3 },
+                    { stageId: "stage-2", revision: 2, status: "executing", target: "Implement", acceptanceCriteria: ["Checks pass"] },
+                ],
+            },
+        }],
+        historyTruncated: false,
+    };
+    assert.equal(isBrowserGoalSession(validSession), true);
+    const withRoute = (route: Record<string, unknown>) => ({
+        ...validSession,
+        runs: [{ ...validSession.runs[0], planRoute: route }],
+    });
+    const route = validSession.runs[0]!.planRoute;
+    assert.equal(isBrowserGoalSession(validSession), true);
+    const { revisionReason: _revisionReason, ...routeWithoutReason } = route;
+    assert.equal(isBrowserGoalSession(withRoute(routeWithoutReason)), false);
+    assert.equal(isBrowserGoalSession(withRoute({
+        ...route,
+        stages: [route.stages[0], { ...route.stages[1], stageId: "stage-1" }],
+    })), false);
+    assert.equal(isBrowserGoalSession(withRoute({
+        ...route,
+        stages: [{ ...route.stages[0], acceptedSequence: undefined }, route.stages[1]],
+    })), false);
+    assert.equal(isBrowserGoalSession(withRoute({
+        ...route,
+        stages: [{ ...route.stages[0], status: "pending" }, route.stages[1]],
+    })), false);
+
+    const runWithoutRoute = {
+        runId: "run-1",
+        status: "running",
+        stepCount: 1,
+        steps: validSession.runs[0]!.steps,
+        current: true,
+    };
+    const withStep = (step: Record<string, unknown>) => ({
+        ...validSession,
+        runs: [{ ...runWithoutRoute, steps: [step] }],
+    });
+    assert.equal(isBrowserGoalSession(withStep({
+        ...validSession.runs[0]!.steps[0],
+        runId: 1,
+    })), false);
+    assert.equal(isBrowserGoalSession(withStep({
+        ...validSession.runs[0]!.steps[0],
+        sourceEventId: 1,
+    })), false);
+    assert.equal(isBrowserGoalSession(withStep({
+        ...validSession.runs[0]!.steps[0],
+        bashExecution: { command: "npm test", exitCode: "0" },
+    })), false);
+
+    assert.equal(isGoalListItem({
+        goalId: "goal-1",
+        runId: "run-1",
+        intent: "Test",
+        workflowPhase: "executing",
+        runStatus: "running",
+        execution: { state: "active", committedThroughSequence: Number.NaN },
+        updatedAt: "2026-10-28T00:00:00.000Z",
+        archived: false,
+    }), false);
+    assert.equal(isBrowserRun({
+        runId: "run-1",
+        status: "running",
+        stepCount: Number.MAX_SAFE_INTEGER + 1,
+        steps: [],
+        current: true,
+    }), false);
+    assert.equal(isRunStatus(new String("running")), false);
 });

@@ -6,6 +6,8 @@ import type {
     BrowserInteractionDetailResult,
     BrowserInteractionView,
     BrowserGoalPlan,
+    BrowserMessagePosition,
+    BrowserPlanRoute,
     BrowserGoalSession,
     BrowserGoalSessionState,
     BrowserActivityPage,
@@ -38,8 +40,27 @@ import type {
     BrowserProviderProfileActivationResult,
     BrowserProviderProfileTestResult,
 } from "./index";
+import { safeParse } from "../../contracts/src/index";
 import { BROWSER_ACTIVITY_EVENT_TYPES } from "./activity";
-import { isJsonValue } from "./invariants";
+import {
+    hasConsistentTerminalDetail,
+    isJsonValue,
+    isPlanRoute,
+} from "./invariants";
+import {
+    browserMessagePositionContract,
+    browserRunStatusContract,
+} from "./contracts/common";
+import {
+    browserGoalListItemContract,
+    browserGoalListContract,
+    browserGoalPlanContract,
+    browserGoalSessionContract,
+    browserGoalSessionStateContract,
+    browserPendingActionContract,
+    browserPlanRouteContract,
+    browserSessionRunContract,
+} from "./contracts/session";
 
 /**
  * 通用对象类型守卫。
@@ -56,10 +77,13 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isMessagePosition(value: unknown): value is { readonly afterSequence: number; readonly order: number } {
-    return isRecord(value)
-        && Number.isSafeInteger(value.afterSequence) && Number(value.afterSequence) >= 0
-        && Number.isSafeInteger(value.order) && Number(value.order) >= 0;
+function isMessagePosition(value: unknown): value is BrowserMessagePosition {
+    return safeParse(browserMessagePositionContract, value).success;
+}
+
+function isBrowserPlanRoute(value: unknown): value is BrowserPlanRoute {
+    const parsed = safeParse(browserPlanRouteContract, value);
+    return parsed.success && isPlanRoute(parsed.data);
 }
 
 /**
@@ -91,7 +115,7 @@ export { isJsonValue };
  * ```
  */
 export function isRunStatus(value: unknown): value is BrowserRunStatus {
-    return ["created", "running", "waiting", "completed", "failed", "cancelled"].includes(String(value));
+    return safeParse(browserRunStatusContract, value).success;
 }
 
 /**
@@ -282,19 +306,7 @@ const SESSION_INPUT_ERROR_CODES: ReadonlySet<string> = new Set([
  * ```
  */
 export function isGoalListItem(value: unknown): value is BrowserGoalListItem {
-    return isRecord(value)
-        && isNonEmptyString(value.goalId)
-        && isNonEmptyString(value.runId)
-        && typeof value.intent === "string"
-        && typeof value.workflowPhase === "string"
-        && isRunStatus(value.runStatus)
-        && (value.execution === undefined || (
-            isRecord(value.execution)
-            && ["active", "recoverable", "inactive"].includes(String(value.execution.state))
-            && typeof value.execution.committedThroughSequence === "number"
-        ))
-        && typeof value.archived === "boolean"
-        && typeof value.updatedAt === "string";
+    return safeParse(browserGoalListItemContract, value).success;
 }
 
 /**
@@ -309,11 +321,7 @@ export function isGoalListItem(value: unknown): value is BrowserGoalListItem {
  * ```
  */
 export function isGoalList(value: unknown): value is BrowserGoalList {
-    return isRecord(value)
-        && Array.isArray(value.goals)
-        && value.goals.every(isGoalListItem)
-        && Number.isSafeInteger(value.unreadableCount)
-        && Number(value.unreadableCount) >= 0;
+    return safeParse(browserGoalListContract, value).success;
 }
 
 /**
@@ -328,75 +336,9 @@ export function isGoalList(value: unknown): value is BrowserGoalList {
  * ```
  */
 export function isBrowserRun(value: unknown): value is BrowserSessionRun {
-    return isRecord(value)
-        && isNonEmptyString(value.runId)
-        && isRunStatus(value.status)
-        && Number.isSafeInteger(value.stepCount)
-        && Array.isArray(value.steps)
-        && value.steps.every((step) => isRecord(step)
-            && isNonEmptyString(step.executionUnitId)
-            && (step.sourceEventId === undefined || isNonEmptyString(step.sourceEventId))
-            && (step.actionId === undefined || isNonEmptyString(step.actionId))
-            && (step.activityBoundaryBefore === undefined || step.activityBoundaryBefore === true)
-            && Number.isSafeInteger(step.sequence)
-            && Number.isSafeInteger(step.stepIndex)
-            && ["recorded", "completed", "failed", "rejected"].includes(String(step.status))
-            && (step.summary === undefined || typeof step.summary === "string")
-            && (step.think === undefined || isRecord(step.think)
-                && typeof step.think.goal === "string"
-                && (step.think.output === undefined || typeof step.think.output === "string")
-                && (step.think.truncated === undefined || step.think.truncated === true))
-            && (step.stageId === undefined || isNonEmptyString(step.stageId))
-            && (step.recoveryAttempts === undefined || Array.isArray(step.recoveryAttempts)
-                && step.recoveryAttempts.every((attempt) => typeof attempt === "string")))
-        && (value.terminalDetail === undefined || isRecord(value.terminalDetail)
-            && typeof value.terminalDetail.message === "string"
-            && (value.terminalDetail.code === undefined || typeof value.terminalDetail.code === "string"))
-        && (value.stages === undefined || Array.isArray(value.stages)
-            && value.stages.every((stage) => isRecord(stage)
-                && isNonEmptyString(stage.stageId)
-                && Number.isSafeInteger(stage.revision)
-                && typeof stage.target === "string"
-                && Array.isArray(stage.acceptanceCriteria)
-                && ["in_progress", "review_pending", "accepted"].includes(String(stage.status))
-                && Array.isArray(stage.steps)))
-        && (value.planRoute === undefined || isBrowserPlanRoute(value.planRoute))
-        && typeof value.current === "boolean";
-}
-
-function isBrowserPlanRoute(value: unknown): boolean {
-    if (!isRecord(value)
-        || !Number.isSafeInteger(value.revision)
-        || Number(value.revision) < 1
-        || (value.revisionReason !== undefined && !isNonEmptyString(value.revisionReason))
-        || (Number(value.revision) > 1 && !isNonEmptyString(value.revisionReason))
-        || !Number.isSafeInteger(value.nextStageIndex)
-        || !Array.isArray(value.stages)
-        || value.stages.length === 0
-        || Number(value.nextStageIndex) < 0
-        || Number(value.nextStageIndex) > value.stages.length) return false;
-
-    const ids = new Set<string>();
-    return value.stages.every((stage, index) => {
-        if (!isRecord(stage)
-            || !isNonEmptyString(stage.stageId)
-            || ids.has(stage.stageId)
-            || !Number.isSafeInteger(stage.revision)
-            || Number(stage.revision) < 1
-            || !["pending", "executing", "accepted"].includes(String(stage.status))
-            || !isNonEmptyString(stage.target)
-            || !Array.isArray(stage.acceptanceCriteria)
-            || stage.acceptanceCriteria.length === 0
-            || !stage.acceptanceCriteria.every(isNonEmptyString)
-            || (stage.acceptedSequence !== undefined && (!Number.isSafeInteger(stage.acceptedSequence) || Number(stage.acceptedSequence) < 0))) return false;
-        ids.add(stage.stageId);
-        const cursor = Number(value.nextStageIndex);
-        const expectedStatus = index < cursor ? "accepted"
-            : index === cursor && stage.status === "executing" ? "executing"
-                : "pending";
-        return stage.status === expectedStatus
-            && ((stage.status === "accepted") === (stage.acceptedSequence !== undefined));
-    });
+    const parsed = safeParse(browserSessionRunContract, value);
+    if (!parsed.success) return false;
+    return parsed.data.planRoute === undefined || isPlanRoute(parsed.data.planRoute);
 }
 
 /**
@@ -411,14 +353,7 @@ function isBrowserPlanRoute(value: unknown): boolean {
  * ```
  */
 export function isGoalPlan(value: unknown): value is BrowserGoalPlan {
-    return isRecord(value)
-        && Number.isSafeInteger(value.revision)
-        && Array.isArray(value.items)
-        && value.items.every((item) => isRecord(item)
-            && isNonEmptyString(item.id)
-            && typeof item.content === "string"
-            && Number.isSafeInteger(item.position)
-            && ["pending", "in_progress", "completed", "cancelled"].includes(String(item.status)));
+    return safeParse(browserGoalPlanContract, value).success;
 }
 
 
@@ -434,18 +369,7 @@ export function isGoalPlan(value: unknown): value is BrowserGoalPlan {
  * ```
  */
 export function isPendingAction(value: unknown): value is BrowserPendingAction {
-    return isRecord(value)
-        && isNonEmptyString(value.actionId)
-        && isNonEmptyString(value.toolId)
-        && ["approved", "awaiting_approval", "outcome_unknown"].includes(String(value.status))
-        && typeof value.inputPreview === "string"
-        && typeof value.inputPreviewTruncated === "boolean"
-        && (value.targetPath === undefined || typeof value.targetPath === "string")
-        && (value.inputSummary === undefined || typeof value.inputSummary === "string")
-        && (value.parentProgram === undefined || isRecord(value.parentProgram)
-            && isNonEmptyString(value.parentProgram.actionId)
-            && Number.isSafeInteger(value.parentProgram.callNumber)
-            && Number(value.parentProgram.callNumber) > 0);
+    return safeParse(browserPendingActionContract, value).success;
 }
 
 /**
@@ -600,49 +524,12 @@ export function isBrowserActionReviewResult(value: unknown): value is BrowserAct
  * ```
  */
 export function isBrowserGoalSession(value: unknown): value is BrowserGoalSession {
-    if (!isRecord(value)
-        || !isNonEmptyString(value.goalId)
-        || typeof value.intent !== "string"
-        || !isNonEmptyString(value.currentRunId)
-        || !isRunStatus(value.runStatus)
-        || (value.currentRunMode !== "normal" && value.currentRunMode !== "plan")
-        || (value.nextRunMode !== undefined && value.nextRunMode !== "plan")
-        || !Array.isArray(value.messages)
-        || !value.messages.every((message) => isRecord(message)
-            && (message.role === "user" || message.role === "assistant")
-            && typeof message.content === "string"
-            && isNonEmptyString(message.messageId)
-            && isNonEmptyString(message.runId)
-            && isMessagePosition(message.position))
-        || (value.pendingSteers !== undefined && (!Array.isArray(value.pendingSteers)
-            || !value.pendingSteers.every((steer) => isRecord(steer)
-                && isNonEmptyString(steer.messageId)
-                && typeof steer.content === "string")))
-        || (value.pendingMessages !== undefined && (!Array.isArray(value.pendingMessages)
-            || !value.pendingMessages.every((message) => isRecord(message)
-                && isNonEmptyString(message.inputId)
-                && typeof message.content === "string")))
-        || (value.queue !== undefined && (!isRecord(value.queue)
-            || !Number.isSafeInteger(value.queue.revision) || Number(value.queue.revision) < 0
-            || typeof value.queue.paused !== "boolean"
-            || (value.queue.pauseReason !== undefined && value.queue.pauseReason !== "run_failed" && value.queue.pauseReason !== "user_interrupt")))
-        || (value.interruption !== undefined && (!isRecord(value.interruption)
-            || !isNonEmptyString(value.interruption.requestId)
-            || !["requested", "finished"].includes(String(value.interruption.status))
-            || (value.interruption.outcomeUnknown !== undefined && typeof value.interruption.outcomeUnknown !== "boolean")))
-        || !Array.isArray(value.runs)
-        || !value.runs.every(isBrowserRun)
-        || typeof value.historyTruncated !== "boolean") return false;
-
-    if (value.goalPlan !== undefined && !isGoalPlan(value.goalPlan)) return false;
-    if (value.execution !== undefined && !(
-        isRecord(value.execution)
-        && ["active", "recoverable", "inactive"].includes(String(value.execution.state))
-        && typeof value.execution.committedThroughSequence === "number"
-    )) return false;
-    if (value.pendingAction !== undefined && !isPendingAction(value.pendingAction)) return false;
-    if (value.interaction !== undefined && !isBrowserInteractionView(value.interaction)) return false;
-    return true;
+    const parsed = safeParse(browserGoalSessionContract, value);
+    if (!parsed.success) return false;
+    return parsed.data.runs.every((run) =>
+        run.planRoute === undefined || isPlanRoute(run.planRoute))
+        && (parsed.data.interaction === undefined
+            || isBrowserInteractionView(parsed.data.interaction));
 }
 
 /**

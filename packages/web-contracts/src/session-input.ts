@@ -4,6 +4,11 @@ import {
     browserSessionInputReceiptContract,
     browserSessionInputStatusContract,
 } from "./contracts/common";
+import {
+    browserSessionMessageEntryContract,
+    browserSessionMessageListResultContract,
+    browserSessionMessageResultContract,
+} from "./contracts/session";
 
 /**
  * Web 统一会话输入、收据与安全会话状态的 wire 传输对象。
@@ -393,28 +398,7 @@ export interface BrowserSessionState {
  * };
  * ```
  */
-export interface BrowserSessionMessageEntry {
-    /** 消息稳定身份。 */
-    readonly messageId: string;
-    /** 消息角色。 */
-    readonly role: "user" | "assistant";
-    /** 消息所属 Run。 */
-    readonly runId: string;
-    /** 消息在所属 Run 已提交事实流中的稳定位置。 */
-    readonly position: { readonly afterSequence: number; readonly order: number };
-    /** 助手消息用途；用户消息省略。 */
-    readonly purpose?: "process" | "answer" | "notice";
-    /** 来源判别式。 */
-    readonly sourceKind: string;
-    /** 来源的稳定标识。 */
-    readonly sourceId: string;
-    /** 有界正文摘要。 */
-    readonly content: string;
-    /** 原始正文长度。 */
-    readonly contentLength: number;
-    /** 正文摘要是否被截断。 */
-    readonly truncated: boolean;
-}
+export type BrowserSessionMessageEntry = InferContract<typeof browserSessionMessageEntryContract>;
 
 /**
  * 有界消息列表的 wire 结果。
@@ -429,17 +413,7 @@ export interface BrowserSessionMessageEntry {
  * ```
  */
 export type BrowserSessionMessageListResult =
-    | {
-        readonly ok: true;
-        readonly messages: readonly BrowserSessionMessageEntry[];
-        readonly nextAfterMessageId?: string;
-        readonly throughMessageId?: string;
-        readonly total: number;
-    }
-    | {
-        readonly ok: false;
-        readonly error: "message_range_invalid" | "goal_not_found";
-    };
+    InferContract<typeof browserSessionMessageListResultContract>;
 
 /**
  * 单条消息正文的 wire 结果。
@@ -453,15 +427,7 @@ export type BrowserSessionMessageListResult =
  * ```
  */
 export type BrowserSessionMessageResult =
-    | {
-        readonly ok: true;
-        readonly message: BrowserSessionMessageEntry;
-        readonly nextOffset?: number;
-    }
-    | {
-        readonly ok: false;
-        readonly error: "message_not_found" | "goal_not_found";
-    };
+    InferContract<typeof browserSessionMessageResultContract>;
 
 /**
  * 创建 Session 的 wire 命令。

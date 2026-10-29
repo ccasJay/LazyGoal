@@ -9,6 +9,25 @@ import {
     browserSandboxReviewContract,
     browserToolGrantExtraFileContract,
 } from "./contracts/common";
+import {
+    browserBashExecutionDetailContract,
+    browserGoalExecutionContract,
+    browserGoalListItemContract,
+    browserGoalListContract,
+    browserGoalPlanContract,
+    browserGoalPlanItemContract,
+    browserGoalSessionContract,
+    browserGoalSessionStateContract,
+    browserPendingActionContract,
+    browserPlanRouteContract,
+    browserPlanRouteStageStateContract,
+    browserRunStageGroupContract,
+    browserRunStageRevisionContract,
+    browserRunStageStatusContract,
+    browserSessionMessageContract,
+    browserSessionRunContract,
+    browserSessionStepContract,
+} from "./contracts/session";
 import type { BrowserJsonValue } from "./session-input";
 
 /**
@@ -163,12 +182,7 @@ export type BrowserExecutionState = InferContract<typeof browserExecutionStateCo
  * };
  * ```
  */
-export interface BrowserGoalExecution {
-    /** 进程活动状态投影。 */
-    readonly state: BrowserExecutionState;
-    /** 当前 Run 的已提交序列号边界。 */
-    readonly committedThroughSequence: number;
-}
+export type BrowserGoalExecution = InferContract<typeof browserGoalExecutionContract>;
 
 /**
  * 浏览器可读的 Run 内消息位置。
@@ -204,24 +218,7 @@ export type BrowserMessagePosition = InferContract<typeof browserMessagePosition
  * };
  * ```
  */
-export interface BrowserGoalListItem {
-    /** Goal 的唯一稳定标识。 */
-    readonly goalId: string;
-    /** 当前快照的 Run 标识。 */
-    readonly runId: string;
-    /** 限长后的用户原始意图。 */
-    readonly intent: string;
-    /** 工作流阶段（如 "executing"）。 */
-    readonly workflowPhase: string;
-    /** 当前 Run 的真实生命周期状态。 */
-    readonly runStatus: BrowserRunStatus;
-    /** 当前 Run 的进程活动与提交边界投影。 */
-    readonly execution?: BrowserGoalExecution;
-    /** 快照最后更新时间（ISO 8601 字符串）。 */
-    readonly updatedAt: string;
-    /** 是否已被用户归档。 */
-    readonly archived: boolean;
-}
+export type BrowserGoalListItem = InferContract<typeof browserGoalListItemContract>;
 
 /**
  * 工作区 Goal 列表响应信封。
@@ -239,12 +236,7 @@ export interface BrowserGoalListItem {
  * };
  * ```
  */
-export interface BrowserGoalList {
-    /** 可读取的工作区 Goal 摘要列表。 */
-    readonly goals: readonly BrowserGoalListItem[];
-    /** 无法读取的历史 Goal 数量。 */
-    readonly unreadableCount: number;
-}
+export type BrowserGoalList = InferContract<typeof browserGoalListContract>;
 
 /**
  * 会话时间线中的用户或助手文本消息。
@@ -263,18 +255,7 @@ export interface BrowserGoalList {
  * };
  * ```
  */
-export interface BrowserSessionMessage {
-    /** 消息稳定身份。 */
-    readonly messageId: string;
-    /** 消息角色。 */
-    readonly role: "user" | "assistant";
-    /** 消息正文。 */
-    readonly content: string;
-    /** 消息所属的 Run 标识；每条正式消息必须关联到真实 Run。 */
-    readonly runId: string;
-    /** 消息在所属 Run 已提交事实流中的稳定位置。 */
-    readonly position: BrowserMessagePosition;
-}
+export type BrowserSessionMessage = InferContract<typeof browserSessionMessageContract>;
 
 /**
  * Bash 命令执行的有界观察结果详情。
@@ -291,18 +272,7 @@ export interface BrowserSessionMessage {
  * };
  * ```
  */
-export interface BrowserBashExecutionDetail {
-    /** 执行的命令文本。 */
-    readonly command: string;
-    /** 进程退出码。 */
-    readonly exitCode?: number;
-    /** 限长后的标准输出。 */
-    readonly stdout?: string;
-    /** 限长后的标准错误。 */
-    readonly stderr?: string;
-    /** 失败原因描述。 */
-    readonly failure?: string;
-}
+export type BrowserBashExecutionDetail = InferContract<typeof browserBashExecutionDetailContract>;
 
 /**
  * 会话单步执行的安全投影。
@@ -323,51 +293,7 @@ export interface BrowserBashExecutionDetail {
  * };
  * ```
  */
-export interface BrowserSessionStep {
-    /** 所属 Run 标识。 */
-    readonly runId: string;
-    /** 执行单元标识。 */
-    readonly executionUnitId: string;
-    /** 已提交事实中的稳定来源事件 ID，用于活动投影与 Trajectory 定位。 */
-    readonly sourceEventId?: string;
-    /** 已提交工具调用的稳定 Action 身份；多调用执行单元省略。 */
-    readonly actionId?: string;
-    /** 已验证的来源边界；`true` 表示此 Step 必须与前一活动组断开。 */
-    readonly activityBoundaryBefore?: true;
-    /** 轨迹序列号。 */
-    readonly sequence: number;
-    /** Step 序号。 */
-    readonly stepIndex: number;
-    /** 决策或阶段控制种类（如 `tool_call`、`request_think`）。 */
-    readonly decisionKind?: string;
-    /** 工具标识。 */
-    readonly toolId?: string;
-    /** 输入摘要（如受限文件路径或搜索关键词）。 */
-    readonly inputSummary?: string;
-    /** 审批状态。 */
-    readonly actionStatus?: "awaiting_approval" | "approved" | "rejected";
-    /** 步骤终态分类。 */
-    readonly status: "recorded" | "completed" | "failed" | "rejected";
-    /** 工具观察结果摘要。 */
-    readonly summary?: string;
-    /** 显式 Think 的目标及已提交输出；输出缺省表示尚无已提交完成事实。超长文本有界展示，完整正文从 Trajectory 详情读取。 */
-    readonly think?: {
-        /** 本次明确的思考目标；最多 4,000 字符。 */
-        readonly goal: string;
-        /** 已提交的显式分析正文；最多 64,000 字符，不包含供应商隐藏推理。 */
-        readonly output?: string;
-        /** 目标或正文被截断时为 true；完整事件仍可从 Trajectory 读取。 */
-        readonly truncated?: true;
-    };
-    /** Bash 专有执行详情。 */
-    readonly bashExecution?: BrowserBashExecutionDetail;
-    /** 因数量超限是否省略 Bash 详情。 */
-    readonly bashExecutionOmitted?: true;
-    /** 错误纠正或恢复尝试摘要。 */
-    readonly recoveryAttempts?: readonly string[];
-    /** 所属稳定阶段身份；若为 Run 级控制活动则省略。 */
-    readonly stageId?: string;
-}
+export type BrowserSessionStep = InferContract<typeof browserSessionStepContract>;
 
 /**
  * 阶段生命周期状态。
@@ -377,19 +303,12 @@ export interface BrowserSessionStep {
  * - `review_pending`: 阶段提出候选等待审查；
  * - `accepted`: 阶段候选已获审查接受。
  */
-export type BrowserRunStageStatus = "in_progress" | "review_pending" | "accepted";
+export type BrowserRunStageStatus = InferContract<typeof browserRunStageStatusContract>;
 
 /**
  * 阶段修订历史记录。
  */
-export interface BrowserRunStageRevision {
-    /** 修订版本号。 */
-    readonly revision: number;
-    /** 该修订的目标说明。 */
-    readonly target: string;
-    /** 该修订提出的理由。 */
-    readonly reason?: string;
-}
+export type BrowserRunStageRevision = InferContract<typeof browserRunStageRevisionContract>;
 
 /**
  * Run 中按稳定身份聚合的阶段执行与审查记录看板投影。
@@ -410,34 +329,7 @@ export interface BrowserRunStageRevision {
  * };
  * ```
  */
-export interface BrowserRunStageGroup {
-    /** 稳定阶段身份。 */
-    readonly stageId: string;
-    /** 当前最新修订号。 */
-    readonly revision: number;
-    /** 当前阶段目标。 */
-    readonly target: string;
-    /** 阶段验收条件。 */
-    readonly acceptanceCriteria: readonly string[];
-    /** 阶段生命周期状态。 */
-    readonly status: BrowserRunStageStatus;
-    /** 已提交阶段结果摘要（若已接受）。 */
-    readonly resultSummary?: string;
-    /** 最新审查拒绝缺口（若在当前或此前修订中被拒绝）。 */
-    readonly latestReviewRejection?: {
-        readonly code: string;
-        readonly issues: readonly string[];
-    };
-    /** 前序阶段结果引用。 */
-    readonly previousStageResultRef?: {
-        readonly stageId: string;
-        readonly revision: number;
-    };
-    /** 修订记录。 */
-    readonly revisions?: readonly BrowserRunStageRevision[];
-    /** 归属该阶段的真实 Step 列表。 */
-    readonly steps: readonly BrowserSessionStep[];
-}
+export type BrowserRunStageGroup = InferContract<typeof browserRunStageGroupContract>;
 
 /**
  * Plan Run 会话中的一条已批准路线。
@@ -453,16 +345,7 @@ export interface BrowserRunStageGroup {
  * };
  * ```
  */
-export interface BrowserPlanRoute {
-    /** 当前完整路线修订号。 */
-    readonly revision: number;
-    /** 最近一次路线修订理由；初始路线省略。 */
-    readonly revisionReason?: string;
-    /** 唯一可激活阶段的零基位置；等于阶段数表示路线全部接受。 */
-    readonly nextStageIndex: number;
-    /** Runtime 分配的完整有序阶段状态。 */
-    readonly stages: readonly BrowserPlanRouteStageState[];
-}
+export type BrowserPlanRoute = InferContract<typeof browserPlanRouteContract>;
 
 /**
  * 已批准 Plan Run 中带 Runtime 身份的阶段状态。
@@ -474,20 +357,7 @@ export interface BrowserPlanRoute {
  * };
  * ```
  */
-export interface BrowserPlanRouteStageState {
-    /** Runtime 分配且在路线修订间稳定的阶段身份。 */
-    readonly stageId: string;
-    /** 当前阶段定义修订号。 */
-    readonly revision: number;
-    /** 路线阶段状态。 */
-    readonly status: "pending" | "executing" | "accepted";
-    /** 阶段目标。 */
-    readonly target: string;
-    /** 阶段验收条件。 */
-    readonly acceptanceCriteria: readonly string[];
-    /** 阶段接受事实的 Trajectory 序号。 */
-    readonly acceptedSequence?: number;
-}
+export type BrowserPlanRouteStageState = InferContract<typeof browserPlanRouteStageStateContract>;
 
 /**
  * 会话中单个 Run 的历史投影。
@@ -506,27 +376,7 @@ export interface BrowserPlanRouteStageState {
  * };
  * ```
  */
-export interface BrowserSessionRun {
-    /** Run 标识。 */
-    readonly runId: string;
-    /** Run 状态。 */
-    readonly status: BrowserRunStatus;
-    /** 步数统计。 */
-    readonly stepCount: number;
-    /** 步骤列表。 */
-    readonly steps: readonly BrowserSessionStep[];
-    /** 是否为当前最新 Run。 */
-    readonly current: boolean;
-    /** 该 Run 划分的阶段分组列表；若未包含阶段操作则为空或省略。 */
-    readonly stages?: readonly BrowserRunStageGroup[];
-    /** 当前 Run 为已获批 Plan Run 时的完整 Runtime 权威路线；普通 Run 省略。 */
-    readonly planRoute?: BrowserPlanRoute;
-    /** 终态原因详情。 */
-    readonly terminalDetail?: {
-        readonly code?: string;
-        readonly message: string;
-    };
-}
+export type BrowserSessionRun = InferContract<typeof browserSessionRunContract>;
 
 /**
  * 结构化问卷选项。
@@ -626,16 +476,7 @@ export interface BrowserPlanRouteStage {
  * };
  * ```
  */
-export interface BrowserGoalPlanItem {
-    /** 条目唯一标识。 */
-    readonly id: string;
-    /** 任务内容。 */
-    readonly content: string;
-    /** 排序位置。 */
-    readonly position: number;
-    /** 任务状态。 */
-    readonly status: "pending" | "in_progress" | "completed" | "cancelled";
-}
+export type BrowserGoalPlanItem = InferContract<typeof browserGoalPlanItemContract>;
 
 /**
  * Goal 的多步任务执行计划视图。
@@ -648,12 +489,7 @@ export interface BrowserGoalPlanItem {
  * };
  * ```
  */
-export interface BrowserGoalPlan {
-    /** 计划版本修订号。 */
-    readonly revision: number;
-    /** 计划条目列表。 */
-    readonly items: readonly BrowserGoalPlanItem[];
-}
+export type BrowserGoalPlan = InferContract<typeof browserGoalPlanContract>;
 
 /**
  * 工具授权或沙箱访问中的单个外部文件/目录条目。
@@ -696,31 +532,7 @@ export type BrowserSandboxReview = InferContract<typeof browserSandboxReviewCont
  * };
  * ```
  */
-export interface BrowserPendingAction {
-    /** Action 唯一标识。 */
-    readonly actionId: string;
-    /** 工具标识。 */
-    readonly toolId: string;
-    /** 审批状态。 */
-    readonly status: "approved" | "awaiting_approval" | "outcome_unknown";
-    /** 输入摘要。 */
-    readonly inputSummary?: string;
-    /** 输入文本预览。 */
-    readonly inputPreview: string;
-    /** 预览是否被截断。 */
-    readonly inputPreviewTruncated: boolean;
-    /** 目标路径。 */
-    readonly targetPath?: string;
-    /** 审批类型。 */
-    readonly approvalKind?: "tool" | "sandbox";
-    /** 沙箱审阅信息。 */
-    readonly sandboxReview?: BrowserSandboxReview;
-    /** 父程序调用标识。 */
-    readonly parentProgram?: {
-        readonly actionId: string;
-        readonly callNumber: number;
-    };
-}
+export type BrowserPendingAction = InferContract<typeof browserPendingActionContract>;
 
 /**
  * 当前交互视图的种类。
@@ -873,50 +685,7 @@ export type BrowserInteractionDetailResult =
  * };
  * ```
  */
-export interface BrowserGoalSession {
-    /** Goal 稳定标识。 */
-    readonly goalId: string;
-    /** 原始意图。 */
-    readonly intent: string;
-    /** 当前最新 Run 标识。 */
-    readonly currentRunId: string;
-    /** 当前 Run 生命周期状态。 */
-    readonly runStatus: BrowserRunStatus;
-    /** 当前 Run 的运行模式。 */
-    readonly currentRunMode: "normal" | "plan";
-    /** 下一 Run 预设的模式。 */
-    readonly nextRunMode?: "plan";
-    /** 当前 Run 的进程活动与提交边界投影。 */
-    readonly execution?: BrowserGoalExecution;
-    /** 会话历史消息。 */
-    readonly messages: readonly BrowserSessionMessage[];
-    /** 已受理且尚未进入模型输入的 Steer 消息，按受理顺序排列。 */
-    readonly pendingSteers?: readonly { readonly messageId: string; readonly content: string }[];
-    /** 已受理、尚未应用的普通消息；Runtime 队列是唯一真源。 */
-    readonly pendingMessages?: readonly { readonly inputId: string; readonly content: string }[];
-    /** 队列修订与暂停事实；省略表示修订 0 且未暂停。 */
-    readonly queue?: {
-        readonly revision: number;
-        readonly paused: boolean;
-        readonly pauseReason?: "run_failed" | "user_interrupt";
-    };
-    /** 已受理的用户终止及取消结算状态；不包含模型收尾阶段。 */
-    readonly interruption?: {
-        readonly requestId: string;
-        readonly status: "requested" | "finished";
-        readonly outcomeUnknown?: boolean;
-    };
-    /** 历史与当前 Run 列表。 */
-    readonly runs: readonly BrowserSessionRun[];
-    /** 任务计划。 */
-    readonly goalPlan?: BrowserGoalPlan;
-    /** 当前已提交等待的类型化交互视图；没有可决定等待时省略。 */
-    readonly interaction?: BrowserInteractionView;
-    /** 等待人工审批的 Action。 */
-    readonly pendingAction?: BrowserPendingAction;
-    /** 历史是否因达到上限被截断。 */
-    readonly historyTruncated: boolean;
-}
+export type BrowserGoalSession = InferContract<typeof browserGoalSessionContract>;
 
 /**
  * 初始读取和分页使用的窄 Goal 状态。
@@ -938,36 +707,4 @@ export interface BrowserGoalSession {
  * };
  * ```
  */
-export interface BrowserGoalSessionState {
-    readonly goalId: string;
-    readonly intent: string;
-    readonly currentRunId: string;
-    readonly runStatus: BrowserRunStatus;
-    readonly currentRunMode: "normal" | "plan";
-    readonly nextRunMode?: "plan";
-    readonly currentRunStepCount: number;
-    /** 当前失败 Run 已保存的错误摘要；不包含供应商原始响应，不读取历史步骤。 */
-    readonly currentRunTerminalDetail?: BrowserSessionRun["terminalDetail"];
-    readonly currentPlanRoute?: BrowserPlanRoute;
-    readonly execution?: BrowserGoalExecution;
-    readonly pendingSteers?: readonly { readonly messageId: string; readonly content: string }[];
-    readonly pendingMessages?: readonly { readonly inputId: string; readonly content: string }[];
-    readonly queue?: {
-        readonly revision: number;
-        readonly paused: boolean;
-        readonly pauseReason?: "run_failed" | "user_interrupt";
-    };
-    readonly interruption?: {
-        readonly requestId: string;
-        readonly status: "requested" | "finished";
-        readonly outcomeUnknown?: boolean;
-    };
-    readonly goalPlan?: BrowserGoalPlan;
-    readonly interaction?: BrowserInteractionView;
-    readonly pendingAction?: BrowserPendingAction;
-    readonly history: {
-        readonly messages: { readonly included: false; readonly source: "activity" };
-        readonly steps: { readonly included: false; readonly source: "activity" };
-        readonly stages: { readonly included: false; readonly source: "activity" };
-    };
-}
+export type BrowserGoalSessionState = InferContract<typeof browserGoalSessionStateContract>;
