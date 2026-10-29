@@ -103,6 +103,44 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 验证时间：-
-- 验证摘要：尚未开始执行。
+- 状态：已完成；10 个 TODO 全部勾选并逐项提交。
+- 验证时间：2026-10-29
+- 代码最终 commit：`78d1ce5f`（本文档结果随后单独提交）。
+- 工作位置：worktree `/Users/sawyerlau/Project/LazyGoal/.worktrees/web-wire-contract-unification`，分支 `feature/web-wire-contract-unification`，基线 `a36c8939`。
+
+#### 逐项验证
+
+| 检查 | 命令 | 结果 |
+|---|---|---|
+| 专项 Node 测试 | `npx tsx --test packages/contracts/test/*.test.ts packages/model-contracts/test/model-output-wire.test.ts packages/tools/test/input-contracts.test.ts packages/tools/test/input-contract-nodes.test.ts packages/web-contracts/test/*.test.ts packages/browser/test/browser-projection.test.ts packages/browser/test/browser-activity.test.ts packages/browser/test/browser-trajectory.test.ts packages/browser/test/browser-session-output.test.ts packages/browser/test/browser-model-input.test.ts packages/browser/test/browser-session-inputs.test.ts packages/browser/test/browser-ptc-action-identity.test.ts packages/browser/test/browser-interactions.test.ts packages/browser/test/browser-action-details.test.ts packages/browser/test/browser-provider-settings.test.ts packages/browser/test/browser-models.test.ts packages/browser/test/browser-model-selection.test.ts packages/browser/test/browser-model-preference.test.ts packages/browser/test/browser-permission-mode.test.ts packages/browser/test/browser-goal-management.test.ts apps/goal-board/test/activity-page-window.test.ts apps/goal-board/test/session-output-api.test.ts apps/goal-board/test/session-timeline.test.ts` | 235 通过，0 失败 |
+| TypeScript | `npx tsc --noEmit` | 通过 |
+| 全量回归 | `npm test` | 通过：Node `2577/2577`，scripts `70/70`，GEPA `198/198`。首次运行时 Seatbelt Git 授权用例出现一次环境性失败，单独重跑与随后全量重跑均通过 |
+| 依赖边界 | `npm run check:dependencies` | 通过：300 个源文件；新增边仅为 `web-contracts → contracts` |
+| 文档检查 | `npm run check:docs` | 通过：46 个模块、166 份说明 |
+| Bundle 预算 | `npm run build:web` + `wc -c` / `gzip -c` | 见下；gzip 增加 6,209 字节（6.06 KiB），低于 10 KiB 上限 |
+| 端到端 | `npm run test:web-e2e` | 9/13 通过，4 失败；4 个失败均可在基线 `a36c8939` 主检出复现，非本 Spec 引入 |
+| 空白/行尾 | `git diff --check` | 通过 |
+
+#### Bundle 体积
+
+| 产物 | 基线 | 迁移后 | 增量 |
+|---|---|---|---|
+| `apps/goal-board/dist/assets/index-*.js` 原始 | 905,238 B | 930,046 B | +24,808 B（24.23 KiB） |
+| gzip（默认） | 270,140 B | 276,349 B | +6,209 B（6.06 KiB） |
+| gzip -9 | 269,564 B | 275,769 B | +6,205 B（6.06 KiB） |
+
+构建产物中未出现 `json-schema.org` 或 `compileJsonSchema` 引用；请求/SSE 路径不编译 JSON Schema，Contract AST 未进入 Goal Board 公开入口。
+
+#### 迁移审计
+
+- `packages/web-contracts/src/contracts/` 每个 DTO 只有一份 Contract AST；公开类型均由 `InferContract` 派生，`validation.ts` guard 只做 `safeParse` 与命名不变量。
+- 《48 个公开 guard 名称全部保留》（47 个 `is*` 导出加 `isProviderModels`）；`isRecord`、`isNonEmptyString`、`isJsonValue`、`isOkResponse` 保留为通用原语，`isRecord`/`isJsonValue` 各只有一份实现。
+- `browser-goal-routes.ts` 已删除 body 字段白名单、`hasExactKeys`、`readWireText`、`parseAnswers`、`parseInteractionResponse` 与 `parseQueueBinding`；传输层仍拥有 Content-Type、字节上限、UTF-8/JSON 解码与 HTTP 状态映射。
+- UTF-16 文本上限统一由 `packages/web-contracts/src/invariants/utf16.ts` 的 `hasUtf16LengthAtMost` 承担；未新增 AST 节点或跨字段长度表。
+- `unknown`/`openObject` 载荷遍历使用显式栈，200 层嵌套测试通过；结构递归仍按 `MAX_DEPTH = 64` 拒绝。
+- `git diff --stat a36c8939`：68 个文件，5,291 行新增，3,072 行删除；持久化 Schema、协议版本、Runtime admission、Tool Input Contract、模型输出 Contract 与 Goal Board UI 行为未改变。
+
+#### 未决问题
+
+- `npm run test:web-e2e` 的 4 个失败在基线提交同样失败：`board.test.mjs` 的动画选择器、`run-stages.test.mjs` 的旧 `.timeline-stage-target` 选择器、`runtime.test.mjs` 的 `.tr-detail-body pre` 选择器、`streaming-session.test.mjs` 的恢复等待。属于既有 UI/e2e 漂移或环境时序，不在本 Spec 范围；未删除或放宽测试断言。
+- 本 worktree 未包含 workspace 根依赖聚合；运行 GEPA 与 Benchmark 测试时需在未跟踪的根 `node_modules` 中提供 `smol-toml@1.9.0` 与 `@agentclientprotocol/sdk@1.4.0`，不产生受版本控制的改动。
