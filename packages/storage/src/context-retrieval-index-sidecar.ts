@@ -1,3 +1,4 @@
+import { deepFreeze } from "../../contracts/src/index";
 import {
     chmod,
     mkdir,
@@ -509,13 +510,6 @@ function validateRestoreOptions(options: ContextRetrievalIndexRestoreOptions): v
             "conversationEndIndexExclusive must be a non-negative safe integer",
         );
     }
-}
-
-function deepFreeze<T>(value: T, seen = new Set<object>()): T {
-    if (typeof value !== "object" || value === null || seen.has(value as object)) return value;
-    seen.add(value as object);
-    for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child, seen);
-    return Object.freeze(value);
 }
 
 function isMissingFile(error: unknown): boolean {

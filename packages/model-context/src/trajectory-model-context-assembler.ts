@@ -1,3 +1,4 @@
+import { deepFreeze } from "../../contracts/src/index";
 import type { NativeConversationIdentity } from "../../model-contracts/src/index";
 import { collectNativeModelExchanges } from "./native-model-history";
 import type { Goal } from "../../runtime/src/domain";
@@ -571,17 +572,6 @@ function fitWarmBudget(
 
 function freezeContext(context: ModelTrajectoryContext): ModelTrajectoryContext {
     return deepFreeze(context);
-}
-
-function deepFreeze<T>(value: T, seen = new Set<object>()): T {
-    if (typeof value !== "object" || value === null || seen.has(value as object)) {
-        return value;
-    }
-    seen.add(value as object);
-    for (const child of Object.values(value as Record<string, unknown>)) {
-        deepFreeze(child, seen);
-    }
-    return Object.freeze(value);
 }
 
 function assertNonNegativeSafeInteger(value: number, field: string): void {

@@ -1,5 +1,6 @@
 import {
     compareCodeUnits,
+    deepFreeze,
     isRecord,
 } from "../../contracts/src/index";
 import type {
@@ -499,15 +500,6 @@ function splitIdentifier(value: string): readonly string[] {
 
 function normalizeToken(value: string): string {
     return value.normalize("NFKC").toLowerCase();
-}
-
-function deepFreeze<T>(value: T, seen = new Set<object>()): T {
-    if (typeof value !== "object" || value === null || seen.has(value as object)) return value;
-    seen.add(value as object);
-    for (const child of Object.values(value as Record<string, unknown>)) {
-        deepFreeze(child, seen);
-    }
-    return Object.freeze(value);
 }
 
 function assertNonEmptyString(value: unknown, field: string): asserts value is string {

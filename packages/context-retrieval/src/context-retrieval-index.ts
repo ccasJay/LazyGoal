@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
     canonicalJson,
     compareCodeUnits,
+    deepFreeze,
     isRecord,
 } from "../../contracts/src/index";
 import {
@@ -855,13 +856,6 @@ function compareDocuments(left: ContextSearchDocument, right: ContextSearchDocum
     return left.firstSequence - right.firstSequence
         || left.lastSequence - right.lastSequence
         || compareCodeUnits(left.documentId, right.documentId);
-}
-
-function deepFreeze<T>(value: T, seen = new Set<object>()): T {
-    if (typeof value !== "object" || value === null || seen.has(value as object)) return value;
-    seen.add(value as object);
-    for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child, seen);
-    return Object.freeze(value);
 }
 
 function assertNonEmptyString(value: unknown, field: string): asserts value is string {

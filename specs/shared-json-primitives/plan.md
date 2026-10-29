@@ -38,7 +38,7 @@
   - 场景与预期：GAIA/ALFWorld/SWE-bench 的 manifest、profile、report、sidecar 与 worker 运行时对合法/非法 fixture 的判断不变；benchmarks 的独立类型检查通过。
   - 验证手段：`npm --prefix benchmarks run typecheck` 与 `npx tsx --test benchmarks/gaia/test/manifest.test.ts benchmarks/gaia/test/profile.test.ts benchmarks/gaia/test/report.test.ts benchmarks/alfworld/test/manifest.test.ts benchmarks/alfworld/test/environment-spec.test.ts benchmarks/alfworld/test/sidecar-client.test.ts benchmarks/swebench/test/result-recovery.test.ts benchmarks/swebench/test/worker-runtime.test.ts`。
 
-- [ ] //TODO 7. 完成 `deepFreeze` 的共享实现迁移
+- [x] //TODO 7. 完成 `deepFreeze` 的共享实现迁移
   - 落实标准：[2.3](./spec.md#spec-req-2-3), [2.4](./spec.md#spec-req-2-4)
   - 实施目标：删除 `context-retrieval/src/{context-tokenizer,context-document,context-retrieval-index}.ts`、`model-context/src/{trajectory-event-projector,trajectory-model-context-assembler,context-lookup-projection,model-inference-projector}.ts`、`storage/src/{goal-context-index-store,context-retrieval-index-sidecar}.ts` 中的 9 个本地 `deepFreeze`，改用 contracts 的环安全实现。保持返回同一引用、递归冻结自有可枚举属性值、子值先于父值。
   - 场景与预期：既有 DTO 冻结测试仍通过；循环对象不再导致栈溢出；冻结后的对象在严格模式下写入仍然抛错；`model-context` 两个原先不检测环的投影路径行为与其它路径一致。
