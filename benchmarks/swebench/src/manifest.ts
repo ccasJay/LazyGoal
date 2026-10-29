@@ -43,6 +43,6 @@ export async function loadSwebenchManifest(path: string): Promise<SwebenchManife
     return parseSwebenchManifest(JSON.parse(await readFile(path, "utf8")));
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+import { isRecord } from "../../../packages/contracts/src/index";
+
+export { isRecord };

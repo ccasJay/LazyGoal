@@ -1,3 +1,4 @@
+import { isRecord } from "../../../packages/contracts/src/index";
 import type { LLMAdapter } from "../../../packages/llm-core/src/index.js";
 import type { PromptBundleRenderer } from "../../../packages/prompt-renderer/src/index.js";
 import type { ModelConversationMessage } from "../../../packages/model-view/src/index.js";
@@ -447,6 +448,3 @@ function validateMetadata(metadata: SwebenchAcpTaskMetadata): void {
     if (metadata.structuredOutputMode !== "strict" && metadata.structuredOutputMode !== "prompt_only") throw new TypeError("structuredOutputMode is invalid");
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}

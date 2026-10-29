@@ -32,7 +32,7 @@
   - 场景与预期：`isRecord` 对普通对象返回 `true`，对 `null`/数组返回 `false`，对 `Date`/`Map`/类实例仍返回 `true`；`web-contracts` 的 `isRecord` 导出名与签名不变；`browser` 继续通过 `web-contracts` 使用该守卫；所有受影响包的类型检查通过。
   - 验证手段：`npx tsc --noEmit` 与 `npx tsx --test packages/model-contracts/test/model-output-canonical.test.ts packages/model-contracts/test/model-conversation.test.ts packages/web-contracts/test/web-contracts.test.ts packages/browser/test/browser-projection.test.ts packages/model-call/test/llm-diagnostic-trace.test.ts packages/llm-google/test/gemini.test.ts`。
 
-- [ ] //TODO 6. 完成 benchmarks 内的通用对象守卫收敛
+- [x] //TODO 6. 完成 benchmarks 内的通用对象守卫收敛
   - 落实标准：[2.1](./spec.md#spec-req-2-1), [2.2](./spec.md#spec-req-2-2), [2.4](./spec.md#spec-req-2-4)
   - 实施目标：把 10 个 benchmark 通用守卫替换为 contracts 的 `isRecord`：`gaia/{manifest,profile}.ts`、`alfworld/{worker-runtime,manifest,sidecar-client,profile,report,environment-spec}.ts`、`swebench/{worker-runtime,manifest}.ts`。`benchmarks/swebench/src/manifest.ts` 继续导出 `isRecord` 供 `container.ts`、`result-recovery.ts`、`evaluation.ts` 与 `prompt-evaluation-adapter.ts` 使用，但实现改为从 contracts 重新导出或转发。
   - 场景与预期：GAIA/ALFWorld/SWE-bench 的 manifest、profile、report、sidecar 与 worker 运行时对合法/非法 fixture 的判断不变；benchmarks 的独立类型检查通过。
