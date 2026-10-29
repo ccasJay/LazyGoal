@@ -1,8 +1,9 @@
 import { isModelConversationMessage, type ModelAssistantMessage } from "../../model-contracts/src/index";
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { ModelInputMessage, ModelInputRecord, ModelInputStore } from "../../runtime/src/model-input";
+import { appendJsonl } from "./json-file-write";
 
 type Manifest = Omit<ModelInputRecord, "messages"> & { schemaVersion: 1; messages: { role: ModelInputMessage["role"]; source: ModelInputMessage["source"]; ref: string; callId?: string; toolId?: string; reasoning?: string; toolCalls?: ModelAssistantMessage["toolCalls"]; continuation?: ModelAssistantMessage["continuation"] }[] };
 const sources = ["system", "conversation", "section", "working_context", "stage", "request", "native_history"];
@@ -45,7 +46,11 @@ export class JsonFileModelInputStore implements ModelInputStore {
                 messages.push({ ...fields, ref });
             }
             const { messages: _, ...identity } = record;
-            await appendFile(join(directory, "requests.jsonl"), JSON.stringify({ schemaVersion: 1, ...identity, messages }) + "\n", { mode: 0o600 });
+            await appendJsonl({
+                path: join(directory, "requests.jsonl"),
+                value: { schemaVersion: 1, ...identity, messages },
+                durable: false,
+            });
         });
         this.queues.set(key, operation);
         void operation.finally(() => { if (this.queues.get(key) === operation) this.queues.delete(key); }).catch(() => undefined);

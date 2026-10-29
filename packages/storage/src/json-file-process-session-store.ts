@@ -9,7 +9,7 @@ import type {
     ProcessSessionStatus,
     ProcessSessionStore,
 } from "../../runtime/src/index";
-import { atomicWriteJson } from "./json-file-write";
+import { appendFileChunk, atomicWriteJson } from "./json-file-write";
 
 type ProcessSessionFileOperations = Partial<Pick<
     typeof import("node:fs/promises"),
@@ -343,13 +343,12 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
 
                 const partFile = join(channelDir, `part-${currentPart.index}.log`);
                 try {
-                    const handle = await this.fileOperations.open(partFile, "a", 0o600);
-                    try {
-                        await handle.writeFile(toWrite);
-                        await handle.sync();
-                    } finally {
-                        await handle.close();
-                    }
+                    await appendFileChunk({
+                        path: partFile,
+                        data: toWrite,
+                        durable: true,
+                        operations: this.fileOperations,
+                    });
                 } catch (error) {
                     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
                         return;

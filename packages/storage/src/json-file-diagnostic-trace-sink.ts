@@ -1,5 +1,4 @@
 import {
-    appendFile,
     mkdir,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -8,6 +7,7 @@ import type {
     DiagnosticTraceSink,
     TraceRecord,
 } from "../../runtime/src/index";
+import { appendJsonl } from "./json-file-write";
 
 /**
  * 将 Diagnostic Trace 追加到独立 JSONL 文件的 Sink。
@@ -44,12 +44,13 @@ export class JsonFileDiagnosticTraceSink implements DiagnosticTraceSink {
         const operation = previous.catch(() => undefined).then(async () => {
             await mkdir(join(this.directory, this.encode(record.goalId)), {
                 recursive: true,
+                mode: 0o700,
             });
-            await appendFile(
-                filePath,
-                `${JSON.stringify(record)}\n`,
-                { encoding: "utf8", mode: 0o600 },
-            );
+            await appendJsonl({
+                path: filePath,
+                value: record,
+                durable: false,
+            });
         });
         let tracked: Promise<unknown>;
         tracked = operation.finally(() => {

@@ -1,6 +1,4 @@
 import {
-    appendFile,
-    chmod,
     mkdir,
     readFile,
 } from "node:fs/promises";
@@ -15,6 +13,7 @@ import type {
     ModelCallMetricReadQuery,
     ModelCallMetricRecord,
 } from "../../runtime/src/index";
+import { appendJsonl } from "./json-file-write";
 
 const IdentifierSchema = z.string().min(1);
 const MetricIdentitySchema = {
@@ -127,12 +126,11 @@ export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCover
         const previous = this.appendQueues.get(key) ?? Promise.resolve();
         const operation = previous.catch(() => undefined).then(async () => {
             await this.ensureGoalDirectory(record.goalId);
-            await appendFile(
-                filePath,
-                `${JSON.stringify(parsed.data)}\n`,
-                { encoding: "utf8", mode: 0o600 },
-            );
-            if (process.platform !== "win32") await chmod(filePath, 0o600);
+            await appendJsonl({
+                path: filePath,
+                value: parsed.data,
+                durable: false,
+            });
         });
         let tracked: Promise<unknown>;
         tracked = operation
@@ -348,22 +346,16 @@ export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCover
             throw new ModelCallMetricStoreProtocolError("Invalid model call metric coverage record");
         }
         await this.ensureGoalDirectory(record.goalId);
-        const filePath = this.coverageFilePath(record.goalId);
-        await appendFile(
-            filePath,
-            `${JSON.stringify(parsed.data)}\n`,
-            { encoding: "utf8", mode: 0o600 },
-        );
-        if (process.platform !== "win32") await chmod(filePath, 0o600);
+        await appendJsonl({
+            path: this.coverageFilePath(record.goalId),
+            value: parsed.data,
+            durable: false,
+        });
     }
 
     private async ensureGoalDirectory(goalId: string): Promise<void> {
         const goalDirectory = join(this.directory, this.encode(goalId));
         await mkdir(goalDirectory, { recursive: true, mode: 0o700 });
-        if (process.platform !== "win32") {
-            await chmod(this.directory, 0o700);
-            await chmod(goalDirectory, 0o700);
-        }
     }
 
     private filePath(goalId: string, runId: string): string {

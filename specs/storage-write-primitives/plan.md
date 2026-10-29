@@ -22,7 +22,7 @@
   - 场景与预期：第一次追加抛 `EBUSY` 且核对为 `absent` 时重试后恰好一行；追加已写入但抛 `EAGAIN` 时只尝试一次并返回同一序号；部分写入导致不完整尾部时抛 `TrajectoryProtocolError` 且文件不被截断；`EACCES` 只尝试一次；`read` 与 `readWithBoundary` 结果不变。
   - 验证手段：在 `packages/storage/test/json-file-write.test.ts` 增加追加用例后运行 `npx tsx --test packages/storage/test/json-file-write.test.ts packages/storage/test/trajectory-store.test.ts`；断言既有尾部、sync 与不完整尾部用例未被修改。
 
-- [ ] //TODO 4. 交付其余 JSONL 与字节追加迁移
+- [x] //TODO 4. 交付其余 JSONL 与字节追加迁移
   - 落实标准：[2.1](./spec.md#spec-req-2-1)、[2.2](./spec.md#spec-req-2-2)、[2.6](./spec.md#spec-req-2-6)、[4.1](./spec.md#spec-req-4-1)、[4.4](./spec.md#spec-req-4-4)、[6.1](./spec.md#spec-req-6-1)
   - 实施目标：把 `json-file-metrics-store.ts` 的调用事实与覆盖记录、`json-file-diagnostic-trace-sink.ts`、`json-file-model-input-store.ts` 的 `requests.jsonl` 改调用 `appendJsonl`（均 `durable: false`、无 `retry`、无 `verify`）；把 `json-file-process-session-store.ts` 的 `part-<n>.log` 改调用 `appendFileChunk`（`durable: true`）。删除 Metrics 在每次追加后重复的 `chmod`，保留其目录 `0700` 创建、冲突事实检测、Trace 无重试与模型输入“正文先行落盘、清单后追加”的顺序。
   - 场景与预期：指标、覆盖记录、诊断 Trace 与模型输入清单的行数与内容不变且文件为 `0600`；同一次调用出现冲突的完成事实时仍抛 `ModelCallMetricStoreProtocolError`；Trace 写入失败仍原样传播且不影响 Goal；模型输入正文已存在且哈希一致时不重写；进程输出分片按原字节追加、轮转仍产生 `gap` 语义。
