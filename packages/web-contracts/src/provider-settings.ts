@@ -2,7 +2,6 @@ import type { InferContract } from "../../contracts/src/index";
 import {
     browserProviderFallbackContract,
     browserProviderModelQueryContract,
-    browserProviderModelsContract,
     browserProviderProfileActivationResultContract,
     browserProviderProfileContract,
     browserProviderProfileDeleteResultContract,
@@ -165,10 +164,28 @@ export type BrowserProviderModelQuery =
     InferContract<typeof browserProviderModelQueryContract>;
 
 /**
- * 在线查询的非敏感模型列表，不代表模型生成能力已经验证。
+ * Provider 在线目录返回的单个模型标识与展示名称。
+ *
+ * @example
+ * ```ts
+ * const model: BrowserProviderModel = { id: "model-1", name: "Model 1" };
+ * ```
+ */
+export interface BrowserProviderModel {
+    /** @pattern \S */
+    id: string;
+    name: string;
+}
+
+/**
+ * Provider 在线目录的成功响应；只确认模型标识可供展示和选择，不代表生成能力已经验证。
+ *
  * @example
  * ```ts
  * const result: BrowserProviderModels = { ok: true, models: [{ id: "model-1", name: "Model 1" }] };
  * ```
  */
-export type BrowserProviderModels = InferContract<typeof browserProviderModelsContract>;
+export interface BrowserProviderModels {
+    ok: true;
+    models: BrowserProviderModel[];
+}

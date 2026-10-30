@@ -17,7 +17,8 @@ import {
   isModelInputDetail,
   isModelInputs,
   isModelPreferenceAccepted,
-  isProviderModels,
+  readBrowserProviderModels,
+  type BrowserProviderModelsUnknownFieldDiagnostic,
   type BrowserProviderModelQuery,
   type BrowserProviderModels,
   isProviderProfile,
@@ -264,9 +265,7 @@ export const browserApi = {
   },
 
   fetchProviderModels(input: BrowserProviderModelQuery, signal?: AbortSignal): Promise<BrowserProviderModels> {
-    return requestJson("/api/providers/models", isProviderModels, signal, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
-    });
+    return requestProviderModels(input, signal);
   },
 
   testProvider(profileId: string, signal?: AbortSignal): Promise<BrowserProviderProfileTestResult> {
@@ -405,6 +404,34 @@ export const browserApi = {
     }
   },
 };
+
+async function requestProviderModels(
+  input: BrowserProviderModelQuery,
+  signal?: AbortSignal,
+): Promise<BrowserProviderModels> {
+  const response = await fetch("/api/providers/models", {
+    method: "POST",
+    headers: authorizedHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(input),
+    ...(signal === undefined ? {} : { signal }),
+  });
+  if (!response.ok) throw await responseError(response);
+  const value: unknown = await response.json();
+  const result = readBrowserProviderModels(value);
+  if (!result.ok) throw new Error("invalid_api_response");
+  if (result.diagnostic !== undefined) reportProviderModelsDiagnostic(result.diagnostic);
+  return result.data;
+}
+
+function reportProviderModelsDiagnostic(
+  diagnostic: BrowserProviderModelsUnknownFieldDiagnostic,
+): void {
+  try {
+    console.debug("[goal-board] provider models response has unknown fields", diagnostic);
+  } catch {
+    // 诊断输出失败不改变合法 API 响应的读取结果。
+  }
+}
 
 function parseSseJson(data: string, errorCode: string): unknown {
   try {

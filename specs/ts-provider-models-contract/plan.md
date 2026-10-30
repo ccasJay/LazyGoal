@@ -4,7 +4,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 让在线模型列表通过 TS 生成读取器后进入浏览器 API
+- [x] //TODO 1. 让在线模型列表通过 TS 生成读取器后进入浏览器 API
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[2.1](./spec.md#spec-req-2-1)、[2.2](./spec.md#spec-req-2-2)、[2.3](./spec.md#spec-req-2-3)、[3.1](./spec.md#spec-req-3-1)、[3.2](./spec.md#spec-req-3-2)。
   - 实施目标与场景：将 `BrowserProviderModels` 与条目改为原生 TS，使用 JSDoc 声明 `id` 模式并补齐公共契约 TSDoc；增加本响应专用的生成入口及锁定的开发依赖，通过 `ts-json-schema-generator`、Ajv standalone 和必要的 ESM 打包生成 Schema、校验代码及身份/版本/来源记录，提交到 `web-contracts/src/generated/`。读取器先确认 JSON 数据，在副本上校验并清理额外字段，成功才返回隔离数据；诊断使用键差，不另写字段表。`fetchProviderModels` 消费提取结果，复用既有鉴权、取消与 HTTP 错误处理，有界记录字段路径且不输出字段值。一次切换中删除对应两个 AST、推导和登记项；确认无其他消费者后删除旧 guard，不保留同一响应的双定义或解析回退。
   - 基本验证：新增 `packages/web-contracts/test/provider-models.test.ts` 的代表性读取场景，并扩展现有 `apps/goal-board/test/provider-settings-api.test.ts` 的真实 API 调用测试；运行 `npx tsx --test packages/web-contracts/test/provider-models.test.ts apps/goal-board/test/provider-settings-api.test.ts`。以根/条目附加字段的合法响应观察剥离、诊断及原输入不变，以 `id: 42` 观察读取拒绝与 `invalid_api_response`；空列表、空名称和合法字符串原值保持。
