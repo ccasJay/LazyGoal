@@ -142,18 +142,6 @@ export const browserProviderModelQueryContract = contract.object({
     profileId: contract.optional(browserNonEmptyStringContract),
 });
 
-/** 在线查询的非敏感模型条目。 */
-export const browserProviderModelContract = contract.openObject({
-    id: browserNonEmptyStringContract,
-    name: contract.string(),
-});
-
-/** 在线查询的非敏感模型列表。 */
-export const browserProviderModelsContract = contract.openObject({
-    ok: contract.literal(true),
-    models: contract.array(browserProviderModelContract),
-});
-
 /** 本模块建立的 Provider 合同。 */
 export const providerWebContracts = [
     browserStructuredOutputModeContract,
@@ -169,6 +157,4 @@ export const providerWebContracts = [
     browserProviderProfileTestErrorContract,
     browserProviderProfileTestResultContract,
     browserProviderModelQueryContract,
-    browserProviderModelContract,
-    browserProviderModelsContract,
 ] as const;

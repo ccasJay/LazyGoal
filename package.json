@@ -12,6 +12,7 @@
     "llm:agent-smoke": "tsx packages/llm/test/agent-smoke-test.ts",
     "llm:native-dialogue-smoke": "tsx packages/llm/test/native-dialogue-smoke.ts",
     "check:dependencies": "node scripts/check-dependencies.mjs",
+    "contracts:generate": "node scripts/generate-provider-models-contract.mjs",
     "check:docs": "node scripts/check-docs.mjs",
     "change-scope": "node scripts/change-scope.mjs",
     "benchmark:context-retrieval": "tsx scripts/benchmark-context-retrieval.ts",
@@ -35,7 +36,10 @@
     "@types/diff": "^7.0.2",
     "@types/node": "^26.1.2",
     "@types/picomatch": "^4.0.3",
+    "ajv": "8.20.0",
+    "esbuild": "0.28.1",
     "js-tiktoken": "^1.0.21",
+    "ts-json-schema-generator": "2.9.0",
     "tsx": "^4.23.7",
     "typescript": "^7.0.2"
   },

@@ -203,5 +203,15 @@ export {
     isMetricsSnapshot,
 } from "./validation";
 
-export type { BrowserProviderModelQuery, BrowserProviderModels } from "./provider-settings";
-export { isProviderModels } from "./validation";
+export type {
+    BrowserProviderModel,
+    BrowserProviderModelQuery,
+    BrowserProviderModels,
+} from "./provider-settings";
+export {
+    readBrowserProviderModels,
+} from "./provider-models-reader";
+export type {
+    BrowserProviderModelsReadResult,
+    BrowserProviderModelsUnknownFieldDiagnostic,
+} from "./provider-models-reader";

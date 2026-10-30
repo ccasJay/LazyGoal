@@ -14,7 +14,7 @@
 | Goal 列表不可读提示 | 服务端报告存在无法读取的历史 Goal 时，看板显示说明条并保留可读 Goal，不以整页错误替代列表。 | [Goal Board](../README.md) | [GoalBoard](../src/components/GoalBoard.tsx)、[模块说明](./overview.md) |
 | Settings page | 侧栏底部进入 Provider 管理和外观设置，切换时保留当前会话。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx)、[模块说明](./overview.md) |
 | Activity 宽度 | Standard 按可用空间收窄并限制最大宽度，Wide 填满可用空间；同一偏好作用于活动区和输入区，保存在浏览器 Cookie 中。 | [Goal Board](../README.md) | [WorkspaceShell](../src/components/WorkspaceShell.tsx)、[模块说明](./overview.md#页面交互) |
-| Wire DTO 消费 | 页面只消费 web-contracts 的 DTO 与 guard；开放 payload 作为只读记录展示，不导入合同 AST 或 Schema。 | [Goal Board](../README.md) | [模块说明](./overview.md)、[Web 传输契约](../../../packages/web-contracts/README.md) |
+| Wire DTO 消费 | 页面消费 web-contracts 的 DTO 与边界读取器；在线模型列表由生成读取器校验并剥离未知字段，其它响应继续使用 guard。 | [Goal Board](../README.md) | [模块说明](./overview.md)、[Web 传输契约](../../../packages/web-contracts/README.md)、[Provider 模型 API](../src/api.ts) |
 | Session view | 首屏并行读取不含历史的 Goal 状态与固定水位 Activity 页；完整会话按需用于 Plan、Trajectory 和 Goal details。 | [Goal Board](../README.md) | [useGoalSession](../src/hooks/useGoalSession.ts)、[模块说明](./overview.md) |
 | SessionTimeline | 按服务端 Run 内位置合并稳定来源身份，单列呈现消息、候选预览、活动事实、Run 边界与终态；候选按 `previewId` 在原展示身份转为正式消息。 | [Goal Board](../README.md) | [投影](../src/session-timeline.ts)、[视图](../src/components/SessionTimeline.tsx) |
 | 固定 Activity 页 | 有界正文／安全活动读取带固定水位和 cursor；当前页面提示更早来源存在，但不自动翻页。 | [浏览器服务边界](../../../packages/browser/README.md) | [Activity API](../../../packages/browser/src/browser-goal-routes.ts)、[页面说明](./overview.md) |
@@ -50,7 +50,7 @@
 | liveText 帧合并 | 打字机增量按帧合并后提交渲染，跟随滚动以帧节流，流结束不丢字。 | [Goal Board](../README.md) | [live-text-batch](../src/live-text-batch.ts) |
 | Provider 设置页 | 受管 Provider 紧凑列表与按需展开表单；区分凭据已保存、激活与目录检查状态，不回显已保存密钥。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx) |
 | 来源两级选择 | 模型选择器先选 Provider 来源再选模型，结果写入对应偏好或 Goal 选择。 | [Goal Board](../README.md) | [ModelPicker](../src/components/ModelPicker.tsx) |
-| Fetch models | 用当前表单查询在线模型并填入默认模型，不保存档案。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx) |
+| Fetch models | 用当前表单查询在线模型；读取器剥离未声明字段并记录不含值的诊断，不保存档案。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx)、[Provider 模型读取器](../../../packages/web-contracts/src/provider-models-reader.ts) |
 | 轨迹概览轨道 | 50px 三轨 Sequence／Time 投影；始终填满可视宽度，Sequence 滚轮缩放不低于 Fit，右键平移、拖拽选择范围，Compact 只收窄事件标记。 | [Goal Board](../README.md) | [TrajectoryTimeline](../src/trajectory-timeline.tsx)、[投影](../src/trajectory-timeline-model.ts) |
 | Prompt 记录 | 模型输入按调用折叠为一条记录，消息正文只在模型输入检查器中展开，不进入主事件流。 | [Goal Board](../README.md) | [TrajectoryRecords](../src/trajectory-records.tsx) |
 | 轨迹详情覆盖层 | 窄屏下详情覆盖记录列表，列表保持全宽；Trajectory 页不渲染输入区。 | [Goal Board](../README.md) | [Trajectory](../src/trajectory.tsx)、[样式](../src/trajectory.css) |

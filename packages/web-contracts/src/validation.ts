@@ -70,7 +70,6 @@ import {
     browserModelCatalogReadResultContract,
 } from "./contracts/model";
 import {
-    browserProviderModelsContract,
     browserProviderProfileActivationResultContract,
     browserProviderProfileContract,
     browserProviderProfileDeleteResultContract,
@@ -898,14 +897,3 @@ export function isMetricsSnapshot(value: unknown): value is SessionMetricsSnapsh
  * if (isResumeGoalCommand(cmd)) console.log(cmd.runId);
  * ```
  */
-/**
- * 校验在线模型列表响应，不接受凭据或任意供应商响应正文。
- * @example
- * ```ts
- * if (isProviderModels(value)) console.log(value.models.length);
- * ```
- */
-export function isProviderModels(value: unknown): value is import("./provider-settings").BrowserProviderModels {
-    return safeParse(browserProviderModelsContract, value).success;
-}
-
