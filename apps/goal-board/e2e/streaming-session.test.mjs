@@ -197,7 +197,7 @@ test("streaming session keeps one runtime queue across Steer, Interrupt, tabs an
     await cdp(socket, "Page.navigate", { url: restarted.launchUrl });
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null", 20_000);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.goal-card')[0].click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.composer-recover-actions button')?.textContent.includes('Resume Run')", 20_000);
+    await waitForExpression(socket, "document.querySelector('.composer-area .send[aria-label=\"Resume Run\"]:not(:disabled)') !== null", 20_000);
     assert.equal((await readStatus(statusPath)).modelCalls, 60, "restart performs no automatic model call");
     const recovered = await sessionDetail(restarted.origin, restarted.token, goalId);
     assert.equal(recovered.currentRunId, beforeRestart.currentRunId, "restart keeps the accepted Run identity");

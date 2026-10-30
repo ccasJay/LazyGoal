@@ -9,7 +9,7 @@ import type { UnverifiedSubmission } from "../hooks/useRunCommands";
  * @example
  * ```ts
  * const controls: RunControlContextValue = {
- *   commandBusy: false, commandError: null, setCommandError: () => {},
+ *   commandBusy: false, commandError: null, draftGoalBusy: false, setCommandError: () => {},
  *   stoppingRunId: null, canSendText: true, queuedInputs: [], queuePaused: false,
  *   onContinueQueue: async () => {}, onRemoveQueuedInput: async () => {},
  *   onSubmitMessage: async () => true, onSubmitDraftMessage: async () => true,
@@ -22,6 +22,8 @@ import type { UnverifiedSubmission } from "../hooks/useRunCommands";
 export interface RunControlContextValue {
   readonly commandBusy: boolean;
   readonly commandError: string | null;
+  /** 新 Goal 的创建被正在执行的其他 Goal 阻塞。 */
+  readonly draftGoalBusy: boolean;
   readonly setCommandError: (error: string | null) => void;
   readonly stoppingRunId: string | null;
   readonly canSendText: boolean;

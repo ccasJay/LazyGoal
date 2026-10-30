@@ -271,7 +271,7 @@ export function errorMessage(error: unknown): string {
   if (error instanceof BrowserApiError) {
     switch (error.code) {
       case "unauthorized": return "This browser link has expired. Restart `lazygoal web` and open its new link.";
-      case "goal_busy": return "Another Goal is still active. Wait for it to stop at a waiting point.";
+      case "goal_busy": return "Another Goal is active. Check its progress before trying again.";
       case "plan_mode_busy": return "Plan Mode can only be selected before this Run starts or after it completes or fails.";
       case "plan_mode_failed": return "The local service could not save the Plan Mode selection.";
       case "model_not_selectable": return "This model is unavailable. Choose another model from the current provider.";

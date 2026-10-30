@@ -12,7 +12,8 @@
 | 模型无响应提示 | 模型六十秒无新公开响应时提示；显示来源时长与最近观察时间，不自动取消或重试。 | [Goal Board](../README.md) | [执行进度](../src/execution-progress.ts) |
 | Workspace shell | 当前工作区的紧凑导航、详情、Goal 搜索与可收起最近列表；侧栏可隐藏及拖动调宽，宽度仅保存在页面内。 | [Goal Board](../README.md) | [WorkspaceShell](../src/components/WorkspaceShell.tsx)、[ResizableSidebar](../src/components/ResizableSidebar.tsx) |
 | Goal 列表不可读提示 | 服务端报告存在无法读取的历史 Goal 时，看板显示说明条并保留可读 Goal，不以整页错误替代列表。 | [Goal Board](../README.md) | [GoalBoard](../src/components/GoalBoard.tsx)、[模块说明](./overview.md) |
-| Settings page | 侧栏底部进入 Provider 管理页，切换时保留当前会话。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx)、[模块说明](./overview.md) |
+| Settings page | 侧栏底部进入 Provider 管理和外观设置，切换时保留当前会话。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx)、[模块说明](./overview.md) |
+| Activity 宽度 | Standard 按可用空间收窄并限制最大宽度，Wide 填满可用空间；同一偏好作用于活动区和输入区，保存在浏览器 Cookie 中。 | [Goal Board](../README.md) | [WorkspaceShell](../src/components/WorkspaceShell.tsx)、[模块说明](./overview.md#页面交互) |
 | Wire DTO 消费 | 页面只消费 web-contracts 的 DTO 与 guard；开放 payload 作为只读记录展示，不导入合同 AST 或 Schema。 | [Goal Board](../README.md) | [模块说明](./overview.md)、[Web 传输契约](../../../packages/web-contracts/README.md) |
 | Session view | 首屏并行读取不含历史的 Goal 状态与固定水位 Activity 页；完整会话按需用于 Plan、Trajectory 和 Goal details。 | [Goal Board](../README.md) | [useGoalSession](../src/hooks/useGoalSession.ts)、[模块说明](./overview.md) |
 | SessionTimeline | 按服务端 Run 内位置合并稳定来源身份，单列呈现消息、候选预览、活动事实、Run 边界与终态；候选按 `previewId` 在原展示身份转为正式消息。 | [Goal Board](../README.md) | [投影](../src/session-timeline.ts)、[视图](../src/components/SessionTimeline.tsx) |

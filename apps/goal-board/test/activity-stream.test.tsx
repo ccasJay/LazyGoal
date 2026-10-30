@@ -29,10 +29,11 @@ function stage(eventType: string, sequence: number): SessionTimelineEntry {
     ...(eventType === "run_stage_declared" ? { stageTarget: "Verify the implementation" } : {}) };
 }
 
-function render(items: readonly SessionTimelineEntry[], options: { showExecutionFacts?: boolean; running?: boolean; stages?: SessionTimelineProjection["stages"]; actionGroups?: SessionTimelineProjection["actionGroups"] } = {}) {
+function render(items: readonly SessionTimelineEntry[], options: { showExecutionFacts?: boolean; running?: boolean; waiting?: boolean; olderAvailable?: boolean; newerItemCount?: number; stages?: SessionTimelineProjection["stages"]; actionGroups?: SessionTimelineProjection["actionGroups"] } = {}) {
   return renderToStaticMarkup(<SessionTimeline projection={{ items, stages: options.stages ?? [], actionGroups: options.actionGroups ?? [], currentPlanRoute: undefined }}
-    currentRunId="run-1" runStatus={options.running ? "running" : "completed"} olderAvailable={false}
-    showExecutionFacts={options.showExecutionFacts ?? true} liveActivity={null} streamConnected brandMark="/logo.svg" />);
+    currentRunId="run-1" runStatus={options.waiting ? "waiting" : options.running ? "running" : "completed"} olderAvailable={options.olderAvailable ?? false}
+    showExecutionFacts={options.showExecutionFacts ?? true} liveActivity={null} streamConnected brandMark="/logo.svg"
+    onLoadEarlier={options.olderAvailable ? () => {} : undefined} newerItemCount={options.newerItemCount} />);
 }
 
 test("an accepted real stage collapses its tools and leaves the final answer outside", () => {
@@ -62,11 +63,46 @@ test("saved correction and lookup activities retain collapsed diagnostics after 
     { kind: "lookup", itemId: "lookup:run-1:missing", runId: "run-1", lookupId: "missing",
       status: "not_found", request: "History search", resultDetail: "No matching history was found.", position: position(4) },
   ], { showExecutionFacts: false });
-  assert.match(html, /Correcting model output/);
+  assert.match(html, /Model output correction recorded/);
   assert.match(html, /Look up history/);
   assert.match(html, /Not found/);
   assert.match(html, /aria-expanded="false"/);
   assert.doesNotMatch(html, /Correction 2 of 3|No matching history was found/);
+});
+
+test("consecutive corrections group only when their execution unit is known and shared", () => {
+  const correction = (n: number, unit?: string): SessionTimelineEntry => ({ kind: "fact", itemId: `correction:${n}`, runId: "run-1",
+    eventType: "model_repair_feedback_recorded", title: "Rejected", position: position(n),
+    ...(unit === undefined ? {} : { executionUnitId: unit }) });
+  assert.match(render([correction(1, "unit"), correction(2, "unit")]), /2 attempts recorded/);
+  assert.doesNotMatch(render([correction(1), correction(2)]), /2 attempts recorded/);
+  assert.doesNotMatch(render([correction(1, "one"), correction(2, "two")]), /2 attempts recorded/);
+});
+
+test("failed current run offers continuation and explains model format failure", () => {
+  const items: SessionTimelineEntry[] = [
+    { kind: "run", itemId: "run:run-1", runId: "run-1", status: "failed", position: position(0) },
+    { kind: "terminal", itemId: "terminal", runId: "run-1", status: "failed", detail: { code: "INVALID_AGENT_DECISION", message: "Invalid response" }, position: position(1) },
+  ];
+  const html = renderToStaticMarkup(<SessionTimeline projection={{ items, stages: [], actionGroups: [], currentPlanRoute: undefined }}
+    currentRunId="run-1" runStatus="failed" olderAvailable={false} showExecutionFacts={false} liveActivity={null}
+    streamConnected brandMark="/logo.svg" onContinueFailed={() => {}} />);
+  assert.match(html, /Continue Goal/);
+  assert.match(html, /The model returned an invalid response/);
+  assert.match(html, /INVALID_AGENT_DECISION/);
+});
+
+test("progress names only stages supplied by the runtime", () => {
+  const stages: SessionTimelineProjection["stages"] = [
+    { runId: "run-1", stageId: "a", revision: 1, status: "executing", target: "Inspect recovery", firstSequence: 1, completeWithinPage: true },
+    { runId: "run-1", stageId: "b", revision: 1, status: "accepted", target: "Read source", firstSequence: 1, completeWithinPage: true },
+  ];
+  const html = render([], { running: true, stages });
+  assert.match(html, /In progress: Inspect recovery/);
+  assert.match(html, /Accepted: Read source/);
+  const older = render([], { running: true, stages, newerItemCount: 10 });
+  assert.match(older, /Last recorded in progress: Inspect recovery/);
+  assert.match(older, /Recorded as accepted: Read source/);
 });
 
 test("one lookup row shows a distinct not-found state and expands failure diagnostics", () => {
@@ -104,10 +140,85 @@ test("accepting one revision cannot accept a later stage revision", () => {
 
 test("execution filtering preserves failed calls inside a real stage", () => {
   const html = render([stage("run_stage_declared", 1), activity("failed", "stage-1")], { showExecutionFacts: false });
-  assert.match(html, /timeline-stage attention/);
-  assert.match(html, /Needs attention/);
+  assert.match(html, /timeline-stage recorded/);
+  assert.doesNotMatch(html, /Needs attention/);
   assert.match(html, /timeline-activity failed/);
   assert.match(html, /3 tests failed/);
+});
+
+test("a running stage retains failed diagnostics without requesting intervention", () => {
+  const context = { runId: "run-1", stageId: "stage-1", revision: 1, status: "executing" as const,
+    target: "Verify the implementation", firstSequence: 1, completeWithinPage: true };
+  const html = render([stage("run_stage_declared", 1), activity("failed", "stage-1")], { running: true, stages: [context] });
+  assert.match(html, /timeline-stage running/);
+  assert.doesNotMatch(html, /Needs attention/);
+  assert.match(html, /timeline-activity failed/);
+  assert.match(html, /3 tests failed/);
+  const older = render([stage("run_stage_declared", 1), activity("failed", "stage-1")], { running: true, stages: [context], newerItemCount: 3 });
+  assert.match(older, /timeline-stage recorded/);
+  assert.doesNotMatch(older, /timeline-stage running/);
+});
+
+test("a stage requests attention only for a currently waiting activity", () => {
+  const entry = activity("recorded", "stage-1");
+  const waiting = { ...entry, group: { ...entry.group, status: "waiting" as const,
+    members: entry.group.members.map(member => ({ ...member, status: "waiting" as const })) } };
+  const html = render([stage("run_stage_declared", 1), waiting], { waiting: true });
+  assert.match(html, /timeline-stage attention/);
+  assert.match(html, /Needs attention/);
+  assert.doesNotMatch(render([stage("run_stage_declared", 1), waiting], { running: true }), /Needs attention/);
+  assert.doesNotMatch(render([stage("run_stage_declared", 1), waiting], { waiting: true, newerItemCount: 3 }), /Needs attention/);
+});
+
+test("corrections use an unambiguous execution unit without crossing stage or message boundaries", () => {
+  const entry = activity("recorded", "stage-1");
+  const owned = { ...entry, group: { ...entry.group, members: entry.group.members.map(member => ({ ...member, executionUnitId: "unit-1" })) } };
+  const correction = { kind: "fact" as const, itemId: "repair", runId: "run-1", executionUnitId: "unit-1",
+    eventType: "model_repair_feedback_recorded", title: "Correction", position: position(3) };
+  const merged = render([stage("run_stage_declared", 1), owned, correction], { running: true });
+  assert.equal((merged.match(/data-stage-id="stage-1"/g) ?? []).length, 1);
+  assert.match(merged, /Model output correction recorded/);
+  const message = { kind: "message" as const, itemId: "message", presentationKey: "message", runId: "run-1",
+    role: "assistant" as const, purpose: "process" as const, content: "A progress message", position: position(4) };
+  const split = render([stage("run_stage_declared", 1), owned, message, correction, { ...owned, itemId: "activity:second" }], { running: true });
+  assert.equal((split.match(/data-stage-id="stage-1"/g) ?? []).length, 2);
+  assert.ok(split.indexOf("A progress message") < split.indexOf('data-item-id="repair"'));
+  assert.match(split, /Stage activity continued/);
+  const ambiguous = { ...owned, itemId: "other-stage", group: { ...owned.group, stageId: "stage-2" } };
+  const separate = render([stage("run_stage_declared", 1), owned, correction, { ...owned, itemId: "activity:again" }, ambiguous], { running: true });
+  assert.ok(separate.indexOf('data-item-id="repair"') > separate.indexOf('data-item-id="activity:action:run-1:action-1"'));
+  assert.ok(separate.indexOf('data-item-id="repair"') < separate.indexOf('data-item-id="activity:again"'));
+  assert.equal((separate.match(/data-stage-id="stage-1"/g) ?? []).length, 2);
+  const revised = render([stage("run_stage_declared", 1), owned, correction, { ...owned, itemId: "activity:again" },
+    { ...stage("run_stage_declared", 5), stageRevision: 2, stageTarget: "Verify a revision" } as SessionTimelineEntry], { running: true });
+  assert.equal((revised.match(/data-stage-id="stage-1"/g) ?? []).length, 3);
+});
+
+test("an incomplete stage offers one stage-level load action instead of one per activity", () => {
+  const entry = activity("recorded", "stage-1");
+  const context = { runId: "run-1", stageId: "stage-1", revision: 1, status: "executing" as const,
+    target: "Verify the implementation", firstSequence: 1, completeWithinPage: false };
+  const action = { runId: "run-1", actionId: "action-1", firstSequence: 1, lastSequence: 3, completeWithinPage: false };
+  const html = render([stage("run_stage_declared", 1), entry], { running: true, olderAvailable: true, stages: [context], actionGroups: [action] });
+  assert.equal((html.match(/Load earlier activity/g) ?? []).length, 2, "one global control and one stage control");
+  assert.match(html, /Details not fully loaded/);
+});
+
+test("saved answers offer navigation to a later loaded answer without claiming it is a correction", () => {
+  const answer = (runId: string, runOrder: number): SessionTimelineEntry => ({
+    kind: "message", itemId: `answer:${runId}`, presentationKey: `answer:${runId}`, runId,
+    role: "assistant", purpose: "answer", content: `Answer ${runOrder}`,
+    position: { ...position(1), runId, runOrder },
+  });
+  const html = render([answer("run-1", 0), answer("run-2", 1)]);
+  assert.equal((html.match(/View later answer/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /corrected answer/i);
+  assert.doesNotMatch(render([answer("run-1", 0)]), /View later answer/);
+});
+
+test("completed runs distinguish execution status from answer accuracy", () => {
+  const html = render([{ kind: "run", itemId: "run:run-1", runId: "run-1", status: "completed", position: position(0) }]);
+  assert.match(html, /Run finished; answer accuracy is not indicated/);
 });
 
 test("a manually collapsed failure keeps its diagnostic summary visible", () => {

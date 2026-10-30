@@ -44,9 +44,10 @@ export function PermissionControl({
         type="button"
         className={`permission-trigger ${mode === "yolo" ? "yolo" : ""}`}
         aria-expanded={open}
+        aria-label={mode === null ? "Permission" : `Permission: ${mode === "yolo" ? "Auto-approve" : "Ask when needed"}`}
       >
         <Shield size={13} />
-        <span>Permission{mode === null ? "" : `: ${mode === "yolo" ? "Auto-approve" : "Ask when needed"}`}</span>
+        <span>{mode === null ? "Permission" : <><span className="permission-label-prefix">Permission: </span>{mode === "yolo" ? "Auto-approve" : "Ask when needed"}</>}</span>
         <ChevronDown size={12} />
       </Button>
       </PopoverTrigger><PopoverContent align="start" className="permission-popover" aria-label="Project permissions">

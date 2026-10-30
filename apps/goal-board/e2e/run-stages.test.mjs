@@ -85,12 +85,12 @@ test("Web goal session presents run stages, revisions, rejection feedback, and c
     assert.match(await value(socket, "document.querySelector('.plan-route-reason').innerText"), /Missing error handling/);
 
     // 5. 阶段标题在时间线上按真实事实位置保留
-    const stageTitles = await value(socket, "[...document.querySelectorAll('.timeline-stage-heading .timeline-stage-target')].map(node => node.textContent)");
+    const stageTitles = await value(socket, "[...document.querySelectorAll('.timeline-stage-heading [data-slot=trace-title]')].map(node => node.textContent)");
     assert.deepEqual(stageTitles, ["Alpha Setup", "Beta Implementation"]);
     assert.match(await value(socket, "document.querySelector('.timeline-fact.run_stage_rejected').innerText"), /Stage revised/);
     await value(socket, "document.querySelector('[data-stage-id=\"stage-beta\"] > .timeline-stage-heading').click()");
     assert.equal(await value(socket, "document.querySelector('[data-stage-id=\"stage-beta\"] > .timeline-stage-heading').getAttribute('aria-expanded')"), "false");
-    assert.match(await value(socket, "document.querySelector('[data-stage-id=\"stage-beta\"]').innerText"), /Needs attention[\s\S]*Stage revised/);
+    assert.match(await value(socket, "document.querySelector('[data-stage-id=\"stage-beta\"]').innerText"), /In progress[\s\S]*Stage revised/);
     await value(socket, "document.querySelector('[data-stage-id=\"stage-beta\"] > .timeline-stage-heading').click()");
 
     assert.equal(await value(socket, "document.querySelector('[data-stage-id=\"stage-alpha\"] > .timeline-stage-heading').getAttribute('aria-expanded')"), "false");
@@ -98,9 +98,10 @@ test("Web goal session presents run stages, revisions, rejection feedback, and c
     await value(socket, "document.querySelector('[data-stage-id=\"stage-alpha\"] > .timeline-stage-heading').click()");
 
     // 6. 同阶段的编辑与写入分别保留，运行中的 Think 自动展开。
+    await value(socket, "document.querySelector('#filter-execution-steps').click()");
     const stage1StepsCount = await value(socket, "document.querySelectorAll('.timeline-activity').length");
     assert.equal(stage1StepsCount, 6);
-    const editGroupSummary = await value(socket, "[...document.querySelectorAll('.timeline-activity-heading > strong')].map(node => node.textContent).find(text => text.includes('Edited'))");
+    const editGroupSummary = await value(socket, "[...document.querySelectorAll('.timeline-activity-heading [data-slot=trace-title]')].map(node => node.textContent).find(text => text.includes('Edited'))");
     assert.equal(editGroupSummary, "Edited src/index.ts");
     assert.equal(await value(socket, "document.querySelectorAll('.timeline-activity-heading[aria-expanded=\"false\"]').length"), 5);
     await cdp(socket, "Runtime.evaluate", {
@@ -136,6 +137,8 @@ test("Web goal session presents run stages, revisions, rejection feedback, and c
     await navigate(socket, `${webUrl}/?session=desktop#${token}`);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
     await value(socket, "document.querySelector('.goal-card').click()");
+    await waitForExpression(socket, "document.querySelector('#filter-execution-steps') !== null");
+    await value(socket, "document.querySelector('#filter-execution-steps').click()");
     await waitForExpression(socket, "document.querySelectorAll('[data-group-id^=\"think:\"]').length === 2");
     await cdp(socket, "Runtime.evaluate", {
       expression: "[...document.querySelectorAll('[data-group-id^=\"think:\"]')][0].querySelector('.timeline-activity-heading').click()",

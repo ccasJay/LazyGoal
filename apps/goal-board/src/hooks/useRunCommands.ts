@@ -58,7 +58,12 @@ export function useRunCommands({
   onRefreshGoals: () => Promise<void>;
 }) {
   const [commandBusy, setCommandBusy] = useState(false);
-  const [commandError, setCommandError] = useState<string | null>(null);
+  const [commandError, setCommandErrorState] = useState<string | null>(null);
+  const [draftGoalBusy, setDraftGoalBusy] = useState(false);
+  const setCommandError = useCallback((error: string | null) => {
+    setCommandErrorState(error);
+    setDraftGoalBusy(false);
+  }, []);
   const [stoppingRunId, setStoppingRunId] = useState<string | null>(null);
   const [unverifiedSubmissions, setUnverifiedSubmissions] = useState<readonly UnverifiedSubmission[]>([]);
   const interruptInFlight = useRef(false);
@@ -105,6 +110,10 @@ export function useRunCommands({
         return true;
       } catch (error) {
         setCommandError(errorMessage(error));
+        if (error instanceof BrowserApiError && error.code === "goal_busy") {
+          setDraftGoalBusy(true);
+          void onRefreshGoals();
+        }
         if (
           error instanceof BrowserApiError &&
           ["model_not_selectable", "model_catalog_unavailable", "goal_busy"].includes(error.code)
@@ -381,6 +390,7 @@ export function useRunCommands({
   return {
     commandBusy,
     commandError,
+    draftGoalBusy,
     setCommandError,
     stoppingRunId,
     setStoppingRunId,

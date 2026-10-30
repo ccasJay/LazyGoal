@@ -112,7 +112,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelector('.timeline-activity.running .timeline-activity-heading').getAttribute('aria-expanded')"), "true", "the active tool group opens to reveal its calls");
     assert.equal(await value(socket, "getComputedStyle(document.querySelector('.timeline-activity.running .activity-snake-loader')).animationName"), "activity-snake-orbit");
     assert.equal(await value(socket, "getComputedStyle(document.querySelector('.timeline-activity.running .activity-snake-loader')).animationName"), "activity-snake-orbit", "the Run status carries motion in the Activity feed");
-    assert.equal(await value(socket, "getComputedStyle(document.querySelector('.task-state.running .status-dot'), '::after').animationName"), "activity-breathe");
+    assert.match(await value(socket, "document.querySelector('.task-state.running').innerText"), /Running/);
     await cdp(socket, "Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
     assert.equal(await value(socket, "getComputedStyle(document.querySelector('.timeline-activity.running .activity-snake-loader')).animationName"), "none");
     assert.equal(await value(socket, "getComputedStyle(document.querySelector('.timeline-activity.running .activity-snake-loader')).animationName"), "none");
@@ -130,11 +130,11 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.match(await value(socket, "[...document.querySelectorAll('.timeline-activity')].find(group => group.innerText.includes('Not saved yet'))?.innerText ?? ''"), /Not saved yet/);
     assert.doesNotMatch(await value(socket, "document.querySelector('.transient-message').innerText"), /Checking saved notes/);
     const requestStartedAt = mock.publishModelProgress();
-    await waitForExpression(socket, "document.querySelector('.timeline-progress-copy strong')?.textContent === 'Waiting for model response'");
-    assert.match(await value(socket, "document.querySelector('.timeline-progress').innerText"), /Checking the proposed answer.*No public response received yet/);
-    assert.equal(await value(socket, "document.querySelector('.timeline-progress-elapsed').title"), "Time since the model request started");
-    assert.ok(Date.parse(await value(socket, "[...document.querySelectorAll('.timeline-progress-history time')].at(-1).dateTime")) >= Date.parse(requestStartedAt));
-    assert.match(await value(socket, "document.querySelector('.timeline-progress-history').innerText"), /Recent live events[\s\S]*Waiting for model response/);
+    await waitForExpression(socket, "document.querySelector('.timeline-step-progress')?.innerText.includes('Checking the proposed answer')");
+    assert.match(await value(socket, "document.querySelector('.timeline-step-progress').innerText"), /Checking the proposed answer.*No response received yet/);
+    assert.equal(await value(socket, "document.querySelector('.timeline-step-progress small[title]')?.title"), "Time since the model request started");
+    assert.ok(Date.parse(await value(socket, "[...document.querySelectorAll('.timeline-step-progress time')].at(-1).dateTime")) >= Date.parse(requestStartedAt));
+    assert.match(await value(socket, "document.querySelector('.timeline-step-progress ol').innerText"), /Waiting for model response/);
     await value(socket, "document.querySelector('.jump')?.click()");
     await waitForExpression(socket, "document.querySelector('.jump') === null");
     mock.commitWaitingActivity();
@@ -146,31 +146,31 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     const conversationBounds = await value(socket, "(() => { const timeline = document.querySelector('.session .timeline > *').getBoundingClientRect(); const composer = document.querySelector('.composer-area .approval').getBoundingClientRect(); return { timelineWidth: timeline.width, composerWidth: composer.width, centerGap: Math.abs((timeline.left + timeline.right - composer.left - composer.right) / 2) }; })()");
     assert.ok(conversationBounds.timelineWidth <= 840 && conversationBounds.composerWidth <= 840);
     assert.ok(conversationBounds.centerGap < 16);
-    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.timeline-activity-heading')].map(button => button.querySelector('strong').textContent)"), ["Searched for approved notes", "Read README.md", "Ran npm test"]);
+    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.timeline-activity-heading')].map(button => button.querySelector('[data-slot=trace-title]').textContent)"), ["Searched files", "Read README.md", "Run tests"]);
     assert.deepEqual(await value(socket, "[...document.querySelectorAll('.timeline-activity-heading')].map(button => button.getAttribute('aria-expanded'))"), ["false", "false", "true"], "active tool groups and failed groups expand by default");
-    assert.ok(await value(socket, "document.querySelector('.timeline-activity-heading').getBoundingClientRect().height <= 34"));
+    assert.ok(await value(socket, "document.querySelector('.timeline-activity-heading').getBoundingClientRect().height >= 38"));
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.timeline-activity.failed .timeline-activity-heading').click()", returnByValue: true });
     for (let index = 0; index < 2; index += 1) {
       await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#filter-execution-steps').click()", returnByValue: true });
-      await waitForExpression(socket, index === 0 ? "document.querySelector('.timeline-activity.completed') === null && document.querySelector('.timeline-activity.failed') !== null" : "document.querySelector('.timeline-activity') !== null");
+      await waitForExpression(socket, "document.querySelector('.timeline-activity.completed') !== null && document.querySelector('.timeline-activity.failed') !== null");
     }
     assert.equal(await value(socket, "document.querySelector('.timeline-activity.failed .timeline-activity-heading').getAttribute('aria-expanded')"), "false", "filtering preserves a manually collapsed failure");
     mock.commitWaitingActivity();
     await waitForExpression(socket, "document.querySelector('.timeline-activity.failed .timeline-activity-heading')?.getAttribute('aria-expanded') === 'false'");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.timeline-activity-heading[aria-expanded=\"false\"]')].forEach(button => button.click())", returnByValue: true });
     await waitForExpression(socket, "document.querySelectorAll('.timeline-activity-members > li').length === 3");
-    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.timeline-activity-members > li .timeline-activity-member-label')].map(label => label.textContent)"), ["Searched for approved notes", "Read README.md", "Ran npm test"]);
+    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.timeline-activity-members > li .timeline-activity-member-label')].map(label => label.textContent)"), ["Searched files", "Read README.md", "Run tests"]);
     assert.deepEqual(await value(socket, "[...document.querySelectorAll('.timeline-activity-members > li .timeline-activity-member-status')].map(status => status.textContent)"), ["Completed", "Completed", "Failed"]);
-    assert.match(await value(socket, "[...document.querySelectorAll('.timeline-activity')].find(group => group.innerText.includes('Ran npm test')).innerText"), /npm test|Test failed/);
+    assert.match(await value(socket, "[...document.querySelectorAll('.timeline-activity')].find(group => group.innerText.includes('Run tests')).innerText"), /npm test|Test failed/);
     for (const width of [390, 320]) {
       await cdp(socket, "Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: true });
       assert.equal(await value(socket, "(() => { const timeline = document.querySelector('.timeline'); return timeline.scrollWidth <= timeline.clientWidth + 1; })()"), true, `activity details fit a ${width}px viewport`);
     }
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
 
-    // 隐藏常规步骤仍保留失败提示、正文与 Run 边界。
+    // 关闭技术详情仍保留活动摘要、失败提示、正文与 Run 边界。
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#filter-execution-steps').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.timeline-activity.completed') === null && document.querySelector('.timeline-activity.failed') !== null");
+    await waitForExpression(socket, "document.querySelector('.timeline-activity.completed') !== null && document.querySelector('.timeline-activity.failed') !== null");
     assert.equal(await value(socket, "document.querySelector('.timeline-run-summary') !== null"), true);
     assert.match(await value(socket, "document.querySelector('.session').innerText"), /Which source should I use\?/);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#filter-execution-steps').click()", returnByValue: true });
@@ -738,6 +738,205 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
   }
 });
 
+test("a blocked new Goal keeps its draft while the user inspects running Goals", { timeout: 60_000 }, async () => {
+  const conflictUrl = "http://127.0.0.1:4176";
+  const mock = createMockApi();
+  mock.rejectNextCreateWithRunningGoal();
+  const apiAddress = await listen(mock.server);
+  const apiPort = Number(new URL(apiAddress).port);
+  const webServer = spawn(process.execPath,
+    [join(root, "node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", "4176", "--strictPort"],
+    { cwd: root, env: { ...process.env, LAZYGOAL_E2E_API_PORT: String(apiPort) }, stdio: "ignore" });
+  const profile = await mkdtemp(join(tmpdir(), "lazygoal-busy-draft-"));
+  let chrome;
+  let socket;
+  try {
+    await waitForHttp(`${conflictUrl}/`);
+    chrome = spawn(findChrome(), ["--headless=new", "--no-sandbox", "--disable-gpu", "--hide-scrollbars",
+      "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
+    const devtools = await waitForDevtools(profile, chrome);
+    const targets = await (await fetch(`http://127.0.0.1:${devtools.port}/json/list`)).json();
+    socket = await connectCdp(targets.find(item => item.type === "page").webSocketDebuggerUrl);
+    await cdp(socket, "Page.enable");
+    await cdp(socket, "Runtime.enable");
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+    await navigate(socket, `${conflictUrl}/?session=busy#${token}`);
+    await waitForExpression(socket, "document.querySelector('button[aria-label=\"New goal\"]') !== null");
+    await value(socket, "document.querySelector('button[aria-label=\"New goal\"]').click()");
+    await waitForExpression(socket, "document.querySelector('.composer-area .current-model-control')?.textContent.includes('Default Model')");
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Inspect the current workspace");
+    await value(socket, "document.querySelector('button[aria-label=\"Send message\"]').click()");
+    await waitForExpression(socket, "document.querySelector('.command-error')?.innerText.includes('Another Goal is active')");
+    const blockedInputId = mock.lastCreate.inputId;
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 320, height: 900, deviceScaleFactor: 1, mobile: true });
+    assert.ok(await value(socket, "document.documentElement.scrollWidth - innerWidth") <= 1, "creation conflict fits a narrow viewport");
+    await value(socket, "[...document.querySelectorAll('.command-error button')].find(button => button.textContent.includes('View running Goals')).click()");
+    await waitForExpression(socket, "document.querySelector('.running-goals-popover')?.innerText.includes('Collect approved notes')");
+    assert.match(await value(socket, "document.querySelector('.running-goals-popover').innerText"), /Your draft will be kept/);
+    assert.equal(await value(socket, "(() => { const box = document.querySelector('.running-goals-popover').getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth; })()"), true, "running Goals fit a narrow viewport");
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+    await value(socket, "[...document.querySelectorAll('.running-goals-popover button')].find(button => button.textContent.includes('Collect approved notes')).click()");
+    await waitForExpression(socket, "document.querySelector('.session .timeline-run-summary') !== null");
+    await value(socket, "document.querySelector('button[aria-label=\"New goal\"]').click()");
+    await waitForExpression(socket, "document.querySelector('.draft-timeline') !== null");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]').value"), "Inspect the current workspace");
+    await waitForExpression(socket, "document.querySelector('.composer-area .send:not(:disabled)') !== null");
+    await value(socket, "document.querySelector('button[aria-label=\"Send message\"]').click()");
+    await waitForLocal(() => mock.lastCreate?.inputId !== blockedInputId);
+    assert.equal(mock.lastCreate.intent, "Inspect the current workspace");
+    await waitForExpression(socket, "document.querySelector('.draft-timeline') === null");
+    await value(socket, "document.querySelector('button[aria-label=\"New goal\"]').click()");
+    await waitForExpression(socket, "document.querySelector('.draft-timeline') !== null");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]').value"), "", "successful creation clears the saved draft");
+  } finally {
+    socket?.close();
+    if (chrome !== undefined && chrome.exitCode === null) {
+      const closed = once(chrome, "close");
+      chrome.kill("SIGTERM");
+      await closed;
+    }
+    webServer.kill("SIGTERM");
+    mock.server.close();
+    mock.server.closeAllConnections();
+    await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  }
+});
+
+test("activity width and compact composer remain usable and persist", { timeout: 60_000 }, async () => {
+  const pageUrl = "http://127.0.0.1:4177";
+  const newPortUrl = "http://127.0.0.1:4178";
+  const mock = createMockApi();
+  const apiAddress = await listen(mock.server);
+  const webServer = spawn(process.execPath,
+    [join(root, "node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", "4177", "--strictPort"],
+    { cwd: root, env: { ...process.env, LAZYGOAL_E2E_API_PORT: String(new URL(apiAddress).port) }, stdio: "ignore" });
+  const newPortServer = spawn(process.execPath,
+    [join(root, "node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", "4178", "--strictPort"],
+    { cwd: root, env: { ...process.env, LAZYGOAL_E2E_API_PORT: String(new URL(apiAddress).port) }, stdio: "ignore" });
+  const profile = await mkdtemp(join(tmpdir(), "lazygoal-activity-width-"));
+  let chrome;
+  let socket;
+  try {
+    await waitForHttp(`${pageUrl}/`);
+    await waitForHttp(`${newPortUrl}/`);
+    chrome = spawn(findChrome(), ["--headless=new", "--no-sandbox", "--disable-gpu", "--hide-scrollbars",
+      "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
+    const devtools = await waitForDevtools(profile, chrome);
+    const targets = await (await fetch(`http://127.0.0.1:${devtools.port}/json/list`)).json();
+    socket = await connectCdp(targets.find(item => item.type === "page").webSocketDebuggerUrl);
+    await cdp(socket, "Page.enable");
+    await cdp(socket, "Runtime.enable");
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await navigate(socket, `${pageUrl}/?session=width#${token}`);
+    await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
+    await value(socket, "document.querySelector('.goal-card').click()");
+    await waitForExpression(socket, "document.querySelector('.session-timeline-feed') !== null && document.querySelector('.composer textarea') !== null");
+    const bounds = () => value(socket, `(() => {
+      const feed = document.querySelector('.session-timeline-feed').getBoundingClientRect();
+      const item = document.querySelector('.session-timeline-feed > *').getBoundingClientRect();
+      const filter = document.querySelector('.activity-filter-content').getBoundingClientRect();
+      const form = document.querySelector('.composer-area form').getBoundingClientRect();
+      const text = document.querySelector('.composer textarea').getBoundingClientRect();
+      const tools = document.querySelector('.composer-tools').getBoundingClientRect();
+      return { feedWidth: feed.width, itemWidth: item.width, filterWidth: filter.width, formWidth: form.width,
+        leftGap: Math.abs(feed.left - form.left), filterLeftGap: Math.abs(filter.left - form.left),
+        textHeight: text.height, sameRow: text.top < tools.bottom && tools.top < text.bottom };
+    })()`);
+    const standard = await bounds();
+    assert.ok(standard.feedWidth <= 840 && standard.formWidth <= 840);
+    assert.ok(standard.leftGap < 1 && standard.filterLeftGap < 1 && Math.abs(standard.feedWidth - standard.formWidth) < 1);
+    assert.ok(Math.abs(standard.itemWidth - standard.formWidth) < 1 && Math.abs(standard.filterWidth - standard.formWidth) < 1);
+    assert.equal(standard.sameRow, true, "the textarea and controls share a row on desktop");
+    await value(socket, "document.querySelector('.composer textarea').focus()");
+    assert.equal(await value(socket, "getComputedStyle(document.querySelector('.composer textarea')).outlineStyle"), "none");
+    assert.match(await value(socket, "getComputedStyle(document.querySelector('.composer textarea')).boxShadow"), /^(none|(?:rgba\(0, 0, 0, 0\) 0px 0px 0px 0px)(?:, rgba\(0, 0, 0, 0\) 0px 0px 0px 0px)*)$/);
+    await setText(socket, ".composer textarea", "First line\nSecond line\nThird line");
+    await waitForExpression(socket, "document.querySelector('.composer textarea').getBoundingClientRect().height > 50");
+
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 916, height: 900, deviceScaleFactor: 1, mobile: false });
+    const mediumStandard = await bounds();
+    assert.ok(mediumStandard.leftGap < 1 && mediumStandard.filterLeftGap < 1);
+    assert.ok(Math.abs(mediumStandard.itemWidth - mediumStandard.formWidth) < 1 && Math.abs(mediumStandard.filterWidth - mediumStandard.formWidth) < 1);
+    await value(socket, "document.querySelector('.workspace-settings').click()");
+    await waitForExpression(socket, "[...document.querySelectorAll('[role=tab]')].some(tab => tab.textContent === 'Appearance')");
+    await value(socket, "[...document.querySelectorAll('[role=tab]')].find(tab => tab.textContent === 'Appearance').focus()");
+    await cdp(socket, "Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await cdp(socket, "Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await waitForExpression(socket, "document.querySelectorAll('[role=radiogroup] [role=radio]').length === 2");
+    await value(socket, "document.querySelectorAll('[role=radiogroup] [role=radio]')[1].click()");
+    await waitForExpression(socket, "document.querySelector('.workspace-shell').dataset.activityWidth === 'wide'");
+    await value(socket, "document.querySelector('.settings-back').click()");
+    await waitForExpression(socket, "document.querySelector('.session-timeline-feed')?.checkVisibility()");
+    const mediumWide = await bounds();
+    assert.ok(mediumWide.feedWidth > mediumStandard.feedWidth + 60, "wide remains visibly wider at a 916px viewport");
+    assert.ok(mediumWide.formWidth > mediumStandard.formWidth + 60);
+    assert.ok(mediumWide.leftGap < 1 && mediumWide.filterLeftGap < 1);
+    assert.ok(Math.abs(mediumWide.itemWidth - mediumWide.formWidth) < 1 && Math.abs(mediumWide.filterWidth - mediumWide.formWidth) < 1);
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    const wide = await bounds();
+    assert.ok(wide.feedWidth > standard.feedWidth + 100, "wide fills the available activity area");
+    assert.ok(wide.leftGap < 1 && wide.filterLeftGap < 1 && Math.abs(wide.feedWidth - wide.formWidth) < 1);
+
+    await navigate(socket, `${newPortUrl}/?session=width#${token}`);
+    await waitForExpression(socket, "document.querySelector('.workspace-shell')?.dataset.activityWidth === 'wide'");
+    await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
+    await value(socket, "document.querySelector('.goal-card').click()");
+    await waitForExpression(socket, "document.querySelector('.session-timeline-feed') !== null && document.querySelector('.composer textarea') !== null");
+    await value(socket, "document.querySelector('.workspace-settings').click()");
+    await waitForExpression(socket, "[...document.querySelectorAll('[role=tab]')].some(tab => tab.textContent === 'Appearance')");
+    await value(socket, "[...document.querySelectorAll('[role=tab]')].find(tab => tab.textContent === 'Appearance').focus()");
+    await cdp(socket, "Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await cdp(socket, "Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await waitForExpression(socket, "document.querySelectorAll('[role=radiogroup] [role=radio]').length === 2");
+    assert.equal(await value(socket, "document.querySelectorAll('[role=radiogroup] [role=radio]')[1].getAttribute('aria-checked')"), "true");
+    await value(socket, "document.querySelectorAll('[role=radiogroup] [role=radio]')[0].click()");
+    await waitForExpression(socket, "document.querySelector('.workspace-shell').dataset.activityWidth === 'standard'");
+    await value(socket, "document.querySelector('.settings-back').click()");
+    await waitForExpression(socket, "document.querySelector('.session-timeline-feed')?.checkVisibility()");
+    const restored = await bounds();
+    assert.ok(Math.abs(restored.feedWidth - standard.feedWidth) < 1 && Math.abs(restored.formWidth - standard.formWidth) < 1);
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 320, height: 900, deviceScaleFactor: 1, mobile: true });
+    await waitForExpression(socket, "document.querySelector('.composer').getBoundingClientRect().width <= 320");
+    const narrow = await bounds();
+    assert.ok(narrow.leftGap < 1 && narrow.filterLeftGap < 1 && Math.abs(narrow.itemWidth - narrow.formWidth) < 1);
+    assert.ok(await value(socket, "document.documentElement.scrollWidth - innerWidth") <= 1);
+    assert.equal(await value(socket, `(() => {
+      const composer = document.querySelector('.composer').getBoundingClientRect();
+      return [...document.querySelectorAll('.composer textarea, .composer button')].every(element => {
+        const bounds = element.getBoundingClientRect();
+        return bounds.left >= composer.left - 1 && bounds.right <= composer.right + 1 && bounds.width > 0;
+      });
+    })()`), true, "the input and controls fit a narrow viewport");
+
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await waitForExpression(socket, "document.querySelector('.workspace-settings')?.checkVisibility()");
+    await value(socket, "document.querySelector('.workspace-settings').click()");
+    await waitForExpression(socket, "[...document.querySelectorAll('[role=tab]')].some(tab => tab.textContent === 'Appearance')");
+    await value(socket, "[...document.querySelectorAll('[role=tab]')].find(tab => tab.textContent === 'Appearance').focus()");
+    await cdp(socket, "Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await cdp(socket, "Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await waitForExpression(socket, "document.querySelectorAll('[role=radiogroup] [role=radio]').length === 2");
+    await value(socket, "Object.defineProperty(document, 'cookie', { configurable: true, get: () => '', set: () => {} }); true");
+    await value(socket, "document.querySelectorAll('[role=radiogroup] [role=radio]')[1].click()");
+    await waitForExpression(socket, "document.querySelector('.settings-activity-width [role=alert]')?.textContent.includes('Could not save')");
+    assert.equal(await value(socket, "document.querySelector('.workspace-shell').dataset.activityWidth"), "wide", "a blocked cookie still applies to the current page");
+    await navigate(socket, `${newPortUrl}/?session=width#${token}`);
+    await waitForExpression(socket, "document.querySelector('.workspace-shell')?.dataset.activityWidth === 'standard'");
+  } finally {
+    socket?.close();
+    if (chrome !== undefined && chrome.exitCode === null) {
+      const closed = once(chrome, "close");
+      chrome.kill("SIGTERM");
+      await closed;
+    }
+    webServer.kill("SIGTERM");
+    newPortServer.kill("SIGTERM");
+    mock.server.close();
+    mock.server.closeAllConnections();
+    await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  }
+});
+
 test("Goal events and metrics reconnect after the server ends each stream", { timeout: 180_000 }, async () => {
   const reconnectUrl = "http://127.0.0.1:4175";
   const mock = createMockApi();
@@ -843,6 +1042,7 @@ function createMockApi() {
   let lastPlanMode;
   let lastModelSelection;
   let lastCreate;
+  let rejectNextCreate = false;
   let selectedModelId = "model-default";
   let preferredModelId = "model-default";
   let delayNextDraftCatalog = false;
@@ -916,7 +1116,7 @@ function createMockApi() {
   });
   /** 已提交的真实工具事实；Activity 页按同一来源顺序呈现。 */
   const committedFacts = [
-    { eventId: "event-grep", sequence: 1, actionId: "action-1", toolId: "grep", inputSummary: "approved notes", summary: "Found three approved notes.", status: "completed" },
+    { eventId: "event-search", sequence: 1, actionId: "action-1", toolId: "bash", inputSummary: "rg --line-number --no-heading --color never -- approved notes .", summary: "Found three approved notes.", status: "completed" },
     { eventId: "event-read", sequence: 2, actionId: "action-2", toolId: "read_file", inputSummary: "README.md", summary: "Project notes.", status: "completed" },
     { eventId: "event-bash", sequence: 3, actionId: "action-3", toolId: "bash", inputSummary: "npm test", summary: "Test failed", status: "failed" },
   ];
@@ -1087,6 +1287,11 @@ function createMockApi() {
       let body = "";
       for await (const chunk of request) body += chunk;
       lastCreate = JSON.parse(body);
+      if (rejectNextCreate) {
+        rejectNextCreate = false;
+        json(response, { error: "goal_busy" }, 409);
+        return;
+      }
       json(response, {
         ok: true,
         existing: false,
@@ -1344,6 +1549,12 @@ function createMockApi() {
     get lastPlanMode() { return lastPlanMode; },
     get lastModelSelection() { return lastModelSelection; },
     get lastCreate() { return lastCreate; },
+    rejectNextCreateWithRunningGoal() {
+      rejectNextCreate = true;
+      session = waitingSession();
+      currentListItem = listItem("running");
+      liveTransitionSent = true;
+    },
     get preferredModelId() { return preferredModelId; },
     delayNextDraftCatalog() { delayNextDraftCatalog = true; },
     failNextInteractionDetails(error = "interaction_details_unavailable") { nextInteractionDetailsFailure = error; },
@@ -1442,10 +1653,11 @@ function waitingSession() {
         executionUnitId: "unit-1",
         sequence: 2,
         stepIndex: 1,
-        toolId: "grep",
-        inputSummary: "approved notes",
+        toolId: "bash",
+        inputSummary: "rg --line-number --no-heading --color never -- approved notes .",
         status: "completed",
         summary: "Found three approved notes.",
+        bashExecution: { command: "rg --line-number --no-heading --color never -- approved notes ." },
       }, {
         runId: "run-1", executionUnitId: "unit-2", sequence: 3, stepIndex: 2,
         toolId: "read_file", inputSummary: "README.md", status: "completed", summary: "Project notes.",

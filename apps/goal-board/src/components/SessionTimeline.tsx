@@ -23,9 +23,11 @@ type RenderableSessionMessage =
 const SessionMessage = memo(function SessionMessage({
   entry,
   brandMark,
+  laterAnswerId,
 }: {
   readonly entry: RenderableSessionMessage;
   readonly brandMark: string;
+  readonly laterAnswerId?: string;
 }) {
   const isCandidate = entry.kind === "candidate-preview";
   const role = isCandidate ? "assistant" : entry.role;
@@ -35,6 +37,7 @@ const SessionMessage = memo(function SessionMessage({
   return (
     <article
       className={`message ${role}${isCandidate ? " transient-message candidate-message" : ""}`}
+      id={`timeline-message-${encodeURIComponent(entry.itemId)}`}
       data-item-id={entry.itemId}
       data-run-id={entry.runId}
       data-presentation-key={entry.presentationKey}
@@ -62,6 +65,10 @@ const SessionMessage = memo(function SessionMessage({
       {!isCandidate && entry.previewIssue === "preview-incomplete" && (
         <small className="candidate-settlement-note">The saved answer is shown; its preview was incomplete.</small>
       )}
+      {laterAnswerId !== undefined && <Button variant="ghost" size="sm" type="button"
+        onClick={() => document.getElementById(`timeline-message-${encodeURIComponent(laterAnswerId)}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+        View later answer <ArrowUpRight data-icon="inline-end" aria-hidden="true" />
+      </Button>}
     </article>
   );
 });
@@ -104,6 +111,10 @@ export interface SessionTimelineProps {
   readonly onLoadEarlier?: () => void;
   /** 读取更新一页；只读，不恢复执行。 */
   readonly onLoadNewer?: () => void;
+  /** 对当前失败 Run 提交继续消息，启动新的 Run。 */
+  readonly onContinueFailed?: () => void;
+  /** 继续请求正在提交或不可用。 */
+  readonly continueDisabled?: boolean;
   /** 当前页之前尚未读取的项数。 */
   readonly olderItemCount?: number;
   /** 当前页之后尚未读取的项数。 */
@@ -179,6 +190,8 @@ export function SessionTimeline({
   onOpenTrajectory,
   onLoadEarlier,
   onLoadNewer,
+  onContinueFailed,
+  continueDisabled = false,
   olderItemCount = 0,
   newerItemCount = 0,
   unreadCount = 0,
@@ -195,6 +208,13 @@ export function SessionTimeline({
   const savedContentCount = projection.items
     .filter((item) => item.kind === "message" || item.kind === "fact" || item.kind === "activity" || item.kind === "lookup")
     .length;
+  const answers = projection.items.filter((item): item is Extract<SessionTimelineEntry, { kind: "message" }> =>
+    item.kind === "message" && item.role === "assistant" && item.purpose === "answer");
+  const laterAnswers = new Map<string, string>();
+  for (const answer of answers) {
+    const later = answers.find(item => item.position.runOrder > answer.position.runOrder);
+    if (later !== undefined) laterAnswers.set(answer.itemId, later.itemId);
+  }
   const progressByItem = new Map<string, ExecutionProgressEntry[]>();
   const pendingSteps = new Map<string, ExecutionProgressEntry[]>();
   const progress = runStatus === "running" && newerItemCount === 0
@@ -216,8 +236,13 @@ export function SessionTimeline({
     currentRunId, currentPlanRoute: projection.currentPlanRoute, stages: projection.stages, actionGroups: projection.actionGroups, runStatus, liveActivity,
     streamConnected, showExecutionFacts, brandMark, expandedGroups, progressByItem,
     latestProgressId: progress.at(-1)?.id,
-    onToggleGroup: toggleGroup, onOpenTrajectory,
+    onToggleGroup: toggleGroup, onOpenTrajectory, laterAnswers, onLoadEarlier, onLoadNewer,
+    olderAvailable, newerItemCount, onContinueFailed, continueDisabled,
   };
+  const runs = projection.items.filter((item): item is Extract<SessionTimelineEntry, { kind: "run" }> => item.kind === "run");
+  const stageProgress = (projection.currentPlanRoute?.stages ?? projection.stages.filter(stage => stage.runId === currentRunId && stage.target !== undefined))
+    .filter(stage => stage.status === "executing" || stage.status === "accepted");
+  const historicalStageProgress = projection.currentPlanRoute === undefined && newerItemCount > 0;
   const renderPendingSteps = () => pendingSteps.size > 0 && <Trace className="timeline-execution">{[...pendingSteps].map(([unitId, entries]) => (
     <TraceCollapsible key={unitId} defaultOpen className="timeline-fact" data-run-id={currentRunId} data-execution-unit-id={unitId}>
       <TraceCollapsibleTrigger className="timeline-step-trigger">
@@ -229,6 +254,16 @@ export function SessionTimeline({
 
   return (
     <div className="session-timeline-feed" data-testid="session-timeline">
+      {runs.length > 1 && <nav className="history-note" aria-label="Loaded runs">{runs.map(run =>
+        <Button key={run.runId} variant="ghost" size="sm" type="button" onClick={() =>
+          document.getElementById(`timeline-run-${encodeURIComponent(run.runId)}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+          Run {run.position.runOrder + 1}
+        </Button>)}</nav>}
+      {runStatus === "running" && stageProgress.length > 0 && <div className="history-note" aria-label="Run progress">
+        {projection.currentPlanRoute === undefined && <span>Stages in loaded activity:</span>}
+        {stageProgress.filter(stage => stage.status === "executing").map(stage => <span key={stage.stageId}>{historicalStageProgress ? "Last recorded in progress" : "In progress"}: {stage.target}</span>)}
+        {stageProgress.filter(stage => stage.status === "accepted").map(stage => <span key={stage.stageId}>{historicalStageProgress ? "Recorded as accepted" : "Accepted"}: {stage.target}</span>)}
+      </div>}
       {olderAvailable && (
         <div className="history-note">
           <span>
@@ -244,19 +279,18 @@ export function SessionTimeline({
           {unreadCount} new items
         </div>
       )}
-      {projection.items.filter(item => item.kind === "run").map(run => {
-        if (run.kind !== "run") return null;
+      {runs.map(run => {
         const expanded = expandedRuns.get(run.runId) ?? run.runId === currentRunId;
         const entries = projection.items.filter(item => item.runId === run.runId && item.kind !== "run");
         const visible = expanded ? entries : entries.filter(item => item.kind === "message" && (item.role === "user" || item.purpose !== "process")
           || item.kind === "candidate-preview" || item.kind === "live-preview" || item.kind === "interaction");
-        return <div className="timeline-run-block" key={run.runId} data-run-id={run.runId}>
+        return <div className="timeline-run-block" id={`timeline-run-${encodeURIComponent(run.runId)}`} key={run.runId} data-run-id={run.runId}>
           <Collapsible open={expanded} onOpenChange={open => setExpandedRuns(current => new Map(current).set(run.runId, open))}>
             <CollapsibleTrigger asChild><Button variant="ghost" className={cn("timeline-run-summary", run.status)} data-item-id={run.itemId}>
               <ChevronRight data-icon="inline-start" className={cn(expanded && "rotate-90")} />
               <strong>Run {run.position.runOrder + 1}</strong>
               <Badge variant="outline" className={`timeline-run-status ${run.status}`}>{formatRunStatus(run.status)}</Badge>
-              <span className="timeline-run-result">{run.detail?.message ?? (run.status === "failed" ? "Failure reason unavailable" : run.runId === currentRunId ? "Current run" : "Execution history")}</span>
+              <span className="timeline-run-result">{run.detail?.message ?? (run.status === "failed" ? "Failure reason unavailable" : run.status === "completed" ? "Run finished; answer accuracy is not indicated" : run.runId === currentRunId ? "Current run" : "Execution history")}</span>
               {run.detail?.code && <code className="timeline-run-error-code">{run.detail.code}</code>}
             </Button></CollapsibleTrigger>
           <CollapsibleContent forceMount>
@@ -304,7 +338,7 @@ function StepProgressDetails({ entries, active, streamConnected, onOpenTrajector
     {active && <small title={current.hasSourceTime ? "Time since the model request started" : "Time since this event was observed"}>
       {current.hasSourceTime ? elapsed : `Observed ${elapsed}`}
     </small>}
-    {silent && <p className="timeline-step-warning" role="status">No response update for 60 seconds.</p>}
+    {silent && <p className="timeline-step-warning" role="status">No response update for 60 seconds. The Run is still waiting for the model; you can pause it below.</p>}
     <ol>{entries.map(entry => <li key={entry.id}>
       <span>{entry.label}</span>
       <time dateTime={new Date(entry.lastObservedAt).toISOString()}>{new Date(entry.lastObservedAt).toLocaleTimeString("en-GB")}</time>
@@ -331,6 +365,13 @@ type TimelineRenderOptions = {
     readonly latestProgressId: number | undefined;
     readonly onToggleGroup: (groupId: string, expanded: boolean) => void;
     readonly onOpenTrajectory: SessionTimelineProps["onOpenTrajectory"];
+    readonly laterAnswers: ReadonlyMap<string, string>;
+    readonly onLoadEarlier: SessionTimelineProps["onLoadEarlier"];
+    readonly onLoadNewer: SessionTimelineProps["onLoadNewer"];
+    readonly olderAvailable: boolean;
+    readonly newerItemCount: number;
+    readonly onContinueFailed: SessionTimelineProps["onContinueFailed"];
+    readonly continueDisabled: boolean;
 };
 
 function isActive(status: ActivityGroupStatus): boolean {
@@ -341,14 +382,71 @@ function needsAttention(status: ActivityGroupStatus): boolean {
   return status === "failed" || status === "partial-failure" || status === "rejected" || status === "waiting";
 }
 
+function renderCorrectionGroup(entries: readonly Extract<SessionTimelineEntry, { kind: "fact" }>[], options: TimelineRenderOptions) {
+  const first = entries[0]!;
+  return <TraceCollapsible key={`corrections:${first.itemId}`} className="timeline-fact" data-run-id={first.runId} data-item-id={first.itemId}>
+    <TraceCollapsibleTrigger className="timeline-step-trigger"><TraceLine>
+      <TraceIcon><span className="timeline-fact-dot" /></TraceIcon>
+      <TraceTitle>Model output corrections</TraceTitle><TraceDescription>{entries.length} attempts recorded</TraceDescription>
+    </TraceLine></TraceCollapsibleTrigger>
+    <TraceCollapsibleContent><Trace>{entries.map(entry => renderEntry(entry, options))}</Trace></TraceCollapsibleContent>
+  </TraceCollapsible>;
+}
+
+function correctionEnd(items: readonly SessionTimelineEntry[], start: number): number {
+  const first = items[start];
+  if (first?.kind !== "fact" || first.eventType !== "model_repair_feedback_recorded" || first.executionUnitId === undefined) return start + 1;
+  let end = start + 1;
+  while (end < items.length) {
+    const next = items[end];
+    if (next?.kind !== "fact" || next.eventType !== first.eventType || next.runId !== first.runId
+      || next.executionUnitId !== first.executionUnitId || next.stageId !== first.stageId) break;
+    end++;
+  }
+  return end;
+}
+
+function renderEntryList(items: readonly SessionTimelineEntry[], options: TimelineRenderOptions): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  for (let index = 0; index < items.length;) {
+    const end = correctionEnd(items, index);
+    nodes.push(end - index > 1
+      ? renderCorrectionGroup(items.slice(index, end) as Extract<SessionTimelineEntry, { kind: "fact" }>[], options)
+      : renderEntry(items[index]!, options));
+    index = end;
+  }
+  return nodes;
+}
+
 function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: TimelineRenderOptions) {
   const rendered: React.ReactNode[] = [];
   const stages = new Map<string, { title: string; revision?: number }>();
   const stageOutcomes = new Map<string, string>();
+  const stageRevisions = new Map<string, Set<number>>();
+  const unitStages = new Map<string, Set<string>>();
+  const seenSections = new Set<string>();
+  const loadOffered = new Set<string>();
   for (const entry of items) {
     if (entry.kind === "fact" && entry.stageId !== undefined
       && (entry.eventType === "run_stage_accepted" || entry.eventType === "run_stage_rejected")) {
       stageOutcomes.set(`${entry.runId}:${entry.stageId}:${entry.stageRevision ?? ""}`, entry.eventType);
+    }
+    if (entry.kind === "fact" && entry.stageId !== undefined && entry.stageRevision !== undefined) {
+      const key = `${entry.runId}:${entry.stageId}`;
+      const revisions = stageRevisions.get(key) ?? new Set<number>();
+      revisions.add(entry.stageRevision);
+      stageRevisions.set(key, revisions);
+    }
+    const stageId = entry.kind === "activity" ? entry.group.stageId
+      : entry.kind === "fact" || entry.kind === "lookup" ? entry.stageId : undefined;
+    const units = entry.kind === "activity" ? entry.group.members.map(member => member.executionUnitId)
+      : entry.kind === "fact" || entry.kind === "lookup" ? [entry.executionUnitId] : [];
+    if (stageId !== undefined) for (const unit of units) {
+      if (unit === undefined) continue;
+      const key = `${entry.runId}:${unit}`;
+      const owned = unitStages.get(key) ?? new Set<string>();
+      owned.add(stageId);
+      unitStages.set(key, owned);
     }
   }
   for (const stage of options.currentPlanRoute?.stages ?? []) {
@@ -374,21 +472,34 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
       : entry.kind === "lookup" ? entry.status === "failed"
         : !accepted && entry.kind === "fact" && entry.eventType === "run_stage_rejected" && outcome === "run_stage_rejected");
     const running = !accepted && entries[0]?.runId === options.currentRunId && options.runStatus === "running"
-      && (contextStatus === "executing" || routeStage?.status === "executing" || activities.some((entry) => isActive(entry.group.status)));
-    const status = attention.length > 0 || !accepted && contextStatus === "rejected" ? "attention" : accepted ? "completed" : running ? "running" : "recorded";
+      && (routeStage?.status === "executing" || options.newerItemCount === 0
+        && (contextStatus === "executing" || activities.some((entry) => isActive(entry.group.status))));
+    const waiting = entries[0]?.runId === options.currentRunId && options.runStatus === "waiting"
+      && options.newerItemCount === 0
+      && activities.some(entry => entry.group.members.some(member => member.status === "waiting"));
+    const rejected = !accepted && (contextStatus === "rejected" || outcome === "run_stage_rejected");
+    const status = waiting ? "attention" : accepted ? "completed" : running ? "running" : rejected ? "rejected" : "recorded";
     const expanded = options.expandedGroups.get(key) ?? (running || attention.length > 0);
     const detailId = `stage-detail-${encodeURIComponent(key)}`;
     const details = entries.filter((entry) => entry.kind !== "fact"
-      || entry.eventType !== "run_stage_declared" && entry.eventType !== "run_stage_accepted");
-    const hasDetails = details.length > 0;
+      || entry.eventType !== "run_stage_declared" && entry.eventType !== "run_stage_accepted"
+        && (options.showExecutionFacts || entry.eventType !== "model_repair_feedback_recorded"));
+    const sectionIdentity = `${entries[0]?.runId}:${stageId}:${revision ?? ""}`;
+    const continued = seenSections.has(sectionIdentity);
+    seenSections.add(sectionIdentity);
+    const showLoad = incomplete && !loadOffered.has(sectionIdentity);
+    if (showLoad && (options.olderAvailable && options.onLoadEarlier !== undefined
+      || options.newerItemCount > 0 && options.onLoadNewer !== undefined)) loadOffered.add(sectionIdentity);
+    const hasDetails = details.length > 0 || showLoad && (options.olderAvailable && options.onLoadEarlier !== undefined
+      || options.newerItemCount > 0 && options.onLoadNewer !== undefined);
     const activityCount = activities.reduce((count, entry) => count + entry.group.members.length, 0);
     const stageHeading = <TraceLine status={running ? "running" : status === "attention" ? "error" : undefined}>
       <TraceIcon>
         {status === "attention" ? <CircleHelp /> : running ? <ActivitySnake /> : accepted ? <Check /> : <span className="timeline-fact-dot" />}
       </TraceIcon>
-      <TraceTitle title={title}>{title}</TraceTitle>
+      <TraceTitle title={title}>{continued ? <><span className="sr-only">{title}: </span>Stage activity continued</> : title}</TraceTitle>
       {activityCount > 0 && <TraceDescription>{activityCount} {activityCount === 1 ? "activity" : "activities"}</TraceDescription>}
-      <TraceDescription>{status === "attention" ? "Needs attention" : accepted ? "Accepted" : running ? "In progress" : "Recorded"}</TraceDescription>
+      <TraceDescription>{status === "attention" ? "Needs attention" : status === "completed" ? "Accepted" : status === "running" ? "In progress" : status === "rejected" ? "Stage revised" : "Recorded"}</TraceDescription>
       {incomplete && <TraceDescription>Details not fully loaded</TraceDescription>}
     </TraceLine>;
     rendered.push(
@@ -398,19 +509,30 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
           {stageHeading}
         </TraceCollapsibleTrigger> : stageHeading}
         <TraceCollapsibleContent><Trace className="timeline-stage-activities" id={detailId}>
-          {details.map((entry) => renderEntry(entry, options))}
+          {showLoad && options.olderAvailable && options.onLoadEarlier !== undefined && <Button variant="ghost" size="sm" type="button" onClick={options.onLoadEarlier}>Load earlier activity</Button>}
+          {showLoad && options.newerItemCount > 0 && options.onLoadNewer !== undefined && <Button variant="ghost" size="sm" type="button" onClick={options.onLoadNewer}>Load newer activity</Button>}
+          {renderEntryList(details, { ...options, onLoadEarlier: undefined, onLoadNewer: undefined })}
         </Trace></TraceCollapsibleContent>
         {!expanded && attention.length > 0 && <Trace className="timeline-stage-activities">
-          {attention.map((entry) => renderEntry(entry, options))}
+          {attention.map((entry) => renderEntry(entry, { ...options, onLoadEarlier: undefined, onLoadNewer: undefined }))}
         </Trace>}
       </TraceCollapsible>,
     );
     section = undefined;
   };
 
-  for (const entry of items) {
-    const stageId = entry.kind === "activity" ? entry.group.stageId
+  for (let index = 0; index < items.length; index++) {
+    const entry = items[index]!;
+    let stageId = entry.kind === "activity" ? entry.group.stageId
       : entry.kind === "fact" || entry.kind === "lookup" ? entry.stageId : undefined;
+    if (stageId === undefined && entry.kind === "fact" && entry.eventType === "model_repair_feedback_recorded" && entry.executionUnitId !== undefined) {
+      const owned = unitStages.get(`${entry.runId}:${entry.executionUnitId}`);
+      if (owned?.size === 1) {
+        const candidate = [...owned][0]!;
+        if (section?.stageId === candidate && section.entries[0]?.runId === entry.runId
+          && (stageRevisions.get(`${entry.runId}:${candidate}`)?.size ?? 0) <= 1) stageId = candidate;
+      }
+    }
     const stageKey = stageId === undefined ? undefined : `${entry.runId}:${stageId}`;
     if (entry.kind === "fact" && entry.eventType === "run_stage_declared" && stageKey !== undefined && entry.stageTarget !== undefined) {
       flush();
@@ -419,7 +541,11 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
     const stage = stageKey === undefined ? undefined : stages.get(stageKey);
     if (stage === undefined || stageId === undefined) {
       flush();
-      rendered.push(renderEntry(entry, options));
+      const end = correctionEnd(items, index);
+      rendered.push(end - index > 1
+        ? renderCorrectionGroup(items.slice(index, end) as Extract<SessionTimelineEntry, { kind: "fact" }>[], options)
+        : renderEntry(entry, options));
+      index = end - 1;
       continue;
     }
     if (section?.stageId !== stageId || section.entries[0]?.runId !== entry.runId) {
@@ -448,13 +574,13 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
 function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions) {
   if (item.kind === "run") return null;
 
-  if (item.kind === "message") return <SessionMessage key={item.presentationKey} entry={item} brandMark={options.brandMark} />;
+  if (item.kind === "message") return <SessionMessage key={item.presentationKey} entry={item} brandMark={options.brandMark} laterAnswerId={options.laterAnswers.get(item.itemId)} />;
   if (item.kind === "candidate-preview") return <SessionMessage key={item.presentationKey} entry={item} brandMark={options.brandMark} />;
 
   if (item.kind === "activity") {
     const attention = item.group.members.some(member => needsAttention(member.status));
     if (!options.showExecutionFacts && item.group.category === "think") return null;
-    const expanded = options.expandedGroups.get(item.group.id) ?? (attention || isActive(item.group.status));
+    const expanded = options.expandedGroups.get(item.group.id) ?? (item.group.status !== "partial-failure" && attention || isActive(item.group.status));
     return (
       <ActivityGroupRow
         key={item.itemId}
@@ -469,6 +595,8 @@ function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions)
         progress={options.progressByItem.get(item.itemId)}
         progressActive={options.progressByItem.get(item.itemId)?.at(-1)?.id === options.latestProgressId}
         streamConnected={options.streamConnected}
+        onLoadEarlier={options.olderAvailable ? options.onLoadEarlier : undefined}
+        onLoadNewer={options.newerItemCount > 0 ? options.onLoadNewer : undefined}
       />
     );
   }
@@ -521,10 +649,13 @@ function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions)
   if (item.kind === "fact") {
     if (["run_created", "run_started", "run_completed", "run_failed", "run_cancelled", "decision_received"].includes(item.eventType)) return null;
     if (!options.showExecutionFacts && technicalEventTypes.has(item.eventType)) return null;
+    const lastProgress = options.progressByItem.get(item.itemId)?.at(-1);
+    const correcting = item.eventType === "model_repair_feedback_recorded" && lastProgress?.id === options.latestProgressId
+      && lastProgress?.kind === "model_started";
     return (
       <TraceCollapsible defaultOpen={failureEventTypes.has(item.eventType)} className={cn("timeline-fact", item.eventType)} key={item.itemId} data-item-id={item.itemId} data-run-id={item.runId} title="Saved activity">
         <TraceCollapsibleTrigger className="timeline-step-trigger">
-          <TraceLine><TraceIcon><span className="timeline-fact-dot" /></TraceIcon><TraceTitle>{item.title}</TraceTitle></TraceLine>
+          <TraceLine><TraceIcon><span className="timeline-fact-dot" /></TraceIcon><TraceTitle>{item.eventType === "model_repair_feedback_recorded" ? correcting ? "Retrying model response" : "Model output correction recorded" : item.title}</TraceTitle></TraceLine>
         </TraceCollapsibleTrigger>
         <TraceCollapsibleContent>
           {item.detail !== undefined && <span className="timeline-fact-detail">{item.detail}</span>}
@@ -549,6 +680,10 @@ function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions)
             {item.detail.code !== undefined && <code>{item.detail.code}: </code>}
             {item.detail.message}
           </p>}
+          {item.status === "failed" && item.runId === options.currentRunId && options.onContinueFailed !== undefined && <>
+            {item.detail?.code === "INVALID_AGENT_DECISION" && <p className="timeline-terminal-detail">The model returned an invalid response. You can continue the Goal in a new Run.</p>}
+            <Button variant="outline" size="sm" type="button" disabled={options.continueDisabled} onClick={options.onContinueFailed}>Continue Goal</Button>
+          </>}
         </div>
       </div>
     );
@@ -596,9 +731,14 @@ export function ActivityGroupRow({
   progressActive = false,
   streamConnected = false,
   incomplete = false,
+  onLoadEarlier,
+  onLoadNewer,
 }: {
   /** 已加载成员只覆盖 Action 的部分来源；折叠时仍提示详情不完整。 */
   readonly incomplete?: boolean;
+  /** 只读加载更早或更新的活动页，不能保证一次加载补全该 Action。 */
+  readonly onLoadEarlier?: () => void;
+  readonly onLoadNewer?: () => void;
   readonly progress?: readonly ExecutionProgressEntry[];
   readonly progressActive?: boolean;
   readonly streamConnected?: boolean;
@@ -626,7 +766,10 @@ export function ActivityGroupRow({
         <Badge variant="outline" className={cn("timeline-activity-status", group.status)}>{activityStatusLabel(group.status)}</Badge>
         {group.live === true && <span className="sr-only">Not saved yet</span>}
       </TraceCollapsibleTrigger>
-      {incomplete && <p className="timeline-activity-outcome">Details not fully loaded</p>}
+      {incomplete && <div className="timeline-activity-outcome"><span>Details not fully loaded</span>
+        {onLoadEarlier !== undefined && <Button variant="ghost" size="sm" type="button" onClick={onLoadEarlier}>Load earlier activity</Button>}
+        {onLoadNewer !== undefined && <Button variant="ghost" size="sm" type="button" onClick={onLoadNewer}>Load newer activity</Button>}
+      </div>}
       {!expanded && group.members.some(member => needsAttention(member.status)) && (
         <p className="timeline-activity-alert">{group.members.find((member) => needsAttention(member.status))?.summary ?? activityStatusLabel(group.status)}</p>
       )}

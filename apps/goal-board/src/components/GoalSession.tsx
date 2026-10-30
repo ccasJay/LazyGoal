@@ -6,6 +6,7 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Sheet, SheetContent, SheetTitle } from "./ui/sheet";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { captureAnchor, resolveAnchorScrollTop, FOLLOW_THRESHOLD_PX, type ActivityAnchor } from "../activity-page-window";
 import type { ReactNode } from "react";
 import {
@@ -42,6 +43,11 @@ function timelineOffsets(element: HTMLElement): ReadonlyMap<string, number> {
 
 export function GoalSession({
   activeGoal,
+  goals,
+  draftText,
+  onDraftTextChange,
+  onSelectGoal,
+  onViewGoals,
   boardContent,
   renderPermissionControl,
   onRevokeToolGrant,
@@ -49,6 +55,11 @@ export function GoalSession({
   manageBusyId,
 }: {
   activeGoal?: BrowserGoalListItem;
+  goals: readonly BrowserGoalListItem[];
+  draftText: string;
+  onDraftTextChange: React.Dispatch<React.SetStateAction<string>>;
+  onSelectGoal: (goalId: string) => void;
+  onViewGoals: () => void;
   boardContent: ReactNode;
   renderPermissionControl: (hasGoal: boolean) => ReactNode;
   onRevokeToolGrant: (grant: BrowserToolGrantSummary) => Promise<void>;
@@ -108,6 +119,7 @@ export function GoalSession({
   const {
     commandBusy,
     commandError,
+    draftGoalBusy,
     setCommandError,
     stoppingRunId,
     canSendText,
@@ -275,6 +287,20 @@ export function GoalSession({
           {commandError && (
             <div className="command-error" role="alert">
               <span>{commandError}</span>
+              {draftGoalBusy && <Popover>
+                <PopoverTrigger asChild><Button variant="outline" size="sm" type="button">View running Goals</Button></PopoverTrigger>
+                <PopoverContent align="end" side="top" aria-label="Running Goals" className="running-goals-popover">
+                  <strong>Running Goals</strong>
+                  <p>These Goals are reported as running. Your draft will be kept while you browse.</p>
+                  {goals.filter(goal => goal.runStatus === "running" && !goal.archived).map(goal =>
+                    <Button variant="ghost" size="sm" type="button" key={goal.goalId} onClick={() => {
+                      setCommandError(null);
+                      onSelectGoal(goal.goalId);
+                    }}>{goal.intent}</Button>)}
+                  {!goals.some(goal => goal.runStatus === "running" && !goal.archived) && <p>No running Goals found in the current list.</p>}
+                  <Button variant="ghost" size="sm" type="button" onClick={() => { setCommandError(null); onViewGoals(); }}>View all Goals</Button>
+                </PopoverContent>
+              </Popover>}
               <Button variant="ghost" size="sm" aria-label="Dismiss error" onClick={() => setCommandError(null)}>
                 <X size={13} />
               </Button>
@@ -308,6 +334,8 @@ export function GoalSession({
           <div className="composer-area">
             <MessageComposer
               key="new-goal-draft"
+              draftValue={draftText}
+              onDraftChange={onDraftTextChange}
               autoFocus
               busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
               placeholder="Message LazyGoal…"
@@ -416,16 +444,18 @@ export function GoalSession({
           ) : (
             <>
               <div className="activity-filter">
-                <Label htmlFor="filter-execution-steps">
-                  <Checkbox
-                    id="filter-execution-steps"
-                    name="showTools"
-                    checked={showTools}
-                    onCheckedChange={checked => setShowTools(checked === true)}
-                  />
-                  Execution details
-                </Label>
-                <span>{activityPage?.items.filter((item) => item.type === "message").length ?? 0} messages in this page</span>
+                <div className="activity-filter-content">
+                  <Label htmlFor="filter-execution-steps">
+                    <Checkbox
+                      id="filter-execution-steps"
+                      name="showTools"
+                      checked={showTools}
+                      onCheckedChange={checked => setShowTools(checked === true)}
+                    />
+                    Execution details
+                  </Label>
+                  <span>{activityPage?.items.filter((item) => item.type === "message").length ?? 0} messages in this page</span>
+                </div>
               </div>
               <SessionBoundary label="Activity view" onReload={() => void refreshSelectedSession()}>
                 <div className="timeline-region">
@@ -493,6 +523,8 @@ export function GoalSession({
                         }}
                         onLoadEarlier={() => void loadEarlierActivity()}
                         onLoadNewer={() => void loadNewerActivity()}
+                        onContinueFailed={session.runStatus === "failed" ? () => void onSubmitMessage("Please continue the original task. Review the previous failure and proceed with the available context.") : undefined}
+                        continueDisabled={commandBusy || stateStale || !canSendText || sessionError !== null}
                         olderItemCount={activityWindow.page?.gaps
                           .filter((gap) => gap.direction === "older")
                           .reduce((total, gap) => total + gap.itemCount, 0) ?? 0}

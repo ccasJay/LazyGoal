@@ -1,10 +1,11 @@
-import { FieldSet } from "./ui/field";
+import { FieldLegend, FieldSet } from "./ui/field";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./ui/collapsible";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { NativeSelect } from "./ui/native-select";
+import { RadioGroup, RadioGroupItem } from "./ui/radio-group";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { MoreHorizontal, Plus, X } from "lucide-react";
@@ -80,6 +81,7 @@ const PROVIDERS_SECTION = {
   title: "Providers",
   description: "Manage your model connections.",
 } as const;
+type ActivityWidth = "standard" | "wide";
 const CONFIG_PROVIDER_LABEL = "CPA";
 const providerName = (kind: string) => PROVIDERS.find(([id]) => id === kind)?.[1] ?? (kind === "openai-compatible" ? "Custom API" : kind);
 type WriteResult = void | Promise<boolean | void>;
@@ -136,6 +138,7 @@ function SettingsLayout(props: { readonly sections: readonly [SettingsSectionDef
  * @remarks
  * 纯展示组件：只接收已投影的设置与回调，便于渲染测试。表单从不回显明文凭据；
  * 编辑时留空表示保留原凭据。创建和更新回调返回 true 后关闭编辑器；失败保留草稿。
+ * Provider 设置尚未加载时仍可查看外观设置。
  *
  * @example
  * ```tsx
@@ -143,7 +146,7 @@ function SettingsLayout(props: { readonly sections: readonly [SettingsSectionDef
  * ```
  */
 export function ProviderSettingsSection(props: {
-  readonly settings: BrowserProviderSettings;
+  readonly settings?: BrowserProviderSettings;
   readonly busy?: boolean;
   readonly notice?: string | undefined;
   readonly error?: string | undefined;
@@ -155,8 +158,16 @@ export function ProviderSettingsSection(props: {
   readonly onDelete?: (profileId: string) => void;
   readonly onActivate?: (profileId: string) => void;
   readonly onTest?: (profileId: string) => void;
+  /** 会话活动区和输入框的本地显示偏好。 */
+  readonly appearance?: {
+    readonly activityWidth: ActivityWidth;
+    readonly onActivityWidthChange: (width: ActivityWidth) => void;
+    readonly saveError?: string | undefined;
+  };
 }) {
   const modelInputId = useId();
+  const widthId = useId();
+  const settings = props.settings;
   const [form, setForm] = useState<FormState>({ ...EMPTY_FORM });
   const [editor, setEditor] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -289,24 +300,24 @@ export function ProviderSettingsSection(props: {
     <>
       <SettingsLayout sections={[{
         ...PROVIDERS_SECTION,
-        action: <Button variant="ghost" size="sm" type="button" className="primary settings-add-provider" disabled={props.busy} onClick={event => { editorOpener.current = event.currentTarget; cancelFetch(); setDeleting(null); setForm({ ...EMPTY_FORM }); setEditor("create"); }}><Plus size={16} />Add provider</Button>,
+        action: settings === undefined ? undefined : <Button variant="ghost" size="sm" type="button" className="primary settings-add-provider" disabled={props.busy} onClick={event => { editorOpener.current = event.currentTarget; cancelFetch(); setDeleting(null); setForm({ ...EMPTY_FORM }); setEditor("create"); }}><Plus size={16} />Add provider</Button>,
         content: (
-          <>
+          settings === undefined ? <p className={`settings-notice${props.error ? " settings-error" : ""}`} role={props.error ? "alert" : "status"}>{props.error ?? "Loading providers…"}</p> : <>
             {props.error !== undefined && <p className="settings-notice settings-error" role="alert">{props.error}</p>}
             {props.notice !== undefined && <p className="settings-notice" role="status">{props.notice}</p>}
         <ul className="settings-providers" data-testid="settings-providers">
-          {props.settings.fallback !== undefined && !props.settings.profiles.some(profile =>
+          {settings.fallback !== undefined && !settings.profiles.some(profile =>
             profile.label === CONFIG_PROVIDER_LABEL
-            && profile.kind === props.settings.fallback?.provider
-            && profile.defaultModel === props.settings.fallback?.model
+            && profile.kind === settings.fallback?.provider
+            && profile.defaultModel === settings.fallback?.model
           ) && <li className="settings-config-row" data-testid="settings-fallback">
             <div className="settings-provider-row">
-              <div className="settings-provider-identity"><strong>{CONFIG_PROVIDER_LABEL}</strong><p>{providerName(props.settings.fallback.provider)}, {props.settings.fallback.model}</p></div>
+              <div className="settings-provider-identity"><strong>{CONFIG_PROVIDER_LABEL}</strong><p>{providerName(settings.fallback.provider)}, {settings.fallback.model}</p></div>
               <span className="settings-source">From configuration<span>Read-only</span></span>
             </div>
           </li>}
-          {props.settings.profiles.map(profile => {
-            const active = props.settings.activeProfileId === profile.id;
+          {settings.profiles.map(profile => {
+            const active = settings.activeProfileId === profile.id;
             const result = props.testResults?.[profile.id];
             return <li key={profile.id} className="settings-provider-card" data-testid={`settings-provider-${profile.id}`}>
               <div className="settings-provider-row">
@@ -340,7 +351,23 @@ export function ProviderSettingsSection(props: {
         </ul>
           </>
         ),
-      }]} />
+      }, ...(props.appearance === undefined ? [] : [{
+        value: "appearance",
+        label: "Appearance",
+        title: "Appearance",
+        description: "Adjust the Activity view.",
+        content: <FieldSet className="settings-activity-width">
+          <FieldLegend id={`${widthId}-label`} variant="label">Activity width</FieldLegend>
+          <p id={`${widthId}-description`}>Applies to Activity and the message input in this browser.</p>
+          <RadioGroup aria-labelledby={`${widthId}-label`} aria-describedby={`${widthId}-description`} value={props.appearance.activityWidth} onValueChange={value => {
+            if (value === "standard" || value === "wide") props.appearance?.onActivityWidthChange(value);
+          }}>
+            <div><RadioGroupItem id={`${widthId}-standard`} value="standard" /><Label htmlFor={`${widthId}-standard`}>Standard</Label></div>
+            <div><RadioGroupItem id={`${widthId}-wide`} value="wide" /><Label htmlFor={`${widthId}-wide`}>Wide</Label></div>
+          </RadioGroup>
+          {props.appearance.saveError && <p className="settings-error" role="alert">{props.appearance.saveError}</p>}
+        </FieldSet>,
+      }])]} />
       <Dialog open={editor !== null} onOpenChange={open => { if (!open) closeEditor(); }}>
         <DialogContent showCloseButton={false} className="settings-provider-dialog" aria-describedby={undefined}
           onCloseAutoFocus={event => { event.preventDefault(); editorOpener.current?.focus(); }}>
@@ -353,17 +380,22 @@ export function ProviderSettingsSection(props: {
 }
 
 /**
- * 设置页容器：读取受管 Provider 设置并转发增删改与连接测试。
+ * 设置页容器：读取受管 Provider 设置，并管理会话的显示偏好。
  *
  * @remarks
- * 依赖 `browserApi` 的本机会话令牌；失败以稳定错误码就地展示，不伪造成功。
+ * Provider 操作依赖 `browserApi` 的本机会话令牌；失败以稳定错误码就地展示。
+ * 显示偏好由外层持有，Provider 加载失败不影响调整。
  *
  * @example
  * ```tsx
- * <SettingsPage />
+ * <SettingsPage activityWidth="standard" onActivityWidthChange={() => {}} />
  * ```
  */
-export function SettingsPage() {
+export function SettingsPage(props: {
+  readonly activityWidth: ActivityWidth;
+  readonly onActivityWidthChange: (width: ActivityWidth) => void;
+  readonly widthSaveError?: string | undefined;
+}) {
   const [settings, setSettings] = useState<BrowserProviderSettings | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | undefined>(undefined);
@@ -431,18 +463,10 @@ export function SettingsPage() {
     },
   }), [run]);
 
-  if (settings === undefined) {
-    return (
-      <SettingsLayout sections={[{
-        ...PROVIDERS_SECTION,
-        content: <p className={`settings-notice${error ? " settings-error" : ""}`} role={error ? "alert" : "status"}>{error ?? "Loading providers…"}</p>,
-      }]} />
-    );
-  }
-
   return (
     <ProviderSettingsSection
       settings={settings}
+      appearance={{ activityWidth: props.activityWidth, onActivityWidthChange: props.onActivityWidthChange, saveError: props.widthSaveError }}
       busy={busy}
       notice={notice}
       error={error}

@@ -72,6 +72,13 @@
 .settings-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 20px; padding-bottom: 18px; border-bottom: var(--border-width) solid var(--line); }
 .settings-page-heading h2 { margin: 0 0 7px; color: var(--text); font-size: var(--font-size-title); font-weight: 600; letter-spacing: -.45px; }
 .settings-page-heading p, .settings-empty p { margin: 0; color: var(--muted); font-size: var(--font-size-base); line-height: 1.7; }
+.settings-activity-width { gap: 12px; margin: 0; padding: 0; border: 0; }
+.settings-activity-width legend { margin: 0; color: var(--text); font-size: var(--font-size-base); }
+.settings-activity-width p { margin: 0; color: var(--muted); font-size: var(--font-size-xs); line-height: 1.5; }
+.settings-activity-width [role="radiogroup"] { gap: 4px; }
+.settings-activity-width [role="radiogroup"] > div { display: flex; align-items: center; gap: 10px; min-height: 34px; }
+.settings-activity-width label { color: var(--text); font-size: var(--font-size-base); cursor: pointer; }
+.settings-activity-width p.settings-error { color: var(--danger); }
 .settings-empty { display: flex; flex-direction: column; align-items: center; padding: 64px 24px; border-block: var(--border-width) solid var(--line); background: var(--surface); text-align: center; }
 .settings-empty > svg { margin-bottom: 20px; color: var(--muted); }
 .settings-empty h3 { margin: 0 0 8px; font-size: var(--font-size-base); font-weight: 550; }

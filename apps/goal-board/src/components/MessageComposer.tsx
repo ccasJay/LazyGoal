@@ -63,6 +63,8 @@ export function MessageComposer({
   onResume,
   autoFocus = false,
   showHint = true,
+  draftValue,
+  onDraftChange,
 }: {
   busy: boolean;
   running?: boolean;
@@ -85,8 +87,15 @@ export function MessageComposer({
   footerControls?: ReactNode;
   autoFocus?: boolean;
   showHint?: boolean;
-}) {
-  const [draft, setDraft] = useState("");
+} & ({
+  /** 由上层保留的草稿；未提供时由输入框自行管理。 */
+  draftValue: string;
+  /** 更新上层持有的草稿，包括发送成功后的条件清除。 */
+  onDraftChange: React.Dispatch<React.SetStateAction<string>>;
+} | { draftValue?: never; onDraftChange?: never })) {
+  const [localDraft, setLocalDraft] = useState("");
+  const draft = draftValue ?? localDraft;
+  const setDraft = draftValue === undefined ? setLocalDraft : onDraftChange;
   const [selectedCommand, setSelectedCommand] = useState(0);
   const [commandMenuClosed, setCommandMenuClosed] = useState(false);
   const inspection = slashCommands.inspect(draft);
@@ -145,6 +154,7 @@ export function MessageComposer({
           <InputGroupTextarea
             id="message-composer-draft"
             name="message"
+            rows={1}
             aria-label={textareaLabel}
             aria-describedby={describedBy}
             aria-keyshortcuts="Enter Shift+Enter"

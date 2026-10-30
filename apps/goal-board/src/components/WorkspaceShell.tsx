@@ -21,6 +21,13 @@ import { ResizablePanelGroup, ResizablePanel } from "./ui/resizable";
 import { ResizableSidebar } from "./ResizableSidebar";
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbPage, BreadcrumbSeparator } from "./ui/breadcrumb";
 
+const ACTIVITY_WIDTH_COOKIE = "lazygoal_activity_width";
+
+function readActivityWidthCookie(): string | undefined {
+  const prefix = `${ACTIVITY_WIDTH_COOKIE}=`;
+  return document.cookie.split(";").map(part => part.trim()).find(part => part.startsWith(prefix))?.slice(prefix.length);
+}
+
 /** 工作区导航与当前会话的展示外壳；沿用当前服务的唯一执行目录和既有会话生命周期。 */
 export function WorkspaceShell() {
   const app = useGoalBoardApp();
@@ -36,9 +43,25 @@ export function WorkspaceShell() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchShortcut, setSearchShortcut] = useState("Ctrl K");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activityWidth, setActivityWidth] = useState<"standard" | "wide">(() => {
+    try { return readActivityWidthCookie() === "wide" ? "wide" : "standard"; }
+    catch { return "standard"; }
+  });
+  const [widthSaveError, setWidthSaveError] = useState<string | undefined>();
   const settingsHeading = useRef<HTMLHeadingElement>(null);
   const settingsButton = useRef<HTMLButtonElement>(null);
   const sidebarToggle = useRef<HTMLButtonElement>(null);
+
+  const changeActivityWidth = (width: "standard" | "wide") => {
+    setActivityWidth(width);
+    try {
+      document.cookie = `${ACTIVITY_WIDTH_COOKIE}=${width}; path=/; max-age=31536000; samesite=strict`;
+      if (readActivityWidthCookie() !== width) throw new Error("Preference cookie was not saved");
+      setWidthSaveError(undefined);
+    } catch {
+      setWidthSaveError("Could not save this setting. It will reset when the page is reloaded.");
+    }
+  };
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -122,7 +145,7 @@ export function WorkspaceShell() {
   return (
     <GoalSessionProvider value={app.sessionContextValue}>
       <RunControlProvider value={app.runControlContextValue}>
-        <ResizablePanelGroup direction="horizontal" style={{ height: "100dvh" }} className={`workspace-shell ${collapsed ? "is-collapsed" : ""}`}>
+        <ResizablePanelGroup direction="horizontal" style={{ height: "100dvh" }} className={`workspace-shell ${collapsed ? "is-collapsed" : ""}`} data-activity-width={activityWidth}>
           {mobile ? <Sheet open={!collapsed} onOpenChange={open => setCollapsed(!open)}><SheetContent showCloseButton={false} side="left" className="workspace-sidebar workspace-sidebar-dialog" aria-describedby={undefined} onCloseAutoFocus={event => { event.preventDefault(); sidebarToggle.current?.focus(); }}><SheetTitle className="sr-only">Workspace navigation</SheetTitle>{navigation}</SheetContent></Sheet> : <ResizableSidebar hidden={collapsed}>{navigation}</ResizableSidebar>}
           <ResizablePanel minSize={30} className="min-w-0">
           <main className="workspace-main">
@@ -143,12 +166,14 @@ export function WorkspaceShell() {
                     {!settingsOpen && !app.sessionVisible && <span className="workspace-heading-location" title={workspacePath}><Folder size={14} />{workspaceName}</span>}
                   </div>
                 </header>
-                {settingsOpen && <SettingsPage />}
+                {settingsOpen && <SettingsPage activityWidth={activityWidth} onActivityWidthChange={changeActivityWidth} widthSaveError={widthSaveError} />}
                 <div className={`content ${app.sessionVisible ? "session-open" : ""}`} hidden={settingsOpen}>
                   <SessionBoundary label="Board and session content" onReload={() => window.location.reload()}>
                   {app.sessionVisible && app.manageError && <div className="manage-error-overlay" role="alert">{app.manageError}<Button variant="ghost" size="sm" onClick={app.onClearManageError}>Dismiss</Button></div>}
                   {!app.sessionVisible && app.goalBoardElement}
-                  {app.sessionVisible && <GoalSession activeGoal={app.activeGoal} boardContent={app.goalBoardElement} renderPermissionControl={app.renderPermissionControl} onRevokeToolGrant={app.revokeToolGrant} onDeleteGoal={app.onDeleteGoal} manageBusyId={app.manageBusyId} />}
+                  {app.sessionVisible && <GoalSession activeGoal={app.activeGoal} goals={app.goals} draftText={app.draftText} onDraftTextChange={app.setDraftText}
+                    onSelectGoal={selectGoal} onViewGoals={openBoard} boardContent={app.goalBoardElement} renderPermissionControl={app.renderPermissionControl}
+                    onRevokeToolGrant={app.revokeToolGrant} onDeleteGoal={app.onDeleteGoal} manageBusyId={app.manageBusyId} />}
                   </SessionBoundary>
                 </div>
               </div>

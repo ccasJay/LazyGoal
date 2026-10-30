@@ -25,7 +25,8 @@ export function useGoalBoardApp() {
   const [goalInfoOpen, setGoalInfoOpen] = useState(false);
   const [trajectoryTarget, setTrajectoryTarget] = useState<{ runId: string; executionUnitId: string; nonce: number } | null>(null);
   const [sessionTab, setSessionTab] = useState<SessionTab>("Activity");
-  const [showTools, setShowTools] = useState(true);
+  const [showTools, setShowTools] = useState(false);
+  const [draftText, setDraftText] = useState("");
 
   const draftGeneration = useRef(0);
   const draftLoadVersion = useRef(0);
@@ -251,6 +252,7 @@ export function useGoalBoardApp() {
   const runControlContextValue: RunControlContextValue = {
     commandBusy: commandsManager.commandBusy,
     commandError: commandsManager.commandError,
+    draftGoalBusy: commandsManager.draftGoalBusy,
     setCommandError: commandsManager.setCommandError,
     stoppingRunId: commandsManager.stoppingRunId,
     canSendText,
@@ -271,6 +273,8 @@ export function useGoalBoardApp() {
 
   return {
     goals: goalsManager.goals,
+    draftText,
+    setDraftText,
     workspaceContext,
     selectGoal: (id: string) => {
       modelSelectionManager.setModelPickerTarget(null);

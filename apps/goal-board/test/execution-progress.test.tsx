@@ -115,7 +115,7 @@ test("progress belongs to the matching correction node and never an adjacent eve
       detail: "Correction detail", executionUnitId: "unit-1", position: { runId: "run-1", runOrder: 0, sequence: 1, itemKind: "fact", order: 0 } },
   ] }} currentRunId="run-1" runStatus="running" olderAvailable={false} showExecutionFacts liveActivity={null}
     progressEntries={entries} streamConnected brandMark="/logo.svg" />);
-  assert.match(html, /Correcting model output/);
+  assert.match(html, /Retrying model response/);
   assert.match(html, /aria-expanded="false"/);
   assert.doesNotMatch(html, /Correction detail|Waiting for model response|data-execution-unit-id|timeline-progress/);
 });
