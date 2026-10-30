@@ -2,11 +2,13 @@
 /**
  * 统一确定性回归入口:npm test 的实现载体。
  *
- * 按固定顺序执行三段检查,任一段失败即停止并透传其退出码:
- *   1. 类型检查(npx tsc --noEmit)
- *   2. 依赖边界检查(npm run check:dependencies)
- *   3. Python GEPA adapter 的无外部依赖测试
- *   4. 测试段(一次 tsx --test 跑全部发现的 .ts/.tsx 测试 + node --test 跑 scripts 的 .mjs 测试)
+ * 按固定顺序执行确定性检查,任一段失败即停止并透传其退出码:
+ *   1. 已发布数据契约生成物漂移检查
+ *   2. 类型检查(npx tsc --noEmit)
+ *   3. 包内文档检查
+ *   4. 依赖边界检查
+ *   5. Python GEPA adapter 的无外部依赖测试
+ *   6. 测试段(一次 tsx --test 跑全部发现的 .ts/.tsx 测试 + node --test 跑 scripts 的 .mjs 测试)
  *
  * 测试文件按目录约定递归发现,新增确定性测试文件零配置纳入:
  *   - packages/<pkg>/test/ 下的全部 *.test.ts / *.test.tsx
@@ -92,6 +94,7 @@ const { tsFiles, mjsFiles } = discoverTestFiles();
 console.log(`[regression] 发现测试文件:${tsFiles.length} 个 .ts/.tsx,${mjsFiles.length} 个 .mjs`);
 
 const stages = [
+    { label: "数据契约制品一致性", command: "npm", args: ["run", "contracts:generate", "--", "--check"] },
     { label: "类型检查", command: "npx", args: ["tsc", "--noEmit"] },
     { label: "包内文档检查", command: "npm", args: ["run", "check:docs"] },
     { label: "依赖边界检查", command: "npm", args: ["run", "check:dependencies"] },

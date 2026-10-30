@@ -5,7 +5,7 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | BrowserGoalSession | 浏览器会话投影 DTO。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
-| Web wire Contract | 每个 DTO 的唯一结构事实源；类型、guard 与命令 parser 共享同一 AST。 | [Web 传输契约](../README.md) | [合同目录](../src/contracts)、[模块说明](./overview.md) |
+| Web wire Contract | 大多数 DTO 由 Contract AST 派生；在线 Provider 模型列表由原生 TS 类型定义并生成运行时读取器。 | [Web 传输契约](../README.md) | [合同目录](../src/contracts)、[模块说明](./overview.md)、[Provider 模型类型](../src/provider-settings.ts) |
 | unknown / openObject | 任意 JSON 与开放对象的边界策略；载荷深度独立于合同结构预算。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
 | 跨字段不变量 | 结构解析后执行的 Plan Route、Activity、交互、Provider 与指标关系检查。 | [Web 传输契约](../README.md) | [不变量目录](../src/invariants) |
 | UTF-16 文本上限 | wire 文本按 UTF-16 code unit 计数的唯一实现。 | [Web 传输契约](../README.md) | [utf16.ts](../src/invariants/utf16.ts) |
@@ -27,7 +27,7 @@
 | BrowserGoalActivityEvent | 白名单公开的短期 SSE 活动及其来源身份；不持久化。 | [Web 传输契约](../README.md) | [Event DTO](../src/events.ts) |
 | SessionMetricsSnapshot | 会话指标响应 DTO；`tokensPerSecond` 的端到端计时语义归属指标投影模块。 | [Web 传输契约](../README.md) | [指标 DTO](../src/metrics.ts) |
 | BrowserCreateGoalCommand | 创建 Goal 的 Web 命令。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
-| Provider model query | 未保存连接参数与仅含模型 ID/名称的响应。 | [Web 传输契约](../README.md) | [Provider DTO](../src/provider-settings.ts) |
+| Provider model query | 未保存连接参数与仅含模型 ID/名称的响应；TS 类型驱动 Schema 生成、校验和未知字段提取。 | [Web 传输契约](../README.md) | [Provider DTO](../src/provider-settings.ts)、[生成读取器](../src/provider-models-reader.ts) |
 | BrowserSessionStep.think | 显式 Think 的有界目标、可选已提交输出及截断标记；不计为新增 Runtime Step。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserActionReview | 只读审批预检的 wire 载荷与稳定拒绝码。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | 当前 Run 错误摘要 | 窄状态中的已保存失败原因；只属于当前 Run，不读取历史或暴露供应商原始响应。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |

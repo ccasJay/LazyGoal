@@ -40,7 +40,7 @@ export async function generateProviderModelsArtifacts({
     const absoluteRoot = path.resolve(repositoryRoot);
     const contractFile = path.join(absoluteRoot, contractRelativePath);
     const source = await readFile(contractFile, "utf8");
-    const sourceFingerprint = inspectContractSource(contractFile, source);
+    const { sourceFingerprint, modelIdPattern } = inspectContractSource(contractFile, source);
     const generator = createGenerator({
         path: contractFile,
         tsconfig: path.join(absoluteRoot, "tsconfig.json"),
@@ -53,7 +53,7 @@ export async function generateProviderModelsArtifacts({
         throw new Error(`Expected JSON Schema ${expectedDialect}; generator produced ${String(schema.$schema)}`);
     }
     schema.$id = schemaId;
-    assertGeneratedPattern(schema);
+    assertGeneratedPattern(schema, modelIdPattern);
 
     const ajv = new Ajv({
         strict: true,
@@ -117,6 +117,22 @@ export async function generateProviderModelsArtifacts({
     return { artifacts, outputDirectory: path.resolve(outputDirectory) };
 }
 
+export async function findStaleProviderModelsArtifacts(options = {}) {
+    const { artifacts, outputDirectory } = await generateProviderModelsArtifacts(options);
+    const stale = [];
+    for (const [name, expected] of artifacts) {
+        let actual;
+        try {
+            actual = await readFile(path.join(outputDirectory, name), "utf8");
+        } catch {
+            stale.push(name);
+            continue;
+        }
+        if (actual !== expected) stale.push(name);
+    }
+    return stale;
+}
+
 function inspectContractSource(contractFile, source) {
     const sourceFile = ts.createSourceFile(contractFile, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     const declarations = sourceFile.statements.filter(statement =>
@@ -135,10 +151,24 @@ function inspectContractSource(contractFile, source) {
         }
     }
 
+    const model = declarations.find(declaration => declaration.name.text === "BrowserProviderModel");
+    const idProperty = model?.members.find(member =>
+        ts.isPropertySignature(member) && member.name.getText(sourceFile) === "id");
+    const modelIdPattern = idProperty === undefined
+        ? undefined
+        : ts.getJSDocTags(idProperty).find(tag => tag.tagName.text === "pattern");
+    const idPattern = modelIdPattern === undefined ? undefined : readTagComment(modelIdPattern);
+    if (idPattern === undefined || idPattern.length === 0) {
+        throw new Error("BrowserProviderModel.id must declare a non-empty JSDoc @pattern");
+    }
+
     const declarationText = declarations
         .map(declaration => declaration.getFullText(sourceFile).trim())
         .join("\n\n");
-    return createHash("sha256").update(declarationText, "utf8").digest("hex");
+    return {
+        sourceFingerprint: createHash("sha256").update(declarationText, "utf8").digest("hex"),
+        modelIdPattern: idPattern,
+    };
 }
 
 function inspectTags(sourceFile, node, owner, supportedTags) {
@@ -165,7 +195,7 @@ function readTagComment(tag) {
     return "";
 }
 
-function assertGeneratedPattern(schema) {
+function assertGeneratedPattern(schema, expectedPattern) {
     const definitions = schema.definitions;
     const root = definitions?.BrowserProviderModels;
     const modelRef = root?.properties?.models?.items?.$ref;
@@ -174,8 +204,8 @@ function assertGeneratedPattern(schema) {
     }
     const modelName = modelRef.slice("#/definitions/".length).replaceAll("~1", "/").replaceAll("~0", "~");
     const idPattern = definitions?.[modelName]?.properties?.id?.pattern;
-    if (idPattern !== "\\S") {
-        throw new Error("Generated schema must apply the JSDoc @pattern \\S constraint to model id");
+    if (idPattern !== expectedPattern) {
+        throw new Error("Generated schema must apply the JSDoc @pattern constraint to model id");
     }
 }
 
@@ -203,19 +233,8 @@ async function run() {
         return;
     }
 
-    const { artifacts, outputDirectory } = await generateProviderModelsArtifacts();
     if (mode === "--check") {
-        const stale = [];
-        for (const [name, expected] of artifacts) {
-            let actual;
-            try {
-                actual = await readFile(path.join(outputDirectory, name), "utf8");
-            } catch {
-                stale.push(name);
-                continue;
-            }
-            if (actual !== expected) stale.push(name);
-        }
+        const stale = await findStaleProviderModelsArtifacts();
         if (stale.length > 0) {
             console.error(`Provider models contract artifacts are stale: ${stale.join(", ")}`);
             console.error("Run npm run contracts:generate -- --write to update them.");
@@ -226,6 +245,7 @@ async function run() {
         return;
     }
 
+    const { artifacts, outputDirectory } = await generateProviderModelsArtifacts();
     await mkdir(outputDirectory, { recursive: true });
     for (const [name, content] of artifacts) {
         await writeFile(path.join(outputDirectory, name), content);

@@ -12,7 +12,7 @@ Activity 助手消息必须携带 `process`、`answer` 或 `notice` 用途；用
 
 ## 共享合同与校验分层
 
-本包的每个 wire DTO 只在 [`contracts/`](../src/contracts) 声明一份 Contract AST，公开 TypeScript 类型由 `InferContract` 派生；[`validation.ts`](../src/validation.ts) 的公开 guard 只执行 `safeParse` 结果判断与命名不变量，不再维护第二套字段表。入站命令合同使用严格对象；出站合同按原 guard 的未知字段行为选择开放对象或严格对象，开放层保留额外 JSON，白名单层继续拒绝未声明字段。
+现有大多数 wire DTO 在 [`contracts/`](../src/contracts) 声明 Contract AST，公开 TypeScript 类型由 `InferContract` 派生；[`validation.ts`](../src/validation.ts) 的公开 guard 对这些 DTO 执行 `safeParse` 与命名不变量。在线 Provider 模型列表是已迁移的例外：原生 TS 类型为唯一结构来源，构建生成固定版本的 JSON Schema 与 Ajv 校验器；读取器只在 JSON 响应边界运行时校验，并从副本提取已声明字段。
 
 跨字段规则位于 [`invariants/`](../src/invariants)：Plan Route、Activity gap/range、交互决定、Provider 禁用凭据键、Trajectory 事件身份与指标数值范围都由纯函数执行。开放 JSON 字段统一使用 `contract.unknown()`，并由显式栈实现的 `isJsonValue` 判定；其载荷深度不受合同结构 `MAX_DEPTH` 限制。wire 文本的 UTF-16 上限只由 `hasUtf16LengthAtMost` 承担，不新增 AST 节点或跨字段长度表。
 
@@ -34,7 +34,7 @@ Activity 助手消息必须携带 `process`、`answer` 或 `notice` 用途；用
 
 Activity 正文摘要最多 4,000 UTF-16 code unit，截断不得拆分代理项；原文按 messageId 从现有详情路由分段读取。文件 Trajectory 存储仍可能整文件扫描，wire 页大小不代表磁盘随机访问有界。`isBrowserActivityPage` 与 `isBrowserGoalSessionState` 通过共享合同校验页上限、历史外置标记和字段白名单，拒绝任意原始 payload 扩展字段。
 
-Provider 表单在线查询使用 `BrowserProviderModelQuery` 与 `BrowserProviderModels`：请求不需要默认模型，响应只返回模型 ID 和名称；`isProviderModels` 验证响应边界。密钥仅存在于请求，不回显或持久化。
+Provider 表单在线查询使用 [`BrowserProviderModelQuery` 与 `BrowserProviderModels`](../src/provider-settings.ts)：请求不需要默认模型，响应只返回模型 ID 和名称。生成的读取器在保留原输入的前提下剥离响应及条目上的未知字段，并返回不含值的有界路径诊断；密钥仅存在于请求，不回显或持久化。其它 Provider 设置 DTO 仍使用原 AST 合同。
 
 `BrowserSessionStep.think` 携带显式 Think 目标及可选的已提交分析；无输出表示尚无完成事实，`truncated` 表示有界正文被省略。多个 Think 成员可以共享同一个 Runtime Step 序号，成员数量不等于 `stepCount`。Think 正文通过受保护的会话 HTTP 响应提供，实时通知仍只触发检查点重读；供应商隐藏推理不进入该 DTO。
 
