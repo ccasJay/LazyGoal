@@ -93,7 +93,7 @@ environment; it is not part of the default regression.
 
 Task time includes image preparation and inference. The container has no network
 or host mounts. The ACP profile exposes only `read_file`, `write_file`,
-`edit_file`, `grep`, and `bash`, all rooted at `/testbed`; dependencies come from
+`edit_file`, and `bash` (use Bash search with bundled `rg` and its fallback chain), all rooted at `/testbed`; dependencies come from
 the official instance image. ACP and LLM frames share one ordered Mux but remain
 separate channels. The image ID used for each attempt is recorded; compare these
 IDs when comparing runs because the upstream `latest` image tag is mutable.

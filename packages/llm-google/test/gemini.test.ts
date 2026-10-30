@@ -1,4 +1,4 @@
-import { BASH_INPUT_CONTRACT, READ_FILE_INPUT_CONTRACT, WRITE_FILE_INPUT_CONTRACT, EDIT_FILE_INPUT_CONTRACT, GREP_INPUT_CONTRACT } from "../../tools/src/index";
+import { BASH_INPUT_CONTRACT, READ_FILE_INPUT_CONTRACT, WRITE_FILE_INPUT_CONTRACT, EDIT_FILE_INPUT_CONTRACT } from "../../tools/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { contract } from "../../contracts/src/index";
@@ -42,7 +42,6 @@ test("Gemini SDK preserves unified executing and checkpoint schemas", async () =
                     { id: "read_file", inputContract: READ_FILE_INPUT_CONTRACT },
                     { id: "write_file", inputContract: WRITE_FILE_INPUT_CONTRACT },
                     { id: "edit_file", inputContract: EDIT_FILE_INPUT_CONTRACT },
-                    { id: "grep", inputContract: GREP_INPUT_CONTRACT },
                 ],
             },
             {
@@ -52,7 +51,6 @@ test("Gemini SDK preserves unified executing and checkpoint schemas", async () =
                     { id: "read_file", inputContract: READ_FILE_INPUT_CONTRACT },
                     { id: "write_file", inputContract: WRITE_FILE_INPUT_CONTRACT },
                     { id: "edit_file", inputContract: EDIT_FILE_INPUT_CONTRACT },
-                    { id: "grep", inputContract: GREP_INPUT_CONTRACT },
                 ],
             },
             { kind: "checkpoint" as const },
@@ -771,18 +769,14 @@ test("Gemini preserves authorized Tool calls in Plan Mode before task approval",
         taskPresent: false,
         planMode: true,
         authorizedTools: [{
-            id: "grep",
-            inputContract: contract.object({
-                pattern: contract.string(),
-                ignoreCase: contract.optional(contract.boolean()),
-            }),
-            isReadOnly: true,
+            id: "bash",
+            inputContract: BASH_INPUT_CONTRACT,
         }],
     });
     const text = JSON.stringify({
         result: {
             kind: "tool_call",
-            action: { actionId: "read-1", toolId: "grep", input: { pattern: "spec", ignoreCase: true } },
+            action: { actionId: "read-1", toolId: "bash", input: { command: "rg --line-number --no-heading --color never -- spec ." } },
             memoryPatch: "__lazygoal_null__",
         },
     });

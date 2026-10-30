@@ -140,7 +140,7 @@ test("真实 Runner 驱动远端代理执行工具，宿主同名工具不被调
         id: "swebench-profile",
         systemPrompt: "Solve task",
         instructions: ["Use tools"],
-        toolIds: ["read_file", "write_file", "edit_file", "grep", "bash"],
+        toolIds: ["read_file", "write_file", "edit_file", "bash"],
     };
 
     let stepCounter = 0;
@@ -191,7 +191,7 @@ test("真实 Runner 驱动远端代理执行工具，宿主同名工具不被调
 
     assert.equal(result.ok, true);
     assert.equal(result.state.status, "completed");
-    assert.deepEqual(authorizedToolsSeen, ["read_file", "write_file", "edit_file", "grep", "bash"]);
+    assert.deepEqual(authorizedToolsSeen, ["read_file", "write_file", "edit_file", "bash"]);
 
     // 检查 Trajectory 中记录的 Observation
     const obsEvent = trajectoryStore.events.find((e) => e.eventType === "observation_recorded");

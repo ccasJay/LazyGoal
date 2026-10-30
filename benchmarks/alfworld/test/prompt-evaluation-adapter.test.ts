@@ -31,7 +31,7 @@ const baseProfile: AgentProfile = {
     instructions: [
         "Call alfworld_reset first.",
         "Call alfworld_step once per decision.",
-        "Do not use Bash; complete only when won=true.",
+        "Use Bash only for read-only repository searches; complete only when won=true.",
     ],
     toolIds: ALFWORLD_PROFILE_TOOL_IDS,
 };
@@ -42,7 +42,7 @@ const candidateProfile: AgentProfile = {
     instructions: [
         "Call alfworld_reset before acting.",
         "Use alfworld_step for one admissible action.",
-        "Never use Bash and finish only after won=true.",
+        "Use Bash only for read-only repository searches and finish only after won=true.",
     ],
 };
 

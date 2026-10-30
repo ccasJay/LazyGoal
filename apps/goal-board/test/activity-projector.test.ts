@@ -159,7 +159,7 @@ test("Think 成员保留 Trajectory 详情定位引用，不暴露未获准内�
 test("committed actions merge only when tool, stage and verified adjacency match", () => {
   const groups = project([
     toolFact({ actionId: "a1", sequence: 1, toolId: "read_file", inputSummary: "a.ts" }),
-    toolFact({ actionId: "a2", sequence: 4, toolId: "grep", inputSummary: "needle" }),
+    toolFact({ actionId: "a2", sequence: 4, toolId: "bash", inputSummary: "rg --line-number --no-heading --color never -- needle ." }),
     toolFact({ actionId: "a3", sequence: 7, toolId: "bash", stageId: "stage-1", inputSummary: "npm test" }),
     toolFact({ actionId: "a4", sequence: 10, toolId: "read_file", stageId: "stage-1", activityBoundaryBefore: true }),
     toolFact({ actionId: "a5", sequence: 13, toolId: "read_file", stageId: "stage-2" }),
@@ -172,7 +172,7 @@ test("committed actions merge only when tool, stage and verified adjacency match
     ["explore", ["a5"]], ["single", ["a6"]], ["single", ["a7"]],
   ]);
   assert.equal(groups[0]?.summary, "Read a.ts");
-  assert.equal(groups[1]?.summary, "Searched for needle");
+    assert.equal(groups[1]?.summary, "Searched files");
   assert.equal(groups[2]?.members[0]?.label, "Run tests");
 });
 

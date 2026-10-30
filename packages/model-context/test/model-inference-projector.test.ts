@@ -10,9 +10,6 @@ import {
     EDIT_FILE_INPUT_CONTRACT,
     EDIT_FILE_TOOL_ID,
     EditFileTool,
-    GREP_INPUT_CONTRACT,
-    GREP_TOOL_ID,
-    GrepTool,
     READ_FILE_INPUT_CONTRACT,
     READ_FILE_TOOL_ID,
     ReadFileTool,
@@ -82,12 +79,6 @@ const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         description: "对 workspaceRoot 内的 UTF-8 文本文件执行唯一匹配的字符串替换",
         inputContract: EDIT_FILE_INPUT_CONTRACT,
         isReadOnly: false,
-    },
-    {
-        id: GREP_TOOL_ID,
-        description: "Search text files in workspace using regular expressions with context lines and pagination.",
-        inputContract: GREP_INPUT_CONTRACT,
-        isReadOnly: true,
     },
     {
         id: ALFWORLD_RESET_TOOL_ID,
@@ -557,24 +548,6 @@ test("Projector 从七个当前 Contract 生成稳定且可移植的模型 Schem
             },
         },
         {
-            id: GREP_TOOL_ID,
-            inputSchema: {
-                type: "object",
-                properties: {
-                    contextLines: { type: "integer", minimum: 0, maximum: 20 },
-                    cursor: { type: "string" },
-                    exclude: { type: "string" },
-                    pattern: { type: "string" },
-                    path: { type: "string" },
-                    ignoreCase: { type: "boolean" },
-                    include: { type: "string" },
-                    maxMatches: { type: "integer", minimum: 1, maximum: 1000 },
-                },
-                required: ["pattern"],
-                additionalProperties: false,
-            },
-        },
-        {
             id: READ_FILE_TOOL_ID,
             inputSchema: {
                 type: "object",
@@ -769,13 +742,12 @@ test("Projector 确保 View 与外部输入完全隔离且子对象不可变", (
     );
 });
 
-test("五类实际通用 Tool 实例的 definition 与 CURRENT_TOOL_DEFINITIONS 完全一致", () => {
+test("四类实际通用 Tool 实例的 definition 与 CURRENT_TOOL_DEFINITIONS 完全一致", () => {
     const instances: readonly ToolDefinition[] = [
         new BashTool("/workspace").definition,
         new ReadFileTool("/workspace").definition,
         new WriteFileTool("/workspace").definition,
         new EditFileTool("/workspace").definition,
-        new GrepTool("/workspace").definition,
     ];
 
     for (const inst of instances) {

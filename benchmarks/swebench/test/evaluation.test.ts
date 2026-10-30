@@ -249,8 +249,8 @@ test("preflight rejects unsupported harness versions before model construction",
     await assert.rejects(preflightSwebench("python", async () => ({ ...ok, stdout: '{"harnessVersion":"future"}' })), /version mismatch/);
 });
 
-test("SWE-bench ACP profile exposes only the five execution tools", () => {
-    assert.deepEqual(SWE_ACP_PROFILE.toolIds, ["read_file", "write_file", "edit_file", "grep", "bash"]);
+test("SWE-bench ACP profile exposes only the four execution tools", () => {
+    assert.deepEqual(SWE_ACP_PROFILE.toolIds, ["read_file", "write_file", "edit_file", "bash"]);
 });
 
 test("malformed grading batches cannot leave partially accepted successes", async (t) => {

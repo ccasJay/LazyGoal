@@ -271,6 +271,7 @@ export function summarizeActivityGroup(category: ActivityGroupCategory, members:
   if (category === "single") return members[0]?.label ?? "Activity";
   const first = members[0];
   if (first?.toolId === "bash" && members.every(member => member.toolId === "bash")) {
+    if (members.length === 1) return first.label;
     const operations = [...new Set(members.map(member => summarizeBashCommand(member.inputSummary)))];
     return `${operations.slice(0, 2).join(", ")}${operations.length > 2 ? `, +${operations.length - 2} more operations` : ""}`;
   }
@@ -278,7 +279,7 @@ export function summarizeActivityGroup(category: ActivityGroupCategory, members:
     && members.every((member) => member.toolId === first.toolId);
   if (repeated) {
     const operations: Record<string, string> = {
-      read_file: "Read files", list_directory: "Inspect directories", grep: "Search code references",
+      read_file: "Read files", list_directory: "Inspect directories",
       web_search: "Search the web", web_fetch: "Read web pages", write_file: "Write files",
       edit_file: "Edit files", execute_program: "Run programs",
     };
@@ -300,7 +301,7 @@ function createMember(
   const member: MutableMember = {
     id: `action:${runId}:${key}`,
     runId,
-    category: categorizeTool(tool.toolId),
+    category: categorizeTool(tool.toolId, tool.inputSummary),
     toolId: tool.toolId,
     label: labelForTool(tool.toolId, tool.inputSummary, status),
     status,
@@ -375,7 +376,7 @@ function projectLiveMembers(
       const member: MutableMember = {
         id,
         runId,
-        category: categorizeTool(activity.toolId),
+        category: categorizeTool(activity.toolId, activity.inputSummary),
         toolId: activity.toolId,
         label: labelForTool(activity.toolId, activity.inputSummary, "running"),
         status: "running",
@@ -495,8 +496,9 @@ function toPublicMember(member: MutableMember): ActivityGroupMember {
   };
 }
 
-function categorizeTool(toolId?: string): ActivityGroupCategory {
-  if (toolId === "read_file" || toolId === "list_directory" || toolId === "grep" || toolId === "web_search" || toolId === "web_fetch") return "explore";
+function categorizeTool(toolId?: string, inputSummary?: string): ActivityGroupCategory {
+  if (toolId === "bash" && isBashSearchCommand(inputSummary)) return "explore";
+  if (toolId === "read_file" || toolId === "list_directory" || toolId === "web_search" || toolId === "web_fetch") return "explore";
   if (toolId === "bash" || toolId === "execute_program") return "execute";
   if (toolId === "write_file" || toolId === "edit_file") return "edit";
   return "single";
@@ -507,11 +509,13 @@ function labelForTool(toolId: string | undefined, target: string | undefined, st
   const value = target?.trim();
   if (toolId === "read_file") return `Read ${value || "a file"}`;
   if (toolId === "list_directory") return `Listed ${value || "a directory"}`;
-  if (toolId === "grep" || toolId === "web_search") return `${completed ? "Searched" : "Search"} ${value ? `for ${value}` : "files"}`;
+  if (toolId === "web_search") return `${completed ? "Searched" : "Search"} ${value ? `for ${value}` : "the web"}`;
   if (toolId === "web_fetch") return `${completed ? "Fetched" : "Fetch"} ${value || "a page"}`;
   if (toolId === "write_file") return `${status === "completed" ? "Wrote" : "Write"} ${value || "a file"}`;
   if (toolId === "edit_file") return `${status === "completed" ? "Edited" : "Edit"} ${value || "a file"}`;
-  if (toolId === "bash") return summarizeBashCommand(value);
+  if (toolId === "bash") return isBashSearchCommand(value)
+    ? `${completed ? "Searched" : "Search"} files`
+    : summarizeBashCommand(value);
   if (toolId === "execute_program") return `${completed ? "Ran" : "Run"} a program`;
   return toolId ?? "Activity";
 }
@@ -520,11 +524,19 @@ function summarizeBashCommand(command: string | undefined): string {
   // 只识别简单调用；不从 Shell 控制流、替换表达式或引用中的文本推断操作。
   if (command === undefined || /[;&|<>\n\r`$(){}\\]/u.test(command)) return "Run shell commands";
   const value = command.trim();
+  if (isBashSearchCommand(value)) return "Search files";
   if (/^git\s+status(?:\s|$)/u.test(value)) return "Check Git workspace";
   if (/^git\s+log(?:\s|$)/u.test(value)) return "View commit history";
   if (/^git\s+diff(?:\s|$)/u.test(value)) return "Review code changes";
   if (/^(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test|(?:npx\s+)?(?:vitest|jest)|node\s+--test)(?:\s|$)/u.test(value)) return "Run tests";
   return "Run shell commands";
+}
+
+function isBashSearchCommand(command: string | undefined): boolean {
+  if (command === undefined) return false;
+  const value = command.trim();
+  return /^(?:env\s+)?(?:rg|grep)(?:\s|$)/u.test(value)
+    || (/^find(?:\s|$)/u.test(value) && /\bawk\b/u.test(value));
 }
 
 function livePosition(runId: string, cursor: number): BrowserActivityPosition {

@@ -122,7 +122,7 @@ interface ActiveExecution {
  * ```ts
  * const client = new ToolRpcClient({ stream: mux.channel("tools") });
  * const manifest = await client.describe();
- * const obs = await client.execute({ actionId: "a-1", toolId: "grep", input: { pattern: "test" }, context: { goalId: "g", runId: "r" } });
+ * const obs = await client.execute({ actionId: "a-1", toolId: "bash", input: { command: "rg --line-number --no-heading --color never -- test ." }, context: { goalId: "g", runId: "r" } });
  * ```
  */
 export class ToolRpcClient {

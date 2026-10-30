@@ -179,7 +179,7 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
             return {
                 kind: "failure",
                 code: "REPEATED_FILE_NOT_FOUND",
-                message: `严禁重复读取已确认不存在的文件路径: ${requestedPath}！该文件已被确认为不存在。请立即调用 grep 搜索关键符号或类名，禁止盲猜文件路径。`,
+                message: `严禁重复读取已确认不存在的文件路径: ${requestedPath}！该文件已被确认为不存在。请立即使用 bash 调用 rg（必要时使用 shell fallback）搜索关键符号或类名，禁止盲猜文件路径。`,
                 retryable: false,
             };
         }
@@ -241,7 +241,7 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
                 }
 
                 const hint = alternativePathHint || (suggestions.length > 0
-                    ? `. Candidates in parent directory: [${suggestions.join(", ")}]. Use grep to locate the correct file; do not re-request this exact path.`
+                    ? `. Candidates in parent directory: [${suggestions.join(", ")}]. Use bash with rg (or its shell fallback) to locate the correct file; do not re-request this exact path.`
                     : "");
                 return {
                     ...resolved.failure,
@@ -295,7 +295,7 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
                 return {
                     kind: "failure",
                     code: "TARGET_IS_DIRECTORY",
-                    message: `Target is a directory: ${requestedPath}. Use grep or list files to choose a specific text file. Entries: [${entries.join(", ")}]`,
+                    message: `Target is a directory: ${requestedPath}. Use bash with rg or list files to choose a specific text file. Entries: [${entries.join(", ")}]`,
                     retryable: true,
                 };
             }
@@ -318,7 +318,7 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
                     suggestions = (matched.length > 0 ? matched : entries).slice(0, 10);
                 } catch {}
                 const hint = suggestions.length > 0
-                    ? `. Candidates in parent directory: [${suggestions.join(", ")}]. Use grep to locate the correct file; do not re-request this exact path.`
+                    ? `. Candidates in parent directory: [${suggestions.join(", ")}]. Use bash with rg (or its shell fallback) to locate the correct file; do not re-request this exact path.`
                     : "";
                 return {
                     kind: "failure",

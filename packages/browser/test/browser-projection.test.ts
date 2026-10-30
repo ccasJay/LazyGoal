@@ -1017,7 +1017,7 @@ test("操作标题只投影有界目标，不暴露正文、额外参数或未�
         { toolId: "bash", input: { command: "git status --short", environment: "private-env" }, expected: "git status --short" },
         { toolId: "write_file", input: { path: "notes.md", content: "private-content" }, expected: "notes.md" },
         { toolId: "edit_file", input: { path: "src/app.ts", oldString: "private-old", newString: "private-new" }, expected: "src/app.ts" },
-        { toolId: "grep", input: { pattern: "TODO", path: "private-root" }, expected: "TODO" },
+        { toolId: "bash", input: { command: "rg --line-number --no-heading --color never -- TODO root" }, expected: "rg --line-number --no-heading --color never -- TODO root" },
         { toolId: "web_search", input: { query: "a".repeat(300), apiKey: "private-key" }, expected: `${"a".repeat(240)}…` },
         { toolId: "web_fetch", input: { url: "https://example.com", headers: "private-headers" }, expected: "https://example.com" },
         { toolId: "custom_tool", input: { path: "private-custom" }, expected: undefined },

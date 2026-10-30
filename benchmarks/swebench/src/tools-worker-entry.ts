@@ -18,7 +18,7 @@ export interface SwebenchToolsWorkerOptions {
  *
  * @remarks
  * 在容器或隔离子进程内运行，不包含 LLM 或 Goal 状态机。
- * 通过 Mux tools 通道提供 read_file, write_file, edit_file, grep, bash 的 RPC 远程调用服务。
+ * 通过 Mux tools 通道提供 read_file, write_file, edit_file, bash 的 RPC 远程调用服务。
  *
  * @param options - 可选的输入输出流与工作区路径配置。
  *

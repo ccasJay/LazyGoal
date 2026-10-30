@@ -116,8 +116,6 @@ import {
     EXECUTE_PROGRAM_TOOL_ID,
     createExecuteProgramRegistration,
     EditFileTool,
-    GREP_TOOL_ID,
-    GrepTool,
     READ_FILE_TOOL_ID,
     ReadFileTool,
     WriteFileTool,
@@ -144,8 +142,8 @@ export function createDefaultToolPolicy(options?: {
     const platform = options?.platform ?? process.platform;
     const autoAllowedToolIds = new Set(
         platform === "darwin"
-            ? [READ_FILE_TOOL_ID, GREP_TOOL_ID, BASH_TOOL_ID, EXECUTE_PROGRAM_TOOL_ID]
-            : [READ_FILE_TOOL_ID, GREP_TOOL_ID, EXECUTE_PROGRAM_TOOL_ID],
+            ? [READ_FILE_TOOL_ID, BASH_TOOL_ID, EXECUTE_PROGRAM_TOOL_ID]
+            : [READ_FILE_TOOL_ID, EXECUTE_PROGRAM_TOOL_ID],
     );
 
     return {

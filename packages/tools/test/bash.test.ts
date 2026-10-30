@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 
 import type { JsonValue } from "../../contracts/src/index";
@@ -89,6 +89,54 @@ test("BashTool 执行成功命令并声明 manual replay", async () => {
                 stderr: "",
             },
             summary: "命令执行成功",
+        });
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("BashTool 优先使用 bundled rg 并暴露可诊断路径", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-rg-"));
+
+    try {
+        const result = await new BashTool(workspaceRoot).execute({
+            actionId: "action-rg-version",
+            input: { command: "rg --version" },
+        });
+
+        assert.equal(result.kind, "success");
+        if (result.kind === "success") {
+            assert.match((result.output as { stdout: string }).stdout, /^ripgrep /);
+        }
+
+        const environment = await new BashTool(workspaceRoot).execute({
+            actionId: "action-rg-environment",
+            input: { command: "printf '%s\\n' \"$LAZYGOAL_RG_PATH\" \"$PATH\"" },
+        });
+        assert.equal(environment.kind, "success");
+        if (environment.kind === "success") {
+            const lines = (environment.output as { stdout: string }).stdout.trimEnd().split("\n");
+            assert.ok((lines[0] ?? "").length > 0);
+            assert.ok((lines[1] ?? "").split(process.platform === "win32" ? ";" : ":").includes(dirname(lines[0] ?? "")));
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("BashTool 将 rg 退出码 1 解释为空匹配而不是基础设施失败", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-rg-empty-"));
+
+    try {
+        const result = await new BashTool(workspaceRoot).execute({
+            actionId: "action-rg-empty",
+            input: { command: "rg --line-number --no-heading --color never -- __lazygoal_no_match_7f1d ." },
+        });
+
+        assert.deepEqual(result, {
+            kind: "success",
+            output: { exitCode: 1, stdout: "", stderr: "" },
+            summary: "搜索无匹配（rg 退出码 1）",
         });
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });

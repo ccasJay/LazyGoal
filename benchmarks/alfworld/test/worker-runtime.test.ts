@@ -21,7 +21,7 @@ test("ALFWorld Worker metadata keeps the dedicated tool profile and task boundar
     });
     assert.equal(metadata.taskId, "task-1");
     assert.deepEqual(ALFWORLD_WORKER_PROFILE.toolIds, ALFWORLD_PROFILE_TOOL_IDS);
-    assert.equal((ALFWORLD_WORKER_PROFILE.toolIds as readonly string[]).includes("bash"), false);
+    assert.equal((ALFWORLD_WORKER_PROFILE.toolIds as readonly string[]).includes("bash"), true);
     assert.throws(() => parseAlfworldAcpTaskMetadata({ ...metadata, gameFile: "../escape" }), /Invalid ALFWorld/);
 });
 
@@ -34,7 +34,7 @@ test("ALFWorld Worker metadata revalidates Prompt Evaluation frozen fields", () 
         instructions: [
             "Call alfworld_reset first.",
             "Use alfworld_step once.",
-            "Do not use Bash and complete only when won=true.",
+            "Use Bash only for read-only repository searches and complete only when won=true.",
         ],
         toolIds: [...ALFWORLD_PROFILE_TOOL_IDS],
     };
@@ -44,7 +44,7 @@ test("ALFWorld Worker metadata revalidates Prompt Evaluation frozen fields", () 
         instructions: [
             "Call alfworld_reset before acting.",
             "Use alfworld_step once per decision.",
-            "Never use Bash; finish only when won=true.",
+            "Use Bash only for read-only repository searches; finish only when won=true.",
         ],
     };
     const raw = {

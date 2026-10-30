@@ -29,10 +29,6 @@ import {
     GitBranchSwitchTool,
     GitWorktreeAddTool,
     GitWorktreeRemoveTool,
-    GREP_INPUT_CONTRACT,
-    GREP_MAX_CONTEXT_LINES,
-    GREP_MAX_MATCHES_LIMIT,
-    GrepTool,
     LIST_DIRECTORY_INPUT_CONTRACT,
     LIST_DIRECTORY_MAX_ENTRIES_LIMIT,
     ListDirectoryTool,
@@ -104,20 +100,6 @@ type _EditFileInputIsInferred = Assert<Equal<
     InferContract<typeof EDIT_FILE_INPUT_CONTRACT>,
     { readonly path: string; readonly oldString: string; readonly newString: string }
 >>;
-type _GrepInputIsInferred = Assert<Equal<
-    InferContract<typeof GREP_INPUT_CONTRACT>,
-    {
-        readonly pattern: string;
-        readonly contextLines?: number;
-        readonly cursor?: string;
-        readonly exclude?: string;
-        readonly ignoreCase?: boolean;
-        readonly include?: string;
-        readonly maxMatches?: number;
-        readonly path?: string;
-    }
->>;
-
 type _BashValidateUsesContractOutput = Assert<Equal<
     Parameters<BashTool["validate"]>[0],
     InferContract<typeof BASH_INPUT_CONTRACT>
@@ -134,11 +116,6 @@ type _EditFileValidateUsesContractOutput = Assert<Equal<
     Parameters<EditFileTool["validate"]>[0],
     InferContract<typeof EDIT_FILE_INPUT_CONTRACT>
 >>;
-type _GrepExecuteUsesContractOutput = Assert<Equal<
-    Parameters<GrepTool["execute"]>[0]["input"],
-    InferContract<typeof GREP_INPUT_CONTRACT>
->>;
-
 const schemaUri = "https://json-schema.org/draft/2020-12/schema";
 
 const contractCases = [
@@ -425,53 +402,9 @@ const contractCases = [
             additionalProperties: false,
         },
     },
-    {
-        id: "grep",
-        inputContract: GREP_INPUT_CONTRACT,
-        valid: {
-            pattern: "  TODO  ",
-            path: "src",
-            ignoreCase: false,
-            include: "*.ts",
-            exclude: "*.test.ts",
-            contextLines: 2,
-            maxMatches: 50,
-            cursor: "cur123",
-        },
-        invalid: [
-            { value: {}, code: "missing_field", path: ["pattern"] },
-            { value: { pattern: 42 }, code: "invalid_type", path: ["pattern"] },
-            { value: { pattern: "a", path: 42 }, code: "invalid_type", path: ["path"] },
-            { value: { pattern: "a", ignoreCase: "yes" }, code: "invalid_type", path: ["ignoreCase"] },
-            { value: { pattern: "a", include: 42 }, code: "invalid_type", path: ["include"] },
-            { value: { pattern: "a", exclude: 42 }, code: "invalid_type", path: ["exclude"] },
-            { value: { pattern: "a", contextLines: -1 }, code: "number_minimum", path: ["contextLines"] },
-            { value: { pattern: "a", contextLines: GREP_MAX_CONTEXT_LINES + 1 }, code: "number_maximum", path: ["contextLines"] },
-            { value: { pattern: "a", maxMatches: 0 }, code: "number_minimum", path: ["maxMatches"] },
-            { value: { pattern: "a", maxMatches: GREP_MAX_MATCHES_LIMIT + 1 }, code: "number_maximum", path: ["maxMatches"] },
-            { value: { pattern: "a", cursor: 123 }, code: "invalid_type", path: ["cursor"] },
-            { value: { pattern: "a", extra: true }, code: "extra_field", path: ["extra"] },
-        ],
-        schema: {
-            $schema: schemaUri,
-            type: "object",
-            properties: {
-                pattern: { type: "string" },
-                path: { type: "string" },
-                ignoreCase: { type: "boolean" },
-                include: { type: "string" },
-                exclude: { type: "string" },
-                contextLines: { type: "integer", minimum: 0, maximum: GREP_MAX_CONTEXT_LINES },
-                maxMatches: { type: "integer", minimum: 1, maximum: GREP_MAX_MATCHES_LIMIT },
-                cursor: { type: "string" },
-            },
-            required: ["pattern"],
-            additionalProperties: false,
-        },
-    },
 ] as const;
 
-test("五个通用 Tool Contract 推导稳定类型并拒绝非法结构", () => {
+test("通用 Tool Contract 推导稳定类型并拒绝非法结构", () => {
     for (const contractCase of contractCases) {
         const result = safeParse(contractCase.inputContract, contractCase.valid);
 
@@ -496,7 +429,7 @@ test("五个通用 Tool Contract 推导稳定类型并拒绝非法结构", () =>
     }
 });
 
-test("五个通用 Tool Contract 编译出精确且确定性的 JSON Schema", () => {
+test("通用 Tool Contract 编译出精确且确定性的 JSON Schema", () => {
     for (const contractCase of contractCases) {
         const first = compileJsonSchema(contractCase.inputContract);
         const second = compileJsonSchema(contractCase.inputContract);
@@ -563,12 +496,6 @@ test("结构 Contract 成功后仍由 Tool 继续执行领域语义校验", () =
             validate: () => new FindFilesTool("/workspace").validate({ pattern: "" }),
         },
         {
-            id: "grep",
-            inputContract: GREP_INPUT_CONTRACT,
-            input: { pattern: "a(" },
-            validate: () => new GrepTool("/workspace").validate({ pattern: "a(" }),
-        },
-        {
             id: "web_search",
             inputContract: WEB_SEARCH_INPUT_CONTRACT,
             input: { query: "   " },
@@ -620,11 +547,6 @@ test("准备结果保留原始文本、类型和可选字段缺省状态", () =>
             input: { patch: "  diff --git a/a b/a  " },
         },
         {
-            id: "grep",
-            registration: createToolRegistration(new GrepTool("/workspace")),
-            input: { pattern: "  TODO  ", path: "src" },
-        },
-        {
             id: "web_search",
             registration: createToolRegistration(new WebSearchTool()),
             input: { query: "  LazyGoal  " },
@@ -652,7 +574,6 @@ test("工具声明式 isReadOnly 元数据准确区分只读读取与写操作�
         new ListDirectoryTool("/workspace"),
         new FindFilesTool("/workspace"),
         new ReadFileTool("/workspace"),
-        new GrepTool("/workspace"),
         new WebSearchTool(),
         new WebFetchTool(),
         new ProcessReadTool({} as any, {} as any),

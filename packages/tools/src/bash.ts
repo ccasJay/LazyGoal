@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { realpath } from "node:fs/promises";
-import { resolve } from "node:path";
+import { delimiter, dirname, resolve } from "node:path";
 
 import type {
     Tool,
@@ -45,6 +45,39 @@ export const BASH_MAX_OUTPUT_CHARS = 10_000;
 
 /** SIGTERM 发往进程组后等待其自行退出的固定宽限(毫秒),到期升级 SIGKILL。 */
 const BASH_TERMINATION_GRACE_MS = 2_000;
+
+/** 延迟解析随工具包分发的 ripgrep；不支持当前平台时保留系统命令降级。 */
+let bundledRgPathPromise: Promise<string | undefined> | undefined;
+
+function resolveBundledRgPath(): Promise<string | undefined> {
+    bundledRgPathPromise ??= import("@vscode/ripgrep")
+        .then(({ rgPath }) => rgPath)
+        .catch(() => undefined);
+    return bundledRgPathPromise;
+}
+
+function createSearchEnvironment(
+    baseEnv: NodeJS.ProcessEnv,
+    bundledRgPath: string | undefined,
+): NodeJS.ProcessEnv {
+    const pathEntries: string[] = [];
+    if (bundledRgPath !== undefined) {
+        pathEntries.push(dirname(bundledRgPath));
+    }
+    if (baseEnv.PATH !== undefined && baseEnv.PATH.trim() !== "") {
+        pathEntries.push(baseEnv.PATH);
+    }
+
+    return {
+        ...baseEnv,
+        ...(pathEntries.length === 0 ? {} : { PATH: pathEntries.join(delimiter) }),
+        ...(bundledRgPath === undefined ? {} : { LAZYGOAL_RG_PATH: bundledRgPath }),
+    };
+}
+
+function isRipgrepInvocation(command: string): boolean {
+    return /^(?:env\s+)?rg(?:\s|$)/u.test(command.trim());
+}
 
 /** 单项文件沙箱访问申请 Contract。 */
 export const SANDBOX_FILE_ACCESS_CONTRACT = contract.object({
@@ -360,6 +393,7 @@ function runShellCommand(
     options: {
         readonly cwd: string;
         readonly timeoutMs: number;
+        readonly env: NodeJS.ProcessEnv;
         readonly signal?: AbortSignal;
         readonly stdout: OutputCollector;
         readonly stderr: OutputCollector;
@@ -384,6 +418,7 @@ function runShellCommand(
             )
             : spawn(command, {
                 cwd: options.cwd,
+                env: options.env,
                 shell: process.platform === "win32" ? true : "/bin/bash",
                 stdio: ["ignore", "pipe", "pipe"],
                 detached: process.platform !== "win32",
@@ -492,7 +527,10 @@ function runShellCommand(
  * `success`；非零退出码与超时分别返回 `COMMAND_FAILED` 和
  * `COMMAND_TIMEOUT` 领域 failure，输出进入 message。命令副作用不可幂等
  * 重放，因此声明为 `manual`：进程中断后未完成的 Action 转为
- * `outcome_unknown` 等待用户决定。该 Tool 不限制命令内容本身、不控制
+ * `outcome_unknown` 等待用户决定。命令环境会优先把随
+ * `@vscode/ripgrep` 分发的 `rg` 放入 `PATH`；该二进制不可用时保留宿主
+ * `PATH` 供搜索命令降级，若已解析出 bundled 路径则同时提供
+ * `LAZYGOAL_RG_PATH` 诊断变量。该 Tool 不限制命令内容本身、不控制
  * 并发数，也不对外部系统承诺 exactly-once。
  *
  * @example
@@ -662,6 +700,8 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
 
         const timeoutMs = input.timeoutMs ?? BASH_DEFAULT_TIMEOUT_MS;
         const resolvedRoot = await realpath(this.workspaceRoot);
+        const bundledRgPath = await resolveBundledRgPath();
+        const commandEnv = createSearchEnvironment(process.env, bundledRgPath);
         throwIfAborted(control);
 
         const stdout = this.truncationMode === "tail"
@@ -704,11 +744,14 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
             privateTmpDir = await createPrivateTmpDir();
             const protectedPaths = await resolveGitProtectionPaths(resolvedRoot);
 
-            const extraReadPaths = isPlanValid
-                ? request.plan?.scope.extraFiles
-                    .filter((f) => f.access === "read" || f.access === "write")
-                    .map((f) => f.canonicalPath)
-                : undefined;
+            const extraReadPaths = [
+                ...(isPlanValid
+                    ? request.plan?.scope.extraFiles
+                        .filter((f) => f.access === "read" || f.access === "write")
+                        .map((f) => f.canonicalPath) ?? []
+                    : []),
+                ...(bundledRgPath === undefined ? [] : [bundledRgPath]),
+            ];
             const extraWritePaths = isPlanValid
                 ? request.plan?.scope.extraFiles
                     .filter((f) => f.access === "write")
@@ -720,14 +763,15 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
                 canonicalWorkspaceRoot: resolvedRoot,
                 privateTmpDir,
                 protectedPaths,
-                ...(extraReadPaths !== undefined ? { extraReadPaths } : {}),
+                ...(extraReadPaths.length === 0 ? {} : { extraReadPaths }),
                 ...(extraWritePaths !== undefined ? { extraWritePaths } : {}),
                 network,
             });
-            const env = filterSandboxEnvironment({
+            const filteredEnv = filterSandboxEnvironment({
                 workspaceRoot: resolvedRoot,
                 privateTmpDir,
             });
+            const env = createSearchEnvironment(filteredEnv, bundledRgPath);
 
             sandboxRunOptions = { policy, env };
         }
@@ -737,6 +781,7 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
             outcome = await runShellCommand(input.command, {
                 cwd: resolvedRoot,
                 timeoutMs,
+                env: commandEnv,
                 ...(control?.signal === undefined
                     ? {}
                     : { signal: control.signal }),
@@ -789,6 +834,19 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
                     stderr: truncatedStderr,
                 },
                 summary: "命令执行成功",
+            };
+        }
+
+        if (outcome.exitCode === 1 && isRipgrepInvocation(input.command)) {
+            this.failedCommands.delete(input.command);
+            return {
+                kind: "success",
+                output: {
+                    exitCode: 1,
+                    stdout: truncatedStdout,
+                    stderr: truncatedStderr,
+                },
+                summary: "搜索无匹配（rg 退出码 1）",
             };
         }
 

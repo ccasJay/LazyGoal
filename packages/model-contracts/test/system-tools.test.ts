@@ -141,14 +141,14 @@ test("Plan 提案前声明只包含 Runtime 提供的只读业务工具", () => 
 test("Plan 提案前挂载获授权读取与任务提案工具", () => {
     const decls = createUnifiedToolDeclarations([
         {
-            id: "grep",
-            inputContract: contract.object({ pattern: contract.string() }),
+            id: "bash",
+            inputContract: contract.object({ command: contract.string() }),
             isReadOnly: true,
         },
     ], false, true);
     const ids = decls.map(d => d.id);
 
-    assert.ok(ids.includes("grep"));
+    assert.ok(ids.includes("bash"));
     assert.ok(ids.includes("system_propose_task_plan"));
     assert.ok(ids.includes("system_context_lookup"));
 

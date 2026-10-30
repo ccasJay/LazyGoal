@@ -36,7 +36,7 @@ void test("isEventMatched 准确过滤类别", () => {
 void test("isEventMatched 在 title、preview、sequence 及 actionId 中模糊匹配搜索文本", () => {
   const entry = mockEntry({
     sequence: 123,
-    title: "tool_started: grep",
+    title: "tool_started: bash",
     preview: "Searching for imports in src",
     actionId: "act-import-search",
   });
@@ -46,7 +46,7 @@ void test("isEventMatched 在 title、preview、sequence 及 actionId 中模糊�
   assert.equal(isEventMatched(entry, "999", "All events"), false);
 
   // title 匹配（大小写不敏感）
-  assert.equal(isEventMatched(entry, "GREP", "All events"), true);
+  assert.equal(isEventMatched(entry, "BASH", "All events"), true);
 
   // preview 匹配
   assert.equal(isEventMatched(entry, "imports", "All events"), true);

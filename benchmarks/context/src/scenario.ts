@@ -66,10 +66,10 @@ export function parseScenario(raw: unknown): ContextScenario {
     const source = value.kind === "source" ? parseSourceTask(value.source) : undefined;
     if ((value.kind !== undefined && value.kind !== "source") || (source === undefined && (value.source !== undefined || value.mode !== undefined)) ||
         (source !== undefined && value.mode !== "cross-run" && value.mode !== "waiting")) throw new Error("Invalid scenario source/mode");
-    const toolIds = source ? ["read_file", "write_file", "edit_file", "grep", "bash"] : ["context_shell"];
+    const toolIds = source ? ["read_file", "write_file", "edit_file", "bash"] : ["context_shell"];
     const profile = record(value.profile);
     if (!Array.isArray(profile.instructions) || !profile.instructions.every(x => typeof x === "string") ||
-        !Array.isArray(profile.toolIds) || JSON.stringify(profile.toolIds) !== JSON.stringify(toolIds)) throw new Error("Profile must declare context_shell only");
+        !Array.isArray(profile.toolIds) || JSON.stringify(profile.toolIds) !== JSON.stringify(toolIds)) throw new Error("Profile toolIds do not match the scenario kind");
     const frozenProfile: AgentProfile = { id: textValue(profile.id), systemPrompt: textValue(profile.systemPrompt), instructions: profile.instructions as string[], toolIds };
     const budget = record(value.budget);
     for (const field of ["maxSteps", "maxCalls", "stageTimeoutMs", "totalTimeoutMs"]) {

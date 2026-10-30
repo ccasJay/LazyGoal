@@ -45,7 +45,7 @@ test("SWE-bench tools worker describe 与 getSwebenchToolManifest 一致", async
     const tools = await client.describe();
     const manifest = getSwebenchToolManifest();
 
-    assert.equal(tools.length, 5);
+    assert.equal(tools.length, 4);
     assert.deepEqual(
         tools.map((t) => t.id),
         [...SWEBENCH_TOOL_IDS],
@@ -60,7 +60,7 @@ test("SWE-bench tools worker describe 与 getSwebenchToolManifest 一致", async
     await workerPromise;
 });
 
-test("SWE-bench tools worker 执行 write_file, read_file, grep, edit_file 和 bash", async (t) => {
+test("SWE-bench tools worker 执行 write_file, read_file, bash 搜索、edit_file 和 bash", async (t) => {
     const workspace = await mkdtemp(join(tmpdir(), "swe-tools-exec-"));
     t.after(() => rm(workspace, { recursive: true, force: true }));
 
@@ -95,16 +95,14 @@ test("SWE-bench tools worker 执行 write_file, read_file, grep, edit_file 和 b
     assert.equal(readRes.kind, "success");
     assert.match((readRes as any).output.text, /hello from worker/);
 
-    // 3. grep
-    const grepRes = await client.execute({ context: { goalId: "test-goal", runId: "test-run" },
+    // 3. bash search
+    const searchRes = await client.execute({ context: { goalId: "test-goal", runId: "test-run" },
         actionId: "act-3",
-        toolId: "grep",
-        input: { pattern: "hello" },
+        toolId: "bash",
+        input: { command: "rg --line-number --no-heading --color never -- hello ." },
     });
-    assert.equal(grepRes.kind, "success");
-    const grepOutput = (grepRes as any).output;
-    assert.equal(grepOutput.matches.length, 1);
-    assert.equal(grepOutput.matches[0]?.path, "hello.py");
+    assert.equal(searchRes.kind, "success");
+    assert.match((searchRes as any).output.stdout, /hello\.py/);
 
     // 4. edit_file
     const editRes = await client.execute({ context: { goalId: "test-goal", runId: "test-run" },

@@ -35,7 +35,7 @@ const profile = {
     instructions: [
         "Call alfworld_reset first.",
         "Use alfworld_step once per decision.",
-        "Do not use Bash.",
+        "Use Bash only for read-only repository searches.",
         "Only complete when won=true.",
     ],
     toolIds: [...ALFWORLD_PROFILE_TOOL_IDS],
@@ -115,7 +115,7 @@ test("Profile loader freezes the fixed ID and allowlist from LazyGoal Home", asy
     }
 });
 
-test("Profile validation rejects Bash, write tools, unknown IDs and missing protocol instructions", () => {
+test("Profile validation rejects invalid tool IDs and missing protocol instructions", () => {
     assert.throws(
         () => validateAlfworldProfile({ ...profile, id: "wrong" }),
         (error: unknown) => error instanceof AlfworldProfileError && error.code === "PROFILE_ID_MISMATCH",
@@ -167,12 +167,11 @@ test("ALFWorld tools enforce reset/step state and expose existing basic tool ins
     assert.equal(session.closeCount, 1);
 });
 
-test("createAlfworldToolSet reuses ReadFileTool/GrepTool and excludes Bash/write tools", () => {
+test("createAlfworldToolSet reuses ReadFileTool/BashTool and excludes write tools", () => {
     const session = new FakeSession();
     const set = createAlfworldToolSet("/workspace", task, session as never);
-    for (const toolId of ["read_file", "grep", "alfworld_reset", "alfworld_step"]) {
+    for (const toolId of ["read_file", "bash", "alfworld_reset", "alfworld_step"]) {
         assert.ok(set.registry.get(toolId));
     }
-    assert.equal(set.registry.get("bash"), undefined);
     assert.equal(set.registry.get("write_file"), undefined);
 });

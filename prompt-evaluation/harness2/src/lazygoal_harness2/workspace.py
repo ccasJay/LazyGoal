@@ -20,17 +20,17 @@ MUTABLE_TEMPLATE_SOURCE_PATHS: dict[str, str] = {
 DEFAULT_SWEBENCH_BASE_PROFILE: dict[str, Any] = {
     "id": "swebench-acp-profile",
     "name": "SWE-bench ACP container",
-    "description": "Deterministic five-tool profile rooted at /testbed.",
+    "description": "Deterministic four-tool profile rooted at /testbed.",
     "systemPrompt": (
         "You are a software engineer working only in /testbed. "
         "Use the authorized tools to resolve the issue and verify the change."
     ),
     "instructions": [
-        "Use read_file, write_file, edit_file, grep, and bash only; all paths are relative to /testbed.",
+        "Use read_file, write_file, edit_file, and bash only; all paths are relative to /testbed. Search repository content with bash: diagnose LAZYGOAL_SEARCH_BACKEND first, then bundled rg, system grep -R, and find -print0 | xargs -0 awk fallback.",
         "Do not access model configuration, credentials, or files outside /testbed.",
         "Complete only after the repository change is ready and relevant verification has run.",
     ],
-    "toolIds": ["read_file", "write_file", "edit_file", "grep", "bash"],
+    "toolIds": ["read_file", "write_file", "edit_file", "bash"],
 }
 
 

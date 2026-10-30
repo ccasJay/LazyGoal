@@ -40,7 +40,7 @@ test("Cursor 编码与解码保持 payload 往返", () => {
 test("Cursor 解码拒绝工具或查询摘要不匹配的载荷", () => {
     const cursor = encodeCursor({ toolId: "read_file", queryDigest: "abc", offset: 0 });
 
-    assert.equal(decodeAndValidateCursor(cursor, "grep", "abc"), undefined);
+    assert.equal(decodeAndValidateCursor(cursor, "write_file", "abc"), undefined);
     assert.equal(decodeAndValidateCursor(cursor, "read_file", "other"), undefined);
     assert.equal(decodeAndValidateCursor("not-base64url!", "read_file", "abc"), undefined);
 });

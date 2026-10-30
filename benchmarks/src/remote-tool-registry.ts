@@ -26,7 +26,6 @@ import type {
 import {
     BashTool,
     EditFileTool,
-    GrepTool,
     ReadFileTool,
     WriteFileTool,
     WebFetchTool,
@@ -126,10 +125,10 @@ export function createRemoteToolRegistration(
  * 为 SWE-bench 创建完整的远程代理 ToolRegistry。
  *
  * @remarks
- * 包含 read_file, write_file, edit_file, grep, bash 五个工具的代理绑定。
+ * 包含 read_file, write_file, edit_file, bash 四个工具的代理绑定。
  *
  * @param client - 绑定的工具 RPC 客户端。
- * @returns 包含五个远程代理工具的 InMemoryToolRegistry。
+ * @returns 包含四个远程代理工具的 InMemoryToolRegistry。
  *
  * @example
  * ```ts
@@ -142,7 +141,6 @@ export function createSwebenchRemoteToolRegistry(client: ToolRpcClient): InMemor
         new ReadFileTool(dummyRoot),
         new WriteFileTool(dummyRoot),
         new EditFileTool(dummyRoot),
-        new GrepTool(dummyRoot),
         new BashTool(dummyRoot),
     ];
 

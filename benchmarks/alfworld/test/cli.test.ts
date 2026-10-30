@@ -25,10 +25,10 @@ const profile = {
     instructions: [
         "Call alfworld_reset first.",
         "Use alfworld_step once per decision.",
-        "Do not use Bash.",
+        "Use Bash only for read-only repository searches.",
         "Only complete when won=true.",
     ],
-    toolIds: ["read_file", "grep", "alfworld_reset", "alfworld_step"],
+    toolIds: ["read_file", "bash", "alfworld_reset", "alfworld_step"],
 };
 
 test("parseAlfworldEvalArgs requires fixed eval alfworld command and manifest", () => {
@@ -107,7 +107,7 @@ test("runAlfworldCli rejects a missing Profile before reading Conda or LLM setti
     }
 });
 
-test("runAlfworldCli validates Bash-free Profile and writes a machine report before threshold exit", async () => {
+test("runAlfworldCli validates the Profile and writes a machine report before threshold exit", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-alfworld-cli-threshold-"));
     const dataRoot = join(workspace, "alfworld-data");
     const environmentFilePath = join(workspace, ".env.alfworld");

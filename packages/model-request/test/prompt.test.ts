@@ -14,8 +14,6 @@ import {
     EDIT_FILE_INPUT_CONTRACT,
     EDIT_FILE_TOOL_ID,
     EXECUTE_PROGRAM_DEFINITION,
-    GREP_INPUT_CONTRACT,
-    GREP_TOOL_ID,
     READ_FILE_INPUT_CONTRACT,
     READ_FILE_TOOL_ID,
     WebSearchTool,
@@ -77,7 +75,7 @@ const profile: AgentProfile = {
     id: "profile-1",
     systemPrompt: "你是一个严谨的执行代理。",
     instructions: ["先检查输入", "再给出下一步"],
-    toolIds: ["alfworld_reset", "alfworld_step", "bash", "custom_doc_search", "edit_file", "grep", "read_file", "unknown_side_effect_tool", "web_search", "write_file"],
+    toolIds: ["alfworld_reset", "alfworld_step", "bash", "custom_doc_search", "edit_file", "read_file", "unknown_side_effect_tool", "web_search", "write_file"],
 };
 
 function createUnapprovedGoal(
@@ -323,12 +321,6 @@ const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         isReadOnly: false,
     },
     {
-        id: GREP_TOOL_ID,
-        description: "Search text files in workspace using regular expressions with context lines and pagination.",
-        inputContract: GREP_INPUT_CONTRACT,
-        isReadOnly: true,
-    },
-    {
         id: ALFWORLD_RESET_TOOL_ID,
         description: "初始化固定 ALFWorld TextWorld 任务会话",
         inputContract: ALFWORLD_RESET_INPUT_CONTRACT,
@@ -355,41 +347,23 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
         firstSystemContent.includes("https://json-schema.org/draft/2020-12/schema"),
         false,
     );
-
     const toolsMarker = "Authorized business Tool definitions (only these business Tool IDs may be requested; system tools are declared separately for this request):\n";
     const toolsContent = first.messages.find((message) => message.content.includes("section: authorized_tools"))?.content ?? "";
     const toolsOffset = toolsContent.indexOf(toolsMarker);
 
     assert.notEqual(toolsOffset, -1);
+    assert.match(toolsContent, /LAZYGOAL_SEARCH_BACKEND=%s/);
+    assert.match(toolsContent, /rg --line-number --no-heading --color never/);
+    assert.match(toolsContent, /find -print0 \| xargs -0 awk/);
+    assert.match(toolsContent, /do not request a business Tool named grep/);
     const projectedTools = JSON.parse(
         toolsContent.slice(toolsOffset + toolsMarker.length),
     );
     assert.equal(/"kind"\s*:\s*"(?:string|object|integer|array|boolean|enum)"/.test(JSON.stringify(projectedTools)), false);
     assert.deepEqual(projectedTools.map(({ id }: { id: string }) => id), CURRENT_TOOL_DEFINITIONS.map(({ id }) => id).sort());
+    assert.equal(projectedTools.some((tool: { id: string }) => tool.id === "grep"), false);
     assert.ok(projectedTools.every((tool: { inputSchema?: { type?: string } }) => tool.inputSchema?.type === "object"));
 
-    assert.deepEqual(
-        projectedTools.find((tool: { id: string }) => tool.id === GREP_TOOL_ID),
-        {
-            id: GREP_TOOL_ID,
-            description: "Search text files in workspace using regular expressions with context lines and pagination.",
-            inputSchema: {
-                type: "object",
-                properties: {
-                    contextLines: { type: "integer", minimum: 0, maximum: 20 },
-                    cursor: { type: "string" },
-                    exclude: { type: "string" },
-                    ignoreCase: { type: "boolean" },
-                    include: { type: "string" },
-                    maxMatches: { type: "integer", minimum: 1, maximum: 1000 },
-                    path: { type: "string" },
-                    pattern: { type: "string" },
-                },
-                required: ["pattern"],
-                additionalProperties: false,
-            },
-        },
-    );
     assert.deepEqual(
         projectedTools.find((tool: { id: string }) => tool.id === READ_FILE_TOOL_ID),
         {
@@ -1071,8 +1045,8 @@ test("原生路径的授权 Section 移除重复参数 Schema，保留授权身�
     }
     // 原生 request.tools 包含原生 declaration 且具有完整 parametersSchema
     assert.ok(nativePlan.request.tools && nativePlan.request.tools.length > 0);
-    const nativeGrep = nativePlan.request.tools.find(t => t.id === GREP_TOOL_ID);
-    assert.ok(nativeGrep?.parametersSchema, "原生 tools 声明应包含 parametersSchema");
+    const nativeBash = nativePlan.request.tools.find(t => t.id === BASH_TOOL_ID);
+    assert.ok(nativeBash?.parametersSchema, "原生 tools 声明应包含 parametersSchema");
 
     // 2. prompt_only 请求
     const promptOnlyPlan = await buildStepRequest(

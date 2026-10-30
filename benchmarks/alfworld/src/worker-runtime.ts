@@ -54,7 +54,7 @@ export const ALFWORLD_WORKER_PROFILE = Object.freeze({
     instructions: Object.freeze([
         "Call alfworld_reset before the first environment action.",
         "Call alfworld_step at most once per decision with exactly one admissible command.",
-        "Do not use Bash or write tools; complete only when the environment reports won=true.",
+        "Use Bash only for read-only repository searches; do not use write tools; complete only when the environment reports won=true.",
     ]),
     toolIds: ALFWORLD_PROFILE_TOOL_IDS,
 });

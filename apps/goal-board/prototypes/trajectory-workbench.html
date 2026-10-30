@@ -1169,7 +1169,7 @@ const REQUESTS = {
       { role: 'user', source: 'conversation', content: MESSAGES.user, preview: 'Read apps/goal-board/package.json and report its package name.' },
       { role: 'assistant', source: 'native_history', content: MESSAGES.assistant, preview: 'I’ll read the manifest first…' },
       { role: 'user', source: 'section', content: '[Dynamic section: run_mode; mode=execute; step=1]', preview: 'Run mode, execute' },
-      { role: 'user', source: 'section', content: '[Dynamic section: authorized_tools; tools=[read_file,grep,write_file,edit_file]]', preview: 'Authorized tools, read_file, grep, write_file, edit_file' },
+      { role: 'user', source: 'section', content: '[Dynamic section: authorized_tools; tools=[read_file,bash,write_file,edit_file]]', preview: 'Authorized tools, read_file, bash, write_file, edit_file' },
       { role: 'user', source: 'working_context', content: 'Working context\nGoal: report the package name.\nStep: inspect the package manifest.\nEvidence: none yet.', preview: 'Working context updated' }
     ]
   },
@@ -1210,7 +1210,7 @@ const EVENTS = [
   { id: 14, step: 1, t: 13.18, kind: 'tool', title: 'execute_program', sub: 'Read package metadata and map imports', outcome: 'Running', tone: 'warn' },
   { id: 17, step: 1, t: 13.24, kind: 'tool', child: true, title: 'read_file', sub: 'apps/goal-board/package.json, 1.1 KB', outcome: 'Succeeded', tone: 'good' },
   { id: 18, step: 1, t: 13.29, kind: 'tool', child: true, title: 'read_file', sub: 'apps/goal-board/README.md, 2.4 KB', outcome: 'Succeeded', tone: 'good' },
-  { id: 19, step: 1, t: 13.34, kind: 'tool', child: true, title: 'grep', sub: '^import, *.ts, 100 matches', outcome: 'Succeeded', tone: 'good' },
+  { id: 19, step: 1, t: 13.34, kind: 'tool', child: true, title: 'bash', sub: 'rg --line-number --no-heading --color never -- import .', outcome: 'Succeeded', tone: 'good' },
   { id: 22, step: 1, t: 13.52, kind: 'tool', title: 'Program settled', sub: 'execute_program, 3 tool calls, success', outcome: 'Succeeded', tone: 'good' },
   { id: 24, step: 1, t: 13.61, kind: 'tool', title: 'Observation recorded', sub: 'Committed observation for action 7c1d', outcome: 'Committed', tone: 'good' },
   { id: 25, step: 1, t: 13.66, kind: 'activity', internal: true, title: 'State committed', sub: 'Snapshot boundary #25', outcome: 'Committed', tone: 'good' },
@@ -1791,7 +1791,7 @@ function renderToolInput(ev) {
   if (ev.title === 'read_file') {
     return `<h3>Tool input</h3><div class="code">{\n  "path": "apps/goal-board/package.json"\n}</div><dl class="facts"><dt>Tool</dt><dd>read_file</dd><dt>Parent</dt><dd>execute_program</dd></dl>`;
   }
-  return `<h3>Tool input</h3><div class="code">{\n  "program": "read package metadata and map imports",\n  "tools": ["read_file", "read_file", "grep"]\n}</div><dl class="facts"><dt>Tool</dt><dd>${esc(ev.title)}</dd><dt>Action</dt><dd><code>7c1d</code></dd></dl>`;
+  return `<h3>Tool input</h3><div class="code">{\n  "program": "read package metadata and map imports",\n  "tools": ["read_file", "read_file", "bash"]\n}</div><dl class="facts"><dt>Tool</dt><dd>${esc(ev.title)}</dd><dt>Action</dt><dd><code>7c1d</code></dd></dl>`;
 }
 function renderToolResult(ev) {
   return `<h3>Tool result</h3>${ev.title === 'read_file' ? `<div class="code">${esc('{\n  "name": "@lazygoal/goal-board",\n  "private": true,\n  "version": "0.1.0"\n}')}</div>` : `<div class="callout good"><strong>${esc(ev.outcome)}</strong><p>${esc(ev.sub)}</p></div>`}<dl class="facts"><dt>Observation</dt><dd>${ev.outcome === 'Succeeded' ? 'Committed' : 'Pending'}</dd><dt>Recorded</dt><dd>${esc(absoluteTime(ev))}</dd></dl>`;

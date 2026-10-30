@@ -103,10 +103,10 @@ test("tool discovery advances one Step and cumulatively exposes matched tools", 
     const first = requireSuccessfulState(transition(running, {
         kind: "tool_discovery",
         decision: { kind: "tool_discovery", query: "read" },
-        matchedToolIds: ["read_file", "grep"],
+        matchedToolIds: ["read_file", "bash"],
     }));
     assert.equal(first.stepCount, 1);
-    assert.deepEqual(first.exposedToolIds, ["read_file", "grep"]);
+    assert.deepEqual(first.exposedToolIds, ["read_file", "bash"]);
     assert.deepEqual(first.lastStep, {
         kind: "decision",
         result: { kind: "tool_discovery", query: "read" },
@@ -114,11 +114,11 @@ test("tool discovery advances one Step and cumulatively exposes matched tools", 
 
     const second = requireSuccessfulState(transition(first, {
         kind: "tool_discovery",
-        decision: { kind: "tool_discovery", query: "grep" },
-        matchedToolIds: ["grep", "find_files"],
+        decision: { kind: "tool_discovery", query: "search" },
+        matchedToolIds: ["bash", "find_files"],
     }));
     assert.equal(second.stepCount, 2);
-    assert.deepEqual(second.exposedToolIds, ["read_file", "grep", "find_files"]);
+    assert.deepEqual(second.exposedToolIds, ["read_file", "bash", "find_files"]);
 });
 
 test("stage_action persists a pending Action without consuming a Step", () => {

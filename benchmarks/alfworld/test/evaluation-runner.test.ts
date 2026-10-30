@@ -36,7 +36,7 @@ const profile: AgentProfile = {
     id: "alfworld-profile",
     systemPrompt: "ALFWorld evaluator",
     instructions: ["Use only authorized tools."],
-    toolIds: ["read_file", "grep", "alfworld_reset", "alfworld_step"],
+    toolIds: ["read_file", "bash", "alfworld_reset", "alfworld_step"],
 };
 
 const manifest: AlfworldManifest = {

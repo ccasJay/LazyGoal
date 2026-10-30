@@ -10,7 +10,7 @@ import { judgeExplanation } from "../src/judge.js";
 import { evaluate } from "../src/evaluator.js";
 const body = { source: "swebench", dataset: "princeton-nlp/SWE-bench_Verified", revision: "a".repeat(40), instanceId: "astropy__astropy-12907", repo: "astropy/astropy", baseCommit: "b".repeat(40), problemStatement: "Full original issue. Preserve this exact text.", image: "swebench/sweb.eval.x86_64.astropy_1776_astropy-12907:latest", imageId: "sha256:" + "c".repeat(64) };
 const task = parseSourceTask({ ...body, contentHash: identity(body) });
-const profile = { id: "engineering", systemPrompt: "Engineer", instructions: [], toolIds: ["read_file", "write_file", "edit_file", "grep", "bash"] };
+const profile = { id: "engineering", systemPrompt: "Engineer", instructions: [], toolIds: ["read_file", "write_file", "edit_file", "bash"] };
 const scenarios = generateSourceScenarios(task, profile, { maxSteps: 50, maxCalls: 200, stageTimeoutMs: 1000, totalTimeoutMs: 10000 });
 test("source templates preserve original issue, expose no future instructions to first operation, and use distinct lifecycles", () => {
     assert.equal(scenarios.length, 2);

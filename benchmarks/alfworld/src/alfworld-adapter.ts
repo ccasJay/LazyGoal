@@ -40,7 +40,7 @@ import type {
  * ```
  */
 export interface AlfworldAdapterOptions {
-    /** `read_file` 和 `grep` Tool 使用的 workspace 根目录。 */
+    /** `read_file` 和 `bash` Tool 使用的 workspace 根目录。 */
     readonly workspaceRoot: string;
     /** 为每个 Manifest task 创建独立 Sidecar 客户端。 */
     readonly createClient: (

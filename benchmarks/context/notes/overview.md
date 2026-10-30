@@ -39,7 +39,7 @@ agent 完全停止后执行隐藏 verifier，比较评分前后文件哈希；�
 
 ## SWE-bench 来源
 
-[来源场景](../src/source-scenario.ts) 保留固定任务包的完整 issue，分别生成跨 Run 调查后 continue 与 ask_user 后 resume 的脚本。waiting 模板固定单个确认问题，Runtime 分配 q-1；实际问题不匹配时停止。两组复用来源五工具，不改变 Runtime 语义。
+[来源场景](../src/source-scenario.ts) 保留固定任务包的完整 issue，分别生成跨 Run 调查后 continue 与 ask_user 后 resume 的脚本。waiting 模板固定单个确认问题，Runtime 分配 q-1；实际问题不匹配时停止。两组复用来源四工具（含 Bash 搜索），不改变 Runtime 语义。
 
 来源接口归属 [共享评测层](../../README.md)，SWE 实现归属 [SWE-bench](../../swebench/README.md)，由顶层 CLI 注入；具体 benchmark 不横向导入。来源任务的评分数据只留宿主，容器使用不可变镜像 ID、/testbed 和宿主模型 RPC。
 

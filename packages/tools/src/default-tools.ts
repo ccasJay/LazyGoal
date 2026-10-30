@@ -8,7 +8,6 @@ import { BashTool, BASH_TOOL_ID } from "./bash";
 import { EditFileTool, EDIT_FILE_TOOL_ID } from "./edit-file";
 import { createExecuteProgramRegistration, EXECUTE_PROGRAM_TOOL_ID } from "./execute-program";
 import { FindFilesTool, FIND_FILES_TOOL_ID } from "./find-files";
-import { GrepTool, GREP_TOOL_ID } from "./grep";
 import { ListDirectoryTool, LIST_DIRECTORY_TOOL_ID } from "./list-directory";
 import { ProcessManager } from "../../process-runtime/src/index";
 import {
@@ -73,7 +72,6 @@ export const DEFAULT_TOOL_IDS: readonly string[] = Object.freeze([
     WRITE_FILE_TOOL_ID,
     EDIT_FILE_TOOL_ID,
     APPLY_PATCH_TOOL_ID,
-    GREP_TOOL_ID,
     WEB_SEARCH_TOOL_ID,
     WEB_FETCH_TOOL_ID,
     BASH_TOOL_ID,
@@ -132,7 +130,6 @@ export function createDefaultToolRegistrations(
         createToolRegistration(new WriteFileTool(workspaceRoot)),
         createToolRegistration(new EditFileTool(workspaceRoot)),
         createToolRegistration(new ApplyPatchTool(workspaceRoot)),
-        createToolRegistration(new GrepTool(workspaceRoot)),
         createToolRegistration(new WebSearchTool()),
         createToolRegistration(new WebFetchTool()),
         createToolRegistration(new BashTool(workspaceRoot)),

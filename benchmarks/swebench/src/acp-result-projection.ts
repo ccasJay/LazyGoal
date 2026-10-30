@@ -124,7 +124,7 @@ export class AcpTrajectoryStore implements TrajectoryStore {
                     toolCallId: payload.actionId,
                     title: payload.toolId,
                     name: payload.toolId,
-                    kind: toolKind(payload.toolId),
+                    kind: toolKind(payload.toolId, payload.input),
                     status: "in_progress",
                     rawInput: boundValue(payload.input, this.options.maxValueBytes),
                     _meta: metadata,
@@ -388,12 +388,19 @@ function projectionMetadata(event: Extract<TrajectoryEvent, { eventType: "tool_s
     };
 }
 
-function toolKind(toolId: string): ToolKind {
+function toolKind(toolId: string, input?: JsonValue): ToolKind {
     if (toolId === "read_file") return "read";
     if (toolId === "write_file" || toolId === "edit_file") return "edit";
-    if (toolId === "grep") return "search";
+    if (toolId === "bash" && isSearchCommand(input)) return "search";
     if (toolId === "bash") return "execute";
     return "other";
+}
+
+function isSearchCommand(input: JsonValue | undefined): boolean {
+    if (!isRecord(input) || typeof input.command !== "string") return false;
+    const command = input.command.trim();
+    return /^(?:env\s+)?(?:rg|grep)(?:\s|$)/u.test(command)
+        || (/^find(?:\s|$)/u.test(command) && /\bawk\b/u.test(command));
 }
 
 function observationSummary(observation: { readonly kind: string; readonly summary?: string; readonly message?: string }): string {

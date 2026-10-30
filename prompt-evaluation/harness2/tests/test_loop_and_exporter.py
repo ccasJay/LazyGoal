@@ -126,7 +126,7 @@ class FakeReflectionBridge:
         base_run_mode = self.workspace.base_templates["run-mode@1"]
         updated_run_mode = base_run_mode + "\nAlways ensure a Run stage is active before tool actions.\n"
         updated_instructions = [
-            "Use read_file, write_file, edit_file, grep, and bash only; all paths are relative to /testbed.",
+            "Use read_file, write_file, edit_file, and bash only; all paths are relative to /testbed. Search repository content with bash: diagnose LAZYGOAL_SEARCH_BACKEND first, then bundled rg, system grep -R, and find -print0 | xargs -0 awk fallback.",
             "Do not access model configuration, credentials, or files outside /testbed.",
             "Read surrounding lines before edit_file and run pytest verification with bash before completion.",
         ]

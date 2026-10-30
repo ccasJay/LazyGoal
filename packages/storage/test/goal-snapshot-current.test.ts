@@ -595,7 +595,7 @@ test("current Snapshot preserves exposed tool IDs and requires the Run field", (
     const discovered = transition(started.state, {
         kind: "tool_discovery",
         decision: { kind: "tool_discovery", query: "read" },
-        matchedToolIds: ["read_file", "grep"],
+        matchedToolIds: ["read_file", "bash"],
     });
     assert.equal(discovered.ok, true);
     if (!discovered.ok) return;
@@ -604,8 +604,8 @@ test("current Snapshot preserves exposed tool IDs and requires the Run field", (
         ...goal,
         state: { ...goal.state, run: discovered.state },
     });
-    assert.deepEqual(encoded.state.run.exposedToolIds, ["read_file", "grep"]);
-    assert.deepEqual(goalSnapshotCodec.decode(encoded).state.run.exposedToolIds, ["read_file", "grep"]);
+    assert.deepEqual(encoded.state.run.exposedToolIds, ["read_file", "bash"]);
+    assert.deepEqual(goalSnapshotCodec.decode(encoded).state.run.exposedToolIds, ["read_file", "bash"]);
 
     const missing = structuredClone(encoded) as any;
     delete missing.state.run.exposedToolIds;

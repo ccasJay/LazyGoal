@@ -1765,9 +1765,8 @@ function trajectoryActionId(event: TrajectoryEvent): string | undefined {
 function projectToolInputSummary(toolId: string, input: JsonValue): string | undefined {
     if (!isJsonObject(input)) return undefined;
     const key = toolId === "read_file" || toolId === "write_file" || toolId === "edit_file" ? "path"
-        : toolId === "grep" ? "pattern"
-            : toolId === "web_search" ? "query"
-                : toolId === "web_fetch" ? "url" : toolId === "bash" ? "command" : undefined;
+        : toolId === "web_search" ? "query"
+            : toolId === "web_fetch" ? "url" : toolId === "bash" ? "command" : undefined;
     const value = key === undefined ? undefined : input[key];
     return typeof value === "string" ? boundedText(value.replace(/\s+/g, " ").trim(), 240) : undefined;
 }

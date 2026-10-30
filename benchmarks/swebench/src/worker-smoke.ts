@@ -19,7 +19,7 @@ import { SWE_ACP_WORKER_ENTRYPOINT, SWE_ACP_WORKER_PROMPT_ASSETS } from "./worke
  * @remarks
  * 该入口故意不进入默认回归：它需要 Docker、SWE-bench Python 环境和官方题目镜像，
  * 但模型 Adapter 是宿主内的确定性替身，不会产生供应商请求。脚本会检查 Node/动态库/
- * Conda 预检、ACP/LLM 双通道、五个容器 Tool、宿主模型响应和最终 patch。
+ * Conda 预检、ACP/LLM 双通道、四个容器 Tool、宿主模型响应和最终 patch。
  *
  * @example
  * ```bash

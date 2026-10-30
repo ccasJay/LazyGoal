@@ -382,12 +382,11 @@ test("AuthorizedToolContract 支持 isReadOnly 属性并通过 isReadOnlyToolCon
 
 test("普通 Run 保留现有工具 Schema，Plan Run 提案前只接受 Runtime 提供的只读工具", () => {
     const readFileInputContract = contract.object({ path: contract.string() });
-    const grepInputContract = contract.object({ pattern: contract.string() });
     const writeFileInputContract = contract.object({ path: contract.string(), content: contract.string() });
 
     const tools: readonly AuthorizedToolContract[] = [
         { id: "read_file", inputContract: readFileInputContract, isReadOnly: true },
-        { id: "grep", inputContract: grepInputContract, isReadOnly: true },
+        { id: "bash", inputContract: contract.object({ command: contract.string() }), isReadOnly: false },
         // 工具授权由 Profile 控制，isReadOnly 仅为工具元数据。
         { id: "write_file", inputContract: writeFileInputContract, isReadOnly: false },
     ];
@@ -417,22 +416,22 @@ test("普通 Run 保留现有工具 Schema，Plan Run 提案前只接受 Runtime
     assert.deepEqual(decoded.action.input, { path: "package.json" });
 
     // 验证多工具根据 toolId 精确路由并验证输入 Schema
-    const wireGrepJson = {
+    const wireBashJson = {
         result: {
             kind: "tool_call",
             action: {
                 actionId: "read-2",
-                toolId: "grep",
-                input: { pattern: "test" },
+                toolId: "bash",
+                input: { command: "rg --line-number --no-heading --color never -- test ." },
             },
             memoryPatch: null,
         },
     };
-    const decodedGrep = bundle.decode(wireGrepJson);
-    if (decodedGrep.kind === "tool_call") {
-        assert.equal(decodedGrep.action.toolId, "grep");
+    const decodedBash = bundle.decode(wireBashJson);
+    if (decodedBash.kind === "tool_call") {
+        assert.equal(decodedBash.action.toolId, "bash");
     } else {
-        assert.fail(`Expected tool_call, received ${decodedGrep.kind}`);
+        assert.fail(`Expected tool_call, received ${decodedBash.kind}`);
     }
 
     // 普通 Run 的完成使用当前 Run evidenceSequences，不生成提案分支。

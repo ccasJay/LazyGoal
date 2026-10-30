@@ -10,7 +10,7 @@ export const ALFWORLD_PROFILE_SCHEMA_VERSION = 1 as const;
 export const ALFWORLD_PROFILE_FILE_NAME = "alfworld-profile.json";
 export const ALFWORLD_PROFILE_TOOL_IDS = [
     "read_file",
-    "grep",
+    "bash",
     "alfworld_reset",
     "alfworld_step",
 ] as const;
@@ -140,7 +140,7 @@ export function validateAlfworldProfile(value: unknown): AgentProfile {
     ) {
         throw new AlfworldProfileError(
             "PROFILE_INVALID_SCHEMA",
-            "ALFWorld instructions must require reset, one-step commands, no Bash and won=true completion",
+            "ALFWorld instructions must require reset, one-step commands, read-only Bash search and won=true completion",
         );
     }
 

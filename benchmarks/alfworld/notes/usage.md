@@ -41,8 +41,8 @@ npm --prefix benchmarks run alfworld:preflight
 `source benchmarks/alfworld/.env.alfworld`。
 
 评测使用 LazyGoal Home 中的全局测试 Profile：`~/.lazygoal/agent-profiles/alfworld-profile.json`。
-该 Profile 授权 `read_file`、`grep`、`alfworld_reset` 和 `alfworld_step`，不会授权
-Bash、写入或编辑 Tool。显式 ALFWorld 入口会自动读取
+该 Profile 授权 `read_file`、`bash`、`alfworld_reset` 和 `alfworld_step`；仓库搜索通过 Bash 的 bundled `rg`/fallback 规则完成，不会授权
+写入或编辑 Tool。显式 ALFWorld 入口会自动读取
 `benchmarks/alfworld/.env.alfworld`；也可以在运行独立 Python 命令前手动 source
 该文件。
 

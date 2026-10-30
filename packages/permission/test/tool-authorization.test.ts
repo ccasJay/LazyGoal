@@ -55,9 +55,9 @@ test("Default 模式下只读 Tool 直接自动放行 (source: readonly)", async
 test("YOLO 模式下只读 Tool 同样自动放行 (source: readonly)", async () => {
     const context: ToolAuthorizationContext = {
         mode: "yolo",
-        toolId: "grep",
+        toolId: "bash",
         isReadOnly: true,
-        input: { pattern: "TODO" },
+        input: { command: "rg --line-number --no-heading --color never -- TODO ." },
         workspaceRoot: "/workspace",
         workspaceId: "ws-1",
         goalId: "goal-1",

@@ -68,7 +68,7 @@ const llmAdapter: LLMAdapter = {
 test("validateSwebenchPromptEvaluationProfile and parseSwebenchAcpTaskMetadata accept candidate profile and templateOverrides", () => {
     const candidateProfile: AgentProfile = {
         ...SWE_ACP_PROFILE,
-        systemPrompt: "Fix the bug in /testbed using read_file, edit_file, write_file, grep, and bash.",
+        systemPrompt: "Fix the bug in /testbed using read_file, edit_file, write_file, and bash search.",
         instructions: [
             "Inspect the target files before editing.",
             "Run targeted pytest checks using bash after modifying files.",

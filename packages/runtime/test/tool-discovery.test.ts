@@ -22,14 +22,14 @@ test("findTools ranks matching authorized definitions stably and caps results at
     const tools = [
         tool("read_file", "read file content"),
         tool("write_file", "write file content"),
-        tool("grep", "search file content"),
+        tool("search_files", "search file content"),
         tool("list_directory", "list directory"),
         tool("find_files", "find files"),
         tool("show_file", "read file metadata"),
         tool("cat", "read file"),
     ];
     assert.deepEqual(findTools("READ file", tools).tools.map(({ id }) => id), [
-        "read_file", "show_file", "cat", "write_file", "grep",
+        "read_file", "show_file", "cat", "write_file", "search_files",
     ]);
 });
 
@@ -42,7 +42,7 @@ test("findTools keeps PTC inside the five results for the recorded mixed query",
         tool("read_file", "Read a file in workspace"),
         tool("write_file", "Write a file in workspace"),
         tool("edit_file", "Edit a file in workspace"),
-        tool("grep", "Search files in workspace"),
+        tool("search_files", "Search files in workspace"),
         tool("bash", "Run a shell command"),
         EXECUTE_PROGRAM_DEFINITION,
     ];

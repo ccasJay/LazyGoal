@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createSwebenchAcpToolSet, runSwebenchAcpTask, SWE_ACP_PROFILE, SWE_ACP_TOOL_IDS } from "../src/worker-runtime.js";
 
-test("Worker Profile exposes exactly five tools rooted at the supplied workspace", async (t) => {
+test("Worker Profile exposes exactly four tools rooted at the supplied workspace", async (t) => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-worker-runtime-"));
     t.after(() => rm(workspace, { recursive: true, force: true }));
     const toolSet = createSwebenchAcpToolSet(workspace);

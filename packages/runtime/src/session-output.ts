@@ -627,9 +627,8 @@ function readCommitBoundary(event: ExecutionStreamEvent): SessionCommitBoundaryE
 function projectSafeToolInputSummary(toolId: string, input: unknown): string | undefined {
     if (!isRecord(input)) return undefined;
     const key = toolId === "read_file" || toolId === "write_file" || toolId === "edit_file" ? "path"
-        : toolId === "grep" ? "pattern"
-            : toolId === "web_search" ? "query"
-                : toolId === "web_fetch" ? "url" : toolId === "bash" ? "command" : undefined;
+        : toolId === "web_search" ? "query"
+            : toolId === "web_fetch" ? "url" : toolId === "bash" ? "command" : undefined;
     const value = key === undefined ? undefined : input[key];
     return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 240) : undefined;
 }

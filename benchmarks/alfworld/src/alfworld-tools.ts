@@ -17,7 +17,7 @@ import {
     contract,
     type InferContract,
 } from "../../../packages/contracts/src/index.js";
-import { GrepTool, ReadFileTool } from "../../../packages/tools/src/index.js";
+import { BashTool, ReadFileTool } from "../../../packages/tools/src/index.js";
 import {
     SidecarAbortedError,
     SidecarError,
@@ -295,7 +295,7 @@ export class AlfworldStepTool implements Tool<typeof ALFWORLD_STEP_INPUT_CONTRAC
  * @example
  * ```ts
  * const toolSet = createAlfworldToolSet(workspaceRoot, task, client);
- * const tool = toolSet.registry.get("grep");
+ * const tool = toolSet.registry.get("bash");
  * ```
  */
 export interface AlfworldToolSet {
@@ -306,7 +306,7 @@ export interface AlfworldToolSet {
 /**
  * 装配 ALFWorld Profile 所需的基础只读 Tool 与专用环境 Tool。
  *
- * @param workspaceRoot - `read_file` 和 `grep` 的共同 workspace 边界。
+ * @param workspaceRoot - `read_file` 和 `bash` 的共同 workspace 边界。
  * @param task - Manifest 已校验的固定任务。
  * @param client - 任务级 sidecar 客户端。
  * @returns 任务级会话和已注册的基础/专用 Tool Registry；具体 Tool 实例不向调用方暴露。
@@ -324,10 +324,10 @@ export function createAlfworldToolSet(
     const resetTool = new AlfworldResetTool(session, task);
     const stepTool = new AlfworldStepTool(session);
     const readFileTool = new ReadFileTool(workspaceRoot);
-    const grepTool = new GrepTool(workspaceRoot);
+    const bashTool = new BashTool(workspaceRoot, { enableSeatbelt: false, truncationMode: "head_tail" });
     const registry = new InMemoryToolRegistry([
         createToolRegistration(readFileTool),
-        createToolRegistration(grepTool),
+        createToolRegistration(bashTool),
         createToolRegistration(resetTool),
         createToolRegistration(stepTool),
     ]);

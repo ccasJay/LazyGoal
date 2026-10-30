@@ -20,7 +20,7 @@ base commit、instance ID 和镜像引用，参考补丁及评分测试不进入
 [`Evaluator`](../src/evaluation.ts) 顺序委托单题 ACP
 [`Supervisor`](../src/supervisor.ts)，由容器 Worker 内的
 [`HeadlessCompositionRoot`](../../src/headless-composition-root.ts) 复用既有
-Goal 生命周期、Trajectory 上下文、Storage 编解码与 Trace。容器 Profile 只授权五个
+Goal 生命周期、Trajectory 上下文、Storage 编解码与 Trace。容器 Profile 只授权四个
 内置文件/命令 Tool，Runtime 的 Tool 校验和 Evidence Gate 仍然生效。
 
 [`SwebenchEnvironmentSpec`](../src/environment-spec.ts) 声明官方
@@ -45,7 +45,7 @@ Conda 初始化；Worker 激活 `testbed` 后通过 `exec` 启动 Node，Tool �
 
 Worker 侧的 [`runSwebenchAcpTask`](../src/worker-runtime.ts) 在
 容器内装配真实 `HeadlessCompositionRoot`，固定 `swebench-acp-profile` 和
-`read_file`、`write_file`、`edit_file`、`grep`、`bash` 五个 Tool；五个 Tool 都以
+`read_file`、`write_file`、`edit_file`、`bash` 四个 Tool；四个 Tool 都以
 `/testbed` 为根，每个调用创建独立 Registry。任务 metadata 只在 Worker 内生成确定性
 objective 和完成条件，并作为普通 Run 的初始用户上下文交给 Headless Root；它不会提交任务提案或自动批准任务。Goal、Run 和
 JSON Storage 通过 `instanceId`、`goalId`、`runId` 分别隔离。metadata 校验和
@@ -109,7 +109,7 @@ SIGINT/SIGTERM 清理本次容器并保存已有产物，但不支持从 Goal Sn
 
 [来源适配器](../src/context-source.ts) 提供固定公开任务包、隔离评分数据、官方初始环境与最终 patch/评分能力。完整原始数据仅在宿主私有目录保存，公开投影与不可变镜像 ID 受摘要绑定。普通 SWE 执行入口的评分语义不变。
 
-[来源 Worker](../src/context-worker-entry.ts) 复用本模块五工具，生命周期由 [共享脚本 Worker](../../src/scripted-worker.ts) 驱动。任务数据、官方环境与评分仍属于 SWE；采集/审核/恢复编排属于 [Context Benchmark](../../context/README.md)。顶层组装注入共享端口，双方无横向代码导入。官方评分不使用恢复镜像，也不把测试补丁提供给执行 Agent。
+[来源 Worker](../src/context-worker-entry.ts) 复用本模块四工具（含 Bash 搜索），生命周期由 [共享脚本 Worker](../../src/scripted-worker.ts) 驱动。任务数据、官方环境与评分仍属于 SWE；采集/审核/恢复编排属于 [Context Benchmark](../../context/README.md)。顶层组装注入共享端口，双方无横向代码导入。官方评分不使用恢复镜像，也不把测试补丁提供给执行 Agent。
 
 ## Prompt Evaluation 与 Runtime 错误率评分
 
