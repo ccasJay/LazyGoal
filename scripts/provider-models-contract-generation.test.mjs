@@ -162,6 +162,7 @@ function createCatalog(overrides = {}) {
     return {
         schemaVersion: 1,
         inventoryBaseline: "test",
+        inventorySource: { branch: "test", commit: "test", sourceBaseline: "test", files: [] },
         reconciliation: { baselineCommit: "test", checkedCommit: "test", checkedAt: "2026-10-31", deleted: [], moved: [], changed: [] },
         boundaries: [],
         dynamicCompositions: [],

@@ -16,6 +16,8 @@ import {
 test("catalog covers the inventory baseline and keeps one enabled contract", async () => {
     const catalog = await loadContractCatalog();
     const counts = catalog.reconciliation.inventoryCounts;
+    assert.equal(catalog.inventorySource.branch, "codex/contract-inventory");
+    assert.equal(catalog.inventorySource.commit, "676015c6");
     assert.deepEqual(counts, {
         "web.md": 286,
         "model-tools.md": 308,
@@ -190,6 +192,7 @@ async function createCatalogFixture() {
     const catalog = {
         schemaVersion: 1,
         inventoryBaseline: "test",
+        inventorySource: { branch: "test", commit: "test", sourceBaseline: "test", files: [] },
         reconciliation: {
             baselineCommit: "test",
             checkedCommit: "test",

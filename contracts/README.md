@@ -2,7 +2,7 @@
 
 `contracts/catalog.json` 是项目数据契约的构建期索引，登记具名 TS 声明、Contract AST、Zod Schema 及其派生关系。它不拥有执行契约、运行时状态或持久化数据；这些语义仍由所属模块的源码与说明定义。
 
-Catalog 以 `codex/contract-inventory` 的 `676015c6` 盘点为基线，覆盖三个分册的 882 项声明：Web 286 项、模型与工具 308 项、持久化与跨进程 288 项。实施时已在当前源码复核：没有声明被删除；两个 Provider Reader 辅助类型随本特性迁移到生成读取器，处置记录在 `reconciliation.moved`。行号、消费者、协议身份与生成能力均按当前源码登记。
+Catalog 以 `codex/contract-inventory` 的 `676015c6` 盘点为基线，`inventorySource` 记录该分支、提交与三个分册；分册声明的源码基线为 `8da11ece`。共登记 882 项声明：Web 286 项、模型与工具 308 项、持久化与跨进程 288 项。实施时已在当前源码复核：没有声明被删除；两个 Provider Reader 辅助类型随本特性迁移到生成读取器，处置记录在 `reconciliation.moved`。行号、消费者、协议身份与生成能力均按当前源码登记。
 
 ## 登记字段
 

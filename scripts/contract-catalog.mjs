@@ -101,6 +101,12 @@ export async function validateContractCatalog(catalog, { repositoryRoot = defaul
     if (typeof catalog.inventoryBaseline !== "string" || catalog.inventoryBaseline.length === 0) {
         throw new ContractCatalogError("Catalog inventoryBaseline must be a non-empty string");
     }
+    if (!isRecord(catalog.inventorySource)
+        || typeof catalog.inventorySource.branch !== "string"
+        || typeof catalog.inventorySource.commit !== "string"
+        || !Array.isArray(catalog.inventorySource.files)) {
+        throw new ContractCatalogError("Catalog inventorySource must declare branch, commit and files");
+    }
     if (!isRecord(catalog.reconciliation)) throw new ContractCatalogError("Catalog reconciliation must be an object");
     for (const field of ["deleted", "moved", "changed"]) {
         if (!Array.isArray(catalog.reconciliation[field])) {
