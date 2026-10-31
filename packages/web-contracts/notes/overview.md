@@ -12,7 +12,7 @@ Activity 助手消息必须携带 `process`、`answer` 或 `notice` 用途；用
 
 ## 共享合同与校验分层
 
-所有 Web HTTP、SSE 与浏览器 DTO 只在 [`wire.ts`](../src/wire.ts) 声明原生 TypeScript 类型与 JSDoc 约束；[`contracts/catalog.json`](../../../contracts/catalog.json) 登记 55 个生成绑定根与 Provider 模型 Reader，构建生成固定版本的 JSON Schema、Ajv standalone 校验器、Manifest 和类型化绑定。[`validation.ts`](../src/validation.ts) 的公开 guard 与 Goal Board API 在 JSON 边界调用生成读取能力：未知字段从隔离副本剥离并产生有界路径诊断，未声明键名统一替换为 `*`；已知字段类型、必填、枚举、数值与模式错误整体失败，不转换、不补值、不返回部分数据。同进程已类型化的生产者不重复校验。
+所有 Web HTTP、SSE 与浏览器 DTO 只在 [`wire.ts`](../src/wire.ts) 声明原生 TypeScript 类型与 JSDoc 约束；[`contracts/catalog.json`](../../../contracts/catalog.json) 登记 56 个生成绑定根，构建生成固定版本的 JSON Schema、Ajv standalone 校验器、Manifest 和类型化绑定。[`validation.ts`](../src/validation.ts) 的公开 guard 与 Goal Board API 在 JSON 边界调用生成读取能力：未知字段从隔离副本剥离并产生有界路径诊断，未声明键名统一替换为 `*`；已知字段类型、必填、枚举、数值与模式错误整体失败，不转换、不补值、不返回部分数据。同进程已类型化的生产者不重复校验。
 
 跨字段与集合规则位于 [`invariants/`](../src/invariants)：Plan Route、Activity gap/range、交互决定、Provider 禁用凭据键、Trajectory 事件身份与指标数值范围都由纯函数执行。生成器已表达交互回答题数/选项数、`decisions` 最少项、Activity `gaps` 最大项和 Plan 阶段/验收条件最少项；仅生成器无法表达的可空整数等规则由 Web 不变量补充。`@asType integer` 与 `@maximum 9007199254740991` 保留安全整数语义。开放 JSON 字段由显式栈实现的 `isJsonValue` 判定；wire 文本的 UTF-16 上限只由 `hasUtf16LengthAtMost` 承担，不新增 AST 节点或跨字段长度表。
 
@@ -34,7 +34,7 @@ Activity 助手消息必须携带 `process`、`answer` 或 `notice` 用途；用
 
 Activity 正文摘要最多 4,000 UTF-16 code unit，截断不得拆分代理项；原文按 messageId 从现有详情路由分段读取。文件 Trajectory 存储仍可能整文件扫描，wire 页大小不代表磁盘随机访问有界。`isBrowserActivityPage` 与 `isBrowserGoalSessionState` 通过生成绑定和共享不变量校验页上限、历史外置标记、白名单事实与 UTF-16 上限；未知字段在读取时剥离，原始 payload 扩展不进入返回数据。
 
-Provider 表单在线查询使用 [`BrowserProviderModelQuery` 与 `BrowserProviderModels`](../src/wire.ts)：请求与响应均由 `wire.ts` 单源定义；输入通过生成绑定剥离未知字段后进入 `fetchModels`，响应通过生成的 Reader 剥离未知字段并返回不含值的有界路径诊断；密钥仅存在于请求，不回显或持久化。其他 Provider 设置 DTO 同样由 `wire.ts` 与生成绑定覆盖。
+Provider 表单在线查询使用 [`BrowserProviderModelQuery` 与 `BrowserProviderModels`](../src/wire.ts)：请求与响应均由 `wire.ts` 单源定义；输入通过生成绑定剥离未知字段后进入 `fetchModels`，响应通过生成的绑定剥离未知字段并返回不含值的有界路径诊断；密钥仅存在于请求，不回显或持久化。其他 Provider 设置 DTO 同样由 `wire.ts` 与生成绑定覆盖。
 
 `BrowserSessionStep.think` 携带显式 Think 目标及可选的已提交分析；无输出表示尚无完成事实，`truncated` 表示有界正文被省略。多个 Think 成员可以共享同一个 Runtime Step 序号，成员数量不等于 `stepCount`。Think 正文通过受保护的会话 HTTP 响应提供，实时通知仍只触发检查点重读；供应商隐藏推理不进入该 DTO。
 

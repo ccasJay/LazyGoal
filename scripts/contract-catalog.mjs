@@ -7,8 +7,7 @@ import { fileURLToPath } from "node:url";
 const defaultRepositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultCatalogPath = "contracts/catalog.json";
 
-const entryStatuses = new Set(["present", "moved", "deleted"]);
-const definitionKinds = new Set(["contract-ast", "native-ts", "derived", "zod", "external", "dynamic", "other"]);
+const definitionKinds = new Set(["native-ts", "derived", "external", "dynamic", "other"]);
 const generationStates = new Set(["enabled", "none", "runtime", "external", "dynamic", "unknown"]);
 const validationStates = new Set([
     "runtime-guard",
@@ -98,34 +97,7 @@ export async function validateContractCatalog(catalog, { repositoryRoot = defaul
     if (catalog.schemaVersion !== 1) {
         throw new ContractCatalogError(`Unsupported Catalog schemaVersion: ${String(catalog.schemaVersion)}`);
     }
-    if (typeof catalog.inventoryBaseline !== "string" || catalog.inventoryBaseline.length === 0) {
-        throw new ContractCatalogError("Catalog inventoryBaseline must be a non-empty string");
-    }
-    if (!isRecord(catalog.inventorySource)
-        || typeof catalog.inventorySource.branch !== "string"
-        || typeof catalog.inventorySource.commit !== "string"
-        || !Array.isArray(catalog.inventorySource.files)) {
-        throw new ContractCatalogError("Catalog inventorySource must declare branch, commit and files");
-    }
-    if (!isRecord(catalog.reconciliation)) throw new ContractCatalogError("Catalog reconciliation must be an object");
-    for (const field of ["deleted", "moved", "changed"]) {
-        if (!Array.isArray(catalog.reconciliation[field])) {
-            throw new ContractCatalogError(`Catalog reconciliation ${field} must be an array`);
-        }
-    }
     if (!Array.isArray(catalog.entries)) throw new ContractCatalogError("Catalog entries must be an array");
-    if (catalog.reconciliation.inventoryCounts !== undefined) {
-        const counts = catalog.reconciliation.inventoryCounts;
-        if (!isRecord(counts) || Object.values(counts).some(value => !Number.isInteger(value) || value < 0)) {
-            throw new ContractCatalogError("Catalog reconciliation inventoryCounts must contain non-negative integers");
-        }
-        const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
-        if (total !== catalog.entries.length) {
-            throw new ContractCatalogError(
-                `Catalog inventoryCounts total ${total} does not match entries ${catalog.entries.length}`,
-            );
-        }
-    }
     if (!Array.isArray(catalog.boundaries)) throw new ContractCatalogError("Catalog boundaries must be an array");
     if (!Array.isArray(catalog.dynamicCompositions)) throw new ContractCatalogError("Catalog dynamicCompositions must be an array");
 
@@ -139,7 +111,9 @@ export async function validateContractCatalog(catalog, { repositoryRoot = defaul
         if (keys.has(entry.key)) throw new ContractCatalogError(`Duplicate Catalog key: ${entry.key}`);
         keys.add(entry.key);
         await validateEntrySource(entry, { root, validateSources, sourceCache });
-        if (entry.generation.state !== "enabled") continue;
+        if (entry.generation.state !== "enabled") {
+            throw new ContractCatalogError(`Catalog only registers generated boundary roots: ${entry.key}`);
+        }
         validateEnabledGeneration(entry);
         const identity = `${String(entry.protocol.identity.value)}:${String(entry.protocol.version.value)}`;
         if (enabledIdentities.has(identity)) {
@@ -203,14 +177,11 @@ export function queryContractCatalog(catalog, query) {
             const protocol = [
                 entry.protocol.identity.state === "declared" ? String(entry.protocol.identity.value) : "",
                 entry.protocol.version.state === "declared" ? String(entry.protocol.version.value) : "",
-                entry.protocol.identity.inventoryValue ?? "",
-                entry.protocol.version.inventoryValue ?? "",
             ].join(" ");
             const haystack = [
                 entry.key,
                 entry.declaration,
                 entry.source.path,
-                entry.source.currentPath ?? "",
                 entry.owner,
                 entry.module,
                 entry.boundary,
@@ -316,10 +287,7 @@ function validateEntryShape(entry) {
     if (entry.source.line !== null && (!Number.isInteger(entry.source.line) || entry.source.line <= 0)) {
         throw new ContractCatalogError(`Catalog entry source line is invalid: ${entry.key}`);
     }
-    if (!entryStatuses.has(entry.status)) throw new ContractCatalogError(`Invalid Catalog entry status: ${entry.key}`);
-    if (entry.status !== "present" && (typeof entry.disposition !== "string" || entry.disposition.length === 0)) {
-        throw new ContractCatalogError(`Catalog entry ${entry.status} requires a disposition: ${entry.key}`);
-    }
+
     for (const field of ["owner", "module", "boundary", "definition", "section", "role"]) {
         if (typeof entry[field] !== "string" || entry[field].length === 0) {
             throw new ContractCatalogError(`Catalog entry ${field} must be a non-empty string: ${entry.key}`);
@@ -354,15 +322,6 @@ function validateEntryShape(entry) {
 
 async function validateEntrySource(entry, { root, validateSources, sourceCache }) {
     if (!validateSources) return;
-    if (entry.status === "deleted") return;
-    if (entry.status === "moved") {
-        if (typeof entry.source.currentPath !== "string" || entry.source.currentPath.length === 0) {
-            throw new ContractCatalogError(`Moved Catalog entry must declare source.currentPath: ${entry.key}`);
-        }
-        if (entry.source.generated === true) return;
-        await assertDeclarationAt(entry, entry.source.currentPath, { root, sourceCache });
-        return;
-    }
     await assertDeclarationAt(entry, entry.source.path, { root, sourceCache });
 }
 
@@ -525,7 +484,7 @@ function summarize(entry) {
     return {
         key: entry.key,
         declaration: entry.declaration,
-        source: entry.source.currentPath ?? entry.source.path,
+        source: entry.source.path,
         line: entry.source.line,
         owner: entry.owner,
         module: entry.module,

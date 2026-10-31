@@ -523,16 +523,7 @@ function createCatalog(root: string, declared: readonly string[]) {
     const dataTypeModule = path.join(root, "src/samples.ts").replaceAll("\\", "/");
     return {
         schemaVersion: 1,
-        inventoryBaseline: "test",
-        inventorySource: { branch: "test", commit: "test", sourceBaseline: "test", files: [] },
-        reconciliation: {
-            baselineCommit: "test",
-            checkedCommit: "test",
-            checkedAt: "2026-10-31",
-            deleted: [],
-            moved: [],
-            changed: [],
-        },
+
         boundaries: [],
         dynamicCompositions: [],
         entries: [
@@ -540,8 +531,7 @@ function createCatalog(root: string, declared: readonly string[]) {
                 key: "contract-binding/src/samples#SampleEnvelope",
                 declaration: "SampleEnvelope",
                 source: { path: "src/samples.ts", line: 1 },
-                status: "present",
-                disposition: null,
+
                 owner: "@lazygoal/contract-binding",
                 module: "contract-binding",
                 boundary: "test",
@@ -582,7 +572,7 @@ function createCatalog(root: string, declared: readonly string[]) {
                 },
                 validation: { state: "runtime-schema", detail: "generated binding" },
                 role: "boundary-root",
-                inventory: { file: "test", line: 1 },
+
             },
         ],
     };

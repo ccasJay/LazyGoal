@@ -1,2 +1,2 @@
-declare const validateBrowserProviderModels: (value: unknown) => boolean;
-export default validateBrowserProviderModels;
+declare const browserProviderModelsValidator: (value: unknown) => boolean;
+export default browserProviderModelsValidator;

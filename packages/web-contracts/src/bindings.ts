@@ -49,6 +49,7 @@ export { browserProviderProfileActivationResultBinding } from "./generated/provi
 export { browserProviderProfileTestResultBinding } from "./generated/provider-profile-test-result-binding";
 export { browserProviderProfileInputBinding } from "./generated/provider-profile-input-binding";
 export { browserProviderModelQueryBinding } from "./generated/provider-model-query-binding";
+export { browserProviderModelsBinding } from "./generated/provider-models-binding";
 export { browserModelCatalogBinding } from "./generated/model-catalog-binding";
 export { browserModelInputsBinding } from "./generated/model-inputs-binding";
 export { browserModelInputDetailBinding } from "./generated/model-input-detail-binding";

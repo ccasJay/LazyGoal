@@ -188,9 +188,7 @@ async function createFixture() {
 function createCatalog(overrides = {}) {
     return {
         schemaVersion: 1,
-        inventoryBaseline: "test",
-        inventorySource: { branch: "test", commit: "test", sourceBaseline: "test", files: [] },
-        reconciliation: { baselineCommit: "test", checkedCommit: "test", checkedAt: "2026-10-31", deleted: [], moved: [], changed: [] },
+
         boundaries: [],
         dynamicCompositions: [],
         entries: [createEntry(overrides)],
@@ -202,8 +200,7 @@ function createEntry(overrides = {}) {
         key: "web-contracts/src/provider-settings#BrowserProviderModels",
         declaration: "BrowserProviderModels",
         source: { path: contractPath, line: 6 },
-        status: "present",
-        disposition: null,
+
         owner: "@lazygoal/web-contracts",
         module: "web-contracts",
         boundary: "web",
@@ -246,7 +243,7 @@ function createEntry(overrides = {}) {
         },
         validation: { state: "runtime-schema", detail: "test" },
         role: "boundary-root",
-        inventory: { file: "test", line: 1 },
+
         ...overrides,
     };
 }

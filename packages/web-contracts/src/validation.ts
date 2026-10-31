@@ -858,7 +858,7 @@ export function isMetricsSnapshot(value: unknown): value is SessionMetricsSnapsh
 function accepts<T>(binding: ContractBinding<T>, value: unknown): value is T {
     return binding.read(value, "strip").ok;
 }
-
+//
 function hasProviderCredentialKey(value: unknown): boolean {
     return isRecord(value) && "apiKey" in value;
 }

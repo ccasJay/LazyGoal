@@ -1,20 +1,25 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import type { ContractIssueCode } from "../../contract-binding/src/index";
 import {
     browserProviderModelsMetadata,
     browserProviderModelsSchema,
 } from "../src/generated/provider-models-schema";
-import { readBrowserProviderModels } from "../src/index";
+import { browserProviderModelsBinding } from "../src/index";
 
-test("provider models reader extracts declared fields and reports bounded paths", () => {
+function readProviderModels(value: unknown) {
+    return browserProviderModelsBinding.read(value, "strip");
+}
+
+test("provider models binding extracts declared fields and reports bounded paths", () => {
     const input = {
         ok: true,
         models: [{ id: " model-1 ", name: "", debug: "must not be reported" }],
         trace: { value: "must not be reported" },
     };
 
-    const result = readBrowserProviderModels(input);
+    const result = readProviderModels(input);
 
     assert.equal(result.ok, true);
     if (!result.ok) return;
@@ -36,14 +41,14 @@ test("provider models reader extracts declared fields and reports bounded paths"
     assert.equal(JSON.stringify(result.diagnostic).includes("must not be reported"), false);
 });
 
-test("provider models reader bounds unknown-field diagnostics", () => {
+test("provider models binding bounds unknown-field diagnostics", () => {
     const input: Record<string, unknown> = {
         ok: true,
         models: [],
     };
     for (let index = 0; index < 40; index += 1) input[`debug-${index}`] = index;
 
-    const result = readBrowserProviderModels(input);
+    const result = readProviderModels(input);
 
     assert.equal(result.ok, true);
     if (!result.ok) return;
@@ -52,40 +57,47 @@ test("provider models reader bounds unknown-field diagnostics", () => {
     assert.ok(result.diagnostic?.paths.every(path => path === "/*"));
 });
 
-test("provider models reader accepts empty results and names but preserves string values", () => {
-    const empty = readBrowserProviderModels({ ok: true, models: [] });
+test("provider models binding accepts empty results and names but preserves string values", () => {
+    const empty = readProviderModels({ ok: true, models: [] });
     assert.deepEqual(empty, { ok: true, data: { ok: true, models: [] } });
 
-    const named = readBrowserProviderModels({ ok: true, models: [{ id: "m-1", name: "" }] });
+    const named = readProviderModels({ ok: true, models: [{ id: "m-1", name: "" }] });
     assert.deepEqual(named, { ok: true, data: { ok: true, models: [{ id: "m-1", name: "" }] } });
 
-    const spaced = readBrowserProviderModels({ ok: true, models: [{ id: "  m-1  ", name: " Name " }] });
+    const spaced = readProviderModels({ ok: true, models: [{ id: "  m-1  ", name: " Name " }] });
     assert.deepEqual(spaced, {
         ok: true,
         data: { ok: true, models: [{ id: "  m-1  ", name: " Name " }] },
     });
 });
 
-test("provider models reader rejects invalid known fields without returning partial data", () => {
-    const invalidValues: unknown[] = [
-        { models: [] },
-        { ok: false, models: [] },
-        { ok: true },
-        { ok: true, models: {} },
-        { ok: true, models: [null] },
-        { ok: true, models: [{ name: "missing id" }] },
-        { ok: true, models: [{ id: 42, name: "wrong id type" }] },
-        { ok: true, models: [{ id: " \t\n", name: "blank id" }] },
-        { ok: true, models: [{ id: "m-1", name: 42 }] },
-        { ok: true, models: [{ id: "m-1" }, { id: "m-2", name: "ok" }] },
+test("provider models binding rejects invalid known fields without returning partial data", () => {
+    const invalidValues: Array<{ readonly value: unknown; readonly code: ContractIssueCode }> = [
+        { value: { models: [] }, code: "required" },
+        { value: { ok: false, models: [] }, code: "const" },
+        { value: { ok: true }, code: "required" },
+        { value: { ok: true, models: {} }, code: "type" },
+        { value: { ok: true, models: [null] }, code: "type" },
+        { value: { ok: true, models: [{ name: "missing id" }] }, code: "required" },
+        { value: { ok: true, models: [{ id: 42, name: "wrong id type" }] }, code: "type" },
+        { value: { ok: true, models: [{ id: " \t\n", name: "blank id" }] }, code: "pattern" },
+        { value: { ok: true, models: [{ id: "m-1", name: 42 }] }, code: "type" },
+        { value: { ok: true, models: [{ id: "m-1" }, { id: "m-2", name: "ok" }] }, code: "required" },
     ];
 
-    for (const value of invalidValues) {
-        assert.deepEqual(readBrowserProviderModels(value), { ok: false }, JSON.stringify(value));
+    for (const { value, code } of invalidValues) {
+        const result = readProviderModels(value);
+        assert.equal(result.ok, false, JSON.stringify(value));
+        if (result.ok) continue;
+        assert.equal(result.contractId, "web.providers.models.success");
+        assert.equal(result.version, 1);
+        assert.ok(result.issues.length > 0, JSON.stringify(value));
+        assert.ok(result.issues.some(issue => issue.code === code), JSON.stringify({ value, issues: result.issues }));
+        assert.equal("data" in result, false);
     }
 });
 
-test("provider models reader accepts only JSON-shaped input and handles prototype keys safely", () => {
+test("provider models binding accepts only JSON-shaped input and handles prototype keys safely", () => {
     const cyclic: Record<string, unknown> = { ok: true, models: [] };
     cyclic.self = cyclic;
     const accessor = Object.defineProperty({ ok: true, models: [] }, "debug", {
@@ -113,11 +125,15 @@ test("provider models reader accepts only JSON-shaped input and handles prototyp
     ];
 
     for (const value of nonJsonValues) {
-        assert.deepEqual(readBrowserProviderModels(value), { ok: false });
+        const result = readProviderModels(value);
+        assert.equal(result.ok, false);
+        if (result.ok) continue;
+        assert.deepEqual(result.issues, [{ path: "", code: "json" }]);
+        assert.equal(result.truncated, false);
     }
 
     const prototypeKey = JSON.parse('{"ok":true,"models":[],"__proto__":{"polluted":true}}') as object;
-    const result = readBrowserProviderModels(prototypeKey);
+    const result = readProviderModels(prototypeKey);
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.deepEqual(result.data, { ok: true, models: [] });

@@ -11,7 +11,7 @@ import { test } from "node:test";
 
 const appRoot = path.resolve(import.meta.dirname, "..");
 
-test("browser provider models API consumes the generated reader against a local fake API", { timeout: 60_000 }, async () => {
+test("browser provider models API consumes the generated binding against a local fake API", { timeout: 60_000 }, async () => {
     let scenario = "unknown";
     const calls = [];
     const protocolErrors = [];
@@ -104,7 +104,7 @@ test("browser provider models API consumes the generated reader against a local 
         assert.deepEqual(accepted, {
             ok: true,
             data: { ok: true, models: [{ id: "m-1", name: "Model" }] },
-            diagnostics: [["[goal-board] provider models response has unknown fields", {
+            diagnostics: [["[goal-board] response has unknown fields", {
                 contractId: "web.providers.models.success",
                 version: 1,
                 paths: ["/privateResponseDetail", "/models/0/privateModelDetail"],

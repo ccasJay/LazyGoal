@@ -13,48 +13,42 @@ import {
     validateContractCatalog,
 } from "./contract-catalog.mjs";
 
-test("catalog covers the inventory baseline and current enabled contracts", async () => {
+test("catalog registers only generated boundary roots and carries no migration ledger", async () => {
     const catalog = await loadContractCatalog();
-    const counts = catalog.reconciliation.inventoryCounts;
-    assert.equal(catalog.inventorySource.branch, "codex/contract-inventory");
-    assert.equal(catalog.inventorySource.commit, "676015c6");
-    assert.deepEqual(counts, {
-        "web.md": 341,
-        "model-tools.md": 339,
-        "durable-cross-process.md": 299,
-        "model-contracts-migration-additions": 92,
-    });
-    assert.equal(catalog.entries.length, 1071);
-    assert.equal(catalog.entries.length, Object.values(counts).reduce((sum, value) => sum + value, 0));
-    assert.equal(collectEnabledContractEntries(catalog).length, 134);
-    assert.equal(catalog.entries.filter(entry => entry.status === "moved").length, 2);
-    assert.equal(catalog.reconciliation.moved.length, 2);
-    assert.equal(catalog.entries.filter(entry => entry.status === "deleted").length, catalog.reconciliation.deleted.length);
-    assert.equal(catalog.reconciliation.deleted.length, 402);
-    assert.ok(catalog.reconciliation.deleted.length > 0);
+    assert.deepEqual(Object.keys(catalog), ["schemaVersion", "boundaries", "dynamicCompositions", "entries"]);
+    assert.equal(catalog.entries.length, 134);
+    assert.equal(collectEnabledContractEntries(catalog).length, catalog.entries.length);
     assert.equal(catalog.boundaries.length, 18);
     assert.equal(catalog.dynamicCompositions.length, 3);
+    for (const entry of catalog.entries) {
+        assert.ok(!("status" in entry) && !("disposition" in entry) && !("inventory" in entry), entry.key);
+        assert.ok(!("currentPath" in entry.source), entry.key);
+        assert.ok(!("inventoryValue" in entry.protocol.identity) && !("inventoryValue" in entry.protocol.version), entry.key);
+        assert.equal(entry.generation.state, "enabled", entry.key);
+        assert.equal(entry.definitionKind, "native-ts", entry.key);
+    }
+    for (const boundary of catalog.boundaries) assert.ok(!("inventory" in boundary), boundary.entry ?? boundary.root);
 });
 
 test("catalog query locates web, model, tools, snapshot and dynamic composition entries", async () => {
     const catalog = await loadContractCatalog();
 
-    const web = queryContractCatalog(catalog, "BrowserActivityPosition");
-    assert.ok(web.some(entry => entry.key === "web-contracts/src/contracts/activity#browserActivityPositionContract"));
-    assert.ok(web.some(entry => entry.key === "web-contracts/src/activity#BrowserActivityPosition"));
+    const web = queryContractCatalog(catalog, "BrowserActivityPage");
+    assert.ok(web.some(entry => entry.key === "web-contracts/src/wire#BrowserActivityPage"));
+    assert.ok(!queryContractCatalog(catalog, "BrowserActivityPosition").length);
 
     const provider = queryContractCatalog(catalog, "web.providers.models.success");
     assert.ok(provider.some(entry => entry.key === "web-contracts/src/wire#BrowserProviderModels"));
     assert.equal(provider.find(entry => entry.key === "web-contracts/src/wire#BrowserProviderModels").generation.state, "enabled");
 
-    const tools = queryContractCatalog(catalog, "READ_FILE_INPUT_CONTRACT");
-    assert.ok(tools.some(entry => entry.key === "tools/src/read-file#READ_FILE_INPUT_CONTRACT"));
+    const tools = queryContractCatalog(catalog, "ReadFileInput");
+    assert.ok(tools.some(entry => entry.key === "tools/src/read-file.ts#ReadFileInput" && entry.generation.state === "enabled"));
+    assert.ok(!queryContractCatalog(catalog, "READ_FILE_INPUT_CONTRACT").length);
 
     const snapshot = queryContractCatalog(catalog, "GoalSnapshotV1");
     assert.ok(snapshot.some(entry => entry.key === "storage/src/goal-snapshot#GoalSnapshotV1"));
     assert.ok(snapshot.some(entry => entry.role === "boundary-root"));
-    assert.ok(snapshot.some(entry => entry.key === "storage/src/goal-snapshot#GoalSnapshotV1Schema"
-        && entry.status === "deleted"));
+    assert.ok(!snapshot.some(entry => entry.key === "storage/src/goal-snapshot#GoalSnapshotV1Schema"));
 
     const dynamic = catalog.dynamicCompositions.find(entry =>
         entry.key === "model-contracts/model-output/bound-factory#createBoundModelOutputContractBundle");
@@ -70,7 +64,8 @@ test("catalog query locates web, model, tools, snapshot and dynamic composition 
     assert.ok(dynamicMatches.dynamicCompositions.some(entry => entry.key === dynamic.key));
 
     const boundaryMatches = queryContractCatalogIndex(catalog, "Goal Snapshot");
-    assert.ok(boundaryMatches.boundaries.some(entry => entry.root === "Goal Snapshot"));
+    const snapshotBoundary = boundaryMatches.boundaries.find(entry => entry.root === "Goal Snapshot");
+    assert.deepEqual(snapshotBoundary.catalogKeys, ["storage/src/goal-snapshot#GoalSnapshotV1"]);
 });
 
 test("catalog rejects duplicate keys, identities and artifact paths", async t => {
@@ -123,7 +118,7 @@ test("catalog rejects duplicate keys, identities and artifact paths", async t =>
     );
 });
 
-test("catalog rejects missing sources, invalid counts and unsupported enabled registrations", async t => {
+test("catalog rejects missing sources and unsupported enabled registrations", async t => {
     const fixture = await createCatalogFixture();
     t.after(() => rm(fixture.root, { recursive: true, force: true }));
 
@@ -134,15 +129,22 @@ test("catalog rejects missing sources, invalid counts and unsupported enabled re
         /Catalog source is missing/,
     );
 
-    const invalidCounts = structuredClone(fixture.catalog);
-    invalidCounts.reconciliation.inventoryCounts = { "test.md": 2 };
+    const nonGenerated = structuredClone(fixture.catalog);
+    nonGenerated.entries[0].generation = { state: "none", detail: "test" };
     await assert.rejects(
-        validateContractCatalog(invalidCounts, { validateSources: false }),
-        /inventoryCounts total 2 does not match entries 1/,
+        validateContractCatalog(nonGenerated, { validateSources: false }),
+        /Catalog only registers generated boundary roots/,
+    );
+
+    const retiredDefinition = structuredClone(fixture.catalog);
+    retiredDefinition.entries[0].definitionKind = "zod";
+    await assert.rejects(
+        validateContractCatalog(retiredDefinition, { validateSources: false }),
+        /Invalid Catalog definition kind/,
     );
 
     const unsupportedDefinition = structuredClone(fixture.catalog);
-    unsupportedDefinition.entries[0].definitionKind = "zod";
+    unsupportedDefinition.entries[0].definitionKind = "derived";
     await assert.rejects(
         validateContractCatalog(unsupportedDefinition, { validateSources: false }),
         /Enabled generation requires a native TypeScript contract/,
@@ -191,7 +193,7 @@ test("catalog artifact paths are unique and repository-relative", async () => {
     const paths = enabled.flatMap(contractArtifactPaths);
     assert.equal(new Set(paths).size, paths.length);
     assert.ok(paths.every(item => !path.isAbsolute(item) && !item.split("/").includes("..")));
-    assert.ok(paths.includes("packages/web-contracts/src/generated/provider-models-reader.ts"));
+    assert.ok(paths.includes("packages/web-contracts/src/generated/provider-models-binding.ts"));
     assert.ok(paths.includes("packages/web-contracts/src/generated/goal-list-binding.ts"));
     assert.ok(paths.includes("packages/storage/src/generated/goal-snapshot-binding.ts"));
     assert.ok(paths.includes("packages/storage/src/generated/agent-profile-file-binding.ts"));
@@ -208,16 +210,6 @@ async function createCatalogFixture() {
     await mkdir(path.join(root, "generated"), { recursive: true });
     const catalog = {
         schemaVersion: 1,
-        inventoryBaseline: "test",
-        inventorySource: { branch: "test", commit: "test", sourceBaseline: "test", files: [] },
-        reconciliation: {
-            baselineCommit: "test",
-            checkedCommit: "test",
-            checkedAt: "2026-10-31",
-            deleted: [],
-            moved: [],
-            changed: [],
-        },
         boundaries: [],
         dynamicCompositions: [],
         entries: [createEntry()],
@@ -230,8 +222,6 @@ function createEntry() {
         key: "web-contracts/src/provider-settings#BrowserProviderModels",
         declaration: "BrowserProviderModels",
         source: { path: "src/provider-settings.ts", line: 1 },
-        status: "present",
-        disposition: null,
         owner: "@lazygoal/web-contracts",
         module: "web-contracts",
         boundary: "web",
@@ -274,6 +264,5 @@ function createEntry() {
         },
         validation: { state: "runtime-schema", detail: "test" },
         role: "boundary-root",
-        inventory: { file: "test", line: 1 },
     };
 }

@@ -221,10 +221,3 @@ export type {
     BrowserProviderModelQuery,
     BrowserProviderModels,
 } from "./provider-settings";
-export {
-    readBrowserProviderModels,
-} from "./generated/provider-models-reader";
-export type {
-    BrowserProviderModelsReadResult,
-    BrowserProviderModelsUnknownFieldDiagnostic,
-} from "./generated/provider-models-reader";
