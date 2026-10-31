@@ -6,7 +6,7 @@
 
 | 文件族 | 路径与版本 | 读取策略 | 不变量与错误 | 真实消费者 | 本方向处置 |
 | --- | --- | --- | --- | --- | --- |
-| Agent Profile | `<profile-directory>/<profileId>.json`；`schemaVersion: 1` | 严格拒绝未知字段 | Profile ID 必须匹配文件名；缺失返回 `undefined`；不安全路径、非法 JSON、Schema 错误和 ID 不一致抛 `AgentProfileConfigurationError`（`INVALID_AGENT_PROFILE`） | [`JsonFileAgentProfileStore`](../src/json-file-agent-profile-store.ts) → Runtime `AgentProfileStore` | 由已批准的 [AgentProfile 文件契约](../../../specs/ts-agent-profile-file-contract/spec.md) 独立执行；本方向只登记依赖，不改变其字段与验收 |
+| Agent Profile | `<profile-directory>/<profileId>.json`；`schemaVersion: 1` | 生成绑定 `reject` 未知字段 | Profile ID 必须匹配文件名；缺失返回 `undefined`；不安全路径、非法 JSON、生成绑定拒绝和 ID 不一致抛 `AgentProfileConfigurationError`（`INVALID_AGENT_PROFILE`），保留安全字段路径/问题分类，不含字段值或正文 | [`JsonFileAgentProfileStore`](../src/json-file-agent-profile-store.ts) → Runtime `AgentProfileStore` | 已迁移：`AgentProfileFile` TS DTO（含具名 `NonEmptyString`）+ `storage.agent-profile.file` 生成绑定；ID/路径与错误映射保留 |
 | Goal Snapshot | `<goal-directory>/<base64url(goalId)>.json`；`metadata.schemaVersion: 1` | 严格拒绝未知字段 | 版本、消息身份与位置、Run/GoalPlan/Plan Route、待审批交互、账本、队列和模型选择等跨字段规则由 Codec 与 Snapshot 校验器执行；损坏、未知版本和非法组合抛 `GoalSnapshotProtocolError`（`INVALID_GOAL_SNAPSHOT`） | [`goalSnapshotCodec`](../src/goal-snapshot-codec.ts)、[`JsonFileGoalStore`](../src/goal-store.ts) | 已迁移：TS DTO + `storage.goal.snapshot` 生成绑定；跨字段与字段级语义校验保留 |
 | Trajectory JSONL | `<trajectory-directory>/<base64url(goalId)>/<base64url(runId)>.jsonl`；每条事件 `eventSchemaVersion: 1` | 运行时事件协议校验 | 追加序号单调、Goal/Run 身份匹配、事件信封与 payload 判别；未知版本和非法事件抛 `TrajectoryProtocolError`；不按 Snapshot marker 推导提交边界 | [`JsonFileTrajectoryStore`](../src/json-file-trajectory-store.ts) → Runtime `TrajectoryStore` | 事件 DTO 与校验归 Runtime；Storage 只登记其为运行时拥有的 TS 单源，不新增第二份字段表 |
 | 模型输入记录 | `<model-input-directory>/<goal>/<run>/requests.jsonl` 与同 Goal 的 `messages/<sha256>.txt`；清单 `schemaVersion: 1` | 手写清单与消息结构校验 | 正文 SHA-256 必须匹配引用；身份、阶段、Step、消息 shape 和 `goalId`/`runId` 必须匹配；不参与 Goal 恢复 | [`JsonFileModelInputStore`](../src/json-file-model-input-store.ts) → Runtime `ModelInputStore` | 已迁移：`ModelInputManifest` TS DTO + 生成绑定；正文摘要与消息 predicate 保留 |
@@ -24,7 +24,7 @@
 
 - 只接受当前版本。Goal Snapshot、Trajectory、模型输入、Sidecar、Agent Profile、Grant 账本和偏好文件的未知版本或损坏内容都在各自边界失败或缓存失效；没有旧版本迁移分支。
 - 原子写入统一经 [`atomicWriteJson`](../src/json-file-write.ts)；JSONL 追加统一经 `appendJsonl`。审批等待、重启恢复和损坏文件处理继续由 Runtime 与各 Store 的现有状态转换承担。
-- Agent Profile 的未知字段严格拒绝属于已批准小 Spec；本清单不将其扩展为其他文件族的统一策略。
+- Agent Profile 的未知字段严格拒绝由生成绑定执行；该策略不扩展到其他文件族。
 - Runtime 拥有的 Trajectory 事件和 Diagnostic Trace DTO 不复制到 Storage；Storage 负责其文件布局、追加顺序和错误包装。
 
 ## 迁移证据入口

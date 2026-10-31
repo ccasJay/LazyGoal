@@ -56,6 +56,7 @@ Storage 文件族使用 `typescript-binding` 策略，从 TS 文件 DTO 生成�
 | 契约 | 根类型 | 真实消费者 |
 | --- | --- | --- |
 | Goal Snapshot | `GoalSnapshotV1` | [`goalSnapshotCodec`](../packages/storage/src/goal-snapshot-codec.ts) |
+| Agent Profile 文件 | `AgentProfileFile` | [`JsonFileAgentProfileStore`](../packages/storage/src/json-file-agent-profile-store.ts) |
 | Tool Grant 账本 | `ToolGrantLedgerFile` | [`JsonFileToolGrantStore`](../packages/storage/src/json-file-tool-grant-store.ts) |
 | Sandbox Grant 账本 | `SandboxGrantLedgerFile` | [`JsonFileSandboxGrantStore`](../packages/storage/src/json-file-sandbox-grant-store.ts) |
 | 模型偏好 | `ModelPreferenceFile` | [`JsonFileModelPreferenceStore`](../packages/storage/src/json-file-model-preference-store.ts) |

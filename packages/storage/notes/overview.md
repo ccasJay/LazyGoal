@@ -7,7 +7,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 
 ## 摘要
 
-`@lazygoal/storage` 拥有持久化文件表示与实现：Profile 文件 DTO、当前 Goal Snapshot v1 DTO 与严格结构绑定、Runtime↔Snapshot 双向 Codec、Trajectory/Diagnostic JSONL Store、Tool/Sandbox Grant 授权账本，以及实现 Runtime/Agent Port 的内存/JSON 文件 Store。Snapshot、Grant 账本、模型偏好、权限模式、调用指标、进程会话和模型输入清单的结构 Schema 由 Catalog 从 TS 文件 DTO 生成，并由生成绑定校验；生成能力归 [`@lazygoal/contract-binding`](../../contract-binding/src/index.ts) 与 `scripts/generate-contracts.mjs`。它依赖 Runtime 的 Port 与领域契约；Runtime 不反向加载本模块。所有文件写入经共享写入原语；同一进程内的写入顺序由按键串行队列保证。
+`@lazygoal/storage` 拥有持久化文件表示与实现：Profile 文件 DTO、当前 Goal Snapshot v1 DTO 与严格结构绑定、Runtime↔Snapshot 双向 Codec、Trajectory/Diagnostic JSONL Store、Tool/Sandbox Grant 授权账本，以及实现 Runtime/Agent Port 的内存/JSON 文件 Store。Snapshot、Agent Profile、Grant 账本、模型偏好、权限模式、调用指标、进程会话和模型输入清单的结构 Schema 由 Catalog 从 TS 文件 DTO 生成，并由生成绑定校验；生成能力归 [`@lazygoal/contract-binding`](../../contract-binding/src/index.ts) 与 `scripts/generate-contracts.mjs`。它依赖 Runtime 的 Port 与领域契约；Runtime 不反向加载本模块。所有文件写入经共享写入原语；同一进程内的写入顺序由按键串行队列保证。
 
 所有 Store 的路径段编码统一由内部 [`encodePathSegment`](../src/path-segment.ts) 完成（UTF-8 base64url），该模块不从公共入口导出；各 Store 只保留身份校验与目录布局，编码结果保持不变。
 
@@ -17,7 +17,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 | --- | --- | --- |
 | [写入原语](../src/json-file-write.ts) | `atomicWriteJson`、`appendJsonl` 与 `appendFileChunk` 的唯一实现：同目录临时文件、创建时文件 `0600` 与目录 `0700`、按需 `fsync`、可重试 errno 的效果核对与失败清理 | 识别 Store 类型、协议错误或路径语义；跨进程锁、目录 `fsync` |
 | [串行队列](../src/keyed-serial-queue.ts) | `KeyedSerialQueue` 的按键 FIFO 串行、失败隔离、簿记释放与 `drain` | 跨进程锁、事务或 exactly-once |
-| [AgentProfileFile](../src/agent-profile-file.ts) | Profile 文件 DTO（`schemaVersion: 1`）、严格 Schema 与 `AgentProfileConfigurationError` | 读取文件系统、构造 Runtime Profile |
+| [AgentProfileFile](../src/agent-profile-file.ts) | Profile 文件 DTO（`schemaVersion: 1`）、具名 `NonEmptyString` 约束、生成绑定与 `AgentProfileConfigurationError` | 读取文件系统、构造 Runtime Profile |
 | [JsonFileAgentProfileStore](../src/json-file-agent-profile-store.ts) | 实现 Runtime `AgentProfileStore` Port，读取单个 `<profileId>.json` | 扫描其它 Profile、读取 Tool 实例、校验 Tool 注册 |
 | [GoalSnapshotV1 协议](../src/goal-snapshot.ts) | 当前唯一 Snapshot DTO、生成结构绑定与字段级/跨字段语义校验；模型选择可保存动态执行 API 与容量；并保存当前 Prompt/Memory/Model Context/Retrieval 组合、完整消息、`mode`、GoalPlan、`completedRuns`、Run/todo 关系、Run 的唯一 `exposedToolIds`、Context Epoch、内部阶段（`currentStage`）、获批 Plan Run 路线（`planRoute`）、待执行 Action 的授权引用、Goal 提交修订（`commitRevision`）、输入账本（`inputLedger`）与消息队列（`messageQueue`） | 文件系统 I/O、构造 Runtime Goal、迁移历史 Snapshot |
 | [GoalSnapshotCodec](../src/goal-snapshot-codec.ts) | Runtime Goal↔v1 Snapshot 的 encode/decode 深复制转换；只接受当前 v1，不迁移或回写历史版本 | 文件系统 I/O、读写 Store |
@@ -32,17 +32,17 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 
 ## 生成绑定与迁移边界
 
-Catalog 启用项从 TS 文件 DTO 生成 JSON Schema、Ajv 校验器、Manifest 和 `@lazygoal/contract-binding` 绑定；生成文件位于 [`src/generated`](../src/generated)，由 `npm run contracts:generate -- --check` 检查漂移。真实读取路径消费生成绑定：Snapshot Codec 使用 `goalSnapshotFileBinding` 后再执行字段级与跨字段语义校验；Grant 账本、模型偏好、权限模式、调用指标、进程会话和模型输入 Store 均先以 `reject` 策略读取生成绑定，再执行各自的身份、摘要、版本或冲突不变量。
+Catalog 启用项从 TS 文件 DTO 生成 JSON Schema、Ajv 校验器、Manifest 和 `@lazygoal/contract-binding` 绑定；生成文件位于 [`src/generated`](../src/generated)，由 `npm run contracts:generate -- --check` 检查漂移。真实读取路径消费生成绑定：Snapshot Codec 使用 `goalSnapshotFileBinding` 后再执行字段级与跨字段语义校验；Agent Profile、Grant 账本、模型偏好、权限模式、调用指标、进程会话和模型输入 Store 均先以 `reject` 策略读取生成绑定，再执行各自的身份、摘要、版本或冲突不变量。
 
-字段级非空、整数范围、数组长度、元素约束和摘要格式由各文件族的语义校验保留；跨字段不变量、身份绑定、版本校验和错误映射仍在 Store 或 Codec，不由结构 Schema 取代。读取失败不迁移、不回退旧 Schema、不写回。
+结构 Schema 覆盖字段类型、封闭对象、版本常量与可由 JSDoc 表达的非空和数组约束；其余字段级规则、摘要格式、跨字段不变量、身份绑定、版本校验和错误映射仍在 Store 或 Codec。读取失败不迁移、不回退旧 Schema、不写回。
 
-Retrieval Index Sidecar 顶层已使用生成绑定；嵌套文档、倒排索引与查询缓存结果仍由 `context-retrieval` 的索引重建与查询缓存校验执行，因为这些 DTO 依赖旧 Contract AST 推导的 `ContextLookupResult`，待模型数据契约迁移提供 TS 单源后再收紧为生成结构。Goal Context Index 的 Note 来源与类别以 Storage 文件表示显式声明，不引用旧 AST 推导类型。AgentProfile 文件由已批准小 Spec 独立执行，本模块只保留其现有加载路径。
+Retrieval Index Sidecar 顶层已使用生成绑定；嵌套文档、倒排索引与查询缓存结果仍由 `context-retrieval` 的索引重建与查询缓存校验执行，因为这些 DTO 依赖旧 Contract AST 推导的 `ContextLookupResult`，待模型数据契约迁移提供 TS 单源后再收紧为生成结构。Goal Context Index 的 Note 来源与类别以 Storage 文件表示显式声明，不引用旧 AST 推导类型。Agent Profile 的标量字段与数组元素共用 TS 具名 `NonEmptyString`，空数组合法，含空字符串的数组元素由生成绑定拒绝。
 
 ## 生命周期与错误
 
 正式消息的 Snapshot 位置由当前或完成 Run 的事实边界约束；语义校验同时拒绝未知 Run、越界序列、Run 内逆序和同锚点不连续的次序。
 
-每次 Profile `load` 只访问 `<directory>/<profileId>.json`：文件缺失返回 `undefined`；不安全 ID、读取失败、非法 JSON、Schema 不匹配或文件内 ID 不一致抛出 `AgentProfileConfigurationError`（稳定错误码 `INVALID_AGENT_PROFILE`）。
+每次 Profile `load` 只访问 `<directory>/<profileId>.json`：文件缺失返回 `undefined`；不安全 ID、读取失败、非法 JSON、生成绑定拒绝或文件内 ID 不一致抛出 `AgentProfileConfigurationError`（稳定错误码 `INVALID_AGENT_PROFILE`）。结构错误保留 Profile ID、文件路径和有界的字段路径/问题分类，不包含字段值或原始正文；非法 JSON 不保留可能回显正文的解析异常。
 
 Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按当前 v1 生成结构与语义规则校验（拒绝多余字段、非法 StepRecord，缺失或非法的 `modelSelection`，以及非法的 Trajectory/Memory/Model Context/Retrieval 组合）再深复制 encode；`restore`/decode 只接受当前 v1。语义校验同时保证 normal Goal 没有 GoalPlan、Plan Mode 必须有 GoalPlan、Todo ID/position/status 与 `Run.todoId` 一致、历史 Run 的消息区间有序且不包含当前 Run。历史 Snapshot、未知版本、缺失 `modelSelection` 的旧开发快照和不完整的当前恢复状态统一在 Codec 边界抛出 `INVALID_GOAL_SNAPSHOT`，不会自动迁移、保存或回写。
 
