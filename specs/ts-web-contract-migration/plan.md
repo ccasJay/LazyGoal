@@ -27,11 +27,11 @@
 
 - 状态：passed
 - 新鲜度：current
-- 验证时间：2026-10-31T04:52:59Z–2026-10-31T05:51:25Z（UTC）
-- 验证提交：`6c89dbc3`；工作区干净。实现提交为 TODO 1 `a20e53fc`、TODO 2 `d70e4d72`；验证期间的对齐提交为 `703768b8`（模型选择未知字段断言）与 `6c89dbc3`（真实轨迹详情绑定断言）。分支基于共同基线 `e3926377`，并堆叠生成能力线提交 `54d0db4e`。
+- 验证时间：2026-10-31T05:54:40Z–2026-10-31T06:02:49Z（UTC）
+- 验证提交：`c9d246d3`；工作区干净。实现提交为 TODO 1 `a20e53fc`、TODO 2 `d70e4d72`；验证期间的对齐与修复提交为 `703768b8`（模型选择未知字段断言）、`6c89dbc3`（真实轨迹详情绑定断言）与 `c9d246d3`（可空游标安全整数）。分支基于共同基线 `e3926377`，并堆叠生成能力线提交 `54d0db4e`。
 - 全量 Web 迁移（[1.1](./spec.md#spec-req-1-1)、[1.4](./spec.md#spec-req-1-4)）：`contracts/catalog.json` 现有 937 项，其中 Web 341 项、157 个旧 AST 标记删除、55 个生成绑定根与 1 个 Provider 模型 Reader；`npm run contracts:generate -- --check` 输出 `Contract artifacts are current.`。请求、响应与 SSE 均通过真实路由/浏览器 API 消费生成绑定；覆盖清单见 [coverage.md](./coverage.md)。
-- 真实访问链（[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)）：`npx tsx --test packages/web-contracts/test/*.test.ts packages/browser/test/*.test.ts apps/goal-board/test/*.test.ts apps/goal-board/test/*.test.tsx` 402/402 通过，覆盖未知字段剥离、已知字段拒绝、联合/判别联合、开放 JSON、安全整数、UTF-16、凭据键、鉴权、请求大小、HTTP 错误与取消。`npm test` 在 05:43:52Z–05:50:14Z 通过：446 个 `.ts/.tsx` 与 7 个 `.mjs`，TS 测试 2714/2714、scripts 98/98；入口同时覆盖类型检查、文档、依赖、生成检查与 GEPA adapter。
-- 浏览器与集成（[1.3](./spec.md#spec-req-1-3)）：`npm run build:web` 通过（05:50:20Z–05:51:11Z）。相关 Chrome E2E `provider-models-contract`、`goal-board-streaming`、`run-input-control`、`session-output` 4/4 通过；完整 `npm run test:web-e2e` 为 14/17，通过项覆盖 Provider 模型响应、SSE、统一输入与流式输出。3 项失败（board 的模型错误展示、runtime 轨迹详情等待、并行布局宽度）在基线 `54d0db4e` 的临时副本复现 board/runtime 两项，且活动宽度在单独运行时通过，判定为既有 UI/并行布局问题，不属于本方向契约迁移。
-- 生成/文档/依赖（[1.3](./spec.md#spec-req-1-3)）：`npm run check:dependencies` 通过（418 个源文件），`npm run check:docs` 通过（47 个模块、169 份当前说明），`git diff --check` 无输出。
+- 真实访问链（[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)）：`npx tsx --test packages/web-contracts/test/*.test.ts packages/browser/test/*.test.ts apps/goal-board/test/*.test.ts apps/goal-board/test/*.test.tsx` 402/402 通过，覆盖未知字段剥离、已知字段拒绝、联合/判别联合、开放 JSON、安全整数、UTF-16、凭据键、鉴权、请求大小、HTTP 错误与取消。`npm test` 在 05:54:40Z–06:01:16Z 通过：446 个 `.ts/.tsx` 与 7 个 `.mjs`，TS 测试 2714/2714、scripts 98/98；入口同时覆盖类型检查、文档、依赖、生成检查与 GEPA adapter。
+- 浏览器与集成（[1.3](./spec.md#spec-req-1-3)）：`npm run build:web` 通过（06:01:24Z–06:02:49Z）。相关 Chrome E2E `provider-models-contract`、`goal-board-streaming`、`run-input-control`、`session-output` 4/4 通过；完整 `npm run test:web-e2e` 为 14/17，通过项覆盖 Provider 模型响应、SSE、统一输入与流式输出。3 项失败（board 的模型错误展示、runtime 轨迹详情等待、并行布局宽度）在基线 `54d0db4e` 的临时副本复现 board/runtime 两项，且活动宽度在单独运行时通过，判定为既有 UI/并行布局问题，不属于本方向契约迁移。
+- 生成/文档/依赖（[1.3](./spec.md#spec-req-1-3)）：`npm run contracts:generate -- --check` 输出 `Contract artifacts are current.`；`npm run check:dependencies` 通过（418 个源文件），`npm run check:docs` 通过（47 个模块、169 份当前说明），`git diff --check` 无输出（06:02:49Z 完成）。
 - 上游依赖：本方向使用生成能力线 `54d0db4e` 的 `@asType integer` 支持；该提交尚未出现在生成能力线 plan 的 Latest Result 验证提交中。本方向全量回归已覆盖其生成检查与绑定测试，但协调者合并时应以生成能力线最终验证提交为准并重跑生成检查。
 - 未解决问题：无本方向阻塞。已知完整 Chrome E2E 的 3 项既有失败不属于本方向；合并后若基线变化，需刷新相关 E2E 证据。
