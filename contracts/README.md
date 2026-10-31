@@ -42,11 +42,11 @@ node scripts/contract-catalog.mjs query GoalSnapshotV1Schema
 
 | 能力 | 生成表示 | 代表来源 | 当前状态 |
 | --- | --- | --- | --- |
-| 联合与判别联合 | `anyOf` 分支或 `type` 数组；判别字段保留 `const`/`enum` | [模型 Decide 输出](../packages/model-contracts/src/model-output/canonical.ts)、[Snapshot 消息与 Observation](../packages/storage/src/goal-snapshot.ts)、[Web Activity](../packages/web-contracts/src/activity.ts) | 生成与绑定支持；模型投影范围见 contract-binding |
-| 递归 | 本地 `$ref` 指向同一 `definitions` 声明 | [SnapshotJsonValue](../packages/storage/src/goal-snapshot.ts)、[BrowserJsonValue](../packages/web-contracts/src/session-input.ts) | 生成与绑定支持；模型投影范围见 contract-binding |
-| 开放 JSON | `additionalProperties` 为 `true`、`{}` 或值 Schema | [BrowserJsonValue](../packages/web-contracts/src/session-input.ts)、[Tool 输入 JsonValue](../packages/model-contracts/src/model-output/canonical.ts)、[Snapshot memory patch](../packages/storage/src/goal-snapshot.ts) | 生成与绑定支持；模型投影范围见 contract-binding |
-| 数组元素 | `items` 内联或 `$ref`，可再含联合与约束 | [ListDirectory 输出](../packages/tools/src/list-directory.ts)、[Snapshot 消息列表](../packages/storage/src/goal-snapshot.ts) | 生成与绑定支持；模型投影范围见 contract-binding |
-| 数值与字符串约束 | `minimum`/`maximum`、`minLength`/`maxLength`、`pattern` | [ListDirectory 输入](../packages/tools/src/list-directory.ts)、[Web Provider 模型标识](../packages/web-contracts/src/provider-settings.ts) | 生成与绑定支持；模型投影范围见 contract-binding |
+| 联合与判别联合 | `anyOf` 分支或 `type` 数组；判别字段保留 `const`/`enum` | [模型 Decide 输出](../packages/model-contracts/src/model-output/canonical.ts)、[Snapshot 消息与 Observation](../packages/storage/src/goal-snapshot.ts)、[Web Activity](../packages/web-contracts/src/activity.ts) | 生成、绑定与模型投影支持 |
+| 递归 | 本地 `$ref` 指向同一 `definitions` 声明 | [SnapshotJsonValue](../packages/storage/src/goal-snapshot.ts)、[BrowserJsonValue](../packages/web-contracts/src/session-input.ts) | 生成与绑定支持；模型投影明确失败 |
+| 开放 JSON | `additionalProperties` 为 `true`、`{}` 或值 Schema | [BrowserJsonValue](../packages/web-contracts/src/session-input.ts)、[Tool 输入 JsonValue](../packages/model-contracts/src/model-output/canonical.ts)、[Snapshot memory patch](../packages/storage/src/goal-snapshot.ts) | 生成与绑定支持；模型投影明确失败 |
+| 数组元素 | `items` 内联或 `$ref`，可再含联合与约束 | [ListDirectory 输出](../packages/tools/src/list-directory.ts)、[Snapshot 消息列表](../packages/storage/src/goal-snapshot.ts) | 生成、绑定与模型投影支持（元素需可移植） |
+| 数值与字符串约束 | `minimum`/`maximum`、`minLength`/`maxLength`、`pattern` | [ListDirectory 输入](../packages/tools/src/list-directory.ts)、[Web Provider 模型标识](../packages/web-contracts/src/provider-settings.ts) | 生成与绑定支持；数值约束进入 wire，字符串约束由投影标识并由解码强制 |
 | 元组、外部格式 | — | — | 明确失败，不生成近似 Schema |
 
 其他登记项保留真实现状：Contract AST 与 Zod 在运行时校验，Tool 输入 Schema 在注册期内存编译，模型输出联合在请求期动态组合；它们不产生本步的静态 Schema、Reader 或 Manifest。新增启用项必须在 Catalog 中显式登记生成策略，并先扩展共享读取器的受支持子集。

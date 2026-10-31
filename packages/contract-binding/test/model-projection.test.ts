@@ -144,20 +144,166 @@ test("model projection rejects missing wire-required properties and invalid cano
     }
 });
 
+test("model projection widens local string constraints and records decode enforcement", () => {
+    const constrained = createContractBinding<{ label: string }>({
+        contractId: "sample.constrained",
+        version: 1,
+        schema: schemaWith({
+            type: "string",
+            pattern: "^[a-z]+$",
+            minLength: 2,
+            maxLength: 4,
+        }),
+        validate: compileValidator(schemaWith({
+            type: "string",
+            pattern: "^[a-z]+$",
+            minLength: 2,
+            maxLength: 4,
+        })),
+    });
+    const projection = constrained.modelProjection();
+
+    const properties = projection.schema.properties as Record<string, Record<string, unknown>>;
+    assert.deepEqual(properties.label, { type: "string" });
+    assert.deepEqual(projection.localConstraints, [{
+        path: "#/properties/label",
+        keywords: ["pattern", "minLength", "maxLength"],
+    }]);
+
+    const valid = projection.decode({ label: "abc" });
+    assert.equal(valid.ok, true);
+
+    const invalidCases: Array<{ value: unknown; path: string; code: string }> = [
+        { value: { label: "ABC" }, path: "/label", code: "pattern" },
+        { value: { label: "a" }, path: "/label", code: "length" },
+        { value: { label: "abcde" }, path: "/label", code: "length" },
+    ];
+    for (const current of invalidCases) {
+        const result = projection.decode(current.value);
+        assert.equal(result.ok, false, JSON.stringify(current.value));
+        if (result.ok) continue;
+        assert.ok(
+            result.issues.some(issue => issue.path === current.path && issue.code === current.code),
+            `${JSON.stringify(result.issues)} missing ${current.path}:${current.code}`,
+        );
+        assert.equal("data" in result, false);
+    }
+});
+
+test("model projection maps optional, null and discriminated union fields", () => {
+    const schema: ContractSchemaNode = {
+        $schema: "http://json-schema.org/draft-07/schema#",
+        type: "object",
+        properties: {
+            requiredNullable: { type: ["string", "null"] },
+            optional: { type: "string" },
+            optionalLiteral: { type: "string", const: "fixed" },
+            union: {
+                anyOf: [
+                    {
+                        type: "object",
+                        properties: {
+                            kind: { type: "string", const: "alpha" },
+                            alpha: { type: "string" },
+                            note: { type: "string" },
+                        },
+                        required: ["kind", "alpha"],
+                        additionalProperties: false,
+                    },
+                    {
+                        type: "object",
+                        properties: {
+                            kind: { type: "string", const: "beta" },
+                            beta: { type: "number", minimum: 1 },
+                        },
+                        required: ["kind", "beta"],
+                        additionalProperties: false,
+                    },
+                ],
+            },
+        },
+        required: ["requiredNullable", "union"],
+        additionalProperties: false,
+    };
+    const unionBinding = createContractBinding<unknown>({
+        contractId: "sample.union-projection",
+        version: 1,
+        schema,
+        validate: compileValidator(schema),
+    });
+    const projection = unionBinding.modelProjection();
+    const properties = projection.schema.properties as Record<string, Record<string, unknown>>;
+    assert.deepEqual(properties.requiredNullable?.type, ["string", "null"]);
+    assert.deepEqual(properties.optional?.type, ["string", "null"]);
+    assert.deepEqual(properties.optionalLiteral, {
+        type: ["string", "null"],
+        enum: ["fixed", null],
+    });
+    assert.equal(properties.union?.anyOf !== undefined, true);
+
+    const unionBranches = properties.union?.anyOf as Array<Record<string, unknown>>;
+    assert.equal(unionBranches.length, 2);
+    const alphaProperties = unionBranches[0]?.properties as Record<string, Record<string, unknown>>;
+    assert.deepEqual(alphaProperties.note?.type, ["string", "null"]);
+    assert.deepEqual(unionBranches[0]?.required, ["kind", "alpha", "note"]);
+
+    const decoded = projection.decode({
+        requiredNullable: null,
+        optional: null,
+        optionalLiteral: null,
+        union: { kind: "alpha", alpha: "value", note: null, debug: "wire-secret" },
+    });
+    assert.equal(decoded.ok, true);
+    if (!decoded.ok) return;
+    assert.deepEqual(decoded.data, {
+        requiredNullable: null,
+        union: { kind: "alpha", alpha: "value" },
+    });
+    assert.ok(decoded.diagnostic);
+    assert.deepEqual(decoded.diagnostic.paths, ["/union/debug"]);
+    assert.equal(JSON.stringify(decoded).includes("wire-secret"), false);
+
+    const missingOptional = projection.decode({
+        requiredNullable: null,
+        union: { kind: "beta", beta: 2 },
+    });
+    assert.equal(missingOptional.ok, false);
+    if (missingOptional.ok) return;
+    assert.ok(missingOptional.issues.some(issue => issue.path === "/optional" && issue.code === "required"));
+
+    const invalidBranch = projection.decode({
+        requiredNullable: null,
+        optional: null,
+        union: { kind: "beta", beta: 0 },
+    });
+    assert.equal(invalidBranch.ok, false);
+    if (invalidBranch.ok) return;
+    assert.ok(invalidBranch.issues.some(issue => issue.path === "/union/beta" && issue.code === "range"));
+});
+
+test("model projection rejects ambiguous optional nullable fields", () => {
+    const schema: ContractSchemaNode = {
+        $schema: "http://json-schema.org/draft-07/schema#",
+        type: "object",
+        properties: { maybe: { type: ["string", "null"] } },
+        required: [],
+        additionalProperties: false,
+    };
+    const local = createContractBinding<unknown>({
+        contractId: "sample.optional-nullable",
+        version: 1,
+        schema,
+        validate: compileValidator(schema),
+    });
+
+    assert.throws(
+        () => local.modelProjection(),
+        /Optional nullable properties are ambiguous/,
+    );
+});
+
 test("model projection rejects non-portable local schemas with a locatable error", () => {
     const cases: Array<{ schema: ContractSchemaNode; reason: RegExp }> = [
-        {
-            schema: schemaWith({ type: "string", pattern: "^a" }),
-            reason: /Unsupported local schema keyword "pattern"/,
-        },
-        {
-            schema: schemaWith({ type: "string", maxLength: 8 }),
-            reason: /Unsupported local schema keyword "maxLength"/,
-        },
-        {
-            schema: schemaWith({ anyOf: [{ type: "string" }, { type: "number" }] } as unknown as ContractSchemaNode),
-            reason: /Unsupported local schema keyword "anyOf"/,
-        },
         {
             schema: {
                 $schema: "http://json-schema.org/draft-07/schema#",
@@ -216,4 +362,15 @@ function schemaWith(property: ContractSchemaNode): ContractSchemaNode {
         required: ["label"],
         additionalProperties: false,
     };
+}
+
+function compileValidator(schema: ContractSchemaNode): ContractValidator {
+    return new Ajv({
+        strict: true,
+        allowUnionTypes: true,
+        allErrors: true,
+        removeAdditional: false,
+        coerceTypes: false,
+        useDefaults: false,
+    }).compile(schema as unknown as object) as unknown as ContractValidator;
 }

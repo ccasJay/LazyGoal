@@ -17,14 +17,15 @@
 
 ## 模型投影
 
-`modelProjection()` 从同一份本地 Schema 派生 Provider 可用的 draft-07 wire Schema，并返回成对的 canonical 解码器：
+`modelProjection()` 从同一份本地 Schema 派生 Provider 可用的 draft-07 wire Schema，并返回成对的 canonical 解码器与本地约束清单：
 
-- 对象保持封闭，所有属性进入 `required`；本地可选属性表示为 required-nullable（`type: [..., "null"]` 或含 `null` 的 `enum`）。
-- 本地 `$ref` 在 wire Schema 中内联；递归引用、联合、元组和开放对象明确失败。
-- 数值 `minimum`/`maximum` 保留；字符串 `pattern`、`minLength`、`maxLength` 等本地约束不可移植，投影时失败，不回退 AST。
-- `decode` 要求 wire 必填属性存在，将可选 `null` 转为 canonical 省略，再复用绑定的本地校验与 `strip` 未知字段策略；失败不返回部分数据。
+- 对象保持封闭，所有属性进入 `required`；本地可选属性表示为 required-nullable（`type: [..., "null"]`、含 `null` 的 `enum` 或 `anyOf` 的 `null` 分支）。
+- 本地联合映射为 `anyOf`；可空字段由 `type` 数组表达。可选属性本身允许 `null` 时无法区分缺席与显式 `null`，投影明确失败。
+- 本地 `$ref` 在 wire Schema 中内联；递归引用、元组和开放对象无法安全转换为 Provider 可移植结构，投影明确失败。
+- 数值 `minimum`/`maximum` 保留；字符串 `pattern`、`minLength`、`maxLength` 从 wire Schema 省略，并记录在 `localConstraints`（JSON Pointer 与关键字列表）中，由 `decode` 使用同源本地 Schema 强制验证，不会静默放宽。
+- `decode` 要求 wire 必填属性存在，按唯一合法联合分支处理，将可选 `null` 转为 canonical 省略，再复用绑定的本地校验与 `strip` 未知字段策略；失败不返回部分数据。
 
-模型投影只负责数据形状；阶段、授权和工具可见性仍由模型执行链的现有所有者执行。
+模型投影只负责数据形状；阶段、授权和工具可见性仍由模型执行链的现有所有者执行。无法安全转换时直接失败，不回退旧 Contract AST。
 
 ## 边界与限制
 
@@ -32,4 +33,4 @@
 - `reject` 策略用于必须拒绝额外字段的严格配置边界；工具、模型与 Web 的宽容读取由调用方选择 `strip`。
 - 本包当前不切换任何生产消费者，也不替代各领域现有的读取器；后续迁移线通过生成的绑定模块接入。
 - 共享读取器只支持 Catalog 生成器已声明的 Schema 子集；不支持的结构必须由生成或投影明确失败。
-- 模型 wire 投影与 canonical 解码作为同一能力提供；本地支持但 Provider 不可移植的约束不会静默降级。
+- 模型 wire 投影与 canonical 解码作为同一能力提供；Provider 无法表达的本地字符串约束以 `localConstraints` 明确标识并由解码强制验证，其他无法安全转换的结构直接失败。

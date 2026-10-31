@@ -21,6 +21,10 @@ type RuntimeReadResult =
 
 interface RuntimeProjection {
     readonly schema: Record<string, unknown>;
+    readonly localConstraints: readonly {
+        readonly path: string;
+        readonly keywords: readonly string[];
+    }[];
     decode(value: unknown): RuntimeReadResult;
 }
 
@@ -162,10 +166,23 @@ test("Catalog generates isolated tool, model, web and strict-config bindings", a
     assert.deepEqual([...decoded.diagnostic.paths].sort(), ["/debug", "/nested/debug"]);
     assert.equal(JSON.stringify(decoded).includes("wire-secret"), false);
 
-    assert.throws(
-        () => configBinding.configSampleBinding.modelProjection(),
-        /Unsupported local schema keyword "(minLength|maxLength)"/,
-    );
+    const configProjection = configBinding.configSampleBinding.modelProjection();
+    assert.deepEqual(configProjection.localConstraints, [{
+        path: "#/properties/nested/properties/token",
+        keywords: ["minLength", "maxLength"],
+    }]);
+    const configProjected = configProjection.schema.properties as Record<string, Record<string, unknown>>;
+    const projectedNested = configProjected.nested?.properties as Record<string, Record<string, unknown>>;
+    assert.deepEqual(projectedNested.token, { type: "string" });
+    const invalidConfigProjection = configProjection.decode({
+        schemaVersion: 1,
+        nested: { token: "" },
+    });
+    assert.equal(invalidConfigProjection.ok, false);
+    if (!invalidConfigProjection.ok) {
+        assert.ok(invalidConfigProjection.issues.some(issue =>
+            issue.path === "/nested/token" && issue.code === "length"));
+    }
 
     const webResult = webBinding.webSampleBinding.read({
         query: "q",

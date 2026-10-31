@@ -189,7 +189,7 @@ export function checkValueAgainstSchema(
         return issues;
     }
 
-    if (isPlainRecord(value) && (hasSchemaType(node, "object") || (node.type === undefined && node.properties !== undefined))) {
+    if (isPlainRecord(value) && isObjectSchema(node)) {
         const record = value as Readonly<Record<string, JsonValue>>;
         const required = new Set(node.required ?? []);
         for (const name of required) {
@@ -226,9 +226,7 @@ export function checkValueAgainstSchema(
         return issues;
     }
 
-    if (Array.isArray(value)
-        && (hasSchemaType(node, "array") || (node.type === undefined && node.items !== undefined))
-        && node.items !== undefined) {
+    if (Array.isArray(value) && isArraySchema(node) && node.items !== undefined) {
         for (let index = 0; index < value.length; index += 1) {
             issues.push(...checkValueAgainstSchema(
                 value[index]!,
@@ -300,7 +298,7 @@ export function findUnknownPaths(value: JsonValue, rootSchema: ContractSchemaNod
         const schema = resolved.schema;
 
         if (Array.isArray(current.value)) {
-            if (!hasSchemaType(schema, "array") || schema.items === undefined) continue;
+            if (!isArraySchema(schema) || schema.items === undefined) continue;
             for (let index = current.value.length - 1; index >= 0; index -= 1) {
                 pending.push({
                     value: current.value[index]!,
@@ -310,7 +308,7 @@ export function findUnknownPaths(value: JsonValue, rootSchema: ContractSchemaNod
             }
             continue;
         }
-        if (!isPlainRecord(current.value) || !hasSchemaType(schema, "object")) continue;
+        if (!isPlainRecord(current.value) || !isObjectSchema(schema)) continue;
 
         const record = current.value as Readonly<Record<string, JsonValue>>;
         const properties = schema.properties ?? {};
@@ -372,13 +370,13 @@ export function stripUnknownFields(value: JsonValue, rootSchema: ContractSchemaN
         const schema = resolved.schema;
 
         if (Array.isArray(current.value)) {
-            if (!hasSchemaType(schema, "array") || schema.items === undefined) continue;
+            if (!isArraySchema(schema) || schema.items === undefined) continue;
             for (const item of current.value) {
                 pending.push({ value: item, schema: schema.items, path: current.path });
             }
             continue;
         }
-        if (!isPlainRecord(current.value) || !hasSchemaType(schema, "object")) continue;
+        if (!isPlainRecord(current.value) || !isObjectSchema(schema)) continue;
 
         const record = current.value as Record<string, JsonValue>;
         const properties = schema.properties ?? {};
@@ -430,7 +428,7 @@ function selectUnionBranch(
     }
 
     const candidates: ContractSchemaNode[] = [];
-    const failures: readonly ContractIssue[][] = [];
+    const failures: ContractIssue[][] = [];
     for (const branch of branches) {
         const issues = checkValueAgainstSchema(value, branch, rootSchema, path, options, seen);
         if (issues.length === 0) candidates.push(branch);
@@ -501,6 +499,14 @@ function matchesJsonType(value: JsonValue, type: ContractSchemaType): boolean {
 function hasSchemaType(schema: ContractSchemaNode, type: "object" | "array" | "string" | "number" | "integer"): boolean {
     if (schema.type === undefined) return false;
     return Array.isArray(schema.type) ? schema.type.includes(type) : schema.type === type;
+}
+
+function isObjectSchema(schema: ContractSchemaNode): boolean {
+    return hasSchemaType(schema, "object") || (schema.type === undefined && schema.properties !== undefined);
+}
+
+function isArraySchema(schema: ContractSchemaNode): boolean {
+    return hasSchemaType(schema, "array") || (schema.type === undefined && schema.items !== undefined);
 }
 
 function isOpenObjectSchema(schema: ContractSchemaNode): boolean {

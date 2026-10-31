@@ -28,6 +28,8 @@ export {
     deriveModelWireSchema,
 } from "./projection";
 export type {
+    ModelLocalConstraint,
+    ModelLocalConstraintKeyword,
     ModelProjection,
     ModelWireSchema,
 } from "./projection";
