@@ -14,3 +14,4 @@
 | TS 契约单源 | 模型 canonical 输出与 system tool 输入的字段、可选性和约束的迁移目标来源。 | [模型协议契约](../README.md) | [TS 契约类型](../src/model-output/schema-types.ts) |
 | 授权工具绑定 | 工具线提供工具身份与输入生成绑定；模型线只消费其投影、读取与未知字段策略。 | [模型协议契约](../README.md) | [绑定集合接口](../src/model-output/bindings.ts) |
 | 生成绑定组合 | 按阶段、模式与授权集合组合 Provider Schema、声明与解码；分支确定后剥离未知字段。 | [模型协议契约](../README.md) | [绑定组合器](../src/model-output/bound-factory.ts) |
+| 模型生成绑定 | Catalog 从 TS 单源生成的 Schema、校验器与 `ContractBinding` 集合。 | [模型协议契约](../README.md) | [生成绑定装配](../src/model-output/generated-bindings.ts) |

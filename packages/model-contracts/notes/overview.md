@@ -6,13 +6,13 @@
 
 [公开入口](../src/index.ts) 导出决策、完成审查、工作记忆及上下文检索的结构契约，以及 Wire 与 Canonical 输出之间的投影。结构化 Provider Schema 由这些契约编译；调用方仍需校验模型的实际响应，不把 Schema 约束当作完成证据。
 
-## TS 单源与生成绑定（迁移准备）
+## TS 单源与生成绑定
 
-[TS 契约类型](../src/model-output/schema-types.ts) 是模型 canonical 输出与全部 system tool 输入字段、可选性和约束的迁移目标单源；[绑定集合接口](../src/model-output/bindings.ts) 固定模型线从生成能力线接收的 `ContractBinding` 边界。Catalog 已登记这些声明，但真实生成尚未启用：生成能力线仍需支持判别联合、可递归 JSON、整数区分、数组长度与元素约束，之后才能以 `typescript-binding` 生成根绑定与模型投影。启用前生产仍消费现有 Contract AST，组合能力以隔离替身验证，不构成联合切换。
+[TS 契约类型](../src/model-output/schema-types.ts) 是模型 canonical 输出与全部 system tool 输入字段、可选性和约束的单源；[绑定集合接口](../src/model-output/bindings.ts) 固定模型线从生成能力线接收的 `ContractBinding` 边界。35 个模型根契约已按 `typescript-binding` 生成 Schema、Ajv standalone 校验器、Manifest 与绑定，产物位于 [`src/generated`](../src/generated)，并由 [generated-bindings.ts](../src/model-output/generated-bindings.ts) 装配为 `modelOutputBindings`。canonical `ToolCallAgentDecision` 的开放 `JsonValue` 输入不进入生成；`tool_call` 使用封闭的 `ToolCallDecisionEnvelope` 外壳并在组合时插入工具绑定。生产请求与 Runtime 仍消费 Contract AST，生成绑定不构成联合切换证据。
 
-[绑定组合器](../src/model-output/bound-factory.ts) 按请求阶段、Run 模式、任务批准状态与授权工具集合组合 Provider Schema、原生工具声明和解码。业务工具输入来自工具线提供的同一绑定；模型线不维护工具字段表。未知字段在分支确定后剥离，并通过可选 `onDiagnostic` 回报契约身份与有界路径；已知字段、判别值、未授权工具和领域约束错误直接拒绝，不返回部分数据。
+[绑定组合器](../src/model-output/bound-factory.ts) 按请求阶段、Run 模式、任务批准状态与授权工具集合组合 Provider Schema、原生工具声明和解码。业务工具输入来自工具线提供的同一绑定；模型线不维护工具字段表。未知字段在分支确定后剥离，并通过可选 `onDiagnostic` 回报契约身份与有界路径；已知字段、判别值、未授权工具和领域约束错误直接拒绝，不返回部分数据。生成数组与整数注解保留在 Provider Schema 与本地解码中。
 
-真实生成启用与生产联合切换的剩余条件见[联合切换前置条件](./pending-generation.md)。
+生产联合切换的剩余条件见[联合切换前置条件](./pending-generation.md)。
 
 ## 对话续接
 

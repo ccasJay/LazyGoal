@@ -20,7 +20,8 @@
 ## 执行记录
 
 - TODO 1、TODO 2 的独立准备已完成：TS 单源、Catalog 登记、`ContractBinding` 接缝、按阶段/模式/授权集合的动态组合以及隔离替身验证通过。
-- 真实生成绑定仍待生成能力线支持判别联合、可递归 JSON、整数区分、数组长度与元素约束；生产请求、Runtime 与旧 AST 的联合切换属于 TODO 3，未执行，不能据此宣称联合验收通过。
+- TODO 3 的生成部分已完成：基于生成能力线固定提交 `813c6b87`，35 个模型根契约以 `typescript-binding` 生成 Schema、校验器与绑定，`modelOutputBindings` 已装配；canonical `ToolCallAgentDecision` 因开放 `JsonValue` 输入不进入生成，`tool_call` 使用封闭外壳加工具绑定。
+- 生产请求、Runtime 校验、Provider 切换与旧 AST 删除属于 TODO 3 联合切换，未执行，不能据此宣称联合验收通过。
 
 ## Feature Verification
 
@@ -35,11 +36,11 @@
 ### Latest Result
 
 - 状态：blocked
-- 验证时间：2026-10-31 13:05 CST
-- 验证提交：`d3de90f8`（代码、Catalog 与说明）；`bd6e1693` 曾完成一次完整 `npm test` 通过
+- 验证时间：2026-10-31 13:13 CST
+- 验证提交：`a35222b3`（生成绑定、约束与测试）；本记录更新不改变被验证代码
 - 验证摘要：
-  - 模型类型及生成：pending-integration。TS 单源、Catalog 登记、类型一致性测试与既有 system tools 回归通过；真实生成绑定未启用，范围内旧 AST 未退出。
-  - 授权与动态组合：passed（隔离替身范围）。覆盖空授权、重复/空 ID、未授权工具、阶段与模式组合、未知字段诊断和非法已知字段；真实工具绑定接入为 pending-integration。
-  - Provider 及整体链路：pending-integration。既有 strict/prompt-only、Provider 与 Runtime 回归通过；真实生成绑定与工具线联合切换未执行，不能宣称联合验收通过。
-  - 当前提交定向检查：TypeScript 类型检查通过；`model-contracts`、`model-response`、`model-request`、`model-execution` 共 249 项测试通过；`scripts` 98 项测试通过；`npm run build:web`、`npm run check:docs`、`npm run check:dependencies`、`npm run contracts:generate -- --check` 与 `git diff --check` 通过。
-  - 全量回归环境说明：当前提交的完整 `npm test` 运行受其他 worktree 并发 GEPA/Worker 构建资源干扰，出现 GEPA 429/500、Worker 身份摘要与 BashTool 提取两项无关失败；两项失败单独复跑通过，GEPA adapter 单独运行通过。完整通过证据保留自 `bd6e1693`，联合集成时需在隔离环境重跑。
+  - 模型类型及生成：pending-integration。TS 单源、数组/整数约束、35 个根契约真实生成绑定、类型一致性测试与既有 system tools 回归通过；canonical `ToolCallAgentDecision` 保持未生成，范围内旧 AST 未退出。
+  - 授权与动态组合：passed。使用真实 `modelOutputBindings` 覆盖空授权、重复/空 ID、未授权工具、阶段与模式组合、未知字段诊断、越界数组与非法整数元素；真实工具绑定接入仍为 pending-integration。
+  - Provider 及整体链路：pending-integration。strict/prompt-only 可移植 Schema、Shape Guide 与既有 Provider/Runtime 回归通过；生产请求、Runtime 与 Provider 的联合切换未执行，不能宣称联合验收通过。
+  - 当前提交定向检查：TypeScript 类型检查通过；`model-contracts`、`model-response`、`model-request`、`model-execution` 共 255 项测试通过；`scripts` 98 项测试通过；`npm run build:web`、`npm run check:docs`、`npm run check:dependencies`、`npm run contracts:generate -- --check` 与 `git diff --check` 通过。
+  - 全量回归：`npm test` 通过（GEPA adapter 运行中出现瞬时限流重试，最终通过）。
