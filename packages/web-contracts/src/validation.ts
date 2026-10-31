@@ -26,7 +26,6 @@ import {
     browserProviderProfileActivationResultBinding,
     browserProviderProfileBinding,
     browserProviderProfileDeleteResultBinding,
-    browserProviderProfileTestResultBinding,
     browserProviderProfileWriteResultBinding,
     browserProviderSettingsBinding,
     browserSessionInputQueryResultBinding,
@@ -84,7 +83,6 @@ import type {
     BrowserProviderProfile,
     BrowserProviderProfileActivationResult,
     BrowserProviderProfileDeleteResult,
-    BrowserProviderProfileTestResult,
     BrowserProviderProfileWriteResult,
     BrowserProviderSettings,
     BrowserRunStatus,
@@ -602,21 +600,6 @@ export function isProviderProfileDeleteResult(value: unknown): value is BrowserP
  */
 export function isProviderProfileActivationResult(value: unknown): value is BrowserProviderProfileActivationResult {
     return accepts(browserProviderProfileActivationResultBinding, value);
-}
-
-/**
- * 连接测试结果守卫。
- *
- * @param value - 待检测值。
- * @returns 是否为测试成功响应或稳定错误响应。
- *
- * @example
- * ```ts
- * if (isProviderProfileTestResult(res) && res.ok) console.log(res.modelCount);
- * ```
- */
-export function isProviderProfileTestResult(value: unknown): value is BrowserProviderProfileTestResult {
-    return accepts(browserProviderProfileTestResultBinding, value);
 }
 
 /**

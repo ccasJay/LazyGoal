@@ -200,7 +200,6 @@ export {
     isProviderProfileWriteResult,
     isProviderProfileDeleteResult,
     isProviderProfileActivationResult,
-    isProviderProfileTestResult,
     isActionDetailsResult,
     isToolGrantResult,
     isPermissionModeResult,

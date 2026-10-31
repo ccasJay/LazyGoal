@@ -35,7 +35,6 @@ import {
     isProviderProfileWriteResult,
     isProviderProfileDeleteResult,
     isProviderProfileActivationResult,
-    isProviderProfileTestResult,
     isOkResponse,
     isPendingAction,
     isPermissionModeResult,
@@ -738,10 +737,6 @@ test("Provider 写入、删除、激活与测试守卫区分成功与失败形�
 
     assert.equal(isProviderProfileActivationResult({ ok: true, activeProfileId: "profile-1" }), true);
     assert.equal(isProviderProfileActivationResult({ ok: true }), false);
-
-    assert.equal(isProviderProfileTestResult({ ok: true, modelCount: 29 }), true);
-    assert.equal(isProviderProfileTestResult({ ok: true, modelCount: -1 }), false);
-    assert.equal(isProviderProfileTestResult({ ok: false, error: "model_catalog_authentication" }), true);
 });
 
 test("session bindings strip undeclared fields and keep declared relationships", () => {
