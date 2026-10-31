@@ -210,8 +210,8 @@ export type {
 } from "./provider-settings";
 export {
     readBrowserProviderModels,
-} from "./provider-models-reader";
+} from "./generated/provider-models-reader";
 export type {
     BrowserProviderModelsReadResult,
     BrowserProviderModelsUnknownFieldDiagnostic,
-} from "./provider-models-reader";
+} from "./generated/provider-models-reader";

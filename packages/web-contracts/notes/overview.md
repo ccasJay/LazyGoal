@@ -12,7 +12,7 @@ Activity 助手消息必须携带 `process`、`answer` 或 `notice` 用途；用
 
 ## 共享合同与校验分层
 
-现有大多数 wire DTO 在 [`contracts/`](../src/contracts) 声明 Contract AST，公开 TypeScript 类型由 `InferContract` 派生；[`validation.ts`](../src/validation.ts) 的公开 guard 对这些 DTO 执行 `safeParse` 与命名不变量。在线 Provider 模型列表是已迁移的例外：原生 TS 类型为唯一结构来源，构建生成固定版本的 JSON Schema 与 Ajv 校验器；读取器只在 JSON 响应边界运行时校验，并从副本提取已声明字段。
+现有大多数 wire DTO 在 [`contracts/`](../src/contracts) 声明 Contract AST，公开 TypeScript 类型由 `InferContract` 派生；[`validation.ts`](../src/validation.ts) 的公开 guard 对这些 DTO 执行 `safeParse` 与命名不变量。在线 Provider 模型列表是已迁移的例外：原生 TS 类型及 JSDoc 为唯一结构来源，[`contracts/catalog.json`](../../../contracts/catalog.json) 登记并驱动构建生成固定版本的 JSON Schema、Ajv 校验器、Manifest 与薄 Reader；Reader 绑定 [`contract-reader.ts`](../src/contract-reader.ts) 的共享逻辑，只在 JSON 响应边界运行时校验，并从副本提取已声明字段。
 
 跨字段规则位于 [`invariants/`](../src/invariants)：Plan Route、Activity gap/range、交互决定、Provider 禁用凭据键、Trajectory 事件身份与指标数值范围都由纯函数执行。开放 JSON 字段统一使用 `contract.unknown()`，并由显式栈实现的 `isJsonValue` 判定；其载荷深度不受合同结构 `MAX_DEPTH` 限制。wire 文本的 UTF-16 上限只由 `hasUtf16LengthAtMost` 承担，不新增 AST 节点或跨字段长度表。
 

@@ -12,7 +12,7 @@
     "llm:agent-smoke": "tsx packages/llm/test/agent-smoke-test.ts",
     "llm:native-dialogue-smoke": "tsx packages/llm/test/native-dialogue-smoke.ts",
     "check:dependencies": "node scripts/check-dependencies.mjs",
-    "contracts:generate": "node scripts/generate-provider-models-contract.mjs",
+    "contracts:generate": "node scripts/generate-contracts.mjs",
     "check:docs": "node scripts/check-docs.mjs",
     "change-scope": "node scripts/change-scope.mjs",
     "benchmark:context-retrieval": "tsx scripts/benchmark-context-retrieval.ts",

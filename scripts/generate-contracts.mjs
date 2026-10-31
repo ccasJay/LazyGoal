@@ -1,0 +1,531 @@
+#!/usr/bin/env node
+
+import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+
+import Ajv from "ajv";
+import standaloneCode from "ajv/dist/standalone/index.js";
+import { build } from "esbuild";
+import { createGenerator } from "ts-json-schema-generator";
+
+import {
+    collectEnabledContractEntries,
+    loadContractCatalog,
+} from "./contract-catalog.mjs";
+
+const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+const defaultRepositoryRoot = path.resolve(scriptDirectory, "..");
+const defaultCatalogPath = "contracts/catalog.json";
+const supportedStrategy = "typescript-json-schema";
+const expectedDialect = "http://json-schema.org/draft-07/schema#";
+const supportedSchemaKeywords = new Set([
+    "$schema",
+    "$id",
+    "$ref",
+    "definitions",
+    "type",
+    "properties",
+    "required",
+    "additionalProperties",
+    "items",
+    "pattern",
+    "const",
+    "enum",
+    "description",
+    "title",
+]);
+const supportedSchemaTypes = new Set(["object", "array", "string", "boolean", "number", "integer", "null"]);
+const documentationTags = new Set([
+    "deprecated",
+    "example",
+    "param",
+    "remarks",
+    "returns",
+    "see",
+    "throws",
+]);
+
+const require = createRequire(import.meta.url);
+const generatorRequire = createRequire(require.resolve("ts-json-schema-generator"));
+const ts = generatorRequire("typescript");
+
+/**
+ * 生成 Catalog 中全部启用契约的构建期制品。
+ *
+ * @param options - 仓库根目录及 Catalog 相对路径。
+ * @returns 以仓库相对路径为键的制品内容，以及已校验的 Catalog。
+ * @throws Catalog 无效、来源缺失或契约结构不受支持时抛出异常；不写入文件。
+ *
+ * @example
+ * ```ts
+ * const { artifacts } = await generateContractArtifacts();
+ * ```
+ */
+export async function generateContractArtifacts({
+    repositoryRoot = defaultRepositoryRoot,
+    catalogPath = defaultCatalogPath,
+} = {}) {
+    const absoluteRoot = path.resolve(repositoryRoot);
+    const catalog = await loadContractCatalog({ repositoryRoot: absoluteRoot, catalogPath });
+    const enabled = collectEnabledContractEntries(catalog);
+    const artifacts = new Map();
+
+    for (const entry of enabled) {
+        if (entry.generation.strategy !== supportedStrategy) {
+            throw new Error(`Unsupported generation strategy: ${String(entry.generation.strategy)} (${entry.key})`);
+        }
+        const generated = await generateTypeScriptJsonSchemaContract(entry, { repositoryRoot: absoluteRoot });
+        for (const [relativePath, content] of generated) {
+            if (artifacts.has(relativePath)) {
+                throw new Error(`Duplicate generated artifact path: ${relativePath}`);
+            }
+            artifacts.set(relativePath, content);
+        }
+    }
+
+    return { artifacts, catalog };
+}
+
+/**
+ * 检查已提交制品是否与当前 Catalog 和源码一致。
+ *
+ * @param options - 仓库根目录及 Catalog 相对路径。
+ * @returns 缺失或漂移的仓库相对制品路径，按路径排序。
+ * @throws Catalog 无效、来源缺失或契约结构不受支持时抛出异常。
+ *
+ * @example
+ * ```ts
+ * const stale = await findStaleContractArtifacts();
+ * ```
+ */
+export async function findStaleContractArtifacts(options = {}) {
+    const absoluteRoot = path.resolve(options.repositoryRoot ?? defaultRepositoryRoot);
+    const { artifacts } = await generateContractArtifacts(options);
+    const stale = [];
+    for (const [relativePath, expected] of artifacts) {
+        let actual;
+        try {
+            actual = await readFile(path.join(absoluteRoot, relativePath), "utf8");
+        } catch {
+            stale.push(relativePath);
+            continue;
+        }
+        if (actual !== expected) stale.push(relativePath);
+    }
+    return stale.sort();
+}
+
+/**
+ * 校验生成 Schema 是否只使用共享 Reader 支持的 JSON Schema 子集。
+ *
+ * @param schema - ts-json-schema-generator 生成的根 Schema。
+ * @param rootType - 启用契约的根类型名。
+ * @throws 出现联合、开放对象、元组、外部引用或未支持约束时抛出异常。
+ *
+ * @example
+ * ```ts
+ * assertSupportedSchema(schema, "BrowserProviderModels");
+ * ```
+ */
+export function assertSupportedSchema(schema, rootType) {
+    const root = resolveRootSchema(schema);
+    if (root.type !== "object") {
+        throw new Error(`Root contract type must be an object: ${rootType}`);
+    }
+    visitSchema(schema, schema, "#", new Set());
+}
+
+async function generateTypeScriptJsonSchemaContract(entry, { repositoryRoot }) {
+    const contractFile = path.resolve(repositoryRoot, entry.source.path);
+    if (!isInside(repositoryRoot, contractFile)) {
+        throw new Error(`Contract source escapes the repository: ${entry.key}`);
+    }
+    const source = await readFile(contractFile, "utf8");
+    const { sourceFingerprint, patterns } = inspectContractSource(contractFile, source, entry.generation.declaredTypes);
+    const generator = createGenerator({
+        path: contractFile,
+        tsconfig: path.join(repositoryRoot, "tsconfig.json"),
+        type: entry.generation.rootType,
+        jsDoc: "extended",
+        additionalProperties: false,
+    });
+    const schema = generator.createSchema(entry.generation.rootType);
+    if (schema.$schema !== expectedDialect) {
+        throw new Error(`Unsupported JSON Schema dialect: ${String(schema.$schema)}`);
+    }
+    schema.$id = `urn:lazygoal:contracts:${entry.protocol.identity.value}:v${String(entry.protocol.version.value)}`;
+    assertSupportedSchema(schema, entry.generation.rootType);
+    assertDeclaredSchemaTypes(schema, entry);
+    assertGeneratedPatterns(schema, entry.generation.rootType, patterns);
+
+    const ajv = new Ajv({
+        strict: true,
+        allErrors: true,
+        removeAdditional: "all",
+        coerceTypes: false,
+        useDefaults: false,
+        code: { source: true },
+    });
+    const validate = ajv.compile(schema);
+    const validatorCode = standaloneCode(ajv, validate);
+    const bundled = await build({
+        stdin: {
+            contents: validatorCode,
+            resolveDir: repositoryRoot,
+            sourcefile: `${entry.generation.rootType}-validator.cjs`,
+            loader: "js",
+        },
+        bundle: true,
+        platform: "browser",
+        format: "esm",
+        target: "es2022",
+        write: false,
+        logLevel: "silent",
+    });
+    const validator = bundled.outputFiles[0]?.text;
+    if (validator === undefined || !validator.includes("export")) {
+        throw new Error(`Ajv standalone validator did not produce an ESM module: ${entry.key}`);
+    }
+
+    const metadata = {
+        contractId: entry.protocol.identity.value,
+        version: entry.protocol.version.value,
+        schemaDialect: schema.$schema,
+        source: {
+            path: `${entry.source.path}#${entry.generation.declaredTypes.join(",")}`,
+            sha256: sourceFingerprint,
+        },
+        generator: {
+            name: "ts-json-schema-generator",
+            version: packageVersion("ts-json-schema-generator"),
+            typescriptVersion: ts.version,
+        },
+        validator: {
+            name: "Ajv standalone",
+            version: packageVersion("ajv"),
+        },
+        bundler: {
+            name: "esbuild",
+            version: packageVersion("esbuild"),
+            format: "esm",
+        },
+    };
+
+    const outputDirectory = entry.generation.outputDirectory;
+    const artifactPath = name => path.posix.join(outputDirectory, name);
+    const generated = new Map([
+        [artifactPath(entry.generation.artifacts.schemaModule), renderSchemaModule(entry, schema, metadata)],
+        [artifactPath(entry.generation.artifacts.manifest), `${JSON.stringify(metadata, null, 2)}\n`],
+        [artifactPath(entry.generation.artifacts.validator), validator],
+        [artifactPath(entry.generation.artifacts.validatorTypes), renderValidatorTypes(entry)],
+        [artifactPath(entry.generation.artifacts.reader), renderReaderModule(entry)],
+    ]);
+    return generated;
+}
+
+function inspectContractSource(contractFile, source, declaredTypes) {
+    const sourceFile = ts.createSourceFile(contractFile, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const declarations = [];
+    for (const typeName of declaredTypes) {
+        const matches = sourceFile.statements.filter(statement =>
+            ts.isInterfaceDeclaration(statement) && statement.name.text === typeName);
+        if (matches.length === 0) throw new Error(`Missing native TypeScript interface ${typeName}`);
+        if (matches.length > 1) throw new Error(`Duplicate native TypeScript interface ${typeName}`);
+        declarations.push(matches[0]);
+    }
+
+    const supportedTags = new Set([...documentationTags, "pattern"]);
+    const patternTags = [];
+    for (const declaration of declarations) {
+        inspectTags(sourceFile, declaration, declaration.name.text, supportedTags);
+        for (const member of declaration.members) {
+            inspectTags(sourceFile, member, declaration.name.text, supportedTags);
+            if (!ts.isPropertySignature(member)) continue;
+            const fieldName = member.name.getText(sourceFile);
+            const tags = ts.getJSDocTags(member).filter(tag => tag.tagName.text === "pattern");
+            if (tags.length === 0) continue;
+            if (tags.length > 1) throw new Error(`Duplicate JSDoc @pattern on ${declaration.name.text}.${fieldName}`);
+            const pattern = readTagComment(tags[0]);
+            try {
+                new RegExp(pattern);
+            } catch {
+                throw new Error(`Invalid JSDoc @pattern on ${declaration.name.text}.${fieldName}`);
+            }
+            patternTags.push({ typeName: declaration.name.text, fieldName, pattern });
+        }
+    }
+
+    const declarationText = declarations
+        .map(declaration => declaration.getFullText(sourceFile).trim())
+        .join("\n\n");
+    return {
+        sourceFingerprint: createHash("sha256").update(declarationText, "utf8").digest("hex"),
+        patterns: patternTags,
+    };
+}
+
+function inspectTags(sourceFile, node, owner, supportedTags) {
+    for (const tag of ts.getJSDocTags(node)) {
+        const name = tag.tagName.text;
+        if (!supportedTags.has(name)) {
+            const { line } = sourceFile.getLineAndCharacterOfPosition(tag.getStart(sourceFile));
+            throw new Error(`Unsupported JSDoc tag @${name} on ${owner} at line ${line + 1}`);
+        }
+        if (name === "pattern") {
+            if (!ts.isPropertySignature(node) || node.type?.kind !== ts.SyntaxKind.StringKeyword) {
+                throw new Error(`JSDoc @pattern is supported only on string fields in ${owner}`);
+            }
+            if (readTagComment(tag).length === 0) {
+                throw new Error(`JSDoc @pattern requires a regular expression in ${owner}`);
+            }
+        }
+    }
+}
+
+function readTagComment(tag) {
+    if (typeof tag.comment === "string") return tag.comment.trim();
+    if (Array.isArray(tag.comment)) return tag.comment.map(part => part.text ?? "").join("").trim();
+    return "";
+}
+
+function assertDeclaredSchemaTypes(schema, entry) {
+    const declared = new Set(entry.generation.declaredTypes);
+    for (const definitionName of Object.keys(schema.definitions ?? {})) {
+        if (!declared.has(definitionName)) {
+            throw new Error(
+                `Generated schema includes a type absent from declaredTypes: ${definitionName} (${entry.key})`,
+            );
+        }
+    }
+}
+
+function assertGeneratedPatterns(schema, rootType, patterns) {
+    for (const { typeName, fieldName, pattern } of patterns) {
+        const definition = typeDefinition(schema, rootType, typeName);
+        const property = definition.properties?.[fieldName];
+        if (property === undefined) {
+            throw new Error(`Generated schema is missing ${typeName}.${fieldName}`);
+        }
+        const resolved = property.$ref === undefined ? property : resolveSchemaPointer(schema, property.$ref);
+        if (resolved.pattern !== pattern) {
+            throw new Error(`Generated schema must apply the JSDoc @pattern constraint to ${typeName}.${fieldName}`);
+        }
+    }
+}
+
+function typeDefinition(schema, rootType, typeName) {
+    if (typeName === rootType) return resolveRootSchema(schema);
+    const definition = schema.definitions?.[typeName];
+    if (definition === undefined) throw new Error(`Generated schema is missing definition ${typeName}`);
+    return definition;
+}
+
+function resolveRootSchema(schema) {
+    if (schema.$ref === undefined) return schema;
+    return resolveSchemaPointer(schema, schema.$ref);
+}
+
+function resolveSchemaPointer(root, pointer) {
+    if (typeof pointer !== "string" || !pointer.startsWith("#/")) {
+        throw new Error(`Only local JSON Schema references are supported: ${String(pointer)}`);
+    }
+    let current = root;
+    for (const segment of pointer.slice(2).split("/")) {
+        if (current === null || typeof current !== "object") {
+            throw new Error(`JSON Schema reference does not resolve: ${pointer}`);
+        }
+        current = current[segment.replaceAll("~1", "/").replaceAll("~0", "~")];
+    }
+    if (current === null || typeof current !== "object" || Array.isArray(current)) {
+        throw new Error(`JSON Schema reference does not resolve to a schema object: ${pointer}`);
+    }
+    return current;
+}
+
+function visitSchema(root, schema, schemaPath, visitedRefs) {
+    if (schema === null || typeof schema !== "object" || Array.isArray(schema)) {
+        throw new Error(`JSON Schema node must be an object at ${schemaPath}`);
+    }
+    for (const key of Object.keys(schema)) {
+        if (!supportedSchemaKeywords.has(key)) {
+            throw new Error(`Unsupported JSON Schema keyword "${key}" at ${schemaPath}`);
+        }
+    }
+    if (schema.$ref !== undefined) {
+        if (typeof schema.$ref !== "string") throw new Error(`JSON Schema $ref must be a string at ${schemaPath}`);
+        if (visitedRefs.has(schema.$ref)) return;
+        visitedRefs.add(schema.$ref);
+        visitSchema(root, resolveSchemaPointer(root, schema.$ref), `${schemaPath} -> ${schema.$ref}`, visitedRefs);
+    }
+    if (schema.definitions !== undefined) {
+        if (schema.definitions === null || typeof schema.definitions !== "object" || Array.isArray(schema.definitions)) {
+            throw new Error(`JSON Schema definitions must be an object at ${schemaPath}`);
+        }
+        for (const [name, definition] of Object.entries(schema.definitions)) {
+            visitSchema(root, definition, `${schemaPath}/definitions/${name}`, visitedRefs);
+        }
+    }
+    if (schema.type !== undefined) {
+        if (Array.isArray(schema.type) || !supportedSchemaTypes.has(schema.type)) {
+            throw new Error(`Unsupported JSON Schema type at ${schemaPath}: ${String(schema.type)}`);
+        }
+    }
+    if (schema.properties !== undefined) {
+        if (schema.type !== "object") throw new Error(`JSON Schema properties require an object type at ${schemaPath}`);
+        if (schema.properties === null || typeof schema.properties !== "object" || Array.isArray(schema.properties)) {
+            throw new Error(`JSON Schema properties must be an object at ${schemaPath}`);
+        }
+        for (const [name, property] of Object.entries(schema.properties)) {
+            visitSchema(root, property, `${schemaPath}/properties/${name}`, visitedRefs);
+        }
+    }
+    if (schema.required !== undefined) {
+        if (schema.type !== "object" || !Array.isArray(schema.required) || schema.required.some(item => typeof item !== "string")) {
+            throw new Error(`JSON Schema required must be a string array on an object at ${schemaPath}`);
+        }
+    }
+    if (schema.additionalProperties !== undefined) {
+        if (schema.additionalProperties !== false) {
+            throw new Error(`Open object schemas are not supported at ${schemaPath}`);
+        }
+    }
+    if (schema.type === "object" && schema.additionalProperties !== false) {
+        throw new Error(`Object schemas must close additional properties at ${schemaPath}`);
+    }
+    if (schema.items !== undefined) {
+        if (schema.type !== "array") throw new Error(`JSON Schema items require an array type at ${schemaPath}`);
+        if (Array.isArray(schema.items)) throw new Error(`Tuple JSON Schema items are not supported at ${schemaPath}`);
+        visitSchema(root, schema.items, `${schemaPath}/items`, visitedRefs);
+    }
+    if (schema.pattern !== undefined) {
+        if (schema.type !== "string" || typeof schema.pattern !== "string") {
+            throw new Error(`JSON Schema pattern requires a string type at ${schemaPath}`);
+        }
+        try {
+            new RegExp(schema.pattern);
+        } catch {
+            throw new Error(`JSON Schema pattern is not a valid regular expression at ${schemaPath}`);
+        }
+    }
+    if (schema.const !== undefined && !isJsonScalar(schema.const)) {
+        throw new Error(`JSON Schema const must be a JSON scalar at ${schemaPath}`);
+    }
+    if (schema.enum !== undefined) {
+        if (!Array.isArray(schema.enum) || schema.enum.length === 0 || !schema.enum.every(isJsonScalar)) {
+            throw new Error(`JSON Schema enum must contain JSON scalars at ${schemaPath}`);
+        }
+    }
+    for (const key of ["description", "title"]) {
+        if (schema[key] !== undefined && typeof schema[key] !== "string") {
+            throw new Error(`JSON Schema ${key} must be a string at ${schemaPath}`);
+        }
+    }
+}
+
+function isJsonScalar(value) {
+    return value === null || value === undefined || typeof value === "string" || typeof value === "boolean" || typeof value === "number";
+}
+
+function renderSchemaModule(entry, schema, metadata) {
+    const { names } = entry.generation.reader;
+    const serialized = JSON.stringify(schema);
+    return [
+        "/** Generated by scripts/generate-contracts.mjs from contracts/catalog.json. Do not edit. */",
+        `export const ${names.schema}: unknown = JSON.parse(${JSON.stringify(serialized)});`,
+        `export const ${names.metadata} = ${JSON.stringify(metadata, null, 2)} as const;`,
+        "",
+    ].join("\n");
+}
+
+function renderValidatorTypes(entry) {
+    const { names } = entry.generation.reader;
+    return [
+        `declare const ${names.validator}: (value: unknown) => boolean;`,
+        `export default ${names.validator};`,
+        "",
+    ].join("\n");
+}
+
+function renderReaderModule(entry) {
+    const { reader } = entry.generation;
+    const schemaModule = basenameWithoutTypeScriptExtension(entry.generation.artifacts.schemaModule);
+    return [
+        "/** Generated by scripts/generate-contracts.mjs from contracts/catalog.json. Do not edit. */",
+        "import {",
+        "    readContractValue,",
+        "    type ContractReadResult,",
+        "    type ContractSchemaNode,",
+        "    type ContractUnknownFieldDiagnostic,",
+        `} from "${reader.module}";`,
+        `import { ${reader.names.metadata}, ${reader.names.schema} } from "./${schemaModule}";`,
+        `import ${reader.names.validator} from "./${entry.generation.artifacts.validator}";`,
+        `import type { ${reader.dataType} } from "${reader.dataTypeModule}";`,
+        "",
+        `export type ${reader.diagnosticType} = ContractUnknownFieldDiagnostic;`,
+        `export type ${reader.resultType} = ContractReadResult<${reader.dataType}>;`,
+        "",
+        `export function ${reader.functionName}(value: unknown): ${reader.resultType} {`,
+        "    return readContractValue(value, {",
+        `        contractId: ${reader.names.metadata}.contractId,`,
+        `        version: ${reader.names.metadata}.version,`,
+        `        schema: ${reader.names.schema} as ContractSchemaNode,`,
+        `        validate: ${reader.names.validator},`,
+        "    });",
+        "}",
+        "",
+    ].join("\n");
+}
+
+function basenameWithoutTypeScriptExtension(fileName) {
+    return fileName.replace(/\.(?:ts|tsx|mts)$/, "");
+}
+
+function packageVersion(name) {
+    const packageJson = require.resolve(`${name}/package.json`);
+    return JSON.parse(require("node:fs").readFileSync(packageJson, "utf8")).version;
+}
+
+function isInside(root, candidate) {
+    const relative = path.relative(root, candidate);
+    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+async function run() {
+    const args = process.argv.slice(2);
+    if (args.length !== 1 || (args[0] !== "--write" && args[0] !== "--check")) {
+        console.error("Usage: node scripts/generate-contracts.mjs --write|--check");
+        process.exitCode = 2;
+        return;
+    }
+    try {
+        if (args[0] === "--check") {
+            const stale = await findStaleContractArtifacts();
+            if (stale.length > 0) {
+                console.error(`Contract artifacts are stale: ${stale.join(", ")}`);
+                console.error("Run npm run contracts:generate -- --write to update them.");
+                process.exitCode = 1;
+                return;
+            }
+            console.log("Contract artifacts are current.");
+            return;
+        }
+
+        const { artifacts } = await generateContractArtifacts();
+        for (const [relativePath, content] of artifacts) {
+            const absolutePath = path.join(defaultRepositoryRoot, relativePath);
+            await mkdir(path.dirname(absolutePath), { recursive: true });
+            await writeFile(absolutePath, content);
+        }
+        console.log(`Generated ${artifacts.size} contract artifacts.`);
+    } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+    }
+}
+
+if (process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+    await run();
+}

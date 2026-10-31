@@ -7,9 +7,9 @@ var __commonJS = (cb, mod) => function __require() {
   }
 };
 
-// provider-models-validator.cjs
-var require_provider_models_validator = __commonJS({
-  "provider-models-validator.cjs"(exports, module) {
+// BrowserProviderModels-validator.cjs
+var require_BrowserProviderModels_validator = __commonJS({
+  "BrowserProviderModels-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
     var pattern0 = new RegExp("\\S", "u");
@@ -169,4 +169,4 @@ var require_provider_models_validator = __commonJS({
     }
   }
 });
-export default require_provider_models_validator();
+export default require_BrowserProviderModels_validator();
