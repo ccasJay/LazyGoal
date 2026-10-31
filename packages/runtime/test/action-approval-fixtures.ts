@@ -36,14 +36,11 @@ import {
     trajectoryStoreFor,
     withDiscoveredProfileTools,
 } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 /** 受控写入 Tool 的输入契约；字段级错误由 Tool Contract 负责。 */
-export const WRITE_INPUT_CONTRACT = contract.object({
-    path: contract.string(),
-    content: contract.string(),
-});
+const WRITE_INPUT_SCHEMA = objectInputSchema({ path: { type: "string" }, content: { type: "string" } });
 
 /** 受控写入 Tool 的输入形状。 */
 export interface WriteToolInput {
@@ -74,8 +71,7 @@ export function createControlledWriteTool(
         definition: {
             id: "write_file",
             description: "受控写入 Tool",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: WRITE_INPUT_CONTRACT }),
-            inputContract: WRITE_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", WRITE_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: options.replayPolicy ?? "manual",

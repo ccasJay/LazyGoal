@@ -10,6 +10,7 @@ import {
     createToolRegistration,
     InMemoryToolRegistry,
 } from "../../../tool-core/src/index";
+import { createTestBinding, objectInputSchema } from "../../../tool-core/test/binding-fixtures";
 import { currentProtocols } from "../../../runtime/test/current-fixtures";
 import { createExecuteProgramRegistration } from "../../../tools/src/index";
 import { JsonFileGoalStore } from "../../src/goal-store";
@@ -66,7 +67,7 @@ const registry = new InMemoryToolRegistry([
     createExecuteProgramRegistration(),
     createTestToolRegistration({
         definition: {
-            id: "read_file", description: "Read fixture", inputContract: contract.object({ path: contract.string() }), isReadOnly: true,
+            id: "read_file", description: "Read fixture", inputBinding: createTestBinding("test.fixture", objectInputSchema({ path: { type: "string" } })), isReadOnly: true,
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),
@@ -77,7 +78,7 @@ const registry = new InMemoryToolRegistry([
     }),
     createTestToolRegistration({
         definition: {
-            id: "write_file", description: "Write fixture", inputContract: contract.object({ path: contract.string(), content: contract.string() }), isReadOnly: false,
+            id: "write_file", description: "Write fixture", inputBinding: createTestBinding("test.fixture", objectInputSchema({ path: { type: "string" }, content: { type: "string" } })), isReadOnly: false,
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),

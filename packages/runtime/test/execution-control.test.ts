@@ -31,7 +31,7 @@ import type {
     RunRef,
     StepExecutor,
 } from "../src/index";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = {
@@ -41,7 +41,7 @@ const profile: AgentProfile = {
     toolIds: [],
 };
 
-const TEST_INPUT_CONTRACT = contract.record(contract.string());
+const TEST_INPUT_SCHEMA = openObjectSchema();
 
 function createExecutingGoal(
     toolIds: readonly string[] = [],
@@ -196,8 +196,7 @@ test("Runner keeps an approved pending Action when Tool execution is aborted", a
         definition: {
             id: "echo",
             description: "Echo input",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "safe",
@@ -275,8 +274,7 @@ test("Runner 原样传播 Contract 解析边界的 ExecutionAbortedError", async
         definition: {
             id: "echo",
             description: "Echo input",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "safe",
@@ -321,8 +319,7 @@ test("Runner 原样传播 Tool 语义校验边界的 ExecutionAbortedError", asy
         definition: {
             id: "echo",
             description: "Echo input",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "safe",
@@ -379,8 +376,7 @@ test("Runner 原样传播 Tool 执行边界的 ExecutionAbortedError 并保留 a
         definition: {
             id: "echo",
             description: "Echo input",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "safe",

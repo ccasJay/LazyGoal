@@ -6,7 +6,7 @@ export const processStartInputMetadata = {
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/tools/src/process-tools.ts#ProcessStartInput",
-    "sha256": "4c0265cb9d10d0d4c183ddcf5004743566f62af59fb79f033623efb200455551"
+    "sha256": "5c765562699904294ecd4f141f0816cba8a93b2a226bd1f338617ecdf65cf3cb"
   },
   "generator": {
     "name": "ts-json-schema-generator",

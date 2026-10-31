@@ -6,7 +6,7 @@ export const gitWorktreeAddInputMetadata = {
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/tools/src/git-worktree-tools.ts#GitWorktreeAddInput",
-    "sha256": "da0341fc9d68b8e017333163b69f6b3f5f2f3b4ed94ca13a05d9f93301c845c3"
+    "sha256": "afdcdcdeefb8230345b83d620052948f1d3d5036a685f7dc2a6675cc9f7ff7e5"
   },
   "generator": {
     "name": "ts-json-schema-generator",

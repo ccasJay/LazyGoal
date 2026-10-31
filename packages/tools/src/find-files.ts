@@ -10,7 +10,6 @@ import {
     type ToolObservation,
     type ToolValidationResult,
 } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -75,15 +74,6 @@ const FIND_FILES_DOMAIN_FAILURES: DomainFailureMessages = {
 };
 
 /** FindFiles Tool 的输入契约。 */
-export const FIND_FILES_INPUT_CONTRACT = contract.object({
-    pattern: contract.string(),
-    path: contract.optional(contract.string()),
-    maxResults: contract.optional(contract.integer({
-        minimum: 1,
-        maximum: FIND_FILES_MAX_RESULTS_LIMIT,
-    })),
-    cursor: contract.optional(contract.string()),
-});
 
 /** FindFiles 输入结构。 */
 /**
@@ -155,7 +145,6 @@ export class FindFilesTool implements BoundTool<FindFilesInput> {
         id: FIND_FILES_TOOL_ID,
         description: "Find files in workspace matching a glob pattern with pagination support.",
         inputBinding: findFilesInputBinding,
-        inputContract: FIND_FILES_INPUT_CONTRACT,
         isReadOnly: true,
     };
 

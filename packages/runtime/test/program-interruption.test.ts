@@ -17,7 +17,7 @@ import {
     InMemoryToolRegistry,
 } from "../../tool-core/src/index";
 import { currentProtocols, InMemoryTrajectoryStore, withDiscoveredProfileTools } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function setup(code: string, tool?: ReturnType<typeof createToolRegistration>, completeAfterFirst = false) {
@@ -101,10 +101,10 @@ test("PTC reports the rejected child Tool input field", {
         definition: {
             id: "read_file",
             description: "Read test content",
-            inputContract: contract.object({
-                path: contract.string(),
-                cursor: contract.optional(contract.string()),
-            }),
+            inputBinding: createTestBinding("test.fixture", objectInputSchema({
+                path: { type: "string" },
+                cursor: { type: "string" },
+            }, ["path"])),
             isReadOnly: true,
         },
         replayPolicy: "safe",
@@ -143,8 +143,7 @@ test("PTC stops before a 129th tool call", {
         definition: {
             id: "count_read",
             description: "Count reads",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({}) }),
-            inputContract: contract.object({}),
+            inputBinding: createTestBinding("test.tool", objectInputSchema()),
             isReadOnly: true,
         },
         replayPolicy: "safe",
@@ -209,8 +208,7 @@ test("PTC rejects an oversized read result without committing a partial observat
         definition: {
             id: "large_read",
             description: "Return a large value",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({}) }),
-            inputContract: contract.object({}),
+            inputBinding: createTestBinding("test.tool", objectInputSchema()),
             isReadOnly: true,
         },
         replayPolicy: "safe",
@@ -251,8 +249,7 @@ test("PTC preserves an unknown write before settling a resource stop", {
         definition: {
             id: "large_write",
             description: "Write and return a large value",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({}) }),
-            inputContract: contract.object({}),
+            inputBinding: createTestBinding("test.tool", objectInputSchema()),
             isReadOnly: false,
         },
         replayPolicy: "safe",
@@ -485,7 +482,7 @@ test("PTC can be cancelled while a child approval is waiting without executing i
     let writes = 0;
     const write = createTestToolRegistration({
         definition: {
-            id: "write_file", description: "Write fixture", inputContract: contract.object({}), isReadOnly: false,
+            id: "write_file", description: "Write fixture", inputBinding: createTestBinding("test.fixture", objectInputSchema()), isReadOnly: false,
         },
         replayPolicy: "manual",
         validate: () => ({ ok: true }),
@@ -529,8 +526,7 @@ test("User Interrupt records unknown PTC parent and child outcomes, then cancels
         definition: {
             id: "interrupt_write",
             description: "Write with interruptible execution",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ value: contract.string() }) }),
-            inputContract: contract.object({ value: contract.string() }),
+            inputBinding: createTestBinding("test.tool", objectInputSchema({ value: { type: "string" } })),
             isReadOnly: false,
         },
         replayPolicy: "manual",

@@ -33,12 +33,8 @@ export const ALFWORLD_RESET_TOOL_ID = "alfworld_reset";
 export const ALFWORLD_STEP_TOOL_ID = "alfworld_step";
 
 /** ALFWorld Reset Tool 的唯一输入 Contract。 */
-export const ALFWORLD_RESET_INPUT_CONTRACT = contract.object({});
 
 /** ALFWorld Step Tool 的唯一输入 Contract。 */
-export const ALFWORLD_STEP_INPUT_CONTRACT = contract.object({
-    command: contract.string(),
-});
 
 /**
  * `alfworld_reset` 的结构化输入。
@@ -192,7 +188,6 @@ export class AlfworldResetTool implements BoundTool<AlfworldResetInput> {
         id: ALFWORLD_RESET_TOOL_ID,
         description: "初始化固定 ALFWorld TextWorld 任务会话",
         inputBinding: alfworldResetInputBinding,
-        inputContract: ALFWORLD_RESET_INPUT_CONTRACT,
         isReadOnly: false,
     };
     readonly replayPolicy = "manual" as const;
@@ -261,7 +256,6 @@ export class AlfworldStepTool implements BoundTool<AlfworldStepInput> {
         id: ALFWORLD_STEP_TOOL_ID,
         description: "向活动 ALFWorld TextWorld 会话提交一条命令",
         inputBinding: alfworldStepInputBinding,
-        inputContract: ALFWORLD_STEP_INPUT_CONTRACT,
         isReadOnly: false,
     };
     readonly replayPolicy = "manual" as const;

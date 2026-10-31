@@ -305,7 +305,7 @@ test("invalid native arguments retain correlated response, sent schema and valid
     const traceSink = new CaptureTraceSink();
     let sentRequest: LLMRequest | undefined;
     const identity = { provider: "google" as const, endpoint: "https://example.test", model: "fixture", protocol: "gemini-content" as const };
-    const args = { summary: "Done", completionEvidence: [], memoryPatch: null, protocolVersion: 1 };
+    const args = { summary: "Done", completionEvidence: "invalid", memoryPatch: null, protocolVersion: 1 };
     const adapter: LLMAdapter = {
         structuredOutputMode: "strict", nativeConversationIdentity: identity,
         async generate(request) {
@@ -335,7 +335,7 @@ test("invalid native arguments retain correlated response, sent schema and valid
     assert.equal(schema.callId, request.callId);
     assert.deepEqual(schema.parametersSchema, sentRequest!.tools!.find(t => t.id === "system_complete_task")!.parametersSchema);
     assert.equal(response.blocks[0].argumentsJson, JSON.stringify(args));
-    assert.ok(error.error.issues.some((issue: any) => issue.code === "extra_field" && issue.path.join(".") === "protocolVersion"));
+    assert.ok(error.error.issues.some((issue: any) => issue.code === "invalid_type" && issue.path.join(".") === "completionEvidence"));
 });
 
 

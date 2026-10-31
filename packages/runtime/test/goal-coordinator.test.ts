@@ -42,7 +42,7 @@ import type {
     StepExecutor,
     ToolGrantStore,
 } from "../src/index";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {
@@ -56,7 +56,7 @@ const profile: AgentProfile = {
     toolIds: [],
 };
 
-const TEST_INPUT_CONTRACT = contract.record(contract.string());
+const TEST_INPUT_SCHEMA = openObjectSchema();
 
 function createTool(definition: BoundToolDefinition<any>): Tool<any> {
     return {
@@ -605,8 +605,7 @@ test("persists a goal Grant before approving and activates it before scheduling"
         const registration = createTestToolRegistration(createTool({
             id: "read_file",
             description: "Read a file",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         }));
         let scheduled = false;
@@ -749,8 +748,7 @@ test("recovers a committed approval by activating its pending Grant before retry
         const registration = createTestToolRegistration(createTool({
             id: "read_file",
             description: "Read a file",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         }));
         const matcher = await createToolGrantMatcher("read_file", { path: "README.md" });
@@ -928,8 +926,7 @@ test("Coordinator 与 Runner 协作恢复 manual Action 后等待重新批准", 
         definition: {
             id: "read_file",
             description: "需要人工确认的读取 Tool",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: true,
         },
         replayPolicy: "manual",

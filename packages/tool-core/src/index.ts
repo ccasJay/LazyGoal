@@ -30,7 +30,6 @@ export type {
     ToolDefinition,
     ToolExecutionContext,
     ToolExecutionRequest,
-    ToolInputContract,
     ToolObservation,
     ToolRegistration,
     ToolRegistry,

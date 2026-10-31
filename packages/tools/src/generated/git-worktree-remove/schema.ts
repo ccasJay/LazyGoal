@@ -6,7 +6,7 @@ export const gitWorktreeRemoveInputMetadata = {
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/tools/src/git-worktree-tools.ts#GitWorktreeRemoveInput",
-    "sha256": "c45751383dd8088987ac39ed8089b8abc03f4f4f7df1ca95b6d1d5336892e3e4"
+    "sha256": "53686f5d1ded7819ae7286b0c2a608d7cde24fe40790f541d32ad4496b08ae67"
   },
   "generator": {
     "name": "ts-json-schema-generator",

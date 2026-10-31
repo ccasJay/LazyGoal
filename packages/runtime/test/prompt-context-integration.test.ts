@@ -35,18 +35,17 @@ import type {
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();
-const fileInput = contract.object({ path: contract.string() });
+const fileInput = objectInputSchema({ path: { type: "string" } });
 const fileTool: Tool<any> = {
     definition: {
         id: "inspect_file",
         description: "读取文件并返回当前工作区 Observation",
-        inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: fileInput }),
-        inputContract: fileInput,
+        inputBinding: createTestBinding("test.tool", fileInput),
         isReadOnly: true,
     },
     replayPolicy: "safe",

@@ -2,14 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { safeParse, compileJsonSchema } from "../../contracts/src/index";
+
 import {
     createToolRegistration,
     InMemoryToolRegistry,
     TransientToolExecutionFailure,
 } from "../../tool-core/src/index";
 import {
-    WEB_SEARCH_INPUT_CONTRACT,
     WEB_SEARCH_TOOL_ID,
     WebSearchTool,
     type WebSearchResult,
@@ -36,24 +35,15 @@ const validPlan = {
     scope: { extraFiles: [], network: "all_outbound" as const },
 };
 
-test("web_search contract 校验正常输入和非法结构", () => {
-    const valid = safeParse(WEB_SEARCH_INPUT_CONTRACT, { query: "hello world" });
-    assert.equal(valid.success, true);
-    if (valid.success) {
-        assert.deepEqual(valid.data, { query: "hello world" });
-    }
-
-    const withMax = safeParse(WEB_SEARCH_INPUT_CONTRACT, { query: "hello", maxResults: 5 });
-    assert.equal(withMax.success, true);
-
-    const missingQuery = safeParse(WEB_SEARCH_INPUT_CONTRACT, {});
-    assert.equal(missingQuery.success, false);
-
-    const zeroMax = safeParse(WEB_SEARCH_INPUT_CONTRACT, { query: "hello", maxResults: 0 });
-    assert.equal(zeroMax.success, false);
-
-    const overMax = safeParse(WEB_SEARCH_INPUT_CONTRACT, { query: "hello", maxResults: 25 });
-    assert.equal(overMax.success, false);
+test("web_search 生成输入绑定校验正常输入和非法结构", () => {
+    const binding = new WebSearchTool().definition.inputBinding;
+    const valid = binding.read({ query: "hello world" }, "reject");
+    assert.equal(valid.ok, true);
+    if (valid.ok) assert.deepEqual(valid.data, { query: "hello world" });
+    assert.equal(binding.read({ query: "hello", maxResults: 5 }, "reject").ok, true);
+    assert.equal(binding.read({}, "reject").ok, false);
+    assert.equal(binding.read({ query: "hello", maxResults: 0 }, "reject").ok, false);
+    assert.equal(binding.read({ query: "hello", maxResults: 25 }, "reject").ok, false);
 });
 
 test("web_search validate 拒绝纯空白 query", () => {
@@ -240,7 +230,7 @@ test("web_search 普通后端异常时返回 failure observation 且不无限重
 
 test("web_search 工具成功注册进 ToolRegistry 且 JSON Schema 编译通过", () => {
     const tool = new WebSearchTool();
-    const schema = compileJsonSchema(tool.definition.inputContract!);
+    const schema = tool.definition.inputBinding.modelProjection().schema;
     assert.equal(typeof schema === "object" && schema !== null, true);
     const properties = (schema as { properties?: Record<string, unknown> }).properties;
     assert.ok(properties !== undefined && "query" in properties);

@@ -1,5 +1,4 @@
 import { resolve } from "node:path";
-import { contract } from "../../contracts/src/index";
 import type {
     BoundTool,
     Tool,
@@ -50,10 +49,6 @@ export const GIT_BRANCH_SWITCH_TOOL_ID = "git_branch_switch";
 /**
  * `git_add` 输入契约。
  */
-export const GIT_ADD_INPUT_CONTRACT = contract.object({
-    paths: contract.array(contract.string()),
-    repoPath: contract.optional(contract.string()),
-});
 
 /**
  * `git_add` 的结构化输入。
@@ -76,21 +71,8 @@ export interface GitAddOutput {
 }
 
 /**
- * `git_commit` 作者信息契约。
+ * `git_commit` 的结构化输入。
  */
-export const GIT_COMMIT_AUTHOR_CONTRACT = contract.object({
-    name: contract.string(),
-    email: contract.string(),
-});
-
-/**
- * `git_commit` 输入契约。
- */
-export const GIT_COMMIT_INPUT_CONTRACT = contract.object({
-    message: contract.string(),
-    repoPath: contract.optional(contract.string()),
-    author: contract.optional(GIT_COMMIT_AUTHOR_CONTRACT),
-});
 
 /**
  * `git_commit` 的结构化输入。
@@ -131,11 +113,6 @@ export interface GitCommitOutput {
 /**
  * `git_branch_create` 输入契约。
  */
-export const GIT_BRANCH_CREATE_INPUT_CONTRACT = contract.object({
-    branch: contract.string(),
-    repoPath: contract.optional(contract.string()),
-    startPoint: contract.optional(contract.string()),
-});
 
 /**
  * `git_branch_create` 的结构化输入。
@@ -164,11 +141,6 @@ export interface GitBranchCreateOutput {
 /**
  * `git_branch_switch` 输入契约。
  */
-export const GIT_BRANCH_SWITCH_INPUT_CONTRACT = contract.object({
-    branch: contract.string(),
-    repoPath: contract.optional(contract.string()),
-    createIfNotExists: contract.optional(contract.boolean()),
-});
 
 /**
  * `git_branch_switch` 的结构化输入。
@@ -265,7 +237,6 @@ export class GitAddTool implements BoundTool<GitAddInput> {
         id: GIT_ADD_TOOL_ID,
         description: "Stage specified workspace files into the Git index using literal paths.",
         inputBinding: gitAddInputBinding,
-        inputContract: GIT_ADD_INPUT_CONTRACT,
         isReadOnly: false,
     };
 
@@ -409,7 +380,6 @@ export class GitCommitTool implements BoundTool<GitCommitInput> {
         id: GIT_COMMIT_TOOL_ID,
         description: "Commit staged changes to current branch with required message and optional author.",
         inputBinding: gitCommitInputBinding,
-        inputContract: GIT_COMMIT_INPUT_CONTRACT,
         isReadOnly: false,
     };
 
@@ -596,7 +566,6 @@ export class GitBranchCreateTool implements BoundTool<GitBranchCreateInput> {
         id: GIT_BRANCH_CREATE_TOOL_ID,
         description: "Create a new local Git branch without switching to it.",
         inputBinding: gitBranchCreateInputBinding,
-        inputContract: GIT_BRANCH_CREATE_INPUT_CONTRACT,
         isReadOnly: false,
     };
 
@@ -767,7 +736,6 @@ export class GitBranchSwitchTool implements BoundTool<GitBranchSwitchInput> {
         id: GIT_BRANCH_SWITCH_TOOL_ID,
         description: "Switch current working tree branch safely without overwriting uncommitted changes.",
         inputBinding: gitBranchSwitchInputBinding,
-        inputContract: GIT_BRANCH_SWITCH_INPUT_CONTRACT,
         isReadOnly: false,
     };
 

@@ -26,7 +26,7 @@ import type {
     StepExecutionInput,
     StepExecutor,
 } from "../src/index";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = {
@@ -40,8 +40,7 @@ const readFileTool: Tool = {
     definition: {
         id: "read_file",
         description: "Read a file",
-        inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ path: contract.string() }) }),
-        inputContract: contract.object({ path: contract.string() }),
+        inputBinding: createTestBinding("test.tool", objectInputSchema({ path: { type: "string" } })),
         isReadOnly: true,
     },
     replayPolicy: "safe",

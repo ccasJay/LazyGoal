@@ -6,7 +6,6 @@ import {
     type ToolObservation,
     type ToolValidationResult,
 } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     throwIfAborted,
@@ -87,15 +86,6 @@ export type WebSearchBackend = (
 ) => Promise<readonly WebSearchResult[]>;
 
 /** Web Search Tool 的唯一输入 Contract。 */
-export const WEB_SEARCH_INPUT_CONTRACT = contract.object({
-    query: contract.string(),
-    maxResults: contract.optional(
-        contract.integer({
-            minimum: 1,
-            maximum: WEB_SEARCH_MAX_RESULTS_LIMIT,
-        }),
-    ),
-});
 
 /**
  * `web_search` 的结构化输入。
@@ -143,7 +133,6 @@ export class WebSearchTool implements BoundTool<WebSearchInput> {
         id: WEB_SEARCH_TOOL_ID,
         description: "Search information online and return bounded title, URL, and snippet lists.",
         inputBinding: webSearchInputBinding,
-        inputContract: WEB_SEARCH_INPUT_CONTRACT,
         isReadOnly: true,
     };
 

@@ -20,9 +20,6 @@ export { submitAnswerInputBinding };
 export const SUBMIT_ANSWER_TOOL_ID = "submit_answer";
 
 /** Submit Answer Tool 的唯一输入 Contract。 */
-export const SUBMIT_ANSWER_INPUT_CONTRACT = contract.object({
-    answer: contract.string(),
-});
 
 /**
  * `submit_answer` 的结构化输入。
@@ -64,7 +61,6 @@ export class SubmitAnswerTool implements BoundTool<SubmitAnswerInput> {
         id: SUBMIT_ANSWER_TOOL_ID,
         description: "提交 GAIA 任务的最终答案。每个任务只允许调用一次，提交后任务结束。",
         inputBinding: submitAnswerInputBinding,
-        inputContract: SUBMIT_ANSWER_INPUT_CONTRACT,
         isReadOnly: true,
     };
 

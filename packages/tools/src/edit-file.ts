@@ -6,7 +6,6 @@ import type {
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -51,11 +50,6 @@ const EDIT_FILE_DOMAIN_FAILURES: DomainFailureMessages = {
 };
 
 /** Edit File Tool 的唯一输入 Contract（过渡期供模型线消费）。 */
-export const EDIT_FILE_INPUT_CONTRACT = contract.object({
-    path: contract.string(),
-    oldString: contract.string(),
-    newString: contract.string(),
-});
 
 /**
  * `edit_file` 的结构化输入。
@@ -99,7 +93,6 @@ export class EditFileTool implements BoundTool<EditFileInput> {
         id: EDIT_FILE_TOOL_ID,
         description: "对 workspaceRoot 内的 UTF-8 文本文件执行唯一匹配的字符串替换",
         inputBinding: editFileInputBinding,
-        inputContract: EDIT_FILE_INPUT_CONTRACT,
         isReadOnly: false,
     };
 

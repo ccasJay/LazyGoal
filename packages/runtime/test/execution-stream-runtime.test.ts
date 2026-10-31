@@ -22,8 +22,10 @@ import {
 } from "../../execution-stream/src/index";
 import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
+import type { JsonValue } from "../../contracts/src/index";
+import { createTestBinding, openObjectSchema } from "../../tool-core/test/binding-fixtures";
 
-const inputContract = contract.record(contract.string());
+const inputBinding = createTestBinding<JsonValue>("test.stream", openObjectSchema());
 
 function createStreamGoal(): Goal {
     const created = withDiscoveredProfileTools(createGoal({
@@ -73,11 +75,11 @@ class StreamDecisionExecutor extends BaseTestStepExecutor {
     }
 }
 
-function createStreamingTool(): Tool<typeof inputContract> {
+function createStreamingTool(): Tool {
     const definition = {
         id: "stream-tool",
         description: "stream test",
-        inputContract,
+        inputBinding,
         isReadOnly: true,
     } as const;
     return {

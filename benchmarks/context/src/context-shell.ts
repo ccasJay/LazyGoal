@@ -6,9 +6,6 @@ import { contract } from "../../../packages/contracts/src/index.js";
  * @remarks
  * 联合切换后由生成的输入绑定取代该 AST，模型声明直接读取绑定 Schema。
  */
-export const CONTEXT_SHELL_INPUT_CONTRACT = contract.object({
-    command: contract.string(),
-});
 
 /**
  * `context_shell` 的结构化输入。

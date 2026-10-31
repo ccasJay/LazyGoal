@@ -26,7 +26,7 @@ import {
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { BaseTestStepExecutor, currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor } from "./current-fixtures";
 import { contract } from "../../contracts/src/index";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = {
@@ -41,12 +41,11 @@ const task: GoalTask = {
     completionCriteria: [],
 };
 
-const OBSERVATION_TOOL_INPUT = contract.object({});
+const OBSERVATION_TOOL_INPUT = objectInputSchema();
 const OBSERVATION_TOOL_DEFINITION: BoundToolDefinition<any> = {
     id: "record_observation",
     description: "产生可引用的当前 Run Observation",
-    inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: OBSERVATION_TOOL_INPUT }),
-    inputContract: OBSERVATION_TOOL_INPUT,
+    inputBinding: createTestBinding("test.tool", OBSERVATION_TOOL_INPUT),
     isReadOnly: true,
 };
 

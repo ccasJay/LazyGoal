@@ -8,7 +8,6 @@ import type {
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -53,10 +52,6 @@ const WRITE_FILE_DOMAIN_FAILURES: DomainFailureMessages = {
 };
 
 /** Write File Tool 的唯一输入 Contract（过渡期供模型线消费）。 */
-export const WRITE_FILE_INPUT_CONTRACT = contract.object({
-    path: contract.string(),
-    content: contract.string(),
-});
 
 /**
  * `write_file` 的结构化输入。
@@ -96,7 +91,6 @@ export class WriteFileTool implements BoundTool<WriteFileInput> {
         id: WRITE_FILE_TOOL_ID,
         description: "写入 workspaceRoot 内的 UTF-8 文本文件（覆盖已有内容）",
         inputBinding: writeFileInputBinding,
-        inputContract: WRITE_FILE_INPUT_CONTRACT,
         isReadOnly: false,
     };
 

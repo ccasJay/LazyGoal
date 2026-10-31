@@ -27,7 +27,7 @@ import type {
     TrajectoryStore,
 } from "../src/index";
 import { currentProtocols, withDiscoveredProfileTools } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {
@@ -41,7 +41,7 @@ const profile: AgentProfile = {
     toolIds: ["echo"],
 };
 
-const TEST_INPUT_CONTRACT = contract.record(contract.string());
+const TEST_INPUT_SCHEMA = openObjectSchema();
 
 class MemoryGoalStore implements GoalStore {
     private goal?: Goal;
@@ -126,8 +126,7 @@ function toolThatFails(): Tool<any> {
         definition: {
             id: "echo",
             description: "echo",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "manual",
@@ -143,8 +142,7 @@ function toolWithoutResult(): Tool<any> {
         definition: {
             id: "echo",
             description: "echo",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "manual",
@@ -160,8 +158,7 @@ function toolThatSucceeds(onExecute?: () => void): Tool<any> {
         definition: {
             id: "echo",
             description: "echo",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "safe",

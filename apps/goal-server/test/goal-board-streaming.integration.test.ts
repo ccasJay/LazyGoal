@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { contract } from "../../../packages/contracts/src/index";
+import { contract, type JsonValue } from "../../../packages/contracts/src/index";
+import { createTestBinding, objectInputSchema } from "../../../packages/tool-core/test/binding-fixtures";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import { toolResponseFixture } from "../../../packages/agent/test/tool-response-fixture";
 import type { AgentProfile, Goal, RunStopReason } from "../../../packages/runtime/src/index";
@@ -16,7 +17,7 @@ import {
 import { createRuntimeComposition, type RuntimeComposition } from "../src/runtime/index";
 import { createTestToolRegistration } from "../../../packages/tool-core/test/helpers";
 
-const fixtureInput = contract.object({ value: contract.string() });
+const fixtureInput = objectInputSchema({ value: { type: "string" } });
 const profile: AgentProfile = {
     id: "profile-goal-board-streaming",
     systemPrompt: "You are a deterministic acceptance agent.",
@@ -82,11 +83,11 @@ test("正式装配贯通工具活动与正式答复，并给出稳定位置与�
     await Promise.all([mkdir(workspace), mkdir(dataDirectory), mkdir(home)]);
 
     let toolCalls = 0;
-    const controlledTool: Tool<typeof fixtureInput> = {
+    const controlledTool: Tool = {
         definition: {
             id: "streaming_fixture_write",
             description: "Write one deterministic value to the isolated acceptance workspace.",
-            inputContract: fixtureInput,
+            inputBinding: createTestBinding<JsonValue>("test.fixture", fixtureInput),
             isReadOnly: false,
         },
         replayPolicy: "manual",

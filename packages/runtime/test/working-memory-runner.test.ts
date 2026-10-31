@@ -28,7 +28,7 @@ import type {
     TrajectoryReadResult,
     TrajectoryStore,
 } from "../src/index";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = {
@@ -38,7 +38,7 @@ const profile: AgentProfile = {
     toolIds: ["read_file"],
 };
 
-const TEST_INPUT_CONTRACT = contract.record(contract.string());
+const TEST_INPUT_SCHEMA = openObjectSchema();
 
 class MemoryTrajectoryStore implements TrajectoryStore {
     readonly events: TrajectoryEvent[] = [];
@@ -126,8 +126,7 @@ function tool(): Tool<any> {
         definition: {
             id: "read_file",
             description: "read",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: true,
         },
         replayPolicy: "safe",

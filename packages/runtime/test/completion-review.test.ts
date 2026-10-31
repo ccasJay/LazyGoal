@@ -10,7 +10,7 @@ import { createToolRegistration, InMemoryToolRegistry } from "../../tool-core/sr
 import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function goal(id: string, mode: "normal" | "plan" = "normal"): Goal {
@@ -69,7 +69,7 @@ for (const mode of ["normal", "plan"] as const) {
         await store.save(initial);
         const reads: string[] = [];
         const toolRegistry = new InMemoryToolRegistry([createTestToolRegistration({
-            definition: { id: "read", description: "Read a resource", isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
+            definition: { id: "read", description: "Read a resource", isReadOnly: true, inputBinding: createTestBinding("test.fixture", objectInputSchema({ path: { type: "string" } }))},
             replayPolicy: "safe", validate: () => ({ ok: true }),
             async execute({ input }: any) {
                 reads.push(String(input.path));
@@ -251,7 +251,7 @@ for (const mode of ["normal", "plan"] as const) {
             const trajectory = new InMemoryTrajectoryStore();
             await store.save(initial);
             let calls = 0, reads = 0, reviews = 0;
-            const registry = new InMemoryToolRegistry([createTestToolRegistration({ definition: { id: "read", description: "Read resource", inputContract: contract.object({ path: contract.string() }), isReadOnly: true }, replayPolicy: "safe", validate: () => ({ ok: true }),
+            const registry = new InMemoryToolRegistry([createTestToolRegistration({ definition: { id: "read", description: "Read resource", inputBinding: createTestBinding("test.fixture", objectInputSchema({ path: { type: "string" } })), isReadOnly: true }, replayPolicy: "safe", validate: () => ({ ok: true }),
                 async execute() { reads++; return { kind: "success", output: { text: "Verified source" }, summary: "Read source" }; } })]);
             const executor = createStepExecutor(input => {
                 calls++;

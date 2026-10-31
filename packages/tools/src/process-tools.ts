@@ -9,7 +9,6 @@ import type {
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     throwIfAborted,
@@ -29,9 +28,6 @@ import {
     resolveGitProtectionPaths,
     type DerivedSandboxAccess,
 } from "../../sandbox/src/index";
-import {
-    SANDBOX_ACCESS_CONTRACT,
-} from "./bash";
 import type { ProcessManager } from "../../process-runtime/src/index";
 import type { ProcessSessionStore } from "../../runtime/src/index";
 import { processReadInputBinding } from "./generated/process-read/binding";
@@ -55,11 +51,6 @@ export const PROCESS_READ_DEFAULT_MAX_CHARS = 16_000;
 export const PROCESS_READ_MAX_CHARS_LIMIT = 50_000;
 
 // ======================== process_start ========================
-
-export const PROCESS_START_INPUT_CONTRACT = contract.object({
-    command: contract.string(),
-    sandboxAccess: contract.optional(SANDBOX_ACCESS_CONTRACT),
-});
 
 /**
  * `process_start` 的结构化输入。
@@ -126,7 +117,6 @@ export class ProcessStartTool implements BoundTool<ProcessStartInput> {
         id: PROCESS_START_TOOL_ID,
         description: "Start a background managed process within workspaceRoot without waiting for its completion.",
         inputBinding: processStartInputBinding,
-        inputContract: PROCESS_START_INPUT_CONTRACT,
         isReadOnly: false,
     };
 
@@ -278,14 +268,6 @@ export class ProcessStartTool implements BoundTool<ProcessStartInput> {
 
 // ======================== process_read ========================
 
-export const PROCESS_READ_INPUT_CONTRACT = contract.object({
-    processId: contract.string(),
-    cursor: contract.optional(contract.integer({ minimum: 0 })),
-    channel: contract.optional(contract.enum(["stdout", "stderr", "both"] as const)),
-    waitMs: contract.optional(contract.integer({ minimum: 0, maximum: PROCESS_READ_MAX_WAIT_MS })),
-    maxChars: contract.optional(contract.integer({ minimum: 1, maximum: PROCESS_READ_MAX_CHARS_LIMIT })),
-});
-
 /**
  * `process_read` 的结构化输入。
  *
@@ -368,7 +350,6 @@ export class ProcessReadTool implements BoundTool<ProcessReadInput> {
         id: PROCESS_READ_TOOL_ID,
         description: "Read stdout/stderr output from a managed background process with cursor pagination.",
         inputBinding: processReadInputBinding,
-        inputContract: PROCESS_READ_INPUT_CONTRACT,
         isReadOnly: true,
     };
 
@@ -487,10 +468,6 @@ export class ProcessReadTool implements BoundTool<ProcessReadInput> {
 
 // ======================== process_stop ========================
 
-export const PROCESS_STOP_INPUT_CONTRACT = contract.object({
-    processId: contract.string(),
-});
-
 /**
  * `process_stop` 的结构化输入。
  */
@@ -521,7 +498,6 @@ export class ProcessStopTool implements BoundTool<ProcessStopInput> {
         id: PROCESS_STOP_TOOL_ID,
         description: "Stop a managed background process belonging to current Goal.",
         inputBinding: processStopInputBinding,
-        inputContract: PROCESS_STOP_INPUT_CONTRACT,
         isReadOnly: false,
     };
 

@@ -8,15 +8,14 @@ import { resolveAuthorizedToolDefinitions } from "../src/tool";
 import { findTools } from "../src/tool-discovery";
 import type { BoundToolDefinition } from "../../tool-core/src/index";
 import { currentProtocols } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function tool(id: string, description: string): BoundToolDefinition {
     return {
         id,
         description,
-        inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({}) }),
-        inputContract: contract.object({}),
+        inputBinding: createTestBinding("test.tool", objectInputSchema()),
         isReadOnly: true,
     };
 }
@@ -62,13 +61,13 @@ test("findTools keeps PTC inside the five results for the recorded mixed query",
 });
 
 test("discovery aliases survive registration and Profile filtering without granting access", () => {
-    const inputContract = contract.object({});
+    const inputBinding = createTestBinding("test.aliased_tool", objectInputSchema());
     const registration = createTestToolRegistration({
         definition: {
             id: "aliased_tool",
             description: "A test tool",
             discoveryAliases: ["special"],
-            inputContract,
+            inputBinding,
             isReadOnly: true,
         },
         replayPolicy: "safe",

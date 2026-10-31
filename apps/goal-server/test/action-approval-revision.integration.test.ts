@@ -6,7 +6,8 @@ import { test } from "node:test";
 
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import { toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
-import { contract } from "../../../packages/contracts/src/index";
+import { contract, type JsonValue } from "../../../packages/contracts/src/index";
+import { createTestBinding, objectInputSchema } from "../../../packages/tool-core/test/binding-fixtures";
 import type { AgentProfile } from "../../../packages/runtime/src/index";
 import {
     createToolRegistration,
@@ -46,7 +47,7 @@ function controlledWriteTool(executed: { value: string }[]): Tool {
         definition: {
             id: "controlled_write",
             description: "Controlled write",
-            inputContract: contract.object({ value: contract.string() }),
+            inputBinding: createTestBinding<JsonValue>("test.fixture", objectInputSchema({ value: { type: "string" } })),
             isReadOnly: false,
         },
         replayPolicy: "safe",
@@ -256,7 +257,7 @@ function failingManualTool(executed: { value: string }[]): Tool {
         definition: {
             id: "controlled_write",
             description: "Controlled write with an unknown effect",
-            inputContract: contract.object({ value: contract.string() }),
+            inputBinding: createTestBinding<JsonValue>("test.fixture", objectInputSchema({ value: { type: "string" } })),
             isReadOnly: false,
         },
         replayPolicy: "manual",

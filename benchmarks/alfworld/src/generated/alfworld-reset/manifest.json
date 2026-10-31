@@ -4,7 +4,7 @@
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "benchmarks/alfworld/src/alfworld-tools.ts#AlfworldResetInput",
-    "sha256": "ab79612d5882f161364a7f5bd6493c01d0d453dbe2906798308968e98f7384bd"
+    "sha256": "869ef11f4c8f56637aba04c45d27d7452efea616b23ab9c7e4acadaa797eebd3"
   },
   "generator": {
     "name": "ts-json-schema-generator",

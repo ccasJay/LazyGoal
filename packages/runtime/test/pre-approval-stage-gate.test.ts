@@ -5,7 +5,7 @@ import { InMemoryGoalStore } from "../../storage/src/index";
 import { createToolRegistration, InMemoryToolRegistry } from "../../tool-core/src/index";
 import { createGoal, createInitialRunStage, Runner, type StepExecutor } from "../src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 test("Plan pre-approval investigation uses Tool policy before any executing stage is declared", async () => {
@@ -17,10 +17,10 @@ test("Plan pre-approval investigation uses Tool policy before any executing stag
     let readExecutions = 0;
     let writeExecutions = 0;
     const registry = new InMemoryToolRegistry([createTestToolRegistration({
-        definition: { id: "inspect", description: "Inspect the workspace", isReadOnly: true, inputContract: contract.object({}) }, replayPolicy: "safe", validate: () => ({ ok: true }),
+        definition: { id: "inspect", description: "Inspect the workspace", isReadOnly: true, inputBinding: createTestBinding("test.fixture", objectInputSchema())}, replayPolicy: "safe", validate: () => ({ ok: true }),
         async execute() { readExecutions += 1; return { kind: "success", output: "Inspected", summary: "Inspected" }; },
     }), createTestToolRegistration({
-        definition: { id: "write", description: "Change the workspace", isReadOnly: false, inputContract: contract.object({}) }, replayPolicy: "safe", validate: () => ({ ok: true }),
+        definition: { id: "write", description: "Change the workspace", isReadOnly: false, inputBinding: createTestBinding("test.fixture", objectInputSchema())}, replayPolicy: "safe", validate: () => ({ ok: true }),
         async execute() { writeExecutions += 1; return { kind: "success", output: "Changed", summary: "Changed" }; },
     })]);
     const executor: StepExecutor = {
@@ -55,7 +55,7 @@ test("Plan pre-approval Runtime rejects a forged write Tool call before any side
     await store.save({ ...initial, state: { ...initial.state, run: { ...initial.state.run, mode: "plan", exposedToolIds: ["write"] } } });
     let writes = 0;
     const registry = new InMemoryToolRegistry([createTestToolRegistration({
-        definition: { id: "write", description: "Change the workspace", isReadOnly: false, inputContract: contract.object({}) }, replayPolicy: "safe", validate: () => ({ ok: true }),
+        definition: { id: "write", description: "Change the workspace", isReadOnly: false, inputBinding: createTestBinding("test.fixture", objectInputSchema())}, replayPolicy: "safe", validate: () => ({ ok: true }),
         async execute() { writes += 1; return { kind: "success", output: "Changed", summary: "Changed" }; },
     })]);
     let decideCalls = 0;
@@ -100,7 +100,7 @@ test("Normal Run keeps its existing write Tool access behind the current RunStag
     });
     let writes = 0;
     const registry = new InMemoryToolRegistry([createTestToolRegistration({
-        definition: { id: "write", description: "Change the workspace", isReadOnly: false, inputContract: contract.object({}) }, replayPolicy: "safe", validate: () => ({ ok: true }),
+        definition: { id: "write", description: "Change the workspace", isReadOnly: false, inputBinding: createTestBinding("test.fixture", objectInputSchema())}, replayPolicy: "safe", validate: () => ({ ok: true }),
         async execute() { writes += 1; return { kind: "success", output: "Changed", summary: "Changed" }; },
     })]);
     let decideCalls = 0;

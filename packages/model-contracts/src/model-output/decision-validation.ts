@@ -1,5 +1,6 @@
 import {
     ContractValidationError,
+    isRecord,
     type ContractIssueCode,
 } from "../../../contracts/src/index";
 import type {
@@ -133,10 +134,6 @@ function decodeWithBinding<T>(binding: ContractBinding<T>, value: unknown): T {
         );
     }
     return decoded.data;
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isJsonValue(value: unknown): value is JsonValue {

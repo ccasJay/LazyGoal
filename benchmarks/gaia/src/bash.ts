@@ -1,5 +1,4 @@
 import {
-    BASH_INPUT_CONTRACT,
     BASH_TOOL_ID,
     BashTool,
     bashInputBinding,
@@ -8,7 +7,6 @@ import {
 import type { BoundToolDefinition } from "../../../packages/tool-core/src/index.js";
 
 export {
-    BASH_INPUT_CONTRACT,
     BASH_TOOL_ID,
 } from "../../../packages/tools/src/index.js";
 
@@ -38,7 +36,6 @@ export class GaiaBashTool extends BashTool {
         id: BASH_TOOL_ID,
         description: "在 workspaceRoot 内以 bash 执行命令并返回输出。可用于运行 Python 脚本或 shell 命令进行精确计算和数据分析。",
         inputBinding: bashInputBinding,
-        inputContract: BASH_INPUT_CONTRACT,
         isReadOnly: true,
     };
 }

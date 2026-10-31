@@ -28,7 +28,7 @@ import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import type { NativeConversationIdentity } from "../../model-contracts/src/index";
 import { currentProtocols, messageOutline, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const identity: NativeConversationIdentity = {
@@ -47,8 +47,7 @@ const readTool: BoundToolDefinition = {
     id: "read_file",
     description: "Read a file",
     isReadOnly: true,
-    inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ path: contract.string() }) }),
-    inputContract: contract.object({ path: contract.string() }),
+    inputBinding: createTestBinding("test.tool", objectInputSchema({ path: { type: "string" } })),
 };
 const renderer = await createDefaultPromptBundleRenderer();
 

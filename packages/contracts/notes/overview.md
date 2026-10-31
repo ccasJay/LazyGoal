@@ -29,7 +29,7 @@
 
 ## Tool 输入契约基础
 
-每个 Tool 通过 `ToolDefinition.inputContract` 声明唯一输入事实源。Runtime 与 Tool 实现使用同一 AST 生成模型可见 Schema，并在执行前执行 `safeParse` 与领域 `validate`。模型不能通过输出额外字段或自报结果绕过校验。
+模型与工具边界已迁移到 TS 单源和生成 `ContractBinding`：Tool 输入由工具线绑定声明唯一事实源，模型请求与 Runtime 校验使用同源生成制品。共享 Contract AST 仍服务尚未迁移的 Web、Storage 与其他边界，最终删除由独立方向处理。
 
 ## 相关入口
 

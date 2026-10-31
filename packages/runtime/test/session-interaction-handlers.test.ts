@@ -21,7 +21,7 @@ import { contract } from "../../contracts/src/index";
 import { createToolRegistration, type Tool } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = { id: "handler-profile", systemPrompt: "Test", instructions: [], toolIds: [] };
@@ -289,8 +289,7 @@ test("自动放行的工具不触发审批处理器，恢复请求不落入普�
         definition: {
             id: "write_probe",
             description: "May write externally",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.record(contract.string()) }),
-            inputContract: contract.record(contract.string()),
+            inputBinding: createTestBinding("test.tool", openObjectSchema()),
             isReadOnly: false,
         },
         replayPolicy: "manual",

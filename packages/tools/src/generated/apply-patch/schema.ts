@@ -6,7 +6,7 @@ export const applyPatchInputMetadata = {
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/tools/src/apply-patch.ts#ApplyPatchInput",
-    "sha256": "e201d5a3af8f840f53a91c99baba996d180b8af91135d1d04a8e5b611a276e37"
+    "sha256": "117b47f7e52daf63e45774c5ad045eee18897791ba913cc7adfda5e1fecd42a8"
   },
   "generator": {
     "name": "ts-json-schema-generator",

@@ -11,7 +11,6 @@ import {
     type ToolStreamEvent,
     type ToolValidationResult,
 } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     throwIfAborted,
@@ -77,36 +76,6 @@ function createSearchEnvironment(
 function isRipgrepInvocation(command: string): boolean {
     return /^(?:env\s+)?rg(?:\s|$)/u.test(command.trim());
 }
-
-/** 单项文件沙箱访问申请 Contract。 */
-export const SANDBOX_FILE_ACCESS_CONTRACT = contract.object({
-    path: contract.string(),
-    access: contract.enum(["read", "write"] as const),
-    kind: contract.enum(["file", "directory_tree"] as const),
-    purpose: contract.string(),
-});
-
-/** 网络沙箱访问申请 Contract。 */
-export const SANDBOX_NETWORK_ACCESS_CONTRACT = contract.object({
-    targets: contract.array(contract.string()),
-    purpose: contract.string(),
-});
-
-/** 沙箱额外能力申请 Contract。 */
-export const SANDBOX_ACCESS_CONTRACT = contract.object({
-    files: contract.optional(contract.array(SANDBOX_FILE_ACCESS_CONTRACT)),
-    network: contract.optional(SANDBOX_NETWORK_ACCESS_CONTRACT),
-});
-
-/** Bash Tool 的唯一输入 Contract。 */
-export const BASH_INPUT_CONTRACT = contract.object({
-    command: contract.string(),
-    timeoutMs: contract.optional(contract.integer({
-        minimum: 1,
-        maximum: BASH_MAX_TIMEOUT_MS,
-    })),
-    sandboxAccess: contract.optional(SANDBOX_ACCESS_CONTRACT),
-});
 
 /**
  * Bash 工具申请的单文件或目录树访问。
@@ -601,7 +570,6 @@ export class BashTool implements BoundTool<BashInput> {
         id: BASH_TOOL_ID,
         description: "在 workspaceRoot 内以 bash 执行命令并返回截断后的 stdout/stderr",
         inputBinding: bashInputBinding,
-        inputContract: BASH_INPUT_CONTRACT,
         isReadOnly: false,
     };
 

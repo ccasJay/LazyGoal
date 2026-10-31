@@ -12,7 +12,6 @@ import { gitBranchListInputBinding } from "./generated/git-branch-list/binding";
 export { gitBranchListInputBinding };
 import { gitWorktreeListInputBinding } from "./generated/git-worktree-list/binding";
 export { gitWorktreeListInputBinding };
-import { contract } from "../../contracts/src/index";
 import {
     throwIfAborted,
     type ExecutionControl,
@@ -69,16 +68,6 @@ export const GIT_SHOW_MAX_LINES_LIMIT = 2000;
 // 2. Input Contracts & Types
 // ============================================================================
 
-export const GIT_STATUS_INPUT_CONTRACT = contract.object({
-    repoPath: contract.optional(contract.string()),
-    path: contract.optional(contract.string()),
-    cursor: contract.optional(contract.string()),
-    maxEntries: contract.optional(contract.integer({
-        minimum: 1,
-        maximum: GIT_STATUS_MAX_ENTRIES_LIMIT,
-    })),
-});
-
 /**
  * `git_status` 的结构化输入。
  *
@@ -122,19 +111,6 @@ export interface GitStatusOutput {
     readonly nextCursor?: string | undefined;
 }
 
-export const GIT_DIFF_INPUT_CONTRACT = contract.object({
-    repoPath: contract.optional(contract.string()),
-    paths: contract.optional(contract.array(contract.string())),
-    staged: contract.optional(contract.boolean()),
-    commit: contract.optional(contract.string()),
-    baseCommit: contract.optional(contract.string()),
-    maxLines: contract.optional(contract.integer({
-        minimum: 1,
-        maximum: GIT_DIFF_MAX_LINES_LIMIT,
-    })),
-    cursor: contract.optional(contract.string()),
-});
-
 /**
  * `git_diff` 的结构化输入。
  *
@@ -173,17 +149,6 @@ export interface GitDiffOutput {
     readonly truncated: boolean;
     readonly nextCursor?: string | undefined;
 }
-
-export const GIT_LOG_INPUT_CONTRACT = contract.object({
-    repoPath: contract.optional(contract.string()),
-    maxCount: contract.optional(contract.integer({
-        minimum: 1,
-        maximum: GIT_LOG_MAX_COUNT_LIMIT,
-    })),
-    path: contract.optional(contract.string()),
-    revisionRange: contract.optional(contract.string()),
-    cursor: contract.optional(contract.string()),
-});
 
 /**
  * `git_log` 的结构化输入。
@@ -229,16 +194,6 @@ export interface GitLogOutput {
     readonly nextCursor?: string | undefined;
 }
 
-export const GIT_SHOW_INPUT_CONTRACT = contract.object({
-    object: contract.string(),
-    repoPath: contract.optional(contract.string()),
-    maxLines: contract.optional(contract.integer({
-        minimum: 1,
-        maximum: GIT_SHOW_MAX_LINES_LIMIT,
-    })),
-    cursor: contract.optional(contract.string()),
-});
-
 /**
  * `git_show` 的结构化输入。
  *
@@ -274,12 +229,6 @@ export interface GitShowOutput {
     readonly nextCursor?: string | undefined;
 }
 
-export const GIT_BRANCH_LIST_INPUT_CONTRACT = contract.object({
-    repoPath: contract.optional(contract.string()),
-    remote: contract.optional(contract.boolean()),
-    cursor: contract.optional(contract.string()),
-});
-
 /**
  * `git_branch_list` 的结构化输入。
  */
@@ -305,11 +254,6 @@ export interface GitBranchListOutput {
     readonly currentBranch?: string | undefined;
     readonly branches: readonly GitBranchInfo[];
 }
-
-export const GIT_WORKTREE_LIST_INPUT_CONTRACT = contract.object({
-    repoPath: contract.optional(contract.string()),
-    cursor: contract.optional(contract.string()),
-});
 
 /**
  * `git_worktree_list` 的结构化输入。
@@ -405,7 +349,6 @@ export class GitStatusTool implements BoundTool<GitStatusInput> {
         id: GIT_STATUS_TOOL_ID,
         description: "Inspect working tree and index status using porcelain v2 format with pagination.",
         inputBinding: gitStatusInputBinding,
-        inputContract: GIT_STATUS_INPUT_CONTRACT,
         isReadOnly: true,
     };
 
@@ -617,7 +560,6 @@ export class GitDiffTool implements BoundTool<GitDiffInput> {
         id: GIT_DIFF_TOOL_ID,
         description: "Inspect working tree or staged diff, or diff between commits with line pagination.",
         inputBinding: gitDiffInputBinding,
-        inputContract: GIT_DIFF_INPUT_CONTRACT,
         isReadOnly: true,
     };
 
@@ -776,7 +718,6 @@ export class GitLogTool implements BoundTool<GitLogInput> {
         id: GIT_LOG_TOOL_ID,
         description: "List commit history with structured author, date, and message fields with pagination.",
         inputBinding: gitLogInputBinding,
-        inputContract: GIT_LOG_INPUT_CONTRACT,
         isReadOnly: true,
     };
 
@@ -947,7 +888,6 @@ export class GitShowTool implements BoundTool<GitShowInput> {
         id: GIT_SHOW_TOOL_ID,
         description: "Show commit details, blob content, or diff for a Git object with line pagination.",
         inputBinding: gitShowInputBinding,
-        inputContract: GIT_SHOW_INPUT_CONTRACT,
         isReadOnly: true,
     };
 
@@ -1117,7 +1057,6 @@ export class GitBranchListTool implements BoundTool<GitBranchListInput> {
         id: GIT_BRANCH_LIST_TOOL_ID,
         description: "List local and tracked branches in the repository without network access.",
         inputBinding: gitBranchListInputBinding,
-        inputContract: GIT_BRANCH_LIST_INPUT_CONTRACT,
         isReadOnly: true,
     };
 
@@ -1246,7 +1185,6 @@ export class GitWorktreeListTool implements BoundTool<GitWorktreeListInput> {
         id: GIT_WORKTREE_LIST_TOOL_ID,
         description: "List all linked worktrees in the repository using porcelain format.",
         inputBinding: gitWorktreeListInputBinding,
-        inputContract: GIT_WORKTREE_LIST_INPUT_CONTRACT,
         isReadOnly: true,
     };
 

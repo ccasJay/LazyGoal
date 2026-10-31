@@ -1,6 +1,6 @@
 import { createToolRegistration, InMemoryToolRegistry, type Tool } from "../../../packages/tool-core/src/index.js";
 import { contextShellInputBinding } from "./generated/context-shell/binding.js";
-import { CONTEXT_SHELL_INPUT_CONTRACT, type ContextShellInput } from "./context-shell.js";
+import { type ContextShellInput } from "./context-shell.js";
 import { runProcess } from "../../src/process.js";
 import { runScriptedWorker } from "../../src/scripted-worker.js";
 export { CONTEXT_PROMPT_ASSETS, createEmbeddedPromptRenderer } from "../../src/scripted-worker.js";
@@ -13,7 +13,7 @@ export async function runContextWorker(): Promise<void> {
         ...(stateRoot === undefined ? {} : { stateRoot }),
         createRegistry(workspaceRoot) {
     const shell: Tool<ContextShellInput> = {
-        definition: { id: "context_shell", description: "Read and modify project files, inspect configuration, and execute shell commands and tests in the isolated project.", discoveryAliases: ["file", "files", "read file", "write file", "shell", "bash", "terminal"], isReadOnly: false, inputBinding: contextShellInputBinding, inputContract: CONTEXT_SHELL_INPUT_CONTRACT },
+        definition: { id: "context_shell", description: "Read and modify project files, inspect configuration, and execute shell commands and tests in the isolated project.", discoveryAliases: ["file", "files", "read file", "write file", "shell", "bash", "terminal"], isReadOnly: false, inputBinding: contextShellInputBinding },
         replayPolicy: "manual",
         validate: () => ({ ok: true }),
         async execute(request, control) {

@@ -9,7 +9,6 @@ import {
     type ToolObservation,
     type ToolValidationResult,
 } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -64,16 +63,6 @@ const READ_FILE_DOMAIN_FAILURES: DomainFailureMessages = {
 };
 
 /** Read File Tool 的输入 Contract。 */
-export const READ_FILE_INPUT_CONTRACT = contract.object({
-    path: contract.string(),
-    startLine: contract.optional(contract.integer({ minimum: 1 })),
-    endLine: contract.optional(contract.integer({ minimum: 1 })),
-    maxChars: contract.optional(contract.integer({
-        minimum: 1,
-        maximum: READ_FILE_MAX_CHARS_LIMIT,
-    })),
-    cursor: contract.optional(contract.string()),
-});
 
 /**
  * `read_file` 的结构化输入。
@@ -160,7 +149,6 @@ export class ReadFileTool implements BoundTool<ReadFileInput> {
         id: READ_FILE_TOOL_ID,
         description: "Read UTF-8 text from a file in workspaceRoot with line range and pagination support.",
         inputBinding: readFileInputBinding,
-        inputContract: READ_FILE_INPUT_CONTRACT,
         isReadOnly: true,
     };
 

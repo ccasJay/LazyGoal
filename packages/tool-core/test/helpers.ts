@@ -1,26 +1,19 @@
-import { createToolRegistration, type ToolRegistration } from "../src/index";
-import { createTransitionalToolInputBinding } from "./transitional-binding";
+import { createToolRegistration, type BoundTool, type ToolRegistration } from "../src/index";
 
 /**
- * 为测试夹具补齐过渡期输入绑定后创建注册项。
+ * 为测试夹具创建注册项。
  *
  * @remarks
- * 只用于测试中的模型输入替身；生产工具必须显式提供生成绑定。夹具已有绑定时
- * 原样保留，不覆盖生产或集成测试提供的真实绑定。
+ * 测试夹具必须显式提供输入绑定；生产工具使用 Catalog 生成绑定，任意测试输入由
+ * `binding-fixtures.ts` 的 JSON Schema 辅助函数构造。
+ *
+ * @param tool - 带权威输入绑定的测试 Tool。
+ * @returns 可放入 Registry 的注册项。
+ * @example
+ * ```ts
+ * const registration = createTestToolRegistration(tool);
+ * ```
  */
-export function createTestToolRegistration(tool: any): ToolRegistration {
-    if (tool.definition.inputBinding !== undefined) {
-        return createToolRegistration(tool);
-    }
-    return createToolRegistration({
-        ...tool,
-        definition: {
-            ...tool.definition,
-            inputBinding: createTransitionalToolInputBinding({
-                contractId: `test.${tool.definition.id}`,
-                version: 1,
-                contract: tool.definition.inputContract,
-            }),
-        },
-    });
+export function createTestToolRegistration(tool: BoundTool<any>): ToolRegistration {
+    return createToolRegistration(tool);
 }

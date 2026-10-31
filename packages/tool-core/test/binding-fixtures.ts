@@ -99,3 +99,36 @@ export function objectInputSchema(
         additionalProperties: false,
     };
 }
+
+/**
+ * 构造允许任意字符串字段的开放对象 Schema。
+ *
+ * @remarks
+ * 只用于 Runtime、Worker 或授权测试中不关心字段表的工具夹具；不能用于模型投影。
+ *
+ * @returns 开放对象 Schema。
+ * @example
+ * ```ts
+ * const schema = openObjectSchema();
+ * ```
+ */
+export function openObjectSchema(): Record<string, unknown> {
+    return { type: "object", additionalProperties: true };
+}
+
+/**
+ * 构造 Runtime 沙箱测试使用的 bash 风格输入 Schema。
+ *
+ * @returns 接受 command、可选 timeoutMs 与开放 sandboxAccess 的闭合对象 Schema。
+ * @example
+ * ```ts
+ * const schema = sandboxCommandSchema();
+ * ```
+ */
+export function sandboxCommandSchema(): Record<string, unknown> {
+    return objectInputSchema({
+        command: { type: "string" },
+        timeoutMs: { type: "integer" },
+        sandboxAccess: { type: "object", additionalProperties: true },
+    }, ["command"]);
+}

@@ -6,7 +6,7 @@ export const gitBranchCreateInputMetadata = {
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/tools/src/git-write-tools.ts#GitBranchCreateInput",
-    "sha256": "56f5c300a7bd3260d6ed9671848f412fe680b5a17db8296497b93c1944a5e814"
+    "sha256": "c85f02f6351a434e27b4e5fe23fd499af70546a5dfb8c9b8c1bed60da3a115d6"
   },
   "generator": {
     "name": "ts-json-schema-generator",

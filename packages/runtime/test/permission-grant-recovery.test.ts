@@ -38,24 +38,10 @@ import {
     createApprovalFixture,
     createAwaitingApprovalGoal,
 } from "./action-approval-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
-const TEST_INPUT_CONTRACT = contract.object({
-    command: contract.string(),
-    sandboxAccess: contract.optional(contract.object({
-        files: contract.optional(contract.array(contract.object({
-            path: contract.string(),
-            access: contract.enum(["read", "write"]),
-            kind: contract.enum(["file", "directory_tree"]),
-            purpose: contract.string(),
-        }))),
-        network: contract.optional(contract.object({
-            targets: contract.array(contract.string()),
-            purpose: contract.string(),
-        })),
-    })),
-});
+const TEST_INPUT_SCHEMA = sandboxCommandSchema();
 
 type SandboxTestInput = {
     readonly command: string;
@@ -82,8 +68,7 @@ function createMockBashTool(onExecute?: (request: ToolExecutionRequest) => void)
         definition: {
             id: "bash",
             description: "受限测试 bash",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "manual",

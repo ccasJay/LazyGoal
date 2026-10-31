@@ -10,7 +10,8 @@ import { OpenAICompatible } from "../../../packages/llm-openai/src/index";
 import { readToolCalls } from "../../../packages/llm-core/src/index";
 import { toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
 import { createToolRegistration, InMemoryToolRegistry, type Tool } from "../../../packages/tool-core/src/index";
-import { contract } from "../../../packages/contracts/src/index";
+import { contract, type JsonValue } from "../../../packages/contracts/src/index";
+import { createTestBinding, objectInputSchema } from "../../../packages/tool-core/test/binding-fixtures";
 import type { AgentProfile } from "../../../packages/runtime/src/index";
 import { createRuntimeComposition } from "../src/runtime/index";
 import { createTestToolRegistration } from "../../../packages/tool-core/test/helpers";
@@ -27,7 +28,7 @@ function bashTool(onExecute: (command: string) => void): Tool {
         definition: {
             id: "bash",
             description: "Run one read-only command",
-            inputContract: contract.object({ command: contract.string() }),
+            inputBinding: createTestBinding<JsonValue>("test.fixture", objectInputSchema({ command: { type: "string" } })),
             isReadOnly: true,
         },
         replayPolicy: "safe",

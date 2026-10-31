@@ -6,7 +6,6 @@ import {
     type ToolObservation,
     type ToolValidationResult,
 } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     throwIfAborted,
@@ -94,20 +93,6 @@ export type WebFetchHandler = (
 ) => Promise<string | { text: string; isHtml?: boolean }>;
 
 /** Web Fetch Tool 的唯一输入 Contract。 */
-export const WEB_FETCH_INPUT_CONTRACT = contract.object({
-    url: contract.string(),
-    maxChars: contract.optional(
-        contract.integer({
-            minimum: 1,
-            maximum: WEB_FETCH_MAX_CHARS_LIMIT,
-        }),
-    ),
-    offset: contract.optional(
-        contract.integer({
-            minimum: 0,
-        }),
-    ),
-});
 
 /**
  * `web_fetch` 的结构化输入。
@@ -182,7 +167,6 @@ export class WebFetchTool implements BoundTool<WebFetchInput> {
         id: WEB_FETCH_TOOL_ID,
         description: "Fetch web page content and return structured plain text with pagination support.",
         inputBinding: webFetchInputBinding,
-        inputContract: WEB_FETCH_INPUT_CONTRACT,
         isReadOnly: true,
     };
 

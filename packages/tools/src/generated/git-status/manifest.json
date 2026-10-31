@@ -4,7 +4,7 @@
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/tools/src/git-read-tools.ts#GitStatusInput",
-    "sha256": "04c00467d404e48f4f4a4db746eeb32fe1813fd4a2a725aa28dfa96f71a10e8e"
+    "sha256": "31164e85d094dcdca0a3aec94dd5f89068804b4ae59ca54390b0c9b3adccab4d"
   },
   "generator": {
     "name": "ts-json-schema-generator",

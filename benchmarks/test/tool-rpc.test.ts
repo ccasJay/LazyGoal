@@ -1,5 +1,3 @@
-import { contract } from "../../packages/contracts/src/index.js";
-import { createTransitionalToolInputBinding } from "../../packages/tool-core/test/transitional-binding.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -24,6 +22,7 @@ import {
 } from "../src/tool-rpc.js";
 import { ReadFileTool } from "../../packages/tools/src/index.js";
 import { createTestToolRegistration } from "../../packages/tool-core/test/helpers";
+import { createTestBinding, objectInputSchema } from "../../packages/tool-core/test/binding-fixtures";
 
 function createMemoryPipe(): {
     hostStream: MuxChannelStream<ToolRpcMessage>;
@@ -82,8 +81,7 @@ test("ToolRpcClient 调用 execute 获得真实 Observation 且 Worker 执行计
         definition: {
             id: "echo_tool",
             description: "Echo tool for testing",
-            isReadOnly: true, inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ text: contract.string() }) }),
-            inputContract: contract.object({ text: contract.string() }),
+            isReadOnly: true, inputBinding: createTestBinding("test.tool", objectInputSchema({ text: { type: "string" } })),
         },
         replayPolicy: "safe",
         prepare: (input) => {
@@ -140,7 +138,7 @@ test("ToolRpcClient 严格禁止并发 execute 请求", async () => {
     const blockPromise = new Promise<void>((r) => { resolveExecution = r; });
 
     const mockTool: ToolRegistration = {
-        definition: { id: "slow_tool", description: "slow", isReadOnly: true, inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({}) }), inputContract: contract.object({}) },
+        definition: { id: "slow_tool", description: "slow", isReadOnly: true, inputBinding: createTestBinding("test.tool", objectInputSchema()) },
         replayPolicy: "safe",
         prepare: () => ({
             ok: true,
@@ -180,7 +178,7 @@ test("execute 支持在途 cancel 并抛出 ExecutionAbortedError", async () => 
     const controller = new AbortController();
 
     const mockTool: ToolRegistration = {
-        definition: { id: "hanging_tool", description: "hang", isReadOnly: true, inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({}) }), inputContract: contract.object({}) },
+        definition: { id: "hanging_tool", description: "hang", isReadOnly: true, inputBinding: createTestBinding("test.tool", objectInputSchema()) },
         replayPolicy: "safe",
         prepare: () => ({
             ok: true,
@@ -225,7 +223,7 @@ test("execute 支持受限 backend 调用代理回宿主", async () => {
     const server = new ToolRpcServer({
         stream: pipe.workerStream,
         getTools: (backend) => [{
-            definition: { id: "web_search", description: "search", isReadOnly: true, inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({}) }), inputContract: contract.object({}) },
+            definition: { id: "web_search", description: "search", isReadOnly: true, inputBinding: createTestBinding("test.tool", objectInputSchema()) },
             replayPolicy: "safe",
             prepare: (input) => ({
                 ok: true,

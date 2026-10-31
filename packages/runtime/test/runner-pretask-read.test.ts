@@ -23,7 +23,7 @@ import {
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { BaseTestStepExecutor, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 import { contract } from "../../contracts/src/index";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {
@@ -40,32 +40,28 @@ const profile: AgentProfile = {
 const READ_FILE_DEFINITION: BoundToolDefinition = {
     id: "read_file",
     description: "Read file content",
-    inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ path: contract.string() }) }),
-    inputContract: contract.object({ path: contract.string() }),
+    inputBinding: createTestBinding("test.tool", objectInputSchema({ path: { type: "string" } })),
     isReadOnly: true,
 };
 
 const WRITE_FILE_DEFINITION: BoundToolDefinition = {
     id: "write_file",
     description: "Write file content",
-    inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ path: contract.string(), content: contract.string() }) }),
-    inputContract: contract.object({ path: contract.string(), content: contract.string() }),
+    inputBinding: createTestBinding("test.tool", objectInputSchema({ path: { type: "string" }, content: { type: "string" } })),
     isReadOnly: false,
 };
 
 const FAILING_READ_DEFINITION: BoundToolDefinition = {
     id: "failing_read",
     description: "Read that returns domain failure",
-    inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ path: contract.string() }) }),
-    inputContract: contract.object({ path: contract.string() }),
+    inputBinding: createTestBinding("test.tool", objectInputSchema({ path: { type: "string" } })),
     isReadOnly: true,
 };
 
 const THROWING_READ_DEFINITION: BoundToolDefinition = {
     id: "throwing_read",
     description: "Read that throws unexpected error",
-    inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ path: contract.string() }) }),
-    inputContract: contract.object({ path: contract.string() }),
+    inputBinding: createTestBinding("test.tool", objectInputSchema({ path: { type: "string" } })),
     isReadOnly: true,
 };
 

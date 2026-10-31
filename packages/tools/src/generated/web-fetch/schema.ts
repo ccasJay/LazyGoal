@@ -6,7 +6,7 @@ export const webFetchInputMetadata = {
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/tools/src/web-fetch.ts#WebFetchInput",
-    "sha256": "ffb12ade6988a59faaec47d8119e8d05e8bb1eedf29e669b02324a6df0292183"
+    "sha256": "75dcb0c47ccc724e75f563eae6dff46bcf3e29a4a83ce4d8b60a6754d9a42c2e"
   },
   "generator": {
     "name": "ts-json-schema-generator",

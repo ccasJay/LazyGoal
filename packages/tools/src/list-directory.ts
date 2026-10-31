@@ -9,7 +9,6 @@ import {
     type ToolObservation,
     type ToolValidationResult,
 } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -58,14 +57,6 @@ const LIST_DIRECTORY_DOMAIN_FAILURES: DomainFailureMessages = {
 };
 
 /** ListDirectory Tool 的输入契约。 */
-export const LIST_DIRECTORY_INPUT_CONTRACT = contract.object({
-    path: contract.optional(contract.string()),
-    maxEntries: contract.optional(contract.integer({
-        minimum: 1,
-        maximum: LIST_DIRECTORY_MAX_ENTRIES_LIMIT,
-    })),
-    cursor: contract.optional(contract.string()),
-});
 
 /**
  * `list_directory` 的结构化输入。
@@ -140,7 +131,6 @@ export class ListDirectoryTool implements BoundTool<ListDirectoryInput> {
         id: LIST_DIRECTORY_TOOL_ID,
         description: "List immediate entries in a workspace directory with pagination support.",
         inputBinding: listDirectoryInputBinding,
-        inputContract: LIST_DIRECTORY_INPUT_CONTRACT,
         isReadOnly: true,
     };
 

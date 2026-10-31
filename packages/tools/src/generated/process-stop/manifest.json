@@ -4,7 +4,7 @@
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/tools/src/process-tools.ts#ProcessStopInput",
-    "sha256": "437298d0701c6b121bda11f64759b9a296cbf8da1c2bb1acc605f2951ab658d1"
+    "sha256": "79bc6c8bc626021e2f1cba76cf2db6cf44d7cf8d8b8f0e5f6ddafdab18496ef3"
   },
   "generator": {
     "name": "ts-json-schema-generator",

@@ -341,6 +341,658 @@
             {
                 "key": "storage/src/context-retrieval-index-sidecar#ContextRetrievalIndexSidecarSchema",
                 "disposition": "由 ContextRetrievalIndexSidecarFile TS DTO 与生成绑定替代；嵌套文档、倒排和查询缓存由 context-retrieval 领域校验。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#JsonValueContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#CompletionExpectOutcomeContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#CompletionAcceptanceContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#CompletionCriterionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#GoalTaskContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#RunPlanRouteCandidateContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#GoalPlanStatusContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#GoalPlanAddOperationContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#GoalPlanUpdateOperationContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#GoalPlanReorderOperationContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#GoalPlanCancelOperationContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#GoalPlanPatchOperationContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ContextLookupNeedContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ContextLookupSequenceRangeContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ContextLookupFiltersContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ContextLookupOperationContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ContextLookupRequestContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ToolDiscoveryDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#RequestThinkContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#CompletionEvidenceContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ToolCallActionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#FactStabilityContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#MemoryEntryScopeContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#FactScalarContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#FactValueContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#FactProposalContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#RetireFactProposalContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#MemoryEntryStatusContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#HypothesisCreateContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#HypothesisUpdateContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#BlockerCreateContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#BlockerUpdateContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#MemoryPatchOperationContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#WorkingMemoryPatchContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ContextNoteSourceContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ContextNoteCategoryContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ContextNoteProposalContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#GoalPlanUpdateAgentDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ModelContextCheckpointResultContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ToolCallAgentDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#NormalCompleteAgentDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#WaitAgentDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#FailAgentDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ExecutingCompleteAgentDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#CompleteAgentDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#RunStageUpdateAgentDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#RunStageCompleteAgentDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#AskUserOptionInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#AskUserQuestionInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#AskUserAgentDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#TaskProposalAgentDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#RunPlanRouteUpdateAgentDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#AskUserAnswerContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#StructuredAgentDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#OrdinaryExecutingDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#NonToolExecutingDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#PlanModeExecutingDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#AgentDecisionContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#CompletionExpectOutcome",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#CompletionAcceptance",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#CompletionCriterion",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#GoalTask",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#RunPlanRouteCandidate",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#GoalPlanStatus",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#GoalPlanPatchOperation",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ContextLookupNeed",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ContextLookupSequenceRange",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ContextLookupFilters",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ContextLookupOperation",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ContextLookupRequest",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ToolDiscoveryDecision",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#RequestThink",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#DecideOutput",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#CompletionEvidence",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ToolCallAction",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#FactStability",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#MemoryEntryScope",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#FactScalar",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#FactValue",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#FactProposal",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#RetireFactProposal",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#MemoryEntryStatus",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#HypothesisCreate",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#HypothesisUpdate",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#BlockerCreate",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#BlockerUpdate",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#MemoryPatchOperation",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#WorkingMemoryPatch",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ExecutingMemoryPatchOperation",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ContextNoteSource",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ContextNoteCategory",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ContextNoteProposal",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ExecutingWorkingMemoryPatch",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#GoalPlanUpdateAgentDecision",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ModelContextCheckpointResult",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#RunStageUpdateAgentDecision",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#RunStageCompleteAgentDecision",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#AskUserOptionInput",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#AskUserQuestionInput",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#AskUserAgentDecision",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#TaskProposalAgentDecision",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#RunPlanRouteUpdateAgentDecision",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#AskUserOption",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#AskUserQuestion",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#AskUserAnswer",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#StructuredAgentDecision",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#PlanModeExecutingDecision",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#AgentDecision",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ModelOutputSemanticIssueCode",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/canonical#ModelOutputSemanticIssue",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/completion-review#CompletionReviewResultContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/completion-review#CompletionReviewResult",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/factory#AuthorizedToolContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/factory#ModelOutputRequest",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/factory#ModelOutputContractBundle",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemCompleteTaskInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemCompleteRunInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemWaitForInputInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemFailGoalInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemContextLookupInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemProposeTaskPlanInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemContextCheckpointInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemRequestThinkInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemAskUserInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemUpdateGoalPlanInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemStartRunStageInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemReviseRunStageInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemCompleteRunStageInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemUpdatePlanRouteInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemFindToolsInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemToolDeclaration",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#AskUserTool",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "model-contracts/src/model-output/system-tools#SystemFindToolsInput",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/apply-patch#APPLY_PATCH_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/bash#SANDBOX_FILE_ACCESS_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/bash#SANDBOX_NETWORK_ACCESS_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/bash#SANDBOX_ACCESS_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/bash#BASH_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/edit-file#EDIT_FILE_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/execute-program#EXECUTE_PROGRAM_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/find-files#FIND_FILES_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/git-read-tools#GIT_STATUS_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/git-read-tools#GIT_DIFF_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/git-read-tools#GIT_LOG_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/git-read-tools#GIT_SHOW_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/git-read-tools#GIT_BRANCH_LIST_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/git-read-tools#GIT_WORKTREE_LIST_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/git-worktree-tools#GIT_WORKTREE_ADD_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/git-worktree-tools#GIT_WORKTREE_REMOVE_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/git-write-tools#GIT_ADD_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/git-write-tools#GIT_COMMIT_AUTHOR_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/git-write-tools#GIT_COMMIT_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/git-write-tools#GIT_BRANCH_CREATE_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/git-write-tools#GIT_BRANCH_SWITCH_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/list-directory#LIST_DIRECTORY_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/process-tools#PROCESS_START_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/process-tools#PROCESS_READ_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/process-tools#PROCESS_STOP_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/read-file#READ_FILE_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/web-fetch#WEB_FETCH_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/web-search#WEB_SEARCH_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tools/src/write-file#WRITE_FILE_INPUT_CONTRACT",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
+            },
+            {
+                "key": "tool-core/src/types#ToolInputContract",
+                "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。"
             }
         ],
         "moved": [
@@ -14002,8 +14654,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 22
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14043,8 +14695,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 41
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14084,8 +14736,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 64
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14125,8 +14777,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 87
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14166,8 +14818,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 113
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14209,8 +14861,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 135
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14251,8 +14903,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 146
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14292,8 +14944,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 157
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14333,8 +14985,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 164
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14374,8 +15026,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 173
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14415,8 +15067,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 180
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14456,8 +15108,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 186
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14498,8 +15150,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 204
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14540,8 +15192,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 221
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14581,8 +15233,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 240
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14623,8 +15275,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 265
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14664,8 +15316,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 291
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14706,8 +15358,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 323
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14748,8 +15400,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 346
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14790,8 +15442,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 371
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14832,8 +15484,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 394
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14873,8 +15525,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 411
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14914,8 +15566,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 427
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14955,8 +15607,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 446
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -14996,8 +15648,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 468
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15037,8 +15689,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 493
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15078,8 +15730,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 513
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15119,8 +15771,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 529
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15160,8 +15812,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 546
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15201,8 +15853,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 562
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15242,8 +15894,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 579
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15283,8 +15935,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 595
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15324,8 +15976,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 615
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15365,8 +16017,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 638
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15406,8 +16058,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 674
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15447,8 +16099,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 707
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15488,8 +16140,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 733
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15529,8 +16181,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 765
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15571,8 +16223,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 783
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15613,8 +16265,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 802
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15654,8 +16306,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 810
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15696,8 +16348,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 826
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15737,8 +16389,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 841
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15778,8 +16430,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 854
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15819,8 +16471,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 874
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15860,8 +16512,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 901
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15902,8 +16554,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 929
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15944,8 +16596,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 953
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -15985,8 +16637,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 978
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16027,8 +16679,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1007
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16069,8 +16721,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1030
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16111,8 +16763,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1057
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16153,8 +16805,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1126
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16194,8 +16846,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1252
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16235,8 +16887,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1279
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16276,8 +16928,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1300
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16318,8 +16970,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1329
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16359,8 +17011,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1359
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16402,8 +17054,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 47
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16450,8 +17102,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 70
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16499,8 +17151,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 93
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16549,8 +17201,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 119
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16602,8 +17254,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 143
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16652,8 +17304,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 154
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16701,8 +17353,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 194
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16753,8 +17405,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 211
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16803,8 +17455,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 227
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16849,8 +17501,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 252
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16901,8 +17553,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 273
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -16950,8 +17602,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 306
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17005,8 +17657,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 329
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17051,8 +17703,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 352
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17098,8 +17750,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 355
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17150,8 +17802,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 377
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17199,8 +17851,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 401
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17252,8 +17904,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 417
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17302,8 +17954,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 433
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17352,8 +18004,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 454
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17399,8 +18051,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 477
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17446,8 +18098,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 503
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17497,8 +18149,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 519
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17545,8 +18197,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 536
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17595,8 +18247,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 552
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17643,8 +18295,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 569
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17691,8 +18343,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 585
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17739,8 +18391,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 602
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17787,8 +18439,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 625
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17839,8 +18491,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 644
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17891,8 +18543,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 650
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17932,8 +18584,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 692
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -17981,8 +18633,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 711
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18029,8 +18681,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 743
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18076,8 +18728,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 746
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18118,8 +18770,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 773
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18164,8 +18816,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 789
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18212,8 +18864,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 911
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18258,8 +18910,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 937
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18304,8 +18956,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 957
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18350,8 +19002,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 984
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18396,8 +19048,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1012
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18443,8 +19095,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1037
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18489,8 +19141,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1065
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18536,8 +19188,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1081
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18577,8 +19229,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1104
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18627,8 +19279,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1131
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18677,8 +19329,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1265
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18725,8 +19377,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1345
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18771,8 +19423,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1377
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18832,8 +19484,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1380
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18873,8 +19525,8 @@
                 "path": "packages/model-contracts/src/model-output/canonical.ts",
                 "line": 1404
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18914,8 +19566,8 @@
                 "path": "packages/model-contracts/src/model-output/completion-review.ts",
                 "line": 8
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -18957,8 +19609,8 @@
                 "path": "packages/model-contracts/src/model-output/completion-review.ts",
                 "line": 25
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19010,8 +19662,8 @@
                 "path": "packages/model-contracts/src/model-output/factory.ts",
                 "line": 55
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19053,8 +19705,8 @@
                 "path": "packages/model-contracts/src/model-output/factory.ts",
                 "line": 98
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19094,8 +19746,8 @@
                 "path": "packages/model-contracts/src/model-output/factory.ts",
                 "line": 159
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19137,8 +19789,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 219
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19177,8 +19829,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 226
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19217,8 +19869,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 233
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19257,8 +19909,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 239
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19297,8 +19949,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 275
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19337,8 +19989,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 280
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19377,8 +20029,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 288
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19417,8 +20069,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 294
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19457,8 +20109,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 299
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19497,8 +20149,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 305
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19538,8 +20190,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 312
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19579,8 +20231,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 318
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19620,8 +20272,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 325
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19661,8 +20313,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 331
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19702,8 +20354,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 382
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19743,8 +20395,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 73
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19787,8 +20439,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 103
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -19828,8 +20480,8 @@
                 "path": "packages/model-contracts/src/model-output/system-tools.ts",
                 "line": 387
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "model-contracts",
             "module": "model-contracts",
             "boundary": "model-tools",
@@ -23277,8 +23929,8 @@
                 "path": "packages/tools/src/apply-patch.ts",
                 "line": 46
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -23446,8 +24098,8 @@
                 "path": "packages/tools/src/bash.ts",
                 "line": 83
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -23486,8 +24138,8 @@
                 "path": "packages/tools/src/bash.ts",
                 "line": 91
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -23526,8 +24178,8 @@
                 "path": "packages/tools/src/bash.ts",
                 "line": 97
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -23567,8 +24219,8 @@
                 "path": "packages/tools/src/bash.ts",
                 "line": 103
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -23609,8 +24261,8 @@
                 "path": "packages/tools/src/edit-file.ts",
                 "line": 54
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -23650,8 +24302,8 @@
                 "path": "packages/tools/src/execute-program.ts",
                 "line": 9
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -23691,8 +24343,8 @@
                 "path": "packages/tools/src/find-files.ts",
                 "line": 79
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -23819,8 +24471,8 @@
                 "path": "packages/tools/src/git-read-tools.ts",
                 "line": 66
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -23860,8 +24512,8 @@
                 "path": "packages/tools/src/git-read-tools.ts",
                 "line": 96
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -23901,8 +24553,8 @@
                 "path": "packages/tools/src/git-read-tools.ts",
                 "line": 119
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -23942,8 +24594,8 @@
                 "path": "packages/tools/src/git-read-tools.ts",
                 "line": 149
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -23983,8 +24635,8 @@
                 "path": "packages/tools/src/git-read-tools.ts",
                 "line": 171
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -24024,8 +24676,8 @@
                 "path": "packages/tools/src/git-read-tools.ts",
                 "line": 193
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -24786,8 +25438,8 @@
                 "path": "packages/tools/src/git-worktree-tools.ts",
                 "line": 47
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -24827,8 +25479,8 @@
                 "path": "packages/tools/src/git-worktree-tools.ts",
                 "line": 73
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -25047,8 +25699,8 @@
                 "path": "packages/tools/src/git-write-tools.ts",
                 "line": 44
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -25088,8 +25740,8 @@
                 "path": "packages/tools/src/git-write-tools.ts",
                 "line": 64
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -25129,8 +25781,8 @@
                 "path": "packages/tools/src/git-write-tools.ts",
                 "line": 72
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -25170,8 +25822,8 @@
                 "path": "packages/tools/src/git-write-tools.ts",
                 "line": 97
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -25211,8 +25863,8 @@
                 "path": "packages/tools/src/git-write-tools.ts",
                 "line": 120
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -25615,8 +26267,8 @@
                 "path": "packages/tools/src/list-directory.ts",
                 "line": 62
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -25784,8 +26436,8 @@
                 "path": "packages/tools/src/process-tools.ts",
                 "line": 56
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -25825,8 +26477,8 @@
                 "path": "packages/tools/src/process-tools.ts",
                 "line": 245
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -25866,8 +26518,8 @@
                 "path": "packages/tools/src/process-tools.ts",
                 "line": 418
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -26127,8 +26779,8 @@
                 "path": "packages/tools/src/read-file.ts",
                 "line": 68
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -26256,8 +26908,8 @@
                 "path": "packages/tools/src/web-fetch.ts",
                 "line": 98
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -26435,8 +27087,8 @@
                 "path": "packages/tools/src/web-search.ts",
                 "line": 91
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -26615,8 +27267,8 @@
                 "path": "packages/tools/src/write-file.ts",
                 "line": 56
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tools",
             "module": "tools",
             "boundary": "model-tools",
@@ -26656,8 +27308,8 @@
                 "path": "packages/tool-core/src/types.ts",
                 "line": 10
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "已由 TS 单源与 Catalog 生成绑定替代；旧 Contract AST 和派生产出不再参与生产。",
             "owner": "tool-core",
             "module": "tool-core",
             "boundary": "model-tools",

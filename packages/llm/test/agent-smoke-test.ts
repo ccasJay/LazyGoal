@@ -1,7 +1,8 @@
 import { isExecutionAbortedError, type ExecutionControl } from "../../execution-control/src/index";
 import "dotenv/config";
 import { pathToFileURL } from "node:url";
-import { contract } from "../../contracts/src/index";
+import type { JsonValue } from "../../contracts/src/index";
+import { createTestBinding, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 import {
     GoalCoordinator, InlineScheduler, Runner, TrajectoryCheckpointCommitter,
     launch,
@@ -53,10 +54,10 @@ export async function runAgentSmoke(
     });
     const checkpointCommitter = new TrajectoryCheckpointCommitter({ store, trajectoryStore });
     let toolCalls = 0;
-    const inputContract = contract.object({});
-    const tool: Tool<typeof inputContract> = {
+    const inputBinding = createTestBinding<JsonValue>("test.smoke_evidence", objectInputSchema());
+    const tool: Tool = {
         definition: {
-            id: "smoke_evidence", description: "Return a fixed observation to verify the model/tool loop. Call once with empty input.", inputContract, isReadOnly: true,
+            id: "smoke_evidence", description: "Return a fixed observation to verify the model/tool loop. Call once with empty input.", inputBinding, isReadOnly: true,
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),

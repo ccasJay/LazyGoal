@@ -20,7 +20,7 @@ import {
     currentWorkingMemory,
 } from "../../agent/test/current-fixtures";
 import { trajectoryStoreFor } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const renderer = await createDefaultPromptBundleRenderer();
@@ -43,8 +43,7 @@ function bashRegistration(execute: (command: string) => Promise<{
             id: "bash",
             description: "Run one read-only command",
             isReadOnly: true,
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ command: contract.string() }) }),
-            inputContract: contract.object({ command: contract.string() }),
+            inputBinding: createTestBinding("test.tool", objectInputSchema({ command: { type: "string" } })),
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),

@@ -17,7 +17,7 @@ import { contract } from "../../contracts/src/index";
 import { createToolRegistration, type Tool } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = {
@@ -157,8 +157,7 @@ test("Steer received during a Tool waits for its committed Observation before en
         definition: {
             id: "probe",
             description: "Test tool",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.record(contract.string()) }),
-            inputContract: contract.record(contract.string()),
+            inputBinding: createTestBinding("test.tool", openObjectSchema()),
             isReadOnly: true,
         },
         replayPolicy: "safe",

@@ -1,16 +1,10 @@
-import type {
-    Contract,
-    JsonValue,
-} from "../../contracts/src/index";
+import type { JsonValue } from "../../contracts/src/index";
 import type {
     ContractBinding,
     ContractDiagnostic,
 } from "../../contract-binding/src/index";
 import type { ExecutionControl } from "../../execution-control/src/index";
 import type { DerivedSandboxAccess, SandboxExecutionPlan } from "../../sandbox/src/index";
-
-/** Tool 输入 Contract 的 JSON AST 类型边界（过渡期供模型线消费）。 */
-export type ToolInputContract = Contract<JsonValue>;
 
 /**
  * Tool 执行期接收到的可信上下文身份。
@@ -47,12 +41,11 @@ export interface ToolExecutionContext {
  *   id: "read_file",
  *   description: "读取工作区内的文本文件",
  *   inputBinding: readFileInputBinding,
- *   inputContract: READ_FILE_INPUT_CONTRACT,
  *   isReadOnly: true,
  * };
  * ```
  */
-export interface ToolDefinition<Input = JsonValue> {
+export interface ToolDefinition {
     /** 稳定的 Tool 标识，必须与 Profile 中的 `toolIds` 对应。 */
     readonly id: string;
     /** 面向 Agent 的用途说明。 */
@@ -65,12 +58,6 @@ export interface ToolDefinition<Input = JsonValue> {
      * 当前 Run 的暴露、Policy、审批和沙箱检查。
      */
     readonly discoveryAliases?: readonly string[];
-    /**
-     * 过渡期供模型线消费的输入 AST。
-     *
-     * @deprecated 与模型线联合切换时删除；不得用于 Tool `prepare` 或新增字段定义。
-     */
-    readonly inputContract?: ToolInputContract;
     /**
      * 是否为只读工具。
      *
@@ -97,12 +84,11 @@ export interface ToolDefinition<Input = JsonValue> {
  *     id: "read_file",
  *     description: "读取工作区内的文本文件",
  *     inputBinding: readFileInputBinding,
- *     inputContract: READ_FILE_INPUT_CONTRACT,
  *     isReadOnly: true,
  * };
  * ```
  */
-export interface BoundToolDefinition<Input = JsonValue> extends ToolDefinition<Input> {
+export interface BoundToolDefinition<Input = JsonValue> extends ToolDefinition {
     /** Tool 输入的权威 Schema、校验与读取边界。 */
     readonly inputBinding: ContractBinding<Input>;
 }
@@ -258,7 +244,6 @@ export type ToolValidationResult =
  *     id: "echo",
  *     description: "返回输入文本",
  *     inputBinding: echoInputBinding,
- *     inputContract: ECHO_INPUT_CONTRACT,
  *     isReadOnly: true,
  *   },
  *   replayPolicy: "safe",
@@ -272,10 +257,8 @@ export type ToolValidationResult =
  * ```
  */
 export interface Tool<Input = JsonValue> {
-    /** Tool 的稳定描述；可附带输入绑定，注册入口要求绑定必须存在。 */
-    readonly definition: ToolDefinition<Input> & {
-        readonly inputBinding?: ContractBinding<Input>;
-    };
+    /** Tool 的稳定描述与权威输入绑定。 */
+    readonly definition: BoundToolDefinition<Input>;
     /** 进程中断后对未完成 Action 的重放策略。 */
     readonly replayPolicy: "safe" | "manual";
     /**

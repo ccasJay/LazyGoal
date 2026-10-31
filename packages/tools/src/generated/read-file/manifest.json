@@ -4,7 +4,7 @@
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/tools/src/read-file.ts#ReadFileInput",
-    "sha256": "4b385c2bdbc19b1b0347e7082eca2f10df0fe838dfea422a249f4bcddd8b890c"
+    "sha256": "f5955691e4881129abe5e319cad63be6dcfc9622b29e03272e048ab0a1c89bed"
   },
   "generator": {
     "name": "ts-json-schema-generator",

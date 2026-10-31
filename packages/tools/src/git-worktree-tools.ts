@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import { contract } from "../../contracts/src/index";
 import type {
     BoundTool,
     Tool,
@@ -49,12 +48,6 @@ export const GIT_WORKTREE_REMOVE_TOOL_ID = "git_worktree_remove";
 /**
  * `git_worktree_add` 输入契约。
  */
-export const GIT_WORKTREE_ADD_INPUT_CONTRACT = contract.object({
-    path: contract.string(),
-    branch: contract.optional(contract.string()),
-    commit: contract.optional(contract.string()),
-    repoPath: contract.optional(contract.string()),
-});
 
 /**
  * `git_worktree_add` 的结构化输入。
@@ -87,10 +80,6 @@ export interface GitWorktreeAddOutput {
 /**
  * `git_worktree_remove` 输入契约。
  */
-export const GIT_WORKTREE_REMOVE_INPUT_CONTRACT = contract.object({
-    path: contract.string(),
-    repoPath: contract.optional(contract.string()),
-});
 
 /**
  * `git_worktree_remove` 的结构化输入。
@@ -184,7 +173,6 @@ export class GitWorktreeAddTool implements BoundTool<GitWorktreeAddInput> {
         id: GIT_WORKTREE_ADD_TOOL_ID,
         description: "Create a new linked Git worktree at authorized target directory without using force.",
         inputBinding: gitWorktreeAddInputBinding,
-        inputContract: GIT_WORKTREE_ADD_INPUT_CONTRACT,
         isReadOnly: false,
     };
 
@@ -433,7 +421,6 @@ export class GitWorktreeRemoveTool implements BoundTool<GitWorktreeRemoveInput> 
         id: GIT_WORKTREE_REMOVE_TOOL_ID,
         description: "Safely remove an authorized linked Git worktree without force and protecting user files.",
         inputBinding: gitWorktreeRemoveInputBinding,
-        inputContract: GIT_WORKTREE_REMOVE_INPUT_CONTRACT,
         isReadOnly: false,
     };
 

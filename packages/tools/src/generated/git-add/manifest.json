@@ -4,7 +4,7 @@
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/tools/src/git-write-tools.ts#GitAddInput",
-    "sha256": "b23cec1bcd58c44e26d881d38fff8d97f949272d76b8bf621226ec6741db45d8"
+    "sha256": "8e20f52c3544388c2fdd8a7146bfe7d6059e2160b81790937595b1556e3a8904"
   },
   "generator": {
     "name": "ts-json-schema-generator",

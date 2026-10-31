@@ -25,7 +25,8 @@ import {
     InMemoryToolRegistry,
     type Tool,
 } from "../../../packages/tool-core/src/index";
-import { contract } from "../../../packages/contracts/src/index";
+import { contract, type JsonValue } from "../../../packages/contracts/src/index";
+import { createTestBinding, objectInputSchema } from "../../../packages/tool-core/test/binding-fixtures";
 import { createRuntimeComposition } from "../src/runtime/index";
 import { createTestToolRegistration } from "../../../packages/tool-core/test/helpers";
 
@@ -106,7 +107,7 @@ function readFileTool(): Tool {
         definition: {
             id: "read_file",
             description: "Read a file",
-            inputContract: contract.object({ path: contract.string() }),
+            inputBinding: createTestBinding<JsonValue>("test.fixture", objectInputSchema({ path: { type: "string" } })),
             isReadOnly: true,
         },
         replayPolicy: "safe",

@@ -2,7 +2,7 @@ import { JsonFileGoalStore } from "../../src/index";
 import { Runner, createStepExecutor } from "../../../runtime/src/index";
 import { contract } from "../../../contracts/src/index";
 import { type BoundTool, type ToolRegistration } from "../../../tool-core/src/index";
-import { createTransitionalToolInputBinding } from "../../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../../tool-core/test/binding-fixtures";
 import type {
     Goal,
     GoalStore,
@@ -184,17 +184,12 @@ async function main(): Promise<void> {
 
         let toolCalls = 0;
         let executorCalls = 0;
-        const MANUAL_INPUT_CONTRACT = contract.record(contract.string());
+        const MANUAL_INPUT_SCHEMA = openObjectSchema();
         const tool: BoundTool<Readonly<Record<string, string>>> = {
             definition: {
                 id: "manual_tool",
                 description: "需要人工确认的 Tool",
-                inputBinding: createTransitionalToolInputBinding({
-                    contractId: "test.manual_tool",
-                    version: 1,
-                    contract: MANUAL_INPUT_CONTRACT,
-                }),
-                inputContract: MANUAL_INPUT_CONTRACT,
+                inputBinding: createTestBinding("test.manual_tool", MANUAL_INPUT_SCHEMA),
                 isReadOnly: false,
             },
             replayPolicy: "manual",

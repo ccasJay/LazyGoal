@@ -6,7 +6,7 @@ export const contextShellInputMetadata = {
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "benchmarks/context/src/context-shell.ts#ContextShellInput",
-    "sha256": "9f4b3bafaf42904921e5dfbf283aafea34bb36be2d785cb3bb959ab6e293374a"
+    "sha256": "ed282f56238dc34bc502f341081001d1def900be565467e770cb6828704f0885"
   },
   "generator": {
     "name": "ts-json-schema-generator",

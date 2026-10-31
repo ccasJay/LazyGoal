@@ -19,6 +19,7 @@ import {
     createToolRegistration,
     InMemoryToolRegistry,
 } from "../../tool-core/src/index";
+import { createTestBinding, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 import { currentProtocols } from "../../runtime/test/current-fixtures";
 import { isSeatbeltSupported } from "../../sandbox/src/index";
 import { BashTool, createExecuteProgramRegistration, ReadFileTool, WriteFileTool } from "../../tools/src/index";
@@ -71,13 +72,13 @@ test("PTC restores committed reads and waits for a write with an unknown result"
         await createStores().store.save(goal);
         let readCalls = 0;
         let writeCalls = 0;
-        const readInput = contract.object({ path: contract.string() });
-        const writeInput = contract.object({ path: contract.string(), content: contract.string() });
+        const readInput = objectInputSchema({ path: { type: "string" } });
+        const writeInput = objectInputSchema({ path: { type: "string" }, content: { type: "string" } });
         const registry = new InMemoryToolRegistry([
             createExecuteProgramRegistration(),
             createTestToolRegistration({
                 definition: {
-                    id: "read_file", description: "Read", inputContract: readInput, isReadOnly: true,
+                    id: "read_file", description: "Read", inputBinding: createTestBinding("test.fixture", readInput), isReadOnly: true,
                 },
                 replayPolicy: "safe",
                 validate: () => ({ ok: true }),
@@ -88,7 +89,7 @@ test("PTC restores committed reads and waits for a write with an unknown result"
             }),
             createTestToolRegistration({
                 definition: {
-                    id: "write_file", description: "Write", inputContract: writeInput, isReadOnly: false,
+                    id: "write_file", description: "Write", inputBinding: createTestBinding("test.fixture", writeInput), isReadOnly: false,
                 },
                 replayPolicy: "safe",
                 validate: () => ({ ok: true }),

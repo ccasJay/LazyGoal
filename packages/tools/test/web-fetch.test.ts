@@ -2,14 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { safeParse, compileJsonSchema } from "../../contracts/src/index";
+
 import {
     createToolRegistration,
     InMemoryToolRegistry,
     TransientToolExecutionFailure,
 } from "../../tool-core/src/index";
 import {
-    WEB_FETCH_INPUT_CONTRACT,
     WEB_FETCH_TOOL_ID,
     WebFetchTool,
     type WebFetchOutput,
@@ -34,37 +33,18 @@ const validPlan = {
     scope: { extraFiles: [], network: "all_outbound" as const },
 };
 
-test("web_fetch contract 校验正常输入与非法结构", () => {
-    const valid = safeParse(WEB_FETCH_INPUT_CONTRACT, { url: "https://example.com" });
-    assert.equal(valid.success, true);
-
-    const withPagination = safeParse(WEB_FETCH_INPUT_CONTRACT, {
+test("web_fetch 生成输入绑定校验正常输入与非法结构", () => {
+    const binding = new WebFetchTool().definition.inputBinding;
+    assert.equal(binding.read({ url: "https://example.com" }, "reject").ok, true);
+    assert.equal(binding.read({
         url: "https://example.com",
         maxChars: 1000,
         offset: 50,
-    });
-    assert.equal(withPagination.success, true);
-
-    const missingUrl = safeParse(WEB_FETCH_INPUT_CONTRACT, {});
-    assert.equal(missingUrl.success, false);
-
-    const negativeChars = safeParse(WEB_FETCH_INPUT_CONTRACT, {
-        url: "https://example.com",
-        maxChars: 0,
-    });
-    assert.equal(negativeChars.success, false);
-
-    const overChars = safeParse(WEB_FETCH_INPUT_CONTRACT, {
-        url: "https://example.com",
-        maxChars: 50_001,
-    });
-    assert.equal(overChars.success, false);
-
-    const negativeOffset = safeParse(WEB_FETCH_INPUT_CONTRACT, {
-        url: "https://example.com",
-        offset: -1,
-    });
-    assert.equal(negativeOffset.success, false);
+    }, "reject").ok, true);
+    assert.equal(binding.read({}, "reject").ok, false);
+    assert.equal(binding.read({ url: "https://example.com", maxChars: 0 }, "reject").ok, false);
+    assert.equal(binding.read({ url: "https://example.com", maxChars: 50_001 }, "reject").ok, false);
+    assert.equal(binding.read({ url: "https://example.com", offset: -1 }, "reject").ok, false);
 });
 
 test("web_fetch validate 校验 URL 合法性、协议、凭据与本机/私网地址", () => {
@@ -420,7 +400,7 @@ test("web_fetch 将 blocked、重定向上限、HTTP 与网络失败映射为稳
 
 test("web_fetch 工具成功注册进 ToolRegistry 且 JSON Schema 编译通过", () => {
     const tool = new WebFetchTool();
-    const schema = compileJsonSchema(tool.definition.inputContract!);
+    const schema = tool.definition.inputBinding.modelProjection().schema;
     assert.equal(typeof schema === "object" && schema !== null, true);
     const properties = (schema as { properties?: Record<string, unknown> }).properties;
     assert.ok(properties !== undefined && "url" in properties);

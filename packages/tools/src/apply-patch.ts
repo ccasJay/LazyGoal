@@ -11,7 +11,6 @@ import type {
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -43,9 +42,6 @@ export const APPLY_PATCH_MAX_TOTAL_BYTES = 32 * 1024 * 1024;
 export const APPLY_PATCH_MAX_SINGLE_FILE_BYTES = 8 * 1024 * 1024;
 
 /** Apply Patch Tool 的输入契约（过渡期供模型线消费）。 */
-export const APPLY_PATCH_INPUT_CONTRACT = contract.object({
-    patch: contract.string(),
-});
 
 /**
  * `apply_patch` 的结构化输入。
@@ -143,7 +139,6 @@ export class ApplyPatchTool implements BoundTool<ApplyPatchInput> {
         id: APPLY_PATCH_TOOL_ID,
         description: "Apply unified or Git text patches across files in workspace with strict unique matching.",
         inputBinding: applyPatchInputBinding,
-        inputContract: APPLY_PATCH_INPUT_CONTRACT,
         isReadOnly: false,
     };
 

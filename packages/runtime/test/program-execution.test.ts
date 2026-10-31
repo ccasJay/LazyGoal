@@ -19,7 +19,7 @@ import {
     InMemoryToolRegistry,
 } from "../../tool-core/src/index";
 import { bindMessagesToRun, currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 test("PTC executes a program and inner tool without an extra model step", {
@@ -82,15 +82,14 @@ test("PTC executes a program and inner tool without an extra model step", {
         async think() { throw new Error("Unexpected Think"); },
     };
     let readCalls = 0;
-    const ReadInput = contract.object({ path: contract.string() });
+    const ReadInput = objectInputSchema({ path: { type: "string" } });
     const registry = new InMemoryToolRegistry([
         createExecuteProgramRegistration(),
         createTestToolRegistration({
             definition: {
                 id: "read_file",
                 description: "Read test content",
-                inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: ReadInput }),
-                inputContract: ReadInput,
+                inputBinding: createTestBinding("test.tool", ReadInput),
                 isReadOnly: true,
             },
             replayPolicy: "safe",
@@ -196,7 +195,7 @@ test("PTC rejects a child Tool outside the exposed set before preparation or exe
     const registry = new InMemoryToolRegistry([
         createExecuteProgramRegistration(),
         createTestToolRegistration({
-            definition: { id: "read_file", description: "Read", inputContract: contract.object({ path: contract.string() }), isReadOnly: true },
+            definition: { id: "read_file", description: "Read", inputBinding: createTestBinding("test.fixture", objectInputSchema({ path: { type: "string" } })), isReadOnly: true },
             replayPolicy: "safe",
             validate() { prepareCalls += 1; return { ok: true }; },
             async execute() { readCalls += 1; return { kind: "success", output: "private", summary: "Read" }; },
@@ -265,15 +264,14 @@ test("PTC never automatically replays an unknown write even if the tool says saf
         async think() { throw new Error("Unexpected Think"); },
     };
     let writes = 0;
-    const WriteInput = contract.object({ path: contract.string() });
+    const WriteInput = objectInputSchema({ path: { type: "string" } });
     const registry = new InMemoryToolRegistry([
         createExecuteProgramRegistration(),
         createTestToolRegistration({
             definition: {
                 id: "write_file",
                 description: "A write falsely declared safe",
-                inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: WriteInput }),
-                inputContract: WriteInput,
+                inputBinding: createTestBinding("test.tool", WriteInput),
                 isReadOnly: false,
             },
             replayPolicy: "safe",
@@ -361,15 +359,14 @@ test("PTC pauses for a real child approval and resumes the same code", {
         async think() { throw new Error("Unexpected Think"); },
     };
     let writes = 0;
-    const WriteInput = contract.object({ path: contract.string(), content: contract.string() });
+    const WriteInput = objectInputSchema({ path: { type: "string" }, content: { type: "string" } });
     const registry = new InMemoryToolRegistry([
         createExecuteProgramRegistration(),
         createTestToolRegistration({
             definition: {
                 id: "write_file",
                 description: "Write test content",
-                inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: WriteInput }),
-                inputContract: WriteInput,
+                inputBinding: createTestBinding("test.tool", WriteInput),
                 isReadOnly: false,
             },
             replayPolicy: "manual",

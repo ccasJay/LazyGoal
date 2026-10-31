@@ -4,7 +4,7 @@
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/tools/src/write-file.ts#WriteFileInput",
-    "sha256": "8ad0c2d9ea9cf56307da8b0b8f2833ffe2f993623e93057f8e0585f82d0a9ed0"
+    "sha256": "505490969b52064648f57e8b79dc9562eb4c2c97a8029f068546e08c38444ec2"
   },
   "generator": {
     "name": "ts-json-schema-generator",

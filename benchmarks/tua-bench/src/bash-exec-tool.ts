@@ -32,14 +32,6 @@ export const BASH_EXEC_MAX_OUTPUT_BYTES = 100 * 1024;
 const TERMINATION_GRACE_MS = 2_000;
 
 /** `bash_exec` 工具的输入 Contract。 */
-export const BASH_EXEC_INPUT_CONTRACT = contract.object({
-    command: contract.string(),
-    timeoutMs: contract.optional(contract.integer({
-        minimum: 1,
-        maximum: BASH_EXEC_MAX_TIMEOUT_MS,
-    })),
-    workdir: contract.optional(contract.string()),
-});
 
 /**
  * `bash_exec` 的结构化输入。
@@ -122,7 +114,6 @@ export class BashExecTool implements BoundTool<BashExecInput> {
         id: BASH_EXEC_TOOL_ID,
         description: "在容器终端内执行 bash 命令，返回 stdout、stderr 与 exitCode。支持可选的超时时间与工作目录。",
         inputBinding: bashExecInputBinding,
-        inputContract: BASH_EXEC_INPUT_CONTRACT,
         isReadOnly: false,
     };
 

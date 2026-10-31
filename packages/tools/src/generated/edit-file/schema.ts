@@ -6,7 +6,7 @@ export const editFileInputMetadata = {
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/tools/src/edit-file.ts#EditFileInput",
-    "sha256": "bf556d83fdd42e3bd6c5d8b16c86af3a1a78912b269b5635a75afac395ad4499"
+    "sha256": "163b61345072fcd9d203f5fd98313af53de8b7bc17969a2fe24dbcfccc13bf72"
   },
   "generator": {
     "name": "ts-json-schema-generator",

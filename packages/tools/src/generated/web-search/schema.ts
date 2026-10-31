@@ -6,7 +6,7 @@ export const webSearchInputMetadata = {
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/tools/src/web-search.ts#WebSearchInput",
-    "sha256": "44bbfa7846254d23f550e80cad32de8c4b065b0c3f36903f11c7d2a93fd8a899"
+    "sha256": "b232a19bd02a4b33a4cd3c8fe21ed389451a5748bea6bee1e28a442f5525d1d0"
   },
   "generator": {
     "name": "ts-json-schema-generator",

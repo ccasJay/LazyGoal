@@ -110,8 +110,8 @@ export interface ToolPolicy {
  *
  * @remarks
  * 结果只包含冻结 Profile 白名单与 Registry 已注册 Tool 的交集。每个
- * `id` 和 `description` 都会被复制；权威输入绑定与注册项共享引用，过渡期
- * Input Contract 也保持共享。本函数不判断 Prompt 版本、准备或执行 Tool，也不修改 Goal。
+ * `id` 和 `description` 都会被复制；权威输入绑定与注册项共享引用。本函数不判断
+ * Prompt 版本、准备或执行 Tool，也不修改 Goal。
  *
  * @param goal - 提供冻结 Profile Tool 白名单的完整 Goal。
  * @param registry - 当前 Runtime 已注册的 Tool 查找边界。
@@ -140,9 +140,6 @@ export function resolveAuthorizedToolDefinitions(
                     ? {}
                     : { discoveryAliases: Object.freeze([...registration.definition.discoveryAliases]) }),
                 inputBinding: registration.definition.inputBinding,
-                ...(registration.definition.inputContract === undefined
-                    ? {}
-                    : { inputContract: registration.definition.inputContract }),
                 isReadOnly: registration.definition.isReadOnly,
             }));
         }

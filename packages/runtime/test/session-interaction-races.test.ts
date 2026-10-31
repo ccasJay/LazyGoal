@@ -21,7 +21,7 @@ import { contract } from "../../contracts/src/index";
 import { createToolRegistration, type Tool } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = {
@@ -292,8 +292,7 @@ test("工具审批等待：Interrupt 先受理后迟到批准不执行工具", a
         definition: {
             id: "write_probe",
             description: "May write externally",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.record(contract.string()) }),
-            inputContract: contract.record(contract.string()),
+            inputBinding: createTestBinding("test.tool", openObjectSchema()),
             isReadOnly: false,
         },
         replayPolicy: "manual",
@@ -479,8 +478,7 @@ test("未知效果中断直接取消，不调用模型或提出新的审批请�
         definition: {
             id: "write_probe",
             description: "May write externally",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.record(contract.string()) }),
-            inputContract: contract.record(contract.string()),
+            inputBinding: createTestBinding("test.tool", openObjectSchema()),
             isReadOnly: false,
         },
         replayPolicy: "manual",
@@ -495,8 +493,7 @@ test("未知效果中断直接取消，不调用模型或提出新的审批请�
         definition: {
             id: "inspect_probe",
             description: "Inspect safely",
-            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.record(contract.string()) }),
-            inputContract: contract.record(contract.string()),
+            inputBinding: createTestBinding("test.tool", openObjectSchema()),
             isReadOnly: true,
         },
         replayPolicy: "safe",
