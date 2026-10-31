@@ -13,7 +13,7 @@ import {
     validateContractCatalog,
 } from "./contract-catalog.mjs";
 
-test("catalog covers the inventory baseline and keeps one enabled contract", async () => {
+test("catalog covers the inventory baseline and keeps the enabled contracts", async () => {
     const catalog = await loadContractCatalog();
     const counts = catalog.reconciliation.inventoryCounts;
     assert.equal(catalog.inventorySource.branch, "codex/contract-inventory");
@@ -26,7 +26,7 @@ test("catalog covers the inventory baseline and keeps one enabled contract", asy
     });
     assert.equal(catalog.entries.length, 974);
     assert.equal(catalog.entries.length, Object.values(counts).reduce((sum, value) => sum + value, 0));
-    assert.equal(collectEnabledContractEntries(catalog).length, 1);
+    assert.equal(collectEnabledContractEntries(catalog).length, 36);
     assert.equal(catalog.entries.filter(entry => entry.status === "moved").length, 2);
     assert.equal(catalog.reconciliation.moved.length, 2);
     assert.equal(catalog.entries.filter(entry => entry.status === "deleted").length, 0);
@@ -177,11 +177,12 @@ test("catalog rejects missing sources, invalid counts and unsupported enabled re
 test("catalog artifact paths are unique and repository-relative", async () => {
     const catalog = await loadContractCatalog();
     const enabled = collectEnabledContractEntries(catalog);
-    assert.equal(enabled.length, 1);
-    const paths = contractArtifactPaths(enabled[0]);
+    assert.equal(enabled.length, 36);
+    const paths = enabled.flatMap(contractArtifactPaths);
     assert.equal(new Set(paths).size, paths.length);
     assert.ok(paths.every(item => !path.isAbsolute(item) && !item.split("/").includes("..")));
     assert.ok(paths.includes("packages/web-contracts/src/generated/provider-models-reader.ts"));
+    assert.ok(paths.includes("packages/model-contracts/src/generated/system-ask-user-input/binding.ts"));
 });
 
 async function createCatalogFixture() {

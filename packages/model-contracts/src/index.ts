@@ -189,6 +189,8 @@ export type {
     SystemToolBindingSet,
 } from "./model-output/bindings";
 
+export { modelOutputBindings } from "./model-output/generated-bindings";
+
 export {
     SystemCompletionReviewDeclaration,
     SystemCompleteTaskDeclaration,

@@ -1,0 +1,23 @@
+{
+  "contractId": "model.system-tool.review-completion",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/model-contracts/src/model-output/schema-types.ts#SystemCompletionReviewInput,CompletionReviewAccept,CompletionReviewReject,CompletionReviewResult",
+    "sha256": "841b6ba2b9c0f66615901d48901765e4ebf43423e2fb8d700ad1717e26e4ef00"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

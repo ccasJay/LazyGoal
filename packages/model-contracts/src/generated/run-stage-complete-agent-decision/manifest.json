@@ -1,0 +1,23 @@
+{
+  "contractId": "model.output.run-stage-complete",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/model-contracts/src/model-output/schema-types.ts#RunStageCompleteAgentDecision,BlockerCreate,BlockerUpdate,ContextNoteCategory,ContextNoteProposal,ContextNoteSource,FactProposal,FactScalar,FactStability,FactValue,HypothesisCreate,HypothesisUpdate,MemoryEntryScope,MemoryEntryStatus,MemoryPatchOperation,NonNegativeInteger,PositiveInteger,RetireFactProposal,WorkingMemoryPatch",
+    "sha256": "33835e197b56ee1a9c18a170b76b1413b96ddee596c626c30d5fb2d0d20c36a2"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "contractId": "model.output.fail",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/model-contracts/src/model-output/schema-types.ts#FailAgentDecision,BlockerCreate,BlockerUpdate,ContextNoteCategory,ContextNoteProposal,ContextNoteSource,FactProposal,FactScalar,FactStability,FactValue,HypothesisCreate,HypothesisUpdate,MemoryEntryScope,MemoryEntryStatus,MemoryPatchOperation,NonNegativeInteger,PositiveInteger,RetireFactProposal,WorkingMemoryPatch",
+    "sha256": "7522d35c8c9ab64b5e604316f9598f22c63779777010f34befba142e8cc885d4"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}
