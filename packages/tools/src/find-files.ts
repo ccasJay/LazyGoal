@@ -3,7 +3,6 @@ import { relative, resolve } from "node:path";
 import picomatch from "picomatch";
 
 import {
-    createTransitionalToolInputBinding,
     type BoundTool,
     type Tool,
     type BoundToolDefinition,
@@ -29,6 +28,7 @@ import {
     type DomainFailureMessages,
     type WorkspaceSandbox,
 } from "../../sandbox/src/index";
+import { findFilesInputBinding } from "./generated/find-files/binding";
 
 /** `FindFilesTool` 在 Profile 中使用的稳定标识。 */
 export const FIND_FILES_TOOL_ID = "find_files";
@@ -108,12 +108,8 @@ export interface FindFilesInput {
     readonly cursor?: string;
 }
 
-/** `FindFiles` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
-export const findFilesInputBinding = createTransitionalToolInputBinding<FindFilesInput>({
-    contractId: "tool.find_files.input",
-    version: 1,
-    contract: FIND_FILES_INPUT_CONTRACT,
-});
+/** `find_files` 的生成输入绑定。 */
+export { findFilesInputBinding };
 
 /** FindFiles 成功输出结构。 */
 export interface FindFilesOutput {

@@ -15,7 +15,6 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../execution-control/src/index";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
 import { processStartInputBinding } from "./generated/process-start/binding";
 export { processStartInputBinding };
 import { processStopInputBinding } from "./generated/process-stop/binding";
@@ -35,6 +34,7 @@ import {
 } from "./bash";
 import type { ProcessManager } from "../../process-runtime/src/index";
 import type { ProcessSessionStore } from "../../runtime/src/index";
+import { processReadInputBinding } from "./generated/process-read/binding";
 
 /** `ProcessStartTool` 在 Profile 中使用的稳定标识。 */
 export const PROCESS_START_TOOL_ID = "process_start";
@@ -299,6 +299,7 @@ export interface ProcessReadInput {
      * 输出游标。
      * @asType integer
      * @minimum 0
+     * @maximum 9007199254740991
      */
     readonly cursor?: number;
     /** 读取的输出通道。 */
@@ -319,12 +320,8 @@ export interface ProcessReadInput {
     readonly maxChars?: number;
 }
 
-/** `process_read` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
-export const processReadInputBinding = createTransitionalToolInputBinding<ProcessReadInput>({
-    contractId: "tool.process_read.input",
-    version: 1,
-    contract: PROCESS_READ_INPUT_CONTRACT,
-});
+/** `process_read` 的生成输入绑定。 */
+export { processReadInputBinding };
 
 /**
  * process_read Tool 输出结构。

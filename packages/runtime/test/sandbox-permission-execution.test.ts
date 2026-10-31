@@ -27,7 +27,7 @@ import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { SandboxExecutionPlan } from "../../sandbox/src/index";
 import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const TEST_INPUT_CONTRACT = contract.object({

@@ -6,7 +6,7 @@ import { contract } from "../../contracts/src/index";
 import { createToolRegistration, type ToolRegistry } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const sampleTool = {

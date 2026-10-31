@@ -19,7 +19,7 @@ import {
     InMemoryToolRegistry,
 } from "../../tool-core/src/index";
 import { bindMessagesToRun, currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 test("PTC executes a program and inner tool without an extra model step", {

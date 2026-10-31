@@ -23,7 +23,7 @@ import {
     type StepExecutor,
 } from "../src/index";
 import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const WRITE_INPUT = contract.object({ path: contract.string(), content: contract.string() });

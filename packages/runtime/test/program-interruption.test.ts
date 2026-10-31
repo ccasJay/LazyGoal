@@ -17,7 +17,7 @@ import {
     InMemoryToolRegistry,
 } from "../../tool-core/src/index";
 import { currentProtocols, InMemoryTrajectoryStore, withDiscoveredProfileTools } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function setup(code: string, tool?: ReturnType<typeof createToolRegistration>, completeAfterFirst = false) {

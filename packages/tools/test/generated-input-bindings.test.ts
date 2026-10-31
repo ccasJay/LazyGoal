@@ -15,6 +15,17 @@ import { gitBranchListInputBinding } from "../src/generated/git-branch-list/bind
 import { gitWorktreeListInputBinding } from "../src/generated/git-worktree-list/binding";
 import { processStartInputBinding } from "../src/generated/process-start/binding";
 import { processStopInputBinding } from "../src/generated/process-stop/binding";
+import { readFileInputBinding } from "../src/generated/read-file/binding";
+import { listDirectoryInputBinding } from "../src/generated/list-directory/binding";
+import { findFilesInputBinding } from "../src/generated/find-files/binding";
+import { webSearchInputBinding } from "../src/generated/web-search/binding";
+import { webFetchInputBinding } from "../src/generated/web-fetch/binding";
+import { bashInputBinding } from "../src/generated/bash/binding";
+import { gitStatusInputBinding } from "../src/generated/git-status/binding";
+import { gitDiffInputBinding } from "../src/generated/git-diff/binding";
+import { gitLogInputBinding } from "../src/generated/git-log/binding";
+import { gitShowInputBinding } from "../src/generated/git-show/binding";
+import { processReadInputBinding } from "../src/generated/process-read/binding";
 
 const cases = [
     {
@@ -113,6 +124,83 @@ const cases = [
         binding: processStopInputBinding,
         valid: { processId: "p-1" },
         invalid: {},
+        unknown: { processId: "p-1", extra: 1 },
+    },
+    {
+        id: "read_file",
+        binding: readFileInputBinding,
+        valid: { path: "README.md", startLine: 1, maxChars: 100 },
+        invalid: { path: "README.md", startLine: 0 },
+        unknown: { path: "README.md", extra: 1 },
+    },
+    {
+        id: "list_directory",
+        binding: listDirectoryInputBinding,
+        valid: { path: "src", maxEntries: 10 },
+        invalid: { maxEntries: 0 },
+        unknown: { path: "src", extra: 1 },
+    },
+    {
+        id: "find_files",
+        binding: findFilesInputBinding,
+        valid: { pattern: "**/*.ts", maxResults: 10 },
+        invalid: { pattern: "*.ts", maxResults: 0 },
+        unknown: { pattern: "*.ts", extra: 1 },
+    },
+    {
+        id: "web_search",
+        binding: webSearchInputBinding,
+        valid: { query: "LazyGoal", maxResults: 5 },
+        invalid: { query: "LazyGoal", maxResults: 0 },
+        unknown: { query: "LazyGoal", extra: 1 },
+    },
+    {
+        id: "web_fetch",
+        binding: webFetchInputBinding,
+        valid: { url: "https://example.com", maxChars: 100, offset: 0 },
+        invalid: { url: "https://example.com", offset: -1 },
+        unknown: { url: "https://example.com", extra: 1 },
+    },
+    {
+        id: "bash",
+        binding: bashInputBinding,
+        valid: { command: "ls", timeoutMs: 1000 },
+        invalid: { command: "ls", timeoutMs: 1.5 },
+        unknown: { command: "ls", extra: 1 },
+    },
+    {
+        id: "git_status",
+        binding: gitStatusInputBinding,
+        valid: { maxEntries: 10 },
+        invalid: { maxEntries: 0 },
+        unknown: { extra: 1 },
+    },
+    {
+        id: "git_diff",
+        binding: gitDiffInputBinding,
+        valid: { maxLines: 10 },
+        invalid: { maxLines: 0 },
+        unknown: { extra: 1 },
+    },
+    {
+        id: "git_log",
+        binding: gitLogInputBinding,
+        valid: { maxCount: 10 },
+        invalid: { maxCount: 0 },
+        unknown: { extra: 1 },
+    },
+    {
+        id: "git_show",
+        binding: gitShowInputBinding,
+        valid: { object: "HEAD", maxLines: 10 },
+        invalid: { object: "HEAD", maxLines: 0 },
+        unknown: { object: "HEAD", extra: 1 },
+    },
+    {
+        id: "process_read",
+        binding: processReadInputBinding,
+        valid: { processId: "p-1", waitMs: 1000, maxChars: 100 },
+        invalid: { processId: "p-1", maxChars: 0 },
         unknown: { processId: "p-1", extra: 1 },
     },
 ] as const;

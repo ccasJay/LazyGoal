@@ -158,6 +158,7 @@ function legacyIssueCode(code: ContractIssue["code"]): string {
         case "pattern":
             return "string_pattern";
         case "constraint":
+        default:
             return "invalid_type";
     }
 }
@@ -185,6 +186,7 @@ function issueMessage(schema: ContractSchemaNode, issue: ContractIssue): string 
         case "json":
             return "Expected a JSON value";
         case "constraint":
+        default:
             return "Value violates a contract constraint";
     }
 }

@@ -20,7 +20,7 @@ import {
     currentWorkingMemory,
 } from "../../agent/test/current-fixtures";
 import { trajectoryStoreFor } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const renderer = await createDefaultPromptBundleRenderer();

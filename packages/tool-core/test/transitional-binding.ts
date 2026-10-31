@@ -10,27 +10,26 @@ import {
     type ContractIssueCode,
     type ContractSchemaNode,
 } from "../../contract-binding/src/index";
-import type { ToolInputContract } from "./types";
+import type { ToolInputContract } from "../src/types";
 
 /**
- * 从过渡期 Tool 输入 AST 创建 `ContractBinding` 替身。
+ * 从测试夹具的 Tool 输入 AST 创建 `ContractBinding` 替身。
  *
  * @remarks
- * 生成能力线尚未支持整数注解时，工具注册与 `prepare` 仍需消费统一绑定接口。
- * 本函数把现有 AST 编译为本地 Schema 并复用共享绑定完成隔离复制、未知字段剥离
- * 和有界诊断；已知字段校验继续调用原 AST Parser，不保留第二条成功回退路径。
- * 生成制品就绪后必须由 `typescript-binding` 绑定替换，本函数随旧 AST 一并删除。
+ * 只供测试中的任意契约夹具构造隔离绑定；生产工具必须消费 Catalog 生成的
+ * `typescript-binding`。本函数把夹具 AST 编译为本地 Schema 并复用共享绑定完成
+ * 隔离复制、未知字段剥离和有界诊断，已知字段校验继续调用原 AST Parser。
  *
- * @param options - 契约身份、版本与过渡期 Tool 输入 AST。
+ * @param options - 契约身份、版本与测试夹具输入 AST。
  * @returns 与生成绑定结构相同的运行时绑定。
  * @throws 输入 AST 定义非法或共享绑定无法处理编译 Schema 时抛出异常。
  *
  * @example
  * ```ts
- * const binding = createTransitionalToolInputBinding<ReadFileInput>({
- *     contractId: "tool.read_file.input",
+ * const binding = createTransitionalToolInputBinding<{ value: string }>({
+ *     contractId: "test.sample",
  *     version: 1,
- *     contract: READ_FILE_INPUT_CONTRACT,
+ *     contract: contract.object({ value: contract.string() }),
  * });
  * ```
  */
@@ -139,6 +138,7 @@ function toBindingIssueCode(code: AstContractIssue["code"]): ContractIssueCode {
         case "unknown_discriminator":
         case "cyclic_value":
         case "max_depth_exceeded":
+        default:
             return "constraint";
     }
 }

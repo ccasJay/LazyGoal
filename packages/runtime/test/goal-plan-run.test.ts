@@ -26,7 +26,7 @@ import {
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { BaseTestStepExecutor, currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor } from "./current-fixtures";
 import { contract } from "../../contracts/src/index";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = {

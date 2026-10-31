@@ -5,6 +5,7 @@ import { alfworldResetInputBinding } from "../alfworld/src/generated/alfworld-re
 import { alfworldStepInputBinding } from "../alfworld/src/generated/alfworld-step/binding.js";
 import { submitAnswerInputBinding } from "../gaia/src/generated/submit-answer/binding.js";
 import { contextShellInputBinding } from "../context/src/generated/context-shell/binding.js";
+import { bashExecInputBinding } from "../tua-bench/src/generated/bash-exec/binding.js";
 
 const cases = [
     {
@@ -33,6 +34,13 @@ const cases = [
         binding: contextShellInputBinding,
         valid: { command: "ls" },
         invalid: { command: 1 },
+        unknown: { command: "ls", extra: 1 },
+    },
+    {
+        id: "bash_exec",
+        binding: bashExecInputBinding,
+        valid: { command: "ls", timeoutMs: 1000 },
+        invalid: { command: "ls", timeoutMs: 0 },
         unknown: { command: "ls", extra: 1 },
     },
 ] as const;

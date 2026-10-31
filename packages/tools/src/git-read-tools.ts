@@ -1,7 +1,6 @@
 import { resolve } from "node:path";
 
 import {
-    createTransitionalToolInputBinding,
     type BoundTool,
     type Tool,
     type BoundToolDefinition,
@@ -38,6 +37,10 @@ import {
     runRestrictedGit,
     type GitRepositoryInfo,
 } from "../../sandbox/src/git-runner";
+import { gitStatusInputBinding } from "./generated/git-status/binding";
+import { gitDiffInputBinding } from "./generated/git-diff/binding";
+import { gitLogInputBinding } from "./generated/git-log/binding";
+import { gitShowInputBinding } from "./generated/git-show/binding";
 
 // ============================================================================
 // 1. Tool IDs & Constants
@@ -98,12 +101,8 @@ export interface GitStatusInput {
     readonly maxEntries?: number;
 }
 
-/** `git_status` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
-export const gitStatusInputBinding = createTransitionalToolInputBinding<GitStatusInput>({
-    contractId: "tool.git_status.input",
-    version: 1,
-    contract: GIT_STATUS_INPUT_CONTRACT,
-});
+/** `git_status` 的生成输入绑定。 */
+export { gitStatusInputBinding };
 
 export interface GitStatusEntry {
     readonly path: string;
@@ -164,12 +163,8 @@ export interface GitDiffInput {
     readonly cursor?: string;
 }
 
-/** `git_diff` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
-export const gitDiffInputBinding = createTransitionalToolInputBinding<GitDiffInput>({
-    contractId: "tool.git_diff.input",
-    version: 1,
-    contract: GIT_DIFF_INPUT_CONTRACT,
-});
+/** `git_diff` 的生成输入绑定。 */
+export { gitDiffInputBinding };
 
 export interface GitDiffOutput {
     readonly repoPath: string;
@@ -214,12 +209,8 @@ export interface GitLogInput {
     readonly cursor?: string;
 }
 
-/** `git_log` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
-export const gitLogInputBinding = createTransitionalToolInputBinding<GitLogInput>({
-    contractId: "tool.git_log.input",
-    version: 1,
-    contract: GIT_LOG_INPUT_CONTRACT,
-});
+/** `git_log` 的生成输入绑定。 */
+export { gitLogInputBinding };
 
 export interface GitCommitRecord {
     readonly hash: string;
@@ -270,12 +261,8 @@ export interface GitShowInput {
     readonly cursor?: string;
 }
 
-/** `git_show` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
-export const gitShowInputBinding = createTransitionalToolInputBinding<GitShowInput>({
-    contractId: "tool.git_show.input",
-    version: 1,
-    contract: GIT_SHOW_INPUT_CONTRACT,
-});
+/** `git_show` 的生成输入绑定。 */
+export { gitShowInputBinding };
 
 export interface GitShowOutput {
     readonly repoPath: string;

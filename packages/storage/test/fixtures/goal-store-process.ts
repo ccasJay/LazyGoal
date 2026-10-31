@@ -1,11 +1,8 @@
 import { JsonFileGoalStore } from "../../src/index";
 import { Runner, createStepExecutor } from "../../../runtime/src/index";
 import { contract } from "../../../contracts/src/index";
-import {
-    createTransitionalToolInputBinding,
-    type BoundTool,
-    type ToolRegistration,
-} from "../../../tool-core/src/index";
+import { type BoundTool, type ToolRegistration } from "../../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../../tool-core/test/transitional-binding";
 import type {
     Goal,
     GoalStore,

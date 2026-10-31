@@ -10,7 +10,7 @@ import { createToolRegistration, InMemoryToolRegistry } from "../../tool-core/sr
 import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function goal(id: string, mode: "normal" | "plan" = "normal"): Goal {

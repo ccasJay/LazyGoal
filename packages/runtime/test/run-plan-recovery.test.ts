@@ -14,7 +14,7 @@ import {
     type StepExecutionInput,
 } from "../src/index";
 import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 class InterruptAfterFirstAcceptedStage extends BaseTestStepExecutor {

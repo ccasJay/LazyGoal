@@ -2,7 +2,6 @@ import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import {
-    createTransitionalToolInputBinding,
     type BoundTool,
     type Tool,
     type BoundToolDefinition,
@@ -28,6 +27,7 @@ import {
     type DomainFailureMessages,
     type WorkspaceSandbox,
 } from "../../sandbox/src/index";
+import { listDirectoryInputBinding } from "./generated/list-directory/binding";
 
 /** `ListDirectoryTool` 在 Profile 中使用的稳定标识。 */
 export const LIST_DIRECTORY_TOOL_ID = "list_directory";
@@ -87,12 +87,8 @@ export interface ListDirectoryInput {
     readonly cursor?: string;
 }
 
-/** `ListDirectory` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
-export const listDirectoryInputBinding = createTransitionalToolInputBinding<ListDirectoryInput>({
-    contractId: "tool.list_directory.input",
-    version: 1,
-    contract: LIST_DIRECTORY_INPUT_CONTRACT,
-});
+/** `list_directory` 的生成输入绑定。 */
+export { listDirectoryInputBinding };
 
 /** 目录直接子项类型。 */
 export type DirectoryEntryType = "file" | "directory" | "symlink";

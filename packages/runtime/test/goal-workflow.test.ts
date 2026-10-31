@@ -26,7 +26,7 @@ import type {
     StepExecutionInput,
     StepExecutor,
 } from "../src/index";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = {

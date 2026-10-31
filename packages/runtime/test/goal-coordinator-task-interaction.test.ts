@@ -21,7 +21,7 @@ import { InMemoryGoalStore } from "../../storage/src/index";
 import { BaseTestStepExecutor, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 import { contract } from "../../contracts/src/index";
 import type { AskUserQuestionInput } from "../../model-contracts/src/index";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {

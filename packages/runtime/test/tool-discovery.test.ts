@@ -8,7 +8,7 @@ import { resolveAuthorizedToolDefinitions } from "../src/tool";
 import { findTools } from "../src/tool-discovery";
 import type { BoundToolDefinition } from "../../tool-core/src/index";
 import { currentProtocols } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function tool(id: string, description: string): BoundToolDefinition {

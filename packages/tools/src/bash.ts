@@ -3,7 +3,6 @@ import { realpath } from "node:fs/promises";
 import { delimiter, dirname, resolve } from "node:path";
 
 import {
-    createTransitionalToolInputBinding,
     type BoundTool,
     type Tool,
     type BoundToolDefinition,
@@ -29,6 +28,7 @@ import {
     resolveGitProtectionPaths,
     SANDBOX_EXEC_PATH,
 } from "../../sandbox/src/index";
+import { bashInputBinding } from "./generated/bash/binding";
 
 /** `BashTool` 在 Profile 中使用的稳定标识。 */
 export const BASH_TOOL_ID = "bash";
@@ -162,12 +162,8 @@ export interface BashInput {
     readonly sandboxAccess?: BashSandboxAccessInput;
 }
 
-/** `bash` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
-export const bashInputBinding = createTransitionalToolInputBinding<BashInput>({
-    contractId: "tool.bash.input",
-    version: 1,
-    contract: BASH_INPUT_CONTRACT,
-});
+/** `bash` 的生成输入绑定。 */
+export { bashInputBinding };
 
 /**
  * BashTool 的配置选项。

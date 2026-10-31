@@ -2,7 +2,6 @@ import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { contract } from "../../../packages/contracts/src/index.js";
 import {
-    createTransitionalToolInputBinding,
     type BoundTool,
     type Tool,
     type BoundToolDefinition,
@@ -15,6 +14,7 @@ import {
     type ExecutionControl,
 } from "../../../packages/execution-control/src/index.js";
 import { invalidInput } from "../../../packages/tools/src/internal/invalid-input.js";
+import { bashExecInputBinding } from "./generated/bash-exec/binding";
 
 /** `BashExecTool` 在 Profile 中使用的稳定标识。 */
 export const BASH_EXEC_TOOL_ID = "bash_exec";
@@ -61,12 +61,8 @@ export interface BashExecInput {
     readonly workdir?: string;
 }
 
-/** `bash_exec` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
-export const bashExecInputBinding = createTransitionalToolInputBinding<BashExecInput>({
-    contractId: "tool.bash_exec.input",
-    version: 1,
-    contract: BASH_EXEC_INPUT_CONTRACT,
-});
+/** `bash_exec` 的生成输入绑定。 */
+export { bashExecInputBinding };
 
 /**
  * `bash_exec` 工具的执行结果数据契约。

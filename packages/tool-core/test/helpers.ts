@@ -1,8 +1,5 @@
-import {
-    createToolRegistration,
-    createTransitionalToolInputBinding,
-    type ToolRegistration,
-} from "../src/index";
+import { createToolRegistration, type ToolRegistration } from "../src/index";
+import { createTransitionalToolInputBinding } from "./transitional-binding";
 
 /**
  * 为测试夹具补齐过渡期输入绑定后创建注册项。

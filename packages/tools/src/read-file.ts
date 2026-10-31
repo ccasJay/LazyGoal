@@ -2,7 +2,6 @@ import { open, readdir, stat } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 
 import {
-    createTransitionalToolInputBinding,
     type BoundTool,
     type Tool,
     type BoundToolDefinition,
@@ -30,6 +29,7 @@ import {
     type DomainFailureMessages,
     type WorkspaceSandbox,
 } from "../../sandbox/src/index";
+import { readFileInputBinding } from "./generated/read-file/binding";
 
 /** `ReadFileTool` 在 Profile 中使用的稳定标识。 */
 export const READ_FILE_TOOL_ID = "read_file";
@@ -88,12 +88,14 @@ export interface ReadFileInput {
      * 起始行号（1 起始）。
      * @asType integer
      * @minimum 1
+     * @maximum 9007199254740991
      */
     readonly startLine?: number;
     /**
      * 结束行号（1 起始，包含）。
      * @asType integer
      * @minimum 1
+     * @maximum 9007199254740991
      */
     readonly endLine?: number;
     /**
@@ -107,12 +109,8 @@ export interface ReadFileInput {
     readonly cursor?: string;
 }
 
-/** `ReadFile` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
-export const readFileInputBinding = createTransitionalToolInputBinding<ReadFileInput>({
-    contractId: "tool.read_file.input",
-    version: 1,
-    contract: READ_FILE_INPUT_CONTRACT,
-});
+/** `read_file` 的生成输入绑定。 */
+export { readFileInputBinding };
 
 /** ReadFile 成功输出结构。 */
 export interface ReadFileOutput {

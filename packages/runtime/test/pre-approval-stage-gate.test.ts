@@ -5,7 +5,7 @@ import { InMemoryGoalStore } from "../../storage/src/index";
 import { createToolRegistration, InMemoryToolRegistry } from "../../tool-core/src/index";
 import { createGoal, createInitialRunStage, Runner, type StepExecutor } from "../src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 test("Plan pre-approval investigation uses Tool policy before any executing stage is declared", async () => {

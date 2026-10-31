@@ -1,5 +1,4 @@
 import {
-    createTransitionalToolInputBinding,
     type BoundTool,
     type Tool,
     type BoundToolDefinition,
@@ -29,6 +28,7 @@ import {
 import { assertSafeWebFetchUrl } from "./web/fetch-url-policy";
 import { createDefaultWebFetchHandler } from "./web/fetch-default";
 import { WEB_FETCH_MAX_RESPONSE_BYTES } from "./web/limits";
+import { webFetchInputBinding } from "./generated/web-fetch/binding";
 
 /** `WebFetchTool` 在 Profile 中使用的稳定标识。 */
 export const WEB_FETCH_TOOL_ID = "web_fetch";
@@ -129,16 +129,13 @@ export interface WebFetchInput {
      * 提取文本的起始 UTF-16 偏移。
      * @asType integer
      * @minimum 0
+     * @maximum 9007199254740991
      */
     readonly offset?: number;
 }
 
-/** `WebFetch` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
-export const webFetchInputBinding = createTransitionalToolInputBinding<WebFetchInput>({
-    contractId: "tool.web_fetch.input",
-    version: 1,
-    contract: WEB_FETCH_INPUT_CONTRACT,
-});
+/** `web_fetch` 的生成输入绑定。 */
+export { webFetchInputBinding };
 
 /**
  * 将 HTML 文本转换为单行可见文本。

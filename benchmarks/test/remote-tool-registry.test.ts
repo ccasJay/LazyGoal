@@ -15,7 +15,7 @@ import {
     type StepExecutor,
 } from "../../packages/runtime/src/index.js";
 import { contract } from "../../packages/contracts/src/index.js";
-import { createTransitionalToolInputBinding } from "../../packages/tool-core/src/index.js";
+import { createTransitionalToolInputBinding } from "../../packages/tool-core/test/transitional-binding.js";
 import { InMemoryGoalStore } from "../../packages/storage/src/index.js";
 import {
     currentProtocols,

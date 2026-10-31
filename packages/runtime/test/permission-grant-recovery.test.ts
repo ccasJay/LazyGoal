@@ -38,7 +38,7 @@ import {
     createApprovalFixture,
     createAwaitingApprovalGoal,
 } from "./action-approval-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const TEST_INPUT_CONTRACT = contract.object({

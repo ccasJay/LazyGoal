@@ -20,12 +20,12 @@ test("catalog covers the inventory baseline and current enabled contracts", asyn
     assert.equal(catalog.inventorySource.commit, "676015c6");
     assert.deepEqual(counts, {
         "web.md": 286,
-        "model-tools.md": 338,
+        "model-tools.md": 339,
         "durable-cross-process.md": 288,
     });
-    assert.equal(catalog.entries.length, 912);
+    assert.equal(catalog.entries.length, 913);
     assert.equal(catalog.entries.length, Object.values(counts).reduce((sum, value) => sum + value, 0));
-    assert.equal(collectEnabledContractEntries(catalog).length, 19);
+    assert.equal(collectEnabledContractEntries(catalog).length, 31);
     assert.equal(catalog.entries.filter(entry => entry.status === "moved").length, 2);
     assert.equal(catalog.reconciliation.moved.length, 2);
     assert.equal(catalog.entries.filter(entry => entry.status === "deleted").length, 0);
@@ -176,7 +176,7 @@ test("catalog rejects missing sources, invalid counts and unsupported enabled re
 test("catalog artifact paths are unique and repository-relative", async () => {
     const catalog = await loadContractCatalog();
     const enabled = collectEnabledContractEntries(catalog);
-    assert.equal(enabled.length, 19);
+    assert.equal(enabled.length, 31);
     const paths = enabled.flatMap(contractArtifactPaths);
     assert.equal(new Set(paths).size, paths.length);
     assert.ok(paths.every(item => !path.isAbsolute(item) && !item.split("/").includes("..")));

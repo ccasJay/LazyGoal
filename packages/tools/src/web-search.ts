@@ -1,5 +1,4 @@
 import {
-    createTransitionalToolInputBinding,
     type BoundTool,
     type Tool,
     type BoundToolDefinition,
@@ -20,6 +19,7 @@ import {
     createDuckDuckGoSearchBackend,
     WebSearchUnrecognizedResponseError,
 } from "./web/search-duckduckgo";
+import { webSearchInputBinding } from "./generated/web-search/binding";
 
 /** `WebSearchTool` 在 Profile 中使用的稳定标识。 */
 export const WEB_SEARCH_TOOL_ID = "web_search";
@@ -112,12 +112,8 @@ export interface WebSearchInput {
     readonly maxResults?: number;
 }
 
-/** `WebSearch` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
-export const webSearchInputBinding = createTransitionalToolInputBinding<WebSearchInput>({
-    contractId: "tool.web_search.input",
-    version: 1,
-    contract: WEB_SEARCH_INPUT_CONTRACT,
-});
+/** `web_search` 的生成输入绑定。 */
+export { webSearchInputBinding };
 
 /**
  * 宿主代理网页搜索 Tool。

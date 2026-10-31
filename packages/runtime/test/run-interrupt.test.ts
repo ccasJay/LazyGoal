@@ -19,7 +19,7 @@ import { createToolRegistration, type Tool } from "../../tool-core/src/index";
 import { InMemoryGoalStore, goalSnapshotCodec } from "../../storage/src/index";
 import { hasPendingSessionInputs } from "../src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = { id: "interrupt-profile", systemPrompt: "test", instructions: [], toolIds: [] };

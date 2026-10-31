@@ -28,7 +28,7 @@ import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import type { NativeConversationIdentity } from "../../model-contracts/src/index";
 import { currentProtocols, messageOutline, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const identity: NativeConversationIdentity = {

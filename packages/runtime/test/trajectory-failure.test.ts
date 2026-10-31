@@ -27,7 +27,7 @@ import type {
     TrajectoryStore,
 } from "../src/index";
 import { currentProtocols, withDiscoveredProfileTools } from "./current-fixtures";
-import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {

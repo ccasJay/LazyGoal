@@ -1,5 +1,5 @@
 import { contract } from "../../packages/contracts/src/index.js";
-import { createTransitionalToolInputBinding } from "../../packages/tool-core/src/index.js";
+import { createTransitionalToolInputBinding } from "../../packages/tool-core/test/transitional-binding.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
