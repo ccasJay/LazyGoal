@@ -219,7 +219,7 @@ export function checkValueAgainstSchema(
                     propertyValue,
                     node.additionalProperties,
                     rootSchema,
-                    joinPath(path, name),
+                    joinPath(path, UNKNOWN_FIELD_PATH_SEGMENT),
                     options,
                 ));
             }

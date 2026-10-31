@@ -285,6 +285,48 @@ test("binding redacts external key names from unknown-field diagnostics", () => 
     assert.equal(JSON.stringify(rejected).includes(sensitiveKey), false);
 });
 
+test("binding redacts open dictionary keys from validation paths", () => {
+    const schema: ContractSchemaNode = {
+        $schema: "http://json-schema.org/draft-07/schema#",
+        type: "object",
+        properties: {
+            records: {
+                type: "object",
+                additionalProperties: {
+                    type: "object",
+                    properties: { label: { type: "string" } },
+                    required: ["label"],
+                    additionalProperties: false,
+                },
+            },
+        },
+        required: ["records"],
+        additionalProperties: false,
+    };
+    const validateRecords = new Ajv({
+        strict: true,
+        allErrors: true,
+        removeAdditional: false,
+        coerceTypes: false,
+        useDefaults: false,
+    }).compile(schema as unknown as object);
+    const recordsBinding = createContractBinding<unknown>({
+        contractId: "sample.records",
+        version: 1,
+        schema,
+        validate: validateRecords as unknown as ContractValidator,
+    });
+
+    const result = recordsBinding.read({
+        records: { "secret-example-token": { label: 42 } },
+    }, "strip");
+
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.deepEqual(result.issues, [{ path: "/records/*/label", code: "type" }]);
+    assert.equal(JSON.stringify(result).includes("secret-example-token"), false);
+});
+
 test("binding bounds diagnostic paths at declared locations", () => {
     const longDeclaredKey = "x".repeat(200);
     const longSchema: ContractSchemaNode = {

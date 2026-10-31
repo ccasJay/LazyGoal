@@ -1,6 +1,11 @@
 import { cloneJsonValue, hasJsonPropertyShape, isJsonValue } from "./json";
 import { createModelProjection, type ModelProjection } from "./projection";
-import { escapePointerSegment, findUnknownPaths, stripUnknownFields } from "./schema";
+import {
+    escapePointerSegment,
+    findUnknownPaths,
+    resolveSchema,
+    stripUnknownFields,
+} from "./schema";
 import type {
     ContractIssue,
     ContractIssueCode,
@@ -11,6 +16,7 @@ import type {
 
 const MAX_ISSUES = 32;
 const MAX_PATH_LENGTH = 160;
+const UNKNOWN_FIELD_PATH_SEGMENT = "*";
 
 /**
  * 生成器提供的运行时校验函数。
@@ -129,7 +135,7 @@ function readContractValue<T>(
     }
 
     if (!definition.validate(copied)) {
-        const issues = mapValidationErrors(readValidatorErrors(definition.validate));
+        const issues = mapValidationErrors(readValidatorErrors(definition.validate), definition.schema);
         const merged = policy === "reject"
             ? mergeIssues(issues, unknown.paths.map(path => ({ path, code: "unknown" as const })))
             : issues;
@@ -161,7 +167,10 @@ function readValidatorErrors(validate: ContractValidator): readonly RawValidatio
     return Array.isArray(errors) ? errors as readonly RawValidationError[] : [];
 }
 
-function mapValidationErrors(errors: readonly RawValidationError[]): readonly ContractIssue[] {
+function mapValidationErrors(
+    errors: readonly RawValidationError[],
+    rootSchema: ContractSchemaNode,
+): readonly ContractIssue[] {
     const issues: ContractIssue[] = [];
     for (const error of errors) {
         const keyword = typeof error.keyword === "string" ? error.keyword : "";
@@ -169,7 +178,9 @@ function mapValidationErrors(errors: readonly RawValidationError[]): readonly Co
             // 未知字段路径由 findUnknownPaths 统一生成，避免 Ajv 回显外部键名。
             continue;
         }
-        const basePath = typeof error.instancePath === "string" ? error.instancePath : "";
+        const basePath = typeof error.instancePath === "string"
+            ? sanitizeInstancePath(error.instancePath, rootSchema)
+            : "";
         const property = keyword === "required"
             ? readPropertyName(error.params, "missingProperty")
             : undefined;
@@ -179,6 +190,86 @@ function mapValidationErrors(errors: readonly RawValidationError[]): readonly Co
         issues.push({ path: boundPath(path), code: issueCode(keyword) });
     }
     return boundIssues(issues);
+}
+
+/**
+ * 把校验器位置映射为不含外部键名的有界路径。
+ *
+ * @remarks
+ * 已声明属性名和数组下标保留；开放字典键及无法由 Schema 证明为声明的片段统一
+ * 替换为 `*`。只使用 Schema 结构，不读取字段值。
+ */
+function sanitizeInstancePath(instancePath: string, rootSchema: ContractSchemaNode): string {
+    if (instancePath === "") return "";
+    if (!instancePath.startsWith("/")) return "";
+
+    const segments: string[] = [];
+    let schemas: readonly ContractSchemaNode[] = [rootSchema];
+    for (const rawSegment of instancePath.slice(1).split("/")) {
+        const segment = decodePointerSegment(rawSegment);
+        const resolved = resolveSchemaSet(schemas, rootSchema);
+        const declared = resolved.flatMap((schema) => {
+            const properties = schema.properties;
+            if (properties === undefined || !Object.hasOwn(properties, segment)) return [];
+            return [properties[segment]!];
+        });
+        if (declared.length > 0) {
+            segments.push(escapePointerSegment(segment));
+            schemas = declared;
+            continue;
+        }
+
+        if (isArrayIndex(segment)) {
+            const items = resolved.flatMap(schema => schema.items === undefined ? [] : [schema.items]);
+            if (items.length > 0) {
+                segments.push(segment);
+                schemas = items;
+                continue;
+            }
+        }
+
+        segments.push(UNKNOWN_FIELD_PATH_SEGMENT);
+        schemas = resolved.flatMap(schema =>
+            typeof schema.additionalProperties === "object"
+                ? [schema.additionalProperties]
+                : []
+        );
+    }
+    return `/${segments.join("/")}`;
+}
+
+function resolveSchemaSet(
+    schemas: readonly ContractSchemaNode[],
+    rootSchema: ContractSchemaNode,
+): readonly ContractSchemaNode[] {
+    const resolved: ContractSchemaNode[] = [];
+    const pending = [...schemas];
+    while (pending.length > 0) {
+        let node = pending.pop()!;
+        const seenRefs = new Set<string>();
+        while (node.$ref !== undefined) {
+            if (seenRefs.has(node.$ref)) {
+                node = {};
+                break;
+            }
+            seenRefs.add(node.$ref);
+            node = resolveSchema(node, rootSchema);
+        }
+        if (node.anyOf !== undefined) {
+            pending.push(...node.anyOf);
+            continue;
+        }
+        resolved.push(node);
+    }
+    return resolved;
+}
+
+function decodePointerSegment(segment: string): string {
+    return segment.replaceAll("~1", "/").replaceAll("~0", "~");
+}
+
+function isArrayIndex(segment: string): boolean {
+    return /^(0|[1-9][0-9]*)$/.test(segment);
 }
 
 function readPropertyName(params: Readonly<Record<string, unknown>> | undefined, key: string): string | undefined {
