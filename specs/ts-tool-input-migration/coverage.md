@@ -51,7 +51,8 @@
 
 ## 边界与剩余工作
 
-- 生成器当前只接受 `pattern`、`minimum`、`maximum`、`minLength`、`maxLength` 约束注解；`@asType integer` 是工具侧表达整数类型的必要条件。生成能力线需要接受该注解或提供等价的整数映射。
-- 待整数能力的工具以 `ContractBinding` 接缝和过渡绑定推进准备；不得把过渡验证表述为真实生成制品集成通过。
-- 旧工具输入 AST 仍供模型线消费；与模型线的生产切换、删除 AST、真实模型声明到 `prepare` 的联合验证属于集成工作。
-- Tool RPC describe 清单必须读取绑定 Schema，不得再编译旧 AST；这一接缝在本方向完成，跨进程联合验证仍由集成阶段执行。
+- 生成器当前只接受 `pattern`、`minimum`、`maximum`、`minLength`、`maxLength` 约束注解；`@asType integer` 是工具侧表达整数类型的必要条件。生成能力线需要接受该注解或提供等价的整数映射，然后把 12 个 `generation.state = none` 的 Catalog 项改为启用并生成制品。
+- 待整数能力的工具以 `ContractBinding` 接缝和过渡绑定推进准备；不得把过渡验证表述为真实生成制品集成通过。生成制品就绪后，用生成绑定替换 `createTransitionalToolInputBinding` 调用并删除过渡辅助函数。
+- 旧工具输入 AST 仍供模型线消费。模型线需要把 `AuthorizedToolContract`、`model-context` 工具投影、`model-request` 声明与动态组合切到 `BoundToolDefinition.inputBinding.schema` / `modelProjection()`，并删除对 `ToolDefinition.inputContract` 的读取。
+- 联合切换阶段需要删除工具输入 AST 导出、`ToolDefinition.inputContract`、`ToolInputContract` 和生成能力未就绪时的过渡绑定，随后运行真实模型声明到 `prepare` 的集成测试、Worker 跨进程测试和完整回归；这些检查在本方向为 pending-integration，不由替身结果代替。
+- Tool RPC describe 清单已改为读取绑定 Schema，不再编译旧 AST；真实 Worker 跨进程联合验证仍由集成阶段执行。

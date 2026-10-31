@@ -205,6 +205,7 @@ export {
     gitBranchSwitchInputBinding,
     type GitAddInput,
     type GitAddOutput,
+    type GitCommitAuthorInput,
     type GitCommitInput,
     type GitCommitOutput,
     type GitBranchCreateInput,

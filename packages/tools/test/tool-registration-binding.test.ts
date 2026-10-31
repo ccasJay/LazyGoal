@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createToolRegistration } from "../../tool-core/src/index";
+import { createToolRegistration, type BoundTool } from "../../tool-core/src/index";
 import {
     BashTool,
     createExecuteProgramRegistration,
@@ -12,12 +12,12 @@ import {
 } from "../src/index";
 
 test("真实工具注册项与模型声明共享同一输入绑定", () => {
-    const cases = [
+    const cases: readonly { readonly tool: BoundTool<any>; readonly input: any }[] = [
         { tool: new ReadFileTool("/workspace"), input: { path: "README.md" } },
         { tool: new WriteFileTool("/workspace"), input: { path: "a.txt", content: "x" } },
         { tool: new GitCommitTool("/workspace"), input: { message: "m" } },
         { tool: new BashTool("/workspace"), input: { command: "ls" } },
-    ] as const;
+    ];
 
     for (const { tool, input } of cases) {
         const registration = createToolRegistration(tool);
