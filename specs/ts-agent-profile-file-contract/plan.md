@@ -9,7 +9,7 @@
   - 实施目标与场景：登记文件契约并生成 Schema、Reader、Manifest 和绑定；字段、版本及非空字符串约束以 TS 为权威来源。针对数组元素非空，只扩展所需生成能力：空数组允许，含空字符串的数组失败；无效或不生效的约束使生成失败。
   - 基本验证：运行生成检查和绑定定向测试，验证空数组、空元素、额外字段及版本错误；确认约束源变化使生成结果和接受规则相应变化。
 
-- [ ] //TODO 2. 让真实 AgentProfile 文件读取使用生成绑定
+- [x] //TODO 2. 让真实 AgentProfile 文件读取使用生成绑定
   - 落实标准：[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)、[1.5](./spec.md#spec-req-1-5)。
   - 实施目标与场景：`JsonFileAgentProfileStore.load` 以 `reject` 读取生成绑定，映射安全且可定位的问题，保留文件路径、ID 校验、错误码和 Runtime Profile 映射；清除无其他生产消费者的旧 Schema 及导出，不保留双读。同步 Catalog 旧声明处置和所属模块文档。
   - 基本验证：运行 `npx tsx --test packages/storage/test/agent-profile-store.test.ts`，核对合法文件、额外字段和文件 ID 不匹配的实际结果。
