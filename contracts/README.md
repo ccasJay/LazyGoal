@@ -2,7 +2,7 @@
 
 `contracts/catalog.json` 是项目数据契约的构建期索引，登记具名 TS 声明、Contract AST、Zod Schema 及其派生关系。它不拥有执行契约、运行时状态或持久化数据；这些语义仍由所属模块的源码与说明定义。
 
-Catalog 以 `codex/contract-inventory` 的 `676015c6` 盘点为基线，`inventorySource` 记录该分支、提交与三个分册；分册声明的源码基线为 `8da11ece`。当前登记 892 项声明：Web 286 项、模型与工具 308 项、持久化与跨进程 298 项；其中新增的 Storage 文件 DTO 计入持久化分册。两个 Provider Reader 辅助类型随 Web 特性迁移到生成读取器，处置记录在 `reconciliation.moved`；66 个被 TS 文件 DTO 与生成绑定取代的 Zod/派生声明标记为 `deleted`，处置记录在 `reconciliation.deleted`。行号、消费者、协议身份与生成能力均按当前源码登记。
+Catalog 以 `codex/contract-inventory` 的 `676015c6` 盘点为基线，`inventorySource` 记录该分支、提交与三个分册；分册声明的源码基线为 `8da11ece`。当前登记 893 项声明：Web 286 项、模型与工具 308 项、持久化与跨进程 299 项；其中新增的 Storage 文件 DTO 计入持久化分册。两个 Provider Reader 辅助类型随 Web 特性迁移到生成读取器，处置记录在 `reconciliation.moved`；80 个被 TS 文件 DTO 与生成绑定取代的 Zod/派生声明标记为 `deleted`，处置记录在 `reconciliation.deleted`。行号、消费者、协议身份与生成能力均按当前源码登记。
 
 ## 登记字段
 
@@ -64,8 +64,9 @@ Storage 文件族使用 `typescript-binding` 策略，从 TS 文件 DTO 生成�
 | 进程会话 | `ProcessSessionFileRecord`、`ProcessChannelMetaFile` | [`JsonFileProcessSessionStore`](../packages/storage/src/json-file-process-session-store.ts) |
 | 模型输入清单 | `ModelInputManifest` | [`JsonFileModelInputStore`](../packages/storage/src/json-file-model-input-store.ts) |
 | Goal Context Index | `GoalContextIndexSnapshotFile` | [`JsonFileGoalContextIndexStore`](../packages/storage/src/goal-context-index-store.ts) |
+| Retrieval Index Sidecar | `ContextRetrievalIndexSidecarFile` | [`JsonFileContextRetrievalIndexStore`](../packages/storage/src/context-retrieval-index-sidecar.ts) |
 
-Retrieval Index Sidecar 的查询缓存结果仍依赖旧 Contract AST 推导类型，暂未启用生成；切换条件与当前校验路径见 [Storage 文件契约清单](../packages/storage/notes/file-contracts.md)。Goal Context Index 已使用 Storage 文件 DTO 生成绑定。
+Retrieval Index Sidecar 的顶层文件结构已生成绑定；嵌套文档、倒排索引与查询缓存结果仍依赖 `context-retrieval` 的领域校验，因为其 DTO 使用旧 Contract AST 推导的 `ContextLookupResult`。Goal Context Index 已使用 Storage 文件 DTO 生成绑定。边界说明见 [Storage 文件契约清单](../packages/storage/notes/file-contracts.md)。
 
 其他登记项保留真实现状：Contract AST 与 Zod 在运行时校验，Tool 输入 Schema 在注册期内存编译，模型输出联合在请求期动态组合；它们不产生本步的静态 Schema、Reader 或 Manifest。新增启用项必须在 Catalog 中显式登记生成策略，并先扩展共享读取器的受支持子集。
 

@@ -90,10 +90,10 @@ export {
 export {
     CONTEXT_RETRIEVAL_INDEX_SIDECAR_PROTOCOL_ERROR_CODE,
     ContextRetrievalIndexSidecarProtocolError,
-    ContextRetrievalIndexSidecarSchema,
     JsonFileContextRetrievalIndexStore,
     contextRetrievalIndexSidecarCodec,
 } from "./context-retrieval-index-sidecar";
+export type { ContextRetrievalIndexSidecarFile } from "./context-retrieval-index-sidecar-file";
 export type {
     ContextRetrievalIndexSidecarCodec,
 } from "./context-retrieval-index-sidecar";
