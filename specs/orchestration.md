@@ -15,7 +15,7 @@
 | [模型数据契约迁移](../ts-model-contract-migration/spec.md) | `specs/ts-model-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 C / `feat/ts-model-contract-migration` / `.worktrees/ts-model-contract-migration` | 独立准备完成（HEAD `e424d86a`；35/36 根已生成）；已合入集成分支，TODO 3 联合切换中 |
 | [Web 数据契约迁移](../ts-web-contract-migration/spec.md) | `specs/ts-web-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 D / `feat/ts-web-contract-migration` / `.worktrees/ts-web-contract-migration` | 执行中（subagent D） |
 | [Storage 数据契约迁移](../ts-storage-contract-migration/spec.md) | `specs/ts-storage-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 E / `feat/ts-storage-contract-migration` / `.worktrees/ts-storage-contract-migration` | 独立完成（HEAD `ffcc8a6b`；Feature Verification passed/current）；已合入集成分支；AgentProfile 小 Spec 与嵌套 ContextLookupResult 仍为外部依赖 |
-| [其他数据边界契约迁移](../ts-other-boundaries-migration/spec.md) | `specs/ts-other-boundaries-migration/` | 已批准（2026-10-31 用户确认） | 执行者 F / `feat/ts-other-boundaries-migration` / `.worktrees/ts-other-boundaries-migration` | 执行中（subagent F） |
+| [其他数据边界契约迁移](../ts-other-boundaries-migration/spec.md) | `specs/ts-other-boundaries-migration/` | 已批准（2026-10-31 用户确认） | 执行者 F / `feat/ts-other-boundaries-migration` / `.worktrees/ts-other-boundaries-migration` | 独立完成（HEAD `8f930aa3`；Feature Verification passed/current；本线无 Contract AST 消费者，新增真实子进程 RPC 回归；待并入集成分支） |
 | [删除旧 Contract AST](../remove-legacy-contract-ast/spec.md) | `specs/remove-legacy-contract-ast/` | 已批准（2026-10-31 用户确认） | 执行者 G / `feat/remove-legacy-contract-ast` / `.worktrees/remove-legacy-contract-ast` | 未就绪；等待前六方向真实交付与联合验收 |
 
 ## 依赖关系与执行顺序
@@ -27,6 +27,7 @@
 - 工具线完整 `npm test` 在外部 GEPA LLM 429 处阻塞，等价过滤套件 2573/2573 通过；模型线完整 `npm test` 最终通过。并行 worktree 的 GEPA/构建资源竞争使这些证据不能直接作为联合验收，集成阶段必须在隔离环境重跑。
 - Storage 线在 `36515714` 上完成并通过 Feature Verification，集成时需升级到生成能力线最终固定提交 `813c6b87` 并重跑受影响检查；其 AgentProfile 文件仍归已批准但尚未实施的 `ts-agent-profile-file-contract` 小 Spec，Retrieval Index Sidecar 的嵌套 `ContextLookupResult` 仍由旧 AST 推导，需在模型/其他边界线收敛后再纳入生成结构校验。
 - 协调者已建立 `feat/contract-migration-integration` 集成分支，当前 HEAD `8bfb4cef`，依次合入生成能力线 `813c6b87`、Storage `ffcc8a6b`、工具线 `a716a723`、模型线 `e424d86a`。Catalog 冲突已按 key 合并为 1016 条登记、78 个启用项，生成检查与类型检查通过；联合切换正在该 worktree 执行。
+- 其他边界线在 `8f930aa3` 上完成并通过 Feature Verification：其自有边界未发现 Contract AST 消费者，ACP/Mux/Tool RPC/LLM RPC/Sidecar/Bench Metadata/Process/Runtime admission 均为手写 TS 或外部 SDK 契约；Runtime 决策、Program 工具输入、Worker 工具声明和模型投影中的 AST 引用分别归模型线与工具线。合并后需复核该归属清单仍成立。
 - Web、Storage 和其他边界线按各自真实依赖独立推进。只使用现有生成能力即可完成的部分不等待生成能力线整体完成；确需新能力时，从生成能力线的固定已验证提交建立堆叠分支，并记录上游依赖和验证新鲜度。
 - 删除 AST 是最后阶段：只有前六方向真实消费者迁移、跨 Spec 联合验收和交付证据齐全，且固定实际基线后，才派发删除执行者。仍存在必要 AST 消费者时停止删除并报告。
 - 已批准的 Provider 查询输入、Provider 测试结果和 AgentProfile 小 Spec 保持各自范围与验收，不因本编排获得新的批准或假设。涉及其接入方案的实质变化回到相应 Spec 处理。
