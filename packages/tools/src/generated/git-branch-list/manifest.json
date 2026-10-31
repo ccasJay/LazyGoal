@@ -1,0 +1,23 @@
+{
+  "contractId": "tool.git_branch_list.input",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/tools/src/git-read-tools.ts#GitBranchListInput",
+    "sha256": "b4df96b1e9e2baf5b3de054e723f8644b635eda595ccdb5b56a47ae6fc62c159"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

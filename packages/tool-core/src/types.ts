@@ -140,7 +140,7 @@ export type ToolStreamEvent =
  * };
  * ```
  */
-export interface ToolExecutionRequest<Input extends JsonValue = JsonValue> {
+export interface ToolExecutionRequest<Input = JsonValue> {
     /** 当前 Action 生命周期的稳定标识。 */
     readonly actionId: string;
     /**

@@ -8,10 +8,7 @@ import type {
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
-import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -76,8 +73,37 @@ export const READ_FILE_INPUT_CONTRACT = contract.object({
     cursor: contract.optional(contract.string()),
 });
 
-/** ReadFile 输入类型。 */
-export type ReadFileInput = InferContract<typeof READ_FILE_INPUT_CONTRACT>;
+/**
+ * `read_file` 的结构化输入。
+ *
+ * @remarks
+ * `startLine` 与 `endLine` 为 1 起始的闭区间；`maxChars` 限制单次返回字符数，`cursor` 用于续读。
+ */
+export interface ReadFileInput {
+    /** 工作区相对文件路径。 */
+    readonly path: string;
+    /**
+     * 起始行号（1 起始）。
+     * @asType integer
+     * @minimum 1
+     */
+    readonly startLine?: number;
+    /**
+     * 结束行号（1 起始，包含）。
+     * @asType integer
+     * @minimum 1
+     */
+    readonly endLine?: number;
+    /**
+     * 单次最多返回的字符数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 50000
+     */
+    readonly maxChars?: number;
+    /** 上一页返回的续读游标。 */
+    readonly cursor?: string;
+}
 
 /** ReadFile 成功输出结构。 */
 export interface ReadFileOutput {

@@ -13,10 +13,7 @@ import {
 } from "../../../packages/tool-core/src/index.js";
 import type { JsonValue } from "../../../packages/contracts/src/index.js";
 type JsonObject = { readonly [key: string]: JsonValue };
-import {
-    contract,
-    type InferContract,
-} from "../../../packages/contracts/src/index.js";
+import { contract } from "../../../packages/contracts/src/index.js";
 import { BashTool, ReadFileTool } from "../../../packages/tools/src/index.js";
 import {
     SidecarAbortedError,
@@ -38,8 +35,21 @@ export const ALFWORLD_STEP_INPUT_CONTRACT = contract.object({
     command: contract.string(),
 });
 
-type AlfworldResetInput = InferContract<typeof ALFWORLD_RESET_INPUT_CONTRACT>;
-type AlfworldStepInput = InferContract<typeof ALFWORLD_STEP_INPUT_CONTRACT>;
+/**
+ * `alfworld_reset` 的结构化输入。
+ *
+ * @remarks
+ * 输入必须为空对象；任务会话由工具实例绑定。
+ */
+export interface AlfworldResetInput {}
+
+/**
+ * `alfworld_step` 的结构化输入。
+ */
+export interface AlfworldStepInput {
+    /** 恰好一条非空 TextWorld 环境命令。 */
+    readonly command: string;
+}
 
 /**
  * 专用 ALFWorld Tool 使用的 sidecar 会话边界。

@@ -6,10 +6,7 @@ import type {
     ToolObservation,
     ToolValidationResult,
 } from "../../../packages/tool-core/src/index.js";
-import {
-    contract,
-    type InferContract,
-} from "../../../packages/contracts/src/index.js";
+import { contract } from "../../../packages/contracts/src/index.js";
 import {
     throwIfAborted,
     type ExecutionControl,
@@ -24,7 +21,13 @@ export const SUBMIT_ANSWER_INPUT_CONTRACT = contract.object({
     answer: contract.string(),
 });
 
-type SubmitAnswerInput = InferContract<typeof SUBMIT_ANSWER_INPUT_CONTRACT>;
+/**
+ * `submit_answer` 的结构化输入。
+ */
+export interface SubmitAnswerInput {
+    /** 要提交的最终答案文本。 */
+    readonly answer: string;
+}
 
 /** SubmitAnswerTool 初始化配置。 */
 export interface SubmitAnswerToolOptions {

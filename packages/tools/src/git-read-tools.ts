@@ -7,10 +7,7 @@ import type {
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
-import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
 import {
     throwIfAborted,
     type ExecutionControl,
@@ -73,7 +70,27 @@ export const GIT_STATUS_INPUT_CONTRACT = contract.object({
     })),
 });
 
-export type GitStatusInput = InferContract<typeof GIT_STATUS_INPUT_CONTRACT>;
+/**
+ * `git_status` 的结构化输入。
+ *
+ * @remarks
+ * `repoPath` 省略时使用当前工作区；`maxEntries` 控制单页条目数，其余字段用于游标分页与路径过滤。
+ */
+export interface GitStatusInput {
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /** 可选的路径过滤条件。 */
+    readonly path?: string;
+    /** 上一页返回的分页游标。 */
+    readonly cursor?: string;
+    /**
+     * 单页最多返回的条目数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 500
+     */
+    readonly maxEntries?: number;
+}
 
 export interface GitStatusEntry {
     readonly path: string;
@@ -106,7 +123,33 @@ export const GIT_DIFF_INPUT_CONTRACT = contract.object({
     cursor: contract.optional(contract.string()),
 });
 
-export type GitDiffInput = InferContract<typeof GIT_DIFF_INPUT_CONTRACT>;
+/**
+ * `git_diff` 的结构化输入。
+ *
+ * @remarks
+ * 可比较工作区、暂存区或指定提交；`paths` 限定路径，`maxLines` 控制单页行数。
+ */
+export interface GitDiffInput {
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /** 可选的路径过滤列表。 */
+    readonly paths?: readonly string[];
+    /** 是否比较暂存区。 */
+    readonly staged?: boolean;
+    /** 可选的提交对象。 */
+    readonly commit?: string;
+    /** 可选的比较基线提交。 */
+    readonly baseCommit?: string;
+    /**
+     * 单页最多返回的行数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 2000
+     */
+    readonly maxLines?: number;
+    /** 上一页返回的分页游标。 */
+    readonly cursor?: string;
+}
 
 export interface GitDiffOutput {
     readonly repoPath: string;
@@ -127,7 +170,29 @@ export const GIT_LOG_INPUT_CONTRACT = contract.object({
     cursor: contract.optional(contract.string()),
 });
 
-export type GitLogInput = InferContract<typeof GIT_LOG_INPUT_CONTRACT>;
+/**
+ * `git_log` 的结构化输入。
+ *
+ * @remarks
+ * `maxCount` 控制单页提交数；`revisionRange` 与 `path` 缩小历史范围。
+ */
+export interface GitLogInput {
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /**
+     * 单页最多返回的提交数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 100
+     */
+    readonly maxCount?: number;
+    /** 可选的路径过滤条件。 */
+    readonly path?: string;
+    /** 可选的修订范围。 */
+    readonly revisionRange?: string;
+    /** 上一页返回的分页游标。 */
+    readonly cursor?: string;
+}
 
 export interface GitCommitRecord {
     readonly hash: string;
@@ -156,7 +221,27 @@ export const GIT_SHOW_INPUT_CONTRACT = contract.object({
     cursor: contract.optional(contract.string()),
 });
 
-export type GitShowInput = InferContract<typeof GIT_SHOW_INPUT_CONTRACT>;
+/**
+ * `git_show` 的结构化输入。
+ *
+ * @remarks
+ * `object` 是待展示的提交或对象标识；`maxLines` 控制单页行数。
+ */
+export interface GitShowInput {
+    /** 待展示的提交或对象标识。 */
+    readonly object: string;
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /**
+     * 单页最多返回的行数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 2000
+     */
+    readonly maxLines?: number;
+    /** 上一页返回的分页游标。 */
+    readonly cursor?: string;
+}
 
 export interface GitShowOutput {
     readonly repoPath: string;
@@ -174,7 +259,17 @@ export const GIT_BRANCH_LIST_INPUT_CONTRACT = contract.object({
     cursor: contract.optional(contract.string()),
 });
 
-export type GitBranchListInput = InferContract<typeof GIT_BRANCH_LIST_INPUT_CONTRACT>;
+/**
+ * `git_branch_list` 的结构化输入。
+ */
+export interface GitBranchListInput {
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /** 是否包含远程分支。 */
+    readonly remote?: boolean;
+    /** 上一页返回的分页游标。 */
+    readonly cursor?: string;
+}
 
 export interface GitBranchInfo {
     readonly name: string;
@@ -195,7 +290,15 @@ export const GIT_WORKTREE_LIST_INPUT_CONTRACT = contract.object({
     cursor: contract.optional(contract.string()),
 });
 
-export type GitWorktreeListInput = InferContract<typeof GIT_WORKTREE_LIST_INPUT_CONTRACT>;
+/**
+ * `git_worktree_list` 的结构化输入。
+ */
+export interface GitWorktreeListInput {
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /** 上一页返回的分页游标。 */
+    readonly cursor?: string;
+}
 
 export interface GitWorktreeInfo {
     readonly path: string;

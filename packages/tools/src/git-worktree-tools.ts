@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import { contract, type InferContract } from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
 import type {
     Tool,
     ToolDefinition,
@@ -51,7 +51,19 @@ export const GIT_WORKTREE_ADD_INPUT_CONTRACT = contract.object({
     repoPath: contract.optional(contract.string()),
 });
 
-export type GitWorktreeAddInput = InferContract<typeof GIT_WORKTREE_ADD_INPUT_CONTRACT>;
+/**
+ * `git_worktree_add` 的结构化输入。
+ */
+export interface GitWorktreeAddInput {
+    /** 新 worktree 的目标路径。 */
+    readonly path: string;
+    /** 可选的检出分支。 */
+    readonly branch?: string;
+    /** 可选的检出提交。 */
+    readonly commit?: string;
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+}
 
 /**
  * `git_worktree_add` 执行成功输出结构。
@@ -75,7 +87,15 @@ export const GIT_WORKTREE_REMOVE_INPUT_CONTRACT = contract.object({
     repoPath: contract.optional(contract.string()),
 });
 
-export type GitWorktreeRemoveInput = InferContract<typeof GIT_WORKTREE_REMOVE_INPUT_CONTRACT>;
+/**
+ * `git_worktree_remove` 的结构化输入。
+ */
+export interface GitWorktreeRemoveInput {
+    /** 要移除的 worktree 路径。 */
+    readonly path: string;
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+}
 
 /**
  * `git_worktree_remove` 执行成功输出结构。

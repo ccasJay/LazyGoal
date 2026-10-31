@@ -8,10 +8,7 @@ import type {
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
-import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -68,8 +65,25 @@ export const LIST_DIRECTORY_INPUT_CONTRACT = contract.object({
     cursor: contract.optional(contract.string()),
 });
 
-/** ListDirectory 输入结构。 */
-export type ListDirectoryInput = InferContract<typeof LIST_DIRECTORY_INPUT_CONTRACT>;
+/**
+ * `list_directory` 的结构化输入。
+ *
+ * @remarks
+ * `path` 省略时列举工作区根目录；`maxEntries` 与 `cursor` 控制单页条目数和续读位置。
+ */
+export interface ListDirectoryInput {
+    /** 工作区相对目录路径。 */
+    readonly path?: string;
+    /**
+     * 单页最多返回的条目数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 1000
+     */
+    readonly maxEntries?: number;
+    /** 上一页返回的分页游标。 */
+    readonly cursor?: string;
+}
 
 /** 目录直接子项类型。 */
 export type DirectoryEntryType = "file" | "directory" | "symlink";

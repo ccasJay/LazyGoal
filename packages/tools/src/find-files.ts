@@ -9,10 +9,7 @@ import type {
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
-import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -87,7 +84,27 @@ export const FIND_FILES_INPUT_CONTRACT = contract.object({
 });
 
 /** FindFiles 输入结构。 */
-export type FindFilesInput = InferContract<typeof FIND_FILES_INPUT_CONTRACT>;
+/**
+ * `find_files` 的结构化输入。
+ *
+ * @remarks
+ * `pattern` 使用 picomatch 语法；`path` 限定搜索根，`maxResults` 与 `cursor` 控制单页结果和续读。
+ */
+export interface FindFilesInput {
+    /** 文件匹配 glob 模式。 */
+    readonly pattern: string;
+    /** 可选的搜索根目录。 */
+    readonly path?: string;
+    /**
+     * 单页最多返回的结果数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 500
+     */
+    readonly maxResults?: number;
+    /** 上一页返回的分页游标。 */
+    readonly cursor?: string;
+}
 
 /** FindFiles 成功输出结构。 */
 export interface FindFilesOutput {

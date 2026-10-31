@@ -1,4 +1,3 @@
-import type { Tool } from "../../packages/tool-core/src/index.js";
 import {
     compileJsonSchema,
     safeParse,
@@ -171,7 +170,7 @@ export function createSwebenchRemoteToolRegistry(client: ToolRpcClient): InMemor
  */
 export function createGaiaRemoteToolRegistry(client: ToolRpcClient): InMemoryToolRegistry {
     const dummyRoot = "/dummy";
-    const tools: Tool[] = [
+    const tools = [
         new ReadFileTool(dummyRoot),
         new WebSearchTool(async () => []),
         new WebFetchTool(async () => ""),

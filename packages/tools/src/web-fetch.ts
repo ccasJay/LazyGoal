@@ -5,10 +5,7 @@ import type {
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
-import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     throwIfAborted,
@@ -110,8 +107,29 @@ export const WEB_FETCH_INPUT_CONTRACT = contract.object({
     ),
 });
 
-/** Web Fetch 输入类型。 */
-export type WebFetchInput = InferContract<typeof WEB_FETCH_INPUT_CONTRACT>;
+/**
+ * `web_fetch` 的结构化输入。
+ *
+ * @remarks
+ * `maxChars` 与 `offset` 按 UTF-16 偏移对提取后的纯文本分页。
+ */
+export interface WebFetchInput {
+    /** 要抓取的 http 或 https URL。 */
+    readonly url: string;
+    /**
+     * 单页最多返回的字符数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 50000
+     */
+    readonly maxChars?: number;
+    /**
+     * 提取文本的起始 UTF-16 偏移。
+     * @asType integer
+     * @minimum 0
+     */
+    readonly offset?: number;
+}
 
 /**
  * 将 HTML 文本转换为单行可见文本。

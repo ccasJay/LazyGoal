@@ -7,10 +7,7 @@ import type {
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
-import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -52,13 +49,24 @@ const WRITE_FILE_DOMAIN_FAILURES: DomainFailureMessages = {
     },
 };
 
-/** Write File Tool 的唯一输入 Contract。 */
+/** Write File Tool 的唯一输入 Contract（过渡期供模型线消费）。 */
 export const WRITE_FILE_INPUT_CONTRACT = contract.object({
     path: contract.string(),
     content: contract.string(),
 });
 
-type WriteFileInput = InferContract<typeof WRITE_FILE_INPUT_CONTRACT>;
+/**
+ * `write_file` 的结构化输入。
+ *
+ * @remarks
+ * `path` 必须是工作区相对路径；`content` 为完整 UTF-8 文本，覆盖已有内容。
+ */
+export interface WriteFileInput {
+    /** 工作区相对文件路径。 */
+    readonly path: string;
+    /** 要写入的完整文件内容。 */
+    readonly content: string;
+}
 
 /**
  * 在指定 workspaceRoot 内写入 UTF-8 文本文件的 Tool。

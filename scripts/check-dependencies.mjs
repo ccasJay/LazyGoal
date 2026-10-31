@@ -82,7 +82,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     storage: ["runtime", "contracts", "model-contracts", "permission", "context-retrieval"],
     agent: ["runtime", "llm", "config", "contracts", "model-contracts", "execution-stream", "execution-control", "tool-core", "working-memory", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request", "model-response", "model-call", "model-execution"],
     "session-metrics": ["runtime", "http", "web-contracts"],
-    tools: ["runtime", "contracts", "execution-stream", "sandbox", "execution-control", "tool-core", "process-runtime"],
+    tools: ["runtime", "contracts", "contract-binding", "execution-stream", "sandbox", "execution-control", "tool-core", "process-runtime"],
     "process-runtime": ["runtime", "sandbox"],
     browser: ["http", "runtime", "permission", "web-contracts", "execution-control"],
     "web-contracts": ["contracts"],

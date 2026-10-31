@@ -5,10 +5,7 @@ import type {
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
-import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     throwIfAborted,
@@ -98,8 +95,20 @@ export const WEB_SEARCH_INPUT_CONTRACT = contract.object({
     ),
 });
 
-/** Web Search 输入类型。 */
-export type WebSearchInput = InferContract<typeof WEB_SEARCH_INPUT_CONTRACT>;
+/**
+ * `web_search` 的结构化输入。
+ */
+export interface WebSearchInput {
+    /** 搜索查询。 */
+    readonly query: string;
+    /**
+     * 最多返回的结果数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 20
+     */
+    readonly maxResults?: number;
+}
 
 /**
  * 宿主代理网页搜索 Tool。

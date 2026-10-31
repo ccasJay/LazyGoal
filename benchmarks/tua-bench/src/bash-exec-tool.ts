@@ -1,9 +1,6 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
-import {
-    contract,
-    type InferContract,
-} from "../../../packages/contracts/src/index.js";
+import { contract } from "../../../packages/contracts/src/index.js";
 import type {
     Tool,
     ToolDefinition,
@@ -42,7 +39,25 @@ export const BASH_EXEC_INPUT_CONTRACT = contract.object({
     workdir: contract.optional(contract.string()),
 });
 
-export type BashExecInput = InferContract<typeof BASH_EXEC_INPUT_CONTRACT>;
+/**
+ * `bash_exec` 的结构化输入。
+ *
+ * @remarks
+ * `timeoutMs` 与 `workdir` 仅影响本次容器内命令执行；默认工作目录由工具实例配置。
+ */
+export interface BashExecInput {
+    /** 要执行的 bash 命令。 */
+    readonly command: string;
+    /**
+     * 命令超时毫秒数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 600000
+     */
+    readonly timeoutMs?: number;
+    /** 可选的命令工作目录。 */
+    readonly workdir?: string;
+}
 
 /**
  * `bash_exec` 工具的执行结果数据契约。

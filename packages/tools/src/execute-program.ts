@@ -10,6 +10,17 @@ export const EXECUTE_PROGRAM_INPUT_CONTRACT = contract.object({
     code: contract.string(),
 });
 
+/**
+ * `execute_program` 的结构化输入。
+ *
+ * @remarks
+ * `code` 是受 Runner 限额约束的 JavaScript 程序文本；准备阶段按 UTF-8 字节数检查 64 KiB 上限。
+ */
+export interface ExecuteProgramInput {
+    /** 要执行的 JavaScript 程序源码。 */
+    readonly code: string;
+}
+
 /** 程序入口不代表内部业务调用已获权限。 */
 export const EXECUTE_PROGRAM_DEFINITION: ToolDefinition<typeof EXECUTE_PROGRAM_INPUT_CONTRACT> = {
     id: EXECUTE_PROGRAM_TOOL_ID,

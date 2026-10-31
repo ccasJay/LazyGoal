@@ -10,10 +10,7 @@ import type {
     ToolStreamEvent,
     ToolValidationResult,
 } from "../../tool-core/src/index";
-import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     throwIfAborted,
@@ -109,7 +106,59 @@ export const BASH_INPUT_CONTRACT = contract.object({
     sandboxAccess: contract.optional(SANDBOX_ACCESS_CONTRACT),
 });
 
-type BashInput = InferContract<typeof BASH_INPUT_CONTRACT>;
+/**
+ * Bash 工具申请的单文件或目录树访问。
+ */
+export interface BashSandboxFileAccessInput {
+    /** 申请路径。 */
+    readonly path: string;
+    /** 访问类型。 */
+    readonly access: "read" | "write";
+    /** 申请范围。 */
+    readonly kind: "file" | "directory_tree";
+    /** 申请用途说明。 */
+    readonly purpose: string;
+}
+
+/**
+ * Bash 工具申请的网络访问。
+ */
+export interface BashSandboxNetworkAccessInput {
+    /** 允许访问的网络目标列表。 */
+    readonly targets: readonly string[];
+    /** 申请用途说明。 */
+    readonly purpose: string;
+}
+
+/**
+ * Bash 工具申请的额外沙箱能力。
+ */
+export interface BashSandboxAccessInput {
+    /** 额外申请的文件访问列表。 */
+    readonly files?: readonly BashSandboxFileAccessInput[];
+    /** 可选的网络访问申请。 */
+    readonly network?: BashSandboxNetworkAccessInput;
+}
+
+/**
+ * `bash` 的结构化输入。
+ *
+ * @remarks
+ * `timeoutMs` 限制单次命令执行时间；`sandboxAccess` 声明命令外的额外沙箱能力申请。
+ */
+export interface BashInput {
+    /** 要执行的 shell 命令。 */
+    readonly command: string;
+    /**
+     * 命令超时毫秒数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 600000
+     */
+    readonly timeoutMs?: number;
+    /** 可选的沙箱能力申请。 */
+    readonly sandboxAccess?: BashSandboxAccessInput;
+}
 
 /**
  * BashTool 的配置选项。

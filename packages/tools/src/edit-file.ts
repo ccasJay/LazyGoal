@@ -5,10 +5,7 @@ import type {
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
-import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -50,14 +47,27 @@ const EDIT_FILE_DOMAIN_FAILURES: DomainFailureMessages = {
     },
 };
 
-/** Edit File Tool 的唯一输入 Contract。 */
+/** Edit File Tool 的唯一输入 Contract（过渡期供模型线消费）。 */
 export const EDIT_FILE_INPUT_CONTRACT = contract.object({
     path: contract.string(),
     oldString: contract.string(),
     newString: contract.string(),
 });
 
-type EditFileInput = InferContract<typeof EDIT_FILE_INPUT_CONTRACT>;
+/**
+ * `edit_file` 的结构化输入。
+ *
+ * @remarks
+ * `oldString` 必须在目标文件中恰好出现一次；`newString` 可以为空字符串。
+ */
+export interface EditFileInput {
+    /** 工作区相对文件路径。 */
+    readonly path: string;
+    /** 要求唯一匹配的原始文本。 */
+    readonly oldString: string;
+    /** 替换后的文本。 */
+    readonly newString: string;
+}
 
 /**
  * 在指定 workspaceRoot 内对 UTF-8 文本文件执行精确字符串替换的 Tool。

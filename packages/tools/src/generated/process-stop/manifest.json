@@ -1,0 +1,23 @@
+{
+  "contractId": "tool.process_stop.input",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/tools/src/process-tools.ts#ProcessStopInput",
+    "sha256": "437298d0701c6b121bda11f64759b9a296cbf8da1c2bb1acc605f2951ab658d1"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

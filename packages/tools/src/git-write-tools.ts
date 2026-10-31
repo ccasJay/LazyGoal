@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { contract, type InferContract } from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
 import type {
     Tool,
     ToolDefinition,
@@ -46,7 +46,15 @@ export const GIT_ADD_INPUT_CONTRACT = contract.object({
     repoPath: contract.optional(contract.string()),
 });
 
-export type GitAddInput = InferContract<typeof GIT_ADD_INPUT_CONTRACT>;
+/**
+ * `git_add` 的结构化输入。
+ */
+export interface GitAddInput {
+    /** 要暂存的工作区相对或仓库相对路径列表。 */
+    readonly paths: readonly string[];
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+}
 
 /**
  * `git_add` 执行成功输出结构。
@@ -75,7 +83,27 @@ export const GIT_COMMIT_INPUT_CONTRACT = contract.object({
     author: contract.optional(GIT_COMMIT_AUTHOR_CONTRACT),
 });
 
-export type GitCommitInput = InferContract<typeof GIT_COMMIT_INPUT_CONTRACT>;
+/**
+ * `git_commit` 的结构化输入。
+ */
+export interface GitCommitInput {
+    /** 提交说明。 */
+    readonly message: string;
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /** 可选的提交作者覆盖。 */
+    readonly author?: GitCommitAuthorInput;
+}
+
+/**
+ * `git_commit` 的提交作者覆盖。
+ */
+export interface GitCommitAuthorInput {
+    /** 作者姓名。 */
+    readonly name: string;
+    /** 作者邮箱。 */
+    readonly email: string;
+}
 
 /**
  * `git_commit` 执行成功输出结构。
@@ -100,7 +128,17 @@ export const GIT_BRANCH_CREATE_INPUT_CONTRACT = contract.object({
     startPoint: contract.optional(contract.string()),
 });
 
-export type GitBranchCreateInput = InferContract<typeof GIT_BRANCH_CREATE_INPUT_CONTRACT>;
+/**
+ * `git_branch_create` 的结构化输入。
+ */
+export interface GitBranchCreateInput {
+    /** 要创建的分支名。 */
+    readonly branch: string;
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /** 可选的创建起点。 */
+    readonly startPoint?: string;
+}
 
 /**
  * `git_branch_create` 执行成功输出结构。
@@ -123,7 +161,17 @@ export const GIT_BRANCH_SWITCH_INPUT_CONTRACT = contract.object({
     createIfNotExists: contract.optional(contract.boolean()),
 });
 
-export type GitBranchSwitchInput = InferContract<typeof GIT_BRANCH_SWITCH_INPUT_CONTRACT>;
+/**
+ * `git_branch_switch` 的结构化输入。
+ */
+export interface GitBranchSwitchInput {
+    /** 要切换到的分支名。 */
+    readonly branch: string;
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /** 分支不存在时是否创建。 */
+    readonly createIfNotExists?: boolean;
+}
 
 /**
  * `git_branch_switch` 执行成功输出结构。
