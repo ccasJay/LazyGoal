@@ -4,7 +4,7 @@
 
 ## 生成能力状态
 
-[TS 契约类型](../src/model-output/schema-types.ts) 与 [Catalog 登记](../../../contracts/catalog.json) 已就绪。截至本方向准备时，生成能力线已验证分支已提供：
+[TS 契约类型](../src/model-output/schema-types.ts) 与 [Catalog 登记](../../../contracts/catalog.json) 已就绪。截至本方向准备时，生成能力线的已验证提交已提供以下能力；集成时以协调者固定的提交为准，本分支不直接依赖这些提交：
 
 - 判别联合与 `anyOf` wire 投影；
 - 可空类型数组、required-nullable 与 canonical 解码；
