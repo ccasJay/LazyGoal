@@ -60,6 +60,7 @@ packages/        Private `@lazygoal/*` workspaces
   tool-core/     Tool definition, input validation closure, execution registry, and retryable failures
   tools/         Agent tools such as filesystem, shell, and workspace utilities
 README.md       Project entry and navigation; each module owns README and notes/
+contracts/       Build-time data contract Catalog and generation index
 specs/           Feature requirements, designs, and implementation task checklists
 project-memory/  Durable summaries of completed and verified feature specifications
 `~/.lazygoal/`  LazyGoal Home runtime data; workspace-scoped Goal Snapshots, trajectories, traces, benchmark runs, and GEPA runs
