@@ -31,8 +31,8 @@
 
 - 状态：blocked
 - 验证时间：2026-10-31
-- 测试提交：294a475e（工作树干净；本地 node_modules 安装未纳入版本控制）
+- 测试提交：8c864433（工作树干净；本地 node_modules 安装未纳入版本控制）
 - 验证摘要：
-  - 完整工具清单与生成：blocked。30 个工具输入已登记；18 个启用 `typescript-binding` 并由 `contracts:generate -- --check` 验证，12 个因共享生成器尚未支持 `@asType integer` 处于 `generation.state = none`。旧输入 AST 仍供模型线消费，因此 [1.1](./spec.md#spec-req-1-1) 与 [1.3](./spec.md#spec-req-1-3) 尚未完成。
-  - 准备、权限及进程：passed（本方向独立范围）。工具注册与 `prepare` 使用同一绑定；已知字段错误、未知字段剥离及有界诊断、语义校验、授权/审批/沙箱/取消/恢复和远程 Worker describe 均有测试覆盖。`packages/tools` 157、runtime 598、storage 174、goal-server 61、model-context/model-execution 496、benchmark 180、model-contracts/model-request/llm 149、scripts 98 项测试通过。
-  - 联合集成及回归：pending-integration / blocked。排除依赖外部 GEPA reflection 的 `benchmarks/test/prompt-evaluation/` 后，等价完整 TypeScript 套件 2555/2555 通过；完整 `npm test` 在 GEPA reflection 外部 LLM 429/500 重试处无法完成，未作为通过证据。`tsc --noEmit`、`contracts:generate --check`、`check:docs`、`check:dependencies`、`build:web` 与 `git diff --check` 通过；模型线尚未切换到绑定 Schema，旧 AST 未删除，联合验收仍由集成阶段执行。
+  - 完整工具清单与生成：blocked（仅剩联合切换部分）。30 个工具输入全部启用 `typescript-binding`，`contracts:generate -- --check` 通过并提交 155 份生成制品；`createTransitionalToolInputBinding` 已移出生产入口，只保留为测试夹具辅助。旧输入 AST 仍供模型线消费，因此 [1.1](./spec.md#spec-req-1-1) 与 [1.3](./spec.md#spec-req-1-3) 中“旧 AST 不再参与/模型同源声明”的联合条件尚未完成。
+  - 准备、权限及进程：passed（本方向独立范围）。工具注册与 `prepare` 使用同一生成绑定；已知字段错误、未知字段剥离及有界诊断、语义校验、授权/审批/沙箱/取消/恢复和远程 Worker describe 均有测试覆盖。`packages/tools` 157、runtime 598、storage 174、goal-server 61、model-context/model-execution 496、benchmark 180、model-contracts/model-request/llm 149、scripts 98 项测试通过。
+  - 联合集成及回归：pending-integration / blocked。排除依赖外部 GEPA reflection 的 `benchmarks/test/prompt-evaluation/` 后，等价完整 TypeScript 套件 2573/2573 通过；完整 `npm test` 在 GEPA reflection 外部 LLM 429 重试处以退出码 1 结束、未产出通过结果，未作为通过证据。`tsc --noEmit`、`contracts:generate --check`、`check:docs`、`check:dependencies`、`build:web` 与 `git diff --check` 通过；模型线尚未切换到绑定 Schema，旧 AST 未删除，联合验收仍由集成阶段执行。
