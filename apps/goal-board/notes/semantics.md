@@ -50,7 +50,7 @@
 | liveText 帧合并 | 打字机增量按帧合并后提交渲染，跟随滚动以帧节流，流结束不丢字。 | [Goal Board](../README.md) | [live-text-batch](../src/live-text-batch.ts) |
 | Provider 设置页 | 受管 Provider 紧凑列表与按需展开表单；区分凭据已保存、激活与目录检查状态，不回显已保存密钥。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx) |
 | 来源两级选择 | 模型选择器先选 Provider 来源再选模型，结果写入对应偏好或 Goal 选择。 | [Goal Board](../README.md) | [ModelPicker](../src/components/ModelPicker.tsx) |
-| Fetch models | 用当前表单查询在线模型；读取器剥离未声明字段并记录不含值的诊断，不保存档案。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx)、[Provider 模型读取器](../../../packages/web-contracts/src/provider-models-reader.ts) |
+| Fetch models | 用当前表单查询在线模型；读取器剥离未声明字段并记录不含值的诊断，不保存档案。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx)、[Provider 模型读取器](../../../packages/web-contracts/src/generated/provider-models-reader.ts) |
 | 轨迹概览轨道 | 50px 三轨 Sequence／Time 投影；始终填满可视宽度，Sequence 滚轮缩放不低于 Fit，右键平移、拖拽选择范围，Compact 只收窄事件标记。 | [Goal Board](../README.md) | [TrajectoryTimeline](../src/trajectory-timeline.tsx)、[投影](../src/trajectory-timeline-model.ts) |
 | Prompt 记录 | 模型输入按调用折叠为一条记录，消息正文只在模型输入检查器中展开，不进入主事件流。 | [Goal Board](../README.md) | [TrajectoryRecords](../src/trajectory-records.tsx) |
 | 轨迹详情覆盖层 | 窄屏下详情覆盖记录列表，列表保持全宽；Trajectory 页不渲染输入区。 | [Goal Board](../README.md) | [Trajectory](../src/trajectory.tsx)、[样式](../src/trajectory.css) |

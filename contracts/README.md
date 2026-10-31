@@ -1,0 +1,47 @@
+# 构建期契约 Catalog
+
+`contracts/catalog.json` 是项目数据契约的构建期索引，登记具名 TS 声明、Contract AST、Zod Schema 及其派生关系。它不拥有执行契约、运行时状态或持久化数据；这些语义仍由所属模块的源码与说明定义。
+
+Catalog 以 `codex/contract-inventory` 的 `676015c6` 盘点为基线，覆盖三个分册的 882 项声明：Web 286 项、模型与工具 308 项、持久化与跨进程 288 项。实施时已在当前源码复核：没有声明被删除；两个 Provider Reader 辅助类型随本特性迁移到生成读取器，处置记录在 `reconciliation.moved`。行号、消费者、协议身份与生成能力均按当前源码登记。
+
+## 登记字段
+
+- `key`：仅用于 Catalog 内部定位的稳定键，格式为 `模块/源码相对路径#声明名`；它不冒充对外协议身份或版本。
+- `source`：声明路径与行号。`status` 为 `moved` 时使用 `source.currentPath`；`deleted` 项必须带 `disposition`。
+- `owner`、`module`、`boundary`、`section`：声明归属与盘点边界。
+- `definition`、`definitionKind`、`relations`：原生 TS、Contract AST、Zod、派生或外部 SDK 定义，以及可见的派生/引用关系。
+- `consumers`：生产源码中的引用方；无法静态定位时使用 `consumerNote` 说明。
+- `protocol`：`declared`、`undeclared`、`not-applicable` 或 `unknown`。盘点中的边界标签不会自动成为协议身份。
+- `generation`：`enabled`、`none`、`runtime`、`external`、`dynamic` 或 `unknown`。只有 `enabled` 项由构建生成制品。
+- `validation`：运行时 guard、Zod、内存 Schema、手写校验、SDK、仅类型或生成读取器等实际校验方式。
+- `role`：`boundary-root` 或 `referenced`。只有显式边界根与参与本次生成的声明被标记为根。
+
+## 查询
+
+```bash
+node scripts/contract-catalog.mjs query web.providers.models.success
+node scripts/contract-catalog.mjs query createModelOutputContractBundle
+node scripts/contract-catalog.mjs query GoalSnapshotV1Schema
+```
+
+查询同时返回匹配的声明项、边界入口与动态组合入口。声明项包含源码位置、消费者、协议身份/版本、生成与校验能力；动态组合只记录构造入口、组成、条件与源码依据，不枚举运行时组合。
+
+## 生成
+
+`npm run contracts:generate -- --write` 读取 Catalog 的全部启用项并写入制品；`--check` 只比较已提交制品，不写文件。相同输入产生相同内容，检查已接入 [`scripts/run-regression.mjs`](../scripts/run-regression.mjs)。
+
+首批只启用 `web.providers.models.success`。其字段与约束唯一来源是 [`BrowserProviderModels`](../packages/web-contracts/src/provider-settings.ts) 及其 JSDoc；生成器输出：
+
+- JSON Schema 模块、Ajv standalone 浏览器校验器及类型声明；
+- 保留身份、版本、方言、来源摘要和工具版本的 Manifest；
+- 绑定共享读取逻辑的薄 Reader。
+
+真实浏览器 API 通过包公开入口消费生成读取器；共享逻辑位于 [`contract-reader.ts`](../packages/web-contracts/src/contract-reader.ts)，行为见 [Web 传输契约](../packages/web-contracts/notes/overview.md)。
+
+生成入口会拒绝重复内部键、重复对外身份与版本、重复制品路径、缺失来源、无效登记、未支持契约类型、不支持结构及无效应注解。当前共享读取器只承诺首个生成契约所需的结构：封闭对象、对象数组、标量字段、字符串 `@pattern`、标量 `const`/`enum` 与本地 `$ref`；联合、开放对象、元组、外部引用及其他约束会明确失败。
+
+其他登记项保留真实现状：Contract AST 与 Zod 在运行时校验，Tool 输入 Schema 在注册期内存编译，模型输出联合在请求期动态组合；它们不产生本步的静态 Schema、Reader 或 Manifest。新增启用项必须在 Catalog 中显式登记生成策略，并先扩展共享读取器的受支持子集。
+
+## 维护边界
+
+Catalog 是盘点后的当前源码索引，不是自动同步的第二个字段表。声明移动、删除或改变时，应在同一改动中更新对应登记与 `reconciliation`；生成策略、协议身份和制品路径变化还必须通过 `contracts:generate -- --check`。盘点提交本身不是构建输入。

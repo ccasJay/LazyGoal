@@ -5,7 +5,7 @@ import {
     browserProviderModelsMetadata,
     browserProviderModelsSchema,
 } from "../src/generated/provider-models-schema";
-import { readBrowserProviderModels } from "../src/provider-models-reader";
+import { readBrowserProviderModels } from "../src/index";
 
 test("provider models reader extracts declared fields and reports bounded paths", () => {
     const input = {

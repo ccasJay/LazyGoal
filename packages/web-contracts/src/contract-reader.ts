@@ -1,36 +1,41 @@
-import {
-    browserProviderModelsMetadata,
-    browserProviderModelsSchema,
-} from "./generated/provider-models-schema";
-import validateBrowserProviderModels from "./generated/provider-models-validator.mjs";
 import { isJsonValue } from "./invariants/json-value";
 import type { BrowserJsonValue } from "./session-input";
-import type { BrowserProviderModels } from "./provider-settings";
 
 const MAX_UNKNOWN_PATHS = 32;
 const MAX_PATH_LENGTH = 160;
 
-type SchemaNode = {
+/**
+ * 共享 JSON 边界读取器支持的 Schema 节点。
+ *
+ * @remarks
+ * 只描述未知字段遍历所需的结构；生成器在构建期拒绝该子集之外的结构。
+ *
+ * @example
+ * ```ts
+ * const node: ContractSchemaNode = { type: "object", properties: {} };
+ * ```
+ */
+export interface ContractSchemaNode {
     readonly $ref?: string;
-    readonly definitions?: Readonly<Record<string, SchemaNode>>;
-    readonly properties?: Readonly<Record<string, SchemaNode>>;
-    readonly items?: SchemaNode;
-};
+    readonly definitions?: Readonly<Record<string, ContractSchemaNode>>;
+    readonly properties?: Readonly<Record<string, ContractSchemaNode>>;
+    readonly items?: ContractSchemaNode;
+}
 
 /**
- * 在线模型响应中被忽略的额外字段诊断。
+ * 契约边界读取结果中的未知字段诊断。
  *
  * @remarks
  * 仅包含契约身份、版本及有界 JSON Pointer 路径，不包含字段值或原始响应。
  *
  * @example
  * ```ts
- * const diagnostic: BrowserProviderModelsUnknownFieldDiagnostic = {
+ * const diagnostic: ContractUnknownFieldDiagnostic = {
  *     contractId: "web.providers.models.success", version: 1, paths: ["/models/0/debug"], truncated: false,
  * };
  * ```
  */
-export interface BrowserProviderModelsUnknownFieldDiagnostic {
+export interface ContractUnknownFieldDiagnostic {
     readonly contractId: string;
     readonly version: number;
     readonly paths: readonly string[];
@@ -38,42 +43,63 @@ export interface BrowserProviderModelsUnknownFieldDiagnostic {
 }
 
 /**
- * 在线模型列表响应的边界读取结果。
+ * 契约边界读取结果。
  *
  * @remarks
  * 成功时 `data` 是与输入隔离并已去除额外字段的对象；结构或已知字段错误时只返回失败标记。
  *
  * @example
  * ```ts
- * const result = readBrowserProviderModels(value);
- * if (result.ok) renderModels(result.data.models);
+ * const result: ContractReadResult<{ ok: true }> = readContractValue(value, binding);
  * ```
  */
-export type BrowserProviderModelsReadResult =
+export type ContractReadResult<T> =
     | {
         readonly ok: true;
-        readonly data: BrowserProviderModels;
-        readonly diagnostic?: BrowserProviderModelsUnknownFieldDiagnostic;
+        readonly data: T;
+        readonly diagnostic?: ContractUnknownFieldDiagnostic;
     }
     | { readonly ok: false };
 
 /**
- * 在在线模型列表 wire 边界校验并提取已声明字段。
+ * 单份已生成契约的运行时绑定。
+ *
+ * @remarks
+ * 生成器为每个启用契约提供 Schema、校验器及身份；共享读取器不推断契约字段。
+ *
+ * @example
+ * ```ts
+ * const binding: ContractReadBinding<{ ok: true }> = {
+ *     contractId: "web.providers.models.success", version: 1,
+ *     schema: { type: "object", properties: {} }, validate: () => true,
+ * };
+ * ```
+ */
+export interface ContractReadBinding<T> {
+    readonly contractId: string;
+    readonly version: number;
+    readonly schema: ContractSchemaNode;
+    readonly validate: (value: unknown) => boolean;
+}
+
+/**
+ * 在 JSON wire 边界复制、校验并剥离契约未声明字段。
  *
  * @remarks
  * 输入必须是 JSON 数据。未知字段会从独立副本移除并以有界路径报告；已知字段类型错误时
  * 整个响应失败，不转换值、不补默认值，且不会修改调用方输入。
  *
  * @param value - 尚未信任的 API JSON 响应。
+ * @param binding - 生成器提供的契约身份、Schema 与校验器。
  * @returns 提取后的成功数据和可选诊断，或不含部分数据的失败结果。
  *
  * @example
  * ```ts
- * const result = readBrowserProviderModels({ ok: true, models: [], trace: true });
- * if (result.ok) console.log(result.data.models.length, result.diagnostic?.paths);
+ * const result = readContractValue(value, binding);
+ * if (result.ok) render(result.data);
  * ```
  */
-export function readBrowserProviderModels(value: unknown): BrowserProviderModelsReadResult {
+export function readContractValue<T>(value: unknown, binding: ContractReadBinding<T>): ContractReadResult<T> {
     let copied: BrowserJsonValue;
     try {
         if (!hasJsonPropertyShape(value) || !isJsonValue(value)) return { ok: false };
@@ -82,16 +108,16 @@ export function readBrowserProviderModels(value: unknown): BrowserProviderModels
         return { ok: false };
     }
 
-    const unknown = findUnknownPaths(copied, browserProviderModelsSchema as SchemaNode);
-    if (!validateBrowserProviderModels(copied)) return { ok: false };
+    const unknown = findUnknownPaths(copied, binding.schema);
+    if (!binding.validate(copied)) return { ok: false };
 
     return {
         ok: true,
-        data: copied as unknown as BrowserProviderModels,
+        data: copied as unknown as T,
         ...(unknown.paths.length === 0 ? {} : {
             diagnostic: {
-                contractId: browserProviderModelsMetadata.contractId,
-                version: browserProviderModelsMetadata.version,
+                contractId: binding.contractId,
+                version: binding.version,
                 paths: unknown.paths,
                 truncated: unknown.truncated,
             },
@@ -130,11 +156,11 @@ function isArrayIndex(key: string): boolean {
     return Number.isInteger(index) && index >= 0 && index < 0xffff_ffff && String(index) === key;
 }
 
-function findUnknownPaths(value: BrowserJsonValue, rootSchema: SchemaNode): {
+function findUnknownPaths(value: BrowserJsonValue, rootSchema: ContractSchemaNode): {
     readonly paths: string[];
     readonly truncated: boolean;
 } {
-    const pending: Array<{ readonly value: BrowserJsonValue; readonly schema: SchemaNode; readonly path: string }> = [
+    const pending: Array<{ readonly value: BrowserJsonValue; readonly schema: ContractSchemaNode; readonly path: string }> = [
         { value, schema: rootSchema, path: "" },
     ];
     const paths: string[] = [];
@@ -179,14 +205,14 @@ function findUnknownPaths(value: BrowserJsonValue, rootSchema: SchemaNode): {
     return { paths, truncated };
 }
 
-function resolveSchema(schema: SchemaNode, root: SchemaNode): SchemaNode {
+function resolveSchema(schema: ContractSchemaNode, root: ContractSchemaNode): ContractSchemaNode {
     if (schema.$ref === undefined) return schema;
     let resolved: unknown = root;
     for (const segment of schema.$ref.replace(/^#\//, "").split("/")) {
         if (resolved === null || typeof resolved !== "object") return {};
         resolved = (resolved as Record<string, unknown>)[segment.replaceAll("~1", "/").replaceAll("~0", "~")];
     }
-    return resolved !== null && typeof resolved === "object" ? resolved as SchemaNode : {};
+    return resolved !== null && typeof resolved === "object" ? resolved as ContractSchemaNode : {};
 }
 
 function escapePointerSegment(value: string): string {
