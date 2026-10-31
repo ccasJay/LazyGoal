@@ -22,7 +22,7 @@ const sampleSchema: ContractSchemaNode = {
     $schema: "http://json-schema.org/draft-07/schema#",
     type: "object",
     properties: {
-        count: { type: "number", minimum: 1, maximum: 10 },
+        count: { type: "integer", minimum: 1, maximum: 10 },
         kind: { type: "string", enum: ["alpha", "beta"] },
         nested: { $ref: "#/definitions/Nested" },
         note: { type: "string" },
@@ -129,6 +129,11 @@ test("binding rejects invalid known fields with locatable issues", () => {
             value: { count: 20, kind: "alpha", nested: { label: "ok" } },
             path: "/count",
             code: "range",
+        },
+        {
+            value: { count: 1.5, kind: "alpha", nested: { label: "ok" } },
+            path: "/count",
+            code: "type",
         },
         {
             value: { count: 3, kind: "alpha", nested: { label: "" } },

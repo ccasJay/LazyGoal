@@ -7,6 +7,7 @@ import { test } from "node:test";
 
 import {
     assertSupportedSchema,
+    findStaleContractArtifacts,
     generateContractArtifacts,
 } from "../../../scripts/generate-contracts.mjs";
 
@@ -53,6 +54,18 @@ export interface SampleEnvelope {
      * @maximum 10
      */
     readonly count: number;
+    /**
+     * @asType integer
+     * @minimum 1
+     * @maximum 10
+     */
+    readonly integerCount: number;
+    /**
+     * @asType integer
+     * @minimum 0
+     * @maximum 100
+     */
+    readonly optionalInteger?: number;
     readonly nullable: string | null;
     readonly union: SampleDiscriminated;
     readonly tree: SampleTree;
@@ -85,6 +98,14 @@ test("Catalog generation emits unions, recursion, open JSON, arrays and constrai
     assert.match(schemaModule, /\\"pattern\\":\\"\^\[a-z\]\+\$\\"/);
     assert.match(schemaModule, /\\"minimum\\":1/);
     assert.match(schemaModule, /\\"maximum\\":10/);
+    assert.match(
+        schemaModule,
+        /\\"integerCount\\":\{\\"type\\":\\"integer\\",\\"minimum\\":1,\\"maximum\\":10\}/,
+    );
+    assert.match(
+        schemaModule,
+        /\\"optionalInteger\\":\{\\"type\\":\\"integer\\",\\"minimum\\":0,\\"maximum\\":100\}/,
+    );
     assert.match(schemaModule, /\\"minLength\\":2/);
     assert.match(schemaModule, /\\"maxLength\\":8/);
     assert.match(schemaModule, /\\"items\\":\{\\"\$ref\\":\\"#\/definitions\/SampleTree\\"\}/);
@@ -117,6 +138,8 @@ test("generated binding reads union, recursive and open JSON values end to end",
     const input = {
         name: "abc",
         count: 5,
+        integerCount: 5,
+        optionalInteger: 7,
         nullable: null,
         union: {
             kind: "alpha",
@@ -142,6 +165,8 @@ test("generated binding reads union, recursive and open JSON values end to end",
     assert.deepEqual(stripped.data, {
         name: "abc",
         count: 5,
+        integerCount: 5,
+        optionalInteger: 7,
         nullable: null,
         union: { kind: "alpha", label: "leaf", nested: { label: "ok" } },
         tree: {
@@ -182,6 +207,92 @@ test("generated binding reads union, recursive and open JSON values end to end",
     if (!invalidCount.ok) {
         assert.ok(invalidCount.issues?.some(issue => issue.path === "/count" && issue.code === "range"));
     }
+
+    const fractionalInteger = binding.read({ ...input, integerCount: 1.5 }, "strip");
+    assert.equal(fractionalInteger.ok, false);
+    if (!fractionalInteger.ok) {
+        assert.ok(fractionalInteger.issues?.some(issue =>
+            issue.path === "/integerCount" && issue.code === "type"));
+    }
+
+    const fractionalOptionalInteger = binding.read({ ...input, optionalInteger: 2.5 }, "strip");
+    assert.equal(fractionalOptionalInteger.ok, false);
+    if (!fractionalOptionalInteger.ok) {
+        assert.ok(fractionalOptionalInteger.issues?.some(issue =>
+            issue.path === "/optionalInteger" && issue.code === "type"));
+    }
+
+    const outOfRangeInteger = binding.read({ ...input, integerCount: 0 }, "strip");
+    assert.equal(outOfRangeInteger.ok, false);
+    if (!outOfRangeInteger.ok) {
+        assert.ok(outOfRangeInteger.issues?.some(issue =>
+            issue.path === "/integerCount" && issue.code === "range"));
+    }
+});
+
+test("integer annotation drift is detected from the source fingerprint", async t => {
+    const fixture = await createFixture();
+    t.after(() => rm(fixture.root, { recursive: true, force: true }));
+
+    const baseline = await generateContractArtifacts(fixture.options);
+    await writeArtifacts(fixture.root, baseline.artifacts);
+    assert.deepEqual(await findStaleContractArtifacts(fixture.options), []);
+
+    await writeFile(fixture.sampleFile, contractSource.replace(
+        "     * @asType integer\n     * @minimum 1\n     * @maximum 10\n     */\n    readonly integerCount: number;",
+        "     * @minimum 1\n     * @maximum 10\n     */\n    readonly integerCount: number;",
+    ));
+    const changed = await generateContractArtifacts(fixture.options);
+    assert.notEqual(
+        artifact(changed.artifacts, "generated/sample/sample-envelope-schema.ts"),
+        artifact(baseline.artifacts, "generated/sample/sample-envelope-schema.ts"),
+    );
+    assert.deepEqual((await findStaleContractArtifacts(fixture.options)).sort(), [
+        "generated/sample/sample-envelope-manifest.json",
+        "generated/sample/sample-envelope-schema.ts",
+        "generated/sample/sample-envelope-validator.mjs",
+    ]);
+});
+
+test("Catalog generation rejects unsupported or misapplied @asType", async t => {
+    const fixture = await createFixture();
+    t.after(() => rm(fixture.root, { recursive: true, force: true }));
+
+    await writeFile(fixture.sampleFile, contractSource.replace("@asType integer", "@asType string"));
+    await assert.rejects(
+        generateContractArtifacts(fixture.options),
+        /Unsupported JSDoc @asType value "string" in SampleEnvelope; only integer is supported/,
+    );
+
+    await writeFile(
+        fixture.sampleFile,
+        contractSource.replace(
+            "    readonly nullable: string | null;",
+            "    /** @asType integer */\n    readonly nullable: string | null;",
+        ),
+    );
+    await assert.rejects(
+        generateContractArtifacts(fixture.options),
+        /JSDoc @asType integer is supported only on number fields in SampleEnvelope/,
+    );
+
+    await writeFile(
+        fixture.sampleFile,
+        contractSource.replace("readonly integerCount: number;", "readonly integerCount: number | null;"),
+    );
+    await assert.rejects(
+        generateContractArtifacts(fixture.options),
+        /JSDoc @asType integer is supported only on number fields in SampleEnvelope/,
+    );
+
+    await writeFile(
+        fixture.sampleFile,
+        contractSource.replace("     * @asType integer\n     * @minimum 1", "     * @asType integer\n     * @asType integer\n     * @minimum 1"),
+    );
+    await assert.rejects(
+        generateContractArtifacts(fixture.options),
+        /Duplicate JSDoc @asType on SampleEnvelope/,
+    );
 });
 
 test("Catalog generation rejects types omitted from declaredTypes", async t => {
@@ -230,6 +341,7 @@ async function createFixture({ declaredTypes: declared = declaredTypes } = {}) {
     );
     return {
         root,
+        sampleFile: contractFile,
         options: { repositoryRoot: root, catalogPath: "contracts/catalog.json" },
     };
 }

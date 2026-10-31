@@ -54,6 +54,8 @@ const documentationTags = new Set([
     "throws",
 ]);
 const constraintTags = new Set(["pattern", "minimum", "maximum", "minLength", "maxLength"]);
+const typeOverrideTags = new Set(["asType"]);
+const supportedTypeOverrides = new Set(["integer"]);
 
 const require = createRequire(import.meta.url);
 const generatorRequire = createRequire(require.resolve("ts-json-schema-generator"));
@@ -183,7 +185,11 @@ async function generateSchemaArtifacts(entry, { repositoryRoot, removeAdditional
         throw new Error(`Contract source escapes the repository: ${entry.key}`);
     }
     const source = await readFile(contractFile, "utf8");
-    const { sourceFingerprint, constraints } = inspectContractSource(contractFile, source, entry.generation.declaredTypes);
+    const { sourceFingerprint, constraints, integerTypes } = inspectContractSource(
+        contractFile,
+        source,
+        entry.generation.declaredTypes,
+    );
     const generator = createGenerator({
         path: contractFile,
         tsconfig: path.join(repositoryRoot, "tsconfig.json"),
@@ -202,6 +208,7 @@ async function generateSchemaArtifacts(entry, { repositoryRoot, removeAdditional
     }
     assertDeclaredSchemaTypes(schema, entry);
     assertGeneratedConstraints(schema, constraints);
+    assertGeneratedIntegerTypes(schema, integerTypes);
 
     const ajv = new Ajv({
         strict: true,
@@ -306,8 +313,9 @@ function inspectContractSource(contractFile, source, declaredTypes) {
         declarations.push(matches[0]);
     }
 
-    const supportedTags = new Set([...documentationTags, ...constraintTags]);
+    const supportedTags = new Set([...documentationTags, ...constraintTags, ...typeOverrideTags]);
     const constraints = [];
+    const integerTypes = [];
     for (const declaration of declarations) {
         const owner = declaration.name.text;
         for (const node of declarationNodes(declaration)) {
@@ -317,6 +325,10 @@ function inspectContractSource(contractFile, source, declaredTypes) {
             const fieldName = node.name.getText(sourceFile);
             for (const tag of ts.getJSDocTags(node)) {
                 const keyword = tag.tagName.text;
+                if (typeOverrideTags.has(keyword)) {
+                    integerTypes.push({ typeName: owner, fieldName });
+                    continue;
+                }
                 if (!constraintTags.has(keyword)) continue;
                 constraints.push({
                     typeName: owner,
@@ -334,6 +346,7 @@ function inspectContractSource(contractFile, source, declaredTypes) {
     return {
         sourceFingerprint: createHash("sha256").update(declarationText, "utf8").digest("hex"),
         constraints,
+        integerTypes,
     };
 }
 
@@ -355,6 +368,14 @@ function inspectTags(sourceFile, node, owner, supportedTags) {
             const { line } = sourceFile.getLineAndCharacterOfPosition(tag.getStart(sourceFile));
             throw new Error(`Unsupported JSDoc tag @${name} on ${owner} at line ${line + 1}`);
         }
+        if (typeOverrideTags.has(name)) {
+            seen.set(name, (seen.get(name) ?? 0) + 1);
+            if (seen.get(name) > 1) {
+                throw new Error(`Duplicate JSDoc @${name} on ${owner}`);
+            }
+            validateTypeOverrideTag(node, name, owner);
+            continue;
+        }
         if (!constraintTags.has(name)) continue;
         seen.set(name, (seen.get(name) ?? 0) + 1);
         if (seen.get(name) > 1) {
@@ -363,6 +384,27 @@ function inspectTags(sourceFile, node, owner, supportedTags) {
         validateConstraintTag(node, name, owner);
     }
     validateConstraintOrder(node, owner);
+}
+
+function validateTypeOverrideTag(node, name, owner) {
+    if (!ts.isPropertySignature(node)) {
+        throw new Error(`JSDoc @${name} is supported only on fields in ${owner}`);
+    }
+    const value = readTagComment(ts.getJSDocTags(node).find(tag => tag.tagName.text === name));
+    if (!supportedTypeOverrides.has(value)) {
+        throw new Error(
+            `Unsupported JSDoc @${name} value "${value}" in ${owner}; only integer is supported`,
+        );
+    }
+    if (!isPlainNumberType(node.type)) {
+        throw new Error(`JSDoc @${name} integer is supported only on number fields in ${owner}`);
+    }
+}
+
+function isPlainNumberType(typeNode) {
+    if (typeNode === undefined) return false;
+    if (ts.isParenthesizedTypeNode(typeNode)) return isPlainNumberType(typeNode.type);
+    return typeNode.kind === ts.SyntaxKind.NumberKeyword;
 }
 
 function validateConstraintTag(node, name, owner) {
@@ -464,6 +506,22 @@ function assertGeneratedConstraints(schema, constraints) {
         if (!found) {
             throw new Error(
                 `Generated schema must apply the JSDoc @${keyword} constraint to ${typeName}.${fieldName}`,
+            );
+        }
+    }
+}
+
+function assertGeneratedIntegerTypes(schema, integerTypes) {
+    const properties = collectSchemaProperties(schema);
+    for (const { typeName, fieldName } of integerTypes) {
+        const candidates = properties.get(fieldName) ?? [];
+        const found = candidates.some(property => {
+            const resolved = property.$ref === undefined ? property : resolveSchemaPointer(schema, property.$ref);
+            return resolved.type === "integer";
+        });
+        if (!found) {
+            throw new Error(
+                `Generated schema must apply JSDoc @asType integer to ${typeName}.${fieldName}`,
             );
         }
     }

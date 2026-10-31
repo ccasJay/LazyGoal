@@ -38,7 +38,7 @@ node scripts/contract-catalog.mjs query GoalSnapshotV1Schema
 
 真实浏览器 API 通过包公开入口消费生成读取器；共享逻辑位于 [`contract-reader.ts`](../packages/web-contracts/src/contract-reader.ts)，行为见 [Web 传输契约](../packages/web-contracts/notes/overview.md)。
 
-生成入口会拒绝重复内部键、重复对外身份与版本、重复制品路径、缺失来源、无效登记、未支持契约类型、不支持结构及无效应注解。生成器当前支持封闭与开放对象、对象数组、联合与判别联合（`anyOf` 或 `type` 数组）、递归本地 `$ref`、开放 JSON（`additionalProperties` 为 `true`、`{}` 或 Schema）、标量、`const`/`enum` 以及数值与字符串约束；元组、外部引用、`format` 与其他未声明关键字仍明确失败。登记 Reader 和模型投影对这些结构的支持状态以 [`@lazygoal/contract-binding`](../packages/contract-binding/README.md) 模块说明为准，生成器不会为尚未接入的结构静默降级。
+生成入口会拒绝重复内部键、重复对外身份与版本、重复制品路径、缺失来源、无效登记、未支持契约类型、不支持结构及无效应注解。生成器当前支持封闭与开放对象、对象数组、联合与判别联合（`anyOf` 或 `type` 数组）、递归本地 `$ref`、开放 JSON（`additionalProperties` 为 `true`、`{}` 或 Schema）、标量、`const`/`enum` 以及数值与字符串约束；数值字段可用 `@asType integer` 将 TypeScript `number` 映射为 JSON Schema `integer`，并保留 `@minimum`/`@maximum`。`@asType` 仅支持非联合 `number` 字段上的 `integer`；其他值、重复注解、nullable/联合数值及非数值字段明确失败。元组、外部引用、`format` 与其他未声明关键字仍明确失败。登记 Reader 和模型投影对这些结构的支持状态以 [`@lazygoal/contract-binding`](../packages/contract-binding/README.md) 模块说明为准，生成器不会为尚未接入的结构静默降级。
 
 | 能力 | 生成表示 | 代表来源 | 当前状态 |
 | --- | --- | --- | --- |
@@ -46,7 +46,7 @@ node scripts/contract-catalog.mjs query GoalSnapshotV1Schema
 | 递归 | 本地 `$ref` 指向同一 `definitions` 声明 | [SnapshotJsonValue](../packages/storage/src/goal-snapshot.ts)、[BrowserJsonValue](../packages/web-contracts/src/session-input.ts) | 生成与绑定支持；模型投影明确失败 |
 | 开放 JSON | `additionalProperties` 为 `true`、`{}` 或值 Schema | [BrowserJsonValue](../packages/web-contracts/src/session-input.ts)、[Tool 输入 JsonValue](../packages/model-contracts/src/model-output/canonical.ts)、[Snapshot memory patch](../packages/storage/src/goal-snapshot.ts) | 生成与绑定支持；模型投影明确失败 |
 | 数组元素 | `items` 内联或 `$ref`，可再含联合与约束 | [ListDirectory 输出](../packages/tools/src/list-directory.ts)、[Snapshot 消息列表](../packages/storage/src/goal-snapshot.ts) | 生成、绑定与模型投影支持（元素需可移植） |
-| 数值与字符串约束 | `minimum`/`maximum`、`minLength`/`maxLength`、`pattern` | [ListDirectory 输入](../packages/tools/src/list-directory.ts)、[Web Provider 模型标识](../packages/web-contracts/src/provider-settings.ts) | 生成与绑定支持；数值约束进入 wire，字符串约束由投影标识并由解码强制 |
+| 数值与字符串约束 | `@asType integer`、`minimum`/`maximum`、`minLength`/`maxLength`、`pattern` | [ListDirectory 输入](../packages/tools/src/list-directory.ts)、[Web Provider 模型标识](../packages/web-contracts/src/provider-settings.ts) | 生成与绑定支持；工具分页数值以 `@asType integer` 表达整数，整数进入 Schema 与 wire，数值约束进入 wire，字符串约束由投影标识并由解码强制 |
 | 元组、外部格式 | — | — | 明确失败，不生成近似 Schema |
 
 `typescript-json-schema` 策略生成薄 Reader，读取语义由登记项 `generation.reader.module` 提供。当前唯一启用项使用 [`web-contracts` 的封闭对象 Reader](../packages/web-contracts/src/contract-reader.ts)：额外字段由生成的 Ajv 校验器剥离，因此联合与开放对象在该策略下明确失败。需要这些结构的契约使用 `typescript-binding` 策略生成的 [`contract-binding`](../packages/contract-binding/README.md) 绑定。

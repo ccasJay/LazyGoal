@@ -23,7 +23,7 @@ const portableSchema: ContractSchemaNode = {
     $schema: "http://json-schema.org/draft-07/schema#",
     type: "object",
     properties: {
-        count: { type: "number", minimum: 1, maximum: 10 },
+        count: { type: "integer", minimum: 1, maximum: 10 },
         kind: { type: "string", enum: ["alpha", "beta"] },
         nested: { $ref: "#/definitions/Nested" },
         note: { type: "string" },
@@ -70,6 +70,7 @@ test("model projection derives a closed required-nullable draft-07 wire schema",
     const properties = projection.schema.properties as Record<string, Record<string, unknown>>;
     assert.deepEqual(properties.note?.type, ["string", "null"]);
     assert.deepEqual(properties.tags?.type, ["array", "null"]);
+    assert.equal(properties.count?.type, "integer");
     assert.equal(properties.count?.minimum, 1);
     assert.equal(properties.count?.maximum, 10);
     assert.equal(properties.nested?.type, "object");
@@ -126,6 +127,7 @@ test("model projection rejects missing wire-required properties and invalid cano
 
     const invalidCases: Array<{ value: unknown; path: string; code: string }> = [
         { value: { count: 0, kind: "alpha", nested: { label: "ok", optionalLabel: null }, note: null, tags: null }, path: "/count", code: "range" },
+        { value: { count: 1.5, kind: "alpha", nested: { label: "ok", optionalLabel: null }, note: null, tags: null }, path: "/count", code: "type" },
         { value: { count: 3, kind: "gamma", nested: { label: "ok", optionalLabel: null }, note: null, tags: null }, path: "/kind", code: "enum" },
         { value: { count: 3, kind: "alpha", nested: { optionalLabel: null }, note: null, tags: null }, path: "/nested/label", code: "required" },
         { value: { count: "3", kind: "alpha", nested: { label: "ok", optionalLabel: null }, note: null, tags: null }, path: "/count", code: "type" },
