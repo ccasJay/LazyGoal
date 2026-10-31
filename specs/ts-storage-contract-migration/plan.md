@@ -4,7 +4,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 核对文件契约与 AgentProfile 已批准范围
+- [x] //TODO 1. 核对文件契约与 AgentProfile 已批准范围
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)。
   - 实施目标与场景：以 Catalog 与实际读写恢复调用链逐项登记文件族、版本、边界策略和不变量，纳入 AgentProfile 小 Spec 的真实验收证据。
   - 基本验证：抽查 Profile、Snapshot、账本和索引的实际读取者及错误语义。

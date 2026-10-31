@@ -1,6 +1,6 @@
 # 持久化实现
 
-Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。
+Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。文件族、版本、读取策略和真实消费者的逐项登记见 [文件契约清单](./file-contracts.md)。
 
 
 用户中断的 Snapshot Schema 只保存 `requested`／`finished` 状态、未知效果及 Action 身份，不再包含模型收尾预算。执行语义见 [Runtime](../../runtime/notes/overview.md)。
