@@ -146,6 +146,65 @@ test("model projection rejects missing wire-required properties and invalid cano
     }
 });
 
+test("model projection preserves array lengths and integer item constraints", () => {
+    const schema: ContractSchemaNode = {
+        $schema: "http://json-schema.org/draft-07/schema#",
+        type: "object",
+        properties: {
+            stepIndexes: {
+                type: "array",
+                items: { type: "integer", minimum: 0 },
+                minItems: 1,
+                maxItems: 16,
+            },
+            optionalTags: {
+                type: "array",
+                items: { type: "string" },
+                minItems: 2,
+                maxItems: 3,
+            },
+        },
+        required: ["stepIndexes"],
+        additionalProperties: false,
+    };
+    const local = createContractBinding<unknown>({
+        contractId: "sample.array-constraints",
+        version: 1,
+        schema,
+        validate: compileValidator(schema),
+    });
+    const projection = local.modelProjection();
+    const properties = projection.schema.properties as Record<string, Record<string, unknown>>;
+
+    assert.equal(properties.stepIndexes?.minItems, 1);
+    assert.equal(properties.stepIndexes?.maxItems, 16);
+    assert.deepEqual(properties.stepIndexes?.items, { type: "integer", minimum: 0 });
+    assert.deepEqual(properties.optionalTags?.type, ["array", "null"]);
+    assert.equal(properties.optionalTags?.minItems, 2);
+    assert.equal(properties.optionalTags?.maxItems, 3);
+
+    const valid = projection.decode({ stepIndexes: [0, 2], optionalTags: null });
+    assert.equal(valid.ok, true);
+    if (valid.ok) assert.deepEqual(valid.data, { stepIndexes: [0, 2] });
+
+    const invalidCases: Array<{ value: unknown; path: string; code: string }> = [
+        { value: { stepIndexes: [], optionalTags: null }, path: "/stepIndexes", code: "length" },
+        { value: { stepIndexes: [0, 1], optionalTags: ["a"] }, path: "/optionalTags", code: "length" },
+        { value: { stepIndexes: [0, 1], optionalTags: ["a", "b", "c", "d"] }, path: "/optionalTags", code: "length" },
+        { value: { stepIndexes: [1.5], optionalTags: null }, path: "/stepIndexes/0", code: "type" },
+        { value: { stepIndexes: [-1], optionalTags: null }, path: "/stepIndexes/0", code: "range" },
+    ];
+    for (const current of invalidCases) {
+        const result = projection.decode(current.value);
+        assert.equal(result.ok, false, JSON.stringify(current.value));
+        if (result.ok) continue;
+        assert.ok(
+            result.issues.some(issue => issue.path === current.path && issue.code === current.code),
+            `${JSON.stringify(result.issues)} missing ${current.path}:${current.code}`,
+        );
+    }
+});
+
 test("model projection widens local string constraints and records decode enforcement", () => {
     const constrained = createContractBinding<{ label: string }>({
         contractId: "sample.constrained",

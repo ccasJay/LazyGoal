@@ -31,6 +31,8 @@ const supportedSchemaKeywords = new Set([
     "required",
     "additionalProperties",
     "items",
+    "minItems",
+    "maxItems",
     "anyOf",
     "pattern",
     "const",
@@ -53,7 +55,15 @@ const documentationTags = new Set([
     "see",
     "throws",
 ]);
-const constraintTags = new Set(["pattern", "minimum", "maximum", "minLength", "maxLength"]);
+const constraintTags = new Set([
+    "pattern",
+    "minimum",
+    "maximum",
+    "minLength",
+    "maxLength",
+    "minItems",
+    "maxItems",
+]);
 const typeOverrideTags = new Set(["asType"]);
 const supportedTypeOverrides = new Set(["integer"]);
 
@@ -207,8 +217,8 @@ async function generateSchemaArtifacts(entry, { repositoryRoot, removeAdditional
         assertReaderSupportedSchema(schema);
     }
     assertDeclaredSchemaTypes(schema, entry);
-    assertGeneratedConstraints(schema, constraints);
-    assertGeneratedIntegerTypes(schema, integerTypes);
+    assertGeneratedConstraints(schema, entry.generation.rootType, constraints);
+    assertGeneratedIntegerTypes(schema, entry.generation.rootType, integerTypes);
 
     const ajv = new Ajv({
         strict: true,
@@ -321,18 +331,25 @@ function inspectContractSource(contractFile, source, declaredTypes) {
         for (const node of declarationNodes(declaration)) {
             if (ts.getJSDocTags(node).length === 0) continue;
             inspectTags(sourceFile, node, owner, supportedTags);
-            if (!ts.isPropertySignature(node)) continue;
-            const fieldName = node.name.getText(sourceFile);
+            const isProperty = ts.isPropertySignature(node);
+            const isTypeDeclaration = ts.isTypeAliasDeclaration(node);
+            if (!isProperty && !isTypeDeclaration) continue;
+            const fieldName = isProperty ? node.name.getText(sourceFile) : undefined;
             for (const tag of ts.getJSDocTags(node)) {
                 const keyword = tag.tagName.text;
                 if (typeOverrideTags.has(keyword)) {
-                    integerTypes.push({ typeName: owner, fieldName });
+                    integerTypes.push({
+                        kind: isProperty ? "property" : "type",
+                        typeName: owner,
+                        ...(fieldName === undefined ? {} : { fieldName }),
+                    });
                     continue;
                 }
                 if (!constraintTags.has(keyword)) continue;
                 constraints.push({
+                    kind: isProperty ? "property" : "type",
                     typeName: owner,
-                    fieldName,
+                    ...(fieldName === undefined ? {} : { fieldName }),
                     keyword,
                     value: keyword === "pattern" ? readTagComment(tag) : Number(readTagComment(tag)),
                 });
@@ -387,8 +404,9 @@ function inspectTags(sourceFile, node, owner, supportedTags) {
 }
 
 function validateTypeOverrideTag(node, name, owner) {
-    if (!ts.isPropertySignature(node)) {
-        throw new Error(`JSDoc @${name} is supported only on fields in ${owner}`);
+    const isProperty = ts.isPropertySignature(node);
+    if (!isProperty && !ts.isTypeAliasDeclaration(node)) {
+        throw new Error(`JSDoc @${name} is supported only on fields or type declarations in ${owner}`);
     }
     const value = readTagComment(ts.getJSDocTags(node).find(tag => tag.tagName.text === name));
     if (!supportedTypeOverrides.has(value)) {
@@ -397,7 +415,8 @@ function validateTypeOverrideTag(node, name, owner) {
         );
     }
     if (!isPlainNumberType(node.type)) {
-        throw new Error(`JSDoc @${name} integer is supported only on number fields in ${owner}`);
+        const subject = isProperty ? "fields" : "type declarations";
+        throw new Error(`JSDoc @${name} integer is supported only on number ${subject} in ${owner}`);
     }
 }
 
@@ -408,8 +427,19 @@ function isPlainNumberType(typeNode) {
 }
 
 function validateConstraintTag(node, name, owner) {
-    if (!ts.isPropertySignature(node)) {
-        throw new Error(`JSDoc @${name} is supported only on fields in ${owner}`);
+    const isProperty = ts.isPropertySignature(node);
+    if (!isProperty && !ts.isTypeAliasDeclaration(node)) {
+        throw new Error(`JSDoc @${name} is supported only on fields or scalar type declarations in ${owner}`);
+    }
+    if (name === "minItems" || name === "maxItems") {
+        if (!isProperty || !isArrayTypeNode(node.type)) {
+            throw new Error(`JSDoc @${name} is supported only on array fields in ${owner}`);
+        }
+        const value = Number(readTagComment(ts.getJSDocTags(node).find(tag => tag.tagName.text === name)));
+        if (!Number.isInteger(value) || value < 0) {
+            throw new Error(`JSDoc @${name} requires a non-negative integer in ${owner}`);
+        }
+        return;
     }
     const target = constraintTargetKind(node.type);
     if (name === "pattern") {
@@ -440,6 +470,20 @@ function validateConstraintTag(node, name, owner) {
     if (!Number.isInteger(value) || value < 0) {
         throw new Error(`JSDoc @${name} requires a non-negative integer in ${owner}`);
     }
+}
+
+function isArrayTypeNode(typeNode) {
+    let current = typeNode;
+    while (current !== undefined
+        && (ts.isParenthesizedTypeNode(current)
+            || (ts.isTypeOperatorNode(current) && current.operator === ts.SyntaxKind.ReadonlyKeyword))) {
+        current = current.type;
+    }
+    if (current === undefined) return false;
+    if (ts.isArrayTypeNode(current)) return true;
+    if (!ts.isTypeReferenceNode(current) || current.typeArguments?.length !== 1) return false;
+    const name = current.typeName.getText();
+    return name === "Array" || name === "ReadonlyArray";
 }
 
 function constraintTargetKind(typeNode) {
@@ -476,6 +520,11 @@ function validateConstraintOrder(node, owner) {
     if (minLength !== undefined && maxLength !== undefined && Number(minLength) > Number(maxLength)) {
         throw new Error(`JSDoc @minLength must not exceed @maxLength in ${owner}`);
     }
+    const minItems = tags.get("minItems");
+    const maxItems = tags.get("maxItems");
+    if (minItems !== undefined && maxItems !== undefined && Number(minItems) > Number(maxItems)) {
+        throw new Error(`JSDoc @minItems must not exceed @maxItems in ${owner}`);
+    }
 }
 
 function readTagComment(tag) {
@@ -495,9 +544,18 @@ function assertDeclaredSchemaTypes(schema, entry) {
     }
 }
 
-function assertGeneratedConstraints(schema, constraints) {
+function assertGeneratedConstraints(schema, rootType, constraints) {
     const properties = collectSchemaProperties(schema);
-    for (const { typeName, fieldName, keyword, value } of constraints) {
+    for (const { kind, typeName, fieldName, keyword, value } of constraints) {
+        if (kind === "type") {
+            const definition = typeDefinition(schema, rootType, typeName);
+            if (definition[keyword] !== value) {
+                throw new Error(
+                    `Generated schema must apply the JSDoc @${keyword} constraint to ${typeName}`,
+                );
+            }
+            continue;
+        }
         const candidates = properties.get(fieldName) ?? [];
         const found = candidates.some(property => {
             const resolved = property.$ref === undefined ? property : resolveSchemaPointer(schema, property.$ref);
@@ -511,9 +569,16 @@ function assertGeneratedConstraints(schema, constraints) {
     }
 }
 
-function assertGeneratedIntegerTypes(schema, integerTypes) {
+function assertGeneratedIntegerTypes(schema, rootType, integerTypes) {
     const properties = collectSchemaProperties(schema);
-    for (const { typeName, fieldName } of integerTypes) {
+    for (const { kind, typeName, fieldName } of integerTypes) {
+        if (kind === "type") {
+            const definition = typeDefinition(schema, rootType, typeName);
+            if (definition.type !== "integer") {
+                throw new Error(`Generated schema must apply JSDoc @asType integer to ${typeName}`);
+            }
+            continue;
+        }
         const candidates = properties.get(fieldName) ?? [];
         const found = candidates.some(property => {
             const resolved = property.$ref === undefined ? property : resolveSchemaPointer(schema, property.$ref);
@@ -525,6 +590,13 @@ function assertGeneratedIntegerTypes(schema, integerTypes) {
             );
         }
     }
+}
+
+function typeDefinition(schema, rootType, typeName) {
+    if (typeName === rootType) return resolveRootSchema(schema);
+    const definition = schema.definitions?.[typeName];
+    if (definition === undefined) throw new Error(`Generated schema is missing definition ${typeName}`);
+    return definition.$ref === undefined ? definition : resolveSchemaPointer(schema, definition.$ref);
 }
 
 function collectSchemaProperties(schema) {
@@ -657,6 +729,15 @@ function visitSchema(root, schema, schemaPath, visitedRefs) {
         if (!hasSchemaType(schema, "array")) throw new Error(`JSON Schema items require an array type at ${schemaPath}`);
         if (Array.isArray(schema.items)) throw new Error(`Tuple JSON Schema items are not supported at ${schemaPath}`);
         visitSchema(root, schema.items, `${schemaPath}/items`, visitedRefs);
+    }
+    for (const key of ["minItems", "maxItems"]) {
+        if (schema[key] === undefined) continue;
+        if (!hasSchemaType(schema, "array") || !Number.isInteger(schema[key]) || schema[key] < 0) {
+            throw new Error(`JSON Schema ${key} requires a non-negative integer on an array at ${schemaPath}`);
+        }
+    }
+    if (schema.minItems !== undefined && schema.maxItems !== undefined && schema.minItems > schema.maxItems) {
+        throw new Error(`JSON Schema minItems must not exceed maxItems at ${schemaPath}`);
     }
     if (schema.pattern !== undefined) {
         if (!hasSchemaType(schema, "string") || typeof schema.pattern !== "string") {

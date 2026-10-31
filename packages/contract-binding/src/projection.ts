@@ -21,6 +21,8 @@ const localSchemaKeywords = new Set([
     "required",
     "additionalProperties",
     "items",
+    "minItems",
+    "maxItems",
     "anyOf",
     "enum",
     "const",
@@ -285,6 +287,8 @@ function buildWireNode(
         return {
             type: "array",
             items: buildWireNode(schema.items, root, `${path}/items`, refStack, localConstraints),
+            ...(schema.minItems === undefined ? {} : { minItems: schema.minItems }),
+            ...(schema.maxItems === undefined ? {} : { maxItems: schema.maxItems }),
         };
     }
 

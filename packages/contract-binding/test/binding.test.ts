@@ -26,7 +26,7 @@ const sampleSchema: ContractSchemaNode = {
         kind: { type: "string", enum: ["alpha", "beta"] },
         nested: { $ref: "#/definitions/Nested" },
         note: { type: "string" },
-        tags: { type: "array", items: { type: "string" } },
+        tags: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 3 },
     },
     required: ["count", "kind", "nested"],
     additionalProperties: false,
@@ -159,6 +159,16 @@ test("binding rejects invalid known fields with locatable issues", () => {
             value: { count: 3, kind: "alpha", nested: { label: "ok" }, tags: ["a", 1] },
             path: "/tags/1",
             code: "type",
+        },
+        {
+            value: { count: 3, kind: "alpha", nested: { label: "ok" }, tags: [] },
+            path: "/tags",
+            code: "length",
+        },
+        {
+            value: { count: 3, kind: "alpha", nested: { label: "ok" }, tags: ["a", "b", "c", "d"] },
+            path: "/tags",
+            code: "length",
         },
     ];
 

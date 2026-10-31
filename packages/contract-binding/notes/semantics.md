@@ -9,6 +9,7 @@
 | 联合分支选择 | 在未清理输入上按已知约束与非空判别值确定唯一分支；歧义或无匹配时失败。 | [契约运行时绑定](../README.md) | [Schema 判定](../src/schema.ts)、[模块说明](./overview.md) |
 | 开放对象 | `additionalProperties` 为 `true`、空 Schema 或值 Schema 时接受额外键，后者继续校验嵌套值。 | [契约运行时绑定](../README.md) | [Schema 判定](../src/schema.ts)、[公共类型](../src/types.ts) |
 | 可空类型数组 | `type` 数组按值选择具体类型，用于 `null` 与标量联合，不丢失已知约束。 | [契约运行时绑定](../README.md) | [Schema 判定](../src/schema.ts)、[公共类型](../src/types.ts) |
+| 数组长度约束 | `minItems`/`maxItems` 限制数组长度，并在绑定读取与模型投影中保留。 | [契约运行时绑定](../README.md) | [Schema 判定](../src/schema.ts)、[公共类型](../src/types.ts) |
 | 递归 Schema | 本地 `$ref` 按实际 JSON 值逐层解析；不消费值的引用环失败。 | [契约运行时绑定](../README.md) | [Schema 判定](../src/schema.ts) |
 | 读取结果 | 成功返回隔离数据与可选诊断；失败只返回契约身份、版本与有界问题。 | [契约运行时绑定](../README.md) | [公共类型](../src/types.ts) |
 | 安全诊断 | 只含契约身份、版本和有界 JSON Pointer 路径，不含字段值或原始载荷。 | [契约运行时绑定](../README.md) | [读取实现](../src/binding.ts)、[Schema 遍历](../src/schema.ts) |

@@ -34,8 +34,8 @@ export type UnknownFieldPolicy = "strip" | "reject";
  * @remarks
  * 只描述生成器实际产出的本地 Schema；读取器不维护字段表，也不把该类型当作新的
  * 字段 DSL。`anyOf` 表示联合，`type` 数组表示标量联合或可空字段，
- * `additionalProperties` 为 `true` 或 Schema 时表示开放对象。模型投影会进一步限制
- * 可移植子集。
+ * `additionalProperties` 为 `true` 或 Schema 时表示开放对象，`minItems`/`maxItems`
+ * 表示数组长度边界。模型投影会进一步限制可移植子集。
  *
  * @example
  * ```ts
@@ -57,6 +57,8 @@ export interface ContractSchemaNode {
     readonly required?: readonly string[];
     readonly additionalProperties?: boolean | ContractSchemaNode;
     readonly items?: ContractSchemaNode;
+    readonly minItems?: number;
+    readonly maxItems?: number;
     readonly anyOf?: readonly ContractSchemaNode[];
     readonly pattern?: string;
     readonly const?: JsonScalar;

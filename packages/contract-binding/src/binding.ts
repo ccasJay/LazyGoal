@@ -203,6 +203,8 @@ function issueCode(keyword: string): ContractIssueCode {
             return "range";
         case "minLength":
         case "maxLength":
+        case "minItems":
+        case "maxItems":
             return "length";
         case "pattern":
             return "pattern";

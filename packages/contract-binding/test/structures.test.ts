@@ -15,6 +15,12 @@ const contractSource = `export interface SampleNested {
     label: string;
 }
 
+/**
+ * @asType integer
+ * @minimum 0
+ */
+export type SampleIndex = number;
+
 export type SampleDiscriminated =
     | {
         readonly kind: "alpha";
@@ -66,6 +72,23 @@ export interface SampleEnvelope {
      * @maximum 100
      */
     readonly optionalInteger?: number;
+    /**
+     * @minItems 1
+     */
+    readonly requiredItems: readonly SampleNested[];
+    /**
+     * @minItems 2
+     * @maxItems 3
+     */
+    readonly boundedItems?: readonly string[];
+    /**
+     * @maxItems 16
+     */
+    readonly cappedItems?: readonly number[];
+    /**
+     * @maxItems 16
+     */
+    readonly stepIndexes?: readonly SampleIndex[];
     readonly nullable: string | null;
     readonly union: SampleDiscriminated;
     readonly tree: SampleTree;
@@ -82,6 +105,7 @@ const declaredTypes = [
     "SampleNested",
     "SampleTree",
     "SampleJson",
+    "SampleIndex",
 ];
 
 test("Catalog generation emits unions, recursion, open JSON, arrays and constraints", async t => {
@@ -110,6 +134,23 @@ test("Catalog generation emits unions, recursion, open JSON, arrays and constrai
     assert.match(schemaModule, /\\"maxLength\\":8/);
     assert.match(schemaModule, /\\"items\\":\{\\"\$ref\\":\\"#\/definitions\/SampleTree\\"\}/);
     assert.match(schemaModule, /\\"items\\":\{\\"\$ref\\":\\"#\/definitions\/SampleDiscriminated\\"\}/);
+    assert.match(
+        schemaModule,
+        /\\"requiredItems\\":\{\\"type\\":\\"array\\",\\"items\\":\{\\"\$ref\\":\\"#\/definitions\/SampleNested\\"\},\\"minItems\\":1\}/,
+    );
+    assert.match(
+        schemaModule,
+        /\\"boundedItems\\":\{\\"type\\":\\"array\\",\\"items\\":\{\\"type\\":\\"string\\"\},\\"minItems\\":2,\\"maxItems\\":3\}/,
+    );
+    assert.match(
+        schemaModule,
+        /\\"cappedItems\\":\{\\"type\\":\\"array\\",\\"items\\":\{\\"type\\":\\"number\\"\},\\"maxItems\\":16\}/,
+    );
+    assert.match(
+        schemaModule,
+        /\\"stepIndexes\\":\{\\"type\\":\\"array\\",\\"items\\":\{\\"\$ref\\":\\"#\/definitions\/SampleIndex\\"\},\\"maxItems\\":16\}/,
+    );
+    assert.match(schemaModule, /\\"SampleIndex\\":\{\\"type\\":\\"integer\\",\\"minimum\\":0\}/);
 
     const manifest = JSON.parse(artifact(artifacts, "generated/sample/sample-envelope-manifest.json"));
     assert.equal(manifest.contractId, "sample.envelope");
@@ -140,6 +181,10 @@ test("generated binding reads union, recursive and open JSON values end to end",
         count: 5,
         integerCount: 5,
         optionalInteger: 7,
+        requiredItems: [{ label: "required" }],
+        boundedItems: ["a", "b"],
+        cappedItems: [1, 2],
+        stepIndexes: [0, 3],
         nullable: null,
         union: {
             kind: "alpha",
@@ -167,6 +212,10 @@ test("generated binding reads union, recursive and open JSON values end to end",
         count: 5,
         integerCount: 5,
         optionalInteger: 7,
+        requiredItems: [{ label: "required" }],
+        boundedItems: ["a", "b"],
+        cappedItems: [1, 2],
+        stepIndexes: [0, 3],
         nullable: null,
         union: { kind: "alpha", label: "leaf", nested: { label: "ok" } },
         tree: {
@@ -228,6 +277,58 @@ test("generated binding reads union, recursive and open JSON values end to end",
         assert.ok(outOfRangeInteger.issues?.some(issue =>
             issue.path === "/integerCount" && issue.code === "range"));
     }
+
+    const missingRequiredItem = binding.read({ ...input, requiredItems: [] }, "strip");
+    assert.equal(missingRequiredItem.ok, false);
+    if (!missingRequiredItem.ok) {
+        assert.ok(missingRequiredItem.issues?.some(issue =>
+            issue.path === "/requiredItems" && issue.code === "length"));
+    }
+
+    const tooFewBoundedItems = binding.read({ ...input, boundedItems: ["a"] }, "strip");
+    assert.equal(tooFewBoundedItems.ok, false);
+    if (!tooFewBoundedItems.ok) {
+        assert.ok(tooFewBoundedItems.issues?.some(issue =>
+            issue.path === "/boundedItems" && issue.code === "length"));
+    }
+
+    const tooManyBoundedItems = binding.read({ ...input, boundedItems: ["a", "b", "c", "d"] }, "strip");
+    assert.equal(tooManyBoundedItems.ok, false);
+    if (!tooManyBoundedItems.ok) {
+        assert.ok(tooManyBoundedItems.issues?.some(issue =>
+            issue.path === "/boundedItems" && issue.code === "length"));
+    }
+
+    const tooManyCappedItems = binding.read({
+        ...input,
+        cappedItems: Array.from({ length: 17 }, (_, index) => index),
+    }, "strip");
+    assert.equal(tooManyCappedItems.ok, false);
+    if (!tooManyCappedItems.ok) {
+        assert.ok(tooManyCappedItems.issues?.some(issue =>
+            issue.path === "/cappedItems" && issue.code === "length"));
+    }
+
+    const negativeStepIndex = binding.read({ ...input, stepIndexes: [-1] }, "strip");
+    assert.equal(negativeStepIndex.ok, false);
+    if (!negativeStepIndex.ok) {
+        assert.ok(negativeStepIndex.issues?.some(issue =>
+            issue.path === "/stepIndexes/0" && issue.code === "range"));
+    }
+
+    const fractionalStepIndex = binding.read({ ...input, stepIndexes: [1.5] }, "strip");
+    assert.equal(fractionalStepIndex.ok, false);
+    if (!fractionalStepIndex.ok) {
+        assert.ok(fractionalStepIndex.issues?.some(issue =>
+            issue.path === "/stepIndexes/0" && issue.code === "type"));
+    }
+
+    const withoutOptionalArrays = structuredClone(input) as Record<string, unknown>;
+    delete withoutOptionalArrays.boundedItems;
+    delete withoutOptionalArrays.cappedItems;
+    delete withoutOptionalArrays.stepIndexes;
+    const optionalAbsent = binding.read(withoutOptionalArrays, "strip");
+    assert.equal(optionalAbsent.ok, true);
 });
 
 test("integer annotation drift is detected from the source fingerprint", async t => {
@@ -254,11 +355,82 @@ test("integer annotation drift is detected from the source fingerprint", async t
     ]);
 });
 
+test("array length annotation drift is detected from the source fingerprint", async t => {
+    const fixture = await createFixture();
+    t.after(() => rm(fixture.root, { recursive: true, force: true }));
+
+    const baseline = await generateContractArtifacts(fixture.options);
+    await writeArtifacts(fixture.root, baseline.artifacts);
+    assert.deepEqual(await findStaleContractArtifacts(fixture.options), []);
+
+    await writeFile(fixture.sampleFile, contractSource.replace(
+        "     * @minItems 1\n     */\n    readonly requiredItems: readonly SampleNested[];",
+        "     * @minItems 2\n     */\n    readonly requiredItems: readonly SampleNested[];",
+    ));
+    const changed = await generateContractArtifacts(fixture.options);
+    assert.notEqual(
+        artifact(changed.artifacts, "generated/sample/sample-envelope-schema.ts"),
+        artifact(baseline.artifacts, "generated/sample/sample-envelope-schema.ts"),
+    );
+    assert.deepEqual((await findStaleContractArtifacts(fixture.options)).sort(), [
+        "generated/sample/sample-envelope-manifest.json",
+        "generated/sample/sample-envelope-schema.ts",
+        "generated/sample/sample-envelope-validator.mjs",
+    ]);
+});
+
+test("Catalog generation rejects invalid array length annotations", async t => {
+    const fixture = await createFixture();
+    t.after(() => rm(fixture.root, { recursive: true, force: true }));
+
+    await writeFile(fixture.sampleFile, contractSource.replace("     * @minItems 1", "     * @minItems -1"));
+    await assert.rejects(
+        generateContractArtifacts(fixture.options),
+        /JSDoc @minItems requires a non-negative integer/,
+    );
+
+    await writeFile(fixture.sampleFile, contractSource.replace("     * @minItems 1", "     * @minItems 1.5"));
+    await assert.rejects(
+        generateContractArtifacts(fixture.options),
+        /JSDoc @minItems requires a non-negative integer/,
+    );
+
+    await writeFile(
+        fixture.sampleFile,
+        contractSource.replace(
+            "    readonly nullable: string | null;",
+            "    /** @minItems 1 */\n    readonly nullable: string | null;",
+        ),
+    );
+    await assert.rejects(
+        generateContractArtifacts(fixture.options),
+        /JSDoc @minItems is supported only on array fields/,
+    );
+
+    await writeFile(
+        fixture.sampleFile,
+        contractSource.replace("     * @minItems 1", "     * @minItems 1\n     * @minItems 1"),
+    );
+    await assert.rejects(
+        generateContractArtifacts(fixture.options),
+        /Duplicate JSDoc @minItems on SampleEnvelope/,
+    );
+
+    await writeFile(fixture.sampleFile, contractSource.replace("     * @minItems 2", "     * @minItems 4"));
+    await assert.rejects(
+        generateContractArtifacts(fixture.options),
+        /JSDoc @minItems must not exceed @maxItems/,
+    );
+});
+
 test("Catalog generation rejects unsupported or misapplied @asType", async t => {
     const fixture = await createFixture();
     t.after(() => rm(fixture.root, { recursive: true, force: true }));
 
-    await writeFile(fixture.sampleFile, contractSource.replace("@asType integer", "@asType string"));
+    await writeFile(fixture.sampleFile, contractSource.replace(
+        "     * @asType integer\n     * @minimum 1\n     * @maximum 10\n     */\n    readonly integerCount: number;",
+        "     * @asType string\n     * @minimum 1\n     * @maximum 10\n     */\n    readonly integerCount: number;",
+    ));
     await assert.rejects(
         generateContractArtifacts(fixture.options),
         /Unsupported JSDoc @asType value "string" in SampleEnvelope; only integer is supported/,

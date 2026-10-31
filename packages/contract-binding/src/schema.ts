@@ -226,15 +226,23 @@ export function checkValueAgainstSchema(
         return issues;
     }
 
-    if (Array.isArray(value) && isArraySchema(node) && node.items !== undefined) {
-        for (let index = 0; index < value.length; index += 1) {
-            issues.push(...checkValueAgainstSchema(
-                value[index]!,
-                node.items,
-                rootSchema,
-                joinPath(path, String(index)),
-                options,
-            ));
+    if (Array.isArray(value) && isArraySchema(node)) {
+        if (node.minItems !== undefined && value.length < node.minItems) {
+            issues.push({ path: boundPath(path), code: "length" });
+        }
+        if (node.maxItems !== undefined && value.length > node.maxItems) {
+            issues.push({ path: boundPath(path), code: "length" });
+        }
+        if (node.items !== undefined) {
+            for (let index = 0; index < value.length; index += 1) {
+                issues.push(...checkValueAgainstSchema(
+                    value[index]!,
+                    node.items,
+                    rootSchema,
+                    joinPath(path, String(index)),
+                    options,
+                ));
+            }
         }
         return issues;
     }

@@ -22,7 +22,7 @@
 - 对象保持封闭，所有属性进入 `required`；本地可选属性表示为 required-nullable（`type: [..., "null"]`、含 `null` 的 `enum` 或 `anyOf` 的 `null` 分支）。
 - 本地联合映射为 `anyOf`；可空字段由 `type` 数组表达。可选属性本身允许 `null` 时无法区分缺席与显式 `null`，投影明确失败。
 - 本地 `$ref` 在 wire Schema 中内联；递归引用、元组和开放对象无法安全转换为 Provider 可移植结构，投影明确失败。
-- 数值类型（`number`/`integer`）与 `minimum`/`maximum` 保留；字符串 `pattern`、`minLength`、`maxLength` 从 wire Schema 省略，并记录在 `localConstraints`（JSON Pointer 与关键字列表）中，由 `decode` 使用同源本地 Schema 强制验证，不会静默放宽。
+- 数值类型（`number`/`integer`）与 `minimum`/`maximum` 保留；数组 `items`、`minItems`/`maxItems` 与可表达的元素约束保留。字符串 `pattern`、`minLength`、`maxLength` 从 wire Schema 省略，并记录在 `localConstraints`（JSON Pointer 与关键字列表）中，由 `decode` 使用同源本地 Schema 强制验证，不会静默放宽。
 - `decode` 要求 wire 必填属性存在，按唯一合法联合分支处理，将可选 `null` 转为 canonical 省略，再复用绑定的本地校验与 `strip` 未知字段策略；失败不返回部分数据。
 
 模型投影只负责数据形状；阶段、授权和工具可见性仍由模型执行链的现有所有者执行。无法安全转换时直接失败，不回退旧 Contract AST。
