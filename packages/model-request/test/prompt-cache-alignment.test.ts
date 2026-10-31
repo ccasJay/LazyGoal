@@ -2,10 +2,9 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 
-import { contract } from "../../contracts/src/index";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal, StepRecord } from "../../runtime/src/domain";
-import type { ToolDefinition } from "../../tool-core/src/index";
+import { createTestToolDefinition, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 import { goalSnapshotCodec } from "../../storage/src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { buildStepRequest } from "../src/prompt";
@@ -21,8 +20,6 @@ import { testAssistantMessage, testUserMessage } from "../../runtime/test/curren
 
 const policy = createModelContextBudgetPolicy({ modelInputBudget: 100_000 });
 const contextCompactor = new DropOldestContextCompactor();
-const LOCATION_INPUT_CONTRACT = contract.object({ location: contract.string() });
-
 function sha256(content: string): string {
     return createHash("sha256").update(content).digest("hex");
 }
@@ -47,13 +44,11 @@ const task = {
     completionCriteria: [{ text: "根前缀完全固定" }, { text: "尾部增量最小化" }],
 };
 
-const tools: readonly ToolDefinition[] = [
-    {
-        id: "navigate_to",
+const tools = [
+    createTestToolDefinition("navigate_to", objectInputSchema({ location: { type: "string" } }), {
         description: "移动到指定目标位置",
-        inputContract: LOCATION_INPUT_CONTRACT,
         isReadOnly: false,
-    },
+    }),
 ];
 
 function createExecutingGoal(options: {

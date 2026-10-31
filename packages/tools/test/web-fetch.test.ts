@@ -420,7 +420,7 @@ test("web_fetch 将 blocked、重定向上限、HTTP 与网络失败映射为稳
 
 test("web_fetch 工具成功注册进 ToolRegistry 且 JSON Schema 编译通过", () => {
     const tool = new WebFetchTool();
-    const schema = compileJsonSchema(tool.definition.inputContract);
+    const schema = compileJsonSchema(tool.definition.inputContract!);
     assert.equal(typeof schema === "object" && schema !== null, true);
     const properties = (schema as { properties?: Record<string, unknown> }).properties;
     assert.ok(properties !== undefined && "url" in properties);

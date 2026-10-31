@@ -8,9 +8,10 @@
  */
 
 import {
-    SystemCompletionReviewDeclaration,
+    createBoundCompletionReviewDeclaration,
     decodePhaseToolCall,
     isModelAssistantMessage,
+    modelOutputBindings,
     sameNativeIdentity,
     type CompletionReviewResult,
     type DecideOutput,
@@ -464,11 +465,12 @@ export function normalizeRequestThinkGoal(output: { readonly goal: string }): st
  */
 export function decodeCompletionReviewResponse(response: LLMResponse): CompletionReviewResult {
     const call = requireSingleToolCall(response);
-    if (call.toolId !== SystemCompletionReviewDeclaration.id) {
+    const declaration = createBoundCompletionReviewDeclaration(modelOutputBindings);
+    if (call.toolId !== declaration.id) {
         throw new LLMResponseProtocolError("Completion review returned an undeclared result call");
     }
     try {
-        return decodePhaseToolCall([SystemCompletionReviewDeclaration], call.toolId,
+        return decodePhaseToolCall([declaration], call.toolId,
             JSON.parse(call.argumentsJson));
     } catch (error) {
         throw error instanceof SyntaxError || error instanceof ContractValidationError

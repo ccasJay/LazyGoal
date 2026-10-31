@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-    createModelOutputContractBundle, SystemCompletionReviewDeclaration, type CompletionReviewResult,
+    createBoundCompletionReviewDeclaration, createBoundModelOutputContractBundle,
+    modelOutputBindings, type CompletionReviewResult,
 } from "../../model-contracts/src/index";
 import { allocateImmutableEvent, CompletionReviewInputBudgetError, createGoal, ModelStageFeedbackError,
     type ModelInputRecord, type ModelCallMetricRecord, type TrajectoryEvent } from "../../runtime/src/index";
@@ -31,15 +32,24 @@ function input(): CompletionReviewInput {
 }
 
 test("text and native review contracts reject empty feedback and business decisions", () => {
-    const bundle = createModelOutputContractBundle<CompletionReviewResult>({ kind: "completion_review" });
+    const bundle = createBoundModelOutputContractBundle<CompletionReviewResult>({ kind: "completion_review" }, modelOutputBindings);
+    const declaration = createBoundCompletionReviewDeclaration(modelOutputBindings);
     for (const result of [{ kind: "accept" }, { kind: "reject", feedback: "Read source to support the claim." }]) {
         assert.deepEqual(bundle.decode({ result }), result);
-        assert.deepEqual(SystemCompletionReviewDeclaration.decode({ result }), result);
+        assert.deepEqual(declaration.decode({ result }), result);
     }
-    for (const result of [{ kind: "reject", feedback: " \n" }, { kind: "complete", summary: "Done" }, { kind: "accept", feedback: "extra" }]) {
+    for (const result of [{ kind: "reject", feedback: " \n" }, { kind: "complete", summary: "Done" }]) {
         assert.throws(() => bundle.decode({ result }));
-        assert.throws(() => SystemCompletionReviewDeclaration.decode({ result }));
+        assert.throws(() => declaration.decode({ result }));
     }
+    const diagnostics: string[] = [];
+    assert.deepEqual(bundle.decode({ result: { kind: "accept", feedback: "extra" } }, {
+        onDiagnostic: diagnostic => diagnostics.push(...diagnostic.paths),
+    }), { kind: "accept" });
+    assert.deepEqual(declaration.decode({ result: { kind: "accept", feedback: "extra" } }, {
+        onDiagnostic: diagnostic => diagnostics.push(...diagnostic.paths),
+    }), { kind: "accept" });
+    assert.deepEqual(diagnostics, ["/result/feedback", "/result/feedback"]);
 });
 
 for (const mode of ["strict", "prompt_only"] as const) {

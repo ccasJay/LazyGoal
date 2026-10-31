@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { contract } from "../../contracts/src/index";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal, GoalMessage } from "../../runtime/src/domain";
 import type { GoalPlan } from "../../runtime/src/goal-plan";
-import type { ToolDefinition } from "../../tool-core/src/index";
+import { createTestToolDefinition, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 import {
     allocateImmutableEvent,
     classifyTrajectoryTail,
@@ -47,12 +46,9 @@ const profile = {
     instructions: [],
     toolIds: ["read_file"],
 };
-const readTool: ToolDefinition = {
-    id: "read_file",
-    description: "读取当前文件",
-    inputContract: contract.object({ path: contract.string() }),
-    isReadOnly: true,
-};
+const readTool = createTestToolDefinition("read_file", objectInputSchema({
+    path: { type: "string" },
+}), { description: "读取当前文件", isReadOnly: true });
 const compactor = new DropOldestContextCompactor();
 const policy = createModelContextBudgetPolicy({ modelInputBudget: 500_000 }, new CharacterModelInputEstimator());
 

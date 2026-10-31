@@ -2,40 +2,42 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createGoal, ModelStageFeedbackError } from "../../runtime/src/index";
 import { LLMResponseProtocolError, decodeToolCallOutcome } from "../../model-response/src/index";
-import { SystemCompleteRunDeclaration, SystemStartRunStageDeclaration } from "../../model-contracts/src/index";
+import {
+    createBoundRunStageToolDeclarations,
+    createBoundUnifiedToolDeclarations,
+    modelOutputBindings,
+} from "../../model-contracts/src/index";
 import { toModelStageFeedback } from "../src/stage-feedback";
 import { currentProtocols } from "../../agent/test/current-fixtures";
 
 const goal = createGoal({ ...currentProtocols, id: "feedback", runId: "run-1", intent: "Inspect repository", promptBundleVersion: 1,
     profile: { id: "test", systemPrompt: "Inspect sources", instructions: [], toolIds: [] } });
+const systemDeclarations = createBoundUnifiedToolDeclarations([], modelOutputBindings, true, false, false);
+const completeRunDeclaration = systemDeclarations.find(declaration => declaration.id === "system_complete_task")!;
+const startStageDeclaration = createBoundRunStageToolDeclarations({}, modelOutputBindings.systemTools)[0]!;
 
 test("Schema literal feedback preserves the expected number and excludes the rejected private value", () => {
     let failure: unknown;
     try {
         decodeToolCallOutcome({ callId: "literal", toolId: "system_complete_task", argumentsJson: JSON.stringify({
             summary: "PRIVATE_SUMMARY", evidenceSequences: [], memoryPatch: { protocolVersion: "PRIVATE_VALUE", operations: [] },
-        }) }, [SystemCompleteRunDeclaration], []);
+        }) }, [completeRunDeclaration], []);
     } catch (error) { failure = error; }
     const mapped = toModelStageFeedback(failure, { goal }, "decide");
     assert.ok(mapped instanceof ModelStageFeedbackError);
-    assert.match(mapped.feedback.issues[0]!.message, /exactly 1 as JSON.*JSON type/);
+    assert.match(mapped.feedback.issues[0]!.message, /type required/);
     assert.equal(JSON.stringify(mapped.feedback).includes("PRIVATE"), false);
 });
 
-test("Original stage failure reports extra fields and a corrected call is accepted", () => {
-    let failure: unknown;
+test("未知阶段字段被剥离并产生有界诊断", () => {
     const input = { target: "Inspect architecture", acceptanceCriteria: ["Read source"] };
-    try {
-        decodeToolCallOutcome({ callId: "stage", toolId: "system_start_run_stage", argumentsJson: JSON.stringify({
-            ...input, extraParam: "PRIVATE_ID", customMeta: { protocolVersion: "1", operations: [] },
-        }) }, [SystemStartRunStageDeclaration], []);
-    } catch (error) { failure = error; }
-    const mapped = toModelStageFeedback(failure, { goal }, "decide");
-    assert.ok(mapped instanceof ModelStageFeedbackError);
-    assert.deepEqual(mapped.feedback.issues.map(issue => issue.path), [["customMeta"], ["extraParam"]]);
-    assert.ok(mapped.feedback.issues.every(issue => /Remove/.test(issue.message)));
-    assert.equal(JSON.stringify(mapped.feedback).includes("PRIVATE"), false);
-    assert.deepEqual(SystemStartRunStageDeclaration.decode(input), { kind: "run_stage_update", ...input });
+    const diagnostics: string[] = [];
+    const decoded = startStageDeclaration.decode({
+        ...input, extraParam: "PRIVATE_ID", customMeta: { protocolVersion: "1", operations: [] },
+    }, { onDiagnostic: diagnostic => diagnostics.push(...diagnostic.paths) });
+    assert.deepEqual(decoded, { kind: "run_stage_update", ...input });
+    assert.deepEqual(diagnostics.sort(), ["/customMeta", "/extraParam"]);
+    assert.equal(JSON.stringify(decoded).includes("PRIVATE"), false);
 });
 
 test("字段反馈按 code 生成纠正提示，保留混合问题并过滤原始异常文本", () => {
@@ -114,7 +116,7 @@ test("未授权或未知系统工具调用生成清晰提示切换合法工具",
             callId: "call_unauth",
             toolId: "system_start_run_stage",
             argumentsJson: JSON.stringify({ target: "test", acceptanceCriteria: ["done"] }),
-        }, [SystemCompleteRunDeclaration], []);
+        }, [completeRunDeclaration], []);
     } catch (error) {
         failure = error;
     }

@@ -2,169 +2,53 @@
  * 模型交互协议契约与统一模式定义。
  *
  * @remarks
- * 承载 LazyGoal Agent 运行时的模型输出契约、Wire/Canonical 投影转换、
- * 结构化输出 Provider Schema 编译、系统工具声明、Completion Review 及请求工厂。
- * 遵循单向依赖，底层复用 `@lazygoal/contracts` 的通用 AST、Parser 与 Schema 编译器。
+ * 承载 LazyGoal Agent 运行时的模型输出 TS 单源、同源生成绑定、动态声明组合、
+ * Provider Schema 投影、语义校验及模型对话身份。模型线不拥有工具权限、Runtime
+ * 状态转换或持久化；业务工具输入绑定由工具线提供并在组合时插入。
  *
  * @example
  * ```ts
  * import {
- *     createModelOutputContractBundle,
- *     AgentDecisionContract,
+ *     createBoundModelOutputContractBundle,
+ *     modelOutputBindings,
  * } from "@lazygoal/model-contracts";
  *
- * const bundle = createModelOutputContractBundle({ kind: "executing" });
+ * const bundle = createBoundModelOutputContractBundle({ kind: "executing" }, modelOutputBindings);
  * ```
  *
  * @packageDocumentation
  */
 
-export {
-    AgentDecisionContract,
-    BlockerCreateContract,
-    BlockerUpdateContract,
-    CompleteAgentDecisionContract,
-    NormalCompleteAgentDecisionContract,
-    CompletionAcceptanceContract,
-    CompletionEvidenceContract,
-    CompletionCriterionContract,
-    CompletionExpectOutcomeContract,
-    ContextLookupFiltersContract,
-    ContextLookupNeedContract,
-    ContextLookupOperationContract,
-    ContextLookupRequestContract,
-    ContextNoteSourceContract,
-    ContextNoteCategoryContract,
-    ContextNoteProposalContract,
-    ToolDiscoveryDecisionContract,
-    ContextLookupSequenceRangeContract,
-    ExecutingMemoryPatchOperationContract,
-    ExecutingWorkingMemoryPatchContract,
-    FactProposalContract,
-    FactScalarContract,
-    FactStabilityContract,
-    FactValueContract,
-    FailAgentDecisionContract,
-    GoalPlanStatusContract,
-    GoalPlanAddOperationContract,
-    GoalPlanUpdateOperationContract,
-    GoalPlanReorderOperationContract,
-    GoalPlanCancelOperationContract,
-    GoalPlanPatchOperationContract,
-    GoalPlanUpdateAgentDecisionContract,
-    GoalTaskContract,
-    RunPlanRouteCandidateContract,
-    RequestThinkContract,
-    HypothesisCreateContract,
-    HypothesisUpdateContract,
-    JsonValueContract,
-    MemoryEntryScopeContract,
-    MemoryEntryStatusContract,
-    MemoryPatchOperationContract,
-    ModelContextCheckpointResultContract,
-    NonToolExecutingDecisionContract,
-    OrdinaryExecutingDecisionContract,
-    PlanModeExecutingDecisionContract,
-    RetireFactProposalContract,
-    StructuredAgentDecisionContract,
-    ToolCallActionContract,
-    ToolCallAgentDecisionContract,
-    WaitAgentDecisionContract,
-    WorkingMemoryPatchContract,
-    AskUserOptionInputContract,
-    AskUserQuestionInputContract,
-    AskUserAgentDecisionContract,
-    TaskProposalAgentDecisionContract,
-    AskUserAnswerContract,
-    RunStageUpdateAgentDecisionContract,
-    RunStageCompleteAgentDecisionContract,
-    RunPlanRouteUpdateAgentDecisionContract,
-    normalizeAskUserRequest,
-    validateAskUserAnswers,
-    validateModelOutputSemantics,
-} from "./model-output/canonical";
+export type * from "./model-output/schema-types";
 
 export type {
-    AgentDecision,
-    BlockerCreate,
-    BlockerUpdate,
-    CompletionAcceptance,
-    CompletionEvidence,
-    CompletionCriterion,
-    CompletionExpectOutcome,
-    ContextLookupFilters,
-    ContextLookupNeed,
-    ContextLookupOperation,
-    ContextLookupRequest,
-    ToolDiscoveryDecision,
-    ContextLookupSequenceRange,
-    ExecutingMemoryPatchOperation,
-    ExecutingWorkingMemoryPatch,
-    FactProposal,
-    FactScalar,
-    FactStability,
-    FactValue,
-    GoalTask,
-    RunPlanRouteCandidate,
-    RunPlanRouteUpdateAgentDecision,
-    RequestThink,
-    DecideOutput,
-    GoalPlanStatus,
-    GoalPlanPatchOperation,
-    GoalPlanUpdateAgentDecision,
-    HypothesisCreate,
-    HypothesisUpdate,
-    MemoryEntryScope,
-    MemoryEntryStatus,
-    MemoryPatchOperation,
-    ModelContextCheckpointResult,
-    ModelOutputSemanticIssue,
-    ModelOutputSemanticIssueCode,
-    RetireFactProposal,
-    StructuredAgentDecision,
-    PlanModeExecutingDecision,
-    ToolCallAction,
-    WorkingMemoryPatch,
-    AskUserOptionInput,
-    AskUserQuestionInput,
-    AskUserAgentDecision,
-    TaskProposalAgentDecision,
+    WorkingMemoryPatch as ExecutingWorkingMemoryPatch,
+} from "./model-output/schema-types";
+
+export {
+    normalizeAskUserRequest,
+    validateAskUserAnswers,
+    validateCompletionReviewResult,
+    validateModelOutputSemantics,
+} from "./model-output/semantics";
+
+export type {
+    AskUserAnswer,
     AskUserOption,
     AskUserQuestion,
-    AskUserAnswer,
-    RunStageUpdateAgentDecision,
-    RunStageCompleteAgentDecision,
-    ContextNoteSource,
-    ContextNoteCategory,
-    ContextNoteProposal,
-} from "./model-output/canonical";
+    ModelOutputSemanticIssue,
+    ModelOutputSemanticIssueCode,
+} from "./model-output/semantics";
 
 export { ModelOutputContractDefinitionError } from "./model-output/errors";
 
 export {
-    decodeWireResult,
-    deriveWireContract,
-    deriveWireEnvelopeContract,
-} from "./model-output/wire";
-
-export {
     assertPortableModelSchema,
     buildShapeGuide,
-    compileModelOutputSchema,
     SHAPE_GUIDE_PREFIX,
 } from "./model-output/provider-schema";
 
-export {
-    createModelOutputContractBundle,
-    isReadOnlyToolContract,
-} from "./model-output/factory";
-
-export type {
-    AuthorizedToolContract,
-    ModelOutputBundle,
-    ModelOutputContractBundle,
-    ModelOutputRequest,
-} from "./model-output/factory";
+export type { ModelOutputBundle } from "./model-output/bundle";
 
 export type { ModelContractDecodeOptions } from "./model-output/decode-options";
 
@@ -191,45 +75,17 @@ export type {
 
 export { modelOutputBindings } from "./model-output/generated-bindings";
 
+export { decodeBoundAgentDecision } from "./model-output/decision-validation";
+
 export {
-    SystemCompletionReviewDeclaration,
-    SystemCompleteTaskDeclaration,
-    SystemCompleteRunDeclaration,
-    SystemWaitForInputDeclaration,
-    SystemFailGoalDeclaration,
-    SystemContextLookupDeclaration,
-    SystemFindToolsDeclaration,
-    SystemProposeTaskPlanDeclaration,
-    SystemContextCheckpointDeclaration,
-    SystemAskUserDeclaration,
-    SystemUpdateGoalPlanDeclaration,
-    SystemRequestThinkDeclaration,
-    SystemStartRunStageDeclaration,
-    createRunStageToolDeclarations,
-    SystemUpdatePlanRouteDeclaration,
-    createExecutingToolDeclarations,
-    createUnifiedToolDeclarations,
-    createCheckpointToolDeclarations,
     decodePhaseToolCall,
-} from "./model-output/system-tools";
+} from "./model-output/tool-declaration";
 
 export type {
     AskUserTool,
     SystemToolDeclaration,
-    SystemFindToolsInput,
-    RunStageToolContext,
-} from "./model-output/system-tools";
+} from "./model-output/tool-declaration";
 
-export {
-    SystemFindToolsInputContract,
-    SystemUpdateGoalPlanInputContract,
-    SystemStartRunStageInputContract,
-    SystemReviseRunStageInputContract,
-    SystemUpdatePlanRouteInputContract,
-    SystemCompleteRunStageInputContract,
-} from "./model-output/system-tools";
-
-export { CompletionReviewResultContract } from "./model-output/completion-review";
-export type { CompletionReviewResult } from "./model-output/completion-review";
+export type { RunStageToolContext } from "./model-output/system-tool-specs";
 
 export * from "./model-conversation";

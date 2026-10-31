@@ -70,7 +70,7 @@ export interface ToolDefinition<Input = JsonValue> {
      *
      * @deprecated 与模型线联合切换时删除；不得用于 Tool `prepare` 或新增字段定义。
      */
-    readonly inputContract: ToolInputContract;
+    readonly inputContract?: ToolInputContract;
     /**
      * 是否为只读工具。
      *
@@ -106,6 +106,20 @@ export interface BoundToolDefinition<Input = JsonValue> extends ToolDefinition<I
     /** Tool 输入的权威 Schema、校验与读取边界。 */
     readonly inputBinding: ContractBinding<Input>;
 }
+
+/**
+ * 类型擦除的绑定工具定义。
+ *
+ * @remarks
+ * 模型投影、Runtime 调度与测试夹具只消费工具身份、说明、只读声明和输入绑定，
+ * 不直接使用具体输入类型；具体工具执行仍保留自己的 `BoundToolDefinition<Input>`。
+ *
+ * @example
+ * ```ts
+ * const tools: readonly AnyBoundToolDefinition[] = [new ReadFileTool("/workspace").definition];
+ * ```
+ */
+export type AnyBoundToolDefinition = BoundToolDefinition<any>;
 
 /**
  * Tool 实际返回的成功或领域失败 Observation。

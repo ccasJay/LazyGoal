@@ -1,9 +1,4 @@
-import {
-    compileJsonSchema,
-    type Contract,
-    type JsonSchema202012,
-    type JsonSchemaValue,
-} from "../../../contracts/src/index";
+import type { JsonSchema202012 } from "../../../contracts/src/index";
 import { ModelOutputContractDefinitionError } from "./errors";
 
 /**
@@ -144,34 +139,6 @@ function assertPortableSchemaNode(
 }
 
 /**
- * 编译 Wire Contract 并严格校验其落在 OpenAI 与 Gemini 共同支持的可移植结构子集内。
- *
- * @remarks
- * 统一剥离根节点的 `$schema` 标识，并严格校验：
- * 1. 根必须是 object，且联合只位于 result 或更深层；
- * 2. 所有 object 必须声明 `additionalProperties: false` 且所有属性必须列入 `required`；
- * 3. 联合必须统一使用 `anyOf`，单值使用单元素 `enum`；
- * 4. 严禁出现开放 record、递归（`$defs`/`$ref`）、字符串正则与长度约束等 Provider 不兼容特性。
- *
- * @param wireContract - 顶层带 result envelope 的 Wire Contract。
- * @returns 确定性且只读的 JSON Schema 2020-12 独立数据对象。
- * @throws 存在不兼容或不可移植定义时抛出 `ModelOutputContractDefinitionError`。
- *
- * @example
- * ```ts
- * const schema = compileModelOutputSchema(wireContract);
- * ```
- */
-export function compileModelOutputSchema<C extends Contract<unknown>>(
-    wireContract: C,
-): JsonSchema202012 {
-    const rawSchema = compileJsonSchema(wireContract);
-    const { $schema, ...cleanSchema } = rawSchema as Record<string, JsonSchemaValue>;
-
-    return assertPortableModelSchema(cleanSchema);
-}
-
-/**
  * 校验已生成的 Wire Schema 是否落在 OpenAI 与 Gemini 共用的可移植子集内。
  *
  * @remarks
@@ -189,9 +156,9 @@ export function compileModelOutputSchema<C extends Contract<unknown>>(
  * ```
  */
 export function assertPortableModelSchema(schema: Readonly<Record<string, unknown>>): JsonSchema202012 {
-    const isolatedCopy = JSON.parse(JSON.stringify(schema)) as Record<string, JsonSchemaValue>;
+    const isolatedCopy = JSON.parse(JSON.stringify(schema)) as Record<string, unknown>;
     assertPortableSchemaNode(isolatedCopy, [], true);
-    return Object.freeze(isolatedCopy);
+    return Object.freeze(isolatedCopy) as JsonSchema202012;
 }
 
 /**

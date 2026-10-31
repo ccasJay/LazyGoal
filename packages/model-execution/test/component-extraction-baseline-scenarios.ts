@@ -16,7 +16,6 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { contract } from "../../contracts/src/index";
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import { toolCallResponse } from "../../llm-core/test/response-fixtures";
@@ -36,7 +35,8 @@ import type {
     TrajectoryReadResult,
     TrajectoryStore,
 } from "../../runtime/src/index";
-import type { ToolDefinition } from "../../tool-core/src/index";
+import type { AnyBoundToolDefinition } from "../../tool-core/src/index";
+import { createTestToolDefinition, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 import { createEmptyWorkingMemory } from "../../working-memory/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import {
@@ -78,12 +78,9 @@ const BASELINE_PROFILE: AgentProfile = {
     toolIds: ["read_file"],
 };
 
-const READ_TOOL: ToolDefinition = {
-    id: "read_file",
-    description: "Read a file from workspaceRoot.",
-    inputContract: contract.object({ path: contract.string() }),
-    isReadOnly: true,
-};
+const READ_TOOL: AnyBoundToolDefinition = createTestToolDefinition("read_file", objectInputSchema({
+    path: { type: "string" },
+}), { description: "Read a file from workspaceRoot.", isReadOnly: true });
 
 const NATIVE_IDENTITY: NativeConversationIdentity = {
     provider: "google",

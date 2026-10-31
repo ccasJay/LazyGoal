@@ -1,27 +1,32 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { safeParse } from "../../contracts/src/index";
-import {
-    RunPlanRouteCandidateContract,
-} from "../src/index";
+import { modelOutputBindings } from "../src/index";
 
-test("Plan Run route candidate accepts ordered stages without Runtime-owned state", () => {
+function readRoute(route: unknown) {
+    return modelOutputBindings.systemTools.updatePlanRoute.read({
+        baseRevision: 1,
+        reason: "根据新证据调整路线",
+        route,
+    }, "reject");
+}
+
+test("Plan Run 路线候选接受有序阶段且不包含 Runtime 状态", () => {
     const candidate = {
         stages: [
             { target: "调查代码", acceptanceCriteria: ["找到入口"] },
             { target: "实现并验证", acceptanceCriteria: ["功能可用", "回归通过"] },
         ],
     };
-    const parsed = safeParse(RunPlanRouteCandidateContract, candidate);
-    assert.equal(parsed.success, true);
-    if (!parsed.success) return;
-    assert.deepEqual(parsed.data, candidate);
+    const parsed = readRoute(candidate);
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+    assert.deepEqual(parsed.data.route, candidate);
 });
 
-test("Plan Run route candidate rejects missing stages and model-assigned identity/status", () => {
-    assert.equal(safeParse(RunPlanRouteCandidateContract, { stages: [] }).success, false);
-    assert.equal(safeParse(RunPlanRouteCandidateContract, { stages: [{ target: "目标", acceptanceCriteria: [] }] }).success, false);
-    assert.equal(safeParse(RunPlanRouteCandidateContract, {
+test("Plan Run 路线候选拒绝缺失阶段与模型分配的身份或状态", () => {
+    assert.equal(readRoute({ stages: [] }).ok, false);
+    assert.equal(readRoute({ stages: [{ target: "目标", acceptanceCriteria: [] }] }).ok, false);
+    assert.equal(readRoute({
         stages: [{ stageId: "model-id", status: "accepted", target: "目标", acceptanceCriteria: ["条件"] }],
-    }).success, false);
+    }).ok, false);
 });

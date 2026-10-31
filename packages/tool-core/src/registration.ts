@@ -45,7 +45,7 @@ export function createToolRegistration<Input>(tool: BoundTool<Input>): ToolRegis
             ? {}
             : { discoveryAliases: Object.freeze([...tool.definition.discoveryAliases]) }),
         inputBinding: inputBinding as ContractBinding<JsonValue>,
-        inputContract: tool.definition.inputContract,
+        ...(tool.definition.inputContract === undefined ? {} : { inputContract: tool.definition.inputContract }),
         isReadOnly: tool.definition.isReadOnly,
     });
 

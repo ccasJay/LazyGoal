@@ -1,5 +1,5 @@
 import { ContractValidationError } from "../../../contracts/src/index";
-import { validateCompletionReviewResult } from "./completion-review";
+import { validateCompletionReviewResult } from "./semantics";
 import type {
     AgentDecision,
     AskUserAgentDecision,

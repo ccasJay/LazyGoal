@@ -1,27 +1,25 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { contract } from "../../contracts/src/index";
 import {
-    BASH_INPUT_CONTRACT,
-    BASH_MAX_TIMEOUT_MS,
     BASH_TOOL_ID,
     BashTool,
-    EDIT_FILE_INPUT_CONTRACT,
+    bashInputBinding,
     EDIT_FILE_TOOL_ID,
     EditFileTool,
-    READ_FILE_INPUT_CONTRACT,
+    editFileInputBinding,
     READ_FILE_TOOL_ID,
     ReadFileTool,
-    WRITE_FILE_INPUT_CONTRACT,
+    readFileInputBinding,
     WRITE_FILE_TOOL_ID,
     WriteFileTool,
+    writeFileInputBinding,
 } from "../../tools/src/index";
 import {
-    ALFWORLD_RESET_INPUT_CONTRACT,
     ALFWORLD_RESET_TOOL_ID,
-    ALFWORLD_STEP_INPUT_CONTRACT,
     ALFWORLD_STEP_TOOL_ID,
+    alfworldResetInputBinding,
+    alfworldStepInputBinding,
 } from "../../../benchmarks/alfworld/src/alfworld-tools";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import { createGoal } from "../../runtime/src/domain";
@@ -32,7 +30,8 @@ import type {
     PendingAction,
     StepRecord,
 } from "../../runtime/src/domain";
-import type { ToolDefinition } from "../../tool-core/src/index";
+import type { AnyBoundToolDefinition } from "../../tool-core/src/index";
+import { createTestBinding, createTestToolDefinition, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 import { currentProtocols, currentWorkingMemory } from "./current-fixtures";
 import { ModelInferenceProjector } from "../src/model-inference-projector";
 import type { PromptStage } from "../../model-view/src/index";
@@ -53,43 +52,41 @@ const profile: AgentProfile = {
 };
 
 const projector = new ModelInferenceProjector();
-const PATH_INPUT_CONTRACT = contract.object({ path: contract.string() });
-
-const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
+const CURRENT_TOOL_DEFINITIONS: readonly AnyBoundToolDefinition[] = [
     {
         id: BASH_TOOL_ID,
         description: "在 workspaceRoot 内以 bash 执行命令并返回截断后的 stdout/stderr",
-        inputContract: BASH_INPUT_CONTRACT,
+        inputBinding: bashInputBinding,
         isReadOnly: false,
     },
     {
         id: READ_FILE_TOOL_ID,
         description: "Read UTF-8 text from a file in workspaceRoot with line range and pagination support.",
-        inputContract: READ_FILE_INPUT_CONTRACT,
+        inputBinding: readFileInputBinding,
         isReadOnly: true,
     },
     {
         id: WRITE_FILE_TOOL_ID,
         description: "写入 workspaceRoot 内的 UTF-8 文本文件（覆盖已有内容）",
-        inputContract: WRITE_FILE_INPUT_CONTRACT,
+        inputBinding: writeFileInputBinding,
         isReadOnly: false,
     },
     {
         id: EDIT_FILE_TOOL_ID,
         description: "对 workspaceRoot 内的 UTF-8 文本文件执行唯一匹配的字符串替换",
-        inputContract: EDIT_FILE_INPUT_CONTRACT,
+        inputBinding: editFileInputBinding,
         isReadOnly: false,
     },
     {
         id: ALFWORLD_RESET_TOOL_ID,
         description: "初始化固定 ALFWorld TextWorld 任务会话",
-        inputContract: ALFWORLD_RESET_INPUT_CONTRACT,
+        inputBinding: alfworldResetInputBinding,
         isReadOnly: false,
     },
     {
         id: ALFWORLD_STEP_TOOL_ID,
         description: "向活动 ALFWorld TextWorld 会话提交一条命令",
-        inputContract: ALFWORLD_STEP_INPUT_CONTRACT,
+        inputBinding: alfworldStepInputBinding,
         isReadOnly: false,
     },
 ];
@@ -170,18 +167,15 @@ function createExecutingGoal(options: {
     };
 }
 
-function toolDefinition(id = "read_file"): ToolDefinition {
-    return {
-        id,
-        description: "读取工作区内文本文件",
-        inputContract: PATH_INPUT_CONTRACT,
-        isReadOnly: true,
-    };
+function toolDefinition(id = "read_file"): AnyBoundToolDefinition {
+    return createTestToolDefinition(id, objectInputSchema({
+        path: { type: "string" },
+    }), { description: "读取工作区内文本文件", isReadOnly: true });
 }
 
 function project(
     goal: Goal,
-    tools: readonly ToolDefinition[] = [],
+    tools: readonly AnyBoundToolDefinition[] = [],
     memory: WorkingMemory = currentWorkingMemory,
     stage: PromptStage = "decide",
 ) {
@@ -464,124 +458,20 @@ test("Projector 从七个当前 Contract 生成稳定且可移植的模型 Schem
         [...CURRENT_TOOL_DEFINITIONS].reverse(),
     ).dynamicContext.authorizedTools;
 
-    assert.deepEqual(first.map(({ id, inputSchema }) => ({ id, inputSchema })), [
-        {
-            id: ALFWORLD_RESET_TOOL_ID,
-            inputSchema: {
-                type: "object",
-                properties: {},
-                additionalProperties: false,
-            },
-        },
-        {
-            id: ALFWORLD_STEP_TOOL_ID,
-            inputSchema: {
-                type: "object",
-                properties: { command: { type: "string" } },
-                required: ["command"],
-                additionalProperties: false,
-            },
-        },
-        {
-            id: BASH_TOOL_ID,
-            inputSchema: {
-                type: "object",
-                properties: {
-                    command: { type: "string" },
-                    timeoutMs: {
-                        type: "integer",
-                        minimum: 1,
-                        maximum: BASH_MAX_TIMEOUT_MS,
-                    },
-                    sandboxAccess: {
-                        type: "object",
-                        properties: {
-                            files: {
-                                type: "array",
-                                items: {
-                                    type: "object",
-                                    properties: {
-                                        path: { type: "string" },
-                                        access: {
-                                            enum: ["read", "write"],
-                                        },
-                                        kind: {
-                                            enum: ["file", "directory_tree"],
-                                        },
-                                        purpose: { type: "string" },
-                                    },
-                                    required: ["path", "access", "kind", "purpose"],
-                                    additionalProperties: false,
-                                },
-                            },
-                            network: {
-                                type: "object",
-                                properties: {
-                                    targets: {
-                                        type: "array",
-                                        items: { type: "string" },
-                                    },
-                                    purpose: { type: "string" },
-                                },
-                                required: ["targets", "purpose"],
-                                additionalProperties: false,
-                            },
-                        },
-                        additionalProperties: false,
-                    },
-                },
-                required: ["command"],
-                additionalProperties: false,
-            },
-        },
-        {
-            id: EDIT_FILE_TOOL_ID,
-            inputSchema: {
-                type: "object",
-                properties: {
-                    path: { type: "string" },
-                    oldString: { type: "string" },
-                    newString: { type: "string" },
-                },
-                required: ["path", "oldString", "newString"],
-                additionalProperties: false,
-            },
-        },
-        {
-            id: READ_FILE_TOOL_ID,
-            inputSchema: {
-                type: "object",
-                properties: {
-                    cursor: { type: "string" },
-                    endLine: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
-                    maxChars: { type: "integer", minimum: 1, maximum: 50000 },
-                    path: { type: "string" },
-                    startLine: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
-                },
-                required: ["path"],
-                additionalProperties: false,
-            },
-        },
-        {
-            id: WRITE_FILE_TOOL_ID,
-            inputSchema: {
-                type: "object",
-                properties: {
-                    path: { type: "string" },
-                    content: { type: "string" },
-                },
-                required: ["path", "content"],
-                additionalProperties: false,
-            },
-        },
-    ]);
+    assert.deepEqual(first.map(({ id, inputSchema }) => ({ id, inputSchema })), CURRENT_TOOL_DEFINITIONS
+        .slice()
+        .sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
+        .map((tool) => {
+            const { $schema: _dialect, ...inputSchema } = tool.inputBinding.modelProjection().schema;
+            return { id: tool.id, inputSchema };
+        }));
     assert.equal(JSON.stringify(first), JSON.stringify(second));
 
     for (const [index, tool] of first.entries()) {
         const source = CURRENT_TOOL_DEFINITIONS.find(({ id }) => id === tool.id);
         assert.ok(source !== undefined);
         assert.deepEqual(Object.keys(tool).sort(), ["description", "id", "inputSchema"]);
-        assert.notStrictEqual(tool.inputSchema, source.inputContract);
+        assert.notStrictEqual(tool.inputSchema, source.inputBinding.modelProjection().schema);
         assert.notStrictEqual(tool.inputSchema, second[index]?.inputSchema);
 
         const schema = tool.inputSchema as Record<string, unknown>;
@@ -707,12 +597,16 @@ test("Projector 投影当前 bm25-lite@1 的历史 Lookup Result", () => {
 });
 
 test("Projector 在遇到无效 Tool Contract 时快速抛出异常", () => {
-    const invalidTool: ToolDefinition = {
+    const binding = createTestBinding("test.invalid_tool", objectInputSchema());
+    const invalidTool: AnyBoundToolDefinition = {
         id: "invalid_tool",
         description: "无效工具",
-        inputContract: {
-            kind: "unknown_kind" as any,
-        } as any,
+        inputBinding: {
+            ...binding,
+            modelProjection() {
+                throw new Error("Invalid tool schema");
+            },
+        },
         isReadOnly: false,
     };
 
@@ -743,7 +637,7 @@ test("Projector 确保 View 与外部输入完全隔离且子对象不可变", (
 });
 
 test("四类实际通用 Tool 实例的 definition 与 CURRENT_TOOL_DEFINITIONS 完全一致", () => {
-    const instances: readonly ToolDefinition[] = [
+    const instances: readonly AnyBoundToolDefinition[] = [
         new BashTool("/workspace").definition,
         new ReadFileTool("/workspace").definition,
         new WriteFileTool("/workspace").definition,
@@ -754,7 +648,7 @@ test("四类实际通用 Tool 实例的 definition 与 CURRENT_TOOL_DEFINITIONS 
         const found = CURRENT_TOOL_DEFINITIONS.find((t) => t.id === inst.id);
         assert.ok(found !== undefined, `未找到工具 ${inst.id}`);
         assert.equal(inst.description, found.description);
-        assert.strictEqual(inst.inputContract, found.inputContract);
+        assert.strictEqual(inst.inputBinding, found.inputBinding);
     }
 });
 

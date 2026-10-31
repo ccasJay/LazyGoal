@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { safeParse } from "../../contracts/src/index";
-import { AgentDecisionContract } from "../../model-contracts/src/index";
+import { decodeBoundAgentDecision, modelOutputBindings } from "../../model-contracts/src/index";
 import { completionReviewScenarios, completionReviewScenarioInput, scoreCompletionReview, completionReviewStatus } from "./completion-review-eval";
 
 test("real-case fixtures require their actual source, independent of Memory Patch", () => {
     const negative = completionReviewScenarios.find(s => s.id === "generic-for-real-case")!;
     const fixture = completionReviewScenarioInput(negative);
-    assert.equal(safeParse(AgentDecisionContract, fixture.candidate).success, true);
+    assert.doesNotThrow(() => decodeBoundAgentDecision(fixture.candidate, modelOutputBindings));
     assert.equal("memoryPatch" in fixture.candidate, false);
     assert.equal(fixture.evidence.length, 0);
     assert.equal(fixture.contextLookupResult?.status, "not_found");
@@ -49,6 +48,6 @@ test("new stage, failure diagnosis and overall review scenarios produce valid fi
     const stageFixture = completionReviewScenarioInput(stageScenario);
     assert.equal(stageScenario.accept, true);
     assert.equal(stageFixture.candidate.kind, "run_stage_complete");
-    assert.equal(safeParse(AgentDecisionContract, stageFixture.candidate).success, true);
+    assert.doesNotThrow(() => decodeBoundAgentDecision(stageFixture.candidate, modelOutputBindings));
     assert.equal(stageFixture.currentStage?.stageId, "stage-1");
 });

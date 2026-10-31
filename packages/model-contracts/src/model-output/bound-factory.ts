@@ -10,14 +10,15 @@ import type {
     ContractDiagnostic,
     ContractIssue,
     ContractReadResult,
+    ContractSchemaNode,
     ModelProjection,
 } from "../../../contract-binding/src/index";
-import { validateCompletionReviewResult } from "./completion-review";
+import { validateCompletionReviewResult } from "./semantics";
 import type { ModelContractDecodeOptions } from "./decode-options";
 import { ModelOutputContractDefinitionError } from "./errors";
 import { assertPortableModelSchema, buildShapeGuide } from "./provider-schema";
 import { generateBusinessActionId } from "./action-id";
-import type { ModelOutputBundle } from "./factory";
+import type { ModelOutputBundle } from "./bundle";
 import type {
     AgentDecision,
     CompletionReviewResult,
@@ -31,7 +32,7 @@ import type {
     ModelOutputBindingSet,
     SystemToolBindingSet,
 } from "./bindings";
-import type { SystemToolDeclaration } from "./system-tools";
+import type { SystemToolDeclaration } from "./tool-declaration";
 import {
     SystemAskUserSpec,
     SystemCompleteRunSpec,
@@ -716,6 +717,103 @@ function readRecord(value: unknown, path: readonly (string | number)[]): Record<
     return value;
 }
 
+/** 原生工具参数可能省略可选字段；在 wire 解码前补齐为 null，保持与 canonical 可选语义一致。 */
+function withOptionalNulls(
+    schema: ContractSchemaNode,
+    value: unknown,
+): unknown {
+    if (!isRecord(value) && !Array.isArray(value)) return value;
+    return fillOptionalNulls(schema, schema, value);
+}
+
+function fillOptionalNulls(
+    schema: ContractSchemaNode,
+    root: ContractSchemaNode,
+    value: unknown,
+): unknown {
+    const resolved = resolveSchema(schema, root);
+
+    if (resolved.anyOf !== undefined && resolved.anyOf.length > 0) {
+        const branch = selectUnionBranch(resolved.anyOf, root, value);
+        return branch === undefined ? value : fillOptionalNulls(branch, root, value);
+    }
+
+    if (resolved.type === "array" && Array.isArray(value) && resolved.items !== undefined) {
+        return value.map(entry => fillOptionalNulls(resolved.items!, root, entry));
+    }
+
+    if (resolved.type !== "object" || !isRecord(value)) return value;
+
+    const required = new Set(resolved.required ?? []);
+    const filled: Record<string, unknown> = { ...value };
+    for (const [name, property] of Object.entries(resolved.properties ?? {})) {
+        if (Object.hasOwn(filled, name)) {
+            filled[name] = fillOptionalNulls(property, root, filled[name]);
+        } else if (!required.has(name)) {
+            filled[name] = null;
+        }
+    }
+    return filled;
+}
+
+function selectUnionBranch(
+    branches: readonly ContractSchemaNode[],
+    root: ContractSchemaNode,
+    value: unknown,
+): ContractSchemaNode | undefined {
+    if (!isRecord(value)) return undefined;
+    let best: { readonly branch: ContractSchemaNode; readonly score: number } | undefined;
+    for (const branch of branches) {
+        const resolved = resolveSchema(branch, root);
+        if (resolved.type !== "object") continue;
+        let score = 0;
+        let discriminatorMatched = false;
+        let requiredPresent = true;
+        for (const [name, property] of Object.entries(resolved.properties ?? {})) {
+            const discriminator = discriminatorValue(resolveSchema(property, root));
+            if (discriminator !== undefined) {
+                if (!Object.hasOwn(value, name)) {
+                    requiredPresent = false;
+                    break;
+                }
+                if (value[name] !== discriminator) {
+                    requiredPresent = false;
+                    break;
+                }
+                discriminatorMatched = true;
+                score += 2;
+            }
+        }
+        if (!requiredPresent) continue;
+        for (const name of resolved.required ?? []) {
+            if (!Object.hasOwn(value, name)) {
+                requiredPresent = false;
+                break;
+            }
+        }
+        if (!requiredPresent) continue;
+        score += discriminatorMatched ? 1 : 0;
+        if (best === undefined || score > best.score) best = { branch, score };
+    }
+    return best?.branch;
+}
+
+function discriminatorValue(schema: ContractSchemaNode): JsonValue | undefined {
+    if (schema.const !== undefined) return schema.const;
+    if (schema.enum?.length === 1) return schema.enum[0];
+    return undefined;
+}
+
+function resolveSchema(schema: ContractSchemaNode, root: ContractSchemaNode): ContractSchemaNode {
+    if (schema.$ref === undefined) return schema;
+    let current: unknown = root;
+    for (const segment of schema.$ref.replace(/^#\//u, "").split("/")) {
+        if (current === null || typeof current !== "object") return {};
+        current = (current as Record<string, unknown>)[segment.replaceAll("~1", "/").replaceAll("~0", "~")];
+    }
+    return current !== null && typeof current === "object" ? current as ContractSchemaNode : {};
+}
+
 /**
  * 从 system tool 生成绑定构造原生工具声明。
  *
@@ -742,7 +840,7 @@ export function createBoundSystemToolDeclaration<Args, Result, Id extends string
         description: spec.description,
         parametersSchema,
         decode: (rawArguments: unknown, options?: ModelContractDecodeOptions): Result => {
-            const decoded = projection.decode(rawArguments);
+            const decoded = projection.decode(withOptionalNulls(binding.schema, rawArguments));
             if (!decoded.ok) {
                 throw readFailureToValidationError(decoded, []);
             }
@@ -778,7 +876,7 @@ export function createBoundBusinessToolDeclaration(
         description,
         parametersSchema,
         decode: (rawArguments: unknown, options?: ModelContractDecodeOptions): AgentDecision => {
-            const decoded = projection.decode(rawArguments);
+            const decoded = projection.decode(withOptionalNulls(tool.inputBinding.schema, rawArguments));
             if (!decoded.ok) {
                 throw readFailureToValidationError(decoded, []);
             }

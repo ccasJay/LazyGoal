@@ -6,6 +6,7 @@ import {
     throwIfAborted,
 } from "../../execution-control/src/index";
 import type {
+    AnyBoundToolDefinition,
     BoundToolDefinition,
     ToolRegistration,
     ToolRegistry,
@@ -125,8 +126,8 @@ export interface ToolPolicy {
 export function resolveAuthorizedToolDefinitions(
     goal: Goal,
     registry: ToolRegistry,
-): readonly BoundToolDefinition[] {
-    const definitions: BoundToolDefinition[] = [];
+): readonly AnyBoundToolDefinition[] {
+    const definitions: AnyBoundToolDefinition[] = [];
 
     for (const toolId of goal.definition.profile.toolIds) {
         const registration = registry.get(toolId);
@@ -139,7 +140,9 @@ export function resolveAuthorizedToolDefinitions(
                     ? {}
                     : { discoveryAliases: Object.freeze([...registration.definition.discoveryAliases]) }),
                 inputBinding: registration.definition.inputBinding,
-                inputContract: registration.definition.inputContract,
+                ...(registration.definition.inputContract === undefined
+                    ? {}
+                    : { inputContract: registration.definition.inputContract }),
                 isReadOnly: registration.definition.isReadOnly,
             }));
         }

@@ -6,25 +6,24 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { getEncoding } from "js-tiktoken";
 
-import { contract } from "../../contracts/src/index";
 import {
-    BASH_INPUT_CONTRACT,
     BASH_MAX_TIMEOUT_MS,
     BASH_TOOL_ID,
-    EDIT_FILE_INPUT_CONTRACT,
+    bashInputBinding,
     EDIT_FILE_TOOL_ID,
+    editFileInputBinding,
     EXECUTE_PROGRAM_DEFINITION,
-    READ_FILE_INPUT_CONTRACT,
     READ_FILE_TOOL_ID,
+    readFileInputBinding,
     WebSearchTool,
-    WRITE_FILE_INPUT_CONTRACT,
     WRITE_FILE_TOOL_ID,
+    writeFileInputBinding,
 } from "../../tools/src/index";
 import {
-    ALFWORLD_RESET_INPUT_CONTRACT,
     ALFWORLD_RESET_TOOL_ID,
-    ALFWORLD_STEP_INPUT_CONTRACT,
     ALFWORLD_STEP_TOOL_ID,
+    alfworldResetInputBinding,
+    alfworldStepInputBinding,
 } from "../../../benchmarks/alfworld/src/alfworld-tools";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import { createGoal } from "../../runtime/src/domain";
@@ -39,14 +38,14 @@ import type {
     ModelContextSectionIdentity,
 } from "../../runtime/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import type { ToolDefinition } from "../../tool-core/src/index";
+import type { AnyBoundToolDefinition } from "../../tool-core/src/index";
+import { createTestToolDefinition, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 import type {
     ModelConversationMessage,
     ModelContextLookupResult,
     ModelInferenceView,
 } from "../../model-view/src/index";
 
-const PATH_INPUT_CONTRACT = contract.object({ path: contract.string() });
 import type { PromptBundleRenderer } from "../../prompt-renderer/src/index";
 import { buildStepRequest } from "../src/prompt";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
@@ -200,7 +199,7 @@ const trajectoryContextAssembler = new PassthroughTrajectoryAssembler();
 
 async function stepRequest(
     goal: Goal,
-    tools: readonly ToolDefinition[] = [],
+    tools: readonly AnyBoundToolDefinition[] = [],
     requestRenderer: PromptBundleRenderer = renderer,
     lookupResult?: ContextLookupResult,
 ) {
@@ -219,7 +218,7 @@ async function stepRequest(
 
 async function stepPlan(
     goal: Goal,
-    tools: readonly ToolDefinition[] = [],
+    tools: readonly AnyBoundToolDefinition[] = [],
     requestRenderer: PromptBundleRenderer = renderer,
     lookupResult?: ContextLookupResult,
 ) {
@@ -237,7 +236,7 @@ async function stepPlan(
 
 async function executingRequest(
     goal: Goal,
-    tools: readonly ToolDefinition[] = [],
+    tools: readonly AnyBoundToolDefinition[] = [],
     requestRenderer: PromptBundleRenderer = renderer,
 ) {
     return stepRequest(goal, tools, requestRenderer);
@@ -276,10 +275,10 @@ test("请求按固定 system、真实历史、动态 section、本轮 Working Co
 
 test("执行请求只展示调用方传入的授权 ToolDefinition", async () => {
     const goal = createExecutingGoal();
-    const tool: ToolDefinition = {
+    const tool: AnyBoundToolDefinition = {
         id: "read_file",
         description: "读取工作区内文本文件",
-        inputContract: PATH_INPUT_CONTRACT,
+        inputBinding: readFileInputBinding,
         isReadOnly: true,
     };
     const request = await stepRequest(goal, [tool]);
@@ -295,41 +294,41 @@ test("执行请求只展示调用方传入的授权 ToolDefinition", async () =>
     assert.match(systemContent, /Omit `sandboxAccess` entirely when neither is needed/);
 });
 
-const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
+const CURRENT_TOOL_DEFINITIONS: readonly AnyBoundToolDefinition[] = [
     {
         id: BASH_TOOL_ID,
         description: "在 workspaceRoot 内以 bash 执行命令并返回截断后的 stdout/stderr",
-        inputContract: BASH_INPUT_CONTRACT,
+        inputBinding: bashInputBinding,
         isReadOnly: false,
     },
     {
         id: READ_FILE_TOOL_ID,
         description: "Read UTF-8 text from a file in workspaceRoot with line range and pagination support.",
-        inputContract: READ_FILE_INPUT_CONTRACT,
+        inputBinding: readFileInputBinding,
         isReadOnly: true,
     },
     {
         id: WRITE_FILE_TOOL_ID,
         description: "写入 workspaceRoot 内的 UTF-8 文本文件（覆盖已有内容）",
-        inputContract: WRITE_FILE_INPUT_CONTRACT,
+        inputBinding: writeFileInputBinding,
         isReadOnly: false,
     },
     {
         id: EDIT_FILE_TOOL_ID,
         description: "对 workspaceRoot 内的 UTF-8 文本文件执行唯一匹配的字符串替换",
-        inputContract: EDIT_FILE_INPUT_CONTRACT,
+        inputBinding: editFileInputBinding,
         isReadOnly: false,
     },
     {
         id: ALFWORLD_RESET_TOOL_ID,
         description: "初始化固定 ALFWorld TextWorld 任务会话",
-        inputContract: ALFWORLD_RESET_INPUT_CONTRACT,
+        inputBinding: alfworldResetInputBinding,
         isReadOnly: false,
     },
     {
         id: ALFWORLD_STEP_TOOL_ID,
         description: "向活动 ALFWorld TextWorld 会话提交一条命令",
-        inputContract: ALFWORLD_STEP_INPUT_CONTRACT,
+        inputBinding: alfworldStepInputBinding,
         isReadOnly: false,
     },
 ];
@@ -364,23 +363,13 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
     assert.equal(projectedTools.some((tool: { id: string }) => tool.id === "grep"), false);
     assert.ok(projectedTools.every((tool: { inputSchema?: { type?: string } }) => tool.inputSchema?.type === "object"));
 
+    const { $schema: _readFileDialect, ...readFileInputSchema } = readFileInputBinding.modelProjection().schema;
     assert.deepEqual(
         projectedTools.find((tool: { id: string }) => tool.id === READ_FILE_TOOL_ID),
         {
             id: READ_FILE_TOOL_ID,
             description: "Read UTF-8 text from a file in workspaceRoot with line range and pagination support.",
-            inputSchema: {
-                type: "object",
-                properties: {
-                    cursor: { type: "string" },
-                    endLine: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
-                    maxChars: { type: "integer", minimum: 1, maximum: 50000 },
-                    path: { type: "string" },
-                    startLine: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
-                },
-                required: ["path"],
-                additionalProperties: false,
-            },
+            inputSchema: readFileInputSchema,
         },
     );
 
@@ -451,11 +440,11 @@ test("按需请求只携带暴露工具 Schema，并将发现结果反馈给 Dec
 
 test("PTC 发现后同步进入 Prompt、结构化契约与原生工具声明", async () => {
     const goal = createExecutingGoal();
-    const tools: readonly ToolDefinition[] = [
+    const tools: readonly AnyBoundToolDefinition[] = [
         {
             id: READ_FILE_TOOL_ID,
             description: "Read a workspace file",
-            inputContract: READ_FILE_INPUT_CONTRACT,
+            inputBinding: readFileInputBinding,
             isReadOnly: true,
         },
         EXECUTE_PROGRAM_DEFINITION,
@@ -476,7 +465,7 @@ test("PTC 发现后同步进入 Prompt、结构化契约与原生工具声明", 
     assert.equal(JSON.stringify(initial.bundle.jsonSchema).includes("execute_program"), false);
     assert.deepEqual(
         discovered.toolDeclarations.map(({ id }) => id).filter((id) => id === "read_file" || id === "execute_program"),
-        ["read_file", "execute_program"],
+        ["execute_program", "read_file"],
     );
     assert.equal(JSON.stringify(discovered.bundle.jsonSchema).includes("execute_program"), true);
     assert.equal(JSON.stringify(discovered.bundle.jsonSchema).includes("discoveryAliases"), false);
@@ -542,13 +531,13 @@ test("Context Epoch 按 Conversation 原始索引过滤，而不是按裁剪后�
 });
 
 test("Plan 未批准时仅投影 Runtime 提供的只读 ToolDefinition", async () => {
-    const readOnlyTool: ToolDefinition = {
+    const readOnlyTool: AnyBoundToolDefinition = {
         id: "read_file",
         description: "读取文件",
-        inputContract: PATH_INPUT_CONTRACT,
+        inputBinding: readFileInputBinding,
         isReadOnly: true,
     };
-    const tools: readonly ToolDefinition[] = [readOnlyTool];
+    const tools: readonly AnyBoundToolDefinition[] = [readOnlyTool];
     const views: ModelInferenceView[] = [];
     const capturingRenderer: PromptBundleRenderer = {
         render() {
@@ -569,7 +558,7 @@ test("Plan 未批准时仅投影 Runtime 提供的只读 ToolDefinition", async 
     assert.ok(views.every((view) => view.dynamicContext.authorizedTools.length === 1));
     assert.deepEqual(views[0]?.dynamicContext.authorizedTools.map((tool) => tool.id), ["read_file"]);
     assert.notStrictEqual(views[0]?.dynamicContext.authorizedTools[0], readOnlyTool);
-    assert.notStrictEqual(views[0]?.dynamicContext.authorizedTools[0]?.inputSchema, PATH_INPUT_CONTRACT);
+    assert.notStrictEqual(views[0]?.dynamicContext.authorizedTools[0]?.inputSchema, readFileInputBinding.modelProjection().schema);
     assert.equal(Object.isFrozen(views[0]?.dynamicContext.authorizedTools[0]?.inputSchema), true);
 });
 
@@ -884,12 +873,12 @@ test("RuntimeFeedback is a tagged stage message and does not alter Conversation 
 });
 
 test("buildStepRequest 在 Plan 提案前只编码 Runtime 提供的明确只读工具", async () => {
-    const mixedTools: readonly ToolDefinition[] = [
+    const mixedTools: readonly AnyBoundToolDefinition[] = [
         // 1. 内置只读工具
         {
             id: READ_FILE_TOOL_ID,
             description: "读取文件",
-            inputContract: READ_FILE_INPUT_CONTRACT,
+            inputBinding: readFileInputBinding,
             isReadOnly: true,
         },
         new WebSearchTool().definition,
@@ -897,27 +886,29 @@ test("buildStepRequest 在 Plan 提案前只编码 Runtime 提供的明确只读
         {
             id: "custom_doc_search",
             description: "检索技术文档",
-            inputContract: contract.object({ keyword: contract.string() }),
+            inputBinding: createTestToolDefinition("custom_doc_search", objectInputSchema({
+                keyword: { type: "string" },
+            })).inputBinding,
             isReadOnly: true,
         },
         // 3. 写操作与副作用工具
         {
             id: WRITE_FILE_TOOL_ID,
             description: "写入文件",
-            inputContract: WRITE_FILE_INPUT_CONTRACT,
+            inputBinding: writeFileInputBinding,
             isReadOnly: false,
         },
         {
             id: BASH_TOOL_ID,
             description: "执行 shell 命令",
-            inputContract: BASH_INPUT_CONTRACT,
+            inputBinding: bashInputBinding,
             isReadOnly: false,
         },
         // 4. 未声明只读性的扩展工具；传入列表表示已由 Profile 授权。
         {
             id: "unknown_side_effect_tool",
             description: "未知工具",
-            inputContract: contract.object({}),
+            inputBinding: createTestToolDefinition("unknown_side_effect_tool", objectInputSchema()).inputBinding,
             isReadOnly: false,
         },
     ];

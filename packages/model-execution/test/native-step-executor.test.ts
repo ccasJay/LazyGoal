@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contract } from "../../contracts/src/index";
 import { validateModelOutputSemantics } from "../../model-contracts/src/index";
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
@@ -8,7 +7,8 @@ import { blockResponse, textResponse } from "../../llm-core/test/response-fixtur
 import { createGoal, ModelStageFeedbackError } from "../../runtime/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import type { Goal, GoalTask } from "../../runtime/src/domain";
-import type { ToolDefinition } from "../../tool-core/src/index";
+import type { BoundToolDefinition } from "../../tool-core/src/index";
+import { createTestToolDefinition, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 import {
     LLMStepExecutor,
 } from "../src/index";
@@ -76,12 +76,9 @@ class ToolCallingAdapter implements LLMAdapter {
 
 test("LLMStepExecutor 的兼容 execute 入口单次 Decide 返回 AgentDecision", async () => {
     const goal = createExecutingGoal();
-    const mockBashTool: ToolDefinition = {
-        id: "bash",
-        description: "执行命令",
-        inputContract: contract.object({ command: contract.string() }),
-        isReadOnly: false,
-    };
+    const mockBashTool: BoundToolDefinition = createTestToolDefinition("bash", objectInputSchema({
+        command: { type: "string" },
+    }), { description: "执行命令", isReadOnly: false });
 
     let callCount = 0;
     const adapter: LLMAdapter = {
@@ -131,12 +128,9 @@ test("LLMStepExecutor 的兼容 execute 入口单次 Decide 返回 AgentDecision
 
 test("LLMStepExecutor 单步调用业务工具生成非空合规 actionId 并通过语义校验", async () => {
     const goal = createExecutingGoal();
-    const mockBashTool: ToolDefinition = {
-        id: "bash",
-        description: "执行命令",
-        inputContract: contract.object({ command: contract.string() }),
-        isReadOnly: false,
-    };
+    const mockBashTool: BoundToolDefinition = createTestToolDefinition("bash", objectInputSchema({
+        command: { type: "string" },
+    }), { description: "执行命令", isReadOnly: false });
 
     const adapter: LLMAdapter = {
         structuredOutputMode: "strict",

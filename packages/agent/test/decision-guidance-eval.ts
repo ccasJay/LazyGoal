@@ -3,9 +3,13 @@ import { readFile, mkdir, writeFile, appendFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-    createCheckpointToolDeclarations, createUnifiedToolDeclarations,
-    createModelOutputContractBundle, decodePhaseToolCall,
-    type AgentDecision, type ModelOutputContractBundle,
+    createBoundCheckpointToolDeclarations,
+    createBoundModelOutputContractBundle,
+    createBoundUnifiedToolDeclarations,
+    decodePhaseToolCall,
+    modelOutputBindings,
+    type AgentDecision,
+    type ModelOutputBundle,
 } from "../../model-contracts/src/index";
 import { readAssistantText, readToolCalls } from "../../llm-core/src/index";
 import type { LLMResponse } from "../../llm-core/src/index";
@@ -49,10 +53,17 @@ export async function evaluationRenderers() {
 export function evaluationRequest(scenario: Scenario, renderer: PromptBundleRenderer, mode: StructuredOutputMode,
     oldDescriptions?: Readonly<Record<string, string>>) {
     const tools = decisionScenarioTools(scenario);
-    const bundle = createModelOutputContractBundle(scenario.checkpoint
-        ? { kind: "checkpoint" }
-        : { kind: "executing", authorizedTools: tools, taskPresent: scenario.approved, planMode: scenario.approved || scenario.id === "proposal" }) as ModelOutputContractBundle<AgentDecision>;
-    const declarations = scenario.checkpoint ? createCheckpointToolDeclarations() : createUnifiedToolDeclarations(tools, scenario.approved, scenario.approved || scenario.id === "proposal");
+    const bundle: ModelOutputBundle<AgentDecision> = scenario.checkpoint
+        ? createBoundModelOutputContractBundle({ kind: "checkpoint" }, modelOutputBindings)
+        : createBoundModelOutputContractBundle<AgentDecision>({
+            kind: "executing",
+            authorizedTools: tools,
+            taskPresent: scenario.approved,
+            planMode: scenario.approved || scenario.id === "proposal",
+        }, modelOutputBindings);
+    const declarations = scenario.checkpoint
+        ? createBoundCheckpointToolDeclarations(modelOutputBindings)
+        : createBoundUnifiedToolDeclarations(tools, modelOutputBindings, scenario.approved, scenario.approved || scenario.id === "proposal");
     const view = decisionScenarioView(scenario);
     const requestRenderer: PromptBundleRenderer = oldDescriptions === undefined ? renderer : {
         render: () => renderer.render(Object.assign({}, view.prompt, {

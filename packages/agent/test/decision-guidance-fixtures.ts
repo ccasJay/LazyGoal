@@ -4,13 +4,13 @@ import { createMemoryPatchFeedback, type RuntimeFeedback } from "../../runtime/s
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import { validateMemoryPatchEvidence, buildCommittedEvidenceIndex, EvidenceGateError } from "../../runtime/src/evidence-gate";
 import { normalizeMemoryPatch } from "../../working-memory/src/index";
-import { contract } from "../../contracts/src/index";
 import type { AgentDecision } from "../../model-contracts/src/index";
 import { allocateImmutableEvent, type TrajectoryEventDraft } from "../../runtime/src/trajectory";
 import { TrajectoryEventProjector } from "../../model-context/src/index";
 import type { Observation } from "../../runtime/src/domain";
 import { createGoal, type Goal } from "../../runtime/src/domain";
-import type { ToolDefinition } from "../../tool-core/src/index";
+import type { AnyBoundToolDefinition } from "../../tool-core/src/index";
+import { createTestToolDefinition, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 import { ModelInferenceProjector } from "../../model-context/src/index";
 import type { ModelInferenceView } from "../../model-view/src/index";
 import { currentProtocols, currentWorkingMemory, currentContextEpoch } from "./current-fixtures";
@@ -31,13 +31,16 @@ type Scenario = {
     runtimeFeedback?: RuntimeFeedback;
 };
 
-const input = contract.object({ target: contract.string(), value: contract.optional(contract.string()) });
+const inputSchema = objectInputSchema({
+    target: { type: "string" },
+    value: { type: "string" },
+}, ["target"]);
 
-export const decisionTools: readonly ToolDefinition[] = [
-    { id: "read_state", description: "Inspect a named current project or service resource without changing it.", inputContract: input, isReadOnly: true },
-    { id: "apply_change", description: "Apply the supplied value to a named project resource.", inputContract: input, isReadOnly: false },
-    { id: "verify", description: "Run the checks for a named project resource without changing it.", inputContract: input, isReadOnly: true },
-    { id: "fetch_data", description: "Fetch a named service resource without changing it.", inputContract: input, isReadOnly: true },
+export const decisionTools: readonly AnyBoundToolDefinition[] = [
+    createTestToolDefinition("read_state", inputSchema, { description: "Inspect a named current project or service resource without changing it.", isReadOnly: true }),
+    createTestToolDefinition("apply_change", inputSchema, { description: "Apply the supplied value to a named project resource.", isReadOnly: false }),
+    createTestToolDefinition("verify", inputSchema, { description: "Run the checks for a named project resource without changing it.", isReadOnly: true }),
+    createTestToolDefinition("fetch_data", inputSchema, { description: "Fetch a named service resource without changing it.", isReadOnly: true }),
 ];
 
 // 判据先于实测固定；工具名称与输入约束不随旧、新 Prompt 改变。
@@ -84,7 +87,7 @@ export const decisionScenarios: readonly Scenario[] = [
 ];
 
 /** 采用实际只读文件工具 Schema 的来源场景，不执行该工具。 */
-export function decisionScenarioTools(scenario: Scenario): readonly ToolDefinition[] {
+export function decisionScenarioTools(scenario: Scenario): readonly AnyBoundToolDefinition[] {
     return scenario.fileSource ? [new ReadFileTool(process.cwd()).definition] : decisionTools.filter(t => scenario.approved || t.isReadOnly);
 }
 

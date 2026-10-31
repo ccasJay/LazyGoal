@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contract } from "../../contracts/src/index";
 import type { ModelAssistantMessage, NativeConversationIdentity } from "../../model-contracts/src/index";
 import { allocateImmutableEvent, createGoal, Runner, GoalCoordinator, InlineScheduler, type TrajectoryEvent, type TrajectoryEventPayload } from "../../runtime/src/index";
 import { createToolRegistration, InMemoryToolRegistry } from "../../tool-core/src/index";
@@ -20,6 +19,7 @@ import { buildStepRequest } from "../../model-request/src/index";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import { currentProtocols, currentWorkingMemory, createInMemoryTrajectoryStore } from "./current-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
+import { createTestBinding, createTestToolDefinition, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 
 const identity: NativeConversationIdentity = { provider: "google", endpoint: "https://generativelanguage.googleapis.com/v1beta", model: "test", protocol: "gemini-content" };
 const projector = new TrajectoryEventProjector({ previewLimit: 100 });
@@ -172,8 +172,9 @@ test("native Decide accepts multiple calls as an ordered batch", async () => {
     const goal = initial();
     const result = await executor.decide({
         goal: { ...goal, state: { ...goal.state, run: { ...goal.state.run, status: "running" } } },
-        authorizedTools: [{ id: "read_file", description: "Read a file", isReadOnly: true,
-            inputContract: contract.object({ path: contract.string() }) }],
+        authorizedTools: [createTestToolDefinition("read_file", objectInputSchema({
+            path: { type: "string" },
+        }), { description: "Read a file", isReadOnly: true })],
         workingMemory: currentWorkingMemory,
         thinkHistory: [],
     });
@@ -223,8 +224,8 @@ test("file-backed Runner restores native history after two tool steps without re
         const trajectory = new JsonFileTrajectoryStore(join(directory, "trajectory"));
         await store.save(initial());
         let executed = 0;
-        const inputContract = contract.object({});
-        const registry = new InMemoryToolRegistry([createTestToolRegistration({ definition: { id: "read_file", description: "Read", isReadOnly: true, inputContract }, replayPolicy: "safe", validate: () => ({ ok: true }),
+        const inputBinding = createTestBinding("test.read_file", objectInputSchema());
+        const registry = new InMemoryToolRegistry([createTestToolRegistration({ definition: { id: "read_file", description: "Read", isReadOnly: true, inputBinding }, replayPolicy: "safe", validate: () => ({ ok: true }),
             async execute() { executed++; return { kind: "success", output: { text: `file-${executed}` }, summary: "Observed" }; } })]);
         const requests: LLMRequest[] = [];
         const adapter = nativeAdapter(async request => {
@@ -241,7 +242,7 @@ test("file-backed Runner restores native history after two tool steps without re
         const resumed = nativeAdapter(async request => {
             assert.deepEqual(request.messages.filter(message => message.role === "tool" || message.role === "assistant" && message.continuation !== undefined),
                 requests[2]!.messages.filter(message => message.role === "tool" || message.role === "assistant" && message.continuation !== undefined));
-            return responseFor("system_wait_for_input", { reason: "Await user" }, "wait-call");
+            return responseFor("system_wait_for_input", { reason: "Await user", memoryPatch: null }, "wait-call");
         });
         const result = await new Runner({ store: restoredStore, trajectoryStore: restoredTrajectory, executor: executorFor(resumed, restoredTrajectory), toolRegistry: registry })
             .run({ goalId: "native-goal", runId: "native-run" });
@@ -275,7 +276,7 @@ test("Runner restores a settled Think before final decision and sends its output
         assert.equal(tools.length, 1);
         assert.equal(JSON.parse(tools[0]!.content).output, "Think output");
         assert.equal(request.messages.filter(message => message.role === "assistant" && message.content === "Think output").length, 0);
-        return responseFor("system_wait_for_input", { reason: "Await user" }, "wait-call");
+        return responseFor("system_wait_for_input", { reason: "Await user", memoryPatch: null }, "wait-call");
     });
     const result = await new Runner({ store, trajectoryStore: trajectory, executor: executorFor(resumed, trajectory, thinkAdapter) })
         .run({ goalId: "native-goal", runId: "native-run" });
@@ -297,7 +298,7 @@ test("accepted response checkpoint interrupted before decision does not bind a s
         }
     } };
     let executed = 0;
-    const registry = new InMemoryToolRegistry([createTestToolRegistration({ definition: { id: "read_file", description: "Read", isReadOnly: true, inputContract: contract.object({}) }, replayPolicy: "safe", validate: () => ({ ok: true }),
+    const registry = new InMemoryToolRegistry([createTestToolRegistration({ definition: { id: "read_file", description: "Read", isReadOnly: true, inputBinding: createTestBinding("test.read_file", objectInputSchema()) }, replayPolicy: "safe", validate: () => ({ ok: true }),
         async execute() { executed++; return { kind: "success", output: "Read", summary: "Observed" }; } })]);
     await assert.rejects(new Runner({ store, trajectoryStore: trajectory, executor: executorFor(nativeAdapter(async () => responseFor("read_file", {}, "stale-call")), trajectory), toolRegistry: registry, toolPolicy: { evaluate: () => "allow" } })
         .run({ goalId: "native-goal", runId: "native-run" }), ExecutionAbortedError);
@@ -308,7 +309,7 @@ test("accepted response checkpoint interrupted before decision does not bind a s
         const results = request.messages.filter(message => message.role === "tool");
         assert.equal(results.length, 1);
         assert.equal(results[0]!.callId, "recovered-call");
-        return responseFor("system_wait_for_input", { reason: "Await user" });
+        return responseFor("system_wait_for_input", { reason: "Await user", memoryPatch: null });
     });
     const result = await new Runner({ store: inner, trajectoryStore: trajectory, executor: executorFor(resumed, trajectory), toolRegistry: registry, toolPolicy: { evaluate: () => "allow" } })
         .run({ goalId: "native-goal", runId: "native-run" });
@@ -321,7 +322,7 @@ test("approval waiting restores the same native call ID and executes the approve
     const trajectory = createInMemoryTrajectoryStore();
     await store.save(initial());
     let executed = 0;
-    const registry = new InMemoryToolRegistry([createTestToolRegistration({ definition: { id: "read_file", description: "Read", isReadOnly: true, inputContract: contract.object({}) }, replayPolicy: "safe", validate: () => ({ ok: true }),
+    const registry = new InMemoryToolRegistry([createTestToolRegistration({ definition: { id: "read_file", description: "Read", isReadOnly: true, inputBinding: createTestBinding("test.read_file", objectInputSchema()) }, replayPolicy: "safe", validate: () => ({ ok: true }),
         async execute() { executed++; return { kind: "success", output: "Read", summary: "Observed" }; } })]);
     const waiting = await new Runner({ store, trajectoryStore: trajectory, executor: executorFor(nativeAdapter(async () => responseFor("read_file", {})), trajectory), toolRegistry: registry, toolPolicy: { evaluate: () => "require_approval" } })
         .run({ goalId: "native-goal", runId: "native-run" });
@@ -335,7 +336,7 @@ test("approval waiting restores the same native call ID and executes the approve
         assert.equal(results.length, 1);
         assert.equal(results[0]!.callId, "provider-call");
         assert.equal(JSON.parse(results[0]!.content).actionId, pending.action.actionId);
-        return responseFor("system_wait_for_input", { reason: "Await user" }, "wait-call");
+        return responseFor("system_wait_for_input", { reason: "Await user", memoryPatch: null }, "wait-call");
     });
     const runner = new Runner({ store, trajectoryStore: trajectory, executor: executorFor(resumed, trajectory), toolRegistry: registry, toolPolicy: { evaluate: () => "allow" } });
     const coordinator = new GoalCoordinator({ store, trajectoryStore: trajectory, scheduler: new InlineScheduler(runner) });

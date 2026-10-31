@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { safeParse } from "../../contracts/src/index";
+import { ContractValidationError } from "../../contracts/src/index";
 import {
-    AgentDecisionContract,
-    createModelOutputContractBundle,
-    createUnifiedToolDeclarations,
-    SystemRequestThinkDeclaration,
+    createBoundModelOutputContractBundle,
+    createBoundUnifiedToolDeclarations,
+    decodeBoundAgentDecision,
+    modelOutputBindings,
 } from "../src/index";
 
 test("request_think 是独立 Decide 控制分支，默认 AgentDecision 不接受它", () => {
@@ -14,28 +14,29 @@ test("request_think 是独立 Decide 控制分支，默认 AgentDecision 不接�
         kind: "request_think",
         goal: "比较恢复后的模型可见基线",
     };
-    assert.equal(safeParse(AgentDecisionContract, request).success, false);
+    assert.throws(() => decodeBoundAgentDecision(request, modelOutputBindings));
 
-    const disabled = createModelOutputContractBundle({ kind: "executing" });
+    const disabled = createBoundModelOutputContractBundle({ kind: "executing" }, modelOutputBindings);
     assert.throws(() => disabled.decode({ result: request }));
 
-    const enabled = createModelOutputContractBundle({ kind: "executing", allowThink: true });
+    const enabled = createBoundModelOutputContractBundle({ kind: "executing", allowThink: true }, modelOutputBindings);
     assert.deepEqual(enabled.decode({ result: request }), request);
     assert.throws(() => enabled.decode({
         result: { kind: "request_think", goal: " \n\t " },
-    }), /non-whitespace/);
+    }), (error: unknown) => error instanceof ContractValidationError
+        && error.issues.some(issue => /non-whitespace/.test(issue.message)));
 });
 
 test("只有启用阶段循环的 Decide 工具包暴露 request_think 控制声明", () => {
-    const disabled = createUnifiedToolDeclarations([], true, false, false);
+    const disabled = createBoundUnifiedToolDeclarations([], modelOutputBindings, true, false, false);
     assert.equal(disabled.some((declaration) => declaration.id === "system_request_think"), false);
 
-    const enabled = createUnifiedToolDeclarations([], true, false, false, true);
+    const enabled = createBoundUnifiedToolDeclarations([], modelOutputBindings, true, false, false, true);
     const declaration = enabled.find((item) => item.id === "system_request_think");
-    assert.equal(declaration, SystemRequestThinkDeclaration);
-    assert.deepEqual(declaration?.decode({ goal: "确认 Think 目标" }), {
+    assert.ok(declaration !== undefined);
+    assert.deepEqual(declaration.decode({ goal: "确认 Think 目标" }), {
         kind: "request_think",
         goal: "确认 Think 目标",
     });
-    assert.throws(() => declaration?.decode({ goal: "  " }), /non-whitespace/);
+    assert.throws(() => declaration.decode({ goal: "  " }), /non-whitespace/);
 });

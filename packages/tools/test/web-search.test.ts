@@ -240,7 +240,7 @@ test("web_search 普通后端异常时返回 failure observation 且不无限重
 
 test("web_search 工具成功注册进 ToolRegistry 且 JSON Schema 编译通过", () => {
     const tool = new WebSearchTool();
-    const schema = compileJsonSchema(tool.definition.inputContract);
+    const schema = compileJsonSchema(tool.definition.inputContract!);
     assert.equal(typeof schema === "object" && schema !== null, true);
     const properties = (schema as { properties?: Record<string, unknown> }).properties;
     assert.ok(properties !== undefined && "query" in properties);

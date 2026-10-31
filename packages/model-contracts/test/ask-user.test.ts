@@ -1,13 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { safeParse } from "../../contracts/src/index";
 import {
-    AgentDecisionContract,
-    AskUserAgentDecisionContract,
-    AskUserQuestionInputContract,
-    SystemAskUserDeclaration,
-    TaskProposalAgentDecisionContract,
-    decodeWireResult,
+    createBoundModelOutputContractBundle,
+    createBoundUnifiedToolDeclarations,
+    modelOutputBindings,
     normalizeAskUserRequest,
     validateAskUserAnswers,
     validateModelOutputSemantics,
@@ -15,7 +11,15 @@ import {
     type AskUserQuestionInput,
 } from "../src/index";
 
-test("AskUserQuestionInputContract 校验合法问题并拦截选项数量非法或未知字段", () => {
+function readAskUserInput(value: unknown) {
+    return modelOutputBindings.systemTools.askUser.read(value, "reject");
+}
+
+function decodeAskUserDecision(value: unknown) {
+    return modelOutputBindings.executing.askUser.read(value, "reject");
+}
+
+test("生成 AskUser 输入绑定校验合法问题并拦截选项数量非法或未知字段", () => {
     const validQuestion: AskUserQuestionInput = {
         header: "选择环境",
         question: "请选择目标运行环境：",
@@ -25,15 +29,14 @@ test("AskUserQuestionInputContract 校验合法问题并拦截选项数量非法
         ],
         multiSelect: false,
     };
-    const parsed = safeParse(AskUserQuestionInputContract, validQuestion);
-    assert.equal(parsed.success, true);
+    assert.equal(readAskUserInput({ questions: [validQuestion] }).ok, true);
 
     // 选项少于 2 个
     const tooFewOptions = {
         ...validQuestion,
         options: [{ label: "仅一个选项" }],
     };
-    assert.equal(safeParse(AskUserQuestionInputContract, tooFewOptions).success, false);
+    assert.equal(readAskUserInput({ questions: [tooFewOptions] }).ok, false);
 
     // 选项多于 3 个
     const tooManyOptions = {
@@ -45,17 +48,17 @@ test("AskUserQuestionInputContract 校验合法问题并拦截选项数量非法
             { label: "D" },
         ],
     };
-    assert.equal(safeParse(AskUserQuestionInputContract, tooManyOptions).success, false);
+    assert.equal(readAskUserInput({ questions: [tooManyOptions] }).ok, false);
 
     // 包含未知额外字段
     const extraField = {
         ...validQuestion,
         unknownKey: "rejected",
     };
-    assert.equal(safeParse(AskUserQuestionInputContract, extraField).success, false);
+    assert.equal(readAskUserInput({ questions: [extraField] }).ok, false);
 });
 
-test("AskUserAgentDecisionContract 限制 1 至 3 个问题并拒绝非法数量与未知字段", () => {
+test("生成 AskUser 决策绑定限制 1 至 3 个问题并拒绝非法数量与未知字段", () => {
     const sampleQuestion: AskUserQuestionInput = {
         header: "标题",
         question: "问题？",
@@ -64,31 +67,31 @@ test("AskUserAgentDecisionContract 限制 1 至 3 个问题并拒绝非法数量
     };
 
     // 0 个问题
-    assert.equal(safeParse(AskUserAgentDecisionContract, { kind: "ask_user", questions: [] }).success, false);
+    assert.equal(decodeAskUserDecision({ kind: "ask_user", questions: [] }).ok, false);
 
     // 1 个问题
-    assert.equal(safeParse(AskUserAgentDecisionContract, { kind: "ask_user", questions: [sampleQuestion] }).success, true);
+    assert.equal(decodeAskUserDecision({ kind: "ask_user", questions: [sampleQuestion] }).ok, true);
 
     // 3 个问题
     assert.equal(
-        safeParse(AskUserAgentDecisionContract, {
+        decodeAskUserDecision({
             kind: "ask_user",
             questions: [sampleQuestion, sampleQuestion, sampleQuestion],
-        }).success,
+        }).ok,
         true,
     );
 
     // 4 个问题
     assert.equal(
-        safeParse(AskUserAgentDecisionContract, {
+        decodeAskUserDecision({
             kind: "ask_user",
             questions: [sampleQuestion, sampleQuestion, sampleQuestion, sampleQuestion],
-        }).success,
+        }).ok,
         false,
     );
 });
 
-test("TaskProposalAgentDecisionContract 正确解析合法任务提案并要求必须包含 objective 与 completionCriteria", () => {
+test("生成 TaskProposal 绑定正确解析合法任务提案并要求必须包含 objective 与 completionCriteria", () => {
     const validProposal = {
         kind: "task_proposal",
         planRoute: { stages: [{ target: "Complete the proposed task", acceptanceCriteria: ["The task outcome is verified"] }] },
@@ -98,15 +101,14 @@ test("TaskProposalAgentDecisionContract 正确解析合法任务提案并要求�
         },
         approvalRequest: "请审批任务计划",
     };
-    const parsed = safeParse(TaskProposalAgentDecisionContract, validProposal);
-    assert.equal(parsed.success, true);
+    assert.equal(modelOutputBindings.executing.taskProposal.read(validProposal, "reject").ok, true);
 
     // 缺少 approvalRequest
     const missingApproval = {
         kind: "task_proposal",
         task: validProposal.task,
     };
-    assert.equal(safeParse(TaskProposalAgentDecisionContract, missingApproval).success, false);
+    assert.equal(modelOutputBindings.executing.taskProposal.read(missingApproval, "reject").ok, false);
 });
 
 test("normalizeAskUserRequest 为问题与选项生成稳定局部 ID 与全局请求 ID", () => {
@@ -288,19 +290,28 @@ test("三种模型协议的确定性 ask_user 响应解码为同一决策", () =
         options: [{ label: "Minimal" }, { label: "Complete" }],
         multiSelect: false,
     }];
+    const wireArguments = {
+        questions: questions.map(question => ({
+            ...question,
+            options: question.options.map(option => ({ ...option, description: null })),
+        })),
+        memoryPatch: null,
+    };
+    const declaration = createBoundUnifiedToolDeclarations([], modelOutputBindings, true, false, false)
+        .find(candidate => candidate.id === "ask_user")!;
+    const bundle = createBoundModelOutputContractBundle({ kind: "executing", taskPresent: true }, modelOutputBindings);
 
     // OpenAI strict：function.arguments 是 JSON 字符串，Adapter 解析后交给声明解码。
-    const openaiArgumentsJson = JSON.stringify({ questions });
-    const openaiDecision = SystemAskUserDeclaration.decode(JSON.parse(openaiArgumentsJson));
+    const openaiArgumentsJson = JSON.stringify(wireArguments);
+    const openaiDecision = declaration.decode(JSON.parse(openaiArgumentsJson));
 
     // Gemini strict：functionCall.args 已是对象，Adapter 直接交给同一声明解码。
-    const geminiDecision = SystemAskUserDeclaration.decode({ questions });
+    const geminiDecision = declaration.decode(wireArguments);
 
-    // prompt_only（pi-ai）：文本正文是 wire envelope，经正式 decodeWireResult 解码。
-    const promptOnlyDecision = decodeWireResult(
-        { result: { kind: "ask_user", questions } },
-        AgentDecisionContract,
-    );
+    // prompt_only（pi-ai）：文本正文是 wire envelope，经正式绑定契约包解码。
+    const promptOnlyDecision = bundle.decode(
+        { result: { kind: "ask_user", ...wireArguments } },
+    ) as Extract<ReturnType<typeof declaration.decode>, { readonly kind: "ask_user" }>;
 
     for (const decision of [openaiDecision, geminiDecision, promptOnlyDecision]) {
         assert.equal(decision.kind, "ask_user");
@@ -314,12 +325,21 @@ test("三种模型协议的确定性 ask_user 响应解码为同一决策", () =
     }
 
     // 三种协议共享同一字段约束：缺少问题或选项越界都在解码处拒绝。
-    assert.throws(() => SystemAskUserDeclaration.decode({ questions: [] }));
-    assert.throws(() => SystemAskUserDeclaration.decode({
-        questions: [{ header: "H", question: "Q?", options: [{ label: "Only one" }], multiSelect: false }],
+    assert.throws(() => declaration.decode({ questions: [], memoryPatch: null }));
+    assert.throws(() => declaration.decode({
+        questions: [{
+            header: "H",
+            question: "Q?",
+            options: [{ label: "Only one", description: null }],
+            multiSelect: false,
+        }],
+        memoryPatch: null,
     }));
-    assert.throws(() => decodeWireResult(
-        { result: { kind: "ask_user", questions: [] } },
-        AgentDecisionContract,
-    ));
+    assert.throws(() => bundle.decode({
+        result: {
+            kind: "ask_user",
+            questions: [],
+            memoryPatch: null,
+        },
+    }));
 });

@@ -6,7 +6,7 @@ import type { WorkingMemory } from "../../working-memory/src/index";
 import type { ModelContextFramePayload } from "../../runtime/src/index";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type { RuntimeFeedback } from "../../runtime/src/runtime-feedback";
-import type { ToolDefinition } from "../../tool-core/src/index";
+import type { AnyBoundToolDefinition, ToolDefinition } from "../../tool-core/src/index";
 import type { ToolDiscoveryResult } from "../../runtime/src/tool-discovery";
 import type { ContextCompactor } from "../../context-budget/src/index";
 import {
@@ -36,17 +36,16 @@ import { ModelContextHardOverflowError } from "../../context-budget/src/index";
 
 import type {
     AgentDecision,
+    AuthorizedToolBinding,
     DecideOutput,
-    AuthorizedToolContract,
     ModelOutputBundle,
-    ModelOutputContractBundle,
     SystemToolDeclaration,
 } from "../../model-contracts/src/index";
 import {
-    createCheckpointToolDeclarations,
-    createExecutingToolDeclarations,
-    createUnifiedToolDeclarations,
-    createModelOutputContractBundle,
+    createBoundCheckpointToolDeclarations,
+    createBoundModelOutputContractBundle,
+    createBoundUnifiedToolDeclarations,
+    modelOutputBindings,
 } from "../../model-contracts/src/index";
 
 export type { ModelInferenceView } from "../../model-view/src/index";
@@ -168,7 +167,7 @@ export interface ModelOutputRequestPlan<Result = AgentDecision> {
 
 function project(
     goal: Goal,
-    tools: readonly ToolDefinition[] = [],
+    tools: readonly AnyBoundToolDefinition[] = [],
     workingMemory?: WorkingMemory,
     contextLookupResult?: ContextLookupResult,
     stage: PromptStage = "decide",
@@ -299,7 +298,7 @@ async function compactConversation(
  */
 export async function buildStepRequest<Result extends DecideOutput = AgentDecision>(
     goal: Goal,
-    tools: readonly ToolDefinition[] = [],
+    tools: readonly AnyBoundToolDefinition[] = [],
     renderer: PromptBundleRenderer,
     contextCompactor: ContextCompactor<ModelConversationMessage>,
     signal?: AbortSignal,
@@ -350,30 +349,32 @@ export async function buildStepRequest<Result extends DecideOutput = AgentDecisi
     const taskPresent = !isInitialCheckpoint && goal.state.run.approvedTask !== undefined;
     const planMode = !isInitialCheckpoint && goal.state.run.mode === "plan";
     const goalPlanWritable = !isInitialCheckpoint && dedupedView.dynamicContext.goalPlanWritable;
-    const authorizedToolContracts = visibleTools.map((t) => ({
+    const authorizedTools: readonly AuthorizedToolBinding[] = visibleTools.map((t) => ({
         id: t.id,
-        inputContract: t.inputContract,
+        description: t.description,
+        inputBinding: t.inputBinding,
         isReadOnly: t.isReadOnly,
     }));
 
     const initialBundle = isInitialCheckpoint
-        ? (createModelOutputContractBundle({ kind: "checkpoint" }) as unknown as ModelOutputContractBundle<Result>)
-        : (createModelOutputContractBundle<Result>({
+        ? (createBoundModelOutputContractBundle({ kind: "checkpoint" }, modelOutputBindings) as ModelOutputBundle<Result>)
+        : createBoundModelOutputContractBundle<Result>({
             kind: "executing",
-            authorizedTools: authorizedToolContracts,
+            authorizedTools,
             taskPresent,
             planMode,
             goalPlanWritable,
             allowThink: stage === "decide" && stageContext?.allowThink === true,
             allowToolDiscovery: stage === "decide",
-        }) as unknown as ModelOutputContractBundle<Result>);
+        }, modelOutputBindings);
 
     const toolDeclarations = isInitialCheckpoint
-        ? createCheckpointToolDeclarations()
+        ? createBoundCheckpointToolDeclarations(modelOutputBindings)
         : stage === "think"
             ? []
-        : createUnifiedToolDeclarations(
-            authorizedToolContracts,
+        : createBoundUnifiedToolDeclarations(
+            authorizedTools,
+            modelOutputBindings,
             taskPresent,
             planMode,
             goalPlanWritable,
@@ -543,10 +544,8 @@ function renderFinalRequest<Result = AgentDecision>(
     while (measured.hardOverflow && olderConversation.length > 0) {
         conversationPruned = true;
         olderConversation.shift();
-        currentBundle = createModelOutputContractBundle({
-            kind: "checkpoint",
-        }) as unknown as ModelOutputContractBundle<Result>;
-        currentToolDeclarations = createCheckpointToolDeclarations();
+        currentBundle = createBoundModelOutputContractBundle({ kind: "checkpoint" }, modelOutputBindings) as ModelOutputBundle<Result>;
+        currentToolDeclarations = createBoundCheckpointToolDeclarations(modelOutputBindings);
         request = render(buildCandidateView(), currentBundle);
         measured = planner.measure(request);
     }

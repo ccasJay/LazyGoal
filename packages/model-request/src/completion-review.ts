@@ -1,6 +1,7 @@
 import {
-    createModelOutputContractBundle,
-    SystemCompletionReviewDeclaration,
+    createBoundCompletionReviewDeclaration,
+    createBoundModelOutputContractBundle,
+    modelOutputBindings,
     type CompletionReviewResult,
 } from "../../model-contracts/src/index";
 import { CompletionReviewInputBudgetError, type CompletionReviewInput } from "../../runtime/src/step-executor";
@@ -97,7 +98,8 @@ export function buildCompletionReviewRequest(
     input: CompletionReviewInput,
     budget: CompletionReviewRequestBudget,
 ) {
-    const bundle = createModelOutputContractBundle<CompletionReviewResult>({ kind: "completion_review" });
+    const bundle = createBoundModelOutputContractBundle<CompletionReviewResult>({ kind: "completion_review" }, modelOutputBindings);
+    const declaration = createBoundCompletionReviewDeclaration(modelOutputBindings);
     const activeStage = input.currentStage ?? input.goal.state.run.currentStage;
     const currentStage = activeStage === undefined ? undefined : {
         stageId: activeStage.stageId,
@@ -146,7 +148,7 @@ export function buildCompletionReviewRequest(
                 ...(historicalAcceptedEvidence !== undefined ? { historicalAcceptedEvidence } : {}),
             }) },
         ],
-        tools: [{ id: SystemCompletionReviewDeclaration.id, description: SystemCompletionReviewDeclaration.description, parametersSchema: SystemCompletionReviewDeclaration.parametersSchema }],
+        tools: [{ id: declaration.id, description: declaration.description, parametersSchema: declaration.parametersSchema }],
         toolChoice: "required",
     };
     const overflow = budget.modelCapabilities === undefined
