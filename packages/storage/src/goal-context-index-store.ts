@@ -6,6 +6,8 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import type { GoalContextIndexSnapshot } from "../../context-retrieval/src/index";
+import { goalContextIndexFileBinding } from "./generated/goal-context-index-binding";
+import type { GoalContextIndexSnapshotFile } from "./goal-context-index-file";
 import { atomicWriteJson } from "./json-file-write";
 
 /**
@@ -69,6 +71,71 @@ export interface GoalContextIndexStore {
     delete(goalId: string): Promise<void>;
 }
 
+function validateGoalContextIndexSnapshot(snapshot: GoalContextIndexSnapshotFile): readonly string[] {
+    const issues: string[] = [];
+    for (const [field, value] of [
+        ["goalId", snapshot.goalId],
+        ["buildId", snapshot.buildId],
+        ["sourceDigest", snapshot.sourceDigest],
+    ] as const) {
+        if (value.length === 0) issues.push(`${field} must be a non-empty string`);
+    }
+    if (!Number.isInteger(snapshot.createdAt) || snapshot.createdAt < 0) {
+        issues.push("createdAt must be a non-negative integer");
+    }
+    for (const [index, boundary] of snapshot.sourceBoundaries.entries()) {
+        if (boundary.runId.length === 0) issues.push(`sourceBoundaries[${index}].runId must be a non-empty string`);
+        if (!Number.isInteger(boundary.committedThroughSequence) || boundary.committedThroughSequence < 0) {
+            issues.push(`sourceBoundaries[${index}].committedThroughSequence must be a non-negative integer`);
+        }
+    }
+    for (const [index, stage] of snapshot.stages.entries()) {
+        const label = `stages[${index}]`;
+        for (const [field, value] of [
+            ["goalId", stage.goalId],
+            ["runId", stage.runId],
+            ["stageId", stage.stageId],
+            ["target", stage.target],
+        ] as const) {
+            if (value.length === 0) issues.push(`${label}.${field} must be a non-empty string`);
+        }
+        if (!Number.isInteger(stage.revision) || stage.revision < 1) issues.push(`${label}.revision must be a positive integer`);
+        for (const [itemIndex, criterion] of stage.acceptanceCriteria.entries()) {
+            if (criterion.length === 0) issues.push(`${label}.acceptanceCriteria[${itemIndex}] must be a non-empty string`);
+        }
+        if (!Number.isInteger(stage.source.firstSequence) || stage.source.firstSequence < 0
+            || !Number.isInteger(stage.source.lastSequence) || stage.source.lastSequence < 0) {
+            issues.push(`${label}.source sequences must be non-negative integers`);
+        }
+        for (const [itemIndex, eventId] of stage.source.eventIds.entries()) {
+            if (eventId.length === 0) issues.push(`${label}.source.eventIds[${itemIndex}] must be a non-empty string`);
+        }
+    }
+    for (const [index, note] of snapshot.notes.entries()) {
+        const label = `notes[${index}]`;
+        for (const [field, value] of [
+            ["goalId", note.goalId],
+            ["runId", note.runId],
+            ["noteId", note.noteId],
+            ["content", note.content],
+        ] as const) {
+            if (value.length === 0) issues.push(`${label}.${field} must be a non-empty string`);
+        }
+        if (!Number.isInteger(note.revision) || note.revision < 1) issues.push(`${label}.revision must be a positive integer`);
+        if (note.source.kind === "user_message") {
+            if (note.source.messageId.length === 0) issues.push(`${label}.source.messageId must be a non-empty string`);
+            if (note.source.verbatimSnippet.length === 0) issues.push(`${label}.source.verbatimSnippet must be a non-empty string`);
+        } else if (note.source.kind === "user_decision") {
+            if (note.source.messageId !== undefined && note.source.messageId.length === 0) {
+                issues.push(`${label}.source.messageId must be a non-empty string`);
+            }
+        } else if (note.source.actionId !== undefined && note.source.actionId.length === 0) {
+            issues.push(`${label}.source.actionId must be a non-empty string`);
+        }
+    }
+    return issues;
+}
+
 function isMissingFile(error: unknown): boolean {
     return error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT";
 }
@@ -104,9 +171,13 @@ export class JsonFileGoalContextIndexStore implements GoalContextIndexStore {
 
     /** @inheritdoc */
     async save(snapshot: GoalContextIndexSnapshot): Promise<void> {
+        const validated = goalContextIndexFileBinding.read(snapshot, "reject");
+        if (!validated.ok || validateGoalContextIndexSnapshot(validated.data).length > 0) {
+            throw new Error("Goal context index snapshot violates its current schema");
+        }
         await atomicWriteJson({
             path: this.filePath(snapshot.goalId),
-            value: snapshot,
+            value: validated.data,
             indent: 2,
             trailingNewline: false,
             durable: true,
@@ -126,25 +197,18 @@ export class JsonFileGoalContextIndexStore implements GoalContextIndexStore {
             return undefined;
         }
 
-        let parsed: any;
+        let decoded: unknown;
         try {
-            parsed = JSON.parse(content);
+            decoded = JSON.parse(content);
         } catch {
             return undefined;
         }
 
-        if (
-            typeof parsed !== "object"
-            || parsed === null
-            || parsed.schemaVersion !== 1
-            || parsed.goalId !== goalId
-            || typeof parsed.sourceDigest !== "string"
-            || !Array.isArray(parsed.sourceBoundaries)
-            || !Array.isArray(parsed.stages)
-            || !Array.isArray(parsed.notes)
-        ) {
+        const read = goalContextIndexFileBinding.read(decoded, "reject");
+        if (!read.ok || read.data.goalId !== goalId || validateGoalContextIndexSnapshot(read.data).length > 0) {
             return undefined;
         }
+        const parsed = read.data;
 
         if (
             options.expectedSourceDigest !== undefined
@@ -155,7 +219,7 @@ export class JsonFileGoalContextIndexStore implements GoalContextIndexStore {
 
         if (options.expectedBoundaries !== undefined) {
             const cachedBoundaries = new Map<string, number>(
-                parsed.sourceBoundaries.map((b: any) => [b.runId, b.committedThroughSequence]),
+                parsed.sourceBoundaries.map((boundary) => [boundary.runId, boundary.committedThroughSequence]),
             );
             if (cachedBoundaries.size !== options.expectedBoundaries.length) {
                 return undefined;
@@ -168,7 +232,7 @@ export class JsonFileGoalContextIndexStore implements GoalContextIndexStore {
             }
         }
 
-        return deepFreeze(parsed as GoalContextIndexSnapshot);
+        return deepFreeze(parsed) as GoalContextIndexSnapshot;
     }
 
     /** @inheritdoc */

@@ -4,7 +4,6 @@ import {
     readFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { z } from "zod";
 
 import type {
     MetricsStore,
@@ -14,57 +13,66 @@ import type {
     ModelCallMetricReadQuery,
     ModelCallMetricRecord,
 } from "../../runtime/src/index";
+import { modelCallMetricFileBinding } from "./generated/model-call-metrics-binding";
+import type { ModelCallMetricFileRecord, ModelCallMetricsCoverageFileRecord } from "./metrics-file";
+import { modelCallMetricsCoverageFileBinding } from "./generated/model-call-metrics-coverage-binding";
 import { appendJsonl } from "./json-file-write";
 import { KeyedSerialQueue } from "./keyed-serial-queue";
 
-const IdentifierSchema = z.string().min(1);
-const MetricIdentitySchema = {
-    goalId: IdentifierSchema,
-    runId: IdentifierSchema,
-    executionUnitId: IdentifierSchema.optional(),
-    callId: IdentifierSchema,
-    occurredAt: z.string().datetime({ offset: true }),
-};
+const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
-const ModelCallMetricRecordSchema = z.discriminatedUnion("recordType", [
-    z.object({
-        ...MetricIdentitySchema,
-        recordType: z.literal("call_started"),
-        modelId: z.string().min(1).optional(),
-    }).strict(),
-    z.object({
-        ...MetricIdentitySchema,
-        recordType: z.literal("call_finished"),
-        outcome: z.enum(["completed", "failed", "cancelled"]),
-        usage: z.discriminatedUnion("source", [
-            z.object({
-                source: z.literal("provider_reported"),
-                inputTokens: z.number().int().nonnegative().safe(),
-                outputTokens: z.number().int().nonnegative().safe(),
-                cachedInputTokens: z.number().int().nonnegative().safe().optional(),
-            }).strict(),
-            z.object({ source: z.literal("unavailable") }).strict(),
-        ]),
-        requestDurationMs: z.number().positive().finite().optional(),
-        decodeDurationMs: z.number().positive().finite().optional(),
-    }).strict(),
-]);
-const ModelCallMetricsCoverageRecordSchema = z.discriminatedUnion("recordType", [
-    z.object({
-        recordType: z.literal("goal_initialized"),
-        goalId: IdentifierSchema,
-        historyCovered: z.boolean(),
-        occurredAt: z.string().datetime({ offset: true }),
-    }).strict(),
-    z.object({
-        recordType: z.literal("call_gap"),
-        goalId: IdentifierSchema,
-        runId: IdentifierSchema,
-        callId: IdentifierSchema,
-        occurredAt: z.string().datetime({ offset: true }),
-    }).strict(),
-]);
-type ModelCallMetricsCoverageRecord = z.infer<typeof ModelCallMetricsCoverageRecordSchema>;
+function hasValidOccurredAt(value: string): boolean {
+    return ISO_DATE_TIME.test(value) && Number.isFinite(Date.parse(value));
+}
+
+function validateMetricRecord(record: ModelCallMetricFileRecord): readonly string[] {
+    const issues: string[] = [];
+    for (const [field, value] of [
+        ["goalId", record.goalId],
+        ["runId", record.runId],
+        ["callId", record.callId],
+        ["executionUnitId", record.executionUnitId],
+        ["modelId", record.recordType === "call_started" ? record.modelId : undefined],
+    ] as const) {
+        if (value !== undefined && value.length === 0) issues.push(`${field} must be a non-empty string`);
+    }
+    if (!hasValidOccurredAt(record.occurredAt)) issues.push("occurredAt must be an ISO-8601 timestamp");
+    if (record.recordType === "call_finished") {
+        if (record.usage.source === "provider_reported") {
+            for (const [field, value] of [
+                ["usage.inputTokens", record.usage.inputTokens],
+                ["usage.outputTokens", record.usage.outputTokens],
+                ["usage.cachedInputTokens", record.usage.cachedInputTokens],
+            ] as const) {
+                if (value !== undefined && (!Number.isInteger(value) || value < 0 || !Number.isSafeInteger(value))) {
+                    issues.push(`${field} must be a non-negative safe integer`);
+                }
+            }
+        }
+        for (const [field, value] of [
+            ["requestDurationMs", record.requestDurationMs],
+            ["decodeDurationMs", record.decodeDurationMs],
+        ] as const) {
+            if (value !== undefined && (!Number.isFinite(value) || value <= 0)) {
+                issues.push(`${field} must be a positive finite number`);
+            }
+        }
+    }
+    return issues;
+}
+
+function validateCoverageRecord(record: ModelCallMetricsCoverageFileRecord): readonly string[] {
+    const issues: string[] = [];
+    for (const [field, value] of [
+        ["goalId", record.goalId],
+        ["runId", record.recordType === "call_gap" ? record.runId : undefined],
+        ["callId", record.recordType === "call_gap" ? record.callId : undefined],
+    ] as const) {
+        if (value !== undefined && value.length === 0) issues.push(`${field} must be a non-empty string`);
+    }
+    if (!hasValidOccurredAt(record.occurredAt)) issues.push("occurredAt must be an ISO-8601 timestamp");
+    return issues;
+}
 
 /** JSONL 记录违反当前调用指标协议时的错误代码。 */
 export const MODEL_CALL_METRIC_STORE_PROTOCOL_ERROR_CODE =
@@ -117,8 +125,8 @@ export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCover
      * @throws 记录不符合当前协议或文件系统写入失败时 reject。
      */
     append(record: ModelCallMetricRecord): Promise<void> {
-        const parsed = ModelCallMetricRecordSchema.safeParse(record);
-        if (!parsed.success) {
+        const parsed = modelCallMetricFileBinding.read(record, "reject");
+        if (!parsed.ok || validateMetricRecord(parsed.data).length > 0) {
             throw new ModelCallMetricStoreProtocolError(
                 "Invalid model call metric record",
             );
@@ -179,13 +187,13 @@ export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCover
                     `Invalid model call metric JSON at line ${index + 1}`,
                 );
             }
-            const parsed = ModelCallMetricRecordSchema.safeParse(decoded);
-            if (!parsed.success) {
+            const parsed = modelCallMetricFileBinding.read(decoded, "reject");
+            if (!parsed.ok || validateMetricRecord(parsed.data).length > 0) {
                 throw new ModelCallMetricStoreProtocolError(
                     `Invalid model call metric record at line ${index + 1}`,
                 );
             }
-            const record = parsed.data as ModelCallMetricRecord;
+            const record = parsed.data;
             if (
                 record.goalId !== query.goalId
                 || record.runId !== query.runId
@@ -289,13 +297,13 @@ export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCover
                     `Invalid model call metric coverage JSON at line ${index + 1}`,
                 );
             }
-            const parsed = ModelCallMetricsCoverageRecordSchema.safeParse(decoded);
-            if (!parsed.success || parsed.data.goalId !== goalId) {
+            const parsed = modelCallMetricsCoverageFileBinding.read(decoded, "reject");
+            if (!parsed.ok || validateCoverageRecord(parsed.data).length > 0 || parsed.data.goalId !== goalId) {
                 throw new ModelCallMetricStoreProtocolError(
                     `Invalid model call metric coverage record at line ${index + 1}`,
                 );
             }
-            const record = parsed.data as ModelCallMetricsCoverageRecord;
+            const record = parsed.data;
             if (record.recordType === "goal_initialized") {
                 if (historyCovered !== undefined && historyCovered !== record.historyCovered) {
                     throw new ModelCallMetricStoreProtocolError("Conflicting Goal metric coverage markers");
@@ -320,9 +328,9 @@ export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCover
         return this.coverageQueue.run(goalId, operation);
     }
 
-    private async appendCoverageRecord(record: ModelCallMetricsCoverageRecord): Promise<void> {
-        const parsed = ModelCallMetricsCoverageRecordSchema.safeParse(record);
-        if (!parsed.success) {
+    private async appendCoverageRecord(record: ModelCallMetricsCoverageFileRecord): Promise<void> {
+        const parsed = modelCallMetricsCoverageFileBinding.read(record, "reject");
+        if (!parsed.ok || validateCoverageRecord(parsed.data).length > 0) {
             throw new ModelCallMetricStoreProtocolError("Invalid model call metric coverage record");
         }
         await this.ensureGoalDirectory(record.goalId);

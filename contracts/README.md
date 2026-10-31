@@ -2,7 +2,7 @@
 
 `contracts/catalog.json` 是项目数据契约的构建期索引，登记具名 TS 声明、Contract AST、Zod Schema 及其派生关系。它不拥有执行契约、运行时状态或持久化数据；这些语义仍由所属模块的源码与说明定义。
 
-Catalog 以 `codex/contract-inventory` 的 `676015c6` 盘点为基线，`inventorySource` 记录该分支、提交与三个分册；分册声明的源码基线为 `8da11ece`。共登记 882 项声明：Web 286 项、模型与工具 308 项、持久化与跨进程 288 项。实施时已在当前源码复核：没有声明被删除；两个 Provider Reader 辅助类型随本特性迁移到生成读取器，处置记录在 `reconciliation.moved`。行号、消费者、协议身份与生成能力均按当前源码登记。
+Catalog 以 `codex/contract-inventory` 的 `676015c6` 盘点为基线，`inventorySource` 记录该分支、提交与三个分册；分册声明的源码基线为 `8da11ece`。当前登记 892 项声明：Web 286 项、模型与工具 308 项、持久化与跨进程 298 项；其中新增的 Storage 文件 DTO 计入持久化分册。两个 Provider Reader 辅助类型随 Web 特性迁移到生成读取器，处置记录在 `reconciliation.moved`；66 个被 TS 文件 DTO 与生成绑定取代的 Zod/派生声明标记为 `deleted`，处置记录在 `reconciliation.deleted`。行号、消费者、协议身份与生成能力均按当前源码登记。
 
 ## 登记字段
 
@@ -21,7 +21,7 @@ Catalog 以 `codex/contract-inventory` 的 `676015c6` 盘点为基线，`invento
 ```bash
 node scripts/contract-catalog.mjs query web.providers.models.success
 node scripts/contract-catalog.mjs query createModelOutputContractBundle
-node scripts/contract-catalog.mjs query GoalSnapshotV1Schema
+node scripts/contract-catalog.mjs query storage.goal.snapshot
 ```
 
 查询同时返回匹配的声明项、边界入口与动态组合入口。声明项包含源码位置、消费者、协议身份/版本、生成与校验能力；动态组合只记录构造入口、组成、条件与源码依据，不枚举运行时组合。
@@ -49,7 +49,23 @@ node scripts/contract-catalog.mjs query GoalSnapshotV1Schema
 | 数值与字符串约束 | `@asType integer`、`minimum`/`maximum`、`minLength`/`maxLength`、`pattern` | [ListDirectory 输入](../packages/tools/src/list-directory.ts)、[Web Provider 模型标识](../packages/web-contracts/src/provider-settings.ts) | 生成与绑定支持；工具分页数值以 `@asType integer` 表达整数，整数进入 Schema 与 wire，数值约束进入 wire，字符串约束由投影标识并由解码强制 |
 | 元组、外部格式 | — | — | 明确失败，不生成近似 Schema |
 
-`typescript-json-schema` 策略生成薄 Reader，读取语义由登记项 `generation.reader.module` 提供。当前唯一启用项使用 [`web-contracts` 的封闭对象 Reader](../packages/web-contracts/src/contract-reader.ts)：额外字段由生成的 Ajv 校验器剥离，因此联合与开放对象在该策略下明确失败。需要这些结构的契约使用 `typescript-binding` 策略生成的 [`contract-binding`](../packages/contract-binding/README.md) 绑定。
+`typescript-json-schema` 策略生成薄 Reader，读取语义由登记项 `generation.reader.module` 提供。Web 启用项使用 [`web-contracts` 的封闭对象 Reader](../packages/web-contracts/src/contract-reader.ts)：额外字段由生成的 Ajv 校验器剥离，因此联合与开放对象在该策略下明确失败。需要这些结构的契约使用 `typescript-binding` 策略生成的 [`contract-binding`](../packages/contract-binding/README.md) 绑定。
+
+Storage 文件族使用 `typescript-binding` 策略，从 TS 文件 DTO 生成结构 Schema、Ajv 校验器和绑定，生成的绑定位于 [`packages/storage/src/generated`](../packages/storage/src/generated)：
+
+| 契约 | 根类型 | 真实消费者 |
+| --- | --- | --- |
+| Goal Snapshot | `GoalSnapshotV1` | [`goalSnapshotCodec`](../packages/storage/src/goal-snapshot-codec.ts) |
+| Tool Grant 账本 | `ToolGrantLedgerFile` | [`JsonFileToolGrantStore`](../packages/storage/src/json-file-tool-grant-store.ts) |
+| Sandbox Grant 账本 | `SandboxGrantLedgerFile` | [`JsonFileSandboxGrantStore`](../packages/storage/src/json-file-sandbox-grant-store.ts) |
+| 模型偏好 | `ModelPreferenceFile` | [`JsonFileModelPreferenceStore`](../packages/storage/src/json-file-model-preference-store.ts) |
+| 项目权限模式 | `PermissionModeFile` | [`JsonFileProjectPermissionModeStore`](../packages/storage/src/json-file-project-permission-mode-store.ts) |
+| 模型调用指标 | `ModelCallMetricFileRecord`、`ModelCallMetricsCoverageFileRecord` | [`JsonFileMetricsStore`](../packages/storage/src/json-file-metrics-store.ts) |
+| 进程会话 | `ProcessSessionFileRecord`、`ProcessChannelMetaFile` | [`JsonFileProcessSessionStore`](../packages/storage/src/json-file-process-session-store.ts) |
+| 模型输入清单 | `ModelInputManifest` | [`JsonFileModelInputStore`](../packages/storage/src/json-file-model-input-store.ts) |
+| Goal Context Index | `GoalContextIndexSnapshotFile` | [`JsonFileGoalContextIndexStore`](../packages/storage/src/goal-context-index-store.ts) |
+
+Retrieval Index Sidecar 的查询缓存结果仍依赖旧 Contract AST 推导类型，暂未启用生成；切换条件与当前校验路径见 [Storage 文件契约清单](../packages/storage/notes/file-contracts.md)。Goal Context Index 已使用 Storage 文件 DTO 生成绑定。
 
 其他登记项保留真实现状：Contract AST 与 Zod 在运行时校验，Tool 输入 Schema 在注册期内存编译，模型输出联合在请求期动态组合；它们不产生本步的静态 Schema、Reader 或 Manifest。新增启用项必须在 Catalog 中显式登记生成策略，并先扩展共享读取器的受支持子集。
 

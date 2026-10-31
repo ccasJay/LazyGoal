@@ -8,7 +8,7 @@
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)。
   - 实施目标与场景：以 Catalog 与实际读写恢复调用链逐项登记文件族、版本、边界策略和不变量，纳入 AgentProfile 小 Spec 的真实验收证据。
   - 基本验证：抽查 Profile、Snapshot、账本和索引的实际读取者及错误语义。
-- [ ] //TODO 2. 将 Snapshot 与其他文件族切换到 TS 生成绑定
+- [x] //TODO 2. 将 Snapshot 与其他文件族切换到 TS 生成绑定
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)。
   - 实施目标与场景：按文件族迁移字段单源、生成绑定和 Codec/Store；保留独立跨字段、身份、版本及损坏文件处理；删除重复 Schema，无旧读取回退。
   - 基本验证：定向验证 Snapshot 往返、身份不匹配及错误版本，另验证一个账本或索引文件。
