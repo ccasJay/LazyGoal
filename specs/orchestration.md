@@ -6,16 +6,16 @@
 
 ## 涉及的 Spec
 
-共同基线：`dev` 上包含七份已批准 Spec/计划与本编排的批准基线提交（父提交 `0bee171be597654807241569c919ea1bdc01ba4c`）。派发时以 `git rev-parse dev` 固定实际提交；各分支从该提交独立创建，仅在有真实实现依赖时使用堆叠分支。
+共同基线：`dev` 上包含七份已批准 Spec/计划与本编排的批准基线提交（父提交 `0bee171be597654807241569c919ea1bdc01ba4c`）。实际派发基线固定为 `e39263770f92a729bf4fa83ab8917a0b23fc0bcb`；各分支从该提交独立创建，仅在有真实实现依赖时使用堆叠分支。
 
 | Spec | 路径 | 批准状态 | 执行者 / 分支 / worktree | 进度与证据 |
 |---|---|---|---|---|
-| [TS 契约生成能力](../ts-contract-generation-capabilities/spec.md) | `specs/ts-contract-generation-capabilities/` | 已批准（2026-10-31 用户确认） | 执行者 A / `feat/ts-contract-generation-capabilities` / `.worktrees/ts-contract-generation-capabilities` | 就绪，待编排批准后派发 |
-| [工具输入契约迁移](../ts-tool-input-migration/spec.md) | `specs/ts-tool-input-migration/` | 已批准（2026-10-31 用户确认） | 执行者 B / `feat/ts-tool-input-migration` / `.worktrees/ts-tool-input-migration` | 就绪，先独立准备；联合切换待集成 |
-| [模型数据契约迁移](../ts-model-contract-migration/spec.md) | `specs/ts-model-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 C / `feat/ts-model-contract-migration` / `.worktrees/ts-model-contract-migration` | 就绪，先独立准备；联合切换待集成 |
-| [Web 数据契约迁移](../ts-web-contract-migration/spec.md) | `specs/ts-web-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 D / `feat/ts-web-contract-migration` / `.worktrees/ts-web-contract-migration` | 待容量释放后派发 |
-| [Storage 数据契约迁移](../ts-storage-contract-migration/spec.md) | `specs/ts-storage-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 E / `feat/ts-storage-contract-migration` / `.worktrees/ts-storage-contract-migration` | 待容量释放后派发 |
-| [其他数据边界契约迁移](../ts-other-boundaries-migration/spec.md) | `specs/ts-other-boundaries-migration/` | 已批准（2026-10-31 用户确认） | 执行者 F / `feat/ts-other-boundaries-migration` / `.worktrees/ts-other-boundaries-migration` | 待容量释放后派发 |
+| [TS 契约生成能力](../ts-contract-generation-capabilities/spec.md) | `specs/ts-contract-generation-capabilities/` | 已批准（2026-10-31 用户确认） | 执行者 A / `feat/ts-contract-generation-capabilities` / `.worktrees/ts-contract-generation-capabilities` | 执行中（subagent A，基线 `e3926377`） |
+| [工具输入契约迁移](../ts-tool-input-migration/spec.md) | `specs/ts-tool-input-migration/` | 已批准（2026-10-31 用户确认） | 执行者 B / `feat/ts-tool-input-migration` / `.worktrees/ts-tool-input-migration` | 执行中（subagent B，独立准备；联合切换待集成） |
+| [模型数据契约迁移](../ts-model-contract-migration/spec.md) | `specs/ts-model-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 C / `feat/ts-model-contract-migration` / `.worktrees/ts-model-contract-migration` | 执行中（subagent C，独立准备；联合切换待集成） |
+| [Web 数据契约迁移](../ts-web-contract-migration/spec.md) | `specs/ts-web-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 D / `feat/ts-web-contract-migration` / `.worktrees/ts-web-contract-migration` | 已就绪，待并发名额释放 |
+| [Storage 数据契约迁移](../ts-storage-contract-migration/spec.md) | `specs/ts-storage-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 E / `feat/ts-storage-contract-migration` / `.worktrees/ts-storage-contract-migration` | 已就绪，待并发名额释放 |
+| [其他数据边界契约迁移](../ts-other-boundaries-migration/spec.md) | `specs/ts-other-boundaries-migration/` | 已批准（2026-10-31 用户确认） | 执行者 F / `feat/ts-other-boundaries-migration` / `.worktrees/ts-other-boundaries-migration` | 已就绪，待并发名额释放 |
 | [删除旧 Contract AST](../remove-legacy-contract-ast/spec.md) | `specs/remove-legacy-contract-ast/` | 已批准（2026-10-31 用户确认） | 执行者 G / `feat/remove-legacy-contract-ast` / `.worktrees/remove-legacy-contract-ast` | 未就绪；等待前六方向真实交付与联合验收 |
 
 ## 依赖关系与执行顺序
