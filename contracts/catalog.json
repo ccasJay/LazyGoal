@@ -543,7 +543,7 @@
             "section": "边界入口",
             "entry": "Agent Profile 文件",
             "root": "Agent Profile 文件",
-            "sources": "[AgentProfileFile](../../../packages/storage/src/agent-profile-file.ts#L49) 与 [NonEmptyString](../../../packages/storage/src/agent-profile-file.ts#L25)",
+            "sources": "[AgentProfileFile](../../../packages/storage/src/agent-profile-file.ts#L47) 与 [NonEmptyString](../../../packages/storage/src/agent-profile-file.ts#L23)",
             "protocol": "`AGENT_PROFILE_FILE_SCHEMA_VERSION = 1`；Profile 文件 ID 由路径承载",
             "consumers": "[agentProfileFileBinding](../../../packages/storage/src/generated/agent-profile-file-binding.ts) → [JsonFileAgentProfileStore](../../../packages/storage/src/json-file-agent-profile-store.ts#L29)；生成绑定以 `reject` 策略校验",
             "sourcePaths": [
@@ -33392,7 +33392,7 @@
             "declaration": "AgentProfileFile",
             "source": {
                 "path": "packages/storage/src/agent-profile-file.ts",
-                "line": 49
+                "line": 47
             },
             "status": "present",
             "disposition": null,
@@ -33402,7 +33402,12 @@
             "section": "Profile 与配置文件",
             "definition": "原生文件 DTO",
             "definitionKind": "native-ts",
-            "relations": [],
+            "relations": [
+                {
+                    "kind": "references",
+                    "name": "NonEmptyString"
+                }
+            ],
             "consumers": [
                 "packages/storage/src/json-file-agent-profile-store.ts"
             ],

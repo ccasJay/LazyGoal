@@ -34,7 +34,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 
 Catalog 启用项从 TS 文件 DTO 生成 JSON Schema、Ajv 校验器、Manifest 和 `@lazygoal/contract-binding` 绑定；生成文件位于 [`src/generated`](../src/generated)，由 `npm run contracts:generate -- --check` 检查漂移。真实读取路径消费生成绑定：Snapshot Codec 使用 `goalSnapshotFileBinding` 后再执行字段级与跨字段语义校验；Agent Profile、Grant 账本、模型偏好、权限模式、调用指标、进程会话和模型输入 Store 均先以 `reject` 策略读取生成绑定，再执行各自的身份、摘要、版本或冲突不变量。
 
-字段级非空、整数范围、数组长度、元素约束和摘要格式由各文件族的语义校验保留；跨字段不变量、身份绑定、版本校验和错误映射仍在 Store 或 Codec，不由结构 Schema 取代。读取失败不迁移、不回退旧 Schema、不写回。
+结构 Schema 覆盖字段类型、封闭对象、版本常量与可由 JSDoc 表达的非空和数组约束；其余字段级规则、摘要格式、跨字段不变量、身份绑定、版本校验和错误映射仍在 Store 或 Codec。读取失败不迁移、不回退旧 Schema、不写回。
 
 Retrieval Index Sidecar 顶层已使用生成绑定；嵌套文档、倒排索引与查询缓存结果仍由 `context-retrieval` 的索引重建与查询缓存校验执行，因为这些 DTO 依赖旧 Contract AST 推导的 `ContextLookupResult`，待模型数据契约迁移提供 TS 单源后再收紧为生成结构。Goal Context Index 的 Note 来源与类别以 Storage 文件表示显式声明，不引用旧 AST 推导类型。Agent Profile 的标量字段与数组元素共用 TS 具名 `NonEmptyString`，空数组合法，含空字符串的数组元素由生成绑定拒绝。
 
