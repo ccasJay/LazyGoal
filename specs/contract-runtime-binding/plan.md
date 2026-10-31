@@ -32,6 +32,19 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 验证时间：-
-- 验证摘要：尚未开始执行。
+- 状态：passed
+- 新鲜度：current
+- 验证时间：2026-10-31 09:54:59 +0800
+- 测试提交：`7fc9dba0da71c689dfe2ed4ec0e6e5ae3371d06e`
+- 工作树：`.worktrees/contract-runtime-binding`；验证时工作树干净。随后只更新本报告，不改变被测代码。
+- 契约修订：本步未启用新的生产 Catalog 项；`contracts/catalog.json` SHA-256 `1a059535a9e190f0e2eb1754565c542c7a77ace5f377568e9aded99a3a96a779`，生产 Provider 模型 Reader SHA-256 `f0cdd91ac7343725d565d365728353777998571b028162e79f7377256dbcfbb6` 未变化。
+- 验证摘要：
+
+| 验收项 | 结果 | 实际检查与证据 |
+| --- | --- | --- |
+| 绑定与边界读取 | passed | `packages/contract-binding/test/binding.test.ts` 6 项通过：strip/reject 策略、嵌套未知字段、必填/类型/枚举/数值/长度错误、非 JSON、输入不变、成功结果隔离、诊断上限与原型键安全。严格策略不返回部分数据，诊断不含字段值。 |
+| 生成与失败 | passed | `packages/contract-binding/test/generation.test.ts` 5 项通过：临时 Catalog 从 TS/JSDoc 生成 tool、model、web、strict-config 四类隔离绑定（20 个制品），验证身份/版本/Manifest/约束来源、重复生成确定、漂移与缺失检测、错误注解、不支持结构和无第二份字段表。`npm run contracts:generate -- --check` 对生产制品返回 current。 |
+| 模型投影 | passed | `packages/contract-binding/test/model-projection.test.ts` 4 项及生成绑定的端到端投影通过：wire Schema 为 draft-07、封闭对象、内联 `$ref`、required-nullable 可选字段；数值边界保留；字符串 pattern/长度、联合、元组、开放对象与递归引用明确失败；可选 `null` 解码为 canonical 省略，缺失 wire 必填字段、非法值、未知字段与安全诊断符合预期。 |
+| 依赖、范围和回归 | passed | 绑定包无出站依赖；未切换生产消费者。`npm test` 全部通过（TS 测试 2693 项、scripts 98 项）；`npm run check:dependencies`（320 个源文件）、`npm run check:docs`（47 个模块、169 份说明）、`git diff --check` 通过；`npm run build:web` 与真实 Chrome Provider 模型端到端测试通过。在提交 `7fc9dba0` 的干净检出按 CI 安装依赖后，目标测试、Web 构建、浏览器测试及全量 `npm test` 均通过。 |
+
+- 未解决项：无。本步未接入生产工具、模型、Web 或 Storage 消费者；后续迁移线仍按 Spec 的独立验证与统一切换约束执行。
