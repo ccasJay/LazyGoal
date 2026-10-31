@@ -34,6 +34,12 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 验证时间：-
-- 验证摘要：尚未开始执行。
+- 状态：blocked
+- 验证时间：2026-10-31 11:57 CST
+- 验证提交：`bd6e1693`（代码、Catalog 与说明）；本记录更新不改变被验证内容
+- 验证摘要：
+  - 模型类型及生成：pending-integration。TS 单源、Catalog 登记、类型一致性测试与既有 system tools 回归通过；真实生成绑定未启用，范围内旧 AST 未退出。
+  - 授权与动态组合：passed（隔离替身范围）。覆盖空授权、重复/空 ID、未授权工具、阶段与模式组合、未知字段诊断和非法已知字段；真实工具绑定接入为 pending-integration。
+  - Provider 及整体链路：pending-integration。既有 strict/prompt-only、Provider 与 Runtime 回归通过；真实生成绑定与工具线联合切换未执行，不能宣称联合验收通过。
+  - 全量回归：`npm test`、`npm run build:web`、`npm run check:docs`、`npm run check:dependencies`、`npm run contracts:generate -- --check` 与 `git diff --check` 通过。
+  - 定向证据：`npx tsx --test packages/model-contracts/test/bound-factory.test.ts packages/model-contracts/test/native-types.test.ts` 10 项通过。
