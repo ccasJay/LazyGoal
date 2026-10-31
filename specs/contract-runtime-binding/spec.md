@@ -1,6 +1,7 @@
 ---
-status: proposed
+status: delivered
 created_at: 2026-10-31
+delivered_at: 2026-10-31
 supersedes: []
 superseded_by: null
 ---
@@ -9,7 +10,7 @@ superseded_by: null
 
 ## 目标与范围
 
-定义并验证 TS 数据契约在工具、模型、Web 和 Storage 边界使用的共同绑定，为各领域并行迁移提供明确接口。本步只交付绑定及隔离验证，不切换生产消费者；所有业务工具、Program 和评测工具及模型 system tools 准备完成后，再由后续 Spec 统一切换生产装配。
+已定义并验证 TS 数据契约在工具、模型、Web 和 Storage 边界使用的共同绑定，为各领域并行迁移提供明确接口。本步只交付绑定及隔离验证，未切换生产消费者；所有业务工具、Program 和评测工具及模型 system tools 准备完成后，再由后续 Spec 统一切换生产装配。
 
 ## 需求与验收标准
 
@@ -24,12 +25,12 @@ superseded_by: null
 
 绑定由独立基础模块拥有；契约身份、Schema、Reader 与模型投影均来自 Catalog 和 TS 类型，不承载权限、审批、状态转换或持久化规则。按边界选择未知字段策略，不将 Web 专用 Reader 直接作为工具或 Storage 的依赖。模型端需要区分本地读取约束与 Provider 可接受的 wire 形式；派生和解码必须成对验证，不能假定 JSON Schema 方言或可选字段语义相同。
 
-共同接口至少暴露：登记身份、版本、本地 Schema、`read(value, policy)` 和按需启用的模型投影。`policy` 区分剥离与拒绝未知字段；读取结果以成功数据及可选有界诊断、或失败及安全问题列表表示。模型投影将 wire Schema 与 wire 到 canonical 的解码作为一组能力，不能只提供 Schema；具体 TS 签名与 Schema 方言在计划实施时以这组行为为约束确定。未发布契约的登记键不冒充协议身份或版本。
+共同接口至少暴露：登记身份、版本、本地 Schema、`read(value, policy)` 和按需启用的模型投影。`policy` 区分剥离与拒绝未知字段；读取结果以成功数据及可选有界诊断、或失败及安全问题列表表示。模型投影将 wire Schema 与 wire 到 canonical 的解码作为一组能力，不能只提供 Schema；具体 TS 签名与 Schema 方言已按这组行为确定。未发布契约的登记键不冒充协议身份或版本。
 
 后续四条工作线分别负责：Web 查询输入（复用[已批准 Spec](../ts-provider-model-query-contract/spec.md)并核对 Catalog 接入）；所有业务、Program 与评测工具；模型动态组合及 system tools；Storage 的 AgentProfile 文件。各线可按本绑定约定并行准备并单独验证，但生产切换须等待全部工具与模型线的实际制品就绪，在集成分支验证统一装配。模型继续按当前授权集与阶段组合，严格拒绝未知或未授权工具；不为迁移中的单个工具保留双重解析或失败回退。共享 Catalog、生成器和导出文件的冲突由集成时解决，不能以独立分支测试替代最终集成。
 
-现有 [Provider 连接测试结果 Spec](../ts-provider-profile-test-contract/spec.md)仍独立负责其判别联合和数值约束；它不因本步而自动具备生成能力。共享 JSON 类型 Spec 与本接口没有生产实现依赖；实际集成时按已合入源码核对。
+现有 [Provider 连接测试结果 Spec](../ts-provider-profile-test-contract/spec.md)仍独立负责其判别联合和数值约束；它不因本步而自动具备生成能力。共享 JSON 类型 Spec 与本接口没有生产实现依赖；实际集成按已合入源码核对。
 
 ## 风险与否定性保证
 
-风险等级：高。模型投影、工具输入和未知字段策略的交界影响执行与授权；关键操作是定义共同绑定及证明 wire/canonical 转换不丢失已声明约束。本步不切换生产消费者、不修改现有协议行为、不删除 AST；工具和模型的宽容读取及 AgentProfile 的严格读取在后续实际迁移时落地。
+风险等级：高。模型投影、工具输入和未知字段策略的交界影响执行与授权；关键操作是定义共同绑定及证明 wire/canonical 转换不丢失已声明约束。本步未切换生产消费者、未修改现有协议行为、未删除 AST；工具和模型的宽容读取及 AgentProfile 的严格读取在后续实际迁移时落地。
