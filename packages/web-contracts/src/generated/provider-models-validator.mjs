@@ -37,13 +37,7 @@ var require_BrowserProviderModels_validator = __commonJS({
         }
         for (const key0 in data) {
           if (!(key0 === "ok" || key0 === "models")) {
-            delete data[key0];
-          }
-        }
-        if (data.ok !== void 0) {
-          let data0 = data.ok;
-          if (typeof data0 !== "boolean") {
-            const err2 = { instancePath: instancePath + "/ok", schemaPath: "#/properties/ok/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+            const err2 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
             if (vErrors === null) {
               vErrors = [err2];
             } else {
@@ -51,12 +45,24 @@ var require_BrowserProviderModels_validator = __commonJS({
             }
             errors++;
           }
-          if (true !== data0) {
-            const err3 = { instancePath: instancePath + "/ok", schemaPath: "#/properties/ok/const", keyword: "const", params: { allowedValue: true }, message: "must be equal to constant" };
+        }
+        if (data.ok !== void 0) {
+          let data0 = data.ok;
+          if (typeof data0 !== "boolean") {
+            const err3 = { instancePath: instancePath + "/ok", schemaPath: "#/properties/ok/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
             if (vErrors === null) {
               vErrors = [err3];
             } else {
               vErrors.push(err3);
+            }
+            errors++;
+          }
+          if (true !== data0) {
+            const err4 = { instancePath: instancePath + "/ok", schemaPath: "#/properties/ok/const", keyword: "const", params: { allowedValue: true }, message: "must be equal to constant" };
+            if (vErrors === null) {
+              vErrors = [err4];
+            } else {
+              vErrors.push(err4);
             }
             errors++;
           }
@@ -69,16 +75,7 @@ var require_BrowserProviderModels_validator = __commonJS({
               let data2 = data1[i0];
               if (data2 && typeof data2 == "object" && !Array.isArray(data2)) {
                 if (data2.id === void 0) {
-                  const err4 = { instancePath: instancePath + "/models/" + i0, schemaPath: "#/definitions/BrowserProviderModel/required", keyword: "required", params: { missingProperty: "id" }, message: "must have required property 'id'" };
-                  if (vErrors === null) {
-                    vErrors = [err4];
-                  } else {
-                    vErrors.push(err4);
-                  }
-                  errors++;
-                }
-                if (data2.name === void 0) {
-                  const err5 = { instancePath: instancePath + "/models/" + i0, schemaPath: "#/definitions/BrowserProviderModel/required", keyword: "required", params: { missingProperty: "name" }, message: "must have required property 'name'" };
+                  const err5 = { instancePath: instancePath + "/models/" + i0, schemaPath: "#/definitions/BrowserProviderModel/required", keyword: "required", params: { missingProperty: "id" }, message: "must have required property 'id'" };
                   if (vErrors === null) {
                     vErrors = [err5];
                   } else {
@@ -86,25 +83,18 @@ var require_BrowserProviderModels_validator = __commonJS({
                   }
                   errors++;
                 }
+                if (data2.name === void 0) {
+                  const err6 = { instancePath: instancePath + "/models/" + i0, schemaPath: "#/definitions/BrowserProviderModel/required", keyword: "required", params: { missingProperty: "name" }, message: "must have required property 'name'" };
+                  if (vErrors === null) {
+                    vErrors = [err6];
+                  } else {
+                    vErrors.push(err6);
+                  }
+                  errors++;
+                }
                 for (const key1 in data2) {
                   if (!(key1 === "id" || key1 === "name")) {
-                    delete data2[key1];
-                  }
-                }
-                if (data2.id !== void 0) {
-                  let data3 = data2.id;
-                  if (typeof data3 === "string") {
-                    if (!pattern0.test(data3)) {
-                      const err6 = { instancePath: instancePath + "/models/" + i0 + "/id", schemaPath: "#/definitions/BrowserProviderModel/properties/id/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
-                      if (vErrors === null) {
-                        vErrors = [err6];
-                      } else {
-                        vErrors.push(err6);
-                      }
-                      errors++;
-                    }
-                  } else {
-                    const err7 = { instancePath: instancePath + "/models/" + i0 + "/id", schemaPath: "#/definitions/BrowserProviderModel/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    const err7 = { instancePath: instancePath + "/models/" + i0, schemaPath: "#/definitions/BrowserProviderModel/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
                     if (vErrors === null) {
                       vErrors = [err7];
                     } else {
@@ -113,43 +103,65 @@ var require_BrowserProviderModels_validator = __commonJS({
                     errors++;
                   }
                 }
+                if (data2.id !== void 0) {
+                  let data3 = data2.id;
+                  if (typeof data3 === "string") {
+                    if (!pattern0.test(data3)) {
+                      const err8 = { instancePath: instancePath + "/models/" + i0 + "/id", schemaPath: "#/definitions/BrowserProviderModel/properties/id/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                      if (vErrors === null) {
+                        vErrors = [err8];
+                      } else {
+                        vErrors.push(err8);
+                      }
+                      errors++;
+                    }
+                  } else {
+                    const err9 = { instancePath: instancePath + "/models/" + i0 + "/id", schemaPath: "#/definitions/BrowserProviderModel/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err9];
+                    } else {
+                      vErrors.push(err9);
+                    }
+                    errors++;
+                  }
+                }
                 if (data2.name !== void 0) {
                   if (typeof data2.name !== "string") {
-                    const err8 = { instancePath: instancePath + "/models/" + i0 + "/name", schemaPath: "#/definitions/BrowserProviderModel/properties/name/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    const err10 = { instancePath: instancePath + "/models/" + i0 + "/name", schemaPath: "#/definitions/BrowserProviderModel/properties/name/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
-                      vErrors = [err8];
+                      vErrors = [err10];
                     } else {
-                      vErrors.push(err8);
+                      vErrors.push(err10);
                     }
                     errors++;
                   }
                 }
               } else {
-                const err9 = { instancePath: instancePath + "/models/" + i0, schemaPath: "#/definitions/BrowserProviderModel/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                const err11 = { instancePath: instancePath + "/models/" + i0, schemaPath: "#/definitions/BrowserProviderModel/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                 if (vErrors === null) {
-                  vErrors = [err9];
+                  vErrors = [err11];
                 } else {
-                  vErrors.push(err9);
+                  vErrors.push(err11);
                 }
                 errors++;
               }
             }
           } else {
-            const err10 = { instancePath: instancePath + "/models", schemaPath: "#/properties/models/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+            const err12 = { instancePath: instancePath + "/models", schemaPath: "#/properties/models/type", keyword: "type", params: { type: "array" }, message: "must be array" };
             if (vErrors === null) {
-              vErrors = [err10];
+              vErrors = [err12];
             } else {
-              vErrors.push(err10);
+              vErrors.push(err12);
             }
             errors++;
           }
         }
       } else {
-        const err11 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err13 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err11];
+          vErrors = [err13];
         } else {
-          vErrors.push(err11);
+          vErrors.push(err13);
         }
         errors++;
       }

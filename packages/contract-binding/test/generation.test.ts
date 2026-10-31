@@ -267,10 +267,10 @@ test("Catalog binding generation rejects unsupported annotations and structures"
         /Unsupported JSDoc tag @patten/,
     );
 
-    await writeFile(fixture.sampleFile, sampleSource.replace("action: string;", "action: string | number;"));
+    await writeFile(fixture.sampleFile, sampleSource.replace("action: string;", "action: Date;"));
     await assert.rejects(
         generateContractArtifacts(fixture.options),
-        /Unsupported JSON Schema/,
+        /Unsupported JSON Schema keyword "format"/,
     );
 
     await writeFile(fixture.sampleFile, sampleSource.replace("@minLength 1", "@minLength -1"));

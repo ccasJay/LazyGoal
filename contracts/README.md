@@ -38,7 +38,16 @@ node scripts/contract-catalog.mjs query GoalSnapshotV1Schema
 
 真实浏览器 API 通过包公开入口消费生成读取器；共享逻辑位于 [`contract-reader.ts`](../packages/web-contracts/src/contract-reader.ts)，行为见 [Web 传输契约](../packages/web-contracts/notes/overview.md)。
 
-生成入口会拒绝重复内部键、重复对外身份与版本、重复制品路径、缺失来源、无效登记、未支持契约类型、不支持结构及无效应注解。当前共享读取器只承诺首个生成契约所需的结构：封闭对象、对象数组、标量字段、字符串 `@pattern`、标量 `const`/`enum` 与本地 `$ref`；联合、开放对象、元组、外部引用及其他约束会明确失败。
+生成入口会拒绝重复内部键、重复对外身份与版本、重复制品路径、缺失来源、无效登记、未支持契约类型、不支持结构及无效应注解。生成器当前支持封闭与开放对象、对象数组、联合与判别联合（`anyOf` 或 `type` 数组）、递归本地 `$ref`、开放 JSON（`additionalProperties` 为 `true`、`{}` 或 Schema）、标量、`const`/`enum` 以及数值与字符串约束；元组、外部引用、`format` 与其他未声明关键字仍明确失败。共享读取器和模型投影对这些结构的支持状态以 [`@lazygoal/contract-binding`](../packages/contract-binding/README.md) 模块说明为准，生成器不会为尚未接入的结构静默降级。
+
+| 能力 | 生成表示 | 代表来源 | 当前状态 |
+| --- | --- | --- | --- |
+| 联合与判别联合 | `anyOf` 分支或 `type` 数组；判别字段保留 `const`/`enum` | [模型 Decide 输出](../packages/model-contracts/src/model-output/canonical.ts)、[Snapshot 消息与 Observation](../packages/storage/src/goal-snapshot.ts)、[Web Activity](../packages/web-contracts/src/activity.ts) | 生成支持；绑定与投影见 contract-binding |
+| 递归 | 本地 `$ref` 指向同一 `definitions` 声明 | [SnapshotJsonValue](../packages/storage/src/goal-snapshot.ts)、[BrowserJsonValue](../packages/web-contracts/src/session-input.ts) | 生成支持；绑定与投影见 contract-binding |
+| 开放 JSON | `additionalProperties` 为 `true`、`{}` 或值 Schema | [BrowserJsonValue](../packages/web-contracts/src/session-input.ts)、[Tool 输入 JsonValue](../packages/model-contracts/src/model-output/canonical.ts)、[Snapshot memory patch](../packages/storage/src/goal-snapshot.ts) | 生成支持；绑定与投影见 contract-binding |
+| 数组元素 | `items` 内联或 `$ref`，可再含联合与约束 | [ListDirectory 输出](../packages/tools/src/list-directory.ts)、[Snapshot 消息列表](../packages/storage/src/goal-snapshot.ts) | 生成支持；绑定与投影见 contract-binding |
+| 数值与字符串约束 | `minimum`/`maximum`、`minLength`/`maxLength`、`pattern` | [ListDirectory 输入](../packages/tools/src/list-directory.ts)、[Web Provider 模型标识](../packages/web-contracts/src/provider-settings.ts) | 生成支持；绑定与投影见 contract-binding |
+| 元组、外部格式 | — | — | 明确失败，不生成近似 Schema |
 
 其他登记项保留真实现状：Contract AST 与 Zod 在运行时校验，Tool 输入 Schema 在注册期内存编译，模型输出联合在请求期动态组合；它们不产生本步的静态 Schema、Reader 或 Manifest。新增启用项必须在 Catalog 中显式登记生成策略，并先扩展共享读取器的受支持子集。
 

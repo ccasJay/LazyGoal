@@ -114,26 +114,29 @@ test("catalog generation rejects misspelled, misplaced and invalid JSDoc constra
     );
 });
 
-test("catalog generation rejects schema structures outside the shared reader subset", async t => {
+test("catalog generation supports nullable and open objects and rejects unsupported formats", async t => {
     const fixture = await createFixture();
     t.after(() => rm(fixture.root, { recursive: true, force: true }));
 
     await writeFile(
         fixture.contractFile,
-        source.replace("    models: BrowserProviderModel[];", "    models: BrowserProviderModel[];\n    nullable?: string | null;"),
+        source.replace(
+            "    models: BrowserProviderModel[];",
+            "    models: BrowserProviderModel[];\n    nullable?: string | null;\n    metadata: Record<string, unknown>;",
+        ),
     );
-    await assert.rejects(
-        generateContractArtifacts(fixture.options),
-        /Unsupported JSON Schema/,
-    );
+    const { artifacts } = await generateContractArtifacts(fixture.options);
+    const schemaModule = artifacts.get("generated/provider-models-schema.ts");
+    assert.match(schemaModule, /\\"nullable\\"/);
+    assert.match(schemaModule, /\\"additionalProperties\\":\{\}/);
 
     await writeFile(
         fixture.contractFile,
-        source.replace("    models: BrowserProviderModel[];", "    models: BrowserProviderModel[];\n    [key: string]: unknown;"),
+        source.replace("    models: BrowserProviderModel[];", "    models: BrowserProviderModel[];\n    pair: Date;"),
     );
     await assert.rejects(
         generateContractArtifacts(fixture.options),
-        /Open object schemas are not supported/,
+        /Unsupported JSON Schema keyword "format"/,
     );
 });
 
