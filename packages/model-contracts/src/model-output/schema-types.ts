@@ -138,7 +138,11 @@ export interface GoalPlanAddOperation {
     readonly type: "add";
     /** Todo 内容。 */
     readonly content: string;
-    /** 期望插入位置，从 0 开始。 */
+    /**
+     * 期望插入位置，从 0 开始。
+     *
+     * @minimum 0
+     */
     readonly position?: number;
 }
 
@@ -179,7 +183,11 @@ export interface GoalPlanReorderOperation {
     readonly type: "reorder";
     /** 目标 Todo ID。 */
     readonly id: string;
-    /** 目标位置，从 0 开始。 */
+    /**
+     * 目标位置，从 0 开始。
+     *
+     * @minimum 0
+     */
     readonly position: number;
 }
 
@@ -306,13 +314,22 @@ export interface ContextLookupRequest {
     readonly query?: string;
     /** 目录游标。 */
     readonly cursor?: string;
-    /** 返回数量上限。 */
+    /**
+     * 返回数量上限。
+     *
+     * @minimum 1
+     * @maximum 50
+     */
     readonly limit?: number;
     /** 目录类别。 */
     readonly category?: string;
     /** 直接展开的来源引用。 */
     readonly sourceRef?: string;
-    /** 展开偏移。 */
+    /**
+     * 展开偏移。
+     *
+     * @minimum 0
+     */
     readonly offset?: number;
 }
 
@@ -361,7 +378,11 @@ export interface RequestThink {
  * ```
  */
 export interface CompletionEvidence {
-    /** Task 完成条件索引。 */
+    /**
+     * Task 完成条件索引。
+     *
+     * @minimum 0
+     */
     readonly criterionIndex: number;
     /** 支撑该条件的已提交 Trajectory sequence。 */
     readonly evidenceSequences: readonly number[];
@@ -667,7 +688,11 @@ export interface ContextNoteProposal {
     readonly stageId?: string;
     /** 被修订记录 ID。 */
     readonly noteId?: string;
-    /** 被修订记录的基础修订号。 */
+    /**
+     * 被修订记录的基础修订号。
+     *
+     * @minimum 1
+     */
     readonly baseRevision?: number;
     /** 被替代记录 ID。 */
     readonly supersedesNoteId?: string;
@@ -693,7 +718,11 @@ export interface ContextNoteProposal {
 export interface GoalPlanUpdateAgentDecision {
     /** 决策判别值。 */
     readonly kind: "goal_plan_update";
-    /** 当前 GoalPlan 修订号。 */
+    /**
+     * 当前 GoalPlan 修订号。
+     *
+     * @minimum 0
+     */
     readonly baseRevision: number;
     /** 原子操作列表。 */
     readonly operations: readonly GoalPlanPatchOperation[];
@@ -891,7 +920,11 @@ export interface RunStageUpdateAgentDecision {
     readonly kind: "run_stage_update";
     /** 被修订阶段 ID。 */
     readonly stageId?: string;
-    /** 被修订阶段基础修订号。 */
+    /**
+     * 被修订阶段基础修订号。
+     *
+     * @minimum 1
+     */
     readonly baseRevision?: number;
     /** 修订原因。 */
     readonly reason?: string;
@@ -1051,7 +1084,11 @@ export interface TaskProposalAgentDecision {
 export interface RunPlanRouteUpdateAgentDecision {
     /** 决策判别值。 */
     readonly kind: "run_plan_route_update";
-    /** 当前路线基础修订号。 */
+    /**
+     * 当前路线基础修订号。
+     *
+     * @minimum 1
+     */
     readonly baseRevision: number;
     /** 修订理由。 */
     readonly reason: string;
@@ -1354,7 +1391,12 @@ export interface ContextLookupDirectoryBrowseInput {
     readonly operation: "directory_browse";
     /** 目录游标。 */
     readonly cursor?: string;
-    /** 返回数量上限。 */
+    /**
+     * 返回数量上限。
+     *
+     * @minimum 1
+     * @maximum 50
+     */
     readonly limit?: number;
     /** 目录类别。 */
     readonly category?: string;
@@ -1375,7 +1417,12 @@ export interface ContextLookupDirectorySearchInput {
     readonly query: string;
     /** 目录游标。 */
     readonly cursor?: string;
-    /** 返回数量上限。 */
+    /**
+     * 返回数量上限。
+     *
+     * @minimum 1
+     * @maximum 50
+     */
     readonly limit?: number;
     /** 目录类别。 */
     readonly category?: string;
@@ -1394,9 +1441,17 @@ export interface ContextLookupSourceExpandInput {
     readonly operation: "source_expand";
     /** 来源引用。 */
     readonly sourceRef: string;
-    /** 展开偏移。 */
+    /**
+     * 展开偏移。
+     *
+     * @minimum 0
+     */
     readonly offset?: number;
-    /** 返回数量上限。 */
+    /**
+     * 返回数量上限。
+     *
+     * @minimum 1
+     */
     readonly limit?: number;
 }
 
@@ -1520,7 +1575,11 @@ export interface SystemAskUserInput {
  * ```
  */
 export interface SystemUpdateGoalPlanInput {
-    /** 当前 GoalPlan 修订号。 */
+    /**
+     * 当前 GoalPlan 修订号。
+     *
+     * @minimum 0
+     */
     readonly baseRevision: number;
     /** 原子操作列表。 */
     readonly operations: readonly GoalPlanPatchOperation[];
@@ -1601,7 +1660,11 @@ export interface SystemCompleteRunStageInput {
  * ```
  */
 export interface SystemUpdatePlanRouteInput {
-    /** 当前路线基础修订号。 */
+    /**
+     * 当前路线基础修订号。
+     *
+     * @minimum 1
+     */
     readonly baseRevision: number;
     /** 修订理由。 */
     readonly reason: string;
