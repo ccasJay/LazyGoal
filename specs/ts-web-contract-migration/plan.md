@@ -4,7 +4,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 核对 Web 契约族及既有 Provider 迁移
+- [x] //TODO 1. 核对 Web 契约族及既有 Provider 迁移
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.4](./spec.md#spec-req-1-4)。
   - 实施目标与场景：按 Catalog 和真实 HTTP/SSE/浏览器入口核对范围，记录现有 Provider 小 Spec 的接入及剩余契约族；每项明确所有者和消费者。
   - 基本验证：抽查一个请求、响应和 SSE 事件的定义及调用链。
