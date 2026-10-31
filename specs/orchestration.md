@@ -32,6 +32,7 @@
 - 协调者已建立 `feat/contract-migration-integration` 集成分支，当前 HEAD `f2f90e6a`，已合入生成能力线 `813c6b87`、Storage `ffcc8a6b`、工具链与模型线联合切换 `d2a8b118`、Web 线 `53867a1e`、AgentProfile `aab67b03`、其他边界 `8f930aa3`。Catalog 按 key 合并为 1071 条登记、134 个启用项、402 个删除项；生成检查、Catalog 测试、类型检查通过。
 - 跨 Spec Integration Verification 已在集成分支通过（测试代码提交 `ff11f027`，当前 HEAD `f2f90e6a` 仅多一条计划记录）：完整 `npm test` 通过（TypeScript 2736/2736、scripts 98/98、GEPA adapter 通过）；定向跨 Spec 测试 70/70；相关 Chrome E2E 5/5；`npm run build:web`、`check:dependencies`（578 个源文件）、`check:docs`（47 个模块、170 份说明）、`git diff --check` 通过。
 - 2026-10-31 用户批准合并；集成分支 `f2f90e6a` 已合并到 `dev`（merge `788d4c19`）。生成能力、工具、模型、Web、Storage、其他边界与三个小 Spec 共九个 Spec 已标记 `delivered`（`80110d57`），已完成方向的 worktree 已移除。删除 AST 经用户批准后合并到 `dev`（`7fd0c8ff`），Spec 标记 `delivered`（`5acaa025`）。
+- Memory 沉淀门完成（`0272a5f6`）：新建 `project-memory/features/contract-migration.md` 总迁移 Capsule；`contract-dsl-core` 标记 `obsolete`，`model-output-contracts`、`tool-input-contracts`、`web-wire-contract-unification` 标记 `superseded` 并建立双向替代链接；12 个仍有效 Capsule 的失效源码引用已修到当前等价实现。`memory:index`、`memory:check`、`test:memory` 与 `check:docs` 通过。
 - 最终 `dev` 回归通过（`3e3f181a` 后仅环境修复与文档记录）：完整 `npm test` TypeScript 2686/2686、scripts 98/98、GEPA adapter 通过；`npx tsc --noEmit`、`contracts:generate -- --check`（670 个制品 current）、`check:dependencies`（571 个源文件）、`check:docs`（47 个模块、183 份说明）、`npm run build:web`、`git diff --check` 通过。首次最终回归因主检出缺少根 `ajv` 失败，执行 `npm ci` 后重跑通过。
 - Web 线同时完成两个 Provider 小 Spec，并已更新其 plan TODO 与 Latest Result；完整原计划中的 Web 契约族全部迁移，旧 Web AST 已删除。完整 Chrome E2E 有 3 项既有 UI/布局失败，已在基线复现或单独复跑通过，不作为本方向回归。
 - AgentProfile 小 Spec 已独立完成，完整 `npm test` 通过；Storage 的 AgentProfile 文件族现有真实生成绑定与严格 `reject` 读取。
@@ -85,6 +86,6 @@
 - [x] 各 Spec Feature Verification 全部 passed
 - [x] 跨 Spec Integration Verification passed/current
 - [x] 各分支已获审核及合并批准，统一合并与交付收尾完成
-- [ ] Memory 沉淀门完成（需要的写入已获批准并完成，或用户明确确认无需沉淀）
+- [x] Memory 沉淀门完成（需要的写入已获批准并完成，或用户明确确认无需沉淀）
 - [ ] 用户确认最终交付
 - [ ] 已删除 orchestration.md
