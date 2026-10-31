@@ -1,6 +1,7 @@
 ---
-status: proposed
+status: delivered
 created_at: 2026-10-31
+delivered_at: 2026-10-31
 supersedes: []
 superseded_by: null
 ---
@@ -9,7 +10,7 @@ superseded_by: null
 
 ## 目标与范围
 
-建立可由构建命令读取的 Catalog，登记全局盘点中的契约；先以在线模型列表成功响应贯通 TS 类型到 Schema、Reader 和 Manifest 的生成与检查。其他契约只登记现状及生成能力，不在本步迁移。Catalog 是数据契约的构建期索引，不拥有执行契约和运行时状态。
+已建立可由构建命令读取的 Catalog，登记全局盘点中的契约；在线模型列表成功响应已贯通 TS 类型到 Schema、Reader 和 Manifest 的生成与检查。其他契约只登记现状及生成能力，本步未迁移。Catalog 是数据契约的构建期索引，不拥有执行契约和运行时状态。
 
 ## 需求与验收标准
 
@@ -23,11 +24,11 @@ superseded_by: null
 
 ## 架构与核心决策
 
-Catalog 是可机器读取的登记信息，不是另一份数据字段 DSL。盘点是现状快照，不是构建输入；实施须取得上述盘点提交，且以执行分支当前源码核对，不能把尚未合入的 worktree 当成永久依赖。以声明位置与名称关联盘点项；动态组合只记录构造入口、组成与条件，不枚举所有运行时组合。
+Catalog 是可机器读取的登记信息，不是另一份数据字段 DSL。盘点是现状快照，不是构建输入；实施已取得上述盘点提交，并以执行分支当前源码核对，不把尚未合入的 worktree 当成永久依赖。以声明位置与名称关联盘点项；动态组合只记录构造入口、组成与条件，不枚举所有运行时组合。
 
-首批只启用已交付的 `web.providers.models.success`；在已有 `contracts:generate` 入口下接入 Catalog。生成的薄 Reader 将契约专属 Schema、校验器和身份绑定到共享读取逻辑；共享逻辑只承诺首例所需结构，遇不支持的结构须失败。保留现有公开调用接缝及浏览器行为，不建立旧 Reader 的回退路径。
+当前只启用 `web.providers.models.success`；Catalog 接入已有 `contracts:generate` 入口。生成的薄 Reader 将契约专属 Schema、校验器和身份绑定到共享读取逻辑；共享逻辑只承诺首例所需结构，遇不支持的结构须失败。保留现有公开调用接缝及浏览器行为，不建立旧 Reader 的回退路径。
 
-[共享 JSON 类型](../shared-json-types/spec.md)只负责基础静态类型；若其实现先合入，登记时按新声明及别名关系核对。[模型查询输入](../ts-provider-model-query-contract/spec.md)和 [Provider 测试结果](../ts-provider-profile-test-contract/spec.md)各自拥有后续契约及行为，本步不替它们登记为已生成；集成时由其迁移接入 Catalog，并分别验证可选字段与判别联合，不预称本步已支持。上述 Spec 可并行准备，但最终集成须以实际合入内容解决生成入口和登记冲突。
+[共享 JSON 类型](../shared-json-types/spec.md)只负责基础静态类型；其后续实现合入时，按新声明及别名关系核对登记。[模型查询输入](../ts-provider-model-query-contract/spec.md)和 [Provider 测试结果](../ts-provider-profile-test-contract/spec.md)各自拥有后续契约及行为，本步未替它们登记为已生成；后续集成时由其迁移接入 Catalog，并分别验证可选字段与判别联合，不预称本步已支持。上述 Spec 的最终集成须以实际合入内容解决生成入口和登记冲突。
 
 ## 风险与否定性保证
 
