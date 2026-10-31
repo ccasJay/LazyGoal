@@ -1,6 +1,6 @@
 # Web 数据契约迁移执行计划
 
-本计划为待审阅草案；[Spec](./spec.md)不取代既有 Provider 两份已批准 Spec 的验收。
+本计划已完成执行；[Spec](./spec.md)保持两个 Provider 小 Spec 的独立验收。
 
 ## 任务清单
 

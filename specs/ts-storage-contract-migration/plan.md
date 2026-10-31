@@ -1,6 +1,6 @@
 # Storage 数据契约迁移执行计划
 
-本计划为待审阅草案；[Spec](./spec.md)引用 AgentProfile 已批准小 Spec，Snapshot 与其他文件族独立准备。
+本计划已完成执行；[Spec](./spec.md)引用的 AgentProfile 小 Spec 已独立完成，Snapshot 与其他文件族已迁移。
 
 ## 任务清单
 
