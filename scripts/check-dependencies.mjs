@@ -36,7 +36,7 @@ import { parse } from "@babel/parser";
  * model-catalog 承载目录查询、在线发现与可选择性判断，只依赖 llm-core 与锁定版本 pi-ai 静态目录 SDK；
  * runtime 依赖 contracts、model-contracts、execution-stream、sandbox、permission、context-retrieval、execution-control 和 tool-core；
  * llm 只依赖 llm-core、llm-openai、llm-google 与 llm-pi-ai 提供三个默认工厂，不直接依赖 config、model-catalog 或生成 SDK；
- * storage 依赖 runtime、contracts、model-contracts、permission、context-retrieval；
+ * storage 依赖 runtime、contracts、model-contracts、permission、context-retrieval 与生成绑定基础包 contract-binding；
  * agent 只装配能力包，自身不保存请求、调用、解码或执行实现；
  * 九个能力包按 Spec 的依赖方向逐包收紧，Roundtrip 依赖由各自的允许列表拒绝；
  * session-metrics 通过 Runtime 端口读取 Goal 与调用指标；browser 读取 Runtime 契约并依赖通用 HTTP 宿主；
@@ -79,7 +79,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     config: ["llm-core"],
     runtime: ["contracts", "model-contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control", "tool-core", "working-memory"],
     llm: ["llm-core", "llm-openai", "llm-google", "llm-pi-ai"],
-    storage: ["runtime", "contracts", "model-contracts", "permission", "context-retrieval"],
+    storage: ["runtime", "contracts", "model-contracts", "permission", "context-retrieval", "contract-binding"],
     agent: ["runtime", "llm", "config", "contracts", "model-contracts", "execution-stream", "execution-control", "tool-core", "working-memory", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request", "model-response", "model-call", "model-execution"],
     "session-metrics": ["runtime", "http", "web-contracts"],
     tools: ["runtime", "contracts", "execution-stream", "sandbox", "execution-control", "tool-core", "process-runtime"],

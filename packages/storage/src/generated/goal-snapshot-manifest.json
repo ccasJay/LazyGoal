@@ -1,0 +1,23 @@
+{
+  "contractId": "storage.goal.snapshot",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/storage/src/goal-snapshot.ts#SnapshotJsonValue,GoalSnapshotMetadataV1,GoalSnapshotProfileV1,GoalSnapshotDefinitionV1,GoalSnapshotCompletionAcceptanceV1,GoalSnapshotCompletionCriterionV1,GoalSnapshotTaskV1,GoalSnapshotMessageSourceV1,GoalSnapshotMessagePositionV1,GoalSnapshotMessageV1,GoalSnapshotToolCallActionV1,GoalSnapshotObservationV1,GoalSnapshotMemoryPatchOperationV1,GoalSnapshotMemoryPatchV1,GoalSnapshotCompletionEvidenceV1,GoalSnapshotGoalPlanPatchOperationV1,GoalSnapshotContextLookupFiltersV1,GoalSnapshotStructuredDecisionResultV1,GoalSnapshotDecisionResultV1,GoalSnapshotStepRecordV1,GoalSnapshotMemoryRevisionV1,GoalSnapshotPendingThinkV1,GoalSnapshotPendingModelRepairV1,GoalSnapshotPendingActionBatchV1,GoalSnapshotExecutionVersionV1,GoalSnapshotPendingActionV1,GoalSnapshotPendingProgramV1,GoalSnapshotStopReasonV1,GoalSnapshotContextEpochV1,GoalSnapshotPreviousStageResultRefV1,GoalSnapshotStageRejectionV1,GoalSnapshotRunStageV1,GoalSnapshotPlanRouteStageV1,GoalSnapshotPlanRouteV1,GoalSnapshotRunStateV1,GoalSnapshotSteerInputV1,GoalSnapshotRunInterruptionV1,GoalSnapshotGoalPlanItemV1,GoalSnapshotGoalPlanV1,GoalSnapshotCompletedRunV1,GoalSnapshotAskUserOptionV1,GoalSnapshotAskUserQuestionV1,GoalSnapshotPendingInteractionAskUserV1,GoalSnapshotPendingPlanRouteRevisionApprovalV1,GoalSnapshotPendingInteractionTaskApprovalV1,GoalSnapshotPlanRouteCandidateStageV1,GoalSnapshotPlanRouteCandidateV1,GoalSnapshotPendingInteractionV1,GoalSnapshotWorkflowV1,GoalSnapshotModelSelectionV1,GoalSnapshotStateV1,GoalSnapshotSessionInputV1,GoalSnapshotSessionQueueItemV1,GoalSnapshotMessageQueueV1,GoalSnapshotV1",
+    "sha256": "e1ff176c86b5ec8685fb8538f2513e9d8781d9ef980f60d3a412343b1521fce0"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

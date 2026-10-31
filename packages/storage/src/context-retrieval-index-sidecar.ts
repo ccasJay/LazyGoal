@@ -5,7 +5,6 @@ import {
     unlink,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { z } from "zod";
 
 import {
     CONTEXT_RETRIEVAL_INDEX_VERSION,
@@ -20,220 +19,12 @@ import {
     type ContextRetrievalQueryCacheEntry,
     type TrajectoryRetrievalIndexStore,
 } from "../../context-retrieval/src/index";
+import { contextRetrievalIndexSidecarFileBinding } from "./generated/context-retrieval-index-sidecar-binding";
 import { atomicWriteJson } from "./json-file-write";
 
 /** Retrieval Index Sidecar 文件协议错误代码。 */
 export const CONTEXT_RETRIEVAL_INDEX_SIDECAR_PROTOCOL_ERROR_CODE =
     "CONTEXT_RETRIEVAL_INDEX_SIDECAR_PROTOCOL_ERROR" as const;
-
-const ContextDocumentFieldsSchema = z.object({
-    eventType: z.array(z.string().trim().min(1)),
-    toolId: z.array(z.string().trim().min(1)),
-    actionId: z.array(z.string().trim().min(1)),
-    stepIndex: z.array(z.number().int().positive().safe()),
-    path: z.array(z.string().trim().min(1)),
-    errorCode: z.array(z.string().trim().min(1)),
-    objectId: z.array(z.string().trim().min(1)),
-    body: z.string(),
-}).strict();
-
-const ContextSearchDocumentSchema = z.object({
-    schemaVersion: z.literal(1),
-    documentId: z.string().trim().min(1),
-    goalId: z.string().trim().min(1),
-    runId: z.string().trim().min(1),
-    kind: z.literal("execution"),
-    phase: z.literal("executing"),
-    executionUnitId: z.string().trim().min(1).optional(),
-    firstSequence: z.number().int().positive().safe(),
-    lastSequence: z.number().int().positive().safe(),
-    sourceRange: z.object({
-        firstSequence: z.number().int().positive().safe(),
-        lastSequence: z.number().int().positive().safe(),
-    }).strict(),
-    sourceEventIds: z.array(z.string().trim().min(1)),
-    fields: ContextDocumentFieldsSchema,
-    body: z.string(),
-    eventTypes: z.array(z.string().trim().min(1)),
-    toolIds: z.array(z.string().trim().min(1)),
-    actionIds: z.array(z.string().trim().min(1)),
-    stepIndexes: z.array(z.number().int().positive().safe()),
-    paths: z.array(z.string().trim().min(1)),
-    errorCodes: z.array(z.string().trim().min(1)),
-    objectIds: z.array(z.string().trim().min(1)),
-    source: z.union([
-        z.object({
-            kind: z.literal("trajectory"),
-            firstSequence: z.number().int().positive().safe(),
-            lastSequence: z.number().int().positive().safe(),
-            sourceEventIds: z.array(z.string().trim().min(1)).min(1),
-        }).strict(),
-        z.object({
-            kind: z.literal("conversation"),
-            messageIndex: z.number().int().nonnegative().safe(),
-            role: z.enum(["user", "assistant"]),
-            contentHash: z.string().trim().min(1),
-        }).strict(),
-    ]).optional(),
-}).strict();
-
-const ContextTokenSchema = z.object({
-    value: z.string().trim().min(1),
-    raw: z.string().min(1),
-    kind: z.enum(["exact", "split"]),
-}).strict();
-
-const TokenizedFieldSchema = z.object({
-    tokens: z.array(ContextTokenSchema),
-    length: z.number().int().nonnegative().safe(),
-}).strict();
-
-const TokenizedDocumentSchema = z.object({
-    schemaVersion: z.literal(1),
-    tokenizerVersion: z.literal(CONTEXT_TOKENIZER_VERSION),
-    documentId: z.string().trim().min(1),
-    fields: z.record(z.string(), TokenizedFieldSchema),
-    fieldLengths: z.record(z.string(), z.number().int().nonnegative().safe()),
-}).strict();
-
-const PostingSchema = z.object({
-    documentId: z.string().trim().min(1),
-    termFrequency: z.number().int().positive().safe(),
-    exactFrequency: z.number().int().nonnegative().safe(),
-    splitFrequency: z.number().int().nonnegative().safe(),
-}).strict();
-
-const FieldStatisticsSchema = z.object({
-    totalTokenCount: z.number().int().nonnegative().safe(),
-    averageFieldLength: z.number().nonnegative().finite(),
-    documentFrequency: z.record(
-        z.string().trim().min(1),
-        z.number().int().positive().safe(),
-    ),
-}).strict();
-
-const ContextRetrievalIndexSnapshotSchema = z.object({
-    schemaVersion: z.literal(1),
-    tokenizerVersion: z.literal(CONTEXT_TOKENIZER_VERSION),
-    documentIds: z.array(z.string().trim().min(1)),
-    tokenizedDocuments: z.record(z.string().trim().min(1), TokenizedDocumentSchema),
-    postings: z.record(
-        z.string().trim().min(1),
-        z.record(z.string().trim().min(1), z.array(PostingSchema)),
-    ),
-    fieldStats: z.record(z.string().trim().min(1), FieldStatisticsSchema),
-}).strict();
-
-const ContextLookupFiltersSchema = z.object({
-    eventTypes: z.array(z.string().trim().min(1)).max(16).optional(),
-    toolIds: z.array(z.string().trim().min(1)).max(16).optional(),
-    actionIds: z.array(z.string().trim().min(1)).max(16).optional(),
-    stepIndexes: z.array(z.number().int().positive().safe()).max(16).optional(),
-    paths: z.array(z.string().trim().min(1)).max(16).optional(),
-    errorCodes: z.array(z.string().trim().min(1)).max(16).optional(),
-    objectIds: z.array(z.string().trim().min(1)).max(16).optional(),
-    sequenceRange: z.object({
-        from: z.number().int().positive().safe(),
-        to: z.number().int().positive().safe(),
-    }).strict().optional(),
-}).strict();
-
-const ContextLookupMatchSchema = z.object({
-    documentId: z.string().trim().min(1),
-    goalId: z.string().trim().min(1),
-    runId: z.string().trim().min(1),
-    firstSequence: z.number().int().positive().safe(),
-    lastSequence: z.number().int().positive().safe(),
-    matchedFields: z.array(z.enum([
-        "eventType",
-        "toolId",
-        "actionId",
-        "stepIndex",
-        "path",
-        "errorCode",
-        "objectId",
-        "body",
-    ])),
-    score: z.number().nonnegative().finite(),
-    preview: z.string(),
-    truncated: z.boolean(),
-    adjacent: z.boolean().optional(),
-    historical: z.literal(true),
-    sourceEventIds: z.array(z.string().trim().min(1)),
-    source: z.union([
-        z.object({
-            kind: z.literal("trajectory"),
-            firstSequence: z.number().int().positive().safe(),
-            lastSequence: z.number().int().positive().safe(),
-            sourceEventIds: z.array(z.string().trim().min(1)).min(1),
-        }).strict(),
-        z.object({
-            kind: z.literal("conversation"),
-            messageIndex: z.number().int().nonnegative().safe(),
-            role: z.enum(["user", "assistant"]),
-            contentHash: z.string().trim().min(1),
-        }).strict(),
-    ]).optional(),
-}).strict();
-
-const ContextLookupRunBoundarySchema = z.object({
-    runId: z.string().trim().min(1),
-    committedThroughSequence: z.number().int().nonnegative().safe(),
-}).strict();
-
-const ContextLookupResultSchema = z.discriminatedUnion("status", [
-    z.object({
-        status: z.literal("found"),
-        lookupId: z.string().trim().min(1),
-        committedThroughSequence: z.number().int().nonnegative().safe(),
-        queryHash: z.string().trim().min(1).optional(),
-        indexVersion: z.string().trim().min(1).optional(),
-        matches: z.array(ContextLookupMatchSchema),
-        truncated: z.boolean(),
-        sourceRunBoundaries: z.array(ContextLookupRunBoundarySchema).min(1).optional(),
-    }).strict(),
-    z.object({
-        status: z.literal("not_found"),
-        lookupId: z.string().trim().min(1),
-        committedThroughSequence: z.number().int().nonnegative().safe().optional(),
-        reason: z.string().trim().min(1).optional(),
-    }).strict(),
-    z.object({
-        status: z.literal("lookup_error"),
-        lookupId: z.string().trim().min(1),
-        code: z.string().trim().min(1),
-        message: z.string().trim().min(1),
-        committedThroughSequence: z.number().int().nonnegative().safe().optional(),
-    }).strict(),
-]);
-
-const ContextRetrievalQueryCacheEntrySchema = z.object({
-    key: z.string().regex(/^[0-9a-f]{64}$/),
-    need: z.enum(["conversation_history", "historical_execution", "decision_rationale"]).optional(),
-    question: z.string().trim().min(1),
-    filters: ContextLookupFiltersSchema.optional(),
-    committedThroughSequence: z.number().int().nonnegative().safe(),
-    indexVersion: z.string().trim().min(1),
-    result: ContextLookupResultSchema,
-}).strict();
-
-/** Retrieval Index Sidecar 的严格 JSON Schema。 */
-export const ContextRetrievalIndexSidecarSchema = z.object({
-    schemaVersion: z.literal(CONTEXT_RETRIEVAL_INDEX_SIDECAR_SCHEMA_VERSION),
-    goalId: z.string().trim().min(1),
-    runId: z.string().trim().min(1),
-    derivedThroughSequence: z.number().int().nonnegative().safe(),
-    sourceDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
-    tokenizerVersion: z.literal(CONTEXT_TOKENIZER_VERSION),
-    rankingVersion: z.string().trim().min(1),
-    indexVersion: z.string().trim().min(1),
-    documents: z.array(ContextSearchDocumentSchema),
-    index: ContextRetrievalIndexSnapshotSchema,
-    queryCache: z.array(ContextRetrievalQueryCacheEntrySchema)
-        .max(CONTEXT_RETRIEVAL_QUERY_CACHE_CAPACITY),
-    conversationEndIndexExclusive: z.number().int().nonnegative().safe(),
-    conversationPrefixDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
-}).strict();
 
 /** Retrieval Index Sidecar 结构损坏或协议失配时抛出的错误。 */
 export class ContextRetrievalIndexSidecarProtocolError extends Error {
@@ -405,14 +196,17 @@ export class JsonFileContextRetrievalIndexStore implements TrajectoryRetrievalIn
 }
 
 function validateAndFreeze(input: unknown): Readonly<ContextRetrievalIndexSidecar> {
-    const parsed = ContextRetrievalIndexSidecarSchema.safeParse(input);
-    if (!parsed.success) {
+    const parsed = contextRetrievalIndexSidecarFileBinding.read(input, "reject");
+    if (!parsed.ok) {
         throw new ContextRetrievalIndexSidecarProtocolError(
             "Retrieval Index Sidecar does not match schema version 1",
-            { cause: parsed.error },
+            { cause: parsed.issues },
         );
     }
     const sidecar = parsed.data as unknown as ContextRetrievalIndexSidecar;
+    if (sidecar.queryCache.length > 64) {
+        throw new ContextRetrievalIndexSidecarProtocolError("query cache exceeds its fixed capacity");
+    }
     if (
         sidecar.rankingVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION
         || sidecar.indexVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION

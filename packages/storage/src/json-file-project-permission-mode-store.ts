@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { z } from "zod";
 
 import {
     PermissionModeConflictError,
@@ -8,19 +7,14 @@ import {
     type ProjectPermissionMode,
     type ProjectPermissionModeStore,
 } from "../../permission/src/index";
+import { permissionModeFileBinding } from "./generated/permission-mode-binding";
+import type { PermissionModeFile } from "./permission-mode-file";
 import { atomicWriteJson } from "./json-file-write";
 import { KeyedSerialQueue } from "./keyed-serial-queue";
 
 const PERMISSION_MODE_KEY = "permission-mode";
 
-const PermissionModeRecordSchema = z.object({
-    version: z.literal(1),
-    workspaceId: z.string().min(1),
-    mode: z.enum(["default", "yolo"]),
-    revision: z.number().int().nonnegative(),
-}).strict();
-
-type PermissionModeRecord = z.infer<typeof PermissionModeRecordSchema>;
+type PermissionModeRecord = PermissionModeFile;
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
     return typeof error === "object"
@@ -156,9 +150,9 @@ export class JsonFileProjectPermissionModeStore implements ProjectPermissionMode
             throw new Error(`权限模式文件损坏，JSON 解析失败: ${(error as Error).message}`);
         }
 
-        const validated = PermissionModeRecordSchema.safeParse(parsed);
-        if (!validated.success) {
-            throw new Error(`权限模式文件结构损坏: ${validated.error.message}`);
+        const validated = permissionModeFileBinding.read(parsed, "reject");
+        if (!validated.ok) {
+            throw new Error(`权限模式文件结构损坏: ${validated.issues.map(issue => `${issue.path || "/"}:${issue.code}`).join(", ")}`);
         }
 
         return validated.data;

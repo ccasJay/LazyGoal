@@ -1,7 +1,6 @@
 import { encodePathSegment } from "./path-segment";
 import { appendFile, mkdir, open, readFile, readdir, rename, rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { z } from "zod";
 
 import type {
     ProcessOutputChannel,
@@ -10,6 +9,9 @@ import type {
     ProcessSessionStatus,
     ProcessSessionStore,
 } from "../../runtime/src/index";
+import { processChannelMetaFileBinding } from "./generated/process-channel-meta-binding";
+import type { ProcessChannelMetaFile, ProcessSessionFileRecord } from "./process-session-file";
+import { processSessionFileBinding } from "./generated/process-session-binding";
 import { appendFileChunk, atomicWriteJson } from "./json-file-write";
 import { KeyedSerialQueue } from "./keyed-serial-queue";
 
@@ -24,49 +26,52 @@ export const PROCESS_LOG_MAX_FILE_BYTES = 512 * 1024;
 /** 单个通道保留的轮转日志文件数量（固定 2 个：part-0.log 与 part-1.log）。 */
 const PROCESS_LOG_MAX_ROTATION_PARTS = 2;
 
-/**
- * 进程会话记录持久化 DTO Schema。
- */
-export const ProcessSessionDtoSchema = z.object({
-    goalId: z.string().min(1),
-    processId: z.string().min(1),
-    command: z.string().min(1),
-    status: z.enum([
-        "starting",
-        "running",
-        "exited",
-        "stopped",
-        "failed",
-        "interrupted",
-    ]),
-    hostInstanceId: z.string().min(1),
-    startedAt: z.string().datetime(),
-    exitedAt: z.string().datetime().optional(),
-    exitCode: z.number().int().nullable().optional(),
-    signal: z.string().nullable().optional(),
-    error: z.string().optional(),
-    actionId: z.string().min(1).optional(),
-}).strict();
+const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
-export type ProcessSessionDto = z.infer<typeof ProcessSessionDtoSchema>;
+function validDateTime(value: string): boolean {
+    return ISO_DATE_TIME.test(value) && Number.isFinite(Date.parse(value));
+}
 
-/**
- * 轮转日志元数据文件 Schema。
- */
-const ChannelMetaSchema = z.object({
-    /** 当前已被覆盖丢弃的最早绝对字节偏移。 */
-    headOffset: z.number().int().nonnegative(),
-    /** 当前已写入的总绝对字节偏移。 */
-    tailOffset: z.number().int().nonnegative(),
-    /** 各分片文件的绝对起始字节偏移与大小。 */
-    parts: z.array(z.object({
-        index: z.number().int().nonnegative(),
-        startOffset: z.number().int().nonnegative(),
-        bytes: z.number().int().nonnegative(),
-    })),
-}).strict();
+function validateSessionRecord(record: ProcessSessionFileRecord): readonly string[] {
+    const issues: string[] = [];
+    for (const [field, value] of [
+        ["goalId", record.goalId],
+        ["processId", record.processId],
+        ["command", record.command],
+        ["hostInstanceId", record.hostInstanceId],
+        ["actionId", record.actionId],
+    ] as const) {
+        if (value !== undefined && value.length === 0) issues.push(`${field} must be a non-empty string`);
+    }
+    if (!validDateTime(record.startedAt)) issues.push("startedAt must be an ISO-8601 timestamp");
+    if (record.exitedAt !== undefined && !validDateTime(record.exitedAt)) {
+        issues.push("exitedAt must be an ISO-8601 timestamp");
+    }
+    if (record.exitCode !== undefined && record.exitCode !== null && !Number.isInteger(record.exitCode)) {
+        issues.push("exitCode must be an integer or null");
+    }
+    return issues;
+}
 
-type ChannelMeta = z.infer<typeof ChannelMetaSchema>;
+function validateChannelMeta(meta: ProcessChannelMetaFile): readonly string[] {
+    const issues: string[] = [];
+    for (const [field, value] of [
+        ["headOffset", meta.headOffset],
+        ["tailOffset", meta.tailOffset],
+    ] as const) {
+        if (!Number.isInteger(value) || value < 0) issues.push(`${field} must be a non-negative integer`);
+    }
+    for (const [index, part] of meta.parts.entries()) {
+        for (const [field, value] of [
+            ["index", part.index],
+            ["startOffset", part.startOffset],
+            ["bytes", part.bytes],
+        ] as const) {
+            if (!Number.isInteger(value) || value < 0) issues.push(`parts[${index}].${field} must be a non-negative integer`);
+        }
+    }
+    return issues;
+}
 
 /**
  * 基于本地 JSON 文件与轮转日志的 ProcessSessionStore 实现。
@@ -146,13 +151,16 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
      * 保存或更新进程会话元数据（原子替换）。
      */
     async saveSession(session: ProcessSessionRecord): Promise<void> {
-        const validated = ProcessSessionDtoSchema.parse(session);
+        const validated = processSessionFileBinding.read(session, "reject");
+        if (!validated.ok || validateSessionRecord(validated.data).length > 0) {
+            throw new Error("Process session record violates its current schema");
+        }
         const lockKey = `${session.goalId}:${session.processId}:session`;
 
         await this.queue.run(lockKey, async () => {
             await atomicWriteJson({
                 path: this.getSessionFilePath(session.goalId, session.processId),
-                value: validated,
+                value: validated.data,
                 indent: 2,
                 trailingNewline: false,
                 durable: true,
@@ -177,8 +185,12 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
             throw error;
         }
 
-        const raw = JSON.parse(content);
-        const parsed = ProcessSessionDtoSchema.parse(raw);
+        const raw: unknown = JSON.parse(content);
+        const read = processSessionFileBinding.read(raw, "reject");
+        if (!read.ok || validateSessionRecord(read.data).length > 0) {
+            throw new Error("Process session record violates its current schema");
+        }
+        const parsed = read.data;
 
         // 投影检查：非终态（starting / running）且不是当前宿主实例，投影为 interrupted
         const isTerminal = parsed.status === "exited"
@@ -217,7 +229,9 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
             const sessionPath = join(goalDir, entry, "session.json");
             try {
                 const content = await this.fileOperations.readFile(sessionPath, "utf8");
-                const parsed = ProcessSessionDtoSchema.parse(JSON.parse(content));
+                const read = processSessionFileBinding.read(JSON.parse(content) as unknown, "reject");
+                if (!read.ok || validateSessionRecord(read.data).length > 0) throw new Error("Invalid process session");
+                const parsed = read.data;
                 const isTerminal = parsed.status === "exited"
                     || parsed.status === "stopped"
                     || parsed.status === "failed"
@@ -241,11 +255,13 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
         return sessions.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
     }
 
-    private async readMeta(channelDir: string): Promise<ChannelMeta> {
+    private async readMeta(channelDir: string): Promise<ProcessChannelMetaFile> {
         const metaPath = join(channelDir, "meta.json");
         try {
             const content = await this.fileOperations.readFile(metaPath, "utf8");
-            return ChannelMetaSchema.parse(JSON.parse(content));
+            const read = processChannelMetaFileBinding.read(JSON.parse(content) as unknown, "reject");
+            if (!read.ok || validateChannelMeta(read.data).length > 0) throw new Error("Invalid process channel meta");
+            return read.data;
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === "ENOENT") {
                 return {
@@ -258,7 +274,7 @@ export class JsonFileProcessSessionStore implements ProcessSessionStore {
         }
     }
 
-    private async writeMeta(channelDir: string, meta: ChannelMeta): Promise<void> {
+    private async writeMeta(channelDir: string, meta: ProcessChannelMetaFile): Promise<void> {
         try {
             await atomicWriteJson({
                 path: join(channelDir, "meta.json"),

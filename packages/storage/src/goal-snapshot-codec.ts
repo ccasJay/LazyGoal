@@ -1,4 +1,5 @@
 import { isRecord } from "../../contracts/src/index";
+import { goalSnapshotFileBinding } from "./generated/goal-snapshot-binding";
 import type {
     ExecutingWorkingMemoryPatch,
 } from "../../model-contracts/src/index";
@@ -30,7 +31,7 @@ import type {
 } from "../../runtime/src/index";
 import {
     GoalSnapshotProtocolError,
-    GoalSnapshotV1Schema,
+    assertGoalSnapshotSemantics,
     type GoalSnapshotCompletionAcceptanceV1,
     type GoalSnapshotCompletionCriterionV1,
     type GoalSnapshotCompletedRunV1,
@@ -667,12 +668,17 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
         },
     };
 
-    const validation = GoalSnapshotV1Schema.safeParse(candidate);
-    if (!validation.success) {
-        throw protocolError("Goal does not satisfy the current snapshot schema", validation.error);
+    const validation = goalSnapshotFileBinding.read(candidate, "reject");
+    if (!validation.ok) {
+        throw protocolError("Goal does not satisfy the current snapshot schema", validation.issues);
     }
 
-    return structuredClone(validation.data) as GoalSnapshotV1;
+    try {
+        assertGoalSnapshotSemantics(validation.data);
+    } catch (error) {
+        throw protocolError("Goal does not satisfy the current snapshot schema", error);
+    }
+    return structuredClone(validation.data);
 }
 
 function decodeProfile(profile: GoalSnapshotProfileV1): AgentProfile {
@@ -1325,12 +1331,13 @@ export const goalSnapshotCodec: GoalSnapshotCodec = new (class implements GoalSn
         assertNoLegacyStringCriteria(input);
         assertNoLegacyRunAndTodoBindings(input);
 
-        const validation = GoalSnapshotV1Schema.safeParse(input);
-        if (!validation.success) {
-            throw protocolError("Invalid Goal snapshot", validation.error);
+        const validation = goalSnapshotFileBinding.read(input, "reject");
+        if (!validation.ok) {
+            throw protocolError("Invalid Goal snapshot", validation.issues);
         }
 
-        return decodeSnapshot(structuredClone(validation.data) as GoalSnapshotV1);
+        assertGoalSnapshotSemantics(validation.data);
+        return decodeSnapshot(structuredClone(validation.data));
     }
 });
 

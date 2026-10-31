@@ -8,7 +8,7 @@ export type { AgentProfileFile } from "./agent-profile-file";
 export { JsonFileAgentProfileStore } from "./json-file-agent-profile-store";
 export {
     GoalSnapshotProtocolError,
-    GoalSnapshotV1Schema,
+    assertGoalSnapshotSemantics,
     INVALID_GOAL_SNAPSHOT_CODE,
 } from "./goal-snapshot";
 export type {
@@ -36,6 +36,7 @@ export type {
     GoalSnapshotToolCallActionV1,
     GoalSnapshotV1,
     GoalSnapshotMemoryRevisionV1,
+    GoalSnapshotMemoryPatchOperationV1,
     GoalSnapshotMemoryPatchV1,
     GoalSnapshotCompletionEvidenceV1,
     GoalSnapshotCompletedRunV1,
@@ -61,18 +62,27 @@ export { JsonFileTrajectoryStore } from "./json-file-trajectory-store";
 export { JsonFileToolGrantStore } from "./json-file-tool-grant-store";
 export { JsonFileSandboxGrantStore } from "./json-file-sandbox-grant-store";
 export { JsonFileProjectPermissionModeStore } from "./json-file-project-permission-mode-store";
+export type { PermissionModeFile } from "./permission-mode-file";
 export { JsonFileModelPreferenceStore } from "./json-file-model-preference-store";
+export type { ModelPreferenceFile } from "./model-preference-file";
 export {
     JsonFileMetricsStore,
     MODEL_CALL_METRIC_STORE_PROTOCOL_ERROR_CODE,
     ModelCallMetricStoreProtocolError,
 } from "./json-file-metrics-store";
+export type {
+    ModelCallMetricFileRecord,
+    ModelCallMetricsCoverageFileRecord,
+    ModelCallMetricUsageFile,
+} from "./metrics-file";
 export {
     JsonFileProcessSessionStore,
-    ProcessSessionDtoSchema,
     PROCESS_LOG_MAX_FILE_BYTES,
-    type ProcessSessionDto,
 } from "./json-file-process-session-store";
+export type {
+    ProcessChannelMetaFile,
+    ProcessSessionFileRecord,
+} from "./process-session-file";
 export type { ProcessSessionRecord } from "../../runtime/src/index";
 export {
     JsonFileDiagnosticTraceSink,
@@ -80,15 +90,20 @@ export {
 export {
     CONTEXT_RETRIEVAL_INDEX_SIDECAR_PROTOCOL_ERROR_CODE,
     ContextRetrievalIndexSidecarProtocolError,
-    ContextRetrievalIndexSidecarSchema,
     JsonFileContextRetrievalIndexStore,
     contextRetrievalIndexSidecarCodec,
 } from "./context-retrieval-index-sidecar";
+export type { ContextRetrievalIndexSidecarFile } from "./context-retrieval-index-sidecar-file";
 export type {
     ContextRetrievalIndexSidecarCodec,
 } from "./context-retrieval-index-sidecar";
 
 export { JsonFileModelInputStore } from "./json-file-model-input-store";
+export type {
+    ModelInputJsonValue,
+    ModelInputManifest,
+    ModelInputManifestMessage,
+} from "./model-input-file";
 
 export {
     JsonFileGoalContextIndexStore,

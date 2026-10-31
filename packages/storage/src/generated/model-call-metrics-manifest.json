@@ -1,0 +1,23 @@
+{
+  "contractId": "storage.model-call-metric-record",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/storage/src/metrics-file.ts#ModelCallMetricUsageFile,ModelCallMetricFileRecord,ModelCallMetricsCoverageFileRecord",
+    "sha256": "a5265bac89cd6a8cc3709461823914d0c03dede89a62d4e021a96f6c7cee137c"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

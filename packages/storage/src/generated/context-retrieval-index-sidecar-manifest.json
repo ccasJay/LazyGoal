@@ -1,0 +1,23 @@
+{
+  "contractId": "storage.context-retrieval-index-sidecar",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/storage/src/context-retrieval-index-sidecar-file.ts#ContextRetrievalIndexSidecarFile",
+    "sha256": "e8c67243c0750c736ed24db5e4a4783105efaaeba28269ee0cf7081f831d7998"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

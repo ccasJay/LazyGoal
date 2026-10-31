@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { z } from "zod";
 
 import {
     matchesSandboxGrant,
@@ -10,70 +9,13 @@ import {
     type SandboxGrantMatcher,
     type SandboxGrantStore,
 } from "../../permission/src/index";
+import { sandboxGrantLedgerFileBinding } from "./generated/sandbox-grant-ledger-binding";
+import { validateSandboxGrantLedger, type SandboxGrantLedgerFile } from "./grant-ledger";
 import { atomicWriteJson } from "./json-file-write";
 import { KeyedSerialQueue } from "./keyed-serial-queue";
 
-const ExtraFileSchema = z.object({
-    canonicalPath: z.string().min(1),
-    access: z.enum(["read", "write"]),
-    kind: z.enum(["file", "directory_tree"]),
-}).strict();
+type Ledger = SandboxGrantLedgerFile;
 
-const MatcherSchema = z.object({
-    toolId: z.string().min(1),
-    inputDigest: z.string().min(1),
-    scope: z.object({
-        extraFiles: z.array(ExtraFileSchema),
-        network: z.enum(["none", "all_outbound"]),
-    }).strict(),
-    version: z.literal(1),
-}).strict();
-
-const GrantSchema = z.object({
-    id: z.string().min(1),
-    scope: z.enum(["goal", "workspace"]),
-    workspaceId: z.string().min(1),
-    goalId: z.string().min(1).optional(),
-    source: z.object({
-        goalId: z.string().min(1),
-        runId: z.string().min(1),
-        actionId: z.string().min(1),
-        approvalInputId: z.string().min(1),
-    }).strict(),
-    matcher: MatcherSchema,
-    status: z.enum(["pending", "active", "revoked"]),
-}).strict().superRefine((grant, context) => {
-    if (grant.scope === "goal" && grant.goalId === undefined) {
-        context.addIssue({ code: "custom", path: ["goalId"], message: "goal Grant requires goalId" });
-    }
-    if (grant.scope === "workspace" && grant.goalId !== undefined) {
-        context.addIssue({ code: "custom", path: ["goalId"], message: "workspace Grant cannot bind goalId" });
-    }
-    if (grant.source.goalId !== grant.goalId && grant.scope === "goal") {
-        context.addIssue({ code: "custom", path: ["source", "goalId"], message: "goal Grant source must match goalId" });
-    }
-});
-
-const LedgerSchema = z.object({
-    version: z.literal(1),
-    grants: z.array(GrantSchema),
-}).strict().superRefine((ledger, context) => {
-    const ids = new Set<string>();
-    const sources = new Set<string>();
-    for (const [index, grant] of ledger.grants.entries()) {
-        if (ids.has(grant.id)) {
-            context.addIssue({ code: "custom", path: ["grants", index, "id"], message: "duplicate Grant ID" });
-        }
-        ids.add(grant.id);
-        const source = `${grant.source.goalId}\0${grant.source.runId}\0${grant.source.actionId}\0${grant.source.approvalInputId}`;
-        if (sources.has(source)) {
-            context.addIssue({ code: "custom", path: ["grants", index, "source"], message: "duplicate Grant source" });
-        }
-        sources.add(source);
-    }
-});
-
-type Ledger = { readonly version: 1; readonly grants: readonly SandboxGrant[] };
 
 /**
  * 将当前 Workspace 的用户沙箱授权保存为私有 JSON 账本。
@@ -201,12 +143,11 @@ export class JsonFileSandboxGrantStore implements SandboxGrantStore {
         let parsed: unknown;
         try { parsed = JSON.parse(content) as unknown; }
         catch (error) { throw new Error("Sandbox Grant ledger is invalid JSON", { cause: error }); }
-        const validated = LedgerSchema.safeParse(parsed);
-        if (!validated.success) throw new Error("Sandbox Grant ledger violates its current schema", { cause: validated.error });
-        return {
-            version: validated.data.version,
-            grants: validated.data.grants.map(toSandboxGrant),
-        };
+        const validated = sandboxGrantLedgerFileBinding.read(parsed, "reject");
+        if (!validated.ok) throw new Error("Sandbox Grant ledger violates its current schema", { cause: validated.issues });
+        const issues = validateSandboxGrantLedger(validated.data);
+        if (issues.length > 0) throw new Error("Sandbox Grant ledger violates its current schema", { cause: issues });
+        return validated.data;
     }
 
     private async mutate<T>(update: (ledger: Ledger) => { readonly ledger: Ledger; readonly result: T }): Promise<T> {
@@ -256,18 +197,6 @@ function sameGrantRequest(left: SandboxGrant, right: Omit<SandboxGrant, "id">): 
         const rf = rm.scope.extraFiles[i];
         return rf !== undefined && lf.canonicalPath === rf.canonicalPath && lf.access === rf.access && lf.kind === rf.kind;
     });
-}
-
-function toSandboxGrant(grant: z.infer<typeof GrantSchema>): SandboxGrant {
-    return {
-        id: grant.id,
-        scope: grant.scope,
-        workspaceId: grant.workspaceId,
-        ...(grant.goalId === undefined ? {} : { goalId: grant.goalId }),
-        source: grant.source,
-        matcher: grant.matcher,
-        status: grant.status,
-    };
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

@@ -1,17 +1,25 @@
 import { encodePathSegment } from "./path-segment";
-import { isRecord } from "../../contracts/src/index";
-import { isModelConversationMessage, type ModelAssistantMessage } from "../../model-contracts/src/index";
+import { isModelConversationMessage } from "../../model-contracts/src/index";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { ModelInputMessage, ModelInputRecord, ModelInputStore } from "../../runtime/src/model-input";
+import { modelInputFileBinding } from "./generated/model-input-manifest-binding";
+import type { ModelInputManifest, ModelInputManifestMessage } from "./model-input-file";
 import { appendJsonl } from "./json-file-write";
 import { KeyedSerialQueue } from "./keyed-serial-queue";
 
-type Manifest = Omit<ModelInputRecord, "messages"> & { schemaVersion: 1; messages: { role: ModelInputMessage["role"]; source: ModelInputMessage["source"]; ref: string; callId?: string; toolId?: string; reasoning?: string; toolCalls?: ModelAssistantMessage["toolCalls"]; continuation?: ModelAssistantMessage["continuation"] }[] };
-const sources = ["system", "conversation", "section", "working_context", "stage", "request", "native_history"];
 const digest = (text: string) => createHash("sha256").update(text).digest("hex");
 const id = (value: string) => { if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) throw new Error("Invalid model input identity"); return encodePathSegment(value); };
+
+function isValidManifest(value: ModelInputManifest, goalId: string, runId: string): boolean {
+    if (value.goalId !== goalId || value.runId !== runId) return false;
+    if (!/^[A-Za-z0-9_-]{1,256}$/.test(value.callId)) return false;
+    if (value.executionUnitId !== undefined && !/^[A-Za-z0-9_-]{1,256}$/.test(value.executionUnitId)) return false;
+    if (!Number.isSafeInteger(value.stepIndex) || value.stepIndex < 1) return false;
+    if (!Number.isFinite(Date.parse(value.occurredAt))) return false;
+    return true;
+}
 
 /**
  * 按 Goal/Run 保存调用清单与 SHA-256 寻址正文，未变化的 system 文本不重复写入。
@@ -36,7 +44,7 @@ export class JsonFileModelInputStore implements ModelInputStore {
         return this.queue.run(key, async () => {
             await mkdir(bodyDirectory, { recursive: true, mode: 0o700 });
             await mkdir(directory, { recursive: true, mode: 0o700 });
-            const messages: Manifest["messages"] = [];
+            const messages: ModelInputManifestMessage[] = [];
             for (const message of record.messages) {
                 const ref = digest(message.content);
                 try { await writeFile(join(bodyDirectory, `${ref}.txt`), message.content, { flag: "wx", mode: 0o600 }); }
@@ -45,7 +53,7 @@ export class JsonFileModelInputStore implements ModelInputStore {
                     if (await readFile(join(bodyDirectory, `${ref}.txt`), "utf8") !== message.content) throw new Error("Model input content hash mismatch");
                 }
                 const { content: _, ...fields } = message;
-                messages.push({ ...fields, ref });
+                messages.push({ ...fields, ref } as ModelInputManifestMessage);
             }
             const { messages: _, ...identity } = record;
             await appendJsonl({
@@ -64,17 +72,12 @@ export class JsonFileModelInputStore implements ModelInputStore {
         const bodies = new Map<string, string>();
         const result: ModelInputRecord[] = [];
         for (const line of content.split("\n").filter(Boolean)) {
-            const value: unknown = JSON.parse(line);
-            if (!isRecord(value) || value.schemaVersion !== 1 || value.goalId !== goalId || value.runId !== runId
-                || typeof value.callId !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(value.callId)
-                || !["think", "decide", "completion_review"].includes(String(value.stage)) || !Number.isSafeInteger(value.stepIndex) || Number(value.stepIndex) < 1
-                || typeof value.occurredAt !== "string" || !Number.isFinite(Date.parse(value.occurredAt))
-                || value.executionUnitId !== undefined && (typeof value.executionUnitId !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(value.executionUnitId))
-                || !Array.isArray(value.messages)) throw new Error("Invalid model input manifest");
+            const read = modelInputFileBinding.read(JSON.parse(line) as unknown, "reject");
+            if (!read.ok || !isValidManifest(read.data, goalId, runId)) throw new Error("Invalid model input manifest");
+            const value = read.data;
             const messages: ModelInputMessage[] = [];
             for (const message of value.messages) {
-                if (!isRecord(message) || !["system", "user", "assistant", "tool"].includes(String(message.role)) || !sources.includes(String(message.source))
-                    || typeof message.ref !== "string" || !/^[a-f0-9]{64}$/.test(message.ref)) throw new Error("Invalid model input message reference");
+                if (!/^[a-f0-9]{64}$/.test(message.ref)) throw new Error("Invalid model input message reference");
                 let body = bodies.get(message.ref);
                 if (body === undefined) {
                     body = await readFile(join(dirname(directory), "messages", `${message.ref}.txt`), "utf8");
@@ -84,10 +87,18 @@ export class JsonFileModelInputStore implements ModelInputStore {
                 const { ref: _, source, ...fields } = message;
                 const restored = { ...fields, content: body };
                 if (!isModelConversationMessage(restored)) throw new Error("Invalid model input message");
-                messages.push({ ...restored, source: source as ModelInputMessage["source"] });
+                messages.push({ ...restored, source });
             }
-            result.push({ goalId, runId, callId: value.callId, stage: value.stage as ModelInputRecord["stage"], stepIndex: Number(value.stepIndex), occurredAt: value.occurredAt,
-                ...(value.executionUnitId === undefined ? {} : { executionUnitId: value.executionUnitId as string }), messages });
+            result.push({
+                goalId,
+                runId,
+                callId: value.callId,
+                stage: value.stage,
+                stepIndex: value.stepIndex,
+                occurredAt: value.occurredAt,
+                ...(value.executionUnitId === undefined ? {} : { executionUnitId: value.executionUnitId }),
+                messages,
+            });
         }
         return result;
     }

@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 type SnapshotContextLookupNeed =
     | "conversation_history"
     | "historical_execution"
@@ -157,10 +155,61 @@ export type GoalSnapshotObservationV1 =
     }
     | { readonly kind: "rejected"; readonly reason: string };
 
+/** Snapshot 中的一条 Memory Patch 操作。 */
+export type GoalSnapshotMemoryPatchOperationV1 =
+    | {
+        readonly type: "upsert_fact";
+        readonly fact: {
+            readonly subject: string;
+            readonly predicate: string;
+            readonly value: SnapshotJsonValue;
+            readonly stability: "stable" | "last_observed";
+            readonly evidenceSequences: readonly number[];
+            readonly scope?: "goal" | "phase" | undefined;
+        };
+    }
+    | {
+        readonly type: "retire_fact";
+        readonly fact: {
+            readonly id: string;
+            readonly evidenceSequences: readonly number[];
+        };
+    }
+    | {
+        readonly type: "create_hypothesis";
+        readonly hypothesis: {
+            readonly statement: string;
+            readonly scope?: "goal" | "phase" | undefined;
+        };
+    }
+    | {
+        readonly type: "update_hypothesis";
+        readonly hypothesis: {
+            readonly id: string;
+            readonly statement?: string | undefined;
+            readonly status?: "active" | "resolved" | "superseded" | undefined;
+        };
+    }
+    | {
+        readonly type: "create_blocker";
+        readonly blocker: {
+            readonly description: string;
+            readonly scope?: "goal" | "phase" | undefined;
+        };
+    }
+    | {
+        readonly type: "update_blocker";
+        readonly blocker: {
+            readonly id: string;
+            readonly description?: string | undefined;
+            readonly status?: "active" | "resolved" | "superseded" | undefined;
+        };
+    };
+
 /** Snapshot 中的 Memory Patch。 */
 export interface GoalSnapshotMemoryPatchV1 {
     readonly protocolVersion: 1;
-    readonly operations: readonly Record<string, unknown>[];
+    readonly operations: readonly GoalSnapshotMemoryPatchOperationV1[];
 }
 
 /** Structured complete Decision 的完成证据。 */
@@ -909,720 +958,403 @@ export interface GoalSnapshotV1 {
     readonly state: GoalSnapshotStateV1;
 }
 
-const NonEmptyStringSchema = z.string().min(1);
-const JsonValueSchema = z.json();
+type SnapshotRulePath = readonly (string | number | "*")[];
 
-const GoalSnapshotProfileSchema = z.object({
-    id: NonEmptyStringSchema,
-    name: NonEmptyStringSchema.optional(),
-    description: NonEmptyStringSchema.optional(),
-    systemPrompt: z.string(),
-    instructions: z.array(z.string()),
-    toolIds: z.array(NonEmptyStringSchema),
-}).strict();
+interface SnapshotIssue {
+    readonly message: string;
+    readonly path: readonly PropertyKey[];
+}
 
-const GoalSnapshotCompletionAcceptanceSchema = z.object({
-    expectToolId: NonEmptyStringSchema,
-    expectOutcome: z.enum(["success", "failure"]),
-}).strict();
+interface SnapshotStringRule {
+    readonly kind: "string";
+    readonly minLength?: number;
+    readonly maxLength?: number;
+    readonly pattern?: RegExp;
+}
 
-const GoalSnapshotCompletionCriterionSchema = z.object({
-    text: NonEmptyStringSchema,
-    acceptance: GoalSnapshotCompletionAcceptanceSchema.optional(),
-}).strict();
+interface SnapshotIntegerRule {
+    readonly kind: "integer";
+    readonly min?: number;
+    readonly max?: number;
+    readonly safe?: boolean;
+}
 
-const GoalSnapshotTaskSchema = z.object({
-    objective: NonEmptyStringSchema,
-    completionCriteria: z.array(GoalSnapshotCompletionCriterionSchema),
-}).strict();
+interface SnapshotArrayRule {
+    readonly kind: "array";
+    readonly minLength?: number;
+    readonly maxLength?: number;
+    readonly items?: "non-empty-string" | "string" | "positive-integer" | "non-negative-integer";
+    readonly itemMaxLength?: number;
+}
 
-const GoalSnapshotMessageSourceSchema = z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("goal_intent"), goalId: NonEmptyStringSchema }).strict(),
-    z.object({ kind: z.literal("user_input"), inputId: NonEmptyStringSchema }).strict(),
-    z.object({ kind: z.literal("interaction_response"), requestId: NonEmptyStringSchema }).strict(),
-    z.object({
-        kind: z.literal("model_text"),
-        modelCallId: NonEmptyStringSchema,
-        blockIndex: z.number().int().nonnegative(),
-    }).strict(),
-    z.object({
-        kind: z.literal("stage_output"),
-        executionUnitId: NonEmptyStringSchema,
-        blockIndex: z.number().int().nonnegative(),
-    }).strict(),
-    z.object({ kind: z.literal("completion_candidate"), candidateId: NonEmptyStringSchema }).strict(),
-    z.object({ kind: z.literal("host_execution"), actionId: NonEmptyStringSchema }).strict(),
-    z.object({ kind: z.literal("runtime_notice"), noticeId: NonEmptyStringSchema }).strict(),
-]);
+interface SnapshotRule {
+    readonly path: SnapshotRulePath;
+    readonly rule: SnapshotStringRule | SnapshotIntegerRule | SnapshotArrayRule;
+}
 
-const GoalSnapshotMessagePositionSchema = z.object({
-    afterSequence: z.number().int().nonnegative(),
-    order: z.number().int().nonnegative(),
-}).strict();
+const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/;
+const SHA256_HEX = /^[a-f0-9]{64}$/;
 
-const GoalSnapshotMessageSchema = z.discriminatedUnion("role", [
-    z.object({
-        role: z.literal("user"),
-        content: z.string(),
-        messageId: NonEmptyStringSchema,
-        runId: NonEmptyStringSchema,
-        position: GoalSnapshotMessagePositionSchema,
-        source: GoalSnapshotMessageSourceSchema,
-    }).strict(),
-    z.object({
-        role: z.literal("assistant"),
-        assistant: z.object({ profileId: NonEmptyStringSchema }).strict(),
-        content: z.string(),
-        messageId: NonEmptyStringSchema,
-        runId: NonEmptyStringSchema,
-        position: GoalSnapshotMessagePositionSchema,
-        purpose: z.enum(["process", "answer", "notice"]),
-        source: GoalSnapshotMessageSourceSchema,
-    }).strict(),
-]);
+function stringRule(path: SnapshotRulePath, options: Omit<SnapshotStringRule, "kind"> = {}): SnapshotRule {
+    return { path, rule: { kind: "string", ...options } };
+}
 
-const ToolCallActionSchema = z.object({
-    actionId: NonEmptyStringSchema,
-    toolId: NonEmptyStringSchema,
-    input: JsonValueSchema,
-}).strict();
+function integerRule(
+    path: SnapshotRulePath,
+    options: Omit<SnapshotIntegerRule, "kind"> = {},
+): SnapshotRule {
+    return { path, rule: { kind: "integer", ...options } };
+}
 
-const ObservationSchema = z.discriminatedUnion("kind", [
-    z.object({
-        kind: z.literal("success"),
-        output: JsonValueSchema,
-        summary: NonEmptyStringSchema,
-    }).strict(),
-    z.object({
-        kind: z.literal("failure"),
-        code: NonEmptyStringSchema,
-        message: NonEmptyStringSchema,
-        retryable: z.boolean(),
-        details: JsonValueSchema.optional(),
-    }).strict(),
-    z.object({
-        kind: z.literal("rejected"),
-        reason: NonEmptyStringSchema,
-    }).strict(),
-]);
+function arrayRule(
+    path: SnapshotRulePath,
+    options: Omit<SnapshotArrayRule, "kind"> = {},
+): SnapshotRule {
+    return { path, rule: { kind: "array", ...options } };
+}
 
-const MemoryPatchOperationSchema = z.discriminatedUnion("type", [
-    z.object({
-        type: z.literal("upsert_fact"),
-        fact: z.object({
-            subject: NonEmptyStringSchema,
-            predicate: NonEmptyStringSchema,
-            value: JsonValueSchema,
-            stability: z.enum(["stable", "last_observed"]),
-            evidenceSequences: z.array(z.number().int().positive()),
-            scope: z.enum(["goal", "phase"]).optional(),
-        }).strict(),
-    }).strict(),
-    z.object({
-        type: z.literal("retire_fact"),
-        fact: z.object({
-            id: NonEmptyStringSchema,
-            evidenceSequences: z.array(z.number().int().positive()),
-        }).strict(),
-    }).strict(),
-    z.object({
-        type: z.literal("create_hypothesis"),
-        hypothesis: z.object({
-            statement: NonEmptyStringSchema,
-            scope: z.enum(["goal", "phase"]).optional(),
-        }).strict(),
-    }).strict(),
-    z.object({
-        type: z.literal("update_hypothesis"),
-        hypothesis: z.object({
-            id: NonEmptyStringSchema,
-            statement: NonEmptyStringSchema.optional(),
-            status: z.enum(["active", "resolved", "superseded"]).optional(),
-        }).strict().refine(
-            (value) => value.statement !== undefined || value.status !== undefined,
-        ),
-    }).strict(),
-    z.object({
-        type: z.literal("create_blocker"),
-        blocker: z.object({
-            description: NonEmptyStringSchema,
-            scope: z.enum(["goal", "phase"]).optional(),
-        }).strict(),
-    }).strict(),
-    z.object({
-        type: z.literal("update_blocker"),
-        blocker: z.object({
-            id: NonEmptyStringSchema,
-            description: NonEmptyStringSchema.optional(),
-            status: z.enum(["active", "resolved", "superseded"]).optional(),
-        }).strict().refine(
-            (value) => value.description !== undefined || value.status !== undefined,
-        ),
-    }).strict(),
-]);
+/**
+ * Snapshot 字段级约束。
+ *
+ * @remarks
+ * 结构、联合和封闭对象由生成绑定校验；本表只保留 TS 类型无法表达的非空、
+ * 数值范围、数组长度、元素约束和摘要格式。路径中的 `*` 表示数组元素。
+ */
+const snapshotRules: readonly SnapshotRule[] = [
+    stringRule(["id"], { minLength: 1 }),
+    stringRule(["definition", "profile", "id"], { minLength: 1 }),
+    stringRule(["definition", "profile", "name"], { minLength: 1 }),
+    stringRule(["definition", "profile", "description"], { minLength: 1 }),
+    arrayRule(["definition", "profile", "toolIds"], { items: "non-empty-string" }),
+    integerRule(["definition", "executionPolicy", "maxSteps"], { min: 0 }),
+    stringRule(["state", "messages", "*", "messageId"], { minLength: 1 }),
+    stringRule(["state", "messages", "*", "runId"], { minLength: 1 }),
+    stringRule(["state", "messages", "*", "assistant", "profileId"], { minLength: 1 }),
+    integerRule(["state", "messages", "*", "position", "afterSequence"], { min: 0 }),
+    integerRule(["state", "messages", "*", "position", "order"], { min: 0 }),
+    stringRule(["state", "messages", "*", "source", "goalId"], { minLength: 1 }),
+    stringRule(["state", "messages", "*", "source", "inputId"], { minLength: 1 }),
+    stringRule(["state", "messages", "*", "source", "requestId"], { minLength: 1 }),
+    stringRule(["state", "messages", "*", "source", "modelCallId"], { minLength: 1 }),
+    stringRule(["state", "messages", "*", "source", "executionUnitId"], { minLength: 1 }),
+    stringRule(["state", "messages", "*", "source", "candidateId"], { minLength: 1 }),
+    stringRule(["state", "messages", "*", "source", "actionId"], { minLength: 1 }),
+    stringRule(["state", "messages", "*", "source", "noticeId"], { minLength: 1 }),
+    integerRule(["state", "messages", "*", "source", "blockIndex"], { min: 0 }),
+    stringRule(["state", "run", "id"], { minLength: 1 }),
+    arrayRule(["state", "run", "exposedToolIds"], { items: "non-empty-string" }),
+    integerRule(["state", "run", "stepCount"], { min: 0 }),
+    integerRule(["state", "run", "committedThroughSequence"], { min: 0 }),
+    stringRule(["state", "run", "memoryRevision", "eventId"], { minLength: 1 }),
+    integerRule(["state", "run", "memoryRevision", "sequence"], { min: 1 }),
+    stringRule(["state", "run", "approvedTask", "objective"], { minLength: 1 }),
+    stringRule(["state", "run", "approvedTask", "completionCriteria", "*", "text"], { minLength: 1 }),
+    stringRule(["state", "run", "approvedTask", "completionCriteria", "*", "acceptance", "expectToolId"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "action", "actionId"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "action", "toolId"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "action", "observation", "summary"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "action", "observation", "code"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "action", "observation", "message"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "action", "observation", "reason"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingAction", "action", "actionId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingAction", "action", "toolId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingAction", "executionUnitId"], { minLength: 1 }),
+    integerRule(["state", "run", "pendingAction", "attemptsStarted"], { min: 1, max: 3 }),
+    stringRule(["state", "run", "pendingAction", "grantId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingAction", "approvalInputId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingAction", "recoveryRef"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingAction", "effectiveSandboxScope", "extraFiles", "*", "canonicalPath"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingAction", "executionVersion", "original", "actionId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingAction", "executionVersion", "original", "toolId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingAction", "executionVersion", "reviewRef"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingActionBatch", "batchId"], { minLength: 1 }),
+    arrayRule(["state", "run", "pendingActionBatch", "remaining"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingActionBatch", "remaining", "*", "actionId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingActionBatch", "remaining", "*", "toolId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingProgram", "programId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingProgram", "action", "actionId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingProgram", "action", "toolId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingProgram", "executionUnitId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingProgram", "codeHash"], { pattern: SHA256_HEX }),
+    stringRule(["state", "run", "pendingProgram", "workerHash"], { pattern: SHA256_HEX }),
+    stringRule(["state", "run", "pendingProgram", "nodeVersion"], { minLength: 1 }),
+    integerRule(["state", "run", "pendingProgram", "fixedTime"], { min: 0 }),
+    integerRule(["state", "run", "pendingProgram", "seed"], { min: 0 }),
+    integerRule(["state", "run", "pendingProgram", "nextCallIndex"], { min: 0, max: 128 }),
+    integerRule(["state", "run", "pendingProgram", "resultBytes"], { min: 0, max: 256 * 1024 * 1024 }),
+    stringRule(["state", "run", "pendingProgram", "pendingStop", "code"], { minLength: 1, maxLength: 80 }),
+    stringRule(["state", "run", "pendingProgram", "pendingStop", "message"], { minLength: 1, maxLength: 240 }),
+    stringRule(["state", "run", "pendingThink", "goalId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingThink", "runId"], { minLength: 1 }),
+    integerRule(["state", "run", "pendingThink", "stepOrdinal"], { min: 1 }),
+    stringRule(["state", "run", "pendingThink", "executionUnitId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingThink", "inputBoundary"], { pattern: SHA256_DIGEST }),
+    stringRule(["state", "run", "pendingThink", "latestThinkEventId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingModelRepair", "goalId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingModelRepair", "runId"], { minLength: 1 }),
+    integerRule(["state", "run", "pendingModelRepair", "stepOrdinal"], { min: 1 }),
+    stringRule(["state", "run", "pendingModelRepair", "executionUnitId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingModelRepair", "inputBoundary"], { pattern: SHA256_DIGEST }),
+    integerRule(["state", "run", "pendingModelRepair", "attemptsStarted"], { min: 0, max: 3 }),
+    integerRule(["state", "run", "pendingModelRepair", "continuationsStarted"], { min: 0, max: 3 }),
+    stringRule(["state", "run", "pendingModelRepair", "latestAttemptEventId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingModelRepair", "latestFeedbackEventId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingModelRepair", "thinkRequestId"], { minLength: 1 }),
+    stringRule(["state", "run", "steerInputs", "*", "messageId"], { minLength: 1 }),
+    stringRule(["state", "run", "steerInputs", "*", "content"], { minLength: 1, maxLength: 64_000 }),
+    integerRule(["state", "run", "steerInputs", "*", "messageIndex"], { min: 0 }),
+    stringRule(["state", "run", "interruption", "requestId"], { minLength: 1 }),
+    stringRule(["state", "run", "interruption", "interruptedActions", "*", "actionId"], { minLength: 1 }),
+    stringRule(["state", "run", "interruption", "interruptedActions", "*", "toolId"], { minLength: 1 }),
+    stringRule(["state", "run", "stopReason", "message"], { minLength: 1 }),
+    stringRule(["state", "run", "currentStage", "stageId"], { minLength: 1 }),
+    integerRule(["state", "run", "currentStage", "revision"], { min: 1 }),
+    stringRule(["state", "run", "currentStage", "target"], { minLength: 1 }),
+    arrayRule(["state", "run", "currentStage", "acceptanceCriteria"], { minLength: 1, items: "non-empty-string" }),
+    stringRule(["state", "run", "currentStage", "previousStageResultRef", "stageId"], { minLength: 1 }),
+    integerRule(["state", "run", "currentStage", "previousStageResultRef", "sequence"], { min: 0 }),
+    stringRule(["state", "run", "currentStage", "latestReviewRejection", "feedback"], { minLength: 1 }),
+    integerRule(["state", "run", "currentStage", "latestReviewRejection", "rejectedAtSequence"], { min: 0 }),
+    integerRule(["state", "run", "currentStage", "acceptedSequence"], { min: 0 }),
+    integerRule(["state", "run", "planRoute", "revision"], { min: 1 }),
+    stringRule(["state", "run", "planRoute", "revisionReason"], { minLength: 1 }),
+    integerRule(["state", "run", "planRoute", "nextStageIndex"], { min: 0 }),
+    integerRule(["state", "run", "planRoute", "nextStageOrdinal"], { min: 1 }),
+    arrayRule(["state", "run", "planRoute", "stages"], { minLength: 1 }),
+    stringRule(["state", "run", "planRoute", "stages", "*", "stageId"], { minLength: 1 }),
+    integerRule(["state", "run", "planRoute", "stages", "*", "revision"], { min: 1 }),
+    stringRule(["state", "run", "planRoute", "stages", "*", "target"], { minLength: 1 }),
+    arrayRule(["state", "run", "planRoute", "stages", "*", "acceptanceCriteria"], { minLength: 1, items: "non-empty-string" }),
+    integerRule(["state", "run", "planRoute", "stages", "*", "acceptedSequence"], { min: 0 }),
+    stringRule(["state", "run", "pendingInteraction", "requestId"], { minLength: 1 }),
+    arrayRule(["state", "run", "pendingInteraction", "questions"], { minLength: 1, maxLength: 3 }),
+    stringRule(["state", "run", "pendingInteraction", "questions", "*", "id"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingInteraction", "questions", "*", "header"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingInteraction", "questions", "*", "question"], { minLength: 1 }),
+    arrayRule(["state", "run", "pendingInteraction", "questions", "*", "options"], { minLength: 2, maxLength: 3 }),
+    stringRule(["state", "run", "pendingInteraction", "questions", "*", "options", "*", "id"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingInteraction", "questions", "*", "options", "*", "label"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingInteraction", "questions", "*", "options", "*", "description"], { minLength: 1 }),
+    integerRule(["state", "run", "pendingInteraction", "routeRevision", "baseRevision"], { min: 1 }),
+    arrayRule(["state", "run", "pendingInteraction", "routeRevision", "candidate", "stages"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingInteraction", "routeRevision", "candidate", "stages", "*", "target"], { minLength: 1 }),
+    arrayRule(["state", "run", "pendingInteraction", "routeRevision", "candidate", "stages", "*", "acceptanceCriteria"], { minLength: 1, items: "non-empty-string" }),
+    stringRule(["state", "run", "pendingInteraction", "routeRevision", "reason"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingInteraction", "routeRevision", "approvalRequest"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingInteraction", "routeRevision", "approvalOptionId"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingInteraction", "proposal", "objective"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingInteraction", "proposal", "completionCriteria", "*", "text"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingInteraction", "proposal", "completionCriteria", "*", "acceptance", "expectToolId"], { minLength: 1 }),
+    arrayRule(["state", "run", "pendingInteraction", "planRouteCandidate", "stages"], { minLength: 1 }),
+    stringRule(["state", "run", "pendingInteraction", "planRouteCandidate", "stages", "*", "target"], { minLength: 1 }),
+    arrayRule(["state", "run", "pendingInteraction", "planRouteCandidate", "stages", "*", "acceptanceCriteria"], { minLength: 1, items: "non-empty-string" }),
+    stringRule(["state", "run", "pendingInteraction", "approvalRequest"], { minLength: 1 }),
+    integerRule(["state", "run", "contextEpoch", "number"], { min: 0 }),
+    integerRule(["state", "run", "contextEpoch", "conversationStartIndex"], { min: 0 }),
+    integerRule(["state", "run", "contextEpoch", "openedAtSequence"], { min: 0 }),
+    integerRule(["state", "commitRevision"], { min: 0 }),
+    stringRule(["state", "modelSelection", "provider"], { minLength: 1 }),
+    stringRule(["state", "modelSelection", "profileId"], { minLength: 1 }),
+    stringRule(["state", "modelSelection", "modelId"], { minLength: 1 }),
+    integerRule(["state", "modelSelection", "contextWindowTokens"], { min: 1 }),
+    integerRule(["state", "modelSelection", "maxOutputTokens"], { min: 1 }),
+    integerRule(["state", "goalPlan", "revision"], { min: 0 }),
+    stringRule(["state", "goalPlan", "items", "*", "id"], { minLength: 1 }),
+    stringRule(["state", "goalPlan", "items", "*", "content"], { minLength: 1 }),
+    integerRule(["state", "goalPlan", "items", "*", "position"], { min: 0 }),
+    stringRule(["state", "completedRuns", "*", "runId"], { minLength: 1 }),
+    integerRule(["state", "completedRuns", "*", "stepCount"], { min: 0 }),
+    integerRule(["state", "completedRuns", "*", "committedThroughSequence"], { min: 0 }),
+    integerRule(["state", "completedRuns", "*", "messageRange", "start"], { min: 0 }),
+    integerRule(["state", "completedRuns", "*", "messageRange", "end"], { min: 0 }),
+    stringRule(["state", "completedRuns", "*", "continuation", "messageId"], { minLength: 1 }),
+    stringRule(["state", "completedRuns", "*", "continuation", "content"], { minLength: 1 }),
+    stringRule(["state", "completedRuns", "*", "continuation", "nextRunId"], { minLength: 1 }),
+    stringRule(["state", "inputLedger", "*", "inputId"], { minLength: 1 }),
+    stringRule(["state", "inputLedger", "*", "digest"], { pattern: SHA256_DIGEST }),
+    integerRule(["state", "inputLedger", "*", "sequence"], { min: 1 }),
+    integerRule(["state", "inputLedger", "*", "admittedAtRevision"], { min: 0 }),
+    stringRule(["state", "inputLedger", "*", "targetRunId"], { minLength: 1 }),
+    stringRule(["state", "inputLedger", "*", "appliedRunId"], { minLength: 1 }),
+    integerRule(["state", "inputLedger", "*", "messageIndex"], { min: 0 }),
+    integerRule(["state", "messageQueue", "revision"], { min: 0 }),
+    stringRule(["state", "messageQueue", "items", "*", "inputId"], { minLength: 1 }),
+    stringRule(["state", "messageQueue", "items", "*", "content"], { minLength: 1 }),
+    integerRule(["state", "messageQueue", "items", "*", "sequence"], { min: 1 }),
+    stringRule(["state", "messageQueue", "pause", "runId"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "result", "summary"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "result", "reason"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "result", "error"], { minLength: 1 }),
+    integerRule(["state", "run", "lastStep", "result", "criterionIndex"], { min: 0 }),
+    integerRule(["state", "run", "lastStep", "result", "completionEvidence", "*", "criterionIndex"], { min: 0 }),
+    arrayRule(["state", "run", "lastStep", "result", "evidenceSequences"], { items: "non-negative-integer" }),
+    arrayRule(["state", "run", "lastStep", "result", "completionEvidence", "*", "evidenceSequences"], { items: "positive-integer" }),
+    stringRule(["state", "run", "lastStep", "result", "question"], { minLength: 1, maxLength: 1024 }),
+    stringRule(["state", "run", "lastStep", "result", "query"], { minLength: 1, maxLength: 512 }),
+    stringRule(["state", "run", "lastStep", "result", "cursor"], { minLength: 1, maxLength: 512 }),
+    stringRule(["state", "run", "lastStep", "result", "category"], { minLength: 1, maxLength: 64 }),
+    stringRule(["state", "run", "lastStep", "result", "sourceRef"], { minLength: 1, maxLength: 512 }),
+    integerRule(["state", "run", "lastStep", "result", "limit"], { min: 1, max: 50 }),
+    integerRule(["state", "run", "lastStep", "result", "offset"], { min: 0 }),
+    arrayRule(["state", "run", "lastStep", "result", "filters", "eventTypes"], { maxLength: 16, items: "non-empty-string" }),
+    arrayRule(["state", "run", "lastStep", "result", "filters", "toolIds"], { maxLength: 16, items: "non-empty-string" }),
+    arrayRule(["state", "run", "lastStep", "result", "filters", "actionIds"], { maxLength: 16, items: "non-empty-string" }),
+    arrayRule(["state", "run", "lastStep", "result", "filters", "stepIndexes"], { maxLength: 16, items: "non-negative-integer" }),
+    arrayRule(["state", "run", "lastStep", "result", "filters", "paths"], { maxLength: 16, items: "non-empty-string" }),
+    arrayRule(["state", "run", "lastStep", "result", "filters", "errorCodes"], { maxLength: 16, items: "non-empty-string" }),
+    arrayRule(["state", "run", "lastStep", "result", "filters", "objectIds"], { maxLength: 16, items: "non-empty-string" }),
+    integerRule(["state", "run", "lastStep", "result", "filters", "sequenceRange", "from"], { min: 0, safe: true }),
+    integerRule(["state", "run", "lastStep", "result", "filters", "sequenceRange", "to"], { min: 0, safe: true }),
+    integerRule(["state", "run", "lastStep", "result", "baseRevision"], { min: 0 }),
+    arrayRule(["state", "run", "lastStep", "result", "operations"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "result", "operations", "*", "content"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "result", "operations", "*", "id"], { minLength: 1 }),
+    integerRule(["state", "run", "lastStep", "result", "operations", "*", "position"], { min: 0 }),
+    arrayRule(["state", "run", "lastStep", "result", "operations", "*", "evidenceSequences"], { items: "non-negative-integer" }),
+    stringRule(["state", "run", "lastStep", "result", "target"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "result", "stageId"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "result", "reason"], { minLength: 1 }),
+    arrayRule(["state", "run", "lastStep", "result", "acceptanceCriteria"], { minLength: 1, items: "non-empty-string" }),
+    stringRule(["state", "run", "lastStep", "result", "approvalRequest"], { minLength: 1 }),
+    arrayRule(["state", "run", "lastStep", "result", "route", "stages"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "result", "route", "stages", "*", "target"], { minLength: 1 }),
+    arrayRule(["state", "run", "lastStep", "result", "route", "stages", "*", "acceptanceCriteria"], { minLength: 1, items: "non-empty-string" }),
+    stringRule(["state", "run", "lastStep", "result", "memoryPatch", "operations", "*", "fact", "subject"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "result", "memoryPatch", "operations", "*", "fact", "predicate"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "result", "memoryPatch", "operations", "*", "fact", "id"], { minLength: 1 }),
+    arrayRule(["state", "run", "lastStep", "result", "memoryPatch", "operations", "*", "fact", "evidenceSequences"], { items: "positive-integer" }),
+    stringRule(["state", "run", "lastStep", "result", "memoryPatch", "operations", "*", "hypothesis", "id"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "result", "memoryPatch", "operations", "*", "hypothesis", "statement"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "result", "memoryPatch", "operations", "*", "blocker", "id"], { minLength: 1 }),
+    stringRule(["state", "run", "lastStep", "result", "memoryPatch", "operations", "*", "blocker", "description"], { minLength: 1 }),
+];
 
-const MemoryPatchSchema = z.object({
-    protocolVersion: z.literal(1),
-    operations: z.array(MemoryPatchOperationSchema),
-}).strict();
-
-const CompletionEvidenceSchema = z.object({
-    criterionIndex: z.number().int().nonnegative(),
-    evidenceSequences: z.array(z.number().int().positive()),
-}).strict();
-
-const ContextLookupFiltersSchema = z.object({
-    eventTypes: z.array(NonEmptyStringSchema).max(16).optional(),
-    toolIds: z.array(NonEmptyStringSchema).max(16).optional(),
-    actionIds: z.array(NonEmptyStringSchema).max(16).optional(),
-    stepIndexes: z.array(z.number().int().nonnegative().safe()).max(16).optional(),
-    paths: z.array(NonEmptyStringSchema).max(16).optional(),
-    errorCodes: z.array(NonEmptyStringSchema).max(16).optional(),
-    objectIds: z.array(NonEmptyStringSchema).max(16).optional(),
-    sequenceRange: z.object({
-        from: z.number().int().nonnegative().safe(),
-        to: z.number().int().nonnegative().safe(),
-    }).strict().optional(),
-}).strict().superRefine((filters, context) => {
-    if (
-        filters.sequenceRange !== undefined
-        && filters.sequenceRange.to < filters.sequenceRange.from
-    ) {
-        context.addIssue({ code: "custom", message: "sequenceRange must not be inverted" });
+function collectSnapshotRuleIssues(goal: GoalSnapshotV1): SnapshotIssue[] {
+    const issues: SnapshotIssue[] = [];
+    for (const rule of snapshotRules) {
+        visitSnapshotRule(goal, rule.path, 0, rule.rule, [], issues);
     }
-});
+    return issues;
+}
 
-const ContextLookupDecisionResultSchema = z.object({
-    kind: z.literal("context_lookup"),
-    operation: z.enum(["history_search", "directory_browse", "directory_search", "source_expand"]).optional(),
-    need: z.enum(["conversation_history", "historical_execution", "decision_rationale"]).optional(),
-    question: NonEmptyStringSchema.max(1024).optional(),
-    filters: ContextLookupFiltersSchema.optional(),
-    query: NonEmptyStringSchema.max(512).optional(),
-    cursor: NonEmptyStringSchema.max(512).optional(),
-    limit: z.number().int().min(1).max(50).optional(),
-    category: NonEmptyStringSchema.max(64).optional(),
-    sourceRef: NonEmptyStringSchema.max(512).optional(),
-    offset: z.number().int().min(0).optional(),
-}).strict();
-
-const ToolDiscoveryDecisionResultSchema = z.object({
-    kind: z.literal("tool_discovery"),
-    query: NonEmptyStringSchema.max(512),
-}).strict();
-
-const GoalPlanPatchOperationSchema = z.discriminatedUnion("type", [
-    z.object({
-        type: z.literal("add"),
-        content: NonEmptyStringSchema,
-        position: z.number().int().nonnegative().optional(),
-    }).strict(),
-    z.object({
-        type: z.literal("update"),
-        id: NonEmptyStringSchema,
-        content: NonEmptyStringSchema.optional(),
-        status: z.enum(["pending", "in_progress", "completed", "cancelled"]).optional(),
-        evidenceSequences: z.array(z.number().int().nonnegative().safe()).optional(),
-    }).strict().refine(
-        (operation) => operation.content !== undefined || operation.status !== undefined,
-        { message: "update operation must change content or status" },
-    ).refine(
-        (operation) => operation.status !== "completed"
-            || (operation.evidenceSequences !== undefined && operation.evidenceSequences.length > 0),
-        { message: "completed Todo update must cite current Run evidence" },
-    ).refine(
-        (operation) => operation.status === "completed" || operation.evidenceSequences === undefined,
-        { message: "evidenceSequences is only valid when completing a Todo" },
-    ),
-    z.object({
-        type: z.literal("reorder"),
-        id: NonEmptyStringSchema,
-        position: z.number().int().nonnegative(),
-    }).strict(),
-    z.object({
-        type: z.literal("cancel"),
-        id: NonEmptyStringSchema,
-    }).strict(),
-]);
-
-const StructuredDecisionResultSchema = z.union([
-    z.object({
-        kind: z.literal("complete"),
-        summary: NonEmptyStringSchema,
-        evidenceSequences: z.array(z.number().int().nonnegative()),
-        memoryPatch: MemoryPatchSchema.optional(),
-    }).strict(),
-    z.object({
-        kind: z.literal("complete"),
-        summary: NonEmptyStringSchema,
-        completionEvidence: z.array(CompletionEvidenceSchema),
-        memoryPatch: MemoryPatchSchema.optional(),
-    }).strict(),
-    z.object({
-        kind: z.literal("wait"),
-        reason: NonEmptyStringSchema,
-        memoryPatch: MemoryPatchSchema.optional(),
-    }).strict(),
-    z.object({
-        kind: z.literal("fail"),
-        error: NonEmptyStringSchema,
-        memoryPatch: MemoryPatchSchema.optional(),
-    }).strict(),
-    ContextLookupDecisionResultSchema,
-    ToolDiscoveryDecisionResultSchema,
-    z.object({
-        kind: z.literal("goal_plan_update"),
-        baseRevision: z.number().int().nonnegative(),
-        operations: z.array(GoalPlanPatchOperationSchema).min(1),
-        memoryPatch: MemoryPatchSchema.optional(),
-    }).strict(),
-    z.object({
-        kind: z.literal("run_stage_update"),
-        stageId: NonEmptyStringSchema.optional(),
-        baseRevision: z.number().int().positive().optional(),
-        reason: NonEmptyStringSchema.optional(),
-        target: NonEmptyStringSchema,
-        acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
-        memoryPatch: MemoryPatchSchema.optional(),
-    }).strict(),
-    z.object({
-        kind: z.literal("run_stage_complete"),
-        stageId: NonEmptyStringSchema,
-        summary: NonEmptyStringSchema,
-        evidenceSequences: z.array(z.number().int().nonnegative()).optional(),
-        memoryPatch: MemoryPatchSchema.optional(),
-    }).strict(),
-    z.object({
-        kind: z.literal("run_plan_route_update"),
-        baseRevision: z.number().int().positive(),
-        reason: NonEmptyStringSchema,
-        route: z.object({
-            stages: z.array(z.object({
-                target: NonEmptyStringSchema,
-                acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
-            }).strict()).min(1),
-        }).strict(),
-        approvalRequest: NonEmptyStringSchema.optional(),
-        memoryPatch: MemoryPatchSchema.optional(),
-    }).strict(),
-]);
-
-const StepRecordSchema = z.discriminatedUnion("kind", [
-    z.object({
-        kind: z.literal("action"),
-        action: ToolCallActionSchema,
-        observation: ObservationSchema,
-    }).strict(),
-    z.object({
-        kind: z.literal("decision"),
-        result: StructuredDecisionResultSchema,
-    }).strict(),
-]);
-
-const ExecutionVersionSchema = z.object({
-    original: z.object({
-        actionId: NonEmptyStringSchema,
-        toolId: NonEmptyStringSchema,
-        input: JsonValueSchema,
-    }).strict(),
-    input: JsonValueSchema,
-    reviewRef: NonEmptyStringSchema,
-    scope: z.enum(["action", "goal", "workspace"]),
-    revision: z.object({
-        source: z.enum(["user", "host"]),
-    }).strict().optional(),
-}).strict();
-
-const PendingActionSchema = z.object({
-    action: ToolCallActionSchema,
-    status: z.enum(["approved", "awaiting_approval", "outcome_unknown"]),
-    executionUnitId: NonEmptyStringSchema.optional(),
-    attemptsStarted: z.number().int().min(1).max(3).optional(),
-    approvalScope: z.enum(["action", "goal", "workspace"]).optional(),
-    grantId: NonEmptyStringSchema.optional(),
-    approvalKind: z.enum(["tool", "sandbox"]).optional(),
-    effectiveSandboxScope: z.object({
-        extraFiles: z.array(z.object({
-            canonicalPath: NonEmptyStringSchema,
-            access: z.enum(["read", "write"]),
-            kind: z.enum(["file", "directory_tree"]),
-        }).strict()),
-        network: z.enum(["none", "all_outbound"]),
-    }).strict().optional(),
-    approvalInputId: NonEmptyStringSchema.optional(),
-    executionVersion: ExecutionVersionSchema.optional(),
-    recoveryRef: NonEmptyStringSchema.optional(),
-}).strict().superRefine((pending, context) => {
-    if (pending.status !== "approved" && (pending.approvalScope !== undefined || pending.grantId !== undefined)) {
-        context.addIssue({ code: "custom", path: ["approvalScope"], message: "unapproved Action cannot retain authorization" });
+function visitSnapshotRule(
+    value: unknown,
+    path: SnapshotRulePath,
+    index: number,
+    rule: SnapshotStringRule | SnapshotIntegerRule | SnapshotArrayRule,
+    actualPath: PropertyKey[],
+    issues: SnapshotIssue[],
+): void {
+    if (index === path.length) {
+        applySnapshotRule(value, rule, actualPath, issues);
+        return;
     }
-    if (pending.status === "approved") {
-        const scope = pending.approvalScope ?? "action";
-        if ((scope === "action") !== (pending.grantId === undefined)) {
-            context.addIssue({ code: "custom", path: ["grantId"], message: "approval scope and Grant identity are inconsistent" });
+
+    const segment = path[index];
+    if (segment === undefined) return;
+    if (segment === "*") {
+        if (!Array.isArray(value)) return;
+        for (const [itemIndex, item] of value.entries()) {
+            visitSnapshotRule(item, path, index + 1, rule, [...actualPath, itemIndex], issues);
+        }
+        return;
+    }
+
+    if (value === null || typeof value !== "object") return;
+    visitSnapshotRule(
+        (value as Record<string | number, unknown>)[segment],
+        path,
+        index + 1,
+        rule,
+        [...actualPath, segment],
+        issues,
+    );
+}
+
+function applySnapshotRule(
+    value: unknown,
+    rule: SnapshotStringRule | SnapshotIntegerRule | SnapshotArrayRule,
+    path: readonly PropertyKey[],
+    issues: SnapshotIssue[],
+): void {
+    if (value === undefined) return;
+
+    if (rule.kind === "string") {
+        if (typeof value !== "string") return;
+        if (rule.minLength !== undefined && value.length < rule.minLength) {
+            issues.push({ message: "string is shorter than its minimum length", path });
+        }
+        if (rule.maxLength !== undefined && value.length > rule.maxLength) {
+            issues.push({ message: "string exceeds its maximum length", path });
+        }
+        if (rule.pattern !== undefined && !rule.pattern.test(value)) {
+            issues.push({ message: "string does not match its required pattern", path });
+        }
+        return;
+    }
+
+    if (rule.kind === "integer") {
+        if (typeof value !== "number" || !Number.isInteger(value)) return;
+        if (rule.safe === true && !Number.isSafeInteger(value)) {
+            issues.push({ message: "integer exceeds the safe range", path });
+        }
+        if (rule.min !== undefined && value < rule.min) {
+            issues.push({ message: "integer is below its minimum", path });
+        }
+        if (rule.max !== undefined && value > rule.max) {
+            issues.push({ message: "integer exceeds its maximum", path });
+        }
+        return;
+    }
+
+    if (!Array.isArray(value)) return;
+    if (rule.minLength !== undefined && value.length < rule.minLength) {
+        issues.push({ message: "array is shorter than its minimum length", path });
+    }
+    if (rule.maxLength !== undefined && value.length > rule.maxLength) {
+        issues.push({ message: "array exceeds its maximum length", path });
+    }
+    if (rule.items === undefined) return;
+
+    for (const [itemIndex, item] of value.entries()) {
+        const itemPath = [...path, itemIndex];
+        if (rule.items === "string") {
+            if (typeof item !== "string") {
+                issues.push({ message: "array item must be a string", path: itemPath });
+            }
+            continue;
+        }
+        if (rule.items === "non-empty-string") {
+            if (typeof item !== "string" || item.length === 0) {
+                issues.push({ message: "array item must be a non-empty string", path: itemPath });
+            } else if (rule.itemMaxLength !== undefined && item.length > rule.itemMaxLength) {
+                issues.push({ message: "array item exceeds its maximum length", path: itemPath });
+            }
+            continue;
+        }
+        if (typeof item !== "number" || !Number.isInteger(item)) {
+            issues.push({ message: "array item must be an integer", path: itemPath });
+            continue;
+        }
+        if (rule.items === "positive-integer" && item < 1) {
+            issues.push({ message: "array item must be a positive integer", path: itemPath });
+        }
+        if (rule.items === "non-negative-integer" && item < 0) {
+            issues.push({ message: "array item must be a non-negative integer", path: itemPath });
         }
     }
-    if (pending.status === "awaiting_approval" && pending.attemptsStarted !== undefined) {
-        context.addIssue({ code: "custom", path: ["attemptsStarted"], message: "unapproved Action cannot have Tool attempts" });
-    }
-});
+}
 
-const PendingProgramSchema = z.object({
-    programId: NonEmptyStringSchema,
-    action: ToolCallActionSchema,
-    executionUnitId: NonEmptyStringSchema,
-    codeHash: z.string().regex(/^[a-f0-9]{64}$/),
-    workerHash: z.string().regex(/^[a-f0-9]{64}$/),
-    nodeVersion: NonEmptyStringSchema,
-    fixedTime: z.number().int().nonnegative(),
-    seed: z.number().int().nonnegative(),
-    nextCallIndex: z.number().int().nonnegative().max(128),
-    resultBytes: z.number().int().nonnegative().max(256 * 1024 * 1024),
-    pendingStop: z.object({
-        code: NonEmptyStringSchema.max(80),
-        message: NonEmptyStringSchema.max(240),
-    }).strict().optional(),
-}).strict();
-
-const PendingThinkSchema = z.object({
-    goalId: NonEmptyStringSchema,
-    runId: NonEmptyStringSchema,
-    stepOrdinal: z.number().int().positive(),
-    executionUnitId: NonEmptyStringSchema,
-    inputBoundary: z.string().regex(/^sha256:[a-f0-9]{64}$/),
-    latestThinkEventId: NonEmptyStringSchema,
-}).strict();
-
-const PendingActionBatchSchema = z.object({
-    batchId: NonEmptyStringSchema,
-    remaining: z.array(ToolCallActionSchema).min(1),
-}).strict();
-
-const PendingModelRepairSchema = z.object({
-    goalId: NonEmptyStringSchema,
-    runId: NonEmptyStringSchema,
-    stepOrdinal: z.number().int().positive(),
-    executionUnitId: NonEmptyStringSchema,
-    stage: z.enum(["decide", "think"]),
-    inputBoundary: z.string().regex(/^sha256:[a-f0-9]{64}$/),
-    attemptsStarted: z.number().int().min(0).max(3),
-    continuationsStarted: z.number().int().min(0).max(3).optional(),
-    latestFailureClass: z.enum(["non_advancing", "protocol"]).optional(),
-    latestAttemptEventId: NonEmptyStringSchema,
-    latestFeedbackEventId: NonEmptyStringSchema.optional(),
-    thinkRequestId: NonEmptyStringSchema.optional(),
-}).strict();
-
-const SteerInputSchema = z.discriminatedUnion("status", [
-    z.object({
-        messageId: NonEmptyStringSchema,
-        status: z.literal("pending"),
-        content: z.string().min(1).max(64_000),
-    }).strict(),
-    z.object({
-        messageId: NonEmptyStringSchema,
-        status: z.literal("applied"),
-        messageIndex: z.number().int().nonnegative(),
-    }).strict(),
-]);
-
-const RunInterruptionSchema = z.object({
-    requestId: NonEmptyStringSchema,
-    status: z.enum(["requested", "finished"]),
-    interruptedActions: z.array(ToolCallActionSchema).optional(),
-    outcomeUnknown: z.boolean().optional(),
-}).strict();
-
-const StopReasonSchema = z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("max_steps_exceeded") }).strict(),
-    z.object({
-        kind: z.literal("execution_error"),
-        code: z.enum([
-            "TOOL_NOT_AUTHORIZED",
-            "TOOL_NOT_FOUND",
-            "INVALID_TOOL_INPUT",
-            "INVALID_MEMORY_PATCH",
-            "INVALID_AGENT_DECISION",
-            "COMPLETION_REVIEW_INPUT_TOO_LARGE",
-            "MODEL_REQUEST_FAILED",
-            "TOOL_EXECUTION_ERROR",
-        ]),
-        message: NonEmptyStringSchema,
-    }).strict(),
-]);
-
-const AskUserOptionSchema = z.object({
-    id: NonEmptyStringSchema,
-    label: NonEmptyStringSchema,
-    description: NonEmptyStringSchema.optional(),
-}).strict();
-
-const AskUserQuestionSchema = z.object({
-    id: NonEmptyStringSchema,
-    header: NonEmptyStringSchema,
-    question: NonEmptyStringSchema,
-    options: z.array(AskUserOptionSchema).min(2).max(3),
-    multiSelect: z.boolean(),
-}).strict();
-
-const PendingInteractionAskUserSchema = z.object({
-    kind: z.literal("ask_user"),
-    requestId: NonEmptyStringSchema,
-    mode: z.enum(["plan", "execution"]),
-    questions: z.array(AskUserQuestionSchema).min(1).max(3),
-    routeRevision: z.object({
-        baseRevision: z.number().int().positive(),
-        candidate: z.object({
-            stages: z.array(z.object({
-                target: NonEmptyStringSchema,
-                acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
-            }).strict()).min(1),
-        }).strict(),
-        reason: NonEmptyStringSchema,
-        approvalRequest: NonEmptyStringSchema,
-        approvalOptionId: NonEmptyStringSchema,
-    }).strict().optional(),
-}).strict();
-
-const PendingInteractionTaskApprovalSchema = z.object({
-    kind: z.literal("task_approval"),
-    requestId: NonEmptyStringSchema,
-    proposal: GoalSnapshotTaskSchema,
-    planRouteCandidate: z.object({
-        stages: z.array(z.object({
-            target: NonEmptyStringSchema,
-            acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
-        }).strict()).min(1),
-    }).strict(),
-    approvalRequest: NonEmptyStringSchema,
-}).strict();
-
-const PendingInteractionSchema = z.discriminatedUnion("kind", [
-    PendingInteractionAskUserSchema,
-    PendingInteractionTaskApprovalSchema,
-]);
-
-const PreviousStageResultRefSchema = z.object({
-    stageId: NonEmptyStringSchema,
-    sequence: z.number().int().nonnegative(),
-}).strict();
-
-const StageRejectionSchema = z.object({
-    feedback: NonEmptyStringSchema,
-    rejectedAtSequence: z.number().int().nonnegative().optional(),
-}).strict();
-
-const RunStageSchema = z.object({
-    stageId: NonEmptyStringSchema,
-    revision: z.number().int().positive(),
-    status: z.enum(["executing", "accepted"]),
-    target: NonEmptyStringSchema,
-    acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
-    previousStageResultRef: PreviousStageResultRefSchema.optional(),
-    latestReviewRejection: StageRejectionSchema.optional(),
-    acceptedSequence: z.number().int().nonnegative().optional(),
-}).strict();
-
-const PlanRouteStageSchema = z.object({
-    stageId: NonEmptyStringSchema,
-    revision: z.number().int().positive(),
-    status: z.enum(["pending", "executing", "accepted"]),
-    target: NonEmptyStringSchema,
-    acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
-    acceptedSequence: z.number().int().nonnegative().optional(),
-}).strict();
-
-const PlanRouteSchema = z.object({
-    revision: z.number().int().positive(),
-    revisionReason: NonEmptyStringSchema.optional(),
-    nextStageIndex: z.number().int().nonnegative(),
-    nextStageOrdinal: z.number().int().positive(),
-    stages: z.array(PlanRouteStageSchema).min(1),
-}).strict();
-
-const WorkflowSchema = z.object({
-    phase: z.literal("executing"),
-}).strict();
-
-const ContextEpochSchema = z.object({
-    version: z.literal(1),
-    number: z.number().int().nonnegative(),
-    conversationStartIndex: z.number().int().nonnegative(),
-    openedAtSequence: z.number().int().nonnegative(),
-}).strict();
-
-const ModelSelectionSchema = z.object({
-    provider: NonEmptyStringSchema,
-    profileId: NonEmptyStringSchema.optional(),
-    modelId: NonEmptyStringSchema,
-    executionApi: z.enum(["openai-completions"]).optional(),
-    structuredOutputMode: z.enum(["strict", "prompt_only", "two_stage"]).optional(),
-    contextWindowTokens: z.number().int().positive().optional(),
-    maxOutputTokens: z.number().int().positive().optional(),
-    inputEstimator: z.discriminatedUnion("kind", [
-        z.object({ kind: z.literal("character-v1") }).strict(),
-        z.object({
-            kind: z.literal("token-encoding"),
-            encoding: z.enum(["cl100k_base", "o200k_base"]),
-        }).strict(),
-    ]),
-}).strict().superRefine((val, ctx) => {
-    if (val.executionApi !== undefined && val.provider !== "opencode-go") {
-        ctx.addIssue({
-            code: "custom",
-            message: "executionApi is only supported for opencode-go selections",
-            path: ["executionApi"],
-        });
-    }
-    if (val.executionApi !== undefined && (val.contextWindowTokens === undefined || val.maxOutputTokens === undefined)) {
-        ctx.addIssue({
-            code: "custom",
-            message: "executionApi selections require contextWindowTokens and maxOutputTokens",
-            path: ["executionApi"],
-        });
-    }
-    if (val.contextWindowTokens !== undefined && val.maxOutputTokens !== undefined) {
-        if (val.maxOutputTokens >= val.contextWindowTokens) {
-            ctx.addIssue({
-                code: "custom",
-                message: "maxOutputTokens must be strictly less than contextWindowTokens",
-                path: ["maxOutputTokens"],
-            });
-        }
-    }
-});
-
-const GoalPlanItemSchema = z.object({
-    id: NonEmptyStringSchema,
-    content: NonEmptyStringSchema,
-    position: z.number().int().nonnegative(),
-    status: z.enum(["pending", "in_progress", "completed", "cancelled"]),
-}).strict();
-
-const GoalPlanSchema = z.object({
-    revision: z.number().int().nonnegative(),
-    items: z.array(GoalPlanItemSchema),
-}).strict();
-
-const CompletedRunSchema = z.object({
-    runId: NonEmptyStringSchema,
-    status: z.enum(["completed", "failed", "cancelled"]),
-    stepCount: z.number().int().nonnegative(),
-    committedThroughSequence: z.number().int().nonnegative(),
-    messageRange: z.object({
-        start: z.number().int().nonnegative(),
-        end: z.number().int().nonnegative(),
-    }).strict(),
-    continuation: z.object({
-        messageId: NonEmptyStringSchema,
-        content: NonEmptyStringSchema,
-        nextRunId: NonEmptyStringSchema,
-    }).strict().optional(),
-}).strict();
-
-const SessionInputRecordSchema = z.object({
-    inputId: NonEmptyStringSchema,
-    kind: z.enum(["message", "steer", "interrupt", "respond", "resume", "queue_control"]),
-    digest: NonEmptyStringSchema.regex(/^sha256:[0-9a-f]{64}$/),
-    sequence: z.number().int().positive(),
-    status: z.enum(["pending", "applied", "cleared"]),
-    admittedAtRevision: z.number().int().nonnegative(),
-    targetRunId: NonEmptyStringSchema.optional(),
-    appliedRunId: NonEmptyStringSchema.optional(),
-    messageIndex: z.number().int().nonnegative().optional(),
-}).strict();
-
-const SessionMessageQueueSchema = z.object({
-    revision: z.number().int().nonnegative(),
-    items: z.array(z.object({
-        inputId: NonEmptyStringSchema,
-        content: NonEmptyStringSchema,
-        sequence: z.number().int().positive(),
-    }).strict()),
-    pause: z.object({
-        reason: z.enum(["run_failed", "user_interrupt"]),
-        runId: NonEmptyStringSchema,
-    }).strict().optional(),
-}).strict();
-
-const GoalSnapshotV1BaseSchema = z.object({
-    id: NonEmptyStringSchema,
-    metadata: z.object({ schemaVersion: z.literal(1) }).strict(),
-    definition: z.object({
-        intent: z.string(),
-        promptBundleVersion: z.literal(1),
-        memoryProtocol: z.object({
-            kind: z.literal("structured"),
-            version: z.literal(1),
-        }).strict(),
-        modelContextProtocol: z.object({
-            kind: z.literal("trajectory-layered"),
-            version: z.literal(1),
-        }).strict(),
-        contextRetrievalProtocol: z.object({
-            kind: z.literal("bm25-lite"),
-            version: z.literal(1),
-        }).strict(),
-        profile: GoalSnapshotProfileSchema,
-        executionPolicy: z.object({
-            maxSteps: z.number().int().nonnegative(),
-        }).strict(),
-    }).strict(),
-    state: z.object({
-        nextRunMode: z.literal("plan").optional(),
-        commitRevision: z.number().int().nonnegative().optional(),
-        inputLedger: z.array(SessionInputRecordSchema).optional(),
-        messageQueue: SessionMessageQueueSchema.optional(),
-        workflow: WorkflowSchema,
-        messages: z.array(GoalSnapshotMessageSchema),
-        run: z.object({
-            id: NonEmptyStringSchema,
-            mode: z.enum(["normal", "plan"]),
-            approvedTask: GoalSnapshotTaskSchema.optional(),
-            status: z.enum([
-                "created",
-                "running",
-                "waiting",
-                "completed",
-                "failed",
-                "cancelled",
-            ]),
-            stepCount: z.number().int().nonnegative(),
-            exposedToolIds: z.array(NonEmptyStringSchema).refine(
-                (ids) => new Set(ids).size === ids.length,
-                "Exposed tool IDs must be unique",
-            ),
-            committedThroughSequence: z.number().int().nonnegative(),
-            memoryRevision: z.object({
-                eventId: NonEmptyStringSchema,
-                sequence: z.number().int().positive(),
-            }).strict().optional(),
-            currentStage: RunStageSchema.optional(),
-            planRoute: PlanRouteSchema.optional(),
-            lastStep: StepRecordSchema.optional(),
-            pendingAction: PendingActionSchema.optional(),
-            pendingActionBatch: PendingActionBatchSchema.optional(),
-            pendingProgram: PendingProgramSchema.optional(),
-            pendingInteraction: PendingInteractionSchema.optional(),
-            pendingThink: PendingThinkSchema.optional(),
-            pendingModelRepair: PendingModelRepairSchema.optional(),
-            steerInputs: z.array(SteerInputSchema).optional(),
-            interruption: RunInterruptionSchema.optional(),
-            stopReason: StopReasonSchema.optional(),
-            contextEpoch: ContextEpochSchema,
-        }).strict(),
-        modelSelection: ModelSelectionSchema,
-        goalPlan: GoalPlanSchema.optional(),
-        completedRuns: z.array(CompletedRunSchema),
-    }).strict(),
-}).strict();
+interface SnapshotInvariantContext {
+    addIssue(issue: { readonly message: string; readonly path: readonly PropertyKey[] }): void;
+}
 
 function addInvariantIssue(
-    context: z.RefinementCtx,
+    context: SnapshotInvariantContext,
     message: string,
-    path: PropertyKey[] = [],
+    path: readonly PropertyKey[] = [],
 ): void {
-    context.addIssue({ code: "custom", message, path });
+    context.addIssue({ message, path });
 }
 
 /**
@@ -1661,8 +1393,8 @@ function snapshotMessageSourceKey(source: GoalSnapshotMessageSourceV1): string {
 }
 
 function validateSnapshotInvariants(
-    goal: z.infer<typeof GoalSnapshotV1BaseSchema>,
-    context: z.RefinementCtx,
+    goal: GoalSnapshotV1,
+    context: SnapshotInvariantContext,
 ): void {
     const { run } = goal.state;
     const pendingTaskApproval = run.pendingInteraction?.kind === "task_approval";
@@ -1938,7 +1670,7 @@ function validateSnapshotInvariants(
             || pendingProgram.action.toolId !== "execute_program"
             || !goal.definition.profile.toolIds.includes("execute_program")
             || typeof input !== "object" || input === null || Array.isArray(input)
-            || typeof input.code !== "string"
+            || typeof (input as { readonly code?: unknown }).code !== "string"
             || pendingInteraction !== undefined || pendingThink !== undefined
             || pendingModelRepair !== undefined
             || (pendingAction !== undefined
@@ -2111,10 +1843,169 @@ function validateSnapshotInvariants(
     }
 }
 
-/** 当前唯一支持的严格 Goal Snapshot Schema。 */
-export const GoalSnapshotV1Schema = GoalSnapshotV1BaseSchema.superRefine(
-    validateSnapshotInvariants,
-);
+function validateSnapshotFieldRefinements(
+    goal: GoalSnapshotV1,
+    context: SnapshotInvariantContext,
+): void {
+    const exposed = goal.state.run.exposedToolIds;
+    if (new Set(exposed).size !== exposed.length) {
+        addInvariantIssue(context, "Exposed tool IDs must be unique", ["state", "run", "exposedToolIds"]);
+    }
+
+    const result = goal.state.run.lastStep?.kind === "decision"
+        ? goal.state.run.lastStep.result
+        : undefined;
+
+    const filters = result?.kind === "context_lookup" ? result.filters : undefined;
+    if (filters?.sequenceRange !== undefined && filters.sequenceRange.to < filters.sequenceRange.from) {
+        addInvariantIssue(
+            context,
+            "sequenceRange must not be inverted",
+            ["state", "run", "lastStep", "result", "filters", "sequenceRange"],
+        );
+    }
+
+    if (result?.kind === "goal_plan_update") {
+        for (const [index, operation] of result.operations.entries()) {
+            if (operation.type !== "update") continue;
+            const path = ["state", "run", "lastStep", "result", "operations", index];
+            if (operation.content === undefined && operation.status === undefined) {
+                addInvariantIssue(context, "update operation must change content or status", [...path, "content"]);
+            }
+            if (operation.status === "completed"
+                && (operation.evidenceSequences === undefined || operation.evidenceSequences.length === 0)) {
+                addInvariantIssue(context, "completed Todo update must cite current Run evidence", [...path, "evidenceSequences"]);
+            }
+            if (operation.status !== "completed" && operation.evidenceSequences !== undefined) {
+                addInvariantIssue(context, "evidenceSequences is only valid when completing a Todo", [...path, "evidenceSequences"]);
+            }
+        }
+    }
+
+    validateMemoryPatches(goal, context);
+
+    const pending = goal.state.run.pendingAction;
+    if (pending !== undefined) {
+        if (pending.status !== "approved"
+            && (pending.approvalScope !== undefined || pending.grantId !== undefined)) {
+            addInvariantIssue(
+                context,
+                "unapproved Action cannot retain authorization",
+                ["state", "run", "pendingAction", "approvalScope"],
+            );
+        }
+        if (pending.status === "approved") {
+            const scope = pending.approvalScope ?? "action";
+            if ((scope === "action") !== (pending.grantId === undefined)) {
+                addInvariantIssue(
+                    context,
+                    "approval scope and Grant identity are inconsistent",
+                    ["state", "run", "pendingAction", "grantId"],
+                );
+            }
+        }
+        if (pending.status === "awaiting_approval" && pending.attemptsStarted !== undefined) {
+            addInvariantIssue(
+                context,
+                "unapproved Action cannot have Tool attempts",
+                ["state", "run", "pendingAction", "attemptsStarted"],
+            );
+        }
+    }
+
+    const selection = goal.state.modelSelection;
+    if (selection.executionApi !== undefined && selection.provider !== "opencode-go") {
+        addInvariantIssue(
+            context,
+            "executionApi is only supported for opencode-go selections",
+            ["state", "modelSelection", "executionApi"],
+        );
+    }
+    if (selection.executionApi !== undefined
+        && (selection.contextWindowTokens === undefined || selection.maxOutputTokens === undefined)) {
+        addInvariantIssue(
+            context,
+            "executionApi selections require contextWindowTokens and maxOutputTokens",
+            ["state", "modelSelection", "executionApi"],
+        );
+    }
+    if (selection.contextWindowTokens !== undefined
+        && selection.maxOutputTokens !== undefined
+        && selection.maxOutputTokens >= selection.contextWindowTokens) {
+        addInvariantIssue(
+            context,
+            "maxOutputTokens must be strictly less than contextWindowTokens",
+            ["state", "modelSelection", "maxOutputTokens"],
+        );
+    }
+}
+
+function validateMemoryPatches(
+    goal: GoalSnapshotV1,
+    context: SnapshotInvariantContext,
+): void {
+    const result = goal.state.run.lastStep?.kind === "decision"
+        ? goal.state.run.lastStep.result
+        : undefined;
+    if (result === undefined || !("memoryPatch" in result) || result.memoryPatch === undefined) {
+        return;
+    }
+
+    for (const [index, operation] of result.memoryPatch.operations.entries()) {
+        if (operation.type === "update_hypothesis"
+            && operation.hypothesis.statement === undefined
+            && operation.hypothesis.status === undefined) {
+            addInvariantIssue(
+                context,
+                "hypothesis update must change statement or status",
+                ["state", "run", "lastStep", "result", "memoryPatch", "operations", index],
+            );
+        }
+        if (operation.type === "update_blocker"
+            && operation.blocker.description === undefined
+            && operation.blocker.status === undefined) {
+            addInvariantIssue(
+                context,
+                "blocker update must change description or status",
+                ["state", "run", "lastStep", "result", "memoryPatch", "operations", index],
+            );
+        }
+    }
+}
+
+/**
+ * 校验已通过生成结构绑定的 Snapshot 字段约束与跨字段不变量。
+ *
+ * @param goal - 与输入隔离的当前 Snapshot 数据。
+ * @throws GoalSnapshotProtocolError 当非空、数值范围、数组长度、摘要格式或跨字段规则失败时。
+ *
+ * @example
+ * ```ts
+ * assertGoalSnapshotSemantics(snapshot);
+ * ```
+ */
+export function assertGoalSnapshotSemantics(goal: GoalSnapshotV1): void {
+    const issues: SnapshotIssue[] = [...collectSnapshotRuleIssues(goal)];
+    const context: SnapshotInvariantContext = {
+        addIssue(issue) {
+            issues.push({ message: issue.message, path: issue.path });
+        },
+    };
+    validateSnapshotInvariants(goal, context);
+    validateSnapshotFieldRefinements(goal, context);
+
+    const first = issues[0];
+    if (first !== undefined) {
+        throw new GoalSnapshotProtocolError(
+            `Invalid Goal snapshot: ${first.message} at ${formatIssuePath(first.path)}`,
+            { cause: issues },
+        );
+    }
+}
+
+function formatIssuePath(path: readonly PropertyKey[]): string {
+    return path.length === 0 ? "/" : `/${path.map(String).join("/")}`;
+}
 
 export const INVALID_GOAL_SNAPSHOT_CODE = "INVALID_GOAL_SNAPSHOT" as const;
 
